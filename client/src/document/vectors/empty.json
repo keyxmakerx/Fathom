@@ -1,8 +1,0 @@
-{
-  "name": "empty",
-  "description": "A graph with nothing in it: no nodes, no edges, no batches, no history, no provenance. This is the whole document, not a placeholder for one.",
-  "node_count": 0,
-  "edge_count": 0,
-  "kinds": [],
-  "edges": []
-}

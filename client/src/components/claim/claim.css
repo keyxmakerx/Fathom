@@ -1,7 +1,0 @@
-/* The recovery key screen's two side-by-side actions -- Download, Print --
-   above the "I have saved this" toggle. */
-.claim__row {
-  display: flex;
-  gap: var(--s2);
-  margin: 0 0 var(--s4) 0;
-}
