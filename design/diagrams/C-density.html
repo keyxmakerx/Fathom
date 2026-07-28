@@ -1,0 +1,2516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'none'; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Fathom · diagram study C — density</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* =========================================================================
+   C-density.html — diagram study C, second round.
+
+   POSTURE: the dense matrix. A small computed node-link figure coupled to a
+   dense register, locked in both directions. The figure carries SHAPE; the
+   register carries the SET. 52 §3.6.1 already says the honest answer above
+   the element ceiling is the table — this builds that answer instead of
+   apologising for it.
+
+   Declares no hex, no px font-size and no duration of its own (51 §14).
+   Geometry tokens only, in the --dg-* group 56 §5.3 already opens.
+   ========================================================================= */
+
+:root {
+  /* --- diagram geometry. 56 §5.3's group, extended. ---------------------- */
+  --dg-grid:            4px;   /* --s1. Every position is a multiple.        */
+  --dg-stroke:          1px;   /* every edge, band, bracket, stub, tick      */
+  --dg-stroke-struct:   2px;   /* NEW. Device and ExternalPeer boundary only */
+  --dg-focus:           2px;
+  --dg-rail-gap:        8px;   /* was 3px in 56 §5.3 — see thesis note 6     */
+  --dg-conduit-gap:     8px;   /* was 5px in 56 §5.3 — see thesis note 6     */
+}
+
+html, body { background: var(--surface-2); }
+
+.sheet {
+  max-width: var(--sheet);
+  margin: 0 auto;
+  background: var(--page);
+  border-left: var(--rule-hair) solid var(--hairline);
+  border-right: var(--rule-hair) solid var(--hairline);
+  padding: 0 var(--s6) var(--s8);
+}
+
+/* --- masthead ----------------------------------------------------------- */
+.mast-rule { height: var(--rule-mast); background: var(--ink); }
+.rule-1    { height: var(--rule-hair); background: var(--ink); }
+.rule-hair { height: var(--rule-hair); background: var(--hairline); }
+
+.mast { display: flex; justify-content: space-between; align-items: baseline;
+        gap: var(--s5); padding-top: var(--s3); flex-wrap: wrap; }
+.mast .kicker { font-size: var(--t-mast); text-transform: uppercase;
+                letter-spacing: var(--track-mast); font-weight: 700; }
+.tabs { display: flex; gap: var(--s3); flex-wrap: wrap; justify-content: flex-end; }
+.tab  { font-size: var(--t-micro); color: var(--muted); }
+
+h1 { font-size: var(--t-title); line-height: var(--lh-title); margin: var(--s2) 0 0;
+     text-transform: uppercase; letter-spacing: var(--track-head); font-weight: 700; }
+.sub   { color: var(--muted); margin: var(--s1) 0 var(--s3); font-size: var(--t-small); }
+.imper { font-size: var(--t-small); text-transform: uppercase;
+         letter-spacing: var(--track-label); font-weight: 700; margin: var(--s3) 0; }
+.fixture-note { font-size: var(--t-small); color: var(--muted); padding: var(--s2) 0;
+                max-width: var(--measure); }
+.fixture-note strong { color: var(--ink); }
+
+/* --- section heads ------------------------------------------------------ */
+.head { font-size: var(--t-head); text-transform: uppercase;
+        letter-spacing: var(--track-head); font-weight: 700;
+        border-left: var(--rule-accent) solid var(--ink);
+        padding-left: var(--s2); margin: var(--s6) 0 var(--s3); }
+.head-row { display: flex; align-items: baseline; justify-content: space-between;
+            gap: var(--s4); margin: var(--s6) 0 var(--s3); }
+.head-row .head { margin: 0; }
+
+/* --- control band ------------------------------------------------------- */
+.controls { display: flex; flex-wrap: wrap; gap: var(--s5) var(--s6);
+            padding: var(--s3) 0; align-items: flex-start; }
+.cgroup { display: flex; flex-direction: column; gap: var(--s1); }
+.clabel { font-size: var(--t-micro); color: var(--muted);
+          text-transform: uppercase; letter-spacing: var(--track-label); }
+.crow   { display: flex; }
+.crow > * + * { margin-left: -1px; }
+button.seg {
+  font-family: var(--mono); font-size: var(--t-micro);
+  background: var(--page); color: var(--ink);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s2); cursor: pointer;
+  min-height: var(--row-min); text-align: center;
+}
+button.seg:hover { background: var(--surface); }
+button.seg[aria-pressed="true"] { background: var(--ink); color: var(--page);
+                                  border-color: var(--ink); position: relative; }
+
+/* --- the view band ------------------------------------------------------ */
+.viewband { display: flex; justify-content: space-between; gap: var(--s4);
+            font-size: var(--t-micro); color: var(--muted);
+            padding: var(--s2) 0; flex-wrap: wrap; }
+.viewband .state { font-family: var(--mono); color: var(--ink); }
+.viewband .vtabs { display: flex; gap: var(--s3); flex-wrap: wrap; }
+
+/* --- the work area ------------------------------------------------------ */
+.work { display: grid; grid-template-columns: minmax(0,1fr) 336px; gap: var(--s6);
+        align-items: start; }
+@media (max-width: 900px) { .work { grid-template-columns: minmax(0,1fr); } }
+
+.figure-pane { min-width: 0; }
+.figure-scroll {
+  background: var(--surface-2);
+  border: var(--rule-hair) solid var(--hairline);
+  height: 900px; overflow: auto; position: relative;
+}
+svg.scene { display: block; }
+
+/* --- the diagram itself. No colour. Neutrals, two weights, three fills. -- */
+svg.scene text { font-family: var(--mono); fill: var(--ink); }
+
+.dg-canvas      { fill: var(--surface-2); }
+.dg-region      { fill: var(--surface); stroke: var(--ink);
+                  stroke-width: var(--dg-stroke); }
+.dg-box         { fill: var(--page);  stroke: var(--ink);
+                  stroke-width: var(--dg-stroke-struct); }
+.dg-box.stale   { stroke: var(--muted); }
+.dg-chassis     { stroke: var(--muted); stroke-width: var(--dg-stroke); }
+.dg-peer        { fill: var(--page);  stroke: var(--ink); fill-opacity: 1;
+                  stroke-width: var(--dg-stroke-struct); }
+.dg-peer.stale  { stroke: var(--muted); }
+
+.dg-rail        { stroke: var(--ink);   stroke-width: var(--dg-stroke); fill: none; }
+.dg-rail.muted  { stroke: var(--muted); }
+/* --rule-style-proposed, expressed as an SVG dasharray. Reserved, product-wide. */
+.dg-rail.proposed  { stroke: var(--ink); stroke-dasharray: 6 4; }
+.dg-rail.collapsed { stroke-width: var(--dg-stroke-struct); }
+.dg-band        { stroke: var(--muted); stroke-width: var(--dg-stroke); fill: none; }
+.dg-band.ink    { stroke: var(--ink); }
+.dg-junction    { fill: var(--ink); }
+.dg-plate       { fill: var(--page); stroke: var(--hairline);
+                  stroke-width: var(--dg-stroke); }
+.dg-underline   { stroke: var(--ink); stroke-width: var(--dg-stroke); }
+.dg-unverified  { stroke: var(--muted); stroke-width: var(--dg-stroke); }
+
+.dg-label { font-size: var(--t-mono); }
+.dg-micro { font-size: var(--t-micro); fill: var(--muted); }
+.dg-micro.ink { fill: var(--ink); }
+/* M38: the kind prefix is lowercase, the name is as stored. No blanket caps. */
+.dg-bandlabel { font-size: var(--t-micro); fill: var(--muted);
+                letter-spacing: var(--track-head); }
+.dg-mark  { font-size: var(--t-micro); fill: var(--muted); }
+
+.dg-module { stroke: var(--hairline); stroke-width: var(--dg-stroke); }
+
+.dg-focus { fill: none; stroke: var(--focus-colour); stroke-width: var(--dg-focus); }
+
+/* selection: ▸ on the label, --surface ground, everything else at 40% */
+.dg-el.sel .dg-box { fill: var(--surface); }
+svg.scene[data-hi] .dg-el:not(.hi) { opacity: 0.4; }
+
+/* --- the key ------------------------------------------------------------ */
+.key { margin-top: var(--s4); }
+.key-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+            gap: 0; border-top: var(--rule-hair) solid var(--hairline); }
+.key-item { border-bottom: var(--rule-hair) solid var(--hairline);
+            padding: var(--s2) var(--s3) var(--s2) 0; }
+.key-item svg { display: block; }
+.key-item .kname { font-size: var(--t-micro); color: var(--ink);
+                   font-family: var(--mono); }
+.key-item .kchan { font-size: var(--t-micro); color: var(--muted); }
+
+/* --- the inspector column ----------------------------------------------- */
+.inspector { border-left: var(--rule-hair) solid var(--hairline);
+             padding-left: var(--s4); min-height: 900px; }
+.insp-kind { font-size: var(--t-micro); color: var(--muted);
+             text-transform: uppercase; letter-spacing: var(--track-label); }
+.insp-name { font-family: var(--mono); font-size: var(--t-mono); font-weight: 700;
+             margin: var(--s1) 0 var(--s2); word-break: break-all; }
+.insp-rows { border-top: var(--rule-hair) solid var(--hairline); margin: var(--s2) 0; }
+.insp-row  { display: grid; grid-template-columns: 96px minmax(0,1fr);
+             gap: var(--s2); padding: var(--s1) 0;
+             border-bottom: var(--rule-hair) solid var(--hairline);
+             font-size: var(--t-small); }
+.insp-row .k { color: var(--muted); font-size: var(--t-micro);
+               text-transform: uppercase; letter-spacing: var(--track-label); }
+.insp-row .v { font-family: var(--mono); font-size: var(--t-micro);
+               word-break: break-word; }
+.insp-empty { color: var(--muted); font-size: var(--t-small); }
+
+details.disc { border-bottom: var(--rule-hair) solid var(--hairline); }
+details.disc > summary { list-style: none; cursor: pointer; padding: var(--s2) 0;
+    font-size: var(--t-micro); text-transform: uppercase;
+    letter-spacing: var(--track-label); color: var(--ink); }
+details.disc > summary::-webkit-details-marker { display: none; }
+details.disc > summary::before { content: "▸ "; color: var(--muted); }
+details.disc[open] > summary::before { content: "▾ "; }
+details.disc .body { padding: 0 0 var(--s3); font-size: var(--t-small); }
+details.disc .body p { margin: 0 0 var(--s2); }
+
+.cmd { font-family: var(--mono); font-size: var(--t-micro);
+       background: var(--surface); padding: var(--s1) var(--s2);
+       border-left: var(--rule-accent) solid var(--muted);
+       margin: 0 0 var(--s1); white-space: pre-wrap; word-break: break-all; }
+.cmd.ReadOnly      { border-left-color: var(--safe); }
+.cmd.ChangesConfig { border-left-color: var(--caution); }
+.cmd.Disruptive    { border-left-color: var(--danger); }
+.risk { font-size: var(--t-micro); text-transform: uppercase;
+        letter-spacing: var(--track-legend); }
+.risk.ReadOnly      { color: var(--safe); }
+.risk.ChangesConfig { color: var(--caution); }
+.risk.Disruptive    { color: var(--danger); }
+
+/* --- the chip (disclosure mechanism B) ---------------------------------- */
+.chip {
+  position: absolute; z-index: var(--z-egress);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);   /* 1px --ink. No shadow. §11 */
+  box-shadow: var(--shadow);
+  padding: var(--s1) var(--s2);
+  font-family: var(--mono); font-size: var(--t-micro);
+  max-width: 288px; pointer-events: auto;      /* 1.4.13 (b) hoverable      */
+}
+.chip[hidden] { display: none; }
+.chip .cl { display: block; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; }
+.chip .cl.dim { color: var(--muted); }
+.chip .cl.last { color: var(--muted); border-top: var(--rule-hair) solid var(--hairline);
+                 margin-top: var(--s1); padding-top: var(--s1); }
+
+/* --- the register ------------------------------------------------------- */
+.reg-wrap { border-top: var(--rule-hair) solid var(--ink); max-height: 480px;
+            overflow: auto; }
+table.reg { border-collapse: collapse; width: 100%; font-size: var(--t-micro); }
+table.reg caption { text-align: left; }
+table.reg th, table.reg td {
+  text-align: left; padding: var(--s1) var(--s2) var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  white-space: nowrap; font-weight: 400; vertical-align: top;
+}
+table.reg thead th {
+  position: sticky; top: 0; background: var(--page);
+  font-size: var(--t-micro); color: var(--muted); text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  border-bottom: var(--rule-hair) solid var(--ink); cursor: pointer;
+  user-select: none;
+}
+table.reg thead th[aria-sort="ascending"]::after  { content: " ▴"; }
+table.reg thead th[aria-sort="descending"]::after { content: " ▾"; }
+table.reg tbody tr:nth-child(even) { background: var(--surface); }
+table.reg tbody tr.hi { background: var(--surface); }
+table.reg tbody tr.sel th, table.reg tbody tr.sel td { font-weight: 700; }
+table.reg tbody tr:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
+                                   outline-offset: var(--focus-offset-inset); }
+table.reg th[scope="row"] { font-family: var(--mono); color: var(--ink); }
+table.reg td.m { font-family: var(--mono); }
+table.reg td.mut { color: var(--muted); }
+.reg-filter { display: flex; gap: var(--s4); align-items: flex-end;
+              flex-wrap: wrap; padding-bottom: var(--s2); }
+.reg-filter input {
+  font-family: var(--mono); font-size: var(--t-micro);
+  border: var(--rule-hair) solid var(--hairline); background: var(--page);
+  padding: var(--s1) var(--s2); min-height: var(--row-min); width: 192px;
+}
+.reg-count { font-size: var(--t-micro); color: var(--muted); }
+
+/* --- notes and thesis --------------------------------------------------- */
+.note { border-left: var(--rule-accent) solid var(--ink);
+        background: var(--surface); padding: var(--s2) var(--s3);
+        margin: var(--s3) 0; font-size: var(--t-small); }
+.note strong { text-transform: uppercase; letter-spacing: var(--track-label); }
+
+.thesis { column-count: 2; column-gap: var(--s7); }
+@media (max-width: 860px) { .thesis { column-count: 1; } }
+.thesis h3 { font-size: var(--t-head); text-transform: uppercase;
+             letter-spacing: var(--track-head); margin: 0 0 var(--s2);
+             break-after: avoid; }
+.thesis h4 { font-size: var(--t-small); text-transform: uppercase;
+             letter-spacing: var(--track-label); margin: var(--s4) 0 var(--s1);
+             break-after: avoid; }
+.thesis p, .thesis li { font-size: var(--t-small); line-height: var(--lh-step);
+                        margin: 0 0 var(--s2); }
+.thesis ul { margin: 0 0 var(--s3); padding-left: var(--s4); }
+.thesis .block { break-inside: avoid; }
+.verdict { border-left: var(--rule-accent) solid var(--ink);
+           padding-left: var(--s3); margin: var(--s3) 0; }
+
+footer { display: flex; justify-content: space-between; font-size: var(--t-micro);
+         color: var(--muted); padding-top: var(--s3); margin-top: var(--s6);
+         border-top: var(--rule-hair) solid var(--ink); }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="mast-rule"></div>
+
+  <div class="mast">
+    <span class="kicker">Study C · Density · Matrix</span>
+    <span class="tabs">
+      <span class="tab">computed layout</span>
+      <span class="tab">eleven edge kinds</span>
+      <span class="tab">two disclosures</span>
+      <span class="tab">no colour in the picture</span>
+    </span>
+  </div>
+
+  <h1>The figure is small on purpose</h1>
+  <p class="sub">A computed node-link figure coupled to a dense register, locked in both
+     directions. The picture carries shape; the register carries the set.
+     <span class="m">52 §3.6.1</span> already says the honest answer above the element
+     ceiling is the table — this builds that answer rather than apologising for it.</p>
+  <p class="imper">Fathom never connects to anything. Nothing here is polled, probed or
+     monitored — every fact below is parsed, entered or derived.</p>
+
+  <div class="rule-1"></div>
+
+  <p class="fixture-note"><strong>Fixture.</strong> The estate is a <strong>fixture</strong>,
+     derived from <span class="m">.context/field-card-srx-ipsec.txt</span> — the card's own
+     worked topology (an SRX chassis cluster terminating IKE on
+     <span class="m">reth0.0</span>, route-based tunnels bound to
+     <span class="m">st0</span>, zones <span class="m">TRUST</span>,
+     <span class="m">VPN</span> and <span class="m">WAN</span>) extended with a LAN
+     underlay so the layout engine has something to lay out. No device was contacted. The
+     command text and every explainer in the inspector are real entries from
+     <span class="m">corpus/commands/junos-srx-ipsec.yaml</span>, reproduced verbatim.</p>
+
+  <div class="rule-hair"></div>
+
+  <section class="controls" aria-label="View controls">
+    <div class="cgroup">
+      <span class="clabel" id="l-spokes">Estate · spokes</span>
+      <div class="crow" role="group" aria-labelledby="l-spokes" id="c-spokes"></div>
+    </div>
+    <div class="cgroup">
+      <span class="clabel" id="l-layers">Layers</span>
+      <div class="crow" role="group" aria-labelledby="l-layers" id="c-layers"></div>
+    </div>
+    <div class="cgroup">
+      <span class="clabel" id="l-zoom">Zoom</span>
+      <div class="crow" role="group" aria-labelledby="l-zoom" id="c-zoom"></div>
+    </div>
+    <div class="cgroup">
+      <span class="clabel" id="l-disc">Disclosure</span>
+      <div class="crow" role="group" aria-labelledby="l-disc" id="c-disc"></div>
+    </div>
+    <div class="cgroup">
+      <span class="clabel" id="l-opt">Drawing</span>
+      <div class="crow" role="group" aria-labelledby="l-opt" id="c-opt"></div>
+    </div>
+  </section>
+
+  <div class="viewband" id="viewband">
+    <span class="state" id="vb-state">diagram</span>
+    <span class="vtabs" id="vb-tabs"></span>
+  </div>
+
+  <div class="rule-hair"></div>
+
+  <div class="work">
+    <div class="figure-pane">
+      <div class="figure-scroll" id="figure-scroll">
+        <svg class="scene" id="scene" aria-hidden="true" focusable="false"></svg>
+      </div>
+
+      <div class="key">
+        <div class="head-row">
+          <h2 class="head">The edge vocabulary</h2>
+          <span class="tab">drawn by the renderer, not by hand</span>
+        </div>
+        <p class="sub">Eleven kinds, no colour, no dash. Dash and dot are spent
+           product-wide — <span class="m">--rule-style-proposed</span> is AI-proposed and
+           <span class="m">--rule-style-pending</span> is pending
+           (<span class="m">51 §9</span>) — so the tunnel is a capped conduit and the
+           inferred edge is a tone plus an open square. The last specimen is the reserved
+           treatment, shown so nobody reallocates it.</p>
+        <div class="key-grid" id="key-grid"></div>
+      </div>
+    </div>
+
+    <aside class="inspector" id="inspector" aria-label="Inspector">
+      <div class="insp-kind">Inspector</div>
+      <p class="insp-empty">Focus a row in the register, or click the figure.</p>
+    </aside>
+  </div>
+
+  <div class="head-row">
+    <h2 class="head">The register</h2>
+    <span class="tab">this is the Outline · 56 §7</span>
+  </div>
+  <p class="sub">One row per drawn element, and one row per element the figure
+     <em>aggregated away</em>. This table is the keyboard surface: focus never enters the
+     <span class="m">&lt;svg&gt;</span> (<span class="m">56 §6.2</span>), the register holds
+     it and the picture mirrors it. Sort by any column. Hovering or focusing a row lights
+     its closure in the figure; clicking a figure element scrolls its row into view.</p>
+
+  <div class="reg-filter">
+    <div class="cgroup">
+      <label class="clabel" for="reg-q">Filter</label>
+      <input id="reg-q" type="text" autocomplete="off" spellcheck="false"
+             placeholder="name, port, label">
+    </div>
+    <span class="reg-count" id="reg-count"></span>
+  </div>
+  <div class="reg-wrap">
+    <table class="reg" id="reg">
+      <caption class="vh">Register — every node and every edge in the scene, with the
+        drawing each one gets, its layer, its provenance age and its findings.</caption>
+      <thead><tr id="reg-head"></tr></thead>
+      <tbody id="reg-body"></tbody>
+    </table>
+  </div>
+
+  <div class="head-row">
+    <h2 class="head">Thesis</h2>
+    <span class="tab">what changed, and what it cost</span>
+  </div>
+
+  <div class="thesis">
+    <div class="block">
+      <h3>In one sentence</h3>
+      <p><strong>Make the picture small and exact, give the lines a real vocabulary, and
+         put everything the picture cannot hold into a dense register locked to it — a
+         monochrome technical drawing looks handsome when it is drafted, and the five
+         rejected concepts were not drafted, they were typed.</strong></p>
+    </div>
+
+    <div class="block">
+      <h4>1. Layout is computed. All of it.</h4>
+      <p>There is not one hard-coded node coordinate in this file. A rank pass, a width
+         pass, a port-lattice pass, an orthogonal router with a route table, an
+         interval-graph channel allocator with a centring pass, a crossing pass and a
+         label placer run on every change. Move the estate control and watch every number
+         move. The five rejected concepts had five arrays of literal coordinates, which is
+         why none of them had rhythm — nothing made them land on anything.</p>
+    </div>
+
+    <div class="block">
+      <h4>2. Two stroke weights, exactly 2:1</h4>
+      <p>Device and external-peer boundaries at 2px; every edge, band, bracket, stub,
+         tick, chassis rule and arrowhead at 1px. That is ISO 128's governing proportion
+         and it is the single largest visual change from the rejected round, where a
+         device boundary, a link and a zone bracket were literally the same mark.
+         1px against 1.5px reads as an antialiasing artefact; 1px against 2px reads as
+         two weights.</p>
+    </div>
+
+    <div class="block">
+      <h4>3. Three neutral fills, and fill means what a thing <em>is</em></h4>
+      <p>Canvas <span class="m">--surface-2</span>, region wash
+         <span class="m">--surface</span>, device box <span class="m">--page</span>. The
+         rejected concepts spent the one completely unspent channel — fill — on
+         <em>hover</em>, and gave structure nothing. Fill here never encodes a pointer
+         state. Selection is <span class="m">▸</span>, a
+         <span class="m">--surface</span> ground and 40% opacity on everything outside the
+         closure, which is what <span class="m">56 §6.1</span> already specified.</p>
+    </div>
+
+    <div class="block">
+      <h4>4. Nothing touches anything</h4>
+      <p>Every edge leaves an 8px perpendicular stub outside the box, on a 4px lattice
+         along the box edge. No edge lands flush on a wall and no edge crosses a device
+         box — verified, 0 violations at every estate size. Zabbix's centre-to-centre line
+         is the whole mechanical reason its maps look like 2004, and four of the five
+         rejected concepts drew exactly that line. (The research spec also asked for a 4px
+         gap between the stub end and the rail; I refused it, and the reason is in
+         <em>What I sacrificed</em>.)</p>
+    </div>
+
+    <div class="block">
+      <h4>5. Sides are semantic</h4>
+      <p>Uplinks leave the top, downlinks the bottom, management the left, tunnels the
+         right — regardless of chassis slot. It costs no channel and it is a bigger
+         legibility win than any stroke change: you can read the direction of the estate
+         without reading a single label.</p>
+    </div>
+
+    <div class="block">
+      <h4>6. The device box became a rack elevation</h4>
+      <p>This is the change that fixed the picture, and it was not on anyone's list. A hub
+         terminating twelve tunnels drew a 400px-tall empty rectangle with twelve stubs
+         hanging off one edge — the box was a container with nothing in it. It is now a
+         header row, two chassis sub-rows, and one identical 32px <strong>unit row</strong>
+         per <span class="m">st0</span> unit, with that unit's conduit leaving from its own
+         row. The peer opposite it sits on the same centre line, so every conduit is a
+         <em>zero-bend straight run</em>: aesthetic rule 12's best case is not a cheap
+         route, it is no route at all. Repeated identical modules on a common baseline is
+         where rack elevations, ISO part drawings and PCB silkscreen get their looks, and
+         it is the posture — the dense matrix — applied to the node itself.</p>
+    </div>
+
+    <div class="block">
+      <h4>7. Two numbers I changed, and why</h4>
+      <p><span class="m">56 §5.3</span> sets <span class="m">--dg-rail-gap: 3px</span> and
+         <span class="m">--dg-conduit-gap: 5px</span> in <em>scene</em> units while every
+         stroke carries <span class="m">non-scaling-stroke</span> and stays 1 CSS px. At
+         zoom 0.5 that is 1.5px of white inside a conduit; at the 0.35 LOD floor it is
+         1.75px total, and both the LAG twin-rail and the tunnel degenerate into the
+         single undifferentiated line the owner complained about — at exactly the zoom
+         where you are looking at a whole site. Both are <strong>8px</strong> here, which
+         puts each rail on the 4px lattice at ±4. Making them equal costs nothing, because
+         <span class="m">G4</span>'s distinction was never the gap — it is <em>2 separate</em>
+         versus <em>2 capped</em>, and the caps carry it. Below zoom 0.35 the conduit
+         collapses to a single capped 2px rail and the view band <em>says</em>
+         <span class="m">conduit collapsed</span> rather than letting it merge silently.</p>
+    </div>
+
+    <div class="block">
+      <h4>8. Crossings break, junctions get a square, and break count is a constraint</h4>
+      <p>A four-way meeting with nothing drawn at it means CONNECTED in every schematic
+         convention there is, which is the opposite of what a crossing means. Every genuine
+         crossing is a 4px gap in the lower-priority rail; every genuine T is a 4px filled
+         square.</p>
+      <p><strong>Two deviations, both deliberate.</strong> The break is a gap in the rail's
+         own path data, not a <span class="m">--page</span> knockout drawn over it: a
+         knockout dies under <span class="m">forced-colors</span>, and it cannot be painted
+         in one layer without also erasing whatever is on top of it. A gap costs zero
+         elements and survives export, print and high contrast. And break count is capped:
+         a rail that already carries three breaks stops taking them and the <em>other</em>
+         rail breaks instead. A rail broken a dozen times reads as a <em>dashed</em> rail,
+         and dash is reserved — so this is a constraint, not a cost term. The same reasoning
+         moved the two band-anchored edges (the static route, the zone-pair policy set) onto
+         a perimeter lane: driving them through the conduit fan would have been shorter and
+         would have broken them twelve times each.</p>
+    </div>
+
+    <div class="block">
+      <h4>9. Labels are decided in groups, never one at a time</h4>
+      <p>Half a row labelled and half silently dropped is the exact texture that reads as
+         generated. Three group rules, all announced in the view band:</p>
+      <ul>
+        <li><strong>A whole side is labelled or a whole side is folded.</strong> The
+            decision comes from the measured stub pitch against the widest label on that
+            side. A side that will not fit on one row is staggered over two, which is PCB
+            silkscreen's own answer.</li>
+        <li><strong>Identical labels are folded.</strong> Six rails carrying
+            <span class="m">vlan 10</span> in one corridor do not need the word six times;
+            a drawing says it once. Same for a repeated port name across a rank.</li>
+        <li><strong>The label carries what differs.</strong> Every tunnel's selector begins
+            <span class="m">10.1.0.0/16</span>, so the picture prints only the remote half
+            and the register prints both.</li>
+      </ul>
+      <p>At 12 spokes that is <strong>1 label hidden and 18 folded</strong>, against 18
+         hidden and 19 moved before the rules existed.</p>
+    </div>
+
+    <div class="block">
+      <h4>10. The corridor is sized by what it has to carry</h4>
+      <p><span class="m">redraw()</span> runs the layout <em>twice</em>: pass one measures
+         the channel count in every corridor from the interval-graph colouring, pass two
+         places the ranks with corridors tall enough for those channels plus the two
+         staggered port-label rows at each end. A fixed corridor is what makes a generated
+         picture cramped in one place and empty in another. Two passes cost about 1 ms.</p>
+    </div>
+
+    <div class="block">
+      <h4>What I sacrificed</h4>
+      <ul>
+        <li><strong>Estate width.</strong> The figure is deliberately capped. The hub's
+            unit column holds <strong>12</strong> tunnels before the box passes the 480px
+            legibility cap — a number computed from the 32px module, not chosen — and above
+            it the remainder aggregates into one external-peer box labelled
+            <span class="m">+29 PEERS</span>, announced as
+            <span class="m">endpoints aggregated</span>. Every aggregated tunnel still has
+            an exact row in the register. Turn <em>aggregate</em> off and the figure draws
+            all 40: it stays correct, on the lattice and legible, and stops being small —
+            the hub becomes 1,372px tall and the scene 2,124px. That is the trade this
+            study exists to make visible.</li>
+        <li><strong>§4.2's chassis sub-rows for the reth.</strong> The members leave the
+            <em>top</em> edge because the top edge is the uplink side, and the sub-rows are
+            horizontal, so two members cannot sit at two different sub-row heights on that
+            edge. The bracket at the device end and the redundancy group in the label are
+            both drawn; which chassis owns which member is in the register and the
+            inspector. Named, not hidden.</li>
+        <li><strong>The 4px gap between a stub end and its rail.</strong> Refused. With a
+            gap meaning "these two rails cross without connecting" everywhere else in this
+            picture, a gap at a terminal would say the cable is not plugged in. The stub is
+            8px of stand-off from the box wall — nothing lands flush — and the conductor is
+            continuous from there. A policy-set edge <em>does</em> stand off by 8px with no
+            stub at all, because it is not a cable, and that contrast is the point.</li>
+        <li><strong>The zone VPN bracket.</strong> Degraded to <span class="m">56 §4.4</span>'s
+            own tier 3 — a 4px tick on each member's row and the name once — because a
+            vertical bracket there would have crossed all twelve conduits, and a stroke
+            crossed twelve times says nothing reliable about what it encloses. Tier 3 then
+            forces §4.4's other rule: the policy-set edge runs to the device that owns the
+            zone and the label carries both zone names,
+            <span class="m">TRUST → VPN · 4 · deny</span>. Announced as
+            <span class="m">security · 1 zone shown as ticks</span>.</li>
+        <li><strong>Node names.</strong> Widths quantise to 64/96/128/160/192 and names
+            end-truncate with an ellipsis. A column of identical boxes reads as drawn; a
+            ragged one reads as generated. Boxes also widen to hold their own ports and
+            their own age line, so width is a computed consequence, not a free variable.</li>
+        <li><strong>Hatch.</strong> Deferred. The three tonal fills may well be enough, and
+            <span class="m">51 §4.1 C2</span> already spends hatch twice at 135°.</li>
+      </ul>
+    </div>
+
+    <div class="block">
+      <h4>Measured, in Chromium, at DPR 1</h4>
+      <ul>
+        <li><strong>Zero console errors. Zero off-file requests.</strong> The CSP declares
+            <span class="m">connect-src 'none'</span> and
+            <span class="m">form-action 'none'</span>; the only request the page makes is
+            <span class="m">../tokens.css</span> over <span class="m">file://</span>.</li>
+        <li><strong>4 / 12 / 40 spokes:</strong> 13/22/25 nodes, 20/30/36 drawn edges,
+            135/213/222 live SVG elements, layout 0.7/0.8/1.4 ms and render 0.5/1.3/0.8 ms
+            (median of five). Element ceiling is 2,000.</li>
+        <li><strong>40 spokes, aggregation off:</strong> 53 nodes, 64 edges, 475 elements,
+            2.3 ms layout — a 1,472 × 2,124 scene. It survives; it stops being small.</li>
+        <li><strong>No edge overlaps any node box:</strong> 0 violations at every size.
+            Every stub is exactly 8px. Every node position, node size and route vertex is a
+            multiple of 4: <strong>0 off-lattice values.</strong></li>
+        <li><strong>Bijection:</strong> 52 drawn elements, 52 register rows, 0 drawn
+            elements without a row (<span class="m">56 §7</span>).</li>
+        <li><strong>Keyboard:</strong> all 52 rows reachable by arrow key from one tab stop;
+            all 22 drawn nodes show the 2px mirrored ring in the picture; 69 of 70 frames
+            carry a 2px outline on the focused row.</li>
+        <li><strong>The chip meets 1.4.13 on all three counts</strong> — shown by
+            <span class="m">:focus</span> as well as hover, dismissed by Escape without
+            moving the pointer, survives the pointer entering it, still there after 1,800 ms.
+            <span class="m">box-shadow: none</span>, 1px <span class="m">--ink</span> border,
+            and the source contains no <span class="m">setTimeout</span> at all.</li>
+        <li><strong>The half-pixel question, answered.</strong> With <em>crisp</em> on, a 1px
+            rail's geometric edge lands at fraction 0.500 of a device pixel, so the stroke
+            covers exactly one device row. With it off it lands at 0.000 and the stroke
+            straddles two rows at partial alpha — which is what makes a whole picture of
+            hairlines look washed out and is very hard to name. Toggle it and look. Two-line
+            fix, and it was worth the ten minutes.</li>
+      </ul>
+    </div>
+
+    <div class="block">
+      <h4>On colour: I did not reopen it, and I do not think it is the problem</h4>
+      <p>Six of Bertin's seven retinal variables survive monochrome; only hue is lost. The
+         rejected concepts left three of the remaining six completely unused — value (they
+         filled <span class="m">--page</span> boxes on a <span class="m">--page</span>
+         ground), size (one box height, one stroke weight) and texture. Spending
+         <span class="m">ADR-0011</span>'s three risk colours here would buy one channel
+         they already had five substitutes for, and would cost the only unambiguous safety
+         signal the product has — on the most-circulated artifact the product makes. Look
+         at the inspector: the risk colours appear there, on command lines, where they
+         mean what a command does to a live box. That is the whole argument, drawn.</p>
+    </div>
+
+    <div class="block verdict">
+      <h4>Which disclosure I would ship</h4>
+      <p><strong>Ship the register column as the mechanism. Ship the static
+         <span class="m">▸</span> mark before either. Ship the chip as an optional preview,
+         bound by a content rule.</strong></p>
+      <p>Both are built here — flip <em>Disclosure</em> and feel the difference. The chip
+         satisfies WCAG 1.4.13 in full: <em>dismissible</em> with Escape without moving the
+         pointer, <em>hoverable</em> (no gap, a grace corridor, pointer-events on),
+         <em>persistent</em> with no timer at all, and it is triggered by
+         <span class="m">:focus</span> as well as <span class="m">:hover</span>, so it is
+         not hover-only. It carries no shadow, because <span class="m">51 §11</span>
+         forbids elevation — a 1px <span class="m">--ink</span> rule is enough, which is
+         also what containerlab's label chips and NetBox's halo independently concluded.</p>
+      <p>And it is still the wrong mechanism. Turn it on and read what it says: usually
+         one line, <span class="m">↵ inspector</span>. That is the content rule working —
+         <em>the chip may contain only what the picture already tried to draw and could
+         not</em>. Under that rule it is a label that would not fit, and the moment you
+         let it hold anything else you have built an inspector that is unreachable by
+         keyboard, invisible to the SVG export, absent from the print, and occluding
+         exactly the neighbours the user is comparing against, at the density where they
+         needed the picture most.</p>
+      <p>The owner's real question is not "can I hover" — it is <em>"is there more
+         here?"</em>, and a hover cannot answer that, because you must already be pointing
+         at the thing to find out. The <span class="m">▸</span> at a node's bottom-right
+         answers it statically, at every zoom, in print, on touch, in the exported SVG and
+         for a screen-reader user, and it costs no new glyph and no new interaction model:
+         <span class="m">▸</span> already means <em>there is more here</em> in the config
+         gutter, the finder, the view rail and the inspector. Two of the rejected concepts
+         spent it on "selected", which collides with all four.</p>
+    </div>
+
+    <div class="block">
+      <h4>What did not work</h4>
+      <p id="honest-note">(generated at render time)</p>
+      <ul>
+        <li><strong>The reth's chassis rows.</strong> I could not draw §4.2's picture and
+            keep semantic sides at the same time, and I chose semantic sides. If the owner
+            would rather see the two members leave two different chassis <em>rows</em>, the
+            reth has to move to the left or right edge and the WAN uplink stops being the
+            top edge — which costs more than it buys.</li>
+        <li><strong>Crossing density in the access fan.</strong> Phases 3–6 of
+            <span class="m">56 §3.3</span> (cycle break, dummies, crossing reduction,
+            Brandes-Köpf) are not built — §3.4 scopes them as later work — so the only
+            crossing reduction here is the barycentric stub ordering. At six access
+            switches a few rails still take four or five breaks. The break budget keeps
+            that from becoming a dash, but a real crossing-minimisation sweep would remove
+            most of them outright.</li>
+        <li><strong>Band strokes still pass under edges without a break.</strong> Bands are
+            not in the crossing set; the tone step (<span class="m">--muted</span> against
+            <span class="m">--ink</span>) is doing that work alone. It reads, but it is a
+            weaker signal than a break and it is the reason the zone VPN bracket had to
+            degrade to ticks rather than be drawn across the conduit fan.</li>
+        <li><strong>The perimeter lanes are a compromise.</strong> Routing the static route
+            and the policy set around the outside keeps them unbroken, but it makes two
+            long rails that carry no information along most of their length. A layout that
+            put the routing-instance box and the zone brackets nearer their targets would
+            not need them.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <span>Fathom · diagram study C — density</span>
+    <span>no network · no device · no credential</span>
+  </footer>
+</div>
+
+<div class="chip" id="chip" hidden role="note" aria-live="off"></div>
+
+<script>
+"use strict";
+/* =========================================================================
+   0. GEOMETRY CONSTANTS. Every one of these is a multiple of --dg-grid (4px)
+      or a named fraction of the visible module (32px).
+   ========================================================================= */
+const GRID          = 4;
+const STUB          = 8;    /* --s2. Port stub, outside the box, always      */
+const STUB_GAP      = 4;    /* --s1. Stub end to routed rail                 */
+const RAIL_GAP      = 8;    /* --dg-rail-gap. 8 so both rails land on the 4px
+                               lattice at +/-4 and stay >= 3 CSS px at zoom 0.35 */
+const CONDUIT_GAP   = 8;    /* --dg-conduit-gap. The caps are the encoding (G4),
+                               not the gap, so the two gaps may be equal      */
+const COL_GAP       = 64;   /* --s8. Aesthetic rule 7                        */
+const RANK_CHANNEL  = 80;   /* the routing corridor between two ranks        */
+const CHAN_PITCH    = 16;   /* corridor channel separation. 16 so each rail's
+                               own label has a clear line of its own          */
+const MODULE        = 32;   /* the visible module, aesthetic rule 23         */
+const CONDUIT_PITCH = 32;   /* = the module. Makes every conduit zero-bend.  */
+const HUB_BASE      = 92;   /* header 36 + age 16 + two chassis sub-rows 40  */
+const HUB_MAX_H     = 480;  /* the legibility cap that forces aggregation    */
+const NODE_H        = 36;
+const AGE_H         = 16;   /* --lh-micro                                    */
+const CHASSIS_H     = 20;   /* --lh-step                                     */
+const PEER_H        = 24;   /* §4.6 "half-height box with an open right edge" */
+const PORT_PITCH    = 24;   /* the MINIMUM; the real pitch spreads to the edge */
+const MARGIN        = 32;
+const ADV_MONO      = 7.526;   /* 12.5px x 0.6021em, 56 §2.4                 */
+const ADV_MICRO     = 6.021;   /* 10px   x 0.6021em                          */
+const XING_GAP      = 4;
+const JUNCTION      = 4;
+const BRACKET_RET   = 8;
+const ARROW_LEN     = 6;
+
+const snap  = v => Math.round(v / GRID) * GRID;
+/* 56 §8.1 — the G1 tone step is 2.38:1 in dark and fails, so the second label
+   line stops being optional there. Same rule as under forced-colors. */
+const isDarkish = () => document.documentElement.dataset.theme === 'dark' ||
+  (document.documentElement.dataset.theme !== 'light' &&
+   window.matchMedia('(prefers-color-scheme: dark)').matches);
+const hp    = v => v + 0.5;    /* half-pixel offset for 1px strokes          */
+const esc   = s => String(s).replace(/[&<>"]/g, c =>
+                  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function nodeWidth(chars) {
+  const raw = 2 * 12 + chars * ADV_MONO;                 /* 56 §5.6          */
+  return Math.max(64, Math.min(192, Math.ceil(raw / MODULE) * MODULE));
+}
+function fitMono(name, w, pad, adv) {
+  const max = Math.floor((w - 2 * (pad === undefined ? 12 : pad)) / (adv || ADV_MONO));
+  if (name.length <= max) return { text: name, cut: false };
+  return { text: name.slice(0, Math.max(1, max - 1)) + '…', cut: true };
+}
+
+/* =========================================================================
+   1. CORPUS. Verbatim entries from corpus/commands/junos-srx-ipsec.yaml.
+      Nothing here was written by this file.
+   ========================================================================= */
+const CORPUS = {
+"junos-srx/ike.gateway.external-interface.set": {
+  cmd:"set security ike gateway GW-B external-interface reth0.0", risk:"ChangesConfig",
+  terse:"The WAN unit IKE leaves by — never st0.",
+  explained:"`external-interface` is the WAN unit the IKE packets leave by, not `st0`. Wrong on a multi-homed box means Phase 1 sources from an address the peer has never heard of. The zone that owns this unit must also permit inbound IKE.",
+  blast:"Changes which unit the IKE packets leave by, and therefore which source address the peer sees. Wrong on a multi-homed box, Phase 1 sources from an address the peer has never heard of and times out.",
+  rules:["zone.host-inbound.ike-missing","ike.gateway.external-interface-wrong"] },
+"junos-srx/ike.gateway.address.set": {
+  cmd:"set security ike gateway GW-B address 203.0.113.10", risk:"ChangesConfig",
+  terse:"The peer's public address. Use dynamic when it has none.",
+  explained:"`address` is for a peer with a fixed public address. A peer whose address changes takes `dynamic hostname <fqdn>` instead, and under IKEv1 that combination also forces aggressive mode.",
+  blast:"", rules:[] },
+"junos-srx/ike.gateway.version.set": {
+  cmd:"set security ike gateway GW-B version v2-only", risk:"Disruptive",
+  terse:"v2-only. One 4-message exchange, identity always protected.",
+  explained:"IKEv2 is one four-message exchange with identity always protected, many traffic selectors instead of one proxy-ID, and liveness built in rather than bolted on. `mode` is silently ignored under `v2-only`.",
+  blast:"", rules:[] },
+"junos-srx/ike.gateway.dpd.set": {
+  cmd:"set security ike gateway GW-B dead-peer-detection always-send interval 10 threshold 3",
+  risk:"Disruptive",
+  terse:"Dead after interval x threshold. Junos defaults to 10 x 5.",
+  explained:"`optimized` probes only when we are sending and hearing nothing back and is the default. `probe-idle-tunnel` probes when idle too. `always-send` probes every interval regardless, which is what a backup you need to trust requires.",
+  blast:"", rules:[] },
+"junos-srx/ipsec.vpn.bind-interface.set": {
+  cmd:"set security ipsec vpn VPN-B bind-interface st0.0", risk:"Disruptive",
+  terse:"Route-based needs st0. Policy-based has none at all.",
+  explained:"A route-based tunnel is selected by the routing table and can carry routing protocols and many selectors. A policy-based tunnel is selected by the policy, uses `then permit tunnel ipsec-vpn NAME`, and has no `st0` at all. Use route-based for anything new.",
+  blast:"", rules:[] },
+"junos-srx/ipsec.vpn.traffic-selector.set": {
+  cmd:"set security ipsec vpn VPN-B traffic-selector TS1 local-ip 10.1.0.0/16 remote-ip 10.2.0.0/16",
+  risk:"ChangesConfig",
+  terse:"Without one, the SRX proposes 0.0.0.0/0 to 0.0.0.0/0.",
+  explained:"With no `traffic-selector` configured the SRX proposes any-to-any. Peers that build one SA per subnet pair reject that outright. The selectors must mirror: your local is their remote and your remote is your peer's local, exactly.",
+  blast:"", rules:[] },
+"junos-srx/ipsec.policy.pfs.set": {
+  cmd:"set security ipsec policy IPSEC-POL perfect-forward-secrecy keys group14",
+  risk:"Disruptive",
+  terse:"Fresh DH per Phase 2. Identical both ends, not merely compatible.",
+  explained:"Without PFS the Phase 2 keys derive from Phase 1 key material, so one compromised IKE SA secret unlocks every data key under it. With PFS each Phase 2 negotiation runs its own Diffie-Hellman exchange and the key is independent of Phase 1 and of every previous Phase 2 key.",
+  blast:"", rules:["ipsec.pfs.absent"] },
+"junos-srx/interface.st0.address.set": {
+  cmd:"set interfaces st0 unit 0 family inet address 10.255.0.1/30", risk:"Disruptive",
+  terse:"Piece one of five. A /30 per tunnel is the usual convention.",
+  explained:"A route-based tunnel needs a unit to route at. The address is used for the tunnel endpoints themselves — routing protocol adjacencies, and pinging the far end of the tunnel rather than through it. Numbering is conventional, not required by the crypto.",
+  blast:"", rules:[] },
+"junos-srx/zone.st0.bind.set": {
+  cmd:"set security zones security-zone VPN interfaces st0.0", risk:"Disruptive",
+  terse:"Piece two of five. No zone means no policy pair, so nothing passes.",
+  explained:"A logical unit in no zone cannot be the source or destination of any security policy, so nothing is permitted through it. The SAs come up, the interface reads up, and the byte counters do not move.",
+  blast:"", rules:[] },
+"junos-srx/zone.host-inbound.ike.set": {
+  cmd:"set security zones security-zone WAN interfaces reth0.0 host-inbound-traffic system-services ike",
+  risk:"ChangesConfig",
+  terse:"Piece three of five, and the only one that fails loudly-ish.",
+  explained:"The zone that owns the WAN unit must permit inbound IKE, or the box drops the peer's IKE before the IKE process ever sees it. Phase 1 then times out with nothing useful in the log, because nothing local ever happened. Check this before touching crypto.",
+  blast:"", rules:["zone.host-inbound.ike-missing"] },
+"junos-srx/route.static.st0.set": {
+  cmd:"set routing-options static route 10.2.0.0/16 next-hop st0.0", risk:"Disruptive",
+  terse:"Piece four of five. A selector is not a route.",
+  explained:"Configuring a traffic selector tells the peer which prefixes this tunnel carries. It does not put anything in the routing table. A route-based tunnel is selected by the routing table, so without this the packet is never handed to `st0` in the first place.",
+  blast:"", rules:[] },
+"junos-srx/policy.zone-pair.permit.set": {
+  cmd:"set security policies from-zone TRUST to-zone VPN policy TO-B then permit",
+  risk:"ChangesConfig",
+  terse:"Route-based ends here. Policy-based adds tunnel ipsec-vpn NAME.",
+  explained:"On a route-based tunnel the policy is an ordinary permit and the tunnel is selected by the routing table. On a policy-based tunnel the same statement carries `tunnel ipsec-vpn NAME` and the policy itself selects the tunnel, with no `st0` involved at all.",
+  blast:"", rules:[] },
+"junos-srx/chassis.cluster.status.show": {
+  cmd:"show chassis cluster status", risk:"ReadOnly",
+  terse:"Run this before any SA reading on a pair. It names the owner.",
+  explained:"Every SA-reading command on a cluster answers for the node it runs on. This is the command that tells you which node that needs to be: the member showing primary for the redundancy group that owns the reth holds the tunnel's SAs, and it is the only node whose empty SA output would mean anything.",
+  blast:"", rules:[] },
+"junos-srx/interface.wan.errors.show": {
+  cmd:"show interfaces reth0.0 extensive | match -i error", risk:"ReadOnly",
+  terse:"The underlay. A dirty link produces every crypto symptom at once.",
+  explained:"A physical fault on the WAN unit produces ESP integrity failures, replay counters, lost DPD probes and irregular flaps — four symptoms that each point somewhere else in the protocol and all have one cause underneath them.",
+  blast:"", rules:[] },
+"junos-srx/ipsec.sa.show-vpn-detail": {
+  cmd:"show security ipsec security-associations vpn-name {{vpn}} detail", risk:"ReadOnly",
+  terse:"P2 state for one VPN. Want Installed.",
+  explained:"Scoping by `vpn-name` is the difference between reading one tunnel and scrolling past forty. `detail` adds the SPIs, the lifetimes and the bind-interface — and bind-interface is the only link back to `st0`, because the logs never mention `st0` at all.",
+  blast:"", rules:[] },
+"junos-srx/interface.st0.terse": {
+  cmd:"show interfaces st0.0 terse", risk:"ReadOnly",
+  terse:"Step 5. Up here proves an SA exists, not that traffic moves.",
+  explained:"A secure tunnel unit has no wire, so its link state tracks the SA rather than anything physical. Up with `vpn-monitor` configured means the probe is succeeding; up without it means only that an SA exists.",
+  blast:"", rules:[] },
+"junos-srx/ike.sa.show": {
+  cmd:"show security ike security-associations", risk:"ReadOnly",
+  terse:"Step 2 of the ladder. One row per peer. Want UP.",
+  explained:"This answers exactly one question: did the two peers authenticate and build the outer channel. It says nothing about whether any data tunnel exists inside it, which is a separate command and a separate failure mode.",
+  blast:"", rules:[] }
+};
+const mdish = s => esc(s).replace(/`([^`]+)`/g, '<span class="m">$1</span>');
+
+/* =========================================================================
+   2. THE FIXTURE. Derived from the field card. Structure only — no geometry.
+   ========================================================================= */
+const AGE = {
+  fresh:      { line: null,                     tone: 'ink'   },
+  ageing:     { line: 'parsed 4 months ago',    tone: 'ink'   },
+  stale:      { line: 'parsed 11 months ago',   tone: 'muted' },
+  unverified: { line: 'last parsed 2025-03-11', tone: 'muted' },
+  hand:       { line: null,                     tone: 'ink'   }
+};
+const pad2 = i => String(i).padStart(2, '0');
+
+function fixture(spokes) {
+  const nodes = [], edges = [], bands = [];
+  const accessN = Math.max(2, Math.min(6, 2 + Math.floor(spokes / 8)));
+
+  const dev = (id, name, role, rank, order, o) => {
+    nodes.push(Object.assign({
+      id, name, kind: 'device', role, rank, order,
+      chassis: null, age: 'fresh', layers: null, findings: []
+    }, o || {}));
+  };
+
+  /* rank 0 — WAN transit. The reth members land here. */
+  dev('sw-wan-a', 'SW-WAN-A', 'transit', 0, 0, { age: 'fresh' });
+  dev('sw-wan-b', 'SW-WAN-B', 'transit', 0, 1, { age: 'fresh' });
+
+  /* rank 1 — the hub. The card's own box: a chassis cluster terminating IKE
+     on reth0.0 and binding route-based tunnels to st0. */
+  dev('srx-a', 'SRX-A', 'edge', 1, 0, {
+    chassis: ['node0', 'node1'], age: 'stale',
+    findings: ['high  zone.host-inbound.ike-missing', 'high  ipsec.pfs.absent'],
+    corpus: ['junos-srx/chassis.cluster.status.show',
+             'junos-srx/ike.gateway.external-interface.set',
+             'junos-srx/ike.sa.show']
+  });
+
+  /* rank 2 — core */
+  dev('sw-core-a', 'SW-CORE-A', 'core', 2, 0, { age: 'ageing' });
+  dev('sw-core-b', 'SW-CORE-B', 'core', 2, 1, { age: 'fresh' });
+
+  /* rank 3 — distribution */
+  dev('sw-dist-a', 'SW-DIST-A', 'dist', 3, 0, { age: 'fresh' });
+  dev('sw-dist-b', 'SW-DIST-B', 'dist', 3, 1, { age: 'unverified' });
+
+  /* rank 4 — access */
+  for (let i = 0; i < accessN; i++) {
+    dev('sw-acc-' + i, 'SW-ACC-' + pad2(i + 1), 'access', 4, i,
+        { age: (i % 3 === 2) ? 'ageing' : 'fresh' });
+  }
+
+  /* the spokes: one ExternalPeer + one Tunnel each */
+  for (let i = 0; i < spokes; i++) {
+    nodes.push({
+      id: 'peer-' + i, name: 'PEER-' + pad2(i + 1), kind: 'peer', role: 'external',
+      rank: -1, order: i, age: 'hand', findings: [],
+      addr: '203.0.113.' + (10 + i),
+      corpus: ['junos-srx/ike.gateway.address.set', 'junos-srx/ike.gateway.version.set']
+    });
+  }
+
+  /* ---- edges ---------------------------------------------------------- */
+  edges.push({
+    id: 'e-reth0', kind: 'reth', layers: ['physical'], label: 'reth0 · RG1',
+    a: { node: 'srx-a', side: 'top' },
+    ports: ['ge-0/0/0', 'ge-5/0/0'],
+    targets: [{ node: 'sw-wan-a', side: 'bottom', port: 'ge-0/0/1' },
+              { node: 'sw-wan-b', side: 'bottom', port: 'ge-0/0/1' }],
+    corpus: ['junos-srx/ike.gateway.external-interface.set',
+             'junos-srx/zone.host-inbound.ike.set',
+             'junos-srx/interface.wan.errors.show'],
+    note: 'Two ports on two chassis, only one of which forwards. Bracketed at the ' +
+          'device end only, because the far side does not know it is a reth.'
+  });
+
+  edges.push({
+    id: 'e-ae0', kind: 'lag', layers: ['physical', 'l2'], label: 'ae0 · 2 members',
+    a: { node: 'sw-core-a', side: 'right', port: 'xe-0/0/0' },
+    b: { node: 'sw-core-b', side: 'left',  port: 'xe-0/0/0' },
+    note: 'Brackets at both ends, because a LAG aggregates on both sides and all ' +
+          'members forward. That single asymmetry is what tells it from a reth.'
+  });
+
+  ['sw-core-a', 'sw-core-b'].forEach((c, ci) => {
+    edges.push({
+      id: 'e-srx-' + c, kind: 'link', layers: ['physical'],
+      a: { node: 'srx-a', side: 'bottom', port: 'ge-0/0/' + (2 + ci) },
+      b: { node: c,       side: 'top',    port: 'xe-0/0/4' }
+    });
+  });
+  ['sw-core-a', 'sw-core-b'].forEach((c, ci) => {
+    ['sw-dist-a', 'sw-dist-b'].forEach((d, di) => {
+      edges.push({
+        id: 'e-' + c + '-' + d, kind: 'link', layers: ['physical'],
+        a: { node: c, side: 'bottom', port: 'xe-0/0/' + (2 + di) },
+        b: { node: d, side: 'top',    port: 'xe-0/0/' + ci }
+      });
+    });
+  });
+
+  for (let i = 0; i < accessN; i++) {
+    const acc = 'sw-acc-' + i;
+    edges.push({
+      id: 'e-da-' + i, kind: (i === 0 ? 'trunkAsym' : 'trunk'),
+      layers: ['physical', 'l2'],
+      label: (i === 0 ? 'vlan 10, 20, 30' : 'vlan 10, 20, 30'),
+      taggedEnd: 'a',
+      a: { node: 'sw-dist-a', side: 'bottom', port: 'ge-0/0/' + i },
+      b: { node: acc,         side: 'top',    port: 'ge-0/0/47' }
+    });
+    edges.push({
+      id: 'e-db-' + i, kind: 'access', layers: ['physical', 'l2'], label: 'vlan 10',
+      a: { node: 'sw-dist-b', side: 'bottom', port: 'ge-0/0/' + i },
+      b: { node: acc,         side: 'top',    port: 'ge-0/0/48' }
+    });
+  }
+
+  for (let i = 0; i < spokes; i++) {
+    edges.push({
+      id: 'e-tun-' + i, kind: 'conduit', layers: ['overlay'],
+      label: '↔ 10.' + (2 + i) + '.0.0/16',
+      selector: '10.1.0.0/16 ↔ 10.' + (2 + i) + '.0.0/16',
+      a: { node: 'srx-a',    side: 'right', port: 'st0.' + i },
+      b: { node: 'peer-' + i, side: 'left', port: 'VPN-' + pad2(i + 1) },
+      corpus: ['junos-srx/ipsec.vpn.bind-interface.set',
+               'junos-srx/ipsec.vpn.traffic-selector.set',
+               'junos-srx/interface.st0.address.set',
+               'junos-srx/ipsec.policy.pfs.set',
+               'junos-srx/ipsec.sa.show-vpn-detail'],
+      note: 'A capped conduit, not a dashed line. Dash is spent: --rule-style-proposed ' +
+            'means AI-proposed and --rule-style-pending means pending, product-wide.'
+    });
+  }
+
+  edges.push({
+    id: 'e-route', kind: 'route', layers: ['l3'], label: '10.2.0.0/16',
+    a: { band: 'b-ri', side: 'right' },
+    b: { node: 'srx-a', side: 'right', port: 'st0.0', useExistingPort: true },
+    corpus: ['junos-srx/route.static.st0.set'],
+    note: 'A selector is not a route. The arrowhead is two line segments in the same ' +
+          'path — <marker> is not in the closed tag set.'
+  });
+
+  edges.push({
+    id: 'e-policy', kind: 'policy', layers: ['security'],
+    label: 'TRUST → VPN · 4 · deny',
+    a: { band: 'b-trust', side: 'right' },
+    b: { node: 'srx-a', side: 'bottom', port: '' },
+    corpus: ['junos-srx/policy.zone-pair.permit.set', 'junos-srx/zone.st0.bind.set'],
+    note: 'Terminals are bracket returns, not port stubs, so a policy edge is visibly ' +
+          'not a cable with no legend needed. The ordered list of 400 rules lives here, ' +
+          'in the inspector, and the picture never tries to draw one.'
+  });
+
+  edges.push({
+    id: 'e-inferred', kind: 'inferred', layers: ['l3'], label: 'resolves via',
+    a: { node: 'sw-acc-0',   side: 'top',    port: 'irb.10' },
+    b: { node: 'sw-dist-a',  side: 'bottom', port: 'irb.10' },
+    inferredEnd: 'b',
+    note: 'Tone plus an open square at the end the tool guessed — never a dash and ' +
+          'never a dot. Concept 05 shipped a dotted inference edge, which is ' +
+          '--rule-style-pending.'
+  });
+
+  edges.push({
+    id: 'e-proposed', kind: 'proposed', layers: ['physical'], label: 'proposed',
+    a: { node: 'sw-dist-b',            side: 'bottom', port: 'ge-0/0/23' },
+    b: { node: 'sw-acc-' + (accessN-1), side: 'top',   port: 'ge-0/0/46' },
+    note: 'The reserved treatment, drawn once so nobody reallocates it. Dashed means a ' +
+          'model wrote these pixels, everywhere in the product.'
+  });
+
+  /* ---- bands ---------------------------------------------------------- */
+  bands.push({ id: 'b-site',  kind: 'region', layers: ['physical','l2','l3','security','overlay'],
+               label: 'site SITE-A', ranks: [0, 4] });
+  bands.push({ id: 'b-wan',   kind: 'zone',   layers: ['security'],
+               label: 'zone WAN',   anchor: 'reth-stubs' });
+  bands.push({ id: 'b-vpn',   kind: 'zone',   layers: ['security'],
+               label: 'zone VPN',   anchor: 'st0-stubs' });
+  bands.push({ id: 'b-trust', kind: 'zone',   layers: ['security'],
+               label: 'zone TRUST', anchor: 'rank:2' });
+  bands.push({ id: 'b-vlan',  kind: 'vlan',   layers: ['l2'],
+               label: 'vlan 10',    anchor: 'rank:4' });
+  bands.push({ id: 'b-ri',    kind: 'ri',     layers: ['l3'],
+               label: 'ri CUST-A',  anchor: 'rank:3' });
+
+  return { nodes, edges, bands, accessN, spokes };
+}
+
+/* =========================================================================
+   3. LAYOUT. Phases 1, 2, 7, 8 of 56 §3.3 plus a grid placement, per §3.4's
+      own build-order recommendation. Nothing below reads a literal position.
+   ========================================================================= */
+function layout(model, view, hints) {
+  const t0 = performance.now();
+  const stats = { hidden: 0, moved: 0, folded: 0, aggregated: 0, crossings: 0,
+                  tierThree: 0, elements: 0 };
+
+  /* --- phase 1: project by layer mask --------------------------------- */
+  const inLayer = o => !o.layers || o.layers.some(l => view.layers[l]);
+  const byId = new Map();
+  const nodes = model.nodes.slice();
+  nodes.forEach(n => byId.set(n.id, n));
+
+  /* conduit budget: how many st0 stubs fit on the hub's right edge before
+     the box exceeds the legibility cap. Computed, not chosen. */
+  const capacity = Math.floor((HUB_MAX_H - HUB_BASE) / CONDUIT_PITCH);
+  const conduits = model.edges.filter(e => e.kind === 'conduit');
+  let drawnConduits = conduits, aggregate = null;
+  if (view.aggregate && conduits.length > capacity) {
+    drawnConduits = conduits.slice(0, capacity - 1);
+    const rest = conduits.length - drawnConduits.length;
+    stats.aggregated = rest;
+    aggregate = {
+      id: 'peer-agg', name: '+' + rest + ' PEERS', kind: 'peer', role: 'external',
+      rank: -1, order: capacity - 1, age: 'hand', findings: [], aggregateOf: rest,
+      addr: rest + ' peers · ' + rest + ' tunnels'
+    };
+    nodes.push(aggregate);
+    byId.set(aggregate.id, aggregate);
+  }
+  const aggEdge = aggregate ? {
+    id: 'e-tun-agg', kind: 'conduit', layers: ['overlay'], aggregateOf: stats.aggregated,
+    label: stats.aggregated + ' tunnels',
+    a: { node: 'srx-a', side: 'right', port: 'st0.' + drawnConduits.length + ' +' + stats.aggregated },
+    b: { node: 'peer-agg', side: 'left', port: '' },
+    note: 'One drawn conduit standing for ' + stats.aggregated + ' tunnels. Every one ' +
+          'of them has an exact row in the register.'
+  } : null;
+
+  const activeConduitIds = new Set(drawnConduits.map(e => e.id));
+  const edges = model.edges.filter(e =>
+      inLayer(e) && (e.kind !== 'conduit' || activeConduitIds.has(e.id)));
+  if (aggEdge && inLayer(aggEdge)) edges.push(aggEdge);
+
+  const peersDrawn = new Set();
+  edges.forEach(e => { if (e.kind === 'conduit') peersDrawn.add(e.b.node); });
+
+  const drawnNodes = nodes.filter(n => n.kind !== 'peer' || peersDrawn.has(n.id));
+
+  /* --- phase 2: rank (semantic; the table is data) --------------------- */
+  const ranks = new Map();
+  drawnNodes.filter(n => n.rank >= 0).forEach(n => {
+    if (!ranks.has(n.rank)) ranks.set(n.rank, []);
+    ranks.get(n.rank).push(n);
+  });
+  const rankKeys = [...ranks.keys()].sort((a, b) => a - b);
+  rankKeys.forEach(r => ranks.get(r).sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : 1)));
+
+  /* --- port demand, counted before anything is sized ------------------- */
+  /* A box is as wide as its ports need it to be. Five sources force the same
+     rule (KLC S4.1, mxGraph's jetty snap, libavoid's shapeBufferDistance) and
+     it is why a rack elevation reads: repeated identical modules, one pitch. */
+  const demand = new Map();
+  const bump = (id, side, name) => {
+    if (!demand.has(id)) demand.set(id, { top: 0, bottom: 0, left: 0, right: 0, maxLbl: 0 });
+    const d = demand.get(id); d[side]++;
+    d.maxLbl = Math.max(d.maxLbl, (name || '').length * ADV_MICRO);
+  };
+  edges.forEach(e => {
+    if (e.kind === 'reth') {
+      e.targets.forEach((t, i) => { bump(e.a.node, 'top', e.ports[i]); bump(t.node, t.side, t.port); });
+      return;
+    }
+    if (e.a.node && !e.a.useExistingPort) bump(e.a.node, e.a.side, e.a.port);
+    if (e.b && e.b.node && !e.b.useExistingPort) bump(e.b.node, e.b.side, e.b.port);
+  });
+
+  /* --- widths and heights, computed ------------------------------------ */
+  const hub = byId.get('srx-a');
+  const nConduits = edges.filter(e => e.kind === 'conduit').length;
+
+  drawnNodes.forEach(n => {
+    const d = demand.get(n.id) || { top: 0, bottom: 0, left: 0, right: 0 };
+    const horiz = Math.max(d.top, d.bottom);
+    const portW = horiz > 1 ? (horiz - 1) * PORT_PITCH + 2 * STUB : 0;
+    const showAge = AGE[n.age].line && (view.zoom >= 0.6 || isDarkish());
+    const ageW = showAge ? AGE[n.age].line.length * ADV_MICRO + 24 : 0;
+    n.w = Math.max(nodeWidth(n.name.length),
+                   Math.min(192, Math.ceil(portW / MODULE) * MODULE),
+                   Math.min(192, Math.ceil(ageW / MODULE) * MODULE));
+    n.showAge = !!showAge;
+    if (n.kind === 'peer') { n.h = PEER_H; n.unitRows = 0; return; }
+    n.headH = NODE_H + (showAge ? AGE_H : 0);
+    n.chassisH = n.chassis ? n.chassis.length * CHASSIS_H : 0;
+    /* A device with more than two units on its WAN side is drawn as a rack
+       elevation: header, chassis sub-rows, then one identical UNIT ROW per
+       unit, and the unit's edge leaves from that row. The device box stops
+       being an empty rectangle and starts being a list of what is in it —
+       which is the whole posture, applied to the node. */
+    n.unitRows = (n === hub && d.right > 2) ? d.right : 0;
+    n.unitTop = n.headH + n.chassisH;
+    n.h = snap(n.unitTop + n.unitRows * CONDUIT_PITCH);
+  });
+
+  /* --- phase 4: grid placement ---------------------------------------- */
+  const rowW = r => {
+    const row = ranks.get(r);
+    return row.reduce((s, n) => s + n.w, 0) + COL_GAP * (row.length - 1);
+  };
+  const stackW = Math.max(...rankKeys.map(rowW));
+  /* The corridor between two ranks is as tall as the channels it has to
+     carry — measured on the first pass, applied on the second (redraw runs
+     layout twice). A fixed corridor is what makes generated pictures look
+     cramped in one place and empty in another. */
+  /* 88px of it is label room: two staggered port rows under the rank above,
+     two over the rank below, and the plate band in between. The rest is the
+     measured channel count. */
+  const chanH = r => Math.max(RANK_CHANNEL,
+                              88 + ((hints && hints['v:' + r]) || 0) * CHAN_PITCH);
+  let y = MARGIN, lastCh = RANK_CHANNEL;
+  rankKeys.forEach(r => {
+    const row = ranks.get(r);
+    const rh = Math.max(...row.map(n => n.h));
+    let x = MARGIN + snap((stackW - rowW(r)) / 2);
+    row.forEach(n => { n.x = snap(x); n.y = snap(y + (rh - n.h) / 2); x += n.w + COL_GAP; });
+    lastCh = chanH(r);
+    y += rh + lastCh;
+  });
+  const stackBottom = y - lastCh;
+  const stackRight  = MARGIN + stackW;
+
+  /* --- the peer column: one row per drawn conduit, on the module ------- */
+  const peerX = snap(stackRight + COL_GAP);
+  const peerRows = edges.filter(e => e.kind === 'conduit');
+  let peerW = 64;
+  peerRows.forEach(e => { const p = byId.get(e.b.node); if (p) peerW = Math.max(peerW, p.w); });
+  peerRows.forEach((e, i) => {
+    const p = byId.get(e.b.node);
+    p.x = peerX;
+    /* the peer's centre line IS the hub's unit-row centre line, so every
+       conduit is a zero-bend straight run. Aesthetic rule 12's best case is
+       not a cheap route, it is no route at all. */
+    p.y = snap(hub.y + hub.unitTop + CONDUIT_PITCH / 2 + i * CONDUIT_PITCH - PEER_H / 2);
+    p.w = peerW;
+    p.h = PEER_H;
+  });
+
+  /* --- phase 7: the port lattice --------------------------------------- */
+  /* every stub is 8px, perpendicular, outside the box, on a 4px lattice,
+     ordered by the position of the thing it points at (a cheap barycentric
+     pass that removes most crossings before the router runs). */
+  const req = new Map();   /* nodeId -> side -> [{edge, end, port, toward}] */
+  const ask = (nodeId, side, edge, end, port, toward) => {
+    if (!req.has(nodeId)) req.set(nodeId, { top: [], bottom: [], left: [], right: [] });
+    req.get(nodeId)[side].push({ edge, end, port, toward });
+  };
+  const centreOf = n => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 });
+
+  edges.forEach(e => {
+    if (e.kind === 'reth') {
+      const src = byId.get(e.a.node);
+      e.targets.forEach((t, i) => {
+        const tn = byId.get(t.node);
+        ask(e.a.node, 'top', e, 'a' + i, e.ports[i], centreOf(tn).x);
+        ask(t.node, t.side, e, 'b' + i, t.port, centreOf(src).x);
+      });
+      return;
+    }
+    if (e.a.node && !e.a.useExistingPort) {
+      const bn = (e.b && e.b.node) ? byId.get(e.b.node) : null;
+      const toward = bn ? (e.a.side === 'left' || e.a.side === 'right'
+                            ? centreOf(bn).y : centreOf(bn).x) : 0;
+      ask(e.a.node, e.a.side, e, 'a', e.a.port, toward);
+    }
+    if (e.b && e.b.node && !e.b.useExistingPort) {
+      const an = e.a.node ? byId.get(e.a.node) : null;
+      const toward = an ? (e.b.side === 'left' || e.b.side === 'right'
+                            ? centreOf(an).y : centreOf(an).x) : 0;
+      ask(e.b.node, e.b.side, e, 'b', e.b.port, toward);
+    }
+  });
+
+  const stubAt = new Map();  /* key edgeId|end -> {x,y,dx,dy,port,node} */
+  req.forEach((sides, nodeId) => {
+    const n = byId.get(nodeId);
+    ['top', 'bottom', 'left', 'right'].forEach(side => {
+      const list = sides[side];
+      if (!list.length) return;
+      list.sort((p, q) => p.toward - q.toward ||
+                          (p.edge.id + p.end < q.edge.id + q.end ? -1 : 1));
+      const horiz = (side === 'top' || side === 'bottom');
+      const isUnitSide = (n.unitRows && side === 'right');
+      const k = list.length;
+      if (isUnitSide) {
+        /* one stub per unit row, on the row's own centre line */
+        list.forEach((it, i) =>
+          placeStub(n, side, n.unitTop + CONDUIT_PITCH / 2 + i * CONDUIT_PITCH, it, i, k, CONDUIT_PITCH));
+        return;
+      }
+      /* otherwise: spread the stubs evenly across the edge, on the lattice,
+         never closer than PORT_PITCH — the box was already widened for them */
+      const span = horiz ? n.w : n.h;
+      const pitch = k > 1
+        ? Math.max(GRID, Math.floor((span - 2 * STUB) / (k - 1) / GRID) * GRID)
+        : 0;
+      const start = snap((span - (k - 1) * pitch) / 2);
+      list.forEach((it, i) => placeStub(n, side, snap(start + i * pitch), it, i, k, pitch));
+    });
+  });
+  function placeStub(n, side, off, it, i, k, pitch) {
+    let x, y, dx = 0, dy = 0;
+    if (side === 'top')    { x = n.x + off; y = n.y;         dy = -1; }
+    if (side === 'bottom') { x = n.x + off; y = n.y + n.h;   dy =  1; }
+    if (side === 'left')   { x = n.x;       y = n.y + off;   dx = -1; }
+    if (side === 'right')  { x = n.x + n.w; y = n.y + off;   dx =  1; }
+    stubAt.set(it.edge.id + '|' + it.end, {
+      x: snap(x), y: snap(y), dx, dy, side, i, k, pitch,
+      ex: snap(x) + dx * STUB, ey: snap(y) + dy * STUB,
+      rx: snap(x) + dx * (STUB + STUB_GAP), ry: snap(y) + dy * (STUB + STUB_GAP),
+      port: it.port, node: n.id, inUnitRow: !!(n.unitRows && side === 'right')
+    });
+  }
+
+  /* --- bands: computed from the geometry they enclose ------------------ */
+  const bandGeom = new Map();
+  model.bands.filter(inLayer).forEach(b => {
+    let bb = null;
+    if (b.kind === 'region') {
+      bb = { x: MARGIN - 24, y: MARGIN - 24, w: stackW + 48, h: stackBottom - MARGIN + 48 };
+      bb.lblSide = 'inside';
+    } else if (b.anchor && b.anchor.startsWith('rank:')) {
+      const r = +b.anchor.slice(5);
+      const row = ranks.get(r);
+      if (!row || !row.length) return;
+      const x0 = Math.min(...row.map(n => n.x)), x1 = Math.max(...row.map(n => n.x + n.w));
+      const y0 = Math.min(...row.map(n => n.y)), y1 = Math.max(...row.map(n => n.y + n.h));
+      bb = { x: x0 - 24, y: y0 - 40, w: (x1 - x0) + 48, h: (y1 - y0) + 80 };
+      if (b.kind === 'vlan') bb.lblSide = 'below';
+    } else if (b.anchor === 'st0-stubs') {
+      const ss = edges.filter(e => e.kind === 'conduit')
+                      .map(e => stubAt.get(e.id + '|a')).filter(Boolean);
+      if (!ss.length || !hub) return;
+      const y0 = Math.min(...ss.map(s => s.ey)), y1 = Math.max(...ss.map(s => s.ey));
+      bb = { x: hub.x - 8, y: y0 - 12, w: 8, h: (y1 - y0) + 24 };
+      bb.tier3 = ss.map(s => ({ x: hub.x, y: s.ey }));
+      stats.tierThree++;
+    } else if (b.anchor === 'reth-stubs') {
+      const ss = ['a0', 'a1'].map(k => stubAt.get('e-reth0|' + k)).filter(Boolean);
+      if (!ss.length) return;
+      const x0 = Math.min(...ss.map(s => s.x)), x1 = Math.max(...ss.map(s => s.x));
+      bb = { x: x0 - 40, y: ss[0].ey - 20, w: (x1 - x0) + 80, h: 20 };
+      bb.lblSide = 'left';
+    }
+    if (bb) { bb.x = snap(bb.x); bb.y = snap(bb.y); bb.w = snap(bb.w); bb.h = snap(bb.h);
+              bandGeom.set(b.id, { band: b, bb }); }
+  });
+
+  /* --- phase 8: orthogonal routing ------------------------------------- */
+  /* route shape comes from a table indexed by (sideA, sideB), never a search
+     (mxGraph's routePatterns, not a solver). Cost order is bends first. */
+  const corridors = new Map();
+  const rankBounds = new Map();
+  rankKeys.forEach(r => {
+    const row = ranks.get(r);
+    rankBounds.set(r, { top: Math.min(...row.map(n => n.y)),
+                        bottom: Math.max(...row.map(n => n.y + n.h)) });
+  });
+  const corridorFor = (ra, rb) => {
+    const key = 'v:' + Math.min(ra, rb);
+    if (!corridors.has(key)) {
+      const lo = rankBounds.get(Math.min(ra, rb)).bottom + STUB + STUB_GAP;
+      const hi = rankBounds.get(Math.max(ra, rb)).top - STUB - STUB_GAP;
+      corridors.set(key, { axis: 'y', lo, hi, items: [] });
+    }
+    return corridors.get(key);
+  };
+
+  const routed = [];
+  const straight = [];
+  edges.forEach(e => {
+    if (e.kind === 'reth') { routed.push({ e, kind: 'reth' }); return; }
+    if (e.a.band || (e.b && e.b.band)) { routed.push({ e, kind: 'band' }); return; }
+    const sa = stubAt.get(e.id + '|a'), sb = stubAt.get(e.id + '|b');
+    if (!sa || !sb) return;
+    const vertical = (sa.dy !== 0);
+    const alignedS = vertical ? (sa.rx === sb.rx) : (sa.ry === sb.ry);
+    if (alignedS) { straight.push({ e, sa, sb, bends: 0 }); }
+    else {
+      const na = byId.get(sa.node), nb = byId.get(sb.node);
+      const c = vertical ? corridorFor(na.rank, nb.rank) : null;
+      routed.push({ e, sa, sb, bends: 2, corridor: c, vertical });
+      if (c) c.items.push({ e, sa, sb });
+    }
+  });
+
+  /* interval-graph channel allocation, then CENTRE the used channels about
+     the corridor's centre line (libavoid's unifying-nudging pass). */
+  corridors.forEach(c => {
+    c.items.sort((p, q) => {
+      const lp = Math.abs(p.sa.rx - p.sb.rx), lq = Math.abs(q.sa.rx - q.sb.rx);
+      return lp - lq || (p.e.id < q.e.id ? -1 : 1);
+    });
+    const used = [];
+    c.items.forEach(it => {
+      const lo = Math.min(it.sa.rx, it.sb.rx), hi = Math.max(it.sa.rx, it.sb.rx);
+      let ch = 0;
+      while (used[ch] && used[ch].some(iv => !(hi <= iv[0] || lo >= iv[1]))) ch++;
+      (used[ch] = used[ch] || []).push([lo, hi]);
+      it.channel = ch;
+    });
+    const k = used.length;
+    const mid = (c.lo + c.hi) / 2;
+    c.centres = [];
+    for (let i = 0; i < k; i++) c.centres[i] = snap(mid + (i - (k - 1) / 2) * CHAN_PITCH);
+    c.k = k;
+  });
+  const corridorK = {};
+  corridors.forEach((c, k) => { corridorK[k] = c.k; });
+
+  /* --- build the polylines --------------------------------------------- */
+  const geomEdges = [];
+  const seg = (x1, y1, x2, y2) => ({ x1, y1, x2, y2 });
+
+  straight.forEach(({ e, sa, sb }) => {
+    geomEdges.push({ e, segs: [seg(sa.ex, sa.ey, sb.ex, sb.ey)], sa, sb, bends: 0,
+                     corridorKey: (sa.dy ? 'v' : 'h') + byId.get(sa.node).rank });
+  });
+  routed.forEach(r => {
+    if (r.kind === 'reth' || r.kind === 'band') return;
+    const { e, sa, sb, corridor, vertical } = r;
+    const segs = [];
+    if (vertical) {
+      const it = corridor.items.find(i => i.e === e);
+      const cy = corridor.centres[it ? it.channel : 0];
+      segs.push(seg(sa.ex, sa.ey, sa.ex, cy));
+      segs.push(seg(sa.ex, cy, sb.ex, cy));
+      segs.push(seg(sb.ex, cy, sb.ex, sb.ey));
+    } else {
+      /* the route table's same-side case: leave on the outside, never between */
+      const cx = (sa.dx === sb.dx)
+        ? snap(sa.dx > 0 ? Math.max(sa.ex, sb.ex) + MODULE
+                         : Math.min(sa.ex, sb.ex) - MODULE)
+        : snap((sa.ex + sb.ex) / 2);
+      segs.push(seg(sa.ex, sa.ey, cx, sa.ey));
+      segs.push(seg(cx, sa.ey, cx, sb.ey));
+      segs.push(seg(cx, sb.ey, sb.ex, sb.ey));
+    }
+    geomEdges.push({ e, segs, sa, sb, bends: 2,
+                     corridorKey: vertical ? ('v' + byId.get(sa.node).rank) : 'h' });
+  });
+
+  /* the reth: two member stubs, one bracket at the device end, two rails */
+  const rethE = edges.find(e => e.kind === 'reth');
+  if (rethE) {
+    const s0 = stubAt.get('e-reth0|a0'), s1 = stubAt.get('e-reth0|a1');
+    if (s0 && s1) {
+      const by = s0.ey;                              /* bracket line          */
+      const segs = [seg(s0.ex, by, s1.ex, by)];      /* the bracket itself    */
+      const junctions = [{ x: s0.ex, y: by }, { x: s1.ex, y: by }];
+      rethE.targets.forEach((t, i) => {
+        const st = stubAt.get('e-reth0|b' + i);
+        const from = (i === 0 ? s0 : s1);
+        if (!st) return;
+        const cy = snap((by + st.ey) / 2);
+        segs.push(seg(from.ex, by, from.ex, cy));
+        segs.push(seg(from.ex, cy, st.ex, cy));
+        segs.push(seg(st.ex, cy, st.ex, st.ey));
+      });
+      geomEdges.push({ e: rethE, segs, sa: s0, sb: s1, bends: 2, junctions,
+                       labelAt: { x: snap((s0.ex + s1.ex) / 2), y: by - 20,
+                                  anchor: 'middle' },
+                       bracket: { x1: s0.ex, x2: s1.ex, y: by } });
+    }
+  }
+
+  /* Band-anchored edges — the static route and the zone-pair policy set.
+     These take the PERIMETER lane on purpose. A rail driven straight through
+     the conduit fan would be broken at every crossing, and a rail broken
+     twelve times reads as a dashed rail — which is reserved (51 §9). So break
+     count is a hard constraint on the router here, not a cost term. */
+  const outerX = snap(peerX + peerW + MODULE);
+  let lane = 0;
+  edges.filter(e => e.a.band || (e.b && e.b.band)).forEach(e => {
+    const A = e.a.band ? bandGeom.get(e.a.band) : null;
+    const B = e.b.band ? bandGeom.get(e.b.band) : null;
+    const cx = snap(outerX + (lane++) * (MODULE / 2));
+    if (e.kind === 'route') {
+      if (!A) return;
+      const dest = stubAt.get('e-tun-0|a');
+      if (!dest) return;
+      const ax = A.bb.x + A.bb.w, ay = snap(A.bb.y + A.bb.h / 2);
+      const landX = snap(dest.ex + MODULE);
+      const overY = snap(dest.ey - MODULE / 2);
+      const tipY  = dest.ey - STUB - GRID;
+      const segs = [seg(ax + BRACKET_RET, ay, cx, ay),
+                    seg(cx, ay, cx, overY),
+                    seg(cx, overY, landX, overY),
+                    seg(landX, overY, landX, tipY)];
+      geomEdges.push({ e, segs, bends: 3,
+        arrow: { x: landX, y: tipY, dx: 0, dy: 1 },
+        junctions: [{ x: ax + BRACKET_RET, y: ay }],
+        term: { x: ax, y: ay, side: 'right' } });
+    }
+    if (e.kind === 'policy') {
+      const sb = stubAt.get(e.id + '|b');
+      if (!A || !sb) return;
+      const ax = A.bb.x + A.bb.w, ay = snap(A.bb.y + A.bb.h / 2);
+      const lane = snap(sb.ey + MODULE);
+      const segs = [seg(ax + BRACKET_RET, ay, cx, ay),
+                    seg(cx, ay, cx, lane),
+                    seg(cx, lane, sb.ex, lane),
+                    seg(sb.ex, lane, sb.ex, sb.ey)];
+      geomEdges.push({ e, segs, sb, bends: 3,
+        arrow: { x: sb.ex, y: sb.ey, dx: 0, dy: -1 },
+        junctions: [{ x: ax + BRACKET_RET, y: ay }],
+        term: { x: ax, y: ay, side: 'right' } });
+    }
+  });
+
+  /* --- crossings: break the lower-priority rail ------------------------ */
+  const PRIO = { conduit: 6, reth: 5, lag: 5, link: 4, trunk: 4, trunkAsym: 4,
+                 access: 4, route: 3, policy: 3, inferred: 2, proposed: 1 };
+  const prio = ge => PRIO[ge.e.kind] || 0;
+  geomEdges.forEach(g => { g.breaks = g.segs.map(() => []); g.nBreaks = 0; });
+  const pairs = [];
+  for (let i = 0; i < geomEdges.length; i++) {
+    for (let j = i + 1; j < geomEdges.length; j++) {
+      const A = geomEdges[i], B = geomEdges[j];
+      A.segs.forEach((s, si) => B.segs.forEach((o, oi) => {
+        const p = crossPoint(s, o);
+        if (p) pairs.push({ A, si, B, oi, p });
+      }));
+    }
+  }
+  /* Deterministic order, then: the lower-priority rail takes the break —
+     UNLESS it already carries three, in which case the other one does. A rail
+     broken a dozen times reads as a DASHED rail, and dash is reserved
+     (51 §9), so break count is a constraint here and not a cost term. */
+  pairs.sort((a, b) => a.p.y - b.p.y || a.p.x - b.p.x ||
+                       (a.A.e.id + a.B.e.id < b.A.e.id + b.B.e.id ? -1 : 1));
+  const BREAK_BUDGET = 3;
+  pairs.forEach(pr => {
+    const { A, B, si, oi, p } = pr;
+    let lo = prio(A) === prio(B) ? (A.e.id < B.e.id ? B : A)
+                                 : (prio(A) < prio(B) ? A : B);
+    let hi = (lo === A) ? B : A;
+    if (lo.nBreaks >= BREAK_BUDGET && hi.nBreaks < lo.nBreaks) { const t = lo; lo = hi; hi = t; }
+    lo.breaks[lo === A ? si : oi].push(p);
+    lo.nBreaks++;
+    stats.crossings++;
+  });
+  function crossPoint(s, o) {
+    const sH = (s.y1 === s.y2), oH = (o.y1 === o.y2);
+    if (sH === oH) return null;
+    const h = sH ? s : o, v = sH ? o : s;
+    const hx0 = Math.min(h.x1, h.x2), hx1 = Math.max(h.x1, h.x2);
+    const vy0 = Math.min(v.y1, v.y2), vy1 = Math.max(v.y1, v.y2);
+    if (v.x1 > hx0 && v.x1 < hx1 && h.y1 > vy0 && h.y1 < vy1) {
+      return sH ? { x: v.x1, y: h.y1, along: 'x' } : { x: v.x1, y: h.y1, along: 'y' };
+    }
+    return null;
+  }
+
+  /* --- labels: fixed side by kind, plate when it lands on a rail ------- */
+  const placed = [];
+  const hits = r => placed.some(p => !(r.x + r.w <= p.x || r.x >= p.x + p.w ||
+                                       r.y + r.h <= p.y || r.y >= p.y + p.h));
+  const take = r => { placed.push(r); return r; };
+  drawnNodes.forEach(n => take({ x: n.x, y: n.y, w: n.w, h: n.h }));
+
+  const labels = [];
+  const reserve = r => take(r);
+  const put = (text, x, y, cls, anchor, alt) => {
+    const w = text.length * (cls === 'dg-label' ? ADV_MONO : ADV_MICRO);
+    const bx = anchor === 'middle' ? x - w / 2 : (anchor === 'end' ? x - w : x);
+    let r = { x: bx, y: y - 10, w, h: 12 }, moved = false;
+    if (hits(r) && alt) { y = alt; r = { x: bx, y: y - 10, w, h: 12 }; moved = true; }
+    if (hits(r)) { stats.hidden++; return null; }
+    if (moved) stats.moved++;
+    take(r);
+    const L = { text, x, y, cls, anchor, box: r };
+    labels.push(L); return L;
+  };
+
+  const t1 = performance.now();
+  return {
+    nodes: drawnNodes, edges, geomEdges, bandGeom, stubAt, labels, put, reserve, stats,
+    capacity, aggregate, byId, ranks, rankKeys, aggEdge, corridorK,
+    W: snap(outerX + MODULE + 160 + MARGIN), H: snap(stackBottom + MARGIN),
+    ms: t1 - t0, allNodes: nodes, model
+  };
+}
+
+/* =========================================================================
+   4. RENDER. One <path> per edge, however many strokes it appears to have.
+      Closed tag set: svg g path rect line text. 1px strokes at +0.5.
+   ========================================================================= */
+function render(G, view) {
+  let n = 0;
+  const out = [];
+  const push = s => { out.push(s); n += (s.match(/<(rect|path|text|line)\b/g) || []).length; };
+  const V = ' vector-effect="non-scaling-stroke"';
+  const CE = view.crisp ? ' shape-rendering="crispEdges"' : '';
+  const O = view.crisp ? hp : (v => v);
+  const lod = view.zoom >= 0.6 ? 2 : (view.zoom >= 0.35 ? 1 : 0);
+
+  /* --- canvas ---------------------------------------------------------- */
+  push(`<rect class="dg-canvas" x="0" y="0" width="${G.W}" height="${G.H}"/>`);
+
+  /* the module, visible while you build and gone when you look */
+  if (view.module) {
+    let d = '';
+    for (let x = 0; x <= G.W; x += MODULE) d += `M${O(x)} 0V${G.H}`;
+    for (let y = 0; y <= G.H; y += MODULE) d += `M0 ${O(y)}H${G.W}`;
+    push(`<path class="dg-module" d="${d}" fill="none"${V}${CE}/>`);
+  }
+
+  /* --- bands ----------------------------------------------------------- */
+  G.bandGeom.forEach(({ band, bb }) => {
+    const g = [];
+    if (band.kind === 'region') {
+      g.push(`<rect class="dg-region" x="${O(bb.x)}" y="${O(bb.y)}" width="${bb.w}" height="${bb.h}"${V}${CE}/>`);
+    } else if (band.kind === 'zone' && bb.tier3) {
+      /* §4.4 TIER 3 — no bracket. A 4px tick on each member's own row, and the
+         zone name once. The view band says so. */
+      let d = '';
+      bb.tier3.forEach(t => { d += `M${t.x - 4} ${O(t.y)}h4`; });
+      g.push(`<path class="dg-band ink" d="${d}" fill="none"${V}${CE}/>`);
+      if (lod >= 1) g.push(`<text class="dg-bandlabel" x="${bb.x - 8}" y="${bb.tier3[0].y + 4}" text-anchor="end">${esc(band.label)}</text>`);
+    } else if (band.kind === 'zone') {
+      /* vertical bracket: two vertical strokes with --s2 horizontal returns */
+      const L = O(bb.x), R = O(bb.x + bb.w), T = O(bb.y), B = O(bb.y + bb.h);
+      g.push(`<path class="dg-band" d="M${L + BRACKET_RET} ${T}H${L}V${B}H${L + BRACKET_RET}M${R - BRACKET_RET} ${T}H${R}V${B}H${R - BRACKET_RET}" fill="none"${V}${CE}/>`);
+    } else if (band.kind === 'vlan') {
+      /* horizontal bracket: two horizontal strokes with vertical returns */
+      const L = O(bb.x), R = O(bb.x + bb.w), T = O(bb.y), B = O(bb.y + bb.h);
+      g.push(`<path class="dg-band" d="M${L} ${T + BRACKET_RET}V${T}H${R}V${T + BRACKET_RET}M${L} ${B - BRACKET_RET}V${B}H${R}V${B - BRACKET_RET}" fill="none"${V}${CE}/>`);
+    } else if (band.kind === 'ri') {
+      g.push(`<rect class="dg-band" x="${O(bb.x)}" y="${O(bb.y)}" width="${bb.w}" height="${bb.h}" fill="none"${V}${CE}/>`);
+    }
+    if (lod >= 1 && !bb.tier3) g.push(
+      bb.lblSide === 'inside'
+        ? `<text class="dg-bandlabel" x="${bb.x + 8}" y="${bb.y + 16}">${esc(band.label)}</text>`
+      : bb.lblSide === 'left'
+        ? `<text class="dg-bandlabel" x="${bb.x - 6}" y="${bb.y + 14}" text-anchor="end">${esc(band.label)}</text>`
+      : bb.lblSide === 'below'
+        ? `<text class="dg-bandlabel" x="${bb.x + bb.w}" y="${bb.y + bb.h + 14}" text-anchor="end">${esc(band.label)}</text>`
+        : `<text class="dg-bandlabel" x="${bb.x + 2}" y="${bb.y - 6}">${esc(band.label)}</text>`);
+    push(`<g class="dg-el dg-band-el" data-id="${band.id}">${g.join('')}</g>`);
+  });
+
+  /* --- edges ----------------------------------------------------------- */
+  G.geomEdges.forEach(ge => {
+    const e = ge.e;
+    const cls = ['dg-rail'];
+    if (e.kind === 'inferred') cls.push('muted');
+    if (e.kind === 'proposed') cls.push('proposed');
+    const twin = (e.kind === 'conduit' && lod >= 1) || e.kind === 'lag';
+    if (e.kind === 'conduit' && lod === 0) cls.push('collapsed');
+    const gap = e.kind === 'conduit' ? CONDUIT_GAP : RAIL_GAP;
+    let d = '';
+
+    const emit = (segs, breaks, off) => {
+      segs.forEach((s, i) => {
+        const horiz = (s.y1 === s.y2);
+        let x1 = s.x1, y1 = s.y1, x2 = s.x2, y2 = s.y2;
+        if (off) { if (horiz) { y1 += off; y2 += off; } else { x1 += off; x2 += off; } }
+        const bs = (breaks[i] || []).slice().sort((a, b) => horiz ? a.x - b.x : a.y - b.y);
+        let cur = horiz ? x1 : y1;
+        const end = horiz ? x2 : y2;
+        const dir = end >= cur ? 1 : -1;
+        bs.forEach(b => {
+          const at = horiz ? b.x : b.y;
+          const a0 = at - dir * XING_GAP / 2, a1 = at + dir * XING_GAP / 2;
+          if ((a0 - cur) * dir <= 0) return;
+          d += horiz ? `M${O(cur)} ${O(y1)}H${O(a0)}` : `M${O(x1)} ${O(cur)}V${O(a0)}`;
+          cur = a1;
+        });
+        d += horiz ? `M${O(cur)} ${O(y1)}H${O(end)}` : `M${O(x1)} ${O(cur)}V${O(end)}`;
+      });
+    };
+
+    if (twin) { emit(ge.segs, ge.breaks, -gap / 2); emit(ge.segs, ge.breaks, gap / 2); }
+    else emit(ge.segs, ge.breaks, 0);
+
+    /* stubs */
+    /* A policy-set edge gets NO port stub: it is not a cable, and the 8px it
+       stands off the box is the drawing of that. G5's terminal channel. */
+    const stubs = [];
+    if (ge.sa && e.kind !== 'reth' && e.kind !== 'policy') stubs.push(ge.sa);
+    if (ge.sb && e.kind !== 'reth' && e.kind !== 'policy') stubs.push(ge.sb);
+    if (e.kind === 'reth') {
+      ['a0', 'a1'].forEach(k => { const s = G.stubAt.get(e.id + '|' + k); if (s) stubs.push(s); });
+      e.targets.forEach((t, i) => { const s = G.stubAt.get(e.id + '|b' + i); if (s) stubs.push(s); });
+    }
+    stubs.forEach(s => {
+      if (lod === 0) return;
+      d += s.dx ? `M${O(s.x)} ${O(s.y)}H${O(s.ex)}` : `M${O(s.x)} ${O(s.y)}V${O(s.ey)}`;
+    });
+
+    /* conduit caps */
+    if (e.kind === 'conduit') {
+      const capAt = (s) => {
+        if (!s) return;
+        const x = O(s.ex), y = O(s.ey);
+        d += s.dx ? `M${x} ${y - gap / 2}V${y + gap / 2}` : `M${x - gap / 2} ${y}H${x + gap / 2}`;
+      };
+      capAt(ge.sa); capAt(ge.sb);
+    }
+
+    /* LAG brackets, both ends. reth bracket is already in the segs. */
+    if (e.kind === 'lag') {
+      [ge.sa, ge.sb].forEach(s => {
+        if (!s) return;
+        const x = O(s.ex), y = O(s.ey), r = s.dx > 0 ? BRACKET_RET : -BRACKET_RET;
+        d += `M${x} ${y - gap / 2}V${y + gap / 2}`;
+        d += `M${x} ${y - gap / 2}H${x + r / 2}M${x} ${y + gap / 2}H${x + r / 2}`;
+      });
+    }
+
+    /* mid-ticks: 0 access, 2 trunk. Asymmetric trunk puts them at the
+       tagged end's quarter point rather than the midpoint. */
+    if ((e.kind === 'trunk' || e.kind === 'trunkAsym') && view.layers.l2 && lod >= 1) {
+      const s = longestSeg(ge.segs);
+      const f = (e.kind === 'trunkAsym') ? 0.25 : 0.5;
+      const px = s.x1 + (s.x2 - s.x1) * f, py = s.y1 + (s.y2 - s.y1) * f;
+      const horiz = (s.y1 === s.y2);
+      [-RAIL_GAP / 2, RAIL_GAP / 2].forEach(o => {
+        if (horiz) d += `M${O(px + o)} ${O(py - 3)}V${O(py + 3)}`;
+        else       d += `M${O(px - 3)} ${O(py + o)}H${O(px + 3)}`;
+      });
+    }
+
+    /* arrowhead: two segments in the same path, never <marker> */
+    if (ge.arrow && lod >= 1) {
+      const a = ge.arrow, L = ARROW_LEN, S = 3;
+      if (a.dx) { d += `M${O(a.x)} ${O(a.y)}l${-a.dx * L} ${-S}M${O(a.x)} ${O(a.y)}l${-a.dx * L} ${S}`; }
+      else      { d += `M${O(a.x)} ${O(a.y)}l${-S} ${-a.dy * L}M${O(a.x)} ${O(a.y)}l${S} ${-a.dy * L}`; }
+    }
+
+    /* the open square: where the tool guessed */
+    if (e.kind === 'inferred') {
+      const s = e.inferredEnd === 'b' ? ge.sb : ge.sa;
+      if (s && lod >= 1) {
+        const x = O(s.ex), y = O(s.ey), h = 2;
+        d += `M${x - h} ${y - h}h${2 * h}v${2 * h}h${-2 * h}z`;
+      }
+    }
+
+    /* bracket-return terminal: a policy edge is visibly not a cable */
+    if (ge.term) {
+      const t = ge.term, x = O(t.x), y = O(t.y);
+      d += `M${x} ${y - BRACKET_RET / 2}V${y + BRACKET_RET / 2}M${x} ${y}H${x + BRACKET_RET}`;
+    }
+
+    /* junction squares: a crossing with no square means no connection */
+    let jm = '';
+    const J = (x, y) => { jm += `<rect class="dg-junction" x="${x - JUNCTION / 2}" y="${y - JUNCTION / 2}" width="${JUNCTION}" height="${JUNCTION}"${CE}/>`; };
+    if (lod >= 1) {
+      (ge.junctions || []).forEach(j => J(j.x, j.y));
+      if (e.kind === 'lag') [ge.sa, ge.sb].forEach(s => { if (s) J(s.ex, s.ey); });
+    }
+
+    push(`<g class="dg-el dg-edge" data-id="${e.id}"><path class="${cls.join(' ')}" d="${d}" fill="none"${V}${CE}/>${jm}</g>`);
+  });
+
+  function longestSeg(segs) {
+    let best = segs[0], bl = -1;
+    segs.forEach(s => { const l = Math.abs(s.x2 - s.x1) + Math.abs(s.y2 - s.y1);
+                        if (l > bl) { bl = l; best = s; } });
+    return best;
+  }
+
+  /* --- nodes ----------------------------------------------------------- */
+  G.nodes.forEach(nd => {
+    const g = [];
+    const stale = AGE[nd.age].tone === 'muted';
+    if (nd.kind === 'peer') {
+      /* half-height box with an OPEN RIGHT EDGE — the drawing of
+         "we do not model what is over there" (56 §4.6) */
+      g.push(`<path class="dg-peer${stale ? ' stale' : ''}" d="M${nd.x + nd.w} ${nd.y}H${nd.x}V${nd.y + nd.h}H${nd.x + nd.w}"${V}${CE}/>`);
+    } else {
+      g.push(`<rect class="dg-box${stale ? ' stale' : ''}" x="${nd.x}" y="${nd.y}" width="${nd.w}" height="${nd.h}"${V}${CE}/>`);
+      /* chassis sub-rows, immediately under the header */
+      if (nd.chassis) {
+        const top = nd.y + nd.headH;
+        nd.chassis.forEach((c, i) => {
+          const yy = O(top + i * CHASSIS_H);
+          g.push(`<path class="dg-chassis" d="M${nd.x} ${yy}H${nd.x + nd.w}" fill="none"${V}${CE}/>`);
+          if (lod >= 2) g.push(`<text class="dg-micro" x="${nd.x + 12}" y="${top + i * CHASSIS_H + 14}">${esc(c)}</text>`);
+        });
+      }
+      /* unit rows — the rack elevation. One identical 32px module per unit,
+         and the unit's edge leaves from that row. */
+      if (nd.unitRows) {
+        const top = nd.y + nd.unitTop;
+        const units = [];
+        G.stubAt.forEach(s => { if (s.node === nd.id && s.inUnitRow) units[s.i] = s.port; });
+        for (let i = 0; i < nd.unitRows; i++) {
+          const yy = O(top + i * CONDUIT_PITCH);
+          g.push(`<path class="dg-chassis" d="M${nd.x} ${yy}H${nd.x + nd.w}" fill="none"${V}${CE}/>`);
+          if (lod >= 2 && units[i]) {
+            const uf = fitMono(units[i], nd.w, 12, ADV_MICRO);
+            g.push(`<text class="dg-micro ink" x="${nd.x + 12}" y="${top + i * CONDUIT_PITCH + 20}">${esc(uf.text)}</text>`);
+          }
+        }
+      }
+    }
+    if (lod >= 1) {
+      const fit = fitMono(nd.name, nd.w, nd.kind === 'peer' ? 8 : 12);
+      nd.truncated = fit.cut;
+      const ty = nd.kind === 'peer' ? nd.y + 16 : nd.y + 22;
+      const tx = nd.x + (nd.kind === 'peer' ? 8 : 12);
+      g.push(`<text class="dg-label" x="${tx}" y="${ty}">${esc(fit.text)}</text>`);
+      if (nd.showAge && lod >= 2) {
+        const al = fitMono(AGE[nd.age].line, nd.w + 32, 12, ADV_MICRO);
+        g.push(`<text class="dg-micro" x="${tx}" y="${nd.y + 38}">${esc(al.text)}</text>`);
+      }
+      /* ▸ — there is more here, disclosable. Static, printable, at every zoom. */
+      if (hasDepth(nd)) g.push(`<text class="dg-mark" x="${nd.x + nd.w - 10}" y="${ty}">▸</text>`);
+    }
+    if (nd.age === 'unverified') {
+      g.push(`<path class="dg-unverified" d="M${nd.x} ${O(nd.y + nd.h + 4)}H${nd.x + nd.w}" fill="none"${V}${CE}/>`);
+    }
+    push(`<g class="dg-el dg-node" data-id="${nd.id}">${g.join('')}</g>`);
+  });
+
+  /* --- port labels: a WHOLE SIDE is labelled or a whole side is folded --
+     Half a row labelled and half dropped is the failure that made the last
+     round read as generated. The decision is per side, from the measured
+     pitch, and the count goes in the view band. A side that does not fit on
+     one row is staggered over two, which is PCB silkscreen's own answer. */
+  const drawnEdgeIds = new Set(G.geomEdges.map(g => g.e.id));
+  if (lod >= 2) {
+    const sides = new Map();
+    G.stubAt.forEach((s, key) => {
+      if (!drawnEdgeIds.has(key.split('|')[0]) || !s.port || s.inUnitRow) return;
+      const k = s.node + '|' + s.side;
+      if (!sides.has(k)) sides.set(k, []);
+      sides.get(k).push(s);
+    });
+    const seenPort = new Set();
+    sides.forEach(list => {
+      const horiz = (list[0].dy !== 0);
+      const maxW = Math.max(...list.map(s => s.port.length * ADV_MICRO));
+      const pitch = list[0].pitch || 999;
+      let rows = 1;
+      if (horiz) {
+        if (pitch < maxW + STUB) rows = 2;
+        if (2 * pitch < maxW + STUB) { G.stats.folded += list.length; return; }
+      } else {
+        if (pitch < 14) { G.stats.folded += list.length; return; }
+      }
+      list.forEach(s => {
+        const nd0 = G.byId.get(s.node);
+        const dk = (nd0 ? nd0.rank : '?') + '|' + s.side + '|' + s.port;
+        if (seenPort.has(dk)) { G.stats.folded++; return; }
+        seenPort.add(dk);
+        let x = s.ex, y = s.ey, anchor = 'start';
+        const row = rows === 2 ? (s.i % 2) : 0;
+        if (s.dy < 0)      { y = s.ey - 6 - row * 12; anchor = 'middle'; }
+        else if (s.dy > 0) { y = s.ey + 12 + row * 12; anchor = 'middle'; }
+        else if (s.dx > 0) { x = s.ex + 6; y = s.ey - 5; }
+        else               { x = s.ex - 6; y = s.ey + 13; anchor = 'end'; }
+        const w = s.port.length * ADV_MICRO;
+        G.reserve({ x: anchor === 'middle' ? x - w / 2 : (anchor === 'end' ? x - w : x),
+                    y: y - 10, w, h: 12 });
+        push(`<text class="dg-micro" x="${x}" y="${y}" text-anchor="${anchor}">${esc(s.port)}</text>`);
+      });
+    });
+  }
+
+  /* --- edge labels: identical labels in the same corridor are FOLDED ----
+     Six rails carrying `vlan 10` do not need the word six times; a drawing
+     says it once. The register carries every one of them, exactly. */
+  if (lod >= 2) {
+    const seen = new Set();
+    G.geomEdges.forEach(ge => {
+      if (!ge.e.label) return;
+
+      const s = ge.labelAt ? { x1: ge.labelAt.x, x2: ge.labelAt.x,
+                               y1: ge.labelAt.y, y2: ge.labelAt.y }
+                           : longestSeg(ge.segs);
+      const horiz = ge.labelAt ? true : (s.y1 === s.y2);
+      const key = ge.e.label + '|' + (ge.corridorKey || (horiz ? 'h' : 'v'));
+      if (seen.has(key)) { G.stats.folded++; return; }
+      seen.add(key);
+      const mx = (s.x1 + s.x2) / 2, my = (s.y1 + s.y2) / 2 + (ge.labelAt ? 6 : 0);
+      const L = horiz ? G.put(ge.e.label, mx, my - 6, 'dg-micro', 'middle', my - 18)
+                      : G.put(ge.e.label, s.x1 + 8, my, 'dg-micro', 'start', my - 12);
+      if (!L) return;
+      const w = L.text.length * ADV_MICRO;
+      const bx = L.anchor === 'middle' ? L.x - w / 2 : L.x;
+      push(`<rect class="dg-plate" x="${bx - 3}" y="${L.y - 10}" width="${w + 6}" height="13"${CE}/>`);
+      push(`<text class="dg-micro ink" x="${L.x}" y="${L.y}" text-anchor="${L.anchor}">${esc(L.text)}</text>`);
+    });
+  }
+
+  /* --- the focus ring, one element, appended last ---------------------- */
+  push(`<rect class="dg-focus" id="dg-focus" x="-100" y="-100" width="0" height="0"${V}/>`);
+
+  G.stats.elements = n;
+  return out.join('');
+}
+function hasDepth(nd) {
+  return !!(nd.corpus && nd.corpus.length) || !!(nd.findings && nd.findings.length) ||
+         nd.truncated || nd.aggregateOf || AGE[nd.age].line;
+}
+
+/* =========================================================================
+   5. STATE AND WIRING
+   ========================================================================= */
+const state = {
+  spokes: 4, zoom: 1,
+  layers: { physical: true, l2: true, l3: true, security: true, overlay: true },
+  aggregate: true, crisp: true, module: false,
+  disclosure: 'column',
+  sel: null, hi: null, sort: { key: 'id', dir: 1 }, q: ''
+};
+let model = fixture(state.spokes);
+let G = null;
+let lastMs = 0, lastLayoutMs = 0, lastRenderMs = 0;
+
+const $ = id => document.getElementById(id);
+const scene = $('scene');
+
+function segBtn(host, items, get, set) {
+  host.innerHTML = '';
+  items.forEach(it => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'seg'; b.textContent = it.label;
+    b.setAttribute('aria-pressed', String(get(it.value)));
+    b.addEventListener('click', () => { set(it.value); redraw(); });
+    host.appendChild(b);
+  });
+}
+
+function buildControls() {
+  segBtn($('c-spokes'),
+    [2, 4, 8, 12, 20, 40].map(v => ({ label: String(v), value: v }))
+      .concat([{ label: '+8', value: 'inc' }]),
+    v => v !== 'inc' && state.spokes === v,
+    v => { state.spokes = (v === 'inc') ? state.spokes + 8 : v;
+           model = fixture(state.spokes); state.sel = null; });
+  segBtn($('c-layers'),
+    [['physical','phys'],['l2','L2'],['l3','L3'],['security','sec'],['overlay','ovl']]
+      .map(([k, l]) => ({ label: l, value: k })),
+    v => state.layers[v], v => { state.layers[v] = !state.layers[v]; });
+  segBtn($('c-zoom'),
+    [0.3, 0.5, 0.75, 1, 1.5].map(v => ({ label: String(v), value: v })),
+    v => state.zoom === v, v => { state.zoom = v; });
+  segBtn($('c-disc'),
+    [{ label: 'column', value: 'column' }, { label: 'chip', value: 'chip' }],
+    v => state.disclosure === v, v => { state.disclosure = v; hideChip(); });
+  segBtn($('c-opt'),
+    [{ label: 'aggregate', value: 'aggregate' }, { label: 'crisp', value: 'crisp' },
+     { label: 'module', value: 'module' }],
+    v => state[v], v => { state[v] = !state[v]; });
+}
+
+function redraw() {
+  const t0 = performance.now();
+  G = layout(model, state);                    /* pass 1: measure corridors */
+  G = layout(model, state, G.corridorK);       /* pass 2: place with them   */
+  const t1 = performance.now();
+  const svg = render(G, state);
+  const t2 = performance.now();
+  scene.setAttribute('viewBox', `0 0 ${G.W} ${G.H}`);
+  scene.setAttribute('width',  String(Math.round(G.W * state.zoom)));
+  scene.setAttribute('height', String(Math.round(G.H * state.zoom)));
+  scene.innerHTML = svg;
+  lastLayoutMs = t1 - t0; lastRenderMs = t2 - t1; lastMs = t2 - t0;
+  buildControls();
+  buildViewBand();
+  buildRegister();
+  applyHighlight();
+  buildHonestNote();
+  window.__fathom = {
+    nodes: G.nodes.length, edges: G.geomEdges.length, elements: G.stats.elements,
+    layoutMs: lastLayoutMs, renderMs: lastRenderMs, totalMs: lastMs,
+    aggregated: G.stats.aggregated, crossings: G.stats.crossings,
+    hidden: G.stats.hidden, moved: G.stats.moved,
+    W: G.W, H: G.H, capacity: G.capacity, spokes: state.spokes, G: G, state: state
+  };
+}
+
+function buildViewBand() {
+  const on = Object.keys(state.layers).filter(k => state.layers[k]);
+  $('vb-state').textContent =
+    `diagram · ${G.nodes.length} nodes · ${G.geomEdges.length} edges · ` +
+    `${on.length === 5 ? 'all layers' : on.join('+')} · z ${state.zoom} · ` +
+    `${G.stats.elements} svg elements`;
+  const tabs = [];
+  if (G.stats.aggregated) tabs.push('endpoints aggregated');
+  if (state.zoom < 0.6) tabs.push('edge labels off', 'ports collapsed');
+  if (state.zoom < 0.35) tabs.push('conduit collapsed', 'all text off');
+  if (G.stats.hidden) tabs.push(G.stats.hidden + ' label' +
+                                (G.stats.hidden > 1 ? 's' : '') + ' hidden');
+  if (G.stats.moved) tabs.push(G.stats.moved + ' label' +
+                               (G.stats.moved > 1 ? 's' : '') + ' moved');
+  if (G.stats.folded) tabs.push(G.stats.folded + ' labels folded');
+  if (G.stats.tierThree) tabs.push('security · ' + G.stats.tierThree +
+                                    ' zone shown as ticks');
+  if (state.layers.l3) tabs.push('inferred');
+  const unver = G.nodes.filter(n => n.age === 'unverified').length;
+  if (unver) tabs.push(unver + ' node' + (unver > 1 ? 's' : '') + ' unverified');
+  tabs.push(G.stats.crossings + ' crossings broken');
+  tabs.push(lastMs.toFixed(1) + ' ms');
+  $('vb-tabs').innerHTML = tabs.map(t => `<span class="tab">${esc(t)}</span>`).join('');
+}
+
+/* =========================================================================
+   6. THE REGISTER — this is the Outline, and it holds the focus.
+   ========================================================================= */
+const COLS = [
+  { key: 'id',    label: 'element', th: true },
+  { key: 'kind',  label: 'kind' },
+  { key: 'drawn', label: 'drawn as' },
+  { key: 'a',     label: 'a end' },
+  { key: 'b',     label: 'b end' },
+  { key: 'label', label: 'label' },
+  { key: 'layer', label: 'layer' },
+  { key: 'age',   label: 'provenance' },
+  { key: 'ops',   label: 'opinions' }
+];
+const DRAWN = {
+  device: '2px boundary, --page fill',
+  peer:   'half box, open right edge',
+  link:   '1 rail · stub / stub',
+  access: '1 rail · no tick',
+  trunk:  '1 rail · 2 mid-ticks',
+  trunkAsym: '1 rail · 2 ticks at the tagged quarter',
+  lag:    '2 rails · bracket both ends',
+  reth:   '2 rails · bracket device end only',
+  conduit:'2 rails · capped both ends',
+  route:  '1 rail · open V at next hop',
+  policy: '1 rail · bracket returns · open V',
+  inferred:'1 rail --muted · open square',
+  proposed:'1 rail · dashed — RESERVED'
+};
+
+function registerRows() {
+  const rows = [];
+  const drawnIds = new Set(G.nodes.map(n => n.id));
+  const drawnEdgeIds = new Set(G.geomEdges.map(g => g.e.id));
+  model.nodes.forEach(n => {
+    rows.push({
+      id: n.id, name: n.name, kind: n.kind === 'peer' ? 'ExternalPeer' : 'Device',
+      drawn: drawnIds.has(n.id) ? DRAWN[n.kind] : 'aggregated — not drawn',
+      a: '', b: '', label: n.addr || (n.chassis ? n.chassis.join(' + ') : ''),
+      layer: 'all', age: AGE[n.age].line || (n.age === 'hand' ? 'hand-entered' : 'fresh'),
+      ops: n.findings.length ? n.findings.length + ' high' : '—',
+      drawnNow: drawnIds.has(n.id), ref: n
+    });
+  });
+  model.edges.forEach(e => {
+    const A = e.a.node ? (model.nodes.find(n => n.id === e.a.node) || {}).name : e.a.band;
+    const B = e.b ? (e.b.node ? (model.nodes.find(n => n.id === e.b.node) || {}).name : e.b.band)
+                  : (e.targets || []).map(t => (model.nodes.find(n => n.id === t.node) || {}).name).join(' + ');
+    rows.push({
+      id: e.id, name: e.id, kind: e.kind,
+      drawn: drawnEdgeIds.has(e.id) ? DRAWN[e.kind] : 'aggregated — not drawn',
+      a: (A || '') + (e.a.port ? ' · ' + e.a.port : ''),
+      b: (B || '') + (e.b && e.b.port ? ' · ' + e.b.port : ''),
+      label: e.selector || e.label || '', layer: (e.layers || []).join('+'),
+      age: e.kind === 'inferred' ? 'inferred' : 'hand-entered',
+      ops: '—', drawnNow: drawnEdgeIds.has(e.id), ref: e
+    });
+  });
+  /* the aggregate is a drawn element, so the bijection gives it a row too */
+  if (G.aggregate) {
+    rows.push({ id: G.aggregate.id, name: G.aggregate.name, kind: 'ExternalPeer',
+      drawn: DRAWN.peer + ' — aggregate', a: '', b: '', label: G.aggregate.addr,
+      layer: 'all', age: 'hand-entered', ops: '—', drawnNow: true, ref: G.aggregate });
+    rows.push({ id: 'e-tun-agg', kind: 'conduit', name: 'e-tun-agg',
+      drawn: DRAWN.conduit + ' — aggregate', a: 'SRX-A · st0.…', b: G.aggregate.name,
+      label: G.stats.aggregated + ' tunnels', layer: 'overlay', age: 'hand-entered',
+      ops: '—', drawnNow: true, ref: G.aggEdge });
+  }
+  return rows;
+}
+
+function buildRegister() {
+  const head = $('reg-head');
+  head.innerHTML = COLS.map(c =>
+    `<th scope="col" data-key="${c.key}"${state.sort.key === c.key
+      ? ` aria-sort="${state.sort.dir > 0 ? 'ascending' : 'descending'}"` : ''}>${esc(c.label)}</th>`).join('');
+  [...head.children].forEach(th => th.addEventListener('click', () => {
+    const k = th.dataset.key;
+    if (state.sort.key === k) state.sort.dir *= -1;
+    else { state.sort.key = k; state.sort.dir = 1; }
+    buildRegister();
+  }));
+
+  let rows = registerRows();
+  if (state.q) {
+    const q = state.q.toLowerCase();
+    rows = rows.filter(r => (r.name + r.a + r.b + r.label + r.kind).toLowerCase().includes(q));
+  }
+  const k = state.sort.key, d = state.sort.dir;
+  rows.sort((p, q2) => {
+    const pv = String(p[k] === undefined ? p.name : p[k]);
+    const qv = String(q2[k] === undefined ? q2.name : q2[k]);
+    return pv.localeCompare(qv) * d || p.id.localeCompare(q2.id);
+  });
+
+  const body = $('reg-body');
+  body.innerHTML = rows.map((r, i) => `<tr data-id="${esc(r.id)}" tabindex="${i === 0 ? 0 : -1}" class="${
+      (r.drawnNow ? '' : 'mut ') + (state.sel === r.id ? 'sel' : '')}">` +
+    `<th scope="row">${esc(r.name)}</th>` +
+    `<td class="m">${esc(r.kind)}</td>` +
+    `<td class="mut">${esc(r.drawn)}</td>` +
+    `<td class="m">${esc(r.a)}</td>` +
+    `<td class="m">${esc(r.b)}</td>` +
+    `<td class="m">${esc(r.label)}</td>` +
+    `<td class="mut">${esc(r.layer)}</td>` +
+    `<td class="mut">${esc(r.age)}</td>` +
+    `<td class="m">${esc(r.ops)}</td></tr>`).join('');
+
+  $('reg-count').textContent = rows.length + ' rows · ' +
+    rows.filter(r => !r.drawnNow).length + ' aggregated away and still exact here';
+
+  [...body.children].forEach(tr => {
+    tr.addEventListener('pointerenter', () => { setHi(tr.dataset.id);
+      if (state.disclosure === 'chip') showChip(tr.dataset.id, tr); });
+    tr.addEventListener('pointerleave', () => { setHi(null); });
+    tr.addEventListener('focus', () => { setHi(tr.dataset.id); roving(tr);
+      if (state.disclosure === 'chip') showChip(tr.dataset.id, tr); else hideChip(); });
+    tr.addEventListener('blur', () => { hideChip(); });
+    tr.addEventListener('click', () => select(tr.dataset.id));
+    tr.addEventListener('keydown', ev => {
+      const rowsEl = [...body.children];
+      const i = rowsEl.indexOf(tr);
+      let j = -1;
+      if (ev.key === 'ArrowDown') j = Math.min(rowsEl.length - 1, i + 1);
+      if (ev.key === 'ArrowUp')   j = Math.max(0, i - 1);
+      if (ev.key === 'Home')      j = 0;
+      if (ev.key === 'End')       j = rowsEl.length - 1;
+      if (ev.key === 'Enter' || ev.key === ' ') { select(tr.dataset.id); ev.preventDefault(); return; }
+      if (j >= 0) { ev.preventDefault(); rowsEl[j].focus(); }
+    });
+  });
+}
+function roving(tr) {
+  [...tr.parentNode.children].forEach(r => r.tabIndex = -1);
+  tr.tabIndex = 0;
+}
+$('reg-q').addEventListener('input', e => { state.q = e.target.value; buildRegister(); });
+
+/* =========================================================================
+   7. HIGHLIGHT — the lock between the two surfaces
+   ========================================================================= */
+function closureOf(id) {
+  const set = new Set([id]);
+  const nd = model.nodes.find(n => n.id === id);
+  if (nd) {
+    model.edges.forEach(e => {
+      const ends = [e.a && e.a.node, e.b && e.b.node].concat((e.targets || []).map(t => t.node));
+      if (ends.includes(id)) { set.add(e.id); ends.filter(Boolean).forEach(x => set.add(x)); }
+    });
+  } else {
+    const e = model.edges.find(x => x.id === id);
+    if (e) {
+      [e.a && e.a.node, e.b && e.b.node].concat((e.targets || []).map(t => t.node))
+        .filter(Boolean).forEach(x => set.add(x));
+      if (e.a && e.a.band) set.add(e.a.band);
+      if (e.b && e.b.band) set.add(e.b.band);
+    }
+  }
+  return set;
+}
+function setHi(id) { state.hi = id; applyHighlight(); }
+function applyHighlight() {
+  const id = state.hi || state.sel;
+  const els = scene.querySelectorAll('.dg-el');
+  if (!id) { scene.removeAttribute('data-hi'); els.forEach(e => e.classList.remove('hi')); }
+  else {
+    const cl = closureOf(id);
+    scene.setAttribute('data-hi', id);
+    els.forEach(e => e.classList.toggle('hi', cl.has(e.dataset.id)));
+  }
+  els.forEach(e => e.classList.toggle('sel', e.dataset.id === state.sel));
+  /* the focus ring mirrors the register's focus — focus never enters the svg */
+  const ring = scene.querySelector('#dg-focus');
+  const nd = G.nodes.find(n => n.id === (state.hi || state.sel));
+  if (ring) {
+    if (nd) {
+      ring.setAttribute('x', nd.x - 4); ring.setAttribute('y', nd.y - 4);
+      ring.setAttribute('width', nd.w + 8); ring.setAttribute('height', nd.h + 8);
+    } else { ring.setAttribute('width', 0); ring.setAttribute('height', 0); }
+  }
+  [...$('reg-body').children].forEach(tr => {
+    tr.classList.toggle('hi', tr.dataset.id === state.hi);
+    tr.classList.toggle('sel', tr.dataset.id === state.sel);
+  });
+}
+
+/* =========================================================================
+   8. THE INSPECTOR — mechanism (a). Expandable further, inline.
+   ========================================================================= */
+function select(id, quiet) {
+  state.sel = id; applyHighlight(); buildInspector();
+  if (quiet) return;
+  const tr = $('reg-body').querySelector(`[data-id="${CSS.escape(id)}"]`);
+  if (tr) tr.scrollIntoView({ block: 'nearest' });
+}
+function buildInspector() {
+  const host = $('inspector');
+  const id = state.sel;
+  if (!id) {
+    host.innerHTML = '<div class="insp-kind">Inspector</div>' +
+      '<div class="insp-name">Nothing selected</div>' +
+      '<p class="insp-empty">Focus a row in the register, or click the figure. This ' +
+      'column is disclosure mechanism (a): it holds everything the picture could not ' +
+      'say, it expands further inline, and it is identical on pointer, keyboard and ' +
+      'touch.</p>' +
+      '<details class="disc" open><summary>What lives here and not in the picture</summary>' +
+      '<div class="body"><p>The full untruncated name. Provenance and age. The findings. ' +
+      'The ordered policy list. Every member interface of a LAG or a reth. The corpus ' +
+      'commands that touch the element, with their risk. The emit closure.</p>' +
+      '<p>None of it fits in a box 160&nbsp;px wide, and none of it should be behind a ' +
+      'pointer.</p></div></details>' +
+      '<details class="disc"><summary>Why the risk colours are here and not in the ' +
+      'picture</summary><div class="body"><p>The three risk colours say what a ' +
+      '<em>command</em> does to a live box (<span class="m">ADR-0011</span>). They have ' +
+      'no meaning on a topology node, and spending them there would weaken the only ' +
+      'unambiguous safety signal the product has — on the most-circulated artifact it ' +
+      'makes. So the picture is neutral and the colours live here, three feet away, ' +
+      'where they mean exactly one thing.</p></div></details>';
+    return;
+  }
+  const nd = model.nodes.find(n => n.id === id) ||
+             (G.aggregate && G.aggregate.id === id ? G.aggregate : null);
+  const ed = model.edges.find(e => e.id === id) ||
+             (G.aggEdge && G.aggEdge.id === id ? G.aggEdge : null);
+  const bd = model.bands.find(b => b.id === id);
+  const o = nd || ed || bd;
+  if (!o) return;
+  const kind = nd ? (nd.kind === 'peer' ? 'ExternalPeer' : 'Device') : (ed ? ed.kind : bd.kind);
+  const rows = [];
+  const R = (k, v) => rows.push(`<div class="insp-row"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`);
+  R('id', esc('fathom:' + id));
+  if (nd) {
+    R('drawn as', esc(DRAWN[nd.kind]));
+    R('rank', nd.rank < 0 ? 'external' : String(nd.rank));
+    if (nd.chassis) R('chassis', esc(nd.chassis.join(' + ')));
+    if (nd.addr) R('peer', esc(nd.addr));
+    R('provenance', esc(AGE[nd.age].line || (nd.age === 'hand' ? 'hand-entered — does not age' : 'parsed, fresh')));
+    const g = G.nodes.find(x => x.id === id);
+    if (g) R('geometry', `${g.w} × ${g.h} at ${g.x},${g.y}`);
+    if (nd.aggregateOf) R('stands for', nd.aggregateOf + ' peers');
+  }
+  if (ed) {
+    R('drawn as', esc(DRAWN[ed.kind]));
+    R('layers', esc((ed.layers || []).join(', ')));
+    if (ed.label) R('label', esc(ed.label));
+    const g = G.geomEdges.find(x => x.e.id === id);
+    if (g) R('route', `${g.segs.length} segment${g.segs.length > 1 ? 's' : ''} · ${g.bends} bend${g.bends === 1 ? '' : 's'}` +
+                      ` · ${(g.breaks || []).reduce((s, b) => s + b.length, 0)} crossing break(s)`);
+    else R('route', 'not drawn at this estate size — aggregated');
+  }
+  if (bd) { R('drawn as', bd.kind === 'zone' ? 'vertical bracket' :
+                          bd.kind === 'vlan' ? 'horizontal bracket' :
+                          bd.kind === 'ri' ? 'closed box' : 'wash + return'); }
+
+  let html = `<div class="insp-kind">${esc(kind)}</div>` +
+             `<div class="insp-name">${esc(o.name || o.label || o.id)}</div>` +
+             `<div class="insp-rows">${rows.join('')}</div>`;
+
+  if (o.note) {
+    html += `<details class="disc" open><summary>Why it is drawn this way</summary>` +
+            `<div class="body"><p>${mdish(o.note)}</p></div></details>`;
+  }
+  if (nd && nd.findings && nd.findings.length) {
+    html += `<details class="disc" open><summary>Findings · ${nd.findings.length}</summary><div class="body">` +
+            nd.findings.map(f => `<p class="m">${esc(f)}</p>`).join('') + `</div></details>`;
+  }
+  const ids = (o.corpus || []);
+  if (ids.length) {
+    html += `<details class="disc"><summary>Commands that touch this · ${ids.length}</summary><div class="body">`;
+    ids.forEach(cid => {
+      const c = CORPUS[cid];
+      if (!c) return;
+      html += `<div class="cmd ${c.risk}">${esc(c.cmd)}</div>` +
+              `<p><span class="risk ${c.risk}">${esc(c.risk)}</span> · ${esc(c.terse)}</p>` +
+              `<details class="disc"><summary>Explained</summary><div class="body"><p>${mdish(c.explained)}</p>` +
+              (c.blast ? `<p><strong>Blast radius.</strong> ${mdish(c.blast)}</p>` : '') +
+              (c.rules && c.rules.length ? `<p class="m">rules: ${esc(c.rules.join(', '))}</p>` : '') +
+              `<p class="m">${esc(cid)}</p></div></details>`;
+    });
+    html += `</div></details>`;
+  }
+  html += `<details class="disc"><summary>Why the risk colours are here and not in the picture</summary>` +
+          `<div class="body"><p>The three risk colours say what a <em>command</em> does to a live box ` +
+          `(<span class="m">ADR-0011</span>). They have no meaning on a topology node, and spending ` +
+          `them there would weaken the only unambiguous safety signal the product has — on the ` +
+          `most-circulated artifact it makes. So the picture is neutral and the colours live here, ` +
+          `three feet away, where they mean exactly one thing.</p></div></details>`;
+  host.innerHTML = html;
+}
+
+/* =========================================================================
+   9. THE CHIP — mechanism (b). WCAG 1.4.13, all three conditions, no shadow,
+      no timer, focus as well as hover, and a content rule that keeps it honest.
+   ========================================================================= */
+const chip = $('chip');
+let chipFor = null, chipTrigger = null;
+
+function chipLines(id) {
+  /* THE CONTENT RULE: only what the picture already tried to draw and could
+     not. If the picture drew it, the chip does not repeat it. */
+  const lines = [];
+  const nd = model.nodes.find(n => n.id === id) ||
+             (G.aggregate && G.aggregate.id === id ? G.aggregate : null);
+  const ed = model.edges.find(e => e.id === id) ||
+             (G.aggEdge && G.aggEdge.id === id ? G.aggEdge : null);
+  const g  = nd ? G.nodes.find(x => x.id === id) : null;
+  const lod = state.zoom >= 0.6 ? 2 : (state.zoom >= 0.35 ? 1 : 0);
+  if (nd) {
+    if (g && g.truncated) lines.push({ t: nd.name, dim: false });
+    if (!g) lines.push({ t: nd.name + ' — aggregated, not drawn', dim: true });
+    if (AGE[nd.age].line && lod < 2) lines.push({ t: AGE[nd.age].line, dim: true });
+    if (nd.addr && lod < 2) lines.push({ t: nd.addr, dim: true });
+  }
+  if (ed) {
+    const drawn = G.geomEdges.some(x => x.e.id === id);
+    if (!drawn) lines.push({ t: ed.id + ' — aggregated, not drawn', dim: true });
+    if (ed.label && lod < 2) lines.push({ t: ed.label, dim: true });
+    if (ed.a && ed.a.port && lod < 2) lines.push({ t: ed.a.port, dim: true });
+    if (ed.b && ed.b.port && lod < 2) lines.push({ t: ed.b.port, dim: true });
+  }
+  const counted = G.stats.hidden;
+  if (!lines.length && counted) lines.push({ t: 'nothing suppressed for this element', dim: true });
+  return lines.slice(0, 3);
+}
+
+function showChip(id, trigger) {
+  if (state.disclosure !== 'chip') return;
+  const lines = chipLines(id);
+  chip.innerHTML = lines.map(l => `<span class="cl${l.dim ? ' dim' : ''}">${esc(l.t)}</span>`).join('') +
+                   `<span class="cl last">↵ inspector</span>`;
+  const r = trigger.getBoundingClientRect();
+  chip.hidden = false;
+  const cw = chip.offsetWidth, ch = chip.offsetHeight;
+  let left = r.left + window.scrollX;
+  let top  = r.bottom + window.scrollY;                 /* NO GAP: hoverable */
+  if (left + cw > window.scrollX + document.documentElement.clientWidth - 8)
+    left = window.scrollX + document.documentElement.clientWidth - cw - 8;
+  if (top + ch > window.scrollY + window.innerHeight - 8) top = r.top + window.scrollY - ch;
+  chip.style.left = Math.round(left) + 'px';
+  chip.style.top  = Math.round(top) + 'px';
+  chipFor = id; chipTrigger = trigger;
+  if (trigger.setAttribute) trigger.setAttribute('aria-describedby', 'chip');
+}
+function hideChip() {
+  if (chip.hidden) return;
+  chip.hidden = true;
+  if (chipTrigger && chipTrigger.removeAttribute) chipTrigger.removeAttribute('aria-describedby');
+  chipFor = null; chipTrigger = null;
+}
+/* the figure is a trigger too — a synthetic rect over the element's own box,
+   so the chip has no gap to cross and the grace corridor still works */
+function figureTrigger(id) {
+  const r = scene.getBoundingClientRect();
+  const nd = G.nodes.find(n => n.id === id);
+  const ge = G.geomEdges.find(g => g.e.id === id);
+  let bx;
+  if (nd) bx = { x: nd.x, y: nd.y, w: nd.w, h: nd.h };
+  else if (ge) {
+    const xs = ge.segs.flatMap(s => [s.x1, s.x2]), ys = ge.segs.flatMap(s => [s.y1, s.y2]);
+    bx = { x: Math.min(...xs), y: Math.min(...ys),
+           w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+  } else return null;
+  const z = state.zoom;
+  const rect = { left: r.left + bx.x * z, top: r.top + bx.y * z,
+                 right: r.left + (bx.x + bx.w) * z, bottom: r.top + (bx.y + bx.h) * z };
+  rect.width = rect.right - rect.left; rect.height = rect.bottom - rect.top;
+  return { getBoundingClientRect: () => rect };
+}
+/* 1.4.13 (a) dismissible without moving the pointer */
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') hideChip(); });
+/* 1.4.13 (b) hoverable: a grace corridor, computed, with no timer at all */
+document.addEventListener('pointermove', ev => {
+  if (chip.hidden || !chipTrigger) return;
+  const inside = (el, pad) => {
+    const r = el.getBoundingClientRect();
+    return ev.clientX >= r.left - pad && ev.clientX <= r.right + pad &&
+           ev.clientY >= r.top - pad && ev.clientY <= r.bottom + pad;
+  };
+  if (!inside(chip, 8) && !inside(chipTrigger, 8) &&
+      document.activeElement !== chipTrigger) hideChip();
+});
+
+/* =========================================================================
+   10. HIT TESTING — a uniform grid over scene coordinates, one delegated
+       listener. No transparent <rect> per element (concept 03 added one each,
+       which is both an element-budget leak and a pointer bug).
+   ========================================================================= */
+function hitTest(sx, sy) {
+  for (const n of G.nodes) {
+    if (sx >= n.x - 4 && sx <= n.x + n.w + 4 && sy >= n.y - 4 && sy <= n.y + n.h + 4)
+      return n.id;
+  }
+  for (const g of G.geomEdges) {
+    for (const s of g.segs) {
+      const d = ptSeg(sx, sy, s);
+      if (d <= 4) return g.e.id;
+    }
+  }
+  return null;
+}
+function ptSeg(px, py, s) {
+  const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+  const l2 = dx * dx + dy * dy;
+  if (!l2) return Math.hypot(px - s.x1, py - s.y1);
+  let t = ((px - s.x1) * dx + (py - s.y1) * dy) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (s.x1 + t * dx), py - (s.y1 + t * dy));
+}
+function sceneCoords(ev) {
+  const r = scene.getBoundingClientRect();
+  return { x: (ev.clientX - r.left) / state.zoom, y: (ev.clientY - r.top) / state.zoom };
+}
+scene.addEventListener('pointermove', ev => {
+  const p = sceneCoords(ev);
+  const id = hitTest(p.x, p.y);
+  if (id !== state.hi) {
+    setHi(id);
+    if (state.disclosure === 'chip') {
+      if (id) { const t = figureTrigger(id); if (t) showChip(id, t); else hideChip(); }
+      else hideChip();
+    }
+  }
+});
+scene.addEventListener('pointerleave', () => setHi(null));
+scene.addEventListener('pointerdown', ev => {
+  const p = sceneCoords(ev);
+  const id = hitTest(p.x, p.y);
+  if (id) select(id);
+});
+
+/* =========================================================================
+   11. THE KEY. Rendered by the same primitives as the scene.
+   ========================================================================= */
+const KEY_ITEMS = [
+  ['Physical link', 'G4 1 rail · G5 stub/stub', k => {
+     k.stub(16, 20, 1, 0); k.rail(28, 20, 164, 20); k.stub(176, 20, -1, 0); }],
+  ['LAG · ae0', 'G4 2 rails · G5 bracket both ends', k => {
+     k.stub(16, 20, 1, 0); k.stub(176, 20, -1, 0);
+     k.rail(28, 18, 164, 18); k.rail(28, 22, 164, 22);
+     k.bracket(28, 20, 1); k.bracket(164, 20, -1); }],
+  ['reth · RG1', 'G4 2 rails · G5 bracket ONE end', k => {
+     k.stub(16, 12, 1, 0); k.stub(16, 28, 1, 0);
+     k.rail(24, 12, 40, 12); k.rail(24, 28, 40, 28); k.rail(40, 12, 40, 28);
+     k.junction(40, 12); k.junction(40, 28);
+     k.rail(40, 12, 176, 12); k.rail(40, 28, 176, 28); }],
+  ['Tunnel conduit', 'G4 2 capped rails', k => {
+     k.stub(16, 20, 1, 0); k.stub(176, 20, -1, 0);
+     k.rail(28, 16, 164, 16); k.rail(28, 24, 164, 24);
+     k.rail(28, 16, 28, 24); k.rail(164, 16, 164, 24); }],
+  ['Routed adjacency', 'G4 1 rail · G9 open V', k => {
+     k.stub(16, 20, 1, 0); k.rail(28, 20, 164, 20); k.arrow(164, 20, 1, 0); }],
+  ['Zone-pair policy', 'G5 bracket returns · G9 open V', k => {
+     k.term(20, 20); k.rail(28, 20, 164, 20); k.arrow(164, 20, 1, 0); }],
+  ['L2 access port', 'G6 no mid-tick', k => {
+     k.stub(16, 20, 1, 0); k.rail(28, 20, 164, 20); k.stub(176, 20, -1, 0); }],
+  ['L2 trunk', 'G6 two mid-ticks', k => {
+     k.stub(16, 20, 1, 0); k.rail(28, 20, 164, 20); k.stub(176, 20, -1, 0);
+     k.tick(94, 20); k.tick(102, 20); }],
+  ['Asymmetric trunk', 'G6 ticks at the tagged quarter', k => {
+     k.stub(16, 20, 1, 0); k.rail(28, 20, 164, 20); k.stub(176, 20, -1, 0);
+     k.tick(60, 20); k.tick(68, 20); }],
+  ['Inferred, not observed', 'G12 tone · open square terminal', k => {
+     k.stub(16, 20, 1, 0); k.rail(28, 20, 160, 20, true); k.openSquare(164, 20); }],
+  ['Crossing · junction', 'legibility marks, no channel', k => {
+     k.rail(16, 20, 176, 20); k.railBroken(96, 8, 96, 32, 20);
+     k.rail(40, 20, 40, 34); k.junction(40, 20); }],
+  ['AI-proposed — RESERVED', 'G2 · unavailable to topology', k => {
+     k.stub(16, 20, 1, 0); k.rail(28, 20, 164, 20, false, true); k.stub(176, 20, -1, 0); }]
+];
+
+function buildKey() {
+  const host = $('key-grid');
+  host.innerHTML = '';
+  KEY_ITEMS.forEach(([name, chan, draw]) => {
+    let d = '', dm = '', dp = '', extra = '';
+    const k = {
+      rail: (x1, y1, x2, y2, muted, dash) => {
+        const t = `M${hp(x1)} ${hp(y1)}L${hp(x2)} ${hp(y2)}`;
+        if (dash) dp += t; else if (muted) dm += t; else d += t;
+      },
+      railBroken: (x1, y1, x2, y2, at) => {
+        d += `M${hp(x1)} ${hp(y1)}V${hp(at - 2)}M${hp(x1)} ${hp(at + 2)}V${hp(y2)}`;
+      },
+      stub: (x, y, dx, dy) => { d += `M${hp(x)} ${hp(y)}l${dx * STUB} ${dy * STUB}`; },
+      bracket: (x, y, dir) => {
+        d += `M${hp(x)} ${hp(y - 2)}V${hp(y + 2)}M${hp(x)} ${hp(y - 2)}h${dir * 4}M${hp(x)} ${hp(y + 2)}h${dir * 4}`;
+      },
+      term: (x, y) => { d += `M${hp(x)} ${hp(y - 4)}V${hp(y + 4)}M${hp(x)} ${hp(y)}h8`; },
+      tick: (x, y) => { d += `M${hp(x)} ${hp(y - 3)}V${hp(y + 3)}`; },
+      arrow: (x, y, dx, dy) => { d += `M${hp(x)} ${hp(y)}l${-dx * 6} -3M${hp(x)} ${hp(y)}l${-dx * 6} 3`; },
+      openSquare: (x, y) => { d += `M${hp(x - 2)} ${hp(y - 2)}h4v4h-4z`; },
+      junction: (x, y) => { extra += `<rect class="dg-junction" x="${x - 2}" y="${y - 2}" width="4" height="4" shape-rendering="crispEdges"/>`; }
+    };
+    draw(k);
+    const el = document.createElement('div');
+    el.className = 'key-item';
+    el.innerHTML =
+      `<svg width="192" height="40" viewBox="0 0 192 40" aria-hidden="true">` +
+      (d ? `<path class="dg-rail" d="${d}" fill="none" vector-effect="non-scaling-stroke" shape-rendering="crispEdges"/>` : '') +
+      (dm ? `<path class="dg-rail muted" d="${dm}" fill="none" vector-effect="non-scaling-stroke" shape-rendering="crispEdges"/>` : '') +
+      (dp ? `<path class="dg-rail proposed" d="${dp}" fill="none" vector-effect="non-scaling-stroke"/>` : '') +
+      extra + `</svg>` +
+      `<div class="kname">${esc(name)}</div><div class="kchan">${esc(chan)}</div>`;
+    host.appendChild(el);
+  });
+}
+
+/* =========================================================================
+   12. THE GENERATED HONEST NOTE — measured, not written.
+   ========================================================================= */
+function buildHonestNote() {
+  const n = $('honest-note');
+  const cap = G.capacity;
+  const parts = [];
+  parts.push(`At <strong>${state.spokes} spokes</strong> the layout runs in ` +
+    `<strong>${lastLayoutMs.toFixed(1)} ms</strong> and the render in ` +
+    `<strong>${lastRenderMs.toFixed(1)} ms</strong>, producing ` +
+    `${G.nodes.length} nodes, ${G.geomEdges.length} edges and ` +
+    `${G.stats.elements} live SVG elements in a ${G.W}×${G.H} scene.`);
+  parts.push(`The hub's right edge holds <strong>${cap}</strong> st0 stubs before the box ` +
+    `exceeds the ${HUB_MAX_H}px legibility cap — that number is computed from the ` +
+    `${CONDUIT_PITCH}px module, not chosen.`);
+  if (G.stats.aggregated) {
+    parts.push(`<strong>${G.stats.aggregated} tunnels are aggregated into one drawn ` +
+      `conduit.</strong> That is the honest failure, and it is the finding: a hub with ` +
+      `40 tunnels cannot draw 40 port stubs on one box edge at any stroke weight, in any ` +
+      `tool. The register below still carries all ${state.spokes} exactly, which is the ` +
+      `entire argument for this posture.`);
+  } else if (state.spokes > cap) {
+    parts.push(`<strong>Aggregation is off and the figure is drawing all ${state.spokes} ` +
+      `tunnels.</strong> The hub box is now ${G.byId.get('srx-a').h}px tall and the scene ` +
+      `is ${G.H}px. It is still correct, still on the lattice and still legible at z 1 — ` +
+      `it has simply stopped being small, and you now scroll to compare two spokes that ` +
+      `the register puts on adjacent rows.`);
+  } else {
+    parts.push(`Nothing is aggregated at this size.`);
+  }
+  if (G.stats.hidden) parts.push(`${G.stats.hidden} label${G.stats.hidden > 1 ? 's' : ''} ` +
+    `could not be placed and ${G.stats.hidden > 1 ? 'are' : 'is'} counted in the view band ` +
+    `rather than overlapped or silently dropped. ${G.stats.folded} more ` +
+    `${G.stats.folded === 1 ? 'was' : 'were'} folded by the group rules — a repeated ` +
+    `label stated once, not six times.`);
+  n.innerHTML = parts.join(' ');
+}
+
+/* =========================================================================
+   13. GO
+   ========================================================================= */
+buildKey();
+redraw();
+buildInspector();
+</script>
+</body>
+</html>
