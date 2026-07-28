@@ -65,6 +65,19 @@ here have unknown shape.
 
 > **THIS REGISTER RECORDS INTENT. IT DOES NOT DECIDE, SPECIFY OR SCHEDULE.**
 
+**Where that rule comes from, and it is the owner's.** The four requests below (§3.1, §5.1, §6.1)
+arrived together with an instruction that they were being recorded as future intent and were **not
+to be acted on** — no decision was asked for, and none is given here. That instruction is this
+document's entire licence to exist. Without it, four capability requests carrying this much
+second-order consequence would belong in `73` as forks, or nowhere at all.
+
+> **The verbatim wording of that instruction is not preserved in this document, and it should be.**
+> §2.1 states the reason it matters — *"paraphrasing a governance instruction is how it decays"* —
+> and the paragraph above is a paraphrase. Whoever next touches this register with access to the
+> original exchange should replace it with the owner's words. Recorded as a live defect in §10
+> row 7 rather than papered over: a reconstructed quotation would be worse than an admitted gap,
+> because it would read as evidence.
+
 Every entry states what is wanted, where it would attach, what it drags in, and what must be
 decided first — and then stops. Concretely, and these are the failure conditions a reviewer
 should check this document against:
@@ -84,9 +97,16 @@ the entry cites the document that did and moves on.
 recorded per §10. A lean is not an answer."* The same applies with more force here, because these
 entries are not even leans.
 
-### 1.3 The entry lifecycle — how an entry leaves
+### 1.3 The entry lifecycle — proposed, not enacted
 
-An entry that never leaves is a wish. There are exactly four exits.
+An entry that never leaves is a wish. **Everything in this subsection is a proposal about how this
+document should be governed, and this document cannot enact it.** ADR-0001 gives every settled
+question one owning document, and §13 item 1 records that `75` is not named anywhere and owns
+nothing settled — so a register cannot legislate its own review process from inside itself. The
+exits, the cadence and the disposal rule below are offered to whoever makes the `73` §10 edit
+proposed in §13 item 1. Until that edit exists, they bind nobody, including this document.
+
+Four exits are proposed.
 
 | Exit | Where it goes | The trigger |
 |---|---|---|
@@ -101,9 +121,10 @@ document to a reader two years later."* An intention that was recorded and then 
 evidence about the project's judgement; an intention that silently vanished is evidence about
 nothing.
 
-**Review cadence.** At phase boundaries, with `73`. `73` §10.4's argument transfers: *"A register
-reviewed continuously becomes a discussion; a register reviewed at phase boundaries becomes a
-checklist."* Two questions per entry — has anything upstream unblocked it, and is it still wanted.
+**Review cadence, proposed.** At phase boundaries, with `73`. `73` §10.4's argument transfers:
+*"A register reviewed continuously becomes a discussion; a register reviewed at phase boundaries
+becomes a checklist."* Two questions per entry — has anything upstream unblocked it, and is it
+still wanted. Whether that is the right cadence is for `73` §10 to say, not for this document.
 
 ### 1.4 The shape of every entry
 
@@ -115,16 +136,23 @@ checklist."* Two questions per entry — has anything upstream unblocked it, and
 | **Where it would attach** | Document and section, with what would change |
 | **What it drags in** | The second-order consequences, honestly, including the ones that make it expensive |
 | **What must be decided first** | The upstream blockers, in order. An entry with an unmet blocker cannot be scheduled, only forked |
-| **Earliest possible arrival** | Against ADR-0006's phase model, so nothing here reads as near-term |
+| **Not before** | The earliest phase whose prerequisites exist, against ADR-0006's phase model. **A floor, never an assignment** — see §1.5 |
 
 ### 1.5 The register
 
-| # | Capability | Status | Earliest possible arrival | Hard blocker | § |
+**How to read the "Not before" column.** It is a *lower bound derived from prerequisites*, not a
+phase assignment. It says: the machinery this entry needs does not exist until here, so it cannot
+land earlier. It does not say it lands there, or that it lands at all. **Scheduling is `71`'s to
+do and this register does not own `71`**; Q22 (§8) leaves the actual phase open, and §8 Q22's own
+note is that deciding this as one feature and scheduling it as one feature will not survive contact
+with `71`'s phase boundaries. The column exists so that nothing here reads as near-term.
+
+| # | Capability | Status | Not before | Hard blocker | § |
 |---|---|---|---|---|---|
-| **C-01** | Element lifecycle state — decommission, maintenance, and an open "etc" | Intent recorded | Phase 2 at the earliest; the emit half is phase 3 | `62-schema-spec.md` does not exist (ADR-0008); `03` §4.3 `N-R-3`'s test as written | §3 |
-| **C-02a** | Ticket reference and dates as inert workspace data | Intent recorded | Phase 2 | Same schema blocker. No invariant blocker found | §4 |
+| **C-01** | Element lifecycle state — decommission, maintenance, and an open "etc" | Intent recorded | Not before phase 2; the emit half not before phase 3 | `62-schema-spec.md` does not exist (ADR-0008); `03` §4.3 `N-R-3`'s test as written | §3 |
+| **C-02a** | Ticket reference and dates as inert workspace data | Intent recorded | Not before phase 2 | Same schema blocker. No invariant blocker found **on the tests run in §4.2** — that is a result, not a clean bill; §4.2 records which tests were run and against what | §4 |
 | **C-02b** | Live ticketing integration — fetch, post back, validate, sync a window | **NOT APPROVED — see C-04** | — | Invariants 1 and 3 | §4.1, §6 |
-| **C-03** | Multi-select and bulk action as a first-class verb class | Intent recorded | Phase 2 | `52` §12 D3 currently leans the other way; `53` §7.2's `TxSource` cannot express it | §5 |
+| **C-03** | Multi-select and bulk action as a first-class verb class | Intent recorded | Not before phase 2 | `52` §12 D3 currently leans the other way; `53` §7.2's `TxSource` cannot express it | §5 |
 | **C-04** | Integration hooks to ticketing and change management | **DEFERRED, AND CURRENTLY REFUSED BY `03` §4.3** | Not on any plan | Two invariants, three ship gates, two permanent boundaries | §6 |
 
 **Read the C-04 row before reading anything else.** The owner deferred it for security reasons and
@@ -139,8 +167,24 @@ Stated up front so this register is not misread as a near-term plan. ADR-0006: *
 ticket are phase 3. Sync is phase 5, and ADR-0016 makes git the sync with no multi-writer CRDT
 until a pilot team works around the lock.
 
-Nothing in this register is v1. The merge-semantics problems raised in §3 and §7 are not phase-2
-problems at all — they only become live if ADR-0016 is reversed.
+Nothing in this register is v1. **The merge-semantics problems raised in §3 and §7 split in two,
+and only one half is dormant.** An earlier draft of this section claimed both halves were dormant
+until ADR-0016 was reversed. That was wrong, and ADR-0016's own text is what refutes it.
+
+| Half | Live from | Why |
+|---|---|---|
+| **`33` §6.4's field-class question** — which of A/N/B/C/D/E a lifecycle register is (§7 row 11), and the HLC/actor machinery behind it | **Dormant.** Only if ADR-0016 is reversed | ADR-0016 defers the multi-writer CRDT entirely: *"No multi-writer convergence."* `33` remains *"the specification for when one is built. It is deferred, not deleted"* |
+| **`11` §8.6's resolution question** — what happens when two copies of a workspace assert different values for the same field | **Live from the first git merge**, which is phase 0 | ADR-0016 ships *"a workspace file plus git"* for v1 and phases 0–3, and its own "not this" table reads: *"A git merge conflict on a record is opened in the application with the passphrase and merged on plaintext by `11` §8.6."* `17` §12.4 specifies the mechanism — `fathom merge --resolve` reads the three index stages, opens them under an explicit unlock, and *"merges values per `11-ir-schema.md` §8.6"* |
+
+`11` §8.6's ladder is four deterministic steps — higher `Confidence`, then `Origin` precedence,
+then later `asserted_at`, then `Field::Conflicted` — and step 3 is last-writer-wins by its own
+admission: *"Two `Hand` assertions at different times do resolve by recency, which is
+last-writer-wins."* A lifecycle state set by two people on two clones of a git-synced workspace
+resolves by that ladder, in phase 2, with no CRDT anywhere near it. So does D3's *"bad bulk edit
+across a sync merge"* (§5.4).
+
+**The consequence for this register:** every entry that touches merge must say which half it is in.
+§3.4, §5.4 and §7 row 11 now do.
 
 ---
 
@@ -164,9 +208,14 @@ afterwards.
 
 ### 2.2 What this changes, and what it does not
 
-| It does | It does not |
+**A reading, not a ruling.** The table below is this register's reading of the owner's instruction
+in §2.1, offered so that the instruction is not silently widened into a licence. It is not a
+governance rule this document is entitled to make — `73` §10 and ADR-0002 own that — and where
+the reading is wrong, the instruction wins and this table should be corrected.
+
+| The reading | What it does not extend to |
 |---|---|
-| Make every `Accepted` ADR reopenable **on merit** | Make any ADR less binding until it is reopened by the process that created it |
+| Every `Accepted` ADR is reopenable **on merit** | Any ADR becoming less binding until it is reopened by the process that created it |
 | Make "we already argued this" an insufficient reason to close a question | Make "we already argued this" irrelevant — the earlier argument is evidence, it is just not authority |
 | Put the burden on the *new* requirement to show the old answer no longer fits | Invite re-litigation without new information |
 
@@ -234,9 +283,12 @@ literally *"B removes `GW-B` because the peer was decommissioned"*, resolved as 
 > (tombstoned-but-live, decommissioned-but-present-in-config, both). `Op::Purge` (`33` §5.1,
 > `53` §3.8 `⇧P`) sits on tombstone only.
 
-Either lifecycle subsumes tombstone, or the two are explicitly reconciled. Shipping both without
-reconciling them gives one question two answers, which is how a data model acquires a state
-nobody can explain.
+Two framings are visible from here — lifecycle subsumes tombstone, or the two are reconciled as
+distinct concepts with the four-cell matrix given meaning. **This register does not claim those are
+the only two**, and Q12 is open. What it does claim, and this part is a constraint rather than a
+decision: shipping both *without* reconciling them gives one question two answers, which is how a
+data model acquires a state nobody can explain. Any third framing has to discharge that same
+obligation.
 
 ### 3.3 The state vocabulary — options, not a decision
 
@@ -250,17 +302,34 @@ state — cost one more field now and avoid a shape change later. **Not decided 
 that a shape change after phase 1 is a major schema bump (`11` §11.3), and `11` §11.4 states what
 a major bump does to an air-gapped user.
 
-**Question B — candidate states.** Each of the following needs an explicit yes or no, because each
-one is a row in every emit-behaviour table and every merge matrix that C-01 eventually touches.
+**Question B — the enumeration is open, and this register must not close it.**
 
-| Candidate | What it would assert | The obvious objection |
-|---|---|---|
-| `Planned` | Modelled, not yet built | `11` §10.5's `Divergent { since }` already means this, derived rather than asserted |
-| `Live` | Normal operation | A default state that is also a value is a state you have to migrate into |
-| `Maintenance` | Temporarily out of service, expected back | Wants `deactivate` semantics from the emitter, not `delete` — `13` §2.4 |
-| `Decommissioning` | Deletes generated, not yet applied | This is a *process* state, and `03` §4.3's test forbids exactly that. See §3.6 |
-| `Decommissioned` | Gone from the box | Collides with `absent_since` (§3.2) |
-| `Retained` | Physically present, deliberately unmanaged | Arguably the most useful one in a real estate, and the one nobody asks for first |
+> **THE OWNER SAID "ETC". THE LIST BELOW IS NOT A SHORTLIST AND MUST NOT BE READ AS ONE.**
+
+§1.2 forbids *"a chosen enumeration presented as settled"*, on the grounds that an open enumeration
+is data about the request rather than a gap to fill. The owner named **two** states —
+`Decommissioned` and `Maintenance` — and left the rest open. Everything else in the table below is
+**this register's invention, added to show what the "etc" drags in, not to propose what fills it.**
+
+The table's purpose is the right-hand column. Each row demonstrates that a state word is never just
+a word: it is a row in every emit-behaviour table and every merge matrix C-01 touches, and several
+of the obvious candidates collide with machinery that already exists. That is the finding. The
+words themselves are worked examples and carry no standing.
+
+| Candidate | Provenance | What it would assert | The collision it demonstrates |
+|---|---|---|---|
+| `Maintenance` | **Owner** | Temporarily out of service, expected back | Wants `deactivate` semantics from the emitter, not `delete` — `13` §2.4 — and `13` §9.2 already has `deactivate` unrepresentable on two of three platforms |
+| `Decommissioned` | **Owner** | Gone from the box | Collides with `absent_since` (§3.2): today, decommission *is* tombstone |
+| `Planned` | *Register's invention* | Modelled, not yet built | `11` §10.5's `Divergent { since }` already means this, derived rather than asserted. A demonstration that some of the "etc" may already exist under another name |
+| `Live` | *Register's invention* | Normal operation | A default state that is also a value is a state you have to migrate into |
+| `Decommissioning` | *Register's invention* | Deletes generated, not yet applied | The sharpest one: this is a *process* state, and `03` §4.3 `N-R-3`'s test forbids exactly that. See §3.6 blocker 2 |
+| `Retained` | *Register's invention* | Physically present, deliberately unmanaged | Included to show the enumeration cannot be closed by intuition — this is arguably the most useful state in a real estate and it is the one nobody asks for first |
+
+**Q3 asks for the full enumeration and this register has not narrowed it.** A reader treating the
+six rows above as the candidate set has misread the section: two are the owner's, four are
+illustrations, and the owner's "etc" may contain states none of the six anticipate. The finding to
+carry forward is the *shape* of the problem — that each state costs a row in several matrices, and
+that at least one obvious candidate is refused outright by `03` §4.3.
 
 **Whatever set is proposed must be checked against `11` §6.1's earn-a-kind test**, whose criterion
 is *"a distinct required-field set, a distinct edge signature, or a distinct **lifecycle**"*. That
@@ -274,12 +343,14 @@ it is the reason somebody will argue a lifecycle state should have been a kind.
 | `11` | §6.2 and §13 | **The fork that decides everything else.** §6.2 says every kind implicitly carries `id, prov, ext, aka, unknown, notes: [Text]`. §13's `Node` struct carries `id, body, existence, ext, aka, absent_since, unknown` — no `notes`. Two normative statements in one document already disagree about whether a free-text user carrier exists. A node-level `lifecycle` sits beside `absent_since`; a per-kind `lifecycle` sits in `NodeBody`. That fork decides whether lifecycle is a `Field<T>` with provenance and history or a bare marker |
 | `11` | §10.5 | An **edit to a decided table**. Today an `Origin::Hand` node missing from a `Section`/`Whole` re-parse becomes `Divergent { since }` and raises a finding. If a human has set `Decommissioned`, that absence is confirmation, not divergence, and the table has no cell for it |
 | `11` | §6.3 | If lifecycle is a body field, this is the per-kind table it enters. §6.3 already carries annotation-only fields with Emit `—`: `Site.criticality` is marked *"Used by rule severity weighting, not by emit"* |
+| `11` | **§8.6** | **Live from phase 0, not deferred with the CRDT (§1.6).** §8.6 is the resolution ladder every git merge runs through `fathom merge --resolve`: higher `Confidence`, then `Origin` precedence, then later `asserted_at`, then `Field::Conflicted`. A lifecycle state is `Origin::Hand` on both sides of a two-clone merge, so steps 1 and 2 tie and step 3 decides — *"which is last-writer-wins"*, by §8.6's own words. Whether that is acceptable for a state that gates emit is a question this register does not answer, and it is due in phase 2, not phase 5 |
+| `17` | **§12.3–12.4** | The mechanism behind the row above, and the reason it is not theoretical. §12.3 removed the custom merge driver entirely, so records carry `merge=binary` and git leaves a conflicted path. §12.4's `fathom merge --resolve` then reads the three index stages, opens them under an explicit unlock, and *"merges values per `11-ir-schema.md` §8.6"*. A lifecycle field acquires whatever §8.6 gives it, automatically, with no work and no decision |
 | `11` | §11.3 | A new optional field is a **minor** bump that old clients preserve. Changing its shape later is a **major** bump |
 | `12` | §3.6, §5 | Only touched if rules may *read* lifecycle. If they may, it enters the `fex` name environment, the static read-set extractor, the dependency keys and the invalidation algorithm. If they may not, `12` is untouched and lifecycle is inert |
 | `13` | §2.4 | The emit half, and the most valuable thing in the request. See §7 row 4 |
 | `17` | §4.2 | As a node field it lands in the `Nodes` shards for free — no new class byte, no new merge path. As a workspace sibling alongside `Suppressions` `0x20` it needs a class byte and §9.2's leak argument applies |
 | `18` | §2.5, §6.2 | Free if it is a schema field — the diff walks the schema in declaration order, so a lifecycle change becomes a `FieldDelta` automatically. `DeltaClass` is a separate question (§8) |
-| `33` | §6.4 | A row must be added to the A/N/B/C/D/E class table, and none of the six fits a single-valued register. See §7 row 11. **Only live if ADR-0016 is reversed** |
+| `33` | §6.4 | A row must be added to the A/N/B/C/D/E class table. See §7 row 11 for which classes are candidates and why the choice is contested. **This row alone is dormant under ADR-0016** — the field classes are CRDT machinery, and `33` is *"deferred, not deleted"*. It does **not** carry the `11` §8.6 row above with it (§1.6) |
 | `52` | §3.7 | Inventory is the named home: *"the one view where bulk editing is appropriate"*, with columns *"chosen from the schema (`11` §11.6 makes the schema data, so the column picker is generated, not hand-written)"*. A lifecycle column is generated rather than written — **but only if lifecycle is a schema field.** A node-level attribute like `absent_since` is not in `schema.yaml` and would need a hand-written exception |
 | `54` | §14 | Either a sibling component or a generalisation of the suppression record |
 
@@ -372,8 +443,9 @@ noun. Separating them is the single most useful thing this entry does.
 
 ### 4.2 (a) verified against the documents, not asserted
 
-The claim that a stored ticket string touches no invariant is checkable, and it checks out three
-ways.
+The claim that a stored ticket string touches no invariant is checkable. **Four tests were run and
+they are named, so that the result reads as a result rather than as a clean bill.** Tests that were
+not run are listed at the end of this subsection.
 
 **One — it passes `03` §5.1's scope rule.** The rule is:
 
@@ -401,18 +473,49 @@ person's name was. Giving that string a typed home makes an existing recommendat
 fields as *"routinely yes, and this is the number one channel"* for personal data. A structured
 ticket field is a place for the reference that is not a free-text field.
 
-**The one new obligation** is a row in `37` §2.2's inventory with a verdict, because that table is
-the one handed to a DPO and it is complete by construction.
+**Four — `03` §4.3 `N-R-3`'s review rule, run explicitly rather than skipped.** §3.6 blocker 2
+applies this test to C-01, and it must be applied here too or the asymmetry is just an oversight.
+The rule reads:
+
+> *"Review rule: no workspace field represents a human's approval or a process state."*
+
+and `N-R-3`'s *"Also refused"* row sharpens it: *"Approval state inside the workspace — 'this
+change is approved by X'. That is an assertion about a human process the tool cannot verify, stored
+somewhere it can be edited."*
+
+**The result: C-02a passes, and the reasoning is the load-bearing part.** A change-ticket number is
+an *identifier* — a pointer into a workflow system — not an assertion about that workflow's state.
+`CHG0041234` claims that a ticket with that name exists somewhere; it does not claim the change is
+approved, scheduled, or complete. `N-R-3` refuses fields that assert *"this change is approved by
+X"*; a bare reference asserts nothing the tool would have to verify.
+
+**Two things that would flip this result**, recorded because the pass is narrow:
+
+| If C-02a gained… | It fails `N-R-3` |
+|---|---|
+| A **status** alongside the reference — `CHG0041234 · approved`, or any enum tracking where the ticket is in someone's workflow | That is process state verbatim, and it is what C-02b (§4.1) would fetch. The refusal of C-02b and this test are the same refusal seen from two directions |
+| A **validity** claim — the field asserting the ticket exists or is open | Unverifiable without egress, so it would be an assertion the tool cannot check, stored somewhere it can be edited |
+
+**What was not tested.** `03` §4.2 `N-R-2` (*"no field asserts currency or authority"*) is not run
+here. A bare reference makes no currency claim, so it looks clean, but §3.6 blocker 3 shows the
+parsed-versus-asserted distinction is contested for C-01 and the same argument has not been walked
+through for C-02a. The dates half of C-02 (§4.4) is where `N-R-2` actually bites, and §4.4 treats
+it there.
+
+**One new obligation follows from the tests above**, and calling it *the* one would overclaim,
+since §4.3's attach table names two more: a row in `37` §2.2's inventory with a verdict, because
+that table is the one handed to a DPO and it is complete by construction.
 
 ### 4.3 Where C-02a would attach
 
 | Document | Section | What would change |
 |---|---|---|
-| `11` | §4.3 | A `TicketRef` semantic scalar rather than `Text`. §4.3 marks `Text` as the free-string type for *"descriptions and notes only"*, and §12.4 bans `Text` from the extension bag because it is how the bag becomes a back door. The same reasoning argues for a pattern-constrained scalar over another free-text field |
+| `11` | §4.3 | **The fork Q14 asks, and this register does not take it.** §4.3's scalar catalogue marks `Text` as the only free-string type, scoped to *"descriptions and notes only"*, and §12.4 bans `Text` from the extension bag because it is how the bag becomes a back door. So a ticket reference is either `Text` — accepting a scope `11` §4.3 words narrowly — or a new pattern-constrained scalar in the catalogue. **Neither is chosen here, and no type is named**; naming one would be `11` and `62`'s job under §1.2. The trade: a constrained scalar validates and makes the field searchable as a reference, and it hardcodes one organisation's ticket grammar into a schema shipped to everyone — `CHG0041234`, `NET-4471`, `CKT-44812` and `CHG-2026-0211` all appear in the corpus today (§4.2) and no single pattern matches all four. `Text` accepts anything, including the free-text personal data `37` §2.2 row 8 warns about, which is the improvement §4.2 test three claims |
 | `12` | §11.1 | **Nothing needs to change for suppressions to carry a ticket today.** `54` §14 already quotes one inside `reason` |
 | `17` | §15.2, §15.5 | A structured field would appear in `csv`, `fathom-json` and `review` exports. `review` is *"the most dangerous artifact"* (`17` §15.5), so a lifecycle-plus-ticket column joins that artefact |
 | `18` | §6.2 | Would appear in the change ticket. Note the resulting shape: a populated *what changes* section and an **empty** config section, because the field emits nothing. That is honest and it is a new ticket shape |
 | `34` | §6.3 | Nothing. The ticket string is already a first-class part of the clipboard payload |
+| `34` | **§5.1, §5.5** | **The two places a new user-typed string actually lands, and neither is free.** §5.1's source table classes U3 — *"User-typed values — names, descriptions, suppression reasons, export reasons"* — as *"none, treated as U2"*, meaning a ticket reference is untrusted text on the same footing as a pasted config, and U3's *"Reaches"* cell already names the export header (`17` §15.5). §5.5 then governs bidi controls, zero-width characters, tag characters, homoglyphs and control characters **per path**, with three different behaviours — sentinel badges when displaying a raw capture, normalise-and-record when ingesting into the graph, and cannot-arise on emit. A ticket reference joins two paths this register's own §4.3 table names: `34` §6.3's clipboard payload and `17` §15.5's export header. Which of §5.5's three behaviours a user-typed reference gets is not obvious — it is neither a raw capture nor an emitted line — and §5.5's governing rule is *"never silently alter text the user will paste into a device"* |
 | `37` | §2.2 | One row, with a verdict |
 
 **One thing that is already decided and should not be rediscovered:** a ticket reference cannot be
@@ -561,11 +664,23 @@ annotation. The value side of the trade changes; the risk side does not.
 
 Two things worth recording alongside, per §2:
 
-- The merge half of D3's risk **is substantially defused for phases 0–3** by ADR-0016: git is the
-  sync, with no multi-writer CRDT until a pilot team works around the lock. Bulk annotation would
-  land in phase 2, which is before that.
+- **D3's merge half is not defused, and an earlier draft of this section said it was.** The claim
+  was that ADR-0016 removes the risk for phases 0–3 because git is the sync and there is no CRDT.
+  ADR-0016 refutes it directly: git *is* the merge, and its own "not this" table reads *"A git
+  merge conflict on a record is opened in the application with the passphrase and merged on
+  plaintext by `11` §8.6."* `17` §12.4 gives the mechanism, `fathom merge --resolve`, which
+  *"merges values per `11-ir-schema.md` §8.6"* — **per field**. D3's stated failure mode is *"a
+  bad bulk edit across a sync merge"*, and a git pull is a sync merge. What ADR-0016 removes is
+  concurrent multi-writer convergence; what it leaves in place is exactly the two-clone,
+  diverged-workspace case D3 names. **The risk side of D3's trade is unchanged, from phase 0.**
 - D3's other half — that `53` §7's undo cannot fully repair a bad bulk edit — survives intact and
   is §5.5.
+
+**So the change C-01 and C-02 make to D3 is one-sided.** The value side rises, because bulk
+annotation becomes the primary application path rather than a convenience. The risk side does not
+fall. That makes D3 harder to answer than the current lean assumes, not easier — which is the
+opposite of what the earlier draft implied, and it is worth stating plainly because the earlier
+draft's error pointed the reader toward flipping D3.
 
 **This register does not answer D3.** It records that the request is direct evidence against the
 current lean, and that D3 is now load-bearing rather than academic.
@@ -653,7 +768,13 @@ be the first capability that splits the product by deployment mode. And it would
 outbound path carrying graph-derived content, which puts it under `23`'s exfiltration frame and
 `17` §15's plaintext gate rather than under "a feature".
 
-### 6.4 The export/import path — the honest alternative, and it may need nothing
+### 6.4 An adjacent pattern the corpus already accepts — recorded, not proposed
+
+> **THIS IS NOT AN ALTERNATIVE ROUTE TO C-04. NOTHING HERE IS APPROVED, AND NOTHING HERE IS A PLAN.**
+> A reader who arrived at §6 looking for "what can we do instead" should stop at §6.2. This
+> subsection exists for one reason: so that whoever reopens the hook question discovers, at the
+> same moment they discover the refusal, that a different and already-accepted pattern exists — and
+> does not mistake this section for permission to build it.
 
 **An export the user's own tooling posts is not egress by Fathom.** The pattern is already argued
 and accepted in the corpus, on data the project cared about enough to have wanted telemetry for:
@@ -673,9 +794,22 @@ The machinery for the ticketing case largely exists:
 | The clipboard as the delivery mechanism, with a ticket reference already in the header | `34` §6.3 | Ships |
 | The plaintext export gate, if the artefact is more than a clipboard paste | `17` §15.3 | Specified |
 
-**This appears to be the buildable answer to the hook request, and under `03` §5.1 it needs no new
-capability verb.** It is recorded as an observation, not a proposal. Nobody should build it from
-this document.
+**What this is and is not.** Every piece named above is already specified elsewhere — `18` §6.3–6.4,
+`34` §6.3, `17` §15.3 — so this subsection invents nothing. That is precisely why it is *not* a
+proposal: assembling specified pieces into a named capability is a decision, and §1.2 forbids this
+document from making one.
+
+Three things are recorded, and no more:
+
+| Recorded | Not recorded |
+|---|---|
+| The pieces exist and are separately specified | That they should be assembled |
+| An export the user posts is not egress by Fathom, per `16` §3.6 and `71` §13.2's SNMP/LLDP row | That this satisfies the owner's request. **The owner asked for hooks. An export is not a hook**, and calling it "the answer" would be answering on the owner's behalf |
+| `71` §13.2's trigger for the legitimate form is *"someone building that tool, not us"* | Anything about who builds it, or when |
+
+Whether the pieces should be assembled, whether that would satisfy what the owner actually wanted,
+and whether `03` §5.1 clears the assembled thing rather than each piece separately, are all open.
+**Nobody should build anything from this document.**
 
 ### 6.5 What would un-defer it, stated so the cost is visible
 
@@ -708,7 +842,7 @@ Severity is the cost of getting it wrong, not the effort of doing it.
 |---|---|---|---|---|
 | 1 | **Rule visibility** | `absent_since` is a `Node` field, not a `Field<T>` in the generated body, and `fex`'s name environment resolves only selector bindings, anchor fields, closed builtins and `workspace.` constants. So a tombstoned node lints exactly like a live one and no rule author can express otherwise. A lifecycle attribute placed beside `absent_since` inherits that verbatim; the only fix is a new builtin, and `12` §3.7 says adding one is *"an engine release, not a pack release"*. As a schema field, rules read it for free. **Hard cost asymmetry, and the fork must be taken before `schema.yaml` is written** | high | `12` §3.6, §3.7; `11` §10.5, §13 |
 | 2 | **Do decommissioned elements still lint** | Every available answer is wrong somewhere. Clearing the finding makes the panel lie. Routing it through `FindingState::Suppressed` requires a `SuppressionId` with a mandatory reason, author and expiry — the product would be manufacturing suppressions nobody wrote. A per-rule declaration is a new rule-pack field, so it is a `63` change and a re-review of every existing rule | high | `12` §11.1–11.3; `63` |
-| 3 | **Lifecycle that quiets findings is a shape the corpus has refused twice** | `12` §17 D-6 (per-rule `enabled`): *"disabling a rule is a workspace-scoped suppression and needs a reason. One mechanism, one audit surface."* D-2 (`workspace.strictness`): *"a global dial is a suppression with no reason and no record."* A `Decommissioned` dropdown that stops findings firing bypasses `12` §11.2's mandatory 20-character reason and §11.3's mandatory expiry on `high` and `medium`. **Either lifecycle is inert with respect to the rule engine, or it routes through `Suppression`.** There is no third option that survives D-6 | high | `12` §17 D-2, D-6; §11.2–11.3 |
+| 3 | **Lifecycle that quiets findings is a shape the corpus has refused twice** | `12` §17 D-6 (per-rule `enabled`): *"disabling a rule is a workspace-scoped suppression and needs a reason. One mechanism, one audit surface."* D-2 (`workspace.strictness`): *"a global dial is a suppression with no reason and no record."* A `Decommissioned` dropdown that stops findings firing bypasses `12` §11.2's mandatory 20-character reason and §11.3's mandatory expiry on `high` and `medium`. **The constraint, stated as a constraint rather than as an exhaustive list:** any option that quiets a finding must produce a reason and an audit record, because that is what D-6 is protecting — *"one mechanism, one audit surface"*. Two options obviously satisfy it — lifecycle inert with respect to the engine, or routed through `Suppression` — and Q6 asks whether there is a third. A third that carries its own reason and its own audit surface would satisfy D-6; this register has not found one, which is not the same as there being none | high | `12` §17 D-2, D-6; §11.2–11.3 |
 | 4 | **The delete feature hiding inside C-01** | Fathom today has no way to say "remove this from the box". `13` §2.4 already defines `LineForm::Retract` with a `RetractScope` of `Leaf` or `Subtree`, plus `Deactivate` and `Activate`; `18` §3.3 computes removals as a `StatementPath` map difference; `18` §3.5 minimises them with `subsume`; `18` §5 generates rollbacks. All of it exists and nothing drives it, because the only producer of an absent statement today is a re-parse tombstone that excludes from emit silently. Wiring "decommissioned ⇒ excluded from emit" would make the existing config diff generate ordered, subsumed, risk-labelled delete lines with a rollback — a decommission runbook — out of machinery already specified. **This is the highest value-per-line item in the whole request** | high | `13` §2.4–2.6; `18` §3.3, §3.5, §5; `11` §10.5 |
 | 5 | **But "exclude from emit" is the wrong default for maintenance** | `13` §2.4: *"For a maintenance window the first [`deactivate`] is almost always what you want, because reactivating is one command and re-typing an object is a change ticket."* Decommission and maintenance want different line forms from the same mechanism, so the choice is per-state, not per-element | high | `13` §2.4 |
 | 6 | **And the vendors disagree** | `13` §9.2's gap table already records `deactivate` as `Unrepresentable { NoFeature }` on **both** `panos` and `ios-xe`. A maintenance state emitting `deactivate` on Junos surfaces as a `NOT EMITTED` block on every PAN-OS device, forever — and ADR-0030 makes PAN-OS the second platform. That is honest and it looks like a defect | high | `13` §2.4, §9.2, §9.3; ADR-0030 |
@@ -716,7 +850,7 @@ Severity is the cost of getting it wrong, not the effort of doing it.
 | 8 | **The diagram's channel budget is full, and the collision is semantic** | `56` §5.2 is explicit: *"one channel, one meaning, and nothing may be added to it without taking something away."* G1 is freshness, G2 is AI-proposed product-wide and *"unavailable to this document"*, G3 is selection, G4–G9 are edge and band vocabulary. Worse, `56` §8.2 already concedes that a `--muted` boundary *"reads, at a glance, as de-emphasised — as if the node were disabled or filtered out. It is not; it is old."* A decommissioned node genuinely is disabled. Putting lifecycle on G1 makes one channel mean both | high | `56` §5.2, §8.2 |
 | 9 | **…and `56` §12 already answered it for an identical problem** | `56` §12 handles concurrent layout edits and the export CSP as open items in exactly this idiom, and G10 — the view-band margin tab — is the named release valve in both `56` §5.2 and `52` §9.3. `diagram · 12 nodes · L3 · 4 decommissioned` costs nothing. **But `52` §9.3 rule 3 caps a band tab at two facts**, so a third fact means dropping one | medium | `56` §5.2, §12; `52` §9.3 |
 | 10 | **The inventory column picker will not show a node-level attribute** | `52` §3.7: columns are *"chosen from the schema (`11` §11.6 makes the schema data, so the column picker is generated, not hand-written)"*. A node attribute like `absent_since` is not in `schema.yaml`, so it would never appear as a sortable, filterable column without hand-writing an exception into a generated picker. As a schema field it becomes a column, a sort key, a filter and a `Facet::Field` target for free | high | `52` §3.7; `11` §11.6 |
-| 11 | **No `33` §6.4 merge class fits a single-valued lifecycle register** | A is security-material and resolves to `Conflicted`, which **blocks emit** — wrong for a field that emits nothing. B is descriptive LWW, and `33` §6.5's own argument kills it: recency encodes nothing but clock skew under concurrency, so two engineers setting `Maintenance` and `Decommissioned` converge on whoever's laptop was 40 seconds ahead. C is append-only, D is structural add-wins, E is set-valued. **None is a register.** Note `53` §16 already calls `absent_since` *"a last-writer-wins boolean… field class B under `33` §6.4"*, and nobody has checked whether that is right | high | `33` §6.3–6.6; `53` §16 |
+| 11 | **Which `33` §6.4 class a lifecycle register belongs to is contested — and the phase-0 half of the question is not `33`'s at all** | **Two separate questions, and an earlier draft of this row ran them together.** **(i) The live one, from phase 0.** `11` §8.6's ladder resolves every git merge (`17` §12.3–12.4, ADR-0016; see §1.6). Two `Hand` assertions of different lifecycle values tie on `Confidence` and tie on `Origin`, so step 3 decides by later `asserted_at` — *"which is last-writer-wins"*, §8.6's own words. That happens in phase 2 with no CRDT present, and D3's *"bad bulk edit across a sync merge"* is the same path. **(ii) The dormant one, deferred with the CRDT.** Which of A/N/B/C/D/E the field takes. **Class B is structurally a register** — `33` §6.4 defines it as *"**LWW** by `(hlc, actor)`"* — so the earlier draft's *"none is a register"* was simply wrong, and the real question is one of suitability, not structure: is lifecycle *descriptive* enough to accept LWW? `33` §6.4's justification for B is *"losing a description costs a sentence"*, and losing a decommission may cost a device its config. **The citation the earlier draft used against B does not reach it:** `33` §6.5's worked case is `dh_group`, a class **A** field, and it closes by scoping itself — *"that is the trade and it is the right one for exactly this field"*. `33` §6.3's concurrency DECISION is likewise scoped in its own text to *"fields in class A (§6.4)"*. Class A is a genuine misfit for a different reason: it resolves to `Conflicted`, which **blocks emit** — wrong for a field that emits nothing. C is append-only, D is structural add-wins, E is set-valued. `53` §16 already assumed the answer for the nearest analogue, calling `absent_since` *"a last-writer-wins boolean… field class B under `33` §6.4"* — **without checking whether B's descriptive justification covers it.** That assumption is the thing to test, and Q11 asks it | high | `11` §8.6; `17` §12.3–12.4; `33` §6.3–6.6; `53` §16; ADR-0016 |
 | 12 | **Two orthogonal words for "not really here"** | `33` §6.6's worked example resolves *"B removes `GW-B` because the peer was decommissioned"* as a tombstone. Adding an explicit `Decommissioned` state creates a second absence concept with its own merge rule, emit behaviour and rendering, and a four-cell matrix of which three are nonsense. `Op::Purge` sits on tombstone only | high | `33` §5.1, §6.6; `11` §10.5; `53` §3.8 |
 | 13 | **`workspace.as_of` is referenced by three documents and defined by none** | Not in `17` §10.1's `Settings`, not in `17` §4.2's record taxonomy, not in `11`. Who sets it, whether it is stored, whether it merges, what class it is — all undefined. Every date feature lands on it | high | `12` §3.4, §3.6; `18` §6.4; `17` §10.1 |
 | 14 | **Unrouted wall-clock in the diagram, today** | `11` §8.7's age bands and `56` §8.1's rendering compare `max(asserted_at)` against something neither document names. `71` X4.1 forbids wall-clock in the SVG and X4.7 requires the exported diagram to be byte-identical across builds. Both cannot hold | high | `11` §8.7; `56` §8.1; `71` §7.3 X4.1, X4.7 |
@@ -755,7 +889,7 @@ yes/no or a pick-one answers it, which is `73` §1.1's admission test.
 | **Q8** | **Who sets `workspace.as_of`, where is it stored, does it merge, and does it advance on open?** | Referenced by `12`, `18` and the suppression ladder; defined nowhere. If it advances from the system clock, an untouched workspace stops reproducing its own change ticket |
 | **Q9** | Does a maintenance window expire by itself, or is "past its stated end date" a finding computed against `as_of`? | The second needs no scheduler, no clock and no invariant amendment. The first needs all three |
 | **Q10** | Do `11` §8.7 and `56` §8.1's age bands compare against `as_of` or the system clock? | Already ambiguous, already in tension with `71` X4.1 and X4.7 |
-| **Q11** | Which `33` §6.4 class is lifecycle — and is `absent_since`'s current class B actually right? | None of the six fits a register. §7 row 11. Only live if ADR-0016 is reversed |
+| **Q11** | **(a)** Is `11` §8.6's last-writer-wins step 3 acceptable for a lifecycle value when two clones of a git-synced workspace diverge? **(b)** Which `33` §6.4 class is lifecycle, and is `absent_since`'s assumed class B actually right? | **These have different due dates and must not be answered as one.** (a) is live from the first git merge — phase 0 machinery, phase 2 exposure (§1.6, §7 row 11). (b) is dormant while ADR-0016 stands. Class B *is* a register, so (b) is a suitability question — whether lifecycle is descriptive enough for LWW — not a structural one |
 | **Q12** | Is "decommissioned" the same thing as "tombstoned", or a second independent absence? If both, what do the four combinations mean? | §7 row 12 |
 | **Q13** | Can **edges** carry lifecycle, or only nodes? | `Node` has `absent_since`; `Edge` does not. "Decommission this link" and "this tunnel is in a maintenance window" are both things people will want |
 | **Q14** | Is the ticket reference free text or a validated pattern, and one per element or many? | Many means a set-valued field, `33` §6.4 class E, and the `merge.set.widened` finding |
@@ -803,9 +937,9 @@ corpus gives no figure this section says so rather than inventing one.
 | **Giving `workspace.as_of` a home** | Twelve lines of struct. It decides whether an unchanged workspace reproduces its own change ticket, its own findings and its own SVG. Small in code, large in consequence, upstream of every date decision |
 | **Bulk action as a first-class verb** | Not the loop. The confirm surface that counts from `set` rather than from what is rendered; the refusal path when the selection spans a class A field (`33` §7.4); partial-undo semantics across a merge (`53` §7.5); the announcement without spending the product's one `alert` role (`55` §4.6); and flipping `52` §12 D3. **This is the expensive half of the request, and the owner correctly identified it as load-bearing** |
 | **Per-state, per-platform emit behaviour** | Every combination needs a `Representability` classification with a citation and a named reviewer, and `13` §9.2 already records `deactivate` as unrepresentable on both other platforms — so the second platform gets a permanent gap block |
-| **Reconciling decommission with tombstone** | Two absence concepts, two merge rules, one `Purge` path covering one of them, and a four-cell matrix. Cheapest if lifecycle subsumes tombstone; that is a bigger edit and a better outcome |
+| **Reconciling decommission with tombstone** | Two absence concepts, two merge rules, one `Purge` path covering one of them, and a four-cell matrix. The two framings §3.2 names price differently: subsuming tombstone into lifecycle is a bigger edit to `11` §10.5 and `33` §5.1 up front and leaves one absence concept; keeping them distinct is a smaller edit and leaves the four-cell matrix to be given meaning, which is Q12's cost rather than this table's. **Which is preferable is Q12 and is not answered here** |
 | **Per-rule lifecycle policy** | A global engine policy is one field. Per-rule is a re-review of every rule's `acceptable_when` and grows with the corpus, which `71` identifies as the project's longest pole |
-| **Anything that makes a state time-derived rather than human-asserted** | It reopens invariant 9, requires ADR-0002's amendment process, and `12` §6.6's incrementality proof has to be re-argued. **If exactly one thing off this list should stay cheap, it is this one** |
+| **Anything that makes a state time-derived rather than human-asserted** | It reopens invariant 9, requires ADR-0002's amendment process, and `12` §6.6's incrementality proof has to be re-argued. That is the cost, and it is why §4.4 sets the fork out as three options rather than one. **Which option is taken is Q9, and §4.4 says "not decided here" — this row prices the fork, it does not lean on it** |
 | **The lifecycle annotation surface as a component** | Comparable, not an estimate: `71` §6.6 prices *"suppression lifecycle and review view"* at 1–1.5 solo weeks. `54` §14 is the same component family, and its three non-negotiables transfer intact — the mandatory `unverified — workspace-local text, not an identity` tab, the reason quoted in full and never `line-clamp`ed, and expiry rendered as a countdown |
 
 ### 9.3 The asymmetry worth stating
@@ -824,12 +958,13 @@ major schema bump to correct after phase 1 (`73` D16), aimed squarely at the air
 
 | # | Failure | Symptom | Control |
 |---|---|---|---|
-| 1 | **It becomes a wish list** | Entries accumulate and none leaves. Nobody reads it, because a document with no exits carries no information about what is actually going to happen | §1.3's four exits, checked at every phase boundary. An entry that has not moved through two consecutive reviews is a candidate for the *killed* exit, not for a third review |
+| 1 | **It becomes a wish list** | Entries accumulate and none leaves. Nobody reads it, because a document with no exits carries no information about what is actually going to happen | §1.3's four proposed exits, checked at every phase boundary. A disposal rule is proposed alongside them — an entry that has not moved through two consecutive reviews becomes a candidate for the *killed* exit rather than a third review — and like the rest of §1.3 it is offered to `73` §10 rather than enacted here |
 | 2 | **It becomes a specification by accretion** | An entry gains a type, then a component contract, then an enum, and a future reader treats the register as authority. This is the most likely failure, because writing the specification is more satisfying than writing the constraint | §1.2's table, and one review question: *does any entry contain a thing another document owns?* ADR-0001 makes ownership checkable |
 | 3 | **It is read as approval** | Somebody finds C-04 and reads "planned" where the document says "refused". This is the failure with the largest consequence, because it is the one that would end with a network request in the artifact | §6's heading, the `NOT APPROVED` margin tab, and the register table in §1.5 naming the boundary and the three ship gates before any detail |
 | 4 | **It duplicates `73`** | An entry becomes a well-formed fork and stays here anyway, so the same question has two homes and they drift | The *forked* exit is the intended one. When an entry becomes answerable, it moves and this row is struck through with a pointer |
 | 5 | **Its cost claims rot** | The "nearly free" column ages badly: `18` §5's rollback generator changes shape and §9.1 still says the emitter is free | Every §9 claim names the document and section it rests on, so the claim breaks visibly when that section changes |
 | 6 | **The standing priority instruction is read as licence to re-litigate** | Every settled decision gets reopened because "sunk cost is not an argument", and the project stops converging | §2.2's second column, and the rule that a reopening needs either a fired `Revisit if` trigger or a new requirement — not a new opinion |
+| 7 | **The governing instruction is paraphrased, not quoted — and this one is live now, not hypothetical** | §1.2 states the owner's "record, do not act" instruction in this register's words rather than the owner's. §2.1 names the mechanism by which that decays: *"paraphrasing a governance instruction is how it decays"* — the paraphrase gradually becomes the instruction, and the boundary it draws moves with whoever restates it. Every other owner input in this document is quoted verbatim (§2.1, §3.1, §5.1, §6.1); the one that defines the document's licence to exist is not | Replace §1.2's paraphrase with the owner's words at the next opportunity. **Do not reconstruct them** — an invented quotation would read as evidence and would be worse than the gap. Until then, §1.2 carries the admission and §12 records the instruction's source as a paraphrase rather than a citation |
 
 ---
 
@@ -848,7 +983,8 @@ is not this document's to make.
 | Whether `44` §3 adopts S1–S5, and what a bulk-write budget measures | `44` §3 | `52` §14 asked once and nothing happened |
 | Whether `11` §17 #4's answer differs for a second kind of annotation | `11` §17 | §3.6 blocker 6 |
 | Whether `11` §6.2's implicit `notes: [Text]` exists | `11` — a straight contradiction with §13, needing an edit either way | §3.4 row 1 |
-| Whether `absent_since` is really `33` §6.4 class B | `33` §6.4, or `53` §16's proposed change | `53` §16 asserted it in passing and nobody checked |
+| Whether `absent_since` is really `33` §6.4 class B | `33` §6.4, or `53` §16's proposed change | `53` §16 asserted it in passing and nobody checked. Class B *is* structurally a register, so the question is whether lifecycle-ish state is descriptive enough to accept LWW — not whether B fits mechanically. §7 row 11 |
+| **Whether `11` §8.6's step-3 recency tiebreak is acceptable for a lifecycle value across a git merge** | `11` §8.6, or `33` §6.3's proposed amendment to it extended beyond class A | **Due in phase 2, not phase 5.** `17` §12.4 runs this ladder on every `fathom merge --resolve`, and ADR-0016 keeps that path in phases 0–3. `33` §6.3 already amends §8.6 for class A on exactly this ground and scopes itself there deliberately. §1.6, §7 row 11 |
 
 ---
 
@@ -856,19 +992,24 @@ is not this document's to make.
 
 | Claim | Source |
 |---|---|
-| The owner's four requests, verbatim, and the instruction not to act on them | Owner, in conversation, recorded in §2.1, §3.1, §5.1 and §6.1 |
+| The owner's four capability requests, verbatim | Owner, in conversation. C-01 and C-02 quoted in §3.1; C-03 in §5.1; C-04 in §6.1 |
+| The standing priority instruction — prior work does not constrain future quality | Owner, in conversation, quoted verbatim in §2.1 |
+| The instruction that these are recorded as intent and are not to be acted on | Owner, in conversation. **Paraphrased in §1.2 — not quoted anywhere in this document.** The verbatim wording is not preserved here, and §10 row 7 records that as a live defect rather than treating the paraphrase as a citation |
 | The register/roadmap/ADR division of labour, and the entry-shape conventions this document copies | `docs/70-ops/73-open-decisions.md` §1.1, §1.4, §10.1–10.4 |
 | "Retired boundaries are struck through, not deleted", and the two retirement routes | `docs/00-vision/03-non-goals-and-scope.md` §10.1–10.3 |
 | `N-R-2`, `N-R-3`, `N-P-2`, the scope rule and its capability closure, and the twelve refusals table | `docs/00-vision/03-non-goals-and-scope.md` §3.2, §4.2, §4.3, §5.1, §5.2 |
-| `absent_since`, `Divergent { since }`, the capture-scope table, annotation-only fields, the earn-a-kind test, the implicit carrier list, the `Node` struct, the age bands, schema bumps and preserve mode | `docs/10-core/11-ir-schema.md` §6.1–6.3, §8.7, §10.5–10.6, §11.3–11.4, §13, §17 |
+| `absent_since`, `Divergent { since }`, the capture-scope table, annotation-only fields, the earn-a-kind test, the implicit carrier list, the `Node` struct, the scalar catalogue and `Text`'s scope, the age bands, schema bumps and preserve mode | `docs/10-core/11-ir-schema.md` §4.3, §6.1–6.3, §8.7, §10.5–10.6, §11.3–11.4, §13, §17 |
+| **The merge resolution ladder — `Confidence`, then `Origin` precedence, then later `asserted_at`, then `Field::Conflicted` — and its own admission that step 3 is last-writer-wins between two `Hand` assertions at different times** | `docs/10-core/11-ir-schema.md` **§8.6** |
 | `fex`'s name environment and its four resolutions; the exclusion of clocks; `workspace.as_of`; the closed builtin table; the suppression record, its reason and expiry ladder; the tier budgets; the short-circuit soundness argument; D-2, D-5 and D-6 | `docs/10-core/12-rule-engine.md` §3.4, §3.6, §3.7, §6.6, §7.1, §11.1–11.4, §17 |
 | `LineForm::Retract`, `Deactivate` versus `Retract`, `retract_needs_value`, `supports_subtree_retract`, the gap table and where a gap surfaces | `docs/10-core/13-emitters-and-provenance.md` §2.4–2.6, §9.2–9.3 |
 | The miss log — local, never transmitted, exported by an explicit menu action | `docs/10-core/16-command-finder.md` §3.6 |
 | The record taxonomy, the `Settings` struct, the plaintext gate's seven steps, the export header and the `review` warning | `docs/10-core/17-workspace-format.md` §4.2, §10.1, §15.3–15.5 |
+| **That there is no custom merge driver, and that `fathom merge --resolve` opens the three git index stages on plaintext and merges values per `11` §8.6 — the mechanism that makes merge semantics a phase-0 concern rather than a phase-5 one** | `docs/10-core/17-workspace-format.md` **§12.3–12.4** |
 | Removal computation, `subsume`, rollback generation, the change ticket, the YAML sidecar and `content_hash`, `DeltaClass`, OD-2 and OD-3 | `docs/10-core/18-diff-verify-rollback.md` §2.3–2.4, §3.3, §3.5, §5, §6.2–6.4, §10 |
 | Metadata channel M5 and the change-window correlation | `docs/30-security/31-threat-model.md` §7.2 |
-| The six field classes, the LWW argument, the tombstone worked case, the OR-Set finding, and the bulk-action constraint | `docs/30-security/33-sync-protocol.md` §5.1, §6.3–6.8, §7.4 |
+| The six field classes and class B's definition as LWW by `(hlc, actor)`; §6.3's concurrency DECISION and its explicit scoping to class A; §6.5's `dh_group` worked case and its closing scope — *"the right one for exactly this field"*; the tombstone worked case, the OR-Set finding, and the bulk-action constraint | `docs/30-security/33-sync-protocol.md` §5.1, §6.3–6.8, §7.4 |
 | The no-links decision and its five reasons; the clipboard payload and its header; the WASM import allowlist and H39 | `docs/30-security/34-browser-hardening.md` §6.3, §7.5, §9.4, §10 |
+| **The untrusted-text source table and U3's classing of user-typed values as *"none, treated as U2"*; the bidi, zero-width, tag-character and homoglyph classes; and the three per-path behaviours with the rule never to silently alter text the user will paste into a device** | `docs/30-security/34-browser-hardening.md` **§5.1, §5.5** |
 | The personal-data inventory, the free-text channel, and the `CKT-44812 — see CMDB` remediation | `docs/30-security/37-privacy-and-compliance.md` §2.2, §2.4, §2.5 |
 | Deployment shapes D1–D4 | `docs/40-stack/43-deployment-modes.md` §1, §3 |
 | The budget table with no selection budgets; the `O(N²)` population-rule invalidation | `docs/40-stack/44-performance-budgets.md` §3, §7.2 |
@@ -881,9 +1022,9 @@ is not this document's to make.
 | D3, D11, D16, D18, D19; the closed no-list; the coupling analysis; the record shape | `docs/70-ops/73-open-decisions.md` §2, §4.3, §5.2, §6.2–6.3, §9, §10, §11 |
 | The `Revisit if` mechanism, present in all thirty decision records | `docs/90-decisions/` — every ADR carries `## Revisit if` |
 | The schema is a specified artifact; "a field that exists in prose and not in `schema.yaml` does not exist"; the two-to-three-week figure and the missing phase-table entry | `docs/90-decisions/adr-0008-the-schema-is-a-specified-artifact.md` |
-| v1 is the finder; the product is phases 0–3; "Nothing about a graph" | `docs/90-decisions/adr-0006-v1-is-the-finder-and-the-product-is-phases-0-to-3.md` |
+| v1 is the finder; the product is phases 0–3; "Nothing about a graph" | `docs/90-decisions/adr-0006-v1-is-the-finder-and-the-product-is-phases-0-to-3.md`, Decision item 1. **Note for anyone verifying this citation:** the phrase wraps a line break in the source — *"…if it is bad. **Nothing\n   about a graph.**"* — so a line-based `grep` for the whole phrase returns nothing and the citation looks false. It is not. `73` §2's phase-0 row and `58` §533 carry the same phrase on one line, which is why they are the hits a naive search finds |
 | `11` owns re-identification; a rename produces a candidate, never a binding; the recovery-key narrowing | `docs/90-decisions/adr-0010-identity-reparse-and-suppression-survival.md` |
-| Git is the sync; no multi-writer CRDT until a pilot team works around the lock | `docs/90-decisions/adr-0016-git-is-the-sync-for-v1.md` |
+| Git is the sync; no multi-writer CRDT until a pilot team works around the lock — **and, from its own "not this" table, that a git merge conflict is opened with the passphrase and merged on plaintext by `11` §8.6, so conflict handling is present from phase 0 rather than deferred with the CRDT** | `docs/90-decisions/adr-0016-git-is-the-sync-for-v1.md` |
 | `53` owns the keymap | `docs/90-decisions/adr-0024-53-owns-the-keymap.md` |
 | PAN-OS is the second platform | `docs/90-decisions/adr-0030-pan-os-is-the-second-platform.md` |
 | Invariant amendments and the residual scale | `docs/90-decisions/adr-0002-invariant-amendments-and-the-residual-scale.md` |

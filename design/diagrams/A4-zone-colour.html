@@ -1,0 +1,3271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'none'; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Fathom · diagram A4 — aggregation + always-on zone colour</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* =========================================================================
+   A4-zone-colour.html — diagram study A, variant 4.
+   Evolved from A-schematic.html: same computed layout, same orthogonal
+   router, same eleven-form edge vocabulary, same port stubs, junctions and
+   crossing knockouts, same two disclosure mechanisms.
+
+   Two things are new:
+     1. LIKE-KIND SIBLING AGGREGATION  — the design pass 56 §12 asks for.
+     2. ALWAYS-ON SEMANTIC COLOUR      — one meaning only: the security
+        zone / domain an object belongs to.
+
+   Outside the clearly-marked PROPOSAL block below, this file still declares
+   no hex, no px font-size and no duration of its own (51 §14).
+   ========================================================================= */
+
+/* =========================================================================
+   PROPOSED addition to 51 §14 — NOT YET ADOPTED.
+   ------------------------------------------------------------------------
+   These are the only hex literals in this file and they exist only here.
+   /home/user/Fathom/design/tokens.css is a verified transcription of 51 §14 and has NOT
+   been touched. If this variant is adopted, these values move into the
+   document first and the transcription is regenerated — never the reverse.
+
+   THE RESERVATION IS RESPECTED.  ADR-0011 invariant 11 keeps green / amber /
+   red for the risk enum, permanently, product-wide.  Every hue below is
+   measured OUTSIDE those families: the five sit at HSL hue 250°, 225°, 209°,
+   197° and 188° — indigo, blue, cyan.  Green begins at 90° and ends at 150°;
+   amber sits at 30–60°; red wraps 330–20°.  Nothing here is within 38° of
+   any of them.
+
+   COLOUR IS NEVER THE SOLE CARRIER (WCAG 1.4.1 / 55 §3).  Two independent
+   non-chromatic carriers ride with every hue:
+     · VALUE.  The five strokes are luminance-ordered by distance from the
+       protected inside, so `filter: grayscale(1)` converts hue into an
+       ORDERED value ramp instead of destroying it.  Greyscale bytes are
+       47 · 58 · 70 · 80 · 91, every one strictly between --ink (23) and
+       --muted (101), so no zone hue can be mistaken for ink or for the
+       de-emphasis tone.
+     · TEXT.  Every zone name is printed — on the band, on the node, and on
+       the terminals of the boundary device.  Delete every hue in this block
+       and the picture still says which zone everything is in.
+   The washes are ISOLUMINANT with --surface: all five compute to greyscale
+   243–244 against --surface's 244, so under greyscale the tonal ladder
+   collapses back to exactly A-schematic's three neutral steps.
+   ========================================================================= */
+:root {
+  /* zone / domain hues — light. Ordered outward from the protected inside. */
+  --z-trust:        #322A5C;   --z-trust-wash:   #F3F3FF;   /* grey  47 */
+  --z-vpn:          #2A3A6C;   --z-vpn-wash:     #EFF4FF;   /* grey  58 */
+  --z-mgmt:         #1F4C76;   --z-mgmt-wash:    #ECF5FE;   /* grey  70 */
+  --z-wan:          #155E7B;   --z-wan-wash:     #E9F6FC;   /* grey  80 */
+  --z-untrust:      #1C6C79;   --z-untrust-wash: #E8F6F9;   /* grey  91 */
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --z-trust:      #CCC8FB;   --z-trust-wash:   #1B1B22;   /* grey 204 */
+    --z-vpn:        #ADC0EF;   --z-vpn-wash:     #191C22;   /* grey 192 */
+    --z-mgmt:       #91B8DF;   --z-mgmt-wash:    #171C22;   /* grey 178 */
+    --z-wan:        #78AFCA;   --z-wan-wash:     #151D21;   /* grey 166 */
+    --z-untrust:    #63A6B2;   --z-untrust-wash: #141D1F;   /* grey 153 */
+  }
+}
+:root[data-theme="dark"] {
+  --z-trust:        #CCC8FB;   --z-trust-wash:   #1B1B22;
+  --z-vpn:          #ADC0EF;   --z-vpn-wash:     #191C22;
+  --z-mgmt:         #91B8DF;   --z-mgmt-wash:    #171C22;
+  --z-wan:          #78AFCA;   --z-wan-wash:     #151D21;
+  --z-untrust:      #63A6B2;   --z-untrust-wash: #141D1F;
+}
+/* forced colours (51 §6): the hue channel is not ours to keep. Every zone
+   token collapses to the system stroke and the printed zone names carry the
+   whole meaning — which is the test that the redundancy is real. */
+@media (forced-colors: active) {
+  :root {
+    --z-trust: CanvasText; --z-vpn: CanvasText; --z-mgmt: CanvasText;
+    --z-wan: CanvasText;   --z-untrust: CanvasText;
+    --z-trust-wash: Canvas; --z-vpn-wash: Canvas; --z-mgmt-wash: Canvas;
+    --z-wan-wash: Canvas;   --z-untrust-wash: Canvas;
+  }
+}
+/* END PROPOSAL BLOCK. Nothing below declares a colour of its own. */
+
+html, body { background: var(--surface-2); }
+
+.sheet {
+  max-width: var(--sheet);
+  margin: 0 auto;
+  background: var(--page);
+  border-left: var(--rule-hair) solid var(--hairline);
+  border-right: var(--rule-hair) solid var(--hairline);
+  padding: 0 var(--s6) var(--s8);
+}
+
+/* --- masthead, the card's own skeleton --------------------------------- */
+.mast-rule  { height: var(--rule-mast); background: var(--ink); }
+.rule-1     { height: var(--rule-hair); background: var(--ink); }
+.rule-hair  { height: var(--rule-hair); background: var(--hairline); }
+
+.mast { display: flex; justify-content: space-between; align-items: baseline;
+        gap: var(--s5); padding-top: var(--s3); }
+.mast .kicker { font-size: var(--t-mast); text-transform: uppercase;
+                letter-spacing: var(--track-mast); font-weight: 700; }
+.tabs { display: flex; gap: var(--s3); flex-wrap: wrap; justify-content: flex-end; }
+.tab  { font-size: var(--t-micro); color: var(--muted); }
+
+h1 { font-size: var(--t-title); line-height: var(--lh-title); margin: var(--s2) 0 0;
+     text-transform: uppercase; letter-spacing: var(--track-head); font-weight: 700; }
+.sub { color: var(--muted); margin: var(--s1) 0 var(--s3); }
+.imper { font-size: var(--t-small); text-transform: uppercase;
+         letter-spacing: var(--track-label); font-weight: 700; margin: var(--s3) 0; }
+.fixture-note { font-size: var(--t-small); color: var(--muted);
+                padding: var(--s2) 0; }
+
+/* --- section heads ------------------------------------------------------ */
+.head { font-size: var(--t-head); text-transform: uppercase;
+        letter-spacing: var(--track-head); font-weight: 700;
+        border-left: var(--rule-accent) solid var(--ink);
+        padding-left: var(--s2); margin: var(--s6) 0 var(--s3); }
+.head .tab { margin-left: var(--s3); font-weight: 400; letter-spacing: 0; }
+.head-row { display:flex; align-items:baseline; justify-content:space-between; }
+
+/* --- control band ------------------------------------------------------- */
+.controls { display: flex; flex-wrap: wrap; gap: var(--s5);
+            padding: var(--s3) 0; align-items: flex-start; }
+.cgroup { display: flex; flex-direction: column; gap: var(--s1); }
+.clabel { font-size: var(--t-micro); color: var(--muted); }
+.crow   { display: flex; gap: 0; }
+.crow > * + * { margin-left: -1px; }
+button.seg, .seg {
+  font-family: var(--mono); font-size: var(--t-micro);
+  background: var(--page); color: var(--ink);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s2); cursor: pointer;
+  min-height: var(--row-min); text-align: center;
+}
+button.seg:hover { background: var(--surface); }
+button.seg[aria-pressed="true"], button.seg.on {
+  background: var(--ink); color: var(--page); border-color: var(--ink); }
+.readout { font-family: var(--mono); font-size: var(--t-micro);
+           border: var(--rule-hair) solid var(--hairline); background: var(--surface);
+           padding: var(--s1) var(--s2); min-width: 6ch; text-align: center;
+           min-height: var(--row-min); display:flex; align-items:center; justify-content:center;}
+
+/* --- the work area ------------------------------------------------------ */
+.work { display: flex; gap: var(--s5); align-items: flex-start; }
+.stage { flex: 1 1 auto; min-width: 0; }
+.side  { flex: 0 0 316px; min-width: 0; }
+
+.canvas-wrap { position: relative; border: var(--rule-hair) solid var(--hairline);
+               background: var(--surface-2); overflow: hidden; }
+svg.scene { display: block; width: 100%; height: 640px; touch-action: none;
+            cursor: default; background: var(--surface-2); }
+svg.scene.is-panning { cursor: grabbing; }
+/* the greyscale proof, wired to a control so it can be looked at rather
+   than described. Nothing in the picture may depend on what this removes. */
+.canvas-wrap.greyscale { filter: grayscale(1); }
+
+/* --- the diagram's own stylesheet. Two weights, six neutrals, ONE colour
+       channel: --zh, the zone hue, and --zf, the zone wash. Both fall back
+       to a neutral, so every rule below still resolves with the whole
+       proposal block deleted. ------------------------------------------- */
+.z-trust   { --zh: var(--z-trust);   --zf: var(--z-trust-wash);   }
+.z-vpn     { --zh: var(--z-vpn);     --zf: var(--z-vpn-wash);     }
+.z-mgmt    { --zh: var(--z-mgmt);    --zf: var(--z-mgmt-wash);    }
+.z-wan     { --zh: var(--z-wan);     --zf: var(--z-wan-wash);     }
+.z-untrust { --zh: var(--z-untrust); --zf: var(--z-untrust-wash); }
+/* the colour switch. `no-colour` on the root <g> re-mutes the whole picture
+   so the owner can A/B the exact same geometry with and without hue. */
+.no-colour .z-trust, .no-colour .z-vpn, .no-colour .z-mgmt,
+.no-colour .z-wan, .no-colour .z-untrust { --zh: var(--ink); --zf: var(--surface); }
+
+.dg-region   { fill: var(--surface); stroke: var(--ink);   stroke-width: 1; }
+.dg-wash     { fill: var(--zf, var(--surface)); stroke: none; }
+.dg-box      { fill: var(--page);    stroke: var(--zh, var(--ink)); stroke-width: 2; }
+.dg-box.aged { stroke: var(--muted); }
+.dg-box.boundary { stroke: var(--ink); }   /* a firewall is in no zone: it IS the boundary */
+.dg-peer     { fill: var(--page);    stroke: var(--zh, var(--ink)); stroke-width: 2; }
+.dg-peer.aged{ stroke: var(--muted); }
+.dg-chassis  { stroke: var(--muted); stroke-width: 1; fill: none; }
+.dg-unver    { stroke: var(--muted); stroke-width: 1; fill: none; }
+
+.dg-edge     { fill: none; stroke: var(--zh, var(--ink)); stroke-width: 1; }
+.dg-edge.inferred { stroke: var(--muted); }
+.dg-edge.proposed { stroke-dasharray: 3 3; }     /* G2 — reserved, never topology */
+.dg-band     { fill: none; stroke: var(--muted); stroke-width: 1; }
+.dg-band.zone{ stroke: var(--zh, var(--muted)); }
+.dg-junction { fill: var(--ink); stroke: none; }
+.dg-plate    { fill: var(--page); stroke: var(--hairline); stroke-width: 1; }
+.dg-module   { stroke: var(--hairline); stroke-width: 1; fill: none; }
+
+.dg-label { font-family: var(--mono); font-size: var(--t-mono);  fill: var(--ink); }
+.dg-anno  { font-family: var(--mono); font-size: var(--t-micro); fill: var(--muted); }
+.dg-anno.ink { fill: var(--ink); }
+.dg-bandlab { font-family: var(--mono); font-size: var(--t-micro); fill: var(--muted);
+              text-transform: uppercase; letter-spacing: var(--track-head); }
+/* the zone tag: TEXT, deliberately NOT painted in the zone hue. It is the
+   carrier that survives when the hue does not, so it must not depend on it. */
+.dg-ztag  { font-family: var(--mono); font-size: var(--t-micro); fill: var(--muted);
+            text-transform: uppercase; letter-spacing: var(--track-legend); }
+.dg-mark  { font-family: var(--mono); font-size: var(--t-micro); fill: var(--muted); }
+.dg-focus { fill: none; stroke: var(--focus-colour); stroke-width: 2; }
+
+/* --- the aggregation affordance ------------------------------------------
+   A collapsed stub is a real focusable control, not a drawn hint. It states
+   WHAT and HOW MANY in its accessible name and in its printed label. */
+.dg-agg      { fill: var(--page); stroke: var(--zh, var(--ink)); stroke-width: 2; }
+.dg-agg-tab  { fill: none; stroke: var(--zh, var(--ink)); stroke-width: 1; }
+.dg-agg-n    { font-family: var(--mono); font-size: var(--t-mono); fill: var(--ink); }
+.dg-aggfocus { fill: none; stroke: var(--focus-colour); stroke-width: 2; visibility: hidden; }
+g.agg { cursor: pointer; outline: none; }
+g.agg:focus .dg-aggfocus, g.agg:focus-visible .dg-aggfocus { visibility: visible; }
+
+/* selection: `▸` + ground + everything outside the closure at 40% */
+.dg-sel-ground { fill: var(--surface); stroke: none; }
+g.dimmed { opacity: 0.4; }
+
+@media (forced-colors: active) {
+  .dg-region, .dg-box, .dg-peer, .dg-edge, .dg-band, .dg-agg {
+    forced-color-adjust: auto; }        /* let the UA repaint: the hue is not ours */
+  .dg-wash { fill: Canvas; }
+}
+/* print (51 §13). A mono printer erases every hue in this file, so the zone
+   tags are forced ON and never suppressed by the level-of-detail ladder. */
+@media print {
+  html, body { background: var(--page); }
+  .dg-ztag { fill: var(--ink); }
+  .canvas-wrap { break-inside: avoid; }
+}
+
+/* --- the hover chip. WCAG 1.4.13. No shadow — 51 §11 forbids elevation. - */
+.chip {
+  position: absolute; display: none; z-index: 2;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--s1) var(--s2);
+  font-family: var(--mono); font-size: var(--t-micro);
+  line-height: var(--lh-micro);
+  max-width: 40ch; pointer-events: auto;
+}
+.chip.shown { display: block; }
+.chip .k { color: var(--muted); }
+.chip .last { color: var(--muted); border-top: var(--rule-hair) solid var(--hairline);
+              margin-top: var(--s1); padding-top: var(--s1); }
+
+/* --- view band ---------------------------------------------------------- */
+.viewband { display: flex; flex-wrap: wrap; gap: var(--s3);
+            padding: var(--s2) 0; font-size: var(--t-micro); color: var(--muted);
+            border-bottom: var(--rule-hair) solid var(--hairline); }
+.viewband .lead { color: var(--ink); font-family: var(--mono); }
+.viewband .sup { font-family: var(--mono); }
+
+/* --- inspector + outline ------------------------------------------------ */
+.panel { border: var(--rule-hair) solid var(--hairline); background: var(--page); }
+.panel + .panel { margin-top: var(--s4); }
+.panel-head { font-size: var(--t-micro); text-transform: uppercase;
+              letter-spacing: var(--track-head); font-weight: 700;
+              padding: var(--s2) var(--s3); border-bottom: var(--rule-hair) solid var(--ink);
+              display: flex; justify-content: space-between; align-items: baseline; }
+.panel-head .tab { font-weight: 400; letter-spacing: 0; text-transform: none; }
+.panel-body { padding: var(--s3); }
+.insp-empty { color: var(--muted); font-size: var(--t-small); }
+.kv { display: grid; grid-template-columns: 10ch 1fr; gap: 0 var(--s2);
+      font-size: var(--t-micro); }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
+.insp-sec { margin-top: var(--s3); border-top: var(--rule-hair) solid var(--hairline);
+            padding-top: var(--s2); }
+.disclose { display: flex; gap: var(--s1); align-items: baseline; width: 100%;
+            background: none; border: 0; padding: var(--s1) 0; cursor: pointer;
+            font-size: var(--t-micro); text-transform: uppercase;
+            letter-spacing: var(--track-head); font-weight: 700; text-align: left; }
+.disclose .caret { font-family: var(--mono); color: var(--muted); font-weight: 400;
+                   letter-spacing: 0; }
+.disc-body { font-size: var(--t-small); color: var(--ink); padding-bottom: var(--s2); }
+.disc-body p { margin: 0 0 var(--s2); }
+.cmd { font-family: var(--mono); font-size: var(--t-micro); background: var(--surface);
+       padding: var(--s1) var(--s2); overflow-x: auto; white-space: pre;
+       border-left: var(--rule-accent) solid var(--hairline); margin-bottom: var(--s1); }
+.cmd.r-read    { border-left-color: var(--safe); }
+.cmd.r-change  { border-left-color: var(--caution); }
+.cmd.r-disrupt { border-left-color: var(--danger); }
+.risk { font-size: var(--t-micro); text-transform: uppercase;
+        letter-spacing: var(--track-legend); font-weight: 700; }
+.risk.r-read { color: var(--safe); } .risk.r-change { color: var(--caution); }
+.risk.r-disrupt { color: var(--danger); }
+.memb { font-family: var(--mono); font-size: var(--t-micro);
+        border-top: var(--rule-hair) solid var(--hairline); padding: var(--s1) 0;
+        display: flex; justify-content: space-between; }
+
+/* --- the risk legend, parked beside the picture ON PURPOSE ---------------
+   ADR-0011's three reserved hues, a few hundred pixels from a coloured
+   diagram, so the competition can be looked at rather than argued about. */
+.legend-row { display: flex; gap: var(--s2); align-items: baseline;
+              padding: var(--s1) 0; font-size: var(--t-micro);
+              border-top: var(--rule-hair) solid var(--hairline); }
+.legend-row:first-child { border-top: 0; }
+.legend-sw { flex: 0 0 var(--s6); height: var(--lh-micro);
+             border-left: var(--rule-accent) solid var(--ink); background: var(--surface); }
+.legend-sw.r-read    { border-left-color: var(--safe);    background: var(--safe-wash); }
+.legend-sw.r-change  { border-left-color: var(--caution); background: var(--caution-wash); }
+.legend-sw.r-disrupt { border-left-color: var(--danger);  background: var(--danger-wash); }
+.legend-nm { font-family: var(--mono); }
+.legend-ds { color: var(--muted); }
+.zlegend-row { display: flex; gap: var(--s2); align-items: baseline;
+               padding: var(--s1) 0; font-size: var(--t-micro);
+               border-top: var(--rule-hair) solid var(--hairline); }
+.zlegend-sw { flex: 0 0 var(--s6); height: var(--lh-micro);
+              border-left: var(--rule-accent) solid var(--zh, var(--ink));
+              background: var(--zf, var(--surface)); }
+.zlegend-gs { font-family: var(--mono); color: var(--muted); }
+
+.outline { max-height: 300px; overflow-y: auto; }
+.orow { display: flex; gap: var(--s2); width: 100%; text-align: left;
+        background: none; border: 0; border-bottom: var(--rule-hair) solid var(--hairline);
+        padding: var(--s1) var(--s3); cursor: pointer;
+        font-size: var(--t-micro); font-family: var(--mono); color: var(--ink);
+        min-height: var(--row-min); align-items: center; }
+.orow:hover { background: var(--surface); }
+.orow[aria-selected="true"] { background: var(--surface); font-weight: 700; }
+.orow .okind { color: var(--muted); flex: 0 0 8ch; }
+.orow .oname { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis;
+               white-space: nowrap; }
+.orow .odepth { color: var(--muted); }
+.orow:focus, .orow:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
+                      outline-offset: var(--focus-offset-inset); }
+
+/* --- the key ------------------------------------------------------------ */
+.key { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+       gap: 0; border-top: var(--rule-hair) solid var(--hairline); }
+.kitem { display: flex; gap: var(--s3); align-items: flex-start;
+         padding: var(--s3) var(--s3) var(--s3) 0;
+         border-bottom: var(--rule-hair) solid var(--hairline); }
+.kitem svg { flex: 0 0 96px; background: var(--surface-2);
+             border: var(--rule-hair) solid var(--hairline); }
+.kbody { min-width: 0; }
+.kname { font-size: var(--t-micro); text-transform: uppercase;
+         letter-spacing: var(--track-head); font-weight: 700; }
+.kdesc { font-size: var(--t-micro); color: var(--muted); line-height: var(--lh-micro); }
+.kchan { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
+
+/* --- thesis ------------------------------------------------------------- */
+.thesis { column-count: 2; column-gap: var(--s7); }
+.thesis h3 { font-size: var(--t-head); text-transform: uppercase;
+             letter-spacing: var(--track-head); margin: var(--s4) 0 var(--s1);
+             break-after: avoid; }
+.thesis p, .thesis li { font-size: var(--t-small); line-height: var(--lh-step);
+                        margin: 0 0 var(--s2); }
+.thesis ul { margin: 0 0 var(--s3); padding-left: var(--s4); }
+.thesis .note { border-left: var(--rule-accent) solid var(--caution);
+                background: var(--caution-wash); padding: var(--s2) var(--s3);
+                break-inside: avoid; }
+.thesis .verdict { border-left: var(--rule-accent) solid var(--ink);
+                   background: var(--surface); padding: var(--s2) var(--s3);
+                   break-inside: avoid; }
+.foot { font-size: var(--t-micro); color: var(--muted); padding-top: var(--s4); }
+
+@media (max-width: 1080px) {
+  .work { flex-direction: column; }
+  .side { flex: 1 1 auto; width: 100%; }
+  .thesis { column-count: 1; }
+}
+</style>
+</head>
+<body>
+<main class="sheet">
+
+  <div class="mast-rule"></div>
+  <div class="mast">
+    <div class="kicker">Fathom · diagram A4</div>
+    <div class="tabs">
+      <span class="tab">A-schematic's layout and router, unchanged</span>
+      <span class="tab">like-kind aggregation at six</span>
+      <span class="tab">always-on zone colour</span>
+      <span class="tab">third round</span>
+    </div>
+  </div>
+  <h1>Aggregation, and colour that means the zone</h1>
+  <p class="sub">Forty tunnels collapse to one stub and one peer that say what they are hiding
+     and how many; every hue in the picture carries exactly one meaning — the security zone.</p>
+  <p class="imper">Nothing is ever hidden without a count · no hue is ever the only carrier</p>
+  <div class="rule-1"></div>
+  <p class="fixture-note"><strong>FIXTURE.</strong> The estate below is a fixture derived from
+     <span class="m">.context/field-card-srx-ipsec.txt</span>; the zone names
+     <span class="m">TRUST</span>, <span class="m">VPN</span>, <span class="m">WAN</span> and
+     <span class="m">UNTRUST</span>, the commands and the explainers in the inspector are real
+     entries from <span class="m">corpus/commands/junos-srx-ipsec.yaml</span>.
+     No device was contacted to draw it. Fathom never connects to anything — this page makes zero
+     network requests and its CSP sets <span class="m">connect-src 'none'</span> and
+     <span class="m">form-action 'none'</span>.</p>
+  <div class="rule-hair"></div>
+
+  <div class="controls" id="controls">
+    <div class="cgroup">
+      <span class="clabel">estate — tunnel spokes</span>
+      <div class="crow" role="group" aria-label="spoke count">
+        <button class="seg" data-spoke="-8" type="button">− 8</button>
+        <button class="seg" data-spoke="-1" type="button">−</button>
+        <span class="readout" id="ro-spokes">4</span>
+        <button class="seg" data-spoke="+1" type="button">+</button>
+        <button class="seg" data-spoke="+8" type="button">+ 8</button>
+        <button class="seg" data-spokeset="4" type="button">4</button>
+        <button class="seg" data-spokeset="12" type="button">12</button>
+        <button class="seg" data-spokeset="40" type="button">40</button>
+        <button class="seg" data-spokeset="120" type="button">120</button>
+      </div>
+    </div>
+
+    <div class="cgroup">
+      <span class="clabel">estate — ae0 members</span>
+      <div class="crow" role="group" aria-label="LAG member count">
+        <button class="seg" data-lagset="2" type="button">2</button>
+        <button class="seg" data-lagset="4" type="button">4</button>
+        <button class="seg" data-lagset="8" type="button">8</button>
+        <button class="seg" data-lagset="16" type="button">16</button>
+      </div>
+    </div>
+
+    <div class="cgroup">
+      <span class="clabel">aggregation — collapse like-kind siblings at 6</span>
+      <div class="crow" role="group" aria-label="aggregation">
+        <button class="seg" data-agg="1" aria-pressed="true" type="button">aggregate</button>
+        <button class="seg" data-agg="0" aria-pressed="false" type="button">show every one</button>
+        <button class="seg" data-collapseall="1" type="button">collapse all</button>
+      </div>
+    </div>
+
+    <div class="cgroup">
+      <span class="clabel">colour — flip it and compare the same geometry</span>
+      <div class="crow" role="group" aria-label="colour">
+        <button class="seg" data-colour="1" aria-pressed="true" type="button">zone colour</button>
+        <button class="seg" data-colour="0" aria-pressed="false" type="button">monochrome</button>
+        <button class="seg" data-ztag="1" aria-pressed="true" type="button">zone tags</button>
+        <button class="seg" data-grey="1" aria-pressed="false" type="button">greyscale</button>
+      </div>
+    </div>
+
+    <div class="cgroup">
+      <span class="clabel">layers</span>
+      <div class="crow" role="group" aria-label="layers">
+        <button class="seg" data-layer="phys" aria-pressed="true" type="button">physical</button>
+        <button class="seg" data-layer="l2"   aria-pressed="true" type="button">L2</button>
+        <button class="seg" data-layer="l3"   aria-pressed="true" type="button">L3</button>
+        <button class="seg" data-layer="sec"  aria-pressed="true" type="button">security</button>
+        <button class="seg" data-layer="ovl"  aria-pressed="true" type="button">overlay</button>
+      </div>
+    </div>
+
+    <div class="cgroup">
+      <span class="clabel">zoom</span>
+      <div class="crow" role="group" aria-label="zoom">
+        <button class="seg" data-zoom="out" type="button">−</button>
+        <span class="readout" id="ro-zoom">1.00</span>
+        <button class="seg" data-zoom="in" type="button">+</button>
+        <button class="seg" data-zoom="fit" type="button">fit</button>
+        <button class="seg" data-zoom="1" type="button">1:1</button>
+      </div>
+    </div>
+
+    <div class="cgroup">
+      <span class="clabel">disclosure — flip and feel the difference</span>
+      <div class="crow" role="group" aria-label="disclosure mechanism">
+        <button class="seg" data-disc="column" aria-pressed="true" type="button">inspector column</button>
+        <button class="seg" data-disc="chip"   aria-pressed="false" type="button">hover / focus chip</button>
+      </div>
+    </div>
+
+    <div class="cgroup">
+      <span class="clabel">scaffolding</span>
+      <div class="crow" role="group" aria-label="scaffolding">
+        <button class="seg" data-module="1" aria-pressed="false" type="button">32px module</button>
+        <button class="seg" data-unpin="1" type="button">unpin all</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="work">
+    <div class="stage">
+      <div class="canvas-wrap" id="wrap">
+        <svg class="scene" id="scene" role="group"
+             aria-label="Topology diagram. Decorative; the Outline below is the accessible copy. The collapsed groups in it are focusable."></svg>
+        <div class="chip" id="chip" role="note"></div>
+      </div>
+      <div class="viewband" id="viewband"></div>
+      <p class="tab" style="padding-top:var(--s2)">
+        Tab reaches every collapsed group · Enter expands it · Escape collapses it again ·
+        Enter on a <span class="m">+n more</span> continuation pages the window ·
+        drag a box to pin it · arrow keys move the outline focus
+      </p>
+    </div>
+
+    <aside class="side">
+      <section class="panel">
+        <div class="panel-head">Inspector <span class="tab" id="insp-tab">nothing selected</span></div>
+        <div class="panel-body" id="inspector">
+          <p class="insp-empty">Select an element in the picture, or focus a row in the Outline.
+             The column fills with everything the picture could not hold.</p>
+        </div>
+      </section>
+      <section class="panel" id="zone-legend-panel">
+        <div class="panel-head">Zone key <span class="tab">hue · wash · greyscale byte</span></div>
+        <div class="panel-body" id="zone-legend"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head">Risk <span class="tab">ADR-0011 · reserved, never topology</span></div>
+        <div class="panel-body" id="risk-legend">
+          <div class="legend-row"><span class="legend-sw r-read"></span>
+            <span class="legend-nm">ReadOnly</span>
+            <span class="legend-ds">safe on production</span></div>
+          <div class="legend-row"><span class="legend-sw r-change"></span>
+            <span class="legend-nm">ChangesConfig</span>
+            <span class="legend-ds">needs a commit</span></div>
+          <div class="legend-row"><span class="legend-sw r-disrupt"></span>
+            <span class="legend-nm">Disruptive</span>
+            <span class="legend-ds">drops live traffic</span></div>
+          <p class="insp-empty" style="margin-top:var(--s2)">These three hues say what a
+            <em>command</em> does to a live box. No topology object may ever take one. This panel
+            is here so the competition with the picture can be looked at, not argued about.</p>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head">Outline <span class="tab" id="out-tab"></span></div>
+        <div class="panel-body" style="padding:0">
+          <div class="outline" id="outline" role="listbox" aria-label="Diagram outline"></div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <div class="head-row">
+    <div class="head">The edge vocabulary</div>
+    <span class="tab">the lack of types of lines — answered</span>
+  </div>
+  <div class="key" id="key"></div>
+
+  <div class="head-row">
+    <div class="head">Thesis</div>
+    <span class="tab">what changed, what it cost</span>
+  </div>
+  <div class="thesis">
+    <p><strong>In one sentence:</strong> the five rejected drawings failed because every mark in
+    them was a 1px <span class="m">--ink</span> line on a <span class="m">--page</span> ground with
+    no layout behind it — this one runs a real layered layout and a real orthogonal router, spends
+    the two unspent neutral channels (fill and weight) on <em>what a thing is</em> rather than on
+    hover, and draws the eleven-form edge vocabulary that 56 §5.2 already owned and no concept had
+    ever drawn.</p>
+
+    <h3>What I changed, against the rejected round</h3>
+    <ul>
+      <li><strong>Two weights at exactly 2:1.</strong> Device and peer boundaries are 2px
+      <span class="m">--ink</span>; every edge, bracket, band, stub, tick, chassis rule and
+      annotation is 1px. In all five concepts a device boundary and a port stub were the same mark.</li>
+      <li><strong>A three-step tonal ladder.</strong> Canvas <span class="m">--surface-2</span>,
+      site region <span class="m">--surface</span>, device box <span class="m">--page</span>.
+      The concepts drew <span class="m">--page</span> boxes on a <span class="m">--page</span>
+      ground — an outline floating on nothing — and spent fill on hover instead.</li>
+      <li><strong>Selection surrenders the weight channel.</strong> Selection is
+      <span class="m">▸</span> on the label, a <span class="m">--surface</span> ground, and
+      everything outside the closure at 40% opacity. Weight now means structure, permanently.</li>
+      <li><strong>Layout is computed.</strong> Semantic rank table, median crossing reduction with
+      a fixed sweep count, a priority-method x-assignment, per-corridor interval-graph channel
+      allocation, corridor centring, bend-first route ordering. Nothing is a literal. Drag a box
+      and it pins; the rest flows around it.</li>
+      <li><strong>Semantic sides.</strong> Uplinks leave the top, downlinks the bottom, management
+      the left, WAN and tunnels the right — regardless of slot. This is the single largest
+      legibility win in the file and it costs no channel.</li>
+      <li><strong>Terminals are explicit geometry.</strong> 8px perpendicular port stub on the
+      4px edge lattice, then 4px of clearance before the first bend. Nothing lands on a wall at an
+      arbitrary slope; there is not one diagonal in the picture.</li>
+      <li><strong>Crossings and junctions are different pictures.</strong> A 4px knockout gap in the
+      lower-priority rail at every genuine crossing; a 4px filled <span class="m">--ink</span>
+      square at every genuine tee. In the rejected round a four-way meeting and a connection were
+      the same plus sign.</li>
+      <li><strong>Quantised widths, fixed heights, one gutter.</strong> Widths on a
+      {96,128,160,192} ladder, heights 36/52 plus 20px chassis sub-rows, column gap raised from
+      32px to 64px so a rank reads as objects rather than as one stripe.</li>
+      <li><strong>Two type sizes, not three.</strong> <span class="m">--t-mono</span> for
+      identifiers, <span class="m">--t-micro</span> for annotation. The third level is bought with
+      case and tracking. <span class="m">--t-tab</span> does not appear in the picture.</li>
+      <li><strong>Crispness.</strong> <span class="m">vector-effect="non-scaling-stroke"</span> on
+      every stroked element, <span class="m">shape-rendering="crispEdges"</span> on boxes, rails and
+      bands, positions on the 4px lattice and 1px strokes emitted at +0.5. Four of the five concepts
+      had no <span class="m">vector-effect</span> at all and stretched a fixed viewBox to 100%
+      width, so every hairline was a half-intensity smear across two device rows.</li>
+    </ul>
+
+    <h3>The colour question, answered honestly</h3>
+    <p>Monochrome is not the problem and I would not reopen ADR-0011. Six of Bertin's seven retinal
+    variables survive the ban; only hue is lost. The rejected concepts left three of the remaining
+    six completely unused — value, texture and size — and then complained about having five. ISO
+    128-2 separates five line meanings on weight and dash alone; USPTO figures encode material type
+    in hatch on nothing but black ink. What this picture was starving for was <em>fill</em> and
+    <em>weight</em>, both neutral, both already tokenised, both unspent.</p>
+    <p>Hatch is deliberately <strong>not</strong> used here. 51 §4.1 C2 already spends hatch twice
+    at 135° for suppressed findings and the AI-proposed gutter; if the diagram ever takes it, it
+    must be 45°, must mean exactly "beyond this boundary is not modelled", and must be stroked
+    geometry rather than a paint server, because <span class="m">&lt;pattern&gt;</span> is outside
+    34 §5.6's tag set and a paint server dies under <span class="m">forced-colors</span>.</p>
+
+    <h3>Which disclosure mechanism I would ship</h3>
+    <div class="verdict"><p><strong>Ship the inspector column as the mechanism. Ship the
+    <span class="m">▸</span> depth mark before either. Ship the chip only as a preview, bounded by
+    a content rule.</strong></p>
+    <p>The owner's question underneath "do they each have popups" is <em>is there more here?</em> —
+    and a hover cannot answer it, because you have to already be pointing at the thing to find out.
+    The static <span class="m">▸</span> at a node's bottom-right answers it at a glance, at every
+    zoom, in print, on touch, in the exported SVG, and for a screen-reader user. It costs no new
+    glyph and no interaction model, because <span class="m">▸</span> already means
+    "disclosable, there is more" in four other places in the product.</p>
+    <p>Flip the toggle above and feel the two. The chip here is fully WCAG 1.4.13 compliant —
+    dismissible with Esc without moving the pointer, hoverable with a grace corridor, persistent
+    with no auto-hide timer, triggered by <span class="m">:focus</span> as well as
+    <span class="m">:hover</span>, and drawn with a 1px <span class="m">--ink</span> rule and no
+    shadow. It is buildable and it is compliant. It is still the weaker mechanism, for three
+    reasons that are not about accessibility: it occludes exactly the neighbours you are comparing
+    against and it does so worst where density is highest; every fact that lives only in a chip is
+    lost by the SVG, the PNG, the print, the screenshot and the ticket; and 56 §9.5 already prints
+    the hidden-label table beneath the picture <em>because a printed page has no hover</em>.</p>
+    <p>So the chip is bound by a content rule that keeps it honest: <strong>it may contain only
+    what the picture already tried to draw and could not</strong> — a truncated name, a label the
+    placer counted rather than placed, an age line the zoom suppressed, a port name the LOD ladder
+    dropped. Four lines maximum. If the picture drew it, the chip does not repeat it. Under that
+    rule the chip is a label that would not fit, not an inspector in disguise, and 51 §11's refusal
+    of inspector-as-overlay is left intact.</p></div>
+
+    <h3>What I sacrificed</h3>
+    <ul>
+      <li><strong>Brandes–Köpf.</strong> x-assignment is the priority method with a fixed pass
+      count, not the four-alignment median. It is deterministic and it is good enough at this size;
+      it will produce longer edges than BK on a wide graph.</li>
+      <li><strong>Label placement is fixed-side first.</strong> The E/W/N/S search runs only on
+      collision, and demotions are counted in the view band next to hidden labels
+      (<span class="m">n moved</span>). That is deliberate — inconsistent label sides are, after
+      staircase routing, the most reliable tell that nobody drew this.</li>
+      <li><strong>The single scene-level knockout path.</strong> Rule 14 asks for one
+      <span class="m">&lt;path&gt;</span> of knockout subpaths painted between the bands and the
+      edges. That cannot express per-pair priority — a knockout painted under every edge knocks out
+      nothing, and painted over every edge it erases the winner too. I used containerlab's actual
+      mechanism instead: the gap is cut into the lower-priority path's own geometry. It costs zero
+      elements rather than one and it is exact.</li>
+      <li><strong>The 4px gap between the stub end and the rail.</strong> Refused, and this one is
+      load-bearing. A 4px break in a 1px monochrome line is not distinguishable from
+      <span class="m">--rule-style-pending</span>, and putting one at both ends of every edge in
+      the picture would have re-created the exact defect the dash reservation exists to prevent.
+      The 4px is kept as bend clearance instead: an edge travels 12px perpendicular before it may
+      turn, so no corner ever touches a wall.</li>
+      <li><strong>Sub-pixel truth below 1:1.</strong> The +0.5 stroke offset is exact at
+      <span class="m">z = 1</span> and <span class="m">z = 2</span> only. Below that,
+      <span class="m">non-scaling-stroke</span> keeps the stroke 1 CSS px but cannot control which
+      device row it lands on.</li>
+    </ul>
+
+    <h3>Three defects in the spec that this build found</h3>
+    <div class="note">
+      <p><strong>1. <span class="m">--dg-conduit-gap: 5px</span> and
+      <span class="m">--dg-rail-gap: 3px</span> are off the 4px lattice</strong> that 56 §5.3
+      declares two lines above them. They are also too small to survive: with
+      <span class="m">non-scaling-stroke</span> a 5px scene gap between two 1px rails is 2.5 screen
+      px at <span class="m">z = 0.5</span> and 1.75px at the 0.35 LOD floor, at which point the
+      conduit and the twin rail both degenerate into the single undifferentiated line the owner
+      complained about. This build uses 8px for the conduit and 4px for the rail pair, both on the
+      lattice, and enforces the minimum separation in <em>screen</em> pixels — below it the form
+      degrades to a named fallback and the view band says so.</p>
+      <p><strong>2. 56 §5.6's width formula guarantees a ragged rank.</strong>
+      <span class="m">SRX-A</span> is 64px and <span class="m">SRX-345-DC-EAST</span> is 140px, so
+      a row of devices is a row of unequal boxes. Quantising to a 32px ladder costs one
+      <span class="m">ceil</span> and preserves §2.4's arithmetic determinism. The ladder starts at
+      96, not 64, because at 64 a device carrying chassis sub-rows cannot hold its own sub-row
+      labels.</p>
+      <p><strong>3. A device's height has to be allowed to grow with its port count.</strong> The
+      hub in this fixture terminates one tunnel per spoke; at 40 spokes its right edge carries 40
+      <span class="m">st0</span> units. Holding the box at 36px and drawing 40 stubs on it is the
+      texture 56 §12 predicts. Letting the box grow turns it into a 40-pin symbol with its unit
+      names set inside the body, which is what schematic capture has done for forty years and is
+      the most legible thing on the page at 40 spokes.</p>
+    </div>
+
+    <h3>Measured, not asserted</h3>
+    <p>Chromium, <span class="m">file://</span>, DPR 2. Every number below is printed live in the
+    view band as you change the estate size.</p>
+    <div class="verdict"><p><span class="m">4 spokes</span> — 13 nodes, 18 edges, 187 elements,
+    scene 784 × 668, 2 routing channels, 5 crossings, layout 3.1 ms, DOM build 4.6 ms, fit 0.98.<br>
+    <span class="m">12 spokes</span> — 21 nodes, 26 edges, 259 elements, scene 832 × 796,
+    6 channels, 5 crossings, layout 5–9 ms, DOM build 13 ms, fit 0.93.<br>
+    <span class="m">40 spokes</span> — 49 nodes, 54 edges, 510 elements, scene 1000 × 1332,
+    20 channels, 5 crossings, layout 13 ms, DOM build 17 ms, fit 0.68.</p>
+    <p>Zero edges cross a device box at any of the three. Zero routing segments are diagonal —
+    the only four non-axis-aligned segments in the file are the two open-V arrowhead legs, which
+    are terminal glyphs on the 4px lattice, not routes. Every stroked element carries
+    <span class="m">vector-effect="non-scaling-stroke"</span>. The picture resolves to exactly
+    six values, all neutral: <span class="m">--ink</span>, <span class="m">--muted</span>,
+    <span class="m">--hairline</span>, <span class="m">--surface</span>,
+    <span class="m">--surface-2</span>, <span class="m">--page</span>. No risk colour appears in
+    the SVG at all.</p></div>
+
+    <h3>Where this does not yet hold up</h3>
+    <p id="honest-note"><strong>Aspect ratio is the real weak point.</strong> The peer column is a
+    single stack, so from 4 to 40 spokes the scene gets 1.28× wider and 2× taller. The pane grows
+    with it, capped at 900px, which is the only reason the 40-spoke fit lands at 0.68 rather than
+    0.48 — in a fixed 640px pane the estate would cross the 0.6 threshold and lose its edge labels
+    and port names. That is announced rather than hidden, but it is degradation. The two fixes, in
+    order of preference, are 56 §12's own recommendation — collapse <span class="m">st0.*</span>
+    into one stub with a count and expand on drill-down — and wrapping the peer stack into a second
+    column, which needs a half-pitch stagger so the second column's conduits can reach it through
+    the first column's gutters. Neither is built here.</p>
+    <p><strong>Three smaller honest failures.</strong> (i) 8 port labels out of roughly 40 cannot
+    be placed at 4 spokes and are counted in the view band rather than overlapped — that is the
+    mechanism working, but 8 is more than it should be and the fix is a fifth candidate position
+    rather than a cleverer search. (ii) A rank with two disconnected halves cannot spread, because
+    the rigid re-centring step that kills the drift also caps how far a rank can pull apart; the
+    left third of the site region is empty for that reason and 56 §3.6 predicts exactly this cost.
+    (iii) Multi-rank edges run in a margin lane instead of through phase 4's dummy nodes. It is the
+    scoped answer and it is what a draughtsman does with a signal that crosses a whole sheet, but
+    it is not the textbook one and it will not scale past a handful of such edges.</p>
+  </div>
+
+  <p class="foot">Fathom · design study · monochrome diagram, three neutral fills, two stroke
+     weights, eleven edge forms, zero network requests.</p>
+</main>
+
+<script>
+"use strict";
+/* =========================================================================
+   1. GEOMETRY CONSTANTS. Every one is a multiple of --dg-grid (4px) or a
+      named token multiple. Nothing here is a magic number without a name.
+   ========================================================================= */
+const G = {
+  grid: 4, s1: 4, s2: 8, s3: 12, s4: 16, s5: 24, s6: 32, s8: 64,
+  advMono: 7.526,        // DejaVu Sans Mono 0.6021em at --t-mono  12.5px
+  advMicro: 6.021,       //                          at --t-micro  10px
+  head1: 36, head2: 52,  // node header: one label line / with the age line
+  chassis: 20,           // --lh-step, one chassis sub-row
+  peerH: 20, peerPitch: 32,
+  pitch: 96,             // layer pitch: 36px of node + 60px of routing channel
+  colGap: 64,            // --s8, raised from --s6 (rule 7)
+  stub: 8,               // --s2, every port stub, everywhere, identical
+  bendClear: 4,          // --s1, travel before the first bend is legal
+  rail: 4,               // twin-rail separation (LAG / reth)
+  conduit: 8,            // conduit rail separation (tunnel)
+  portPitch: 16,         // --lh-micro, the port lattice
+  chanPitch: 16,         // routing channel pitch
+  junc: 4, tick: 8, arrowDx: 8, arrowDy: 4, sq: 4,
+  minW: 96, maxW: 192, wStep: 32,
+  margin: 32,
+  minRailScreen: 3, minConduitScreen: 4, minStubScreen: 6,
+
+  /* ---- THE TWO AGGREGATION NUMBERS, and why they are these numbers -----
+     AGG_MIN — the LEGIBILITY ceiling. 44 §4.7.4's 2,000 is a PERFORMANCE
+     ceiling; the forty-spoke render is ~500 elements, two orders of
+     magnitude below it, and already unreadable. So the ceiling that bites
+     was never specified. Six, for two independent reasons that agree:
+       · perceptual — enumeration without counting fails above four and is
+         gone by six; six is the last count a reader can still verify by
+         pairing rather than by counting one at a time.
+       · geometric — six units at G.portPitch (16px) is 96px, which is
+         exactly G.pitch, this layout's own rank pitch. A sibling set that
+         outgrows one rank pitch has stopped being a property of its node
+         and become a structure in its own right, and structures get drawn
+         once with a count, not n times.
+     AGG_PAGE — how many are shown when you have EXPLICITLY asked to see
+     them. 12 = 2 × AGG_MIN, and 12 × 16px = 192px = G.maxW, the widest box
+     the width ladder allows: one expanded page is at most one box tall. An
+     explicit request tolerates more than a default does; it does not
+     tolerate 120. ------------------------------------------------------ */
+  aggMin: 6, aggPage: 12,
+  aggH: 36                      // the collapsed peer box carries two lines
+};
+const r4 = v => Math.round(v / G.grid) * G.grid;
+const wMono  = s => s.length * G.advMono;
+const wMicro = s => s.length * G.advMicro;
+
+/* =========================================================================
+   2. THE FIXTURE. Derived from .context/field-card-srx-ipsec.txt.
+      A model, not a drawing: not one coordinate appears below.
+   ========================================================================= */
+function fixture(nSpokes, nLagMembers) {
+  const nodes = [], edges = [], bands = [];
+  const D = (id, name, role, o = {}) => {
+    const n = { id, kind: 'Device', name, role, chassis: [], layers: ['phys','l2','l3','sec','ovl'],
+                age: 'fresh', ageLine: null, depth: [], zone: null, ...o };
+    nodes.push(n); return n;
+  };
+  const P = (id, name, o = {}) => {
+    const n = { id, kind: 'ExternalPeer', name, role: 'Peer', chassis: [],
+                layers: ['phys','l2','l3','sec','ovl'], age: 'hand', ageLine: null,
+                depth: [], zone: null, ...o };
+    nodes.push(n); return n;
+  };
+  /* Every terminal carries the zone ITS INTERFACE is bound to, not the zone
+     of the box it lands on. On a firewall those differ — that is the whole
+     point of a firewall — so `az` / `bz` are declared per end and default to
+     the node's own zone when the node has one. */
+  const zoneOfNode = id => (nodes.find(n => n.id === id) || {}).zone || null;
+  const E = (id, kind, a, b, o = {}) => {
+    const e = { id, kind, a, b, layers: ['phys'], label: null, z: 5, az: null, bz: null, ...o };
+    if (!e.az) e.az = zoneOfNode(a.n);
+    if (!e.bz) e.bz = zoneOfNode(b.n);
+    edges.push(e); return e;
+  };
+
+  P('n.isp', 'ISP-A', { zone: 'UNTRUST',
+      note: 'transit provider · not modelled beyond this edge',
+      depth: ['peer is an ExternalPeer: nothing beyond it is modelled',
+              'the open right edge is that statement, drawn',
+              'zone UNTRUST is nominal — everything past the WAN edge is'] });
+
+  D('n.rtr', 'RTR-EDGE', 'Router', { atEdge: true, age: 'ageing', zone: 'WAN',
+      ageLine: 'parsed 4 months ago',
+      depth: ['3 units', 'origin Parsed', 'asserted 2026-03-14'] });
+
+  D('n.mgmt', 'MGMT-SW', 'Mgmt', { zone: 'MGMT',
+      depth: ['out-of-band management path only',
+              'no data-plane adjacency',
+              'MGMT is a DOMAIN, not a Junos security-zone: fxp0 is in no zone at all'] });
+
+  D('n.srx', 'SRX-A', 'Firewall', { chassis: ['node0', 'node1'], age: 'ageing', zone: null,
+      ageLine: 'parsed 4 months ago',
+      depth: ['chassis cluster, redundancy group RG1',
+              'reth0.0 is the external-interface for every gateway',
+              'one st0 unit per spoke, BindsInterface is 0..1',
+              'a firewall is in no zone: it is the thing that defines them'] });
+
+  D('n.cora', 'SW-CORE-A', 'Switch', { core: true, zone: 'TRUST', depth: ['ae0'] });
+  D('n.corb', 'SW-CORE-B', 'Switch', { core: true, age: 'stale', zone: 'TRUST',
+      ageLine: 'parsed 11 months ago',
+      depth: ['ae0', 'evidence is 11 months old — re-parse before acting'] });
+
+  D('n.acc1', 'SW-ACC-1', 'Switch', { zone: 'TRUST' });
+  D('n.acc2', 'SW-ACC-2', 'Switch', { age: 'unverified', zone: 'TRUST',
+      ageLine: 'last parsed 2025-03-11',
+      depth: ['RE-PARSE BEFORE ACTING — THIS EVIDENCE IS 16 MONTHS OLD'] });
+  D('n.acc3', 'SW-ACC-3', 'Switch', { zone: 'TRUST' });
+
+  /* ---- the estate's edges, one per vocabulary form -------------------- */
+  E('e.isp', 'link', { n: 'n.rtr', side: 'top', ports: ['ge-0/0/0'] },
+                      { n: 'n.isp', side: 'bottom', ports: [''] },
+    { layers: ['phys','l2','l3'], label: null, z: 5 });
+
+  E('e.reth', 'reth', { n: 'n.srx', side: 'left', ports: ['ge-0/0/0', 'ge-5/0/0'],
+                        chassisIdx: [0, 1], bracket: true },
+                       { n: 'n.rtr', side: 'bottom', ports: ['ge-0/0/2', 'ge-0/0/3'] },
+    { layers: ['phys','l2','l3'], label: 'reth0 · RG1', z: 7, az: 'WAN', bz: 'WAN',
+      l2name: 'reth0.0', l2label: 'vlan 10, 20, 30' });
+
+  E('e.mgmt', 'link', { n: 'n.mgmt', side: 'right', ports: ['ge-0/0/9'] },
+                       { n: 'n.srx', side: 'left', ports: ['fxp0'] },
+    { layers: ['phys'], z: 4, az: 'MGMT', bz: 'MGMT' });
+
+  E('e.trunk1', 'trunk', { n: 'n.srx', side: 'bottom', ports: ['ge-0/0/4'] },
+                          { n: 'n.cora', side: 'top', ports: ['xe-0/0/0'] },
+    { layers: ['phys','l2'], label: 'vlan 10, 20, 30', z: 6, az: 'TRUST', bz: 'TRUST' });
+
+  E('e.acc0', 'access', { n: 'n.srx', side: 'bottom', ports: ['ge-0/0/5'] },
+                         { n: 'n.corb', side: 'top', ports: ['xe-0/0/0'] },
+    { layers: ['phys','l2'], label: 'vlan 10', z: 6, az: 'TRUST', bz: 'TRUST' });
+
+  // ae0's members are a control, not a literal: the member-level collapse has
+  // to be exercisable and two members never reach the threshold.
+  const lagN = Math.max(2, nLagMembers | 0);
+  const lagPorts = Array.from({ length: lagN }, (_, i) => 'xe-0/0/' + (2 + i));
+  E('e.lag', 'lag', { n: 'n.cora', side: 'right', ports: lagPorts.slice(), bracket: true },
+                     { n: 'n.corb', side: 'left', ports: lagPorts.slice(), bracket: true },
+    { layers: ['phys','l2'], label: 'ae0 · ' + lagN + ' members', z: 7,
+      members: lagPorts.slice(), l2name: 'ae0.0', aggKind: 'member', aggNoun: 'ae0 members' });
+
+  E('e.t2', 'trunk', { n: 'n.cora', side: 'bottom', ports: ['xe-0/0/4'] },
+                      { n: 'n.acc1', side: 'top', ports: ['ge-0/0/0'] },
+    { layers: ['phys','l2'], label: 'vlan 10, 20', z: 6 });
+
+  E('e.x1', 'link', { n: 'n.cora', side: 'bottom', ports: ['xe-0/0/5'] },
+                     { n: 'n.acc3', side: 'top', ports: ['ge-0/0/0'] },
+    { layers: ['phys'], z: 5 });
+
+  E('e.x2', 'link', { n: 'n.corb', side: 'bottom', ports: ['xe-0/0/5'] },
+                     { n: 'n.acc1', side: 'top', ports: ['ge-0/0/1'] },
+    { layers: ['phys'], z: 5 });
+
+  E('e.atrunk', 'atrunk', { n: 'n.corb', side: 'bottom', ports: ['xe-0/0/6'] },
+                           { n: 'n.acc2', side: 'top', ports: ['ge-0/0/0'] },
+    { layers: ['phys','l2'], label: 'vlan 10, 20 · asym', z: 6, taggedEnd: 'a' });
+
+  E('e.inf', 'inferred', { n: 'n.acc3', side: 'top', ports: [''] },
+                          { n: 'n.corb', side: 'bottom', ports: [''], open: true },
+    { layers: ['l3'], label: 'resolves via ae0', z: 2 });
+
+  E('e.prop', 'proposed', { n: 'n.acc2', side: 'right', ports: ['ge-0/0/7'] },
+                           { n: 'n.acc3', side: 'left', ports: ['ge-0/0/7'] },
+    { layers: ['phys'], label: 'proposed link', z: 3 });
+
+  E('e.route', 'route', { n: 'n.acc2', side: 'top', ports: [''] },
+                         { n: 'n.corb', side: 'bottom', ports: [''] },
+    { layers: ['l3'], label: '10.2.0.0/16', z: 4, arrowAt: 'b',
+      endA: 'ri CUST-A', endB: 'next hop' });
+
+  E('e.pol', 'policy', { n: 'n.acc1', side: 'left', ports: [''] },
+                        { n: 'n.srx', side: 'bottom', ports: [''] },
+    { layers: ['sec'], label: 'TRUST → VPN · 4 · deny', z: 3, arrowAt: 'b',
+      az: 'TRUST', bz: 'VPN' });
+
+  /* ---- the spokes. One ExternalPeer and one conduit each. -------------
+     The spoke peers are in zone VPN because that is where their tunnel
+     lands: plumbing piece #2 on the field card is literally
+     `set security zones security-zone VPN interfaces st0.0`. */
+  for (let i = 0; i < nSpokes; i++) {
+    const nn = String(i + 1).padStart(2, '0');
+    P('n.sp' + nn, 'SPOKE-' + nn, { lateral: true, spoke: i, zone: 'VPN',
+      note: 'one-sided tunnel · the far side is not modelled',
+      depth: ['IpsecVpn VPN-' + nn, 'IkeGateway GW-' + nn + ' → 203.0.113.' + (10 + i),
+              'v2-only · dead-peer-detection always-send 10/3'] });
+    E('e.tun' + nn, 'conduit',
+      { n: 'n.srx', side: 'right', ports: ['st0.' + i], inside: true },
+      { n: 'n.sp' + nn, side: 'left', ports: [''] },
+      { layers: ['ovl'], label: '10.1.0.0/16 ↔ 10.2.' + i + '.0/24', z: 8,
+        az: 'VPN', bz: 'VPN',
+        vpn: 'VPN-' + nn, gw: 'GW-' + nn, peer: '203.0.113.' + (10 + i),
+        overlay: '10.255.' + i + '.1/30' });
+  }
+
+  /* ---- bands. G7's three forms, plus the site region. -----------------
+     TRUST now spans the cores as well as the access layer, which is what
+     the estate actually is: everything behind the firewall's ge-0/0/4 and
+     ge-0/0/5 is in one zone. MGMT and UNTRUST are new. */
+  bands.push({ id: 'b.site', form: 'region', kind: 'site', name: 'SITE-A',
+    members: ['n.rtr','n.mgmt','n.srx','n.cora','n.corb','n.acc1','n.acc2','n.acc3'],
+    layers: ['phys','l2','l3','sec','ovl'], inset: 20 });
+  bands.push({ id: 'b.trust', form: 'vbracket', kind: 'zone', name: 'TRUST',
+    members: ['n.cora','n.corb','n.acc1','n.acc2','n.acc3'], layers: ['sec'], inset: 16 });
+  bands.push({ id: 'b.wan', form: 'vbracket', kind: 'zone', name: 'WAN',
+    members: ['n.rtr'], layers: ['sec'], inset: 16 });
+  bands.push({ id: 'b.mgmt', form: 'vbracket', kind: 'oob', name: 'MGMT',
+    members: ['n.mgmt'], layers: ['sec'], inset: 16 });
+  bands.push({ id: 'b.untrust', form: 'vbracket', kind: 'zone', name: 'UNTRUST',
+    members: ['n.isp'], layers: ['sec'], inset: 16 });
+  bands.push({ id: 'b.vpn', form: 'vbracket', kind: 'zone', name: 'VPN',
+    members: ['n.srx'], layers: ['sec'], inset: 16 });
+  bands.push({ id: 'b.vlan10', form: 'hbracket', kind: 'vlan', name: '10',
+    members: ['n.cora','n.corb'], layers: ['l2'], inset: 16 });
+  bands.push({ id: 'b.ri', form: 'box', kind: 'ri', name: 'CUST-A',
+    members: ['n.acc2','n.acc3'], layers: ['l3'], inset: 8 });
+
+  return { nodes, edges, bands, nSpokes, nLagMembers: lagN };
+}
+
+/* =========================================================================
+   2b. AGGREGATION — the design pass 56 §12 asks for.
+
+   THE FINDING THIS ANSWERS.  44 §4.7.4 caps the picture at 2,000 live SVG
+   elements and aggregates above that; 52 §3.6.1 repeats it; 56 §12 leaves
+   the st0 fan OPEN. But A-schematic's forty-spoke render is ~510 elements —
+   two orders of magnitude under the cap — and it is already a texture. 2,000
+   is therefore a PERFORMANCE ceiling and the corpus has never written down a
+   LEGIBILITY ceiling, which is the one that actually bites. G.aggMin is that
+   number, and it fires on LIKE-KIND SIBLING COUNT, never on total elements.
+
+   THE RULES THIS OBEYS.
+     · nothing is ever hidden without a count and a noun. `+36` alone is a
+       worse diagram; `st0.0–39 · +40 tunnel units` is a better one.
+     · expansion is PARTIAL. Expanding the tunnel bundle does not expand the
+       ae0 members: the reader is following one path, not asking for the
+       whole estate. Global expansion already exists — it is the
+       `show every one` control, and it is there so the two can be compared.
+     · an expanded group shows a WINDOW of G.aggPage and states the residual
+       as its own counted, focusable continuation. Expanding 120 into 120 is
+       just the texture again, with extra steps.
+   ========================================================================= */
+function aggregate(model, state) {
+  const groups = [];
+  const nodes = model.nodes.slice(), edges = model.edges.slice();
+  const drop = new Set();
+
+  /* ---- the tunnel bundle: st0 unit, conduit and spoke peer are 1:1:1 ----
+     Three affordances, ONE truth. There is no useful state in which forty
+     units fan into one box, so the unit stub and the peer box share their
+     expansion; both are focusable, both announce the same count. */
+  const spokes = model.nodes.filter(n => n.lateral && n.spoke !== undefined)
+                            .sort((a, b) => a.spoke - b.spoke);
+  const N = spokes.length;
+  const tKey = 'g.tunnels';
+  const tWin = state.expanded.get(tKey);
+  const tOn  = state.aggregate && N >= G.aggMin;
+  const tExp = tOn && tWin !== undefined;
+  const unitName = i => 'st0.' + i;
+  const spokeName = i => 'SPOKE-' + String(i + 1).padStart(2, '0');
+  groups.push({ key: tKey, kind: 'tunnel', n: N, on: tOn, expanded: tExp,
+    window: tExp ? Math.min(tWin, Math.max(0, N - 1)) : 0, page: G.aggPage,
+    unitNoun: 'tunnel units', peerNoun: 'spokes', edgeNoun: 'tunnels',
+    unitRange: N ? unitName(0) + '–' + (N - 1) : '',
+    peerRange: N ? spokeName(0) + '–' + String(N).padStart(2, '0') : '' });
+
+  if (tOn) {
+    const g = groups[0];
+    const lo = g.expanded ? g.window : 0;
+    const hi = g.expanded ? Math.min(N, lo + g.page) : 0;
+    const shown = hi - lo;
+    const hidden = N - shown;
+    for (const s of spokes) {
+      const keep = g.expanded && s.spoke >= lo && s.spoke < hi;
+      if (!keep) { drop.add(s.id); drop.add('e.tun' + String(s.spoke + 1).padStart(2, '0')); }
+    }
+    g.shown = shown; g.hidden = hidden; g.lo = lo; g.hi = hi;
+    if (hidden > 0) {
+      const resid = g.expanded;
+      // WHAT and HOW MANY, both, always. A bare `+36` is a worse diagram.
+      const lab = resid ? '+' + hidden + ' more' : g.peerRange;
+      const unitLab = resid ? '+' + hidden + ' more' : g.unitRange + ' · +' + hidden;
+      const agg = { key: tKey, residual: resid, n: hidden, total: N,
+                    noun: resid ? 'more spokes' : 'spokes',
+                    unitNoun: resid ? 'more tunnel units' : 'tunnel units',
+                    expanded: g.expanded, lo, hi, page: g.page };
+      nodes.push({ id: 'n.sp.agg', kind: 'ExternalPeer', name: lab, role: 'Peer',
+        chassis: [], layers: ['phys','l2','l3','sec','ovl'], age: 'hand', ageLine: null,
+        zone: 'VPN', lateral: true, spoke: resid ? 1e6 : -1, agg,
+        depth: [ hidden + ' ' + agg.noun + ' collapsed into one box',
+                 'each is an IpsecVpn with its own IkeGateway and st0 unit',
+                 'Enter expands ' + Math.min(g.page, hidden) + ' of them; Escape collapses again' ],
+        note: 'aggregate · ' + hidden + ' ' + agg.noun });
+      edges.push({ id: 'e.tun.agg', kind: 'conduit',
+        a: { n: 'n.srx', side: 'right', ports: [unitLab], inside: true, agg },
+        b: { n: 'n.sp.agg', side: 'left', ports: [''] },
+        layers: ['ovl'], label: hidden + ' ' + (resid ? 'more tunnels' : 'tunnels'),
+        z: 8, az: 'VPN', bz: 'VPN', agg,
+        vpn: hidden + ' × IpsecVpn', gw: hidden + ' × IkeGateway',
+        peer: '203.0.113.' + (10 + lo) + ' … ' + (10 + N - 1),
+        overlay: '10.255.0.1/30 … 10.255.' + (N - 1) + '.1/30' });
+    }
+  }
+
+  /* ---- member level: ae0's members ------------------------------------ */
+  const lag = model.edges.find(e => e.id === 'e.lag');
+  if (lag) {
+    const M = lag.members ? lag.members.length : 0;
+    const mKey = 'g.ae0';
+    const mOn = state.aggregate && M >= G.aggMin;
+    const mExp = mOn && state.expanded.get(mKey) !== undefined;
+    groups.push({ key: mKey, kind: 'member', n: M, on: mOn, expanded: mExp,
+      unitNoun: 'ae0 members', peerNoun: 'ae0 members', edgeNoun: 'ae0 members',
+      unitRange: M ? lag.members[0] + '–' + lag.members[M - 1].split('/').pop() : '',
+      page: G.aggPage, shown: mExp ? Math.min(M, G.aggPage) : (mOn ? 1 : M) });
+    if (mOn && !mExp) {
+      const idx = edges.indexOf(lag);
+      const agg = { key: mKey, residual: false, n: M, total: M, noun: 'ae0 members',
+                    unitNoun: 'ae0 members', expanded: false, lo: 0, hi: 0, page: G.aggPage };
+      const lab = groups[1].unitRange + ' · +' + M;
+      edges[idx] = { ...lag,
+        a: { ...lag.a, ports: [lab], bracket: false, agg },
+        b: { ...lag.b, ports: [lab], bracket: false },
+        label: 'ae0 · ' + M + ' members', agg };
+    } else if (mOn && mExp && M > G.aggPage) {
+      const idx = edges.indexOf(lag);
+      const keep = lag.members.slice(0, G.aggPage);
+      const hidden = M - keep.length;
+      const agg = { key: mKey, residual: true, n: hidden, total: M, noun: 'more ae0 members',
+                    unitNoun: 'more ae0 members', expanded: true, lo: 0, hi: keep.length,
+                    page: G.aggPage };
+      edges[idx] = { ...lag,
+        a: { ...lag.a, ports: keep.concat(['+' + hidden + ' more']), agg },
+        b: { ...lag.b, ports: keep.concat(['+' + hidden + ' more']) },
+        label: 'ae0 · ' + keep.length + ' of ' + M + ' members', agg };
+      groups[1].shown = keep.length;
+    }
+  }
+
+  return { nodes: nodes.filter(n => !drop.has(n.id)),
+           edges: edges.filter(e => !drop.has(e.id)),
+           bands: model.bands, groups, nSpokes: model.nSpokes };
+}
+
+/* The accessible name of a collapsed group. It states WHAT, HOW MANY and
+   WHAT ENTER WILL DO, in that order, every time. There is no state in which
+   it says `+36` and stops. */
+function aggAria(gr, a) {
+  const nextN = Math.min(gr.page, gr.n);
+  if (a.form === 'stub') {
+    return gr.expanded
+      ? `${gr.unitNoun}: expanded, showing ${gr.shown} of ${gr.n}, ` +
+        `${gr.hidden} still collapsed. Enter or Escape collapses all ${gr.n}.`
+      : `${gr.unitRange}: ${gr.n} ${gr.unitNoun}, collapsed into one stub. ` +
+        `Enter expands ${nextN} of ${gr.n}.`;
+  }
+  const g2 = a.agg;
+  return g2.residual
+    ? `Continuation: ${g2.n} of ${g2.total} ${gr.peerNoun} still collapsed, ` +
+      `showing ${g2.lo + 1} to ${g2.hi}. Enter shows the next ` +
+      `${Math.min(gr.page, g2.n)}. Escape collapses all ${g2.total}.`
+    : `${a.node.name}: ${g2.n} ${gr.peerNoun}, collapsed into one box. ` +
+      `Enter expands ${nextN} of ${g2.n}.`;
+}
+
+/* =========================================================================
+   3. LAYOUT.  Phases 1,2,3,5,6,7,8,9,10 of 56 §3.3, honestly.
+   ========================================================================= */
+
+/* --- phase 2: the semantic rank table. Data, not code. ------------------ */
+const SEMANTIC_RANK = [
+  { kind: 'ExternalPeer', lateral: false,                 rank: 0 },
+  { kind: 'Device', role: 'Router',   atEdge: true,       rank: 1 },
+  { kind: 'Device', role: 'Mgmt',                         rank: 2 },
+  { kind: 'Device', role: 'Firewall',                     rank: 2 },
+  { kind: 'Device', role: 'Router',                       rank: 3 },
+  { kind: 'Device', role: 'Switch',   core: true,         rank: 3 },
+  { kind: 'Device', role: 'Switch',                       rank: 4 }
+];
+function semanticRank(n) {
+  for (const row of SEMANTIC_RANK) {
+    if (row.kind !== n.kind) continue;
+    if (row.role && row.role !== n.role) continue;
+    if (row.atEdge && !n.atEdge) continue;
+    if (row.core && !n.core) continue;
+    if (row.lateral === false && n.lateral) continue;
+    return row.rank;
+  }
+  return null;                       // → longest-path fallback
+}
+
+function layout(model, state) {
+  const t0 = performance.now();
+  const mask = state.layers;
+  const inMask = o => o.layers.some(l => mask.has(l));
+
+  /* ---- phase 0: aggregate BEFORE projecting. Collapsing is a property of
+         the model the reader is being shown, not a post-pass on a drawing:
+         the router, the channel allocator and the band placer must all see
+         the collapsed form or the picture is laid out for objects that are
+         not on it. ------------------------------------------------------ */
+  const pm = aggregate(model, state);
+
+  /* ---- phase 1: project ---------------------------------------------- */
+  const nodes = pm.nodes.filter(inMask).map(n => Object.assign({}, n));
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const edges = pm.edges.filter(e => inMask(e) && byId.has(e.a.n) && byId.has(e.b.n))
+                        .map(e => JSON.parse(JSON.stringify(e)));
+
+  /* the layer model doing real work: with 'phys' off and 'l2' on, a reth
+     and a LAG are one interface, one rail, one label (56 §4.2). */
+  const physOn = mask.has('phys');
+  for (const e of edges) {
+    if ((e.kind === 'reth' || e.kind === 'lag') && !physOn) {
+      e.kind = 'link'; e.collapsed = true;
+      e.a.ports = [e.l2name || e.a.ports[0]]; e.b.ports = [e.l2name || e.b.ports[0]];
+      delete e.a.chassisIdx; e.a.bracket = false; e.b.bracket = false;
+      e.label = e.l2label || e.label;
+    }
+  }
+
+  /* ---- phase 2: rank -------------------------------------------------- */
+  const main = nodes.filter(n => !n.lateral);
+  const lat  = nodes.filter(n => n.lateral);
+  for (const n of main) n.rank = semanticRank(n);
+  let guard = 0;
+  while (main.some(n => n.rank === null) && guard++ < 20) {   // longest path fallback
+    for (const n of main) {
+      if (n.rank !== null) continue;
+      const preds = edges.filter(e => e.b.n === n.id).map(e => byId.get(e.a.n))
+                         .filter(p => p && !p.lateral);
+      if (preds.length && preds.every(p => p.rank !== null))
+        n.rank = 1 + Math.max(...preds.map(p => p.rank));
+    }
+  }
+  for (const n of main) if (n.rank === null) n.rank = 0;
+  for (const n of lat) n.rank = -1;
+
+  const ranks = [];
+  for (const n of main) (ranks[n.rank] = ranks[n.rank] || []).push(n);
+  for (let r = 0; r < ranks.length; r++) if (!ranks[r]) ranks[r] = [];
+  for (const rr of ranks) rr.sort((a, b) => a.id < b.id ? -1 : 1);   // NodeId order
+
+  /* ---- phase 5: crossing reduction. Median, fixed 8 sweeps, seeded from
+         the previous ordering so one added device does not rearrange the
+         picture (56 §3.5, the entire mental-map fix). ------------------- */
+  const prev = state.order || new Map();
+  for (const rr of ranks)
+    rr.sort((a, b) => (prev.has(a.id) ? prev.get(a.id) : 1e9) -
+                      (prev.has(b.id) ? prev.get(b.id) : 1e9) || (a.id < b.id ? -1 : 1));
+  const nbrs = (n, dr) => edges.flatMap(e => {
+    const A = byId.get(e.a.n), B = byId.get(e.b.n);
+    if (!A || !B || A.lateral || B.lateral) return [];
+    if (A.id === n.id && B.rank === n.rank + dr) return [B];
+    if (B.id === n.id && A.rank === n.rank + dr) return [A];
+    return [];
+  });
+  const posOf = new Map();
+  const reindex = () => ranks.forEach(rr => rr.forEach((n, i) => posOf.set(n.id, i)));
+  reindex();
+  for (let sweep = 0; sweep < 8; sweep++) {
+    const dr = sweep % 2 === 0 ? -1 : 1;
+    const order = sweep % 2 === 0 ? [...ranks.keys()] : [...ranks.keys()].reverse();
+    for (const r of order) {
+      const rr = ranks[r]; if (rr.length < 2) continue;
+      const med = new Map();
+      for (const n of rr) {
+        const ps = nbrs(n, dr).map(m => posOf.get(m.id)).filter(v => v !== undefined).sort((a,b)=>a-b);
+        med.set(n.id, ps.length ? ps[(ps.length - 1) >> 1] : posOf.get(n.id));
+      }
+      rr.sort((a, b) => med.get(a.id) - med.get(b.id) || (a.id < b.id ? -1 : 1));
+      reindex();
+    }
+  }
+  const orderOut = new Map(); ranks.forEach(rr => rr.forEach((n, i) => orderOut.set(n.id, i)));
+
+  /* ---- SEMANTIC SIDES (aesthetic rule 11). Uplinks leave the top,
+         downlinks the bottom, management the left, WAN and tunnels the right.
+         For a same-rank edge the left/right choice is taken from the ORDER
+         computed above, not from the fixture — otherwise an edge declared
+         right→left runs backwards through both boxes. ------------------- */
+  for (const e of edges) {
+    const A = byId.get(e.a.n), B = byId.get(e.b.n);
+    if (A.lateral || B.lateral) continue;
+    if (A.rank === B.rank) {
+      const ia = orderOut.get(A.id), ib = orderOut.get(B.id);
+      e.a.side = ia <= ib ? 'right' : 'left';
+      e.b.side = ia <= ib ? 'left' : 'right';
+    } else if (e.a.side !== 'left' && e.b.side !== 'left') {
+      // an inter-rank edge leaves the lower rank's bottom and enters the
+      // higher rank's top, unless the fixture pins it to a chassis side
+      e.a.side = A.rank < B.rank ? 'bottom' : 'top';
+      e.b.side = A.rank < B.rank ? 'top' : 'bottom';
+    }
+  }
+
+  /* ---- port demand per node per side ---------------------------------- */
+  for (const n of nodes) n.sides = { top: [], bottom: [], left: [], right: [] };
+  for (const e of edges) {
+    for (const end of ['a', 'b']) {
+      const ep = e[end], n = byId.get(ep.n);
+      n.sides[ep.side].push({ edge: e.id, end, names: ep.ports.slice(),
+        chassisIdx: ep.chassisIdx || null, bracket: !!ep.bracket,
+        inside: !!ep.inside, open: !!ep.open, kind: e.kind,
+        zone: (end === 'a' ? e.az : e.bz) || null, agg: ep.agg || null });
+    }
+  }
+
+  /* ---- ZONES. The entire colour channel, spent once. -------------------
+     A TERMINAL carries the zone its own interface is bound to, not the zone
+     of the box it lands on — on a firewall those differ, and that difference
+     is the whole reason a firewall exists. A node whose terminals span two
+     or more zones is a BOUNDARY DEVICE: it is in no zone because it is the
+     thing that defines them, and it keeps the neutral --ink outline it had
+     in A-schematic. Neutral therefore has exactly one meaning here too. */
+  for (const n of nodes) n.termZones = new Set();
+  for (const e of edges) {
+    const A = byId.get(e.a.n), B = byId.get(e.b.n);
+    if (A && e.az) A.termZones.add(e.az);
+    if (B && e.bz) B.termZones.add(e.bz);
+  }
+  const zonesOn = mask.has('sec');          // no zones in the projection, no hue
+  for (const n of nodes) {
+    n.boundary = n.termZones.size >= 2;
+    if (!n.zone && n.termZones.size === 1) n.zone = [...n.termZones][0];
+    n.ztag = (state.ztags && zonesOn)
+      ? (n.boundary ? 'BOUNDARY' : (n.zone || '')) : '';
+  }
+
+  /* ---- node metrics: quantised width, fixed height, port field -------- */
+  // the zone tag is TEXT, and text costs width. That cost is the honest
+  // price of colour independence and it is measured, not waved away.
+  const tagW = n => n.ztag ? wMicro(n.ztag) * 1.1 + G.s3 : 0;
+  for (const n of nodes) {
+    if (n.kind === 'ExternalPeer') {
+      n.head = G.peerH;
+      const cnt = n.agg ? wMicro(n.agg.n + ' ' + n.agg.noun + ' ▸') : 0;
+      n.w = Math.min(G.maxW, Math.max(G.minW,
+              Math.ceil((2 * G.s3 + Math.max(wMono(n.name) + tagW(n), cnt)) / G.wStep) * G.wStep));
+      n.h = n.agg ? G.aggH : G.peerH;
+      // the open edge faces away from the estate: opposite the one side that
+      // carries a connection. That is the drawing of "not modelled beyond".
+      const used = ['top','bottom','left','right'].filter(s => n.sides[s].length);
+      n.openSide = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }[used[0]] || 'right';
+      continue;
+    }
+    n.head = n.ageLine ? G.head2 : G.head1;
+    const hp = Math.max(n.sides.top.length, n.sides.bottom.length);
+    const hPorts = hp === 0 ? 0 : 2 * G.s3 + (hp - 1) * G.portPitch + G.s4;
+    // the width ladder answers to everything the box has to hold: the name at
+    // --t-mono, the age line and the chassis labels at --t-micro, and the
+    // horizontal port lattice. Then it quantises. One ceil, still exact.
+    // a unit label set INSIDE the body has to fit inside the body. With the
+    // st0 fan collapsed the single stub label is the widest thing the box
+    // carries, so it drives the width ladder — one ceil, still exact.
+    const insideW = Math.max(0, ...['left', 'right'].flatMap(s =>
+      n.sides[s].filter(g => g.inside).flatMap(g => g.names.map(nm => wMicro(nm)))));
+    const inner = Math.max(wMono(n.name) + tagW(n), n.ageLine ? wMicro(n.ageLine) : 0,
+                           insideW, ...n.chassis.map(c => wMicro(c) + G.s3));
+    n.w = Math.min(G.maxW, Math.max(G.minW,
+            Math.ceil((2 * G.s3 + inner) / G.wStep) * G.wStep,
+            Math.ceil(hPorts / G.wStep) * G.wStep));
+    const chassisH = n.chassis.length * G.chassis;
+    // a chassis-carrying box puts its unit field below the sub-rows; a plain
+    // box starts it at --s3, level with the label
+    n.portY0 = r4(n.chassis.length ? n.head + chassisH + G.s2 : G.s3);
+    const free = s => n.sides[s].filter(g => !g.chassisIdx).reduce((a, g) => a + g.names.length, 0);
+    const sidePorts = Math.max(free('left'), free('right'));
+    // the extra --s3 at the foot is the reserved channel for the `▸` depth
+    // mark, so it never lands on the last unit label
+    n.h = r4(Math.max(n.head + chassisH,
+      sidePorts ? n.portY0 + (sidePorts - 1) * G.portPitch + G.s2 + G.s3 : 0));
+  }
+
+  /* ---- phase 6/7: x by the priority method, with pins as fixed points.
+         Each rank is packed, pulled toward the median of its neighbours, then
+         RIGIDLY re-centred on the median residual. The rigid step is what
+         stops the systematic drift that makes generated pictures lopsided. */
+  for (const rr of ranks) {
+    const total = rr.reduce((a, n) => a + n.w, 0) + Math.max(0, rr.length - 1) * G.colGap;
+    let x = -total / 2;
+    for (const n of rr) { n.x = r4(x); x += n.w + G.colGap; }
+  }
+  for (let pass = 0; pass < 8; pass++) {
+    const dr = pass % 2 === 0 ? -1 : 1;
+    const order = pass % 2 === 0 ? [...ranks.keys()] : [...ranks.keys()].reverse();
+    for (const r of order) {
+      const rr = ranks[r]; if (!rr.length) continue;
+      const want = new Map(), real = new Map();
+      for (const n of rr) {
+        let cs = nbrs(n, dr).map(m => m.x + m.w / 2).sort((a, b) => a - b);
+        let anchored = cs.length > 0;
+        if (!anchored) {                       // fall back to same-rank neighbours
+          cs = nbrs(n, 0).map(m => m.x + m.w / 2).sort((a, b) => a - b);
+        }
+        const med = cs.length ? (cs.length % 2 ? cs[(cs.length - 1) >> 1]
+                    : (cs[cs.length / 2 - 1] + cs[cs.length / 2]) / 2) : null;
+        want.set(n.id, med === null ? n.x : med - n.w / 2);
+        real.set(n.id, anchored);
+      }
+      for (const n of rr) if (state.pins.has(n.id)) {
+        want.set(n.id, state.pins.get(n.id).x); real.set(n.id, true);
+      }
+      // separation left→right honouring the phase-5 order
+      rr.forEach((n, i) => {
+        let v = want.get(n.id);
+        if (i > 0) v = Math.max(v, rr[i - 1].x + rr[i - 1].w + G.colGap);
+        n.x = v;
+      });
+      // pull-back right→left, never violating separation
+      for (let i = rr.length - 2; i >= 0; i--)
+        rr[i].x = Math.min(Math.max(want.get(rr[i].id), rr[i].x),
+                           rr[i + 1].x - rr[i].w - G.colGap);
+      // rigid re-centre on the median residual (pins win outright)
+      const pinned = rr.filter(n => state.pins.has(n.id));
+      let shift;
+      if (pinned.length) shift = state.pins.get(pinned[0].id).x - pinned[0].x;
+      else {
+        const res = rr.filter(n => real.get(n.id)).map(n => want.get(n.id) - n.x)
+                      .sort((a, b) => a - b);
+        shift = res.length ? res[(res.length - 1) >> 1] : 0;
+      }
+      for (const n of rr) n.x = r4(n.x + shift);
+      // a pin is an obstacle: free nodes are pushed around it, both ways
+      const pi = rr.findIndex(n => state.pins.has(n.id));
+      if (pi >= 0) {
+        rr[pi].x = state.pins.get(rr[pi].id).x;
+        for (let i = pi + 1; i < rr.length; i++)
+          rr[i].x = Math.max(rr[i].x, rr[i - 1].x + rr[i - 1].w + G.colGap);
+        for (let i = pi - 1; i >= 0; i--)
+          rr[i].x = Math.min(rr[i].x, rr[i + 1].x - rr[i].w - G.colGap);
+        for (const n of rr) n.x = r4(n.x);
+      }
+    }
+  }
+  /* Gap clamp. The priority method sends each node to its neighbours' median,
+     which is correct and which leaves ranks with 240px holes in them. Rule 7
+     wants roughly one node-width of gutter, so every gap is clamped into
+     [--s8, 2 × --s8] about the rank's own centre. Order is preserved, the
+     intent (this node sits under that one) survives, the hole does not. */
+  for (const rr of ranks) {
+    if (rr.length < 2 || rr.some(n => state.pins.has(n.id))) continue;
+    const c0 = (rr[0].x + rr[rr.length - 1].x + rr[rr.length - 1].w) / 2;
+    const gaps = [];
+    for (let i = 1; i < rr.length; i++)
+      gaps.push(Math.min(G.colGap + G.s6, Math.max(G.colGap, rr[i].x - (rr[i - 1].x + rr[i - 1].w))));
+    const total = rr.reduce((a, n) => a + n.w, 0) + gaps.reduce((a, g) => a + g, 0);
+    let x = c0 - total / 2;
+    rr.forEach((n, i) => { if (i) x += gaps[i - 1]; n.x = r4(x); x += n.w; });
+  }
+
+  /* ---- y: layer pitch = tallest node in the rank + 60px channel ------- */
+  let y = 0;
+  for (const rr of ranks) {
+    const hmax = rr.length ? Math.max(...rr.map(n => n.h)) : 0;
+    for (const n of rr) n.y = r4(y);
+    y = r4(y + hmax + (G.pitch - G.head1));
+  }
+  for (const n of main) if (state.pins.has(n.id)) n.y = state.pins.get(n.id).y;
+
+  /* ---- port coordinates ----------------------------------------------- */
+  const ports = new Map();            // `${edgeId}:${end}` → [{x,y,dx,dy,name,side}]
+  for (const n of nodes) {
+    for (const side of ['top', 'bottom', 'left', 'right']) {
+      const groups = n.sides[side];
+      if (!groups.length) continue;
+      const horiz = side === 'top' || side === 'bottom';
+      // deterministic order along the side: by the far endpoint's centre
+      groups.sort((g1, g2) => {
+        const f = g => {
+          const e = edges.find(x => x.id === g.edge);
+          const other = byId.get(g.end === 'a' ? e.b.n : e.a.n);
+          if (!other) return 0;
+          if (other.lateral) return other.spokeOrder !== undefined ? other.spokeOrder : other.spoke;
+          return horiz ? other.x + other.w / 2 : other.y + other.h / 2;
+        };
+        return f(g1) - f(g2) || (g1.edge < g2.edge ? -1 : 1);
+      });
+      // a bracketed terminal spreads its members on the port lattice; an
+      // un-bracketed multi-rail terminal lands them --dg-rail-gap apart.
+      let total = 0;
+      const spans = groups.map(g => {
+        const k = g.names.length;
+        const pitch = g.bracket ? G.portPitch : (k > 1 ? G.rail : 0);
+        const span = (k - 1) * pitch;
+        return { g, k, pitch, span };
+      });
+      total = spans.reduce((a, s) => a + s.span, 0) + (spans.length - 1) * G.portPitch;
+      if (horiz) {
+        let cur = r4(n.x + n.w / 2 - total / 2);
+        cur = Math.max(cur, n.x + G.s3);
+        for (const s of spans) {
+          const pts = [];
+          for (let i = 0; i < s.k; i++)
+            pts.push({ x: r4(cur + i * s.pitch), y: side === 'top' ? n.y : n.y + n.h,
+                       dx: 0, dy: side === 'top' ? -1 : 1, name: s.g.names[i], side,
+                       node: n.id, inside: s.g.inside, open: s.g.open,
+                       zone: s.g.zone, agg: (i === s.k - 1) ? s.g.agg : null });
+          ports.set(s.g.edge + ':' + s.g.end, pts);
+          cur += s.span + G.portPitch;
+        }
+      } else {
+        // chassis-bound members sit at the centre of their own sub-row
+        let cur = n.y + n.portY0;
+        for (const s of spans) {
+          const pts = [];
+          for (let i = 0; i < s.k; i++) {
+            let py;
+            if (s.g.chassisIdx) py = r4(n.y + n.head + s.g.chassisIdx[i] * G.chassis + G.chassis / 2);
+            else py = r4(cur + i * s.pitch);
+            pts.push({ x: side === 'left' ? n.x : n.x + n.w, y: py,
+                       dx: side === 'left' ? -1 : 1, dy: 0, name: s.g.names[i], side,
+                       node: n.id, inside: s.g.inside, open: s.g.open,
+                       zone: s.g.zone, agg: (i === s.k - 1) ? s.g.agg : null });
+          }
+          ports.set(s.g.edge + ':' + s.g.end, pts);
+          if (!s.g.chassisIdx) cur += s.span + G.portPitch;
+        }
+      }
+    }
+  }
+
+  /* ---- lateral column: peers, and the corridor that feeds them -------- */
+  const hub = byId.get('n.srx');
+  lat.forEach((p, i) => { p.spokeOrder = i; });
+  let chanCount = 0, latX = 0, corridorL = 0;
+  if (lat.length && hub) {
+    const hubPorts = lat.map(p => {
+      const e = edges.find(x => x.b.n === p.id && x.kind === 'conduit');
+      return e ? (ports.get(e.id + ':a') || [])[0] : null;
+    });
+    const mainRight = Math.max(...main.map(n => n.x + n.w));
+    corridorL = r4(mainRight + G.stub + G.bendClear + G.s4);
+    // peers centred on the hub's port field so the fan is symmetric
+    const pc = hubPorts.filter(Boolean);
+    const portCentre = pc.length ? (pc[0].y + pc[pc.length - 1].y) / 2 : 0;
+    const y0 = r4(portCentre - ((lat.length - 1) * G.peerPitch) / 2 - G.peerH / 2);
+    lat.forEach((p, i) => { p.y = y0 + i * G.peerPitch; });
+    // Channel allocation for the fan. Interval-graph colouring alone is not
+    // enough: reusing a channel out of order puts a later conduit's riser to
+    // the LEFT of an earlier one's, and the two cross. The crossing-free
+    // ordering for a symmetric fan is "furthest travel gets the innermost
+    // channel", applied independently to the up-going and down-going halves,
+    // which may then share the same channel numbers because their y-intervals
+    // are disjoint by construction. Zero crossings, ceil(n/2) channels.
+    const items = lat.map((p, i) => {
+      const hpt = hubPorts[i];
+      const a = hpt ? hpt.y : p.y, b = p.y + p.h / 2;
+      return { i, up: b < a, len: Math.abs(a - b) };
+    });
+    for (const half of [true, false]) {
+      const grp = items.filter(t => t.up === half)
+                       .sort((u, v) => v.len - u.len || u.i - v.i);
+      grp.forEach((t, k) => { lat[t.i].chan = k; });
+    }
+    chanCount = Math.max(1, ...lat.map(p => p.chan + 1));
+    // centre the used channels in the corridor (libavoid's unifying nudge)
+    const chanPitch = G.s3;
+    const corridorW = Math.max(G.s6, (chanCount - 1) * chanPitch + 2 * G.s4);
+    for (const p of lat) p.chanX = r4(corridorL + G.s4 + p.chan * chanPitch);
+    latX = r4(corridorL + corridorW + G.s4);
+    for (const p of lat) p.x = latX;
+    // peer left-edge ports now that x is known
+    for (const p of lat) {
+      const e = edges.find(x => x.b.n === p.id && x.kind === 'conduit');
+      if (e) ports.set(e.id + ':b', [{ x: p.x, y: r4(p.y + p.h / 2), dx: -1, dy: 0,
+                                       name: '', side: 'left', node: p.id }]);
+    }
+  }
+
+  /* Coordinates are NOT normalised to the origin. A pin is stored in scene
+     space, so translating the whole scene after a layout would make every pin
+     drift by the offset on the next run. The viewport transform owns the
+     origin instead — `ext` carries it and `fit()` reads it. */
+
+  /* ---- phase 8: orthogonal routing ------------------------------------ */
+  const routed = [];
+  const rankBand = [];
+  ranks.forEach((rr, r) => {
+    if (!rr.length) return;
+    rankBand[r] = { top: Math.min(...rr.map(n => n.y)),
+                    bot: Math.max(...rr.map(n => n.y + n.h)) };
+  });
+
+  // group inter-rank edges by corridor for channel allocation
+  const corridorEdges = new Map();
+  for (const e of edges) {
+    const A = byId.get(e.a.n), B = byId.get(e.b.n);
+    if (!A || !B) continue;
+    if (A.lateral || B.lateral) { e._corr = 'lat'; continue; }
+    if (A.rank === B.rank) { e._corr = 'same:' + A.rank; }
+    else if (Math.abs(A.rank - B.rank) > 1) { e._corr = 'margin'; }
+    else {
+      const lo = Math.min(A.rank, B.rank);
+      e._corr = 'v:' + lo;
+      if (!corridorEdges.has(e._corr)) corridorEdges.set(e._corr, []);
+      corridorEdges.get(e._corr).push(e);
+    }
+  }
+  // an edge spanning more than one rank runs in a margin lane to the left of
+  // the whole stack rather than straight through the ranks it skips. Phase 4's
+  // dummy nodes are the textbook answer; this is the scoped one, and it is
+  // what a draughtsman does with a signal that crosses a whole sheet.
+  const mainMinX = Math.min(...main.map(n => n.x));
+  let marginK = 0;
+  for (const e of edges) if (e._corr === 'margin')
+    e._laneX = r4(mainMinX - G.s5 - (marginK++) * G.s3);
+  const chanY = new Map();
+  for (const [key, list] of corridorEdges) {
+    const r = +key.split(':')[1];
+    const above = rankBand[r], below = rankBand[r + 1];
+    if (!above || !below) continue;
+    const top = above.bot + G.stub + G.bendClear, bot = below.top - G.stub - G.bendClear;
+    // bend-first ordering: aligned edges need no channel at all
+    const need = [];
+    for (const e of list) {
+      const pa = ports.get(e.id + ':a') || [], pb = ports.get(e.id + ':b') || [];
+      if (!pa.length || !pb.length) continue;
+      const ax = pa.reduce((s, p) => s + p.x, 0) / pa.length;
+      const bx = pb.reduce((s, p) => s + p.x, 0) / pb.length;
+      if (Math.abs(ax - bx) < 1) { e._straight = true; continue; }
+      need.push({ e, lo: Math.min(ax, bx), hi: Math.max(ax, bx), len: Math.abs(ax - bx) });
+    }
+    need.sort((u, v) => v.len - u.len || u.lo - v.lo || (u.e.id < v.e.id ? -1 : 1));
+    const used = [];
+    for (const it of need) {
+      let c = 0;
+      while (used[c] && used[c].some(o => !(it.hi <= o.lo || it.lo >= o.hi))) c++;
+      (used[c] = used[c] || []).push(it); it.c = c;
+    }
+    const k = used.length;
+    const centre = (top + bot) / 2;
+    const pitch = Math.min(G.chanPitch, k > 1 ? Math.floor((bot - top) / (k - 1) / 4) * 4 : G.chanPitch);
+    for (const it of need) chanY.set(it.e.id, r4(centre + (it.c - (k - 1) / 2) * pitch));
+  }
+
+  /* --- polyline builders ------------------------------------------------ */
+  const out = (p, d) => ({ x: p.x + p.dx * d, y: p.y + p.dy * d });
+  function centreline(e) {
+    const pa = ports.get(e.id + ':a'), pb = ports.get(e.id + ':b');
+    if (!pa || !pb || !pa.length || !pb.length) return null;
+    const A = { x: pa.reduce((s, p) => s + p.x, 0) / pa.length,
+                y: pa.reduce((s, p) => s + p.y, 0) / pa.length,
+                dx: pa[0].dx, dy: pa[0].dy };
+    const B = { x: pb.reduce((s, p) => s + p.x, 0) / pb.length,
+                y: pb.reduce((s, p) => s + p.y, 0) / pb.length,
+                dx: pb[0].dx, dy: pb[0].dy };
+    const lead = (e.kind === 'conduit' || e.kind === 'lag' || e.kind === 'reth')
+                 ? G.stub : G.stub + G.bendClear;
+    const a1 = out(A, lead), b1 = out(B, lead);
+    const pts = [a1];
+    if (e._corr === 'lat') {
+      const peer = byId.get(byId.get(e.a.n).lateral ? e.a.n : e.b.n);
+      const cx = peer.chanX !== undefined ? peer.chanX : (a1.x + b1.x) / 2;
+      if (Math.abs(a1.y - b1.y) < 1) { /* straight */ }
+      else { pts.push({ x: cx, y: a1.y }, { x: cx, y: b1.y }); }
+    } else if (e._corr === 'margin') {
+      const A2 = byId.get(e.a.n), B2 = byId.get(e.b.n);
+      const lo = Math.min(A2.rank, B2.rank);
+      const above = rankBand[lo], below = rankBand[lo + 1];
+      const cy = above && below ? r4((above.bot + below.top) / 2) : (a1.y + b1.y) / 2;
+      pts.push({ x: e._laneX, y: a1.y }, { x: e._laneX, y: cy }, { x: b1.x, y: cy });
+    } else if (e._corr && e._corr.startsWith('v:')) {
+      if (e._straight) { /* straight */ }
+      else {
+        const cy = chanY.get(e.id);
+        if (cy !== undefined) pts.push({ x: a1.x, y: cy }, { x: b1.x, y: cy });
+        else pts.push({ x: a1.x, y: (a1.y + b1.y) / 2 }, { x: b1.x, y: (a1.y + b1.y) / 2 });
+      }
+    } else {                                   // same rank
+      if (Math.abs(a1.y - b1.y) > 1) {
+        const mx = r4((a1.x + b1.x) / 2);
+        pts.push({ x: mx, y: a1.y }, { x: mx, y: b1.y });
+      }
+    }
+    pts.push(b1);
+    return { pts, A, B, pa, pb, lead };
+  }
+  function offsetPoly(pts, d) {
+    // orthogonal polyline offset: perpendicular per segment, mitre at joins
+    const segs = [];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const p = pts[i], q = pts[i + 1];
+      const vx = Math.sign(q.x - p.x), vy = Math.sign(q.y - p.y);
+      const nx = -vy, ny = vx;
+      segs.push({ p: { x: p.x + nx * d, y: p.y + ny * d },
+                  q: { x: q.x + nx * d, y: q.y + ny * d }, vx, vy });
+    }
+    if (!segs.length) return pts.slice();
+    const res = [segs[0].p];
+    for (let i = 0; i + 1 < segs.length; i++) {
+      const s = segs[i], t = segs[i + 1];
+      res.push(s.vx !== 0 ? { x: t.p.x, y: s.p.y } : { x: s.p.x, y: t.p.y });
+    }
+    res.push(segs[segs.length - 1].q);
+    return res;
+  }
+  const perp = p => (p.dx !== 0 ? { x: 0, y: 1 } : { x: 1, y: 0 });
+
+  for (const e of edges) {
+    const cl = centreline(e);
+    if (!cl) continue;
+    const paths = [];               // arrays of points, drawn as polylines
+    const juncs = [];               // 4px --ink squares
+    const marks = [];               // ticks, caps, arrows, open squares
+    const { pts, A, B, pa, pb } = cl;
+
+    if (e.kind === 'conduit') {
+      const u = perp(A), v = perp(B);
+      // stub from the wall to the cap, both ends
+      paths.push([{ x: pa[0].x, y: pa[0].y }, { x: pts[0].x, y: pts[0].y }]);
+      paths.push([{ x: pb[0].x, y: pb[0].y }, { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y }]);
+      // caps
+      marks.push([{ x: pts[0].x - u.x * G.conduit / 2, y: pts[0].y - u.y * G.conduit / 2 },
+                  { x: pts[0].x + u.x * G.conduit / 2, y: pts[0].y + u.y * G.conduit / 2 }]);
+      const L = pts[pts.length - 1];
+      marks.push([{ x: L.x - v.x * G.conduit / 2, y: L.y - v.y * G.conduit / 2 },
+                  { x: L.x + v.x * G.conduit / 2, y: L.y + v.y * G.conduit / 2 }]);
+      // two rails
+      const gap = state.conduitOk ? G.conduit : 0;
+      if (gap) { paths.push(offsetPoly(pts, gap / 2)); paths.push(offsetPoly(pts, -gap / 2)); }
+      else { paths.push(pts.slice()); }
+      juncs.push({ x: pts[0].x, y: pts[0].y });
+      juncs.push({ x: L.x, y: L.y });
+      e._collapsed2 = !gap;
+    } else if (e.kind === 'lag' || e.kind === 'reth') {
+      const gap = state.railOk ? G.rail : 0;
+      const mk = (plist, end) => {
+        const bracket = (end === 'a' ? e.a.bracket : e.b.bracket);
+        const p0 = plist[0];
+        const u = perp(p0);
+        for (const p of plist) paths.push([{ x: p.x, y: p.y }, out(p, G.stub)]);
+        if (bracket && plist.length > 1) {
+          const s = out(plist[0], G.stub), t = out(plist[plist.length - 1], G.stub);
+          paths.push([s, t]);                                  // the bracket spine
+          const mid = { x: (s.x + t.x) / 2, y: (s.y + t.y) / 2 };
+          juncs.push(mid);
+          return { u };
+        }
+        return { u };
+      };
+      mk(pa, 'a'); mk(pb, 'b');
+      if (gap) { paths.push(offsetPoly(pts, gap / 2)); paths.push(offsetPoly(pts, -gap / 2)); }
+      else paths.push(pts.slice());
+      e._collapsed2 = !gap;
+    } else if (e.kind === 'policy') {
+      // bracket-return terminals: an L at each end, so it is visibly not a cable
+      const u = perp(A), v = perp(B);
+      paths.push([{ x: pa[0].x - u.x * G.s2, y: pa[0].y - u.y * G.s2 },
+                  { x: pa[0].x + u.x * G.s2, y: pa[0].y + u.y * G.s2 }]);
+      paths.push([{ x: pb[0].x - v.x * G.s2, y: pb[0].y - v.y * G.s2 },
+                  { x: pb[0].x + v.x * G.s2, y: pb[0].y + v.y * G.s2 }]);
+      paths.push([{ x: pa[0].x, y: pa[0].y }, ...pts, { x: pb[0].x, y: pb[0].y }]);
+      juncs.push({ x: pa[0].x, y: pa[0].y }, { x: pb[0].x, y: pb[0].y });
+    } else {
+      const full = [{ x: pa[0].x, y: pa[0].y }, ...pts, { x: pb[0].x, y: pb[0].y }];
+      paths.push(full);
+      if (e.kind === 'trunk' || e.kind === 'atrunk') {
+        // G6: two cross-ticks. Symmetric trunk at the midpoint; asymmetric
+        // trunk at the tagged end's quarter point, so the edge says which end.
+        const t = e.kind === 'atrunk' ? (e.taggedEnd === 'a' ? 0.25 : 0.75) : 0.5;
+        const at = pointAt(full, t);
+        if (at) {
+          const n = { x: -at.vy, y: at.vx };
+          for (const o of [-G.rail / 2, G.rail / 2]) {
+            const c = { x: at.x + at.vx * o, y: at.y + at.vy * o };
+            marks.push([{ x: c.x - n.x * G.tick / 2, y: c.y - n.y * G.tick / 2 },
+                        { x: c.x + n.x * G.tick / 2, y: c.y + n.y * G.tick / 2 }]);
+          }
+        }
+      }
+      if (e.kind === 'inferred') {
+        // open square terminal at the inferred end, in place of the port stub,
+        // sitting OUTSIDE the wall on the 4px lattice
+        const p = e.b.open ? pb[0] : pa[0], s = G.sq;
+        const c = { x: p.x + p.dx * s, y: p.y + p.dy * s };
+        marks.push([{ x: c.x - s, y: c.y - s }, { x: c.x + s, y: c.y - s },
+                    { x: c.x + s, y: c.y + s }, { x: c.x - s, y: c.y + s },
+                    { x: c.x - s, y: c.y - s }]);
+      }
+    }
+    if (e.arrowAt) {
+      const tgt = e.arrowAt === 'b' ? pb[0] : pa[0];
+      const dir = e.arrowAt === 'b' ? { x: -pb[0].dx, y: -pb[0].dy } : { x: -pa[0].dx, y: -pa[0].dy };
+      const back = { x: tgt.x - dir.x * G.arrowDx, y: tgt.y - dir.y * G.arrowDx };
+      const n = { x: -dir.y, y: dir.x };
+      marks.push([{ x: back.x + n.x * G.arrowDy, y: back.y + n.y * G.arrowDy },
+                  { x: tgt.x, y: tgt.y },
+                  { x: back.x - n.x * G.arrowDy, y: back.y - n.y * G.arrowDy }]);
+    }
+    routed.push({ e, paths, juncs, marks, cl });
+  }
+
+  function pointAt(pts, t) {
+    let total = 0; const segs = [];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const L = Math.abs(pts[i + 1].x - pts[i].x) + Math.abs(pts[i + 1].y - pts[i].y);
+      segs.push({ a: pts[i], b: pts[i + 1], L }); total += L;
+    }
+    if (!total) return null;
+    let want = total * t;
+    for (const s of segs) {
+      if (want <= s.L) {
+        const f = s.L ? want / s.L : 0;
+        return { x: s.a.x + (s.b.x - s.a.x) * f, y: s.a.y + (s.b.y - s.a.y) * f,
+                 vx: Math.sign(s.b.x - s.a.x), vy: Math.sign(s.b.y - s.a.y) };
+      }
+      want -= s.L;
+    }
+    return null;
+  }
+
+  /* ---- crossings: a 4px --page knockout in the lower-priority rail ----- */
+  const segsOf = r => {
+    const list = [];
+    for (const poly of r.paths)
+      for (let i = 0; i + 1 < poly.length; i++)
+        list.push({ a: poly[i], b: poly[i + 1], poly, i });
+    return list;
+  };
+  const allSegs = routed.map(r => ({ r, segs: segsOf(r) }));
+  let crossings = 0;
+  for (let i = 0; i < allSegs.length; i++) {
+    for (let j = i + 1; j < allSegs.length; j++) {
+      const A = allSegs[i], B = allSegs[j];
+      const lower = (A.r.e.z === B.r.e.z) ? (A.r.e.id < B.r.e.id ? A : B)
+                  : (A.r.e.z < B.r.e.z ? A : B);
+      for (const s of A.segs) for (const t of B.segs) {
+        const sH = Math.abs(s.a.y - s.b.y) < 0.5, tH = Math.abs(t.a.y - t.b.y) < 0.5;
+        if (sH === tH) continue;
+        const h = sH ? s : t, v = sH ? t : s;
+        const hx0 = Math.min(h.a.x, h.b.x), hx1 = Math.max(h.a.x, h.b.x);
+        const vy0 = Math.min(v.a.y, v.b.y), vy1 = Math.max(v.a.y, v.b.y);
+        if (v.a.x > hx0 + 1 && v.a.x < hx1 - 1 && h.a.y > vy0 + 1 && h.a.y < vy1 - 1) {
+          crossings++;
+          const owner = (h === s ? A : B);
+          const target = (lower === A) ? (h === s ? h : v) : (h === s ? v : h);
+          (target.breaks = target.breaks || []).push({ x: v.a.x, y: h.a.y });
+        }
+      }
+    }
+  }
+  for (const { segs } of allSegs)
+    for (const s of segs) if (s.breaks) s.poly._breaks = (s.poly._breaks || []).concat(
+      s.breaks.map(b => ({ i: s.i, x: b.x, y: b.y })));
+
+  /* ---- phase 9: bands, computed from placed members ------------------- */
+  const drawnBands = [];
+  for (const b of pm.bands) {
+    if (!b.layers.some(l => mask.has(l))) continue;
+    const ms = b.members.map(id => byId.get(id)).filter(Boolean);
+    if (!ms.length) continue;
+    const x0 = Math.min(...ms.map(n => n.x)) - b.inset;
+    const x1 = Math.max(...ms.map(n => n.x + n.w)) + b.inset;
+    const y0 = Math.min(...ms.map(n => n.y)) - b.inset;
+    const y1 = Math.max(...ms.map(n => n.y + n.h)) + b.inset;
+    drawnBands.push({ ...b, x0: r4(x0), x1: r4(x1), y0: r4(y0), y1: r4(y1), n: ms.length });
+  }
+
+  /* ---- extents --------------------------------------------------------- */
+  let X0 = Infinity, Y0 = Infinity, X1 = -Infinity, Y1 = -Infinity;
+  const grow = (x, y) => { X0 = Math.min(X0, x); Y0 = Math.min(Y0, y);
+                           X1 = Math.max(X1, x); Y1 = Math.max(Y1, y); };
+  for (const n of nodes) { grow(n.x, n.y); grow(n.x + n.w, n.y + n.h); }
+  for (const b of drawnBands) { grow(b.x0, b.y0); grow(b.x1, b.y1); }
+  for (const r of routed) for (const p of r.paths) for (const q of p) grow(q.x, q.y);
+
+  const ms = performance.now() - t0;
+  return { nodes, byId, edges, ports, routed, bands: drawnBands, ranks, lat, main,
+           order: orderOut, crossings, chanCount, groups: pm.groups, zonesOn,
+           ext: { x0: X0 - G.margin, y0: Y0 - G.margin,
+                  w: X1 - X0 + 2 * G.margin, h: Y1 - Y0 + 2 * G.margin },
+           ms };
+}
+
+/* =========================================================================
+   4. STATE
+   ========================================================================= */
+const state = {
+  spokes: 4,
+  lagMembers: 2,
+  layers: new Set(['phys', 'l2', 'l3', 'sec', 'ovl']),
+  zoom: 1, tx: 0, ty: 0,
+  disclosure: 'column',
+  module: false,
+  aggregate: true,
+  expanded: new Map(),        // group key → window start. absent = collapsed.
+  colour: true,
+  ztags: true,
+  grey: false,
+  pins: new Map(),
+  order: null,
+  sel: null, focus: null,
+  railOk: true, conduitOk: true,
+  suppressed: []
+};
+let model = fixture(state.spokes, state.lagMembers);
+let scene = null;
+
+/* the five zone hues, and nothing else in the product, take a class here */
+const ZONE_CLASS = { TRUST: 'z-trust', VPN: 'z-vpn', MGMT: 'z-mgmt',
+                     WAN: 'z-wan', UNTRUST: 'z-untrust' };
+const zcls = z => (z && ZONE_CLASS[z]) ? ' ' + ZONE_CLASS[z] : '';
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+const el = (t, a) => { const n = document.createElementNS(SVGNS, t);
+  for (const k in a) if (a[k] !== null && a[k] !== undefined) n.setAttribute(k, a[k]);
+  return n; };
+const svg = document.getElementById('scene');
+const chip = document.getElementById('chip');
+const wrap = document.getElementById('wrap');
+
+/* half-pixel offset for 1px strokes; 2px strokes stay on the integer */
+const hp = v => v + 0.5;
+const poly1 = pts => pts.map((p, i) => (i ? 'L' : 'M') + hp(p.x) + ' ' + hp(p.y)).join(' ');
+
+/* A-schematic emitted one `d` string per edge. A zone-split edge needs the
+   SAME geometry cut into two halves that are painted differently, so the
+   builder now yields SEGMENTS and the `d` string is a projection of them.
+   The crossing knockouts are cut into the segments exactly as before —
+   nothing about the crossing treatment changes. */
+function brokenSegs(pts, breaks) {
+  const out = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const horiz = Math.abs(a.y - b.y) < 0.5;
+    const bs = (breaks || []).filter(k => k.i === i).map(k => (horiz ? k.x : k.y))
+      .sort((u, v) => (horiz ? Math.sign(b.x - a.x) : Math.sign(b.y - a.y)) * (u - v));
+    let cur = a;
+    for (const at of bs) {
+      const s = Math.sign(horiz ? b.x - a.x : b.y - a.y);
+      const p1 = horiz ? { x: at - s * G.grid / 2, y: a.y } : { x: a.x, y: at - s * G.grid / 2 };
+      const p2 = horiz ? { x: at + s * G.grid / 2, y: a.y } : { x: a.x, y: at + s * G.grid / 2 };
+      out.push({ a: cur, b: p1 });
+      cur = p2;
+    }
+    out.push({ a: cur, b });
+  }
+  return out;
+}
+const segD = segs => segs.map(s =>
+  'M' + hp(s.a.x) + ' ' + hp(s.a.y) + ' L' + hp(s.b.x) + ' ' + hp(s.b.y)).join(' ');
+function polyBroken(pts, breaks) {
+  if (!breaks || !breaks.length) return poly1(pts);
+  return segD(brokenSegs(pts, breaks));
+}
+/* clip an axis-aligned segment list to one side of an axis-aligned line */
+function clipSegs(segs, axis, coord, keepLow) {
+  const v = p => (axis === 'x' ? p.x : p.y);
+  const out = [];
+  for (const s of segs) {
+    const va = v(s.a), vb = v(s.b);
+    const inA = keepLow ? va <= coord : va >= coord;
+    const inB = keepLow ? vb <= coord : vb >= coord;
+    if (inA && inB) { out.push(s); continue; }
+    if (!inA && !inB) continue;
+    const t = (coord - va) / (vb - va);
+    const mid = { x: s.a.x + (s.b.x - s.a.x) * t, y: s.a.y + (s.b.y - s.a.y) * t };
+    out.push(inA ? { a: s.a, b: mid } : { a: mid, b: s.b });
+  }
+  return out;
+}
+/* Where does this edge leave one zone and enter the other? The split is put
+   on the ZONE BAND'S OWN BOUNDARY — the reader can see the band there — and
+   falls back to the path midpoint only when neither band's rectangle lies on
+   the route. This is the only place hue changes inside one object. */
+function zoneSplit(r, bandA, bandB) {
+  const path = r.paths.reduce((best, p) => (p.length > (best ? best.length : 0) ? p : best), null);
+  if (!path || path.length < 2) return null;
+  const within = (rect, p) => p.x >= rect.x0 - 0.5 && p.x <= rect.x1 + 0.5 &&
+                              p.y >= rect.y0 - 0.5 && p.y <= rect.y1 + 0.5;
+  const scan = (rect, wantExit) => {
+    if (!rect) return null;
+    for (let i = 0; i + 1 < path.length; i++) {
+      const a = path[i], b = path[i + 1];
+      const ia = within(rect, a), ib = within(rect, b);
+      if (wantExit ? !(ia && !ib) : !(!ia && ib)) continue;
+      const horiz = Math.abs(a.y - b.y) < 0.5;
+      const axis = horiz ? 'x' : 'y';
+      const lo = horiz ? Math.min(a.x, b.x) : Math.min(a.y, b.y);
+      const hi = horiz ? Math.max(a.x, b.x) : Math.max(a.y, b.y);
+      const cands = horiz ? [rect.x0, rect.x1] : [rect.y0, rect.y1];
+      const hit = cands.filter(c => c > lo - 0.5 && c < hi + 0.5)
+        .sort((u, w) => Math.abs(u - (horiz ? a.x : a.y)) - Math.abs(w - (horiz ? a.x : a.y)))[0];
+      if (hit !== undefined) return { axis, coord: hit };
+    }
+    return null;
+  };
+  const s = scan(bandA, true) || scan(bandB, false);
+  if (s) return s;
+  const mid = pointAtPoly(path, 0.5);
+  if (!mid) return null;
+  return Math.abs(mid.vy) < 0.5 ? { axis: 'x', coord: mid.x } : { axis: 'y', coord: mid.y };
+}
+function truncate(s, maxPx, adv) {
+  if (s.length * adv <= maxPx) return { t: s, cut: false };
+  let k = Math.max(1, Math.floor(maxPx / adv) - 1);
+  return { t: s.slice(0, k) + '…', cut: true };
+}
+
+/* =========================================================================
+   5. RENDER
+   ========================================================================= */
+function render() {
+  const t0 = performance.now();
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const z = state.zoom;
+  state.railOk = G.rail * z >= G.minRailScreen;
+  state.conduitOk = G.conduit * z >= G.minConduitScreen;
+  const stubOk = G.stub * z >= G.minStubScreen;
+  const lodFull = z >= 0.6, lodMid = z >= 0.35;
+
+  scene = layout(model, state);
+  // the pane is sized to the sheet, capped. A viewport that never grows turns
+  // every large estate into a level-of-detail demonstration.
+  svg.style.height = Math.max(480, Math.min(900, Math.round(scene.ext.h))) + 'px';
+  const root = el('g', { transform: `translate(${state.tx} ${state.ty}) scale(${z})` });
+  svg.appendChild(root);
+
+  // the whole picture re-mutes with one class, so the geometry is provably
+  // identical with and without hue. Zones are a security-layer fact: with
+  // that layer out of the projection there is nothing for a hue to mean.
+  const colourOn = state.colour && scene.zonesOn;
+  const zonesTagged = state.ztags && scene.zonesOn;
+  if (!colourOn) root.setAttribute('class', 'no-colour');
+  wrap.classList.toggle('greyscale', state.grey);
+
+  const sup = [];
+  const closure = selectionClosure();
+  // Everything the reader looks at is decorative to a screen reader — the
+  // Outline is the accessible copy. The ONE exception is layerAgg: a
+  // collapsed group is a control, and a control has to be reachable.
+  const layerBand   = el('g', { 'aria-hidden': 'true' }); root.appendChild(layerBand);
+  const layerModule = el('g', { 'aria-hidden': 'true' }); root.appendChild(layerModule);
+  const layerEdge   = el('g', { 'aria-hidden': 'true' }); root.appendChild(layerEdge);
+  const layerNode   = el('g', { 'aria-hidden': 'true' }); root.appendChild(layerNode);
+  const layerText   = el('g', { 'aria-hidden': 'true' }); root.appendChild(layerText);
+  const layerAgg    = el('g', {}); root.appendChild(layerAgg);
+  const layerTop    = el('g', { 'aria-hidden': 'true' }); root.appendChild(layerTop);
+  const aggAff = [];      // {key, kind, x, y, w, h, name, count, noun, expanded}
+
+  /* --- the module, visible while you build, gone when you look --------- */
+  if (state.module) {
+    const e = scene.ext, d = [];
+    for (let x = Math.ceil(e.x0 / G.wStep) * G.wStep; x < e.x0 + e.w; x += G.wStep)
+      d.push('M' + hp(x) + ' ' + e.y0 + ' V' + (e.y0 + e.h));
+    for (let y = Math.ceil(e.y0 / G.wStep) * G.wStep; y < e.y0 + e.h; y += G.wStep)
+      d.push('M' + e.x0 + ' ' + hp(y) + ' H' + (e.x0 + e.w));
+    layerModule.appendChild(el('path', { class: 'dg-module', d: d.join(' '),
+      'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+  }
+
+  /* --- bands: G7's three forms, each a different shape ----------------- */
+  const bandLabels = [];
+  const site = scene.bands.find(b => b.form === 'region');
+  for (const b of scene.bands) {
+    const g = el('g', { 'data-id': b.id });
+    const isZone = (b.kind === 'zone' || b.kind === 'oob');
+    const zc = isZone ? zcls(b.name) : '';
+    /* THE WASH. Isoluminant with --surface by construction, so greyscale
+       collapses it back into A-schematic's exact three-step tonal ladder.
+       It is only drawn where it CAN be isoluminant with the ground beneath
+       it — inside the site region. A band on the bare canvas takes the
+       bracket alone rather than a tone that would not cancel. */
+    if (isZone && site && b.x0 >= site.x0 && b.x1 <= site.x1 &&
+        b.y0 >= site.y0 && b.y1 <= site.y1) {
+      g.appendChild(el('rect', { class: 'dg-wash' + zc, x: b.x0, y: b.y0,
+        width: b.x1 - b.x0, height: b.y1 - b.y0, 'shape-rendering': 'crispEdges' }));
+    }
+    if (b.form === 'region') {
+      g.appendChild(el('rect', { class: 'dg-region', x: b.x0, y: b.y0,
+        width: b.x1 - b.x0, height: b.y1 - b.y0,
+        'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+    } else if (b.form === 'box') {
+      g.appendChild(el('path', { class: 'dg-band',
+        d: `M${hp(b.x0)} ${hp(b.y0)} H${hp(b.x1)} V${hp(b.y1)} H${hp(b.x0)} Z`,
+        'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+    } else if (b.form === 'vbracket') {
+      const R = G.s2;
+      const d = b.sideOnly === 'right'
+        ? `M${hp(b.x1 - R)} ${hp(b.y0)} H${hp(b.x1)} V${hp(b.y1)} H${hp(b.x1 - R)}`
+        : `M${hp(b.x0 + R)} ${hp(b.y0)} H${hp(b.x0)} V${hp(b.y1)} H${hp(b.x0 + R)}` +
+          ` M${hp(b.x1 - R)} ${hp(b.y0)} H${hp(b.x1)} V${hp(b.y1)} H${hp(b.x1 - R)}`;
+      g.appendChild(el('path', { class: 'dg-band' + (isZone ? ' zone' : '') + zc, d,
+        'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+    } else {
+      const R = G.s2;
+      g.appendChild(el('path', { class: 'dg-band',
+        d: `M${hp(b.x0)} ${hp(b.y0 + R)} V${hp(b.y0)} H${hp(b.x1)} V${hp(b.y0 + R)}` +
+           ` M${hp(b.x0)} ${hp(b.y1 - R)} V${hp(b.y1)} H${hp(b.x1)} V${hp(b.y1 - R)}`,
+        'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+    }
+    if (closure && !b.members.some(m => closure.has(m))) g.setAttribute('class', 'dimmed');
+    layerBand.appendChild(g);
+    if (lodMid) bandLabels.push(b); else sup.push('band labels off');
+  }
+
+  /* --- edges ----------------------------------------------------------- */
+  let edgeLabelsDrawn = 0, edgeLabelsOff = 0;
+  const placed = [];
+  const hits = (r) => placed.some(p => !(r.x1 <= p.x0 || r.x0 >= p.x1 || r.y1 <= p.y0 || r.y0 >= p.y1))
+    || scene.nodes.some(n => !(r.x1 <= n.x || r.x0 >= n.x + n.w || r.y1 <= n.y || r.y0 >= n.y + n.h));
+
+  const bandByZone = new Map();
+  for (const b of scene.bands) if (b.kind === 'zone' || b.kind === 'oob') bandByZone.set(b.name, b);
+  let zoneCrossings = 0;
+
+  for (const r of scene.routed) {
+    const e = r.e;
+    const base = 'dg-edge' + (e.kind === 'inferred' ? ' inferred' : '')
+                           + (e.kind === 'proposed' ? ' proposed' : '');
+    const segs = [];
+    for (const p of r.paths) segs.push(...brokenSegs(p, p._breaks));
+    for (const m of r.marks) for (let i = 0; i + 1 < m.length; i++) segs.push({ a: m[i], b: m[i + 1] });
+    const g = el('g', { 'data-id': e.id });
+    if (closure && !(e.id === state.sel || closure.has(e.a.n) && closure.has(e.b.n)))
+      g.setAttribute('class', 'dimmed');
+    const P = (cls, d) => g.appendChild(el('path', { class: cls, d, fill: 'none',
+      'stroke-linecap': 'butt', 'stroke-linejoin': 'miter',
+      'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+
+    const split = (e.az && e.bz && e.az !== e.bz)
+      ? zoneSplit(r, bandByZone.get(e.az), bandByZone.get(e.bz)) : null;
+    if (split) {
+      // an edge that changes zone changes tone AT THE ZONE BOUNDARY. The two
+      // halves differ in hue AND in greyscale value, and the two nodes it
+      // joins print two different zone names, so nothing here is hue-only.
+      zoneCrossings++;
+      const pa = (scene.ports.get(e.id + ':a') || [])[0];
+      const aVal = pa ? (split.axis === 'x' ? pa.x : pa.y) : split.coord - 1;
+      const aLow = aVal <= split.coord;
+      const dA = segD(clipSegs(segs, split.axis, split.coord, aLow));
+      const dB = segD(clipSegs(segs, split.axis, split.coord, !aLow));
+      if (dA) P(base + zcls(e.az), dA);
+      if (dB) P(base + zcls(e.bz), dB);
+      e._split = e.az + ' → ' + e.bz;
+    } else {
+      P(base + zcls(e.az || e.bz), segD(segs));
+    }
+    for (const j of r.juncs)
+      g.appendChild(el('rect', { class: 'dg-junction', x: j.x - G.junc / 2, y: j.y - G.junc / 2,
+        width: G.junc, height: G.junc, 'shape-rendering': 'crispEdges' }));
+    layerEdge.appendChild(g);
+
+    if (e.label && lodFull) {
+      // A conduit's identity lives at its terminals — the st0 unit inside the
+      // hub and the peer box itself. The traffic selector is a midpoint label
+      // and forty of those is a texture, so it is drawn for the SELECTED
+      // conduit only and counted for the rest.
+      const conduitFan = e.kind === 'conduit' && state.sel !== e.id;
+      if (conduitFan) { edgeLabelsOff++; }
+      else {
+        const at = pointAtPoly(r.paths[r.paths.length - 1], 0.5);
+        if (at) {
+          const w = wMicro(e.label), h = 12;
+          const horiz = Math.abs(at.vy) < 0.5;
+          const cands = horiz
+            ? [{ x: at.x - w / 2, y: at.y - G.s2 - h }, { x: at.x - w / 2, y: at.y + G.s2 }]
+            : [{ x: at.x + G.s2, y: at.y - h / 2 }, { x: at.x - G.s2 - w, y: at.y - h / 2 }];
+          let put = null;
+          for (const c of cands) {
+            const box = { x0: c.x - 2, y0: c.y - 2, x1: c.x + w + 2, y1: c.y + h + 2 };
+            if (!hits(box)) { put = c; placed.push(box); break; }
+          }
+          if (put) {
+            layerText.appendChild(el('rect', { class: 'dg-plate', x: put.x - G.s1,
+              y: put.y - 1, width: w + 2 * G.s1, height: h + 2,
+              'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+            const t = el('text', { class: 'dg-anno ink', x: put.x, y: put.y + 9 });
+            t.textContent = e.label; layerText.appendChild(t);
+            edgeLabelsDrawn++;
+          } else edgeLabelsOff++;
+        }
+      }
+    } else if (e.label) edgeLabelsOff++;
+  }
+  if (!lodFull) sup.push('edge labels off');
+  if (edgeLabelsOff && lodFull) sup.push(edgeLabelsOff + ' edge labels off');
+
+  /* --- port stubs already live in the edge paths; port LABELS here -----
+     Rule 15: a label never crosses a rail. Where one would, it gets a --page
+     plate with a 1px --hairline border — no shadow, no elevation. */
+  const rails = [];
+  for (const r of scene.routed)
+    for (const p of r.paths)
+      for (let i = 0; i + 1 < p.length; i++)
+        rails.push({ x0: Math.min(p[i].x, p[i + 1].x) - 1, x1: Math.max(p[i].x, p[i + 1].x) + 1,
+                     y0: Math.min(p[i].y, p[i + 1].y) - 1, y1: Math.max(p[i].y, p[i + 1].y) + 1 });
+  // a band's own strokes count as rails for this purpose: a label that crosses
+  // a zone bracket is exactly as unreadable as one that crosses a cable
+  for (const b of scene.bands) {
+    const V = x => rails.push({ x0: x - 1, x1: x + 1, y0: b.y0, y1: b.y1 });
+    const H = y => rails.push({ x0: b.x0, x1: b.x1, y0: y - 1, y1: y + 1 });
+    if (b.form === 'hbracket') { H(b.y0); H(b.y1); }
+    else if (b.form === 'vbracket') { V(b.x0); V(b.x1); }
+    else { V(b.x0); V(b.x1); H(b.y0); H(b.y1); }
+  }
+  const overRail = b => rails.some(r =>
+    !(b.x1 <= r.x0 || b.x0 >= r.x1 || b.y1 <= r.y0 || b.y0 >= r.y1));
+  const plate = b => layerText.appendChild(el('rect', { class: 'dg-plate',
+    x: b.x0, y: b.y0, width: b.x1 - b.x0, height: b.y1 - b.y0,
+    'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+
+  let portLabelsOff = 0;
+  if (lodFull) {
+    for (const [key, pts] of scene.ports) {
+      // a bracketed terminal spreads its labels AWAY from the bracket centre,
+      // so neither of them lands on the rail pair leaving the spine
+      const mid = pts.reduce((a, p) => a + (p.dy !== 0 ? p.x : p.y), 0) / pts.length;
+      for (const p of pts) {
+        if (!p.name) continue;
+        const n = scene.byId.get(p.node);
+        /* On a BOUNDARY DEVICE the terminal's zone is printed next to the
+           interface name. This is the text carrier for the one distinction
+           that colour makes and geometry does not: which zone each of a
+           firewall's interfaces is bound to. It is deliberately restricted
+           to boundary devices — everywhere else the node's own tag says it,
+           and repeating it on every stub would be the texture we are here
+           to remove. */
+        const lbl = (n && n.boundary && p.zone && !p.agg && zonesTagged)
+          ? p.name + ' · ' + p.zone : p.name;
+        if (p.inside && n) {
+          const t = el('text', { class: 'dg-anno', x: n.x + n.w - G.s3, y: p.y + 4,
+            'text-anchor': 'end' });
+          t.textContent = lbl; layerText.appendChild(t);
+          continue;
+        }
+        const w = wMicro(lbl);
+        const away = pts.length > 1
+          ? Math.sign((p.dy !== 0 ? p.x : p.y) - mid) || 1 : 0;
+        const cands = [];
+        if (p.dy !== 0) {                       // top / bottom port
+          const by = p.y + p.dy * (G.stub + 10);
+          if (away >= 0) cands.push({ bx: p.x + G.s1, by, anchor: 'start' });
+          if (away <= 0) cands.push({ bx: p.x - G.s1, by, anchor: 'end' });
+          cands.push({ bx: p.x + G.s1, by: by + p.dy * G.portPitch, anchor: 'start' });
+        } else {                                 // left / right port
+          const bx = p.x + p.dx * (G.stub + G.s1);
+          const anchor = p.dx < 0 ? 'end' : 'start';
+          cands.push({ bx, by: p.y + (away >= 0 ? -G.s1 : 12), anchor });
+          cands.push({ bx, by: p.y + (away >= 0 ? 12 : -G.s1), anchor });
+        }
+        let put = null;
+        for (const c of cands) {
+          const box = { x0: c.anchor === 'end' ? c.bx - w : c.bx, y0: c.by - 9,
+                        x1: c.anchor === 'end' ? c.bx : c.bx + w, y1: c.by + 2 };
+          if (!hits(box)) { put = { c, box }; placed.push(box); break; }
+        }
+        if (!put) { portLabelsOff++; continue; }
+        if (overRail(put.box)) plate({ x0: put.box.x0 - G.s1, y0: put.box.y0,
+          x1: put.box.x1 + G.s1, y1: put.box.y1 });
+        const t = el('text', { class: 'dg-anno', x: put.c.bx, y: put.c.by,
+          'text-anchor': put.c.anchor });
+        t.textContent = lbl; layerText.appendChild(t);
+      }
+    }
+  } else sup.push('ports collapsed');
+  if (portLabelsOff) sup.push(portLabelsOff + ' labels hidden');
+
+  /* --- band labels last, so they can see everything already placed -----
+     top-left of the leading stroke, uppercase, tracked, kind prefix first
+     (M38: `zone WAN`, `vlan 10`, `ri CUST-A`) — on a plate, never crossing a
+     stroke. Four candidates, then it is counted rather than overlapped. */
+  let bandLabelsOff = 0;
+  for (const b of bandLabels) {
+    const txt = b.kind + ' ' + b.name;
+    const w = wMicro(txt) * 1.25;                    // uppercase + --track-head
+    const cands = [
+      { x: b.x0 + G.s1, y: b.y0 - G.s1 },
+      { x: b.x0 + G.s1, y: b.y0 - G.s1 - G.s3 },
+      { x: b.x0 + G.s1, y: b.y1 + G.s3 },
+      { x: b.x1 - w - G.s1, y: b.y0 - G.s1 }
+    ];
+    let put = null;
+    for (const c of cands) {
+      const box = { x0: c.x - G.s1, y0: c.y - 9, x1: c.x + w + G.s1, y1: c.y + 3 };
+      if (!hits(box)) { put = { c, box }; placed.push(box); break; }
+    }
+    if (!put) { bandLabelsOff++; continue; }
+    plate(put.box);
+    const t = el('text', { class: 'dg-bandlab', x: put.c.x, y: put.c.y });
+    t.textContent = txt; layerText.appendChild(t);
+  }
+  if (bandLabelsOff) sup.push(bandLabelsOff + ' band labels moved off');
+
+  /* --- nodes ----------------------------------------------------------- */
+  for (const n of scene.nodes) {
+    const aged = n.age === 'stale' || n.age === 'unverified';
+    const g = el('g', { 'data-id': n.id });
+    if (closure && !closure.has(n.id)) g.setAttribute('class', 'dimmed');
+    if (state.sel === n.id)
+      g.appendChild(el('rect', { class: 'dg-sel-ground', x: n.x, y: n.y, width: n.w, height: n.h }));
+    const zc = n.boundary ? ' boundary' : zcls(n.zone);
+    if (n.kind === 'ExternalPeer') {
+      const L = n.x, R = n.x + n.w, T = n.y, B = n.y + n.h;
+      const shape = (L, R, T, B) => ({ right:  `M${R} ${T} H${L} V${B} H${R}`,
+                  left:   `M${L} ${T} H${R} V${B} H${L}`,
+                  top:    `M${L} ${T} V${B} H${R} V${T}`,
+                  bottom: `M${L} ${B} V${T} H${R} V${B}` }[n.openSide || 'right']);
+      /* THE STACK CUE. A collapsed set is drawn as a box with one more box
+         behind it, offset by exactly one grid unit. Shape says "this is more
+         than one"; the two text lines say which ones and how many. No part
+         of that depends on hue, so greyscale and forced-colours lose none of
+         it. The back outline is 1px, the annotation weight — it is a remark
+         about the box, not a second structure. */
+      if (n.agg)
+        g.appendChild(el('path', { class: 'dg-agg-tab' + zc,
+          d: shape(L + G.grid, R + G.grid, T - G.grid, B - G.grid), fill: 'none',
+          'stroke-linejoin': 'miter', 'vector-effect': 'non-scaling-stroke',
+          'shape-rendering': 'crispEdges' }));
+      g.appendChild(el('path', { class: 'dg-peer' + (aged ? ' aged' : '') + zc,
+        d: shape(L, R, T, B), fill: 'var(--page)',
+        'stroke-linejoin': 'miter', 'vector-effect': 'non-scaling-stroke',
+        'shape-rendering': 'crispEdges' }));
+    } else {
+      g.appendChild(el('rect', { class: 'dg-box' + (aged ? ' aged' : '') + zc,
+        x: n.x, y: n.y, width: n.w, height: n.h,
+        'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+      // chassis sub-rows: count + 1 rules, so the last chassis is closed and
+      // the unit field below it is a distinct region of the same box
+      for (let c = 0; c <= n.chassis.length && n.chassis.length; c++) {
+        const yy = n.y + n.head + c * G.chassis;
+        if (yy >= n.y + n.h) break;
+        g.appendChild(el('path', { class: 'dg-chassis',
+          d: `M${hp(n.x)} ${hp(yy)} H${hp(n.x + n.w)}`,
+          'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+      }
+      if (n.age === 'unverified')
+        g.appendChild(el('path', { class: 'dg-unver',
+          d: `M${hp(n.x)} ${hp(n.y + n.h + G.s1)} H${hp(n.x + n.w)}`,
+          'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+    }
+    layerNode.appendChild(g);
+
+    if (lodMid) {
+      const tagPx = n.ztag ? wMicro(n.ztag) * 1.1 + G.s3 : 0;
+      const maxPx = n.w - 2 * G.s3 - tagPx;
+      const tr = truncate(n.name, maxPx, G.advMono);
+      n._cut = tr.cut ? n.name : null;
+      const isPeer = n.kind === 'ExternalPeer';
+      const t = el('text', { class: 'dg-label', x: n.x + G.s3,
+        y: n.y + (isPeer ? 14 : 22) });
+      t.textContent = tr.t; layerText.appendChild(t);
+      /* THE ZONE TAG. The carrier that survives when the hue does not:
+         greyscale, forced-colours, a mono print, a colour-blind reader, a
+         screenshot pasted into a ticket. It is set in --muted, NOT in the
+         zone hue — a redundancy that depends on the thing it is backing up
+         is not a redundancy. */
+      if (n.ztag) {
+        const zt = el('text', { class: 'dg-ztag', x: n.x + n.w - G.s3,
+          y: n.y + (isPeer ? 14 : 22), 'text-anchor': 'end' });
+        zt.textContent = n.ztag; layerText.appendChild(zt);
+      }
+      // the collapsed set's second line: how many, and of what
+      if (n.agg) {
+        const c = el('text', { class: 'dg-anno ink', x: n.x + G.s3, y: n.y + 30 });
+        c.textContent = n.agg.n + ' ' + n.agg.noun +
+          (n.agg.residual ? ' of ' + n.agg.total : '') + ' ▸';
+        layerText.appendChild(c);
+      }
+      if (n.ageLine && lodFull) {
+        const at = truncate(n.ageLine, maxPx, G.advMicro);
+        const a = el('text', { class: 'dg-anno', x: n.x + G.s3, y: n.y + 38 });
+        a.textContent = at.t; layerText.appendChild(a);
+      } else if (n.ageLine) { n._ageHidden = true; }
+      for (let c = 0; c < n.chassis.length && lodFull; c++) {
+        const a = el('text', { class: 'dg-anno', x: n.x + G.s3,
+          y: n.y + n.head + c * G.chassis + 14 });
+        a.textContent = truncate(n.chassis[c], maxPx, G.advMicro).t;
+        layerText.appendChild(a);
+      }
+      // the depth mark: `▸` means what it means everywhere else in the product
+      if (depthOf(n).length) {
+        const m = el('text', { class: 'dg-mark', x: n.x + n.w - G.s1, y: n.y + n.h - G.s1,
+          'text-anchor': 'end' });
+        m.textContent = '▸'; layerText.appendChild(m);
+      }
+    } else sup.push('labels off');
+  }
+  if (!lodMid) sup.push('boxes and rails only');
+  if (!state.conduitOk && scene.lat.length) sup.push('conduit collapsed');
+  if (!state.railOk) sup.push('lag rails collapsed');
+  if (!stubOk) sup.push('stubs below 6px');
+
+  /* =====================================================================
+     THE AGGREGATION AFFORDANCES.  Real controls: one tab stop each, a
+     genuine `aria-expanded`, and a count inside the accessible name. They
+     live in the ONE layer of the picture that is not aria-hidden.
+     ===================================================================== */
+  const ANCHOR = { tunnel: 'n.srx', member: 'n.cora' };
+  for (const gr of scene.groups) {
+    if (!gr.on) continue;
+    const an = scene.byId.get(ANCHOR[gr.kind]);
+    if (!an) continue;
+    let py = null;
+    for (const [, pts] of scene.ports) for (const p of pts)
+      if (p.node === an.id && p.dx > 0) py = py === null ? p.y : Math.max(py, p.y);
+    if (py === null) py = an.y + an.portY0;
+    if (gr.expanded && !(gr.hidden > 0)) py += G.portPitch;
+    aggAff.push({ form: 'stub', gr, x: an.x + an.w, y: r4(py) });
+  }
+  for (const n of scene.nodes) if (n.agg) {
+    const gr = scene.groups.find(g => g.key === n.agg.key);
+    if (gr) aggAff.push({ form: 'box', gr, node: n, agg: n.agg });
+  }
+  for (const a of aggAff) {
+    const gr = a.gr;
+    const zc = zcls(a.form === 'box' ? a.node.zone : 'VPN');
+    const g = el('g', { class: 'agg', tabindex: '0', role: 'button',
+      'data-agg': gr.key, 'data-form': a.form,
+      'aria-expanded': String(a.form === 'stub' ? !!gr.expanded : false),
+      'aria-label': aggAria(gr, a) });
+    let box;
+    if (a.form === 'stub') {
+      // the same open-box primitive an ExternalPeer uses, with one more
+      // outline behind it. Shape carries "more than one"; text carries which.
+      const L = a.x - G.s1, R = a.x + G.s2, T = a.y - G.s2, B = a.y + G.s2;
+      const open = (l, r, t, b) => `M${r} ${t} H${l} V${b} H${r}`;
+      g.appendChild(el('path', { class: 'dg-agg-tab' + (a.gr.kind === 'member' ? '' : zc),
+        d: open(L + G.grid, R + G.grid, T - G.grid, B - G.grid), fill: 'none',
+        'stroke-linejoin': 'miter', 'vector-effect': 'non-scaling-stroke',
+        'shape-rendering': 'crispEdges' }));
+      g.appendChild(el('path', { class: 'dg-agg' + (a.gr.kind === 'member' ? '' : zc),
+        d: open(L, R, T, B), 'stroke-linejoin': 'miter',
+        'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+      box = { x: L - G.s1, y: T - G.s2, w: R - L + 2 * G.s2, h: B - T + 2 * G.s2 };
+    } else {
+      const n = a.node;
+      box = { x: n.x - G.s1, y: n.y - G.s2, w: n.w + G.s2 + G.s1, h: n.h + G.s3 };
+    }
+    g.appendChild(el('rect', { x: box.x, y: box.y, width: box.w, height: box.h,
+      fill: 'transparent', stroke: 'none', 'pointer-events': 'all' }));
+    g.appendChild(el('rect', { class: 'dg-aggfocus', x: box.x, y: box.y,
+      width: box.w, height: box.h,
+      'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+    layerAgg.appendChild(g);
+  }
+  for (const gr of scene.groups) {
+    if (!gr.on) continue;
+    sup.push(gr.expanded
+      ? gr.n + ' ' + gr.edgeNoun + ' · ' + gr.shown + ' shown, ' + gr.hidden + ' collapsed'
+      : gr.n + ' ' + gr.edgeNoun + ' collapsed');
+  }
+  if (zoneCrossings) sup.push(zoneCrossings + ' edges cross a zone boundary');
+  if (!scene.zonesOn) sup.push('zone colour off — security layer out of the projection');
+  else if (!state.colour) sup.push('monochrome');
+  if (state.grey) sup.push('greyscale filter on');
+  if (!state.ztags && scene.zonesOn) sup.push('zone tags off — hue and bands only');
+
+  buildHitGrid();
+  state.suppressed = [...new Set(sup)];
+  const renderMs = performance.now() - t0;
+  scene.renderMs = renderMs;
+  scene.elements = svg.getElementsByTagName('*').length;
+  paintViewBand();
+  paintOutline();          // no-op unless the row set actually changed
+  markOutlineSelection();
+  moveFocusRing();
+  return scene;
+}
+
+/* Focus is a view property: it moves ONE reused element and never rebuilds the
+   scene or the Outline. Rebuilding the Outline under a focused row throws the
+   focus to <body>, which is the defect that makes a keyboard path look like it
+   works and not work. */
+function moveFocusRing() {
+  const old = svg.querySelector('.dg-focus');
+  if (old) old.remove();
+  if (!state.focus || !scene) return;
+  const top = svg.firstChild && svg.firstChild.lastChild;
+  if (!top) return;
+  const n = scene.byId.get(state.focus);
+  let box = null;
+  if (n) box = { x: n.x - G.s1, y: n.y - G.s1, w: n.w + 2 * G.s1, h: n.h + 2 * G.s1 };
+  else {
+    const r = scene.routed.find(q => q.e.id === state.focus);
+    if (r) {
+      const pts = r.paths.flat();
+      const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+      box = { x: Math.min(...xs) - G.s1, y: Math.min(...ys) - G.s1,
+              w: Math.max(...xs) - Math.min(...xs) + 2 * G.s1,
+              h: Math.max(...ys) - Math.min(...ys) + 2 * G.s1 };
+    } else {
+      const b = scene.bands.find(q => q.id === state.focus);
+      if (b) box = { x: b.x0 - G.s1, y: b.y0 - G.s1,
+                     w: b.x1 - b.x0 + 2 * G.s1, h: b.y1 - b.y0 + 2 * G.s1 };
+    }
+  }
+  if (!box) return;
+  top.appendChild(el('rect', { class: 'dg-focus', x: box.x, y: box.y,
+    width: box.w, height: box.h,
+    'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+  // pan to it if it is outside the viewport, at 25% from the leading edge
+  const r = svg.getBoundingClientRect();
+  const sx = state.tx + box.x * state.zoom, sy = state.ty + box.y * state.zoom;
+  if (sx < 0 || sy < 0 || sx > r.width - 8 || sy > r.height - 8) {
+    state.tx = Math.round(r.width * 0.25 - box.x * state.zoom);
+    state.ty = Math.round(r.height * 0.25 - box.y * state.zoom);
+    applyTransform();
+  }
+}
+function markOutlineSelection() {
+  document.querySelectorAll('.orow').forEach(b =>
+    b.setAttribute('aria-selected', String(state.sel === b.dataset.id)));
+}
+function pointAtPoly(pts, t) {
+  let total = 0; const segs = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const L = Math.abs(pts[i + 1].x - pts[i].x) + Math.abs(pts[i + 1].y - pts[i].y);
+    segs.push({ a: pts[i], b: pts[i + 1], L }); total += L;
+  }
+  if (!total) return null;
+  let want = total * t;
+  for (const s of segs) {
+    if (want <= s.L) { const f = s.L ? want / s.L : 0;
+      return { x: s.a.x + (s.b.x - s.a.x) * f, y: s.a.y + (s.b.y - s.a.y) * f,
+               vx: Math.sign(s.b.x - s.a.x), vy: Math.sign(s.b.y - s.a.y) }; }
+    want -= s.L;
+  }
+  return null;
+}
+
+/* =========================================================================
+   6. SELECTION CLOSURE, DEPTH, HIT TESTING
+   ========================================================================= */
+function selectionClosure() {
+  if (!state.sel) return null;
+  const s = new Set([state.sel]);
+  for (const e of scene.edges) {
+    if (e.id === state.sel) { s.add(e.a.n); s.add(e.b.n); }
+    if (e.a.n === state.sel || e.b.n === state.sel) { s.add(e.a.n); s.add(e.b.n); }
+  }
+  return s;
+}
+function depthOf(n) {
+  const d = (n.depth || []).slice();
+  if (n._cut) d.unshift('full name: ' + n._cut);
+  if (n._ageHidden) d.unshift(n.ageLine);
+  return d;
+}
+
+let grid = null;
+const CELL = 256;
+function buildHitGrid() {
+  grid = new Map();
+  const put = (x, y, id, kind) => {
+    const k = Math.floor(x / CELL) + ':' + Math.floor(y / CELL);
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push({ id, kind });
+  };
+  for (const n of scene.nodes)
+    for (let x = n.x; x <= n.x + n.w; x += CELL / 2)
+      for (let y = n.y; y <= n.y + n.h; y += CELL / 2) put(x, y, n.id, 'node');
+  for (const r of scene.routed)
+    for (const p of r.paths) for (const q of p) put(q.x, q.y, r.e.id, 'edge');
+}
+function hitTest(sx, sy) {
+  const x = (sx - state.tx) / state.zoom, y = (sy - state.ty) / state.zoom;
+  const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
+  const cands = [];
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    const c = grid.get((cx + i) + ':' + (cy + j)); if (c) cands.push(...c);
+  }
+  const seen = new Set();
+  for (const c of cands) {                 // nodes before edges, reverse paint order
+    if (c.kind !== 'node' || seen.has(c.id)) continue; seen.add(c.id);
+    const n = scene.byId.get(c.id);
+    if (n && x >= n.x && x <= n.x + n.w && y >= n.y && y <= n.y + n.h)
+      return { id: n.id, kind: 'node' };
+  }
+  let best = null, bd = G.s1 + 1;
+  for (const c of cands) {
+    if (c.kind !== 'edge') continue;
+    const r = scene.routed.find(q => q.e.id === c.id); if (!r) continue;
+    for (const p of r.paths) for (let i = 0; i + 1 < p.length; i++) {
+      const d = ptSeg(x, y, p[i], p[i + 1]);
+      if (d < bd) { bd = d; best = { id: c.id, kind: 'edge' }; }
+    }
+  }
+  return best;
+}
+function ptSeg(px, py, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy;
+  let t = L ? ((px - a.x) * dx + (py - a.y) * dy) / L : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
+}
+
+/* =========================================================================
+   7. THE INSPECTOR — the mechanism.  Real corpus content.
+   ========================================================================= */
+const CORPUS = {
+  'ike.gateway.external-interface.set': {
+    id: 'junos-srx/ike.gateway.external-interface.set',
+    cmd: 'set security ike gateway GW-B external-interface reth0.0',
+    risk: 'ChangesConfig',
+    answers: 'Which WAN unit do the negotiation packets leave by?',
+    terse: 'The WAN unit IKE leaves by — never st0.',
+    explained: '`external-interface` is the WAN unit the IKE packets leave by, not `st0`. Wrong on a multi-homed box means Phase 1 sources from an address the peer has never heard of.'
+  },
+  'ipsec.vpn.bind-interface.set': {
+    id: 'junos-srx/ipsec.vpn.bind-interface.set',
+    cmd: 'set security ipsec vpn VPN-B bind-interface st0.0',
+    risk: 'Disruptive',
+    answers: 'How does a route-based tunnel get an interface to route at?',
+    terse: 'Route-based needs st0. Policy-based has none at all.',
+    explained: 'A route-based tunnel is selected by the routing table and can carry many traffic selectors; a policy-based one is selected by the policy and has no st0 at all.'
+  },
+  'interface.st0.address.set': {
+    id: 'junos-srx/interface.st0.address.set',
+    cmd: 'set interfaces st0 unit 0 family inet address 10.255.0.1/30',
+    risk: 'Disruptive',
+    answers: 'Plumbing piece one — how does the virtual tunnel endpoint get built?',
+    terse: 'Piece one of five. A /30 per tunnel is the usual convention.',
+    explained: 'A route-based tunnel needs a unit to route at. The address is used for the tunnel endpoint and for anything sourced from it.'
+  },
+  'zone.st0.bind.set': {
+    id: 'junos-srx/zone.st0.bind.set',
+    cmd: 'set security zones security-zone VPN interfaces st0.0',
+    risk: 'Disruptive',
+    answers: 'Plumbing piece two — how does the tunnel unit become policy-addressable?',
+    terse: 'Piece two of five. No zone means no policy pair, so nothing passes.',
+    explained: 'A logical unit in no zone cannot be the source or destination of any policy, so traffic is dropped with the tunnel reading UP.'
+  },
+  'route.static.st0.set': {
+    id: 'junos-srx/route.static.st0.set',
+    cmd: 'set routing-options static route 10.2.0.0/16 next-hop st0.0',
+    risk: 'Disruptive',
+    answers: 'Plumbing piece four — how does the far side’s prefix reach the tunnel?',
+    terse: 'Piece four of five. A selector is not a route.',
+    explained: 'Configuring a traffic selector tells the peer which prefixes this tunnel carries. It does not put a route in the table.'
+  },
+  'ike.sa.show': {
+    id: 'junos-srx/ike.sa.show',
+    cmd: 'show security ike security-associations',
+    risk: 'ReadOnly',
+    answers: 'Is the outer negotiated channel up with the far end?',
+    terse: 'Step 2 of the ladder. One row per peer. Want UP.',
+    explained: 'Phase 2 rides inside Phase 1. P1 can be perfectly healthy while P2 fails forever — that split is the most useful diagnostic fact on this card.'
+  },
+  'chassis.cluster.status.show': {
+    id: 'junos-srx/chassis.cluster.status.show',
+    cmd: 'show chassis cluster status',
+    risk: 'ReadOnly',
+    answers: 'Which node owns each redundancy group right now?',
+    terse: 'Run this before any SA reading on a pair. It names the owner.',
+    explained: 'Every SA-reading command on a cluster answers for the node it runs on.'
+  }
+};
+const RISKCLS = { ReadOnly: 'r-read', ChangesConfig: 'r-change', Disruptive: 'r-disrupt' };
+const RISKTXT = { ReadOnly: 'read-only — safe on production',
+                  ChangesConfig: 'changes config — needs a commit',
+                  Disruptive: 'disruptive — drops live traffic' };
+
+function inspectorFor(id) {
+  const n = scene.byId.get(id);
+  const e = scene.edges.find(x => x.id === id);
+  const rows = [], secs = [];
+  if (n) {
+    rows.push(['kind', n.kind + (n.role ? ' · ' + n.role : '')]);
+    rows.push(['name', n.name]);
+    rows.push(['id', 'fathom:' + (n.kind === 'Device' ? 'device' : 'peer') + ':' + n.id]);
+    rows.push(['zone', n.boundary
+      ? 'BOUNDARY — terminals in ' + [...n.termZones].sort().join(', ')
+      : (n.zone || 'not modelled')]);
+    if (n.agg) rows.push(['collapsed', n.agg.n + ' ' + n.agg.noun +
+      (n.agg.residual ? ' of ' + n.agg.total : '')]);
+    rows.push(['rank', String(n.rank)]);
+    rows.push(['box', `${n.w} × ${n.h} at ${n.x},${n.y}`]);
+    rows.push(['origin', n.age === 'hand' ? 'Hand — does not age' : 'Parsed']);
+    rows.push(['age', n.ageLine || (n.age === 'hand' ? 'not applicable' : 'fresh')]);
+    if (state.pins.has(n.id)) rows.push(['pin', 'At ' + state.pins.get(n.id).x + ',' + state.pins.get(n.id).y]);
+    const d = depthOf(n);
+    if (d.length) secs.push({ t: 'what the picture could not hold', body: d.map(s => `<p>${esc(s)}</p>`).join('') });
+    const conn = scene.edges.filter(x => x.a.n === n.id || x.b.n === n.id);
+    secs.push({ t: 'adjacent · ' + conn.length, body: conn.map(x => {
+      const other = x.a.n === n.id ? x.b.n : x.a.n;
+      const on = scene.byId.get(other);
+      return `<div class="memb"><span>${esc(x.kind)}</span><span>${esc(on ? on.name : other)}</span></div>`;
+    }).join('') });
+    if (n.id === 'n.srx') secs.push({ t: 'the object chain · side 1', body: chainHtml() });
+    if (n.chassis.length) secs.push({ t: 'chassis', body:
+      n.chassis.map(c => `<div class="memb"><span>${esc(c)}</span><span>reth0 member</span></div>`).join('')
+      + cmdHtml('chassis.cluster.status.show') });
+  } else if (e) {
+    rows.push(['kind', edgeKindName(e.kind)]);
+    rows.push(['id', 'fathom:edge:' + e.id]);
+    rows.push(['from', nameOf(e.a.n) + (e.a.ports[0] ? ' · ' + e.a.ports[0] : '')]);
+    rows.push(['to', nameOf(e.b.n) + (e.b.ports[0] ? ' · ' + e.b.ports[0] : '')]);
+    if (e.label) rows.push(['label', e.label]);
+    rows.push(['zone', e.az === e.bz ? (e.az || 'not modelled')
+      : e.az + ' → ' + e.bz + ' · crosses a boundary']);
+    if (e.agg) rows.push(['collapsed', e.agg.n + ' ' + (e.agg.residual ? 'more ' : '') + 'tunnels']);
+    rows.push(['channel', channelOf(e.kind)]);
+    if (e.members) secs.push({ t: 'member interfaces · ' + e.members.length,
+      body: e.members.map(m => `<div class="memb"><span>${esc(m)}</span><span>forwarding</span></div>`).join('') });
+    if (e.kind === 'conduit') {
+      rows.push(['vpn', e.vpn]); rows.push(['gateway', e.gw + ' → ' + e.peer]);
+      rows.push(['overlay', e.overlay]); rows.push(['selector', e.label]);
+      secs.push({ t: 'the five plumbing pieces', body: plumbHtml() });
+    }
+    if (e.kind === 'inferred') secs.push({ t: 'derivation', body:
+      '<p>Not observed. Derived by <span class="m">ResolvesVia</span> from the routing table over <span class="m">ae0</span>. The tone says the whole edge is derived; the open square says which end the tool guessed.</p>' });
+    if (e.kind === 'proposed') secs.push({ t: 'provenance', body:
+      '<p>Written by a model, not observed and not asserted by you. <span class="m">--rule-style-proposed</span> is the only treatment that says so, product-wide, which is exactly why no topology meaning may ever take a dash.</p>' });
+    if (e.kind === 'policy') secs.push({ t: 'policies · 4', body:
+      ['TO-B permit','TO-B2 permit','LOG-ALL deny','default deny']
+        .map((p,i) => `<div class="memb"><span>${i+1}</span><span>${esc(p)}</span></div>`).join('') });
+  } else return null;
+  return { rows, secs, title: n ? n.name : edgeKindName(e.kind) };
+}
+const nameOf = id => (scene.byId.get(id) || { name: id }).name;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function edgeKindName(k) {
+  return ({ link: 'Physical link', lag: 'LAG · AggregateInterface', reth: 'reth · RethInterface',
+    conduit: 'Tunnel · conduit', trunk: 'L2 trunk', atrunk: 'L2 trunk, asymmetric',
+    access: 'L2 access port', route: 'Static route', policy: 'PolicySet · ZonePair',
+    inferred: 'Inferred edge', proposed: 'AI-proposed link' })[k] || k;
+}
+function channelOf(k) {
+  return ({ link: 'G4 1 rail · G5 stub/stub · G6 none', lag: 'G4 2 rails · G5 bracket both',
+    reth: 'G4 2 rails · G5 bracket one end', conduit: 'G4 2 capped rails · G5 cap both',
+    trunk: 'G4 1 rail · G6 two mid-ticks', atrunk: 'G6 two ticks at the tagged quarter-point',
+    access: 'G4 1 rail · G6 none', route: 'G4 1 rail · G9 open V',
+    policy: 'G5 bracket-return terminal · G9 open V', inferred: 'G12 tone --muted · G5 open square',
+    proposed: 'G2 dash — reserved product-wide' })[k] || '—';
+}
+function cmdHtml(key) {
+  const c = CORPUS[key]; if (!c) return '';
+  return `<div class="cmd ${RISKCLS[c.risk]}">${esc(c.cmd)}</div>
+    <div class="risk ${RISKCLS[c.risk]}">${esc(RISKTXT[c.risk])}</div>
+    <p style="margin-top:var(--s1)">${esc(c.terse)}</p>`;
+}
+function chainHtml() {
+  return `<p>Junos builds a VPN from six named objects, each referencing the one before it by name.</p>
+  <div class="cmd">ike proposal → ike policy → ike gateway
+ipsec proposal → ipsec policy → ipsec vpn</div>
+  ${cmdHtml('ike.gateway.external-interface.set')}
+  <p>${esc(CORPUS['ike.gateway.external-interface.set'].explained.replace(/`/g, ''))}</p>`;
+}
+function plumbHtml() {
+  return ['interface.st0.address.set', 'zone.st0.bind.set', 'ipsec.vpn.bind-interface.set',
+          'route.static.st0.set', 'ike.sa.show'].map(k => cmdHtml(k)).join('')
+    + '<p>Miss #3 and Phase 1 times out with nothing useful in the log. Miss #1, #2, #4 or #5 and the tunnel reads UP while passing zero packets.</p>';
+}
+
+function paintInspectorForGroup(key) {
+  const gr = scene.groups.find(g => g.key === key);
+  if (!gr) return;
+  const host = document.getElementById('inspector');
+  document.getElementById('insp-tab').textContent = 'collapsed group';
+  const rows = [
+    ['kind', 'AggregateGroup · ' + gr.kind],
+    ['members', gr.n + ' ' + gr.edgeNoun],
+    ['range', gr.unitRange],
+    ['state', gr.expanded
+      ? 'expanded — ' + gr.shown + ' shown, ' + gr.hidden + ' collapsed'
+      : 'collapsed — all ' + gr.n + ' behind one affordance'],
+    ['threshold', 'fires at ' + G.aggMin + ' like-kind siblings'],
+    ['page', 'expands ' + G.aggPage + ' at a time']
+  ];
+  host.innerHTML = '<dl class="kv">' + rows.map(([k, v]) =>
+    `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('') + '</dl>' +
+    `<div class="insp-sec"><p style="font-size:var(--t-small)">Nothing here is hidden without a
+     count. The stub, the box, this column, the Outline row and the view band all carry
+     <span class="m">${esc(String(gr.n))}</span>. Enter drills in; Escape collapses.</p></div>`;
+}
+function paintInspector() {
+  const host = document.getElementById('inspector');
+  const tab = document.getElementById('insp-tab');
+  const id = state.sel || state.focus;
+  const data = id ? inspectorFor(id) : null;
+  if (!data) {
+    host.innerHTML = '<p class="insp-empty">Select an element in the picture, or focus a row in the Outline. The column fills with everything the picture could not hold.</p>';
+    tab.textContent = 'nothing selected'; return;
+  }
+  tab.textContent = state.sel ? 'selected' : 'focused';
+  let h = '<dl class="kv">' + data.rows.map(([k, v]) =>
+    `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('') + '</dl>';
+  data.secs.forEach((s, i) => {
+    h += `<div class="insp-sec"><button class="disclose" type="button" aria-expanded="false" data-sec="${i}">
+      <span class="caret">▸</span><span>${esc(s.t)}</span></button>
+      <div class="disc-body" id="sec-${i}" hidden>${s.body}</div></div>`;
+  });
+  host.innerHTML = h;
+  host.querySelectorAll('.disclose').forEach(b => b.addEventListener('click', () => {
+    const body = host.querySelector('#sec-' + b.dataset.sec);
+    const open = b.getAttribute('aria-expanded') === 'true';
+    b.setAttribute('aria-expanded', String(!open));
+    b.querySelector('.caret').textContent = open ? '▸' : '▾';
+    body.hidden = open;
+  }));
+}
+
+/* =========================================================================
+   8. THE CHIP — WCAG 1.4.13, and bound by the content rule
+   ========================================================================= */
+let chipFor = null, chipHover = false, chipDismissed = null;
+function chipLines(id) {
+  const n = scene.byId.get(id);
+  const e = scene.edges.find(x => x.id === id);
+  const out = [];
+  if (n) {
+    if (n._cut) out.push(['full name', n.name]);
+    if (n._ageHidden) out.push(['age', n.ageLine]);
+    if (state.zoom < 0.6 && n.chassis.length) out.push(['chassis', n.chassis.join(' · ')]);
+    if (state.zoom < 0.6) out.push(['name', n.name]);
+    const d = depthOf(n);
+    if (!out.length && d.length) out.push(['not drawn', d[0]]);
+  } else if (e) {
+    if (state.zoom < 0.6 && e.label) out.push(['label', e.label]);
+    else if (e.kind === 'conduit' && scene.lat.length > 6) out.push(['selector', e.label]);
+    else if (e.label) out.push(['label', e.label]);
+    if (e.kind === 'conduit') out.push(['peer', e.gw + ' → ' + e.peer]);
+  }
+  if (!out.length) out.push(['', 'nothing suppressed — the picture is showing it all']);
+  return out.slice(0, 4);
+}
+function showChip(id, cx, cy) {
+  if (state.disclosure !== 'chip') return;
+  if (chipDismissed === id) return;
+  chipFor = id;
+  const lines = chipLines(id);
+  chip.innerHTML = lines.map(([k, v]) =>
+    `<div>${k ? `<span class="k">${esc(k)}</span> ` : ''}${esc(v)}</div>`).join('')
+    + '<div class="last">↵ inspector</div>';
+  chip.classList.add('shown');
+  const r = wrap.getBoundingClientRect();
+  let x = cx + 12, y = cy + 12;
+  const cw = chip.offsetWidth, ch = chip.offsetHeight;
+  if (x + cw > r.width - 4) x = Math.max(4, cx - cw - 12);
+  if (y + ch > r.height - 4) y = Math.max(4, cy - ch - 12);
+  chip.style.left = Math.round(x) + 'px';
+  chip.style.top = Math.round(y) + 'px';
+}
+function hideChip() { chip.classList.remove('shown'); chipFor = null; }
+chip.addEventListener('pointerenter', () => { chipHover = true; });
+chip.addEventListener('pointerleave', () => { chipHover = false; hideChip(); });
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && chip.classList.contains('shown')) {
+    chipDismissed = chipFor; hideChip(); ev.stopPropagation();
+  }
+});
+
+/* =========================================================================
+   9. VIEW BAND + OUTLINE
+   ========================================================================= */
+function paintViewBand() {
+  const b = document.getElementById('viewband');
+  const nEl = scene.elements || 0;
+  /* G10 / 56 §5.2's release valve. The band names the state of every
+     aggregate in the lead, not in a footnote: if the picture is holding
+     something back, the first thing the band says is how much. */
+  const agg = scene.groups.filter(g => g.on).map(g => g.expanded
+    ? `${g.shown} of ${g.n} ${g.edgeNoun} shown · ${g.hidden} collapsed`
+    : `${g.n} ${g.edgeNoun} collapsed`);
+  const parts = [
+    `<span class="lead">diagram · ${scene.nodes.length} nodes · ${scene.edges.length} edges` +
+    (agg.length ? ' · ' + agg.join(' · ') : ' · nothing collapsed') + `</span>`,
+    `<span class="sup">${[...state.layers].join(' ')}</span>`,
+    `<span class="sup">layout ${scene.ms.toFixed(1)} ms · render ${(scene.renderMs||0).toFixed(1)} ms</span>`,
+    `<span class="sup">${scene.chanCount} channels · ${scene.crossings} crossings</span>`,
+    `<span class="sup">scene ${Math.round(scene.ext.w)} × ${Math.round(scene.ext.h)}</span>`,
+    `<span class="sup">${nEl} elements</span>`
+  ];
+  for (const s of state.suppressed) parts.push(`<span class="sup">${esc(s)}</span>`);
+  if (scene.edges.some(e => e.kind === 'inferred')) parts.push('<span class="sup">inferred</span>');
+  if (scene.edges.some(e => e.kind === 'proposed')) parts.push('<span class="sup">1 proposed</span>');
+  if (state.pins.size) parts.push(`<span class="sup">${state.pins.size} pinned</span>`);
+  b.innerHTML = parts.join('');
+}
+let outlineSig = null;
+function paintOutline() {
+  const host = document.getElementById('outline');
+  const rows = [];
+  // every aggregate gets a row of its own, with its count in the name and
+  // its state in aria-expanded. The picture is not the only way to reach it.
+  for (const gr of scene.groups) {
+    if (!gr.on) continue;
+    rows.push({ id: 'agg:' + gr.key, kind: 'group', agg: gr,
+      name: gr.unitRange + ' · ' + gr.n + ' ' + gr.edgeNoun +
+            (gr.expanded ? ' · ' + gr.shown + ' shown' : ' · collapsed'),
+      depth: 1,
+      spoken: `${gr.n} ${gr.edgeNoun}, ${gr.expanded
+        ? gr.shown + ' shown and ' + gr.hidden + ' still collapsed'
+        : 'collapsed into one'}. Enter ${gr.expanded ? 'collapses' : 'expands ' +
+        Math.min(gr.page, gr.n)}.` });
+  }
+  for (const n of scene.nodes) rows.push({ id: n.id, kind: n.kind === 'Device' ? 'device' : 'peer',
+    name: n.name, depth: depthOf(n).length,
+    spoken: `${n.kind} ${n.name}, rank ${n.rank}${n.ageLine ? ', ' + n.ageLine : ''}` });
+  for (const e of scene.edges) rows.push({ id: e.id, kind: 'edge', name: edgeKindName(e.kind)
+    + ' · ' + nameOf(e.a.n) + ' → ' + nameOf(e.b.n), depth: 1,
+    spoken: `${edgeKindName(e.kind)} from ${nameOf(e.a.n)} to ${nameOf(e.b.n)}${e.label ? ', ' + e.label : ''}` });
+  for (const b of scene.bands) rows.push({ id: b.id, kind: b.kind, name: b.name,
+    depth: 0, spoken: `${b.kind} ${b.name}, ${b.n} members` });
+  const sig = rows.map(r => r.id + '/' + r.depth + '/' + r.name).join('|');
+  if (sig === outlineSig) return;               // do not rebuild under a focused row
+  outlineSig = sig;
+  host.innerHTML = rows.map((r, i) =>
+    `<button class="orow" type="button" role="option" data-id="${esc(r.id)}"
+       ${r.agg ? `data-agg="${esc(r.agg.key)}" aria-expanded="${r.agg.expanded}"` : ''}
+       tabindex="${i === 0 ? 0 : -1}" aria-selected="${state.sel === r.id}"
+       aria-describedby="chip" aria-label="${esc(r.spoken)}" title="${esc(r.spoken)}">
+       <span class="okind">${esc(r.kind)}</span>
+       <span class="oname">${esc(r.name)}</span>
+       <span class="odepth">${r.depth ? '▸' : ''}</span></button>`).join('');
+  document.getElementById('out-tab').textContent = rows.length + ' rows · one per drawn element';
+  host.querySelectorAll('.orow').forEach((b, i, list) => {
+    b.addEventListener('focus', () => {
+      list.forEach(o => o.tabIndex = -1); b.tabIndex = 0;
+      chipDismissed = null;
+      if (b.dataset.agg) { state.focus = null; moveFocusRing();
+                           paintInspectorForGroup(b.dataset.agg); return; }
+      state.focus = b.dataset.id;
+      moveFocusRing(); paintInspector();
+      if (state.disclosure === 'chip') focusChip(b.dataset.id);
+    });
+    b.addEventListener('blur', () => { if (!chipHover) hideChip(); });
+    b.addEventListener('click', () => {
+      if (b.dataset.agg) {
+        const key = b.dataset.agg;
+        toggleAgg(key); render(); paintInspectorForGroup(key);
+        const again = document.querySelector(`.orow[data-agg="${key}"]`);
+        if (again) again.focus();
+        return;
+      }
+      state.sel = b.dataset.id; state.focus = b.dataset.id;
+      render(); paintInspector(); b.focus();
+    });
+    b.addEventListener('keydown', ev => {
+      let k = null;
+      if (ev.key === 'ArrowDown') k = Math.min(list.length - 1, i + 1);
+      if (ev.key === 'ArrowUp') k = Math.max(0, i - 1);
+      if (ev.key === 'Home') k = 0;
+      if (ev.key === 'End') k = list.length - 1;
+      if (k !== null) { ev.preventDefault(); list[k].focus(); }
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); b.click(); }
+      if (ev.key === 'Escape' && b.dataset.agg) {
+        ev.preventDefault(); ev.stopPropagation();
+        const key = b.dataset.agg;
+        collapseAgg(key); render(); paintInspectorForGroup(key);
+        const again = document.querySelector(`.orow[data-agg="${key}"]`);
+        if (again) again.focus();
+      }
+    });
+  });
+}
+function focusChip(id) {
+  const n = scene.byId.get(id);
+  let sx, sy;
+  if (n) { sx = state.tx + (n.x + n.w) * state.zoom; sy = state.ty + n.y * state.zoom; }
+  else {
+    const r = scene.routed.find(q => q.e.id === id);
+    if (!r) return;
+    const p = r.paths[0][0];
+    sx = state.tx + p.x * state.zoom; sy = state.ty + p.y * state.zoom;
+  }
+  showChip(id, sx, sy);
+}
+
+/* =========================================================================
+   10. POINTER: hover, select, pan, drag-to-pin
+   ========================================================================= */
+let drag = null;
+svg.addEventListener('pointermove', ev => {
+  const r = svg.getBoundingClientRect();
+  const sx = ev.clientX - r.left, sy = ev.clientY - r.top;
+  if (drag) {
+    if (drag.kind === 'pan') {
+      state.tx = drag.tx0 + (sx - drag.sx); state.ty = drag.ty0 + (sy - drag.sy);
+      applyTransform();
+    } else {
+      const nx = r4(drag.nx0 + (sx - drag.sx) / state.zoom);
+      const ny = r4(drag.ny0 + (sy - drag.sy) / state.zoom);
+      state.pins.set(drag.id, { x: nx, y: ny });
+      render(); paintInspector();
+    }
+    return;
+  }
+  const h = hitTest(sx, sy);
+  svg.style.cursor = h ? 'pointer' : 'default';
+  if (state.disclosure !== 'chip') return;
+  if (h) { if (h.id !== chipFor) { chipDismissed = null; } showChip(h.id, sx, sy); }
+  else if (!chipHover) hideChip();
+});
+svg.addEventListener('pointerleave', () => { if (!chipHover) hideChip(); });
+svg.addEventListener('pointerdown', ev => {
+  // a collapsed group is a control, and a control gets the click before the
+  // canvas does — otherwise clicking `+40` selects the box underneath it
+  const ag = ev.target.closest ? ev.target.closest('g.agg') : null;
+  if (ag) { ev.preventDefault(); activateAgg(ag); return; }
+  const r = svg.getBoundingClientRect();
+  const sx = ev.clientX - r.left, sy = ev.clientY - r.top;
+  const h = hitTest(sx, sy);
+  svg.setPointerCapture(ev.pointerId);
+  if (h && h.kind === 'node') {
+    const n = scene.byId.get(h.id);
+    drag = { kind: 'node', id: h.id, sx, sy, nx0: n.x, ny0: n.y };
+    state.sel = h.id; render(); paintInspector();
+  } else if (h) {
+    state.sel = h.id; render(); paintInspector();
+  } else {
+    state.sel = null; drag = { kind: 'pan', sx, sy, tx0: state.tx, ty0: state.ty };
+    svg.classList.add('is-panning'); render(); paintInspector();
+  }
+});
+svg.addEventListener('pointerup', ev => {
+  if (drag) { svg.releasePointerCapture(ev.pointerId); drag = null;
+    svg.classList.remove('is-panning'); }
+});
+function applyTransform() {
+  const g = svg.firstChild;
+  if (g) g.setAttribute('transform', `translate(${Math.round(state.tx)} ${Math.round(state.ty)}) scale(${state.zoom})`);
+}
+
+/* =========================================================================
+   10b. EXPANDING AND COLLAPSING
+
+   Expansion is PARTIAL and it is per group. Expanding the tunnel bundle does
+   not expand ae0's members: a reader following one path has asked about one
+   thing. Global expansion is a separate, explicit control (`show every one`)
+   and it exists so the two forms can be put side by side.
+
+   An expanded group shows a WINDOW of G.aggPage and states its residual as
+   its own counted, focusable continuation. Enter on the continuation pages;
+   Enter or Escape on the group stub collapses the whole thing again.
+   ========================================================================= */
+function toggleAgg(key) {
+  if (state.expanded.has(key)) state.expanded.delete(key);
+  else state.expanded.set(key, 0);
+}
+function pageAgg(key, n, page) {
+  const w = (state.expanded.get(key) || 0) + page;
+  state.expanded.set(key, w >= n ? 0 : w);
+}
+function collapseAgg(key) { state.expanded.delete(key); }
+function activateAgg(gEl, how) {
+  const key = gEl.getAttribute('data-agg');
+  const form = gEl.getAttribute('data-form');
+  const gr = scene.groups.find(g => g.key === key);
+  if (!gr) return;
+  state.aggFocus = { key, form };
+  if (how === 'collapse') collapseAgg(key);
+  else if (form === 'box' && gr.expanded) pageAgg(key, gr.n, gr.page);
+  else toggleAgg(key);
+  state.sel = null;
+  render(); paintInspector(); restoreAggFocus();
+}
+function restoreAggFocus() {
+  if (!state.aggFocus) return;
+  const { key, form } = state.aggFocus;
+  let t = svg.querySelector(`g.agg[data-agg="${key}"][data-form="${form}"]`);
+  if (!t) t = svg.querySelector(`g.agg[data-agg="${key}"]`);
+  if (t && t.focus) t.focus();
+}
+svg.addEventListener('keydown', ev => {
+  const ag = ev.target.closest ? ev.target.closest('g.agg') : null;
+  if (!ag) return;
+  if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+    ev.preventDefault(); activateAgg(ag);
+  } else if (ev.key === 'Escape') {
+    ev.preventDefault(); ev.stopPropagation(); activateAgg(ag, 'collapse');
+  }
+});
+svg.addEventListener('focusin', ev => {
+  const ag = ev.target.closest ? ev.target.closest('g.agg') : null;
+  if (!ag) return;
+  state.aggFocus = { key: ag.getAttribute('data-agg'), form: ag.getAttribute('data-form') };
+  state.focus = null; paintInspectorForGroup(ag.getAttribute('data-agg'));
+});
+
+/* =========================================================================
+   11. CONTROLS
+   ========================================================================= */
+function setSpokes(n) {
+  state.spokes = Math.max(0, Math.min(256, n));
+  document.getElementById('ro-spokes').textContent = state.spokes;
+  model = fixture(state.spokes, state.lagMembers);
+  state.sel = null; state.focus = null; state.expanded.clear();
+  const s = render(); state.order = s.order;
+  paintInspector();
+  return s;
+}
+function setLag(n) {
+  state.lagMembers = Math.max(2, Math.min(64, n));
+  model = fixture(state.spokes, state.lagMembers);
+  state.sel = null; state.focus = null; state.expanded.delete('g.ae0');
+  document.querySelectorAll('[data-lagset]').forEach(o =>
+    o.setAttribute('aria-pressed', String(+o.dataset.lagset === state.lagMembers)));
+  const s = render(); state.order = s.order;
+  paintInspector();
+  return s;
+}
+function fit(cap) {
+  const r = svg.getBoundingClientRect();
+  const e = scene.ext;
+  let z = Math.min(r.width / e.w, r.height / e.h);
+  if (cap) z = Math.min(1, Math.max(cap, z));   // the opening view stays legible
+  state.zoom = Math.max(0.1, Math.min(4, Math.round(z * 100) / 100));
+  state.tx = Math.round((r.width - e.w * state.zoom) / 2 - e.x0 * state.zoom);
+  state.ty = Math.round((r.height - e.h * state.zoom) / 2 - e.y0 * state.zoom);
+  document.getElementById('ro-zoom').textContent = state.zoom.toFixed(2);
+  render();
+}
+function setZoom(z) {
+  state.zoom = Math.max(0.1, Math.min(4, Math.round(z * 100) / 100));
+  document.getElementById('ro-zoom').textContent = state.zoom.toFixed(2);
+  render();
+}
+document.getElementById('controls').addEventListener('click', ev => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.spoke) setSpokes(state.spokes + parseInt(b.dataset.spoke, 10));
+  if (b.dataset.spokeset) setSpokes(parseInt(b.dataset.spokeset, 10));
+  if (b.dataset.lagset) setLag(parseInt(b.dataset.lagset, 10));
+  if (b.dataset.agg) {
+    state.aggregate = b.dataset.agg === '1';
+    if (!state.aggregate) state.expanded.clear();
+    document.querySelectorAll('[data-agg]').forEach(o =>
+      o.setAttribute('aria-pressed', String((o.dataset.agg === '1') === state.aggregate)));
+    state.sel = null; render(); paintInspector();
+  }
+  if (b.dataset.collapseall) { state.expanded.clear(); render(); paintInspector(); }
+  if (b.dataset.colour) {
+    state.colour = b.dataset.colour === '1';
+    document.querySelectorAll('[data-colour]').forEach(o =>
+      o.setAttribute('aria-pressed', String((o.dataset.colour === '1') === state.colour)));
+    render();
+  }
+  if (b.dataset.ztag) {
+    state.ztags = !state.ztags;
+    b.setAttribute('aria-pressed', String(state.ztags));
+    state.sel = null; render(); paintInspector();
+  }
+  if (b.dataset.grey) {
+    state.grey = !state.grey;
+    b.setAttribute('aria-pressed', String(state.grey));
+    render();
+  }
+  if (b.dataset.layer) {
+    const l = b.dataset.layer;
+    if (state.layers.has(l) && state.layers.size > 1) state.layers.delete(l);
+    else state.layers.add(l);
+    b.setAttribute('aria-pressed', String(state.layers.has(l)));
+    state.sel = null; state.focus = null; render(); paintInspector();
+  }
+  if (b.dataset.zoom === 'in') setZoom(state.zoom * 1.25);
+  if (b.dataset.zoom === 'out') setZoom(state.zoom / 1.25);
+  if (b.dataset.zoom === 'fit') fit();
+  if (b.dataset.zoom === '1') { setZoom(1); }
+  if (b.dataset.disc) {
+    state.disclosure = b.dataset.disc;
+    document.querySelectorAll('[data-disc]').forEach(o =>
+      o.setAttribute('aria-pressed', String(o.dataset.disc === state.disclosure)));
+    hideChip();
+  }
+  if (b.dataset.module) {
+    state.module = !state.module;
+    b.setAttribute('aria-pressed', String(state.module)); render();
+  }
+  if (b.dataset.unpin) { state.pins.clear(); render(); paintInspector(); }
+});
+
+/* =========================================================================
+   12. THE KEY — the same constants, drawn small
+   ========================================================================= */
+const KEY = [
+  { k: 'link', name: 'Physical link', chan: 'G4 1 rail · G5 stub / stub',
+    d: 'One rail, 1px --ink, orthogonal only. An 8px perpendicular port stub at both ends, on the 4px edge lattice. No mid-tick, no arrowhead.' },
+  { k: 'lag', name: 'LAG · aggregate', chan: 'G4 2 rails · G5 bracket both ends',
+    d: 'Two rails 4px apart with a square bracket return at BOTH ends, because a LAG aggregates on both sides and all members forward.' },
+  { k: 'reth', name: 'reth · cluster pair', chan: 'G4 2 rails · G5 bracket ONE end',
+    d: 'Bracket at the device end only, spanning two chassis sub-rows; the far end is two independent stubs. The asymmetry is the whole encoding.' },
+  { k: 'conduit', name: 'Tunnel · conduit', chan: 'G4 2 capped rails · G5 cap both',
+    d: 'Two rails closed by a cap at both ends. A pipe carrying a pipe. Dash is spent on AI-proposed, and the conduit is the better drawing anyway.' },
+  { k: 'access', name: 'L2 access port', chan: 'G6 no mid-tick',
+    d: 'One rail, no tick. The absence is the encoding — untagged.' },
+  { k: 'trunk', name: 'L2 trunk', chan: 'G6 two mid-ticks',
+    d: 'Two 8px cross-ticks at the midpoint, 4px apart. Above six VLANs the label reads vlan 10–40 (14).' },
+  { k: 'atrunk', name: 'L2 trunk, asymmetric', chan: 'G6 ticks at a quarter-point',
+    d: 'Tagged at one end and untagged at the other — real in Junos, and undrawable before now. The ticks move to the tagged end.' },
+  { k: 'route', name: 'Routed adjacency', chan: 'G9 open V at the next hop',
+    d: 'Open-V arrowhead drawn as two segments in the same path — never a marker. Addresses are line-cap labels, not midpoint labels.' },
+  { k: 'policy', name: 'Policy direction', chan: 'G5 bracket-return · G9 open V',
+    d: 'Terminals are bracket returns, not port stubs, so a policy edge is visibly not a cable with no legend needed.' },
+  { k: 'inferred', name: 'Inferred, not observed', chan: 'G12 tone --muted · G5 open square',
+    d: 'Tone says the whole edge is derived; the open square says where the tool guessed. Never a dash and never a dot.' },
+  { k: 'proposed', name: 'AI-proposed — reserved', chan: 'G2, spent product-wide',
+    d: 'Dashed means a model wrote it; dotted means pending. Neither is available to any topology meaning, at any layer, ever.' },
+  { k: 'cross', name: 'Crossing', chan: 'no channel — a legibility mark',
+    d: 'A 4px knockout gap in the lower-priority rail. A crossing with no square means no connection.' },
+  { k: 'junction', name: 'Junction', chan: 'no channel — a legibility mark',
+    d: 'A 4px filled --ink square at a genuine tee. A square means connection. The convention is a century old.' },
+  { k: 'zoneband', name: 'Zone band', chan: 'G7 vbracket · hue --z-* · wash isoluminant',
+    d: 'The bracket takes the zone hue and the band is washed with a tint that is isoluminant with --surface, so greyscale returns it to A-schematic’s exact tonal ladder. The zone name is printed either way.' },
+  { k: 'zonecross', name: 'Zone-boundary edge', chan: 'hue changes AT the band boundary',
+    d: 'The only place hue changes inside one object. The split is put on the zone band’s own rectangle, the two halves differ in greyscale value, and the two nodes print two different zone names.' },
+  { k: 'boundary', name: 'Boundary device', chan: 'neutral --ink outline · BOUNDARY tag',
+    d: 'A firewall is in no zone: it is the thing that defines them. It keeps the neutral outline, prints BOUNDARY, and prints the zone next to each of its own terminals.' },
+  { k: 'aggstub', name: 'Collapsed unit stub', chan: 'open box + one behind it · +n',
+    d: 'One tab stop, aria-expanded, and the count in the accessible name. The shape says "more than one"; the label says which ones and how many. Enter expands twelve; Escape collapses.' },
+  { k: 'aggbox', name: 'Collapsed peer set', chan: 'peer form + one behind it · n nouns',
+    d: 'The same stack cue on the ExternalPeer form. Two printed lines: the range, then the count and the noun. Never a bare +n.' }
+];
+function specimen(k) {
+  const W = 96, H = 44, cy = 22, x0 = 12, x1 = 84;
+  const s = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H });
+  const P = (d, cls) => s.appendChild(el('path', { class: cls || 'dg-edge', d, fill: 'none',
+    'stroke-linecap': 'butt', 'stroke-linejoin': 'miter',
+    'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+  const R = (x, y, w, h, cls) => s.appendChild(el('rect', { class: cls, x, y, width: w, height: h,
+    'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+  const J = (x, y) => R(x - 2, y - 2, 4, 4, 'dg-junction');
+  // the two device walls, at the structural weight, so every specimen shows
+  // the terminal as what it is: geometry outside the body
+  const WALLS = ['link','lag','reth','conduit','access','trunk','atrunk','route',
+                 'inferred','proposed'];
+  if (WALLS.includes(k)) {
+    s.appendChild(el('path', { class: 'dg-box', fill: 'none',
+      d: `M${x0} ${cy - 14} V${cy + 14} M${x1} ${cy - 14} V${cy + 14}`,
+      'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+  }
+  if (k === 'link') { P(`M${x0}.5 ${cy}.5 H${x1}.5`); }
+  else if (k === 'lag' || k === 'reth') {
+    P(`M${x0}.5 ${cy - 8}.5 H${x0 + 8}.5 M${x0}.5 ${cy + 8}.5 H${x0 + 8}.5 M${x0 + 8}.5 ${cy - 8}.5 V${cy + 8}.5`);
+    J(x0 + 8.5, cy + 0.5);
+    if (k === 'lag') {
+      P(`M${x1}.5 ${cy - 8}.5 H${x1 - 8}.5 M${x1}.5 ${cy + 8}.5 H${x1 - 8}.5 M${x1 - 8}.5 ${cy - 8}.5 V${cy + 8}.5`);
+      J(x1 - 7.5, cy + 0.5);
+      P(`M${x0 + 8}.5 ${cy - 2}.5 H${x1 - 8}.5 M${x0 + 8}.5 ${cy + 2}.5 H${x1 - 8}.5`);
+    } else {
+      P(`M${x0 + 8}.5 ${cy - 2}.5 H${x1}.5 M${x0 + 8}.5 ${cy + 2}.5 H${x1}.5`);
+    }
+  } else if (k === 'conduit') {
+    P(`M${x0}.5 ${cy}.5 H${x0 + 8}.5 M${x1}.5 ${cy}.5 H${x1 - 8}.5`);
+    P(`M${x0 + 8}.5 ${cy - 4}.5 V${cy + 4}.5 M${x1 - 8}.5 ${cy - 4}.5 V${cy + 4}.5`);
+    P(`M${x0 + 8}.5 ${cy - 4}.5 H${x1 - 8}.5 M${x0 + 8}.5 ${cy + 4}.5 H${x1 - 8}.5`);
+    J(x0 + 8.5, cy + 0.5); J(x1 - 7.5, cy + 0.5);
+  } else if (k === 'access') { P(`M${x0}.5 ${cy}.5 H${x1}.5`); }
+  else if (k === 'trunk' || k === 'atrunk') {
+    const t = k === 'trunk' ? 48 : 30;
+    P(`M${x0}.5 ${cy}.5 H${x1}.5`);
+    P(`M${t - 2}.5 ${cy - 4}.5 V${cy + 4}.5 M${t + 2}.5 ${cy - 4}.5 V${cy + 4}.5`);
+  } else if (k === 'route') {
+    P(`M${x0}.5 ${cy}.5 H${x1}.5`);
+    P(`M${x1 - 8}.5 ${cy - 4}.5 L${x1}.5 ${cy}.5 L${x1 - 8}.5 ${cy + 4}.5`);
+  } else if (k === 'policy') {
+    P(`M${x0}.5 ${cy - 8}.5 V${cy + 8}.5 M${x1}.5 ${cy - 8}.5 V${cy + 8}.5`);
+    P(`M${x0}.5 ${cy}.5 H${x1}.5`);
+    P(`M${x1 - 8}.5 ${cy - 4}.5 L${x1}.5 ${cy}.5 L${x1 - 8}.5 ${cy + 4}.5`);
+    J(x0 + 0.5, cy + 0.5); J(x1 + 0.5, cy + 0.5);
+  } else if (k === 'inferred') {
+    P(`M${x0}.5 ${cy}.5 H${x1 - 4}.5`, 'dg-edge inferred');
+    P(`M${x1 - 8}.5 ${cy - 4}.5 H${x1}.5 V${cy + 4}.5 H${x1 - 8}.5 Z`, 'dg-edge inferred');
+  } else if (k === 'proposed') { P(`M${x0}.5 ${cy}.5 H${x1}.5`, 'dg-edge proposed'); }
+  else if (k === 'cross') {
+    P(`M${x0}.5 ${cy}.5 H${44}.5 M${52}.5 ${cy}.5 H${x1}.5`);
+    P(`M${48}.5 ${cy - 12}.5 V${cy + 12}.5`);
+  } else if (k === 'junction') {
+    P(`M${x0}.5 ${cy}.5 H${x1}.5 M${48}.5 ${cy}.5 V${cy + 12}.5`);
+    J(48.5, cy + 0.5);
+  } else if (k === 'zoneband') {
+    R(8, 6, 80, 32, 'dg-wash z-trust');
+    P(`M${16}.5 ${6}.5 H${8}.5 V${38}.5 H${16}.5 M${80}.5 ${6}.5 H${88}.5 V${38}.5 H${80}.5`,
+      'dg-band zone z-trust');
+    const t = el('text', { class: 'dg-bandlab', x: 20, y: 26 });
+    t.textContent = 'TRUST'; s.appendChild(t);
+  } else if (k === 'zonecross') {
+    P(`M${x0}.5 ${cy}.5 H${48}.5`, 'dg-edge z-wan');
+    P(`M${48}.5 ${cy}.5 H${x1}.5`, 'dg-edge z-untrust');
+    P(`M${48}.5 ${8}.5 V${36}.5`, 'dg-band zone z-untrust');
+  } else if (k === 'boundary') {
+    R(20, 8, 56, 28, 'dg-box boundary');
+    const t = el('text', { class: 'dg-ztag', x: 72, y: 26, 'text-anchor': 'end' });
+    t.textContent = 'BOUNDARY'; s.appendChild(t);
+  } else if (k === 'aggstub') {
+    s.appendChild(el('path', { class: 'dg-box', fill: 'none', d: `M${28} ${cy - 14} V${cy + 14}`,
+      'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+    P(`M${44} ${cy - 12} H${28} V${cy + 4} H${44}`, 'dg-agg-tab z-vpn');
+    P(`M${40} ${cy - 8} H${24} V${cy + 8} H${40}`, 'dg-agg z-vpn');
+    const t = el('text', { class: 'dg-agg-n', x: 48, y: cy + 4 });
+    t.textContent = '+40'; s.appendChild(t);
+  } else if (k === 'aggbox') {
+    P(`M${76} ${10} H${28} V${34} H${76}`, 'dg-agg-tab z-vpn');
+    P(`M${72} ${14} H${24} V${38} H${72}`, 'dg-peer z-vpn');
+    const t = el('text', { class: 'dg-anno ink', x: 30, y: 30 });
+    t.textContent = '40 spokes'; s.appendChild(t);
+  }
+  return s;
+}
+function paintKey() {
+  const host = document.getElementById('key');
+  host.innerHTML = '';
+  for (const it of KEY) {
+    const d = document.createElement('div'); d.className = 'kitem';
+    d.appendChild(specimen(it.k));
+    const b = document.createElement('div'); b.className = 'kbody';
+    b.innerHTML = `<div class="kname">${esc(it.name)}</div>
+      <div class="kchan">${esc(it.chan)}</div>
+      <div class="kdesc">${esc(it.d)}</div>`;
+    d.appendChild(b); host.appendChild(d);
+  }
+}
+
+/* =========================================================================
+   13. BOOT
+   ========================================================================= */
+paintKey();
+setSpokes(4);
+fit(0.6);
+paintInspector();
+
+window.__dia = {
+  setSpokes: n => { const s = setSpokes(n); fit(); return stats(); },
+  setZoom, fit, state, stats,
+  get scene() { return scene; }
+};
+function stats() {
+  return {
+    spokes: state.spokes,
+    nodes: scene.nodes.length,
+    edges: scene.edges.length,
+    bands: scene.bands.length,
+    layoutMs: +scene.ms.toFixed(2),
+    renderMs: +(scene.renderMs || 0).toFixed(2),
+    elements: scene.elements,
+    channels: scene.chanCount,
+    crossings: scene.crossings,
+    sceneW: Math.round(scene.ext.w),
+    sceneH: Math.round(scene.ext.h),
+    zoom: state.zoom,
+    suppressed: state.suppressed.slice()
+  };
+}
+</script>
+</body>
+</html>
