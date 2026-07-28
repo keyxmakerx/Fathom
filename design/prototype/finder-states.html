@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fathom — finder state gallery (phase 0)</title>
+
+<!-- The canonical token file. Linked, not copied, deliberately: this page exists
+     partly to prove design/tokens.css is real and load-bearing. The SHIPPED
+     artifact is a single self-contained file (43 §2.1, D1); a design gallery is
+     not the shipped artifact and does not inherit that constraint. -->
+<link rel="stylesheet" href="../tokens.css">
+
+<style>
+/* ==========================================================================
+   COMPONENT CSS — transcribed from docs/50-design/54-component-catalog.md.
+   §6 risk legend, §12 finder palette. Declares no hex, no px font size and no
+   duration of its own: every value is a token from design/tokens.css.
+
+   Current decisions implemented here, against stale tables in 54 — see the
+   "Known contradictions" plate at the foot of this page:
+     · R49 / ADR-0025 (6) — selection is the ▸ glyph plus --surface ground.
+       The 4px --ink bar is DELETED.
+     · R37 / ADR-0026    — the finder input has a visible focus indicator.
+       The input row inverts and gains a 2px --ink bottom rule.
+     · M29 / ADR-0025 (6) — `.pill` is DELETED. The risk word is trailing text
+       in semantic ink at --t-tab on --page.
+     · M40 / ADR-0025 (6) — the legend `.swatch` is DELETED. 4px accent bar,
+       ink on wash.
+   ========================================================================== */
+
+/* --- §6 risk legend ---------------------------------------------------- */
+.legend {
+  display: flex; flex-wrap: wrap; gap: var(--s4);
+  margin: 0; padding: var(--s1) 0;
+  list-style: none;
+  border-top: var(--rule-hair) solid var(--hairline);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+.legend-item {
+  display: flex; align-items: center; gap: var(--s2);
+  font-size: var(--t-micro); font-weight: 700;
+  letter-spacing: var(--track-legend); text-transform: uppercase;
+  border-left: var(--rule-accent) solid; padding-left: var(--s2);
+}
+.r-safe    { color: var(--safe);    background: var(--safe-wash);    border-left-color: var(--safe); }
+.r-caution { color: var(--caution); background: var(--caution-wash); border-left-color: var(--caution); }
+.r-danger  { color: var(--danger);  background: var(--danger-wash);  border-left-color: var(--danger); }
+
+/* --- §12 finder palette ------------------------------------------------ */
+.finder-shell {
+  position: fixed; z-index: var(--z-modal);
+  top: 12vh; left: 50%; transform: translateX(-50%);
+  width: min(var(--sheet-card), calc(100vw - var(--s6)));
+  max-height: 70vh; display: none; flex-direction: column;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);   /* a rule, not a shadow. tokens §11 */
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);                   /* none */
+}
+.finder-shell[data-open="true"] { display: flex; }
+
+.finder-input-row { display: flex; align-items: stretch; flex: none;
+                    border-bottom: var(--rule-hair) solid var(--hairline); }
+.finder-key {
+  display: flex; align-items: center; flex: none;
+  font-family: var(--mono); font-size: var(--t-micro);
+  letter-spacing: 0.06em; color: var(--muted);
+  padding: 0 var(--s3); border-right: var(--rule-hair) solid var(--hairline);
+}
+.finder-q {
+  flex: 1; min-width: 0; border: 0; background: none; color: var(--ink);
+  font-family: var(--mono); font-size: var(--t-mast);
+  padding: var(--s3); outline: none;
+}
+.finder-q::placeholder { color: var(--muted); }
+/* R37 (ADR-0026): the input row inverts on focus — the card's own vocabulary,
+   no double-draw. The previous `outline: none` was an SC 2.4.7 (AA) failure in
+   the product's most-used surface. */
+.finder-q:focus-visible { outline: none; background: var(--surface); }
+.finder-input-row:has(.finder-q:focus-visible) { border-bottom: 2px solid var(--ink); }
+.finder-meta { display: flex; align-items: center; flex: none;
+               padding: 0 var(--s3); font-size: var(--t-micro); color: var(--muted);
+               letter-spacing: var(--track-label); text-transform: uppercase;
+               font-variant-numeric: var(--num-tabular); }
+
+.hits { flex: 1; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.hit {
+  display: block; padding: var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  border-left: var(--rule-accent) solid transparent;
+  cursor: pointer;
+}
+.hit:last-child { border-bottom: 0; }
+.hit:hover { background: var(--surface-2); }
+.hit.sel   { background: var(--surface); }   /* R49: ▸ plus ground; the ink bar is deleted */
+.hit.sel .hit-cmd::before { content: "\25B8  "; }
+.hit-cmd { display: flex; align-items: baseline; gap: var(--s2);
+           font-family: var(--mono); font-size: var(--t-mono); }
+.hit-ans { display: block; color: var(--muted); font-size: var(--t-small); margin-top: 2px; }
+.hit-read { display: block; font-size: var(--t-small); margin-top: var(--s2);
+            padding-left: var(--s3);
+            border-left: var(--rule-hair) solid var(--hairline); }
+
+/* M29: no fill, no box — the risk word in semantic ink at the end of the line. */
+.hit-risk { font-size: var(--t-tab); font-weight: 700;
+            letter-spacing: var(--track-legend); text-transform: uppercase;
+            margin-left: auto; flex: none; white-space: nowrap; }
+.hit-risk.safe    { color: var(--safe); }
+.hit-risk.caution { color: var(--caution); }
+.hit-risk.danger  { color: var(--danger); }
+
+.finder-foot { flex: none; display: flex; justify-content: space-between; gap: var(--s4);
+               padding: var(--s2) var(--s3);
+               border-top: var(--rule-hair) solid var(--hairline); }
+.finder-foot .tab { font-size: var(--t-tab); color: var(--muted);
+                    letter-spacing: var(--track-label); text-transform: uppercase; }
+.empty { padding: var(--s5) var(--s3); color: var(--muted); font-size: var(--t-small); }
+
+/* --- §7 accent-bar note (the anti-synonym note between ladder groups) --- */
+.note {
+  border-left: var(--rule-accent) solid var(--ink);
+  padding: var(--s2) var(--s3);
+  margin: 0; font-size: var(--t-small);
+  background: var(--surface-2);
+}
+
+/* --- ladder group (16 §17.3) ------------------------------------------- */
+.ladder { border-bottom: var(--rule-hair) solid var(--hairline);
+          border-left: var(--rule-accent) solid var(--ink); }
+.ladder-head { display: flex; justify-content: space-between; align-items: baseline;
+               gap: var(--s4); padding: var(--s3) var(--s3) var(--s1);
+               font-size: var(--t-micro); font-weight: 700;
+               letter-spacing: var(--track-head); text-transform: uppercase; }
+.ladder-head .imperative { font-weight: 400; letter-spacing: 0; text-transform: none;
+                           color: var(--muted); font-size: var(--t-small); }
+.ladder-step { padding: var(--s1) var(--s3) var(--s2) var(--s5); }
+.ladder-step .hit-cmd { font-size: var(--t-mono); }
+.ladder-more { padding: var(--s2) var(--s3) var(--s3) var(--s5);
+               border-top: var(--rule-hair) solid var(--hairline);
+               font-size: var(--t-small); color: var(--muted); }
+
+/* --- expanded row (16 §17.1) ------------------------------------------- */
+.expand { padding: 0 var(--s3) var(--s3) var(--s5); }
+.block-label { font-size: var(--t-micro); font-weight: 700;
+               letter-spacing: var(--track-head); text-transform: uppercase;
+               color: var(--muted); margin: var(--s3) 0 var(--s1); }
+/* §9 two-column hairline table — the ERROR DECODER pattern. No vertical rules. */
+.fields { width: 100%; border-collapse: collapse; font-size: var(--t-small); }
+.fields th, .fields td { text-align: left; vertical-align: top;
+                         padding: var(--s1) var(--s3) var(--s1) 0;
+                         border-bottom: var(--rule-hair) solid var(--hairline); }
+.fields th { width: 34%; font-family: var(--mono); font-size: var(--t-mono);
+             font-weight: 400; white-space: nowrap; }
+.fields tr:last-child th, .fields tr:last-child td { border-bottom: 0; }
+.want { font-family: var(--mono); }
+
+/* --- §4 margin tab (depth toggle) -------------------------------------- */
+.depth { display: flex; gap: var(--s3); font-size: var(--t-tab);
+         letter-spacing: var(--track-label); text-transform: uppercase;
+         color: var(--muted); margin-bottom: var(--s2); }
+.depth .on { color: var(--ink); font-weight: 700; }
+
+/* --- miss state (16 §19.5) --------------------------------------------- */
+.miss { padding: var(--s4) var(--s3); font-size: var(--t-small); }
+.miss-near { display: grid; grid-template-columns: max-content 1fr;
+             gap: var(--s1) var(--s3); margin-top: var(--s3); }
+.miss-near dt { color: var(--muted); text-transform: lowercase; }
+.miss-near dd { margin: 0; font-family: var(--mono); font-size: var(--t-mono); }
+.miss-near .score { color: var(--muted); font-variant-numeric: var(--num-tabular); }
+
+/* ==========================================================================
+   GALLERY CHROME — NOT PART OF THE COMPONENT.
+   Everything below exists only to lay the plates out on one page. None of it
+   ships. The one override that matters is .plate .finder-shell, which takes
+   the palette out of `position: fixed` so every state can be seen at once.
+   ========================================================================== */
+.sheet { max-width: var(--sheet); margin: 0 auto; padding: var(--s5) var(--s4) var(--s8); }
+
+.masthead { border-bottom: var(--rule-mast) solid var(--ink);
+            padding-bottom: var(--s2); margin-bottom: var(--s1);
+            display: flex; justify-content: space-between; align-items: baseline;
+            gap: var(--s4); flex-wrap: wrap; }
+.masthead h1 { margin: 0; font-size: var(--t-title); line-height: var(--lh-title);
+               letter-spacing: var(--track-mast); text-transform: uppercase; }
+.masthead .sub { font-size: var(--t-micro); color: var(--muted);
+                 letter-spacing: var(--track-label); text-transform: uppercase; }
+
+.lede { max-width: var(--measure); margin: var(--s4) 0 var(--s6); font-size: var(--t-body); }
+.lede code { font-size: var(--t-mono); }
+
+.plate { margin: 0 0 var(--s7); }
+.plate-head { display: flex; justify-content: space-between; align-items: baseline;
+              gap: var(--s4); flex-wrap: wrap;
+              border-bottom: var(--rule-hair) solid var(--ink);
+              padding-bottom: var(--s1); margin-bottom: var(--s3); }
+.plate-head h2 { margin: 0; font-size: var(--t-head); font-weight: 700;
+                 letter-spacing: var(--track-head); text-transform: uppercase; }
+.plate-head .cite { font-size: var(--t-tab); color: var(--muted); font-family: var(--mono); }
+.plate-note { max-width: var(--measure); font-size: var(--t-small); color: var(--muted);
+              margin: 0 0 var(--s3); }
+
+/* The only structural override: render the palette inline instead of fixed. */
+.plate .finder-shell {
+  position: static; transform: none; top: auto; left: auto;
+  width: 100%; max-height: none; display: flex;
+}
+
+.themebar { display: flex; gap: var(--s2); align-items: center;
+            font-size: var(--t-tab); letter-spacing: var(--track-label);
+            text-transform: uppercase; color: var(--muted); }
+.themebar button {
+  background: var(--page); color: var(--ink);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s2); cursor: pointer;
+  font-size: var(--t-tab); letter-spacing: var(--track-label); text-transform: uppercase;
+}
+.themebar button[aria-pressed="true"] { background: var(--surface); border-color: var(--ink); }
+
+.folio { border-top: var(--rule-hair) solid var(--hairline);
+         margin-top: var(--s7); padding-top: var(--s2);
+         font-size: var(--t-tab); color: var(--muted);
+         display: flex; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; }
+
+.defect { border-left: var(--rule-accent) solid var(--caution);
+          background: var(--caution-wash); padding: var(--s3);
+          margin-bottom: var(--s3); font-size: var(--t-small); }
+.defect b { color: var(--caution); }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <header class="masthead">
+    <h1>Finder — state gallery</h1>
+    <div class="themebar">
+      <span>theme</span>
+      <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+      <button type="button" data-theme-set="dark"  aria-pressed="false">Dark</button>
+      <button type="button" data-theme-set="auto"  aria-pressed="true">Auto</button>
+    </div>
+  </header>
+  <p class="sub" style="font-size:var(--t-micro);color:var(--muted);letter-spacing:var(--track-label);text-transform:uppercase;margin:var(--s1) 0 var(--s4)">
+    Phase 0 · junos-srx · every state of the one screen phase 0 builds
+  </p>
+
+  <!-- 54 §6 placement rule: the legend appears on every view that renders a Risk
+       value, immediately below the masthead, always in the same place, never
+       collapsed, never behind a disclosure. -->
+  <ul class="legend" aria-label="Risk legend">
+    <li class="legend-item r-safe">Read-only — safe on production</li>
+    <li class="legend-item r-caution">Changes config — needs a commit</li>
+    <li class="legend-item r-danger">Disruptive — drops live traffic</li>
+  </ul>
+
+  <p class="lede">
+    The existing interface study shows the happy path across six views. This page shows
+    <em>every state of the one screen phase&nbsp;0 actually builds</em> — the command finder —
+    so an implementing session has a target for each, not just for the good case.
+    Styling comes entirely from <code>design/tokens.css</code>; the component CSS is
+    transcribed from <code>54</code> §6 and §12. Content is real: every command, answer,
+    read-field and output field below is lifted from
+    <code>corpus/commands/junos-srx-ipsec.yaml</code>, not invented.
+  </p>
+
+
+  <!-- ===================================================== 1. empty ==== -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2>1 · Open, empty query</h2>
+      <span class="cite">54 §12 States · 52 §7</span>
+    </div>
+    <p class="plate-note">
+      The design language forbids empty states, illustrations and calls to action. So the
+      empty palette carries recent queries and three seed questions taken from the card —
+      it teaches the query shape rather than advertising itself.
+    </p>
+    <div class="finder-shell" data-open="true" role="dialog" aria-modal="true" aria-label="Command finder">
+      <div class="finder-input-row">
+        <span class="finder-key" aria-hidden="true">Ctrl K</span>
+        <input class="finder-q" type="text" placeholder="is the tunnel up" aria-label="Find a command" autocomplete="off" spellcheck="false">
+        <span class="finder-meta" aria-hidden="true">— · —</span>
+      </div>
+      <div class="empty">
+        <div class="block-label" style="margin-top:0">Try</div>
+        <div style="font-family:var(--mono);font-size:var(--t-mono);line-height:var(--lh-step)">
+          is the tunnel up<br>
+          why is the tunnel down<br>
+          what size can I actually send
+        </div>
+      </div>
+      <div class="finder-foot">
+        <span class="tab">junos-srx · corpus 1.4.0</span>
+        <span class="tab">Enter copies · → opens the guidebook entry</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ================================================ 2. focus ring ==== -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2>2 · Input focused — the SC 2.4.7 fix</h2>
+      <span class="cite">54 §12 CSS · ADR-0026 (R37)</span>
+    </div>
+    <p class="plate-note">
+      The input row inverts to <code>--surface</code> and gains a 2px <code>--ink</code> bottom
+      rule. This replaces the old "the shell border is the focus indicator" position, which was
+      a Level AA failure in the product's most-used surface: the shell border is present
+      whenever the dialog is open, focused or not, and a caret is not a focus indicator.
+      Click into the field below to see it. <b>Phase 0 is where this ships</b> — the AA claim
+      in <code>55</code> §1.1 stays qualified until it does.
+    </p>
+    <div class="finder-shell" data-open="true">
+      <div class="finder-input-row">
+        <span class="finder-key" aria-hidden="true">Ctrl K</span>
+        <input class="finder-q" type="text" value="is the tunnel up" aria-label="Find a command" autocomplete="off" spellcheck="false">
+        <span class="finder-meta" aria-hidden="true">6 · 0.8 ms</span>
+      </div>
+      <div class="finder-foot">
+        <span class="tab">focus the input above</span>
+        <span class="tab">row inverts · 2px ink rule</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- =============================================== 3. mid-query ====== -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2>3 · Typing — mid-query</h2>
+      <span class="cite">16 §10 · 44 B5</span>
+    </div>
+    <p class="plate-note">
+      Re-ranked on every keystroke, painted within 16.7 ms (B5 / X0.2). The count and timing
+      in the meta slot are the only moving parts; the list must not reflow its own height as
+      you type, which is why the ladder group has a fixed collapsed height.
+    </p>
+    <div class="finder-shell" data-open="true">
+      <div class="finder-input-row">
+        <span class="finder-key" aria-hidden="true">Ctrl K</span>
+        <input class="finder-q" type="text" value="is the tun" aria-label="Find a command" autocomplete="off" spellcheck="false">
+        <span class="finder-meta" aria-hidden="true">11 · 0.6 ms</span>
+      </div>
+      <ul class="hits" role="listbox" aria-label="Results">
+        <li class="hit sel" role="option" aria-selected="true">
+          <span class="hit-cmd"><code>show security ipsec security-associations</code>
+            <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+          <span class="hit-ans">Is the data tunnel installed and carrying traffic?</span>
+        </li>
+        <li class="hit" role="option" aria-selected="false">
+          <span class="hit-cmd"><code>show security ipsec inactive-tunnels</code>
+            <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+          <span class="hit-ans">Which tunnels are down, and what reason does the box give?</span>
+        </li>
+        <li class="hit" role="option" aria-selected="false">
+          <span class="hit-cmd"><code>show interfaces st0.0 terse</code>
+            <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+          <span class="hit-ans">Is the virtual tunnel endpoint carrying an admin and link state of up?</span>
+        </li>
+      </ul>
+      <div class="finder-foot">
+        <span class="tab">junos-srx · corpus 1.4.0</span>
+        <span class="tab">↑↓ move · ⏎ copy · → guidebook</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ============================================ 4. answer-shaped ===== -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2>4 · Results — answer-shaped rows</h2>
+      <span class="cite">16 §17.1 · 54 §12</span>
+    </div>
+    <p class="plate-note">
+      The row is the answer, not the command. Each carries the question it answers
+      (<code>answers</code>), what to read in the output (<code>read_field</code>) and, on the
+      selected row, the first <code>next_if_bad</code> hop. Selection is the <code>▸</code>
+      glyph plus <code>--surface</code> ground — no coloured bar, which <code>51</code> §4.2
+      forbids for selection by name.
+    </p>
+    <div class="finder-shell" data-open="true">
+      <div class="finder-input-row">
+        <span class="finder-key" aria-hidden="true">Ctrl K</span>
+        <input class="finder-q" type="text" value="is the tunnel up" aria-label="Find a command" autocomplete="off" spellcheck="false">
+        <span class="finder-meta" aria-hidden="true">6 · 0.8 ms</span>
+      </div>
+      <ul class="hits" role="listbox" aria-label="Results">
+        <li class="hit sel" role="option" aria-selected="true">
+          <span class="hit-cmd"><code>show security ipsec security-associations</code>
+            <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+          <span class="hit-ans">Is the data tunnel installed and carrying traffic?</span>
+          <span class="hit-read"><b>Read:</b> State — want <code>Installed</code>. Anything else is not passing traffic.</span>
+        </li>
+        <li class="hit" role="option" aria-selected="false">
+          <span class="hit-cmd"><code>show security ike security-associations</code>
+            <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+          <span class="hit-ans">Is the outer negotiated channel up with the far end?</span>
+          <span class="hit-read"><b>Read:</b> State — want <code>UP</code>, and one row per peer.</span>
+        </li>
+        <li class="hit" role="option" aria-selected="false">
+          <span class="hit-cmd"><code>show security ipsec inactive-tunnels</code>
+            <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+          <span class="hit-ans">Which tunnels are down, and what reason does the box give?</span>
+          <span class="hit-read"><b>Read:</b> Tunnel Down Reason — often the whole answer.</span>
+        </li>
+      </ul>
+      <div class="finder-foot">
+        <span class="tab">junos-srx · corpus 1.4.0</span>
+        <span class="tab">Enter copies · → opens the guidebook entry</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ============================================== 5. ladder group ==== -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2>5 · Ladder group — collapsed</h2>
+      <span class="cite">16 §17.3 · 71 §3.5</span>
+    </div>
+    <p class="plate-note">
+      Emitted when a <code>State</code> concept resolves BROAD and a matching ladder exists.
+      It competes on score — it is <em>not</em> pinned to the top. Collapsed height is fixed at
+      two steps, a rule and a count, so keystrokes never reflow the list. Order is ladder
+      position, never score. Members are not repeated as flat rows below.
+      <code>→</code> walks it; <code>↓</code> skips past it.
+    </p>
+    <div class="finder-shell" data-open="true">
+      <div class="finder-input-row">
+        <span class="finder-key" aria-hidden="true">Ctrl K</span>
+        <input class="finder-q" type="text" value="check if a tunnel is up" aria-label="Find a command" autocomplete="off" spellcheck="false">
+        <span class="finder-meta" aria-hidden="true">7 · 1.1 ms</span>
+      </div>
+      <div class="hits">
+        <div class="ladder">
+          <div class="ladder-head">
+            <span>Bring-up order</span>
+            <span class="imperative">stop at the first failure</span>
+          </div>
+          <div class="ladder-step">
+            <span class="hit-cmd"><code>show security ike security-associations</code>
+              <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+            <span class="hit-ans">P1 up? Index stable = it did not rebuild.</span>
+          </div>
+          <div class="ladder-step">
+            <span class="hit-cmd"><code>show security ipsec security-associations</code>
+              <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+            <span class="hit-ans">P2 installed? State wants <code>Installed</code>.</span>
+          </div>
+          <div class="ladder-more">+ 3 more steps · → walks the ladder</div>
+        </div>
+
+        <!-- The anti-synonym note: concept:p2.installed's not_the_same_as, a verbatim
+             compression of the card's side 4. 54 §7 accent-bar note. -->
+        <p class="note">
+          <b>Installed proves crypto, not reachability.</b> The tunnel reads UP while passing
+          zero packets when st0 has no zone, no policy, or nothing routed at it.
+        </p>
+
+        <ul class="hits" role="listbox" aria-label="Results" style="overflow:visible">
+          <li class="hit" role="option" aria-selected="false">
+            <span class="hit-cmd"><code>show interfaces st0.0 terse</code>
+              <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+            <span class="hit-ans">Is the virtual tunnel endpoint carrying an admin and link state of up?</span>
+          </li>
+          <li class="hit" role="option" aria-selected="false">
+            <span class="hit-cmd"><code>show route 10.2.0.0/16</code>
+              <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+            <span class="hit-ans">Does the far side's prefix resolve, and out which interface?</span>
+          </li>
+          <li class="hit" role="option" aria-selected="false">
+            <span class="hit-cmd"><code>clear security ike security-associations &lt;peer-ip&gt;</code>
+              <span class="hit-risk danger">Disruptive<span class="vh"> — drops live traffic</span></span></span>
+            <span class="hit-ans">How do I force the outer channel to rebuild with one far end?</span>
+            <span class="hit-read">Tears down every child SA under P1 — on a hub that is every spoke at once. Always scope by peer or index.</span>
+          </li>
+        </ul>
+      </div>
+      <div class="finder-foot">
+        <span class="tab">junos-srx · corpus 1.4.0</span>
+        <span class="tab">→ walks · ↓ skips past</span>
+      </div>
+    </div>
+    <p class="plate-note" style="margin-top:var(--s3)">
+      Note the <code>Disruptive</code> row sits at the <em>bottom</em>, not the top. That is the
+      risk prior in <code>16</code> §8.3 — a safety control, not a relevance signal.
+    </p>
+  </section>
+
+
+  <!-- ================================================ 6. expanded ====== -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2>6 · Row expanded</h2>
+      <span class="cite">16 §17.1 · 54 §9</span>
+    </div>
+    <p class="plate-note">
+      <code>→</code> or <code>Enter</code> expands. Output fields render as a two-column
+      hairline table with no vertical rules — the card's <code>READING THE SA OUTPUT</code>
+      block, encoded. <code>next_if_bad</code> is one hop, each with its own risk word.
+    </p>
+    <div class="finder-shell" data-open="true">
+      <div class="finder-input-row">
+        <span class="finder-key" aria-hidden="true">Ctrl K</span>
+        <input class="finder-q" type="text" value="is the tunnel up" aria-label="Find a command" autocomplete="off" spellcheck="false">
+        <span class="finder-meta" aria-hidden="true">6 · 0.8 ms</span>
+      </div>
+      <div class="hits">
+        <div class="hit sel">
+          <span class="hit-cmd"><code>show security ipsec security-associations</code>
+            <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+          <span class="hit-ans">Is the data tunnel installed and carrying traffic?</span>
+        </div>
+        <div class="expand">
+          <div class="block-label">Output fields</div>
+          <table class="fields">
+            <tbody>
+              <tr><th>State</th><td>Phase 2 SA state. Want <span class="want">Installed</span> — anything else is not passing traffic.</td></tr>
+              <tr><th>SPI</th><td>Security Parameter Index, one per direction. Two lines per selector is correct, not a duplicate.</td></tr>
+              <tr><th>Gateway</th><td>Peer address this child SA belongs to. Join key.</td></tr>
+              <tr><th>Mon</th><td>Whether vpn-monitor is running for this SA. Without it, a route out st0 stays good while traffic blackholes.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="block-label">If bad</div>
+          <div style="font-family:var(--mono);font-size:var(--t-mono);line-height:var(--lh-step)">
+            show security ipsec security-associations node all
+            <span class="hit-risk safe" style="margin-left:var(--s3)">Read-only</span><br>
+            show security ipsec inactive-tunnels
+            <span class="hit-risk safe" style="margin-left:var(--s3)">Read-only</span><br>
+            show security ike security-associations
+            <span class="hit-risk safe" style="margin-left:var(--s3)">Read-only</span>
+          </div>
+
+          <div class="block-label">Why</div>
+          <div class="depth" role="group" aria-label="Explainer depth">
+            <span>terse</span><span class="on">explained</span><span>teaching</span>
+          </div>
+          <p style="margin:0;font-size:var(--t-small);max-width:var(--measure)">
+            One line per direction per selector, so two lines for a single-selector tunnel is
+            correct and not a duplicate.
+          </p>
+
+          <div class="defect" style="margin-top:var(--s4)">
+            <b>Unverified —</b> this entry carries an open <code>VERIFY (C10)</code>: on current
+            Junos the summary output may have no <code>State</code> column at all — it is a
+            detail-only field. This is the field the whole verify ladder hangs on. Gate X0.10
+            (run it on a real SRX) is what closes it.
+          </div>
+        </div>
+      </div>
+      <div class="finder-foot">
+        <span class="tab">junos-srx · corpus 1.4.0 · unverified</span>
+        <span class="tab">← collapses · ⏎ copies</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ================================================= 7. all risks ==== -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2>7 · The three risks, in one list</h2>
+      <span class="cite">51 §3.2 · ADR-0011 · 54 §12</span>
+    </div>
+    <p class="plate-note">
+      Three risk colours, no fourth, and no other use of those colours anywhere in the row.
+      Risk is a property of <em>effect</em>, not of verb (ADR-0011): <code>clear</code> is
+      Disruptive because it drops traffic, not because of the word. The word is always visible
+      as text, so the meaning survives monochrome print and forced colours.
+    </p>
+    <div class="finder-shell" data-open="true">
+      <div class="finder-input-row">
+        <span class="finder-key" aria-hidden="true">Ctrl K</span>
+        <input class="finder-q" type="text" value="rekey the tunnel" aria-label="Find a command" autocomplete="off" spellcheck="false">
+        <span class="finder-meta" aria-hidden="true">3 · 0.7 ms</span>
+      </div>
+      <ul class="hits" role="listbox" aria-label="Results">
+        <li class="hit sel" role="option" aria-selected="true">
+          <span class="hit-cmd"><code>show security ipsec security-associations</code>
+            <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span></span>
+          <span class="hit-ans">Is the data tunnel installed and carrying traffic?</span>
+        </li>
+        <li class="hit" role="option" aria-selected="false">
+          <span class="hit-cmd"><code>set security ike proposal IKE-P1 dh-group group14</code>
+            <span class="hit-risk caution">Changes config<span class="vh"> — needs a commit</span></span></span>
+          <span class="hit-ans">Which Diffie-Hellman strength does the first exchange use?</span>
+        </li>
+        <li class="hit" role="option" aria-selected="false">
+          <span class="hit-cmd"><code>clear security ipsec security-associations</code>
+            <span class="hit-risk danger">Disruptive<span class="vh"> — drops live traffic</span></span></span>
+          <span class="hit-ans">What is the cheapest way to prove a tunnel comes back cleanly?</span>
+          <span class="hit-read"><b>Read:</b> No output — re-run the Phase 2 listing and watch it reinstall.</span>
+        </li>
+      </ul>
+      <div class="finder-foot">
+        <span class="tab">junos-srx · corpus 1.4.0</span>
+        <span class="tab">Enter copies · ⇧⏎ copies with context</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ==================================================== 8. miss ====== -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2>8 · Miss — nothing above the cutoff</h2>
+      <span class="cite">16 §19.5 · 16 §3.6</span>
+    </div>
+    <p class="plate-note">
+      Below-cutoff entries are shown <em>with their scores</em>, because a user who can see the
+      system nearly matched can adjust, and a user shown nothing cannot. The miss is logged
+      locally and never transmitted; <code>export misses</code> writes a file the user reads
+      before choosing to send it. Invariant 1 forbids telemetry — this log is the only
+      instrument the project has, and it only works because it is not automatic.
+    </p>
+    <div class="finder-shell" data-open="true">
+      <div class="finder-input-row">
+        <span class="finder-key" aria-hidden="true">Ctrl K</span>
+        <input class="finder-q" type="text" value="reup the crypto thing" aria-label="Find a command" autocomplete="off" spellcheck="false">
+        <span class="finder-meta" aria-hidden="true">0 · 0.9 ms</span>
+      </div>
+      <div class="miss">
+        nothing above the cutoff for <code>reup the crypto thing</code>
+        <dl class="miss-near">
+          <dt>nearest concepts</dt>
+          <dd>tunnel · rekey · clear</dd>
+          <dt>nearest commands</dt>
+          <dd>show security ipsec security-associations <span class="score">0.71</span><br>
+              clear security ipsec security-associations <span class="score">0.63</span></dd>
+        </dl>
+      </div>
+      <div class="finder-foot">
+        <span class="tab">logged locally</span>
+        <span class="tab">export misses</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ============================================ 9. contradictions ==== -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2>9 · Known contradictions in the source</h2>
+      <span class="cite">defects found while building this page</span>
+    </div>
+    <p class="plate-note">
+      Two places where <code>54</code> §12's tables were not updated when the decisions above
+      them landed. This page implements the <em>current</em> decision in each case — the prose
+      and the CSS, which agree — and records the stale table rather than silently picking a side.
+    </p>
+    <div class="defect">
+      <b>54 §12 "States" table contradicts R49 / ADR-0025 (6).</b>
+      The table still lists <code>Result active | C3 + C1 | --surface ground + 4px --ink bar</code>.
+      The prose immediately above it, and the CSS below it, both delete that bar: selection is the
+      <code>▸</code> glyph plus <code>--surface</code> ground. The table row needs deleting.
+    </div>
+    <div class="defect">
+      <b>54 §12 "Accessibility contract" contradicts R37 / ADR-0026.</b>
+      It still reads "The input has no visible focus ring… this is a deliberate exception to
+      'focus is always an outline' and it is the only one." ADR-0026 revoked that as an SC 2.4.7
+      failure, and the CSS in the same section now inverts the input row on focus. The bullet
+      needs rewriting to describe the inversion.
+    </div>
+  </section>
+
+
+  <footer class="folio">
+    <span>Fathom · finder state gallery · phase 0</span>
+    <span>tokens: design/tokens.css · components: 54 §6, §12 · content: corpus/commands/junos-srx-ipsec.yaml</span>
+  </footer>
+</div>
+
+<script>
+// Gallery chrome only. Theme switching so both halves of the token file can be
+// seen; 51 §5 says dark is derived, not inverted.
+(function () {
+  var root = document.documentElement;
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-theme-set]'));
+  function apply(mode) {
+    if (mode === 'auto') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', mode);
+    buttons.forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-theme-set') === mode));
+    });
+  }
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () { apply(b.getAttribute('data-theme-set')); });
+  });
+})();
+</script>
+</body>
+</html>
