@@ -234,8 +234,9 @@ brief's own requirement.
 
 | Field | Type | R/O | Default | Validation |
 |---|---|---|---|---|
-| `risk` | enum | R | — | `ReadOnly` \| `ChangesConfig` \| `Disruptive`. Exactly three, conventions. §4. |
-| `domain` | enum | R | — | `ipsec` \| `ike` \| `zone` \| `policy` \| `route` \| `nat` \| `mtu` \| `flow` \| `interface` \| `ha` \| `log` \| `system`. First segment of the dotted id must agree. |
+| `risk` | enum | R | — | `ReadOnly` \| `ChangesConfig` \| `Disruptive`. Exactly three, conventions. Assigned by effect, not by `mode` (ADR-0011). §4. |
+| `risk_caption_override` | string | O | — | Renders in place of the band's default caption where that caption is untrue of this entry. Words only — band, ink, wash and ordering are not overridable. ADR-0011; §4.6. |
+| `domain` | enum | R | — | `ipsec` \| `ike` \| `zone` \| `policy` \| `route` \| `nat` \| `mtu` \| `flow` \| `interface` \| `ha` \| `chassis` \| `log` \| `system`. First segment of the dotted id must agree. (`chassis` added per R09 — the cluster operational entries; `ha` remains for redundancy *configuration* domains.) |
 | `weight` | int 0–3 | O | `1` | **Canonicality**: how much this is *the* command for its concepts. 3 = the one you reach for; 0 = a corner case. Feeds the finder's prior (finder §8.3) at `0.10 × weight`. Lint: at most one `weight: 3` per (concept, platform) pair — if two commands are both the canonical answer to the same question, one of them is not. |
 | `tags` | list of string | O | `[]` | Lowercase, hyphenated. Filtering only, never logic. `[phase1, phase2, nat-t, bring-up, day-one, mtu]`. |
 
@@ -310,6 +311,19 @@ add a fourth. Do not reuse these colours for anything else.
 | `ChangesConfig` | Changes something persistent or something an operator depends on, but does not by itself drop traffic. | `set security ike traceoptions` looks harmless and can fill `/var`, which breaks logging *and* commits. Still `ChangesConfig`, with the blast radius saying so. |
 | `Disruptive` | Drops live traffic, or can. | `clear security ike security-associations` with no argument. Side 3: *"Clearing P1 tears down every child SA under it — on a hub that is every spoke at once."* |
 
+**The definition, decided (ADR-0011) — risk is a property of effect, not of `mode`:**
+
+> `Disruptive` **iff** committing or running the statement can interrupt an established flow,
+> SA or adjacency on a device already carrying traffic.
+
+A `mode: configuration` entry whose commit tears down an established SA is `Disruptive`;
+a `mode: operational` `clear` scoped to a single SA is `Disruptive` too, because traffic on
+that SA pauses. Deriving the band from the statement's mode (`configuration` ⇒
+`ChangesConfig`, `clear` ⇒ `Disruptive`, else `ReadOnly`) is the defect ADR-0011 exists to
+close. CI enforces the class, not just the instances (§14): any entry whose `blast_radius`
+matches `/blackhole|traffic stops|drops .*(adjacency|traffic)|never comes up|stops negotiating/i`
+and is not `Disruptive` fails the build.
+
 When an author is torn, the rule is **round up**. A command wrongly labelled `Disruptive`
 costs a moment's hesitation. A command wrongly labelled `ReadOnly` costs an outage, and it
 costs the tool's credibility permanently.
@@ -377,6 +391,30 @@ Required for `mode: configuration`. Values: `junos-commit` \| `immediate` \|
 `candidate-commit` \| `write-mem`. Drives the "and then what" line — on Junos, every
 configuration entry renders `commit confirmed 5` as its safety wrapper, because side 1 makes
 it step 1 of the bring-up order: *"`commit confirmed 5` — always, remotely."*
+
+### 4.6 `risk_caption_override` — the caption is separable from the band
+
+Optional string (§3.3), added by ADR-0011. The three captions in §4.1 are the *default
+rendering* of each band. Where the default caption is untrue of a specific entry, the entry
+overrides the words — and only the words. **Same ink, same wash, same ordering, different
+words.** The band itself, its colours and its position in the legend are not overridable,
+and CI enforces that, not review.
+
+The shipped case, exactly as it appears in `corpus/commands/junos-srx-ipsec.yaml`:
+
+```yaml
+# on junos-srx/ipsec.statistics.clear
+risk: ChangesConfig
+risk_caption_override: "CHANGES STATE — NOT REVERSIBLE BY COMMIT"
+```
+
+`clear security ipsec statistics` changes no configuration, needs no commit, and `rollback 1`
+will not undo it. `CHANGES CONFIG — NEEDS A COMMIT` on that entry told an operator to commit
+something that had already happened. The band is right (§4.1's ReadOnly trap); the caption
+was false, so the caption moves and the band stays.
+
+One override is a correction; two is a pattern — ADR-0011's *Revisit if* says a second
+requested override reopens the convention rather than extending it.
 
 ---
 
@@ -841,7 +879,7 @@ application releases; `[compat]` bounds which application versions accept them.
 
 ## 14. CI validation — the gates
 
-Ordered. `lint` runs 1–8; `check` runs all fourteen.
+Ordered. `lint` runs 1–8; `check` runs all fifteen.
 
 | # | Gate | Failure mode it catches |
 |---|---|---|
@@ -859,6 +897,7 @@ Ordered. `lint` runs 1–8; `check` runs all fourteen.
 | 12 | **Rosetta completeness.** Every platform in `[content].platforms` appears in every Rosetta document. `differs` present on every non-`same` equivalence. `verified` requires `verified_on`. `split` and `none` have no derived inverse. | The whole of finder §18's honesty argument. |
 | 13 | **Redaction.** §6.4, over `golden/outputs/` and over every literal in every entry. | A real peer address in a corpus that exists to argue the product is trustworthy with configs. |
 | 14 | **Golden queries.** `finder.idx` built; ~120 queries run; top-5 diffed against `golden/queries.yaml`. | Ranking regressions. |
+| 15 | **Risk is effect (ADR-0011).** Any entry whose `blast_radius` matches `/blackhole|traffic stops|drops .*(adjacency|traffic)|never comes up|stops negotiating/i` and is not `Disruptive` fails. | The mode-derived mapping R03 found: a corpus whose red band never lands on the `set` lines that drop traffic. Heuristic — ADR-0011's *Revisit if* demotes it to a review prompt if false failures outnumber true ones over a hundred entries. |
 
 **Gate 14 is a report, not a failure.** It posts a diff on the PR and requires a reviewer
 acknowledgement. Making it a hard failure trains authors to update the expectations without

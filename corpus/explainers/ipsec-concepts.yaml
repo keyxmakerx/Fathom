@@ -100,7 +100,7 @@
 corpus_bundle:
   id: fathom.explain/ipsec
   bundle_version: 0.1.0
-  entry_count: 41
+  entry_count: 42
   classes_used: [concept, error, symptom]
   derived_from:
     card: "srx-ipsec"
@@ -1487,6 +1487,102 @@ entries:
     table of seven rows. The teaching body is written from those rows rather
     than rearranged out of prose the card wrote. The second of the two entries
     in this bundle where the voice is imitated. Review it hardest.
+
+  terminal: true
+
+- id: explain:concept:junos.cluster-sa-anchoring
+  class: concept
+  subject: { path: junos.cluster-sa-anchoring }
+  title: "Where SAs live on a chassis cluster"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  review_required: true
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "up-ness"
+
+  terse: "SAs anchor on the RG1 primary. The backup showing nothing is health."
+
+  explained: >
+    A reth only exists on a chassis cluster, and a cluster's tunnels are
+    anchored on one node at a time: the node that is primary for the
+    redundancy group owning the reth. The SA commands answer for the node
+    they run on, so the backup prints nothing. Add `node all`, or read
+    `show chassis cluster status` first.
+
+  teaching:
+    body: >
+      A gateway whose external-interface is reth0.0 is a cluster gateway — a
+      reth is a redundant Ethernet interface, it exists only on a chassis
+      cluster, and this corpus's own worked topology is built on one. That
+      makes cluster behaviour part of the tunnel's story, not an advanced
+      topic.
+
+      The cluster runs as redundancy groups. RG0 is the control plane; RG1
+      and up own the reths and the data path. At any moment one node is
+      primary for a group and the other is backup, and the tunnel's IKE and
+      IPsec SAs are anchored on the RG1 primary — negotiation, rekeys and the
+      encrypted traffic all live there.
+
+      The operational consequence is the one this entry exists for: the SA
+      commands answer for the node they run on. Run
+      `show security ipsec security-associations` on the backup node and it
+      prints nothing — not an error, not a warning, nothing. The output is
+      truthful about that node and wrong about the cluster.
+
+      So on a pair, two habits replace one: `show chassis cluster status`
+      before any SA reading, to learn which node owns the group — and
+      `node all` on the SA commands, so the answer arrives labelled by node
+      instead of scoped to wherever you happened to log in.
+
+      After a failover the anchor moves. The SAs rebuild or re-anchor on the
+      new primary, so a node that showed a full listing yesterday and shows
+      nothing today may be reporting a failover, not an outage — the status
+      output and the cluster statistics hold that half of the story.
+      <!-- VERIFY (R09): the anchoring model here — RG1 primary holds the
+      SAs, the backup prints an empty listing, SAs re-anchor on failover — is
+      from the R09 adjudication, not from a box, and the exact rendering and
+      per-train behaviour are unverified. Confirm on a cluster before
+      shipping. -->
+
+    breaks_if_wrong: >
+      An engineer logged into the backup node follows the verify ladder as
+      written: step 2 prints nothing, step 3 prints nothing, and the ladder's
+      own logic says the tunnel is down. It is up, on the other node, passing
+      traffic. Every step after that — reading kmd, re-checking proposals,
+      clearing SAs to force a rebuild — is an investigation of a healthy
+      tunnel, and a clear issued from the wrong mental model can turn the
+      false outage into a real one.
+
+    misdiagnosed_as: >
+      A tunnel that is down, with the crypto as the suspect — the most
+      expensive wrong conclusion an operator can reach, because nothing
+      contradicts it. There is no error to find, so the investigation runs on
+      absence: no SA, no log line, no counter, all of it consistent with a
+      dead tunnel and all of it equally consistent with reading the wrong
+      node of a healthy pair. The check that breaks the tie costs one
+      command: `show chassis cluster status`.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,     to: "explain:concept:ipsec.sa-output" }
+    - { rel: see_also,     to: "explain:concept:ipsec.bring-up-order" }
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "PHASE 1 — PROPOSAL, POLICY, GATEWAY" }
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+  sources_note: >
+    SYNTHESISED, and added per R09 (80-reconciliation.md). The card
+    terminates IKE on reth0.0 and admits IKE on reth0.0 — a cluster
+    topology — and then never says the word cluster. The anchoring model, the
+    node qualifier and the false tunnel-down read are from the R09
+    adjudication, written here in the card's voice. Nothing was run on a
+    cluster for this entry; review it the way the error-decoder and
+    flap-patterns entries are reviewed, and harder.
 
   terminal: true
 

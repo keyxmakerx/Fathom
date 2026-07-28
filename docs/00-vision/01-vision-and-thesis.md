@@ -559,7 +559,7 @@ declines to adopt either number until the measured authoring median has run for 
   wide while the graph's corpus is narrow.** Four platforms of IPsec command corpus is about eight
   person-weeks, and it delivers the cross-vendor half of §4.1 without touching the modelling
   programme. This is a cut of a dependency, not of a feature, and it is free.
-- **The corpus breaches its own invariant today.** 37 rules, 91 commands and 41 explainers all
+- **The corpus breaches its own invariant today.** 37 rules, 98 commands and 42 explainers all
   carry a placeholder reviewer, and there are no fixtures. That is a **release blocker on rung 0**,
   not a comment in a YAML header — and the flagship rule false-firing on the field card's own
   syntax is the concrete cost of having had no fixtures.

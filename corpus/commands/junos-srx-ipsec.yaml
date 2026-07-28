@@ -26,10 +26,15 @@
 #
 # WHAT THIS FILE IS FOR
 #   It is the proof that 61-command-corpus-spec.md is workable against real
-#   expert material. 91 entries, drawn from the BRING-UP ORDER ladder (side 1),
+#   expert material. 98 entries, drawn from the BRING-UP ORDER ladder (side 1),
 #   the VERIFY LADDER, STATISTICS & COUNTERS, CLEARING & RENEGOTIATING and
 #   LOGS & TRACEOPTIONS (side 3), TEST IT FROM THE BOX, WHERE TO SET IT and
-#   BOX-LEVEL CONTEXT (side 4), and every `set` line on sides 1 and 2.
+#   BOX-LEVEL CONTEXT (side 4), and every `set` line on sides 1 and 2 — plus
+#   seven chassis-cluster entries added per R09 (80-reconciliation.md): the
+#   card's worked topology terminates IKE on reth0.0, a reth exists only on a
+#   chassis cluster, and the card itself has no cluster block. Those seven are
+#   the only entries whose command text is not the card's, and each carries
+#   review_required and a sources_note saying so.
 #
 # =============================================================================
 # SCHEMA FIT — WHERE THE CARD DID NOT GO IN CLEANLY
@@ -94,10 +99,13 @@
 #      goes.
 #
 #  F6. Gate 7 (`at most one weight: 3 per (concept, platform)`) is a real gate
-#      and it forced real decisions. Eleven entries carry `weight: 3` in this
-#      file; ten concept sets are pairwise disjoint by construction and the
+#      and it forced real decisions. Fourteen entries carry `weight: 3` in this
+#      file; ten concept sets are pairwise disjoint by construction, the
 #      eleventh (`zone.host-inbound.ike.set`) breaks the disjointness and is
-#      flagged for the reviewer. They are listed in § CANONICALITY at the end.
+#      flagged for the reviewer, and the two R09 `node all` additions break it
+#      again — deliberately, because R09's DECIDED resolution makes them
+#      canonical — and are flagged the same way. They are listed in
+#      § CANONICALITY at the end.
 #      The gate is correct and the cost is
 #      that `show security ipsec security-associations` — the command from the
 #      card's own ladder — is `weight: 2`, because 61 §15.1 already claimed
@@ -161,8 +169,8 @@ corpus_bundle:
   id: fathom.commands/junos-srx/ipsec
   bundle_version: 0.1.0
   platform: junos-srx
-  domains: [ike, ipsec, zone, policy, route, nat, mtu, flow, interface, log, system]
-  entry_count: 91
+  domains: [ike, ipsec, zone, policy, route, nat, mtu, flow, interface, chassis, log, system]
+  entry_count: 98
   derived_from:
     card: "srx-ipsec"
     sides: [1, 2, 3, 4]
@@ -194,7 +202,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Changes how this box proves who it is in Phase 1. On an existing gateway
     the next negotiation fails until the peer matches, and the tunnel drops at
@@ -344,7 +352,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Changes the Phase 1 integrity hash. A peer expecting a different hash
     rejects the whole proposal, and the tunnel stops rebuilding once the
@@ -626,7 +634,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Replaces the shared secret. The running SA survives until its lifetime
     expires and then fails to rebuild if the peer was not changed in the same
@@ -983,7 +991,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Changes how fast this box declares the peer gone. Set too tight, a
     two-second underlay hiccup tears down a healthy tunnel and traffic stops
@@ -1408,7 +1416,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Selects the data-plane protocol. Changing an established tunnel from ESP to
     AH stops it carrying encrypted traffic and breaks it entirely through any
@@ -1764,10 +1772,13 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Joins this tunnel to a Phase 1 gateway. Repointing it on a live VPN tears
     down the child SAs and rebuilds them under the new IKE SA.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -1828,11 +1839,14 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Attaches the Phase 2 policy to this tunnel. Changing it on a live VPN
     changes what is offered at the next rekey and can stop the child SA
     installing.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -2254,7 +2268,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Makes the tunnel tear itself down when the probe fails, taking `st0` with
     it. A probe target that does not answer ICMP from inside the selector will
@@ -2334,7 +2348,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Global to every monitored tunnel on the box, not one. Tightening it
     tightens every tunnel at once, and a marginal underlay then tears down
@@ -2615,7 +2629,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Points a remote prefix at the tunnel unit. If that prefix is currently
     reached another way, this diverts it — and if the tunnel is not passing
@@ -2891,7 +2905,12 @@ entries:
   blast_radius: >
     Activates the candidate configuration with an automatic rollback timer.
     Everything in the candidate takes effect now, including anything somebody
-    else left there — check `show | compare` before running it.
+    else left there — check `show | compare` before running it. The label on
+    this entry is the standalone default only: in a generated ladder this line
+    renders the change set's aggregate risk, because committing a Disruptive
+    change set is a Disruptive act.
+    <!-- risk: static default — generated ladders override this line with the
+    change set's AGGREGATE RISK per ADR-0011 part 6 and 18 §6.4 -->
   reversible: commit-confirmed
   paired_teardown: junos-srx/system.commit
   commit_model: junos-commit
@@ -2958,7 +2977,12 @@ entries:
   risk: ChangesConfig
   blast_radius: >
     Makes the candidate permanent with no rollback timer. After a
-    `commit confirmed`, this is what stops the automatic revert.
+    `commit confirmed`, this is what stops the automatic revert. The label on
+    this entry is the standalone default only: in a generated ladder this line
+    renders the change set's aggregate risk, because committing a Disruptive
+    change set is a Disruptive act.
+    <!-- risk: static default — generated ladders override this line with the
+    change set's AGGREGATE RISK per ADR-0011 part 6 and 18 §6.4 -->
   reversible: paired
   paired_teardown: junos-srx/system.commit-confirmed
   commit_model: junos-commit
@@ -3060,6 +3084,10 @@ entries:
 
   supplies: [Index]
   next_if_bad:
+    # R09 — on a chassis cluster an empty listing here can mean "wrong node",
+    # not "down"; eliminate that before anything else:
+    - junos-srx/ike.sa.show-node-all
+    - explain:concept:junos.cluster-sa-anchoring
     - junos-srx/ipsec.inactive-tunnels.show
     - junos-srx/log.kmd.match-peer
     - explain:symptom:p1-timeout-nothing-in-log
@@ -3094,6 +3122,99 @@ entries:
     - { card: "srx-ipsec", side: 1, block: "BRING-UP ORDER" }
     - { card: "srx-ipsec", side: 3, block: "THE VERIFY LADDER" }
     - { card: "srx-ipsec", side: 3, block: "READING THE SA OUTPUT" }
+
+- id: junos-srx/ike.sa.show-node-all
+  entry_version: 1.0.0
+  status: active
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  review_required: true
+
+  cmd: "show security ike security-associations node all"
+  mode: operational
+  platform: junos-srx
+  versions: "*"
+
+  risk: ReadOnly
+  domain: ike
+  weight: 3
+  tags: [phase1, cluster, bring-up, verify]
+
+  answers: "Is the outer channel up when this box is half of a cluster?"
+  aka:
+    - "is phase 1 up on a cluster"
+    - "ike from the secondary"
+    - "empty sa listing on a pair"
+    - "which member holds phase 1"
+  concepts:
+    - concept:obj.ike-sa
+    - concept:attr.cluster-node
+    - concept:act.verify
+    - concept:phase.p1
+
+  read_field: "State under the owning node's banner — the other node showing nothing is normal"
+  output_fields:
+    # <!-- VERIFY (R09): the per-node banner text (node0:, node1:) and whether
+    # the non-anchoring node prints an empty list or no banner at all are
+    # unverified — nobody ran this on a cluster for this corpus. -->
+    - field: "node0: / node1:"
+      means: "Which member of the cluster each block of output came from."
+      want: any
+      tell: >
+        SAs anchor on the node that is primary for the redundancy group that
+        owns the reth. The other node showing nothing here is expected, not a
+        fault.
+    - field: State
+      means: "Phase 1 SA state, on the node that owns it."
+      want: "UP"
+      bad:
+        - { value: "*", means: "Anything else on the owning node means the peers have not finished authenticating." }
+
+  supplies: [Index]
+  next_if_bad:
+    - junos-srx/chassis.cluster.status.show
+    - explain:concept:junos.cluster-sa-anchoring
+    - junos-srx/ipsec.inactive-tunnels.show
+    - junos-srx/log.kmd.match-peer
+  related:
+    - junos-srx/ike.sa.show
+    - junos-srx/ipsec.sa.show-node-all
+    - junos-srx/chassis.cluster.status.show
+
+  guidebook: [guide:ipsec.phase-split, guide:ipsec.bring-up-order]
+  walkthrough: ["walk:junos-srx.s2s-ipsec#verify-p1"]
+  related_rules: [zone.host-inbound.ike-missing, ike.identity.mismatch]
+
+  explain:
+    terse: "Step 2 on a cluster. The unscoped form answers for one node only."
+    explained: >
+      On a chassis cluster the unscoped listing answers for the node you are
+      logged into, and on the wrong node it prints nothing. Nothing is not
+      "down" — the SA lives on the node that is primary for the redundancy
+      group owning the reth. `node all` shows both members and removes the
+      guess.
+    teaching: >
+      A reth only exists on a chassis cluster, so a gateway whose
+      external-interface is reth0.0 — this corpus's own worked topology — is
+      always a cluster, and on a cluster this is the form of the command to
+      teach your hands. The failure the unscoped form produces is silent and
+      expensive: logged into the backup node, you run the ladder, see an empty
+      listing at step 2, and conclude the tunnel is down while it is up and
+      passing traffic on the other member. Every minute after that is spent
+      debugging a healthy tunnel. Before reading any SA output on a pair, run
+      `show chassis cluster status` to learn which node owns the redundancy
+      group, or add `node all` and read the banner.
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "PHASE 1 — PROPOSAL, POLICY, GATEWAY" }
+    - { card: "srx-ipsec", side: 3, block: "THE VERIFY LADDER" }
+  sources_note: >
+    The node qualifier is not on the card — the card's worked topology is a
+    cluster (external-interface reth0.0) and the card never says the word.
+    Command form (node 0|1|all|local|primary) and the anchoring behaviour are
+    from the R09 adjudication in 80-reconciliation.md, not from a box.
+    review_required until someone with a cluster confirms syntax, banners and
+    the empty-node rendering.
 
 - id: junos-srx/ike.sa.show-detail
   entry_version: 1.0.0
@@ -3383,6 +3504,10 @@ entries:
 
   supplies: [Index, SPI]
   next_if_bad:
+    # R09 — on a chassis cluster an empty listing here can mean "wrong node",
+    # not "down"; eliminate that before anything else:
+    - junos-srx/ipsec.sa.show-node-all
+    - explain:concept:junos.cluster-sa-anchoring
     - junos-srx/ipsec.inactive-tunnels.show
     - junos-srx/ike.sa.show
   related:
@@ -3415,6 +3540,99 @@ entries:
     - { card: "srx-ipsec", side: 3, block: "THE VERIFY LADDER" }
     - { card: "srx-ipsec", side: 3, block: "READING THE SA OUTPUT" }
     - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+
+- id: junos-srx/ipsec.sa.show-node-all
+  entry_version: 1.0.0
+  status: active
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  review_required: true
+
+  cmd: "show security ipsec security-associations node all"
+  mode: operational
+  platform: junos-srx
+  versions: "*"
+
+  risk: ReadOnly
+  domain: ipsec
+  weight: 3
+  tags: [phase2, cluster, bring-up, verify]
+
+  answers: "Is the data tunnel installed when the box is half of a cluster?"
+  aka:
+    - "is the tunnel up on a cluster"
+    - "vpn from the secondary"
+    - "empty tunnel listing on a pair"
+    - "which member holds the tunnel"
+  concepts:
+    - concept:obj.ipsec-sa
+    - concept:attr.cluster-node
+    - concept:act.verify
+    - concept:phase.p2
+
+  read_field: "State under the owning node's banner — the other node showing nothing is normal"
+  output_fields:
+    # <!-- VERIFY (R09): per-node banner text and the empty-node rendering are
+    # unverified — nobody ran this on a cluster for this corpus. -->
+    # <!-- VERIFY (C10, inherited from ipsec.sa.show): the summary output may
+    # carry no State column on current Junos; whatever resolution C10 gets
+    # there applies here identically. -->
+    - field: "node0: / node1:"
+      means: "Which member of the cluster each block of output came from."
+      want: any
+      tell: >
+        SAs anchor on the node that is primary for the redundancy group that
+        owns the reth. The other node showing nothing here is expected, not a
+        fault.
+    - field: State
+      means: "Phase 2 SA state, on the node that owns it."
+      want: "Installed"
+      bad:
+        - { value: "*", means: "Anything else on the owning node is not passing traffic." }
+
+  supplies: [Index, SPI]
+  next_if_bad:
+    - junos-srx/chassis.cluster.status.show
+    - explain:concept:junos.cluster-sa-anchoring
+    - junos-srx/ipsec.inactive-tunnels.show
+  related:
+    - junos-srx/ipsec.sa.show
+    - junos-srx/ike.sa.show-node-all
+    - junos-srx/ipsec.sa.show-vpn-detail
+
+  guidebook: [guide:ipsec.phase-split, guide:ipsec.bring-up-order]
+  walkthrough: ["walk:junos-srx.s2s-ipsec#verify-p2"]
+  related_rules: [ipsec.pfs.absent, tunnel.st0.zone-unbound]
+
+  explain:
+    terse: "Step 3 on a cluster. Empty on the backup node is health, not down."
+    explained: >
+      The unscoped listing answers for the node it runs on. On the RG1 backup
+      that answer is an empty screen, which the ladder's own logic reads as
+      tunnel down. `node all` prints both members' views, labelled, so an
+      empty half sits next to the Installed half instead of standing alone.
+    teaching: >
+      This is the command the false tunnel-down is made of. The corpus's own
+      worked topology terminates IKE on reth0.0 — a cluster — and on a
+      cluster the SAs live on whichever node is primary for the redundancy
+      group owning that reth. Logged into the other node, the unscoped form
+      shows nothing, and nothing contradicts the "down" conclusion: no SA, no
+      error, no counter. The absence is real for that node and wrong for the
+      cluster. Use this form on any box where `show chassis cluster status`
+      returns cluster state, and treat a listing that moved from one node's
+      banner to the other's as evidence of a failover — a different
+      investigation from a tunnel that dropped.
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "BRING-UP ORDER" }
+    - { card: "srx-ipsec", side: 3, block: "THE VERIFY LADDER" }
+  sources_note: >
+    The node qualifier is not on the card — the card's worked topology is a
+    cluster (external-interface reth0.0) and the card never says the word.
+    Command form (node 0|1|all|local|primary) and the anchoring behaviour are
+    from the R09 adjudication in 80-reconciliation.md, not from a box.
+    review_required until someone with a cluster confirms syntax, banners and
+    the empty-node rendering.
 
 - id: junos-srx/ipsec.sa.show-vpn-detail
   entry_version: 1.0.0
@@ -3925,6 +4143,9 @@ entries:
     - junos-srx/policy.zone-pair.match.set
     - junos-srx/route.remote.show
     - junos-srx/log.kmd.match-peer
+    # R09 — session output is per-node on a chassis cluster; zero sessions on
+    # the node that is not primary for the reth's redundancy group is normal:
+    - explain:concept:junos.cluster-sa-anchoring
   related:
     - junos-srx/route.remote.show
     - junos-srx/ipsec.statistics.index
@@ -6517,6 +6738,12 @@ entries:
   reviewed_on: 2026-07-28
 
   cmd: "show interfaces reth0.0 extensive | match -i error"
+  # <!-- VERIFY (C11, DECIDED): Junos `match` is a POSIX regex filter with no
+  # documented `-i` flag. If `-i` is rejected the command errors harmlessly; if
+  # it is accepted as a literal pattern the filter matches nothing and the
+  # operator reads "no errors" — the worst failure a diagnostic filter can
+  # have. The safe idiom is `| match "[Ee]rror"`. Confirm on a box before this
+  # form ships. -->
   wraps: [3]
   mode: operational
   platform: junos-srx
@@ -6653,6 +6880,453 @@ entries:
     which itself carries a VERIFY marker about cross-train ordering.
 
 # =============================================================================
+# CHASSIS CLUSTER CONTEXT — added per R09 (80-reconciliation.md)
+# =============================================================================
+# Not on the card. The card's worked topology terminates IKE on reth0.0 and
+# admits IKE on reth0.0 — a reth exists only on a chassis cluster — and then
+# never says the word cluster. R09's DECIDED resolution adds the cluster
+# operational commands and the `node all` SA variants (filed with their
+# siblings under ike/ and ipsec/ above). Every entry in this section is
+# review_required: command text and output labels are from the R09
+# adjudication, and nothing here has been run on a cluster for this corpus.
+# =============================================================================
+
+- id: junos-srx/chassis.cluster.status.show
+  entry_version: 1.0.0
+  status: active
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  review_required: true
+
+  cmd: "show chassis cluster status"
+  mode: operational
+  platform: junos-srx
+  versions: "*"
+
+  risk: ReadOnly
+  domain: chassis
+  weight: 3
+  tags: [cluster, correlation, day-one, verify]
+
+  answers: "Which node owns each redundancy group right now?"
+  aka:
+    - "who is primary"
+    - "is the ha pair healthy"
+    - "which member is active"
+    - "failover state"
+  concepts:
+    - concept:obj.cluster
+    - concept:obj.redundancy-group
+    - concept:state.rg-primary
+    - concept:act.check-cluster
+
+  read_field: "Status per node per redundancy group — primary names the owner"
+  output_fields:
+    # <!-- VERIFY (R09): exact labels, case and the status vocabulary
+    # (primary / secondary / hold / lost / disabled) are unverified — nobody
+    # ran this on a cluster for this corpus. -->
+    - field: "Redundancy group"
+      means: "One block per group. RG0 is the control plane; RG1 and up own the reths and the data path."
+      want: any
+      join_key: true
+    - field: Status
+      means: "This node's role in the group."
+      want: "primary on exactly one node per group"
+      bad:
+        - { value: "lost", means: "The nodes cannot see each other. Check the control and fabric links before anything tunnel-shaped." }
+        - { value: "disabled", means: "This node cannot take the group at all. The pair is running without its spare." }
+    - field: Priority
+      means: "Election weight for the group."
+      want: any
+      tell: >
+        0 is the tell — a monitored interface or IP has failed on that node
+        and it is barred from taking the group, whatever its configured
+        priority says.
+    - field: "Manual failover"
+      means: "Whether a manual failover flag is set for the group."
+      want: any
+      tell: >
+        A set flag blocks further manual failovers until it is reset.
+
+  supplies: ["Redundancy group"]
+  next_if_bad:
+    - junos-srx/chassis.cluster.interfaces.show
+    - junos-srx/chassis.alarms.show
+    - explain:concept:junos.cluster-sa-anchoring
+  related:
+    - junos-srx/ike.sa.show-node-all
+    - junos-srx/ipsec.sa.show-node-all
+    - junos-srx/chassis.cluster.statistics.show
+
+  guidebook: [guide:ipsec.correlate-first]
+
+  explain:
+    terse: "Run this before any SA reading on a pair. It names the owner."
+    explained: >
+      Every SA-reading command on a cluster answers for the node it runs on.
+      This is the command that tells you which node that needs to be: the
+      member showing primary for the redundancy group that owns the reth
+      holds the tunnel's SAs, and it is the only node whose empty SA output
+      would mean anything.
+    teaching: >
+      The corpus's own worked topology terminates IKE on reth0.0, and a reth
+      only exists on a chassis cluster — so this command belongs in the same
+      reflex as `show system commit`: run it before you theorise. It prevents
+      the most expensive wrong conclusion on the card, the false tunnel-down,
+      where an engineer on the backup node runs the verify ladder, sees no
+      SAs, and starts a crypto investigation against a tunnel that is up on
+      the other member. It also carries its own early warning: a Priority of
+      0 means a monitored object has already failed on that node, so the next
+      failover has nowhere to go — the spare you think you have is not there.
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+  sources_note: >
+    Not on the card. The command, the redundancy-group model and the status
+    vocabulary are from the R09 adjudication in 80-reconciliation.md; the
+    card contributes only the reth that makes its topology a cluster.
+    Nothing here has been run on a box — review_required.
+
+- id: junos-srx/chassis.cluster.interfaces.show
+  entry_version: 1.0.0
+  status: active
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  review_required: true
+
+  cmd: "show chassis cluster interfaces"
+  mode: operational
+  platform: junos-srx
+  versions: "*"
+
+  risk: ReadOnly
+  domain: chassis
+  weight: 2
+  tags: [cluster, correlation, day-two]
+
+  answers: "Are the control and fabric links between the two nodes healthy?"
+  aka:
+    - "control link status"
+    - "fabric link status"
+    - "reth membership"
+    - "which group owns this reth"
+  concepts:
+    - concept:obj.cluster
+    - concept:obj.reth
+    - concept:act.check-interface
+
+  read_field: "Control and fabric link status — want Up on both"
+  output_fields:
+    # <!-- VERIFY (R09): labels and case unverified — not run on a box. -->
+    - field: "Control link status"
+      means: "The path the two routing engines agree through."
+      want: "Up"
+      bad:
+        - { value: "Down", means: "The nodes can no longer coordinate. Cluster behaviour from here is deliberate but train-dependent — read status on both nodes now." }
+    - field: "Fabric link status"
+      means: "The data-plane path that carries session and state sync between nodes."
+      want: "Up"
+      bad:
+        - { value: "Down", means: "State sync has stopped. What survives the next failover is now in question." }
+    - field: "Redundant-ethernet Information"
+      means: "Which redundancy group each reth belongs to."
+      want: any
+      join_key: true
+      tell: >
+        This is the join between an SA reading and the node that owns it:
+        reth to redundancy group here, group to primary node in the status
+        output.
+    - field: "Interface Monitoring"
+      means: "Monitored interfaces and their weights per group."
+      want: any
+      tell: >
+        A failed monitored interface is what drives a Priority of 0 in the
+        status output.
+
+  next_if_bad:
+    - junos-srx/chassis.cluster.statistics.show
+    - junos-srx/interface.wan.errors.show
+  related:
+    - junos-srx/chassis.cluster.status.show
+    - junos-srx/chassis.cluster.statistics.show
+
+  guidebook: [guide:ipsec.correlate-first]
+
+  explain:
+    terse: "The links the pair agrees through, and the reth-to-group join."
+    explained: >
+      Two answers in one output: whether the control and fabric links that
+      keep the two nodes agreeing are up, and which redundancy group each
+      reth belongs to — the join you need before the status output can tell
+      you which node holds a tunnel's SAs.
+    teaching: >
+      The two links carry different halves of the partnership: control is how
+      the nodes elect and monitor each other, fabric is how session and SA
+      state crosses between them. What a box does when one fails is deliberate
+      and version-dependent — Junos would rather disable a node than risk two
+      primaries — so the useful habit is narrower than memorising outcomes:
+      when tunnels misbehave on a cluster, read both link states before
+      reading any SA output, because a pair that cannot talk to itself
+      produces exactly the flapping, empty-listing symptoms that get blamed
+      on crypto.
+      <!-- VERIFY (R09): failure behaviour on control-link and fabric-link
+      loss differs by train and is unverified here — record per train before
+      teaching outcomes. -->
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+  sources_note: >
+    Not on the card. Command and field semantics are from the R09
+    adjudication in 80-reconciliation.md. Nothing here has been run on a
+    box — review_required.
+
+- id: junos-srx/chassis.cluster.statistics.show
+  entry_version: 1.0.0
+  status: active
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  review_required: true
+
+  cmd: "show chassis cluster statistics"
+  mode: operational
+  platform: junos-srx
+  versions: "*"
+
+  risk: ReadOnly
+  domain: chassis
+  weight: 1
+  tags: [cluster, correlation, day-two]
+
+  answers: "Are heartbeats actually crossing between the two nodes?"
+  aka:
+    - "control link heartbeats"
+    - "fabric probes"
+    - "are the members hearing each other"
+  concepts:
+    - concept:obj.cluster
+    - concept:act.count
+
+  read_field: "Heartbeat sent and received counters — want both climbing, errors flat"
+  output_fields:
+    # <!-- VERIFY (R09): labels unverified — not run on a box. -->
+    - field: "Heartbeat packets sent / received"
+      means: "Liveness traffic on the control link, per node."
+      want: any
+      tell: >
+        Sent climbing while received stays flat is the cluster's own version
+        of the one-way tell — the link is passing in one direction only.
+    - field: "Heartbeat packet errors"
+      means: "Heartbeats that arrived damaged or not at all."
+      want: "0"
+      bad:
+        - { value: "climbing", means: "A marginal control path. Enough missed heartbeats in a row is a failover, and a failover is a tunnel event." }
+
+  next_if_bad:
+    - junos-srx/chassis.cluster.interfaces.show
+    - junos-srx/interface.wan.errors.show
+  related:
+    - junos-srx/chassis.cluster.status.show
+    - junos-srx/chassis.cluster.interfaces.show
+
+  guidebook: [guide:ipsec.correlate-first]
+
+  explain:
+    terse: "Counters for the pair's own liveness. Failovers start here."
+    explained: >
+      The same reading discipline as the IPsec counters applies: deltas, not
+      absolutes. Climbing errors or a one-way heartbeat count on a link the
+      status output still calls Up is the early form of a failover you have
+      not had yet.
+    teaching: >
+      The reason this belongs in a VPN investigation at all is the causal
+      chain. Missed heartbeats become a failover; a failover moves the
+      redundancy group; the SAs re-anchor on the new primary; and from the
+      far end the tunnel drops and rebuilds for no visible reason. By the
+      time you are reading kmd on the peer, the cause is four steps upstream
+      on a link that has nothing to do with IPsec. A flap whose interval
+      matches nothing you configured — no lifetime, no DPD product — earns a
+      look here before another pass through the proposals.
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+  sources_note: >
+    Not on the card. Command and counter semantics are from the R09
+    adjudication in 80-reconciliation.md. Nothing here has been run on a
+    box — review_required.
+
+- id: junos-srx/chassis.cluster.failover.request
+  entry_version: 1.0.0
+  status: active
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  review_required: true
+
+  cmd: "request chassis cluster failover redundancy-group {{rg}} node {{node}}"
+  wraps: [5]
+  mode: operational
+  platform: junos-srx
+  versions: "*"
+
+  risk: Disruptive
+  blast_radius: >
+    Moves ownership of the redundancy group to the named node on demand.
+    Whatever is anchored on the group moves with it — for RG1 that is the
+    reths and every IKE and IPsec SA on them.
+    <!-- VERIFY (R09): what a failover does to established SAs and flows —
+    carried, re-anchored or renegotiated — is train- and design-dependent and
+    unverified here; record per train before promising either outcome. -->
+  reversible: paired
+  paired_teardown: junos-srx/chassis.cluster.failover-reset.request
+
+  domain: chassis
+  weight: 2
+  tags: [cluster, disruptive, day-two]
+
+  answers: "How do I move primacy to the other half of the pair on purpose?"
+  aka:
+    - "manual switchover"
+    - "move the primary"
+    - "flip the pair"
+    - "make the other member active"
+  concepts:
+    - concept:obj.cluster
+    - concept:obj.redundancy-group
+    - concept:act.failover
+
+  read_field: "No output worth reading — the status output shows the new owner"
+
+  slots:
+    - name: rg
+      binds: null
+      accepts: [Integer]
+      placeholder: "<rg-number>"
+      required: true
+    - name: node
+      binds: null
+      accepts: [Integer]
+      placeholder: "<node-id>"
+      required: true
+
+  requires:
+    - { slot: rg, from: junos-srx/chassis.cluster.status.show, field: "Redundancy group" }
+
+  next_if_bad:
+    - junos-srx/chassis.cluster.status.show
+    - junos-srx/log.kmd.match-peer
+  related:
+    - junos-srx/chassis.cluster.failover-reset.request
+    - junos-srx/chassis.cluster.status.show
+    - junos-srx/ipsec.sa.show-node-all
+
+  guidebook: [guide:ipsec.correlate-first]
+
+  explain:
+    terse: "Deliberate failover. Sets a flag that blocks the next one."
+    explained: >
+      The controlled way to move a redundancy group — for maintenance, or to
+      prove failover works before an outage proves it for you. It sets a
+      manual-failover flag on the group, and that flag must be reset before
+      another manual failover is possible.
+    teaching: >
+      Two things make this sharper than it looks. First, the flag: the reset
+      is part of the procedure, not housekeeping, because a pair left with
+      the flag set cannot be manually failed over during the incident when
+      you need it most. Second, the far end's view: a failover moves the
+      tunnel's anchor between nodes, and depending on design the peer sees
+      anything from nothing at all to a full rebuild from what looks like the
+      same address with new SAs. Watch the peer's log during a planned
+      failover once — it is the cheapest rehearsal of your worst unplanned
+      day.
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "PHASE 1 — PROPOSAL, POLICY, GATEWAY" }
+  sources_note: >
+    Not on the card. Command form is from the R09 adjudication in
+    80-reconciliation.md. Whether a confirmation is prompted for, and what
+    established SAs do across the move, are unverified — review_required.
+
+- id: junos-srx/chassis.cluster.failover-reset.request
+  entry_version: 1.0.0
+  status: active
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  review_required: true
+
+  cmd: "request chassis cluster failover reset redundancy-group {{rg}}"
+  wraps: [4]
+  mode: operational
+  platform: junos-srx
+  versions: "*"
+
+  risk: Disruptive
+  blast_radius: >
+    Clears the manual-failover flag on the group. With preemption configured
+    the higher-priority node can take the group back the moment the flag
+    clears — so the reset itself can move the group, and everything anchored
+    on it, immediately.
+  reversible: paired
+  paired_teardown: junos-srx/chassis.cluster.failover.request
+
+  domain: chassis
+  weight: 1
+  tags: [cluster, disruptive, day-two]
+
+  answers: "How do I re-arm the pair after a deliberate switchover?"
+  aka:
+    - "clear the manual flag"
+    - "allow the next manual switchover"
+    - "re-enable preemption"
+  concepts:
+    - concept:obj.cluster
+    - concept:obj.redundancy-group
+    - concept:act.clean-up
+
+  read_field: "No output worth reading — confirm in the status output that the flag is gone"
+
+  slots:
+    - name: rg
+      binds: null
+      accepts: [Integer]
+      placeholder: "<rg-number>"
+      required: true
+
+  requires:
+    - { slot: rg, from: junos-srx/chassis.cluster.status.show, field: "Redundancy group" }
+
+  next_if_bad:
+    - junos-srx/chassis.cluster.status.show
+  related:
+    - junos-srx/chassis.cluster.failover.request
+    - junos-srx/chassis.cluster.status.show
+
+  guidebook: [guide:ipsec.correlate-first]
+
+  explain:
+    terse: "The clean-up half of a manual failover, and not risk-free."
+    explained: >
+      The pairing rule is the one traceoptions already teaches: the manual
+      failover is not finished until the flag is reset, because a set flag
+      blocks the next manual failover. Do it at the end of the change window,
+      deliberately.
+    teaching: >
+      The reason this is not filed as read-only housekeeping: with preemption
+      configured, the reset is the moment the group is free to move back to
+      the higher-priority node, and that move is a failover with everything a
+      failover implies for anchored SAs. Treat the reset as the second half
+      of a two-step change — announce it, watch the status output and the
+      peer's log after it, and do not run it casually mid-incident on the
+      theory that it only clears a flag.
+      <!-- VERIFY (R09): preemption behaviour on flag reset is unverified per
+      train — confirm on a cluster before teaching it as certain. -->
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "PHASE 1 — PROPOSAL, POLICY, GATEWAY" }
+  sources_note: >
+    Not on the card. Command form is from the R09 adjudication in
+    80-reconciliation.md. Preemption-on-reset behaviour is unverified —
+    review_required.
+
+# =============================================================================
 # § ID-MAP — reconciling the entry ids the sibling documents already reference
 # =============================================================================
 # Every left-hand id appears in 61-command-corpus-spec.md or 63-rulepack-spec.md
@@ -6681,13 +7355,13 @@ id_map:
   - { referenced: "junos-srx/log.kmd.match-peer",         use: "junos-srx/log.kmd.match-peer",       seen_in: "61 §15.2 (kept)" }
 
 # =============================================================================
-# § CANONICALITY — the eleven weight: 3 entries and their concept sets
+# § CANONICALITY — the fourteen weight: 3 entries and their concept sets
 # =============================================================================
 # Gate 7: at most one weight: 3 per (concept, platform). Ten of these are
-# pairwise disjoint by construction; the eleventh is flagged in the NOTE below.
-# Everything else in the bundle is weight 2 or lower. Adding another requires
-# checking against this table, which is why it is written down rather than
-# derived.
+# pairwise disjoint by construction; the eleventh is flagged in the first NOTE
+# below, and the three R09 cluster rows are flagged in the second. Everything
+# else in the bundle is weight 2 or lower. Adding another requires checking
+# against this table, which is why it is written down rather than derived.
 #
 canonicality:
   - { entry: "junos-srx/ipsec.sa.show-vpn-detail", concepts: [obj.tunnel, obj.ipsec-sa, p2.installed, act.verify, phase.p2] }
@@ -6701,9 +7375,13 @@ canonicality:
   - { entry: "junos-srx/flow.tcp-mss.set-ipsec",   concepts: [attr.mss, obj.tcp-handshake, act.clamp] }
   - { entry: "junos-srx/interface.st0.terse",      concepts: [obj.st0, state.interface-up, act.check-interface] }
   - { entry: "junos-srx/zone.host-inbound.ike.set", concepts: [obj.zone, obj.wan-unit, act.configure, phase.p1] }
+  - { entry: "junos-srx/chassis.cluster.status.show", concepts: [obj.cluster, obj.redundancy-group, state.rg-primary, act.check-cluster] }
+  - { entry: "junos-srx/ike.sa.show-node-all",       concepts: [obj.ike-sa, attr.cluster-node, act.verify, phase.p1] }
+  - { entry: "junos-srx/ipsec.sa.show-node-all",     concepts: [obj.ipsec-sa, attr.cluster-node, act.verify, phase.p2] }
 
-# NOTE — the last row breaks the disjointness claim above: `phase.p1` is also on
-# `ike.sa.show-detail`, and `act.configure` is on most of the config entries.
+# NOTE — the zone.host-inbound.ike.set row breaks the disjointness claim above:
+# `phase.p1` is also on `ike.sa.show-detail`, and `act.configure` is on most of
+# the config entries.
 # It is left in deliberately and flagged rather than silently demoted, because
 # `set … host-inbound-traffic system-services ike` genuinely is the canonical
 # answer to "why is the peer's negotiation being dropped" and side 4 says so:
@@ -6711,6 +7389,18 @@ canonicality:
 # (phase.p1, junos-srx) and (act.configure, junos-srx), and the resolution is a
 # review decision, not an authoring one. Recorded here so the reviewer makes it
 # rather than inherits it.
+
+# NOTE (R09) — the three cluster rows are additions under R09's DECIDED
+# resolution, which makes the `node all` SA forms canonical. The
+# chassis.cluster.status.show row is disjoint. The two node-all rows are not:
+# they collide with `ike.sa.show-detail` (obj.ike-sa, phase.p1), with
+# `ipsec.sa.show-vpn-detail` (obj.ipsec-sa, act.verify, phase.p2), and with
+# each other (attr.cluster-node). Left in deliberately and flagged, same
+# mechanism as the NOTE above: R09 decided canonicality for the node-all
+# forms, so demoting them to satisfy gate 7 is not an authoring decision. The
+# resolutions available to the reviewer are demoting the unscoped and detail
+# forms on the shared concepts, or scoping gate 7 by a cluster qualifier.
+# Recorded here so the reviewer makes that call rather than inherits it.
 
 # =============================================================================
 # § NEW CONCEPT IDS REQUIRED BY THIS BUNDLE
@@ -6724,15 +7414,19 @@ new_concepts:
              obj.ipsec-policy, obj.ipsec-vpn, obj.traffic-selector, obj.child-sa,
              obj.zone, obj.security-policy, obj.route, obj.wan-unit, obj.session,
              obj.counter, obj.log, obj.trace, obj.commit, obj.device,
-             obj.tcp-handshake]
+             obj.tcp-handshake,
+             obj.cluster, obj.redundancy-group, obj.reth]   # R09 additions
   attribute: [attr.auth-method, attr.dh-group, attr.encryption, attr.integrity,
              attr.lifetime, attr.pfs, attr.dpd, attr.identity, attr.ike-version,
              attr.establish-tunnels, attr.vpn-monitor, attr.df-bit, attr.mss,
-             attr.rekey]
+             attr.rekey,
+             attr.cluster-node]                             # R09 addition
   action:   [act.configure, act.inspect, act.diagnose, act.verify, act.clear,
              act.capture, act.measure, act.count, act.correlate, act.read-log,
-             act.clean-up, act.clamp, act.check-interface, act.deploy]
-  state:    [state.down, state.interface-up]
+             act.clean-up, act.clamp, act.check-interface, act.deploy,
+             act.check-cluster, act.failover]               # R09 additions
+  state:    [state.down, state.interface-up,
+             state.rg-primary]                              # R09 addition
   symptom:  [symptom.tunnel-down, symptom.tunnel-flapping, symptom.one-way-traffic,
              symptom.stalls-under-load, symptom.handshake-ok-data-stalls]
 

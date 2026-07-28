@@ -601,13 +601,16 @@ So:
 | `show …` | `ReadOnly` | |
 | `ping …` | `ReadOnly` | |
 | `clear security ipsec security-associations` (unscoped) | `Disruptive` | forces a rekey on every tunnel on the box |
-| `clear security ipsec security-associations index <n>` | `ChangesConfig` | one SA rekeys; traffic on that SA pauses |
+| `clear security ipsec security-associations index <n>` | `Disruptive` | scoped to one SA — but traffic on that SA still pauses while it rekeys, and interrupting an established SA is the definition of the red band. Scoping shrinks the blast radius, not the band (ADR-0011, resolving this row in favour of `18` §7.4) |
 | `clear security ike security-associations <peer-ip>` | `Disruptive` | tears down every child SA under that P1 |
 | `set security ike traceoptions …` | `ChangesConfig` | and the card's warning: *"Traceoptions left on will fill `/var`"* |
 
 `clear security ipsec statistics` is `ChangesConfig`, not `ReadOnly` — it destroys the
 baseline you were about to compare against. That is not disruption, but it is not read-only
-either, and the three-value enum forces the honest call.
+either. The band is honest; the default caption is not — the command changes no
+configuration and needs no commit, so the entry overrides the caption
+(`risk_caption_override: "CHANGES STATE — NOT REVERSIBLE BY COMMIT"`, `61` §4.6). Same ink,
+same wash, same ordering, different words (ADR-0011).
 
 ### 5.6 The total order, and its determinism
 
