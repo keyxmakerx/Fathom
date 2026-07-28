@@ -1,0 +1,3712 @@
+# =============================================================================
+# Fathom rule pack — fathom.ipsec, Junos SRX site-to-site seed
+# =============================================================================
+#
+# PROVENANCE
+#   Every rule here is a failure mode the project owner's four-side SRX IPsec
+#   field card names explicitly (`.context/field-card-srx-ipsec.txt`). The card
+#   is essentially a rule pack written in prose: THINGS THAT BITE (side 4) is a
+#   findings list, ERROR DECODER and FLAP PATTERN → CAUSE (side 3) are the
+#   symptom half of every rule below, and THE THREE RULES under PERFECT FORWARD
+#   SECRECY (side 2) is a rule with its own `symptom_if_mismatched` already
+#   written. Where the card states the exact symptom, that text is used rather
+#   than paraphrased — it is the most valuable content on the card and
+#   rewording it loses the thing that makes it recognisable in the field.
+#
+#   REQUIRES EXPERT REVIEW BEFORE SHIPPING. `reviewed_by: <named reviewer>` is
+#   a placeholder and invariant 10 is not satisfied until it is replaced. No
+#   rule here has been run against a real parsed configuration; no fixtures are
+#   included in this file (63 §15 requires at least one `must_fire` and one
+#   `must_pass` per rule, living in `rules/<id>/fixtures/`). Until those exist
+#   these are specifications of rules, not rules.
+#
+# =============================================================================
+# SCHEMA FIT — WHERE THE CARD DID NOT GO IN CLEANLY
+# =============================================================================
+#
+# 63 §2 says one directory per rule with `rule.yaml` inside it and no multi-doc
+# YAML. This is a bundle, for the same reason as the command seed: 36 rules
+# authored in one pass need one diff. `fathom-rules split` writes `rules[i]` to
+# `rules/<id>/rule.yaml`. Not a proposed change to §2.
+#
+# Six places where the card's content did not fit the format as specified.
+#
+#  G1. **The 15% `high` budget (V25) is wrong for a domain pack, and this
+#      bundle fails it by a factor of two.** 13 of 36 rules here are `high`;
+#      the gate allows 5. The gate exists to stop severity inflation and that
+#      is a real failure mode. But every one of these thirteen is a
+#      *correctness* finding drawn from a card whose entire subject is
+#      configurations that do not work. Demoting "the WAN zone drops the peer's
+#      IKE" to `medium` to satisfy a percentage does exactly what the gate was
+#      invented to prevent: it makes severity a quota rather than a judgement.
+#      **PROPOSED CHANGE to 63 §19 V25:** compute the budget over `security`,
+#      `operability` and `hygiene` only, and exempt `correctness`. A
+#      correctness finding means the configuration does not work; there is no
+#      inflation to police, and if 40% of a pack is correctness findings that
+#      is a fact about the domain. Under that rule this bundle is 2 `high` out
+#      of 23 non-correctness rules — 9%, comfortably inside.
+#      Recorded, not silently worked around. The distribution is at the end of
+#      this file under § SEVERITY.
+#
+#  G2. **The `domain` (first id segment) enum is short.** 63 §4.1 lists
+#      `ipsec, ike, zone, mtu, route, nat, ha, mgmt`. This bundle needs
+#      `tunnel` (63 §17.3's own `tunnel.st0.zone-unbound`), `policy` (63 §18's
+#      own `policy.zone-pair.missing`) and `pki` — none of which are in the
+#      enum the same document publishes. Two of the three are already used by
+#      63's worked rules. The enum is simply out of date with the document
+#      containing it; extend it.
+#
+#  G3. **`symptom_if_mismatched` is required for `interop` and `correctness`
+#      and optional otherwise, and that is backwards for this domain.** The
+#      most valuable field on a `hygiene` rule like `ike.traceoptions.
+#      left-enabled` is the symptom — commits start failing weeks later and
+#      nobody connects it to the trace. Every rule in this bundle carries the
+#      field regardless of category. **PROPOSED:** make it required
+#      unconditionally, or at minimum required for `hygiene` and `operability`
+#      where the whole point is a consequence deferred in time.
+#
+#  G4. **Peer-side rules cannot be honest about which side is wrong.** Four
+#      rules here (`ipsec.pfs.group-mismatch`, `ipsec.traffic-selector.
+#      not-mirrored`, `ipsec.lifetime.ikev1-mismatch`, `ike.identity.mismatch`)
+#      know a disagreement exists and cannot know which end is intended. 63
+#      §4.6 handles this with `remediation_absent_reason`, which is correct and
+#      is used. What the format lacks is a way to say *"the finding attaches to
+#      the pair, not to one node"* — `canonical:` makes it fire once, but the
+#      finding still hangs off one device's node and reads as an accusation.
+#      No proposed fix; flagged because a reviewer will notice it and should
+#      know it was considered.
+#
+#  G5. **`condition` needs derived predicates the schema does not obviously
+#      have.** `has_routed_traffic`, `carries_adjacency`, `is_cbc`, `is_aead`,
+#      `mirrors`, `overlaps`, `suggest_vpn_zone`, `has_ipsec_vpn`. 63 §17.5
+#      already carries a VERIFY on `has_routed_traffic` needing a fourth
+#      traversal hop. Every derived predicate used in this bundle is listed at
+#      the end under § DERIVED PREDICATES, with what it must compute, so the
+#      schema work is scoped rather than discovered rule by rule.
+#
+#  G6. **`versions: "*"` is used on all 36 rules and that is not a virtue.**
+#      The owner brief is explicit that version predicates are not optional and
+#      that a rule correct on one train and wrong on another is worse than no
+#      rule. The card does not state a train. Nobody on this project has an SRX
+#      to check `proposal-set standard`'s contents, `establish-tunnels`
+#      defaults, or whether `responder-only-no-rekey` exists on every train.
+#      `"*"` here means "unverified across trains", and the review that
+#      replaces `<named reviewer>` should narrow every one of them.
+#
+#
+#  G7. **The banned-phrase list bans a word the card depends on.** 63 §11.1
+#      bans `merely`, with one documented exception carved out for `seamless`
+#      because the card writes *"Healthy rekey is seamless"*. The card also
+#      writes, in the single most-quoted sentence on side 2:
+#         *"The group must be identical both ends, not merely compatible."*
+#      That "merely" is load-bearing. It is the difference between "the same
+#      value" and "a value that would also work", which is exactly the
+#      misunderstanding the sentence exists to correct. Three rules here use it
+#      (`ipsec.pfs.absent`, `ipsec.pfs.group-mismatch`, `ike.dh-group.weak`) and
+#      they will fail gate V16 as the list stands.
+#      **PROPOSED:** add `merely` to the same documented-exception mechanism as
+#      `seamless`, scoped to the phrase "not merely compatible". The general ban
+#      is right — `merely` is usually a hedge — and this one usage is not a
+#      hedge, it is a distinction.
+#
+# =============================================================================
+
+pack_bundle:
+  id: fathom.ipsec
+  bundle_version: 0.1.0
+  targets: [junos-srx]
+  rule_count: 37
+  derived_from:
+    card: "srx-ipsec"
+    sides: [1, 2, 3, 4]
+  review_status: >
+    UNREVIEWED. No fixtures, no named reviewer, no version predicates narrower
+    than "*". Specifications of rules, not shippable rules.
+
+rules:
+
+# -----------------------------------------------------------------------------
+# PERFECT FORWARD SECRECY — side 2, "THE THREE RULES"
+# -----------------------------------------------------------------------------
+
+- id: ipsec.pfs.absent
+  rule_version: 2.1.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: security
+  tags: [phase2, crypto, day-one]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecPolicy
+    with:
+      vpn: { via: used_by_vpn, reverse: true, card: optional }
+  on_unset: pending
+
+  condition: "known_absent(perfect_forward_secrecy) || !has(perfect_forward_secrecy)"
+
+  title: "Perfect Forward Secrecy is not configured"
+
+  why: >
+    Without PFS, Phase 2 keys derive from Phase 1 key material. One compromised
+    IKE SA secret unlocks every data key derived under it, including traffic
+    somebody recorded off the wire months ago.
+
+  symptom_if_mismatched: >
+    PFS on one side and absent on the other fails Phase 2 while Phase 1 stays
+    up — the classic "IKE looks fine but the tunnel keeps dropping". The log
+    shows NO_PROPOSAL_CHOSEN on the Phase 2 exchange, not Phase 1.
+
+  explain:
+    terse: "PFS not set — Phase 2 keys derive from Phase 1."
+    explained: >
+      `perfect-forward-secrecy keys <group>` on the IPsec policy makes each
+      Phase 2 negotiation run its own Diffie-Hellman exchange. Without it every
+      child key under this IKE SA falls with the IKE SA. Check the peer sets the
+      same group — not merely a compatible one.
+    teaching: >
+      With PFS, each Phase 2 negotiation runs a fresh Diffie-Hellman exchange,
+      so the key is mathematically independent of Phase 1 and of every previous
+      Phase 2 key. Breaking one yields exactly one rekey interval of traffic and
+      nothing on either side of it. That is the "forward" in forward secrecy:
+      today's break cannot read yesterday's capture.
+
+      Three things bite. The group must be identical at both ends, not merely
+      compatible. PFS on one side and absent on the other fails Phase 2 while
+      Phase 1 stays up, which is the most misread symptom in IPsec. And the PFS
+      group need not equal the Phase 1 dh-group, but matching them removes a
+      whole class of confusion.
+
+      Cost is one extra DH exponentiation per SA per rekey — irrelevant unless
+      hundreds of tunnels rekey together. Turn it on.
+
+      Under IKEv2 the first child SA is always keyed from the IKE SA regardless;
+      PFS applies to later child rekeys. A capture of the initial bring-up
+      showing no DH exchange is not a misconfiguration and is not this finding.
+
+  acceptable_when: >
+    Interoperating with a peer whose platform cannot offer PFS at all — some
+    older appliances and a small number of cloud VPN services. Compensate with a
+    shorter Phase 2 lifetime so a compromised IKE SA exposes less recorded
+    traffic, and record the peer and the date in the change ticket.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: perfect_forward_secrecy
+        value: { enum: group14 }
+
+  verify:
+    - junos-srx/ipsec.sa.show-vpn-detail
+    - junos-srx/ike.sa.show-detail
+
+  supersedes: [ipsec.pfs.group-weak]
+  next_if_bad:
+    - rule: ipsec.pfs.group-mismatch
+    - command: junos-srx/ipsec.inactive-tunnels.show
+  related:
+    - rule: ike.dh-group.weak
+    - rule: ipsec.pfs.group-differs-from-p1
+
+  sources:
+    - { std: "RFC 7296", section: "1.3", note: "CREATE_CHILD_SA may carry a KE payload for stronger forward secrecy of the Child SA" }
+    - { std: "RFC 8247", section: "2.4", note: "group14 MUST; groups 2 and 5 SHOULD NOT" }
+    - { card: "srx-ipsec", side: 2, block: "PERFECT FORWARD SECRECY" }
+
+- id: ipsec.pfs.group-mismatch
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: interop
+  tags: [phase2, crypto, peer-required]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecPolicy
+    with:
+      vpn:  { via: used_by_vpn, reverse: true, card: one }
+      peer: { via: [used_by_vpn, peer_vpn, ipsec_policy], card: one }
+    canonical: peer
+  requires: [peer_config]
+  on_unset: skip
+
+  condition: >
+    has(perfect_forward_secrecy)
+    && has(peer.perfect_forward_secrecy)
+    && perfect_forward_secrecy != peer.perfect_forward_secrecy
+
+  title: "The two ends propose different Perfect Forward Secrecy groups"
+
+  why: >
+    The PFS group is not negotiated down to a common value. Two ends offering
+    different groups fail the Phase 2 key exchange outright, and the child SA
+    never installs however correct the rest of the crypto is.
+
+  symptom_if_mismatched: >
+    INVALID_KE_PAYLOAD in the log, not NO_PROPOSAL_CHOSEN. Phase 1 stays up
+    throughout, so the tunnel reads as a Phase 2 failure with a healthy peer —
+    and INVALID_KE_PAYLOAD is the one error string that names the knob, because
+    it can only mean the Phase 1 dh-group or the PFS keys.
+
+  explain:
+    terse: "Group mismatch — the DH exchange itself is rejected."
+    explained: >
+      The group must be identical at both ends, not merely compatible. There is
+      no negotiating down to a common denominator beyond picking a whole
+      proposal that already matches. `INVALID_KE_PAYLOAD` narrows it to two
+      places: the Phase 1 `dh-group` or the PFS `keys` value.
+    teaching: >
+      This is the rare failure with a diagnostic error string, and knowing that
+      saves an afternoon. NO_PROPOSAL_CHOSEN means "nothing you offered is in my
+      list" and sends you to four values with no hint which. INVALID_KE_PAYLOAD
+      means the key exchange payload itself was the wrong shape, which can only
+      come from a Diffie-Hellman group disagreement.
+
+      The reason group14 against group19 fails rather than degrading is that the
+      key exchange payload is sized and structured by the group. There is
+      nothing to negotiate at that point — the responder is looking at bytes it
+      cannot interpret under the group it expected.
+
+      Without a peer configuration to compare against, this rule cannot fire and
+      the finding you get instead is `ipsec.pfs.absent` on whichever side left it
+      out. Get the peer's `perfect-forward-secrecy keys` value in writing before
+      the change window rather than discovering it during one.
+
+  acceptable_when: >
+    Never as a steady state — the tunnel does not work. It is acceptable
+    transiently during a coordinated group change, where one end is moved first
+    and the far end follows within the same change window. Record the window and
+    the agreed target group, and confirm the child SA installs before closing
+    the ticket.
+
+  remediation_absent_reason: >
+    The fix is a decision, not a mutation: either this end's group is wrong or
+    the peer's is, and Fathom cannot tell which is intended. The finding names
+    both values so the engineer can choose. Emitting a line that changes this
+    end when the peer is the one at fault is how a linter breaks a tunnel that
+    somebody else was about to fix correctly.
+
+  verify:
+    - junos-srx/ipsec.inactive-tunnels.show
+    - junos-srx/ipsec.sa.show-vpn-detail
+    - junos-srx/log.kmd.match-peer
+
+  next_if_bad:
+    - command: junos-srx/log.kmd.match-peer
+    - explainer: explain:error:junos-srx/INVALID_KE_PAYLOAD
+  related:
+    - rule: ipsec.pfs.absent
+    - rule: ike.dh-group.weak
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "PERFECT FORWARD SECRECY" }
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { std: "RFC 7296", section: "1.3", note: "KE payload in CREATE_CHILD_SA" }
+
+- id: ipsec.pfs.group-differs-from-p1
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: info
+  confidence: definite
+  category: hygiene
+  tags: [phase2, crypto, readability]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecPolicy
+    with:
+      proposal: { via: [used_by_vpn, ike_gateway, ike_policy, ike_proposal], card: optional }
+  on_unset: skip
+
+  condition: >
+    has(perfect_forward_secrecy)
+    && proposal != null
+    && has(proposal.dh_group)
+    && perfect_forward_secrecy != proposal.dh_group
+
+  title: "PFS group and Phase 1 dh-group are different values"
+
+  why: >
+    Two different Diffie-Hellman groups in one build is legal and works. It also
+    means every future conversation about "the DH group" on this tunnel is
+    ambiguous, and an INVALID_KE_PAYLOAD gives you two candidates instead of one.
+
+  symptom_if_mismatched: >
+    Nothing breaks. The cost arrives during a failure: INVALID_KE_PAYLOAD names
+    a group mismatch without saying which group, and with two different values
+    configured you check both, on both ends, before you know which one moved.
+
+  explain:
+    terse: "Legal, and it makes a future INVALID_KE_PAYLOAD twice as slow."
+    explained: >
+      The PFS group need not equal the Phase 1 `dh-group`. Matching them removes
+      a whole class of confusion — one value to compare with the peer, one value
+      to change, one candidate when the key exchange payload is rejected.
+    teaching: >
+      This is an `info` finding on purpose. Nothing is wrong and nothing will
+      break, so a `medium` here would train people to disable the rule.
+
+      What it buys is diagnostic speed later. The error decoder maps
+      INVALID_KE_PAYLOAD to "DH group mismatch — P1 dh-group or PFS keys". With
+      one value across both, that error names one line in the configuration.
+      Without a single value, it names four possible lines across two boxes, and
+      you are diffing rather than reading while the tunnel stays down.
+
+      There is a legitimate reason to differ: a peer that supports a strong
+      group for Phase 1 and only a weaker one for the child rekey, or a
+      deliberate stronger PFS group than the Phase 1 exchange. If that is the
+      case, record it next to the configuration and suppress this with the
+      reason, so the next reader knows it was chosen rather than inherited.
+
+  acceptable_when: >
+    Acceptable whenever the difference is deliberate — most often a peer whose
+    Phase 2 support is narrower than its Phase 1 support, or a policy of
+    stronger PFS than the initial exchange. Record which it is in the change
+    ticket, because the next reader cannot tell a decision from an accident by
+    looking at the configuration.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: perfect_forward_secrecy
+        value: { from: "proposal.dh_group" }
+
+  verify:
+    - junos-srx/ipsec.sa.show-vpn-detail
+
+  next_if_bad:
+    - rule: ipsec.pfs.group-mismatch
+  related:
+    - rule: ipsec.pfs.absent
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "PERFECT FORWARD SECRECY" }
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+
+# -----------------------------------------------------------------------------
+# THE FIVE PLUMBING PIECES — side 1; THINGS THAT BITE — side 4
+# -----------------------------------------------------------------------------
+
+- id: zone.host-inbound.ike-missing
+  rule_version: 1.3.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: correctness
+  tags: [phase1, plumbing, day-one, most-missed]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkeGateway
+    with:
+      ext_unit: { via: external_interface, card: one }
+      zone:     { via: [external_interface, zone_binding], card: optional }
+  on_unset: fire
+
+  condition: >
+    zone == null
+    || !zone.host_inbound_system_services.exists(s, enum_is(s, "ike"))
+
+  title: "The WAN zone does not admit IKE on the gateway's external interface"
+
+  why: >
+    The zone that owns the external interface drops the peer's IKE packets
+    before the IKE process ever sees them. Phase 1 times out with nothing useful
+    in the log, because nothing local ever happened.
+
+  symptom_if_mismatched: >
+    Phase 1 timeout with no response and no local error. Identical on the wire
+    to an upstream ACL, a wrong peer address, or NAT in path — so it is
+    routinely misdiagnosed as a crypto problem and people start changing
+    proposals.
+
+  explain:
+    terse: "WAN zone missing host-inbound-traffic system-services ike."
+    explained: >
+      `external-interface` is the WAN unit the IKE packets leave by, not `st0`.
+      The zone that unit sits in must permit inbound IKE with
+      `host-inbound-traffic system-services ike`, or the box drops the peer's IKE
+      before processing it.
+    teaching: >
+      Miss this and Phase 1 times out with nothing useful in the log — the box
+      drops the peer's IKE before processing it. That is different from every
+      other plumbing mistake: miss the tunnel interface, the zone binding, the
+      route or the policy, and the tunnel reads UP while passing zero packets.
+      Miss host-inbound ike and nothing comes up at all, and the log has nothing
+      to say about it.
+
+      The error decoder entry for "Phase-1 timeout, no response" lists four
+      causes: host-inbound ike, an upstream ACL, a wrong peer address, and NAT.
+      Three of them are somebody else's box. This one is yours, it is one line,
+      and it is the cheapest of the four to rule out. Check it before you touch
+      crypto.
+
+      Note that this is about the WAN zone, not the VPN zone. `st0.0` also needs
+      a zone, for a different reason and with a different symptom — see
+      `tunnel.st0.zone-unbound`. Without this statement no negotiation reaches
+      the IKE process at all, so nothing else in the build can be tested.
+
+  acceptable_when: >
+    Never on a gateway that must accept an inbound IKE negotiation. It is
+    acceptable only when this gateway is configured `establish-tunnels
+    immediately` towards a peer that always responds and never initiates, and
+    the security team has deliberately chosen to accept no inbound IKE at all —
+    which is rare, brittle, and should be recorded with the peer name and the
+    reason.
+
+  remediation:
+    patch:
+      - op: add_to_set
+        target: zone
+        field: host_inbound_system_services
+        value: { enum: ike }
+
+  rollback:
+    lines:
+      junos-srx:
+        - risk: Disruptive
+          order: 10
+          text: "delete security zones security-zone {{ zone.name | ident }} interfaces {{ ext_unit.name | ident }} host-inbound-traffic system-services ike"
+
+  verify:
+    - junos-srx/ike.sa.show
+    - junos-srx/log.kmd.match-peer
+
+  next_if_bad:
+    - command: junos-srx/log.kmd.match-peer
+    - explainer: explain:symptom:p1-timeout-nothing-in-log
+  related:
+    - rule: tunnel.st0.zone-unbound
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+  sources_note: >
+    Junos behaviour with no single citable document statement; the zone
+    host-inbound-traffic model is documented per-statement rather than as this
+    consequence.
+
+- id: tunnel.st0.zone-unbound
+  rule_version: 1.1.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: correctness
+  tags: [plumbing, day-one, route-based]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: LogicalUnit
+    where: "matches(name, /^st0\\.[0-9]+$/)"
+    with:
+      zone: { via: zone_binding, card: optional }
+      vpn:  { via: bind_interface, reverse: true, card: optional }
+  on_unset: fire
+
+  condition: "zone == null"
+
+  title: "Tunnel interface is not bound to a security zone"
+
+  why: >
+    A logical unit that is in no zone cannot be the source or destination of any
+    security policy, so nothing is permitted through it. The SAs come up and the
+    interface reads UP, and no packet crosses.
+
+  symptom_if_mismatched: >
+    Tunnel UP, zero traffic. `show security ipsec security-associations` shows
+    Installed, `show interfaces st0.0` shows up, and the byte counters do not
+    move. Easily misread as a crypto or selector problem, because the crypto is
+    fine.
+
+  explain:
+    terse: "st0 unit is in no security zone."
+    explained: >
+      `set security zones security-zone VPN interfaces st0.0` puts the tunnel
+      interface in a zone so a policy can reference it. Without it there is no
+      zone pair to write a policy for, and the SRX has nowhere to send the
+      packet.
+    teaching: >
+      The SA proves crypto, not reachability. Phase 1 and Phase 2 can both be
+      perfect while the tunnel passes nothing, and the split between "the crypto
+      worked" and "the packet got somewhere" is the most useful diagnostic
+      boundary on an SRX.
+
+      Four plumbing pieces produce this same silent symptom: no tunnel
+      interface, no zone on it, nothing routed at it, and no policy for the zone
+      pair. All four read UP and pass zero packets. Only the missing
+      host-inbound IKE fails loudly, and it fails at Phase 1 instead.
+
+      So when the SAs are clean and traffic is not flowing, stop reading
+      proposals. Steps 5 to 8 of the bring-up ladder failing while 2 to 4 are
+      clean is plumbing, not crypto — no proposal tweaking will fix it. Without
+      a zone on the unit there is no zone pair, and absent a zone pair no policy
+      can exist to permit anything.
+
+  acceptable_when: >
+    Never as a finished state. It is acceptable transiently during a staged
+    build where the tunnel is being brought up before the zones and policies
+    exist. If the tunnel is deliberately not carrying traffic yet, deactivate the
+    VPN rather than leaving the interface unbound, so the next person reading
+    the config knows which it is.
+
+  remediation:
+    patch:
+      - op: add_edge
+        role: zone_binding
+        from: self
+        to: { from: "suggest_vpn_zone()" }
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security zones security-zone {{ suggest_vpn_zone().name | ident }} interfaces {{ name | ident }}"
+
+  verify:
+    - junos-srx/interface.st0.terse
+    - junos-srx/flow.session.show
+
+  next_if_bad:
+    - rule: policy.zone-pair.missing
+    - rule: route.remote-prefix.no-next-hop-st0
+    - command: junos-srx/flow.session.show
+  related:
+    - rule: zone.host-inbound.ike-missing
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+  sources_note: >
+    Consequence of the SRX zone and policy model rather than a documented
+    statement.
+
+- id: route.remote-prefix.no-next-hop-st0
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: correctness
+  tags: [plumbing, day-one, route-based]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: TrafficSelector
+    with:
+      vpn:       { via: parent_vpn, card: one }
+      bind_unit: { via: [parent_vpn, bind_interface], card: optional }
+  on_unset: fire
+
+  condition: >
+    bind_unit == null
+    || !has_route_to(remote_ip, bind_unit)
+
+  title: "Nothing routes the remote prefix at the tunnel interface"
+
+  why: >
+    A route-based tunnel is selected by the routing table. With no route or
+    adjacency pointing the remote prefix at the bind interface, packets for that
+    prefix never reach the tunnel however healthy the SAs are.
+
+  symptom_if_mismatched: >
+    Tunnel UP, zero traffic — and if `establish-tunnels` is left at the
+    `on-traffic` default, the tunnel never even attempts to negotiate, because
+    nothing is ever routed at st0 to trigger it. A default route quietly
+    matching the remote prefix and sending it out the WAN is the common shape.
+
+  explain:
+    terse: "No route at st0 — the selector is not a route."
+    explained: >
+      Configuring a `traffic-selector` tells the peer which prefixes this tunnel
+      carries. It does not put anything in the routing table. Confirm the actual
+      next hop with `show route <remote-prefix>` — a route that exists and points
+      at the WAN is worse than no route, because it looks correct.
+    teaching: >
+      The selector and the route contain the same prefixes, which is why writing
+      one feels like writing both. They do different jobs at different layers.
+      The selector is a negotiation parameter the peer checks; the route is a
+      forwarding decision only this box makes.
+
+      The failure this catches is usually not a missing route. It is a default
+      route that matches the remote prefix because nothing more specific was
+      added, so the packet leaves in the clear via the WAN, gets source-NATed on
+      the way out, and never touches the tunnel. Nothing in any IPsec command
+      shows this: the SAs are Installed, st0 is up, and the byte counters stay
+      flat.
+
+      There is a second-order effect worth knowing. `establish-tunnels
+      on-traffic` negotiates only when a packet is routed at st0. Without a
+      route, an on-traffic tunnel never comes up at all, and the log has nothing
+      to say because no negotiation was attempted.
+
+  acceptable_when: >
+    Acceptable when the tunnel is a standby that is deliberately not carrying
+    the prefix today and a routing protocol over st0 will install the route on
+    failover. In that case confirm the adjacency exists and that `vpn-monitor`
+    is configured, because without it a route out st0 stays good while traffic
+    blackholes. Record which mechanism installs the route.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set routing-options static route {{ remote_ip | prefix }} next-hop {{ bind_unit.name | ident }}"
+
+  rollback:
+    lines:
+      junos-srx:
+        - risk: Disruptive
+          order: 10
+          text: "delete routing-options static route {{ remote_ip | prefix }} next-hop {{ bind_unit.name | ident }}"
+
+  verify:
+    - junos-srx/route.remote.show
+    - junos-srx/flow.session.show
+    - junos-srx/interface.st0.terse
+
+  next_if_bad:
+    - rule: policy.zone-pair.missing
+    - command: junos-srx/flow.session.show
+  related:
+    - rule: tunnel.st0.zone-unbound
+    - rule: ipsec.establish-tunnels.both-passive
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+    - { card: "srx-ipsec", side: 1, block: "BRING-UP ORDER" }
+    - { card: "srx-ipsec", side: 3, block: "FAKE FLAPS" }
+
+- id: policy.zone-pair.missing
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: correctness
+  tags: [plumbing, day-one]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecVpn
+    with:
+      vpn_zone:  { via: [bind_interface, zone_binding], card: optional }
+      lan_zones: { via: [parent_device, zones], card: many }
+  on_unset: fire
+
+  condition: >
+    vpn_zone != null
+    && !lan_zones.exists(z, has_policy_between(z, vpn_zone))
+
+  title: "No security policy exists for the tunnel's zone pair"
+
+  why: >
+    A zone pair with no policy permits nothing. The tunnel establishes, the
+    interface reads up, the route resolves, and the flow module drops every
+    packet before it reaches the tunnel.
+
+  symptom_if_mismatched: >
+    Tunnel UP, zero traffic, and `show security flow session` shows no sessions
+    at all between the two zones. Indistinguishable at the IPsec layer from a
+    missing route or an unbound zone — all three read as healthy crypto with a
+    dead data path.
+
+  explain:
+    terse: "No policy for the zone pair — nothing is permitted through."
+    explained: >
+      A policy is directional. `from-zone TRUST to-zone VPN` permits that way
+      only; a session initiated from the far side needs its own policy in the
+      other direction. Check both directions before declaring the plumbing done.
+    teaching: >
+      This is the fifth of the five plumbing pieces and the one people write
+      last, which means it is the one left out when a change window runs short.
+      Its failure is silent in exactly the way the other three silent ones are,
+      and the fastest way to separate them is `show security flow session`: no
+      sessions at all between the zones points here or at the route, and
+      sessions whose egress is the WAN rather than st0 points at the route or at
+      source NAT.
+
+      The direction trap is worth stating on its own. A tunnel that works for
+      outbound sessions and drops inbound ones passes most tests, because most
+      tests are run from the side that works. If the far end reports a problem
+      you cannot reproduce, check the policy in the direction they are trying.
+
+      Without a policy the flow module never hands the packet to the tunnel, so
+      every crypto command stays clean while nothing crosses.
+
+  acceptable_when: >
+    Acceptable when the tunnel exists to carry a routing adjacency or management
+    traffic only and the permitted flows are handled by host-inbound-traffic on
+    the VPN zone rather than by a zone-pair policy. Record that design choice
+    next to the zone, because a reviewer reading only the policies will
+    reasonably conclude the build is unfinished.
+
+  remediation_absent_reason: >
+    The correct policy is a security decision — which addresses, which
+    applications, which direction — and Fathom will not guess it. Emitting an
+    `any/any/any` permit to clear a finding would be a linter opening a firewall
+    to make itself quiet, which is the worst thing a linter can do. The
+    walkthrough asks the questions instead.
+
+  verify:
+    - junos-srx/flow.session.show
+    - junos-srx/interface.st0.terse
+
+  next_if_bad:
+    - command: junos-srx/flow.session.show
+    - rule: nat.source-nat-eats-tunnel
+  related:
+    - rule: tunnel.st0.zone-unbound
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+
+- id: nat.source-nat-eats-tunnel
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: probable
+  category: correctness
+  tags: [nat, plumbing, most-missed]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: NatRule
+    where: "enum_is(kind_of_nat, \"source\")"
+    with:
+      selectors: { via: [parent_device, ipsec_vpns, traffic_selectors], card: many }
+      earlier:   { via: preceding_rules_in_set, card: many }
+  on_unset: skip
+
+  condition: >
+    selectors.exists(t, overlaps(destination_match, t.remote_ip))
+    && !earlier.exists(r, is_no_nat(r) && overlaps(r.destination_match, destination_match))
+
+  title: "A source NAT rule matches traffic that should enter the tunnel"
+
+  why: >
+    The interface NAT rule written for internet-bound traffic also grabs packets
+    routed at st0. The far end then sees a source address outside the agreed
+    selector and rejects the traffic, or replies to an address that cannot come
+    back.
+
+  symptom_if_mismatched: >
+    Every IPsec command reads clean — SAs Installed, st0 up, route correct — and
+    traffic still does not work. `show security flow session` shows the sessions
+    with a translated source. The far end sees the wrong source and rejects the
+    selector. Needs an explicit no-NAT rule above it.
+
+  explain:
+    terse: "Interface NAT is also grabbing tunnel-bound traffic."
+    explained: >
+      Source NAT is evaluated on the way out regardless of which interface the
+      route chose. A rule matching "anything to anywhere" out the WAN also
+      matches the LAN prefix heading for st0 unless a more specific no-NAT rule
+      sits above it in the same rule set.
+    teaching: >
+      This is the plumbing failure that survives the whole bring-up ladder. Every
+      rung passes. Phase 1 up, Phase 2 Installed, st0 up, route via st0,
+      sessions in the table — and the sessions have a translated source, which is
+      the only visible tell and only if you read the session's source rather
+      than counting sessions.
+
+      The far end's behaviour depends on its platform. Some reject the packet
+      because the source is outside the negotiated selector; some accept it and
+      reply to the translated address, which then has nowhere to go. Both look
+      like a one-way tunnel from your side, and the counters agree: encrypted
+      climbing, decrypted flat. That sends people to the return path when the
+      problem is on the sending side.
+
+      The fix is an explicit no-NAT rule above the interface rule, matching the
+      local prefix to the remote prefix. Order is the whole mechanism — without
+      the exception sitting above the interface rule it never matches, and a
+      correct no-NAT rule placed below does nothing at all.
+
+  acceptable_when: >
+    Acceptable when the tunnel is deliberately carrying translated traffic — some
+    peers require a specific source range and NAT is how you produce it. In that
+    case the traffic selector must contain the translated range rather than the
+    real one, and both must be recorded together, because the two configurations
+    only make sense read side by side.
+
+  remediation_absent_reason: >
+    The no-NAT rule's match criteria and its position in the rule set are both
+    site-specific, and inserting a rule into an ordered set is a change whose
+    effect depends on everything above and below it. Fathom names the offending
+    rule and the overlapping selector; the engineer places the exception.
+
+  verify:
+    - junos-srx/flow.session.show
+    - junos-srx/ipsec.statistics.index
+
+  next_if_bad:
+    - command: junos-srx/flow.session.show
+    - explainer: explain:symptom:encrypted-climbing-decrypted-flat
+  related:
+    - rule: policy.zone-pair.missing
+    - rule: ipsec.traffic-selector.not-mirrored
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+    - { card: "srx-ipsec", side: 3, block: "THE ONE-WAY TELL" }
+
+# -----------------------------------------------------------------------------
+# TRAFFIC SELECTORS — side 3 ERROR DECODER; side 4 THINGS THAT BITE
+# -----------------------------------------------------------------------------
+
+- id: ipsec.traffic-selector.absent
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: definite
+  category: interop
+  tags: [phase2, selectors, day-one]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecVpn
+    with:
+      selectors: { via: traffic_selectors, card: many }
+  on_unset: fire
+
+  condition: "selectors.count() == 0"
+
+  title: "No traffic selector, so the tunnel proposes any-to-any"
+
+  why: >
+    With no `traffic-selector` configured the SRX proposes 0.0.0.0/0 to
+    0.0.0.0/0. Peers that build one SA per subnet pair reject that outright, and
+    peers that accept it give you a tunnel whose scope nobody wrote down.
+
+  symptom_if_mismatched: >
+    TS_UNACCEPTABLE under IKEv2 or INVALID_ID_INFORMATION under IKEv1, with
+    Phase 1 up throughout. Against a permissive peer there is no error at all —
+    the tunnel comes up carrying everything, which is worse, because the failure
+    surfaces the day somebody adds a second tunnel to the same peer.
+
+  explain:
+    terse: "Default selector is 0.0.0.0/0 — many peers reject it."
+    explained: >
+      Configure `traffic-selector <name> local-ip <prefix> remote-ip <prefix>`
+      and mirror it at the far end. Your local is their remote, exactly. The
+      default is not a neutral choice, it is the widest possible proposal.
+    teaching: >
+      The default is a trap because it works with some peers and not others, and
+      nothing tells you which you have until the negotiation. A peer that narrows
+      on acceptance takes your 0.0.0.0/0 and hands back the pair it wanted. A
+      peer that builds one child SA per configured subnet pair sees a proposal it
+      has no entry for and rejects it.
+
+      The failure against a permissive peer is delayed rather than absent. An
+      any-to-any tunnel to one peer means the next tunnel to that same peer has
+      no room — the selectors overlap completely and the box cannot decide which
+      SA a packet belongs to. That change is made months later by somebody who
+      did not build the first tunnel.
+
+      Writing selectors out also makes the routing intent legible. The prefixes
+      in the selector and the prefixes in the static route should be the same
+      prefixes, and when they are not, one of the two is wrong.
+
+  acceptable_when: >
+    Acceptable against a peer that requires a single any-to-any child SA and
+    narrows on its own side — some cloud VPN endpoints work this way. Record the
+    peer platform and the fact that the tunnel's real scope lives in the routing
+    table and the policy rather than in the selector, because that is where the
+    next reader will have to go looking.
+
+  remediation_absent_reason: >
+    The correct prefixes are the ones the peer agreed to, and Fathom does not
+    know them unless a peer configuration has been imported. Guessing from the
+    static routes would produce a plausible selector that the far end has never
+    heard of, which fails in exactly the same way with a more confident-looking
+    configuration.
+
+  verify:
+    - junos-srx/ipsec.sa.show-vpn-detail
+    - junos-srx/ipsec.inactive-tunnels.show
+
+  next_if_bad:
+    - command: junos-srx/ipsec.inactive-tunnels.show
+    - explainer: explain:error:junos-srx/TS_UNACCEPTABLE
+  related:
+    - rule: ipsec.traffic-selector.not-mirrored
+    - rule: route.remote-prefix.no-next-hop-st0
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+    - { card: "srx-ipsec", side: 1, block: "PHASE 2 — PROPOSAL, POLICY, VPN" }
+    - { std: "RFC 7296", section: "2.9", note: "Traffic selector negotiation; the responder narrows" }
+
+- id: ipsec.traffic-selector.not-mirrored
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: interop
+  tags: [phase2, selectors, interop, peer-required]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: TrafficSelector
+    with:
+      vpn:     { via: parent_vpn, card: one }
+      peer_ts: { via: [parent_vpn, peer_vpn, traffic_selectors], card: many }
+  requires: [peer_config]
+  on_unset: skip
+
+  condition: "!peer_ts.exists(t, mirrors(self, t))"
+  discriminator: "name"
+
+  title: "Traffic selector does not mirror any selector on the peer"
+
+  why: >
+    Phase 2 selectors must mirror: this end's local prefix is the far end's
+    remote prefix and vice versa. A selector with no mirror on the peer is
+    rejected, and the child SA for that pair never installs.
+
+  symptom_if_mismatched: >
+    TS_UNACCEPTABLE in the log under IKEv2, or INVALID_ID_INFORMATION under
+    IKEv1. Phase 1 stays up throughout. On a VPN with several selectors, some
+    child SAs install and one does not — so the tunnel looks half-working, and
+    `show security ipsec inactive-tunnels` is the command that names which.
+
+  explain:
+    terse: "No mirroring selector on the peer — Phase 2 will be rejected."
+    explained: >
+      This selector proposes local `{$local|prefix}` / remote `{$remote|prefix}`.
+      The peer must have a selector with those two the other way round. Compare
+      against the peer's `traffic-selector` statements, or its proxy-ID under
+      IKEv1.
+    teaching: >
+      Phase 2 rides inside Phase 1, and it can fail forever while Phase 1 is
+      perfectly healthy. That split is the most useful diagnostic fact about
+      IPsec, and a selector mismatch is the cleanest example of it: IKE is up,
+      the peer is authenticated, and one child SA will not install.
+
+      Under IKEv2 the selectors are negotiated as sets and the responder narrows;
+      what it will not do is accept a proposal it has no matching entry for.
+      Under IKEv1 the same disagreement appears as a proxy-ID mismatch and reads
+      as INVALID_ID_INFORMATION, which is a different string for the same cause.
+
+      `show security ipsec inactive-tunnels` is the underused command here. It
+      names what is down and prints a Tunnel Down Reason, which is often the
+      whole answer. Read it before you start diffing proposals — the proposals
+      are probably fine. Without a mirroring entry on the peer, no amount of
+      proposal tuning changes the outcome.
+
+  acceptable_when: >
+    Never for a selector that is meant to carry traffic. It is acceptable when
+    the peer deliberately runs a wider selector that subsumes this one and its
+    platform narrows on acceptance — some cloud VPN endpoints do this. Confirm
+    the child SA actually installs before accepting it, and record the peer
+    platform.
+
+  remediation_absent_reason: >
+    The fix is a decision, not a mutation: either this end's selector is wrong or
+    the peer's is, and Fathom cannot tell which is intended. The finding names
+    both sides' values so the engineer can choose. Once chosen, editing either
+    end produces the emitted lines through the normal path.
+
+  verify:
+    - junos-srx/ipsec.inactive-tunnels.show
+    - junos-srx/ipsec.sa.show-vpn-detail
+    - junos-srx/log.kmd.match-peer
+
+  supersedes: [ipsec.traffic-selector.absent]
+  next_if_bad:
+    - command: junos-srx/ipsec.inactive-tunnels.show
+    - explainer: explain:error:junos-srx/TS_UNACCEPTABLE
+  related:
+    - rule: ipsec.traffic-selector.absent
+    - rule: nat.source-nat-eats-tunnel
+
+  sources:
+    - { std: "RFC 7296", section: "2.9", note: "Traffic Selector negotiation and TS_UNACCEPTABLE" }
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+
+# -----------------------------------------------------------------------------
+# WHO INITIATES — side 3 FAKE FLAPS; side 4 THINGS THAT BITE
+# -----------------------------------------------------------------------------
+
+- id: ipsec.establish-tunnels.both-passive
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: correctness
+  tags: [phase2, bring-up, most-missed, peer-required]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecVpn
+    with:
+      peer: { via: peer_vpn, card: one }
+    canonical: peer
+  requires: [peer_config]
+  on_unset: fire
+
+  condition: >
+    (enum_is(establish_tunnels, "on_traffic")
+      || enum_is(establish_tunnels, "responder_only")
+      || enum_is(establish_tunnels, "responder_only_no_rekey"))
+    && (enum_is(peer.establish_tunnels, "on_traffic")
+      || enum_is(peer.establish_tunnels, "responder_only")
+      || enum_is(peer.establish_tunnels, "responder_only_no_rekey"))
+    && !(enum_is(establish_tunnels, "on_traffic") && enum_is(peer.establish_tunnels, "on_traffic")
+         && (has_routed_traffic(self) || has_routed_traffic(peer)))
+
+  title: "Neither end will initiate this tunnel"
+
+  why: >
+    Both ends are configured passively. `on-traffic` negotiates only when a
+    packet is routed at st0; `responder-only` never initiates at all. With both
+    ends passive and nothing routing traffic in, nobody starts the negotiation.
+
+  symptom_if_mismatched: >
+    The tunnel never comes up and nothing in the configuration is wrong. No
+    error in the log, because no negotiation was attempted. Every proposal, key
+    and selector on both sides can be perfect.
+
+  explain:
+    terse: "Both ends passive — nobody initiates."
+    explained: >
+      `establish-tunnels on-traffic` is the Junos default, so two ends that never
+      set the statement are both passive. `responder-only` is right for a peer
+      behind NAT and fatal on both ends at once. Set one end `immediately`.
+    teaching: >
+      This is the finding that costs the most hours per occurrence, because there
+      is nothing to find. Two configurations, both correct, both reviewed, and
+      the tunnel does not come up. Nobody wrote a wrong line — `on-traffic` is
+      the default, so both ends inherited it.
+
+      `on-traffic` negotiates only when a packet is routed at st0, which means an
+      idle backup cycles in the log by design and comes up the first time
+      something uses it. That is fine when one end has traffic to send. It is not
+      fine when both ends are waiting.
+
+      `immediately` pins the tunnel up from commit. Use it for anything
+      monitored, anything carrying a routing adjacency, and anything where
+      failover time matters — because a tunnel that comes up on first packet has
+      already dropped the first packet. `responder-only` is right for exactly one
+      case, a peer behind NAT with no fixed address, and it is fatal on both ends
+      at once. Without one end set to initiate, nothing ever starts and there is
+      never an error to find.
+
+  acceptable_when: >
+    Acceptable when a third party genuinely initiates — a dial-in peer, or a
+    hub-and-spoke design where the spoke always starts. If neither end is
+    `immediately` and the tunnel is expected to be up, this is not acceptable.
+    Record which side is expected to initiate and why.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: establish_tunnels
+        value: { enum: immediately }
+
+  rollback:
+    patch:
+      - op: set
+        target: self
+        field: establish_tunnels
+        value: { enum: on_traffic }
+
+  verify:
+    - junos-srx/ike.sa.show
+    - junos-srx/ipsec.sa.show
+    - junos-srx/ipsec.inactive-tunnels.show
+
+  next_if_bad:
+    - command: junos-srx/ipsec.inactive-tunnels.show
+    - command: junos-srx/log.kmd.match-peer
+  related:
+    - rule: ipsec.vpn-monitor.absent-on-adjacency
+    - rule: route.remote-prefix.no-next-hop-st0
+
+  sources:
+    - { vendor: juniper, doc: "CLI reference: establish-tunnels (Security)", note: "on-traffic is the default" }
+    - { card: "srx-ipsec", side: 3, block: "FAKE FLAPS" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+
+- id: ipsec.establish-tunnels.both-responder-only
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: correctness
+  tags: [phase2, bring-up, most-missed, peer-required]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecVpn
+    with:
+      peer: { via: peer_vpn, card: one }
+    canonical: peer
+  requires: [peer_config]
+  on_unset: skip
+
+  condition: >
+    (enum_is(establish_tunnels, "responder_only")
+      || enum_is(establish_tunnels, "responder_only_no_rekey"))
+    && (enum_is(peer.establish_tunnels, "responder_only")
+      || enum_is(peer.establish_tunnels, "responder_only_no_rekey"))
+
+  title: "Both ends are responder-only and can never initiate"
+
+  why: >
+    `responder-only` is an absolute refusal to start a negotiation, not a
+    preference. On both ends of one tunnel there is no traffic, no timer and no
+    event that will ever cause either side to begin. The tunnel is permanently
+    down by construction.
+
+  symptom_if_mismatched: >
+    The tunnel never comes up, ever, and unlike the `on-traffic` case no amount
+    of traffic will trigger it. `show security ipsec inactive-tunnels` lists it
+    and the Tunnel Down Reason is the only thing the box offers. Nothing appears
+    in kmd, because no negotiation was ever attempted.
+
+  explain:
+    terse: "responder-only at both ends — nothing can ever start it."
+    explained: >
+      This is the strict form of the both-passive problem. Two `on-traffic` ends
+      recover the moment either side routes a packet at st0. Two
+      `responder-only` ends do not recover at all, because neither will initiate
+      under any circumstance.
+    teaching: >
+      `responder-only` is right for exactly one case: a peer behind NAT with no
+      fixed address, which has to be the one that starts because you cannot reach
+      it to initiate. It becomes a permanent outage the moment somebody copies
+      that configuration to the other end — which is a natural thing to do,
+      because copying the working end's config is how most second tunnels get
+      built.
+
+      The distinguishing test against the `on-traffic` case is simple and worth
+      knowing: generate traffic across the tunnel. If it comes up, both ends were
+      `on-traffic` and nothing was routed. If it does not, at least one end is
+      refusing to initiate and you are here.
+
+      Because this rule is strictly more specific than `both-passive` it
+      supersedes it, so a reviewer sees one finding naming the exact statement
+      rather than two describing the same tunnel. Nothing fails visibly here —
+      the negotiation never starts, so there is no failure to log.
+
+  acceptable_when: >
+    Never. Two responder-only ends cannot establish a tunnel in any
+    configuration — this is not a policy choice, it is a contradiction. If both
+    peers genuinely sit behind NAT with no fixed address and neither can
+    initiate, the design needs a reachable concentrator, and that is an
+    architecture change rather than a statement change.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: establish_tunnels
+        value: { enum: immediately }
+
+  rollback:
+    patch:
+      - op: set
+        target: self
+        field: establish_tunnels
+        value: { enum: responder_only }
+
+  verify:
+    - junos-srx/ipsec.inactive-tunnels.show
+    - junos-srx/ike.sa.show-detail
+
+  supersedes: [ipsec.establish-tunnels.both-passive]
+  next_if_bad:
+    - command: junos-srx/ipsec.inactive-tunnels.show
+  related:
+    - rule: ike.identity.required-behind-nat
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "FAKE FLAPS" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+
+# -----------------------------------------------------------------------------
+# IKE VERSION AND MODE — side 2, IKEV1 VS IKEV2
+# -----------------------------------------------------------------------------
+
+- id: ike.mode.aggressive-with-psk
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: security
+  tags: [phase1, ikev1, crypto]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkePolicy
+    with:
+      proposal: { via: ike_proposal, card: one }
+      gateway:  { via: used_by_gateway, reverse: true, card: optional }
+  on_unset: skip
+
+  condition: >
+    enum_is(mode, "aggressive")
+    && enum_is(proposal.authentication_method, "pre_shared_keys")
+    && (gateway == null || !enum_is(gateway.version, "v2_only"))
+
+  title: "Aggressive mode with a pre-shared key exposes the identity"
+
+  why: >
+    Aggressive mode sends the identity in the clear in the first message and
+    carries a hash an observer can attack offline against a captured exchange.
+    A pre-shared key that can be attacked offline is a pre-shared key with a
+    finite lifetime measured in somebody else's compute budget.
+
+  symptom_if_mismatched: >
+    Nothing breaks and nothing appears in any log. That is the problem: the
+    tunnel works exactly as well as a main-mode one, so there is no operational
+    signal at all and the exposure is only visible by reading the configuration.
+
+  explain:
+    terse: "Identity in clear, hash crackable offline. Move to IKEv2."
+    explained: >
+      Aggressive mode exists almost solely for a pre-shared key with a dynamic
+      peer address, because main mode with a PSK must identify the peer by
+      address. On IKEv2 you never need it — identity is always protected and
+      there is no mode statement.
+    teaching: >
+      RFC 2409 §5.4 is where this comes from. Under main mode with a pre-shared
+      key, the initiator must compute its authentication hash before it has
+      processed the responder's identity, so the key can only be selected by IP
+      address. A peer with no fixed address breaks that, and aggressive mode's
+      answer is to move the identity into the first message where it is not yet
+      encrypted.
+
+      The cost is two-fold and only one half is usually discussed. The identity
+      leaks, which tells an observer who is talking to whom. And the exchange
+      contains a hash over the pre-shared key that can be attacked offline at
+      leisure, without touching either endpoint again.
+
+      The fix is not a better pre-shared key. It is `version v2-only`, where
+      identity is always protected and the mode statement is silently ignored.
+      If the far end cannot do IKEv2, certificates remove the offline-crackable
+      element even under v1.
+
+  acceptable_when: >
+    Acceptable only for a legacy peer that supports neither IKEv2 nor
+    certificates and has no fixed address, where aggressive mode is the sole
+    remaining option. Compensate with a long high-entropy pre-shared key and a
+    short Phase 1 lifetime, record the peer and the constraint, and set a review
+    date — this is a finding to schedule out of existence, not to waive
+    permanently.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security ike gateway {{ gateway.name | ident }} version v2-only"
+        - risk: ChangesConfig
+          order: 20
+          text: "delete security ike policy {{ name | ident }} mode"
+
+  rollback:
+    lines:
+      junos-srx:
+        - risk: Disruptive
+          order: 10
+          text: "delete security ike gateway {{ gateway.name | ident }} version"
+        - risk: ChangesConfig
+          order: 20
+          text: "set security ike policy {{ name | ident }} mode aggressive"
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+    - junos-srx/log.kmd.match-peer
+
+  next_if_bad:
+    - command: junos-srx/log.kmd.match-peer
+  related:
+    - rule: ike.mode.aggressive-with-v2
+    - rule: ike.identity.required-behind-nat
+
+  sources:
+    - { std: "RFC 2409", section: "5.4", note: "Main mode with a pre-shared key identifies the peer by address; aggressive mode carries identities in the first messages" }
+    - { card: "srx-ipsec", side: 2, block: "IKEV1 VS IKEV2" }
+
+- id: ike.mode.aggressive-with-v2
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: info
+  confidence: definite
+  category: hygiene
+  tags: [phase1, ikev2, readability]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkePolicy
+    with:
+      gateway: { via: used_by_gateway, reverse: true, card: one }
+  on_unset: skip
+
+  condition: >
+    has(mode) && enum_is(gateway.version, "v2_only")
+
+  title: "A mode statement under v2-only has no effect"
+
+  why: >
+    `mode` is silently ignored under `version v2-only`. The statement stays in
+    the configuration, reads as meaningful, and costs the next person time when
+    they find `mode aggressive` on a tunnel and start investigating an exposure
+    that does not exist.
+
+  symptom_if_mismatched: >
+    Nothing operational. The cost is diagnostic: somebody reviewing a v2 config
+    sees `mode aggressive`, reasonably concludes the identity is exposed, and
+    spends an hour chasing it. The card is explicit — seeing mode aggressive in
+    a v2 config means nothing, do not chase it.
+
+  explain:
+    terse: "Ignored under v2-only. Delete it so nobody chases it."
+    explained: >
+      Under IKEv2 there is one four-message exchange and no mode to choose. A
+      leftover `mode` statement from a v1 migration is inert and misleading, and
+      deleting it costs nothing and removes a recurring false lead.
+    teaching: >
+      This rule is `info` and it earns its place because of what it prevents
+      rather than what it fixes. Estates that migrated from IKEv1 to IKEv2 are
+      full of leftover statements that no longer do anything, and each one is a
+      small tax on every future reader.
+
+      The specific trap here is that `mode aggressive` is a genuine security
+      finding under IKEv1 — it exposes the identity and the exchange can be
+      attacked offline. A reviewer who does not know the statement is ignored
+      under v2 will raise it, and a reviewer who does know may then start
+      ignoring `mode aggressive` everywhere, including where it is real.
+
+      Delete it during the next planned change rather than opening one for it.
+      Without the deletion nothing fails; with it, one class of false alarm goes
+      away permanently.
+
+  acceptable_when: >
+    Acceptable when the gateway is expected to fall back to IKEv1 in future and
+    the statement is being kept deliberately for that. Note that under `v2-only`
+    no fallback happens, so if the intent is a fallback the version statement is
+    the one that is wrong. Record which of the two is intended.
+
+  remediation:
+    patch:
+      - op: unset
+        target: self
+        field: mode
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+
+  next_if_bad:
+    - rule: ike.mode.aggressive-with-psk
+  related:
+    - rule: ike.mode.aggressive-with-psk
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "IKEV1 VS IKEV2" }
+
+# -----------------------------------------------------------------------------
+# PROPOSAL PARAMETERS — side 2
+# -----------------------------------------------------------------------------
+
+- id: ike.dh-group.weak
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: definite
+  category: security
+  tags: [phase1, crypto, legacy]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkeProposal
+    with:
+      policy: { via: used_by_policy, reverse: true, card: optional }
+  on_unset: skip
+
+  condition: "has(dh_group) && dh_group in [1, 2, 5]"
+
+  title: "Phase 1 uses a legacy Diffie-Hellman group"
+
+  why: >
+    Groups 1, 2 and 5 are finite-field groups of 768, 1024 and 1536 bits. RFC
+    8247 §2.4 marks groups 2 and 5 SHOULD NOT and group 14 MUST. A recorded
+    exchange under a weak group stays recorded, and the effort to break it only
+    ever falls.
+
+  symptom_if_mismatched: >
+    Nothing operational — the tunnel works. This is the finding whose absence of
+    symptom is the point: a weak group is invisible in every diagnostic command
+    and only appears when somebody reads the proposal. `proposal-set standard`
+    is the usual way it arrives, because it still leads with group 2.
+
+  explain:
+    terse: "group2 and group5 are legacy. group14 is the baseline."
+    explained: >
+      `group14` is 2048-bit MODP and the sane default; `group19` and `group20`
+      are 256- and 384-bit elliptic curve and are faster for equal or better
+      strength. Changing it requires the far end to change in the same window —
+      the group must be identical, not merely compatible.
+    teaching: >
+      The reason this is `medium` rather than `high` is that it is a margin
+      problem, not a break. Traffic today is not being read. What a weak group
+      costs is confidentiality of anything recorded, over whatever timespan the
+      recorder is willing to wait, and that trade is a policy question rather
+      than an outage.
+
+      The practical trap is the change itself. Without coordination, moving the
+      group here fails the next negotiation with INVALID_KE_PAYLOAD and the
+      tunnel drops at the current SA's lifetime rather than immediately — so the
+      failure arrives hours after the change, when nobody is watching it.
+      Schedule both ends in the same window and clear the Phase 2 SA to prove it
+      rather than waiting for the lifetime.
+
+      If PFS is configured, check that group too. Two Diffie-Hellman groups exist
+      on a tunnel with PFS and upgrading one and not the other leaves the
+      weaker one carrying the data keys.
+
+  acceptable_when: >
+    Acceptable while interoperating with a peer that cannot offer group 14 or
+    better — genuinely old appliances and some managed services. Compensate with
+    short Phase 1 and Phase 2 lifetimes so less traffic sits under any one key,
+    record the peer and the constraint, and set a review date rather than
+    accepting it permanently.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: dh_group
+        value: { enum: group14 }
+
+  rollback:
+    patch:
+      - op: set
+        target: self
+        field: dh_group
+        value: { from: "previous_value(dh_group)" }
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+    - junos-srx/ipsec.inactive-tunnels.show
+
+  next_if_bad:
+    - rule: ipsec.pfs.group-mismatch
+    - explainer: explain:error:junos-srx/INVALID_KE_PAYLOAD
+  related:
+    - rule: ike.proposal-set.used
+    - rule: ipsec.pfs.absent
+
+  sources:
+    - { std: "RFC 8247", section: "2.4", note: "group14 MUST; group19 SHOULD; groups 2 and 5 SHOULD NOT" }
+    - { card: "srx-ipsec", side: 2, block: "PROPOSAL PARAMETERS" }
+
+- id: ike.proposal.3des
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: definite
+  category: security
+  tags: [phase1, crypto, legacy]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkeProposal
+  on_unset: skip
+
+  condition: "enum_is(encryption_algorithm, \"3des_cbc\")"
+
+  title: "Phase 1 negotiation is protected by 3DES"
+
+  why: >
+    3DES has a 64-bit block, which bounds how much data one key may safely
+    protect, and it is markedly slower than AES on hardware built for AES.
+    RFC 8221 §5 marks ENCR_3DES SHOULD NOT and AES-CBC and AES-GCM-16 MUST.
+
+  symptom_if_mismatched: >
+    No operational symptom on Phase 1, which carries little data. The finding
+    matters as an indicator rather than a fault: 3DES on the IKE proposal almost
+    always means the whole build predates a review, so check the Phase 2 cipher,
+    the DH group and whether PFS was ever set.
+
+  explain:
+    terse: "3des-cbc is legacy. aes-256-cbc or aes-256-gcm instead."
+    explained: >
+      Phase 1 carries the negotiation, not the data, so the direct exposure is
+      small. Change it anyway when you touch the tunnel, because it is a free
+      improvement inside a change you are already making and because it is the
+      cheapest tell that this configuration has never been reviewed.
+    teaching: >
+      Treat this as a marker rather than an emergency. A proposal with 3DES on it
+      is a proposal somebody wrote a long time ago or inherited from
+      `proposal-set standard`, and the things next to it are usually of the same
+      vintage: group 2, no PFS, a 3600-second Phase 1 lifetime nobody chose.
+
+      The change itself is coordinated, not unilateral. Both ends must offer the
+      same cipher; without agreement the next negotiation fails with
+      NO_PROPOSAL_CHOSEN and the tunnel drops when the current SA expires rather
+      than at commit, which puts the failure hours away from the change. Do it
+      with the peer, in one window, and clear the SA to prove it.
+
+      Where the peer genuinely cannot do AES, that is worth writing down rather
+      than tolerating quietly, because it is also a peer that probably cannot do
+      IKEv2 or group 14 and the whole tunnel is a documented exception.
+
+  acceptable_when: >
+    Acceptable with a peer whose platform offers no AES at all, which in practice
+    means very old equipment. Compensate with short lifetimes, record the peer
+    and the constraint in the change ticket, and treat the exception as a
+    scheduled item rather than a permanent state.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: encryption_algorithm
+        value: { enum: aes_256_cbc }
+
+  rollback:
+    patch:
+      - op: set
+        target: self
+        field: encryption_algorithm
+        value: { enum: 3des_cbc }
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+    - junos-srx/ipsec.inactive-tunnels.show
+
+  next_if_bad:
+    - rule: ike.proposal.cbc-without-hash
+    - explainer: explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p1
+  related:
+    - rule: ipsec.proposal.3des
+    - rule: ike.dh-group.weak
+
+  sources:
+    - { std: "RFC 8221", section: "5", note: "ENCR_3DES is SHOULD NOT" }
+    - { card: "srx-ipsec", side: 2, block: "PROPOSAL PARAMETERS" }
+
+- id: ipsec.proposal.3des
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: definite
+  category: security
+  tags: [phase2, crypto, legacy]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecProposal
+    with:
+      vpn: { via: [used_by_policy, used_by_vpn], card: optional }
+  on_unset: skip
+
+  condition: "enum_is(encryption_algorithm, \"3des_cbc\")"
+
+  title: "Tunnel data is encrypted with 3DES"
+
+  why: >
+    This is the cipher protecting the actual traffic, not the negotiation. 3DES
+    has a 64-bit block, so the volume of data one key may protect before
+    collisions become a concern is far smaller than with AES — and a busy tunnel
+    moves that volume quickly.
+
+  symptom_if_mismatched: >
+    None visible. Throughput may be lower than the platform is capable of,
+    because AES has hardware acceleration and 3DES generally does not, and that
+    shows up as a performance complaint attributed to the tunnel rather than to
+    the cipher.
+
+  explain:
+    terse: "3des on the data path. Block size bounds bytes per key."
+    explained: >
+      Replace with `aes-256-gcm`, or `aes-256-cbc` with `authentication-algorithm
+      sha-256`. If the tunnel must stay on 3DES, set `lifetime-kilobytes` so the
+      key rotates on volume rather than only on the clock.
+    teaching: >
+      The 64-bit block is what makes this materially different from the Phase 1
+      case. The concern is not that 3DES is broken; it is that the amount of data
+      you can safely put under one key is bounded by the block size, and a
+      gigabit tunnel reaches interesting volumes inside an ordinary
+      3600-second lifetime.
+
+      That gives a compensating control that is genuinely useful when the cipher
+      cannot change: `lifetime-kilobytes` rekeys on volume, so a busy tunnel
+      rekeys far more often than the clock suggests. It also creates a diagnostic
+      wrinkle worth knowing — if flaps track throughput rather than time, check
+      `lifetime-kilobytes` first, because that is a volume trigger wearing a
+      timer's clothes.
+
+      Without a change here, nothing fails and nothing warns. The finding exists
+      because the alternative is that nobody ever looks.
+
+  acceptable_when: >
+    Acceptable with a peer that offers no AES, or on a low-volume tunnel where a
+    short `lifetime-kilobytes` bounds the data under any one key. Record the
+    volume assumption alongside the exception, because a tunnel that was
+    low-volume when the exception was written is frequently not low-volume two
+    years later.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: encryption_algorithm
+        value: { enum: aes_256_gcm }
+
+  rollback:
+    patch:
+      - op: set
+        target: self
+        field: encryption_algorithm
+        value: { enum: 3des_cbc }
+
+  verify:
+    - junos-srx/ipsec.sa.show-vpn-detail
+    - junos-srx/ipsec.inactive-tunnels.show
+
+  next_if_bad:
+    - rule: ipsec.proposal.gcm-with-hash
+    - explainer: explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p2
+  related:
+    - rule: ike.proposal.3des
+    - rule: ipsec.lifetime.kilobytes-unset-on-busy
+
+  sources:
+    - { std: "RFC 8221", section: "5", note: "ENCR_3DES is SHOULD NOT; ENCR_AES_GCM_16 is MUST" }
+    - { card: "srx-ipsec", side: 2, block: "PROPOSAL PARAMETERS" }
+    - { card: "srx-ipsec", side: 2, block: "LIFETIMES & REKEY" }
+
+- id: ike.proposal-set.used
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: low
+  confidence: definite
+  category: hygiene
+  tags: [phase1, crypto, legacy, readability]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkePolicy
+  on_unset: skip
+
+  condition: "has(proposal_set)"
+
+  title: "A predefined proposal set hides what this tunnel actually offers"
+
+  why: >
+    A proposal set saves typing and removes the one thing a reviewer needs: the
+    list of values being offered. It cannot be diffed against a peer, cannot be
+    reviewed for weak groups, and its contents change with the vendor's
+    definition rather than with your change control.
+
+  symptom_if_mismatched: >
+    NO_PROPOSAL_CHOSEN against a peer with explicit proposals, and no way to see
+    from your own configuration what you offered. The card is blunt about the
+    specific hazard — `proposal-set standard` still leads with DH group 2, and
+    you cannot see what it offered without the docs.
+
+  explain:
+    terse: "Write proposals out. A set cannot be diffed against a peer."
+    explained: >
+      Replace `proposals-set <name>` with an explicit `proposal` naming
+      `authentication-method`, `dh-group`, `authentication-algorithm`,
+      `encryption-algorithm` and `lifetime-seconds`. Those five values are
+      exactly what a mismatch investigation needs to compare.
+    teaching: >
+      The failure this prevents is a specific and infuriating one. A tunnel does
+      not come up, the log says NO_PROPOSAL_CHOSEN, and the responder's engineer
+      asks what you offered. With explicit proposals you paste five lines. With a
+      proposal set you paste a name, and neither of you can proceed without
+      finding vendor documentation for a specific software train.
+
+      There is a security edge too. `proposal-set standard` still leads with DH
+      group 2, so a tunnel that negotiated successfully may have landed on a
+      group nobody would have chosen — and no rule can tell you, because the
+      configuration does not contain the value.
+
+      Write proposals out. It costs five lines once and it makes every future
+      conversation about this tunnel a comparison rather than an investigation.
+
+  acceptable_when: >
+    Acceptable on a lab or throwaway configuration where nobody will diagnose it
+    later, and on a device whose peer is under the same team's control and whose
+    proposals are documented elsewhere. In production, record where the actual
+    offered values are written down, because the configuration no longer states
+    them.
+
+  remediation_absent_reason: >
+    Expanding a proposal set into explicit statements requires knowing what the
+    set contains on this specific software train, and that varies. Fathom does
+    not ship a per-train table of vendor proposal-set contents and inventing one
+    would put wrong crypto values into somebody's firewall. The walkthrough asks
+    for the five values instead.
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+
+  next_if_bad:
+    - rule: ike.dh-group.weak
+    - command: junos-srx/log.kmd.match-peer
+  related:
+    - rule: ike.dh-group.weak
+    - rule: ike.proposal.3des
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "PROPOSAL PARAMETERS" }
+
+- id: ike.proposal.cbc-without-hash
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: correctness
+  tags: [phase1, crypto, day-one]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkeProposal
+  on_unset: fire
+
+  condition: >
+    is_cbc(encryption_algorithm)
+    && (known_absent(authentication_algorithm) || !has(authentication_algorithm))
+
+  title: "A CBC cipher is configured with no integrity algorithm"
+
+  why: >
+    CBC provides confidentiality and no integrity, so the proposal needs a
+    separate `authentication-algorithm`. Without one the proposal is incomplete
+    and the far end has nothing matching to select.
+
+  symptom_if_mismatched: >
+    A missing hash is a silent proposal mismatch. The configuration commits
+    cleanly, because Junos only checks that referenced names exist. The
+    negotiation then fails with NO_PROPOSAL_CHOSEN, which names four values and
+    tells you nothing about which one is absent.
+
+  explain:
+    terse: "CBC needs a hash. GCM needs none. Setting neither fails."
+    explained: >
+      With CBC you must set both `encryption-algorithm` and
+      `authentication-algorithm`. With an AEAD cipher such as `aes-256-gcm` the
+      cipher does integrity itself and the hash must be omitted. Both errors fail
+      the same way and neither is caught at commit.
+    teaching: >
+      This is the failure that best illustrates why the commit check gives false
+      confidence. Junos enforces the object chain at commit — a missing policy
+      name fails the commit. What it cannot catch is a name that exists but holds
+      values the far end will not accept, and an incomplete proposal is exactly
+      that. The failure waits for negotiation.
+
+      The error you get is the least helpful one on the card. NO_PROPOSAL_CHOSEN
+      on Phase 1 points at four values: dh-group, encryption, hash and
+      authentication-method. A missing hash is not a wrong value in that list, it
+      is an absent one, so a line-by-line diff against the peer's four values
+      will not show it unless you are looking for absence.
+
+      Write proposals out as a block, every time, so that the presence or absence
+      of the hash is visible at a glance rather than being a statement that
+      happens not to be there.
+
+  acceptable_when: >
+    Never with a CBC cipher — the proposal is incomplete and cannot succeed. If
+    the intent was an AEAD cipher with no separate hash, the finding is on the
+    wrong statement and the fix is to change the cipher to `aes-256-gcm` rather
+    than to add a hash. Record which of the two was intended.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: authentication_algorithm
+        value: { enum: sha_256 }
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+    - junos-srx/log.kmd.match-peer
+
+  next_if_bad:
+    - explainer: explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p1
+    - command: junos-srx/log.kmd.match-peer
+  related:
+    - rule: ipsec.proposal.gcm-with-hash
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "PHASE 2 — PROPOSAL, POLICY, VPN" }
+    - { card: "srx-ipsec", side: 2, block: "PROPOSAL PARAMETERS" }
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+
+- id: ipsec.proposal.gcm-with-hash
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: definite
+  category: correctness
+  tags: [phase2, crypto, day-one]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecProposal
+  on_unset: skip
+
+  condition: "is_aead(encryption_algorithm) && has(authentication_algorithm)"
+
+  title: "An AEAD cipher is configured with a separate integrity algorithm"
+
+  why: >
+    GCM is AEAD and provides integrity itself, so there is no separate
+    `authentication-algorithm` to set. Setting one changes what this end
+    proposes, and a peer configured the correct way has nothing matching to
+    select.
+
+  symptom_if_mismatched: >
+    NO_PROPOSAL_CHOSEN on the Phase 2 exchange with Phase 1 up throughout, and a
+    proposal comparison that looks correct value by value — because the problem
+    is a statement that should not be present rather than a value that is wrong.
+
+  explain:
+    terse: "GCM is AEAD — the authentication-algorithm must be absent."
+    explained: >
+      Delete `authentication-algorithm` from any proposal whose
+      `encryption-algorithm` is a GCM variant. With CBC you must set both; with
+      GCM you must set neither. The two mistakes are mirror images and fail
+      identically.
+    teaching: >
+      This is the one place in the build where an extra statement is as wrong as
+      a missing one, and it is the direction people do not expect. Adding a hash
+      feels conservative — more integrity, surely no harm — and it breaks the
+      negotiation.
+
+      The reason is that a proposal is offered as a whole. An AEAD transform and
+      a separate integrity transform are two different shapes of proposal, and
+      the responder is matching shapes rather than accumulating the strongest
+      available options. There is no negotiating down to a common denominator
+      beyond picking a whole proposal that already matches.
+
+      It is `medium` rather than `high` because the fix is one deletion with no
+      coordination needed and no security consequence either way. It is not
+      `low` because without the fix the tunnel does not come up at all against a
+      correctly configured peer.
+
+  acceptable_when: >
+    Acceptable if a specific peer platform is known to require the statement
+    alongside a GCM transform — behaviour worth verifying rather than assuming,
+    because it is unusual. Record the peer platform and the software version
+    where it was observed, and confirm the child SA actually installs.
+
+  remediation:
+    patch:
+      - op: unset
+        target: self
+        field: authentication_algorithm
+
+  verify:
+    - junos-srx/ipsec.sa.show-vpn-detail
+    - junos-srx/ipsec.inactive-tunnels.show
+
+  next_if_bad:
+    - explainer: explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p2
+  related:
+    - rule: ike.proposal.cbc-without-hash
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "PHASE 2 — PROPOSAL, POLICY, VPN" }
+    - { card: "srx-ipsec", side: 2, block: "PROPOSAL PARAMETERS" }
+
+- id: ipsec.proposal.ah-used
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: definite
+  category: interop
+  tags: [phase2, crypto, nat]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecProposal
+    with:
+      gateway: { via: [used_by_policy, used_by_vpn, ike_gateway], card: optional }
+  on_unset: skip
+
+  condition: "enum_is(protocol, \"ah\")"
+
+  title: "The tunnel uses AH, which carries no confidentiality"
+
+  why: >
+    AH is integrity-only. Traffic in an AH tunnel is authenticated and not
+    encrypted, and AH protects header fields that address translation rewrites,
+    so any NAT in the path breaks it with no traversal workaround available.
+
+  symptom_if_mismatched: >
+    Against a NAT in path, the tunnel establishes and then every packet fails
+    integrity at the far end — which reads as an ESP authentication failure
+    pattern with no explanation. Where there is no NAT it works silently, and the
+    absence of encryption is invisible in every diagnostic command.
+
+  explain:
+    terse: "AH is integrity-only and breaks through NAT. Use esp."
+    explained: >
+      Set `protocol esp` on the proposal. ESP encrypts and authenticates and is
+      IP protocol 50; NAT-T wraps it in UDP 4500 when translation is detected.
+      AH has no equivalent, because the thing NAT rewrites is what AH is
+      protecting.
+    teaching: >
+      Two separate reasons to change this and they apply in different
+      circumstances. The confidentiality one is unconditional — if the traffic
+      needed encrypting, AH never encrypted it, and nobody reading `show security
+      ipsec security-associations` would notice.
+
+      The NAT one is conditional and brutal. AH and address translation are
+      mutually exclusive by construction, not by configuration, so no keepalive
+      or encapsulation setting will rescue it. A tunnel that works today breaks
+      permanently the day a carrier introduces translation into the path, and
+      the failure looks like a crypto fault rather than a design one.
+
+      RFC 8221 §4 also marks combining ESP with AH as NOT RECOMMENDED: it is
+      slower and the second header costs octets that come straight off an
+      already tight MTU budget. Without confidentiality, an AH tunnel is doing
+      none of the job most people believe it is doing.
+
+  acceptable_when: >
+    Acceptable where the requirement is genuinely integrity-only over a path with
+    no translation anywhere — some closed industrial and inter-datacentre
+    designs. Confirm and record that no NAT exists in the path today and that
+    none can be introduced without notice, because that assumption is the whole
+    basis of the exception.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: protocol
+        value: { enum: esp }
+
+  rollback:
+    patch:
+      - op: set
+        target: self
+        field: protocol
+        value: { enum: ah }
+
+  verify:
+    - junos-srx/ipsec.sa.show-vpn-detail
+    - junos-srx/ipsec.statistics.index
+
+  next_if_bad:
+    - explainer: explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p2
+  related:
+    - rule: ike.identity.required-behind-nat
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "PROPOSAL PARAMETERS" }
+    - { std: "RFC 8221", section: "4", note: "Combining ESP and AH is NOT RECOMMENDED" }
+
+# -----------------------------------------------------------------------------
+# LIFETIMES AND LIVENESS — side 2
+# -----------------------------------------------------------------------------
+
+- id: ipsec.lifetime.ikev1-mismatch
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: low
+  confidence: definite
+  category: interop
+  tags: [phase2, timers, ikev1, peer-required]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecProposal
+    with:
+      gateway: { via: [used_by_policy, used_by_vpn, ike_gateway], card: one }
+      peer:    { via: [used_by_policy, used_by_vpn, peer_vpn, ipsec_proposal], card: one }
+    canonical: peer
+  requires: [peer_config]
+  on_unset: skip
+
+  condition: >
+    !enum_is(gateway.version, "v2_only")
+    && has(lifetime_seconds)
+    && has(peer.lifetime_seconds)
+    && lifetime_seconds != peer.lifetime_seconds
+
+  title: "The two ends configure different Phase 2 lifetimes under IKEv1"
+
+  why: >
+    Under IKEv1 lifetimes are negotiated and the lower value wins, so the
+    configuration on one of these boxes does not describe what is happening. The
+    running rekey interval is not the one written down, and the next engineer
+    reads the wrong number.
+
+  symptom_if_mismatched: >
+    Nothing fails. The rekey happens at the lower of the two values, so a tunnel
+    documented as rekeying hourly may be rekeying every twenty minutes, and any
+    correlation between flap intervals and configured lifetimes is wrong from
+    the start.
+
+  explain:
+    terse: "IKEv1 negotiates lifetimes — the lower value wins."
+    explained: >
+      Under IKEv1 the two ends negotiate and the lower value applies. Under
+      IKEv2 lifetimes are not negotiated at all and each side rekeys on its own
+      clock, so a mismatch there is legal and not an error. Which of the two you
+      are on changes whether this matters.
+    teaching: >
+      This is `low` because nothing breaks, and it is worth a rule anyway because
+      of what it does to diagnosis. The most useful flap-pattern signal on the
+      card is a flap at an even interval on a round number, which points at a
+      lifetime or rekey collision. That signal only works if you know the real
+      lifetime, and under a negotiated mismatch the number in front of you is not
+      it.
+
+      Align the two ends so the configuration and the behaviour agree. If they
+      cannot be aligned, write the effective value next to the configured one so
+      the next person correlating flap intervals against timers is comparing
+      against reality.
+
+      Under IKEv2 this rule does not fire, and that is correct rather than an
+      omission: each side rekeys on its own clock, the shorter side drives it,
+      and a mismatch is legal. Without knowing which version is in use, the
+      configured number is not evidence of anything.
+
+  acceptable_when: >
+    Acceptable whenever the shorter of the two values is the intended one and
+    somebody has written that down. It is also acceptable during a staged change
+    where one end has moved and the other follows. Record the effective value,
+    not only the configured one, so flap correlation later starts from the right
+    number.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: lifetime_seconds
+        value: { from: "min(lifetime_seconds, peer.lifetime_seconds)" }
+
+  verify:
+    - junos-srx/ipsec.sa.show-vpn-detail
+
+  next_if_bad:
+    - explainer: explain:symptom:flap-even-interval-round-number
+  related:
+    - rule: ipsec.lifetime.kilobytes-unset-on-busy
+    - rule: ike.dpd.too-slow
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "LIFETIMES & REKEY" }
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+
+- id: ipsec.lifetime.kilobytes-unset-on-busy
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: info
+  confidence: heuristic
+  category: security
+  tags: [phase2, timers, volume]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecProposal
+    with:
+      vpn: { via: [used_by_policy, used_by_vpn], card: optional }
+  on_unset: skip
+
+  condition: >
+    known_absent(lifetime_kilobytes)
+    && (is_cbc(encryption_algorithm) || enum_is(encryption_algorithm, "3des_cbc"))
+
+  title: "No volume-based rekey on a block-cipher tunnel"
+
+  why: >
+    A time-based lifetime bounds how long a key lives, not how much data it
+    protects. On a fast tunnel with a 64-bit-block cipher, an ordinary
+    3600-second lifetime can cover a volume of data large enough to matter.
+
+  symptom_if_mismatched: >
+    Nothing visible, and that is why this is `info` with `heuristic` confidence —
+    whether it matters depends on throughput, which no configuration records.
+    The related diagnostic is the reverse: if flaps track throughput rather than
+    time, check `lifetime-kilobytes` first, because a volume trigger looks
+    exactly like an erratic timer.
+
+  explain:
+    terse: "Time bounds key age. Volume bounds data under one key."
+    explained: >
+      `lifetime-kilobytes` rekeys on volume, so a busy tunnel rekeys far more
+      often than the clock suggests. Setting it matters most with 3DES, whose
+      64-bit block bounds the safe data volume per key more tightly than AES.
+    teaching: >
+      The reason this is `info` and `heuristic` rather than a real finding is
+      honesty about evidence. Whether a time-only lifetime is inadequate depends
+      entirely on throughput, and Fathom does not touch devices, so throughput is
+      not something it can know. Firing `medium` on an assumption about traffic
+      would be a linter guessing, and a linter that guesses gets disabled.
+
+      What the rule is useful for is prompting the question during a build,
+      where the person answering knows roughly how busy the tunnel will be.
+
+      The diagnostic pairing is worth remembering separately from the security
+      argument. A tunnel with `lifetime-kilobytes` set rekeys on a schedule
+      driven by traffic, so its flap interval is irregular in a way that looks
+      like underlay loss until you check the counter. Without knowing the setting
+      is there, that investigation goes the wrong way and a healthy rekey is
+      read as a tunnel that drops under load.
+
+  acceptable_when: >
+    Acceptable on any low-throughput tunnel, and on any AES tunnel where the
+    block size is not the binding constraint — which is most of them. Record the
+    expected throughput when accepting it, because the assumption behind the
+    exception is about traffic rather than about configuration.
+
+  remediation_absent_reason: >
+    A sensible `lifetime-kilobytes` value depends on the tunnel's throughput and
+    on the cipher, and Fathom knows neither. Emitting a default would produce
+    either a value so large it does nothing or one so small it rekeys constantly,
+    and both look authoritative.
+
+  verify:
+    - junos-srx/ipsec.sa.show-vpn-detail
+    - junos-srx/ipsec.statistics.index
+
+  next_if_bad:
+    - explainer: explain:symptom:flap-only-under-load
+  related:
+    - rule: ipsec.proposal.3des
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "LIFETIMES & REKEY" }
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+
+- id: ike.dpd.too-tight
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: low
+  confidence: probable
+  category: operability
+  tags: [phase1, timers, flaps]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkeGateway
+  on_unset: skip
+
+  condition: >
+    has(dpd_interval) && has(dpd_threshold)
+    && dpd_interval * dpd_threshold < 15
+
+  title: "Dead peer detection will declare the peer dead in under 15 seconds"
+
+  why: >
+    Time to declare a peer dead is interval times threshold. Below about fifteen
+    seconds an ordinary underlay hiccup — a reconvergence, a brief queue, a lost
+    pair of probes — is enough to tear down a tunnel that was working.
+
+  symptom_if_mismatched: >
+    Flaps at a clean interval equal to interval times threshold, with no
+    corresponding error in the negotiation. Too tight and a two-second underlay
+    hiccup tears down a healthy tunnel — and you then spend a week debugging
+    self-inflicted flaps.
+
+  explain:
+    terse: "interval x threshold under 15s tears down healthy tunnels."
+    explained: >
+      The trade runs both ways. Too tight and a brief underlay problem becomes a
+      tunnel rebuild; too loose and traffic pours into a dead tunnel. 10 times 3
+      is a reasonable middle, against a Junos default of 10 times 5.
+    teaching: >
+      The reason this is worth a rule rather than a preference is the shape of
+      the evidence it produces. A DPD-driven teardown looks exactly like a
+      protocol failure from the log end: the SA goes away, a new one is
+      negotiated, and the negotiation itself is clean. Nothing says "I gave up
+      waiting".
+
+      The diagnostic that resolves it is arithmetic. If the flap interval equals
+      interval times threshold, DPD is tearing down a healthy tunnel and the
+      cause is loss on the path rather than anything about crypto. Check the
+      replay counter at the same time — a path that reorders enough to trip
+      anti-replay is a path that drops DPD probes, and the two counters are the
+      same story told twice.
+
+      Confidence is `probable` rather than `definite` because a tight setting is
+      correct on a clean private circuit with a hard failover requirement. It is
+      a finding about risk, not about a fault. Without loss on the path a tight
+      setting costs nothing at all, which is precisely why it survives review.
+
+  acceptable_when: >
+    Acceptable on a controlled circuit with a strict failover budget, where fast
+    detection is worth occasional false teardowns and the underlay is known to be
+    clean. Record the failover requirement that justifies it and check the flap
+    history afterwards — if flaps appear at exactly the product, the setting was
+    too tight for this path regardless of the requirement.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security ike gateway {{ name | ident }} dead-peer-detection interval 10 threshold 3"
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+    - junos-srx/ipsec.statistics.index
+
+  next_if_bad:
+    - explainer: explain:symptom:flap-interval-equals-dpd-product
+    - command: junos-srx/interface.wan.errors.show
+  related:
+    - rule: ike.dpd.too-slow
+    - rule: ipsec.vpn-monitor.absent-on-adjacency
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "DEAD PEER DETECTION" }
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+    - { std: "RFC 3706", note: "Traffic-based detection of dead IKE peers" }
+
+- id: ike.dpd.too-slow
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: probable
+  category: operability
+  tags: [phase1, timers, failover]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkeGateway
+    with:
+      vpn: { via: used_by_vpn, reverse: true, card: optional }
+  on_unset: fire
+
+  condition: >
+    (!has(dpd_interval) || !has(dpd_threshold)
+      || dpd_interval * dpd_threshold > 30)
+    && vpn != null
+    && carries_adjacency(vpn)
+
+  title: "Failover on this tunnel waits more than 30 seconds for DPD"
+
+  why: >
+    Time to declare a peer dead is interval times threshold, and the Junos
+    default of 10 times 5 is 50 seconds of blackhole before failover even starts.
+    On a tunnel carrying a routing adjacency, that is 50 seconds of traffic sent
+    into a peer that is already gone.
+
+  symptom_if_mismatched: >
+    A failover that takes far longer than the routing protocol's own timers
+    suggest, with traffic blackholing for the whole of it. Nothing appears
+    broken during the window — the SA still exists, st0 is still up, and the
+    route is still installed.
+
+  explain:
+    terse: "10 x 5 is 50s of blackhole before failover begins."
+    explained: >
+      Set `dead-peer-detection always-send interval 10 threshold 3` for anything
+      that must fail over. `always-send` probes every interval regardless, which
+      is what a backup you need to trust requires — `optimized`, the default,
+      probes only when we are sending and hearing nothing back.
+    teaching: >
+      Two things have to be right for a routed tunnel to fail over, and DPD is
+      only one of them. DPD decides the peer is gone and tears the SA down;
+      `vpn-monitor` decides the path through the tunnel is dead and takes st0
+      with it. Without the second, a route out st0 stays good while traffic
+      blackholes, because st0 has no wire to lose.
+
+      The default is slow in a way people do not expect because they do not do
+      the multiplication. Fifty seconds is longer than most routing protocols'
+      own dead intervals, so the adjacency you were relying on to fail over is
+      itself waiting on a tunnel that has not been declared dead yet.
+
+      The other half of the default worth changing is the mode. `optimized`
+      probes only when we are sending and hearing nothing back, which means an
+      idle backup tunnel is never probed at all and its state is unknown until
+      the moment you need it.
+
+  acceptable_when: >
+    Acceptable on a tunnel that carries no adjacency and no failover
+    requirement, where a minute of blackhole costs nothing — an out-of-band
+    management tunnel, for instance. Record the absence of a failover
+    requirement, because the assumption stops being true the first time somebody
+    routes production traffic over it.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security ike gateway {{ name | ident }} dead-peer-detection always-send interval 10 threshold 3"
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+    - junos-srx/interface.st0.terse
+
+  next_if_bad:
+    - rule: ipsec.vpn-monitor.absent-on-adjacency
+  related:
+    - rule: ike.dpd.too-tight
+    - rule: ipsec.establish-tunnels.both-passive
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "DEAD PEER DETECTION" }
+    - { card: "srx-ipsec", side: 3, block: "FAKE FLAPS" }
+
+# -----------------------------------------------------------------------------
+# IDENTITY, NAT AND CERTIFICATES — side 2
+# -----------------------------------------------------------------------------
+
+- id: ike.identity.mismatch
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: high
+  confidence: definite
+  category: correctness
+  tags: [phase1, identity, peer-required, most-misdiagnosed]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkeGateway
+    with:
+      peer: { via: peer_gateway, card: one }
+    canonical: peer
+  requires: [peer_config]
+  on_unset: skip
+
+  condition: >
+    (has(local_identity) || has(peer.remote_identity))
+    && local_identity != peer.remote_identity
+
+  title: "This end's local identity is not what the peer expects"
+
+  why: >
+    The identities are compared as values, not resolved as names. A local
+    identity that does not equal the peer's configured remote identity fails
+    authentication every time, with no relationship to whether the pre-shared
+    key or certificate is correct.
+
+  symptom_if_mismatched: >
+    A mismatch reads as `peer's IKE-ID validation failed` or a bare
+    AUTHENTICATION_FAILED — easily misread as a wrong pre-shared key. Check
+    identity before you re-type the PSK. Phase 1 never completes, so there is no
+    Phase 2 to look at and every Phase 2 parameter is irrelevant.
+
+  explain:
+    terse: "local-identity here must equal remote-identity there, exactly."
+    explained: >
+      Compare the two strings byte for byte. An FQDN identity is the literal
+      string the peer sends, not an address that resolves to the same host, and
+      an `inet` identity behind NAT is the address you configured rather than the
+      one the peer observes.
+    teaching: >
+      This is the most misdiagnosed failure in IPsec and the reason is that the
+      error names the wrong thing. AUTHENTICATION_FAILED covers four causes: the
+      pre-shared key, the certificate chain, clock skew, and identity. Only one
+      of those is expensive to change and it is the one everybody changes first.
+
+      Rule the cheap ones out in order. Identity is visible in `show security ike
+      security-associations detail` on both ends and takes ten seconds to
+      compare. Clock skew takes one command. Then, and only then, consider the
+      key.
+
+      The case that produces it most often is NAT. Your outer source address is
+      rewritten in flight, the peer's `remote-identity` was set to the address it
+      expected to see, and the two no longer agree even though nothing about the
+      key changed. Without an explicit `local-identity`, the value this box
+      presents is decided by a device neither end controls.
+
+  acceptable_when: >
+    Never as a steady state — authentication cannot succeed. It is acceptable
+    transiently inside a coordinated identity change where one end has moved and
+    the other follows in the same window. Record the agreed identity strings for
+    both ends in the ticket, because they are compared literally and a
+    transcription error looks identical to a policy disagreement.
+
+  remediation_absent_reason: >
+    Two values disagree and Fathom cannot know which is intended. Changing this
+    end to match the peer is as likely to be wrong as changing the peer, and an
+    identity is frequently constrained by something outside the tunnel — a
+    certificate subject, a NAT design, a naming standard. The finding prints both
+    values and the engineer decides.
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+    - junos-srx/log.kmd.match-peer
+
+  next_if_bad:
+    - explainer: explain:error:junos-srx/IKE-ID-VALIDATION-FAILED
+    - command: junos-srx/log.kmd.match-peer
+  related:
+    - rule: ike.identity.required-behind-nat
+    - rule: ike.auth.certificates-without-ntp
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "PEER IDENTITY" }
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { std: "RFC 7296", section: "1.2", note: "IDi and IDr are asserted in IKE_AUTH" }
+
+- id: ike.identity.required-behind-nat
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: probable
+  category: correctness
+  tags: [phase1, identity, nat]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkeGateway
+  requires: [runtime_output]
+  on_unset: pending
+
+  condition: >
+    nat_detected && (known_absent(local_identity) || !has(local_identity))
+
+  title: "NAT is in path and no explicit local identity is configured"
+
+  why: >
+    Behind NAT the source address the peer observes is not the address this box
+    holds. With no explicit identity, what this end presents and what the peer
+    expects are two different values determined by a device neither of you
+    controls.
+
+  symptom_if_mismatched: >
+    AUTHENTICATION_FAILED or `peer's IKE-ID validation failed`, appearing the
+    first time the translation changes rather than at build time — so the tunnel
+    works for months and then fails after a carrier change with no local
+    configuration having moved.
+
+  explain:
+    terse: "Behind NAT, set local-identity so it stops depending on the path."
+    explained: >
+      Set `local-identity inet <address>` or an FQDN, and have the peer set the
+      matching `remote-identity`. `nat-keepalive` keeps the translation alive;
+      the identity statement is what stops the translation deciding who you are.
+    teaching: >
+      NAT traversal is detected during Phase 1 and both peers move to UDP 4500,
+      wrapping ESP in UDP. That part is automatic and needs no configuration.
+      What is not automatic is identity: by default an IKE peer identifies itself
+      by its address, and behind translation that address is not what arrives.
+
+      The tell that NAT is present at all is the remote port in `show security
+      ike security-associations detail` — 4500 means NAT-T is active. A peer
+      address that does not match the source you actually see also means NAT in
+      path, and that discrepancy is precisely the thing that breaks an
+      address-based identity.
+
+      Confidence is `probable` because a peer configured to accept whatever
+      identity arrives will work without this, and some do. What that leaves is a
+      tunnel whose authentication depends on a device outside your change
+      control, which is a fragility rather than a fault.
+
+  acceptable_when: >
+    Acceptable where the peer authenticates by certificate subject or accepts any
+    identity, and where the translation is static and under the same
+    organisation's control. Record who owns the translating device and what
+    happens to the tunnel if its configuration changes, because that is the risk
+    being accepted.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security ike gateway {{ name | ident }} local-identity inet {{ local_wan_address | ip }}"
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+    - junos-srx/log.kmd.match-peer
+
+  next_if_bad:
+    - rule: ike.identity.mismatch
+    - rule: ike.nat-keepalive.longer-than-nat-idle
+  related:
+    - rule: ipsec.proposal.ah-used
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "PEER IDENTITY" }
+    - { card: "srx-ipsec", side: 2, block: "NAT TRAVERSAL" }
+    - { std: "RFC 7296", section: "2.23", note: "NAT traversal detection and the move to UDP 4500" }
+
+- id: ike.nat-keepalive.longer-than-nat-idle
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: heuristic
+  category: operability
+  tags: [phase1, nat-t, timers]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkeGateway
+  requires: [runtime_output, transit_config]
+  on_unset: pending
+
+  condition: >
+    nat_detected
+    && (!has(nat_keepalive) || nat_keepalive >= nat_device_udp_idle_timeout)
+
+  title: "The NAT keepalive is not shorter than the translation's idle timer"
+
+  why: >
+    The UDP 4500 mapping lives in a device you probably do not control and it
+    expires on idle. If the keepalive does not refresh it faster than the timer
+    reaps it, the mapping dies during a quiet period and return traffic has
+    nowhere to arrive.
+
+  symptom_if_mismatched: >
+    Works, then stops after N minutes of quiet. The tunnel goes one-way until
+    the next rekey and then recovers on its own, which makes it read as
+    intermittent rather than deterministic — and it correlates with idleness
+    rather than with load, so every throughput and MTU theory is wrong.
+
+  explain:
+    terse: "Mapping dies on idle. Tunnel goes one-way until the next rekey."
+    explained: >
+      Set `nat-keepalive` shorter than the translating device's UDP idle timeout.
+      Twenty seconds is a common value against timers in the low minutes. Confirm
+      NAT-T is actually active first — remote port 4500 in the Phase 1 SA detail.
+    teaching: >
+      ESP is IP protocol 50 with no ports, so a device doing port translation
+      cannot track it. IKE detects that during Phase 1 and both peers move to UDP
+      4500, wrapping ESP in UDP at a cost of 8 bytes. That UDP flow is now a
+      state entry in somebody else's box, with somebody else's idle timer.
+
+      The symptom is one of the most distinctive on the card and one of the least
+      often attributed correctly on the first day. Note the N. A tunnel that dies
+      after a consistent quiet interval and recovers at the next rekey is a NAT
+      idle timer, not a crypto problem and not a firewall policy.
+
+      Without a keepalive short enough to beat it, the mapping is torn down by
+      the translating device and return traffic is dropped in silence.
+      Confidence is `heuristic` because the timer being compared against lives on
+      a device Fathom cannot see. Without `transit_config` evidence the rule sits
+      in the pending band rather than firing, which is the honest behaviour: it
+      is a question to ask, not a fault to assert.
+
+  acceptable_when: >
+    Acceptable when the translating device's idle timeout is known and is
+    comfortably longer than the keepalive, or when the tunnel is never idle long
+    enough for the mapping to expire. Record the observed idle timeout and who
+    owns the device, because that value is the entire basis of the exception and
+    it changes without telling you.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security ike gateway {{ name | ident }} nat-keepalive {{ suggested_keepalive | int }}"
+
+  verify:
+    - junos-srx/ike.sa.show-detail
+    - junos-srx/ipsec.statistics.index
+
+  next_if_bad:
+    - explainer: explain:symptom:works-then-stops-after-quiet
+    - command: junos-srx/ipsec.statistics.index
+  related:
+    - rule: ike.identity.required-behind-nat
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "NAT TRAVERSAL" }
+    - { std: "RFC 3948", note: "UDP encapsulation of ESP; keepalive packets on port 4500" }
+
+- id: ike.auth.certificates-without-ntp
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: definite
+  category: correctness
+  tags: [phase1, certificates, clock, most-misdiagnosed]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IkeGateway
+    with:
+      proposal: { via: [ike_policy, ike_proposal], card: one }
+      device:   { via: parent_device, card: one }
+  on_unset: fire
+
+  condition: >
+    enum_is(proposal.authentication_method, "rsa_signatures")
+    && (known_absent(device.ntp_servers) || device.ntp_servers.count() == 0)
+
+  title: "Certificate authentication with no time source configured"
+
+  why: >
+    Certificate validation is a comparison against the clock. A box with no time
+    source drifts, and a drifted clock rejects certificates that are perfectly
+    valid — or accepts ones that are not.
+
+  symptom_if_mismatched: >
+    Clock skew kills certificates. The failure reads as AUTHENTICATION_FAILED,
+    which is the same string a wrong pre-shared key produces, so the
+    investigation goes to the credential and then to the certificate authority
+    before anybody looks at the date. Check NTP before re-issuing anything.
+
+  explain:
+    terse: "Clock skew kills certificates. Check NTP before re-issuing."
+    explained: >
+      Configure at least one NTP server on any box doing certificate
+      authentication. The failure mode is not gradual — a certificate is valid or
+      it is not, so a box that drifts past a notBefore or notAfter boundary goes
+      from working to broken with no warning.
+    teaching: >
+      This rule exists because of the cost of the wrong diagnosis rather than the
+      difficulty of the right one. AUTHENTICATION_FAILED sends you to the
+      credential. With certificates, the credential is a chain, and chasing a
+      chain means involving a certificate authority, a re-issue, and probably
+      another team — hours of work, at the end of which the new certificate fails
+      exactly like the old one because the clock is still wrong.
+
+      Check the date first. It is one command and it eliminates a whole
+      investigation, and without it a re-issued certificate fails exactly like
+      the one it replaced.
+
+      The trap that makes drift particularly nasty is that it is silent until it
+      crosses a boundary. A box drifting by a few minutes a week works fine for
+      months and then rejects a freshly issued certificate whose notBefore is
+      later than the box believes now to be — which reads as a bad certificate
+      rather than a bad clock, because the certificate is the thing that most
+      recently changed.
+
+  acceptable_when: >
+    Acceptable where the clock is disciplined by another mechanism the graph does
+    not model, or on an air-gapped box with a manually set and monitored clock.
+    Record what keeps the time correct and how anybody would notice it drifting,
+    because an unmonitored manual clock is the same risk with a longer fuse.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set system ntp server {{ suggested_ntp_server | ip }}"
+
+  verify:
+    - junos-srx/system.uptime.show
+    - junos-srx/log.kmd.match-peer
+
+  next_if_bad:
+    - explainer: explain:error:junos-srx/AUTHENTICATION_FAILED
+  related:
+    - rule: ike.identity.mismatch
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+
+- id: ipsec.vpn-monitor.absent-on-adjacency
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: definite
+  category: operability
+  tags: [phase2, failover, day-two]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecVpn
+    with:
+      bind_unit: { via: bind_interface, card: optional }
+  on_unset: fire
+
+  condition: >
+    bind_unit != null
+    && carries_adjacency(self)
+    && (known_absent(vpn_monitor) || !has(vpn_monitor))
+
+  title: "A tunnel carrying routed traffic has no through-tunnel monitor"
+
+  why: >
+    A secure tunnel unit has no wire, so it stays up as long as an SA exists.
+    Without `vpn-monitor` a route out st0 stays good while traffic blackholes,
+    and nothing in the routing table has any reason to withdraw it.
+
+  symptom_if_mismatched: >
+    Traffic disappears into a tunnel that every command reports as healthy. The
+    SA is Installed, st0 reads up, the route is present and preferred, and no
+    failover happens because nothing has told the routing table that anything is
+    wrong.
+
+  explain:
+    terse: "No monitor — st0 stays up and the route stays preferred."
+    explained: >
+      `vpn-monitor` pings through the tunnel and tears the SA down on failure,
+      taking st0 with it, which is what lets a route or adjacency over st0 fail
+      over. The probe target must answer ICMP from inside the traffic selector.
+    teaching: >
+      DPD and vpn-monitor answer different questions and one does not substitute
+      for the other. DPD rides the outer IKE session on UDP 500 or 4500 and tells
+      you the peer's control plane is alive. vpn-monitor sends traffic through
+      the tunnel and tells you the data path works. A peer whose IKE process is
+      healthy while its forwarding is broken satisfies the first and fails the
+      second, and that is a real and common state.
+
+      Two ways to get this wrong when enabling it, both of which flap a healthy
+      tunnel continuously. A probe target that does not answer ICMP looks
+      identical to a dead tunnel. A probe target outside the traffic selector
+      never enters the tunnel at all, so it fails whether the tunnel works or
+      not.
+
+      Pair it with `establish-tunnels immediately`. A monitored tunnel that is
+      also waiting for first traffic before it negotiates has two independent
+      reasons to be down and no way to distinguish them.
+
+  acceptable_when: >
+    Acceptable where the routed traffic has no alternative path, so failover is
+    not available and taking st0 down converts a partial outage into a total one.
+    Also acceptable where an external monitoring system already probes end to end
+    and drives the failover. Record which, because "no monitor" and "monitored
+    elsewhere" look identical in the configuration.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security ipsec vpn {{ name | ident }} vpn-monitor source-interface {{ lan_unit.name | ident }} destination-ip {{ probe_target | ip }}"
+
+  rollback:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "delete security ipsec vpn {{ name | ident }} vpn-monitor"
+
+  verify:
+    - junos-srx/interface.st0.terse
+    - junos-srx/ipsec.sa.show-vpn-detail
+
+  next_if_bad:
+    - command: junos-srx/interface.st0.terse
+    - rule: ike.dpd.too-slow
+  related:
+    - rule: ipsec.establish-tunnels.both-passive
+    - rule: route.remote-prefix.no-next-hop-st0
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "FAKE FLAPS" }
+    - { card: "srx-ipsec", side: 2, block: "DEAD PEER DETECTION" }
+
+# -----------------------------------------------------------------------------
+# MTU — side 4
+# -----------------------------------------------------------------------------
+
+- id: mtu.mss-clamp.absent
+  rule_version: 1.2.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: probable
+  category: operability
+  tags: [mtu, phase2, day-two]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: Device
+    where: "has_ipsec_vpn"
+    with:
+      flow: { via: flow_settings, card: optional }
+  on_unset: pending
+
+  condition: >
+    flow == null
+    || (!has(flow.tcp_mss_ipsec_vpn) && !has(flow.tcp_mss_all_tcp))
+
+  title: "No TCP MSS clamp for tunnel traffic"
+
+  why: >
+    IPsec adds roughly 50 to 70 bytes of headers, so a full-size packet entering
+    the tunnel must fragment, and firewalls along the path routinely drop
+    fragments. Without an MSS clamp the TCP endpoints never learn to send smaller
+    segments, because the ICMP that would tell them is filtered somewhere.
+
+  symptom_if_mismatched: >
+    Ping works. SSH connects. Then `ls` hangs, or a transfer stalls at 0%. Small
+    packets fit and full-size ones vanish. Handshake fine, data stalls is MTU
+    until proven otherwise — and it is routinely misdiagnosed as a crypto or
+    performance problem because the tunnel is up and the counters move.
+
+  explain:
+    terse: "No tcp-mss clamp — full-size packets will vanish in the tunnel."
+    explained: >
+      `set security flow tcp-mss ipsec-vpn mss 1360` rewrites the MSS in the TCP
+      handshake so both ends agree to smaller segments up front. It is surgical,
+      it prevents fragmentation before it starts, and it does not depend on ICMP
+      getting through. It is TCP-only and does nothing for UDP.
+    teaching: >
+      There are three fixes and they are not equivalent. MSS clamping rewrites
+      the TCP handshake so both ends agree to smaller segments up front —
+      surgical, prevents fragmentation before it starts, needs no ICMP, and does
+      nothing for UDP. Lowering the tunnel MTU is universal and covers UDP, but
+      the box now fragments before encryption, which costs CPU and produces
+      fragments that can still be dropped downstream. Clearing the DF bit lets
+      the network fragment the encrypted packet rather than drop it — the rescue
+      when you control neither endpoint nor the far side, at the cost of
+      reassembly at the peer.
+
+      Path MTU Discovery is supposed to make all of this unnecessary: the sender
+      sets DF, an oversized packet triggers an ICMP fragmentation-needed back,
+      and the sender shrinks. It breaks constantly, because that ICMP is filtered
+      somewhere. The sender never learns, and big packets disappear in silence.
+      That is exactly why MSS clamping exists.
+
+      Rule of thumb: MSS equals tunnel MTU minus 40 for the IP and TCP headers. A
+      1400 MTU clamps to 1360, and many shops use 1350 for margin. Prefer
+      `tcp-mss ipsec-vpn`, which clamps only tunnel traffic, over `tcp-mss
+      all-tcp`, which hits everything through the box — a far bigger blast radius
+      than most people intend.
+
+  acceptable_when: >
+    Acceptable when the path MTU is known to be a full 1500 end to end and the
+    tunnel MTU has been raised to match, which is realistic only on a private
+    circuit you control. Also acceptable when the clamp is applied upstream on a
+    router or load balancer rather than on this device — record where.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security flow tcp-mss ipsec-vpn mss {{ suggested_mss | int }}"
+
+  rollback:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "delete security flow tcp-mss ipsec-vpn"
+
+  verify:
+    - junos-srx/interface.st0.mtu.show
+    - junos-srx/mtu.ping.df-sourced
+
+  next_if_bad:
+    - rule: mtu.st0.unset
+    - rule: mtu.df-bit.set-on-tunnel
+  related:
+    - rule: mtu.mss-clamp.all-tcp-used
+
+  sources:
+    - { std: "RFC 1191", note: "Path MTU Discovery; ICMP fragmentation needed is Type 3 Code 4" }
+    - { std: "RFC 2923", section: "2.1", note: "TCP problems with Path MTU Discovery — the black-hole case" }
+    - { card: "srx-ipsec", side: 4, block: "THREE FIXES — KNOW THE DIFFERENCE" }
+
+- id: mtu.mss-clamp.all-tcp-used
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: low
+  confidence: definite
+  category: operability
+  tags: [mtu, blast-radius, day-two]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: Device
+    with:
+      flow: { via: flow_settings, card: one }
+  on_unset: skip
+
+  condition: "has(flow.tcp_mss_all_tcp) && !has(flow.tcp_mss_ipsec_vpn)"
+
+  title: "The MSS clamp is applied to all TCP rather than to tunnel traffic"
+
+  why: >
+    `all-tcp` hits everything through the box, not only the traffic that needed
+    it. Every internet session, every internal server session and every
+    management session gets smaller segments, which costs throughput on paths
+    that had no MTU problem.
+
+  symptom_if_mismatched: >
+    A performance complaint months later with no visible cause, because the
+    change was made for a VPN problem and the effect landed everywhere. The
+    correlation is findable in the commit history and nowhere else.
+
+  explain:
+    terse: "all-tcp is a far bigger blast radius than most people intend."
+    explained: >
+      Replace with `tcp-mss ipsec-vpn mss <value>`, which clamps only tunnel
+      traffic — the clean fix. Keep `all-tcp` only where a deliberate box-wide
+      cap is the intent and somebody has written down why.
+    teaching: >
+      This is a `low` finding because nothing is broken, and it is worth having
+      because of how it arrives and how long it survives. It is set during an
+      incident, because it is one line and it works, and then nobody narrows it
+      because the incident is over and the tunnel is fine.
+
+      The cost is invisible from the tunnel's point of view and shows up
+      somewhere else entirely: a backup that takes longer, a file server that
+      feels slow, a throughput figure nobody can explain. The commit history is
+      the only place the two are connected. If the newest commit lines up with
+      when things got slower, you have your answer — correlate before you
+      theorise.
+
+      If `all-tcp` is genuinely wanted, the honest configuration has both: the
+      `ipsec-vpn` clamp for the tunnel at its own value, and `all-tcp` at a
+      deliberately chosen box-wide value, so a reader can tell the two decisions
+      apart. Without that split, nothing in the configuration records which
+      sessions were meant to be capped and throughput drops where nobody asked.
+
+  acceptable_when: >
+    Acceptable where a box-wide clamp is deliberate — an edge device whose every
+    path is known to be under 1500, for instance. Record the intent next to the
+    statement, because a clamp set during an incident and a clamp set by design
+    are the same line of configuration and only one of them should survive.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security flow tcp-mss ipsec-vpn mss {{ suggested_mss | int }}"
+        - risk: ChangesConfig
+          order: 20
+          text: "delete security flow tcp-mss all-tcp"
+
+  rollback:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security flow tcp-mss all-tcp mss {{ previous_all_tcp_mss | int }}"
+
+  verify:
+    - junos-srx/flow.status.show
+    - junos-srx/mtu.ping.df-sourced
+
+  next_if_bad:
+    - command: junos-srx/system.commit.show
+  related:
+    - rule: mtu.mss-clamp.absent
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "WHERE TO SET IT" }
+    - { card: "srx-ipsec", side: 4, block: "BOX-LEVEL CONTEXT" }
+
+- id: mtu.st0.unset
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: low
+  confidence: probable
+  category: operability
+  tags: [mtu, plumbing, day-two]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: LogicalUnit
+    where: "matches(name, /^st0\\.[0-9]+$/)"
+    with:
+      vpn: { via: bind_interface, reverse: true, card: optional }
+  on_unset: pending
+
+  condition: "vpn != null && (known_absent(mtu) || !has(mtu))"
+
+  title: "The tunnel interface has no explicit MTU"
+
+  why: >
+    An st0 unit with no MTU statement inherits a default that is almost certainly
+    larger than the encrypted path can carry. Every full-size packet then
+    fragments or is dropped, and nothing about the configuration says so.
+
+  symptom_if_mismatched: >
+    UDP traffic that stalls where TCP does not, because an MSS clamp rescues TCP
+    and nothing rescues UDP. Handshake fine and data stalled is MTU until proven
+    otherwise, and where the affected application is UDP the clamp will look like
+    it is not working.
+
+  explain:
+    terse: "No MTU on st0 — UDP has nothing protecting it."
+    explained: >
+      Set `family inet mtu 1400` on the unit, or a value measured with a sized
+      do-not-fragment ping sourced from inside the traffic selector. This is the
+      only one of the three fixes that covers UDP.
+    teaching: >
+      The reason this is separate from the MSS clamp rule is protocol coverage.
+      A clamp rewrites the TCP handshake and does nothing for UDP, so an estate
+      with a clamp and no tunnel MTU works for everything except the traffic that
+      does not negotiate segment sizes — DNS, some voice, some tunnelled
+      protocols, anything using QUIC.
+
+      The arithmetic behind 1400 is worth knowing rather than copying. IPsec adds
+      a 20-byte outer IP header, an 8-byte ESP header, 8 to 16 of IV, 2 to 255 of
+      pad and trailer, 12 to 16 of ICV, and another 8 if NAT-T is active.
+      Roughly 50 to 70 bytes, cipher-dependent. From 1500 that leaves about 1430,
+      and 1400 is that with headroom. Those figures are the card's own and it
+      marks them approximate.
+
+      Without an explicit MTU, oversized UDP datagrams are fragmented or dropped
+      and the application stalls with no error anywhere. Confidence is
+      `probable` because whether the default MTU is a problem depends on the
+      path, which no configuration records.
+
+  acceptable_when: >
+    Acceptable where the underlay carries jumbo frames or the path MTU is known
+    to leave headroom above 1500 for the encapsulation, and where somebody has
+    measured it rather than assumed it. Record the measurement and the date,
+    because a path that had headroom last year may not have it after a carrier
+    change.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set interfaces {{ parent_interface.name | ident }} unit {{ unit_number | int }} family inet mtu 1400"
+
+  rollback:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "delete interfaces {{ parent_interface.name | ident }} unit {{ unit_number | int }} family inet mtu"
+
+  verify:
+    - junos-srx/interface.st0.mtu.show
+    - junos-srx/mtu.ping.df-sourced
+
+  next_if_bad:
+    - command: junos-srx/mtu.ping.df-sourced
+    - rule: mtu.df-bit.set-on-tunnel
+  related:
+    - rule: mtu.mss-clamp.absent
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "OVERHEAD BUDGET" }
+    - { card: "srx-ipsec", side: 4, block: "WHERE TO SET IT" }
+  sources_note: >
+    Overhead figures are the card's own and are marked approximate there:
+    "OVERHEAD FIGURES APPROXIMATE — CIPHER-DEPENDENT". Reproduced with that
+    qualification intact rather than presented as exact.
+
+- id: mtu.df-bit.set-on-tunnel
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: low
+  confidence: definite
+  category: operability
+  tags: [mtu, fragmentation, day-two]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: IpsecVpn
+  on_unset: skip
+
+  condition: "enum_is(df_bit, \"set\")"
+
+  title: "The tunnel forces the DF bit on in the outer header"
+
+  why: >
+    `df-bit set` forces DF on regardless of the inner packet, so no device in the
+    path may fragment the encrypted packet. Anything over the path MTU is
+    dropped, and the ICMP that would say so is filtered on most real paths.
+
+  symptom_if_mismatched: >
+    Full-size packets disappear in silence and small ones do not. Identical in
+    every respect to the missing-clamp symptom, which means an engineer who has
+    already added a clamp and is still seeing stalls will not think to look here.
+
+  explain:
+    terse: "set forces DF on. copy is the default; clear is the valve."
+    explained: >
+      `copy` copies the inner DF and is the default. `clear` clears DF so the
+      network may fragment rather than drop. `set` forces DF on, which removes
+      the last remaining escape route when a packet is too large for the path.
+    teaching: >
+      There is a legitimate reason to force DF: it makes Path MTU Discovery work
+      end to end, which is the correct behaviour in a network where the ICMP gets
+      through. The rule fires anyway because that network is rare, and the
+      failure when the assumption is wrong is silent.
+
+      Path MTU Discovery lets endpoints learn the smallest hop by sending DF-set
+      packets, and an oversized one should trigger an ICMP fragmentation needed —
+      Type 3 Code 4 — back to the sender. It breaks constantly because that ICMP
+      is filtered somewhere. The sender never learns to shrink, and big packets
+      disappear in silence. That is exactly why MSS clamping exists: it does not
+      depend on ICMP getting through.
+
+      If DF is being forced deliberately, verify that the ICMP actually returns
+      before relying on it. If it does not, the tunnel is depending on a
+      mechanism that is not working and nobody will notice until a large transfer
+      stalls.
+
+  acceptable_when: >
+    Acceptable where Path MTU Discovery has been verified to work end to end on
+    this specific path, and where forcing DF is a deliberate choice to avoid
+    fragmentation cost. Record the verification and how it was done — an
+    unverified assumption that ICMP returns is the whole failure mode here.
+
+  remediation:
+    patch:
+      - op: set
+        target: self
+        field: df_bit
+        value: { enum: copy }
+
+  rollback:
+    patch:
+      - op: set
+        target: self
+        field: df_bit
+        value: { enum: set }
+
+  verify:
+    - junos-srx/mtu.ping.df-sourced
+    - junos-srx/interface.st0.mtu.show
+
+  next_if_bad:
+    - rule: mtu.mss-clamp.absent
+    - command: junos-srx/mtu.ping.df-sourced
+  related:
+    - rule: mtu.st0.unset
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "THREE FIXES — KNOW THE DIFFERENCE" }
+    - { card: "srx-ipsec", side: 4, block: "PMTUD & THE DF BIT" }
+    - { std: "RFC 1191", note: "Path MTU Discovery" }
+
+# -----------------------------------------------------------------------------
+# TRACEOPTIONS — side 3, "ALWAYS clean up"
+# -----------------------------------------------------------------------------
+
+- id: ike.traceoptions.left-enabled
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: low
+  confidence: definite
+  category: hygiene
+  tags: [tracing, cleanup, day-two]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: Device
+  on_unset: skip
+
+  condition: "has(ike_traceoptions) || has(ipsec_traceoptions)"
+
+  title: "Traceoptions are still enabled on this device"
+
+  why: >
+    Traceoptions left on will fill `/var`, which breaks logging and commits both.
+    The box then stops being able to tell you what is wrong at exactly the moment
+    you need it to, and stops being able to accept the fix.
+
+  symptom_if_mismatched: >
+    Weeks later, and looking unrelated: log files stop being written, commits
+    start failing for no visible reason, and nobody connects either to a trace
+    somebody left on during an incident three Fridays ago. `show system storage`
+    is the command that names it.
+
+  explain:
+    terse: "Left on, they fill /var. That breaks logging and commits both."
+    explained: >
+      `delete security ike traceoptions` and `delete security ipsec
+      traceoptions`, then `commit`. They are two hierarchies and deleting one
+      does not delete the other. A delete without a commit changes nothing at
+      all.
+    teaching: >
+      The teardown is part of the procedure, not a tidy-up. Turn tracing on,
+      reproduce the failure, read the file, delete it, commit — and write both
+      halves into the change ticket before running the first one, because the
+      second half happens under time pressure at the end of an incident when
+      everybody wants to go home.
+
+      The asymmetric-cleanup case is the one that actually bites. You remember
+      the IKE traceoptions because you read that file. You do not remember the
+      IPsec ones because you did not. Make `show configuration security | match
+      traceoptions` part of the cleanup rather than trusting your memory of what
+      you turned on.
+
+      Without the deletion, the consequence is deferred and appears in a form
+      that gives no hint of its cause. That delay is why this is a rule rather
+      than a note: nobody who is going to make this mistake is thinking about
+      `/var` at the time.
+
+  acceptable_when: >
+    Acceptable while an investigation is actually running — tracing you turned on
+    an hour ago is doing its job. Suppress it with the incident reference and an
+    expected removal date rather than waiving it, so the suppression itself is
+    the reminder. A suppression with no date on this rule is the failure mode
+    wearing a different hat.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "delete security ike traceoptions"
+        - risk: ChangesConfig
+          order: 20
+          text: "delete security ipsec traceoptions"
+
+  verify:
+    - junos-srx/system.storage.show
+
+  next_if_bad:
+    - command: junos-srx/system.storage.show
+  related:
+    - rule: ike.traceoptions.no-file
+    - rule: ike.traceoptions.flag-all
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "LOGS & TRACEOPTIONS" }
+    - { card: "srx-ipsec", side: 4, block: "BOX-LEVEL CONTEXT" }
+
+- id: ike.traceoptions.no-file
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: low
+  confidence: definite
+  category: hygiene
+  tags: [tracing, day-two]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: Device
+  on_unset: skip
+
+  condition: >
+    has(ike_traceoptions)
+    && (known_absent(ike_traceoptions_file) || !has(ike_traceoptions_file))
+
+  title: "IKE tracing is enabled with no file, so it lands in kmd"
+
+  why: >
+    Without a `file` statement IKE tracing lands in `kmd`, interleaved with every
+    other daemon's output. The trace you turned on to answer a question is then
+    mixed into the log you were already unable to read.
+
+  symptom_if_mismatched: >
+    You turn on tracing, reproduce the failure, and cannot find the output —
+    because it is in `kmd` among everything else, with no `ike-trace` file to
+    read. Time is lost to the tooling rather than to the problem.
+
+  explain:
+    terse: "No file statement — the trace goes to kmd and gets buried."
+    explained: >
+      `set security ike traceoptions file ike-trace size 5m files 5` gives the
+      trace its own file with a bounded size and a rotation count. The size and
+      file count are also what stop it filling `/var` before you get back to it.
+    teaching: >
+      The `size` and `files` arguments matter as much as the filename and are the
+      part people leave off. A trace with no bound grows until the filesystem
+      does not, and a full `/var` breaks logging and commits both — so the
+      failure of an unbounded trace is the same failure as forgetting to delete
+      it, arriving faster.
+
+      Five megabytes across five files is a reasonable default for an
+      investigation you intend to finish today. If the event you are waiting for
+      is rare, raise the count rather than the size, so an old rotation still
+      exists when it finally happens.
+
+      Without a dedicated file, the alternative is reading `kmd` filtered by peer
+      address, which is a perfectly good technique and is what the verify ladder
+      recommends first. If that is what you are going to do anyway, do not turn
+      tracing on at all.
+
+  acceptable_when: >
+    Acceptable when the intent is genuinely to enrich `kmd` rather than to
+    produce a separate capture, and the tracing will be removed in the same
+    change window. Record the removal in the ticket, because unbounded tracing
+    into a shared log is the harder of the two cleanup failures to notice.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security ike traceoptions file ike-trace size 5m files 5"
+
+  verify:
+    - junos-srx/log.iketrace.show
+    - junos-srx/system.storage.show
+
+  next_if_bad:
+    - command: junos-srx/system.storage.show
+  related:
+    - rule: ike.traceoptions.left-enabled
+    - rule: ike.traceoptions.flag-all
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "LOGS & TRACEOPTIONS" }
+
+- id: ike.traceoptions.flag-all
+  rule_version: 1.0.0
+  status: active
+  reviewed_by: "<named reviewer>"
+  reviewed_on: 2026-07-28
+
+  severity: medium
+  confidence: definite
+  category: hygiene
+  tags: [tracing, performance, day-two]
+
+  platforms: [junos-srx]
+  versions: "*"
+  applies_to:
+    kind: Device
+  on_unset: skip
+
+  condition: >
+    has(ike_traceoptions_flags)
+    && ike_traceoptions_flags.exists(f, enum_is(f, "all"))
+
+  title: "Tracing is set to flag all"
+
+  why: >
+    `flag all` buries the signal and loads the routing engine. The volume makes
+    the answer harder to find, and producing it costs control-plane cycles on a
+    box that is usually already under pressure when somebody turns tracing on.
+
+  symptom_if_mismatched: >
+    Routing engine utilisation rises while you are watching it, so the load you
+    are measuring includes the cost of your own measurement. `/var` fills faster
+    than `size` and `files` suggest, and the event you wanted is somewhere in a
+    file nobody can grep usefully.
+
+  explain:
+    terse: "flag all buries the signal and loads the RE. Use flag ike."
+    explained: >
+      Replace with `flag ike` for Phase 1, or `flag security-associations` under
+      the IPsec hierarchy for Phase 2. One flag, chosen for the phase you are
+      investigating, is what makes the output readable.
+    teaching: >
+      Tracing is a sampling decision and `flag all` is a refusal to make it. It
+      is the instinctive choice under pressure, which is exactly when its costs
+      land hardest.
+
+      The cost is not only disk. The routing engine formats and writes every one
+      of those lines while also running the control plane, so a box already
+      struggling during an incident struggles more, and the CPU figure you then
+      read from `show chassis routing-engine` includes your own tracing. That is
+      a genuinely confusing state to diagnose from.
+
+      This is `medium` rather than `low` because it has an operational effect on
+      a box in trouble, where the other two traceoptions findings only cost time
+      and disk. Decide what you are looking for, trace that, and if it is not
+      there, change the flag rather than adding one. Without a narrowed flag,
+      `/var` fills faster than the size and file bounds suggest and commits
+      start failing.
+
+  acceptable_when: >
+    Acceptable on a lab box with no production traffic, and briefly on a
+    production box when the phase in which a failure occurs is genuinely unknown
+    and a narrower flag has already been tried. Record how long it will stay on,
+    and watch routing engine utilisation while it is.
+
+  remediation:
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "delete security ike traceoptions flag all"
+        - risk: ChangesConfig
+          order: 20
+          text: "set security ike traceoptions flag ike"
+
+  verify:
+    - junos-srx/chassis.re.show
+    - junos-srx/system.storage.show
+
+  next_if_bad:
+    - command: junos-srx/chassis.re.show
+  related:
+    - rule: ike.traceoptions.left-enabled
+    - rule: ike.traceoptions.no-file
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "LOGS & TRACEOPTIONS" }
+    - { card: "srx-ipsec", side: 4, block: "BOX-LEVEL CONTEXT" }
+
+# =============================================================================
+# § SEVERITY — the distribution, and the V25 conflict
+# =============================================================================
+# Stated rather than adjusted. See G1 at the top of this file.
+#
+severity_distribution:
+  high:   13   # 12 correctness + ike.mode.aggressive-with-psk (security)
+  medium: 13
+  low:     8
+  info:    3
+  total:  37
+  v25_status: >
+    FAILS as written. V25 allows 15% high; this bundle is 35%. Under the
+    proposed change (exempt category: correctness from the budget) the bundle
+    is 2 high out of 23 non-correctness rules, which is 9% and passes. The
+    reviewer must decide before this ships. Demoting correctness findings to
+    satisfy a percentage is the wrong resolution and is recorded here so that
+    choice is made deliberately.
+
+# =============================================================================
+# § DERIVED PREDICATES — what the schema must supply before any of this runs
+# =============================================================================
+# Every non-builtin used in a `condition` or `where` in this bundle, with what
+# it has to compute. Collected here so the schema work is scoped rather than
+# discovered rule by rule. See G5.
+#
+derived_predicates:
+  - name: is_cbc(enum)
+    returns: bool
+    computes: "True for CBC-mode encryption variants. Pure function of the enum."
+    used_by: [ike.proposal.cbc-without-hash, ipsec.lifetime.kilobytes-unset-on-busy]
+
+  - name: is_aead(enum)
+    returns: bool
+    computes: "True for AEAD variants (the GCM family). Pure function of the enum."
+    used_by: [ipsec.proposal.gcm-with-hash]
+
+  - name: mirrors(ts_a, ts_b)
+    returns: bool
+    computes: "a.local == b.remote && a.remote == b.local, as prefixes."
+    used_by: [ipsec.traffic-selector.not-mirrored]
+
+  - name: overlaps(prefix_a, prefix_b)
+    returns: bool
+    computes: "Non-empty intersection of two prefixes."
+    used_by: [nat.source-nat-eats-tunnel]
+
+  - name: has_route_to(prefix, unit)
+    returns: bool
+    computes: >
+      A static route or a routing-protocol adjacency whose next hop is `unit`
+      and whose destination covers `prefix`. Needs the route table projection,
+      not a graph walk.
+    used_by: [route.remote-prefix.no-next-hop-st0]
+
+  - name: has_routed_traffic(vpn)
+    returns: bool
+    computes: "Anything routed at the VPN's bind interface."
+    used_by: [ipsec.establish-tunnels.both-passive]
+    note: >
+      63 §17.5 already carries a VERIFY that this may need a fourth traversal
+      hop and therefore a derived-graph pass. Unresolved.
+
+  - name: carries_adjacency(vpn)
+    returns: bool
+    computes: >
+      A routing-protocol adjacency configured over the VPN's bind interface.
+      Distinct from has_routed_traffic — a static route is routed traffic and
+      is not an adjacency.
+    used_by: [ike.dpd.too-slow, ipsec.vpn-monitor.absent-on-adjacency]
+
+  - name: has_policy_between(zone_a, zone_b)
+    returns: bool
+    computes: "At least one security policy exists for the ordered zone pair."
+    used_by: [policy.zone-pair.missing]
+
+  - name: is_no_nat(rule)
+    returns: bool
+    computes: "A source-NAT rule whose action is off / no-translation."
+    used_by: [nat.source-nat-eats-tunnel]
+
+  - name: has_ipsec_vpn
+    returns: bool
+    computes: "Device has at least one IpsecVpn node. Anchor-field predicate."
+    used_by: [mtu.mss-clamp.absent]
+
+  - name: nat_detected
+    returns: bool
+    computes: >
+      Runtime evidence that NAT-T is active — remote port 4500 in Phase 1 SA
+      output. Requires `requires: [runtime_output]`, which the user supplies by
+      pasting command output. The application never reads it from a device.
+    used_by: [ike.identity.required-behind-nat, ike.nat-keepalive.longer-than-nat-idle]
+
+  - name: nat_device_udp_idle_timeout
+    returns: int
+    computes: >
+      The translating device's UDP idle timer. `transit_config` evidence — it
+      lives on a box Fathom cannot see. Absent, the rule stays pending.
+    used_by: [ike.nat-keepalive.longer-than-nat-idle]
+
+  - name: suggest_vpn_zone()
+    returns: "Zone or null"
+    computes: "A zone on this device that looks like a tunnel zone. May be null."
+    used_by: [tunnel.st0.zone-unbound]
+
+  - name: suggested_mss
+    returns: int
+    computes: "Tunnel MTU minus 40, defaulting to 1360 when the tunnel MTU is unset."
+    used_by: [mtu.mss-clamp.absent, mtu.mss-clamp.all-tcp-used]
+
+  - name: suggested_keepalive
+    returns: int
+    computes: "A value below the observed NAT idle timeout. Null without evidence."
+    used_by: [ike.nat-keepalive.longer-than-nat-idle]
+
+  - name: previous_value(field)
+    returns: any
+    computes: "The pre-remediation value, for rollback templates."
+    used_by: [ike.dh-group.weak]
+
+# =============================================================================
+# § UNRESOLVED REFERENCES — will fail V23 until they exist
+# =============================================================================
+unresolved_refs:
+  - ref: ipsec.pfs.group-weak
+    from: "ipsec.pfs.absent supersedes"
+    note: >
+      Inherited from 63 §17.1's worked example. The rule does not exist in this
+      bundle and is not obviously needed — group strength is covered by
+      ike.dh-group.weak on the Phase 1 side and there is no equivalent rule for
+      the PFS group. Either write ipsec.pfs.group-weak (condition:
+      perfect_forward_secrecy in [1,2,5]) or drop the supersedes. Writing it is
+      the better answer and it is a genuine gap in this bundle.
+  - ref: ike.gateway.external-interface-wrong
+    from: "referenced by the command corpus seed, junos-srx/ike.gateway.external-interface.set"
+    note: >
+      63 §17.2 references it too. Not written here because the condition needs
+      evidence Fathom does not have — knowing the external-interface is *wrong*
+      requires knowing which WAN unit the peer expects, which is peer_config
+      plus a path assumption. Left as a documented gap rather than written
+      badly.
+
+
+

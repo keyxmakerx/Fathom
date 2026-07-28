@@ -1,0 +1,2596 @@
+# =============================================================================
+# Fathom explainer corpus — IPsec concepts, errors and symptoms
+# =============================================================================
+#
+# PROVENANCE
+#   Every entry is derived from the project owner's four-side SRX IPsec field
+#   card (`.context/field-card-srx-ipsec.txt`). Teaching depth is, in most
+#   entries, a **rearrangement of the card rather than a rewrite of it** —
+#   which is the strongest available evidence for 15-explainer-corpus.md §4.4's
+#   claim that the card is already written at Teaching depth and that Terse and
+#   Explained are the two depths somebody has to produce.
+#
+#   REQUIRES EXPERT REVIEW BEFORE SHIPPING. `reviewed_by` and
+#   `voice_reviewed_by` are placeholders; invariant 10 is not satisfied until a
+#   named human replaces them, and 15 §7.2 stage 4 requires the voice review to
+#   be a separate pass by a separate person. No entry carries
+#   `grounding: observed`, because nobody on this side of the corpus has run
+#   anything on a box — every entry is `derived` or `documented`, and
+#   `verified_against` is therefore absent throughout.
+#
+# =============================================================================
+# SCHEMA FIT — WHERE THE CARD DID NOT GO IN CLEANLY
+# =============================================================================
+#
+# 15 §6.1 says one file per entry under `explain/<class>/`. This is a bundle;
+# `fathom-explain split` writes `entries[i]` to
+# `explain/<class>/<subject>.yaml`. Not a proposed change to §6.1.
+#
+#  E1. **The `error` id grammar cannot express the card's most valuable error
+#      string.** §2.4 gives `error := platform "/" TOKEN [ "." qualifier ]`, and
+#      §2.3 requires the token to be byte-identical to device output. The card's
+#      ERROR DECODER contains `IKE-ID validation failed` — mixed case, spaces,
+#      no underscores. It is not a TOKEN and it is the single most
+#      misdiagnosed string on the card.
+#      RESOLVED HERE by giving the entry a slug id
+#      (`explain:error:junos-srx/IKE-ID-VALIDATION-FAILED`) plus a **new
+#      required `verbatim` field** carrying the exact bytes. The slug is what
+#      you type; `verbatim` is what you grep for, and gate P14 should check
+#      `verbatim`, not the id.
+#      **PROPOSED CHANGE to 15 §2.4 and §6.2:** add `verbatim` as required for
+#      `class: error`, and relax the id subject to a slug derived from it.
+#
+#  E2. **The ERROR DECODER table mixes two classes and the schema is right to
+#      separate them.** Six of its eight rows are log tokens. Two are not:
+#      "Phase-1 timeout, no response" is a *condition you observe*, not a string
+#      the box prints, and "Bad SPI / INVALID_SPI" is one of each. Filing the
+#      first as an `error` would put a phrase in the error registry that no grep
+#      will ever match. It is `explain:symptom:p1-timeout-nothing-in-log` here.
+#      The card can mix them because a human reads the left column as "what you
+#      have". A retrieval index cannot.
+#
+#  E3. **Terse's 6–16 word floor is wrong for the `symptom` class.** §4.1 sets
+#      6–16 words and §2.3 says a symptom's terse is written as an observation
+#      rather than a statement. The card's own observations are shorter than the
+#      floor: *"Tunnel UP, zero traffic"* is four words and is perfect. Padding
+#      it to six damages it.
+#      **PROPOSED:** floor of 3 words for `class: symptom`, 6 elsewhere. Several
+#      symptom entries here sit at 5–7 words and the shortest are the best ones.
+#
+#  E4. **Two card blocks are tables, not prose, and Teaching depth cannot be a
+#      rearrangement of them.** ERROR DECODER and FLAP PATTERN → CAUSE are
+#      two-column lookup tables — the design language names that shape as the
+#      model for every diagnostic view. Their `teaching.body` in
+#      `explain:concept:ipsec.error-decoder` and
+#      `explain:concept:ipsec.flap-patterns` is **synthesised**, not lifted, and
+#      those two entries are the only places in this bundle where that is true.
+#      They are flagged with `grounding: derived` and a `sources_note`, and they
+#      are the two entries a reviewer should read hardest.
+#
+#  E5. **`subject` map shapes are unspecified for `concept`, `symptom` and
+#      `error`.** §6.2 requires `subject` to be a "class-dependent map" and only
+#      §4.4 shows one, for `field`. Shapes assumed here, and they need
+#      ratifying:
+#        concept: { path: <dotted> }
+#        symptom: { path: <dotted> }
+#        error:   { platform: <id>, verbatim: <exact bytes>, qualifier: <p1|p2|v1|v2> }
+#
+#  E6. **`explains_part_of` must not cycle (G5) and the card's own structure
+#      does.** PFS explains part of the phase split; the phase split's most
+#      useful statement is about Phase 2 failing while Phase 1 holds, which is
+#      what PFS does. Resolved by making `ipsec.phase-split` a `prerequisite` of
+#      almost everything and never a child of anything — it is the root, and it
+#      is `terminal: true`. Every traversal in this bundle reaches a terminal in
+#      at most two hops.
+#
+#
+#  E7. **`merely` is on the banned-phrase list and the card's most-quoted
+#      sentence needs it.** 63 §11.1's list, which 15 §9.3 inherits, bans
+#      `merely`; the card writes *"The group must be identical both ends, not
+#      merely compatible"* (side 2). Two entries here keep it —
+#      `explain:concept:ipsec.pfs` and
+#      `explain:error:junos-srx/INVALID_KE_PAYLOAD` — and will fail gate P3.
+#      Same proposed fix as the rule-pack seed's G7: extend the documented
+#      exception mechanism (which already exists for `seamless`) to `merely`,
+#      scoped to the phrase "not merely compatible". Every other occurrence in
+#      this bundle was rewritten out rather than excepted.
+#
+# =============================================================================
+
+corpus_bundle:
+  id: fathom.explain/ipsec
+  bundle_version: 0.1.0
+  entry_count: 41
+  classes_used: [concept, error, symptom]
+  derived_from:
+    card: "srx-ipsec"
+    sides: [1, 2, 3, 4]
+  review_status: >
+    UNREVIEWED. Placeholders for reviewed_by and voice_reviewed_by. No entry is
+    grounding: observed. The two synthesised entries (error-decoder,
+    flap-patterns) need the hardest review.
+
+entries:
+
+# =============================================================================
+# CONCEPTS — the root
+# =============================================================================
+
+- id: explain:concept:ipsec.phase-split
+  class: concept
+  subject: { path: ipsec.phase-split }
+  title: "Two phases, two jobs"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]     # the split is protocol, not vendor
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: "Phase 2 rides inside Phase 1. They fail independently."
+
+  explained: >
+    IKE negotiates on UDP 500, or 4500 through NAT, and builds one secure
+    channel. Inside it, Phase 2 negotiates the data tunnel and its traffic
+    selectors. ESP then carries the data as IP protocol 50. Read the two with
+    two separate commands, always.
+
+  teaching:
+    body: >
+      Phase 1 authenticates the peers and builds one secure channel, the IKE SA.
+      Phase 2 runs inside that channel and negotiates the data tunnel and its
+      traffic selectors, the IPsec SA. IKE is the negotiation; IPsec is the
+      encrypted tunnel that carries data.
+
+      Phase 2 rides inside Phase 1. Phase 1 can be perfectly healthy while Phase
+      2 fails forever — that split is the most useful diagnostic fact there is.
+
+      It is useful because of how much it eliminates. If Phase 1 is up, the peer
+      address is right, the WAN zone admits IKE, the pre-shared key or
+      certificate matched, the Phase 1 proposal matched, and the identities
+      agreed. All of that is settled, and none of it needs checking again. What
+      remains is the Phase 2 proposal, the PFS group, the selectors, and
+      everything downstream of the crypto: the zone, the route, the policy.
+
+      That is why the verify ladder has separate rungs for the two phases and
+      why every diagnostic on the card starts by establishing which half you are
+      in.
+
+    breaks_if_wrong: >
+      Treating the two as one thing sends you back over settled ground. A tunnel
+      with healthy Phase 1 and a dead Phase 2 gets its pre-shared key re-typed,
+      its peer address rechecked and its WAN zone reviewed, none of which can
+      possibly be wrong, while the selector mismatch that is actually breaking
+      it goes unexamined.
+
+    misdiagnosed_as: >
+      A key or connectivity problem. Phase 1 is where authentication lives, so
+      "the tunnel is down" reads as "the peers cannot agree", and the afternoon
+      goes into credentials that already worked.
+
+  links:
+    - { rel: see_also, to: "explain:concept:ipsec.object-chain" }
+    - { rel: see_also, to: "explain:concept:ipsec.bring-up-order" }
+    - { rel: causes,   to: "explain:symptom:flap-p2-cycles-p1-solid" }
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "TWO PHASES, TWO JOBS" }
+    - { std: "RFC 7296", section: "1.2", note: "IKE_SA_INIT then IKE_AUTH; the initial exchanges" }
+    - { std: "RFC 7296", section: "1.3", note: "CREATE_CHILD_SA — child SAs are created inside the IKE SA" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.object-chain
+  class: concept
+  subject: { path: ipsec.object-chain }
+  title: "The object chain"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "why it exists"
+
+  terse: "Six named objects. Knowing which owns a knob says where to look."
+
+  explained: >
+    Phase 1 runs ike proposal to ike policy to ike gateway. Phase 2 runs ipsec
+    proposal to ipsec policy to ipsec vpn, and the vpn joins back to the
+    gateway. Each references the one before it by name, and Junos checks those
+    names at commit.
+
+  teaching:
+    body: >
+      Junos builds a VPN from six named objects, each referencing the one before
+      it by name. Knowing which object owns a knob tells you where to look.
+
+      Phase 1: the proposal holds the algorithms, dh-group and lifetime. The
+      policy holds the mode and the pre-shared key. The gateway holds the peer
+      address, the external interface, the version, dead-peer-detection and the
+      identities.
+
+      Phase 2: the proposal holds protocol, algorithms and lifetime. The policy
+      holds perfect-forward-secrecy. The vpn holds the gateway reference, the
+      ipsec-policy reference, bind-interface, traffic-selector,
+      establish-tunnels, df-bit and vpn-monitor.
+
+      Junos enforces these references at commit — a missing policy name fails
+      the commit. What it cannot catch is a name that exists but holds values
+      the far end will not accept. That failure waits for negotiation.
+
+      The practical use is triage. INVALID_KE_PAYLOAD is a dh-group question, so
+      open the proposal. A flap on a round-number interval is a
+      dead-peer-detection question, so open the gateway. A tunnel up with no
+      traffic is not in this hierarchy at all.
+
+    breaks_if_wrong: >
+      Without the map you open the whole `security ike` and `security ipsec`
+      hierarchies and read them top to bottom, which turns a five-minute
+      question into an afternoon and makes it likely you miss the one statement
+      that is absent rather than wrong.
+
+    misdiagnosed_as: >
+      A syntax problem. A configuration that commits cleanly feels validated, so
+      when negotiation fails people re-read the syntax rather than comparing
+      values against the peer.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,     to: "explain:concept:ipsec.plumbing" }
+    - { rel: see_also,     to: "explain:concept:ipsec.error-decoder" }
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "THE OBJECT CHAIN" }
+    - { card: "srx-ipsec", side: 1, block: "PHASE 1 — PROPOSAL, POLICY, GATEWAY" }
+    - { card: "srx-ipsec", side: 1, block: "PHASE 2 — PROPOSAL, POLICY, VPN" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.pfs
+  class: concept
+  subject: { path: ipsec.pfs }
+  title: "Perfect forward secrecy"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "most-missed"
+
+  terse: "Fresh DH per Phase 2. Identical both ends, not merely compatible."
+
+  explained: >
+    Without PFS the Phase 2 keys derive from Phase 1 key material, so one
+    compromised IKE SA secret unlocks every data key under it. With PFS each
+    Phase 2 negotiation runs its own Diffie-Hellman exchange. Set the same group
+    both ends and confirm it in the SA detail output.
+
+  teaching:
+    body: >
+      Without PFS, the Phase 2 keys are derived from the Phase 1 key material.
+      One compromised IKE SA secret unlocks every data key derived under it —
+      including traffic somebody recorded off the wire months ago.
+
+      With PFS, each Phase 2 negotiation runs its own fresh Diffie-Hellman
+      exchange. The key is mathematically independent of Phase 1 and of every
+      previous Phase 2 key, so breaking one yields exactly one rekey interval of
+      traffic and nothing either side of it. That is the "forward" in forward
+      secrecy: today's break cannot read yesterday's capture.
+
+      Three rules. The group must be identical both ends, not merely compatible.
+      PFS on one side and absent on the other fails Phase 2 while Phase 1 stays
+      up. And the PFS group need not equal the Phase 1 dh-group, though matching
+      them removes a whole class of confusion.
+
+      Cost is one extra DH exponentiation per SA per rekey — irrelevant unless
+      hundreds of tunnels rekey together. Turn it on.
+
+    breaks_if_wrong: >
+      PFS configured on one side and absent on the other fails Phase 2 while
+      Phase 1 stays up and stays up. A group mismatch — group14 against group19 —
+      fails the same way and reports INVALID_KE_PAYLOAD rather than
+      NO_PROPOSAL_CHOSEN.
+
+    misdiagnosed_as: >
+      A wrong pre-shared key. Phase 1 is clean, so the key is the next suspect
+      and the afternoon goes into re-typing it on both ends. The key is fine.
+      Check Phase 2 before you touch Phase 1.
+
+    rules_out: >
+      Under IKEv2 the first child SA is always keyed from the IKE SA regardless;
+      PFS applies to later child rekeys. A capture of the initial bring-up
+      showing no DH exchange is not a misconfiguration and is not evidence that
+      PFS is off.
+
+  links:
+    - { rel: prerequisite,   to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,       to: "explain:concept:ipsec.lifetimes-and-rekey" }
+    - { rel: causes,         to: "explain:symptom:flap-p2-cycles-p1-solid" }
+    - { rel: next_if_bad,    to: "explain:error:junos-srx/INVALID_KE_PAYLOAD" }
+
+  sources:
+    - { std: "RFC 7296", section: "1.3", note: "CREATE_CHILD_SA may carry a KE payload for a fresh Diffie-Hellman" }
+    - { std: "RFC 8247", section: "2.4", note: "group14 MUST; group19 SHOULD; groups 2 and 5 SHOULD NOT" }
+    - { card: "srx-ipsec", side: 2, block: "PERFECT FORWARD SECRECY" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.lifetimes-and-rekey
+  class: concept
+  subject: { path: ipsec.lifetimes-and-rekey }
+  title: "Lifetimes and rekey"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "why it exists"
+
+  terse: "Rekey is invisible when healthy. A drop at the boundary is a collision."
+
+  explained: >
+    Junos rekeys on a soft lifetime shortly before the hard one expires, so
+    there is no gap. Soft is hard minus a random jitter, which is why rekeys
+    drift and never land on the same second twice. Conventional values are
+    28800 for Phase 1 and 3600 for Phase 2.
+
+  teaching:
+    body: >
+      Under IKEv1 lifetimes are negotiated and the lower value wins. Under IKEv2
+      they are not negotiated at all — each side rekeys on its own clock and the
+      shorter side drives it, so a mismatch is legal and not an error. There is
+      also lifetime-kilobytes, which rekeys on volume, so a busy tunnel rekeys
+      far more often than the clock suggests.
+
+      In the card's words, "Healthy rekey is seamless" — the SA index changes
+      and traffic does not stop. A tunnel that goes down at the lifetime
+      boundary is a rekey collision or a peer refusing the new SA, not a timer
+      that needs raising.
+
+      That last sentence is the whole point of this entry. Raising the lifetime
+      is the instinctive response and it makes the failure rarer rather than
+      absent, and a rare failure is harder to catch than a frequent one.
+
+      If flaps track throughput rather than time, check lifetime-kilobytes
+      first: a volume trigger looks exactly like an erratic timer, and the two
+      are diagnosed completely differently.
+
+    breaks_if_wrong: >
+      A rekey collision drops the tunnel at a clean interval equal to the
+      lifetime, and raising the lifetime moves the outage further apart rather
+      than removing it. Under IKEv1 a negotiated mismatch means the number in
+      your configuration is not the interval you are actually seeing.
+
+    misdiagnosed_as: >
+      A timer that is set too aggressively. The flap lands on a round number, so
+      the number gets raised, the failure recurs less often, and everybody
+      concludes the change partly worked.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,     to: "explain:concept:ike.version-choice" }
+    - { rel: causes,       to: "explain:symptom:flap-even-interval-round-number" }
+    - { rel: causes,       to: "explain:symptom:flap-only-under-load" }
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "LIFETIMES & REKEY" }
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+    - { std: "RFC 7296", section: "2.8", note: "Rekeying" }
+    - { std: "RFC 7296", section: "2.8.2", note: "Simultaneous IKE SA rekeying — the collision case" }
+
+  terminal: true
+
+- id: explain:concept:ike.version-choice
+  class: concept
+  subject: { path: ike.version-choice }
+  title: "IKEv1 versus IKEv2"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "why it exists"
+
+  terse: "v2 protects identity, has many selectors, and needs no mode."
+
+  explained: >
+    IKEv1 is main mode in six messages or aggressive in three, with one
+    proxy-ID pair and DPD bolted on. IKEv2 is one four-message exchange with
+    identity always protected, many traffic selectors, and liveness built in.
+    Under v2-only the mode statement is silently ignored.
+
+  teaching:
+    body: >
+      The version changes what the rest of the configuration means, which is why
+      it is worth settling before anything else.
+
+      Lifetimes: negotiated under v1 with the lower value winning; not
+      negotiated at all under v2, where each side rekeys on its own clock.
+
+      Selectors: one proxy-ID pair under v1, and a mismatch reads
+      INVALID_ID_INFORMATION. Many selectors under v2, and a mismatch reads
+      TS_UNACCEPTABLE. Two error strings for one cause, and which you get tells
+      you which version you are on.
+
+      Identity: in the clear under aggressive mode, always protected under v2.
+      Aggressive mode exists almost solely for a pre-shared key with a dynamic
+      peer IP, because main mode with a PSK must identify the peer by address.
+      It leaks the identity and is offline-crackable. On v2 you never need it.
+
+      And the one that saves the most wasted time: mode is silently ignored
+      under v2-only. Seeing mode aggressive in a v2 config means nothing — do
+      not chase it.
+
+    breaks_if_wrong: >
+      A peer pinned to v2-only against a peer that speaks only v1 never
+      negotiates, and the failure looks like an unreachable peer rather than a
+      version disagreement. Under v1, a dynamic peer with a pre-shared key is
+      forced into aggressive mode whether anybody wrote the statement or not.
+
+    misdiagnosed_as: >
+      A security finding that is not there. `mode aggressive` left over from a
+      v1 migration reads as an identity exposure on a v2 gateway, and an hour
+      goes into an exposure that does not exist.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,     to: "explain:concept:ike.peer-identity" }
+    - { rel: see_also,     to: "explain:concept:ipsec.lifetimes-and-rekey" }
+    - { rel: contrasts_with, to: "explain:error:junos-srx/TS_UNACCEPTABLE" }
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "IKEV1 VS IKEV2" }
+    - { std: "RFC 2409", section: "5.4", note: "Main mode with a pre-shared key identifies the peer by address" }
+    - { std: "RFC 7296", section: "1.2", note: "IKEv2 initial exchanges; IDi and IDr are encrypted" }
+
+  terminal: true
+
+- id: explain:concept:ike.peer-identity
+  class: concept
+  subject: { path: ike.peer-identity }
+  title: "Peer identity"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "most-missed"
+
+  terse: "Check identity before you re-type the PSK."
+
+  explained: >
+    Identity statements are needed when the peer cannot identify you by your
+    outer source IP: behind NAT, on a dynamic address, with certificate
+    authentication, or against a peer expecting an FQDN or email-style ID. Your
+    local-identity must equal the peer's remote-identity, exactly.
+
+  teaching:
+    body: >
+      By default an IKE peer identifies itself by its address, and that works
+      until something rewrites the address or the peer expects a different kind
+      of name. Then you need local-identity and remote-identity, set as a
+      matching pair across the two boxes.
+
+      The values are compared, not resolved. An FQDN identity is the literal
+      string the peer sends, not an address that resolves to the same host.
+
+      `dynamic hostname` replaces `address` for peers with no fixed IP. Under
+      IKEv1 that combination also forces aggressive mode, so a dynamic peer with
+      a pre-shared key on v1 exposes its identity whether or not anybody wrote
+      `mode aggressive`.
+
+      The reason this concept matters more than its size suggests is the error
+      it produces. A mismatch reads as `peer's IKE-ID validation failed` or a
+      bare AUTHENTICATION_FAILED — easily misread as a wrong pre-shared key.
+      Check identity before you re-type the PSK.
+
+    breaks_if_wrong: >
+      Phase 1 never completes, so there is no Phase 2 to examine and every
+      Phase 2 parameter is irrelevant. Behind NAT the failure can appear months
+      after the build, when a translation changes and no local configuration has
+      moved at all.
+
+    misdiagnosed_as: >
+      A wrong pre-shared key, then a broken certificate chain. Both are
+      expensive to change and neither is the problem. Identity and clock skew are
+      free to check and produce the same error string.
+
+  links:
+    - { rel: prerequisite,  to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,      to: "explain:concept:ipsec.nat-traversal" }
+    - { rel: see_also,      to: "explain:concept:ike.version-choice" }
+    - { rel: next_if_bad,   to: "explain:error:junos-srx/IKE-ID-VALIDATION-FAILED" }
+    - { rel: next_if_bad,   to: "explain:error:junos-srx/AUTHENTICATION_FAILED" }
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "PEER IDENTITY" }
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { std: "RFC 7296", section: "1.2", note: "IDi and IDr are asserted in IKE_AUTH" }
+
+  terminal: true
+
+- id: explain:concept:ike.liveness
+  class: concept
+  subject: { path: ike.liveness }
+  title: "Dead peer detection"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "up-ness"
+
+  terse: "Dead after interval times threshold. Junos defaults to 10 by 5."
+
+  explained: >
+    `optimized` probes only when we are sending and hearing nothing back, and is
+    the default. `probe-idle-tunnel` probes when idle too. `always-send` probes
+    every interval regardless, which is what a backup you need to trust
+    requires. Ten by three is a reasonable middle.
+
+  teaching:
+    body: >
+      Time to declare a peer dead is interval times threshold. Junos defaults to
+      10 times 5, which is 50 seconds of blackhole before failover even starts —
+      longer than most people assume when they leave it alone.
+
+      Too tight and a two-second underlay hiccup tears down a healthy tunnel,
+      and you then spend a week debugging self-inflicted flaps. Too loose and
+      traffic pours into a dead tunnel. Ten times three is a reasonable middle.
+
+      One structural fact that catches people: DPD rides the outer IKE session
+      on UDP 500 or 4500, never st0. Silence on st0 does not mean the tunnel is
+      dead, and an idle tunnel with `optimized` set is not being probed at all —
+      which means an idle backup's state is unknown until the moment you need
+      it.
+
+      DPD and vpn-monitor answer different questions. DPD says the peer's
+      control plane is alive. vpn-monitor sends traffic through the tunnel and
+      says the data path works. A peer whose IKE is healthy while its forwarding
+      is broken satisfies the first and fails the second.
+
+    breaks_if_wrong: >
+      Set too tight, packet loss on the underlay tears down tunnels that were
+      working, at a clean interval equal to interval times threshold. Set too
+      loose, traffic disappears into a dead peer for the better part of a minute
+      before anything fails over.
+
+    misdiagnosed_as: >
+      A crypto or peer problem. The flap interval is a clean round number, so it
+      reads as a lifetime mismatch, and a week goes into proposals and timers
+      while the actual cause is loss in the underlay.
+
+  links:
+    - { rel: prerequisite,   to: "explain:concept:ipsec.phase-split" }
+    - { rel: causes,         to: "explain:symptom:flap-interval-equals-dpd-product" }
+    - { rel: see_also,       to: "explain:concept:ipsec.replay-window" }
+    - { rel: contrasts_with, to: "explain:concept:ipsec.one-way-tell" }
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "DEAD PEER DETECTION" }
+    - { card: "srx-ipsec", side: 3, block: "FAKE FLAPS" }
+    - { std: "RFC 3706", note: "A traffic-based method of detecting dead IKE peers" }
+    - { std: "RFC 7296", section: "2.4", note: "IKEv2 liveness is part of the protocol" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.nat-traversal
+  class: concept
+  subject: { path: ipsec.nat-traversal }
+  title: "NAT traversal"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "why it exists"
+
+  terse: "Remote port 4500 means NAT-T is active. Costs eight bytes."
+
+  explained: >
+    ESP is IP protocol 50 with no ports, so a NAT device doing port translation
+    cannot track it. IKE detects NAT during Phase 1 and both peers move to UDP
+    4500, wrapping ESP in UDP. Confirm it from the remote port in the Phase 1 SA
+    detail output.
+
+  teaching:
+    body: >
+      Nothing announces NAT traversal. It is negotiated during Phase 1 and the
+      only tell is the remote port: 500 is direct, 4500 means NAT-T is active. A
+      peer address that does not match the source you actually see also means
+      NAT in path.
+
+      It matters twice, and both consequences arrive later than the detection.
+
+      First, the UDP encapsulation costs 8 bytes, which comes straight off an
+      already tight MTU budget. A tunnel MTU that was correct before a carrier
+      introduced translation is 8 bytes too large afterwards, and nothing on
+      either firewall changed.
+
+      Second, the UDP flow is now a state entry in a device you probably do not
+      control, with its own idle timer. If that timer is shorter than the
+      keepalive, the mapping dies and the tunnel goes one-way until the next
+      rekey.
+
+      The symptom is "works, then stops after N minutes of quiet". It correlates
+      with idleness rather than load, which rules out every throughput theory
+      immediately if you notice the correlation.
+
+    breaks_if_wrong: >
+      With no explicit local-identity behind NAT, the identity this box presents
+      is decided by a device neither end controls, and authentication fails the
+      first time the translation changes. With a keepalive longer than the NAT
+      idle timer, the tunnel goes one-way during quiet periods.
+
+    misdiagnosed_as: >
+      An intermittent circuit. The tunnel recovers on its own at the next rekey,
+      so it reads as flapping transport rather than an expired translation, and
+      the ticket goes to the carrier.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,     to: "explain:concept:ike.peer-identity" }
+    - { rel: causes,       to: "explain:symptom:works-then-stops-after-quiet" }
+    - { rel: see_also,     to: "explain:concept:mtu.overhead" }
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "NAT TRAVERSAL" }
+    - { std: "RFC 3948", note: "UDP encapsulation of IPsec ESP packets on port 4500" }
+    - { std: "RFC 7296", section: "2.23", note: "NAT traversal detection" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.sa-output
+  class: concept
+  subject: { path: ipsec.sa-output }
+  title: "Reading the SA output"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "fields that matter"
+
+  terse: "Join by VPN name and peer IP, never by st0."
+
+  explained: >
+    Index is the SA identifier — the same one a minute later means stable, a new
+    one means it rebuilt. Role tells you who initiates. Port tells you whether
+    NAT is in path. State wants Installed. Bind-interface is the only link back
+    to st0.
+
+  teaching:
+    body: >
+      Seven fields carry almost all of the diagnostic value.
+
+      Index is the Phase 1 SA identifier. The same index a minute later means
+      stable; a new index means it rebuilt, which is a different problem from
+      never coming up.
+
+      Role is Initiator or Responder. Always Responder means your side never
+      initiates — check establish-tunnels and the route at st0.
+
+      Port is 500 direct, 4500 for NAT-T in path.
+
+      State is Phase 2, and it wants Installed. Anything else is not passing
+      traffic.
+
+      SPI is one per direction, so two lines per selector is correct and not a
+      duplicate.
+
+      Lifetime is the hard and soft countdown to the next rekey, which is how
+      you time a capture around the event.
+
+      Bind-interface is the join back to st0. The logs never mention st0, so
+      this is the only link.
+
+      That last one drives the governing rule for all of this output: the join
+      key across all output is VPN name plus peer IP, never st0.
+
+    breaks_if_wrong: >
+      Identifying a tunnel by its st0 unit breaks the moment you go to the log,
+      because nothing in kmd mentions st0 at all. On a hub with forty tunnels
+      the correlation stops being possible and the investigation becomes a
+      scroll rather than a search.
+
+    misdiagnosed_as: >
+      Duplicate SAs. Two SPI lines per selector look like a bug or a stale
+      entry, and people clear the tunnel to tidy it up. One per direction is
+      correct.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,     to: "explain:concept:ipsec.one-way-tell" }
+    - { rel: see_also,     to: "explain:concept:ipsec.nat-traversal" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "READING THE SA OUTPUT" }
+    - { card: "srx-ipsec", side: 3, block: "THE VERIFY LADDER" }
+  sources_note: >
+    Field semantics are the card's. Exact printed labels, case and spacing are
+    unverified — nobody ran the command for this corpus.
+
+  terminal: true
+
+- id: explain:concept:ipsec.one-way-tell
+  class: concept
+  subject: { path: ipsec.one-way-tell }
+  title: "The one-way tell"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "up-ness"
+
+  terse: "Encrypted climbing, decrypted flat. Stop reading proposals."
+
+  explained: >
+    Read the byte and packet counters first, then the error block: ESP
+    authentication failures, replay errors, bad headers, decryption failures.
+    The asymmetry between the two byte counters is worth more than any single
+    absolute number in the output.
+
+  teaching:
+    body: >
+      Encrypted climbing, decrypted flat means your ESP is leaving and nothing
+      is coming back. That is a return-path or far-end problem, not a crypto
+      problem. Stop reading proposals.
+
+      The reason this is so valuable is that it partitions the search space in
+      one reading. Crypto that is wrong fails symmetrically — nothing installs,
+      or nothing decrypts in either direction. Traffic leaving and nothing
+      returning means the SAs are fine and something between here and there, or
+      at the far end, is not.
+
+      A second counter reading matters almost as much. ESP authentication
+      failures with traffic still flowing usually means corruption in path, not
+      a key mismatch — a wrong key fails everything, not some of it. Partial
+      failure is a physical-layer story.
+
+      The counters answer a question SA state cannot. Installed means the kernel
+      holds keys; it says nothing about whether packets are moving.
+
+    breaks_if_wrong: >
+      Reading a one-way tunnel as a crypto failure sends you into proposals,
+      PFS groups and pre-shared keys, none of which can produce asymmetric
+      counters. The actual causes — a missing return route, a policy in one
+      direction only, source NAT rewriting the source — are all outside the
+      crypto configuration.
+
+    misdiagnosed_as: >
+      A proposal or key mismatch, because the tunnel "is not working" and that
+      is where tunnels usually fail. The counters say otherwise before you open
+      anything.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.sa-output" }
+    - { rel: causes,       to: "explain:symptom:encrypted-climbing-decrypted-flat" }
+    - { rel: see_also,     to: "explain:concept:ipsec.replay-window" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "STATISTICS & COUNTERS" }
+    - { card: "srx-ipsec", side: 3, block: "THE ONE-WAY TELL" }
+
+  terminal: true
+
+- id: explain:concept:mtu.overhead
+  class: concept
+  subject: { path: mtu.overhead }
+  title: "The MTU story and the overhead budget"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "approx"
+
+  terse: "Handshake fine, data stalls is MTU until proven otherwise."
+
+  explained: >
+    IPsec wraps every packet in new headers, so the payload that still fits
+    shrinks. Send a full 1500 into a tunnel and it must fragment, and firewalls
+    along the way routinely drop fragments. Roughly 50 to 70 bytes of overhead,
+    cipher-dependent.
+
+  teaching:
+    body: >
+      MTU is the largest frame an interface will pass — standard Ethernet 1500.
+      The overhead budget, layer by layer: a new outer IP header of 20 bytes,
+      ESP header with SPI and sequence of 8, IV of 8 to 16, pad and trailer and
+      next-header of 2 to 255, ICV of 12 to 16, and another 8 if NAT-T has moved
+      you to UDP 4500.
+
+      Roughly 50 to 70 bytes, cipher-dependent. From 1500 that leaves about
+      1430, which is why tunnel MTU is conventionally clamped to 1400 for
+      headroom.
+
+      The tell-tale symptom is specific and worth memorising. Ping works. SSH
+      connects. Then ls hangs, or a transfer stalls at 0%. Small packets fit;
+      full-size ones exceed the tunnel MTU and vanish.
+
+      Handshake fine, data stalls is MTU until proven otherwise.
+
+      One measurement trap: a bare ping from the SRX tests the SRX's own path.
+      To test the tunnel, source from an address inside the traffic selector, or
+      from the LAN interface — otherwise you have measured the underlay and it
+      will look fine.
+
+    breaks_if_wrong: >
+      Full-size packets disappear in silence while small ones do not, so every
+      connectivity test passes and every bulk transfer fails. The application
+      team is told the tunnel is healthy, which is true and useless.
+
+    misdiagnosed_as: >
+      An application or file-server problem. Ping works and SSH connects, so the
+      ticket goes to whoever owns the application, and it goes back and forth
+      for a day before anybody sizes a packet.
+
+    rules_out: >
+      The overhead figures here are the card's own and it marks them approximate
+      and cipher-dependent. Do not treat 1400 as a constant or build a
+      calculator on these numbers without checking the specific cipher's IV and
+      ICV sizes.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:mtu.three-fixes" }
+    - { rel: see_also,     to: "explain:concept:mtu.pmtud-and-df" }
+    - { rel: causes,       to: "explain:symptom:handshake-ok-data-stalls" }
+    - { rel: see_also,     to: "explain:concept:ipsec.nat-traversal" }
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "THE MTU STORY" }
+    - { card: "srx-ipsec", side: 4, block: "OVERHEAD BUDGET" }
+    - { card: "srx-ipsec", side: 4, block: "TEST IT FROM THE BOX" }
+    - { std: "RFC 4303", section: "2", note: "ESP packet format: SPI, sequence number, padding, pad length, next header, ICV" }
+    - { std: "RFC 3948", note: "UDP encapsulation adds 8 bytes on port 4500" }
+  sources_note: >
+    Per-layer byte ranges are the card's figures and the card itself marks them
+    approximate — "OVERHEAD FIGURES APPROXIMATE — CIPHER-DEPENDENT". Reproduced
+    with that qualification intact.
+
+  terminal: true
+
+- id: explain:concept:mtu.three-fixes
+  class: concept
+  subject: { path: mtu.three-fixes }
+  title: "Three fixes — know the difference"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "fields that matter"
+
+  terse: "Clamp MSS, lower the tunnel MTU, or clear DF. Not equivalent."
+
+  explained: >
+    MSS clamping is surgical, prevents fragmentation before it starts and needs
+    no ICMP — and does nothing for UDP. Lowering the tunnel MTU covers UDP and
+    moves fragmentation onto this box. Clearing DF lets the network fragment
+    rather than drop.
+
+  teaching:
+    body: >
+      One. MSS clamp, preferred. It rewrites the TCP handshake so both ends
+      agree to smaller segments up front. Surgical, prevents fragmentation
+      before it starts, needs no ICMP. TCP only — it does nothing for UDP.
+
+      Two. Lower the tunnel MTU. Universal, covers UDP, but the box now
+      fragments before encryption. That costs CPU, and those fragments can still
+      be dropped downstream.
+
+      Three. DF-bit clear, the valve. It clears DF in the outer header so the
+      network may fragment the encrypted packet rather than drop it. The rescue
+      when you control neither endpoint nor the far side. Costs reassembly at
+      the peer. `copy`, the default, copies the inner DF; `set` forces it on.
+
+      Rule of thumb: MSS equals tunnel MTU minus 40, for IP and TCP. A 1400 MTU
+      means clamp 1360; many shops use 1350 for margin.
+
+      On Junos, prefer `tcp-mss ipsec-vpn`, which clamps only tunnel traffic,
+      over `tcp-mss all-tcp`, which hits everything through the box — a far
+      bigger blast radius than most people intend.
+
+    breaks_if_wrong: >
+      Applying only the clamp leaves UDP unprotected, so DNS, voice and QUIC
+      keep stalling while every TCP test passes and the fix looks like it
+      worked. Applying `all-tcp` caps every session through the box, and the
+      throughput cost lands on paths that never had a problem.
+
+    misdiagnosed_as: >
+      A clamp that "is not working". It is working, on TCP. The traffic still
+      failing is the traffic that never negotiates a segment size.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:mtu.overhead" }
+    - { rel: see_also,     to: "explain:concept:mtu.pmtud-and-df" }
+    - { rel: causes,       to: "explain:symptom:handshake-ok-data-stalls" }
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "THREE FIXES — KNOW THE DIFFERENCE" }
+    - { card: "srx-ipsec", side: 4, block: "WHERE TO SET IT" }
+
+  terminal: true
+
+- id: explain:concept:mtu.pmtud-and-df
+  class: concept
+  subject: { path: mtu.pmtud-and-df }
+  title: "PMTUD and the DF bit"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "DF ping"
+
+  terse: "PMTUD depends on an ICMP that is filtered nearly everywhere."
+
+  explained: >
+    Path MTU Discovery lets endpoints learn the smallest hop by sending DF-set
+    packets; an oversized one should trigger an ICMP fragmentation needed, Type
+    3 Code 4, back to the sender. When that ICMP is filtered the sender never
+    learns to shrink.
+
+  teaching:
+    body: >
+      The mechanism is sound and the deployment is not. A sender sets DF, an
+      intermediate device finds the packet too large to forward, and it returns
+      an ICMP fragmentation-needed carrying the MTU it could accept. The sender
+      shrinks and everything works.
+
+      It breaks constantly, because that ICMP is filtered somewhere. The sender
+      never learns to shrink, and big packets disappear in silence. There is no
+      error, no retransmit that helps, and no counter that obviously names it.
+
+      This is exactly why MSS clamping exists — it does not depend on ICMP
+      getting through at all. The clamp is applied by a device in the path
+      during the handshake, so the endpoints agree on a size before any data
+      moves and never need to discover anything.
+
+      For measurement, `size` on a Junos ping is the ICMP payload. Add 28, for
+      20 bytes of IP and 8 of ICMP, to get the wire size: 1472 becomes 1500. If
+      1472 fails and 1372 passes, path MTU is around 1400 — binary-search
+      between them.
+
+    breaks_if_wrong: >
+      Forcing DF on with `df-bit set` removes the last escape route: nothing may
+      fragment the encrypted packet, and anything over the path MTU is dropped
+      with the ICMP that would explain it filtered somewhere upstream.
+
+    misdiagnosed_as: >
+      Packet loss on the circuit. Loss that only affects large packets looks
+      like a marginal link, and the carrier ticket comes back clean because
+      their tests use small probes.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:mtu.overhead" }
+    - { rel: see_also,     to: "explain:concept:mtu.three-fixes" }
+    - { rel: causes,       to: "explain:symptom:handshake-ok-data-stalls" }
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "PMTUD & THE DF BIT" }
+    - { card: "srx-ipsec", side: 4, block: "TEST IT FROM THE BOX" }
+    - { std: "RFC 1191", note: "Path MTU Discovery" }
+    - { std: "RFC 2923", section: "2.1", note: "Path MTU Discovery black holes" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.replay-window
+  class: concept
+  subject: { path: ipsec.replay-window }
+  title: "Replay errors"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "not VPN-specific"
+
+  terse: "A small static count is noise. A climbing count is loss."
+
+  explained: >
+    Every ESP packet carries a sequence number and the receiver keeps a sliding
+    window. Duplicate or too-old packets are dropped and counted as replay.
+    Almost always benign reordering — ECMP or per-packet load balancing in the
+    underlay, or rekey overlap.
+
+  teaching:
+    body: >
+      The anti-replay window is a receiver-side defence: each ESP packet carries
+      a sequence number, the receiver tracks a sliding window of what it has
+      seen, and anything duplicate or too old is dropped and counted.
+
+      Almost always the count is benign reordering. ECMP or per-packet
+      load-balancing in the underlay delivers packets out of order, and a rekey
+      overlap briefly puts two SAs in play. A small static count is noise.
+
+      A climbing count means real reordering or loss — and lost DPD probes on
+      that same path will tear the tunnel down. That is how replay counters and
+      flapping connect.
+
+      That connection is the reason this concept earns an entry. A rising replay
+      count and a flapping tunnel look like two problems and are one: a path
+      that reorders enough to trip anti-replay is a path that drops liveness
+      probes, and the teardown that follows looks like a crypto failure in the
+      log.
+
+      Check the interface error counters on the underlay before concluding
+      anything about the tunnel.
+
+    breaks_if_wrong: >
+      Treating a static replay count as a fault sends you into ciphers and keys
+      for a number that means nothing. Treating a climbing count as noise leaves
+      an underlay problem in place while the tunnel keeps being torn down by
+      DPD.
+
+    misdiagnosed_as: >
+      An attack, or a crypto fault. The word "replay" reads as adversarial, and
+      the counter is in the crypto output, so the investigation starts in
+      exactly the wrong place.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.one-way-tell" }
+    - { rel: causes,       to: "explain:symptom:flap-irregular-bursty" }
+    - { rel: see_also,     to: "explain:concept:ike.liveness" }
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "REPLAY ERRORS" }
+    - { card: "srx-ipsec", side: 3, block: "STATISTICS & COUNTERS" }
+    - { std: "RFC 4303", section: "2.2", note: "Sequence number" }
+    - { std: "RFC 4303", section: "3.4.3", note: "Sequence number verification and the anti-replay window" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.route-vs-policy-based
+  class: concept
+  subject: { path: ipsec.route-vs-policy-based }
+  title: "Route-based versus policy-based"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "why it exists"
+
+  terse: "Route-based has st0. Policy-based has none at all."
+
+  explained: >
+    Route-based selects the tunnel from the routing table, uses an st0 unit, can
+    carry routing protocols and supports many selectors. Policy-based selects it
+    from the policy with `then permit tunnel ipsec-vpn NAME`, has no st0, and
+    takes one selector pair per policy.
+
+  teaching:
+    body: >
+      The distinction changes which half of the diagnostic ladder applies, which
+      is why misreading it costs time rather than being untidy.
+
+      Route-based: there is an st0 unit. It needs an address, a zone, something
+      routed at it and a policy for the zone pair. `vpn-monitor` can take it
+      down so a route or adjacency fails over. Many traffic selectors are
+      possible.
+
+      Policy-based: there is no st0 anywhere. The policy itself selects the
+      tunnel. There is nothing to route at, nothing for vpn-monitor to take
+      down, no adjacency, and one selector pair per policy.
+
+      Everything from Phase 1 and Phase 2 upward is identical between the two.
+      Everything about how traffic gets selected is different.
+
+      Policy-based is legacy — use route-based for anything new. You will still
+      inherit it, and the tell is the absence of st0 combined with
+      `tunnel ipsec-vpn` inside a policy.
+
+    breaks_if_wrong: >
+      Reading a policy-based configuration as route-based sends you looking for
+      an st0 unit that was never supposed to exist, and for a route that has no
+      next hop to point at. Half the bring-up ladder returns nothing and the
+      absence looks like a fault.
+
+    misdiagnosed_as: >
+      An incomplete build. No st0, no route, no zone binding — every plumbing
+      rule fires at once, and all of them are wrong about this configuration.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.plumbing" }
+    - { rel: see_also,     to: "explain:concept:ipsec.object-chain" }
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "ROUTE-BASED VS POLICY-BASED" }
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.plumbing
+  class: concept
+  subject: { path: ipsec.plumbing }
+  title: "The five plumbing pieces"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "most-missed"
+
+  terse: "One fails loudly. The other four read UP and pass nothing."
+
+  explained: >
+    The tunnel interface, st0 in a zone, host-inbound ike on the WAN zone, a
+    route at st0, and a policy for the zone pair in each direction. Miss the
+    third and Phase 1 times out. Miss any of the other four and the tunnel reads
+    UP while passing zero packets.
+
+  teaching:
+    body: >
+      Five pieces, and they split into two failure shapes that need completely
+      different investigations.
+
+      One, the tunnel interface: `set interfaces st0 unit 0 family inet address
+      ...`. Two, st0 into a zone. Three, `host-inbound-traffic system-services
+      ike` on the WAN zone. Four, a route for the remote prefix at st0. Five, a
+      policy for the zone pair, in each direction.
+
+      Miss number three and Phase 1 times out with nothing useful in the log —
+      the box drops the peer's IKE before processing it. Miss one, two, four or
+      five and the tunnel reads UP while passing zero packets.
+
+      That is the whole value of the numbering. A Phase 1 timeout with no local
+      clue points at exactly one of these. A healthy SA with no traffic points
+      at exactly four of them, and none of the four are visible from any IPsec
+      command.
+
+      The card's rule for the second case: steps 5 to 8 of the bring-up ladder
+      failing while 2 to 4 are clean is plumbing, not crypto — no proposal
+      tweaking will fix it.
+
+    breaks_if_wrong: >
+      A missing zone, route or policy produces Installed SAs, an st0 that reads
+      up, and byte counters that do not move. Every crypto command agrees the
+      tunnel is healthy, which is true, and no packet crosses.
+
+    misdiagnosed_as: >
+      A crypto or selector problem, because the tunnel "is not passing traffic"
+      and the traffic selector is the thing that mentions traffic. The selectors
+      are fine; nothing is being handed to the tunnel to select.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,     to: "explain:concept:ipsec.bring-up-order" }
+    - { rel: causes,       to: "explain:symptom:up-but-zero-traffic" }
+    - { rel: causes,       to: "explain:symptom:p1-timeout-nothing-in-log" }
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+    - { card: "srx-ipsec", side: 1, block: "BRING-UP ORDER" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.bring-up-order
+  class: concept
+  subject: { path: ipsec.bring-up-order }
+  title: "Bring-up order"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "verify as you go"
+
+  terse: "Nine rungs. Stop at the first failure."
+
+  explained: >
+    Commit confirmed, Phase 1, Phase 2, inactive tunnels, st0, the route, a ping
+    sourced from the LAN side, the session table, then the log. Each rung
+    assumes every rung below it passed, which is what makes stopping at the
+    first failure the right move.
+
+  teaching:
+    body: >
+      The order, in full: commit confirmed 5 — always, remotely. Then
+      `show security ike security-associations` for Phase 1. Then
+      `show security ipsec security-associations` for Phase 2. Then
+      `show security ipsec inactive-tunnels` if Phase 2 is not installed. Then
+      `show interfaces st0.0 terse`. Then `show route <remote>`. Then a ping
+      across, sourced from the LAN side. Then `show security flow session`.
+      Then `show log kmd | match <peer>` for the story.
+
+      Stop at the first failure. The ladder is ordered by dependency, so a
+      failure at rung three makes rungs four onward uninformative rather than
+      uninteresting.
+
+      The single most useful reading of it is the split point. Steps 5 to 8
+      failing while 2 to 4 are clean is plumbing, not crypto — no proposal
+      tweaking will fix it. That one sentence eliminates half the possible
+      investigations in one observation.
+
+      Nothing in the ladder touches the configuration except the first rung, and
+      the first rung is the safety net rather than a step of the diagnosis.
+
+    breaks_if_wrong: >
+      Skipping to the log is the common failure. The log is a lifecycle
+      narrative and it takes reading, and it will happily show you a healthy
+      negotiation while the actual problem is a route that does not exist —
+      which the log has no reason to mention.
+
+    misdiagnosed_as: >
+      A crypto problem, every time. The ladder exists because the first four
+      rungs are crypto and the next four are not, and without the order people
+      spend their whole investigation in the first half.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,     to: "explain:concept:ipsec.plumbing" }
+    - { rel: see_also,     to: "explain:concept:ipsec.error-decoder" }
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "BRING-UP ORDER" }
+    - { card: "srx-ipsec", side: 3, block: "THE VERIFY LADDER" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.clearing-blast-radius
+  class: concept
+  subject: { path: ipsec.clearing-blast-radius }
+  title: "Clearing and renegotiating"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "most-missed"
+
+  terse: "Clear Phase 2 first. Always scope a Phase 1 clear."
+
+  explained: >
+    Clearing Phase 1 tears down every child SA under it — on a hub that is every
+    spoke at once. Always scope by peer or index. Clearing Phase 2 alone forces
+    a rekey and is the cheapest way to prove a tunnel comes back cleanly.
+
+  teaching:
+    body: >
+      Phase 2 rides inside Phase 1, and that containment is what makes the
+      choice of clear command an operational decision rather than a preference.
+
+      Clearing Phase 2 rebuilds the child SA inside an already-authenticated
+      channel. It is fast, it affects one thing, and it tests exactly the half
+      of the negotiation that was probably wrong. It is also how you make a
+      configuration change take effect without waiting an hour for a lifetime to
+      expire.
+
+      Clearing Phase 1 tears down every child SA under it. On a hub terminating
+      forty spokes behind one peer address that is forty tunnels renegotiating
+      simultaneously — and forty Diffie-Hellman exponentiations landing on the
+      routing engine at once, while it is also running the control plane.
+
+      Somebody who has only ever run this on a two-tunnel branch box has no
+      reason to expect any of that. Always scope by peer or index.
+
+      Reach for the Phase 2 clear first. Come to the Phase 1 clear only when
+      Phase 1 itself is the thing you doubt.
+
+    breaks_if_wrong: >
+      An unscoped Phase 1 clear on a hub drops every tunnel on the chassis at
+      once and puts the routing engine under load at the moment it is needed
+      most. Recovery is automatic and takes minutes, during which nothing about
+      the original problem can be observed.
+
+    misdiagnosed_as: >
+      A necessary reset. "Bounce the tunnel" is one phrase covering two commands
+      with wildly different blast radii, and the wrong one is shorter to type.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.phase-split" }
+    - { rel: see_also,     to: "explain:concept:ipsec.lifetimes-and-rekey" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "CLEARING & RENEGOTIATING" }
+
+  terminal: true
+
+- id: explain:concept:ipsec.error-decoder
+  class: concept
+  subject: { path: ipsec.error-decoder }
+  title: "The error decoder"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+
+  terse: "Read the token, then read who reported it."
+
+  explained: >
+    Each log token maps to a short list of places to look. NO_PROPOSAL_CHOSEN
+    to the proposal values, INVALID_KE_PAYLOAD to a DH group,
+    TS_UNACCEPTABLE to the selectors, AUTHENTICATION_FAILED to the key, chain,
+    clock or identity. The role tells you whose config to open.
+
+  teaching:
+    body: >
+      The decoder is a lookup table and the lookup is only half of it. The other
+      half is direction.
+
+      "No proposal chosen" from the responder means what you offered is not in
+      their list; from you, the reverse. The role in the Phase 1 SA output tells
+      you whose config to open, and that is frequently a faster route to the
+      answer than reading either configuration line by line.
+
+      The tokens divide by how much they narrow. INVALID_KE_PAYLOAD is the most
+      specific on the card — it can only mean a Diffie-Hellman group
+      disagreement, so it names two candidate statements.
+      NO_PROPOSAL_CHOSEN is the least specific: four values on Phase 1, three
+      areas on Phase 2, and no indication which.
+
+      AUTHENTICATION_FAILED is the one to be disciplined about, because it
+      covers four causes of wildly different cost: pre-shared key, certificate
+      chain, clock skew, identity. Two of those are free to check. Check those
+      two first, every time.
+
+      And before any of it: run `show system commit`. Correlate before you
+      theorise.
+
+    breaks_if_wrong: >
+      Reading a token without reading the role sends you to the wrong
+      configuration, where you will find nothing wrong and conclude the error is
+      lying. Treating AUTHENTICATION_FAILED as a key problem produces a
+      re-issued certificate that fails exactly like the one it replaced.
+
+    misdiagnosed_as: >
+      A vague protocol failure. The tokens look interchangeable to anybody who
+      has not learned them, so all of them read as "the tunnel is broken" and
+      the specificity is thrown away.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.bring-up-order" }
+    - { rel: see_also,     to: "explain:concept:ipsec.flap-patterns" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { card: "srx-ipsec", side: 4, block: "BOX-LEVEL CONTEXT" }
+  sources_note: >
+    SYNTHESISED, not lifted. The card's ERROR DECODER is a two-column table
+    with no prose. The teaching body above is written from it rather than
+    rearranged out of it, which makes this one of two entries in this bundle
+    where the voice is imitated rather than inherited. Review it hardest.
+
+  terminal: true
+
+- id: explain:concept:ipsec.flap-patterns
+  class: concept
+  subject: { path: ipsec.flap-patterns }
+  title: "Flap pattern to cause"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+
+  terse: "Time the flaps before you read anything else."
+
+  explained: >
+    An even interval on a round number is a lifetime or rekey collision. An
+    interval equal to DPD interval times threshold is liveness tearing down a
+    healthy tunnel. Irregular and bursty is underlay loss. Only when idle is
+    establish-tunnels working as designed.
+
+  teaching:
+    body: >
+      The interval between flaps is evidence and it is free to collect. Seven
+      shapes, seven different investigations.
+
+      Even interval on a round number: lifetime or rekey collision. Interval
+      equal to DPD interval times threshold: DPD tearing down a healthy tunnel.
+      Irregular and bursty: underlay path loss. Phase 2 cycling while Phase 1 is
+      solid: selector or PFS mismatch. Phase 1 rebuilding: reachability, the
+      pre-shared key, or identity. Only when idle: establish-tunnels on-traffic,
+      by design. Only under load: MTU, or lifetime-kilobytes.
+
+      Two of those seven are not faults at all. An idle tunnel under on-traffic
+      cycles in the log because that is what on-traffic does, and a tunnel with
+      lifetime-kilobytes set rekeys on volume rather than on the clock.
+
+      The arithmetic is what makes the table usable. Before reading a single
+      log line, write down the interval and compare it against the configured
+      lifetime and against interval times threshold. If it matches one of them
+      exactly, you have the answer.
+
+      And run `show system commit`. If the newest commit lines up with the first
+      flap in kmd, you have your answer and it is not PFS.
+
+    breaks_if_wrong: >
+      Without the interval, every flap reads as a crypto failure and the
+      investigation starts in the proposals. A DPD-driven teardown looks
+      identical to a protocol failure in the log, because the negotiation that
+      follows it is perfectly clean.
+
+    misdiagnosed_as: >
+      A timer that needs raising. A round-number interval reads as an aggressive
+      lifetime, the number goes up, the failure gets rarer, and everybody
+      concludes the change partly worked.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.bring-up-order" }
+    - { rel: see_also,     to: "explain:concept:ike.liveness" }
+    - { rel: see_also,     to: "explain:concept:ipsec.lifetimes-and-rekey" }
+    - { rel: see_also,     to: "explain:concept:ipsec.error-decoder" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+    - { card: "srx-ipsec", side: 3, block: "FAKE FLAPS" }
+    - { card: "srx-ipsec", side: 4, block: "BOX-LEVEL CONTEXT" }
+  sources_note: >
+    SYNTHESISED, not lifted. The card's FLAP PATTERN → CAUSE is a two-column
+    table of seven rows. The teaching body is written from those rows rather
+    than rearranged out of prose the card wrote. The second of the two entries
+    in this bundle where the voice is imitated. Review it hardest.
+
+  terminal: true
+
+# =============================================================================
+# ERRORS — side 3, ERROR DECODER. Tokens are byte-identical to device output.
+# Never translated (63 §14.1). `verbatim` is the grep target; the id is a slug.
+# =============================================================================
+
+- id: explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p1
+  class: error
+  subject: { platform: junos-srx, verbatim: "NO_PROPOSAL_CHOSEN", qualifier: p1 }
+  verbatim: "NO_PROPOSAL_CHOSEN"
+  title: "NO_PROPOSAL_CHOSEN on Phase 1"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+
+  terse: "Four values to compare: dh-group, encryption, hash, auth-method."
+
+  explained: >
+    Nothing you offered is in the peer's list, or nothing they offered is in
+    yours. The token does not say which of the four Phase 1 proposal values
+    disagreed. The role in the Phase 1 SA output tells you whose configuration
+    to open first.
+
+  teaching:
+    body: >
+      The decoder entry is short and the discipline behind it is not. Four
+      values: dh-group, encryption-algorithm, authentication-algorithm,
+      authentication-method. Compare all four, in that order, because that is
+      roughly how often each is the culprit.
+
+      Direction matters as much as the list. "No proposal chosen" from the
+      responder means what you offered is not in their list; from you, the
+      reverse. The role tells you whose config to open.
+
+      The case that survives a careful value-by-value comparison is absence
+      rather than difference. A CBC cipher with no authentication-algorithm is
+      an incomplete proposal, and a diff of four values against four values will
+      not show you a fifth statement that is missing on one side.
+
+      This is also what `proposal-set standard` costs you. The set satisfies the
+      configuration and you cannot see what it offered without the vendor
+      documentation for that specific train, so the comparison the error demands
+      is not possible from the configuration in front of you.
+
+    breaks_if_wrong: >
+      Phase 1 never completes, so nothing downstream can be tested — every
+      Phase 2 parameter, every selector and all of the plumbing are untestable
+      until this clears. The tunnel is absent rather than degraded.
+
+    misdiagnosed_as: >
+      A pre-shared key problem. Authentication and proposal negotiation both
+      happen in Phase 1, so "the peers cannot agree" reads as a credential
+      failure, and the key gets re-typed before the four values get compared.
+
+  links:
+    - { rel: prerequisite,   to: "explain:concept:ipsec.error-decoder" }
+    - { rel: contrasts_with, to: "explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p2" }
+    - { rel: see_also,       to: "explain:concept:ipsec.object-chain" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { card: "srx-ipsec", side: 2, block: "PROPOSAL PARAMETERS" }
+
+  terminal: true
+
+- id: explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p2
+  class: error
+  subject: { platform: junos-srx, verbatim: "NO_PROPOSAL_CHOSEN", qualifier: p2 }
+  verbatim: "NO_PROPOSAL_CHOSEN"
+  title: "NO_PROPOSAL_CHOSEN on Phase 2"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+
+  terse: "Three places: PFS group, ESP algorithms, esp versus ah."
+
+  explained: >
+    The same token on the child exchange means something different from the
+    Phase 1 case, because the values in play are different. Phase 1 stays up
+    throughout, which is the tell that you are looking at the Phase 2 form
+    rather than the Phase 1 one.
+
+  teaching:
+    body: >
+      Three places to look, and two of them are not in the object you were
+      reading. The PFS group lives on the ipsec policy. The ESP algorithms live
+      on the ipsec proposal. The protocol — esp versus ah — lives on the
+      proposal too.
+
+      That split is why a careful diff of the two proposals can come back clean
+      while the tunnel stays down: PFS is on the policy and gets skipped when
+      comparing proposals line by line.
+
+      The mirror-image mistakes both land here. A CBC cipher with no
+      authentication-algorithm is incomplete. A GCM cipher with one is
+      over-specified, and GCM is AEAD so there is no separate
+      authentication-algorithm to set. Junos commits either.
+
+      The diagnostic that costs four seconds and often ends the investigation is
+      `show security ipsec inactive-tunnels`, which names what is down and
+      prints a Tunnel Down Reason. Read that before the log.
+
+    breaks_if_wrong: >
+      Phase 2 fails while Phase 1 stays up, so the tunnel presents as "IKE looks
+      fine but nothing works" and every Phase 1 parameter gets rechecked. None
+      of them can be wrong — Phase 1 is up, which proves them.
+
+    misdiagnosed_as: >
+      A Phase 1 problem, because the tunnel is down and Phase 1 is where tunnels
+      are built. The phase split is the whole answer: healthy Phase 1 rules out
+      half the configuration.
+
+  links:
+    - { rel: prerequisite,   to: "explain:concept:ipsec.error-decoder" }
+    - { rel: contrasts_with, to: "explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p1" }
+    - { rel: see_also,       to: "explain:concept:ipsec.pfs" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { card: "srx-ipsec", side: 1, block: "PHASE 2 — PROPOSAL, POLICY, VPN" }
+
+  terminal: true
+
+- id: explain:error:junos-srx/INVALID_KE_PAYLOAD
+  class: error
+  subject: { platform: junos-srx, verbatim: "INVALID_KE_PAYLOAD" }
+  verbatim: "INVALID_KE_PAYLOAD"
+  title: "INVALID_KE_PAYLOAD"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+
+  terse: "DH group mismatch. Two candidate statements, no more."
+
+  explained: >
+    The key exchange payload was the wrong shape for the group the receiver
+    expected. That can only come from a Diffie-Hellman group disagreement, which
+    narrows it to the Phase 1 dh-group or the PFS keys value — and nothing else.
+
+  teaching:
+    body: >
+      This is the most specific error string on the card and it is worth knowing
+      by sight for exactly that reason. NO_PROPOSAL_CHOSEN means "nothing you
+      offered is in my list" and names four values. This one names a mechanism.
+
+      The key exchange payload is sized and structured by the Diffie-Hellman
+      group. A responder expecting group14 and handed a group19 payload is not
+      looking at a value it dislikes — it is looking at bytes it cannot
+      interpret. There is nothing to negotiate at that point.
+
+      Two candidate statements. The `dh-group` on the ike proposal, and the
+      `perfect-forward-secrecy keys` value on the ipsec policy. If the two are
+      set to the same group on this box, there is one candidate rather than two,
+      which is the practical argument for matching them.
+
+      The group must be identical both ends, not merely compatible. There is no
+      degrading to a common value here.
+
+    breaks_if_wrong: >
+      On Phase 1 the tunnel never establishes. On the child exchange Phase 1
+      stays up while Phase 2 fails every time it is attempted, so the tunnel
+      reads as flapping rather than down and the SA index churns.
+
+    misdiagnosed_as: >
+      A proposal mismatch requiring a full comparison. It is a proposal
+      mismatch, and the error has already told you which field, so comparing all
+      four values is wasted effort.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.error-decoder" }
+    - { rel: see_also,     to: "explain:concept:ipsec.pfs" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { card: "srx-ipsec", side: 2, block: "PERFECT FORWARD SECRECY" }
+    - { std: "RFC 7296", section: "1.3", note: "KE payload in CREATE_CHILD_SA" }
+
+  terminal: true
+
+- id: explain:error:junos-srx/TS_UNACCEPTABLE
+  class: error
+  subject: { platform: junos-srx, verbatim: "TS_UNACCEPTABLE", qualifier: v2 }
+  verbatim: "TS_UNACCEPTABLE"
+  title: "TS_UNACCEPTABLE"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+
+  terse: "Traffic selectors do not mirror. IKEv2 form of the mismatch."
+
+  explained: >
+    Your local prefix must be the peer's remote prefix and your remote must be
+    their local, exactly. The responder has no entry matching what you proposed.
+    Under IKEv1 the same disagreement appears as INVALID_ID_INFORMATION instead.
+
+  teaching:
+    body: >
+      Selectors mirror. This end's local is the far end's remote and this end's
+      remote is the far end's local. A selector with no mirror on the peer is
+      rejected and the child SA for that pair never installs.
+
+      Under IKEv2 the selectors are negotiated as sets and the responder
+      narrows; what it will not do is accept a proposal it has no matching entry
+      for.
+
+      Two shapes to watch for. On a VPN with several selectors, some child SAs
+      install and one does not — so the tunnel looks half-working and only one
+      subnet pair is broken. And with no traffic-selector configured at all, the
+      SRX proposes 0.0.0.0/0 to 0.0.0.0/0, which peers that build one SA per
+      subnet pair reject outright.
+
+      `show security ipsec inactive-tunnels` is the command that names which
+      pair is down, and its Tunnel Down Reason is frequently the whole answer.
+
+    breaks_if_wrong: >
+      Phase 1 stays up throughout, so the tunnel is authenticated and one or
+      more child SAs never install at all. Traffic for the affected prefixes
+      disappears while traffic for the working pairs continues, which makes the
+      outage look intermittent or application-specific.
+
+    misdiagnosed_as: >
+      A routing problem, because only some destinations fail. The route is
+      probably correct — the SA for that pair does not exist.
+
+  links:
+    - { rel: prerequisite,   to: "explain:concept:ipsec.error-decoder" }
+    - { rel: contrasts_with, to: "explain:error:junos-srx/INVALID_ID_INFORMATION" }
+    - { rel: see_also,       to: "explain:concept:ike.version-choice" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+    - { std: "RFC 7296", section: "2.9", note: "Traffic selector negotiation and TS_UNACCEPTABLE" }
+
+  terminal: true
+
+- id: explain:error:junos-srx/INVALID_ID_INFORMATION
+  class: error
+  subject: { platform: junos-srx, verbatim: "INVALID_ID_INFORMATION", qualifier: v1 }
+  verbatim: "INVALID_ID_INFORMATION"
+  title: "INVALID_ID_INFORMATION"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+
+  terse: "Proxy-ID mismatch. The IKEv1 form of a selector disagreement."
+
+  explained: >
+    Under IKEv1 there is one proxy-ID pair rather than a set of selectors, and a
+    disagreement about it reads as this token. Same cause as TS_UNACCEPTABLE on
+    IKEv2, different string, and which one you see tells you which version is in
+    play.
+
+  teaching:
+    body: >
+      IKEv1 carries one proxy-ID pair per Phase 2 exchange. IKEv2 carries many
+      traffic selectors. Same idea, different capacity, and different error
+      strings for the same disagreement.
+
+      The practical consequence of the single pair is that an IKEv1 tunnel
+      needing several subnet pairs needs several Phase 2 exchanges, which is why
+      IKEv1 hub designs multiply tunnels where IKEv2 designs multiply selectors.
+
+      Because the string is different, a search for "TS_UNACCEPTABLE" finds
+      nothing on a v1 tunnel and people conclude the selector theory is wrong.
+      It is not wrong; the box is speaking a different version.
+
+      Check the negotiated version before assuming which token you should be
+      looking for. Under v2-only, note that a `mode` statement is silently
+      ignored and tells you nothing about which version is actually running.
+
+    breaks_if_wrong: >
+      The child SA never installs and Phase 1 stays up, so the tunnel presents
+      as authenticated and dead. Because IKEv1 has only one proxy-ID pair, the
+      whole tunnel fails rather than one subnet pair, which is a larger blast
+      radius than the IKEv2 case.
+
+    misdiagnosed_as: >
+      An identity problem, because the token contains "ID". It is about the
+      proxy identity of the traffic, not about the peer's identity, and the
+      peer identity is already settled by a healthy Phase 1.
+
+  links:
+    - { rel: prerequisite,   to: "explain:concept:ipsec.error-decoder" }
+    - { rel: contrasts_with, to: "explain:error:junos-srx/TS_UNACCEPTABLE" }
+    - { rel: see_also,       to: "explain:concept:ike.version-choice" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { card: "srx-ipsec", side: 2, block: "IKEV1 VS IKEV2" }
+
+  terminal: true
+
+- id: explain:error:junos-srx/AUTHENTICATION_FAILED
+  class: error
+  subject: { platform: junos-srx, verbatim: "AUTHENTICATION_FAILED" }
+  verbatim: "AUTHENTICATION_FAILED"
+  title: "AUTHENTICATION_FAILED"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "most-missed"
+
+  terse: "PSK, cert chain, clock skew — or identity. Check the cheap two first."
+
+  explained: >
+    Four causes behind one string, with wildly different costs to investigate.
+    Identity and clock are free to check and produce this exact error.
+    Certificates and pre-shared keys are expensive. Rule out the free ones
+    before you touch a credential.
+
+  teaching:
+    body: >
+      This is the most expensive misread on the card, because the obvious
+      candidate is also the costliest to change.
+
+      Identity: a local-identity or remote-identity mismatch produces this token
+      or the more specific `IKE-ID validation failed`. Visible in the Phase 1 SA
+      detail on both ends, ten seconds to compare.
+
+      Clock: clock skew kills certificates. A box past a notBefore or notAfter
+      boundary rejects a perfectly valid chain. One command to check NTP before
+      re-issuing anything.
+
+      Certificate chain: a real cause, and involving another team.
+
+      Pre-shared key: also a real cause, and the one everybody starts with.
+
+      Check identity before you re-type the PSK, and check the date before you
+      re-issue a certificate. Both take seconds and both eliminate a whole
+      afternoon's work if they are the answer.
+
+    breaks_if_wrong: >
+      Phase 1 never completes, so nothing downstream exists to examine. A
+      re-issued certificate on a box with a wrong clock fails exactly like the
+      certificate it replaced, which is the failure that makes people distrust
+      the certificate authority.
+
+    misdiagnosed_as: >
+      A wrong pre-shared key. It is the first thing anybody changes, it is the
+      most expensive to coordinate, and it is right roughly a quarter of the
+      time.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.error-decoder" }
+    - { rel: see_also,     to: "explain:concept:ike.peer-identity" }
+    - { rel: next_if_bad,  to: "explain:error:junos-srx/IKE-ID-VALIDATION-FAILED" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { card: "srx-ipsec", side: 2, block: "PEER IDENTITY" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+
+  terminal: true
+
+- id: explain:error:junos-srx/IKE-ID-VALIDATION-FAILED
+  class: error
+  subject: { platform: junos-srx, verbatim: "IKE-ID validation failed" }
+  verbatim: "IKE-ID validation failed"
+  title: "peer's IKE-ID validation failed"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "most-missed"
+
+  note:
+    level: caution
+    text: >
+      The id is a slug. The string this box prints is in `verbatim` and it is
+      what you grep for — it contains spaces and mixed case and is not an
+      all-caps token like the rest of the decoder. See E1 at the top of this
+      file.
+
+  terse: "local-identity against remote-identity. Not the key."
+
+  explained: >
+    The specific form of an authentication failure. It names the field: what
+    this end called itself is not what the far end was configured to accept, or
+    the reverse. Compare the two strings byte for byte before changing anything
+    else.
+
+  teaching:
+    body: >
+      When the box gives you this string rather than a bare
+      AUTHENTICATION_FAILED, it has already done the narrowing for you. The
+      credential is not the problem. The identity is.
+
+      The values are compared, not resolved. An FQDN identity is the literal
+      string the peer sends, not an address that resolves to the same host, and
+      an inet identity is the value configured rather than the address observed
+      on the wire.
+
+      The commonest origin is NAT. Your outer source address is rewritten in
+      flight, the peer's remote-identity was set to the address it expected to
+      see, and the two no longer agree — with nothing about the key having
+      changed and nothing in your configuration having moved.
+
+      Which end reports it tells you which pair is wrong. Getting local-identity
+      wrong breaks you at the far end, where you cannot see the log. Getting
+      remote-identity wrong breaks the peer at your end, where you can.
+
+    breaks_if_wrong: >
+      Phase 1 never completes and there is no Phase 2 to look at, so every
+      Phase 2 parameter is untestable. Behind NAT the failure can appear months
+      after a working build, when a translation changes and no local
+      configuration has moved.
+
+    misdiagnosed_as: >
+      A wrong pre-shared key, despite the string naming the identity. The word
+      "validation" reads as generic authentication, and the PSK is the reflex.
+      Check identity before you re-type the PSK.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ike.peer-identity" }
+    - { rel: see_also,     to: "explain:error:junos-srx/AUTHENTICATION_FAILED" }
+    - { rel: see_also,     to: "explain:concept:ipsec.nat-traversal" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { card: "srx-ipsec", side: 2, block: "PEER IDENTITY" }
+  sources_note: >
+    The exact bytes in `verbatim` are the card's transcription of the log
+    string. Not observed on a box for this corpus. Gate P14 must check it
+    against a real capture before shipping — a typo here is invisible to a
+    reviewer and fatal to a grep.
+
+  terminal: true
+
+- id: explain:error:junos-srx/INVALID_SPI
+  class: error
+  subject: { platform: junos-srx, verbatim: "INVALID_SPI" }
+  verbatim: "INVALID_SPI"
+  title: "Bad SPI / INVALID_SPI"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+
+  terse: "ESP arriving for an SA we no longer hold."
+
+  explained: >
+    Brief after a flap is normal — the peer is still sending under the old SA
+    while this end has moved on. Persistent means rekey out of step, where one
+    side keeps installing new SAs the other is not following.
+
+  teaching:
+    body: >
+      An SPI identifies a specific security association. Receiving ESP under an
+      SPI this box no longer holds means the sender's view of the SA state is
+      ahead of or behind this end's.
+
+      Brief bursts after a flap are expected and mean nothing. The peer was
+      mid-transmission when the SA went away, those packets arrive, and there is
+      nothing to decrypt them with.
+
+      Persistent counts are a different story: rekey out of step. One side is
+      installing new SAs on a schedule the other is not following, which happens
+      when lifetimes disagree in a way that matters, when a rekey collision
+      leaves both ends holding different survivors, or when one end clears SAs
+      the other keeps using.
+
+      The reading discipline is duration, not magnitude. A large count that
+      stopped is a flap you already know about. A small count that keeps rising
+      is a live problem.
+
+    breaks_if_wrong: >
+      Persistent SPI errors mean traffic is being dropped continuously in one
+      direction while the SA output looks healthy on both ends, because each end
+      holds a valid SA — the two are not the same one.
+
+    misdiagnosed_as: >
+      An attack or corruption. An unrecognised SPI reads as an injected packet,
+      and the investigation goes to the wire rather than to the rekey schedule.
+
+  links:
+    - { rel: prerequisite, to: "explain:concept:ipsec.error-decoder" }
+    - { rel: see_also,     to: "explain:concept:ipsec.lifetimes-and-rekey" }
+    - { rel: see_also,     to: "explain:concept:ipsec.replay-window" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { std: "RFC 4303", section: "2.1", note: "Security Parameters Index" }
+
+  terminal: true
+
+# =============================================================================
+# SYMPTOMS — addressed by what the engineer can see, not by the name of a thing
+# Owner brief §2.1: "you cannot search for something when you do not know what
+# it is called."
+# =============================================================================
+
+- id: explain:symptom:p1-timeout-nothing-in-log
+  class: symptom
+  subject: { path: p1-timeout-nothing-in-log }
+  title: "Phase 1 times out and the log says nothing"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "most-missed"
+
+  terse: "Nothing comes up, and there is nothing local to read."
+
+  explained: >
+    Four causes, and three of them are somebody else's box: missing host-inbound
+    ike on the WAN zone, an upstream ACL, a wrong peer address, and NAT. Check
+    the one that is yours first — it is one line and the cheapest of the four to
+    rule out.
+
+  teaching:
+    body: >
+      This is the only plumbing failure that fails loudly, and it still points
+      nowhere. Miss host-inbound ike and Phase 1 times out with nothing useful
+      in the log — the box drops the peer's IKE before processing it, so nothing
+      local ever happened and there is nothing to write down.
+
+      Contrast that with the other four plumbing pieces. Miss the tunnel
+      interface, the zone binding, the route or the policy, and the tunnel reads
+      UP while passing zero packets. Two completely different investigations,
+      and this symptom tells you which one you are in.
+
+      The four candidates, in the order they are worth checking: host-inbound
+      ike on the zone that owns the external interface, because it is yours and
+      it is one line. Then the peer address. Then NAT in path, which you can
+      infer from the peer address not matching the source you actually see. Then
+      an upstream ACL, which needs somebody else.
+
+      Check this before you touch crypto.
+
+    breaks_if_wrong: >
+      Every crypto parameter is untestable until Phase 1 completes, so time
+      spent comparing proposals is wasted regardless of whether they match.
+      Nothing negotiates, so nothing can disagree.
+
+    misdiagnosed_as: >
+      A proposal mismatch. The absence of a log entry reads as "the negotiation
+      failed silently", and people start changing dh-groups on a box the peer's
+      packets never reached.
+
+  links:
+    - { rel: caused_by,  to: "explain:concept:ipsec.plumbing" }
+    - { rel: see_also,   to: "explain:concept:ipsec.error-decoder" }
+    - { rel: see_also,   to: "explain:concept:ipsec.nat-traversal" }
+
+  sources:
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+    - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+
+  terminal: true
+
+- id: explain:symptom:up-but-zero-traffic
+  class: symptom
+  subject: { path: up-but-zero-traffic }
+  title: "Tunnel UP, zero traffic"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "most-missed"
+
+  terse: "Tunnel UP, zero traffic. The SA proves crypto, not reachability."
+
+  explained: >
+    st0 has no zone, no policy, or nothing routed at it — or source NAT is
+    rewriting the packets on the way out. Four plumbing pieces and one NAT rule
+    produce this identical symptom, and none of them are visible from any IPsec
+    command.
+
+  teaching:
+    body: >
+      The SA proves crypto, not reachability. Phase 1 and Phase 2 can both be
+      perfect while the tunnel passes nothing, and every command in the crypto
+      half of the ladder will tell you the tunnel is healthy.
+
+      Five candidates. No tunnel interface. The interface in no zone. Nothing
+      routed at it. No policy for the zone pair, in the direction being tried.
+      Or an interface source-NAT rule grabbing packets routed at st0, so the far
+      end sees the wrong source and rejects the selector.
+
+      The commands that separate them, in order: `show interfaces st0.0 terse`,
+      `show route <remote-prefix>`, then `show security flow session`. The
+      session table is the one that resolves it — no sessions at all points at
+      the policy or the route, and sessions whose egress is the WAN rather than
+      st0 point at the route or at NAT.
+
+      Steps 5 to 8 of the bring-up ladder failing while 2 to 4 are clean is
+      plumbing, not crypto — no proposal tweaking will fix it.
+
+    breaks_if_wrong: >
+      Reading this as a crypto problem sends the whole investigation into
+      proposals, PFS groups and pre-shared keys, none of which can be wrong when
+      the SA is Installed. Hours go into the half of the configuration that has
+      already proved itself.
+
+    misdiagnosed_as: >
+      A selector mismatch, because the selector is the thing in the crypto
+      configuration that mentions traffic. The selectors are fine — nothing is
+      being handed to the tunnel for them to select.
+
+  links:
+    - { rel: caused_by, to: "explain:concept:ipsec.plumbing" }
+    - { rel: see_also,  to: "explain:concept:ipsec.bring-up-order" }
+    - { rel: see_also,  to: "explain:concept:ipsec.one-way-tell" }
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+    - { card: "srx-ipsec", side: 1, block: "THE FIVE PLUMBING PIECES" }
+    - { card: "srx-ipsec", side: 1, block: "BRING-UP ORDER" }
+
+  terminal: true
+
+- id: explain:symptom:handshake-ok-data-stalls
+  class: symptom
+  subject: { path: handshake-ok-data-stalls }
+  title: "Ping works, then transfers stall"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "DF ping"
+
+  terse: "Ping works. SSH connects. Then ls hangs."
+
+  explained: >
+    Small packets fit; full-size ones exceed the tunnel MTU and vanish. Handshake
+    fine, data stalls is MTU until proven otherwise. Test it with a sized
+    do-not-fragment ping sourced from inside the traffic selector before
+    escalating anywhere.
+
+  teaching:
+    body: >
+      The shape of this symptom is what makes it diagnostic. Connectivity tests
+      pass because they use small packets. Session establishment passes because
+      handshakes are small. The first full-size segment disappears, and TCP
+      retransmits it forever at the same size.
+
+      IPsec adds roughly 50 to 70 bytes of headers, cipher-dependent, plus 8
+      more if NAT-T has moved the tunnel to UDP 4500. From 1500 that leaves
+      about 1430, which is why tunnel MTU is conventionally clamped to 1400.
+
+      Path MTU Discovery is supposed to prevent all of this and it does not,
+      because the ICMP fragmentation-needed that would tell the sender to shrink
+      is filtered somewhere on almost every real path. The sender never learns,
+      and big packets disappear in silence.
+
+      Measure it: `ping <dest> do-not-fragment size 1472` for 1500 on the wire.
+      If 1472 fails and 1372 passes, path MTU is around 1400 and you
+      binary-search between them. Source from inside the traffic selector or you
+      have measured the underlay.
+
+    breaks_if_wrong: >
+      The ticket goes to the application team, who find nothing, and comes back.
+      Meanwhile every bulk transfer over the tunnel fails and every diagnostic
+      anybody runs — ping, SSH, a small file — passes.
+
+    misdiagnosed_as: >
+      An application or file-server problem, then a performance problem, then a
+      carrier problem. The tunnel is declared healthy at every stage, and it is
+      healthy.
+
+  links:
+    - { rel: caused_by, to: "explain:concept:mtu.overhead" }
+    - { rel: see_also,  to: "explain:concept:mtu.three-fixes" }
+    - { rel: see_also,  to: "explain:concept:mtu.pmtud-and-df" }
+
+  sources:
+    - { card: "srx-ipsec", side: 4, block: "THE MTU STORY" }
+    - { card: "srx-ipsec", side: 4, block: "TEST IT FROM THE BOX" }
+
+  terminal: true
+
+- id: explain:symptom:encrypted-climbing-decrypted-flat
+  class: symptom
+  subject: { path: encrypted-climbing-decrypted-flat }
+  title: "Encrypted climbing, decrypted flat"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "up-ness"
+
+  terse: "Encrypted climbing, decrypted flat. Nothing is coming back."
+
+  explained: >
+    Your ESP is leaving and nothing is returning. That is a return-path or
+    far-end problem, not a crypto problem. Stop reading proposals — crypto that
+    is wrong fails symmetrically, and this is not symmetric.
+
+  teaching:
+    body: >
+      The asymmetry is the entire diagnostic. A wrong key, a wrong proposal or a
+      wrong PFS group prevents the SA installing at all, or prevents decryption
+      in both directions. Traffic leaving with nothing returning means the SAs
+      are correct and something else is wrong.
+
+      What is left: a missing return route at the far end, a policy that exists
+      in one direction only, a source-NAT rule rewriting your source so the peer
+      replies to an address that cannot come back, or a far-end device that is
+      dropping the traffic after decryption.
+
+      Source NAT is the one worth checking on your own box first, because it is
+      yours. The interface NAT rule for internet-bound traffic also grabs
+      packets routed at st0 — the far end sees the wrong source and rejects the
+      selector, and it needs an explicit no-NAT rule above it.
+
+      The related counter reading: ESP authentication failures with traffic
+      still flowing usually means corruption in path, not a key mismatch. A
+      wrong key fails everything, not some of it.
+
+    breaks_if_wrong: >
+      Reading this as crypto means changing proposals on a tunnel whose crypto
+      is provably correct, and the change breaks the working direction as well
+      as failing to fix the broken one.
+
+    misdiagnosed_as: >
+      A proposal or key mismatch, because the tunnel is not working and that is
+      where tunnels usually fail. The counters rule it out before any
+      configuration is opened.
+
+  links:
+    - { rel: caused_by, to: "explain:concept:ipsec.one-way-tell" }
+    - { rel: see_also,  to: "explain:symptom:up-but-zero-traffic" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "THE ONE-WAY TELL" }
+    - { card: "srx-ipsec", side: 4, block: "THINGS THAT BITE" }
+
+  terminal: true
+
+- id: explain:symptom:works-then-stops-after-quiet
+  class: symptom
+  subject: { path: works-then-stops-after-quiet }
+  title: "Works, then stops after N minutes of quiet"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "why it exists"
+
+  terse: "Dies after a quiet period. Recovers at the next rekey."
+
+  explained: >
+    The NAT device's UDP idle timer is shorter than the keepalive, so the
+    mapping dies and the tunnel goes one-way until the next rekey. It correlates
+    with idleness rather than with load, which rules out every throughput theory
+    immediately.
+
+  teaching:
+    body: >
+      Note the N. A tunnel that dies after a consistent quiet interval and comes
+      back on its own is a NAT idle timer, not a crypto problem and not a
+      firewall policy.
+
+      ESP is IP protocol 50 with no ports, so a device doing port translation
+      cannot track it. IKE detects NAT during Phase 1 and both peers move to UDP
+      4500, wrapping ESP in UDP. That UDP flow is now a state entry in a device
+      you probably do not control.
+
+      If that device's idle timer is shorter than `nat-keepalive`, the mapping is
+      reaped during a quiet period. Return traffic then has no translation to
+      arrive through, and the tunnel is one-way until the next rekey rebuilds the
+      flow.
+
+      Confirm NAT-T is actually in play first: remote port 4500 in the Phase 1
+      SA detail. If the port is 500 there is no mapping to expire and this is
+      not your symptom.
+
+    breaks_if_wrong: >
+      The tunnel recovers by itself, so the outage is intermittent and
+      self-healing, which is the hardest shape to get anybody to investigate. It
+      is also invisible during business hours on a busy tunnel and appears
+      overnight or at weekends.
+
+    misdiagnosed_as: >
+      An intermittent circuit. It recovers without intervention, so the ticket
+      goes to the carrier, and the carrier's tests find a clean link because the
+      link is clean.
+
+  links:
+    - { rel: caused_by, to: "explain:concept:ipsec.nat-traversal" }
+    - { rel: see_also,  to: "explain:concept:ike.liveness" }
+
+  sources:
+    - { card: "srx-ipsec", side: 2, block: "NAT TRAVERSAL" }
+
+  terminal: true
+
+# --- the FLAP PATTERN → CAUSE rows -------------------------------------------
+# Seven table rows. Explained depth only — the teaching for all seven is one
+# text and it lives in explain:concept:ipsec.flap-patterns. 15 §5.2 permits an
+# entry with no teaching block; splitting one 240-word body into seven
+# 70-word bodies would produce seven paraphrases of the same paragraph, which
+# is exactly what §4.3 forbids.
+
+- id: explain:symptom:flap-even-interval-round-number
+  class: symptom
+  subject: { path: flap-even-interval-round-number }
+  title: "Flaps at an even interval on a round number"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+  terse: "Flaps on the hour, or on a clean round interval."
+  explained: >
+    A lifetime or rekey collision. Compare the interval against the configured
+    Phase 1 and Phase 2 lifetimes. Under IKEv1 the negotiated value is the lower
+    of the two ends, so the number in your configuration may not be the one you
+    are seeing.
+  links:
+    - { rel: caused_by, to: "explain:concept:ipsec.lifetimes-and-rekey" }
+    - { rel: see_also,  to: "explain:concept:ipsec.flap-patterns" }
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+  terminal: false
+
+- id: explain:symptom:flap-interval-equals-dpd-product
+  class: symptom
+  subject: { path: flap-interval-equals-dpd-product }
+  title: "Flap interval equals DPD interval times threshold"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+  terse: "The interval matches the DPD arithmetic exactly."
+  explained: >
+    Dead peer detection is tearing down a healthy tunnel. The cause is loss on
+    the underlay rather than anything about crypto, and the negotiation that
+    follows each teardown is perfectly clean — which is what makes it read as a
+    protocol failure.
+  links:
+    - { rel: caused_by, to: "explain:concept:ike.liveness" }
+    - { rel: see_also,  to: "explain:concept:ipsec.flap-patterns" }
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+    - { card: "srx-ipsec", side: 2, block: "DEAD PEER DETECTION" }
+  terminal: false
+
+- id: explain:symptom:flap-irregular-bursty
+  class: symptom
+  subject: { path: flap-irregular-bursty }
+  title: "Flaps that are irregular and bursty"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+  terse: "No pattern in the interval at all."
+  explained: >
+    Underlay path loss. Check the WAN interface error counters and the replay
+    count together — a path that reorders enough to trip anti-replay is a path
+    that drops liveness probes, and the teardown that follows looks like a
+    crypto failure.
+  links:
+    - { rel: caused_by, to: "explain:concept:ipsec.replay-window" }
+    - { rel: see_also,  to: "explain:concept:ipsec.flap-patterns" }
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+    - { card: "srx-ipsec", side: 4, block: "REPLAY ERRORS" }
+  terminal: false
+
+- id: explain:symptom:flap-p2-cycles-p1-solid
+  class: symptom
+  subject: { path: flap-p2-cycles-p1-solid }
+  title: "Phase 2 cycles while Phase 1 stays solid"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+  terse: "The Phase 1 index never changes. The child keeps rebuilding."
+  explained: >
+    A selector or PFS mismatch. Phase 1 is settled, so the peer address, the
+    key, the WAN zone and the Phase 1 proposal are all provably correct. Compare
+    the PFS group and the traffic selectors against the peer and nothing else.
+  links:
+    - { rel: caused_by, to: "explain:concept:ipsec.pfs" }
+    - { rel: see_also,  to: "explain:concept:ipsec.flap-patterns" }
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+    - { card: "srx-ipsec", side: 2, block: "PERFECT FORWARD SECRECY" }
+  terminal: false
+
+- id: explain:symptom:flap-p1-rebuilding
+  class: symptom
+  subject: { path: flap-p1-rebuilding }
+  title: "Phase 1 itself keeps rebuilding"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+  terse: "A new Phase 1 index every time you look."
+  explained: >
+    Reachability, the pre-shared key, or identity. Nothing about Phase 2 matters
+    while this is happening. Rule out identity and clock skew before touching
+    the credential — both produce the same authentication error and both are
+    free to check.
+  links:
+    - { rel: caused_by, to: "explain:concept:ike.peer-identity" }
+    - { rel: see_also,  to: "explain:concept:ipsec.flap-patterns" }
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+  terminal: false
+
+- id: explain:symptom:flap-only-when-idle
+  class: symptom
+  subject: { path: flap-only-when-idle }
+  title: "Cycles only when the tunnel is idle"
+  entry_version: 1.0.0
+  status: active
+  platforms: [junos-srx]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+  terse: "It only appears in the log when nothing is using it."
+  explained: >
+    `establish-tunnels on-traffic`, by design. The default negotiates only when
+    a packet is routed at st0, so an idle backup cycles in the log and comes up
+    the first time something uses it. Set `immediately` for anything monitored.
+  links:
+    - { rel: caused_by, to: "explain:concept:ipsec.flap-patterns" }
+    - { rel: see_also,  to: "explain:concept:ipsec.plumbing" }
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+    - { card: "srx-ipsec", side: 3, block: "FAKE FLAPS" }
+  terminal: false
+
+- id: explain:symptom:flap-only-under-load
+  class: symptom
+  subject: { path: flap-only-under-load }
+  title: "Drops only under load"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "what the log means"
+  terse: "Fine when quiet, drops when busy."
+  explained: >
+    MTU, or `lifetime-kilobytes`. If flaps track throughput rather than time,
+    check the volume-based lifetime first — a volume trigger looks exactly like
+    an erratic timer. If sessions stall rather than the tunnel dropping, it is
+    MTU.
+  links:
+    - { rel: caused_by, to: "explain:concept:ipsec.lifetimes-and-rekey" }
+    - { rel: see_also,  to: "explain:concept:mtu.overhead" }
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "FLAP PATTERN → CAUSE" }
+    - { card: "srx-ipsec", side: 2, block: "LIFETIMES & REKEY" }
+  terminal: false
+
+- id: explain:symptom:esp-auth-failures-traffic-flowing
+  class: symptom
+  subject: { path: esp-auth-failures-traffic-flowing }
+  title: "Integrity failures while traffic still flows"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: derived
+  reviewed_by: <named human>
+  reviewed_on: 2026-07-28
+  voice_reviewed_by: <named human>
+  tab: "up-ness"
+
+  terse: "Some packets fail integrity. Most get through."
+
+  explained: >
+    Corruption in path, not a key mismatch — a wrong key fails everything, not
+    some of it. Partial failure is a physical-layer story, so check the WAN
+    interface error counters before anything in the crypto configuration.
+
+  teaching:
+    body: >
+      The reasoning here is short and it eliminates a whole investigation.
+      Integrity checking is deterministic: if the key is wrong, every packet
+      fails. A counter that rises while traffic continues to flow means most
+      packets are verifying correctly, which means the key is right.
+
+      What is left is corruption between the two ends — a marginal link, a
+      failing optic, a device rewriting something it should not.
+
+      The counter to read alongside it is replay. Both rise on a path that is
+      damaging or reordering packets, and both connect to a third symptom:
+      lost DPD probes on that same path tear the tunnel down, which then looks
+      like a crypto failure in the log.
+
+      One physical problem, three counters, three different-looking symptoms.
+      Check the underlay before you check anything else.
+
+    breaks_if_wrong: >
+      Reading a partial integrity failure as a key mismatch means coordinating a
+      key change with the far end for a tunnel whose key is provably correct,
+      and the change costs a maintenance window and fixes nothing.
+
+    misdiagnosed_as: >
+      A key mismatch, because the counter has the word authentication in it and
+      authentication is where keys live. The partiality is the tell and it is
+      what people skip past.
+
+  links:
+    - { rel: caused_by, to: "explain:concept:ipsec.one-way-tell" }
+    - { rel: see_also,  to: "explain:concept:ipsec.replay-window" }
+
+  sources:
+    - { card: "srx-ipsec", side: 3, block: "STATISTICS & COUNTERS" }
+    - { card: "srx-ipsec", side: 4, block: "REPLAY ERRORS" }
+
+  terminal: true
+
+
