@@ -520,14 +520,19 @@ seconds and it is unacceptable.
 | 2 | **Pre-grow and first-touch the Argon2 arena before submit.** `memory.grow` failure and the OS first-touch cost move out of the measured KDF and, more importantly, out of the moment the user is waiting | tens of ms, and a much better error | The tab's resident footprint rises before the user has committed to opening. Acceptable — they are on the unlock screen |
 | 3 | **Tier C never blocks interactivity.** The workspace opens with an empty findings panel that fills, chunked and cancellable, exactly as `12` §7.1 specifies | 1,500 ms | The panel is briefly empty and must say so honestly: a muted margin-tab line reading *checking · 340 of 4,100*, never a spinner and never a fake count |
 | 4 | **Lazy sections.** Decrypt `graph` at open; load `provenance`, `history` and `captures` per device on demand (`11` §14.2 consequence 1) | ~47 % of bytes at open | First hover over a provenance chip pays a decrypt. Prefetch on device focus makes this invisible in practice |
-| 5 | **Defer per-record AEAD above 30 records.** Verify the manifest digest eagerly (one BLAKE3 over the digest list, microseconds); defer Poly1305 to first read | ~10–15 % at large sizes | **A corrupted record is discovered mid-session instead of at open.** That is a real regression in error timing and it is why the threshold exists: below 30 records, verify everything |
+| 5 | **Eagerly verify the record digests; defer only Poly1305** (corrected per ADR-0014). One BLAKE3 over *each envelope's bytes* — keyless, parallelisable, ~1 GB/s — at open, so `32` §8.1's `MissingRecord`/`ExtraRecord` checks run and a store that drops or substitutes a record fails closed at open. Poly1305 is deferred to first read | ~10 % at large sizes | The earlier form of this move — "one BLAKE3 over the digest list" — proved the *list* was intact, not that the *records* matched their digests, so a substituted shard would have been discovered mid-session, possibly never. Eager per-envelope digests preserve §8.1's guarantee at essentially the same cost |
 
 Move 5 deserves the caveat spelled out: deferring integrity verification is the kind of optimisation
 that is correct until somebody moves the read path. The control is that `open_record()` is the only
 function that can hand out plaintext and it verifies unconditionally; the deferral is *when*
-`open_record` is called, never *whether* it verifies.
+`open_record` is called, never *whether* it verifies. And the deferral never applies to the
+digest check, which is what §8.1's fail-closed property rests on (ADR-0014).
 
-#### 4.8.4 PROPOSED CHANGE to `32` §4.2 — calibrate to the floor device, not the creating device
+#### 4.8.4 ACCEPTED (ADR-0014) — calibrate to the floor device, not the creating device
+
+> This proposal was accepted by ADR-0014 and has landed in `32` §4.2:
+> `DeviceFloor::AnyDevice` is the shipping default, and `32` §4.6's cracking table is
+> restated floor-first. The argument is retained below as the record of why.
 
 The five moves above bring a 20-device open to **KDF + ~400 ms**. Everything left is the KDF, and no
 further engineering touches it. So the remaining question is a security question, and it has to be
@@ -589,43 +594,41 @@ open, the keyholder trial and the transition paint. **We do not get to put a num
 else's security parameter. We get to guarantee that the KDF is the only slow thing on the path**, and
 CI asserts exactly that: the measured TTU minus the measured Argon2 time must be under 150 ms.
 
+> **Superseded by ADR-0012/ADR-0013:** the record counts in the table below — "4" and "12"
+> records at unlock — are wrong under the decided format (the class floor of the fixed shard
+> set is ~90 records before any provenance or capture), and the byte figures were derived
+> against the per-device model. Every row must be recomputed against ADR-0013's fixed shards
+> and `32` §7's envelope before any figure here is relied on or quoted — and the deferral
+> threshold in move 5 is expressed in **bytes**, not records. The recomputation is pending.
+
 | Workspace | Records at unlock | Bytes decrypted | Decrypt + decompress + build | **TTI-a P95 (B15)** | **Findings settled P95 (B16)** |
 |---|---|---|---|---|---|
-| 1 device, ~1.1 MB | 4 | 0.6 MB | ~35 ms | 400 ms budget / ~110 ms nominal | 300 ms |
-| 20 devices, ~22 MB | 12 | 11.6 MB | ~208 ms | **400 ms** | **900 ms** |
-| 100 devices, ~110 MB | 12 | 58 MB | ~1,020 ms | **fails the 600 ms budget** — see §4.8.6 | ~4,500 ms, streaming |
+| 1 device, ~1.1 MB | *recompute* | 0.6 MB | ~35 ms | 400 ms budget / ~110 ms nominal | 300 ms |
+| 20 devices, ~22 MB | *recompute* | 11.6 MB | ~208 ms | **400 ms** | **900 ms** |
+| 100 devices, ~110 MB | *recompute* | 58 MB | ~1,020 ms | **fails the 600 ms budget** — see §4.8.6 | ~4,500 ms, streaming |
 | 200 devices, ~220 MB | — | — | — | **fails §7 on memory before it fails on time** | — |
 
-#### 4.8.6 The 100-device problem, and a second proposed change
+#### 4.8.6 The 100-device problem — device-sharding rejected (ADR-0013)
 
-At 100 devices the graph section alone is ~58 MB and decrypting and building all of it is a second of
-work before the first pixel. Move 4 (lazy sections) does not help, because it defers `provenance` and
-`captures` — and `graph` is the section we cannot defer.
+At 100 devices the graph section alone is ~58 MB and decrypting and building all of it is a
+second of work before the first pixel. Move 4 (lazy sections) does not help, because it defers
+`provenance` and `captures` — and `graph` is the section we cannot defer. Hash shards are not
+device-aligned, so there is no subset of shards that constitutes "one device": **per-device
+lazy loading is impossible under the decided format.**
 
-Unless we can defer *part* of it. And we cannot, as specified, because **`32` §6 shards the graph by
-`record_id` derived from the node ID, which is a hash. Shards are not device-aligned, so there is no
-subset of shards that constitutes "one device".**
+> **The device-shard proposal that stood here is rejected by ADR-0013.** Granularity was
+> decided as a metadata question, not a performance one: per-device records publish the exact
+> device count in the file count, permanently, in every historical git commit, and a
+> permanent leak in immutable history is unrecoverable where an open-time regression is
+> re-engineerable. ADR-0013's own consequences section concedes this document's cost in
+> terms: *"the open-path budget in `44` §4.8 has to be recomputed and it will get worse, not
+> better."*
 
-**PROPOSED CHANGE to `32` §6 / `17` §—: above a device-count threshold, shard the graph by device
-rather than by node-ID hash.**
-
-| | Hash shard (current) | Device shard (proposed) |
-|---|---|---|
-| Lazy open of one device | impossible | one shard |
-| Write amplification, one field edit | 1/64 of the graph. At 110 MB that is **1.7 MB** | one device's graph, ~580 KB, **independent of estate size** |
-| Shard size uniformity | even by construction | uneven — a device with 400 policies is a large shard |
-| What the record set leaks to a server holding ciphertext | node count, roughly | **device count, and the per-device size distribution** |
-
-The write-amplification column is the surprise: device-sharding is *better* on the metric `32` §6 was
-optimising, at large estates. The cost is the leak, and for a zero-knowledge product a leak is not a
-footnote. `32` §6 already pads with PADME; padding hides a size, it does not hide a count.
-
-**The alternative, stated so the choice is real:** accept that a 100-device workspace opens in about
-1.5 seconds, and cap the product's comfortable range at the 50–80 devices `11` §14.2 already derives
-from memory. That is a defensible position and it may be the right one. It is not a position this
-document can take unilaterally, because it is a product scope decision.
-
-**DECISION — deferred, and it is on the critical path for anything above 80 devices.** §11 carries it.
+**The operative position is therefore the alternative this section already stated:** accept
+that a 100-device workspace opens in about 1.5 seconds, and cap the product's comfortable
+range at the 50–80 devices `11` §14.2 already derives from memory — revisited only through
+ADR-0013's own revisit triggers (measured save patterns, or repository growth as the top
+pilot complaint), not by reopening granularity here.
 
 ---
 
@@ -650,7 +653,15 @@ is a ceiling nobody checks.
 
 ### 5.2 The WASM core, by component
 
-`41` §3.10 sets this budget and this document adopts it verbatim, adds the gate, and adds two rows it
+> **Ownership (ADR-0017):** this document owns every size and budget figure. `41` §3.10's and
+> `43` §3.2's independent totals are deleted; `41`'s per-component *split* survives and its
+> numbers live here. One number is contested and decides everything: `41`/this document
+> estimate the core at ~700 KB, `43` estimated 2–3 MB, from the same component enumeration.
+> **The two-day phase-0 spike to build and measure `fathom_core.wasm` settles it before the
+> size gate is armed** — it decides B17, B18, the artifact shape, and whether D1 is viable at
+> all. Until it runs, every figure below is a budget, not a measurement.
+
+`41` §3.10 originated this split; this document adopts it, adds the gate, and adds two rows it
 did not have:
 
 | Component | Budget, uncompressed | Gate mechanism |
@@ -719,6 +730,11 @@ xtask size-gate
   │                      perf/size-baselines.toml without a matching edit to that file
   └─ report:             twiggy diff (WASM) + per-row table, posted on the PR
 ```
+
+**The absolute ceilings are not armed until the phase-0 WASM measurement lands (ADR-0017).**
+Arming them now against an unmeasured core would either reject the artifact `43` §3.5
+specifies or force the specification to be changed to fit the gate, which is backwards:
+measure first, then set the number. The ratchet and the per-component report run from day one.
 
 `perf/size-baselines.toml` is checked in and every row carries a `reason` string. A PR that grows the
 WASM by 40 KB must edit the baseline and say why, in the same commit, in a field a reviewer reads.
@@ -1150,7 +1166,7 @@ a product nobody uses.
 | P3 | `d1_selfcheck_lines_parsed` scales with `|Δ|` | Same | Somebody drops the retained line index (§4.6) | **merge** |
 | P4 | `svg_elements_live ≤ 2000` in every diagram scenario | Same | Aggregation stops engaging | **merge** |
 | P5 | `wasm_pages_high_water` within tolerance | Same | A transient peak escaped its disposable instance | **merge** |
-| P6 | A1 ≤ 4.5 MB; WASM ≤ 900 KB; per-component budgets | `xtask size-gate` | Any ceiling breached | **merge** |
+| P6 | A1 ≤ 4.5 MB; WASM ≤ 900 KB; per-component budgets — **absolute ceilings armed only after the phase-0 WASM measurement (ADR-0017); ratchet and report from day one** | `xtask size-gate` | Any armed ceiling breached, or unexplained ratchet growth | **merge** |
 | P7 | Size ratchet: no artifact grows > 2 % without a `reason` | Same | Undeclared growth | **merge** |
 | P8 | Perf-counter exports absent from release artifacts | `wasm-objdump -x`, `42` §9.4 check 6 | Instrumentation shipped | **merge** |
 | P9 | `TTU − KDF ≤ 150 ms` | e2e scenario `open.20`, with the Argon2 bracket marks | Our overhead grew, whatever the KDF did | **merge** |

@@ -177,7 +177,7 @@ Three places. Naming them is cheaper than being caught by a reviewer who finds t
 | **AI tier ceiling** (`21` §7) | **0** | 0, 1, 2 | 0, 1, 2, 3 | 0, 2b |
 | **`connect-src`** | `'none'` | `'self'` | `'self'` (+ one inference origin at tiers 1/3) | *n/a* |
 | **`sandbox`, COOP/COEP/CORP, `frame-ancestors`, `Permissions-Policy`, reporting** | **none of them** (`34` §2.8) | all | all | *n/a* |
-| **Workspace storage** | the user's chosen file only. **Nothing in browser storage** | file on disk + OPFS cache at the served origin | same, plus sealed frames on the server | directory or packed file on the filesystem |
+| **Workspace storage** | the user's chosen file only. **Nothing in browser storage** | file on disk + OPFS cache at the served origin | same, plus sealed records on the server (ADR-0013) | directory or packed file on the filesystem |
 | **Server holds** | — | ciphertext + metadata | ciphertext + metadata | — |
 | **Update path** | a human downloads a new file (`35` §8.2) | operator pulls a new digest, restarts | rolling restart (§9.2) | package manager or a new binary |
 | **Backup** | the workspace directory; git; `fathom pack` | volume snapshot, ordered (§5.7) | object-store versioning + Postgres PITR (§6.13) | the workspace directory; git |
@@ -211,11 +211,11 @@ as a footnote.
 
 ### 3.1 The question this section has to answer
 
-The owner's brief §1 commits to "a single offline file". `34` §3.3 then decided, correctly and for
-good reasons, that the single file holds **no workspace, no passphrase entry, no envelope code and
-no ciphertext** — reference content only. `34` §3.4 lists four costs of that decision and says of
-the second one, verbatim: *"This is the strongest argument against the decision and it is not
-answered by anything below."*
+The owner's brief §1 commits to "a single offline file". `34` §3.3 — in the form it took
+before ADR-0017 rewrote it — decided, for stated reasons, that the single file holds **no
+workspace, no passphrase entry, no envelope code and no ciphertext** — reference content only.
+Its §3.4 listed four costs of that decision and said of the second one, verbatim: *"This is
+the strongest argument against the decision and it is not answered by anything below."*
 
 That unanswered cost is a deployment question, so it lands here. The cost, restated:
 
@@ -227,31 +227,18 @@ That unanswered cost is a deployment question, so it lands here. The cost, resta
 So: is D1 genuinely one HTML file with inlined WASM, a small directory, or a signed desktop bundle?
 Numbers first, decision at §3.5.
 
-### 3.2 The size budget, itemised
+### 3.2 The size budget — owned by `44` (ADR-0017)
 
-**These are engineering estimates over the corpus sizes the sibling documents already computed, not
-measurements. Nothing is built.** Every line says where it comes from.
-
-| Component | Raw | In the file | Basis |
-|---|---|---|---|
-| `fathom_core.wasm`, `opt-level="z"`, `lto="fat"`, stripped, `wasm-opt -Oz` | **2.0–3.0 MB** | **2.7–4.0 MB** base64 | Estimate. Parsers, graph, rule engine, emitters, canonical CBOR, zstd decode, ChaCha20-Poly1305, Argon2id, BLAKE3, HKDF, X25519, Ed25519 <!-- VERIFY: build the core and measure. This is the single largest number in the budget and it is the one most likely to be wrong. --> |
-| Finder index (`finder.idx`) | 1.0 MB | **1.4 MB** base64 | `16` §9.4, which states the 4/3 cost and the 1.4 MB figure directly |
-| Explainer corpus, zstd-19, one platform | 320 KB (v1) / 1.3 MB (v2) | **427 KB** / **1.8 MB** base64 | `15` §15.2, which gives both the compressed and base64 figures |
-| First-party rule pack, compiled | ~150 KB | ~200 KB base64 | Estimate over `63-rulepack-spec.md`'s entry shape |
-| Command corpus bodies (`TEXT`) | 89 KB | 119 KB base64 | `16` §9.4 |
-| UI JavaScript, hand-written, no framework, minified | ~250 KB | 250 KB inline text | Estimate. Zero runtime npm dependencies (`34` §8.2) |
-| CSS | ~40 KB | 40 KB inline text | Estimate |
-| Fonts: Liberation Sans ×3 + DejaVu Sans Mono ×2, WOFF2, subset | ~150 KB | **200 KB** base64 | `34` §8.4 decided subset-and-inline. 5 faces at 25–40 KB |
-| Diagram/legend SVG, inline | ~20 KB | 20 KB | |
-| **Total, v1 corpus, one platform** | | **≈ 5.4–6.7 MB** | |
-| **Total, v2 corpus, all platforms** | | **≈ 8–10 MB** | |
-
-**A discrepancy worth naming rather than smoothing over.** `35` §13.2's worked `fathom verify`
-output prints `SIZE 28,114,552 bytes`, and `16` §9.4 assumes "a target single file in the tens of
-megabytes". This budget lands at a third of that. Either those figures are illustrative, or the
-intended corpus is several times larger than `15` §15.2 costs it at. <!-- VERIFY: reconcile the
-single-file size figure across 16 §9.4, 35 §13.2 and this section. One of them is wrong and the
-number appears in published material. -->
+> **Superseded by ADR-0017:** `44` §5.3 owns every size and budget figure; this document's
+> independent budget is deleted so two live size tables cannot disagree again. The component
+> *enumeration* that stood here (core WASM, finder index, corpus, rule pack, UI, CSS, fonts,
+> SVG) moves to `44` §5.3's table; its per-component numbers are reconciled there. Two
+> figures from the deleted table are settled by the ADR: **two font faces** (per `44` §5.4,
+> the only argued font count — not this document's five), and **the WASM core size is a
+> measurement, not an estimate** — the two-day spike to build and measure `fathom_core.wasm`
+> lands in phase 0 before any size gate is armed, because 700 KB versus 2–3 MB decides
+> whether D1 is viable at all. `35` §13.2's `SIZE 28,114,552` worked output is corrected to a
+> figure from `44` §5.3 once measured.
 
 **Nothing here approaches a platform limit.** The relevant hard caps are the JavaScript engine's
 maximum string length — approximately 2²⁹−24 characters in V8, 2³⁰−2 in SpiderMonkey, 2³¹−1 in
@@ -326,9 +313,10 @@ So the delta between (a) and (b), for a running session, is exactly three things
 
 ### 3.5 DECISION — D1 holds a workspace in memory, reads and writes it as a file, and stores nothing in the browser
 
-**PROPOSED CHANGE to `34` §3.3.** That section splits the offline story into a reference-only single
-file and a served bundle. This document proposes a narrower split, on a line drawn at *storage*
-rather than at *capability*:
+**Accepted by ADR-0017; `34` §3.3 is rewritten to match.** That section previously split the
+offline story into a reference-only single file and a served bundle. This document's narrower
+split, on a line drawn at *storage* rather than at *capability*, is now the decision of
+record (`73` D07 had already decided "A and B, both, from one build"):
 
 > **`fathom-<ver>.html` is a complete product for one session. It opens a packed workspace from a
 > file the user selects, holds the graph in memory, runs every engine, emits configuration with
@@ -855,7 +843,14 @@ should be printed exactly there, where an operator is deciding what to back up.
 
 ### 5.5 The storage layer
 
-**DECISION — one `trait FrameStore` + one `trait IndexStore`, two implementations each: SQLite +
+> **Superseded in part by ADR-0013 and deferred by ADR-0016.** The store below is designed
+> around append-only frames; frames are not adopted (ADR-0013 — fixed shards, whole-record
+> rewrite), and the sync service itself is deferred until after ADR-0006's phases 0–3
+> (ADR-0016: v1 ships a workspace file plus git). Before any of this is built, the blob
+> store's unit becomes the **whole sealed record**, and every `Frame*` type below is rebuilt
+> against `33`'s record-based wire. The two-backend trait split itself is unaffected.
+
+**DECISION — one blob-store trait + one `trait IndexStore`, two implementations each: SQLite +
 local filesystem for D2, PostgreSQL + S3-compatible object storage for D3.**
 
 ```rust

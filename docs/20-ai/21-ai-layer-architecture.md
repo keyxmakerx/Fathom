@@ -1,6 +1,10 @@
 # 21 — The supervisor and its subagents
 
-> **Status:** Proposed
+> **Status:** Proposed · **Partially superseded.** ADR-0021 decides the catalogue split (`22`
+> owns the roster, gates, `SubagentSpec` and `ToolGrant`; this document owns the boundary, the
+> verbs, the tiers, the egress machinery and `PredictedEffect`) and states what the supervisor
+> is — a host-side dispatcher, not a model (§4.1). ADR-0020 decides the tiers and shipping
+> (§7). ADR-0022 decides the runtime roster (§5, §14). Notes at each affected section.
 
 This document specifies the AI layer. The owner's accompanying message adds a hard
 requirement — *"there needs to be a supervisor AI and sub agents"* — that is not in the
@@ -158,7 +162,7 @@ wants to do must decompose into these, or it cannot be done.
 | **Select** | a set of `CorpusId`s, ordered | Yes — the user sees the entries, verbatim | No. The corpus is authored; selection changes which authored text is shown, not what it says |
 | **Propose** | a `Proposal` (§2.4) | Yes — accept / reject / amend, per op | Only after a human accepts, at which point the value is human-authored |
 | **Order** | a permutation over deterministic results | Yes — the underlying set is unchanged and shown | No. Reordering a finding list cannot change a finding |
-| **Ask** | one question to the human | n/a | No |
+| **Ask** | one question to the human — closed-choice, `because` a `CorpusRef` (§6.3) | Yes — the question is logged with the session and rendered in the audit view beside the value it produced (R30) | No |
 | **Abstain** | a typed refusal with a reason | n/a | No |
 
 Note what is missing: **narrate**. The supervisor cannot emit free prose as an answer. It
@@ -673,17 +677,22 @@ itself testable.
 ### 3.4 Measurement
 
 Every metric here is computed without instrumenting the model, because all of them are
-properties of the host's own logs.
+properties of the host's own logs. **The host is the user's client, and invariant 1 forbids
+transmitting anything from it (R33, ADR-0022)** — so each metric carries a `Collectable
+where?` column with one of three honest values: `eval harness (fixtures)`, `local only —
+user-visible, never transmitted`, or `not collectable`. A gate can only bind where its metric
+is collectable: the fixture-measurable metrics gate in the eval harness (they measure the
+*contract*, not the field); the local-only metrics are per-user controls, not release gates.
 
-| Metric | Definition | Target | Gate |
-|---|---|---|---|
-| `deterministic_answer_rate` | requests resolved without reaching the supervisor / all requests | ≥ 0.85 | reported per release; a fall of > 5 points release-on-release is a **W** in the build report |
-| `model_touch_rate` | 1 − the above | — | — |
-| `paraphrase_rate` | answers with a suppressed paraphrase / answers emitted | < 0.05 | **E** — build fails above 0.15 |
-| `uncited_op_rate` | ops with `Basis::Judgement` / all proposed ops | < 0.20 | **W** above 0.20 |
-| `accept_rate` / `amend_rate` / `reject_rate` | over reviewed proposals | — | `reject_rate` > 0.5 for a subagent disables it by default in the next release |
-| `blind_accept_rate` | proposals accepted without the emit preview ever being expanded | < 0.30 | **W** — this is the trust-erosion metric and it is the one that predicts harm |
-| `shadow_rule_rate` | proposals whose op set is exactly reproducible by an existing rule's `remediation` | 0 | **E** — a non-zero value means the resolver failed to route to the rule engine |
+| Metric | Definition | Target | Gate | Collectable where? |
+|---|---|---|---|---|
+| `deterministic_answer_rate` | requests resolved without reaching the supervisor / all requests | ≥ 0.85 | reported per release; a fall of > 5 points release-on-release is a **W** in the build report — measurable only over the eval fixture set | eval harness (fixtures); local only in the field |
+| `model_touch_rate` | 1 − the above | — | — | same as above |
+| `paraphrase_rate` | answers with a suppressed paraphrase / answers emitted | < 0.05 | **E** — build fails above 0.15, measured over fixtures | eval harness (fixtures) |
+| `uncited_op_rate` | ops with `Basis::Judgement` / all proposed ops | < 0.20 | **W** above 0.20, measured over fixtures | eval harness (fixtures); local only in the field |
+| `accept_rate` / `amend_rate` / `reject_rate` | over reviewed proposals | — | not a release gate; rendered in the workspace's AI panel | local only — user-visible, never transmitted |
+| `blind_accept_rate` | proposals accepted without the emit preview ever being expanded | < 0.30 | **client-side disarm (ADR-0022):** the client computes it, renders it in the workspace's AI panel, and disarms the layer above 0.30 with a one-line explanation and a re-arm button. Never a release gate — the population rate is uncollectable by invariant 1 | local only — user-visible, never transmitted |
+| `shadow_rule_rate` | proposals whose op set is exactly reproducible by an existing rule's `remediation` | 0 | **E** — a non-zero value means the resolver failed to route to the rule engine, measured over fixtures | eval harness (fixtures) |
 
 `shadow_rule_rate` deserves emphasis. It is computed by taking every accepted proposal,
 running the rule engine against the pre-state, and checking whether any fired rule's
@@ -701,6 +710,16 @@ rules to write.
 ## 4. The supervisor
 
 ### 4.1 What it is
+
+> **Decided — ADR-0021.** *"A host-side dispatcher. It holds the budget, enforces the plan
+> invariants and adjudicates results, and at tiers 0–3 it does this without calling a model.
+> Every model call in this layer is made by a worker, under a named grant."* The supervisor is
+> Rust, not a model: `resolve()` is pure and deterministic, classification is a ~40-pattern
+> grammar (§4.3), decomposition is a dispatch table (`22` §15.1 — a router, not a planner),
+> and plan legality, dispatch, adjudication and budget are all host-held. In every documented
+> interaction the supervisor makes **zero model calls**. Whether a Rust dispatcher satisfies
+> *"there needs to be a supervisor AI"* is the owner's call, and this sentence exists so they
+> can make it.
 
 A bounded, single-instance orchestrator that runs for the lifetime of one request, holds the
 budget ledger, dispatches subagents, adjudicates their results, and terminates in exactly one
@@ -773,6 +792,9 @@ falls back to `TaskClass::from(underdetermination)`, a total function. Classific
 blocks.
 
 §14 argues this component is marginal and should probably ship disabled at tier 1.
+
+> **Superseded by ADR-0022:** `intent.router` is cut. Classification is the deterministic
+> grammar at every tier; the model-consultation path above does not ship.
 
 ### 4.4 Task decomposition
 
@@ -976,6 +998,14 @@ proposal that got accepted. Recording it costs 60 bytes.
 
 ## 5. The subagent catalogue, at architecture level
 
+> **Superseded by ADR-0021.** `22` owns the catalogue, the gates, `SubagentSpec` and
+> `ToolGrant`; this document keeps the boundary, the verbs, the tiers, the egress machinery
+> and `PredictedEffect`. §5.1's eight-row roster below is **not** the roster: the shipping
+> roster is ADR-0022's — S1 (intake) at runtime behind the ask box, S6 (interop advisor) as a
+> transcriber after the typed form, S5/S9/S2-B at build time, everything else cut. §5.1 and
+> §5.4 are retained as the argument that produced the admission criteria, not as a
+> specification.
+
 Per-subagent detail — prompts, schemas, eval sets, failure modes — belongs in
 `22-subagent-catalogue.md`. This section defines the taxonomy, the admission criteria, and
 the honest assessment of which ones earn their place.
@@ -1003,6 +1033,12 @@ Two properties hold for every row:
   only an objection.
 
 ### 5.2 Why decomposition helps here specifically
+
+> **Re-stated per ADR-0021.** The egress saving below comes from **not accumulating tool
+> results in one context**, which a stateless, per-call-scoped protocol achieves without any
+> notion of an agent. The real value of the design is (a) per-worker capability grants, which
+> a single agent cannot have without holding their union, and (b) per-worker context ceilings,
+> which bound tier-1 egress. Both are host properties.
 
 The generic argument for multi-agent systems ("specialisation") is weak and I am not making
 it. There are four specific reasons decomposition is load-bearing in *this* system.
@@ -1059,7 +1095,7 @@ A proposed subagent is admitted only if it passes **all five**:
 
 | # | Criterion | Test |
 |---|---|---|
-| **A1** | The task is not expressible as a rule | Write the rule. If you can, the subagent is rejected and the rule ships instead. This has already killed three candidates. |
+| **A1** | The task is not expressible as a rule | Write the rule. If you can, the subagent is rejected and the rule ships instead. This has already killed three candidates. **Bound (ADR-0022):** "expressible" means expressible as at most three rules over the existing `fex` grammar, within `12` §15.3 gate 7's 2,000-VM-step budget, without new builtins. |
 | **A2** | The task is not expressible as a finder query | Same test against the corpus schema. |
 | **A3** | It has a working non-AI fallback | Named, implemented, and exercised at tier 0. If the fallback does not exist, the feature does not ship. |
 | **A4** | Its scope and its capabilities are not both wide | Formally: `wide(scope) ⟹ caps ∩ {GRAPH_PROPOSE} = ∅`. |
@@ -1089,6 +1125,10 @@ Deferred to §14, where it can be argued alongside cost.
 ---
 
 ## 6. The tool-calling contract
+
+> **Superseded by ADR-0021.** The tool surface is owned by `22` (nineteen tools, exhaustive
+> by design), as are the gates G1–G11. This section's eleven-tool table and types are retained
+> for the boundary argument they carry; where the two disagree, `22` wins.
 
 ### 6.1 Principles
 
@@ -1258,9 +1298,14 @@ pub struct AskHumanIn {
     /// Closed-choice questions only, plus one free-text escape. An unbounded
     /// question is a conversation, and a conversation is not what this is.
     pub choices: SmallVec<[BoundedText<80>; 5]>,
+    /// Defaults to false (R30, ADR-0022). A free-text answer marks every
+    /// dependent op `Basis::Judgement`, pre-unchecked.
     pub allow_free_text: bool,
-    /// Why the answer is needed. Rendered under the question.
-    pub because: BoundedText<160>,
+    /// Why the answer is needed. A corpus reference, never model prose
+    /// (R30, ADR-0022): the layer can only ask questions the corpus has
+    /// anticipated, and no authored entry asserts what a given peer's
+    /// appliance can do.
+    pub because: CorpusRef,
 }
 
 // ─────────────────────────────────────────────────────────────── report_gap
@@ -1273,7 +1318,15 @@ pub struct ReportGapIn {
 }
 ```
 
-Two details worth defending.
+Three details worth defending.
+
+**`ask_human` is fenced like everything else (R30, ADR-0022).** It was the one channel of
+model-authored prose exempt from every control this design puts on model prose, and the
+human's answer re-entered the session as trusted. Closed, four ways: `because` is a
+`CorpusRef`, not prose; `question` and `choices` pass the command-shape and paraphrase
+detectors; the question is logged with the session and rendered in the audit view beside the
+value it produced; `allow_free_text` defaults to `false`, and a free-text answer marks every
+dependent op `Basis::Judgement`, pre-unchecked.
 
 **`QueryGraphOut::withheld`.** The four-state `Presence` model exists so a rule can tell
 *unset* from *unknown* (11-ir-schema §5). If redaction turned a withheld value into
@@ -1421,7 +1474,7 @@ writes config.
 | Zero-knowledge posture | intact | **broken for what is sent** | intact | intact w.r.t. third parties |
 | Offline | yes | no | yes | no (LAN required) |
 | Default? | **yes** | no — explicit per-workspace opt-in | no — requires setup | no — operator-provisioned |
-| Single-file build | yes | no (§7.5) | 2a yes / 2b no | no |
+| Single-file build | yes | no (§7.5) | **no** (ADR-0020: 1–2 GB of in-page weights against `44` §6.2's 1.5 GB resident cap and one session of memory; 2b is a native shell) | no |
 | Reproducibility of artifacts | full | full | full | full |
 
 The last row is the one to notice. **The reproducibility guarantee is identical at every
@@ -1484,6 +1537,17 @@ and opts in **per workspace**, through the pre-flight in §8.3.
 **What tier 1 costs:** the headline security claim. §8.7 states this without softening.
 
 ### 7.3 Tier 2 — a model on the user's own machine
+
+> **Superseded by ADR-0020** (raised as `85` F12; `24` §§2–3 carries the argument). No model
+> ships in v1; tier 0 is the default, forever. When a model does ship, tier 2b is a **native
+> shell that owns the sidecar as a child process (primary)** with a served loopback flavour
+> secondary — not a browser page reaching loopback: the Local Network Access permission
+> prompt, whose wording we do not write, describes an action a security-conscious network
+> engineer is correctly trained to deny, and the denial is sticky. The CSP surface for local
+> inference is owned by `34` per ADR-0001, not by §7.5's table. And `24` §3.8's sentence is
+> carried here because it must be said, not discovered: **"the shape we chose for security
+> reasons is the one the most security-constrained users cannot run"** — the segment the
+> security posture was built for gets a product with no AI layer. Not a degraded one; none.
 
 Two sub-variants, and they have genuinely different properties.
 
@@ -1599,6 +1663,13 @@ that build has to come from the fact that it is a local file, and that limitatio
 the security document rather than being papered over here.
 
 ### 7.6 What degrades, per tier
+
+> **Superseded in part (ADR-0020, ADR-0022).** Tier 2a does not ship in the single file
+> (§7.0), and of the subagent rows below only S1 (intake, behind the ask box) ships at
+> runtime, with S6 as a transcriber after the typed form. The `corpus.scout`,
+> `intent.router`, `symptom.correlator`, `constraint.negotiator`, `config.triage` and
+> `adversary.redteam` rows describe cut components and are retained for the record; the table
+> awaits regeneration against the ADR-0022 roster.
 
 | Capability | Tier 0 | Tier 1 | Tier 2a (3 B) | Tier 2b (7–13 B) | Tier 3 |
 |---|---|---|---|---|---|
@@ -1743,7 +1814,14 @@ literal payload.** Not a summary. Not a description. The bytes.
 ```
 ─ 3px ink rule ──────────────────────────────────────────────────────────────
   B E F O R E   A N Y T H I N G   L E A V E S                    read this
-  THIS IS THE EXACT REQUEST BODY. NOTHING ELSE WILL BE SENT.
+  THIS IS THE FIRST REQUEST OF THIS SESSION. NOTHING OUTSIDE THE CLASSES
+  BELOW WILL BE SENT.
+
+  this request      4 812 bytes
+  this session      up to 12 requests, up to 262 144 bytes, each an
+                    extension of this one
+  field classes     structural · crypto parameters · addresses (pseudonymised)
+                    · names (pseudonymised) — free text and captures withheld
 ─ 1px rule ──────────────────────────────────────────────────────────────────
 
   to        https://api.<provider>.example/v1/messages
@@ -1775,6 +1853,12 @@ literal payload.** Not a summary. Not a description. The bytes.
 The pre-flight re-fires, unconditionally, when any of these change: the purpose tag, the
 redaction profile version, the system-contract hash, the tool-schema hash, or the endpoint
 origin. A consent granted against one payload shape is not consent for another.
+
+The header states the session bound because the first request is not the session (R32): each
+subsequent model call sends the previous turns plus new tool results, so the session's egress
+is bounded at up to 54× the first payload. The running session byte counter in the armed-state
+indicator (§8.5) is the control that closes the loop — the counter is the honest control; the
+byte dump is the checkability claim.
 
 **Rendering cost, stated:** the payload is JSON and it is long. Users will click through it
 after the second time. The pre-flight is not a control that scales with repetition; its value
@@ -2261,6 +2345,15 @@ At tier 2 the marginal cost is electricity and the cap is the user's patience.
 
 ## 12. Scenario A — a peer that only speaks IKEv1 with no PFS
 
+> **Superseded (R04, ADR-0022).** This scenario cites rule and corpus IDs that do not resolve
+> in the shipped corpus — including `ipsec.traffic-selector.multiple-under-v1`, labelled the
+> most important deterministic win below, which does not exist and whose nearest real rule
+> cannot substitute — and it is driven by `constraint.negotiator` and `adversary.redteam`,
+> both cut by ADR-0022. Retained as the design argument it was; not evidence. Per R04 it must
+> be rewritten against the shipped corpus by ID, after the three missing rules land as corpus
+> tickets, and the rewritten version will show the model contributing less than this text
+> implies. That is the honest picture and it should be published.
+
 **User, with `srx-edge-lhr` open in the workspace:**
 *"help me build a tunnel to a peer that only supports IKEv1 and no PFS"*
 
@@ -2505,6 +2598,12 @@ it is much smaller than the interaction feels. Both facts should be held at once
 
 ## 13. Scenario B — 400 lines of somebody else's SRX config
 
+> **Superseded (R04, ADR-0021, ADR-0022).** This scenario cites rule IDs that do not resolve
+> in the shipped corpus (R04 — e.g. `ike.dpd.default-timing`, reported firing where the real
+> rule is structurally unfirable), and it is driven by `config.triage` and
+> `symptom.correlator`, both cut at runtime by ADR-0022. Retained as the design argument it
+> was; not evidence. Do not re-run it until R04's corpus tickets land.
+
 **User pastes 400 lines of `show configuration | display set` output into an empty workspace
 and asks: *"what is wrong with it"*.**
 
@@ -2729,6 +2828,14 @@ over-invest in the AI layer.
 
 ## 14. What this actually buys, component by component
 
+> **Superseded by ADR-0022.** The ship list below is not the decision. The decided roster:
+> **runtime, S1 only** (intake, behind the ask box); **S6 as a transcriber only**, after the
+> typed peer-constraint form; **build time: S5, S9, S2-B**; everything else cut — including
+> this section's first "Ship", `constraint.negotiator`, which §10.4 of this same document
+> rates as having a fully sufficient non-AI fallback, and `adversary.redteam`, whose keep is
+> argued below on cost rather than efficacy. The rows are retained as the argument ADR-0022
+> answered.
+
 The brief says to be rigorous about this. Here is the assessment, with the recommendation to
 cut where cutting is right.
 
@@ -2741,15 +2848,16 @@ cut where cutting is right.
 | `adversary.redteam` | **Yes, for its specific job.** | **Ship.** It checks AI output, not user input, so its cost is bounded by proposal volume and it cannot be on the critical path of anything deterministic. |
 | `corpus.scout` | Marginal. | **Ship at tier 1/2b only.** It helps on genuine `NoHit` queries, which are the vocabulary gap the finder's synonym map has not closed yet. But every scout hit is also a synonym-map ticket, and if the map is maintained the scout's value decays over time. Budget it as a stopgap, not an asset. |
 | `intent.router` | **No.** | **Do not ship at tier 1.** The deterministic grammar handles the common shapes; the long tail resolves to the disambiguation list, which is a good outcome. Paying a model round trip and an egress event to classify *"how do I check if the tunnel is up"* is exactly the regression §3.1 names. Ship it only at tier 2, where a 3 B local model answers in 200 ms at zero marginal cost and zero egress. |
-| `symptom.correlator` | **Marginal, and less than it looks.** | **Ship behind a flag, measure, expect to cut.** Its scenario-B contribution was ordering seven findings — and the ordering rationale was itself in the corpus, in `explain:concept:bringup-order`. A deterministic ordering by (severity, `next_if_bad` topological position, anchor) reproduces most of it in 2 ms. The honest test: if `symptom.correlator`'s ordering agrees with the deterministic one more than 80% of the time, cut it. |
+| `symptom.correlator` | **Marginal, and less than it looks.** | **Ship behind a flag, measure, expect to cut.** Its scenario-B contribution was ordering seven findings — and the ordering rationale was itself in the corpus, in `explain:concept:bringup-order`. A deterministic ordering by (severity, `next_if_bad` topological position, anchor) reproduces most of it in 2 ms. *The agreement-threshold kill test that stood here is deleted per ADR-0022: an agreement threshold rewards disagreement — a correlator that agrees 79% of the time and is wrong on the other 21% survives it. Correctness is measured by `25` §6.3.* |
 | `finding.narrator` | **No.** | **Do not ship.** The corpus already carries three authored depths per entry (§5.4 of the brief). A model reordering authored rails is a 200 ms → 4 s regression for a marginal gain, and it is the component most likely to drift into paraphrasing — which is the regression the cardinal rule is written against. Ship a deterministic selector instead. This one was in the plan and should come out of it. |
 | `gap.reporter` (offline) | **Yes.** | **Ship.** Clustering 400 gap tickets into 30 themes at build time is a real model strength, it is human-gated, it never runs at runtime, and it produces no egress from a user's machine. |
 | The proposal review UI (§2.5) | n/a | **Keep, and resource it properly.** `blind_accept_rate` (§3.4) is the metric that predicts whether this product harms anyone. If that number goes above 0.30 the review UI has failed and the AI layer should be pulled, not tuned. |
 | The egress machinery (§8) | n/a | **Keep in full, including the parts that are inconvenient.** The pre-flight will be argued about. It is the mechanism that makes the tier-1 trust decision informed rather than nominal. |
 
-**Net:** of eight runtime subagents, two are clear keeps, two are narrow keeps, two are
-conditional, and two should not ship. That is a normal ratio for a first design and stating it
-is more useful than shipping all eight and discovering it in production.
+**Net (recounted per M20):** of **seven** runtime subagents — `gap.reporter` is build-time
+only per §5.1 — two are clear keeps, two are narrow keeps, two are conditional, and one
+should not ship. That is a normal ratio for a first design and stating it is more useful than
+shipping all seven and discovering it in production.
 
 The uncomfortable conclusion, stated because the brief asks for it: **the AI layer's largest
 long-run value may not be any of its runtime features.** It may be the gap pipeline —
@@ -2782,7 +2890,7 @@ never turn the AI layer on.
 
 | # | Question | My recommendation | Why it is still open |
 |---|---|---|---|
-| OD-1 | Should `symptom.correlator` ship at all, or should ordering be fully deterministic? | Flag it, measure agreement against the deterministic ordering for one release, expect to cut | Needs data we do not have |
+| OD-1 | Should `symptom.correlator` ship at all, or should ordering be fully deterministic? | Flag it, measure agreement against the deterministic ordering for one release, expect to cut | **Closed — ADR-0022 cuts it.** Ordering is deterministic |
 | OD-2 | Does the tier-1 build enumerate provider origins, or do we ship a "custom endpoint" build variant users compile themselves? | Enumerate a small allowlist; publish it in release notes; document the self-build path | Enumeration is a business decision as much as a technical one |
 | OD-3 | Should the egress log retain response bodies in full, or digests only? | Full, under the same cap | Responses can be long and are less security-relevant than requests; a reviewer may disagree |
 | OD-4 | Should `acceptable_when` gain a machine-readable companion so the negotiator can *check* rather than *read*? | Yes — see §18 | It is a change to 63-rulepack-spec and belongs to that document's owner |

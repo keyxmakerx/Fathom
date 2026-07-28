@@ -1626,7 +1626,12 @@ entries:
 
 - id: explain:error:junos-srx/INVALID_KE_PAYLOAD
   class: error
-  subject: { platform: junos-srx, verbatim: "INVALID_KE_PAYLOAD" }
+  # qualifier v2 per R06/§6.2: INVALID_KE_PAYLOAD is IKEv2 notify type 17 and
+  # cannot appear on an IKEv1 gateway. The IKEv1 analogue is
+  # INVALID-KEY-INFORMATION, and an IKEv1 Quick Mode PFS group mismatch
+  # surfaces as NO_PROPOSAL_CHOSEN because the group is a Quick Mode SA
+  # attribute — that split entry still needs authoring.
+  subject: { platform: junos-srx, verbatim: "INVALID_KE_PAYLOAD", qualifier: v2 }
   verbatim: "INVALID_KE_PAYLOAD"
   title: "INVALID_KE_PAYLOAD"
   entry_version: 1.0.0
@@ -1652,10 +1657,13 @@ entries:
       by sight for exactly that reason. NO_PROPOSAL_CHOSEN means "nothing you
       offered is in my list" and names four values. This one names a mechanism.
 
-      The key exchange payload is sized and structured by the Diffie-Hellman
-      group. A responder expecting group14 and handed a group19 payload is not
-      looking at a value it dislikes — it is looking at bytes it cannot
-      interpret. There is nothing to negotiate at that point.
+      It is a negotiation mechanism, not a parse failure. The responder parsed
+      the SA payload, selected a transform, and found the KE payload built for
+      a different group. It returns INVALID_KE_PAYLOAD carrying the group
+      number it wants, and the initiator retries IKE_SA_INIT with that group.
+      In a healthy bring-up where the initiator's proposal list contains the
+      named group, it appears exactly once and Phase 1 completes on the second
+      round trip.
 
       Two candidate statements. The `dh-group` on the ike proposal, and the
       `perfect-forward-secrecy keys` value on the ipsec policy. If the two are
@@ -1666,14 +1674,11 @@ entries:
       degrading to a common value here.
 
     breaks_if_wrong: >
-      On Phase 1 the tunnel never establishes. On the child exchange Phase 1
-      stays up while Phase 2 fails every time it is attempted, so the tunnel
-      reads as flapping rather than down and the SA index churns.
-
-    misdiagnosed_as: >
-      A proposal mismatch requiring a full comparison. It is a proposal
-      mismatch, and the error has already told you which field, so comparing all
-      four values is wasted effort.
+      Terminal only when the two group sets are disjoint, and that case
+      usually reports NO_PROPOSAL_CHOSEN rather than INVALID_KE_PAYLOAD. In
+      the disjoint case on a child exchange, Phase 1 stays up while Phase 2
+      fails every time it is attempted, so the tunnel reads as flapping rather
+      than down and the SA index churns.
 
   links:
     - { rel: prerequisite, to: "explain:concept:ipsec.error-decoder" }
@@ -1682,7 +1687,7 @@ entries:
   sources:
     - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
     - { card: "srx-ipsec", side: 2, block: "PERFECT FORWARD SECRECY" }
-    - { std: "RFC 7296", section: "1.3", note: "KE payload in CREATE_CHILD_SA" }
+    - { std: "RFC 7296", section: "1.2", note: "INVALID_KE_PAYLOAD carries the responder's group; the initiator MUST retry IKE_SA_INIT with that group" }
 
   terminal: true
 

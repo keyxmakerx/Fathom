@@ -94,9 +94,11 @@
 #      goes.
 #
 #  F6. Gate 7 (`at most one weight: 3 per (concept, platform)`) is a real gate
-#      and it forced real decisions. Ten entries carry `weight: 3` in this file
-#      and their concept sets are pairwise disjoint by construction; they are
-#      listed in § CANONICALITY at the end. The gate is correct and the cost is
+#      and it forced real decisions. Eleven entries carry `weight: 3` in this
+#      file; ten concept sets are pairwise disjoint by construction and the
+#      eleventh (`zone.host-inbound.ike.set`) breaks the disjointness and is
+#      flagged for the reviewer. They are listed in § CANONICALITY at the end.
+#      The gate is correct and the cost is
 #      that `show security ipsec security-associations` — the command from the
 #      card's own ladder — is `weight: 2`, because 61 §15.1 already claimed
 #      `weight: 3` for the `vpn-name … detail` form on the same concepts. That
@@ -197,6 +199,9 @@ entries:
     Changes how this box proves who it is in Phase 1. On an existing gateway
     the next negotiation fails until the peer matches, and the tunnel drops at
     the current SA's lifetime rather than immediately.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -264,11 +269,14 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Changes the Phase 1 key exchange group. A peer on a different group
     rejects the exchange with INVALID_KE_PAYLOAD and the tunnel stops
     rebuilding after the current IKE SA expires.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -341,6 +349,9 @@ entries:
     Changes the Phase 1 integrity hash. A peer expecting a different hash
     rejects the whole proposal, and the tunnel stops rebuilding once the
     current IKE SA expires.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -406,11 +417,14 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Changes the cipher protecting the Phase 1 exchange. A peer offering only a
     different cipher rejects the proposal outright and the tunnel does not
     rebuild after the current IKE SA expires.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -478,6 +492,9 @@ entries:
   blast_radius: >
     Changes how often the IKE SA is rebuilt. Takes effect at the next
     negotiation, not at commit. No traffic effect on its own.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -614,6 +631,9 @@ entries:
     Replaces the shared secret. The running SA survives until its lifetime
     expires and then fails to rebuild if the peer was not changed in the same
     window. Schedule both ends together.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -895,7 +915,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Pins the protocol version. A peer that only speaks the other version stops
     negotiating entirely at the next attempt. Change both ends in one window.
@@ -1457,11 +1477,14 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Changes the data-plane cipher. The current child SA keeps running until it
     rekeys, then fails to install if the peer was not changed in the same
     window.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -1532,6 +1555,9 @@ entries:
   blast_radius: >
     Changes how often the child SA rekeys. Takes effect at the next
     negotiation. No traffic effect on its own if the rekey is healthy.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -1598,11 +1624,14 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Adds a fresh Diffie-Hellman exchange to every Phase 2 negotiation. A peer
     without the identical group rejects Phase 2 from the next rekey onward
     while Phase 1 stays up, so the tunnel appears to drop for no reason.
+    <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+    behaviour (R46/C7) — record per train, consolidated in
+    explain:concept:junos.commit-and-sa-lifecycle -->
   reversible: commit-confirmed
   commit_model: junos-commit
 
@@ -1861,7 +1890,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Binds the tunnel to a secure tunnel unit. Repointing it on a live VPN
     detaches routing from the old unit and everything routed at it blackholes
@@ -2005,7 +2034,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Stops this end ever initiating. Applied to both ends of one tunnel, nobody
     initiates and the tunnel never comes up again — with no error anywhere.
@@ -2378,7 +2407,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Creates or renumbers the secure tunnel unit. Renumbering a live unit drops
     any adjacency running over it and invalidates static routes pointing at the
@@ -2445,7 +2474,7 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
     Puts the tunnel unit into a zone so policies can reference it. Moving a
     live unit between zones invalidates every policy written for the old zone
@@ -3326,6 +3355,12 @@ entries:
 
   read_field: "State — want Installed"
   output_fields:
+    # <!-- VERIFY (C10): on current Junos the summary output has no State
+    # column — the columns are ID, Algorithm, SPI, Life:sec/kb, Mon, lsys,
+    # Port, Gateway, with </> direction markers on the ID; "State: Installed"
+    # is a detail-only field. Either target the detail form or change this
+    # field. Check on a box before shipping — this is the field the whole
+    # verify ladder hangs on. -->
     - field: State
       means: "Phase 2 SA state."
       want: "Installed"
@@ -4115,6 +4150,7 @@ entries:
   versions: "*"
 
   risk: ChangesConfig
+  risk_caption_override: "CHANGES STATE — NOT REVERSIBLE BY COMMIT"
   blast_radius: >
     Zeroes every IPsec counter on the box. Anybody watching a counter for a
     trend loses their baseline, and a monitoring system that computes deltas
@@ -5419,9 +5455,10 @@ entries:
   platform: junos-srx
   versions: "*"
 
-  risk: ChangesConfig
+  risk: Disruptive
   blast_radius: >
-    Lowers the size the tunnel unit will pass without fragmenting. The box now
+    Lowers the size the tunnel unit will pass without fragmenting. An MTU
+    change on a live unit re-establishes the logical interface. The box now
     fragments before encryption, which costs CPU on a busy tunnel, and those
     fragments can still be dropped downstream.
   reversible: commit-confirmed
@@ -6644,12 +6681,13 @@ id_map:
   - { referenced: "junos-srx/log.kmd.match-peer",         use: "junos-srx/log.kmd.match-peer",       seen_in: "61 §15.2 (kept)" }
 
 # =============================================================================
-# § CANONICALITY — the ten weight: 3 entries and their concept sets
+# § CANONICALITY — the eleven weight: 3 entries and their concept sets
 # =============================================================================
-# Gate 7: at most one weight: 3 per (concept, platform). These ten are pairwise
-# disjoint by construction. Everything else in the bundle is weight 2 or lower.
-# Adding an eleventh requires checking against this table, which is why it is
-# written down rather than derived.
+# Gate 7: at most one weight: 3 per (concept, platform). Ten of these are
+# pairwise disjoint by construction; the eleventh is flagged in the NOTE below.
+# Everything else in the bundle is weight 2 or lower. Adding another requires
+# checking against this table, which is why it is written down rather than
+# derived.
 #
 canonicality:
   - { entry: "junos-srx/ipsec.sa.show-vpn-detail", concepts: [obj.tunnel, obj.ipsec-sa, p2.installed, act.verify, phase.p2] }

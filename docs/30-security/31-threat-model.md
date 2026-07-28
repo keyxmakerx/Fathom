@@ -289,19 +289,26 @@ that is expensive to become is worth less mitigation than one that is free.
 | A1 operator | · | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† |
 | A2 provider | · | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† |
 | A3 observer | · | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† |
+| A4 active attacker | · | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† |
 | A5 colleague | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ |
 | A6 pack author | · | ◆* | ◆* | · | · | · | · | · | · |
+| A7 corpus contributor | · | ◆* | ◆* | · | · | · | · | · | · |
 | A8 supply chain | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ |
 | A9 endpoint | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ |
 | A10 extension | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ |
 | A11 coerced | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ |
+| A12 insider | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ | ◆ |
 | A13 thief | · | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† | ◇† |
 
-`*` A6 does not *read* findings; they *shape* them, which for the "cause a bad config to be
-deployed" goal is worth more. See §8 goal B.
+`*` A6 and A7 do not *read* findings; they *shape* them (A6 through pack content, A7 through
+corpus prose), which for the "cause a bad config to be deployed" goal is worth more. See §8
+goal B.
 
-Read the table by rows. **Four actors have a full row of `◆` and three of them cost almost
-nothing to become.** A5, A9, A10 and A11 are the actual threat to this product. A1, A2, A3 and
+Read the table by rows. **Five actors have a full row of `◆` — A5, A8, A9, A10 and A11 — and
+A12, whom §3.1 calls "A8's leverage with A1's legitimacy", shares A8's full row** (count and
+missing rows corrected per ADR-0015; the earlier "four" excluded the supply-chain actor from
+the conclusion this table supports, which is the opposite of §8.4's own finding). A5, A9, A10
+and A11 are the actual threat to this product. A1, A2, A3 and
 A13 — the actors the zero-knowledge architecture is built for — are the cheap ones to defend
 against, and we have defended against them well. That asymmetry is uncomfortable and it is the
 correct read of the model: **the cryptography is not the weak link, and building more of it is
@@ -490,6 +497,7 @@ outside the project can check is a marketing claim.
 | 17 | **Sync service abuse** | Enumerates workspace ids; exhausts storage; floods versions to deny service | Opaque high-entropy workspace ids; per-account quota; rate limits; version-count caps | `bounded` — availability is not a property zero-knowledge protects, and an operator can always deny service to their own users | Try it against your own instance |
 | 18 | **Update rollback / freeze** | Serves an old, correctly signed release with a known defect, or simply stops serving updates so the user never learns one exists | No silent auto-update. A signed version manifest with an expiry; the client knows its own build date offline and surfaces staleness | `material` — an offline single file cannot learn that a newer version exists. It can only report its own age, which is not the same thing | Check the manifest signature and expiry yourself. Compare your build date to the published release list |
 | 19 | **Passphrase brute force** | Obtains the ciphertext (rows 1–6) and grinds offline | Argon2id with published parameters in the envelope header; a generated-passphrase path in the UI that is the default rather than the alternative; an entropy estimate shown at entry that is a floor, not a score out of five | `material` — see §2.4. This mitigation is a constant factor against an unbounded search | Read the KDF parameters out of the envelope header; they are in the clear and authenticated as AEAD associated data. Then benchmark it yourself |
+| 20 | **Traffic analysis / metadata at the sync server** (moved here from §6.7 per ADR-0015 — it is mitigated, so it is in scope with a residual, not given up on) | The server correlates existence, size, change events and timing (§7.2's channels) into the inference §7.3 works through | Padmé padding on by default (§7.6); batching (§7.5); whole-container upload by default; and the honest option of not syncing at all | `material` — the channels are reduced, never closed. §7.7: no padding scheme fixes timing | Watch your own server's logs |
 
 ### 5.2 Six rows that need more than a cell
 
@@ -582,7 +590,11 @@ where the product says so.
 | **Shoulder-surfing, cameras, screen recording** | The product's job is to display network configuration. Displaying it is the feature. §6.4 | Screen position, privacy filters, awareness in shared spaces. Lock the workspace when you walk away | Limits panel; the lock control is deliberately prominent |
 | **The user pasting output somewhere else** | The output is a `(line, provenance)` pair the user asked for, on their clipboard, by design. Invariant 2 means copy-paste is *the* delivery mechanism. §6.5 | Know where your ticketing system, chat and wiki store data and who can read them. Treat a config paste as a disclosure decision | Limits panel; the copy affordance carries the risk legend |
 | **Coercion (rubber-hose)** | No amount of cryptography survives a person being compelled to disclose. §6.6 | Do not create the workspace in a jurisdiction or situation where this is your threat. Deniability is not a feature we offer | Limits panel, stated plainly with the legal note in §6.6 |
-| **Traffic analysis / metadata at the sync server** | Zero-knowledge protects contents. It cannot hide that a workspace exists, how big it is, how often it changes and when. §7 | If existence and change-rate are sensitive, do not sync. The offline single file has no server and no metadata | Limits panel; §7's summary appears in the sync setup screen |
+
+Traffic analysis at the sync server is **not** in this table (ADR-0015): the product does
+mitigate it, so it belongs in §5.1 — row 20 — with a `material` residual. A mitigated channel
+filed under "out of scope" teaches a reviewer to discount every other row here, and §6 must
+contain only threats with a `total` residual.
 
 ### 6.2 Compromised browser and malicious extensions
 
@@ -713,10 +725,11 @@ answer, and offering one would be a lie with consequences.
 passphrase, they get everything. We do not offer a duress passphrase or a hidden workspace,
 because neither works against someone who knows the feature exists."*
 
-### 6.7 Traffic analysis and metadata
+### 6.7 Traffic analysis and metadata — moved (ADR-0015)
 
-Out of scope in the sense that zero-knowledge does not address it. Partially mitigable at a cost
-worth stating properly, which is §7.
+> **Moved to §5.1 row 20 per ADR-0015.** It is partially mitigated (§7), so it is in scope
+> with a `material` residual; filing it here implied the project had given up on it. §6
+> contains only threats whose residual is `total`.
 
 ### 6.8 Where all of this is surfaced — the limits panel
 
@@ -769,6 +782,11 @@ Stated as the sentence that should appear in the sync setup screen:
 | M8 | **Which delta changed** | if sync is CRDT-delta rather than whole-blob | *Which part* of the graph is being edited, at chunk granularity |
 | M9 | **Envelope header fields** | `format_version`, `schema_version`, KDF parameters — deliberately outside the ciphertext (`11-ir-schema.md` §11.2) | Client version band. Negligible on its own; a fingerprint in aggregate |
 | M10 | **Access pattern** | reads versus writes, and their ratio | Whether this workspace is being actively built or occasionally referenced |
+| M11 | **Record kind in the clear** (`IndexEntry.kind_opaque`, `33` §2.5; added per ADR-0015) | the sync index | Which record is the suppressions record — ranked **V3** in §2.1 — making it individually identifiable and trackable: when the list of accepted risks grows, the server sees which record grew |
+
+A twelfth channel — per-frame `hlc.wall_ms` and an actor pseudonym in the clear in every git
+object — existed under the frame-based workspace format and was eliminated by ADR-0013's
+removal of frames; it is recorded here so the enumeration's history is checkable.
 
 M8 is the one that will be introduced accidentally. Delta sync is the obvious optimisation for a
 CRDT workspace, and it turns a single coarse size signal into a fine-grained edit-location
@@ -1241,7 +1259,7 @@ overclaim, and the fastest way to lose a security-first position is to give them
 | The corpus is human-authored with a named reviewer | That it is free of errors, or that a named reviewer is a guarantee | `reviewed_by` gives you someone to ask |
 | Rule packs are signed with a scoped trust store and no TOFU | That a signed pack is *correct*. A signature proves origin, never content | §5.2, row 11 |
 | Reproducible builds and published hashes | That anyone has actually rebuilt. Reproducibility is only as good as the rebuilds that happen | Rebuild it yourself. That is the entire mechanism |
-| Workspace encryption is symmetric and not broken by a quantum adversary in the way public-key transport is | Anything about post-quantum TLS, and nothing at all about your passphrase's entropy, which is the actual binding constraint | §2.4 |
+| **Single-user** workspace encryption is symmetric throughout. A **shared** workspace wraps the root key under X25519 and is harvest-now-decrypt-later exposed until suite `0x02` ships (`32` §10.7; corrected per ADR-0015) | Anything about post-quantum TLS, and nothing at all about your passphrase's entropy, which is the actual binding constraint | §2.4; `32` §10.7 |
 | The application never touches a network device | That it prevents *you* from doing anything. It emits text; you decide | Invariant 2 |
 | The application never accepts a device credential | That it holds *no* credential: at tier 1 it accepts and stores a provider API key. §14 | `21` §7.2 |
 | We can bound what the AI layer does | That prompt injection is prevented. It is not. It is made unprofitable | `23` §1.2, §10 |
@@ -1294,8 +1312,8 @@ trigger, because a residual with neither is a residual nobody has accepted.
 | R8 | No in-workspace compartmentation: one passphrase, everything | `material` | Brief §6.4's document-not-database decision, and it is the right one at team scale | At the point §7.6 of the brief (CRDTs, multi-writer) becomes load-bearing |
 | R9 | Offline passphrase cracking against every copy that exists, including old git commits | `material` | Argon2id is a constant factor; entropy is the user's | If generated-passphrase adoption measures low |
 | R10 | The passphrase's JS string cannot be erased from the heap | `material` | Language limitation. WASM memory is zeroed; the string is not | If a browser ships a usable secure-input primitive |
-| R11 | Single-file build has no `frame-ancestors` and no CSP reporting | `bounded` | `<meta>`-delivered policies ignore both. The build is a local file | If the single file is ever served over HTTP by default — then it must carry a header |
-| R12 | Rollback of a signed release; an offline build cannot learn a newer one exists | `bounded` | No auto-update, deliberately (§8.3) | If the expiring version manifest ships, this drops to `bounded`/low |
+| R11 | Single-file build has no `frame-ancestors` and no CSP reporting | `material` — reconciled to §5.1 row 16's tag per ADR-0015 | `<meta>`-delivered policies ignore both. The build is a local file | If the single file is ever served over HTTP by default — then it must carry a header |
+| R12 | Rollback of a signed release; an offline build cannot learn a newer one exists | `material` — reconciled to §5.1 row 18's tag per ADR-0015 | No auto-update, deliberately (§8.3) | If the expiring version manifest ships, this drops to `bounded` |
 | R13 | Prompt injection through pasted config is unpreventable | `material` | Structural. Bounded by the AI layer's small, checked powers | If the AI layer ever gains a capability beyond propose/select/order/ask/abstain — then reopen everything |
 | R14 | At tier 1, a third party receives a structured description of part of your network | `material` | The user's explicit, scoped, per-send decision. `21` §8.7 | If any part of tier 1 becomes a default |
 | R15 | At tier 1, the application holds a provider API key — a second credential | `material` | Necessary for BYOK. **But it contradicts invariant 3 as written.** §14 | Before invariant 3 is quoted in any external material |

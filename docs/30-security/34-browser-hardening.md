@@ -93,9 +93,9 @@ each control does to them:
 |---|---|
 | The threat model, actor register, residual scale, out-of-scope list | `31` |
 | Envelope format, KDF, AEAD, key hierarchy, memory zeroing, `lock()` | `32` |
-| Workspace on-disk layout, records, frames, git, export gates | `10-core/17` |
+| Workspace on-disk layout, records, git, export gates | `10-core/17` |
 | AI-layer tiers, egress consent, redaction, the localhost sidecar decision | `20-ai/21`, `20-ai/24` |
-| Prompt injection and the exfiltration-channel catalogue C1–C9 | `20-ai/23` |
+| Prompt injection and the exfiltration-channel catalogue C1–C6 | `20-ai/23` |
 | The corpus markdown subset and its build-time compilation to an AST | `10-core/15` §6.4 |
 | Rule-pack signing and the trust store | `10-core/12` §13 |
 | Release signing, reproducible builds, image publication | `70-ops/` |
@@ -120,20 +120,25 @@ they are right to.
 
 ### 2.1 The modes
 
+> **Naming (ADR-0017):** the corpus-wide shape names are `43` §1.1's **D1–D4** — D1 the
+> offline single file, D2 Docker single node / served bundle, D3 the enterprise cluster, D4
+> the CLI. This document's letters map as A → D1, B/C → D2, D → D3, E → D4, and are retained
+> below only until the mechanical rename lands; where the two schemes disagree, D1–D4 wins.
+
 `31` §1.1 names four deployment shapes. Three of them are browsers, and they get materially
 different policies because they have materially different capabilities:
 
 | Mode | Artifact | Delivery of policy | Origin | AI tier (`21` §7) |
 |---|---|---|---|---|
-| **A — reference artifact** | one `.html`, everything inlined, opened from disk | `<meta http-equiv>` only | opaque (`file://`) | 0 |
-| **B — offline workspace** | static bundle served from loopback by `fathom serve` | response headers | `http://127.0.0.1:7440` | 0, 2a, 2b |
-| **C — self-hosted with sync** | same bundle, plus the Axum service, one host | response headers | one `https://` origin | 0, 1, 2 |
-| **D — enterprise** | same code, load-balanced, operator-configured | response headers | one `https://` origin | 0, 1, 2, 3 |
-| **E — CLI** | native Rust binary | *n/a — no browser* | *n/a* | 0, 2b |
+| **A — offline single file (D1)** | one `.html`, everything inlined, opened from disk | `<meta http-equiv>` only | opaque (`file://`) | 0 |
+| **B — served offline bundle (D2 without sync)** | static bundle served from loopback by `fathom serve` | response headers | `http://127.0.0.1:7440` | 0, 2a, 2b |
+| **C — self-hosted with sync (D2)** | same bundle, plus the Axum service, one host | response headers | one `https://` origin | 0, 1, 2 |
+| **D — enterprise (D3)** | same code, load-balanced, operator-configured | response headers | one `https://` origin | 0, 1, 2, 3 |
+| **E — CLI (D4)** | native Rust binary | *n/a — no browser* | *n/a* | 0, 2b |
 
-§3 explains why mode A and mode B are two artifacts rather than one, and what mode A is allowed to
-hold. Read §3 before implementing §2.2's mode A policy, because the policy makes sense only once you
-know that artifact holds no ciphertext.
+§3 explains the relationship between mode A and mode B. Per ADR-0017, mode A **does** hold a
+workspace — in memory, for one session, with no browser storage — so read §3 before
+implementing §2.2's mode A policy.
 
 ### 2.2 The literal policies
 
@@ -201,10 +206,21 @@ Integrity-Policy: blocked-destinations=(script style)
 Permissions-Policy: accelerometer=(), autoplay=(), bluetooth=(), camera=(),
   clipboard-read=(), display-capture=(), geolocation=(), gyroscope=(),
   hid=(), idle-detection=(), local-fonts=(), magnetometer=(), microphone=(),
-  midi=(), payment=(), publickey-credentials-get=(), screen-wake-lock=(),
+  midi=(), payment=(), screen-wake-lock=(),
   serial=(), usb=(), xr-spatial-tracking=()
 Cache-Control: no-store
 ```
+
+**`publickey-credentials-get` is deliberately not in that deny list (ADR-0018), and neither is
+`publickey-credentials-create`.** An empty allowlist on `publickey-credentials-get` denies
+WebAuthn assertions to the **top-level document**, not only to frames — and `32` D13 ships the
+WebAuthn PRF keyholder on by default, with §12.3 requiring a `get()` immediately after
+registration. With the deny in place, enrolment worked and unlock did not: a user who enrolled
+a passkey got a workspace they could not open with it, and CI enforced the impossibility. Both
+features stay at their `self` default. The cost is real and stated: post-XSS script in modes
+B–D can invoke WebAuthn — the realistic exploit is limited (a `get()` needs a user gesture and
+returns a PRF output the attacker still has to use in-page), but it is a reduction in a policy
+whose value is denying everything it does not need.
 
 `connect-src 'self'` in mode B is not a hole. The only same-origin endpoint `fathom serve` exposes
 is the static bundle itself; there is no API, no upload path, no sync. A reviewer can confirm this
@@ -326,9 +342,11 @@ directive, which mode A cannot deliver.
 
 **The claim `'self'` supports:** the same, except that requests to the origin the document came from
 are permitted, and in mode C that origin is the zero-knowledge sync service which receives ciphertext
-by design (`31` §5.1 rows 1–3). The step from `'none'` to `'self'` is therefore not a weakening of
-the confidentiality claim; it is the introduction of the metadata channel that `31` §7 already
-prices.
+by design (`31` §5.1 rows 1–3). The step from `'none'` to `'self'` is not a weakening of the
+confidentiality claim — **except in modes C and D, where `'self'` is the sync origin the threat
+model labels untrusted by design, and `img-src 'self'` is a post-XSS exfiltration channel into
+its access log** (ADR-0018; §2.7). The residual is stated as `material` in §11. Beyond that
+exception, the step is the introduction of the metadata channel that `31` §7 already prices.
 
 **The step to a named third-party origin at tier 1 is different in kind, and `21` §8.7 says so.**
 This document does not soften it: at tier 1, a redacted projection of the graph leaves the machine
@@ -417,7 +435,19 @@ rule pack's prose, a corpus entry: all of them reach a renderer, and any rendere
 
 `data:` is retained in `img-src` because the diagram export and the risk legend need inline SVG data
 URIs, and a `data:` URI cannot reach a host. `'self'` is retained in modes B–D for the small set of
-built assets. Neither is a channel.
+built assets.
+
+**But `'self'` is a channel in modes C and D (ADR-0018), and the paragraph above reasoned only
+about foreign hosts.** In those modes `'self'` **is** the sync service — the component `31`
+§4.1 labels `SYNC SERVICE — UNTRUSTED BY DESIGN`. After an XSS in mode C (in scope: `31` §5.1
+row 16, §8.1 A2.5) the payload needs no `sandbox` escape, no navigation and no third-party
+origin: `new Image().src = '/' + btoa(plaintextGraph)` is permitted by `img-src 'self'`, and
+the plaintext lands in the sync service's HTTP access log in the clear. The controls
+(ADR-0018): `fathom serve` and the mode C/D server return `404` for any path not in the built
+asset manifest — §3.6's mode-B rule, extended — and **must not log request paths for
+non-manifest paths**. The residual is `material` (§11): a 404 does not stop the request
+reaching a reverse proxy, WAF or load balancer the operator also runs, none of which we ship
+or configure.
 
 **The same argument applies to `font-src`.** A CSS `@font-face` with a remote `src` is the same GET
 with the same query string and it is easier to overlook because nobody thinks of a font as a request.
@@ -609,67 +639,52 @@ violation.
 | Air-gapped acceptability | highest — an HTML file passes review where an executable does not | requires running a binary | requires installing software |
 | Verifiable by a reviewer | trivially — read the file | read the file, read the server's source | hardest |
 
-### 3.3 DECISION — two browser artifacts with different jobs, and the offline workspace is mode B
+### 3.3 DECISION — the offline single file is a complete single-session product (rewritten per ADR-0017)
 
-**The offline deliverable that holds a workspace is a static bundle served from loopback by
-`fathom serve`, a subcommand of the CLI we already ship. The single HTML file continues to exist,
-and it holds nothing.**
+> **Superseded by ADR-0017, which adopts `43` §3.5:** the earlier decision here — a
+> reference-only single file holding no workspace, with the offline workspace living only in
+> mode B — is reversed. `73` D07 had already decided "A and B, both, from one build" and this
+> section was the unapplied half.
 
-Concretely:
+**Mode A / D1 holds a workspace in memory for one session.** It opens a packed workspace from
+a file the user selects, runs every engine, emits configuration with provenance, raises
+findings, draws the diagram, produces the verify ladder and the rollback, and writes a sealed
+workspace back out as a file. It uses **no browser storage of any kind** — no OPFS, no
+IndexedDB, no Cache API, no `localStorage`, no cookies, no service worker. When the tab
+closes, the origin holds nothing, because the origin never held anything.
 
-| Artifact | Contains | Does not contain | Policy |
-|---|---|---|---|
-| **`fathom-<version>.html`** — the reference artifact | The command finder (brief §6.1), the corpus, the explainers, the rule prose, the risk legend, the guidebook. All read-only reference content | **No workspace, no passphrase entry, no envelope code, no ciphertext, no storage** | mode A |
-| **`fathom-<version>-offline.tar.zst`** + `fathom serve` — the offline workspace artifact | Everything. Walkthroughs, graph, emitters, findings, suppressions, diagram, the full crypto path | Sync (there is no server to sync to) | mode B |
-| **`fathom` CLI** | The same Rust core, native. Emit, lint, diff, verify, pack, unpack, fsck, serve | A browser | *n/a* |
-
-The rule that generates this split, and the sentence to quote in a review:
+The rule this section stated survives, satisfied by a different route:
 
 > **We do not put a secret behind a policy we cannot deliver.**
 
-Mode A cannot deliver `frame-ancestors`, `sandbox`, COOP, COEP, CORP, `X-Frame-Options`,
-`Permissions-Policy`, `Integrity-Policy` or violation reporting; its storage is unreliable; its
-worker support is unverified. Every one of those is load-bearing for an artifact holding a decrypted
-network estate. None of them is load-bearing for an artifact holding a signed, public, read-only
-corpus that anyone can download from the release page anyway.
+Mode A still cannot deliver `frame-ancestors`, `sandbox`, COOP, COEP, CORP, `X-Frame-Options`,
+`Permissions-Policy`, `Integrity-Policy` or violation reporting. With no browser storage there
+is **no secret at rest** behind those undeliverable policies: the workspace at rest is a file
+on the user's disk, sealed by `32`'s envelope, and its protection has never come from a CSP.
+What the missing directives cost mode A at runtime is two extra post-XSS exfiltration channels
+(§2.11 rows 1 and 2), recorded as a **`material` residual specific to mode A** in §11 rather
+than answered by removing the capability. The air-gapped engineer — the user the entire
+security posture exists for (brief §2.4) — gets a usable tool rather than a lookup table.
 
-**This is not a demotion of the single file. It is the brief's own argument, made structural.**
-Owner brief §6.1 on the command finder:
+The served bundle plus `fathom serve` (mode B) continues to exist and is the recommended shape
+where a binary can run: full headers, workers, persistence without ceremony.
 
-> *"zero setup, zero data entry, zero trust required, because it is read-only reference content
-> needing none of the crypto, none of the server, none of the graph."*
+### 3.4 The cost, stated (per ADR-0017)
 
-The wedge feature is exactly the feature that does not need the policy. So the artifact that cannot
-carry the policy carries exactly the wedge feature. The alignment is not a coincidence — it is what
-happens when the security boundary is drawn along the same line as the trust requirement.
-
-### 3.4 The cost, stated
-
-Four costs. The first is the one that will be argued with.
-
-1. **"Open one file and model your estate offline" is no longer true.** It is now "open one file and
-   look things up offline; run one command to model your estate offline." For a network engineer on
-   a jump host with no ability to run an unsigned binary, that is a capability loss, and there is no
-   version of this decision where it is not.
-2. **Air-gapped and high-assurance environments are exactly where an HTML file passes change control
-   and an executable does not.** These are also, per brief §2.4, the market SaaS competitors
-   structurally cannot serve — so this cost lands on the segment the product is most differentiated
-   for. This is the strongest argument against the decision and it is not answered by anything below.
-3. **A second thing to explain.** Two artifacts means two download links, two hashes, two sets of
-   instructions, and a question in every evaluation about why there are two.
-4. **The reference artifact will be mistaken for the product.** Someone will open
-   `fathom-3.1.4.html`, find no way to create a workspace, and conclude the tool does not work. The
-   mitigation is in the artifact itself: a permanent masthead line, in the field card's register —
-   `reference only · no workspace here · fathom serve for the full tool` — and the same sentence in
-   the release notes.
-
-**What makes the trade worth taking anyway:** the alternative is an artifact that accepts a
-passphrase, decrypts a network estate, and then cannot state a policy about what happens to it. That
-artifact would have to be described accurately in the limits panel, and the accurate description is
-*"this build has no clickjacking control, no egress control over navigation, no violation reporting,
-and storage that may or may not exist."* Shipping it and describing it accurately is worse than not
-shipping it. Shipping it and describing it inaccurately is the thing the conventions exist to
-prevent.
+1. **No crash recovery, at all.** A discarded tab loses everything since the last save. `43`
+   §3.12 prices this and it is the largest single cost of mode A: the user most likely to be
+   in mode A is on an unfamiliar machine in a controlled environment, which is exactly where a
+   tab gets closed. There is no mitigation available that does not reintroduce browser storage.
+2. **Two extra post-XSS exfiltration channels, permanently, in the flagship shape**, because
+   `sandbox` and `frame-ancestors` cannot be delivered by `<meta>` (§2.8, §2.11). Recorded as
+   `material` in §11 — and §2.11's four-part `sandbox` VERIFY, on which three documents'
+   residual tags depend, is still unresolved.
+3. **The save path is poor outside Chromium.** `32` §13.1 calls the fallback *"genuinely
+   poor"*: `workspace (14).fathom` in Downloads. And §7.2's sub-risk is unverified — `sandbox`
+   without `allow-popups` plausibly blocks `showSaveFilePicker`, the only good save path.
+4. **The size budget may not be achievable.** If the WASM core measures at 2–3 MB, mode A is
+   8–10 MB against `44`'s ceiling. ADR-0017 orders the measurement before the size gate is
+   armed; if it fails, the answer is corpus slicing, not a bigger ceiling.
 
 ### 3.5 Why not a packaged desktop app — and the trigger that changes the answer
 
@@ -708,7 +723,7 @@ fathom serve [--port 7440] [--bind 127.0.0.1] [--open]
 |---|---|
 | **Binds `127.0.0.1` and `[::1]` only.** `--bind` accepts no other value; a non-loopback address is a startup error, not a warning | A network engineer's laptop is on networks that are not theirs. A `0.0.0.0` default would serve the bundle to the coffee shop |
 | **Validates the `Host` header** against `127.0.0.1:<port>` and `[::1]:<port>`; anything else is a 421 | DNS rebinding. A remote page can resolve a name it controls to `127.0.0.1` and issue requests. Nothing here is worth reading, but the check is four lines and it removes the question from the review |
-| **Serves only from a manifest of built files**, path-matched exactly, generated at build time and embedded in the binary. No directory traversal to defend against, because there is no filesystem lookup | Path traversal is the classic static-server bug and this design does not have a path to traverse |
+| **Serves only from a manifest of built files**, path-matched exactly, generated at build time and embedded in the binary. No directory traversal to defend against, because there is no filesystem lookup. **Extended to the mode C/D server per ADR-0018: any path not in the manifest returns `404`, and request paths for non-manifest paths are not logged** — this is the control that narrows §2.7's `img-src 'self'` post-XSS channel into the sync origin's access log | Path traversal is the classic static-server bug and this design does not have a path to traverse; and in modes C/D the access log is at an origin the threat model calls untrusted |
 | **Emits no CORS headers at all**, and `Cross-Origin-Resource-Policy: same-origin` | Another local origin cannot read our assets or our storage |
 
 **The port is fixed by default, and that is a deliberate trade.** Browser storage is keyed by origin,
@@ -717,35 +732,33 @@ OPFS cache is never reused and the offline build cold-starts every session. A fi
 stable origin — and it means any other process on the machine can bind `127.0.0.1:7440` after we
 exit and inherit our origin, including our OPFS.
 
-We take the fixed port, because `32` §13.1 already decided that **the workspace on disk is the store
-and browser storage is a cache**. An origin squatter inherits a cache of ciphertext, which is the
-same ciphertext they could have read off the disk. If that decision were ever reversed — if OPFS
-became the primary store — the port decision would have to be reversed with it, and §11 records that
-coupling.
+We take the fixed port, because **the workspace on disk is the store** (`32` §13.1, ADR-0017)
+— in mode B browser storage is only ever a cache, and in mode A/D1 it does not exist at all.
+An origin squatter inherits at most a cache of ciphertext, which is the same ciphertext they
+could have read off the disk. If that decision were ever reversed — if OPFS became a primary
+store — the port decision would have to be reversed with it, and §11 records that coupling.
 
-### 3.7 What mode A is still for, and the line that keeps it honest
+### 3.7 The masthead line that keeps mode A honest (reworded per ADR-0017, from `43` §3.5)
 
-The reference artifact is not a consolation prize. It is the on-ramp the brief describes: the thing
-someone opens ten times a day, from a share, from a USB stick, from an email, with no install and no
-account. It is also the artifact that is trivially verifiable — one file, one hash, one inline script
-whose SHA-256 is in the policy that governs it (§2.5).
+The single file is the on-ramp the brief describes: the thing someone opens ten times a day,
+from a share, from a USB stick, from an email, with no install and no account. It is also the
+artifact that is trivially verifiable — one file, one hash, one inline script whose SHA-256 is
+in the policy that governs it (§2.5).
 
-The line in its masthead, in the field card's margin-tab register, lowercase and unpunctuated:
+The phishing control stays, reworded, because the attack it defends against gets *more*
+attractive once the real artifact does ask for a passphrase:
 
-```
-  FATHOM · REFERENCE                              reference only · fathom serve for workspaces
-```
+```text
+  FATHOM · OFFLINE                                      no server · no storage · one session
 
-And, once, in the imperative register the card uses for its governing rule:
-
-```
-  THIS BUILD HOLDS NO WORKSPACE AND ASKS FOR NO PASSPHRASE. IF SOMETHING HERE ASKS FOR ONE,
-  IT IS NOT THIS BUILD.
+  THIS BUILD SENDS NOTHING AND STORES NOTHING. IT ASKS FOR YOUR PASSPHRASE ONLY WHEN YOU OPEN A
+  WORKSPACE FILE YOU CHOSE. IF IT ASKS BEFORE THAT, IT IS NOT THIS BUILD.
 ```
 
-That second line is a control, not copy. The most plausible phishing attack against this product is
-a `fathom.html` that looks like ours and asks for a passphrase. Stating in the real artifact that the
-real artifact never asks makes the fake one contradict a sentence the user has read before.
+That second line is a control, not copy. The most plausible phishing attack against this
+product is a `fathom.html` that looks like ours and asks for a passphrase at a moment ours
+does not. Stating in the real artifact exactly when the real artifact asks makes the fake one
+contradict a sentence the user has read before.
 
 ---
 
@@ -1643,7 +1656,7 @@ mistakes it for automation.
 | H8 | `sandbox` present in B–D with exactly `allow-scripts allow-same-origin allow-downloads` | Golden string, **plus** a functional test that saving a workspace and opening OPFS both still work under it | Missing, or the functional test fails (see §2.11's VERIFY) |
 | H9 | Framing is refused | Automated: load the built app in an iframe from a second origin in the test harness; assert it does not render | It renders (expected to *fail* in mode A — asserted as a known gap, like `31` §12's heap row) |
 | H10 | Report endpoint, where present, is same-origin | Golden string | Any off-origin reporting URL |
-| H11 | `Permissions-Policy` denies every listed feature | Header comparison | Any feature not denied |
+| H11 | `Permissions-Policy` matches the **intended** set — every feature in §2.2's list denied, and `publickey-credentials-get` / `-create` present at their `self` default (ADR-0018: "assert every listed feature is denied" enforced an impossibility against the WebAuthn keyholder) | Header comparison against the committed intended set | The header differs from the intended set in either direction |
 | H12 | The policy is identical across every asset response, not only the document | `curl -sI` every path from the manifest | Divergence |
 
 ### 10.2 Rendering
@@ -1710,8 +1723,9 @@ Using `31` §1.4's scale. Ranked by what should get attention, not by severity.
 | # | Residual | Tag | Accepted because | Revisit when |
 |---|---|---|---|---|
 | B1 | A compromised browser or a malicious extension reads everything, and nothing here changes that | `total` | `31` §6.2. It is the governing rule of this document | Never. Ship the CLI and say so |
-| B2 | Mode A has no `frame-ancestors`, no `sandbox`, no COOP/COEP/CORP, no `Permissions-Policy`, no reporting | `material` in general — **`bounded` as shipped**, because §3.3 removes secrets from that artifact | The decision in §3.3 is exactly this trade | If mode A ever gains a passphrase field. It must not |
-| B3 | Top-level navigation and `window.open` remain egress channels wherever the `sandbox` directive is unavailable or unverified | `material` in mode A, `bounded` in B–D **pending §2.11's VERIFY** | CSP has no directive for navigation and `navigate-to` was not shipped | If the VERIFY fails, this becomes `material` everywhere and §11 is the place a reviewer will look |
+| B2 | Mode A has no `frame-ancestors`, no `sandbox`, no COOP/COEP/CORP, no `Permissions-Policy`, no reporting — and per ADR-0017 it holds a decrypted workspace in memory for the session | **`material`, specific to mode A** (re-tagged per ADR-0017; the earlier `bounded` rested on §3.3's reference-only artifact, which is superseded) | ADR-0017: the capability is worth more to the air-gapped user than the missing directives cost, and the residual is stated instead of the workspace being removed | If §2.11's `sandbox` VERIFY fails, which reopens the artifact split on its original terms |
+| B3 | Top-level navigation and `window.open` remain egress channels wherever the `sandbox` directive is unavailable or unverified — the two extra post-XSS channels mode A carries permanently | `material` in mode A, `bounded` in B–D **pending §2.11's VERIFY** | CSP has no directive for navigation and `navigate-to` was not shipped | If the VERIFY fails, this becomes `material` everywhere and §11 is the place a reviewer will look |
+| B13 | `img-src 'self'` in modes C/D is a post-XSS exfiltration channel into the sync origin's access log (§2.7, ADR-0018) | `material` | The asset-manifest 404 plus no-logging of non-manifest paths narrows it; it does not cover a reverse proxy, WAF or load balancer the operator runs in front, which we neither ship nor configure | If a post-XSS `img-src` exfiltration is demonstrated against a real mode-C deployment — then `img-src 'none'` with data URIs |
 | B4 | Trusted Types is unenforced wherever the browser does not implement it | `bounded` | The static lint (§5.7) covers the same ground without runtime enforcement | When the support matrix is confirmed; H14 is the item that matters until then |
 | B5 | The OPFS cache can be evicted without notice, including by a time-based mechanism | `bounded` | The workspace on disk is the store (`32` §13.1). Eviction costs a re-open | If browser storage ever becomes primary — which would also reverse §3.6's port decision |
 | B6 | A fixed loopback port means another local process can inherit the origin after `fathom serve` exits | `bounded` | It inherits a cache of ciphertext it could have read off the disk | Same trigger as B5. The two are coupled and must move together |
@@ -1787,22 +1801,21 @@ and to ship a build that satisfies the letter of the invariant with three open c
 The last sentence is the one that matters. It is what §3.3's decision follows from, and it makes the
 invariant's own limit part of the invariant rather than a footnote in one document.
 
-### 13.2 PROPOSED CHANGE — the single-file build's role, in `21`, `24` and `32`
+### 13.2 Withdrawn (ADR-0017) — and one correction carried forward
 
-`21` §7.5, `24` §2.6 and `32` §13 all describe a single-file artifact that holds a workspace. §3.3
-proposes that it holds none, and that the offline workspace artifact is the loopback bundle served by
-`fathom serve`.
+The proposed change that stood here asked `21`, `24` and `32` to treat the single file as
+reference-only, following the earlier §3.3. ADR-0017 decided the other way: the single file
+**is** a complete single-session product, so the proposal is withdrawn.
 
-If the decision is accepted, three edits follow:
+One row of it survives on its own merits and is adopted by ADR-0018: **`21` §7.5's mode A
+policy must use `img-src data:` and `font-src data:`**, because `'self'` is inert under the
+opaque origin a `file://` document gets — and `23` §6.2 must cite the corrected policy, not
+the unfixed one.
 
-| Document | Change |
-|---|---|
-| `21` §7.5 | The mode A policy is the reference artifact's policy. `img-src 'self' data:` → `img-src data:` and `font-src 'self' data:` → `font-src data:`, because `'self'` is inert under an opaque origin. Tier 2a's "single-file yes" becomes "reference artifact: no model; offline bundle: yes" |
-| `24` §2.6 | The single-file artifact's inability to cache weights stops being a limitation and becomes a non-issue, because that artifact runs no model. The weights-caching discussion attaches to mode B, where OPFS works |
-| `32` §13 | "Where the ciphertext lives" applies to mode B and to the CLI. The `file://` row in §13.1's table becomes informational rather than a supported configuration, and §4.5's open question about spawning a Worker from `file://` stops being load-bearing |
-
-Each of those makes the other document *shorter*, which is a reasonable sign the decision is drawn
-along a real seam rather than a convenient one.
+**Recorded per ADR-0017:** the superseded §3.3 removed the workspace from "a single offline
+file", which contradicted brief §1 directly; under `conventions.md` that should have been
+raised here as a disagreement naming the owner's brief, not decided silently. It is recorded
+now so the failure mode is visible to the next author.
 
 ### 13.3 The terminology table has no word for the on-disk artifact
 

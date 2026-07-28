@@ -32,19 +32,23 @@
 # Six places where the card's content did not fit the format as specified.
 #
 #  G1. **The 15% `high` budget (V25) is wrong for a domain pack, and this
-#      bundle fails it by a factor of two.** 13 of 36 rules here are `high`;
+#      bundle fails it by a factor of two.** 13 of 37 rules here are `high`;
 #      the gate allows 5. The gate exists to stop severity inflation and that
-#      is a real failure mode. But every one of these thirteen is a
-#      *correctness* finding drawn from a card whose entire subject is
-#      configurations that do not work. Demoting "the WAN zone drops the peer's
+#      is a real failure mode. Nine of these thirteen are *correctness*
+#      findings drawn from a card whose entire subject is configurations that
+#      do not work. Demoting "the WAN zone drops the peer's
 #      IKE" to `medium` to satisfy a percentage does exactly what the gate was
 #      invented to prevent: it makes severity a quota rather than a judgement.
 #      **PROPOSED CHANGE to 63 §19 V25:** compute the budget over `security`,
 #      `operability` and `hygiene` only, and exempt `correctness`. A
 #      correctness finding means the configuration does not work; there is no
 #      inflation to police, and if 40% of a pack is correctness findings that
-#      is a fact about the domain. Under that rule this bundle is 2 `high` out
-#      of 23 non-correctness rules — 9%, comfortably inside.
+#      is a fact about the domain. Under that rule this bundle is 4 `high` out
+#      of 25 non-correctness rules (`ipsec.pfs.absent`,
+#      `ipsec.pfs.group-mismatch`, `ipsec.traffic-selector.not-mirrored`,
+#      `ike.mode.aggressive-with-psk`) — 16%, still outside the budget. The
+#      exemption alone does not bring the bundle inside 15%; the argument
+#      belongs in 63 as an amendment (ADR-0029).
 #      Recorded, not silently worked around. The distribution is at the end of
 #      this file under § SEVERITY.
 #
@@ -160,7 +164,12 @@ rules:
   symptom_if_mismatched: >
     PFS on one side and absent on the other fails Phase 2 while Phase 1 stays
     up — the classic "IKE looks fine but the tunnel keeps dropping". The log
-    shows NO_PROPOSAL_CHOSEN on the Phase 2 exchange, not Phase 1.
+    shows NO_PROPOSAL_CHOSEN on the Phase 2 exchange, not Phase 1. Under IKEv1
+    the Quick Mode failure is immediate. Under IKEv2 the first child SA is
+    keyed from the IKE SA and installs regardless, so the failure surfaces at
+    the first CREATE_CHILD_SA rekey — up to lifetime-seconds after the change.
+    Force the rekey inside the change window with `clear security ipsec
+    security-associations index <id>` rather than waiting for it.
 
   explain:
     terse: "PFS not set — Phase 2 keys derive from Phase 1."
@@ -249,15 +258,26 @@ rules:
   title: "The two ends propose different Perfect Forward Secrecy groups"
 
   why: >
-    The PFS group is not negotiated down to a common value. Two ends offering
-    different groups fail the Phase 2 key exchange outright, and the child SA
-    never installs however correct the rest of the crypto is.
+    The PFS group is not negotiated down to a common value, and when the
+    mismatch breaks depends on the IKE version. Under IKEv1 the Quick Mode
+    exchange fails immediately. Under IKEv2 the first child SA is created in
+    IKE_AUTH, which carries no KE payload, so it installs — the mismatch
+    surfaces at the first CREATE_CHILD_SA rekey, up to lifetime-seconds later
+    (3600 s on the card's own values), however correct the rest of the crypto
+    is.
 
   symptom_if_mismatched: >
-    INVALID_KE_PAYLOAD in the log, not NO_PROPOSAL_CHOSEN. Phase 1 stays up
-    throughout, so the tunnel reads as a Phase 2 failure with a healthy peer —
-    and INVALID_KE_PAYLOAD is the one error string that names the knob, because
-    it can only mean the Phase 1 dh-group or the PFS keys.
+    Version-dependent. Under IKEv2 the tunnel comes up and then fails at the
+    first CREATE_CHILD_SA rekey, up to lifetime-seconds after the change —
+    force the rekey inside the change window with `clear security ipsec
+    security-associations index <id>` rather than waiting for it. The notify
+    is INVALID_KE_PAYLOAD, which under IKEv2 is a retry mechanism naming the
+    group the responder wants; it is terminal only when the two group sets are
+    disjoint, and that case usually reports NO_PROPOSAL_CHOSEN. Under IKEv1
+    the mismatch is an immediate Quick Mode failure reported as
+    NO_PROPOSAL_CHOSEN, because the group is a Quick Mode SA attribute —
+    INVALID_KE_PAYLOAD is IKEv2-only and cannot appear. Phase 1 stays up
+    throughout in both cases.
 
   explain:
     terse: "Group mismatch — the DH exchange itself is rejected."
@@ -273,10 +293,13 @@ rules:
       means the key exchange payload itself was the wrong shape, which can only
       come from a Diffie-Hellman group disagreement.
 
-      The reason group14 against group19 fails rather than degrading is that the
-      key exchange payload is sized and structured by the group. There is
-      nothing to negotiate at that point — the responder is looking at bytes it
-      cannot interpret under the group it expected.
+      Under IKEv2, INVALID_KE_PAYLOAD is a negotiation mechanism rather than a
+      parse failure: the responder parses the proposal, selects a transform,
+      notices the KE payload was built for a different group, and names the
+      group it wants. The initiator retries with that group, so in a healthy
+      bring-up the notify appears exactly once. It is terminal only when the
+      two group sets are disjoint — and that case usually reports
+      NO_PROPOSAL_CHOSEN.
 
       Without a peer configuration to compare against, this rule cannot fire and
       the finding you get instead is `ipsec.pfs.absent` on whichever side left it
@@ -312,7 +335,7 @@ rules:
   sources:
     - { card: "srx-ipsec", side: 2, block: "PERFECT FORWARD SECRECY" }
     - { card: "srx-ipsec", side: 3, block: "ERROR DECODER" }
-    - { std: "RFC 7296", section: "1.3", note: "KE payload in CREATE_CHILD_SA" }
+    - { std: "RFC 7296", section: "1.2", note: "INVALID_KE_PAYLOAD names the responder's group and the initiator MUST retry IKE_SA_INIT with that group" }
 
 - id: ipsec.pfs.group-differs-from-p1
   rule_version: 1.0.0
@@ -416,16 +439,23 @@ rules:
 
   platforms: [junos-srx]
   versions: "*"
+  # Re-anchored to the ZoneMember edge per 11 §7.5 (R05/C5): host-inbound-traffic
+  # exists zone-wide on Zone AND per interface on the edge, and the card's own
+  # plumbing piece #3 is the per-interface form.
   applies_to:
-    kind: IkeGateway
+    kind: ZoneMember
     with:
-      ext_unit: { via: external_interface, card: one }
-      zone:     { via: [external_interface, zone_binding], card: optional }
+      zone:    { via: from, card: one }
+      unit:    { via: to, card: one }
+      gateway: { via: [to, external_interface], reverse: true, card: optional }
   on_unset: fire
 
   condition: >
-    zone == null
-    || !zone.host_inbound_system_services.exists(s, enum_is(s, "ike"))
+    gateway != null
+    && !host_inbound_system_services.exists(s,
+         enum_is(s, "ike") || enum_is(s, "all"))
+    && !zone.host_inbound_system_services.exists(s,
+         enum_is(s, "ike") || enum_is(s, "all"))
 
   title: "The WAN zone does not admit IKE on the gateway's external interface"
 
@@ -467,26 +497,33 @@ rules:
       the IKE process at all, so nothing else in the build can be tested.
 
   acceptable_when: >
-    Never on a gateway that must accept an inbound IKE negotiation. It is
-    acceptable only when this gateway is configured `establish-tunnels
-    immediately` towards a peer that always responds and never initiates, and
-    the security team has deliberately chosen to accept no inbound IKE at all —
-    which is rare, brittle, and should be recorded with the peer name and the
-    reason.
+    Acceptable only on a gateway that is being staged and is not yet expected
+    to negotiate. Under IKEv2 either party may initiate a rekey (RFC 7296
+    §2.8), and liveness probes arrive inbound from the peer regardless of who
+    initiated — so "a peer that always responds and never initiates" is not a
+    state you can configure on someone else's box. Record the staging window
+    and close the finding when the gateway goes live.
 
   remediation:
+    # Per-interface form on the ZoneMember edge (C6). The zone-wide form would
+    # open IKE inbound on every interface in the zone.
     patch:
       - op: add_to_set
-        target: zone
+        target: self
         field: host_inbound_system_services
         value: { enum: ike }
+    lines:
+      junos-srx:
+        - risk: ChangesConfig
+          order: 10
+          text: "set security zones security-zone {{ zone.name | ident }} interfaces {{ unit.name | ident }} host-inbound-traffic system-services ike"
 
   rollback:
     lines:
       junos-srx:
         - risk: Disruptive
           order: 10
-          text: "delete security zones security-zone {{ zone.name | ident }} interfaces {{ ext_unit.name | ident }} host-inbound-traffic system-services ike"
+          text: "delete security zones security-zone {{ zone.name | ident }} interfaces {{ unit.name | ident }} host-inbound-traffic system-services ike"
 
   verify:
     - junos-srx/ike.sa.show
@@ -808,12 +845,17 @@ rules:
     kind: NatRule
     where: "enum_is(kind_of_nat, \"source\")"
     with:
-      selectors: { via: [parent_device, ipsec_vpns, traffic_selectors], card: many }
-      earlier:   { via: preceding_rules_in_set, card: many }
+      selectors:       { via: [parent_device, ipsec_vpns, traffic_selectors], card: many }
+      earlier:         { via: preceding_rules_in_set, card: many }
+      parent_ruleset:  { via: parent_ruleset, card: one }
   on_unset: skip
 
+  # Scope test added per R20/C3: without it, every device with a 0.0.0.0/0
+  # internet source-NAT rule and any tunnel fires this finding.
   condition: >
-    selectors.exists(t, overlaps(destination_match, t.remote_ip))
+    selectors.exists(t,
+      overlaps(destination_match, t.remote_ip)
+      && nat_scope_covers(parent_ruleset.to, t.parent_vpn.bind_interface))
     && !earlier.exists(r, is_no_nat(r) && overlaps(r.destination_match, destination_match))
 
   title: "A source NAT rule matches traffic that should enter the tunnel"
@@ -833,10 +875,15 @@ rules:
   explain:
     terse: "Interface NAT is also grabbing tunnel-bound traffic."
     explained: >
-      Source NAT is evaluated on the way out regardless of which interface the
-      route chose. A rule matching "anything to anywhere" out the WAN also
-      matches the LAN prefix heading for st0 unless a more specific no-NAT rule
-      sits above it in the same rule set.
+      Source NAT rule sets are scoped by `from` and `to` context — zone,
+      interface or routing-instance — and the `to` context resolves after the
+      forwarding lookup picks the egress interface. A set declared `from zone
+      TRUST to zone UNTRUST` does not match traffic routed at `st0.0` when
+      `st0.0` sits in zone `VPN`. The bite is narrower: `st0` left in the WAN
+      zone, a set written `to interface <wan>` when a second egress is added
+      later, or a `from routing-instance` set. Where the scope does cover the
+      tunnel, a more specific no-NAT rule must sit above the interface rule in
+      the same rule set.
     teaching: >
       This is the plumbing failure that survives the whole bring-up ladder. Every
       rung passes. Phase 1 up, Phase 2 Installed, st0 up, route via st0,
@@ -1054,7 +1101,6 @@ rules:
     - junos-srx/ipsec.sa.show-vpn-detail
     - junos-srx/log.kmd.match-peer
 
-  supersedes: [ipsec.traffic-selector.absent]
   next_if_bad:
     - command: junos-srx/ipsec.inactive-tunnels.show
     - explainer: explain:error:junos-srx/TS_UNACCEPTABLE
@@ -1354,7 +1400,7 @@ rules:
   remediation:
     lines:
       junos-srx:
-        - risk: ChangesConfig
+        - risk: Disruptive
           order: 10
           text: "set security ike gateway {{ gateway.name | ident }} version v2-only"
         - risk: ChangesConfig
@@ -1489,15 +1535,23 @@ rules:
       policy: { via: used_by_policy, reverse: true, card: optional }
   on_unset: skip
 
-  condition: "has(dh_group) && dh_group in [1, 2, 5]"
+  # R08/§6.3: set membership over the DhGroup enum, not integers — the typed
+  # evaluator would otherwise fail to compile or silently never match. Decided
+  # but not yet applied here: split severity, groups 1 and 22 (MUST NOT) at
+  # high and the rest at medium — needs either a rule split or per-value
+  # severity support in 63's schema. Until that lands this rule stays flat
+  # medium, which understates groups 1 and 22.
+  condition: "has(dh_group) && dh_group in [group1, group2, group5, group22, group23, group24]"
 
   title: "Phase 1 uses a legacy Diffie-Hellman group"
 
   why: >
-    Groups 1, 2 and 5 are finite-field groups of 768, 1024 and 1536 bits. RFC
-    8247 §2.4 marks groups 2 and 5 SHOULD NOT and group 14 MUST. A recorded
-    exchange under a weak group stays recorded, and the effort to break it only
-    ever falls.
+    RFC 8247 §2.4 marks group 14 MUST and group 19 SHOULD; groups 2, 5, 23 and
+    24 are SHOULD NOT; groups 1 and 22 are MUST NOT. Groups 1, 2 and 5 are
+    finite-field groups of 768, 1024 and 1536 bits; groups 22, 23 and 24 are
+    the MODP groups with prime-order subgroups (1024/160, 2048/224, 2048/256).
+    A recorded exchange under a weak group stays recorded, and the effort to
+    break it only ever falls.
 
   symptom_if_mismatched: >
     Nothing operational — the tunnel works. This is the finding whose absence of
@@ -1523,6 +1577,9 @@ rules:
       group here fails the next negotiation with INVALID_KE_PAYLOAD and the
       tunnel drops at the current SA's lifetime rather than immediately — so the
       failure arrives hours after the change, when nobody is watching it.
+      <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+      behaviour (R46/C7) — record per train, consolidated in
+      explain:concept:junos.commit-and-sa-lifecycle -->
       Schedule both ends in the same window and clear the Phase 2 SA to prove it
       rather than waiting for the lifetime.
 
@@ -1563,7 +1620,7 @@ rules:
     - rule: ipsec.pfs.absent
 
   sources:
-    - { std: "RFC 8247", section: "2.4", note: "group14 MUST; group19 SHOULD; groups 2 and 5 SHOULD NOT" }
+    - { std: "RFC 8247", section: "2.4", note: "group14 MUST; group19 SHOULD; groups 2, 5, 23, 24 SHOULD NOT; groups 1 and 22 MUST NOT" }
     - { card: "srx-ipsec", side: 2, block: "PROPOSAL PARAMETERS" }
 
 - id: ike.proposal.3des
@@ -1614,8 +1671,11 @@ rules:
       The change itself is coordinated, not unilateral. Both ends must offer the
       same cipher; without agreement the next negotiation fails with
       NO_PROPOSAL_CHOSEN and the tunnel drops when the current SA expires rather
-      than at commit, which puts the failure hours away from the change. Do it
-      with the peer, in one window, and clear the SA to prove it.
+      than at commit, which puts the failure hours away from the change.
+      <!-- VERIFY: what a commit does to the running SA is unsourced vendor
+      behaviour (R46/C7) — record per train, consolidated in
+      explain:concept:junos.commit-and-sa-lifecycle -->
+      Do it with the peer, in one window, and clear the SA to prove it.
 
       Where the peer genuinely cannot do AES, that is worth writing down rather
       than tolerating quietly, because it is also a peer that probably cannot do
@@ -2252,7 +2312,9 @@ rules:
 
   acceptable_when: >
     Acceptable on any low-throughput tunnel, and on any AES tunnel where the
-    block size is not the binding constraint — which is most of them. Record the
+    block size is not the binding constraint — which is most of them. A tunnel
+    stops qualifying on 3DES or any 64-bit-block cipher, or at sustained
+    throughput above roughly 100 Mbit/s on a 3600-second lifetime. Record the
     expected throughput when accepting it, because the assumption behind the
     exception is about traffic rather than about configuration.
 
@@ -2481,7 +2543,7 @@ rules:
   on_unset: skip
 
   condition: >
-    (has(local_identity) || has(peer.remote_identity))
+    has(local_identity) && has(peer.remote_identity)
     && local_identity != peer.remote_identity
 
   title: "This end's local identity is not what the peer expects"
@@ -2986,10 +3048,13 @@ rules:
       than most people intend.
 
   acceptable_when: >
-    Acceptable when the path MTU is known to be a full 1500 end to end and the
-    tunnel MTU has been raised to match, which is realistic only on a private
-    circuit you control. Also acceptable when the clamp is applied upstream on a
-    router or load balancer rather than on this device — record where.
+    Acceptable where the underlay carries jumbo frames or the path MTU is known
+    to leave headroom above 1500 for the encapsulation, and where somebody has
+    measured it rather than assumed it — raising the tunnel MTU to 1500 on a
+    1500 path does not remove the need for a clamp, it moves the fragmentation
+    to the first hop after encapsulation. Also acceptable when the clamp is
+    applied upstream on a router or load balancer rather than on this device —
+    record where.
 
   remediation:
     lines:
@@ -3185,6 +3250,9 @@ rules:
   remediation:
     lines:
       junos-srx:
+        # C12: 1400 is a starting point, not a constant — the card marks the
+        # overhead figures approximate and cipher-dependent. Prefer a value
+        # derived from a measured DF-ping (junos-srx/mtu.ping.df-sourced).
         - risk: ChangesConfig
           order: 10
           text: "set interfaces {{ parent_interface.name | ident }} unit {{ unit_number | int }} family inet mtu 1400"
@@ -3571,7 +3639,9 @@ rules:
 # Stated rather than adjusted. See G1 at the top of this file.
 #
 severity_distribution:
-  high:   13   # 12 correctness + ike.mode.aggressive-with-psk (security)
+  high:   13   # 9 correctness + 2 interop (ipsec.pfs.group-mismatch,
+               # ipsec.traffic-selector.not-mirrored) + 2 security
+               # (ipsec.pfs.absent, ike.mode.aggressive-with-psk)
   medium: 13
   low:     8
   info:    3
@@ -3579,10 +3649,12 @@ severity_distribution:
   v25_status: >
     FAILS as written. V25 allows 15% high; this bundle is 35%. Under the
     proposed change (exempt category: correctness from the budget) the bundle
-    is 2 high out of 23 non-correctness rules, which is 9% and passes. The
-    reviewer must decide before this ships. Demoting correctness findings to
-    satisfy a percentage is the wrong resolution and is recorded here so that
-    choice is made deliberately.
+    is 4 high out of 25 non-correctness rules, which is 16% and still fails —
+    the exemption alone does not bring the bundle inside the budget (C13,
+    ADR-0029). The reviewer must decide before this ships: demote one of the
+    four, or argue the budget change in 63 on its merits as an amendment.
+    Demoting correctness findings to satisfy a percentage is the wrong
+    resolution and is recorded here so that choice is made deliberately.
 
 # =============================================================================
 # § DERIVED PREDICATES — what the schema must supply before any of this runs
@@ -3646,6 +3718,16 @@ derived_predicates:
     computes: "A source-NAT rule whose action is off / no-translation."
     used_by: [nat.source-nat-eats-tunnel]
 
+  - name: nat_scope_covers(scope, unit)
+    returns: bool
+    computes: >
+      True when a NatRuleSet from/to scope (zone, interface or
+      routing-instance) contains the given logical unit — the unit itself, its
+      zone, or its routing instance. The `to` context is resolved after the
+      forwarding lookup picks the egress interface, so a rule set scoped `to
+      zone UNTRUST` does not cover a unit in zone VPN. Added per R20/C3.
+    used_by: [nat.source-nat-eats-tunnel]
+
   - name: has_ipsec_vpn
     returns: bool
     computes: "Device has at least one IpsecVpn node. Anchor-field predicate."
@@ -3673,7 +3755,13 @@ derived_predicates:
 
   - name: suggested_mss
     returns: int
-    computes: "Tunnel MTU minus 40, defaulting to 1360 when the tunnel MTU is unset."
+    computes: >
+      Tunnel MTU minus 40, defaulting to 1360 when the tunnel MTU is unset.
+      A starting point, not a constant — the card's governing rule for that
+      side is "OVERHEAD FIGURES APPROXIMATE — CIPHER-DEPENDENT", so prefer a
+      value derived from a measured DF-ping
+      (junos-srx/mtu.ping.df-sourced) and label the emitted value as a
+      starting point (C12).
     used_by: [mtu.mss-clamp.absent, mtu.mss-clamp.all-tcp-used]
 
   - name: suggested_keepalive
@@ -3696,9 +3784,11 @@ unresolved_refs:
       Inherited from 63 §17.1's worked example. The rule does not exist in this
       bundle and is not obviously needed — group strength is covered by
       ike.dh-group.weak on the Phase 1 side and there is no equivalent rule for
-      the PFS group. Either write ipsec.pfs.group-weak (condition:
-      perfect_forward_secrecy in [1,2,5]) or drop the supersedes. Writing it is
-      the better answer and it is a genuine gap in this bundle.
+      the PFS group. Write ipsec.pfs.group-weak (condition:
+      perfect_forward_secrecy in [group1, group2, group5, group22, group23,
+      group24] — enum members, not integers, per R08). §6.3 of the
+      reconciliation and ADR-0029 decide it is not optional: same predicate
+      over IpsecPolicy.perfect_forward_secrecy.
   - ref: ike.gateway.external-interface-wrong
     from: "referenced by the command corpus seed, junos-srx/ike.gateway.external-interface.set"
     note: >

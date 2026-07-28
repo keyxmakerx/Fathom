@@ -1,6 +1,22 @@
 # 33 — The sync protocol
 
 > **Status:** Proposed
+>
+> **Deferred by ADR-0016; wire shape superseded by ADR-0013.** v1 and the product
+> (ADR-0006's phases 0–3) ship a workspace file plus git: no sync service, no multi-writer
+> convergence, and single-writer sync with an advisory lock as the next step if a sync
+> service is built at all. This document remains the specification for that later work — it
+> is deferred, not deleted — but two of its foundations have been decided against since it
+> was written:
+>
+> 1. **There are no frames.** ADR-0013 adopts fixed hash shards with whole-record rewrite,
+>    so every operation below that takes or returns frames (`FrameDigest`, `UploadFrame`,
+>    `set_digest` over frame digests, `GET /frames?have=[…]`) must be rebuilt against whole
+>    records before implementation.
+> 2. **The hand-rolled CRDT is not built until evidence arrives** (ADR-0016). A git conflict
+>    on a record is opened in the application and merged on plaintext (`11` §8.6), which is
+>    what `32` §5.4 requires. If multi-writer is ever built: the four convergent types and no
+>    more, with Loro as the named fallback, decided at week 4 against §4.6's property tests.
 
 The server stores ciphertext and never holds a key (brief §1, invariant 4). Everything hard about
 this protocol follows from that one sentence, and almost none of it is the cryptography.
@@ -454,31 +470,18 @@ credential path that costs nothing because it was never in the confidentiality p
 That the enterprise path requires no change to §§4–9 is the payoff of §3.1's separation, and it is
 worth stating as the reason rather than as a happy accident.
 
-### 3.4 The workspace key hierarchy
+### 3.4 The workspace key hierarchy — owned by `32` (ADR-0012)
 
-Only the parts this protocol needs. Full key management belongs to a document in `30-security/`
-that has not been written; where this document has to assume something, it says so.
+> **Superseded by ADR-0012:** full key management is specified in `32-cryptography.md` §3 —
+> the document in `30-security/` this section previously said had not been written. The
+> parallel hierarchy that stood here (`KEK → WK` with no epochs, and first-class `K_name`,
+> `K_capture`, `K_admin`, `K_manifest`) is deleted. This protocol uses `32` §3's hierarchy —
+> passphrase → Argon2id → keyholder → `RK_e` → `WK_e` → per-record — and the named subkeys
+> this document needs are HKDF-Expand labels under `WK_e` with domain-separated `info`
+> strings of the form `"fathom/v1/<purpose>"`, nothing more.
 
-```text
-  workspace passphrase
-      │  Argon2id(salt, params from the keys record header)   RFC 9106 §4
-      ▼
-     KEK ───────────────► unwraps ───────► WK  (256-bit, CSPRNG at creation)
-                                            │
-   member X25519 secret ─► HPKE open ───────┘   RFC 9180, mode_base
-                                            │
-        ┌───────────────────────────────────┼───────────────────────────┐
-        ▼                   ▼               ▼                ▼          ▼
-   K_rec[record]        K_name          K_manifest      K_admin      K_capture
-   HKDF-Expand          filenames        manifest      Ed25519 seed  per-capture
-   per record          (17 §6.3)                       (§3.5)        (17 §4.5)
-```
-
-All expansions are HKDF-Expand (RFC 5869) with a domain-separated `info` string of the form
-`"fathom/v1/<purpose>"`, plus the record id where one applies. Per-record subkeys exist so that a
-future per-record access control has somewhere to attach, and because it costs one HKDF invocation
-per record open. **It is not compartmentation today**: `K_rec` is derived from WK, so holding WK
-holds every record (`17-workspace-format.md` §17, and `31-threat-model.md` R8).
+**It is not compartmentation today**: every per-record subkey is derived from `WK_e`, so
+holding `WK_e` holds every record (`17-workspace-format.md` §17, and `31-threat-model.md` R8).
 
 ### 3.5 The member list, and how weak it is
 

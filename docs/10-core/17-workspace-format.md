@@ -35,7 +35,7 @@ document says "record files".
 | 2 | The container — directory form and packed form |
 | 3 | The directory layout, in full |
 | 4 | Records — the granularity decision |
-| 5 | Frames — append-only sealed segments, and why appends are the whole trick |
+| 5 | Sealed records — superseded frame model; the cryptographic content lives in `32` |
 | 6 | Filenames — the disclosure nobody budgets for |
 | 7 | The manifest, and why it is not committed to git |
 | 8 | Version pins — schema, corpus, packs |
@@ -69,27 +69,28 @@ A single blob is unusable in git: every save rewrites megabytes, every concurren
 irreconcilably, and every version of the whole workspace is retained forever in the object store.
 A directory of many files leaks structure through filenames, counts and sizes.
 
-The resolution taken here has three parts and each is a section below:
+> **Superseded by ADR-0012 and ADR-0013.** This document owns the container — the on-disk
+> tree, the record taxonomy, filenames, the update model, git behaviour, `fsck`, import and
+> export — and `32-cryptography.md` owns the cryptography (ADR-0012). The record model is
+> **fixed hash shards with whole-record rewrite and a committed, sealed manifest**
+> (ADR-0013); the per-device records, the append-only frames and the keyless merge driver
+> specified in earlier revisions of this document are **not adopted**. Where any passage
+> below still describes per-device records, frames, the per-frame `hlc`/`actor` header or
+> the keyless merge, it predates those ADRs and is superseded.
 
-1. **Records** (§4) — the workspace is a set of independently sealed files, chosen so that a
-   typical edit dirties exactly one, and so that the file count is `O(devices)` and not
-   `O(nodes)`.
-2. **Frames** (§5) — a record file is an append-only sequence of independently sealed segments.
-   An edit appends bytes; it does not rewrite them. This is what makes git's delta compression
-   able to do anything at all with ciphertext, and it is what makes the merge driver **keyless**.
-3. **Keyed pseudonymous filenames** (§6) — filenames are deterministic under the workspace key
+The resolution taken here has two parts:
+
+1. **Records** (§4) — the workspace is a set of independently sealed files: node and edge
+   shards with `S_nodes` and `S_edges` fixed at creation (ADR-0013), so the file count is
+   fixed and discloses nothing about the estate.
+2. **Keyed pseudonymous filenames** (§6) — filenames are deterministic under the workspace key
    and meaningless without it, which is the only way to get both git-stable names and no
    disclosure.
 
-The third-order consequence, and the most important result in this document:
-
-> **Git merges frames. Fathom merges values.** The git merge driver never needs the workspace
-> key, because merging two append-only frame sets is a set union over immutable, digest-named
-> segments. Semantic conflict — two people setting `dh-group` to different values — is not a git
-> problem and is not resolved at git time. It is resolved at open time, under an explicit unlock,
-> by the CRDT in `docs/30-security/33-sync-protocol.md` §6.
-
-Everything else here follows from that split.
+Semantic conflict — two people setting `dh-group` to different values — is not a git problem
+and is not resolved at git time. A conflicted record is opened in the application, with the
+passphrase, and merged on plaintext (`11-ir-schema.md` §8.6), which is what `32` §5.4's
+invariant — ciphertext is never merged — requires (ADR-0013, ADR-0016).
 
 ---
 
@@ -135,10 +136,10 @@ Everything in the tree is ciphertext except:
 
 | Plaintext | Where | Why it is not confidential |
 |---|---|---|
-| Filenames | the tree | Keyed pseudonyms; meaningless without the key (§6). The *count* and *change pattern* are real disclosure |
+| Filenames | the tree | Keyed pseudonyms; meaningless without the key (§6). The *change pattern* is real disclosure; the count is the fixed shard set (ADR-0013) |
 | `format_version`, `schema_version` | every record's file header | An old build must know it cannot read a file *before* spending Argon2id on it (`11-ir-schema.md` §11.2) |
 | KDF parameters and salt | the `keys` record header | A reader must know how to derive the key. Authenticated as AD, so they cannot be downgraded silently |
-| Frame headers: index, length, nonce, HLC, actor pseudonym | every frame | This is the enabling disclosure for the keyless merge driver (§5.4). It is a decision, not an oversight, and §5.5 prices it |
+| The envelope header | every record | Owned and specified by `32` §7 (ADR-0012). No per-frame `hlc` or `actor` exists (ADR-0013) |
 | File sizes and mtimes | the filesystem | Nothing can be done about these in a directory. The packed form drops mtimes |
 
 ---
@@ -150,16 +151,13 @@ site-b.fathom/
 ├── FATHOM                       plaintext, 5 lines, human-readable. §3.1
 ├── .gitattributes               committed. §12.2
 ├── .gitignore                   committed. §12.2
-├── manifest.fm                  NOT committed (§7.4). Local index cache
+├── manifest.fm                  COMMITTED — a sealed record class carrying the version
+│                                vector and per-record digests (§7.4, ADR-0013)
 ├── keys.fk                      sealed. Wrap of WK under the KEK, and under each
 │                                member public key. KDF params in the header
-├── records/
-│   ├── 2a/
-│   │   ├── 2afk9x3m7q1w8e5r2t6y4u0i9o.frec
-│   │   └── 2ah3c8v1b6n2m9q4w7e0r5t3y8.frec
-│   ├── 7d/
-│   │   └── 7dq2w9e4r7t1y5u8i3o6p0a2s7.frec
-│   …  1 024 buckets, two base32 characters, created lazily
+├── records/                     fixed shard set — `S_nodes` node shards and `S_edges`
+│   …                            edge shards, `S` fixed at creation (ADR-0013), plus the
+│                                singleton records (§4). Pseudonymous names per §6
 ├── captures/
 │   ├── 4f/
 │   │   └── 4fz8x2c5v9b1n4m7q0w3e6r9t2.fcap    write-once, content-addressed
@@ -169,8 +167,9 @@ site-b.fathom/
     └── cache/     corpus/  graph/  index  ledger
 ```
 
-Nothing in that tree names a device, a site, a customer, a peer, a VPN or a zone. That is the
-point of §6.
+Nothing in that tree names a device, a site, a customer, a peer, a VPN, a zone — or a person:
+the keyholder `label` is sealed inside the keyholder record, not carried in the cleartext
+descriptor (ADR-0014). That is the point of §6.
 
 ### 3.1 `FATHOM` — the plaintext note
 
@@ -210,86 +209,59 @@ git (`git status` walks them all), defeats most filesystems' directory performan
 every workspace open into hundreds of thousands of `open`/`read`/`close` syscalls. Whole-workspace
 is wrong for every reason in §1.
 
-### 4.2 DECISION — the record is the device subtree, split by access temperature
+### 4.2 DECISION — fixed hash shards, `S` fixed at creation
 
-```rust
-pub enum RecordKind {
-    /// The device node and every node and edge contained under it:
-    /// interfaces, units, addresses, zones, policies, routes, crypto objects.
-    /// Hot. Read on open, written on almost every edit.
-    DeviceGraph { device: NodeId },
+> **Superseded by ADR-0013:** the record is **not** the device subtree. The per-device
+> record model previously specified here (`DeviceGraph` / `DeviceProv` / `DeviceHistory` /
+> `Fabric` per device) published the exact device count in the file count, permanently, in
+> every historical git commit, and is not adopted.
 
-    /// The ProvenanceStore for exactly those elements. Cold on read,
-    /// hot on write (every edit mints a record). ~40 % of the bytes.
-    DeviceProv { device: NodeId },
+The corrected statement:
 
-    /// FieldHistory side table (11 §8.6). Cold both ways. Loaded on demand
-    /// when a human asks "what was this before".
-    DeviceHistory { device: NodeId },
+- **Nodes and edges are sharded by node-ID hash into a fixed shard set** — `S_nodes` and
+  `S_edges` fixed at workspace creation (`32` §6.2): `S = 8` for a small workspace, 64 by
+  default, 256 for a large one. `S` is a creation-time question with the trade stated, not a
+  preference; changing it rewrites every record.
+- **`Suppressions` is deliberately one record and stays one record** — splitting it leaks the
+  suppression count, and a suppression list is a list of known unfixed weaknesses each with a
+  written reason it will not be fixed.
+- The singleton records — `Pins` (§8), `Settings` (§10), `Ai` (§11), `ExportLog` (§15.4) —
+  are unchanged.
+- **Update model: whole-record rewrite** (`32` §13.4's rule — never re-seal a record whose
+  canonical plaintext is unchanged). There are no frames (§5).
 
-    /// Site, Link, Tunnel, and every edge whose endpoints are in two different
-    /// devices. Sharded to bound size — see §4.4.
-    Fabric { shard: u16 },
+The record taxonomy, moved here from `32` §6.3 as this document's property per ADR-0012 (the
+class byte appears in `32` §7.1's envelope header):
 
-    /// Suppressions, sharded by rule-id domain (§9).
-    Suppressions { domain: RuleDomain },
+| Class | Byte | Count | Contents | Rewritten when |
+|---|---|---|---|---|
+| `Manifest` | `0x00` | 1 | §7; `32` §8. Record digests, version vector, epoch, member-log head | Every save |
+| `Keyholders` | `0x01` | 1 (a table, `32` §7.4) | Wrapped `RK_e`, one entry per keyholder | Passphrase change, recovery setup, member change, epoch bump |
+| `MemberLog` | `0x02` | 1 | `32` §10.3. The signed hash chain | Membership change |
+| `Nodes` | `0x10` | `S_nodes` | All nodes in the shard, with their fields and current provenance pointers | A node in that shard changes |
+| `Edges` | `0x11` | `S_edges` | All edges in the shard | An edge in that shard changes |
+| `Provenance` | `0x12` | growing | Append-only ~64 KiB segments of immutable `ProvenanceRecord`s | Only the tail segment; sealed segments are never rewritten |
+| `Capture` | `0x13` | one per capture | One redacted capture blob (`11-ir-schema.md` §8.4) | Never after creation (§4.5) |
+| `Suppressions` | `0x20` | 1 | Every suppression with its reason | A suppression is added or removed |
+| `Settings` | `0x21` | 1 | Workspace settings, corpus pins, trust store | Settings change |
+| `Layout` | `0x22` | 1 | Diagram positions, keyed by `NodeId` | Diagram edit |
 
-    /// The three version pins (§8).
-    Pins,
+Captures remain a separate, simpler thing: **write-once, content-addressed, never edited,
+never merged** (§4.5).
 
-    /// Workspace settings (§10).
-    Settings,
+### 4.3 Why not per-device records
 
-    /// The AI layer's five stores, per 24 §5.3 (§11).
-    Ai { part: AiPart },
+> **Superseded by ADR-0013.** The temperature-split argument that stood here priced I/O and
+> not metadata. The deciding axis was metadata disclosure: a per-device file set publishes
+> the device count to anyone with repository read access, unrecoverably, in immutable
+> history; a fixed shard set hides it. The open-path cost of sharding is real and is
+> recomputed in `44` §4.8 against the shard model.
 
-    /// Export events. Append-only, never compacted (§15.4).
-    ExportLog,
-}
-```
+### 4.4 Cross-device elements
 
-Captures are not in this enum. They are a separate, simpler thing: **write-once,
-content-addressed, never edited, never merged** (§4.5).
-
-### 4.3 Why the split by temperature is worth four files per device instead of one
-
-`11-ir-schema.md` §14.2 measures provenance at roughly 40 % of a fully-parsed device and captures
-at another 20 %, and §14.1 already separates them into sections for exactly this reason. Making
-them separate *records* rather than sections inside one record buys three things:
-
-| Buys | Detail |
-|---|---|
-| **Opening a workspace touches ~55 % of the bytes** | `DeviceGraph` only. Provenance loads when a value is hovered, history when it is questioned, captures when a parse span is shown. At 500 devices that is 44 MB read instead of 80 MB |
-| **A hand edit dirties two records, not four** | `DeviceGraph` + `DeviceProv`. History appends only when a value is superseded; captures never change |
-| **A capture-heavy device does not make its graph record slow** | A device with a 40 000-line config has a 400 KB capture record and a normal-sized graph record |
-
-The cost is four files per device instead of one — 2 000 files at 500 devices instead of 500 —
-and a loader that has to hold four open handles per device it touches. Both are cheap. The real
-cost is conceptual: **a device's data is in four places, so anything that reasons about "a
-device" has to know that.** `fsck` (§16) exists partly to enforce that they stay consistent.
-
-### 4.4 `Fabric` — the record kind that has to be sharded
-
-Everything that is not owned by exactly one device lives in `Fabric`: `Site`, `Link`, `Tunnel`,
-and the reference edges that cross devices. In the field card's worked example, the `Tunnel`
-between the local SRX and the peer at `203.0.113.10`, and the `Link` from `reth0.0` to the
-upstream, are fabric.
-
-Fabric is the one record kind that every device edit can touch, so an unsharded fabric record
-would be a global write lock in git-conflict form. Sharding:
-
-```text
-shard(element) = blake3_keyed(K_name, "fathom/v1/shard" || element_id)[0..2] as u16 % SHARDS
-SHARDS = 64
-```
-
-64 shards, keyed so the assignment is not guessable, deterministic so two clones agree. At 500
-devices a fabric shard holds roughly 30 links and tunnels — small files, low collision
-probability. At 50 devices most shards are empty and are not written at all.
-
-**Honest limit:** two people adding tunnels that hash to the same shard still collide. The
-collision is resolved by the frame union (§12.4) with no user involvement, so it costs nothing;
-sharding is here to keep files small, not to prevent conflict.
+> **Superseded by ADR-0013.** There is no separate `Fabric` record kind. `Site`, `Link`,
+> `Tunnel` and cross-device edges land in the fixed edge shards like every other edge, under
+> the same keyed shard assignment.
 
 ### 4.5 Captures are a different animal
 
@@ -317,155 +289,51 @@ bodies, never for graph, provenance, settings or suppressions.
 
 ---
 
-## 5. Frames — append-only sealed segments
+## 5. Sealed records — the cryptographic content lives in `32`
+
+> **Superseded by ADR-0012 and ADR-0013.** The append-only frame model previously specified
+> here is **not adopted** (ADR-0013: whole-record rewrite), and the cryptographic content of
+> a sealed record — the AEAD, the nonce discipline, key commitment, padding, the envelope
+> layout — is owned by `32-cryptography.md` and may not be specified here (ADR-0012).
 
 ### 5.1 The shape
 
-A record file is a small plaintext file header followed by a sequence of independently sealed
-frames. Frames are immutable once written. An edit appends a frame; it never rewrites one.
+A record is one sealed envelope, written whole and rewritten whole on change, per `32` §7's
+112-byte-header envelope. There is no frame header, no per-frame `hlc`, no per-frame `actor`
+and no 24-byte nonce field.
 
-```text
-record  := file_header | frame*
+### 5.2 The AEAD
 
-file_header (32 bytes, plaintext, in every frame's AD)
-    magic(8)              "FTHM-REC"
-    format_version(u16)
-    record_kind(u16)
-    record_id(16)         the RecordId — an opaque ULID, not a name
-    reserved(4)           zero
+Deferred to `32` §5: **ChaCha20-Poly1305 per RFC 8439, a per-record HKDF-derived subkey and a
+zero nonce** (`32` D4). The XChaCha20-Poly1305 / 24-byte-random-nonce construction previously
+specified here was evaluated and rejected by `32` §5.3–§5.4 and is deleted (ADR-0012).
 
-frame (69 bytes of overhead + body)
-    magic(4)              "FFR1"
-    flags(u8)             0x01 Baseline · 0x02 OpBatch · 0x04 body deflated
-    hlc(u10 → 10 bytes)   wall_ms(u64) | counter(u16)     ← ordering, in the clear
-    actor(8)              actor pseudonym                  ← who, pseudonymously
-    nonce(24)             random, XChaCha20-Poly1305
-    commit(16)            key-commitment tag (§5.6)
-    body_len(u32)
-    body(body_len)        ciphertext
-    tag(16)               Poly1305
-```
+### 5.3 Ordering
 
-Total fixed overhead per frame: **69 bytes**, plus Padmé padding inside the body (§5.7).
+There is no frame set and no canonical frame sort. A record's bytes are the envelope `32` §7
+specifies; determinism across clones follows from canonical plaintext (`32` §7.5) and the
+deterministic seal path.
 
-### 5.2 The AEAD and its associated data
+### 5.4 The merge consequence
 
-```text
-AD = format_version ‖ schema_version ‖ workspace_id ‖ record_id ‖ record_kind
-     ‖ flags ‖ hlc ‖ actor ‖ body_len
-```
+With whole records there is nothing for git to merge keylessly, and `32` §5.4's invariant —
+**ciphertext is never merged** — holds trivially. A git conflict on a record is resolved by
+opening both sides in the application and merging values on plaintext (§12.4, ADR-0013).
 
-Every plaintext field in the two headers is in the AD. A frame therefore cannot be moved to
-another record, relabelled as a baseline, given a different logical timestamp, attributed to
-another actor, or truncated, without the tag failing. What the AD deliberately does **not**
-contain is a frame index or a hash chain to the previous frame — see §5.3.
+### 5.5 The metadata consequence
 
-<!-- VERIFY: the concrete AEAD is XChaCha20-Poly1305 as implemented by libsodium and the
-     `chacha20poly1305` Rust crate. XChaCha20-Poly1305 is specified in an expired CFRG draft
-     (draft-irtf-cfrg-xchacha), not an RFC; ChaCha20-Poly1305 proper is RFC 8439. The final
-     choice belongs to the key-management document in 30-security/. What this document needs
-     from it is fixed and stated in §5.3: a 24-byte random nonce, so that concurrent writers
-     need no counter coordination. -->
-
-**Why a 192-bit random nonce and not a counter.** Two clients editing the same record while
-offline will both choose the same counter value. Under any stream cipher, nonce reuse under the
-same key is catastrophic — the keystream repeats and the plaintexts XOR. There is no coordination
-point to allocate counters from, because the whole design has no coordinator. A 192-bit random
-nonce makes collision probability negligible at any frame count this format will ever see. The
-cost is 24 bytes per frame instead of 12, which at ~30 ops per frame is 0.4 bytes per op.
-
-### 5.3 DECISION — frames are a set, not a sequence
-
-The obvious design is a hash chain: each frame's AD includes the previous frame's digest, so
-truncation is detectable. That design is wrong here, and the reason is the whole architecture:
-
-> Two clients edit the same record concurrently. Both chain from frame *k*. Neither chain is
-> wrong. There is no merge of two chains that preserves both without rewriting one — and
-> rewriting requires the key, which the merge driver does not have.
-
-So: **frames form an unordered set, keyed by their own digest.** The record's canonical on-disk
-order is a sort, applied by whoever writes the file, not a structure the frames themselves carry.
-
-```text
-canonical order = sort by (hlc.wall_ms, hlc.counter, actor, frame_digest)
-```
-
-All four components, in that order, so the sort is total and stable. Two clones holding the same
-frame set produce byte-identical files, which invariant 9 requires and which git requires far
-more urgently — a file that differs between clones for identical content is a file that is
-permanently "modified".
-
-**Truncation detection moves** from the chain to two other places: the manifest's per-record frame
-count and set digest (§7), and — in a git workspace — git's own object integrity. Neither is
-weaker; both are somewhere else, and that relocation must be stated because "we removed the hash
-chain" reads as a weakening if the replacement is not named.
-
-### 5.4 Why the ordering key is in the clear, and what that buys
-
-`hlc` and `actor` sit in the frame header, outside the ciphertext, authenticated as AD. This is
-the single decision that makes the git merge driver keyless:
-
-| Without plaintext ordering | With plaintext ordering |
-|---|---|
-| The merge driver must decrypt to sort, so it needs the workspace key | The merge driver reads headers, unions by digest, sorts, writes. No key |
-| A key must reach a non-interactive subprocess that any process on the box can invoke — a prompt (phishable), an agent (a standing decryption oracle), or an environment variable (worst) | Nothing to steal. The driver has no secret and can be run by anything |
-| `git pull` fails or hangs for anyone without an unlocked session, including CI | `git pull` works for everyone, always, and conflicts surface later, in the tool, once |
-
-### 5.5 What the plaintext ordering key discloses, priced
-
-| Disclosed to someone holding the repo but not the key | Value to them |
-|---|---|
-| The number of distinct writers per record | Team size, per device. This is `31-threat-model.md` §7.2's M6, at finer granularity |
-| The relative order and wall-clock timing of every write | Working hours per person per device. M4/M5 at record granularity |
-| Which records each pseudonymous writer touches | An activity map: "actor `9f2a…` writes to 40 records, actor `c1b8…` to 3" |
-| **Not** disclosed | Who the actors are, what the records are about, what any value is |
-
-`actor` is `blake3_keyed(K_name, actor_id)[0..8]` — stable within one workspace, unlinkable
-across workspaces, meaningless without the key.
-
-**The trade, stated plainly:** we disclose a pseudonymous edit-activity graph in order to make
-`git merge` work without a key. For a workspace kept in a private repo alongside the people who
-hold the key anyway, that costs nothing. For a workspace committed to a repo that outlives the
-engagement, or forked, or made public by accident, it hands an observer a staffing and
-change-window signal without any decryption. `31-threat-model.md` §8.1 branch A1.1.4 already
-names the forgotten git repo as a cheap route to the ciphertext; this adds a second, smaller
-prize on the same branch.
-
-**If that is unacceptable for a given workspace,** the alternative is `settings.git.opaque_frames
-= true`, which moves `hlc` and `actor` inside the ciphertext and makes the merge driver require a
-key. The cost of that setting is §12.6's degraded flow, and the setting exists so the choice is
-the user's rather than ours.
+The per-frame wall-clock timestamp and actor pseudonym previously disclosed in the clear are
+gone with the frames. The edit-activity channel they created (`31-threat-model.md` §7.2's
+M-series, at per-record, per-writer resolution) no longer exists (ADR-0013).
 
 ### 5.6 Key commitment
 
-The frame header carries a 16-byte commitment tag:
-
-```text
-commit = blake3_keyed(K_rec, "fathom/v1/commit" ‖ nonce)[0..16]
-```
-
-AEADs built on Carter–Wegman MACs — AES-GCM and ChaCha20-Poly1305 both — are not committing:
-a ciphertext can be constructed that decrypts without error under more than one key (Len, Grubbs
-and Ristenpart, *Partitioning Oracle Attacks*, USENIX Security 2021). Fathom is a
-password-derived-key system where an attacker holding the ciphertext grinds offline
-(`31-threat-model.md` row 19), which is precisely the setting in which a partitioning oracle turns
-`n` guesses per trial into many. Checking `commit` before attempting the AEAD open costs one
-BLAKE3 invocation per frame and removes the class.
-
-The cost is 16 bytes per frame — 23 % of the frame overhead — and it is worth it because the
-alternative is arguing about it in a security review.
+Deferred to `32` §5.6. This document's parallel construction is deleted (ADR-0012).
 
 ### 5.7 Padding
 
-Per `31-threat-model.md` §7.6, Padmé padding is on by default. It applies to the **frame body**,
-before sealing, after compression. Padmé bounds length leakage to `O(log log M)` bits with at most
-12 % overhead, falling to about 6 % at 1 MB (Nikitin et al., PoPETs 2019(4)).
-
-Interaction worth naming: padding a 200-byte op batch to its Padmé bucket is proportionally
-expensive — small values sit in the regime where the overhead bound is loosest. Frames below
-512 bytes are padded to 512 flat, which costs more absolutely and less proportionally than
-Padmé's own answer at that size, and which removes the "this frame was one field" signal
-entirely. Above 512 bytes, Padmé.
+Deferred to `32` §6.4, which owns Padmé and — moved there from this section per ADR-0012 —
+the flat 512-byte floor for small plaintexts.
 
 ### 5.8 Compression, and where it is not allowed
 
@@ -532,13 +400,15 @@ path = records/<pseudonym[0..2]>/<pseudonym>.frec
 | Deterministic | Two clones agree. A record created independently on two clients lands on one file |
 | Stable | A rename of the device does not rename the file. A rewrite does not rename the file |
 | Opaque | 128 bits of keyed output. Nothing recoverable without WK |
-| Bucketed | Two characters → 1 024 directories, created lazily. At 5 000 devices that is ~20 records per directory |
+| Bucketed | Two characters → bucket directories, created lazily. The record set is the fixed shard set of ADR-0013, so fan-out is small at any estate size |
 | Sortable | Lexicographic order is pseudorandom, which is deliberate: directory order carries no creation order |
 
-**What it still leaks, and there is no fixing it inside a directory:** the number of records, the
-size of each, and which ones changed between two observations. That is `31-threat-model.md` §7.2's
-M2, M3 and M8 applied locally instead of at a sync server. For a workspace in git, every historical
-commit preserves that signal permanently.
+**What it still leaks, and there is no fixing it inside a directory:** the size of each record
+and which ones changed between two observations. That is `31-threat-model.md` §7.2's M3 and M8
+applied locally instead of at a sync server. For a workspace in git, every historical commit
+preserves that signal permanently. The record *count* no longer tracks the estate: under
+ADR-0013 it is the fixed shard set chosen at creation, so counting files discloses `S`, not the
+device count.
 
 **What it does not protect against:** anyone with the key. `K_name` is derived from WK, so a
 colleague, an ex-colleague with an old clone, or anyone who cracks the passphrase can compute the
@@ -550,8 +420,10 @@ whole mapping. Filenames are not a second layer of defence and must never be des
 
 ### 7.1 What it is
 
-`manifest.fm` is the index: the list of records, their sizes, their frame counts, the Merkle
+The manifest is the index: the list of records, their sizes, their digests, the Merkle
 structure the sync protocol descends (`33-sync-protocol.md` §8.3), and the workspace's identity.
+Under ADR-0013 it is **a sealed record class that is committed and travels with the workspace
+in every shape** — see §7.4.
 
 ```rust
 pub struct Manifest {
@@ -576,13 +448,11 @@ pub struct Manifest {
 
 pub struct RecordEntry {
     pub kind: RecordKind,
-    pub frames: u32,
-    /// BLAKE3 over the sorted list of frame digests. Order-independent,
-    /// recomputed only when the record changes. O(f log f) per change.
-    pub set_digest: Blake3,
+    /// BLAKE3 over the record's sealed envelope bytes — the per-record digest
+    /// `32` §8.1 verifies at open (ADR-0013; frame set digests are gone with
+    /// the frames).
+    pub digest: Blake3,
     pub bytes: u64,
-    /// Index of the newest Baseline frame in canonical order. Compaction target.
-    pub baseline_at: u32,
     pub last_write: Timestamp,
 }
 ```
@@ -594,39 +464,30 @@ file's header, outside the ciphertext, authenticated as AD — per `11-ir-schema
 the same reason: a client must be able to discover it cannot read a workspace *before* spending
 Argon2id on it, and a client must be able to detect a rollback without decrypting.
 
-### 7.3 The manifest is derivable
+### 7.3 The manifest is partially derivable
 
-Every field above except `generation` can be recomputed by walking `records/` and reading frame
-headers. Frame headers are plaintext (§5.1), and `record_kind` is in the file header, so the
-recomputation needs **no key at all** except to read `members` and the record kinds' semantic
-detail.
+Sizes and per-record digests can be recomputed by walking `records/` and reading envelope
+headers, which is what `fsck` (§16) does when the manifest is damaged. The version vector and
+`generation` cannot be re-derived — which is exactly why the manifest must travel with the
+workspace (§7.4).
 
-That is not an accident; it is the property that makes §7.4 possible.
+### 7.4 DECISION — the manifest is committed
 
-### 7.4 DECISION — the manifest is not committed to git
+> **Superseded by ADR-0013:** the manifest **is committed**. It is a sealed record class
+> carrying the version vector and the per-record digests, and it travels with the workspace
+> in every shape — directory, packed and git.
 
-`manifest.fm` is in `.gitignore`.
+The earlier decision to gitignore it left the git shape — the primary collaboration story —
+with no rollback detection at all: `32` §8's rollback rule needs the manifest's version
+vector and per-record digests at every open, and a fresh clone with no local cache is `32`
+§8.3's *"fresh client… cannot detect anything"*, permanently, by design. A hostile store
+that drops the `Suppressions` record makes the workspace look clean, and that is the exact
+scenario `32` §8.1 exists for.
 
-**Why.** The manifest changes on every write. Committed, it would be the one file that conflicts
-in every single merge — and it is the one file the keyless merge driver cannot union, because its
-body is a sealed map, not a set of frames. Merging it would require the key, which would drag the
-key back into `git merge`, which would undo §5.4.
-
-Excluding it costs a full rescan of `records/` on open after a merge: `O(records)` `stat` plus one
-32-byte header read each. At 500 devices that is 2 000 stats and 2 000 short reads — single-digit
-milliseconds on any modern filesystem, hundreds on a cold network share. `VERIFY` that on a
-Windows share before claiming it is free.
-
-**Where the two transports get their ordering authority from, since they now differ:**
-
-| Transport | Rollback / replay defence |
-|---|---|
-| **Git** | Git. Commits are ordered, a force-push is visible in the reflog, and every historical state is retained. The manifest adds nothing git does not already do better |
-| **Sync server** | The signed manifest's `generation`, plus the client's record of the highest generation it has seen for that `workspace_id` (`31-threat-model.md` §5.2 row 5). The server holds the manifest; it is not in git |
-
-Two transports, two mechanisms, neither pretending to be the other. The packed form (§2.1)
-contains the manifest, because a packed workspace has no git and no server and needs its own
-index.
+**The stated cost** (ADR-0013): a committed manifest rewritten every save is a guaranteed
+git conflict on every concurrent edit. Under ADR-0016's single-writer model that is
+acceptable; under any future multi-writer model it is the first thing that breaks, and the
+conflict behaviour must be re-argued before any CRDT is built.
 
 ---
 
@@ -689,20 +550,13 @@ under a mismatch says so, in the same place the AI layer's partial-emit banner g
 Suppressions are `Suppression` (`12-rule-engine.md` §11.1) verbatim. This document specifies only
 where they live and how they merge.
 
-### 9.1 Sharded by rule domain
+### 9.1 One record
 
-```text
-RecordKind::Suppressions { domain }   where domain = the first dotted segment
-                                      of the rule id: ipsec, zone, mtu, policy, …
-```
-
-One record per domain. Two engineers suppressing an `ipsec.*` finding and a `mtu.*` finding touch
-different files and never meet. Two suppressing `ipsec.pfs.absent` and `ipsec.dh.legacy` touch the
-same file and union cleanly (§12.4), because suppressions are an add-wins set keyed by
-`SuppressionId` (`33-sync-protocol.md` §6.4, class E).
-
-Domains are small — a handful of rule domains ship — so this is roughly 6–10 records regardless of
-estate size.
+> **Superseded by ADR-0013:** suppressions are **not** sharded by rule domain.
+> `Suppressions` is deliberately one record and stays one record — splitting it leaks the
+> suppression count, and a suppression list is a list of known unfixed weaknesses each with
+> a written reason it will not be fixed. A concurrent edit to it is a git conflict resolved
+> on opened plaintext (§12.4).
 
 ### 9.2 What is deliberately not sharded by node
 
@@ -738,10 +592,8 @@ pub struct Settings {
     pub ai_origin: Option<Origin>,
     pub ai_grants: Vec<ConsentGrant>,          // 21 §8.4
 
-    // ── the one setting that changes the format ──────────────────────
-    /// Moves `hlc` and `actor` inside the ciphertext. Costs the keyless
-    /// merge driver (§5.5, §12.6). Requires a full record rewrite to change.
-    pub opaque_frames: bool,
+    // `opaque_frames` is gone (ADR-0013): there are no frames, and no
+    // `hlc`/`actor` in the clear for it to hide.
 }
 ```
 
@@ -793,20 +645,20 @@ Two format-level consequences the AI documents assume and do not state:
 
 | Claim in brief §6.4 | Reality with this format |
 |---|---|
-| "git-versionable" | **Yes, fully.** Commits, branches, tags, history, blame at record granularity, `git bisect` over workspace states |
-| "diffable" | **Not in git.** `git diff` on a `.frec` shows nothing useful, and must not pretend to. `fathom diff` (§12.7) is the diff tool, and a `textconv` makes `git diff` call it when a key is available |
+| "git-versionable" | **Yes.** Commits, branches, tags, history, blame at record granularity, `git bisect` over workspace states |
+| "diffable" | **Not in git.** `git diff` on a record shows nothing useful, and must not pretend to. `fathom diff` (§12.7) is the diff tool, and a `textconv` makes `git diff` call it when a key is available |
 | "portable" | **Yes.** A directory or one packed file, no runtime, no server, no database |
-| Concurrent editing | **Yes, at frame granularity, keylessly** (§12.4). Semantic conflict resolution is elsewhere (`33` §6) |
-| Repository size | **This is the cost.** §13.4 |
+| Concurrent editing | **No keyless merge** (ADR-0013). A conflicted record is a binary conflict, resolved by opening both sides in the application with the passphrase (§12.4). Anyone expecting `git merge` to just work on a "git-versionable document" meets a wall, and that cost is stated in ADR-0016 rather than hidden |
+| Repository size | **This is the cost, and it is larger under whole-record rewrite.** §13.4; ADR-0013 prices the write amplification |
 
 ### 12.2 `.gitattributes` and `.gitignore`, committed
 
 ```gitattributes
-# Records and captures: never text, never textually diffed, always merged by us.
-# NOTE: do NOT use the `binary` macro here. `binary` expands to `-diff -merge -text`,
-# and `-merge` would disable the custom driver, which is the entire mechanism.
-*.frec   -diff -text merge=fathom
-*.fcap   -diff -text merge=fathom-capture
+# Records, captures and the manifest: never text, never textually diffed, never
+# merged by git. A conflicted record is a binary conflict resolved in the
+# application on opened plaintext (§12.4, ADR-0013).
+*.frec   -diff -text merge=binary
+*.fcap   -diff -text merge=binary
 *.fm     -diff -text merge=binary
 
 # The generated note. Regenerated on every save; never worth a conflict.
@@ -814,124 +666,26 @@ FATHOM   -diff -text merge=ours
 ```
 
 ```gitignore
-manifest.fm
 *.frec.tmp
 *.lock
 ```
 
-### 12.3 The driver configuration, and why it cannot be committed
+`manifest.fm` is **not** in `.gitignore` — it is committed (§7.4, ADR-0013).
 
-```ini
-[merge "fathom"]
-    name      = Fathom record merge — frame set union
-    driver    = fathom git merge-record --base %O --ours %A --theirs %B --path %P
-    recursive = fathom
+### 12.3 There is no custom merge driver
 
-[merge "fathom-capture"]
-    name      = Fathom capture merge — content-addressed, identical or nothing
-    driver    = fathom git merge-capture --ours %A --theirs %B --path %P
-    recursive = fathom-capture
-```
+> **Superseded by ADR-0013 (and R15):** the keyless frame-union merge driver, and the
+> `fathom git install` `[merge …]` configuration that carried it, are **deleted, not
+> weakened**. There are no frames to union, and `32` §5.4's invariant — **ciphertext is
+> never merged** — stands with no exception: no subprocess ever combines two sealed
+> records. Records carry `merge=binary` (§12.2), so git leaves a conflicted path in the
+> index and touches nothing.
 
-Git's placeholders are `%O` common ancestor, `%A` current version, `%B` other branch, `%L`
-conflict-marker size, `%P` pathname, and `%S`/`%X`/`%Y` conflict labels (gitattributes,
-*Defining a custom merge driver*). The driver must leave its result in the file named by `%A`.
-Exit status: **0 = merged cleanly, 1–127 = conflicted, above 128 = the driver crashed and the
-merge fails.** `recursive` names the driver used for the internal merges of multiple merge bases;
-when unspecified git uses the same driver, so naming it here is documentation rather than
-behaviour — but it is worth naming, because for this driver a merge of two ancestors is exactly
-the same set union and is provably safe, and a reader should not have to work that out.
+### 12.4 Resolving a conflicted record
 
-**`merge.<driver>.driver` lives in `.git/config`, not in the repository.** Git deliberately does
-not let a cloned repository configure a command to execute — that would be remote code execution
-by `git clone`. Consequence:
-
-> **Every clone must run `fathom git install` once.** Without it, git falls back to its default
-> binary merge, which for a `-text` file means: take ours, mark conflicted, do nothing. Nothing is
-> lost, nothing is corrupted, and the user gets a conflict they cannot resolve by hand.
-
-The install command writes the two `[merge …]` blocks into `.git/config` and nothing else. It
-prints exactly what it wrote. It refuses to run against a repository it did not detect as
-containing a Fathom workspace.
-
-**The failure mode when someone forgets** is the one to design for, because someone always
-forgets. `fathom` detects an unmerged path on open, recognises the stage-2/stage-3 shape, and
-resolves it itself (§12.6). So the recovery path exists even for a user who never ran the install.
-
-### 12.4 The merge algorithm, in full
-
-```text
-merge-record(base, ours, theirs) -> ours', exit code
-
- 1. Read the 32-byte file headers of all three.
-    If format_version differs between ours and theirs  -> exit 1  (a major format
-      change is not something a merge driver may paper over).
-    If record_id or record_kind differ                 -> exit 1  (two different
-      records at one path is a bug or an attack; refuse).
-
- 2. Scan frames. Each frame is self-delimiting: 4+1+10+8+24+16+4 header, then
-    body_len bytes, then 16 bytes of tag. Compute BLAKE3 over each whole frame.
-    Reading is O(bytes) with no allocation beyond the digest state.
-
- 3. F = frames(ours) ∪ frames(theirs)         keyed by frame digest
-    Frames are immutable, so identical content means identical bytes means one
-    entry. `base` is not needed for correctness — a set union has no need of an
-    ancestor — but it is read anyway, for step 5.
-
- 4. Sort F by (hlc.wall_ms, hlc.counter, actor, digest).           §5.3
-
- 5. Sanity, using `base`:
-    - every frame in base must be in F. If one is missing, one side truncated
-      history without a compaction claim -> exit 1, loudly.
-    - if either side's frame set is a strict superset of F, we made an error.
-
- 6. Write header + F to `ours` (%A). Atomic: temp file, fsync, rename.
-
- 7. exit 0
-```
-
-**Complexity.** `O(n)` in the bytes of the two inputs, `O(f log f)` in the frame count for the
-sort, `O(f)` memory holding digests and offsets — 48 bytes per frame, so a record with 10 000
-frames costs 480 KB of driver memory. No decryption, no key, no network, no allocation
-proportional to plaintext.
-
-**Correctness.** The merge is a set union of immutable elements, so it is commutative,
-associative and idempotent — a join semilattice. Therefore:
-
-- `merge(a, b) == merge(b, a)` — order of parents does not matter;
-- `merge(merge(a,b), c) == merge(a, merge(b,c))` — octopus and recursive merges are safe;
-- `merge(a, a) == a` — re-merging is free;
-- and the merged file's *bytes* are identical regardless of which side git called "ours",
-  because the sort is total. **Two people merging the same two branches produce the same commit
-  content.** That property is worth more than it sounds: without it, a shared branch accumulates
-  differing-but-equivalent blobs and git's history becomes noise.
-
-**What it does not do.** It does not detect that A set `dh-group group14` and B set `group19`. It
-does not need to. Both frames are in the union; both ops are in the state; the field resolves to
-`Field::Conflicted` at open, per `33-sync-protocol.md` §6.3, and the user is shown both values
-with both authors. The merge driver's job is to lose nothing, and it loses nothing.
-
-### 12.5 The capture driver
-
-```text
-merge-capture(ours, theirs):
-  if bytes(ours) == bytes(theirs) -> exit 0            the common case, by §4.5
-  else                            -> exit 1            two different plaintexts
-                                                        hashed to one filename
-```
-
-The `else` branch is a BLAKE3 collision or a bug, and either way a merge driver is the wrong place
-to decide. It fails loudly.
-
-### 12.6 When the driver is not installed, or frames are opaque
-
-Two cases produce a conflicted path in the index rather than a merged file:
-
-1. The user never ran `fathom git install`.
-2. `settings.opaque_frames = true` (§10.1), so `hlc` and `actor` are inside the ciphertext and the
-   union cannot be sorted without the key.
-
-Both are handled by the same recovery, which runs inside the tool where a key already exists:
+A git conflict on a record is resolved **on opened plaintext, in the core** (`32` §5.4
+Case 2; ADR-0013 point 4). This requires the key, and therefore a human with the
+passphrase:
 
 ```text
 $ fathom merge --resolve
@@ -940,17 +694,30 @@ $ fathom merge --resolve
     git show :1:<path>   base
     git show :2:<path>   ours
     git show :3:<path>   theirs
-  performs the same union (decrypting only in case 2, and only to sort),
-  writes the merged file, and stages it:
+  opens all three under an explicit unlock, merges values per
+  `11-ir-schema.md` §8.6 — a field set to two different values resolves to
+  Field::Conflicted and is shown to the user with both values and both
+  authors — reseals the merged record, and stages it:
     git add <path>
 
   7 records merged · 0 refused
   2 fields are now conflicted and need a human — open the workspace
 ```
 
-That the three versions remain recoverable from the index after a failed merge is the reason case
-1 is an inconvenience rather than a data-loss event. It is worth testing explicitly, because it is
-the path most users will hit first.
+That the three versions remain recoverable from the index after a failed merge is the reason
+a conflict is an inconvenience rather than a data-loss event. It is worth testing explicitly,
+because it is the path most users will hit first.
+
+### 12.5 Captures never merge
+
+Captures are write-once and content-addressed (§4.5): two files at one path with different
+bytes is a BLAKE3 collision or a bug, and `fathom merge --resolve` refuses it loudly rather
+than deciding.
+
+### 12.6 When the tool is not available
+
+Git's binary merge takes ours and marks the path conflicted. Nothing is lost, nothing is
+corrupted, and the three stages remain in the index until `fathom merge --resolve` is run.
 
 ### 12.7 Diff
 
@@ -961,7 +728,7 @@ the path most users will hit first.
 ```ini
 [diff "fathom"]
     textconv  = fathom git show-record
-    cachetextconv = true
+    cachetextconv = false
     binary    = true
 ```
 
@@ -989,7 +756,7 @@ undoes an encryption story.
 | `pre-commit` hook that compacts | **No.** Compaction rewrites whole records and turns every commit into a large one (§13.4). Compaction is explicit |
 | `post-merge` hook that rebuilds the manifest | Unnecessary. The manifest rebuilds on open (§7.3), and a hook that runs a decryption on `git pull` is a hook that will surprise someone |
 | Git LFS | **No.** Records are hundreds of kilobytes, not hundreds of megabytes, and LFS moves the ciphertext to a second server with a second access model, which is a new trust boundary for no benefit. Captures are the largest objects and they are immutable, which is the case git handles best |
-| `git-crypt` / `git-remote-gcrypt` underneath | **No.** Encrypting an already-encrypted store adds a second key to lose and defeats the append-frame delta property (§13.4), because a whole-file encryption layer rewrites every byte on every change. `git-crypt`'s own documentation states this: encrypted files do not delta-compress and the whole file is re-stored on every change |
+| `git-crypt` / `git-remote-gcrypt` underneath | **No.** Encrypting an already-encrypted store adds a second key to lose for no benefit. `git-crypt`'s own documentation states the cost: encrypted files do not delta-compress and the whole file is re-stored on every change |
 | Committing `manifest.fm` | No. §7.4 |
 
 ---
@@ -997,6 +764,13 @@ undoes an encryption story.
 ## 13. Size budgets
 
 ### 13.1 The basis, and its honesty
+
+> **Superseded in part by ADR-0012 and ADR-0013:** the per-record figures below were derived
+> against the per-device record model and the 69-byte frame header, both of which are not
+> adopted. Every record count, byte figure and overhead line in §13 must be recomputed
+> against the fixed shard set and `32` §7's 112-byte envelope header before any of it is
+> relied on. The recomputation is pending; the totals below are retained only as
+> order-of-magnitude context.
 
 Everything here is **arithmetic over the assumptions declared in `11-ir-schema.md` §14.2**, not
 measurement. §14.2 itself carries a `VERIFY` requiring measurement against a real
@@ -1322,13 +1096,13 @@ additional line, and it is not softened:
 
 | Failure | Detected by | Recovery |
 |---|---|---|
-| One frame's tag fails | AEAD open | **That frame only** is skipped, logged, and reported. The rest of the record applies. This is the strongest argument for per-frame sealing: bit-rot costs one op batch, not one workspace |
-| A record file is truncated mid-frame | Frame self-delimiting scan hits a short read | Truncated tail dropped, reported by count. Preceding frames apply |
-| A record file is missing entirely | Manifest rebuild finds a record referenced by an edge in another record | The elements it held are gone. `fsck` reports which `NodeId`s are referenced but absent, per kind |
-| The whole `records/` is intact but the manifest is stale | Rebuild on open (§7.3) | Automatic, silent, always |
+| A record's tag fails | AEAD open | The record is refused, logged, and reported. Bit-rot costs one shard, not one workspace — restore that record from git history or a backup |
+| A record file is truncated | Envelope length check against the header | The record is refused and reported. Restore from history |
+| A record file is missing entirely | The manifest names it (`32` §8.1 `MissingRecord`) | `fsck` reports which records the manifest requires and cannot find. A store that drops a record fails closed |
+| The record set is intact but the manifest is stale | Per-record digests disagree (`32` §8.1) | `fsck --repair` can rebuild sizes and digests (§7.3); the version vector cannot be re-derived |
 | `keys.fk` is lost or corrupt | Header parse or KDF | **Total loss.** There is no recovery and there is no backup key. The `FATHOM` note says so in line 4 |
-| Wrong passphrase | Key-commitment tag (§5.6), before the AEAD | Fast, unambiguous rejection. Without the commitment tag this is a failed AEAD open, which is indistinguishable from corruption |
-| A frame claims a `record_id` that does not match its file | AD binding | The AEAD fails. A frame cannot be relocated |
+| Wrong passphrase vs. tampering | Key-commitment tag (`32` §5.6) **plus** the AEAD, per ADR-0014: on a commitment mismatch the AEAD open runs anyway — MAC fails ⇒ `Tampered`, MAC succeeds ⇒ `CommitmentMismatch` | Tampering is no longer indistinguishable from a typo, which is the distinction that decides whether a user restores from backup or keeps typing |
+| A record claims a `record_id` that does not match its file | AD binding | The AEAD fails. A record cannot be relocated |
 
 ### 16.2 `fathom fsck`
 
@@ -1337,9 +1111,9 @@ $ fathom fsck site-b.fathom --verbose
 
   W O R K S P A C E   I N T E G R I T Y                          site-b.fathom
 
-  container      2 104 records · 8 412 frames · 81.2 MB · format 1 · schema 3.2
-  frames         8 412 opened · 0 tag failures · 0 truncated
-  manifest       rebuilt from records (not committed, §7.4)
+  container      ~90 records · 81.2 MB · format 1 · schema 3.2
+  records        all opened · 0 tag failures · 0 truncated
+  manifest       digests verified against records (committed, §7.4)
 
   graph L0       every edge endpoint present            ok
                  containment forms a forest             ok
@@ -1356,10 +1130,10 @@ $ fathom fsck site-b.fathom --verbose
 ```
 
 `fsck` is read-only. `fsck --repair` exists and does exactly three things, each of which is
-information-preserving: rebuild the manifest, drop frames that fail their tag (after listing
-them), and re-bind orphaned suppressions whose `anchor_nk` matches exactly one node
-(`12-rule-engine.md` §11.4). **It never deletes a node, never resolves a conflict, and never
-guesses.** Anything else is a job for a human with the workspace open.
+information-preserving: rebuild the manifest's derivable half (§7.3), refuse records that fail
+their tag (after listing them), and re-bind orphaned suppressions whose `anchor_nk` matches
+exactly one node (`12-rule-engine.md` §11.4). **It never deletes a node, never resolves a
+conflict, and never guesses.** Anything else is a job for a human with the workspace open.
 
 ### 16.3 Atomic writes
 
@@ -1380,12 +1154,11 @@ Stated as a list rather than buried, in the register of `11-ir-schema.md` §16.
 | Cost | Detail |
 |---|---|
 | **Two container forms** | Directory and packed. Two code paths, one round-trip property test, and one class of bug where they diverge |
-| **Four records per device** | A device's data is in four files. Everything reasoning about "a device" must know that, and `fsck` exists partly to enforce it |
-| **69 bytes of overhead per frame, plus padding** | At ~30 ops per frame, about 2.3 bytes of header per op, plus Padmé's up-to-12 % and a 512-byte floor on small frames. A single-field save costs ~350 bytes on disk to record ~40 bytes of change |
-| **Plaintext ordering keys** | A pseudonymous edit-activity graph is visible to anyone holding the repository without the key (§5.5). Bought the keyless merge driver; priced, and revocable per workspace at the cost of that driver |
+| **Write amplification (ADR-0013)** | Whole-record rewrite: a one-field change rewrites a whole shard — ~25 KiB instead of ~2 KiB on a 1.6 MiB graph — and git's delta compression cannot help because the bytes are ciphertext. A busy workspace's repository is roughly an order of magnitude larger than per-device records would have produced. This is the stated price of hiding the device count |
+| **No keyless merge (ADR-0013, ADR-0016)** | A git conflict on a record requires opening the workspace with the passphrase and resolving in the application. The engineer who wanted `git merge` to just work does not get that |
 | **Filenames are only as good as the key** | Anyone with WK computes the whole mapping. Filenames are not defence in depth and must never be described as such |
 | **Compaction fights git** | §13.6. In git, compacting makes the repository permanently larger. There is no arrangement in which both transports want the same policy |
-| **Every clone needs `fathom git install`** | Git will not let a repository configure a command, correctly. The recovery path for a user who forgets is good but it is a second mechanism to maintain |
+| **`git diff` needs `fathom git install`** | Git will not let a repository configure a command, correctly. The install now carries only the diff `textconv` (§12.7); there is no merge driver to install (§12.3) |
 | **`git diff` is useless without a textconv, and the textconv caches plaintext if you let it** | §12.7. The convenient default is the wrong default and we ship the inconvenient one |
 | **No in-workspace compartmentation** | One key, one document, everything. `31-threat-model.md` §5.1 row 13 and R8. Sharding by device is a *storage* boundary, not an access boundary, and calling it one would be a lie: `K_rec` is derived from WK, so holding WK holds every record |
 | **The size ceiling is real and is not the crypto's fault** | §13.3. Above ~2 000 devices the premise stops fitting, exactly as brief §6.4 predicted |
@@ -1396,11 +1169,11 @@ Stated as a list rather than buried, in the register of `11-ir-schema.md` §16.
 
 | # | Decision | Options | Leaning |
 |---|---|---|---|
-| W-1 | Should `DeviceProv` be sharded when a single device's provenance exceeds a threshold (a 40 000-line config) | (a) No — accept a 2 MB record. (b) Shard by capture id | (a) until measured. Provenance is written together and read rarely |
-| W-2 | Frame body compression algorithm | (a) deflate (ubiquitous, small in WASM). (b) zstd (better ratio, larger dependency). (c) none | (a). §8.4 of the brief's minimal-dependency posture outranks the ratio |
+| W-1 | ~~`DeviceProv` sharding threshold~~ | — | **Closed by ADR-0013.** There is no `DeviceProv` record; provenance lands in the fixed shards |
+| W-2 | Record body compression algorithm | (a) deflate (ubiquitous, small in WASM). (b) zstd (better ratio, larger dependency). (c) none | (a). §8.4 of the brief's minimal-dependency posture outranks the ratio |
 | W-3 | Should the packed form support streaming open, or must it be fully read | (a) Streaming with an offset table. (b) Read whole | (b) at these sizes; revisit if the packed form is used above 500 devices |
 | W-4 | Do we ship an `Index` record (§13.4) in v1, or only when someone hits the ceiling | (a) v1. (b) When needed | (b). It is a real subsystem and speculative at 100 devices |
-| W-5 | `opaque_frames` default | (a) false — keyless merge. (b) true — no activity graph | (a), with the setting presented at workspace creation for anyone whose threat model is `31` §7.3's |
+| W-5 | ~~`opaque_frames` default~~ | — | **Closed by ADR-0013.** Frames are not adopted; there is no `hlc`/`actor` in the clear to hide |
 | W-6 | Should `fathom git install` also install a `pre-push` hook that refuses to push a workspace containing an `ExportLog` entry newer than the last commit | (a) Yes. (b) No | (b). A hook that blocks a push based on document contents will be removed by the first person it inconveniences, and it protects nothing |
 
 ---
@@ -1439,12 +1212,9 @@ do not compress `Settings`, `Pins` or `Suppressions`. The distinction is whether
 vary one input and observe the length of the result, and on a small record holding
 attacker-influenceable text next to security-relevant values, they can.
 
-**A2 — `11-ir-schema.md` §11.4's preserve-mode row "Sync / merge: unknown data merges as opaque
-last-writer-wins per field" should be amended.** With frames, unknown data does not merge
-last-writer-wins; it merges as a frame union like everything else, and the resolution of unknown
-*fields* is deferred to whichever build understands them. The current wording describes a
-mechanism this format does not have and would, if implemented literally, silently discard a
-concurrent write from a newer client.
+**A2 — withdrawn (ADR-0013).** The amendment that stood here asked `11-ir-schema.md` §11.4 to
+describe unknown data as merging by frame union. Frames are not adopted; under whole-record
+rewrite and plaintext merge in the core, `11` §11.4's per-field handling applies as written.
 
 ---
 

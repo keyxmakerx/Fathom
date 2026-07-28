@@ -33,7 +33,7 @@ then to stop, rather than to keep building crypto that defends a branch nobody a
 | 3 | The key hierarchy |
 | 4 | The KDF — Argon2id, its parameters, and the WASM reality |
 | 5 | The AEAD — the choice, the nonce, and where the nonce argument actually breaks |
-| 6 | The record model — the trade, the decision, and what still leaks |
+| 6 | The record model — deferred to `17` (ADR-0012); padding and what still leaks |
 | 7 | The envelope, byte by byte |
 | 8 | The manifest, replay and rollback |
 | 9 | Rotation and revocation |
@@ -72,7 +72,7 @@ before reading forty pages of the reasoning for it.
 | D11 | **Revocation** | Eager and blocking: epoch bump, every record re-sealed before the flow reports success | Lazy re-seal on write. "Revoked, but 400 records are still readable by them" is a lie told by a progress bar (§9.3) |
 | D12 | **Recovery** | Optional. 240-bit printed code (Crockford Base32 + 40-bit checksum) as a second keyholder; Shamir `k`-of-`n` escrow as a third; both off by default | Mandatory recovery (an escrow backdoor by default) and no recovery at all (the correct default, and a terrible one to have *only*) (§11) |
 | D13 | **Hardware keys** | WebAuthn PRF as an additional keyholder (OR) by default; AND-mode available and labelled with its consequence | PRF as the only keyholder. Support is still uneven and a lost passkey is a lost workspace (§12) |
-| D14 | **Primary store, offline** | The file. OPFS is a working cache and never the only copy | IndexedDB (blocked under `file://`) and OPFS-as-truth (evictable without warning) (§13.1) |
+| D14 | **Primary store, offline** | The file, alone. No browser storage of any kind in D1 (ADR-0017; OPFS-cache branch deleted per ADR-0012) | IndexedDB (blocked under `file://`), OPFS-as-truth (evictable without warning), and OPFS-as-cache (§13.1) |
 | D15 | **PQ posture** | Symmetric path is already fine; the shared-workspace HPKE wrap is the harvest-now-decrypt-later exposure. Suite `0x02` reserved for X-Wing | Shipping a hybrid KEM now against a draft that is not yet an RFC (§10.7) |
 
 ---
@@ -96,6 +96,7 @@ repository, and in transit between them.
 | TLS to the sync service | Not our problem beyond "use it, and do not depend on it" |
 | Schema and format version semantics | `docs/10-core/11-ir-schema.md` §11 |
 | What a graph *is* — nodes, edges, kinds, provenance | `docs/10-core/11-ir-schema.md` |
+| The container: on-disk tree, record taxonomy, filenames, update model, git behaviour, `fsck`, import, export | `docs/10-core/17-workspace-format.md` (ADR-0012) |
 
 This document uses the residual scale defined in `31-threat-model.md` §1.4 — `none`, `bounded`,
 `material`, `total` — and does not invent a second one. It uses the three-value `Risk` enum
@@ -221,18 +222,31 @@ ct          = AEAD-Seal(K, nonce = 0u96, aad = header || aad_ext, plaintext)
 envelope    = header || ct                          # ct includes the 16-byte Poly1305 tag
 ```
 
-Open:
+Open (corrected per ADR-0014):
 
 ```
 (K,C')      = derive_record_keys(parent, header, aad_ext)
-if !constant_time_eq(C', header[96..112]) { return Err(WrongKey) }      # ← before Poly1305
-pt          = AEAD-Open(K, nonce = 0u96, aad = header || aad_ext, ct)?  # ← MAC check
+commit_ok   = constant_time_eq(C', header[96..112])
+pt          = AEAD-Open(K, nonce = 0u96, aad = header || aad_ext, ct)   # runs regardless
+match (commit_ok, pt) {
+    (true,  Ok(pt))  => Ok(pt),
+    (true,  Err(_))  => Err(Tampered),            # commitment right, MAC wrong
+    (false, Err(_))  => Err(WrongKey),            # both wrong: a wrong passphrase
+    (false, Ok(_))   => Err(CommitmentMismatch),  # MAC right, commitment mutated —
+                                                  # a distinct, nameable state
+}
 ```
 
-**Why the commitment check comes first.** It is the only check that distinguishes *"you gave me the
-wrong key"* from *"this file has been tampered with"*. Poly1305 failure means both, and telling a
-user "the file is corrupt" when they mistyped their passphrase is how support tickets are made.
-More importantly it is what makes the scheme key-committing (§5.6).
+**Why the AEAD runs even on a commitment mismatch (ADR-0014).** `commit_tag` is correctly not in
+the HKDF `info`, so flipping one byte of it does not change `K` — under the earlier
+return-early ordering that produced `WrongKey` for a hostile sync operator, a hostile git
+committer, or one bit of rot, and the user's response to "wrong passphrase" is to try harder
+rather than to restore from backup. Running the open anyway and branching on its result
+distinguishes tampering from a typo in the one code path where that distinction decides what
+the user does next. Constant time is irrelevant here — the attacker already has the
+ciphertext — and the cost is one wasted AEAD open on a genuinely wrong passphrase,
+microseconds against a one-second KDF. The commitment property itself (§5.6) is unchanged.
+Both `Tampered` and `CommitmentMismatch` are negative vectors in §16.2.
 
 ### 3.3 Why there is no intermediate per-class key
 
@@ -310,6 +324,15 @@ RFC 9106 §4's *first* recommended option — `t=1, p=4, m=2 GiB` — is not via
 is not offered. Say that plainly rather than quietly picking the second option and implying it was
 the only one.
 
+**DECISION (ADR-0014, adopting `44` §4.8.4) — `DeviceFloor::AnyDevice` is the default.** The
+shipping default pins `m` at `FLOOR` (64 MiB, t = 3) for every workspace that does not opt out,
+so a workspace created anywhere opens on any device; the calibration procedure above applies
+when the user opts into a higher device floor. Stated honestly: a lower KDF floor is genuinely
+weaker — a real security reduction chosen for reach and unlock latency — and `44`'s second
+argument is why it is right anyway: a four-second unlock is not a neutral security property; it
+pushes users toward shorter passphrases, which loses more entropy than the KDF gains. The
+generated-passphrase path stays the default per §4.7.
+
 <!-- VERIFY: measure A2id in the release WASM build across m ∈ {64, 128, 192, 256} MiB, t ∈ {3,4},
      p=1, on: a current desktop, a 2019 dual-core ultrabook, a mid-range Android, and an iPhone.
      Record median and p95 wall time and whether memory.grow succeeded. Publish the grid. The
@@ -325,12 +348,12 @@ there is. Three consequences, in order of weight:
 1. **A single-threaded defender gains nothing from `p > 1`.** They compute four lanes serially and
    spend the same time they would have spent on one. RFC 9106 §4's procedure explicitly starts by
    figuring out how many threads are available; the answer here is one.
-2. **A single-threaded defender is what we have.** WASM threads require `SharedArrayBuffer`, which
-   requires cross-origin isolation, which requires the `Cross-Origin-Opener-Policy: same-origin`
-   and `Cross-Origin-Embedder-Policy: require-corp` **HTTP headers**. A `file://` document has no
-   HTTP headers. The offline single-file build — the deployment shape this project exists for — can
-   never be cross-origin isolated. The served builds could be, and then the two shapes would
-   disagree about a parameter baked into the file format. They must not.
+2. **Withdrawn (ADR-0017).** This argument rested on *"a `file://` document has no HTTP headers,
+   so the offline single-file build can never be cross-origin isolated"* — which is false for
+   the artifact that actually runs Argon2id in a served shape: D2 is served by `fathom serve`
+   with `COOP: same-origin` / `COEP: require-corp` (`34` §2.2) and **is** cross-origin
+   isolated. The decision stands on arguments 1 and 3 alone; the two shapes must still not
+   disagree about a parameter baked into the file format.
 3. **`p > 1` is not free for the defender's adversary either way.** An attacker cracking offline
    optimises for throughput, not latency, and will run one guess per core regardless. `p = 4`
    gives them the *option* of intra-guess parallelism and gives us nothing. A shorter dependency
@@ -403,7 +426,20 @@ floor. VRAM is not the constraint: 24 GiB ÷ 256 MiB is 96 concurrent instances.
      and replace the modelled 10²/s with a measured figure. Until then every number below is an
      order-of-magnitude argument, and the document says so. -->
 
-**Time to exhaust half the keyspace, at the cap config:**
+**Time to exhaust half the keyspace — floor first, because the floor is the shipping default
+(ADR-0014):**
+
+At `FLOOR` (64 MiB, t=3), the default every workspace ships with unless the user opts out:
+
+| Passphrase | Entropy | 1 GPU (5×10²/s) | 100 GPUs (5×10⁴/s) | 10 000 GPUs (5×10⁶/s) |
+|---|---|---|---|---|
+| A memorable sentence with substitutions | ~30 bits | ≈12 days | **≈2.9 hours** | **≈1.7 minutes** |
+| A strong human-chosen passphrase | ~40 bits | ≈33 years | ≈4 months | **≈27 hours** |
+| A very strong human-chosen passphrase | ~50 bits | 3.4 × 10⁴ yr | ≈330 yr | ≈3.3 yr |
+| 5 EFF-wordlist words | 64.6 bits | — | — | 7.4 × 10⁴ yr |
+| 6 EFF-wordlist words | 77.5 bits | — | — | 6.3 × 10⁸ yr |
+
+At `CAP` (256 MiB, t=4), the opt-in configuration:
 
 | Passphrase | Entropy | 1 GPU (10²/s) | 100 GPUs (10⁴/s) | 10 000 GPUs (10⁶/s) |
 |---|---|---|---|---|
@@ -413,7 +449,8 @@ floor. VRAM is not the constraint: 24 GiB ÷ 256 MiB is 96 concurrent instances.
 | 5 EFF-wordlist words | 64.6 bits | — | — | 3.9 × 10⁵ yr |
 | 6 EFF-wordlist words | 77.5 bits | — | — | 3.3 × 10⁹ yr |
 
-At the floor config, multiply every time by about 0.19.
+The number a reviewer quotes back must match the product they will run, which is the floor
+table.
 
 **In money, with the assumption labelled.** At an assumed $0.50 per GPU-hour — re-derive this at
 current spot prices, it is not a constant — a guess costs about $1.4 × 10⁻⁶. So 2³⁰ guesses is on
@@ -600,9 +637,10 @@ K_enc || K_cmt = HKDF-Expand(prk, info, 48)     # 32 + 16
 
 `K_cmt` is published in the header. Because HKDF-Expand is a PRF and its output is collision-
 resistant, finding a second `(parent, salt, header)` that produces the same `K_cmt` is a
-second-preimage problem at the width of the tag. The client checks `K_cmt` in constant time
-*before* attempting decryption, so "wrong key" and "tampered ciphertext" are distinguishable and
-neither is a partitioning oracle: a candidate key either produces the published `K_cmt` or it does
+second-preimage problem at the width of the tag. The client checks `K_cmt` in constant time and —
+per ADR-0014 — runs the AEAD open regardless, branching on the pair of results (§3.2), so
+"wrong key", "tampered ciphertext" and "mutated commitment tag" are all distinguishable and
+none is a partitioning oracle: a candidate key either produces the published `K_cmt` or it does
 not, and each query rules out exactly one candidate.
 
 | | |
@@ -613,100 +651,25 @@ not, and each query rules out exactly one candidate.
 
 ---
 
-## 6. The record model
+## 6. The record model — owned by `17` (ADR-0012)
 
-### 6.1 The trade, stated properly
+### 6.1–6.3 Deferral
 
-This is the decision the assignment for this document called out as the honest one, so here is the
-whole trade before the answer.
+> **Superseded by ADR-0012:** the on-disk record model — the granularity trade, the shard
+> scheme and the record taxonomy — is owned by `17-workspace-format.md` §4 and is no longer
+> specified here. ADR-0013 decided the substance in favour of the fixed-shard model this
+> section originally argued: `S_nodes`/`S_edges` fixed at workspace creation (64/16 by
+> default; 8 small, 256 large), whole-record rewrite, `Suppressions` deliberately one record,
+> and a committed sealed manifest (§8). The class byte in the envelope header (§7.1) is
+> assigned by `17` §4.2's taxonomy.
 
-| Granularity | Diffs in git | Partial sync | CRDT merge | Write amplification | What it leaks |
-|---|---|---|---|---|---|
-| **Whole workspace** — one envelope | No. One binary blob changes wholesale on every save | No | Works, but every merge is a whole-document exchange | 100 % of the workspace per keystroke | One size, one change event. The least of any option |
-| **Per node** — one envelope per graph node | Yes, beautifully | Yes | Natural fit | ~1 node | **The node count, exactly.** And per-kind counts if the class is in the filename. Node count ≈ estate size; `Device` count ≈ how many boxes you run |
-| **Per operation** — one envelope per CRDT op | Append-only, so git history is clean | Yes, and cheaply | The natural CRDT shape | ~1 op | The **edit count and edit timing** at full resolution, forever, to anyone who ever gets the file |
-| **Sharded** — fixed `S` envelopes, node → shard by hash | Yes, and the *file set never changes* | Yes, at 1/S | Fine; merge is on opened plaintext | 1/S of the graph | Total size (already M2). Not the node count, not the device count, not which node changed — only which of `S` buckets changed |
+One rule from the deleted text is cryptographic and stays here:
 
-Two observations decide it.
-
-**Observation one: in an exploded directory, the filename set is metadata.** Per-node encryption in
-a git repository means adding a device creates a new file. The *commit* shows a file being added.
-Anyone with read access to that repository — and workspaces will end up in repositories, `31` §8.1
-A1.1.4 — can count devices by counting files and can watch the estate grow, commit by commit,
-without decrypting anything. That is worse than the sync server's exposure, because a repository is
-often more widely readable and its history is permanent.
-
-**Observation two: the per-operation model leaks the thing the field card is about.** An operation
-log records that somebody edited `IpsecPolicy.perfect_forward_secrecy` at 22:40 on a Tuesday. Even
-encrypted, the *shape* — a burst of ops in one class, at a change window — is the reconnaissance in
-`31` §7.3, at higher resolution and with no server required.
-
-### 6.2 DECISION — sharded per-record, with a fixed shard count
-
-```
-shard(node_id) = blake3("fathom/v1/shard" || node_id)[0] % S_nodes
-shard(edge_id) = blake3("fathom/v1/shard" || edge_id)[0] % S_edges
-```
-
-`S_nodes` defaults to **64**, `S_edges` to **16**. Both are fixed at workspace creation, stored in
-the manifest, and never changed for the life of the workspace — changing `S` reshuffles every node
-and rewrites everything, which is a migration, not a setting.
-
-| Property | Value at `S_nodes = 64` |
-|---|---|
-| Number of node records | Always 64, from an empty workspace to a 5 000-node one |
-| Write amplification for a one-field edit | 1/64 of the graph. For a 1.6 MiB graph, ~25 KiB |
-| Compared with whole-workspace | 64× less rewritten per save |
-| Compared with per-node | ~12× more rewritten per save, on a graph of 800 devices |
-| Files in the exploded directory | Constant. Creating the 801st device adds no file and changes no filename |
-| Shard balance | `blake3` of a ULID is uniform; expected imbalance for 800 nodes over 64 shards is small and unimportant |
-
-**What this costs, plainly:** a one-field change rewrites 25 KiB instead of 2 KiB, so a git history
-of a busy workspace is roughly an order of magnitude larger than it would be with per-node records.
-Git's delta compression will not help, because the bytes are ciphertext. That is the price of not
-publishing the device count in the filename set, and it is worth paying.
-
-**Choosing `S`.** A small workspace (one site, twenty nodes) has 64 near-empty shards, each padded
-up to its Padmé bucket, which is pure overhead. Offer `S = 8` for a workspace the user says is
-small, and `S = 256` for a large one — but make it a creation-time question with the trade stated,
-not a setting buried in preferences, because it cannot be changed later without a full rewrite.
-
-### 6.3 The record taxonomy
-
-| Class | Byte | Count | Contents | Rewritten when |
-|---|---|---|---|---|
-| `Manifest` | `0x00` | 1 | §8. Record digests, version vector, epoch, member-log head | Every save |
-| `Keyholders` | `0x01` | 1 (a table, §7.4) | Wrapped `RK_e`, one entry per keyholder | Passphrase change, recovery setup, member change, epoch bump |
-| `MemberLog` | `0x02` | 1 | §10.3. The signed hash chain | Membership change |
-| `Nodes` | `0x10` | `S_nodes` | All nodes in the shard, with their fields and current provenance pointers | A node in that shard changes |
-| `Edges` | `0x11` | `S_edges` | All edges in the shard | An edge in that shard changes |
-| `Provenance` | `0x12` | growing | Append-only ~64 KiB segments of immutable `ProvenanceRecord`s | Only the tail segment; sealed segments are never rewritten |
-| `Capture` | `0x13` | one per capture | One redacted capture blob (`11-ir-schema.md` §8.4) | Never after creation |
-| `Suppressions` | `0x20` | 1 | Every suppression with its reason | A suppression is added or removed |
-| `Settings` | `0x21` | 1 | Workspace settings, corpus pins, trust store | Settings change |
-| `Layout` | `0x22` | 1 | Diagram positions, keyed by `NodeId` | Diagram edit |
-
-Three of these deserve a note.
-
-**`Provenance` is append-only and that is the point.** Provenance records are immutable and
-ULID-identified (`11-ir-schema.md` §8.6). Sealing them into segments that are never rewritten means
-git stores each segment once, forever, and a workspace's history costs `O(new provenance)` rather
-than `O(saves × total provenance)`. Get this wrong and the repository grows quadratically.
-
-**`Suppressions` is deliberately one record.** Splitting it would leak the suppression count, and
-`31` §2.3 ranks suppressions V3 — a list of known-unfixed weaknesses, each with a written reason
-they will not be fixed. The count alone is a signal. One record, padded, always present even when
-empty.
-
-**`Capture` records are one blob each, and never share a record with anything else.** Two reasons.
-They are cold and large, so opening a workspace should not decompress every config ever pasted.
-And they contain **attacker-supplied text** (`31` §4.2, boundary B12). Compressing attacker-supplied
-text in the same record as workspace data is a compression side channel of the CRIME/BREACH family:
-an attacker who can get their text into the same compression context as a secret can learn about the
-secret from the length. Isolating captures removes the channel by construction.
-
-> **RULE — one compression context per record, and never a record that mixes attacker-supplied text
-> with anything else.** Compression is applied per record, before sealing, or not at all.
+> **RULE — one compression context per record, and never a record that mixes attacker-supplied
+> text with anything else.** Compression is applied per record, before sealing, or not at all.
+> Captures are one blob each, isolated from workspace data, because compressing
+> attacker-supplied text in the same context as a secret is a length side channel of the
+> CRIME/BREACH family.
 
 ### 6.4 Padding
 
@@ -727,9 +690,13 @@ fn padme(l: u64) -> u64 {
 }
 
 /// Plaintext framing. HEADER_LEN = 112, TAG_LEN = 16, LEN_PREFIX = 4.
-fn pad_plaintext(body: &[u8]) -> Vec<u8> {
-    let target = padme((112 + 4 + body.len() + 16) as u64) as usize;
-    let pad = target - 112 - 4 - body.len() - 16;
+/// Corrected per ADR-0014: the envelope is header ‖ aad_ext ‖ ciphertext (§7.1), and every
+/// keyholder envelope has aad_ext_len > 0, so aad_ext_len is part of the padded total.
+/// Without it, no keyholder envelope's total length is a Padmé bucket and §18's CI check
+/// fails on day one.
+fn pad_plaintext(body: &[u8], aad_ext_len: usize) -> Vec<u8> {
+    let target = padme((112 + aad_ext_len + 4 + body.len() + 16) as u64) as usize;
+    let pad = target - 112 - aad_ext_len - 4 - body.len() - 16;
     let mut out = Vec::with_capacity(4 + body.len() + pad);
     out.extend_from_slice(&(body.len() as u32).to_le_bytes());
     out.extend_from_slice(body);
@@ -741,6 +708,15 @@ fn pad_plaintext(body: &[u8]) -> Vec<u8> {
 The length prefix, rather than a padding marker, because stripping it is constant-time and
 unambiguous. `padme` is monotone and idempotent, so the target is always ≥ the input and the
 computation terminates without a loop.
+
+Two additions per ADR-0014 and ADR-0012:
+
+- **The CBOR keyholder descriptor is padded to a fixed width per `KeyholderKind`** before it
+  becomes `aad_ext`, so the envelope length does not leak the descriptor's content length.
+- **Plaintexts below 512 bytes are padded to 512 flat** (moved here from `17` §5.7 per
+  ADR-0012): small values sit in the regime where Padmé's overhead bound is loosest, and the
+  flat floor removes the "this record was nearly empty" signal entirely. Above 512 bytes,
+  Padmé.
 
 ### 6.5 What still leaks, after all of that
 
@@ -776,7 +752,7 @@ off  len  field             value / notes                                    KDF
   0    8  magic             46 54 48 4D 1F 52 45 43   "FTHM\x1fREC"              yes      yes
   8    1  envelope_version  0x01                                                 yes      yes
   9    1  suite_id          0x01 = ChaCha20-Poly1305 / HKDF-SHA-256 / Argon2id   yes      yes
- 10    1  record_class      §6.3                                                 yes      yes
+ 10    1  record_class      `17` §4.2's taxonomy (ADR-0012)                      yes      yes
  11    1  flags             bit0 zstd, bit1 padded, bit2 written_at present,     yes      yes
                             bits3-7 reserved, MUST be 0
  12    2  header_len        u16 = 112. Present so a future suite may extend      yes      yes
@@ -824,7 +800,7 @@ question is not "what is in the AAD" but "what would happen if each field were n
 | **`flags`** | Compression and padding confusion; forces `flags` to be exactly what the writer intended | Clearing the `zstd` bit would make a decompressor read compressed bytes as plaintext |
 | **`header_len` / `aad_ext_len`** | Framing confusion, and it is the one that produces memory-safety bugs in a less careful implementation | Safe Rust does not have buffer overflows; a length that lies still produces a wrong parse, and a wrong parse of a keyholder descriptor is a downgrade |
 | **`salt`** | It *is* the HKDF salt, so changing it changes the key. Authenticated anyway so that a modification produces "tampered", not "wrong key" | |
-| **`commit_tag`** | An output, not an input, but authenticated so that stripping or altering it fails at the MAC as well as at the constant-time compare | |
+| **`commit_tag`** | An output, not an input, but authenticated so that stripping or altering it fails at the MAC. Per ADR-0014's ordering (§3.2) the AEAD runs even when the compare fails, so a mutated `commit_tag` surfaces as `CommitmentMismatch`, never as "wrong passphrase" | |
 | **`aad_ext`** (keyholder descriptor) | **KDF parameter tampering.** Without it, an attacker could rewrite `m` from 262 144 KiB to 8 KiB. That does not recover the key — the derived `UK` changes, so decryption fails — but it does turn unlock into a denial of service, or into a several-hour hang if they raise it instead | The user reads a hang as "the file is broken" |
 
 **What the AAD does not prevent, and this is the important sentence:** it does not prevent **replay
@@ -876,25 +852,37 @@ pub enum KeyholderKind {
     PassAndPrf   = 0x05,   // descriptor: Argon2Params + credential_id + prf_salt
 }
 
-/// Canonical CBOR (RFC 8949 §4.2.1, deterministic encoding). This is the `aad_ext`
-/// for the corresponding envelope, byte for byte, and the envelope will not open if
-/// a single byte of it has changed.
+/// Canonical CBOR (RFC 8949 §4.2.1, deterministic encoding), padded to a fixed width
+/// per KeyholderKind (ADR-0014) so the envelope length leaks nothing. This is the
+/// `aad_ext` for the corresponding envelope, byte for byte, and the envelope will not
+/// open if a single byte of it has changed.
 pub struct KeyholderDescriptor {
     pub kind: KeyholderKind,
-    pub id: [u8; 16],                     // stable, opaque, used to name the entry in the UI
-    pub label: String,                    // "Kate's laptop", "printed code in the safe"
+    pub id: [u8; 16],                     // stable, opaque — rendered in the UI before unlock
+    // `label` is NOT here (ADR-0014). "Kate's laptop" is personal data; cleartext, it
+    // sat in every copy of the workspace, at the sync server, in every git commit and
+    // every backup. It moved inside the sealed KeyholderSecret.
     pub created_at: u64,                  // ms since epoch
     pub params: KeyholderParams,          // kind-specific
 }
 
-/// The sealed side. 80 bytes of plaintext, padded and sealed like any record.
+/// The sealed side, padded and sealed like any record.
 pub struct KeyholderSecret {
     pub root_key: [u8; 32],               // RK_e
     pub key_epoch: u64,
     pub memberlog_head: [u8; 32],         // §10.5 — binds this root key to a member-list state
+    pub label: String,                    // "Kate's laptop" — sealed per ADR-0014. The UI
+                                          // renders labels after the first successful unlock
+                                          // and renders `id` before it
     pub reserved: [u8; 8],                // zero
 }
 ```
+
+**The cost of sealing `label` (ADR-0014, stated):** before unlock the keyholder list reads as
+opaque IDs, so a user staring at a recovery screen cannot tell which entry is their laptop and
+which is the paper in the safe. Recovery UX is already the hardest surface in the product and
+this makes it harder. It is paid because the alternative is cleartext personal data at the
+processor, which `37` cannot defend to a DPO.
 
 **Why `memberlog_head` is in the keyholder plaintext.** It binds *this root key at this epoch* to
 *the member list the writer believed was current*. A member who unwraps `RK_5` and then finds the
@@ -1409,6 +1397,7 @@ is not a property you want a recovery code to have.
 | A path that bypasses Argon2id entirely | The workspace's security becomes `min(passphrase strength × KDF, physical security of one sheet of paper)`. Paper in a drawer is often the weaker term |
 | Retroactive value | The `Recovery` keyholder is in every copy of the file. An attacker who took the ciphertext in March and finds the paper in November opens the March copy |
 | **Survival of a passphrase change** | This is the footgun. §9.1 rewrites the `Passphrase` keyholder and leaves the `Recovery` keyholder alone, because it wraps the same `RK_e`. **The old printed code still works.** The passphrase-change flow must offer to reissue the recovery code in the same step, and must state in one line that not doing so leaves the old paper valid |
+| **Survival of a member removal** (ADR-0014) | The recovery code bypasses the KDF and is **re-wrapped at every epoch bump** (§9.3 step 3), so removing a member re-arms the printed paper against the *new* epoch. A departed admin who photographed the safe's contents retains access across the revocation performed because they left. The removal flow must require an explicit re-print-or-revoke step for the recovery code |
 
 ### 11.2 Shamir escrow for a team
 
@@ -1503,8 +1492,10 @@ parent = HKDF-Expand(HKDF-Extract(kdf_salt, UK || prf), "pass+prf", 32)
 ```
 
 Security becomes `passphrase AND token`. **Lose the token and the workspace is gone**, unless a
-recovery code exists. The flow must say that in those words, and should require a recovery code to
-be printed before it will enable AND mode.
+recovery code exists. The flow must say that in those words — and per ADR-0014 a printed
+recovery code is a **constructor precondition** of the `PassAndPrf` keyholder, not a prose
+recommendation: the constructor refuses to build AND mode until a recovery keyholder exists.
+§17.4's own thesis applies — unenforced sequencing rules are where the bugs are.
 
 ### 12.3 Support, as of the sources checked
 
@@ -1555,13 +1546,15 @@ escrow the rest of this design exists to avoid.
 | Store | Under `file://` | Evictable | Verdict |
 |---|---|---|---|
 | **IndexedDB** | **Blocked** under the opaque origin a `file://` document gets (already recorded in `24-ai-determinism-and-offline.md` §2.2) | yes | Not usable |
-| **OPFS** | Uncertain under an opaque origin <!-- VERIFY: OPFS availability under file:// in current Chromium, Firefox and WebKit; 24-ai §2.2 flags the same question --> | yes, silently, on quota pressure | Working cache only |
+| **OPFS** | — | — | **Not used (ADR-0012, ADR-0017)** |
 | **`localStorage`** | Small, synchronous, string-only | yes | No |
-| **A file the user saved** | Works everywhere | **no** | **Primary** |
+| **A file the user saved** | Works everywhere | **no** | **Primary — and only** |
 
-**DECISION — the file is the store.** Browser storage is a cache that makes reopening fast and that
-survives a tab crash. It is never the only copy, and the interface never implies persistence it does
-not have. If OPFS is unavailable the product works identically, just without the cache.
+**DECISION — the file is the store, and there is no browser-storage cache.** The OPFS
+working-cache branch previously specified here is deleted per ADR-0012: ADR-0017 decides that
+mode D1 uses **no browser storage of any kind** — no OPFS, no IndexedDB, no Cache API, no
+`localStorage`, no cookies, no service worker. `43` §3.12 prices the resulting total loss of
+crash recovery, a cost this document never saw when it argued for the cache.
 
 Two mechanisms for saving:
 
@@ -1573,69 +1566,20 @@ Two mechanisms for saving:
 The download fallback is genuinely poor and there is no fixing it from inside a browser. It is one
 of the stronger arguments for shipping the CLI, alongside the extension argument in `31` §6.2.
 
-### 13.2 Two shapes, one format
+### 13.2 Two shapes, one format — owned by `17` (ADR-0012)
 
-The same envelopes, packed two ways.
+> **Superseded by ADR-0012:** the container shapes — directory versus packed file, the
+> on-disk tree, `pack`/`unpack` — are owned by `17-workspace-format.md` §2–§3 and are no
+> longer specified here.
 
-```
-workspace.fathom                 — single file: 16-byte container header,
-                                   then length-prefixed envelopes, manifest first
+### 13.3 Git — owned by `17` (ADR-0012)
 
-workspace.fathom.d/              — exploded: one file per envelope
-  00-manifest.fenv
-  01-keyholders.fenv
-  02-memberlog.fenv
-  nodes/00.fenv … 3f.fenv        ← fixed set. never grows, never shrinks
-  edges/00.fenv … 0f.fenv        ← fixed set
-  prov/000001.fenv …             ← append-only. sealed segments never rewritten
-  captures/01J8ZK….fenv
-  suppressions.fenv
-  settings.fenv
-  layout.fenv
-```
-
-`fathom pack` and `fathom unpack` convert between them and are byte-preserving: the envelopes are
-identical, only the framing differs. So a user can work in the exploded shape in git, pack it to
-mail to a colleague, and the colleague unpacks it with no re-encryption.
-
-**The fixed file set is the point.** In the exploded shape, adding the 801st device changes the
-*contents* of one file in `nodes/` and changes nothing else. No file appears, no filename changes,
-and the commit shows one modified binary blob. §6.1's observation about filenames as metadata is
-what this layout exists to defeat.
-
-### 13.3 Git
-
-**Ciphertext does not diff.** Nothing in this document changes that, and any design that claims
-otherwise is either not encrypting or is leaking structure. What can be changed is *how much of the
-repository one changed field touches*, and that is §6.2.
-
-```gitattributes
-*.fenv binary diff=fathom
-```
-
-```gitconfig
-[diff "fathom"]
-    textconv = fathom show --plain
-    cachetextconv = false
-```
-
-`fathom show --plain` opens the envelope and prints a canonical text rendering, so `git diff` and
-`git log -p` show the semantic change — the same diff machinery as
-`docs/10-core/18-diff-verify-rollback.md`, pointed at two revisions of one record.
-
-**Three costs, all real:**
-
-1. **The diff driver needs the passphrase.** It prompts, or it reads from an agent process holding
-   the key for a session. Prompting on every `git log -p` page is unusable; an agent is another
-   place a key lives. Pick one deliberately.
-2. **`cachetextconv` must be off.** Git caches textconv output in `.git/`, in the clear. Leaving it
-   on writes decrypted workspace content into the repository directory, permanently, where nobody
-   will look for it. This is a one-line configuration mistake with a total confidentiality
-   consequence. §17.12.
-3. **The exploded shape publishes the per-shard change pattern**, with full history, to everyone
-   with repository read access. That is §6.5's second row and it is the direct price of
-   diffability. A workspace whose *edit pattern* is sensitive should be a single file, committed as
-   a single blob, or should not be in a shared repository at all.
+> **Superseded by ADR-0012:** git behaviour — attributes, the diff `textconv`, conflict
+> handling — is owned by `17-workspace-format.md` §12 and is no longer specified here. Two
+> facts from the deleted text remain load-bearing and are stated in one line each:
+> ciphertext does not diff, and **`cachetextconv` must be off** — git caches textconv output
+> in `.git/` in the clear, a one-line configuration mistake with a total confidentiality
+> consequence (§17.12; `17` §12.7 ships `false`).
 
 ### 13.4 The rule that makes git usable at all
 
@@ -1838,8 +1782,9 @@ Every one of these must fail, and must fail with **the specified error**, not me
 
 | Vector | Expected |
 |---|---|
-| Wrong passphrase | `WrongKey` — from the commitment check, **before** Poly1305 |
-| One byte of ciphertext flipped | `Tampered` — from Poly1305 |
+| Wrong passphrase | `WrongKey` — commitment compare fails **and** the AEAD open fails (ADR-0014: the open runs regardless) |
+| One byte of ciphertext flipped | `Tampered` — commitment compare passes, Poly1305 fails |
+| One byte of `commit_tag` flipped (ADR-0014) | `CommitmentMismatch` — the AEAD open succeeds, the compare fails. **Never `WrongKey`**: the user's passphrase is correct and telling them otherwise makes them try harder instead of restoring from backup |
 | `record_id` changed from shard `0x2a` to `0x2b` | `WrongKey` (the key derivation changed) |
 | `schema_minor` bumped by one | `WrongKey` |
 | `flags` `zstd` bit cleared | `WrongKey` |
@@ -1950,7 +1895,7 @@ always.
 
 **17.11 Attacker-supplied text sharing a compression context with workspace data.** Symptom: none,
 directly — a length-based side channel. Cause: batching a pasted capture into the same record as
-graph data to save space. §6.3's rule: one compression context per record, and captures never share.
+graph data to save space. §6.1–6.3's rule: one compression context per record, and captures never share.
 
 **17.12 `git config diff.fathom.cachetextconv = true`.** Symptom: none. Consequence: git writes
 decrypted workspace content into `.git/`, in the clear, permanently, where nobody will ever look for
