@@ -1,0 +1,2109 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- I1a. The required floor for a static concept page. `form-action 'none'` is
+     not optional: a form submission is a navigation, not a subresource load, and
+     connect-src does not cover it (34 §2.3). Verified to load ../tokens.css
+     under file:// in Chromium. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; connect-src 'none'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+
+<title>Fathom — concept 02 · the living runbook</title>
+
+<!-- V1. Linked, not copied. No hex, no px font-size, no duration below. -->
+<link rel="stylesheet" href="../tokens.css">
+
+<style>
+/* ==========================================================================
+   CONCEPT 02 — THE LIVING RUNBOOK
+   One document. Six sections in the fixed band order. Furniture sticks, the
+   document scrolls under it. Component CSS follows design/prototype/
+   finder-states.html (transcribed from 54 §6 and §12) wherever a component
+   already existed; everything else is built from the same tokens.
+
+   Zero hex literals. Zero px font sizes. Zero durations. Zero transitions.
+   Zero border-radius other than var(--radius). Zero box-shadow other than
+   var(--shadow). Reserved risk colours appear only in selectors matching
+   .r-safe / .r-caution / .r-danger / .risk-* / .hit-risk.* / .legend-* (V1).
+   ========================================================================== */
+
+/* --- the sheet ---------------------------------------------------------- */
+body { overflow-x: hidden; }
+.sheet { max-width: var(--sheet); margin: 0 auto; padding: 0 var(--s4); }
+
+/* Furniture sticks; the document scrolls under it. No z-index is allocated:
+   a sticky box is a positioned box and paints above static in-flow content,
+   so the three-value z enum (V3) stays at content / egress / modal and the
+   egress layer stays unused (I12). */
+.furniture {
+  position: sticky; top: 0;
+  background: var(--page);
+  border-top: var(--rule-mast) solid var(--ink);
+}
+.folio {
+  position: sticky; bottom: 0;
+  background: var(--page);
+  border-top: var(--rule-hair) solid var(--ink);
+  display: flex; gap: var(--s4); flex-wrap: wrap; align-items: baseline;
+  padding: var(--s1) 0;
+  font-size: var(--t-tab); color: var(--muted);
+  letter-spacing: var(--track-label); text-transform: uppercase;
+}
+.folio .now { color: var(--ink); font-weight: 700; }
+.folio .msg { margin-left: auto; text-transform: none; letter-spacing: 0;
+              font-family: var(--mono); font-size: var(--t-tab); color: var(--ink); }
+
+/* --- masthead ----------------------------------------------------------- */
+.masthead { padding: var(--s2) 0 var(--s1); }
+.mast-row { display: flex; justify-content: space-between; align-items: baseline;
+            gap: var(--s4); flex-wrap: wrap; }
+.masthead h1 { margin: 0; font-size: var(--t-title); line-height: var(--lh-title);
+               letter-spacing: var(--track-mast); text-transform: uppercase; font-weight: 700; }
+.mast-tabs { display: flex; gap: var(--s3); }
+.sub { font-size: var(--t-micro); line-height: var(--lh-micro); color: var(--muted);
+       letter-spacing: var(--track-label); text-transform: uppercase; }
+.ribbon { font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted); }
+.ribbon[hidden] { display: none; }
+.ribbon .frag { background: none; border: 0; padding: 0; margin: 0;
+                color: var(--ink); cursor: pointer; font: inherit;
+                border-bottom: var(--rule-hair) solid var(--hairline); }
+.ribbon .none { color: var(--muted); }
+.imperative { font-size: var(--t-small); font-weight: 700; line-height: var(--lh-step);
+              letter-spacing: var(--track-label); text-transform: uppercase;
+              margin: var(--s1) 0 var(--s2); border-bottom: var(--rule-hair) solid var(--ink);
+              padding-bottom: var(--s1); }
+
+/* --- V17 risk legend. Required chrome, never collapsed, never moves ------ */
+.legend { display: flex; flex-wrap: wrap; gap: var(--s4);
+          margin: 0; padding: var(--s1) 0; list-style: none;
+          border-top: var(--rule-hair) solid var(--hairline);
+          border-bottom: var(--rule-hair) solid var(--hairline); }
+.legend-item { display: flex; align-items: center; gap: var(--s2);
+               font-size: var(--t-micro); line-height: var(--lh-micro); font-weight: 700;
+               letter-spacing: var(--track-legend); text-transform: uppercase;
+               border-left: var(--rule-accent) solid; padding-left: var(--s2); }
+.legend-item.r-safe    { color: var(--safe);    background: var(--safe-wash);    border-left-color: var(--safe); }
+.legend-item.r-caution { color: var(--caution); background: var(--caution-wash); border-left-color: var(--caution); }
+.legend-item.r-danger  { color: var(--danger);  background: var(--danger-wash);  border-left-color: var(--danger); }
+
+/* risk ink, everywhere else. No fill, no box (M29). */
+.r-safe    { color: var(--safe); }
+.r-caution { color: var(--caution); }
+.r-danger  { color: var(--danger); }
+.hit-risk { font-size: var(--t-tab); font-weight: 700; letter-spacing: var(--track-legend);
+            text-transform: uppercase; margin-left: auto; flex: none; white-space: nowrap; }
+.hit-risk.safe    { color: var(--safe); }
+.hit-risk.caution { color: var(--caution); }
+.hit-risk.danger  { color: var(--danger); }
+
+/* --- S14 the view band — here, the document outline --------------------- */
+.band { display: flex; flex-wrap: wrap; gap: var(--s4); align-items: baseline;
+        padding: var(--s1) 0;
+        border-bottom: var(--rule-hair) solid var(--hairline); }
+.band button { background: none; border: 0; padding: 0; cursor: pointer;
+               font-family: var(--sans); font-size: var(--t-tab); line-height: var(--lh-micro);
+               color: var(--muted); text-align: left; }
+.band button .n { font-variant-numeric: var(--num-tabular); }
+.band button[aria-current="true"] { color: var(--ink); font-weight: 700; }
+.band button[aria-current="true"] .cue::before { content: "\25B8"; }
+.band button[data-changed="true"] .n { color: var(--ink); font-weight: 700; }
+.band button[data-below="true"][data-v1="on"] { text-decoration: line-through; }
+
+/* --- the document ------------------------------------------------------- */
+.doc { padding-bottom: var(--s6); }
+.sec { padding-top: var(--s5); }
+.sec[hidden] { display: none; }
+.sec-head { display: flex; justify-content: space-between; align-items: baseline;
+            gap: var(--s4); flex-wrap: wrap;
+            border-bottom: var(--rule-hair) solid var(--ink);
+            padding-bottom: var(--s1); margin-bottom: var(--s3); }
+.sec-head h2 { margin: 0; font-size: var(--t-head); font-weight: 700;
+               letter-spacing: var(--track-head); text-transform: uppercase; }
+.sec-head .eq { font-family: var(--mono); font-size: var(--t-tab); color: var(--muted); }
+.sec-tabs { display: flex; gap: var(--s3); margin-left: auto; flex-wrap: wrap; }
+
+/* V20 the margin tab. Lowercase, always, and that contrast is the point. */
+.mtab { font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
+        text-transform: lowercase; letter-spacing: 0; white-space: nowrap; }
+.mtab.on { color: var(--ink); font-weight: 700; }
+
+.prose { max-width: var(--measure); font-size: var(--t-body); margin: 0 0 var(--s3); }
+.intro { display: grid; grid-template-columns: minmax(0, var(--measure)) minmax(0, 1fr);
+         gap: var(--s6); align-items: start; margin-bottom: var(--s3); }
+/* --bp-cols: two columns become one. */
+@media (max-width: 860px) { .intro { grid-template-columns: 1fr; } }
+.xref { border-left: var(--rule-hair) solid var(--hairline); padding-left: var(--s3); }
+.xref .lab { display: block; font-size: var(--t-micro); font-weight: 700;
+             letter-spacing: var(--track-head); text-transform: uppercase;
+             color: var(--muted); margin-bottom: var(--s1); }
+.xref ul { margin: 0; padding: 0; list-style: none; }
+.xref li { margin-bottom: var(--s1); }
+.xref button { background: none; border: 0; padding: 0; cursor: pointer;
+               font-family: var(--sans); font-size: var(--t-tab); color: var(--ink);
+               text-align: left; border-bottom: var(--rule-hair) solid var(--hairline); }
+.xref .k { display: block; font-size: var(--t-micro); color: var(--muted); }
+.tcols { column-width: var(--col); column-gap: var(--s6); }
+.tcols h3 { break-after: avoid; }
+.tcols p { break-inside: avoid; }
+.prose.tight { margin-bottom: var(--s2); }
+.muted { color: var(--muted); }
+
+/* V20 the 4px left accent-bar note — never a box, never an icon */
+.note { border-left: var(--rule-accent) solid var(--ink);
+        background: var(--surface-2); padding: var(--s2) var(--s3);
+        margin: var(--s3) 0; font-size: var(--t-small); max-width: var(--measure); }
+.note .lab { display: block; font-size: var(--t-micro); font-weight: 700;
+             letter-spacing: var(--track-head); text-transform: uppercase; margin-bottom: var(--s1); }
+.note.wide { max-width: none; }
+
+.block-label { font-size: var(--t-micro); font-weight: 700; letter-spacing: var(--track-head);
+               text-transform: uppercase; color: var(--muted);
+               margin: var(--s3) 0 var(--s1); }
+
+/* --- buttons: a rule, not a lozenge -------------------------------------
+   tokens.css sets `font: inherit` and `border-radius: var(--radius)` on form
+   controls but does not clear the UA `buttonface` background. Left alone that
+   paints a light-grey chip that survives into dark mode — a lozenge, which
+   §10 forbids by name. Reset it once, here, and let each class opt back in. */
+button { background: none; border: 0; padding: 0; font-family: var(--sans); font-weight: 400; }
+.act { background: var(--page); color: var(--ink);
+       border: var(--rule-hair) solid var(--hairline);
+       padding: var(--s1) var(--s2); cursor: pointer;
+       font-size: var(--t-tab); letter-spacing: var(--track-label); text-transform: uppercase; }
+.act:hover { background: var(--surface); }
+.act[aria-pressed="true"] { background: var(--surface); border-color: var(--ink); }
+.act[disabled] { color: var(--muted); cursor: default; }
+.acts { display: flex; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s2); }
+.key { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
+
+/* --- V20 two-column hairline table. No vertical rules, ever ------------- */
+.hair { width: 100%; border-collapse: collapse; font-size: var(--t-small); }
+.hair th, .hair td { text-align: left; vertical-align: top;
+                     padding: var(--s1) var(--s3) var(--s1) 0;
+                     border-bottom: var(--rule-hair) solid var(--hairline); }
+.hair th { font-weight: 400; font-family: var(--mono); font-size: var(--t-mono); }
+.hair thead th { font-family: var(--sans); font-size: var(--t-micro); font-weight: 700;
+                 letter-spacing: var(--track-head); text-transform: uppercase;
+                 border-bottom: var(--rule-hair) solid var(--ink); }
+.hair .k { width: 34%; white-space: nowrap; }
+
+/* --- finder (54 §12) ---------------------------------------------------- */
+.finder-input-row { display: flex; align-items: stretch;
+                    border: var(--rule-hair) solid var(--hairline); }
+.finder-key { display: flex; align-items: center; flex: none; font-family: var(--mono);
+              font-size: var(--t-micro); letter-spacing: 0.06em; color: var(--muted);
+              padding: 0 var(--s3); border-right: var(--rule-hair) solid var(--hairline); }
+.finder-q { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink);
+            font-family: var(--mono); font-size: var(--t-mast); padding: var(--s2) var(--s3); }
+.finder-q::placeholder { color: var(--muted); }
+/* R37 / ADR-0026 — the input row inverts and gains a 2px ink rule. */
+.finder-q:focus-visible { outline: none; background: var(--surface); }
+.finder-input-row:has(.finder-q:focus-visible) { border-bottom: var(--focus-width) solid var(--ink); }
+.finder-meta { display: flex; align-items: center; flex: none; padding: 0 var(--s3);
+               font-size: var(--t-micro); color: var(--muted);
+               letter-spacing: var(--track-label); text-transform: uppercase;
+               font-variant-numeric: var(--num-tabular); }
+
+.hits { margin: 0; padding: 0; list-style: none;
+        border: var(--rule-hair) solid var(--hairline); border-top: 0; }
+.hit { display: block; padding: var(--s2) var(--s3);
+       border-bottom: var(--rule-hair) solid var(--hairline); cursor: pointer; }
+.hit:last-child { border-bottom: 0; }
+.hit:hover { background: var(--surface-2); }
+/* S12 tier 1 — ▸ in the gutter plus --surface ground. Never a coloured bar. */
+.hit.cur { background: var(--surface); }
+.hit.cur .hit-cmd::before { content: "\25B8  "; }
+.hit-cmd { display: flex; align-items: baseline; gap: var(--s2);
+           font-family: var(--mono); font-size: var(--t-mono); }
+.hit-cmd .cont { color: var(--muted); }
+.hit-ans { display: block; color: var(--muted); font-size: var(--t-small); }
+.hit-read { display: block; font-size: var(--t-small); margin-top: var(--s1);
+            padding-left: var(--s3); border-left: var(--rule-hair) solid var(--hairline); }
+.expand { padding: 0 var(--s3) var(--s3) var(--s5); background: var(--surface); }
+.stamp { font-family: var(--mono); font-size: var(--t-tab); color: var(--muted); }
+
+/* ladder group (16 §17.3) */
+.ladder { border-left: var(--rule-accent) solid var(--ink);
+          border-bottom: var(--rule-hair) solid var(--hairline); }
+.ladder-head { display: flex; justify-content: space-between; gap: var(--s4);
+               padding: var(--s2) var(--s3) 0;
+               font-size: var(--t-micro); font-weight: 700;
+               letter-spacing: var(--track-head); text-transform: uppercase; }
+.ladder-head .imp { font-weight: 400; letter-spacing: 0; text-transform: none;
+                    color: var(--muted); font-size: var(--t-small); }
+.ladder-step { padding: 0 var(--s3) var(--s1) var(--s5); }
+.ladder-more { padding: var(--s1) var(--s3) var(--s2) var(--s5); font-size: var(--t-small);
+               color: var(--muted); }
+
+/* --- the fold: where ADR-0006 stops ------------------------------------- */
+.fold { margin: var(--s6) 0 0; border-top: var(--rule-hair) solid var(--ink);
+        padding-top: var(--s2); }
+.fold .lab { font-size: var(--t-micro); font-weight: 700; letter-spacing: var(--track-head);
+             text-transform: uppercase; }
+.fold p { margin: var(--s1) 0 var(--s2); font-size: var(--t-small); color: var(--muted);
+          max-width: var(--measure); }
+
+/* --- walkthrough -------------------------------------------------------- */
+.step { border-left: var(--rule-accent) solid var(--hairline);
+        padding: var(--s1) var(--s3); margin-bottom: var(--s1); }
+.step.done { border-left-color: var(--muted); }
+.step.now  { border-left-color: var(--ink); background: var(--surface); }
+.step.next { border-left-style: var(--rule-style-pending); }
+.step .ord { font-family: var(--mono); font-size: var(--t-tab); color: var(--muted); }
+.step .q { font-size: var(--t-body); }
+.step .wrote { font-family: var(--mono); font-size: var(--t-mono); color: var(--muted); }
+.step.now .cue::before { content: "\25AA  "; }
+
+/* --- config ------------------------------------------------------------- */
+.cfg { border: var(--rule-hair) solid var(--hairline); background: var(--surface); }
+.cfgline { display: grid; grid-template-columns: var(--gutter-num) 1fr;
+           gap: var(--s2); padding: 0 var(--s2); cursor: pointer;
+           border-left: var(--rule-accent) solid transparent; }
+.cfgline:hover { background: var(--page); }
+.cfgline.rel { background: var(--surface-2); }
+.cfgline.cur { background: var(--page); border-left-color: transparent; }
+.cfgline.cur .code::before { content: "\25B8 "; }
+.cfg .gut { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
+            text-align: right; padding-top: var(--s1); font-variant-numeric: var(--num-tabular); }
+.cfg .code { font-family: var(--mono); font-size: var(--t-mono); line-height: var(--lh-step);
+             white-space: pre; overflow-x: auto; }
+.risk-mark { font-weight: 700; }
+.risk-mark.r-safe    { color: var(--safe); }
+.risk-mark.r-caution { color: var(--caution); }
+.risk-mark.r-danger  { color: var(--danger); }
+.prov { background: var(--page); border-left: var(--rule-accent) solid var(--ink);
+        margin: 0 var(--s2) var(--s2) var(--gutter-num); padding: var(--s2) var(--s3);
+        font-size: var(--t-small); }
+.prov .tree { font-family: var(--mono); font-size: var(--t-mono); color: var(--muted); display: block; }
+.diffline { display: grid; grid-template-columns: var(--s4) 1fr; gap: var(--s2);
+            font-family: var(--mono); font-size: var(--t-mono); padding: 0 var(--s2); }
+.diffline.add { background: var(--surface-2); }
+.diffline.del { background: var(--page); text-decoration: line-through; }
+.diffline.ctx { background: var(--page); color: var(--muted); }
+
+/* --- findings: the ERROR DECODER, literally ----------------------------- */
+.dec { width: 100%; border-collapse: collapse; }
+.dec th, .dec td { text-align: left; vertical-align: top;
+                   border-bottom: var(--rule-hair) solid var(--hairline);
+                   padding: var(--s2) var(--s3) var(--s2) 0; }
+.dec thead th { font-size: var(--t-micro); font-weight: 700; letter-spacing: var(--track-head);
+                text-transform: uppercase; border-bottom: var(--rule-hair) solid var(--ink);
+                padding-bottom: var(--s1); }
+.dec .lookup { width: 30%; padding-left: var(--s3);
+               border-left: var(--rule-accent) solid transparent; }
+.dec tr.sev-high  .lookup { border-left-color: var(--ink); }
+.dec tr.sev-med   .lookup { border-left-color: var(--muted); }
+.dec tr.sev-low   .lookup { border-left-color: var(--hairline); }
+.dec tr.st-pending .lookup { border-left-style: var(--rule-style-pending); }
+.dec tr.st-suppressed .lookup { border-left-color: transparent;
+                                background-image: var(--hatch); background-repeat: no-repeat;
+                                background-size: var(--rule-accent) 100%; background-position: left top; }
+.dec tr.st-suppressed td { color: var(--muted); }
+.dec tr.st-suppressed .title { text-decoration: line-through; }
+.dec tr.cur td { background: var(--surface); }
+.dec tr.cur .lookup .rid::before { content: "\25B8 "; }
+.dec .rid { font-family: var(--mono); font-size: var(--t-mono); }
+.dec .lookup .mtab { display: block; }
+.dec .node { display: block; font-size: var(--t-small); color: var(--muted); font-family: var(--mono); }
+.dec .title { font-weight: 700; font-size: var(--t-body); }
+.dec .field { display: block; font-size: var(--t-small); margin-top: var(--s1); max-width: var(--measure); }
+.dec .field b { font-weight: 700; }
+.fkey { font-size: var(--t-micro); font-weight: 700; letter-spacing: var(--track-head);
+        text-transform: uppercase; color: var(--muted); }
+
+/* --- diagram ------------------------------------------------------------ */
+figure { margin: 0; }
+figcaption { font-size: var(--t-tab); color: var(--muted); padding-top: var(--s1);
+             border-top: var(--rule-hair) solid var(--hairline); margin-top: var(--s1); }
+.dia { width: 100%; height: auto; display: block;
+       border: var(--rule-hair) solid var(--hairline); background: var(--surface-2); }
+.dia .box { fill: var(--page); stroke: var(--ink); stroke-width: var(--rule-hair); }
+.dia .zone { fill: none; stroke: var(--hairline); stroke-width: var(--rule-hair); }
+.dia .link { stroke: var(--ink); stroke-width: var(--rule-hair); fill: none; }
+.dia text { font-family: var(--mono); font-size: var(--t-tab); fill: var(--ink); }
+.dia text.lab { font-size: var(--t-micro); fill: var(--muted); }
+.dia .node:hover .box { fill: var(--surface); }
+.dia .node.cur .box { fill: var(--surface); stroke-width: var(--focus-width); }
+.dia .node.rel .box { fill: var(--surface-2); }
+.dia g[hidden] { display: none; }
+
+/* --- inventory ---------------------------------------------------------- */
+.inv { width: 100%; border-collapse: collapse; font-size: var(--t-small); }
+.inv th, .inv td { text-align: left; vertical-align: top; padding: var(--s1) var(--s3) var(--s1) 0;
+                   border-bottom: var(--rule-hair) solid var(--hairline);
+                   min-height: var(--row-min); }
+.inv thead th { font-size: var(--t-micro); font-weight: 700; letter-spacing: var(--track-head);
+                text-transform: uppercase; border-bottom: var(--rule-hair) solid var(--ink); }
+.inv tbody tr.cur td { background: var(--surface); }
+.inv tbody tr.rel td { background: var(--surface-2); }
+.inv tbody tr.cur td.first::before { content: "\25B8 "; }
+.inv td.first { padding-left: var(--s3); }
+.inv .cell { background: none; border: 0; padding: 0; font: inherit; color: inherit;
+             font-family: var(--mono); font-size: var(--t-mono); cursor: text; text-align: left; }
+.inv .cell:hover { background: var(--surface); }
+.inv input.cell { border-bottom: var(--rule-hair) solid var(--ink); background: var(--page); }
+.inv .op { font-family: var(--mono); font-size: var(--t-mono); white-space: nowrap; }
+.inv .mark { background: none; border: 0; cursor: pointer; color: var(--muted);
+             font-family: var(--mono); font-size: var(--t-mono); padding: 0 var(--s1); }
+.inv .mark[aria-pressed="true"] { color: var(--ink); }
+.qline { display: flex; align-items: stretch; border: var(--rule-hair) solid var(--hairline);
+         margin-bottom: var(--s2); }
+.qline label { display: flex; align-items: center; padding: 0 var(--s3); flex: none;
+               font-size: var(--t-micro); color: var(--muted);
+               letter-spacing: var(--track-label); text-transform: uppercase;
+               border-right: var(--rule-hair) solid var(--hairline); }
+.qline input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink);
+               font-family: var(--mono); font-size: var(--t-mono); padding: var(--s1) var(--s3); }
+.qline input:focus-visible { outline: none; background: var(--surface); }
+.qline:has(input:focus-visible) { border-bottom: var(--focus-width) solid var(--ink); }
+.picker { display: flex; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s2); }
+
+/* --- front matter / colophon -------------------------------------------- */
+details.disc { border-left: var(--rule-accent) solid var(--ink); background: var(--surface-2);
+               padding: var(--s2) var(--s3); margin: var(--s4) 0; }
+details.disc > summary { list-style: none; cursor: pointer; display: flex; gap: var(--s2);
+                         align-items: baseline;
+                         font-size: var(--t-micro); font-weight: 700;
+                         letter-spacing: var(--track-head); text-transform: uppercase; }
+details.disc > summary::-webkit-details-marker { display: none; }
+details.disc > summary .sign::before { content: "+"; font-family: var(--mono); }
+details.disc[open] > summary .sign::before { content: "\2212"; }
+details.disc h3 { font-size: var(--t-micro); font-weight: 700; letter-spacing: var(--track-head);
+                  text-transform: uppercase; color: var(--muted); margin: var(--s3) 0 var(--s1); }
+details.disc p { max-width: var(--measure); font-size: var(--t-small); margin: 0 0 var(--s2); }
+
+/* --- V19 forced colours: severity becomes width, not tone --------------- */
+@media (forced-colors: active) {
+  .dec tr.sev-high  .lookup { border-left-width: var(--rule-accent); }
+  .dec tr.sev-med   .lookup { border-left-width: calc(var(--rule-hair) * 2); }
+  .dec tr.sev-low   .lookup { border-left-width: var(--rule-hair); }
+  .dec tr.st-suppressed .lookup { background-image: none; border-left-style: var(--rule-style-proposed); }
+}
+</style>
+
+<div class="sheet">
+
+<!-- ==================================================================== -->
+<!-- FURNITURE. S6 order, top to bottom. It does not move and it does not  -->
+<!-- scale with the workspace. No egress strip is drawn (I12).             -->
+<!-- ==================================================================== -->
+<div class="furniture">
+  <header class="masthead">
+    <div class="mast-row">
+      <h1>DC-EAST — SRX IPsec</h1>
+      <div class="mast-tabs">
+        <span class="mtab">no sockets, ever</span>
+        <span class="mtab">estate is a fixture</span>
+      </div>
+    </div>
+    <div class="sub" id="sub">workspace dc-east · junos-srx 21.4R3 · corpus 0.1.0 · unverified</div>
+    <div class="ribbon" id="ribbon" hidden></div>
+    <p class="imperative" id="imperative">VERIFY AGAINST YOUR OWN BOX BEFORE ACTING</p>
+  </header>
+
+  <ul class="legend" aria-label="Risk legend">
+    <li class="legend-item r-safe">Read-only — safe on production</li>
+    <li class="legend-item r-caution">Changes config — needs a commit</li>
+    <li class="legend-item r-danger">Disruptive — drops live traffic</li>
+  </ul>
+
+  <nav class="band" id="band" aria-label="Document outline"></nav>
+</div>
+
+<!-- ==================================================================== -->
+<!-- THE DOCUMENT                                                          -->
+<!-- ==================================================================== -->
+<main class="doc" id="doc">
+  <div id="fm"></div>
+  <div id="secs"></div>
+  <div id="cp"></div>
+</main>
+
+<footer class="folio">
+  <span class="now" id="folio-now">SECTION 1 OF 6 — FINDER</span>
+  <span id="folio-nav">⌥← INVENTORY &nbsp; WALKTHROUGH ⌥→</span>
+  <span id="folio-state">fixture estate · 0 edits</span>
+  <span class="msg" id="folio-msg"></span>
+</footer>
+
+</div>
+
+<textarea id="clip" class="vh" aria-hidden="true" tabindex="-1"></textarea>
+
+<script>
+/* ==========================================================================
+   CONCEPT 02 — THE LIVING RUNBOOK. No framework. No dependency. No egress.
+
+   Egress APIs referenced in this file: none. The four browser names that could
+   originate a request are absent from the source, which is what makes the
+   verification grep a one-line check rather than a code review.
+   ========================================================================== */
+(function () {
+"use strict";
+
+/* ---------------------------------------------------------------- content --
+   Everything in CORPUS, RULES and EXPLAIN below is lifted from
+   corpus/commands/junos-srx-ipsec.yaml, corpus/rules/ipsec-junos-srx.yaml and
+   corpus/explainers/ipsec-concepts.yaml. Nothing is invented. GRAPH is a
+   FIXTURE derived from .context/field-card-srx-ipsec.txt and is labelled as
+   such wherever it renders.
+   -------------------------------------------------------------------------- */
+
+var CORPUS = [
+ { id:"junos-srx/ipsec.sa.show", cmd:["show security ipsec security-associations"],
+   mode:"operational", risk:"ReadOnly", domain:"ipsec", weight:2,
+   answers:"Is the data tunnel installed and carrying traffic?",
+   aka:["is the tunnel up","is the vpn up","phase 2 status","p2 state","is it installed"],
+   read:"State — want Installed",
+   fields:[["State","Phase 2 SA state. Want <code>Installed</code> — anything else is not passing traffic."],
+           ["SPI","Security Parameter Index, one per direction. Two lines per selector is correct, not a duplicate."],
+           ["Gateway","Peer address this child SA belongs to. Join key."],
+           ["Mon","Whether vpn-monitor is running for this SA. Without it, a route out st0 stays good while traffic blackholes."]],
+   next:[["show security ipsec security-associations node all","ReadOnly"],
+         ["explain:concept:junos.cluster-sa-anchoring","explainer"],
+         ["show security ipsec inactive-tunnels","ReadOnly"],
+         ["show security ike security-associations","ReadOnly"]],
+   rules:["ipsec.pfs.absent","tunnel.st0.zone-unbound"],
+   ex:{ terse:"Step 3 of the ladder. Installed, or it is not passing traffic.",
+        explained:"One line per direction per selector, so two lines for a single-selector tunnel is correct and not a duplicate. Installed means the kernel holds keys for that selector. It does not mean anything reaches the far end.",
+        teaching:"This is the command the whole card is organised around, and the most important thing about it is what it does not prove. The SA proves crypto, not reachability. A tunnel can read Installed and pass zero packets when <code>st0</code> has no zone, no policy, or nothing routed at it — four of the five plumbing pieces fail exactly that way. So Installed here moves you off the crypto half of the problem and onto the plumbing half, which is steps 5 to 8 of the bring-up ladder. If steps 5 to 8 fail while 2 to 4 are clean, no proposal tweaking will fix it." },
+   src:"card srx-ipsec · side 1 BRING-UP ORDER · side 3 THE VERIFY LADDER · side 3 READING THE SA OUTPUT · side 4 THINGS THAT BITE",
+   verify:"VERIFY (C10) open on this entry: on current Junos the summary output may have no State column at all — it is a detail-only field, and it is the field the whole verify ladder hangs on. Gate X0.10 (run it on a real SRX) is what closes it." },
+
+ { id:"junos-srx/ike.sa.show", cmd:["show security ike security-associations"],
+   mode:"operational", risk:"ReadOnly", domain:"ike", weight:2,
+   answers:"Is the outer negotiated channel up with the far end?",
+   aka:["is phase 1 up","is ike up","did the peers authenticate","p1 state"],
+   read:"State — want UP, and one row per peer",
+   fields:[["Index","Phase 1 SA identifier. Same index a minute later = stable. New index = it rebuilt."],
+           ["Remote Address","The peer as this box sees it. The join key across all output is VPN name plus peer IP, never st0."],
+           ["State","Phase 1 SA state. Want <code>UP</code>. Anything else means the peers have not finished authenticating."],
+           ["Mode","The exchange used — main, aggressive, or IKEv2. Under v2-only a mode statement in the config is ignored entirely."]],
+   next:[["show security ike security-associations node all","ReadOnly"],
+         ["show security ipsec inactive-tunnels","ReadOnly"],
+         ["show log kmd | match &lt;peer-ip&gt;","ReadOnly"]],
+   rules:["zone.host-inbound.ike-missing","ike.identity.mismatch"],
+   ex:{ terse:"Step 2 of the ladder. One row per peer. Want UP.",
+        explained:"This answers exactly one question: did the two peers authenticate and build the outer channel. It says nothing about whether any data tunnel exists inside it, which is a separate command and a separate failure mode.",
+        teaching:"Phase 2 rides inside Phase 1. Phase 1 can be perfectly healthy while Phase 2 fails forever — that split is the most useful diagnostic fact there is, and it is the reason these are two commands rather than one. If this is clean, stop suspecting the pre-shared key, the peer address, the WAN zone and the DH group, because all four of those had to be right for this to be up. If it is empty or cycling, none of the Phase 2 parameters matter yet." },
+   src:"card srx-ipsec · side 1 BRING-UP ORDER · side 3 THE VERIFY LADDER" },
+
+ { id:"junos-srx/ipsec.inactive-tunnels.show", cmd:["show security ipsec inactive-tunnels"],
+   mode:"operational", risk:"ReadOnly", domain:"ipsec", weight:2,
+   answers:"Which tunnels are down, and what reason does the box give?",
+   aka:["why is the tunnel down","tunnel down reason","what is broken","which tunnels are not up"],
+   read:"Tunnel Down Reason — often the whole answer",
+   fields:[["Tunnel Down Reason","The box's own explanation for why this tunnel is not established. This is the field almost nobody reads. It frequently names the exact mismatch and removes the need for any log reading at all."],
+           ["Total inactive tunnels","Count of tunnels currently not established. Want <code>0</code>."]],
+   next:[["explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p2","explainer"],
+         ["show log kmd | match &lt;peer-ip&gt;","ReadOnly"]],
+   rules:["ipsec.pfs.group-mismatch","ipsec.traffic-selector.not-mirrored"],
+   ex:{ terse:"Names what is down and why.",
+        explained:"<code>inactive-tunnels</code> is the underused one. It names what is down and prints a Tunnel Down Reason, which is often the whole answer — before you open a single log.",
+        teaching:"The instinct when a tunnel is down is to go to the log. The log is a lifecycle narrative and it takes reading. <code>inactive-tunnels</code> is a table, and the Tunnel Down Reason column is the box telling you what it decided and why. Run this before <code>show log kmd</code>, every time. If the reason is a proposal mismatch you have your answer in one line; if it is empty or unhelpful, then go to the log — but you have lost four seconds rather than four minutes." },
+   src:"card srx-ipsec · side 3 THE VERIFY LADDER · side 1 BRING-UP ORDER" },
+
+ { id:"junos-srx/zone.host-inbound.ike.set",
+   cmd:["set security zones security-zone WAN","interfaces reth0.0 host-inbound-traffic","system-services ike"],
+   mode:"configuration", risk:"ChangesConfig", domain:"zone", weight:3,
+   answers:"Plumbing piece three — why is the far end's negotiation being dropped?",
+   aka:["phase 1 times out with nothing in the log","allow ike inbound","the box is dropping the peer","host inbound traffic"],
+   read:"No output — the tell is a Phase 1 timeout with no local log entry",
+   blast:"Opens inbound IKE on the WAN unit. This is a deliberate hole in the box's own inbound filtering — scope it to the unit the peer actually arrives on, never to the whole zone if the zone holds more interfaces.",
+   next:[["show log kmd | match &lt;peer-ip&gt;","ReadOnly"],
+         ["explain:symptom:p1-timeout-nothing-in-log","explainer"]],
+   rules:["zone.host-inbound.ike-missing"],
+   ex:{ terse:"Piece three of five, and the only one that fails loudly-ish.",
+        explained:"The zone that owns the WAN unit must permit inbound IKE, or the box drops the peer's IKE before the IKE process ever sees it. Phase 1 then times out with nothing useful in the log, because nothing local ever happened. Check this before touching crypto.",
+        teaching:"This is the highest-value line in the whole build, because it is the one failure whose symptom points nowhere. Miss piece three and Phase 1 times out with nothing useful in the log. Miss pieces one, two, four or five and the tunnel reads UP while passing zero packets. Those are two completely different investigations, and knowing which you are in halves the search space immediately. The error decoder lists four causes for a Phase 1 timeout with no response: host-inbound ike, an upstream ACL, the peer address, and NAT. Three of them are somebody else's box. This one is yours, it is one line, and it is the cheapest of the four to rule out." },
+   src:"card srx-ipsec · side 1 THE FIVE PLUMBING PIECES · side 3 ERROR DECODER · side 4 THINGS THAT BITE" },
+
+ { id:"junos-srx/ipsec.policy.pfs.set",
+   cmd:["set security ipsec policy IPSEC-POL","perfect-forward-secrecy keys group14"],
+   mode:"configuration", risk:"Disruptive", domain:"ipsec", weight:2,
+   answers:"How do I stop one stolen secret unlocking every recorded session?",
+   aka:["turn on pfs","perfect forward secrecy","fresh key per phase 2","forward secrecy group"],
+   read:"No output — a group mismatch reads as INVALID_KE_PAYLOAD",
+   blast:"Adds a fresh Diffie-Hellman exchange to every Phase 2 negotiation. A peer without the identical group rejects Phase 2 from the next rekey onward while Phase 1 stays up, so the tunnel appears to drop for no reason.",
+   next:[["explain:error:junos-srx/INVALID_KE_PAYLOAD","explainer"],
+         ["show security ipsec inactive-tunnels","ReadOnly"]],
+   rules:["ipsec.pfs.absent","ipsec.pfs.group-mismatch","ipsec.pfs.group-differs-from-p1"],
+   ex:{ terse:"Fresh DH per Phase 2. Identical both ends, not merely compatible.",
+        explained:"Without PFS the Phase 2 keys derive from Phase 1 key material, so one compromised IKE SA secret unlocks every data key under it. With PFS each Phase 2 negotiation runs its own Diffie-Hellman exchange and the key is independent of Phase 1 and of every previous Phase 2 key.",
+        teaching:"Three rules and a cost. The group must be identical at both ends, not merely compatible. PFS on one side and absent on the other fails Phase 2 while Phase 1 stays up — the classic “IKE looks fine but the tunnel keeps dropping”, and the most misread symptom in IPsec. The PFS group need not equal the Phase 1 <code>dh-group</code>, but matching them removes a whole class of confusion. The cost is one extra DH exponentiation per SA per rekey, which is irrelevant unless hundreds of tunnels rekey together. Turn it on. One thing that is not a bug: under IKEv2 the first child SA is always keyed from the IKE SA regardless, so a capture of the initial bring-up showing no DH exchange is not a misconfiguration." },
+   src:"card srx-ipsec · side 1 PHASE 2 · side 2 PERFECT FORWARD SECRECY · RFC 7296 §1.3 · RFC 8247 §2.4" },
+
+ { id:"junos-srx/ike.gateway.external-interface.set",
+   cmd:["set security ike gateway GW-B external-interface reth0.0"],
+   mode:"configuration", risk:"ChangesConfig", domain:"ike", weight:2,
+   answers:"Which WAN unit do the negotiation packets leave by?",
+   aka:["which interface does ike use","source interface for phase 1","is it st0 or the wan port"],
+   read:"No output — check the source the peer reports, not the local unit",
+   blast:"Changes which unit the IKE packets leave by, and therefore which source address the peer sees. Wrong on a multi-homed box, Phase 1 sources from an address the peer has never heard of and times out.",
+   next:[["set security zones security-zone WAN … system-services ike","ChangesConfig"],
+         ["show log kmd | match &lt;peer-ip&gt;","ReadOnly"]],
+   rules:["zone.host-inbound.ike-missing"],
+   ex:{ terse:"The WAN unit IKE leaves by — never st0.",
+        explained:"<code>external-interface</code> is the WAN unit the IKE packets leave by, not <code>st0</code>. Wrong on a multi-homed box means Phase 1 sources from an address the peer has never heard of. The zone that owns this unit must also permit inbound IKE.",
+        teaching:"This is the statement people set to <code>st0</code> because <code>st0</code> is the tunnel and the tunnel is what they are building. It is backwards: <code>st0</code> only exists once Phase 2 has installed, and Phase 1 has to happen over the underlay to get there. Two failures live on this one line. Point it at the wrong WAN unit and the peer sees an unexpected source and drops you. Point it at the right WAN unit whose zone has no <code>host-inbound-traffic system-services ike</code> and the box drops the peer's IKE before the IKE process ever sees it. Check the zone before you touch crypto." },
+   src:"card srx-ipsec · side 1 PHASE 1 · side 1 THE FIVE PLUMBING PIECES · side 4 THINGS THAT BITE" },
+
+ { id:"junos-srx/ike.proposal.auth-method.set",
+   cmd:["set security ike proposal IKE-P1","authentication-method pre-shared-keys"],
+   mode:"configuration", risk:"Disruptive", domain:"ike", weight:2,
+   answers:"How does this box prove who it is to the far end?",
+   aka:["set the psk auth method","use a shared secret not certificates","phase 1 authentication type"],
+   read:"No output — read it back with show configuration security ike",
+   blast:"Changes how this box proves who it is in Phase 1. On an existing gateway the next negotiation fails until the peer matches, and the tunnel drops at the current SA's lifetime rather than immediately.",
+   next:[["show security ike security-associations","ReadOnly"],
+         ["explain:error:junos-srx/NO_PROPOSAL_CHOSEN.p1","explainer"]],
+   rules:["ike.mode.aggressive-with-psk","ike.auth.certificates-without-ntp"],
+   ex:{ terse:"Pre-shared keys or rsa-signatures. Both ends must agree.",
+        explained:"The two choices are <code>pre-shared-keys</code> and <code>rsa-signatures</code>. This is one of the four values <code>NO_PROPOSAL_CHOSEN</code> on Phase 1 sends you to check, along with <code>dh-group</code>, <code>encryption-algorithm</code> and <code>authentication-algorithm</code>.",
+        teaching:"Authentication method is the one proposal parameter that changes the shape of the rest of the build rather than only a number in it. With pre-shared keys you need a matching secret and, under IKEv1 main mode, the peer can only be identified by its address — which is the entire reason aggressive mode exists. With rsa-signatures you need a certificate chain both ends trust and a clock, because an expired or not-yet-valid certificate reads as AUTHENTICATION_FAILED and nobody checks NTP first." },
+   src:"card srx-ipsec · side 1 PHASE 1 — PROPOSAL, POLICY, GATEWAY" },
+
+ { id:"junos-srx/ike.sa.clear-peer", cmd:["clear security ike security-associations 203.0.113.10"],
+   mode:"operational", risk:"Disruptive", domain:"ike", weight:2,
+   answers:"How do I force the outer channel to rebuild with one far end?",
+   aka:["renegotiate phase 1","rebuild ike","bounce the tunnel"],
+   read:"No output — re-run the Phase 1 listing to confirm it rebuilt",
+   blast:"Clearing P1 tears down every child SA under it — on a hub that is every spoke at once. Always scope by peer or index.",
+   next:[["show security ike security-associations","ReadOnly"]],
+   rules:[],
+   ex:{ terse:"Rebuilds P1 with one peer. Takes its children with it.",
+        explained:"Clearing Phase 1 tears down every child SA underneath it. On a hub that is every spoke at once, which is why the unscoped form is a different entry with a worse blast radius. Clearing Phase 2 alone forces a rekey and is the cheapest way to prove a tunnel comes back cleanly.",
+        teaching:"The reason this is Disruptive and <code>show</code> is not has nothing to do with the verb. ADR-0011 defines Disruptive as: committing or running the statement can interrupt an established flow, SA or adjacency on a device already carrying traffic. <code>clear</code> qualifies on a live hub and would not qualify on a box with no SAs — but the corpus classifies the statement, not the moment, so it carries the worst case. If you want to prove a tunnel comes back without taking the spokes with it, clear Phase 2 by index instead." },
+   src:"card srx-ipsec · side 3 CLEARING & RENEGOTIATING" },
+
+ { id:"junos-srx/interface.st0.terse", cmd:["show interfaces st0.0 terse"],
+   mode:"operational", risk:"ReadOnly", domain:"interface", weight:2,
+   answers:"Is the virtual tunnel endpoint carrying an admin and link state of up?",
+   aka:["is st0 up","tunnel interface state"],
+   read:"Admin and Link — want up/up",
+   fields:[["Admin","Administrative state. Want <code>up</code>."],
+           ["Link","Operational state. <code>up</code> here proves an SA exists, not that traffic moves."]],
+   next:[["show route 10.2.0.0/16","ReadOnly"]], rules:["tunnel.st0.zone-unbound"],
+   ex:{ terse:"Step 5. Up here proves an SA exists, not that traffic moves.",
+        explained:"Step 5 of the bring-up ladder. This is the first step on the plumbing half. If steps 5 to 8 fail while 2 to 4 are clean, it is plumbing, not crypto — no proposal tweaking will fix it.",
+        teaching:"st0 is a virtual interface whose link state follows the tunnel, so it tells you something real, and it tells you less than people assume. It goes up when an SA installs. It does not know whether the unit has a zone, whether a policy permits the pair, or whether anything is routed at it — and those are three of the five plumbing pieces. The card's rule is the useful one: stop at the first failure, and if 5 through 8 fail while 2 through 4 are clean, stop reading proposals." },
+   src:"card srx-ipsec · side 1 BRING-UP ORDER · side 3 THE VERIFY LADDER" },
+
+ { id:"junos-srx/route.remote.show", cmd:["show route 10.2.0.0/16"],
+   mode:"operational", risk:"ReadOnly", domain:"route", weight:2,
+   answers:"Does the far side's prefix resolve, and out which interface?",
+   aka:["is the remote prefix routed","route to the other site"],
+   read:"Next hop — want st0.0, not the default gateway",
+   next:[["show security flow session","ReadOnly"]], rules:["route.remote-prefix.no-next-hop-st0"],
+   ex:{ terse:"Step 6. Want st0.0. A default route swallowing it is the classic.",
+        explained:"Plumbing piece four is a static route for the remote prefix pointed at st0.0. Without it the packets never reach the tunnel, and the SA sits Installed and idle.",
+        teaching:"This is the step where “the tunnel is up and nothing works” usually resolves. An SA proves crypto; a route proves intent. If the remote prefix resolves out the default gateway rather than st0.0, traffic leaves the WAN interface in the clear, the far end never sees it inside the selector, and every command on the crypto half of the ladder still reads perfect." },
+   src:"card srx-ipsec · side 1 THE FIVE PLUMBING PIECES · side 3 THE VERIFY LADDER" },
+
+ { id:"junos-srx/mtu.ping.df-sized", cmd:["ping 10.2.0.1 do-not-fragment size 1472 count 3"],
+   mode:"operational", risk:"ReadOnly", domain:"mtu", weight:2,
+   answers:"What is the largest payload that survives the whole path?",
+   aka:["find the path mtu","df ping","binary search the mtu"],
+   read:"Loss — 0% means this size fits",
+   next:[["set security flow tcp-mss ipsec-vpn mss 1360","ChangesConfig"]],
+   rules:["mtu.mss-clamp.absent","mtu.st0.unset"],
+   ex:{ terse:"size is the ICMP payload. Add 28 for wire size.",
+        explained:"<code>size</code> is the ICMP payload, so add 28 (20 IP + 8 ICMP) for wire size: 1472 becomes 1500. If 1472 fails and 1372 passes, path MTU is around 1400 — binary-search between them.",
+        teaching:"A bare ping from the SRX tests the SRX's own path, not the tunnel. To test the tunnel, source from an address inside the traffic selector or from the LAN interface. The symptom this command exists to chase is specific and recognisable: ping works, SSH connects, then <code>ls</code> hangs or a transfer stalls at 0%. Small packets fit and full-size ones vanish. Handshake fine, data stalls is MTU until proven otherwise." },
+   src:"card srx-ipsec · side 4 TEST IT FROM THE BOX" },
+
+ { id:"junos-srx/flow.tcp-mss.set-ipsec", cmd:["set security flow tcp-mss ipsec-vpn mss 1360"],
+   mode:"configuration", risk:"ChangesConfig", domain:"flow", weight:2,
+   answers:"Fix one of three — how do both ends agree to smaller segments up front?",
+   aka:["mss clamp","fix the mtu problem","stop fragmentation"],
+   read:"No output — retest with a full-size transfer, not with ping",
+   blast:"Rewrites the MSS option in TCP handshakes for tunnel traffic only. Existing sessions keep their negotiated MSS until they are rebuilt.",
+   next:[["show interfaces st0.0 | match MTU","ReadOnly"]], rules:["mtu.mss-clamp.absent","mtu.mss-clamp.all-tcp-used"],
+   ex:{ terse:"The preferred fix. Surgical, needs no ICMP, does nothing for UDP.",
+        explained:"Rewrites the TCP handshake so both ends agree to smaller segments up front. Surgical, prevents fragmentation before it starts, needs no ICMP. TCP only — it does nothing for UDP. Rule of thumb: MSS = tunnel MTU − 40. A 1400 MTU clamps to 1360.",
+        teaching:"There are three fixes and they are not equivalent. MSS clamping rewrites the handshake and needs no ICMP. Lowering the tunnel MTU is universal and covers UDP, but the box now fragments before encryption, which costs CPU and produces fragments that can still be dropped downstream. Clearing the DF bit lets the network fragment the encrypted packet rather than drop it — the rescue when you control neither endpoint nor the far side, at the cost of reassembly at the peer. Prefer <code>tcp-mss ipsec-vpn</code>, which clamps only tunnel traffic, over <code>tcp-mss all-tcp</code>, which hits everything through the box." },
+   src:"card srx-ipsec · side 4 THREE FIXES — KNOW THE DIFFERENCE · RFC 1191 · RFC 2923 §2.1" }
+];
+
+/* The BRING-UP ORDER ladder, side 1, verbatim order. */
+var LADDER = { title:"Bring-up order", imp:"stop at the first failure",
+  steps:[["commit confirmed 5 — always, remotely","ChangesConfig"],
+         ["show security ike security-associations","ReadOnly"],
+         ["show security ipsec security-associations","ReadOnly"],
+         ["show security ipsec inactive-tunnels","ReadOnly"],
+         ["show interfaces st0.0 terse","ReadOnly"],
+         ["show route 10.2.0.0/16","ReadOnly"],
+         ["ping across, sourced from the LAN side","ReadOnly"],
+         ["show security flow session","ReadOnly"],
+         ["show log kmd | match &lt;peer-ip&gt;","ReadOnly"]] };
+
+/* -------------------------------------------------------------- rule packs */
+var PACKS = [
+  { id:"fathom.ipsec", ver:"0.1.0", signer:"unsigned — no trust store entry",
+    rules:37, reviewed:"2026-07-28 · <named reviewer>", mounted:true },
+  { id:"fathom.mtu", ver:"0.3.1", signer:"unsigned — no trust store entry",
+    rules:9, reviewed:"2026-07-28 · <named reviewer>", mounted:false }
+];
+
+var RULES = {
+ "zone.host-inbound.ike-missing":{
+   pack:"fathom.ipsec", ver:"1.3.0", sev:"high", conf:"definite", cat:"correctness",
+   node:"ZoneMember WAN → reth0.0", rows:["dev.srx-a","ike.gw-b","unit.reth0-0"],
+   title:"The WAN zone does not admit IKE on the gateway's external interface",
+   why:"The zone that owns the external interface drops the peer's IKE packets before the IKE process ever sees them. Phase 1 times out with nothing useful in the log, because nothing local ever happened.",
+   symptom:"Phase 1 timeout with no response and no local error. Identical on the wire to an upstream ACL, a wrong peer address, or NAT in path — so it is routinely misdiagnosed as a crypto problem and people start changing proposals.",
+   fix:[["set security zones security-zone WAN interfaces reth0.0 host-inbound-traffic system-services ike","ChangesConfig"]],
+   rollback:[["delete security zones security-zone WAN interfaces reth0.0 host-inbound-traffic system-services ike","Disruptive"]],
+   acceptable:"Acceptable only on a gateway that is being staged and is not yet expected to negotiate. Under IKEv2 either party may initiate a rekey (RFC 7296 §2.8), and liveness probes arrive inbound from the peer regardless of who initiated — so “a peer that always responds and never initiates” is not a state you can configure on someone else's box. Record the staging window and close the finding when the gateway goes live.",
+   verify:["show security ike security-associations","show log kmd | match &lt;peer-ip&gt;"],
+   src:"card srx-ipsec · side 1 THE FIVE PLUMBING PIECES · side 4 THINGS THAT BITE" },
+
+ "ipsec.pfs.absent":{
+   pack:"fathom.ipsec", ver:"2.1.0", sev:"high", conf:"definite", cat:"security",
+   node:"IpsecPolicy IPSEC-POL", rows:["dev.srx-a"],
+   title:"Perfect Forward Secrecy is not configured",
+   why:"Without PFS, Phase 2 keys derive from Phase 1 key material. One compromised IKE SA secret unlocks every data key derived under it, including traffic somebody recorded off the wire months ago.",
+   symptom:"PFS on one side and absent on the other fails Phase 2 while Phase 1 stays up — the classic “IKE looks fine but the tunnel keeps dropping”. The log shows NO_PROPOSAL_CHOSEN on the Phase 2 exchange, not Phase 1. Under IKEv2 the first child SA is keyed from the IKE SA and installs regardless, so the failure surfaces at the first CREATE_CHILD_SA rekey — up to lifetime-seconds after the change.",
+   fix:[["set security ipsec policy IPSEC-POL perfect-forward-secrecy keys group14","Disruptive"]],
+   rollback:[["delete security ipsec policy IPSEC-POL perfect-forward-secrecy","Disruptive"]],
+   acceptable:"Interoperating with a peer whose platform cannot offer PFS at all — some older appliances and a small number of cloud VPN services. Compensate with a shorter Phase 2 lifetime so a compromised IKE SA exposes less recorded traffic, and record the peer and the date in the change ticket.",
+   verify:["show security ipsec security-associations vpn-name VPN-DC-EAST detail","show security ike security-associations detail"],
+   src:"RFC 7296 §1.3 · RFC 8247 §2.4 · card srx-ipsec side 2 PERFECT FORWARD SECRECY" },
+
+ "tunnel.st0.zone-unbound":{
+   pack:"fathom.ipsec", ver:"1.1.0", sev:"high", conf:"definite", cat:"correctness",
+   node:"LogicalUnit st0.0", rows:["dev.srx-a","unit.st0-0"],
+   title:"The tunnel interface is not bound to a security zone",
+   why:"A logical unit with no zone cannot be matched by any policy, so every packet routed at it is dropped by the flow module before it reaches the SA.",
+   symptom:"Tunnel UP, zero traffic. The SA proves crypto, not reachability — this is the failure that makes people re-check proposals for an afternoon.",
+   fix:[["set security zones security-zone VPN interfaces st0.0","ChangesConfig"]],
+   rollback:[["delete security zones security-zone VPN interfaces st0.0","Disruptive"]],
+   acceptable:"Acceptable on a unit that exists only to be numbered — a staged tunnel with no peer yet, or a policy-based VPN where st0 is not used at all. Record which.",
+   verify:["show interfaces st0.0 terse","show security flow session"],
+   src:"card srx-ipsec · side 1 THE FIVE PLUMBING PIECES · side 4 THINGS THAT BITE" },
+
+ "mtu.mss-clamp.absent":{
+   pack:"fathom.mtu", ver:"1.2.0", sev:"medium", conf:"probable", cat:"operability",
+   node:"Device SRX-A", rows:["dev.srx-a"],
+   title:"No TCP MSS clamp for tunnel traffic",
+   why:"IPsec adds roughly 50 to 70 bytes of headers, so a full-size packet entering the tunnel must fragment, and firewalls along the path routinely drop fragments. Without an MSS clamp the TCP endpoints never learn to send smaller segments, because the ICMP that would tell them is filtered somewhere.",
+   symptom:"Ping works. SSH connects. Then <code>ls</code> hangs, or a transfer stalls at 0%. Small packets fit and full-size ones vanish. Handshake fine, data stalls is MTU until proven otherwise — and it is routinely misdiagnosed as a crypto or performance problem because the tunnel is up and the counters move.",
+   fix:[["set security flow tcp-mss ipsec-vpn mss 1360","ChangesConfig"]],
+   rollback:[["delete security flow tcp-mss ipsec-vpn","ChangesConfig"]],
+   acceptable:"Acceptable where the underlay carries jumbo frames or the path MTU is known to leave headroom above 1500 for the encapsulation, and where somebody has measured it rather than assumed it. Also acceptable when the clamp is applied upstream on a router or load balancer rather than on this device — record where.",
+   verify:["show interfaces st0.0 | match MTU","ping 10.2.0.1 do-not-fragment size 1372 count 3"],
+   src:"RFC 1191 · RFC 2923 §2.1 · card srx-ipsec side 4 THREE FIXES — KNOW THE DIFFERENCE" }
+};
+
+/* --------------------------------------------------- the schema (M7 / 11 §11.6)
+   The inventory's columns are GENERATED from this, not hand-written. Adding a
+   kind here adds inventory columns, diagram nodes, rule targets and explainer
+   subjects at once, with no UI code.                                        */
+var SCHEMA = {
+  Device:     { fields:[["name","Ident"],["model","Str"],["family","Enum"],["os","Version"],
+                        ["site","Ref<Site>"],["role","Enum"],["provenance","Provenance"]],
+                edit:["name","role","site"] },
+  IkeGateway: { fields:[["name","Ident"],["address","IpAddr"],["external_interface","Ref<LogicalUnit>"],
+                        ["version","Enum"],["local_identity","Str"],["dead_peer_detection","Str"],
+                        ["provenance","Provenance"]],
+                edit:["address","external_interface","version","dead_peer_detection"] },
+  LogicalUnit:{ fields:[["name","Ident"],["zone","Ref<Zone>"],["address","IpPrefix"],["mtu","U16"],
+                        ["host_inbound","Set<Enum>"],["provenance","Provenance"]],
+                edit:["zone","address","mtu"] }
+};
+
+/* ------------------------------------------------------------ THE FIXTURE --
+   Derived from .context/field-card-srx-ipsec.txt: hub and spoke, an SRX
+   chassis-cluster candidate, reth0.0 as the WAN unit IKE leaves by, st0.0 at
+   10.255.0.1/30 MTU 1400, gateway GW-B at 203.0.113.10, local identity
+   198.51.100.5, TS1 10.1.0.0/16 → 10.2.0.0/16, zones TRUST / VPN / WAN. The
+   VPN is named VPN-DC-EAST after brief §6.1. NO INVENTORY FIXTURE SHIPS IN
+   THE CORPUS — this one is invented from the card's worked topology and is
+   labelled as a fixture everywhere it renders.                              */
+var G = {
+  cluster: false, clusterDismissed: false,
+  Device:[
+    { id:"dev.srx-a", name:"SRX-A", model:"SRX345", family:"srx-branch", os:"21.4R3",
+      site:"DC-EAST", role:"hub", provenance:"parsed 2026-07-24" },
+    { id:"dev.srx-b", name:"SRX-B", model:"SRX345", family:"srx-branch", os:"21.4R3",
+      site:"DC-EAST", role:"hub", provenance:"hand-entered 2026-07-26" }
+  ],
+  IkeGateway:[
+    { id:"ike.gw-b", name:"GW-B", address:"203.0.113.10", external_interface:"reth0.0",
+      version:"v2-only", local_identity:"198.51.100.5",
+      dead_peer_detection:"always-send 10 × 3", provenance:"hand-entered 2026-07-24" },
+    { id:"ike.gw-c", name:"GW-C", address:"203.0.113.24", external_interface:"reth0.0",
+      version:"v2-only", local_identity:"198.51.100.5",
+      dead_peer_detection:"—", provenance:"hand-entered 2026-07-26" },
+    { id:"ike.gw-d", name:"GW-D", address:"203.0.113.41", external_interface:"reth0.0",
+      version:"v2-only", local_identity:"198.51.100.5",
+      dead_peer_detection:"—", provenance:"hand-entered 2026-07-26" }
+  ],
+  LogicalUnit:[
+    { id:"unit.reth0-0", name:"reth0.0", zone:"WAN", address:"198.51.100.5/29", mtu:1500,
+      host_inbound:[], provenance:"parsed 2026-07-24" },
+    { id:"unit.st0-0", name:"st0.0", zone:"", address:"10.255.0.1/30", mtu:1400,
+      host_inbound:[], provenance:"hand-entered 2026-07-24" }
+  ],
+  vpn:{ id:"ipsec.vpn-dc-east", name:"VPN-DC-EAST", bind:"st0.0", establish:"immediately",
+        ts:"TS1 local-ip 10.1.0.0/16 remote-ip 10.2.0.0/16", pfs:null, pfsArmed:false },
+  flow:{ tcp_mss_ipsec_vpn:null }
+};
+
+/* ----------------------------------------------- the authored walkthrough --
+   M12. Task, steps, writes, arms. Corpus, not code: this is a YAML document
+   in the shipped artifact and adding a task is authoring, not programming.  */
+var TASK = { id:"walk:junos-srx.s2s-ipsec", total:19, root:"IpsecVpn VPN-DC-EAST" };
+var STEPS = [
+ { n:1, q:"What are you connecting this site to?", ans:"A single remote site with a fixed public address.",
+   wrote:"IpsecVpn VPN-DC-EAST · created", done:true },
+ { n:2, q:"What address does the far end negotiate from?", ans:"203.0.113.10",
+   wrote:"IkeGateway GW-B · address = 203.0.113.10", done:true },
+ { n:3, q:"Which way do the negotiation packets leave this box?",
+   explain:"Not st0. st0 only exists once Phase 2 has installed, and Phase 1 has to happen over the underlay to get there.",
+   input:"choice", kind:"IkeGateway", field:"external_interface",
+   choices:["reth0.0","ge-0/0/0.0","st0.0"], done:false },
+ { n:4, q:"Can the far end run a fresh Diffie-Hellman for every data key?",
+   explain:"This is the PFS question in the user's words rather than the field's. Answering it arms ipsec.pfs.absent, which is why the finding can appear at the earliest honest moment rather than at the end.",
+   input:"choice", field:"pfs", choices:["yes — group14","no — the peer cannot do it"],
+   arms:"ipsec.pfs.absent", done:false },
+ { n:5, q:"Does anything routed over this tunnel need to fail over automatically?",
+   explain:"vpn-monitor pings through the tunnel and tears the SA down on failure, taking st0 with it — which is what lets a route or adjacency over st0 fail over.",
+   input:"choice", field:"monitor", choices:["yes — a routing adjacency rides it","no"], done:false }
+];
+
+/* --------------------------------------------------------------- sections */
+var SECS = [
+ { key:"finder",      name:"Finder",      eq:"find(corpus, query)",
+   imp:"VERIFY AGAINST YOUR OWN BOX BEFORE ACTING",
+   phase:"corpus-backed · phase 0", below:false },
+ { key:"walkthrough", name:"Walkthrough", eq:"drive(graph, task)",
+   imp:"THE QUESTION IS IN YOUR WORDS — THE FIELD NAME IS NOT",
+   phase:"graph-backed · phase 1", below:true },
+ { key:"config",      name:"Config",      eq:"emit(graph, junos-srx)",
+   imp:"EVERY LINE IS COPY-PASTE — FATHOM NEVER TOUCHES A DEVICE",
+   phase:"graph-backed · phase 1", below:true },
+ { key:"findings",    name:"Findings",    eq:"lint(graph)",
+   imp:"CONTINUOUS LINT OVER THE GRAPH — NOT A REPORT YOU RUN",
+   phase:"graph-backed · phase 3", below:true },
+ { key:"diagram",     name:"Diagram",     eq:"render(graph)",
+   imp:"A DESIGN TOOL, NOT A SOURCE OF TRUTH",
+   phase:"graph-backed · phase 4 — cut by ADR-0006", below:true },
+ { key:"inventory",   name:"Inventory",   eq:"table(graph)",
+   imp:"THE TABLE ARGUES BACK — READ THE RIGHTMOST COLUMN",
+   phase:"graph-backed · phase 2", below:true }
+];
+
+/* ------------------------------------------------------------------ state */
+var S = {
+  sec:"finder", v1only:false,
+  depth:"explained", depthOverride:{},
+  sel:null,                         /* { anchor, set:[], facet, origin } */
+  q:"", cur:0, open:null,
+  cfgMode:"full", cfgCur:null,
+  findCur:null, suppressed:{ "tunnel.st0.zone-unbound":"st0.0 staged, not live — ticket NET-4471" },
+  layers:{ l2:true, l3:true, sec:true, ov:true },
+  invKind:"Device", invQ:"", marked:{}, cols:null,
+  changeSets:[], edits:0, seen:{}, counts:{}, changed:{}
+};
+
+/* --------------------------------------------------------------- helpers */
+function $(s, r){ return (r||document).querySelector(s); }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function riskCls(r){ return r==="ReadOnly"?"safe":r==="ChangesConfig"?"caution":r==="Disruptive"?"danger":""; }
+function riskWord(r){ return r==="ReadOnly"?"Read-only":r==="ChangesConfig"?"Changes config":"Disruptive"; }
+function riskTail(r){ return r==="ReadOnly"?" — safe on production":r==="ChangesConfig"?" — needs a commit":" — drops live traffic"; }
+function riskInk(r){ return "r-"+riskCls(r); }
+/* V6 / R2 — every risk-coloured element carries the word, visible or in .vh. */
+function riskSpan(r){
+  if(!r) return "";
+  return '<span class="hit-risk '+riskCls(r)+'">'+riskWord(r)+
+         '<span class="vh">'+riskTail(r)+'</span></span>';
+}
+function riskMark(r){
+  return '<span class="risk-mark '+riskInk(r)+'">▌<span class="vh">'+
+         riskWord(r)+riskTail(r)+'</span></span>';
+}
+/* V15 — config wraps like a terminal: the continuation backslash is preserved
+   and the continuation indent is two spaces, owned by the renderer (F7). */
+function cfgText(lines){
+  var out=[];
+  for(var i=0;i<lines.length;i++){
+    out.push((i?"  ":"")+lines[i]+(i<lines.length-1?" \\":""));
+  }
+  return out.join("\n");
+}
+/* Remediation and rollback lines arrive from the rule pack as one string, so
+   they get the same terminal wrap: token boundaries, --cfg-cols, two-space
+   continuation, backslash preserved. The renderer owns the indent (F7). */
+function wrapCfg(text){
+  var toks = String(text).split(" "), lines = [], cur = "", lim = 72 - 2;
+  toks.forEach(function(t){
+    if(cur && (cur + " " + t).length > lim){ lines.push(cur); cur = t; }
+    else cur = cur ? cur + " " + t : t;
+  });
+  if(cur) lines.push(cur);
+  return cfgText(lines);
+}
+
+/* -------------------------------------------------------- the projections --
+   Four renderers over one graph. Each is a pure function of G (plus S for the
+   things that are genuinely view state, like which mode config is in).      */
+
+function emit(){
+  var gw = G.IkeGateway[0], u = byName("LogicalUnit","reth0.0"), st = byName("LogicalUnit","st0.0");
+  var L = [];
+  function line(node, fields, risk, rules, seg){
+    L.push({ ord:L.length+1, node:node, fields:fields, risk:risk, rules:rules||[], seg:seg });
+  }
+  line("LogicalUnit st0.0", "address", "ChangesConfig", ["tunnel.st0.zone-unbound"],
+       ["set interfaces st0 unit 0 family inet","address "+st.address]);
+  line("IkeProposal IKE-P1", "authentication_method", "Disruptive", [],
+       ["set security ike proposal IKE-P1","authentication-method pre-shared-keys"]);
+  line("IkeProposal IKE-P1", "dh_group", "ChangesConfig", [], ["set security ike proposal IKE-P1 dh-group group14"]);
+  line("IkeProposal IKE-P1", "auth_algorithm", "ChangesConfig", [],
+       ["set security ike proposal IKE-P1","authentication-algorithm sha-256"]);
+  line("IkeProposal IKE-P1", "encryption", "ChangesConfig", [],
+       ["set security ike proposal IKE-P1","encryption-algorithm aes-256-cbc"]);
+  line("IkeProposal IKE-P1", "lifetime_seconds", "ChangesConfig", [], ["set security ike proposal IKE-P1 lifetime-seconds 28800"]);
+  line("IkePolicy IKE-POL", "proposals", "ChangesConfig", [], ["set security ike policy IKE-POL proposals IKE-P1"]);
+  line("IkePolicy IKE-POL", "pre_shared_key", "Disruptive", [],
+       ["set security ike policy IKE-POL pre-shared-key",'ascii-text "<PSK>"'], true);
+  L[L.length-1].psk = true;
+  line("IkeGateway GW-B", "ike_policy", "ChangesConfig", [], ["set security ike gateway GW-B ike-policy IKE-POL"]);
+  line("IkeGateway GW-B", "address", "ChangesConfig", [], ["set security ike gateway GW-B address "+gw.address]);
+  line("IkeGateway GW-B", "external_interface", "ChangesConfig", ["zone.host-inbound.ike-missing"],
+       ["set security ike gateway GW-B external-interface "+gw.external_interface]);
+  line("IkeGateway GW-B", "version", "ChangesConfig", [], ["set security ike gateway GW-B version "+gw.version]);
+  if(gw.dead_peer_detection !== "—")
+    line("IkeGateway GW-B", "dead_peer_detection", "Disruptive", [],
+         ["set security ike gateway GW-B dead-peer-detection","always-send interval 10 threshold 3"]);
+  line("IpsecProposal IPSEC-P2", "protocol", "ChangesConfig", [], ["set security ipsec proposal IPSEC-P2 protocol esp"]);
+  line("IpsecProposal IPSEC-P2", "encryption", "ChangesConfig", [],
+       ["set security ipsec proposal IPSEC-P2","encryption-algorithm aes-256-gcm"]);
+  line("IpsecPolicy IPSEC-POL", "proposals", "ChangesConfig", [], ["set security ipsec policy IPSEC-POL proposals IPSEC-P2"]);
+  if(G.vpn.pfs)
+    line("IpsecPolicy IPSEC-POL", "perfect_forward_secrecy", "Disruptive", ["ipsec.pfs.absent"],
+         ["set security ipsec policy IPSEC-POL","perfect-forward-secrecy keys "+G.vpn.pfs]);
+  line("IpsecVpn VPN-DC-EAST", "ike_gateway", "ChangesConfig", [], ["set security ipsec vpn VPN-DC-EAST ike gateway GW-B"]);
+  line("IpsecVpn VPN-DC-EAST", "ipsec_policy", "ChangesConfig", [], ["set security ipsec vpn VPN-DC-EAST ike ipsec-policy IPSEC-POL"]);
+  line("IpsecVpn VPN-DC-EAST", "bind_interface", "ChangesConfig", ["tunnel.st0.zone-unbound"],
+       ["set security ipsec vpn VPN-DC-EAST bind-interface "+G.vpn.bind]);
+  line("IpsecVpn VPN-DC-EAST", "establish_tunnels", "ChangesConfig", [],
+       ["set security ipsec vpn VPN-DC-EAST establish-tunnels "+G.vpn.establish]);
+  line("IpsecVpn VPN-DC-EAST", "traffic_selector", "ChangesConfig", [],
+       ["set security ipsec vpn VPN-DC-EAST traffic-selector TS1","local-ip 10.1.0.0/16 remote-ip 10.2.0.0/16"]);
+  if(st.zone)
+    line("LogicalUnit st0.0", "zone", "ChangesConfig", ["tunnel.st0.zone-unbound"],
+         ["set security zones security-zone "+st.zone+" interfaces st0.0"]);
+  if(u.host_inbound.indexOf("ike") >= 0)
+    line("ZoneMember WAN → reth0.0", "host_inbound_system_services", "ChangesConfig", ["zone.host-inbound.ike-missing"],
+         ["set security zones security-zone WAN","interfaces reth0.0 host-inbound-traffic","system-services ike"]);
+  line("StaticRoute 10.2.0.0/16", "next_hop", "ChangesConfig", [],
+       ["set routing-options static route 10.2.0.0/16","next-hop st0.0"]);
+  line("SecurityPolicy TO-B", "match", "ChangesConfig", [],
+       ["set security policies from-zone TRUST to-zone VPN","policy TO-B match source-address any","destination-address any application any"]);
+  line("SecurityPolicy TO-B", "then", "ChangesConfig", [],
+       ["set security policies from-zone TRUST to-zone VPN policy TO-B then permit"]);
+  if(G.flow.tcp_mss_ipsec_vpn)
+    line("Device SRX-A", "flow.tcp_mss_ipsec_vpn", "ChangesConfig", ["mtu.mss-clamp.absent"],
+         ["set security flow tcp-mss ipsec-vpn mss "+G.flow.tcp_mss_ipsec_vpn]);
+  return L;
+}
+
+function byName(kind, n){
+  var a = G[kind]; for(var i=0;i<a.length;i++) if(a[i].name===n) return a[i];
+  return null;
+}
+function packMounted(id){
+  for(var i=0;i<PACKS.length;i++) if(PACKS[i].id===id) return PACKS[i].mounted;
+  return false;
+}
+
+/* I5 — one engine. A finding is a rule document plus a state, never code. */
+function lint(){
+  var out = [], u = byName("LogicalUnit","reth0.0"), st = byName("LogicalUnit","st0.0");
+  function push(id, state){
+    var r = RULES[id]; if(!r || !packMounted(r.pack)) return;
+    out.push({ id:id, r:r, state: S.suppressed[id] ? "suppressed" : state });
+  }
+  if(u.host_inbound.indexOf("ike") < 0) push("zone.host-inbound.ike-missing","active");
+  if(!G.vpn.pfs) push("ipsec.pfs.absent", G.vpn.pfsArmed ? "active" : "pending");
+  if(!st.zone) push("tunnel.st0.zone-unbound","active");
+  if(!G.flow.tcp_mss_ipsec_vpn) push("mtu.mss-clamp.absent","active");
+  /* S17 default sort — severity desc, node emit order, rule id. */
+  var rank = { high:0, medium:1, low:2 };
+  var order = {}; emit().forEach(function(l,i){ if(order[l.node]===undefined) order[l.node]=i; });
+  out.sort(function(a,b){
+    /* suppressed is a STATE on a separate channel — it sorts to the bottom
+       and stays counted, it does not vanish (S17). */
+    var sa = a.state==="suppressed"?1:0, sb = b.state==="suppressed"?1:0;
+    if(sa !== sb) return sa - sb;
+    var d = rank[a.r.sev]-rank[b.r.sev]; if(d) return d;
+    var oa = order[a.r.node]===undefined?999:order[a.r.node];
+    var ob = order[b.r.node]===undefined?999:order[b.r.node];
+    if(oa!==ob) return oa-ob;
+    return a.id < b.id ? -1 : 1;
+  });
+  return out;
+}
+
+/* S18 — the rightmost column is not a field. It is the per-row finding
+   aggregate. Ownership is declared on the rule (`rows`), so adding a rule
+   gives its owners an opinion without touching the table. */
+function findingsForRow(rowId){
+  return lint().filter(function(f){ return (f.r.rows||[]).indexOf(rowId) >= 0; });
+}
+function aggFor(rowId){
+  var f = findingsForRow(rowId).filter(function(x){ return x.state!=="suppressed"; });
+  if(!f.length) return "—";
+  var h=0,m=0,l=0;
+  f.forEach(function(x){ if(x.r.sev==="high")h++; else if(x.r.sev==="medium")m++; else l++; });
+  var p=[]; if(h)p.push(h+" high"); if(m)p.push(m+" med"); if(l)p.push(l+" low");
+  return p.join(" · ");
+}
+function nodeLabelFor(kind,row){ return kind+" "+row.name; }
+/* ================================================================ chrome ==
+   S6's furniture. It does not move, and because it does not move the risk
+   legend is visible while you read ANY section — which is the one thing 52
+   §3.2.1 most wants on screen while you look at a command you are about to
+   run. In a six-screen shell the legend is redrawn six times; here it is
+   drawn once and never leaves.
+   ========================================================================= */
+
+function counts(){
+  var f = lint(), high = 0, pend = 0, med = 0;
+  f.forEach(function(x){
+    if(x.state==="suppressed") return;
+    if(x.state==="pending"){ pend++; return; }
+    if(x.r.sev==="high") high++; else if(x.r.sev==="medium") med++;
+  });
+  var obs = (G.cluster || G.clusterDismissed) ? 0 : 1;
+  var lay = []; if(S.layers.l2) lay.push("L2"); if(S.layers.l3) lay.push("L3"); if(S.layers.sec) lay.push("SEC");
+  return {
+    finder: CORPUS.length + " of 98 entries",
+    walkthrough: currentStep().n + " of " + TASK.total,
+    config: emit().length + " lines" + (S.cfgMode==="change" ? " · change set" : ""),
+    /* S14 — no tab shows more than two facts. A tab that reads
+       `3 high · 11 med · 6 low · 4 suppressed` is a table, not a tab. */
+    findings: high + " high" + (pend ? " · " + pend + " pending" : med ? " · " + med + " med" : ""),
+    diagram: "9 nodes · " + (lay.join("+") || "no layers"),
+    inventory: G.Device.length + " devices" + (obs ? " · 1 observation" : "")
+  };
+}
+
+function renderBand(){
+  var c = counts(), h = "";
+  SECS.forEach(function(s, i){
+    var cur = S.sec === s.key;
+    h += '<button type="button" data-go="'+s.key+'" aria-current="'+cur+'"'+
+         ' data-below="'+s.below+'" data-v1="'+(S.v1only?"on":"off")+'"'+
+         ' data-changed="'+(S.changed[s.key]?"true":"false")+'">'+
+         '<span class="cue"></span>'+s.key+' <span class="n">· '+c[s.key]+'</span></button>';
+  });
+  $("#band").innerHTML = h;
+}
+
+function renderMast(){
+  var s = secByKey(S.sec);
+  $("#imperative").textContent = s.imp;
+  var r = $("#ribbon");
+  if(!S.sel){ r.hidden = true; r.innerHTML = ""; return; }
+  r.hidden = false;
+  var lines = emit().filter(function(l){ return S.sel.set.indexOf(l.node) >= 0; }).length;
+  /* A finding touches the anchor either because it hangs off that node or
+     because the node is one of its declared owners — the ribbon's job is to
+     say where the selection exists, so it must use both. */
+  var rowIds = [];
+  Object.keys(SCHEMA).forEach(function(kind){
+    (G[kind]||[]).forEach(function(r){
+      if(S.sel.set.indexOf(nodeLabelFor(kind, r)) >= 0) rowIds.push(r.id); });
+  });
+  var finds = lint().filter(function(f){
+    return S.sel.set.indexOf(f.r.node) >= 0 ||
+           (f.r.rows||[]).some(function(id){ return rowIds.indexOf(id) >= 0; });
+  }).length;
+  var inDia = DIA_NODES.indexOf(S.sel.anchor) >= 0;
+  var inInv = invRowsFor(S.invKind).some(function(row){
+                return nodeLabelFor(S.invKind,row) === S.sel.anchor; });
+  r.innerHTML = 'selected: <b>'+esc(S.sel.anchor)+'</b> · facet '+S.sel.facet+
+    ' · <button class="frag" type="button" data-go="config">'+lines+' lines in config</button>'+
+    ' · <button class="frag" type="button" data-go="findings">'+finds+' finding'+(finds===1?"":"s")+'</button>'+
+    ' · '+(inDia ? '<button class="frag" type="button" data-go="diagram">1 node in diagram</button>'
+                 : '<span class="none">not in the diagram</span>')+
+    ' · '+(inInv ? '<button class="frag" type="button" data-go="inventory">1 row in inventory</button>'
+                 : '<span class="none">not a row in inventory ('+S.invKind+')</span>');
+}
+
+function renderFooter(){
+  var i = secIndex(S.sec), s = SECS[i];
+  var prev = SECS[(i+5)%6], next = SECS[(i+1)%6];
+  $("#folio-now").textContent = "SECTION "+(i+1)+" OF 6 — "+s.name.toUpperCase();
+  $("#folio-nav").innerHTML = "⌥← "+prev.name.toUpperCase()+" &nbsp; "+next.name.toUpperCase()+" ⌥→";
+  $("#folio-state").textContent = "fixture estate · "+S.edits+" edit"+(S.edits===1?"":"s")+
+                                  (S.v1only ? " · v1 only" : "");
+}
+
+var msgTimer = null;
+/* 52's answer to the toast: the footer line, for 1.6 s. Not an animation —
+   no fade, no slide, no motion of any kind (V16). */
+function say(t){
+  $("#folio-msg").textContent = t;
+  if(msgTimer) clearTimeout(msgTimer);
+  msgTimer = setTimeout(function(){ $("#folio-msg").textContent = ""; }, 1600);
+}
+
+function secByKey(k){ for(var i=0;i<SECS.length;i++) if(SECS[i].key===k) return SECS[i]; }
+function secIndex(k){ for(var i=0;i<SECS.length;i++) if(SECS[i].key===k) return i; return 0; }
+
+/* S13's connection matrix, drawn where it is used rather than as a table
+   nobody opens. Every edge is a working control. */
+var XREF = {
+ finder:[["walkthrough","W starts the task that builds this result, pre-seeded"],
+         ["config","⏎ copies; going to config selects the interpolated node"],
+         ["findings","a result's next_if_bad names findings — go there filtered"]],
+ walkthrough:[["config","live emit of the run root's closure, this step highlighted"],
+              ["findings","filtered to the run root's closure, in step order"],
+              ["inventory","the run's created nodes become the row set"]],
+ config:[["finder","Ctrl K scoped to this line's platform and phase"],
+         ["findings","filtered to rules_applied on the selected lines"],
+         ["inventory","selects the source_node's row"]],
+ findings:[["config","f produces a ChangeSet and switches config's mode"],
+           ["diagram","selects the finding's node, dims layers without it"],
+           ["walkthrough","remediation → the task that fixes it, if one is authored"]],
+ diagram:[["config","highlights the selection's emit closure"],
+          ["inventory","selects rows"],
+          ["finder","Ctrl K scoped to the selected node's kind"]],
+ inventory:[["config","the emit unit becomes the row"],
+            ["findings","filters to the selected rows"],
+            ["walkthrough","W offers tasks rooted at the row"]]
+};
+function intro(key, proseHtml){
+  var h = '<div class="intro"><div>'+proseHtml+'</div><div class="xref">'+
+          '<span class="lab">From here it goes to</span><ul>';
+  (XREF[key]||[]).forEach(function(x){
+    h += '<li><button type="button" data-go="'+x[0]+'">'+x[0]+' →</button>'+
+         '<span class="k">'+x[1]+'</span></li>';
+  });
+  return h + '</ul></div></div>';
+}
+
+function secHead(s, tabs){
+  return '<div class="sec-head"><h2>'+s.name+'</h2>'+
+         '<span class="eq">'+esc(s.eq)+'</span>'+
+         '<span class="sec-tabs">'+
+           (tabs||[]).map(function(t){ return '<span class="mtab">'+t+'</span>'; }).join("")+
+           '<span class="mtab">'+s.phase+'</span>'+
+         '</span></div>';
+}
+
+/* ======================================================= §1 the finder ==== */
+
+function score(e){
+  var q = S.q.trim().toLowerCase();
+  if(!q) return 1;
+  var hay = (e.cmd.join(" ")+" "+e.answers+" "+e.aka.join(" ")+" "+e.domain).toLowerCase();
+  var toks = q.split(/\s+/), hit = 0;
+  toks.forEach(function(t){ if(hay.indexOf(t) >= 0) hit++; });
+  return hit / toks.length;
+}
+function results(){
+  /* I9 — deterministic. Pure function of query and corpus order; no recency,
+     no personalisation, no re-ranking that moves a row under a keystroke. */
+  var r = CORPUS.map(function(e,i){ return { e:e, s:score(e), i:i }; })
+                .filter(function(x){ return x.s >= 0.5; });
+  r.sort(function(a,b){
+    if(b.s !== a.s) return b.s - a.s;
+    /* 16 §8.3 risk prior — a safety control, not a relevance signal. */
+    var pr = { ReadOnly:0, ChangesConfig:1, Disruptive:2 };
+    if(pr[a.e.risk] !== pr[b.e.risk]) return pr[a.e.risk] - pr[b.e.risk];
+    return a.i - b.i;
+  });
+  return r.map(function(x){ return x.e; });
+}
+
+function depthOf(id){ return S.depthOverride[id] || S.depth; }
+
+function depthTabs(id){
+  var d = depthOf(id);
+  return '<span class="sec-tabs">'+["terse","explained","teaching"].map(function(k){
+    return '<button class="mtab'+(k===d?" on":"")+'" type="button" data-depth="'+id+'" data-d="'+k+'">'+k+'</button>';
+  }).join(" ")+'</span>';
+}
+
+function stampFor(){
+  /* I10 / ADR-0027 — required chrome. The seed corpus carries reviewed_by:
+     <named human> and no verified_on, so it renders unverified. No reviewer
+     name is invented here. */
+  return '<span class="stamp">junos-srx 21.4R3 · <b>unverified</b> · reviewed_by &lt;named human&gt;</span>';
+}
+
+function hitCmd(e){
+  var h = "";
+  e.cmd.forEach(function(seg,i){
+    h += (i ? '<span class="cont">  </span>' : "") + esc(seg) + (i < e.cmd.length-1 ? ' <span class="cont">\\</span><br>' : "");
+  });
+  return h;
+}
+
+function secFinder(){
+  var s = SECS[0], rs = results(), h = secHead(s, ["ten times a day is not a modal","zero setup, zero trust"]);
+  h += intro("finder", '<p class="prose">The corpus surface, and the only one that works with no workspace '+
+       'at all — zero setup, zero data entry, zero trust required. It changes nothing in the graph: it copies, '+
+       'navigates, starts a walkthrough, or opens an explainer. The row is the answer, not the command.</p>');
+  h += '<div class="finder-input-row">'+
+       '<span class="finder-key" aria-hidden="true">Ctrl K</span>'+
+       '<input class="finder-q" id="q" data-fk="q" type="text" value="'+esc(S.q)+'" '+
+       'placeholder="is the tunnel up" aria-label="Find a command" autocomplete="off" spellcheck="false">'+
+       '<span class="finder-meta">'+rs.length+' · det.</span></div>';
+
+  if(!S.q.trim()){
+    h += '<div class="ladder"><div class="ladder-head"><span>'+LADDER.title+'</span>'+
+         '<span class="imp">'+LADDER.imp+'</span></div>';
+    LADDER.steps.slice(0,2).forEach(function(st,i){
+      h += '<div class="ladder-step"><span class="hit-cmd"><code>'+st[0]+'</code>'+riskSpan(st[1])+'</span></div>';
+    });
+    h += '<div class="ladder-more">+ 7 more steps · order is ladder position, never score</div></div>';
+    h += '<p class="note"><b>Installed proves crypto, not reachability.</b> The tunnel reads UP while '+
+         'passing zero packets when <code>st0</code> has no zone, no policy, or nothing routed at it.</p>';
+  }
+
+  if(!rs.length){
+    h += '<div class="hits"><div class="hit" style="cursor:default">nothing above the cutoff for '+
+         '<code>'+esc(S.q)+'</code> — the miss is logged locally and never transmitted</div></div>';
+  } else {
+    h += '<ul class="hits" role="listbox" aria-label="Results" id="hits">';
+    rs.forEach(function(e, i){
+      var cur = i === S.cur, open = S.open === e.id;
+      h += '<li class="hit'+(cur?" cur":"")+'" role="option" aria-selected="'+cur+'" '+
+           'tabindex="'+(cur?0:-1)+'" data-hit="'+i+'" data-fk="hit-'+i+'">'+
+           '<span class="hit-cmd"><code>'+hitCmd(e)+'</code>'+riskSpan(e.risk)+'</span>'+
+           '<span class="hit-ans">'+esc(e.answers)+'</span>'+
+           (cur ? '<span class="hit-read"><b>Read:</b> '+esc(e.read)+'</span>' : "")+
+           '</li>';
+      if(open) h += '<li>'+finderExpand(e)+'</li>';
+    });
+    h += '</ul>';
+  }
+  h += '<p class="mtab" style="margin-top:var(--s2)">↑↓ or j k move · e expands · ⏎ or c copies · '+
+       'w starts the walkthrough that builds it · v cycles depth</p>';
+  return '<section class="sec" id="sec-finder" data-sec="finder">'+h+'</section>';
+}
+
+function finderExpand(e){
+  var h = '<div class="expand">';
+  if(e.fields){
+    h += '<div class="block-label">Output fields — what to read</div><table class="hair"><tbody>';
+    e.fields.forEach(function(f){ h += '<tr><th class="k">'+esc(f[0])+'</th><td>'+f[1]+'</td></tr>'; });
+    h += '</tbody></table>';
+  }
+  if(e.blast){
+    h += '<div class="block-label">Blast radius</div><p class="prose tight">'+esc(e.blast)+'</p>';
+  }
+  h += '<div class="block-label" style="display:flex;justify-content:space-between;align-items:baseline">'+
+       '<span>Why</span>'+depthTabs(e.id)+'</div>';
+  h += '<p class="prose tight">'+e.ex[depthOf(e.id)]+'</p>';
+  if(e.next && e.next.length){
+    h += '<div class="block-label">If bad — one hop</div>';
+    e.next.forEach(function(n){
+      h += '<div class="hit-cmd"><code>'+n[0]+'</code>'+
+           (n[1]==="explainer" ? '<span class="hit-risk" style="color:var(--muted)">explainer</span>'
+                               : riskSpan(n[1]))+'</div>';
+    });
+  }
+  if(e.rules && e.rules.length){
+    h += '<div class="block-label">Rules this entry arms</div><div class="mtab">'+
+         e.rules.map(function(r){ return '<code>'+r+'</code>'; }).join(" · ")+'</div>';
+  }
+  if(e.verify){
+    h += '<p class="note"><span class="lab">Unverified</span>'+esc(e.verify)+'</p>';
+  }
+  h += '<div class="acts">'+
+       '<button class="act" type="button" data-copy="'+esc(e.cmd.join(" "))+'">copy ⏎</button>'+
+       '<button class="act" type="button" data-walk="'+e.id+'">start the walkthrough W</button>'+
+       '<button class="act" type="button" data-go="findings">its findings</button>'+
+       '</div>';
+  h += '<p class="mtab" style="margin-top:var(--s2)">'+stampFor()+' · sources: '+esc(e.src)+'</p>';
+  return h + '</div>';
+}
+
+/* ================================================== the fold (ADR-0006) === */
+
+function fold(){
+  return '<div class="fold">'+
+    '<div class="lab">Everything below this line requires the graph</div>'+
+    '<p>ADR-0006 (Accepted) ships v1 <b>above</b> it: the finder alone, 12–18 solo weeks. '+
+    'Below it are phases 1–3 and the diagram — 50–84 more solo weeks by 71 §2’s own figures, '+
+    'and 83 §12.5 re-costed 71’s inputs low by 1.5–1.6×. The owner’s two goals both live below '+
+    'the line. The owner brief is the authority and ADR-0006 is Accepted; both are in force and they '+
+    'disagree. This concept draws the disagreement rather than resolving it.</p>'+
+    '<button class="act" type="button" id="v1btn" aria-pressed="'+S.v1only+'">'+
+    (S.v1only ? "show all six sections" : "show v1 only")+'</button></div>';
+}
+
+/* ================================================ §2 the walkthrough ====== */
+
+function currentStep(){
+  for(var i=0;i<STEPS.length;i++) if(!STEPS[i].done) return STEPS[i];
+  return STEPS[STEPS.length-1];
+}
+
+function secWalk(){
+  var s = SECS[1], cur = currentStep();
+  var h = secHead(s, ["authored, not coded","resumable · versions with the corpus"]);
+  h += intro("walkthrough", '<p class="prose">The one controller. Everything else reads; this writes. '+
+       'The cursor <span class="m">▪</span> is not a selection — it is where the program is, and it does not '+
+       'travel to the other sections. It is resumable state stored in the workspace, not session state.</p>');
+  h += '<p class="mtab"><code>'+TASK.id+'</code> · root <code>'+TASK.root+'</code> · step '+cur.n+' of '+TASK.total+'</p>';
+  STEPS.forEach(function(st){
+    var cls = st.done ? "step done" : (st === cur ? "step now" : "step next");
+    h += '<div class="'+cls+'">'+
+         '<span class="ord">'+(st===cur?'<span class="cue"></span>':"")+'step '+st.n+'</span> '+
+         '<span class="q">'+esc(st.q)+'</span>';
+    if(st.done){
+      h += '<div class="wrote">→ '+esc(st.ans||"")+(st.wrote?'  ·  '+esc(st.wrote):"")+'</div>';
+    } else if(st === cur){
+      if(st.explain) h += '<p class="note">'+esc(st.explain)+'</p>';
+      h += '<div class="acts">';
+      st.choices.forEach(function(c){
+        h += '<button class="act" type="button" data-step="'+st.n+'" data-choice="'+esc(c)+'">'+esc(c)+'</button>';
+      });
+      h += '</div>';
+      if(st.arms) h += '<p class="mtab">answering this arms <code>'+st.arms+'</code> — '+
+                       'the finding appears at the earliest honest moment, not at the end</p>';
+    }
+    h += '</div>';
+  });
+  h += '<p class="note wide"><span class="lab">The vocabulary gap, closed here and nowhere else</span>'+
+       'The question is written in the user’s words; the field it writes is <code>external_interface</code>. '+
+       'A step is a corpus document — <code>{ id, ordinal, question, explain, writes, input, arms }</code> — '+
+       'so a new guided task is authoring, not programming. <b>This is where a new walkthrough plugs in.</b></p>';
+  return '<section class="sec" id="sec-walkthrough" data-sec="walkthrough">'+h+'</section>';
+}
+
+/* ===================================================== §3 the config ====== */
+
+function secConfig(){
+  var s = SECS[2], L = emit();
+  var h = secHead(s, ["copy-paste only","72 columns · card breaks preserved"]);
+  h += '<div class="acts" style="margin-bottom:var(--s2)">'+
+       '<button class="act" type="button" data-cfg="full" aria-pressed="'+(S.cfgMode==="full")+'">full</button>'+
+       '<button class="act" type="button" data-cfg="change" aria-pressed="'+(S.cfgMode==="change")+'">change set ⌥D</button>'+
+       '<span class="mtab" style="align-self:center">config · '+(S.cfgMode==="change"?"change set":"full")+
+       ' · '+L.length+' lines · emit unit <code>VPN-DC-EAST</code></span></div>';
+
+  if(S.cfgMode === "change"){
+    h += changeSetBlock();
+  } else {
+    h += '<div class="cfg">';
+    L.forEach(function(l, i){
+      var isCur = S.cfgCur === i;
+      var isRel = !isCur && S.sel && S.sel.set.indexOf(l.node) >= 0;
+      h += '<div class="cfgline'+(isCur?" cur":"")+(isRel?" rel":"")+'" data-line="'+i+'" tabindex="'+(isCur?0:-1)+'" '+
+           'data-fk="cfg-'+i+'" role="button" aria-expanded="'+isCur+'">'+
+           '<span class="gut">'+riskMark(l.risk)+' '+l.ord+'</span>'+
+           '<span class="code">'+esc(cfgText(l.seg))+'</span></div>';
+      if(isCur) h += cfgProv(l);
+    });
+    h += '</div>';
+    h += '<p class="note wide"><span class="lab">Invariant 3 — the tool never accepts a credential</span>'+
+         'Line 8 emits <code>ascii-text "&lt;PSK&gt;"</code>. The angle brackets are the product: there is no '+
+         'secrets field, no vault, no "save credentials". A total compromise of Fathom yields no key and no '+
+         'reachability.</p>';
+  }
+  h += '<p class="mtab">↑↓ or j k move · e or ⏎ opens the provenance · c copies the line · '+
+       'w offers the task that builds this block</p>';
+  return '<section class="sec" id="sec-config" data-sec="config">'+h+'</section>';
+}
+
+/* M9 — the expansion is a consequence of EmittedLine carrying its origin, not
+   a feature that has to be maintained. */
+function cfgProv(l){
+  var h = '<div class="prov"><span class="tree">└ '+esc(l.node)+' · '+esc(l.fields)+' · hand-entered 2026-07-24</span>';
+  h += '<span class="tree">└ rules: '+(l.rules.length ? l.rules.map(function(r){
+         return r + (RULES[r] && packMounted(RULES[r].pack) ? " (armed)" : " (pack not mounted)"); }).join(", ")
+       : "none")+'</span>';
+  if(l.psk) h += '<p class="note" style="margin:var(--s2) 0 0">The emitter writes a placeholder. '+
+                 'You paste the real key into your own terminal and nowhere else.</p>';
+  /* I6 — the line already carries source_node and source_fields, so the
+     explainer lookup is a join, not a maintained mapping. */
+  var joined = l.seg.join(" ");
+  var e = CORPUS.filter(function(x){
+    var c = x.cmd.join(" ");
+    return c.indexOf(joined) === 0 || joined.indexOf(c) === 0 ||
+           c.slice(0, 34) === joined.slice(0, 34);
+  })[0];
+  if(e){
+    h += '<div class="block-label" style="display:flex;justify-content:space-between;align-items:baseline">'+
+         '<span>Why this line</span>'+depthTabs("cfg:"+l.ord)+'</div>'+
+         '<p class="prose tight">'+e.ex[depthOf("cfg:"+l.ord)]+'</p>'+
+         '<p class="mtab">'+stampFor()+'</p>';
+  }
+  h += '<div class="acts">'+
+       '<button class="act" type="button" data-copy="'+esc(l.seg.join(" "))+'">copy line</button>'+
+       '<button class="act" type="button" data-selnode="'+esc(l.node)+'" data-origin="config">select its node</button>'+
+       '</div></div>';
+  return h;
+}
+
+function changeSetBlock(){
+  var pfsOn = !!G.vpn.pfs;
+  var lines = [["ctx","commit confirmed 5"]];
+  var u = byName("LogicalUnit","reth0.0");
+  if(u.host_inbound.indexOf("ike") < 0)
+    lines.push(["add","set security zones security-zone WAN interfaces reth0.0 \\"],
+               ["add","  host-inbound-traffic system-services ike"]);
+  if(!pfsOn) lines.push(["add","set security ipsec policy IPSEC-POL \\"],["add","  perfect-forward-secrecy keys group14"]);
+  lines.push(["ctx","commit"]);
+  var h = '<div class="cfg">';
+  lines.forEach(function(l){
+    var g = l[0]==="add" ? "+" : l[0]==="del" ? "−" : "·";
+    h += '<div class="diffline '+(l[0]==="add"?"add":l[0]==="del"?"del":"ctx")+'">'+
+         '<span>'+g+'</span><span>'+esc(l[1])+'</span></div>';
+  });
+  h += '</div>';
+  h += '<div class="block-label">Pruned verification ladder</div><div class="cfg">';
+  ["show security ike security-associations","show security ipsec security-associations",
+   "show security ipsec inactive-tunnels"].forEach(function(c,i){
+    h += '<div class="cfgline" style="cursor:default"><span class="gut">'+riskMark("ReadOnly")+' '+(i+1)+
+         '</span><span class="code">'+esc(c)+'</span></div>';
+  });
+  h += '</div>';
+  h += '<div class="block-label">Rollback</div><div class="cfg">'+
+       '<div class="cfgline" style="cursor:default"><span class="gut">'+riskMark("Disruptive")+' 1</span>'+
+       '<span class="code">rollback 1</span></div>'+
+       '<div class="cfgline" style="cursor:default"><span class="gut">'+riskMark("ChangesConfig")+' 2</span>'+
+       '<span class="code">commit</span></div></div>';
+  h += '<p class="note"><span class="lab">S5 — a mode, not a seventh view</span>'+
+       '<code>verify(diff(graph))</code> is config in <code>ChangeSet</code> mode: the diff, then the pruned '+
+       'ladder, then the rollback, with <code>commit confirmed 5</code> as line 1. The cost is that config now '+
+       'has a mode selector, and the mitigation is naming it in the band rather than hiding it.</p>';
+  if(S.changeSets.length){
+    h += '<div class="block-label">Appended by inventory operations, in order</div>';
+    S.changeSets.forEach(function(cs){
+      h += '<p class="mtab">'+esc(cs.label)+'</p><div class="cfg">';
+      cs.lines.forEach(function(t,i){
+        h += '<div class="cfgline" style="cursor:default"><span class="gut">'+riskMark(cs.risk)+' '+(i+1)+
+             '</span><span class="code">'+esc(t)+'</span></div>';
+      });
+      h += '</div>';
+    });
+  }
+  return h;
+}
+
+/* =================================================== §4 the findings ====== */
+
+function secFindings(){
+  var s = SECS[3], F = lint();
+  var h = secHead(s, ["the card’s error decoder, literally","sorted by node emit order"]);
+  h += intro("findings", '<p class="prose">Two columns, horizontal hairlines, no vertical rules. Left is the '+
+       'lookup key; right is the answer. Severity is the 4px left bar in four tones — <b>not</b> a colour, '+
+       'because red already means drops live traffic, and a finding does not drop traffic. The command you '+
+       'paste might. Sorted by severity, then node emit order, then rule id, so reading down walks Phase 1 '+
+       'before Phase 2.</p>');
+  h += '<table class="dec"><thead><tr><th>In the graph</th><th>Go look at</th></tr></thead><tbody>';
+  F.forEach(function(f, i){
+    var r = f.r, cur = S.findCur === i;
+    var cls = "sev-"+(r.sev==="high"?"high":r.sev==="medium"?"med":"low")+
+              (f.state==="pending"?" st-pending":"")+(f.state==="suppressed"?" st-suppressed":"")+(cur?" cur":"");
+    h += '<tr class="'+cls+'" data-find="'+i+'">';
+    h += '<td class="lookup"><span class="rid">'+r.pack.split(".")[1]+'/'+f.id+'</span>'+
+         '<span class="node">'+esc(r.node)+'</span>'+
+         '<span class="mtab">v'+r.ver+' · '+r.cat+' · '+r.sev+'</span>'+
+         '<span class="mtab">'+(r.conf==="definite"?"":r.conf==="probable"?"probable":"heuristic, may be wrong")+'</span>'+
+         (f.state==="pending"?'<span class="mtab">pending — a field is unset, so this is not yet a claim</span>':"")+
+         (f.state==="suppressed"?'<span class="mtab">suppressed · '+esc(S.suppressed[f.id].slice(0,40))+'</span>':"")+
+         '</td>';
+    h += '<td><span class="title">'+esc(r.title)+'</span>';
+    if(!cur){
+      h += '<span class="field muted">'+esc(r.why.slice(0,120))+'…  <button class="act" type="button" '+
+           'data-find-open="'+i+'">open</button></span>';
+    } else {
+      h += '<span class="field"><b class="fkey">why</b> '+esc(r.why)+'</span>';
+      h += '<span class="field"><b class="fkey">symptom if mismatched</b> '+r.symptom+'</span>';
+      h += '<span class="field"><b class="fkey">remediation</b></span><div class="cfg">';
+      r.fix.forEach(function(l,j){
+        h += '<div class="cfgline" style="cursor:default"><span class="gut">'+riskMark(l[1])+' '+(j+1)+
+             '</span><span class="code">'+esc(wrapCfg(l[0]))+'</span></div>';
+      });
+      h += '</div>';
+      h += '<span class="field"><b class="fkey">acceptable when</b> '+esc(r.acceptable)+'</span>';
+      h += '<span class="field"><b class="fkey">verify</b> '+r.verify.map(function(v){
+             return '<code>'+v+'</code>'; }).join(" · ")+'</span>';
+      h += '<span class="field mtab">pack <code>'+r.pack+'</code> · rule_version '+r.ver+
+           ' · sources: '+esc(r.src)+'</span>';
+      h += '<div class="acts">'+
+           '<button class="act" type="button" data-fix="'+f.id+'">produce a change set (f)</button>'+
+           (f.state==="suppressed"
+             ? '<button class="act" type="button" data-unsup="'+f.id+'">unsuppress (u)</button>'
+             : '<button class="act" type="button" data-sup="'+f.id+'">suppress (s)</button>')+
+           '<button class="act" type="button" data-selnode="'+esc(r.node)+'" data-origin="findings">select its node</button>'+
+           '</div>';
+    }
+    h += '</td></tr>';
+  });
+  h += '</tbody></table>';
+
+  h += '<p class="note"><span class="lab">Invariant 8 — acceptable_when is mandatory on every rule</span>'+
+       'A rule that can never be acceptable must say so explicitly. This one field is the difference between a '+
+       'linter engineers trust and one they disable.</p>';
+
+  /* M2 — the most concrete extension surface in the product. */
+  h += '<div class="block-label">Rule packs mounted</div>';
+  h += '<table class="hair"><thead><tr><th>Pack</th><th>Version</th><th>Signer</th><th>Rules</th><th>Last review</th><th></th></tr></thead><tbody>';
+  PACKS.forEach(function(p){
+    h += '<tr><th>'+p.id+'</th><td>'+p.ver+'</td><td class="muted">'+esc(p.signer)+'</td><td>'+p.rules+
+         '</td><td class="muted">'+esc(p.reviewed)+'</td><td>'+
+         '<button class="act" type="button" data-pack="'+p.id+'" aria-pressed="'+p.mounted+'">'+
+         (p.mounted?"mounted":"mount from disk")+'</button></td></tr>';
+  });
+  h += '</tbody></table>';
+  h += '<p class="note wide"><span class="lab">This is where a new rule pack plugs in</span>'+
+       'A pack is <code>pack.toml</code> + <code>rules/&lt;id&gt;/rule.yaml</code> + fixtures + a changelog, '+
+       'signed with minisign into a scoped trust store with no TOFU. Mount <code>fathom.mtu</code> above and '+
+       '<code>mtu.mss-clamp.absent</code> appears in this table, in the inventory’s opinions column and in '+
+       'the band count — <b>zero lines of UI code</b>, because findings are data, not code (invariant 5). '+
+       'Neither pack here is signed; both say so rather than implying a trust they do not have.</p>';
+  h += '<p class="mtab">↑↓ or j k move · e or ⏎ opens · f produces a change set · s suppresses</p>';
+  return '<section class="sec" id="sec-findings" data-sec="findings">'+h+'</section>';
+}
+
+/* ==================================================== §5 the diagram ====== */
+
+var DIA_NODES = ["Device SRX-A","Device SRX-B","LogicalUnit reth0.0","LogicalUnit st0.0",
+                 "IkeGateway GW-B","IpsecVpn VPN-DC-EAST"];
+
+function diaNode(id, x, y, w, hh, label, sub){
+  var cur = S.sel && S.sel.anchor === id;
+  var rel = !cur && S.sel && S.sel.set.indexOf(id) >= 0;
+  return '<g class="node'+(cur?" cur":"")+(rel?" rel":"")+'" data-dnode="'+esc(id)+'" tabindex="0" '+
+         'role="button" aria-label="'+esc(id)+'" data-fk="dia-'+esc(id)+'">'+
+         '<rect class="box" x="'+x+'" y="'+y+'" width="'+w+'" height="'+hh+'"></rect>'+
+         '<text x="'+(x+10)+'" y="'+(y+20)+'">'+esc(label)+'</text>'+
+         (sub?'<text class="lab" x="'+(x+10)+'" y="'+(y+36)+'">'+esc(sub)+'</text>':"")+
+         '</g>';
+}
+
+function secDiagram(){
+  var s = SECS[4], st = byName("LogicalUnit","st0.0");
+  var h = secHead(s, ["a figure in the flow","layout survives renames"]);
+  h += intro("diagram", '<p class="prose">A design tool, not a source of truth. Layout position is workspace '+
+       'state keyed by <code>NodeId</code>, so renaming a device does not invalidate it. Field values are not '+
+       'edited here. Nodes parsed from a real config are marked as parsed, with their age.</p>');
+  h += '<div class="acts" style="margin-bottom:var(--s2)">'+
+       ['l2','l3','sec','ov'].map(function(k){
+          var n = {l2:"physical + L2", l3:"L3", sec:"security", ov:"overlay"}[k];
+          return '<button class="act" type="button" data-layer="'+k+'" aria-pressed="'+S.layers[k]+'">'+n+'</button>';
+       }).join("")+'<span class="mtab" style="align-self:center">⌥L cycles · inline, not a menu</span></div>';
+
+  h += '<figure><svg class="dia" viewBox="0 0 940 300" role="img" aria-label="DC-EAST hub and one spoke">';
+  h += '<g'+(S.layers.sec?"":" hidden")+'>'+
+       '<rect class="zone" x="16" y="16" width="300" height="264"></rect>'+
+       '<text class="lab" x="24" y="34">SITE DC-EAST</text>'+
+       '<rect class="zone" x="360" y="24" width="180" height="110"></rect>'+
+       '<text class="lab" x="368" y="42">ZONE WAN</text>'+
+       '<rect class="zone" x="360" y="160" width="180" height="120"></rect>'+
+       '<text class="lab" x="368" y="178">ZONE '+(st.zone||"— none —")+'</text>'+
+       '</g>';
+  h += '<g'+(S.layers.l2?"":" hidden")+'>'+
+       diaNode("Device SRX-A", 32, 48, 130, 52, "SRX-A", "SRX345 · parsed") +
+       diaNode("Device SRX-B", 32, 120, 130, 52, "SRX-B", "SRX345 · hand-entered") +
+       diaNode("LogicalUnit reth0.0", 376, 56, 148, 52, "reth0.0", "WAN unit IKE leaves by") +
+       '<path class="link" d="M162 74 H376"></path><path class="link" d="M162 146 V82 H376"></path>'+
+       '</g>';
+  h += '<g'+(S.layers.l3?"":" hidden")+'>'+
+       diaNode("LogicalUnit st0.0", 376, 192, 148, 52, "st0.0", "10.255.0.1/30 · MTU 1400") +
+       '<text class="lab" x="40" y="230">TRUST 10.1.0.0/16</text>'+
+       '<text class="lab" x="640" y="230">10.2.0.0/16 via st0.0</text>'+
+       '</g>';
+  h += '<g'+(S.layers.ov?"":" hidden")+'>'+
+       diaNode("IkeGateway GW-B", 620, 56, 200, 52, "GW-B", "203.0.113.10 · v2-only") +
+       diaNode("IpsecVpn VPN-DC-EAST", 620, 192, 200, 52, "VPN-DC-EAST", "TS1 · bind st0.0") +
+       '<path class="link" d="M524 82 H620"></path>'+
+       '<text class="lab" x="534" y="74">IKE 500/4500</text>'+
+       '<path class="link" d="M524 218 H620"></path>'+
+       '<text class="lab" x="534" y="210">ESP proto 50</text>'+
+       '</g>';
+  h += '</svg><figcaption>FIGURE 1 — DC-EAST hub, one spoke. Fixture derived from the field card’s worked '+
+       'topology. SRX-A is marked <span class="m">parsed 2026-07-24</span>; SRX-B is hand-entered. '+
+       'Above 2,000 live elements this aggregates to Site/Device and the honest answer becomes the inventory '+
+       'table.</figcaption></figure>';
+  h += '<p class="note">Click or Tab to a node: the selection is over the graph, never over the rendering. '+
+       'It lights the emit closure in config and the row in inventory without either of them re-rendering '+
+       'from scratch.</p>';
+  return '<section class="sec" id="sec-diagram" data-sec="diagram">'+h+'</section>';
+}
+
+/* ================================================== §6 the inventory ====== */
+
+function invRowsFor(kind){
+  var rows = G[kind] || [];
+  var q = S.invQ.trim().toLowerCase();
+  if(!q) return rows;
+  return rows.filter(function(r){
+    return Object.keys(r).some(function(k){
+      if(k === "id") return false;
+      return String(r[k]).toLowerCase().indexOf(q.replace(/^\w+:/,"")) >= 0;
+    }) || q.split(/\s+/).every(function(t){
+      var p = t.split(":");
+      return p.length === 2 ? String(r[p[0]]||"").toLowerCase().indexOf(p[1]) >= 0 : true;
+    });
+  });
+}
+
+function secInventory(){
+  var s = SECS[5], kind = S.invKind, def = SCHEMA[kind];
+  var cols = S.cols && S.cols[kind] ? S.cols[kind] : def.fields.map(function(f){ return f[0]; });
+  var rows = invRowsFor(kind);
+  var h = secHead(s, ["fixture · not corpus data","columns generated from schema.yaml"]);
+  h += intro("inventory", '<p class="prose">The estate as a table, and the thing a source-of-truth database '+
+       'structurally does not do: <b>the rightmost column is not a field</b>. It is what the rule engine thinks '+
+       'of the row. Sorting by it sorts by worst severity, then count.</p>');
+
+  h += '<div class="picker">'+Object.keys(SCHEMA).map(function(k){
+         return '<button class="act" type="button" data-kind="'+k+'" aria-pressed="'+(k===kind)+'">'+k+
+                ' · '+(G[k]||[]).length+'</button>'; }).join("")+'</div>';
+
+  h += '<div class="qline"><label for="invq">rows where</label>'+
+       '<input id="invq" data-fk="invq" type="text" value="'+esc(S.invQ)+'" spellcheck="false" '+
+       'placeholder="role:hub   or   reth0.0   — a sentence, not a form" aria-label="Filter rows"></div>';
+
+  h += '<div class="picker">'+def.fields.map(function(f){
+         var on = cols.indexOf(f[0]) >= 0;
+         return '<button class="act" type="button" data-col="'+f[0]+'" aria-pressed="'+on+'">'+f[0]+
+                ' <span class="mtab">'+esc(f[1])+'</span></button>'; }).join("")+'</div>';
+
+  h += '<table class="inv"><thead><tr><th></th>'+
+       cols.map(function(c){ return '<th>'+c+'</th>'; }).join("")+
+       '<th>findings</th></tr></thead><tbody>';
+  rows.forEach(function(row, i){
+    var label = nodeLabelFor(kind, row);
+    var cur = S.sel && S.sel.anchor === label;
+    var rel = !cur && S.sel && S.sel.set.indexOf(label) >= 0;
+    h += '<tr class="'+(cur?"cur":rel?"rel":"")+'" data-row="'+i+'">';
+    h += '<td class="first"><button class="mark" type="button" data-mark="'+row.id+'" '+
+         'aria-pressed="'+(!!S.marked[row.id])+'" aria-label="Mark '+esc(row.name)+'">'+
+         (S.marked[row.id]?"▪":"·")+'</button></td>';
+    cols.forEach(function(c){
+      var v = row[c] === undefined ? "—" : (Array.isArray(row[c]) ? (row[c].join(",")||"—") : row[c]);
+      if(def.edit.indexOf(c) >= 0){
+        h += '<td><button class="cell" type="button" data-edit="'+row.id+'" data-field="'+c+'" '+
+             'data-fk="cell-'+row.id+'-'+c+'">'+esc(v)+'</button></td>';
+      } else {
+        h += '<td><span class="m'+(c==="provenance"?" muted":"")+'">'+esc(v)+'</span></td>';
+      }
+    });
+    h += '<td class="op"><button class="cell" type="button" data-selnode="'+esc(label)+'" data-origin="inventory">'+
+         esc(aggFor(row.id))+'</button></td></tr>';
+  });
+  h += '</tbody></table>';
+
+  var markedIds = Object.keys(S.marked).filter(function(k){ return S.marked[k]; });
+  h += '<div class="acts">'+
+       '<button class="act" type="button" id="bulk" '+(markedIds.length?"":"disabled")+'>'+
+       'set dead-peer-detection always-send 10 × 3 on '+markedIds.length+' marked</button>'+
+       '<button class="act" type="button" id="unmark" '+(markedIds.length?"":"disabled")+'>clear marks</button>'+
+       '<span class="mtab" style="align-self:center">x marks the focused row · the operation writes a change '+
+       'set into this document, not into a device</span></div>';
+
+  if(S.changeSets.length){
+    h += '<div class="block-label">Written by the last bulk operation</div>';
+    var cs = S.changeSets[S.changeSets.length-1];
+    h += '<div class="cfg">'+cs.lines.map(function(t,i){
+           return '<div class="cfgline" style="cursor:default"><span class="gut">'+riskMark(cs.risk)+' '+(i+1)+
+                  '</span><span class="code">'+esc(t)+'</span></div>'; }).join("")+'</div>'+
+         '<p class="mtab">the same block is in <button class="frag" type="button" data-go="config">config · '+
+         'change set</button> — one document, one copy</p>';
+  }
+
+  /* M8 — population rules. The inventory acquiring an opinion it did not have
+     yesterday, without a UI change. */
+  if(!G.cluster && !G.clusterDismissed){
+    h += '<p class="note wide"><span class="lab">Two SRX devices, no cluster</span>'+
+         'SRX-A and SRX-B are the same model and family and sit in the same Site, and the IKE gateway leaves '+
+         'by <code>reth0.0</code> — a <code>reth</code> exists only on a chassis cluster. If these two are '+
+         'that cluster, RG0 needs a node priority pair and RG1 needs the reth members. Nothing in the '+
+         'workspace says they are. Fathom is guessing from three facts.'+
+         '<span class="acts"><button class="act" type="button" id="modelit">model it</button>'+
+         '<button class="act" type="button" id="notcluster">not a cluster</button></span></p>';
+  } else if(G.cluster){
+    h += '<p class="mtab">▪ modelled as chassis cluster CL-1 · 2026-07-28 · '+
+         '<code>show chassis cluster status</code> added to the verify ladder</p>';
+  } else {
+    h += '<p class="mtab">▪ population observation dismissed · not a cluster · reopens if a third fact arrives</p>';
+  }
+
+  h += '<p class="note wide"><span class="lab">Fixture — no inventory ships in the corpus</span>'+
+       'These rows are derived from <code>.context/field-card-srx-ipsec.txt</code>’s worked topology: '+
+       'hub and spoke, <code>reth0.0</code>, <code>st0.0</code> at 10.255.0.1/30, GW-B at 203.0.113.10, '+
+       'TS1 10.1.0.0/16 → 10.2.0.0/16. The command, rule and explainer content everywhere else on this page '+
+       'is real corpus. <b>This table is not.</b></p>';
+  h += '<p class="mtab">columns above are generated from <code>schema.yaml</code> (11 §11.6) — '+
+       '<b>this is where a new node kind plugs in</b>: add a kind and you get inventory columns, diagram '+
+       'nodes, rule targets and explainer subjects at once, with no UI code.</p>';
+  return '<section class="sec" id="sec-inventory" data-sec="inventory">'+h+'</section>';
+}
+
+/* ==================================================== back matter ========= */
+
+function colophon(){
+  var res = performance.getEntriesByType ? performance.getEntriesByType("resource") : [];
+  var sheets = [], scripts = 0;
+  for(var si=0; si<document.styleSheets.length; si++)
+    if(document.styleSheets[si].href) sheets.push(document.styleSheets[si].href);
+  var sc = document.getElementsByTagName("script");
+  for(var sj=0; sj<sc.length; sj++) if(sc[sj].src) scripts++;
+  var remote = sheets.concat(res.map(function(r){ return r.name; }))
+                     .filter(function(u){ return u.indexOf("file:") !== 0; });
+  var csp = "";
+  var metas = document.getElementsByTagName("meta");
+  for(var i=0;i<metas.length;i++)
+    if((metas[i].getAttribute("http-equiv")||"").toLowerCase() === "content-security-policy")
+      csp = metas[i].getAttribute("content");
+  var stor = "none";
+  try { stor = "localStorage " + localStorage.length + " keys · sessionStorage " + sessionStorage.length +
+               " keys · cookie " + (document.cookie ? "set" : "empty"); } catch(err) { stor = "unavailable"; }
+
+  var rows = [
+   ["content-security-policy", "<code>"+esc(csp)+"</code><br><span class='muted'>read out of this page’s own "+
+    "<code>&lt;head&gt;</code> at render time — not typed into the prose. X0.8 asserts this against the final "+
+    "bytes of the shipped artifact, not against the template.</span>"],
+   ["subresources loaded", sheets.length + " stylesheet" + (sheets.length===1?"":"s") + " · " +
+    scripts + " external script" + (scripts===1?"":"s") + " · " + remote.length + " remote origin" +
+    (remote.length===1?"":"s") + "<br><span class='muted'>" +
+    (sheets.length ? sheets.map(function(u){ return esc(u) + " — scheme <code>" + esc(u.split(":")[0]) + ":</code>"; }).join("; ")
+                   : "no external stylesheet") +
+    ". Resource-timing entries: " + res.length + " — this engine does not put <code>file:</code> " +
+    "subresources in the timeline, so the stylesheet list above is the observation that counts.</span>"],
+   ["wasm import section", "<code>fathom_entropy(ptr, len)</code> → <code>crypto.getRandomValues</code><br>"+
+    "<code>fathom_now_ms()</code> → provenance timestamps only, never in a byte-compared path<br>"+
+    "<span class='muted'>Two entries, total. <code>wasm-objdump -x</code> the core, read the import section, "+
+    "assert every entry is in a committed allowlist. No import is capable of originating a network request — "+
+    "this is the check that makes <code>connect-src 'none'</code> an architectural property rather than a header.</span>"],
+   ["egress apis in this file", "none<br><span class='muted'>The four browser names that could originate a "+
+    "request are absent from the source. That is what makes the check a grep rather than a review — and it is "+
+    "why this row does not spell them out.</span>"],
+   ["browser storage", esc(stor)+"<br><span class='muted'>Mode D1 uses none. Nothing here survives a reload, "+
+    "which is also why there is no account, no login and no synced badge (invariant 4).</span>"],
+   ["the corpus", "zstd frames inside the artifact, lazily decompressed<br><span class='muted'>Lazy means "+
+    "“from local memory”, never “from a network”. Adding teaching material means adding "+
+    "frames to one file — the structural reason goal (a) scales offline at all.</span>"],
+   ["ship gates", "X0.8 — <code>connect-src 'none'</code> in the shipped bytes<br>"+
+    "X0.9 — no network request in a 30-minute scripted session, verified by a proxy that fails the test on any "+
+    "connection attempt<br><span class='muted'>Neither is an aspiration. Both fail the build.</span>"],
+   ["what is not claimed", "<span class='muted'>The published SHA-256 is over the final artifact bytes and "+
+    "cannot be computed from inside this page, so it is not printed here. A concept page that showed a hash it "+
+    "could not produce would be the same lie as a green shield.</span>"]
+  ];
+  var h = '<section class="sec" id="sec-colophon"><div class="sec-head"><h2>Colophon</h2>'+
+          '<span class="eq">back matter · not a view</span>'+
+          '<span class="sec-tabs"><span class="mtab">checkable, not decorative</span></span></div>';
+  h += '<p class="prose" style="max-width:none">A printed reference ends with a colophon: what it is made of, and how you could check. '+
+       'This one is the offline surface. It is deliberately <b>not</b> a seventh tab — M10 says new functionality '+
+       'lands as a mode, a layer, a diagram layer, an inventory kind or a rule pack, never as a seventh view, and '+
+       'back matter is none of those. There is no shield, no lock, no badge, and nothing here uses '+
+       'the read-only colour, which means '+
+       'one thing and is not available for “offline”.</p>';
+  h += '<table class="hair"><tbody>';
+  rows.forEach(function(r){ h += '<tr><th class="k">'+r[0]+'</th><td>'+r[1]+'</td></tr>'; });
+  h += '</tbody></table>';
+  h += '<p class="note wide"><span class="lab">There is no egress surface to design</span>'+
+       '51 §4.2 reserves an inverted band and <code>--z-egress: 10</code> for a workspace that may send graph '+
+       'excerpts somewhere. The owner has ruled that out. This page allocates no z-index above content: the '+
+       'egress layer stays unused, which is its own statement.</p>';
+  h += '<div class="acts"><span class="mtab" style="align-self:center">theme</span>'+
+       ['auto','light','dark'].map(function(t){
+         return '<button class="act" type="button" data-theme-set="'+t+'">'+t+'</button>'; }).join("")+'</div>';
+  h += '<p class="mtab" style="margin-top:var(--s4)">FATHOM · CONCEPT 02 · THE LIVING RUNBOOK · '+
+       'tokens: design/tokens.css · content: corpus/commands/junos-srx-ipsec.yaml, '+
+       'corpus/rules/ipsec-junos-srx.yaml, corpus/explainers/ipsec-concepts.yaml · estate: fixture</p>';
+  return h + '</section>';
+}
+
+/* ==================================================== front matter ======== */
+
+function frontMatter(){
+  return '<details class="disc" open id="thesis"><summary><span class="sign"></span>'+
+   '<span>Editor’s note — concept 02, the living runbook</span></summary><div class="tcols">'+
+   '<h3>Thesis, one sentence</h3>'+
+   '<p>The application is one document, not six screens: the six projections are <b>sections in the card’s '+
+   'own fixed order</b> that you scroll through and act inside, so a view switch moves your reading position '+
+   'rather than replacing the body.</p>'+
+   '<h3>What it optimises for, and what it therefore sacrifices</h3>'+
+   '<p>It optimises for <b>co-visibility and recall</b>. Because nothing is replaced, the config you just read '+
+   'is still above the findings that lint it, and 52 §3.8’s two rules stop being promises: a view switch '+
+   'cannot change the selection or scroll the previous view, because the previous view never went anywhere. '+
+   'The furniture never moves, so the risk legend is on screen while you read <em>any</em> section — in a '+
+   'six-screen shell it is redrawn six times; here it is drawn once.</p>'+
+   '<p>The sacrifice is real and it is <b>scale</b>. A document with 200 inventory rows and 3,000 config lines '+
+   'in it is a document with an enormous middle, and the honest fix — a virtualised table with its own scroller '+
+   'inside the document — reintroduces nested scroll, which the dense-UI analysis names as one of the highest-'+
+   'cost interface defects. This concept ducks that in the demo by having a six-row fixture. It would not duck '+
+   'it in the product. Second sacrifice: side-by-side comparison. A document has no second pane, so 52 §2.3’s '+
+   '62/38 split is simply not available here; you compare by scrolling, which is worse for two blocks that are '+
+   'far apart and better for two that are adjacent.</p>'+
+   '<h3>How it serves teaching</h3>'+
+   '<p>Teaching is the reading order, not a feature bolted to it. Explainers expand <b>in place</b>, pushing '+
+   'content down, never overlaying the evidence — because an explanation you must dismiss to check is an '+
+   'explanation you did not read. Depth is a lowercase margin tab on the block (<span class="m">terse · '+
+   'explained · teaching</span>), global default plus a per-block override that is forgotten when the block '+
+   'closes; there is no settings screen for it. Findings sort by node emit order so reading top-to-bottom walks '+
+   'Phase 1 before Phase 2, proposal before policy before gateway — the ORDER is the lesson. Every entry carries '+
+   'its verification stamp, and every one of them currently reads <b>unverified</b>, because nothing in the seed '+
+   'corpus has been run on a box by its author.</p>'+
+   '<h3>How it serves inventory and diagramming</h3>'+
+   '<p>The table is a table in the document, with generated columns, in-cell editing, a one-line filter written '+
+   'as a sentence rather than a form, row marking and a bulk operation. The answer to “can a document carry '+
+   'management” is the bulk operation’s output: it does not open a modal, it <b>appends a change set to '+
+   'the document</b>, in the config section, in the same idiom as everything else. Managing the estate writes the '+
+   'runbook. The diagram is a numbered figure in the flow with independently toggled layers, which is what a '+
+   'figure in a technical manual already is.</p>'+
+   '<p>Editing did <em>not</em> collapse into a form, but it came close twice, and both are stated rather than '+
+   'hidden: the schema column picker is a row of toggles, which is a form in everything but name; and the '+
+   'walkthrough is a controller with questions and inputs, which is a form that has been given a reading order. '+
+   '52 §2.3 already refuses to pin it as a second pane for exactly this reason — “a controller in a 400 px '+
+   'pane is a form in a gutter”.</p>'+
+   '<h3>Where new functionality plugs in</h3>'+
+   '<p>Not as a seventh section — M10 forbids that and this concept would be the most tempted to break it, '+
+   'because a document can always take another heading. Four seams are drawn and one of them runs: '+
+   '<b>M2 rule packs</b> (mount <code>fathom.mtu</code> in the findings section and a new finding appears in the '+
+   'table, the opinions column and the band count, with zero UI code); <b>M7 the schema</b> (the inventory’s '+
+   'columns are generated from it, and switching kind regenerates them); <b>M12 walkthroughs</b> (a step is an '+
+   'authored document); <b>M5’s view contract</b> — a section is <code>primary</code>/<code>resolve</code>/'+
+   '<code>select_at</code> and nothing else, which is why sections can be re-ordered, hidden by the v1 fold, or '+
+   'rendered as one document at all.</p>'+
+   '<h3>How you can tell it cannot phone home</h3>'+
+   '<p>The colophon at the foot of the document, which is back matter rather than a view. It prints this page’s '+
+   'own CSP read out of its <code>&lt;head&gt;</code> at render time, the count and scheme of every subresource '+
+   'actually loaded, the two-entry WASM import table that makes <code>connect-src ‘none’</code> an '+
+   'architectural property rather than a header, the browser storage in use, and the two ship gates that fail the '+
+   'build. No shield, no lock, no badge, no trust score, and nothing in a reserved colour.</p>'+
+   '<h3>The strongest argument against this direction</h3>'+
+   '<p><b>A document is a reading surface, and half of what this product does is not reading.</b> Scrolling is a '+
+   'weak addressing mechanism: “the MTU finding” has a position rather than an address, and position '+
+   'changes when a block above it expands. Six sections in one scroller means the distance between the config '+
+   'line and the finding that lints it is unbounded, so the concept’s own headline benefit — co-visibility — '+
+   'holds for adjacent blocks and fails for distant ones, which is precisely when you need it. A pinned second '+
+   'pane solves that and this concept cannot have one. It also has no answer to a workspace with 200 devices '+
+   'that is not “the document gets longer”, and it makes the <code>⌥1</code>–<code>⌥6</code> muscle '+
+   'memory that 52 §9.3 is buying weaker, because the keys now scroll rather than switch and the user has to '+
+   'reacquire their place. If the estate is large or the comparison is distant, the six-screen shell is simply '+
+   'the better machine and this direction should lose.</p>'+
+   '</div></details>';
+}
+
+/* ===================================================== render + focus ===== */
+
+function renderSections(){
+  var host = document.getElementById("secs");
+  var ae = document.activeElement;
+  var fk = ae && ae.getAttribute ? ae.getAttribute("data-fk") : null;
+  var ss = (ae && ae.selectionStart !== undefined) ? ae.selectionStart : null;
+
+  var h = secFinder() + fold();
+  if(!S.v1only) h += secWalk() + secConfig() + secFindings() + secDiagram() + secInventory();
+  host.innerHTML = h;
+
+  if(fk){
+    var back = host.querySelector('[data-fk="'+fk+'"]');
+    if(back){
+      back.focus();
+      if(ss !== null && back.setSelectionRange) { try { back.setSelectionRange(ss, ss); } catch(err){} }
+    }
+  }
+  renderBand(); renderMast(); renderFooter();
+}
+
+function renderAll(){
+  document.getElementById("fm").innerHTML = frontMatter();
+  renderSections();
+  document.getElementById("cp").innerHTML = colophon();
+}
+
+/* ======================================================== interaction ===== */
+
+function goSec(k, focusIt){
+  S.sec = k; S.changed[k] = false; S.seen[k] = true;
+  var el = document.getElementById("sec-"+k);
+  if(el){
+    var top = el.getBoundingClientRect().top + window.pageYOffset -
+              document.querySelector(".furniture").offsetHeight - 8;
+    window.scrollTo(0, Math.max(0, top));
+  }
+  renderBand(); renderMast(); renderFooter();
+  if(focusIt && k === "finder"){ var q = document.getElementById("q"); if(q) q.focus(); }
+}
+
+function setSel(anchor, set, facet, origin){
+  S.sel = { anchor:anchor, set:set || [anchor], facet:facet || "Element", origin:origin || S.sec };
+  renderSections();
+}
+
+function copyText(t){
+  var ta = document.getElementById("clip");
+  ta.value = t; ta.removeAttribute("aria-hidden");
+  ta.select();
+  var ok = false;
+  try { ok = document.execCommand("copy"); } catch(err) { ok = false; }
+  ta.setAttribute("aria-hidden","true");
+  say(ok ? "copied · " + t.slice(0, 46) + (t.length > 46 ? "…" : "")
+         : "copy refused by the browser — select the line and copy by hand");
+}
+
+function markChanged(k){ if(S.sec !== k) S.changed[k] = true; }
+
+function answerStep(n, choice){
+  var st = null; STEPS.forEach(function(x){ if(x.n === n) st = x; });
+  if(!st) return;
+  st.done = true; st.ans = choice;
+  if(st.field === "external_interface"){
+    G.IkeGateway[0].external_interface = choice;
+    st.wrote = "IkeGateway GW-B · external_interface = " + choice;
+    markChanged("config"); markChanged("inventory"); markChanged("diagram");
+  } else if(st.field === "pfs"){
+    G.vpn.pfsArmed = true;
+    if(choice.indexOf("yes") === 0){ G.vpn.pfs = "group14"; st.wrote = "IpsecPolicy IPSEC-POL · perfect_forward_secrecy = group14"; }
+    else { G.vpn.pfs = null; st.wrote = "IpsecPolicy IPSEC-POL · perfect_forward_secrecy = known_absent · rule armed"; }
+    markChanged("findings"); markChanged("config");
+  } else if(st.field === "monitor"){
+    st.wrote = "IpsecVpn VPN-DC-EAST · vpn_monitor = " + (choice.indexOf("yes") === 0 ? "true" : "false");
+    markChanged("config");
+  }
+  S.edits++;
+  say("step " + n + " written to the graph — config, findings and inventory all re-read it");
+  renderSections();
+}
+
+function applyFix(id){
+  var r = RULES[id]; if(!r) return;
+  S.cfgMode = "change"; markChanged("config");
+  say("change set produced from " + id + " — config is in ChangeSet mode");
+  renderSections(); goSec("config");
+}
+
+function bulkDpd(){
+  var ids = Object.keys(S.marked).filter(function(k){ return S.marked[k]; });
+  var lines = [];
+  ids.forEach(function(id){
+    G.IkeGateway.forEach(function(g){
+      if(g.id === id){
+        g.dead_peer_detection = "always-send 10 × 3";
+        lines.push("set security ike gateway " + g.name + " dead-peer-detection \\");
+        lines.push("  always-send interval 10 threshold 3");
+      }
+    });
+  });
+  if(!lines.length){ say("nothing marked"); return; }
+  S.changeSets.push({ label: "bulk · dead-peer-detection on " + ids.length + " gateways · " +
+                             "risk is a property of effect, not of verb (ADR-0011)",
+                      lines: lines, risk: "Disruptive" });
+  S.marked = {}; S.edits += ids.length;
+  markChanged("config");
+  say("wrote a change set into the document — nothing was sent anywhere");
+  renderSections();
+}
+
+function listLen(){
+  if(S.sec === "finder") return results().length;
+  if(S.sec === "config") return emit().length;
+  if(S.sec === "findings") return lint().length;
+  if(S.sec === "inventory") return invRowsFor(S.invKind).length;
+  return 0;
+}
+function curIdx(){
+  return S.sec === "finder" ? S.cur : S.sec === "config" ? (S.cfgCur === null ? -1 : S.cfgCur)
+       : S.sec === "findings" ? (S.findCur === null ? -1 : S.findCur) : (S.invCur || 0);
+}
+function setCur(i){
+  var n = listLen(); if(!n) return;
+  i = Math.max(0, Math.min(n - 1, i));
+  if(S.sec === "finder") S.cur = i;
+  else if(S.sec === "config") S.cfgCur = i;
+  else if(S.sec === "findings") S.findCur = i;
+  else S.invCur = i;
+  renderSections();
+  var sel = { finder:'[data-hit="'+i+'"]', config:'[data-line="'+i+'"]',
+              findings:'[data-find="'+i+'"]', inventory:'[data-row="'+i+'"]' }[S.sec];
+  var el = sel && document.querySelector('#sec-'+S.sec+' '+sel);
+  if(el && el.focus) el.focus();
+}
+
+function cycleDepth(id){
+  var order = ["terse","explained","teaching"];
+  if(id){ var d = depthOf(id); S.depthOverride[id] = order[(order.indexOf(d)+1) % 3]; }
+  else { S.depth = order[(order.indexOf(S.depth)+1) % 3]; S.depthOverride = {}; }
+  say("depth · " + (id ? S.depthOverride[id] + " (this block only)" : S.depth + " (global default)"));
+  renderSections();
+}
+
+document.addEventListener("click", function(ev){
+  var t = ev.target.closest ? ev.target.closest("[data-go],[data-hit],[data-depth],[data-copy],[data-walk],"+
+    "[data-cfg],[data-line],[data-find],[data-find-open],[data-fix],[data-sup],[data-unsup],[data-pack],"+
+    "[data-layer],[data-dnode],[data-kind],[data-col],[data-mark],[data-edit],[data-selnode],[data-step],"+
+    "[data-theme-set],#v1btn,#bulk,#unmark,#modelit,#notcluster") : null;
+  if(!t) return;
+  var a = function(n){ return t.getAttribute(n); };
+
+  if(a("data-go")){ goSec(a("data-go"), true); return; }
+  if(a("data-hit") !== null){ var i = +a("data-hit");
+    if(S.cur === i) S.open = (S.open === results()[i].id ? null : results()[i].id);
+    S.cur = i; renderSections(); return; }
+  if(a("data-depth")){ S.depthOverride[a("data-depth")] = a("data-d"); renderSections(); return; }
+  if(a("data-copy") !== null){ copyText(a("data-copy")); return; }
+  if(a("data-walk")){ goSec("walkthrough", true); say("walkthrough seeded from " + a("data-walk")); return; }
+  if(a("data-cfg")){ S.cfgMode = a("data-cfg"); renderSections(); return; }
+  if(a("data-line") !== null){ var li = +a("data-line");
+    S.cfgCur = (S.cfgCur === li ? null : li);
+    if(S.cfgCur !== null){ var l = emit()[li];
+      setSel(l.node, [l.node], "Line", "config"); } else renderSections();
+    return; }
+  if(a("data-find") !== null || a("data-find-open") !== null){
+    var fi = +(a("data-find-open") !== null ? a("data-find-open") : a("data-find"));
+    S.findCur = (S.findCur === fi ? null : fi); renderSections(); return; }
+  if(a("data-fix")){ applyFix(a("data-fix")); return; }
+  if(a("data-sup")){ S.suppressed[a("data-sup")] = "suppressed here, in this session, with a reason";
+    markChanged("findings"); say("suppressed · a state on a separate channel, still counted"); renderSections(); return; }
+  if(a("data-unsup")){ delete S.suppressed[a("data-unsup")]; markChanged("findings");
+    say("unsuppressed"); renderSections(); return; }
+  if(a("data-pack")){ PACKS.forEach(function(p){ if(p.id === a("data-pack")) p.mounted = !p.mounted; });
+    markChanged("findings"); markChanged("inventory");
+    say("pack " + a("data-pack") + " " + (packMounted(a("data-pack")) ? "mounted from disk — no network involved" : "unmounted"));
+    renderSections(); return; }
+  if(a("data-layer")){ S.layers[a("data-layer")] = !S.layers[a("data-layer")]; renderSections(); return; }
+  if(a("data-dnode")){ setSel(a("data-dnode"), [a("data-dnode")], "Element", "diagram");
+    say("selection is over the graph, not over the rendering"); return; }
+  if(a("data-kind")){ S.invKind = a("data-kind"); S.invCur = 0; renderSections(); return; }
+  if(a("data-col")){ var k = S.invKind;
+    S.cols = S.cols || {}; S.cols[k] = S.cols[k] || SCHEMA[k].fields.map(function(f){ return f[0]; });
+    var ix = S.cols[k].indexOf(a("data-col"));
+    if(ix >= 0) S.cols[k].splice(ix, 1); else S.cols[k].push(a("data-col"));
+    renderSections(); return; }
+  if(a("data-mark")){ S.marked[a("data-mark")] = !S.marked[a("data-mark")]; renderSections(); return; }
+  if(a("data-edit")){ startEdit(t); return; }
+  if(a("data-selnode")){ setSel(a("data-selnode"), [a("data-selnode")], "Element", a("data-origin") || S.sec); return; }
+  if(a("data-step")){ answerStep(+a("data-step"), a("data-choice")); return; }
+  if(a("data-theme-set")){ var m = a("data-theme-set");
+    if(m === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", m);
+    say("theme · " + m + " — dark is derived, not inverted"); return; }
+  if(t.id === "v1btn"){ S.v1only = !S.v1only;
+    if(S.v1only) S.sec = "finder";
+    say(S.v1only ? "showing ADR-0006's v1: the finder, no graph" : "showing all six sections");
+    renderSections(); return; }
+  if(t.id === "bulk"){ bulkDpd(); return; }
+  if(t.id === "unmark"){ S.marked = {}; renderSections(); return; }
+  if(t.id === "modelit"){ G.cluster = true; S.edits++; markChanged("inventory"); markChanged("diagram");
+    say("Cluster CL-1 created — the observation resolves into a modelled fact"); renderSections(); return; }
+  if(t.id === "notcluster"){ G.clusterDismissed = true; markChanged("inventory");
+    say("observation dismissed — it reopens if a third fact arrives"); renderSections(); return; }
+});
+
+function startEdit(btn){
+  var id = btn.getAttribute("data-edit"), field = btn.getAttribute("data-field");
+  var input = document.createElement("input");
+  input.className = "cell"; input.type = "text"; input.value = btn.textContent;
+  input.setAttribute("data-fk", btn.getAttribute("data-fk"));
+  input.setAttribute("aria-label", "Edit " + field);
+  btn.parentNode.replaceChild(input, btn);
+  input.focus(); input.select();
+  function commit(){
+    var kind = S.invKind, v = input.value;
+    (G[kind] || []).forEach(function(r){ if(r.id === id) r[field] = (field === "mtu" ? +v : v); });
+    S.edits++; markChanged("config"); markChanged("diagram"); markChanged("findings");
+    say(field + " = " + v + " · written to the graph, re-read by three sections");
+    renderSections();
+  }
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); input.blur(); }
+    if(e.key === "Escape"){ input.removeEventListener("blur", commit); renderSections(); }
+  });
+}
+
+document.addEventListener("input", function(ev){
+  if(ev.target.id === "q"){ S.q = ev.target.value; S.cur = 0; S.open = null; renderSections(); }
+  if(ev.target.id === "invq"){ S.invQ = ev.target.value; renderSections(); }
+});
+
+/* S21 — not modal, no mode indicator, no mode errors. Single-letter verbs fire
+   only when focus is not a text-entry context. Every one of them is also a
+   visible control somewhere on the page. */
+function typing(){
+  var a = document.activeElement;
+  return a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable);
+}
+
+document.addEventListener("keydown", function(e){
+  var k = e.key;
+  if((e.ctrlKey || e.metaKey) && (k === "k" || k === "K")){
+    e.preventDefault(); goSec("finder", true); say("finder · Ctrl K from anywhere, including inside a field"); return; }
+  if(e.altKey){
+    if(k >= "1" && k <= "6"){ e.preventDefault(); goSec(SECS[+k - 1].key, true); return; }
+    if(k === "ArrowLeft"){ e.preventDefault(); goSec(SECS[(secIndex(S.sec) + 5) % 6].key); return; }
+    if(k === "ArrowRight"){ e.preventDefault(); goSec(SECS[(secIndex(S.sec) + 1) % 6].key); return; }
+    if(k === "\\"){ e.preventDefault(); cycleDepth(null); return; }
+    if(k === "d" || k === "D"){ e.preventDefault(); S.cfgMode = S.cfgMode === "full" ? "change" : "full";
+      renderSections(); goSec("config"); return; }
+    if(k === "l" || k === "L"){ e.preventDefault();
+      var ks = ["l2","l3","sec","ov"], allOn = ks.every(function(x){ return S.layers[x]; });
+      ks.forEach(function(x){ S.layers[x] = !allOn; });
+      renderSections(); goSec("diagram"); return; }
+    return;
+  }
+  if(typing()) return;
+  if(k === "j" || k === "ArrowDown"){ e.preventDefault(); setCur(curIdx() + 1); return; }
+  if(k === "k" || k === "ArrowUp"){ e.preventDefault(); setCur(curIdx() - 1); return; }
+  if(k === "e" || k === "Enter"){
+    if(S.sec === "finder"){ e.preventDefault(); var r = results()[S.cur];
+      if(r){ S.open = (S.open === r.id ? null : r.id); renderSections(); } return; }
+    if(S.sec === "config"){ e.preventDefault(); var li = S.cfgCur === null ? 0 : S.cfgCur;
+      S.cfgCur = li; var l = emit()[li]; setSel(l.node, [l.node], "Line", "config"); return; }
+    if(S.sec === "findings"){ e.preventDefault(); S.findCur = S.findCur === null ? 0 : S.findCur;
+      renderSections(); return; }
+  }
+  if(k === "v"){ e.preventDefault();
+    var id = S.sec === "finder" && S.open ? S.open : null; cycleDepth(id); return; }
+  if(k === "c"){ e.preventDefault();
+    if(S.sec === "finder"){ var rr = results()[S.cur]; if(rr) copyText(rr.cmd.join(" ")); }
+    else if(S.sec === "config" && S.cfgCur !== null) copyText(emit()[S.cfgCur].seg.join(" "));
+    else say("nothing focused to copy");
+    return; }
+  if(k === "w"){ e.preventDefault(); goSec("walkthrough", true);
+    say("w · the task that builds this, pre-seeded"); return; }
+  if(k === "f"){ e.preventDefault();
+    if(S.sec === "findings" && S.findCur !== null) applyFix(lint()[S.findCur].id);
+    else say("f produces a change set — open a finding first"); return; }
+  if(k === "s" && S.sec === "findings" && S.findCur !== null){ e.preventDefault();
+    S.suppressed[lint()[S.findCur].id] = "suppressed here, in this session, with a reason";
+    say("suppressed · still counted in the band"); renderSections(); return; }
+  if(k === "u" && S.sec === "findings" && S.findCur !== null){ e.preventDefault();
+    delete S.suppressed[lint()[S.findCur].id]; renderSections(); return; }
+  if(k === "x" && S.sec === "inventory"){ e.preventDefault();
+    var row = invRowsFor(S.invKind)[S.invCur || 0];
+    if(row){ S.marked[row.id] = !S.marked[row.id]; renderSections(); } return; }
+});
+
+/* Reading position drives the masthead imperative, the band and the footer.
+   A section IS a card side, and a card side states its own governing rule
+   once, in caps, at the top. */
+var ticking = false;
+window.addEventListener("scroll", function(){
+  if(ticking) return;
+  ticking = true;
+  window.requestAnimationFrame(function(){
+    ticking = false;
+    var fh = document.querySelector(".furniture").offsetHeight, best = SECS[0].key;
+    SECS.forEach(function(s){
+      var el = document.getElementById("sec-" + s.key);
+      if(el && el.getBoundingClientRect().top <= fh + 24) best = s.key;
+    });
+    if(best !== S.sec){ S.sec = best; S.changed[best] = false; S.seen[best] = true;
+      renderBand(); renderMast(); renderFooter(); }
+  });
+}, { passive:true });
+
+renderAll();
+say("one document · six sections · ⌥1–⌥6 move your reading position, not the body");
+})();
+</script>

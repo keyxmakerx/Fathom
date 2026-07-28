@@ -1,0 +1,2301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fathom — concept 03 · canvas-first</title>
+
+<!-- I1a. The floor required of a static concept page. `form-action 'none'` is not
+     optional: a form submission is a navigation, not a fetch, and connect-src does
+     not cover it (34 §2.3). The shipped mode-A policy is stricter still (hashes,
+     trusted types); this page carries the concept floor and audits itself for it
+     in the ARTIFACT sheet. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self' 'unsafe-inline'; connect-src 'none'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'; object-src 'none'; media-src 'none'; frame-src 'none'; child-src 'none'; manifest-src 'none'">
+<meta name="referrer" content="no-referrer">
+
+<link rel="stylesheet" href="../tokens.css">
+
+<style>
+/* ===========================================================================
+   CONCEPT 03 — CANVAS-FIRST.
+   Every value below is a token from design/tokens.css. No hex, no px font
+   size, no duration, no transition, no radius, no shadow.
+
+   The four --dg-* lengths are declared by 56 §5.3 by name and are stroke
+   widths, not type or colour; they are transcribed, not invented.
+   =========================================================================== */
+
+:root{
+  --dg-stroke: 1px;        /* 56 §5.3 */
+  --dg-stroke-sel: 2px;
+  --dg-focus: 2px;
+  --dg-rail-gap: 3px;
+  --dg-conduit-gap: 5px;
+}
+
+/* --- the sheet. 52 §2.2: one sheet of paper. The furniture does not move. -- */
+.sheet{ max-width: var(--sheet); margin: 0 auto; padding: 0 var(--s4) var(--s7); }
+.mastrule{ border-top: var(--rule-mast) solid var(--ink); }
+
+.masthead{ display:flex; justify-content:space-between; align-items:flex-start;
+           gap: var(--s5); flex-wrap: wrap; padding: var(--s2) 0 var(--s1); }
+.masthead h1{ margin:0; font-size: var(--t-title); line-height: var(--lh-title);
+              letter-spacing: var(--track-mast); text-transform: uppercase; font-weight:700; }
+.sub{ margin:0; font-size: var(--t-micro); line-height: var(--lh-micro); color: var(--muted);
+      letter-spacing: var(--track-label); text-transform: uppercase; }
+.ribbon{ margin: var(--s1) 0 0; font-size: var(--t-small); color: var(--muted); }
+.ribbon b{ color: var(--ink); font-weight:700; }
+
+/* the margin tab. lowercase, muted, unpunctuated. always lowercase — V12. */
+.mt{ font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted); }
+.mt.on{ color: var(--ink); font-weight:700; }
+.tabs-r{ display:flex; flex-direction:column; align-items:flex-end; gap: var(--s1); }
+
+button.link{ background:none; border:0; padding:0; margin:0; cursor:pointer; color: inherit;
+             font: inherit; text-align: left; }
+button.link:focus-visible{ outline: var(--focus-width) solid var(--focus-colour); outline-offset: var(--focus-offset-outset); }
+.mt.link{ text-decoration: underline; text-decoration-thickness: var(--rule-hair);
+          text-underline-offset: var(--s1); }
+
+.imperative{ margin: var(--s2) 0 var(--s2); padding-top: var(--s2);
+             border-top: var(--rule-hair) solid var(--ink);
+             font-size: var(--t-small); font-weight:700; text-transform: uppercase;
+             letter-spacing: var(--track-label); }
+
+/* --- §6 risk legend — required chrome, never collapsed, never a control. --- */
+.legend{ display:flex; flex-wrap:wrap; gap: var(--s4); margin:0; padding: var(--s1) 0;
+         list-style:none; border-top: var(--rule-hair) solid var(--hairline);
+         border-bottom: var(--rule-hair) solid var(--hairline); }
+.legend-item{ display:flex; align-items:center; gap: var(--s2);
+              font-size: var(--t-micro); line-height: var(--lh-micro); font-weight:700;
+              letter-spacing: var(--track-legend); text-transform: uppercase;
+              border-left: var(--rule-accent) solid; padding-left: var(--s2); }
+.r-safe{ color:var(--safe); background:var(--safe-wash); border-left-color:var(--safe); }
+.r-caution{ color:var(--caution); background:var(--caution-wash); border-left-color:var(--caution); }
+.r-danger{ color:var(--danger); background:var(--danger-wash); border-left-color:var(--danger); }
+
+/* --- the view band. 52 §9.3. lowercase tabs, counts as words, never coloured. */
+.band{ display:flex; flex-wrap:wrap; gap: var(--s5); padding: var(--s2) 0;
+       border-bottom: var(--rule-hair) solid var(--hairline); }
+.band button{ font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
+              white-space: nowrap; }
+.band button[aria-current="true"]{ color: var(--ink); font-weight:700; }
+.band .chg{ color: var(--ink); font-weight:700; }
+
+/* --- the body. exactly two panes, 62/38, vertical only, none below 1100px. -- */
+.body{ display:grid; grid-template-columns: 62% 38%; gap: var(--s5);
+       padding-top: var(--s3); align-items: start; }
+@media (max-width: 1100px){ .body{ grid-template-columns: 1fr; } }
+
+.blockhead{ display:flex; justify-content:space-between; align-items:baseline; gap: var(--s4);
+            border-bottom: var(--rule-hair) solid var(--ink); padding-bottom: var(--s1);
+            margin-bottom: var(--s2); flex-wrap: wrap; }
+.blockhead h2{ margin:0; font-size: var(--t-head); font-weight:700;
+               letter-spacing: var(--track-head); text-transform: uppercase; }
+
+/* --- the scene ---------------------------------------------------------- */
+.layers{ display:flex; flex-wrap:wrap; gap: var(--s3); padding: var(--s1) 0 var(--s2); }
+.layers button{ font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted); }
+.layers button[aria-pressed="true"]{ color: var(--ink); font-weight:700; }
+
+.scene-wrap{ border: var(--rule-hair) solid var(--hairline); background: var(--page); }
+svg.scene{ display:block; width:100%; height:auto; }
+.scene-foot{ display:flex; justify-content:space-between; gap: var(--s4); flex-wrap:wrap;
+             padding: var(--s1) var(--s2); border-top: var(--rule-hair) solid var(--hairline);
+             font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
+             font-variant-numeric: var(--num-tabular); }
+
+.dg-band{ fill:none; stroke: var(--hairline); }
+.dg-box{ fill: var(--page); stroke: var(--ink); }
+.dg-box.dg-stale{ stroke: var(--muted); }
+.dg-line{ fill:none; stroke: var(--ink); }
+.dg-line.dg-inferred{ stroke: var(--muted); }
+.dg-label{ font-family: var(--mono); font-size: var(--t-mono); fill: var(--ink); }
+.dg-sub{ font-family: var(--mono); font-size: var(--t-micro); fill: var(--muted); }
+.dg-band-label{ font-family: var(--mono); font-size: var(--t-micro); fill: var(--muted);
+                text-transform: uppercase; letter-spacing: var(--track-head); }
+.dg-sel .dg-box, .dg-sel .dg-line{ stroke-width: var(--dg-stroke-sel); }
+.dg-dim{ opacity: 0.4; }               /* 56 §6.1 — closure at 1px, the rest at 40% */
+.dg-focus-ring{ fill:none; stroke: var(--focus-colour); }
+.dg-hit{ cursor: pointer; }
+/* 56 §6.5: hit testing is ours, not the engine's. One transparent target per
+   element, sized to the element, so a stroke that happens to cross another
+   element's geometry cannot steal its clicks. */
+.dg-hitbox{ fill: transparent; stroke: none; pointer-events: all; }
+
+/* --- the outline. 55 §4.5 — the picture's keyboard and screen-reader face. - */
+.outline{ list-style:none; margin:0; padding:0; }
+.orow{ display:grid;
+       grid-template-columns: calc(var(--gutter-num) * 2 + var(--s5)) minmax(0, 1fr) minmax(0, 2fr);
+       gap: var(--s2);
+       padding: var(--s1) var(--s2); border:0; border-bottom: var(--rule-hair) solid var(--hairline);
+       background: none; color: inherit; text-align: left;
+       font-size: var(--t-small); cursor:pointer; width:100%; }
+.orow:focus-visible{ outline: var(--focus-width) solid var(--focus-colour); outline-offset: var(--focus-offset-inset); }
+.orow .g{ font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
+.orow .k{ font-family: var(--mono); font-size: var(--t-mono); }
+.orow .s{ color: var(--muted); font-size: var(--t-tab); }
+.is-primary{ background: var(--surface); }
+.is-related{ background: var(--surface-2); }
+.is-dim{ color: var(--muted); }
+
+/* --- two-column hairline table. no vertical rules. the ERROR DECODER model. */
+.fields{ width:100%; border-collapse: collapse; font-size: var(--t-small); }
+.fields th, .fields td{ text-align:left; vertical-align:top;
+                        padding: var(--s1) var(--s3) var(--s1) 0;
+                        border-bottom: var(--rule-hair) solid var(--hairline); }
+.fields th{ width: 32%; font-family: var(--mono); font-size: var(--t-mono); font-weight:400; }
+.fields thead th{ font-family: var(--sans); font-size: var(--t-micro); font-weight:700;
+                  text-transform: uppercase; letter-spacing: var(--track-head); color: var(--muted); }
+.fields td.num{ font-variant-numeric: var(--num-tabular); }
+
+/* --- the inventory table ------------------------------------------------- */
+table.inv{ width:100%; border-collapse: collapse; font-size: var(--t-small); }
+table.inv th, table.inv td{ text-align:left; padding: var(--s1) var(--s3) var(--s1) var(--s2);
+                            border-bottom: var(--rule-hair) solid var(--hairline);
+                            vertical-align: top; }
+table.inv thead th{ font-size: var(--t-micro); font-weight:700; text-transform: uppercase;
+                    letter-spacing: var(--track-head); color: var(--muted); white-space: nowrap; }
+table.inv thead th button{ font: inherit; color: inherit; letter-spacing: inherit;
+                           text-transform: inherit; }
+table.inv td.m{ font-family: var(--mono); font-size: var(--t-mono); }
+table.inv tbody tr{ cursor:pointer; }
+table.inv tbody tr:focus-visible{ outline: var(--focus-width) solid var(--focus-colour); outline-offset: var(--focus-offset-inset); }
+table.inv tbody tr:hover{ background: var(--surface-2); }
+table.inv tbody tr.is-primary:hover{ background: var(--surface); }
+
+/* --- the note idiom. 4px left accent bar + wash. never a box, never an icon. */
+.note{ border-left: var(--rule-accent) solid var(--ink); background: var(--surface-2);
+       padding: var(--s2) var(--s3); margin: var(--s3) 0 0; font-size: var(--t-small); }
+.note .lab{ display:block; font-size: var(--t-micro); font-weight:700; text-transform: uppercase;
+            letter-spacing: var(--track-head); margin-bottom: var(--s1); }
+.note .acts{ display:flex; gap: var(--s3); margin-top: var(--s2); flex-wrap:wrap; }
+.act{ border: var(--rule-hair) solid var(--ink); background: var(--page); color: var(--ink);
+      padding: 0 var(--s2); font-size: var(--t-tab); text-transform: uppercase;
+      letter-spacing: var(--track-label); cursor:pointer; min-height: var(--row-min); }
+.act:hover{ background: var(--surface); }
+
+/* --- findings. severity is a 4px left bar in four neutral tones. ---------- */
+.finding{ border: 0; border-left: var(--rule-accent) solid transparent; padding: var(--s2) var(--s3);
+          border-bottom: var(--rule-hair) solid var(--hairline);
+          background: none; color: inherit;
+          display:grid; grid-template-columns: 34% 1fr; gap: var(--s3); cursor:pointer; width:100%;
+          text-align:left; }
+.finding:focus-visible{ outline: var(--focus-width) solid var(--focus-colour); outline-offset: var(--focus-offset-inset); }
+.sev-high{ border-left-color: var(--ink); }
+.sev-med{ border-left-color: var(--muted); }
+.sev-low{ border-left-color: var(--hairline); }
+.sev-info{ border-left-color: transparent; }
+.finding.suppressed{ color: var(--muted); border-left-color: transparent;
+                     background-image: var(--hatch); }
+.finding.suppressed .ftitle{ text-decoration: line-through; }
+.fkey{ font-family: var(--mono); font-size: var(--t-mono); }
+.ftitle{ font-weight:700; }
+.fmeta{ font-size: var(--t-tab); color: var(--muted); }
+.fbody p{ margin: var(--s1) 0 0; }
+.fbody .lab{ font-size: var(--t-micro); font-weight:700; text-transform: uppercase;
+             letter-spacing: var(--track-head); color: var(--muted); }
+
+/* --- config block. mono on --page, gutter carries ordinal + risk mark. ---- */
+.cfg{ border-left: var(--rule-accent) solid var(--ink); }
+.cline{ display:grid; grid-template-columns: var(--gutter-num) 1fr auto; gap: var(--s2);
+        padding: 0 var(--s2); width:100%; text-align:left; cursor:pointer;
+        border: 0; background: none; color: inherit;
+        border-bottom: var(--rule-hair) solid transparent; }
+.cline:focus-visible{ outline: var(--focus-width) solid var(--focus-colour); outline-offset: var(--focus-offset-inset); }
+.cline:hover{ background: var(--surface-2); }
+.cline.is-primary:hover{ background: var(--surface); }
+.cline .gut{ font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
+             font-variant-numeric: var(--num-tabular); white-space: nowrap; }
+.cline pre{ margin:0; font-family: var(--mono); font-size: var(--t-mono);
+            line-height: var(--lh-step); white-space: pre; overflow-x: auto; }
+.cline .rw{ font-size: var(--t-tab); font-weight:700; text-transform: uppercase;
+            letter-spacing: var(--track-legend); white-space: nowrap; }
+.rw.safe{ color: var(--safe); } .rw.caution{ color: var(--caution); } .rw.danger{ color: var(--danger); }
+/* In the 38% column there is not room for gutter + 72 columns + the risk word
+   on one line, so the word takes the row above. V14's overflow-x still applies
+   to the command itself: a config block scrolls inside itself, the page never
+   scrolls sideways. */
+.cline.stacked{ grid-template-columns: var(--gutter-num) 1fr; padding-bottom: var(--s1); }
+.cline.stacked .rw{ grid-column: 2; }
+.cline.stacked pre{ grid-column: 2; }
+.ph{ border-bottom: var(--rule-hair) dotted var(--ink); }   /* unanswered — V7 C8 */
+.prov{ padding: var(--s1) var(--s2) var(--s2) var(--gutter-num);
+       font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
+       border-bottom: var(--rule-hair) solid var(--hairline); }
+
+/* --- inspector — the one second surface. a column, never an overlay. ------ */
+.insp{ border-top: var(--rule-mast) solid var(--ink); padding-top: var(--s2); }
+.insp h3{ margin:0; font-size: var(--t-head); font-weight:700; text-transform: uppercase;
+          letter-spacing: var(--track-head); }
+.stamp{ font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
+.depth{ display:flex; gap: var(--s3); margin: var(--s2) 0 var(--s1); }
+.depth button{ font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
+               background:none; border:0; padding:0; cursor:pointer; }
+.depth button:focus-visible{ outline: var(--focus-width) solid var(--focus-colour); outline-offset: var(--focus-offset-outset); }
+.depth button[aria-pressed="true"]{ color: var(--ink); font-weight:700; }
+.prose{ font-size: var(--t-body); max-width: var(--measure); margin: var(--s1) 0 var(--s3); }
+.lab{ font-size: var(--t-micro); font-weight:700; text-transform: uppercase;
+      letter-spacing: var(--track-head); color: var(--muted); margin: var(--s3) 0 var(--s1); }
+.nudge{ display:flex; gap: var(--s1); flex-wrap:wrap; }
+
+/* --- op ledger ----------------------------------------------------------- */
+.ledger{ border-left: var(--rule-accent) solid var(--muted); background: var(--surface-2);
+         padding: var(--s2); margin-top: var(--s3);
+         font-family: var(--mono); font-size: var(--t-micro); line-height: var(--lh-micro);
+         color: var(--muted); }
+.ledger b{ color: var(--ink); font-weight:400; }
+
+/* --- footer -------------------------------------------------------------- */
+.folio{ border-top: var(--rule-hair) solid var(--ink); margin-top: var(--s5);
+        padding-top: var(--s2); display:flex; justify-content:space-between; gap: var(--s4);
+        flex-wrap:wrap; font-size: var(--t-tab); color: var(--muted); }
+.folio .now{ color: var(--ink); }
+
+/* --- finder overlay. full-bleed sheet on --page, 1px ink border, scrim. ---- */
+.scrim{ position: fixed; inset: 0; background: var(--page); opacity: var(--scrim-opacity);
+        z-index: var(--z-modal); display:none; }
+.scrim[data-open="true"]{ display:block; }
+.finder-shell{ position: fixed; z-index: var(--z-modal); left:50%; transform: translateX(-50%);
+               top: var(--s8); width: min(var(--sheet-card), calc(100vw - var(--s6)));
+               max-height: 56vh; display:none; flex-direction:column;
+               background: var(--page); border: var(--rule-hair) solid var(--ink);
+               border-radius: var(--radius); box-shadow: var(--shadow); }
+.finder-shell[data-open="true"]{ display:flex; }
+.finder-input-row{ display:flex; align-items:stretch; flex:none;
+                   border-bottom: var(--rule-hair) solid var(--hairline); }
+.finder-key{ display:flex; align-items:center; flex:none; font-family: var(--mono);
+             font-size: var(--t-micro); letter-spacing: 0.06em; color: var(--muted);
+             padding: 0 var(--s3); border-right: var(--rule-hair) solid var(--hairline); }
+.finder-q{ flex:1; min-width:0; border:0; background:none; color: var(--ink);
+           font-family: var(--mono); font-size: var(--t-mast); padding: var(--s3); outline:none; }
+.finder-q:focus-visible{ outline:none; background: var(--surface); }
+.finder-input-row:has(.finder-q:focus-visible){ border-bottom: var(--dg-stroke-sel) solid var(--ink); }
+.finder-meta{ display:flex; align-items:center; flex:none; padding: 0 var(--s3);
+              font-size: var(--t-micro); color: var(--muted); text-transform: uppercase;
+              letter-spacing: var(--track-label); font-variant-numeric: var(--num-tabular); }
+.hits{ flex:1; overflow-y:auto; margin:0; padding:0; list-style:none; }
+.hit{ display:block; padding: var(--s3); border-bottom: var(--rule-hair) solid var(--hairline);
+      cursor:pointer; }
+.hit:hover{ background: var(--surface-2); }
+.hit.sel{ background: var(--surface); }
+.hit.sel .hit-cmd::before{ content: "\25B8  "; }
+.hit-cmd{ display:flex; align-items:baseline; gap: var(--s2);
+          font-family: var(--mono); font-size: var(--t-mono); }
+.hit-ans{ display:block; color: var(--muted); font-size: var(--t-small); }
+.hit-read{ display:block; font-size: var(--t-small); margin-top: var(--s2); padding-left: var(--s3);
+           border-left: var(--rule-hair) solid var(--hairline); }
+.hit-risk{ font-size: var(--t-tab); font-weight:700; letter-spacing: var(--track-legend);
+           text-transform: uppercase; margin-left:auto; flex:none; white-space: nowrap; }
+.hit-risk.safe{ color: var(--safe); } .hit-risk.caution{ color: var(--caution); }
+.hit-risk.danger{ color: var(--danger); }
+.finder-foot{ flex:none; display:flex; justify-content:space-between; gap: var(--s4);
+              padding: var(--s2) var(--s3); border-top: var(--rule-hair) solid var(--hairline);
+              font-size: var(--t-tab); color: var(--muted); }
+
+/* --- the explainer SHEET placement. full body, masthead reads GUIDEBOOK. --- */
+.gsheet{ display:none; }
+.gsheet[data-open="true"]{ display:block; }
+
+/* --- thesis ---------------------------------------------------------------*/
+.thesis{ margin-top: var(--s7); border-top: var(--rule-mast) solid var(--ink); padding-top: var(--s2); }
+.thesis summary{ font-size: var(--t-head); font-weight:700; text-transform: uppercase;
+                 letter-spacing: var(--track-head); cursor:pointer; }
+.thesis h4{ font-size: var(--t-micro); font-weight:700; text-transform: uppercase;
+            letter-spacing: var(--track-head); color: var(--muted);
+            margin: var(--s4) 0 var(--s1); }
+.thesis p, .thesis li{ font-size: var(--t-small); max-width: var(--measure); }
+.thesis ul{ margin: var(--s1) 0; padding-left: var(--s4); }
+
+.seam{ border-left: var(--rule-accent) solid var(--ink); background: var(--surface);
+       padding: var(--s3); margin-top: var(--s4); }
+.seam .lab{ margin-top:0; color: var(--ink); }
+.seam pre{ margin: var(--s2) 0 0; font-family: var(--mono); font-size: var(--t-mono);
+           line-height: var(--lh-step); white-space: pre; overflow-x:auto; }
+
+.scroller{ max-height: 26rem; overflow-y: auto; }
+
+.themebar{ display:flex; gap: var(--s1); }
+.themebar button{ background: var(--page); color: var(--ink);
+                  border: var(--rule-hair) solid var(--hairline); padding: 0 var(--s2);
+                  font-size: var(--t-tab); text-transform: uppercase;
+                  letter-spacing: var(--track-label); cursor:pointer; min-height: var(--row-min); }
+.themebar button[aria-pressed="true"]{ background: var(--surface); border-color: var(--ink); }
+
+/* Forced colours: the severity ramp switches from tone to width — width is not
+   overridden. 51 §6 / V19. */
+@media (forced-colors: active){
+  .sev-high{ border-left-width: var(--rule-accent); }
+  .sev-med { border-left-width: var(--dg-stroke-sel); }
+  .sev-low { border-left-width: var(--dg-stroke); }
+  .sev-info{ border-left-width: 0; }
+  .finding.suppressed{ background-image: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="sheet">
+
+  <!-- 52 §2.2 order: [no egress strip — I12, out of scope] · 3px ink rule ·
+       masthead · 1px rule · legend · 1px hairline · view band · body · footer. -->
+  <div class="mastrule"></div>
+
+  <header class="masthead">
+    <div>
+      <h1 id="mast-title">Fathom · Canvas</h1>
+      <p class="sub" id="mast-sub">SRX-DC-EAST-A · workspace dc-east · junos-srx 21.4R3 · unverified</p>
+      <p class="ribbon" id="ribbon">nothing selected · click a shape, or press <b>↓</b> in the outline</p>
+    </div>
+    <div class="tabs-r">
+      <button type="button" class="mt link" id="tab-artifact">no sockets, ever</button>
+      <span class="mt">fixture · not corpus data</span>
+      <span class="mt">graph-backed · phase 1–2</span>
+      <div class="themebar" role="group" aria-label="Theme">
+        <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+        <button type="button" data-theme-set="auto" aria-pressed="true">Auto</button>
+      </div>
+    </div>
+  </header>
+
+  <p class="imperative" id="imperative">The diagram is a rendering — if a fact exists only in the picture, the picture has become the data structure</p>
+
+  <ul class="legend" aria-label="Risk legend">
+    <li class="legend-item r-safe">Read-only — safe on production</li>
+    <li class="legend-item r-caution">Changes config — needs a commit</li>
+    <li class="legend-item r-danger">Disruptive — drops live traffic</li>
+  </ul>
+
+  <nav class="band" id="band" aria-label="Views"></nav>
+
+  <main class="body">
+
+    <!-- ============ PRIMARY PANE — the scene, and the question under it === -->
+    <section class="col-primary" aria-label="Canvas">
+
+      <div class="layers" role="group" aria-label="Diagram layers — alt L">
+        <span class="mt">layers</span>
+      </div>
+
+      <div class="scene-wrap" id="scene-wrap">
+        <svg class="scene" id="scene" viewBox="0 0 760 380" role="img"
+             aria-label="Estate diagram. The Outline below is the equivalent, and is where the keyboard goes."></svg>
+        <div class="scene-foot">
+          <span id="scene-count">—</span>
+          <span id="scene-state">—</span>
+        </div>
+      </div>
+
+      <div id="scene-notes"></div>
+
+      <div class="ledger" id="ledger" aria-live="off"></div>
+
+      <div id="dock" style="margin-top: var(--s5)"></div>
+    </section>
+
+    <!-- ============ SECOND SURFACE — inspector and explainer, one column === -->
+    <aside class="insp" id="inspector" aria-label="Inspector"></aside>
+  </main>
+
+  <!-- ============ the explainer SHEET placement (52 §4.2 c) ============== -->
+  <section class="gsheet" id="gsheet" aria-label="Guidebook sheet"></section>
+
+  <footer class="folio">
+    <span id="folio-left">View 5 of 6 — Diagram</span>
+    <span id="folio-msg" class="now" role="status"></span>
+    <span id="folio-right">offline artifact · connect-src 'none' · 2 wasm imports</span>
+  </footer>
+
+  <!-- ============================ THESIS =============================== -->
+  <details class="thesis" id="thesis" open>
+    <summary>Concept 03 — canvas-first · thesis, costs and the seam</summary>
+
+    <h4>The thesis, one sentence</h4>
+    <p><b>One scene, four questions:</b> the estate is drawn once, the picture never moves,
+    and <code>config</code>, <code>findings</code>, <code>diagram</code> and <code>inventory</code>
+    stop being four places you go and become four annotations of the same geometry — so
+    switching view is switching question, and the picture is the index into every other surface.</p>
+
+    <h4>What changed from the starting posture, and why</h4>
+    <p>The posture was "the diagram is the application". Taken literally that produces floating
+    panels over an infinite canvas, and the visual law forbids all three of the things that makes
+    workable — elevation, tooltips and overlays (51 §11). It also fails the product's own governing
+    rule: a picture that owns the panels starts owning the state. So the canvas here is not a
+    workspace, it is the <em>view body of the sheet</em>. The furniture above it is unchanged from
+    52 §2.2, the second surface is a column at 62/38, and every gesture on the picture terminates in
+    an op against the graph, printed in the op ledger under the scene so you can see it did.
+    The divergent move is not the canvas — it is that the canvas <em>persists across the view
+    switch</em> and the other views render as annotation plus a docked table.</p>
+
+    <h4>What it optimises for — and what it therefore sacrifices</h4>
+    <ul>
+      <li><b>Optimises:</b> spatial recall. The scene coordinates are stable across
+        <code>alt 3</code>–<code>alt 6</code>, so "the WAN unit is the second box on the right" stays true
+        in the findings view, the config view and the inventory view. Selection is the through-line
+        and you can watch it survive four renderings.</li>
+      <li><b>Sacrifices, first:</b> vertical space. The scene costs roughly 300px of body height
+        permanently, on top of the ~210px furniture budget. On a 1280×800 laptop that leaves under
+        300px for the docked table — about eight findings rows. A list-first direction gets twenty.</li>
+      <li><b>Sacrifices, second:</b> the picture cannot draw everything, and this concept refuses to
+        pretend otherwise. <code>IkeProposal</code>, <code>IkePolicy</code>, <code>IpsecProposal</code>
+        and <code>IpsecPolicy</code> have no rendering in 56 §4.1's projection table at any layer.
+        Six of the nineteen emitted lines, five of the twenty inventory rows and one of the three
+        findings belong to nodes that are <em>not in the picture at all</em> — including
+        <code>ipsec.pfs.absent</code>, which is the highest-value security finding on the card.
+        They are marked <code>not drawn · inspector only</code>
+        wherever they appear, and selecting one puts <code>not in diagram</code> in the selection
+        ribbon. A canvas-first tool has to say that out loud on every screen, and it is the single
+        biggest argument against the direction.</li>
+      <li><b>Sacrifices, third:</b> below 1100px the second surface is unavailable (52 §2.3), and a
+        canvas plus a docked table plus no inspector is a worse single-column experience than a
+        list-first direction would have. The refusal states its reason in the footer rather than
+        disabling anything.</li>
+    </ul>
+
+    <h4>How it serves teaching — goal (a)</h4>
+    <p>Teaching is attached to <em>whatever you pointed at</em>. Select <code>reth0.0</code> and the
+    inspector carries the corpus entry for
+    <code>junos-srx/ike.gateway.external-interface.set</code> at three depths — terse, explained,
+    teaching — with the depth control as a lowercase margin tab on the block
+    (<code>v</code> or <code>alt \</code>), never a setting. The three depths are three texts, not three
+    lengths, and they are verbatim from the corpus. Every explainer header carries the ADR-0027
+    verification stamp, which for this corpus reads <code>junos-srx · unverified</code>, because
+    the seed file's own header says nothing in it has been run on a box. The card's teaching devices
+    survive: <code>next_if_bad</code> renders as a ladder with a risk word per rung, sources cite the
+    card side and block, and <code>output_fields</code> render as the card's two-column hairline
+    table. The finder (<code>Ctrl+K</code>) is the corpus surface and works with no workspace at all
+    — it is the one view whose primary object is a <code>CorpusId</code>, so it is also the one view
+    that does not annotate the scene.</p>
+
+    <h4>How it serves inventory and diagramming — goal (b)</h4>
+    <p><code>alt 6</code> docks the estate table under the same scene. Columns are generated from the
+    schema, the rightmost column is the per-row finding aggregate as text, and sorting by it sorts
+    by worst severity then count. Below it, in the note idiom, are the population rules — the
+    inventory's opinions. <code>TWO SRX DEVICES, NO CLUSTER</code> fires on this fixture and argues
+    back; <code>[ model it as a cluster ]</code> writes a real node and appends the op, and
+    <code>[ not a cluster ]</code> suppresses the observation and counts it in the band. Management
+    by direct manipulation is real: drag a box, or use <code>←→</code> (4px) and
+    <code>shift ←→</code> (32px), and one <code>Op::SetLayoutHint</code> is appended per gesture. Try to
+    move a zone bracket or a conduit and it refuses in the footer, with the reason — those are
+    derived renderings, not positioned nodes. <b>Layout hints are state; topology is not.</b></p>
+
+    <h4>Forty spokes on one hub — the honest answer</h4>
+    <p>Press <code>+ 8 spokes</code>. Below the element ceiling the spokes are drawn. Above it the
+    view aggregates to one node and hands off — <em>"an engineer who wants their whole estate on one
+    screen cannot get it, and the answer is the inventory view"</em> (52 §3.6.1). The ceiling counter
+    under the scene is measured from the live DOM, not asserted. The product's ceiling is 2,000 live
+    SVG elements; this fixture's is set low so you can cross it in two clicks. When it crosses, the
+    population rule about clearing Phase 1 on a hub appears — forty spokes is forty tunnels
+    renegotiating at once — which is the corpus teaching the scale problem it just caused.</p>
+
+    <h4>Where new functionality plugs in — the seam, drawn on the page</h4>
+    <p>The named seam is <b>M7 — the schema is data</b>, and it is drawn under the inventory table
+    with the words <em>this is where a new node kind plugs in</em>. One row added to
+    <code>schema.yaml</code> plus one row in 56 §4.1's projection table gives you, at once: new
+    diagram geometry, new generated inventory columns, new rule targets and new explainer subjects,
+    with no UI code — because the view contract is three pure functions
+    (<code>primary</code>/<code>resolve</code>/<code>select_at</code>) and the core never knows a
+    view exists. The second seam, also on the page and interactive, is <b>M8 — population rules</b>:
+    the inventory's opinions are rules whose <code>applies_to</code> is a population, so the table
+    acquires opinions it did not have yesterday without touching the table. Note what the seam is
+    <em>not</em>: a seventh view. New functionality lands as a mode of an existing view, a layer that
+    opens inside all of them, a new diagram layer, a new inventory kind or a new rule pack —
+    <code>verify(diff(graph))</code> already landed as <code>config · change set</code>, a mode, and
+    <code>explain(node, depth)</code> already landed as a layer with three placements and no home.</p>
+
+    <h4>How you can tell it cannot phone home</h4>
+    <p>The margin tab <code>no sockets, ever</code> in the masthead opens the explainer layer in its
+    sheet placement, subject <code>THE ARTIFACT</code>. It is not a badge and it is not green —
+    green means read-only, and reusing a reserved colour for "offline" would be the most visible
+    failure this concept could make. It is the card's two-column lookup table, and it
+    <b>audits this document live</b>: it reads this page's own CSP out of the head, counts every
+    element carrying an absolute URL, counts <code>&lt;script src&gt;</code> elements, and greps this
+    page's own script text for call sites of the five network APIs. Every number is measured from the
+    DOM in front of you, not asserted. The permanent version of the same fact sits in the footer:
+    <code>connect-src 'none' · 2 wasm imports</code> — the WASM core's import section is two entries,
+    which is the check that makes the header an architectural property rather than a promise.</p>
+
+    <h4>The phase boundary, stated rather than resolved</h4>
+    <p>ADR-0006 decides that v1 is the finder alone, with no graph. Both of the owner's stated goals
+    need the graph. Everything in this concept that is <em>corpus-backed today</em> — the finder, the
+    three-depth explainers, the authored ladders, the risk legend, the verification stamp — carries
+    no phase tab. Everything <em>graph-backed later</em> — the scene, config, findings, inventory,
+    the walkthrough — sits under the masthead tab <code>graph-backed · phase 1–2</code>. By 71 §2's
+    own figures that is 38–54 solo weeks beyond v1 before this screen can exist at all, and 83 §12.5
+    found those inputs low by 1.5–1.6×. The concept is drawn so the owner can see exactly which half
+    of it they would be buying.</p>
+
+    <h4>The strongest argument against this direction</h4>
+    <p><b>The picture is not a complete index, and a canvas-first tool implicitly promises that it
+    is.</b> Four of the six object-chain kinds on side 1 of the field card — the two proposals and
+    the two policies — have no rendering at any layer, because they are sets of values, not places.
+    So the most common real question ("why did Phase 2 fail?") points at
+    <code>IPSEC-POL</code>, and <code>IPSEC-POL</code> is not on the canvas. This concept labels
+    that everywhere rather than hiding it, but labelling a structural gap does not close it: a user
+    who has learned to navigate by pointing will keep pointing at the nearest drawn thing and getting
+    the wrong subject. A list-first or finder-first direction never has this problem, because a list
+    can hold a row for anything with an ID.</p>
+    <p>Two smaller costs worth the owner's attention. <b>The scene rent is permanent</b> — it does
+    not scale with how much you are getting from it, and on the findings view most users would rather
+    have the rows. And <b>a canvas invites exactly the failure 56 §0 names in caps</b>: the moment
+    someone adds a label, a colour or a grouping that lives only in the picture, the picture has
+    become an undocumented data model. This concept guards it with the op ledger and by refusing to
+    move derived geometry, but the guard is a discipline, not a mechanism, and disciplines erode.</p>
+
+    <h4>What is real on this page, and what is fixture</h4>
+    <ul>
+      <li><b>Corpus, verbatim:</b> every command, risk band, <code>answers</code>,
+        <code>read_field</code>, <code>output_fields</code>, <code>next_if_bad</code>,
+        three-depth explainer and source citation is lifted from
+        <code>corpus/commands/junos-srx-ipsec.yaml</code>. Every finding's <code>why</code>,
+        <code>symptom_if_mismatched</code>, <code>acceptable_when</code> and remediation line is
+        lifted from <code>corpus/rules/ipsec-junos-srx.yaml</code>.</li>
+      <li><b>Fixture, labelled:</b> the estate does not exist in the corpus. It is derived from
+        <code>.context/field-card-srx-ipsec.txt</code>'s worked topology — hub and spoke,
+        <code>reth0.0</code>, <code>st0.0</code> at <code>10.255.0.1/30</code>, gateway
+        <code>GW-B</code> at <code>203.0.113.10</code>, selectors
+        <code>10.1.0.0/16 ↔ 10.2.0.0/16</code>, zones TRUST/VPN/WAN, policy <code>TO-B</code>. Two
+        SRX devices in one site is a fixture choice, made so the population rule has something to
+        fire on. No inventory fixture ships with the product.</li>
+      <li><b>Not invented:</b> no reviewer name. The corpus carries the literal
+        <code>&lt;named human&gt;</code> placeholder and no <code>verified_on</code>, so every stamp
+        on this page reads <code>unverified</code>.</li>
+    </ul>
+  </details>
+
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="finder-shell" id="finder" role="dialog" aria-modal="true" aria-label="Command finder">
+  <div class="finder-input-row">
+    <span class="finder-key" aria-hidden="true">Ctrl K</span>
+    <input class="finder-q" id="finder-q" type="text" placeholder="is the tunnel up"
+           aria-label="Find a command" autocomplete="off" spellcheck="false">
+    <span class="finder-meta" id="finder-meta" aria-hidden="true">— · —</span>
+  </div>
+  <ul class="hits" id="finder-hits" role="listbox" aria-label="Results"></ul>
+  <div class="finder-foot">
+    <span>junos-srx · corpus 1.4.0 · unverified</span>
+    <span>↑↓ move · enter copy · w walkthrough · g guidebook · esc close</span>
+  </div>
+</div>
+
+<script id="app-script">
+"use strict";
+/* ===========================================================================
+   CONCEPT 03 — CANVAS-FIRST. All state is local. Nothing is fetched, stored,
+   polled or transmitted. The only timer in this file is the 1.6 s footer
+   message 52 §9.5 specifies in place of a toast.
+   =========================================================================== */
+
+/* -------------------------------------------------------------------------
+   THE CORPUS SLICE. Verbatim from corpus/commands/junos-srx-ipsec.yaml.
+   ------------------------------------------------------------------------- */
+var CORPUS = {
+  "junos-srx/ipsec.sa.show": {
+    cmd: "show security ipsec security-associations", risk: "safe", mode: "operational",
+    answers: "Is the data tunnel installed and carrying traffic?",
+    aka: ["is the tunnel up","is the vpn up","phase 2 status","p2 state","is it installed"],
+    read: "State — want Installed",
+    fields: [
+      ["State","Phase 2 SA state. Want <span class=\"m\">Installed</span> — anything else is not passing traffic."],
+      ["SPI","Security Parameter Index, one per direction. Two lines per selector is correct, not a duplicate."],
+      ["Gateway","Peer address this child SA belongs to. Join key."],
+      ["Mon","Whether vpn-monitor is running for this SA. Without vpn-monitor a route out st0 stays good while traffic blackholes."]
+    ],
+    next: [["show security ipsec security-associations node all","safe"],
+           ["explain:concept:junos.cluster-sa-anchoring","note"],
+           ["show security ipsec inactive-tunnels","safe"],
+           ["show security ike security-associations","safe"]],
+    explain: {
+      terse: "Step 3 of the ladder. Installed, or it is not passing traffic.",
+      explained: "One line per direction per selector, so two lines for a single-selector tunnel is correct and not a duplicate. Installed means the kernel holds keys for that selector. It does not mean anything reaches the far end.",
+      teaching: "This is the command the whole card is organised around, and the most important thing about it is what it does not prove. The SA proves crypto, not reachability. A tunnel can read Installed and pass zero packets when <span class=\"m\">st0</span> has no zone, no policy, or nothing routed at it — four of the five plumbing pieces fail exactly that way. So Installed here moves you off the crypto half of the problem and onto the plumbing half, which is steps 5 to 8 of the bring-up ladder. If steps 5 to 8 fail while 2 to 4 are clean, no proposal tweaking will fix it."
+    },
+    sources: ["card srx-ipsec · side 1 · BRING-UP ORDER","card srx-ipsec · side 3 · READING THE SA OUTPUT"]
+  },
+  "junos-srx/ike.gateway.external-interface.set": {
+    cmd: "set security ike gateway GW-B external-interface reth0.0", risk: "caution", mode: "configuration",
+    answers: "Which WAN unit do the negotiation packets leave by?",
+    aka: ["which interface does ike use","source interface for phase 1","is it st0 or the wan port"],
+    read: "No output — check the source the peer reports, not the local unit",
+    blast: "Changes which unit the IKE packets leave by, and therefore which source address the peer sees. Wrong on a multi-homed box, Phase 1 sources from an address the peer has never heard of and times out.",
+    next: [["set security zones security-zone WAN interfaces reth0.0 host-inbound-traffic system-services ike","caution"],
+           ["show log kmd | match 203.0.113.10","safe"]],
+    explain: {
+      terse: "The WAN unit IKE leaves by — never st0.",
+      explained: "<span class=\"m\">external-interface</span> is the WAN unit the IKE packets leave by, not <span class=\"m\">st0</span>. Wrong on a multi-homed box means Phase 1 sources from an address the peer has never heard of. The zone that owns this unit must also permit inbound IKE.",
+      teaching: "This is the statement people set to <span class=\"m\">st0</span> because <span class=\"m\">st0</span> is the tunnel and the tunnel is what they are building. It is backwards: <span class=\"m\">st0</span> only exists once Phase 2 has installed, and Phase 1 has to happen over the underlay to get there. Two failures live on this one line. Point it at the wrong WAN unit and the peer sees an unexpected source and drops you. Point it at the right WAN unit whose zone has no <span class=\"m\">host-inbound-traffic system-services ike</span> and the box drops the peer's IKE before the IKE process ever sees it — Phase 1 times out with nothing useful in the log, because nothing local ever happened. Check the zone before you touch crypto."
+    },
+    sources: ["card srx-ipsec · side 1 · PHASE 1 — PROPOSAL, POLICY, GATEWAY","card srx-ipsec · side 4 · THINGS THAT BITE"]
+  },
+  "junos-srx/ipsec.vpn.bind-interface.set": {
+    cmd: "set security ipsec vpn VPN-B bind-interface st0.0", risk: "danger", mode: "configuration",
+    answers: "How does a route-based tunnel get an interface to route at?",
+    aka: ["bind st0 to the vpn","attach the tunnel interface","route based vpn"],
+    read: "No output — Bind-interface in the SA output is the only link to st0",
+    blast: "Binds the tunnel to a secure tunnel unit. Repointing it on a live VPN detaches routing from the old unit and everything routed at it blackholes until the routes are moved too.",
+    next: [["show interfaces st0.0 terse","safe"],["show route 10.2.0.0/16","safe"]],
+    explain: {
+      terse: "Route-based needs st0. Policy-based has none at all.",
+      explained: "A route-based tunnel is selected by the routing table and can carry routing protocols and many selectors. A policy-based tunnel is selected by the policy, uses <span class=\"m\">then permit tunnel ipsec-vpn NAME</span>, and has no <span class=\"m\">st0</span> at all. Use route-based for anything new.",
+      teaching: "<span class=\"m\">Bind-interface</span> is the only link between an SA and an interface, and it matters because the two halves of the system do not talk about each other. The logs never mention <span class=\"m\">st0</span>; <span class=\"m\">show interfaces st0.0</span> never mentions the VPN. This statement is the join, and the SA detail output prints it, which is why the SA detail output is where you go when you need to connect a crypto event to an interface event. Binding the interface is also only one of five plumbing pieces: the unit must exist, be in a zone, have something routed at it, and have a policy for the zone pair. Miss any of those and the tunnel reads UP while passing zero packets."
+    },
+    sources: ["card srx-ipsec · side 1 · PHASE 2 — PROPOSAL, POLICY, VPN","card srx-ipsec · side 1 · ROUTE-BASED VS POLICY-BASED"]
+  },
+  "junos-srx/zone.host-inbound.ike.set": {
+    cmd: "set security zones security-zone WAN interfaces reth0.0 host-inbound-traffic system-services ike",
+    risk: "caution", mode: "configuration",
+    answers: "Plumbing piece three — why is the far end's negotiation being dropped?",
+    aka: ["phase 1 times out with nothing in the log","allow ike inbound","the box is dropping the peer"],
+    read: "No output — the tell is a Phase 1 timeout with no local log entry",
+    blast: "Opens inbound IKE on the WAN unit. This is a deliberate hole in the box's own inbound filtering — scope it to the unit the peer actually arrives on, never to the whole zone if the zone holds more interfaces.",
+    next: [["show log kmd | match 203.0.113.10","safe"],["explain:symptom:p1-timeout-nothing-in-log","note"]],
+    explain: {
+      terse: "Piece three of five, and the only one that fails loudly-ish.",
+      explained: "The zone that owns the WAN unit must permit inbound IKE, or the box drops the peer's IKE before the IKE process ever sees it. Phase 1 then times out with nothing useful in the log, because nothing local ever happened. Check this before touching crypto.",
+      teaching: "This is the highest-value line in the whole build, because it is the one failure whose symptom points nowhere. Miss piece three and Phase 1 times out with nothing useful in the log. Miss pieces one, two, four or five and the tunnel reads UP while passing zero packets. Those are two completely different investigations, and knowing which you are in halves the search space immediately. The error decoder lists four causes for a Phase 1 timeout with no response: host-inbound ike, an upstream ACL, the peer address, and NAT. Three of them are somebody else's box. This one is yours, it is one line, and it is the cheapest of the four to rule out."
+    },
+    sources: ["card srx-ipsec · side 1 · THE FIVE PLUMBING PIECES","card srx-ipsec · side 3 · ERROR DECODER"]
+  },
+  "junos-srx/zone.st0.bind.set": {
+    cmd: "set security zones security-zone VPN interfaces st0.0", risk: "danger", mode: "configuration",
+    answers: "Plumbing piece two — how does the tunnel unit become policy-addressable?",
+    aka: ["put st0 in a zone","tunnel is up but nothing passes","which zone does the tunnel belong to"],
+    read: "No output — a unit in no zone silently permits nothing",
+    blast: "Puts the tunnel unit into a zone so policies can reference it. Moving a live unit between zones invalidates every policy written for the old zone pair and traffic stops until new ones exist.",
+    next: [["set security policies from-zone TRUST to-zone VPN policy TO-B then permit","caution"],
+           ["show security flow session","safe"]],
+    explain: {
+      terse: "Piece two of five. No zone means no policy pair, so nothing passes.",
+      explained: "A logical unit in no zone cannot be the source or destination of any security policy, so nothing is permitted through it. The SAs come up, the interface reads up, and the byte counters do not move.",
+      teaching: "The SA proves crypto, not reachability. That sentence is the most useful thing on side 4 and this statement is the most common way to prove it. Everything you would check to confirm the tunnel is healthy comes back clean: Phase 1 up, Phase 2 Installed, <span class=\"m\">st0.0</span> up, the route present. The packet still has nowhere to go, because there is no zone pair, so there is no policy, so the flow module drops it before it reaches the tunnel at all. When steps 5 to 8 of the bring-up ladder fail while steps 2 to 4 are clean, that is plumbing, not crypto, and no amount of proposal tweaking will fix it."
+    },
+    sources: ["card srx-ipsec · side 1 · THE FIVE PLUMBING PIECES","card srx-ipsec · side 4 · THINGS THAT BITE"]
+  },
+  "junos-srx/route.static.st0.set": {
+    cmd: "set routing-options static route 10.2.0.0/16 next-hop st0.0", risk: "danger", mode: "configuration",
+    answers: "Plumbing piece four — how does the far side's prefix reach the tunnel?",
+    aka: ["route the remote subnet down the tunnel","static route to st0","nothing is being sent into the tunnel"],
+    read: "No output — verify the prefix resolves via st0 afterwards",
+    blast: "Points a remote prefix at the tunnel unit. If that prefix is currently reached another way, this diverts it — and if the tunnel is not passing traffic, it blackholes it.",
+    next: [["show route 10.2.0.0/16","safe"],["show security flow session","safe"]],
+    explain: {
+      terse: "Piece four of five. A selector is not a route.",
+      explained: "Configuring a traffic selector tells the peer which prefixes this tunnel carries. It does not put anything in the routing table. A route-based tunnel is selected by the routing table, so without this the packet is never handed to <span class=\"m\">st0</span> in the first place.",
+      teaching: "The reason this gets missed is that the selector and the route contain the same prefixes, so writing one feels like writing both. They do different jobs at different layers: the selector is a negotiation parameter that the peer checks, and the route is a forwarding decision that only this box makes. A tunnel with correct selectors and no route installs perfectly and carries nothing. It also interacts with <span class=\"m\">establish-tunnels on-traffic</span>, which negotiates only when a packet is routed at <span class=\"m\">st0</span> — so with no route, the default setting means the tunnel never even attempts to come up, and there is nothing in the log to say why."
+    },
+    sources: ["card srx-ipsec · side 1 · THE FIVE PLUMBING PIECES","card srx-ipsec · side 3 · FAKE FLAPS"]
+  },
+  "junos-srx/ike.sa.clear-peer": {
+    cmd: "clear security ike security-associations 203.0.113.10", risk: "danger", mode: "operational",
+    answers: "How do I force the outer channel to rebuild with one far end?",
+    aka: ["restart the tunnel","bounce the vpn","reset phase 1","rebuild ike with one peer"],
+    read: "No output — re-run the Phase 1 listing to confirm it rebuilt",
+    blast: "Tears down the IKE SA with this peer and every child IPsec SA under it. On a hub that is every spoke behind this peer at once. Traffic stops until each tunnel renegotiates.",
+    next: [["show security ike security-associations","safe"],["show log kmd | match 203.0.113.10","safe"]],
+    explain: {
+      terse: "Rebuilds P1 with one peer. Takes its children with it.",
+      explained: "Always scope by peer or index. Clearing Phase 1 tears down every child SA under it, and on a hub that is every spoke at once. Clearing Phase 2 alone is the cheaper move and proves the same thing.",
+      teaching: "This command is the reflex when a tunnel misbehaves and it is almost always the wrong first move. Phase 2 rides inside Phase 1: clearing P2 forces a rekey and is the cheapest way to prove a tunnel comes back cleanly, without touching anything else. Clearing P1 takes every child SA with it, and on a hub terminating forty spokes behind one peer address that is forty tunnels renegotiating simultaneously — which is also forty DH exponentiations landing on the routing engine at once. Reach for the Phase 2 clear first. Come here only when Phase 1 itself is the thing you doubt."
+    },
+    sources: ["card srx-ipsec · side 3 · CLEARING & RENEGOTIATING"]
+  },
+  "junos-srx/ike.sa.show": {
+    cmd: "show security ike security-associations", risk: "safe", mode: "operational",
+    answers: "Is the outer negotiated channel up with the far end?",
+    aka: ["is phase 1 up","p1 state","ike status"],
+    read: "State — want UP, and one row per peer",
+    next: [["show security ike security-associations detail","safe"]],
+    explain: {
+      terse: "Step 2 of the ladder. P1 up, or nothing below it can work.",
+      explained: "Phase 2 rides inside Phase 1. P1 can be perfectly healthy while P2 fails forever — that split is the most useful diagnostic fact on this card.",
+      teaching: "Read the Index first, not the State. The same index a minute later means the SA is stable; a new index means it rebuilt, and a tunnel that rebuilds on a round-number interval is a lifetime or rekey problem, not a crypto one. Role matters just as much: always Responder means your side never initiates, which sends you to establish-tunnels and the route rather than to the proposals. Port 500 is direct and 4500 means NAT-T is in path."
+    },
+    sources: ["card srx-ipsec · side 3 · THE VERIFY LADDER","card srx-ipsec · side 3 · READING THE SA OUTPUT"]
+  },
+  "junos-srx/ipsec.inactive-tunnels.show": {
+    cmd: "show security ipsec inactive-tunnels", risk: "safe", mode: "operational",
+    answers: "Which tunnels are down, and what reason does the box give?",
+    aka: ["why is the tunnel down","tunnel down reason","what is not up"],
+    read: "Tunnel Down Reason — often the whole answer",
+    next: [["show security ike security-associations","safe"]],
+    explain: {
+      terse: "The underused one. It names what is down and why.",
+      explained: "<span class=\"m\">inactive-tunnels</span> is the underused one — it names what is down and prints a Tunnel Down Reason, which is often the whole answer.",
+      teaching: "Most people walk the ladder from the top and stop reading at the first thing that looks wrong. This command inverts that: it lists only what is not working and attaches the box's own explanation. Read it before you read the SA listings, because a Tunnel Down Reason is a sentence and an empty SA table is not."
+    },
+    sources: ["card srx-ipsec · side 3 · THE VERIFY LADDER"]
+  },
+  "junos-srx/flow.tcp-mss.set-ipsec": {
+    cmd: "set security flow tcp-mss ipsec-vpn mss 1360", risk: "caution", mode: "configuration",
+    answers: "How do I stop full-size segments vanishing inside the encryption?",
+    aka: ["mss clamp","tcp mss for the tunnel","transfer stalls at 0%"],
+    read: "No output — retest with a DF-set ping at the tunnel MTU",
+    blast: "Rewrites the MSS in the TCP handshake for tunnel traffic only. Clamping too low costs throughput; clamping with all-tcp instead hits everything through the box.",
+    next: [["show interfaces st0.0 | match MTU","safe"]],
+    explain: {
+      terse: "Clamp tunnel TCP up front. Needs no ICMP.",
+      explained: "<span class=\"m\">tcp-mss ipsec-vpn</span> clamps only tunnel traffic — the clean fix. <span class=\"m\">all-tcp</span> hits everything through the box, a far bigger blast radius than most people intend.",
+      teaching: "Rule of thumb: MSS equals tunnel MTU minus 40 for the IP and TCP headers. A 1400 MTU clamps to 1360, and many shops use 1350 for margin. It is surgical, prevents fragmentation before it starts, and does not depend on ICMP getting through — which matters because Path MTU Discovery breaks constantly, the ICMP fragmentation-needed being filtered somewhere, and the sender never learns to shrink."
+    },
+    sources: ["card srx-ipsec · side 4 · WHERE TO SET IT","card srx-ipsec · side 4 · THREE FIXES — KNOW THE DIFFERENCE"]
+  }
+};
+
+/* -------------------------------------------------------------------------
+   THE RULE SLICE. Verbatim from corpus/rules/ipsec-junos-srx.yaml.
+   ------------------------------------------------------------------------- */
+var RULES = [
+  { id:"zone.host-inbound.ike-missing", ver:"1.3.0", pack:"fathom.ipsec", sev:"high",
+    conf:"definite", cat:"correctness", node:"ZoneMember WAN/reth0.0", el:"z-wan",
+    title:"The WAN zone does not admit IKE on the gateway's external interface",
+    why:"The zone that owns the external interface drops the peer's IKE packets before the IKE process ever sees them. Phase 1 times out with nothing useful in the log, because nothing local ever happened.",
+    symptom:"Phase 1 timeout with no response and no local error. Identical on the wire to an upstream ACL, a wrong peer address, or NAT in path — so it is routinely misdiagnosed as a crypto problem and people start changing proposals.",
+    fixLines:[["set security zones security-zone WAN \\","caution"],
+              ["  interfaces reth0.0 host-inbound-traffic \\",""],
+              ["  system-services ike",""]],
+    rollback:[["delete security zones security-zone WAN \\","danger"],
+              ["  interfaces reth0.0 host-inbound-traffic \\",""],
+              ["  system-services ike",""]],
+    verify:[["show security ike security-associations","safe"],["show log kmd | match 203.0.113.10","safe"]],
+    acceptable:"Acceptable only on a gateway that is being staged and is not yet expected to negotiate. Under IKEv2 either party may initiate a rekey (RFC 7296 §2.8), and liveness probes arrive inbound from the peer regardless of who initiated — so “a peer that always responds and never initiates” is not a state you can configure on someone else's box. Record the staging window and close the finding when the gateway goes live.",
+    sources:["card srx-ipsec · side 1 · THE FIVE PLUMBING PIECES","card srx-ipsec · side 3 · ERROR DECODER"] },
+
+  { id:"ipsec.pfs.absent", ver:"2.1.0", pack:"fathom.ipsec", sev:"high",
+    conf:"definite", cat:"security", node:"IpsecPolicy IPSEC-POL", el:null,
+    title:"Perfect Forward Secrecy is not configured",
+    why:"Without PFS, Phase 2 keys derive from Phase 1 key material. One compromised IKE SA secret unlocks every data key derived under it, including traffic somebody recorded off the wire months ago.",
+    symptom:"PFS on one side and absent on the other fails Phase 2 while Phase 1 stays up — the classic “IKE looks fine but the tunnel keeps dropping”. The log shows NO_PROPOSAL_CHOSEN on the Phase 2 exchange, not Phase 1. Under IKEv2 the first child SA is keyed from the IKE SA and installs regardless, so the failure surfaces at the first CREATE_CHILD_SA rekey.",
+    fixLines:[["set security ipsec policy IPSEC-POL \\","danger"],
+              ["  perfect-forward-secrecy keys group14",""]],
+    rollback:[["delete security ipsec policy IPSEC-POL \\","danger"],
+              ["  perfect-forward-secrecy",""]],
+    verify:[["show security ipsec security-associations vpn-name VPN-B detail","safe"],
+            ["show security ike security-associations detail","safe"]],
+    acceptable:"Interoperating with a peer whose platform cannot offer PFS at all — some older appliances and a small number of cloud VPN services. Compensate with a shorter Phase 2 lifetime so a compromised IKE SA exposes less recorded traffic, and record the peer and the date in the change ticket.",
+    sources:["RFC 7296 §1.3","RFC 8247 §2.4","card srx-ipsec · side 2 · PERFECT FORWARD SECRECY"] },
+
+  { id:"mtu.mss-clamp.absent", ver:"1.2.0", pack:"fathom.mtu", sev:"med",
+    conf:"probable", cat:"operability", node:"Device SRX-DC-EAST-A", el:"dev-a",
+    title:"No TCP MSS clamp for tunnel traffic",
+    why:"IPsec adds roughly 50 to 70 bytes of headers, so a full-size packet entering the tunnel must fragment, and firewalls along the path routinely drop fragments. Without an MSS clamp the TCP endpoints never learn to send smaller segments, because the ICMP that would tell them is filtered somewhere.",
+    symptom:"Ping works. SSH connects. Then <span class=\"m\">ls</span> hangs, or a transfer stalls at 0%. Small packets fit and full-size ones vanish. Handshake fine, data stalls is MTU until proven otherwise — and it is routinely misdiagnosed as a crypto or performance problem because the tunnel is up and the counters move.",
+    fixLines:[["set security flow tcp-mss ipsec-vpn mss 1360","caution"]],
+    rollback:[["delete security flow tcp-mss ipsec-vpn","caution"]],
+    verify:[["show interfaces st0.0 | match MTU","safe"],
+            ["ping 10.2.0.1 do-not-fragment size 1372 count 3","safe"]],
+    acceptable:"Acceptable where the underlay carries jumbo frames or the path MTU is known to leave headroom above 1500 for the encapsulation, and where somebody has measured it rather than assumed it — raising the tunnel MTU to 1500 on a 1500 path does not remove the need for a clamp, it moves the fragmentation to the first hop after encapsulation. Also acceptable when the clamp is applied upstream on a router or load balancer rather than on this device — record where.",
+    sources:["RFC 1191","RFC 2923 §2.1","card srx-ipsec · side 4 · THREE FIXES — KNOW THE DIFFERENCE"] }
+];
+
+/* -------------------------------------------------------------------------
+   THE FIXTURE ESTATE. NOT CORPUS DATA. Derived from
+   .context/field-card-srx-ipsec.txt's worked topology. No inventory fixture
+   ships with the product; this one exists so the population rules have
+   something to fire on.
+   ------------------------------------------------------------------------- */
+var LAYERS = ["physical","l2","l3","security","overlay"];
+
+var ELEMS = [
+  { id:"site", kind:"Site", name:"DC-EAST", shape:"band", layers:LAYERS.slice(),
+    pos:{x:8,y:8,w:520,h:352}, movable:false,
+    spoken:"site DC-EAST, containing two devices and one tunnel endpoint",
+    inv:null, prov:{origin:"Hand", at:"2026-07-24"}, corpus:null, closure:[] },
+
+  { id:"dev-a", kind:"Device", name:"SRX-DC-EAST-A", shape:"devbox", layers:LAYERS.slice(),
+    pos:{x:24,y:36,w:200,h:104}, movable:true, age:"parsed 3 months ago", ageBand:"ageing",
+    spoken:"device SRX-DC-EAST-A, firewall, two chassis, parsed three months ago",
+    inv:{kind:"Device",name:"SRX-DC-EAST-A",device:"—",addr:"—",zone:"—"},
+    prov:{origin:"Parsed", at:"2026-04-18"}, corpus:null,
+    closure:["u-reth0","u-reth1","reth0","u-st0"] },
+
+  { id:"dev-b", kind:"Device", name:"SRX-DC-EAST-B", shape:"box", layers:LAYERS.slice(),
+    pos:{x:24,y:288,w:200,h:52}, movable:true, age:"parsed 11 months ago", ageBand:"stale",
+    spoken:"device SRX-DC-EAST-B, firewall, parsed eleven months ago, stale",
+    inv:{kind:"Device",name:"SRX-DC-EAST-B",device:"—",addr:"—",zone:"—"},
+    prov:{origin:"Parsed", at:"2025-08-14"}, corpus:null, closure:[] },
+
+  { id:"reth0", kind:"RethInterface", name:"reth0 · RG1", shape:"bracketL", layers:["physical"],
+    pos:{x:224,y:84,w:8,h:36}, movable:false, labelHidden:true,
+    spoken:"redundant ethernet interface reth0, redundancy group 1, members ge-0/0/0 on node0 and ge-5/0/0 on node1",
+    inv:{kind:"RethInterface",name:"reth0",device:"SRX-DC-EAST-A",addr:"—",zone:"—"},
+    prov:{origin:"Parsed", at:"2026-04-18"}, corpus:null, closure:["dev-a","u-reth0"] },
+
+  { id:"u-reth1", kind:"LogicalUnit", name:"reth1.0", addr:"10.1.0.1/24", shape:"box",
+    layers:["l2","l3","security"], pos:{x:272,y:36,w:120,h:40}, movable:true,
+    spoken:"logical unit reth1.0, address 10.1.0.1 slash 24, in zone TRUST",
+    inv:{kind:"LogicalUnit",name:"reth1.0",device:"SRX-DC-EAST-A",addr:"10.1.0.1/24",zone:"TRUST"},
+    prov:{origin:"Parsed", at:"2026-04-18"}, corpus:null, closure:["dev-a","z-trust"] },
+
+  { id:"u-reth0", kind:"LogicalUnit", name:"reth0.0", addr:"198.51.100.5", shape:"box",
+    layers:["l2","l3","security"], pos:{x:272,y:96,w:120,h:40}, movable:true,
+    spoken:"logical unit reth0.0, address 198.51.100.5, in zone WAN, external interface of gateway GW-B",
+    inv:{kind:"LogicalUnit",name:"reth0.0",device:"SRX-DC-EAST-A",addr:"198.51.100.5",zone:"WAN"},
+    prov:{origin:"Parsed", at:"2026-04-18"},
+    corpus:"junos-srx/ike.gateway.external-interface.set",
+    closure:["dev-a","reth0","z-wan","gw"] },
+
+  { id:"u-st0", kind:"LogicalUnit", name:"st0.0", addr:"10.255.0.1/30", shape:"box",
+    layers:["l3","security","overlay"], pos:{x:272,y:176,w:120,h:40}, movable:true,
+    spoken:"logical unit st0.0, address 10.255.0.1 slash 30, MTU 1400, in zone VPN, bound to VPN-B",
+    inv:{kind:"LogicalUnit",name:"st0.0",device:"SRX-DC-EAST-A",addr:"10.255.0.1/30",zone:"VPN"},
+    prov:{origin:"Hand", at:"2026-07-24"},
+    corpus:"junos-srx/ipsec.vpn.bind-interface.set",
+    closure:["z-vpn","tunnel","route","vpn"] },
+
+  { id:"route", kind:"StaticRoute", name:"10.2.0.0/16 → st0.0", shape:"route", layers:["l3"],
+    pos:{x:24,y:176,w:140,h:28}, movable:true,
+    spoken:"static route 10.2.0.0 slash 16 with next hop st0.0",
+    inv:{kind:"StaticRoute",name:"10.2.0.0/16",device:"SRX-DC-EAST-A",addr:"next-hop st0.0",zone:"—"},
+    prov:{origin:"Hand", at:"2026-07-24"},
+    corpus:"junos-srx/route.static.st0.set", closure:["u-st0"] },
+
+  { id:"z-trust", kind:"Zone", name:"zone TRUST", shape:"bracketR", layers:["security"],
+    pos:{x:400,y:28,w:8,h:56}, movable:false,
+    spoken:"zone TRUST, one member unit, reth1.0",
+    inv:{kind:"Zone",name:"TRUST",device:"SRX-DC-EAST-A",addr:"—",zone:"—"},
+    prov:{origin:"Parsed", at:"2026-04-18"}, corpus:null, closure:["u-reth1","pset"] },
+
+  { id:"z-wan", kind:"Zone", name:"zone WAN", shape:"bracketR", layers:["security"],
+    pos:{x:400,y:88,w:8,h:56}, movable:false,
+    spoken:"zone WAN, one member unit, reth0.0, does not admit IKE",
+    inv:{kind:"Zone",name:"WAN",device:"SRX-DC-EAST-A",addr:"—",zone:"—"},
+    prov:{origin:"Parsed", at:"2026-04-18"},
+    corpus:"junos-srx/zone.host-inbound.ike.set", closure:["u-reth0"] },
+
+  { id:"z-vpn", kind:"Zone", name:"zone VPN", shape:"bracketR", layers:["security"],
+    pos:{x:400,y:168,w:8,h:56}, movable:false,
+    spoken:"zone VPN, one member unit, st0.0",
+    inv:{kind:"Zone",name:"VPN",device:"SRX-DC-EAST-A",addr:"—",zone:"—"},
+    prov:{origin:"Hand", at:"2026-07-24"},
+    corpus:"junos-srx/zone.st0.bind.set", closure:["u-st0","pset"] },
+
+  { id:"pset", kind:"PolicySet", name:"TO-B · 1 · permit", shape:"pset", layers:["security"],
+    pos:{x:408,y:56,w:80,h:140}, movable:false,
+    spoken:"policy set from zone TRUST to zone VPN, one policy TO-B, default permit",
+    inv:{kind:"PolicySet",name:"TRUST → VPN",device:"SRX-DC-EAST-A",addr:"1 policy",zone:"—"},
+    prov:{origin:"Hand", at:"2026-07-24"}, corpus:null, closure:["z-trust","z-vpn"] },
+
+  { id:"tunnel", kind:"Tunnel", name:"DC-EAST ↔ SITE-B", shape:"conduit", layers:["overlay"],
+    pos:{x:332,y:296,w:228,h:0}, movable:false,
+    spoken:"tunnel conduit from st0.0 to external peer 203.0.113.10, VPN-B, gateway GW-B, version 2 only, selector 10.1.0.0 slash 16 to 10.2.0.0 slash 16",
+    inv:{kind:"Tunnel",name:"DC-EAST ↔ SITE-B",device:"SRX-DC-EAST-A",addr:"203.0.113.10",zone:"—"},
+    prov:{origin:"Hand", at:"2026-07-24"},
+    corpus:"junos-srx/ipsec.sa.show", closure:["u-st0","peer","vpn","gw","ts"] },
+
+  { id:"vpn", kind:"IpsecVpn", name:"VPN-B", shape:"label", layers:["overlay"],
+    pos:{x:340,y:288,w:0,h:0}, movable:false,
+    spoken:"IPsec VPN VPN-B, route based, bound to st0.0",
+    inv:{kind:"IpsecVpn",name:"VPN-B",device:"SRX-DC-EAST-A",addr:"st0.0",zone:"—"},
+    prov:{origin:"Hand", at:"2026-07-24"},
+    corpus:"junos-srx/ipsec.sa.show", closure:["tunnel","u-st0","gw"] },
+
+  { id:"gw", kind:"IkeGateway", name:"GW-B → 203.0.113.10 · v2-only", shape:"label", layers:["overlay"],
+    pos:{x:340,y:318,w:0,h:0}, movable:false,
+    spoken:"IKE gateway GW-B, peer 203.0.113.10, version 2 only, external interface reth0.0",
+    inv:{kind:"IkeGateway",name:"GW-B",device:"SRX-DC-EAST-A",addr:"203.0.113.10",zone:"—"},
+    prov:{origin:"Hand", at:"2026-07-24"},
+    corpus:"junos-srx/ike.gateway.external-interface.set", closure:["u-reth0","tunnel","vpn"] },
+
+  { id:"ts", kind:"TrafficSelector", name:"TS1 10.1.0.0/16 ↔ 10.2.0.0/16", shape:"label", layers:["overlay"],
+    pos:{x:340,y:278,w:0,h:0}, movable:false,
+    spoken:"traffic selector TS1, local 10.1.0.0 slash 16, remote 10.2.0.0 slash 16",
+    inv:{kind:"TrafficSelector",name:"TS1",device:"SRX-DC-EAST-A",addr:"10.1.0.0/16 ↔ 10.2.0.0/16",zone:"—"},
+    prov:{origin:"Hand", at:"2026-07-24"}, corpus:null, closure:["tunnel","vpn"] },
+
+  { id:"peer", kind:"ExternalPeer", name:"203.0.113.10", shape:"peer", layers:LAYERS.slice(),
+    pos:{x:560,y:272,w:180,h:48}, movable:true,
+    spoken:"external peer 203.0.113.10, site-b, not modelled beyond this address",
+    inv:{kind:"ExternalPeer",name:"203.0.113.10",device:"—",addr:"203.0.113.10",zone:"—"},
+    prov:{origin:"Hand", at:"2026-07-24"},
+    corpus:"junos-srx/ike.sa.clear-peer", closure:["tunnel"] }
+];
+
+/* Nodes that exist in the graph and in the inventory but have NO rendering in
+   56 §4.1's projection table at any layer. This is the honest cost of a
+   canvas-first direction and it is displayed, not hidden. */
+var NOT_DRAWN = [
+  { id:"prop-ike", kind:"IkeProposal", name:"IKE-P1",
+    inv:{kind:"IkeProposal",name:"IKE-P1",device:"SRX-DC-EAST-A",addr:"group14 · aes-256-cbc",zone:"—"} },
+  { id:"pol-ike", kind:"IkePolicy", name:"IKE-POL",
+    inv:{kind:"IkePolicy",name:"IKE-POL",device:"SRX-DC-EAST-A",addr:"psk",zone:"—"} },
+  { id:"prop-ipsec", kind:"IpsecProposal", name:"IPSEC-P2",
+    inv:{kind:"IpsecProposal",name:"IPSEC-P2",device:"SRX-DC-EAST-A",addr:"esp",zone:"—"} },
+  { id:"pol-ipsec", kind:"IpsecPolicy", name:"IPSEC-POL",
+    inv:{kind:"IpsecPolicy",name:"IPSEC-POL",device:"SRX-DC-EAST-A",addr:"no pfs",zone:"—"} }
+];
+
+/* -------------------------------------------------------------------------
+   THE EMIT. (line, provenance) pairs — never strings. Invariant 6.
+   Command text and risk band are corpus-verbatim.
+   ------------------------------------------------------------------------- */
+var EMIT = [
+  { n:1, lines:["set security ike proposal IKE-P1 \\","  authentication-method pre-shared-keys"],
+    risk:"danger", src:"prop-ike", field:"authentication_method",
+    corpus:"junos-srx/ike.proposal.auth-method.set", rules:[] },
+  { n:2, lines:["set security ike proposal IKE-P1 dh-group group14"],
+    risk:"danger", src:"prop-ike", field:"dh_group",
+    corpus:"junos-srx/ike.proposal.dh-group.set", rules:["ike.dh-group.weak (passing)"] },
+  { n:3, lines:["set security ike policy IKE-POL proposals IKE-P1"],
+    risk:"caution", src:"pol-ike", field:"proposals", corpus:null, rules:[] },
+  { n:4, lines:["set security ike policy IKE-POL pre-shared-key \\", '  ascii-text "<PSK>"'],
+    risk:"danger", src:"pol-ike", field:"pre_shared_key", corpus:null,
+    rules:[], placeholder:true },
+  { n:5, lines:["set security ike gateway GW-B ike-policy IKE-POL"],
+    risk:"caution", src:"gw", field:"ike_policy", corpus:null, rules:[] },
+  { n:6, lines:["set security ike gateway GW-B address 203.0.113.10"],
+    risk:"caution", src:"gw", field:"address", corpus:null, rules:[] },
+  { n:7, lines:["set security ike gateway GW-B external-interface reth0.0"],
+    risk:"caution", src:"gw", field:"external_interface",
+    corpus:"junos-srx/ike.gateway.external-interface.set",
+    rules:["zone.host-inbound.ike-missing (armed)"] },
+  { n:8, lines:["set security ike gateway GW-B version v2-only"],
+    risk:"danger", src:"gw", field:"version", corpus:null, rules:[] },
+  { n:9, lines:["set security ipsec proposal IPSEC-P2 protocol esp"],
+    risk:"danger", src:"prop-ipsec", field:"protocol", corpus:null, rules:[] },
+  { n:10, lines:["set security ipsec policy IPSEC-POL proposals IPSEC-P2"],
+    risk:"caution", src:"pol-ipsec", field:"proposals", corpus:null,
+    rules:["ipsec.pfs.absent (firing)"] },
+  { n:11, lines:["set security ipsec vpn VPN-B ike gateway GW-B"],
+    risk:"danger", src:"vpn", field:"ike_gateway", corpus:null, rules:[] },
+  { n:12, lines:["set security ipsec vpn VPN-B ike ipsec-policy IPSEC-POL"],
+    risk:"danger", src:"vpn", field:"ipsec_policy", corpus:null, rules:[] },
+  { n:13, lines:["set security ipsec vpn VPN-B bind-interface st0.0"],
+    risk:"danger", src:"vpn", field:"bind_interface",
+    corpus:"junos-srx/ipsec.vpn.bind-interface.set", rules:[] },
+  { n:14, lines:["set security ipsec vpn VPN-B traffic-selector TS1 \\","  local-ip 10.1.0.0/16 remote-ip 10.2.0.0/16"],
+    risk:"caution", src:"ts", field:"selector", corpus:null, rules:[] },
+  { n:15, lines:["set interfaces st0 unit 0 family inet \\","  address 10.255.0.1/30"],
+    risk:"danger", src:"u-st0", field:"address", corpus:null, rules:[] },
+  { n:16, lines:["set security zones security-zone VPN interfaces st0.0"],
+    risk:"danger", src:"z-vpn", field:"members",
+    corpus:"junos-srx/zone.st0.bind.set", rules:["tunnel.st0.zone-unbound (passing)"] },
+  { n:17, lines:["set routing-options static route 10.2.0.0/16 \\","  next-hop st0.0"],
+    risk:"danger", src:"route", field:"next_hop",
+    corpus:"junos-srx/route.static.st0.set", rules:[] },
+  { n:18, lines:["set security policies from-zone TRUST to-zone VPN \\","  policy TO-B match source-address any \\","  destination-address any application any"],
+    risk:"caution", src:"pset", field:"match", corpus:null, rules:[] },
+  { n:19, lines:["set security policies from-zone TRUST to-zone VPN \\","  policy TO-B then permit"],
+    risk:"caution", src:"pset", field:"then", corpus:null, rules:[] }
+];
+
+var BLOCKERS = [
+  ["IkeProposal IKE-P1","encryption-algorithm is unknown"],
+  ["IpsecProposal IPSEC-P2","encryption-algorithm is unknown"]
+];
+
+/* -------------------------------------------------------------------------
+   STATE
+   ------------------------------------------------------------------------- */
+var VIEWS = ["finder","walkthrough","config","findings","diagram","inventory"];
+var IMPERATIVE = {
+  finder:      "Verify against your own box before acting",
+  walkthrough: "Both ends must agree — every value, exactly",
+  config:      "Verify against your own box before acting",
+  findings:    "Continuous lint over the graph — not a report you run",
+  diagram:     "The diagram is a rendering — if a fact exists only in the picture, the picture has become the data structure",
+  inventory:   "Scope it as a design tool, not a source of truth",
+  artifact:    "No socket is opened by this program, ever — check it yourself below"
+};
+
+var S = {
+  view: "diagram",
+  layers: { physical:false, l2:true, l3:true, security:true, overlay:true },
+  sel: null,                 /* element id, the anchor */
+  facet: "Element",
+  depth: "explained",
+  cursor: 0,
+  spokes: 0,
+  cfgMode: "full",
+  changeSetFrom: null,
+  suppressed: {},
+  cluster: false,
+  clusterDismissed: false,
+  ops: [],
+  drawn: [],                 /* ids drawn under the current layer mask */
+  invSort: "kind",
+  invDir: 1,
+  findingCursor: 0,
+  finderQ: "",
+  finderSel: 0,
+  finderOpen: false,
+  gsheet: null,
+  seenCounts: { findings:3, config:19, inventory:16 }
+};
+
+var CEILING = 90;   /* fixture ceiling so it can be crossed in two clicks.
+                       The product's ceiling is 2,000 live SVG elements (44 §4.7.4). */
+
+var $ = function(s){ return document.querySelector(s); };
+var esc = function(t){ return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); };
+
+var msgTimer = null;
+function say(t){
+  $("#folio-msg").textContent = t;
+  if (msgTimer) { clearTimeout(msgTimer); }
+  /* 52 §9.5: the footer line for 1.6 s, in place of a toast. */
+  msgTimer = setTimeout(function(){ $("#folio-msg").textContent = ""; }, 1600);
+}
+
+function op(text){
+  S.ops.unshift(text);
+  if (S.ops.length > 6) { S.ops.length = 6; }
+}
+
+function el(id){
+  var a = allElems();
+  for (var i=0;i<a.length;i++){ if (a[i].id === id) return a[i]; }
+  for (var j=0;j<NOT_DRAWN.length;j++){ if (NOT_DRAWN[j].id === id) return NOT_DRAWN[j]; }
+  return null;
+}
+function isDrawn(id){ return S.drawn.indexOf(id) >= 0; }
+
+function spokeElems(){
+  var out = [];
+  for (var i=0;i<S.spokes;i++){
+    out.push({
+      id:"spoke-"+(i+1), kind:"ExternalPeer", name:"203.0.113."+(20+i), shape:"spoke",
+      layers:["overlay"], pos:{x:560,y:340+36*i,w:180,h:28}, movable:false, spoke:true,
+      spoken:"external peer 203.0.113."+(20+i)+", spoke "+(i+1)+", tunnel to this hub",
+      inv:{kind:"ExternalPeer",name:"203.0.113."+(20+i),device:"—",addr:"203.0.113."+(20+i),zone:"—"},
+      prov:{origin:"Hand", at:"2026-07-28"}, corpus:"junos-srx/ike.sa.clear-peer", closure:["tunnel"]
+    });
+  }
+  return out;
+}
+function allElems(){ return ELEMS.concat(spokeElems()); }
+
+function findingsFor(id){
+  var out = [];
+  for (var i=0;i<RULES.length;i++){ if (RULES[i].el === id) out.push(RULES[i]); }
+  if (id === "pol-ipsec") out.push(RULES[1]);
+  return out;
+}
+function aggFindings(id){
+  var f = findingsFor(id).filter(function(r){ return !S.suppressed[r.id]; });
+  if (!f.length) return "—";
+  var h=0,m=0,l=0;
+  f.forEach(function(r){ if(r.sev==="high")h++; else if(r.sev==="med")m++; else l++; });
+  var p=[]; if(h)p.push(h+" high"); if(m)p.push(m+" med"); if(l)p.push(l+" low");
+  return p.join(" · ");
+}
+
+/* =========================================================================
+   THE SCENE. SVG built with createElementNS from a closed tag set. Styling by
+   class only — no literal colour attributes (56 §5.7 M33).
+   ========================================================================= */
+var NS = "http://www.w3.org/2000/svg";
+function sv(tag, attrs, text){
+  var n = document.createElementNS(NS, tag);
+  for (var k in attrs){ if (Object.prototype.hasOwnProperty.call(attrs,k)) n.setAttribute(k, attrs[k]); }
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+var VE = { "vector-effect":"non-scaling-stroke" };
+function merge(a,b){ var o={},k; for(k in a) o[k]=a[k]; for(k in b) o[k]=b[k]; return o; }
+
+function activeLayers(){
+  var out=[]; for (var i=0;i<LAYERS.length;i++){ if (S.layers[LAYERS[i]]) out.push(LAYERS[i]); }
+  return out;
+}
+function visible(e){
+  for (var i=0;i<e.layers.length;i++){ if (S.layers[e.layers[i]]) return true; }
+  return false;
+}
+
+function tier(id){
+  if (!S.sel) return "";
+  if (id === S.sel) return "primary";
+  var a = el(S.sel);
+  if (a && a.closure && a.closure.indexOf(id) >= 0) return "related";
+  var e = el(id);
+  if (e && e.closure && e.closure.indexOf(S.sel) >= 0) return "related";
+  return "dim";
+}
+
+/* Two passes, because the honest thing to compare against the ceiling is the
+   number of elements actually created, not an estimate of them. Draw, count,
+   and if the scene is over budget, draw it again aggregated (44 §4.7.4). */
+function renderScene(){
+  var live = buildScene(false);
+  var aggregate = false;
+  if (S.spokes > 0 && live > CEILING){ aggregate = true; live = buildScene(true); }
+
+  $("#scene-count").textContent =
+    "svg elements live " + live + " / ceiling " + CEILING +
+    " · outline rows " + S.drawn.length + " = drawn elements " + S.drawn.length +
+    (aggregate ? " · aggregated" : "");
+  var hidden = (S.layers.physical ? 1 : 0);
+  $("#scene-state").textContent =
+    "layers " + (activeLayers().join(", ") || "none") +
+    (hidden ? " · 1 label hidden · reth0 · RG1" : "") +
+    " · fixture · not corpus data";
+
+  renderSceneNotes(aggregate);
+  paintFocusRing();
+}
+
+function buildScene(aggregate){
+  var svg = $("#scene");
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  S.drawn = [];
+
+  var list = allElems().filter(visible);
+  if (aggregate) list = list.filter(function(e){ return !e.spoke; });
+
+  var height = 380 + (aggregate ? 48 : S.spokes * 36);
+  svg.setAttribute("viewBox", "0 0 760 " + height);
+
+  var g = sv("g", {});
+  svg.appendChild(g);
+
+  list.forEach(function(e){
+    var node = drawElement(e);
+    if (node){
+      var t = tier(e.id);
+      node.setAttribute("class", "dg-hit" + (t === "primary" ? " dg-sel" : "") + (t === "dim" ? " dg-dim" : ""));
+      node.setAttribute("data-id", e.id);
+      g.appendChild(node);
+      S.drawn.push(e.id);
+    }
+  });
+
+  if (aggregate){
+    var ag = sv("g", {});
+    ag.appendChild(sv("path", merge(VE, { "class":"dg-line",
+      d:"M332,"+(height-30)+" L560,"+(height-30)+" M332,"+(height-25)+" L560,"+(height-25)+
+        " M332,"+(height-30)+" L332,"+(height-25)+" M560,"+(height-30)+" L560,"+(height-25) })));
+    ag.appendChild(sv("path", merge(VE, { "class":"dg-box",
+      d:"M740,"+(height-44)+" L560,"+(height-44)+" L560,"+(height-8)+" L740,"+(height-8) })));
+    ag.appendChild(sv("text", { "class":"dg-label", x:570, y:(height-28) }, S.spokes + " spokes · aggregated"));
+    ag.appendChild(sv("text", { "class":"dg-sub", x:570, y:(height-14) }, "drill down in inventory"));
+    ag.appendChild(sv("text", { "class":"dg-sub", x:340, y:(height-34) }, S.spokes + " tunnels"));
+    ag.setAttribute("class","dg-hit");
+    ag.setAttribute("data-id","aggregate");
+    g.appendChild(ag);
+    S.drawn.push("aggregate");
+  }
+
+  /* the focus ring — one element, appended last so it paints over everything */
+  var ring = sv("rect", merge(VE, { "class":"dg-focus-ring", "stroke-width":"2", x:-20,y:-20,width:0,height:0 }));
+  ring.setAttribute("id","focus-ring");
+  g.appendChild(ring);
+
+  return svg.querySelectorAll("*").length;
+}
+
+/* The click target for an element. Sized to what a person is aiming at,
+   not to the ink — a bracket is 8px of stroke and its label is the rest of it. */
+function hitbox(e){
+  var p = e.pos;
+  switch (e.shape){
+    case "band":     return { x:p.x, y:p.y, w:p.w, h:16 };
+    case "bracketR": return { x:p.x, y:p.y, w:68, h:p.h };
+    case "bracketL": return { x:p.x-8, y:p.y, w:24, h:p.h };
+    case "pset":     return { x:478, y:56, w:20, h:140 };
+    case "conduit":  return { x:332, y:292, w:228, h:14 };
+    case "label":    return { x:p.x-2, y:p.y-12, w:220, h:16 };
+    case "route":    return { x:p.x, y:p.y, w:p.w, h:p.h };
+    default:         return { x:p.x, y:p.y, w:p.w, h:p.h };
+  }
+}
+
+function drawElement(e){
+  var g = sv("g", {});
+  var p = e.pos;
+  var hb = hitbox(e);
+  g.appendChild(sv("rect", { "class":"dg-hitbox", x:hb.x, y:hb.y, width:hb.w, height:hb.h }));
+  switch (e.shape){
+    case "band":
+      g.appendChild(sv("rect", merge(VE, { "class":"dg-band", x:p.x, y:p.y, width:p.w, height:p.h })));
+      g.appendChild(sv("text", { "class":"dg-band-label", x:p.x+8, y:p.y+14 }, "site " + e.name));
+      break;
+    case "devbox":
+      g.appendChild(sv("rect", merge(VE, { "class":"dg-box", x:p.x, y:p.y, width:p.w, height:p.h })));
+      g.appendChild(sv("text", { "class":"dg-label", x:p.x+10, y:p.y+18 }, e.name));
+      if (e.age) g.appendChild(sv("text", { "class":"dg-sub", x:p.x+10, y:p.y+32 }, e.age));
+      if (S.layers.physical){
+        g.appendChild(sv("path", merge(VE, { "class":"dg-line", d:"M"+p.x+","+(p.y+40)+" L"+(p.x+p.w)+","+(p.y+40) })));
+        g.appendChild(sv("text", { "class":"dg-sub", x:p.x+10, y:p.y+56 }, "node0"));
+        g.appendChild(sv("text", { "class":"dg-sub", x:p.x+108, y:p.y+56 }, "ge-0/0/0"));
+        g.appendChild(sv("path", merge(VE, { "class":"dg-line", d:"M"+p.x+","+(p.y+64)+" L"+(p.x+p.w)+","+(p.y+64) })));
+        g.appendChild(sv("text", { "class":"dg-sub", x:p.x+10, y:p.y+80 }, "node1"));
+        g.appendChild(sv("text", { "class":"dg-sub", x:p.x+108, y:p.y+80 }, "ge-5/0/0"));
+        g.appendChild(sv("path", merge(VE, { "class":"dg-line",
+          d:"M"+(p.x+p.w-8)+","+(p.y+52)+" L"+(p.x+p.w)+","+(p.y+52)+
+            " M"+(p.x+p.w-8)+","+(p.y+76)+" L"+(p.x+p.w)+","+(p.y+76) })));
+      }
+      break;
+    case "box":
+      var cls = "dg-box" + (e.ageBand === "stale" ? " dg-stale" : "");
+      g.appendChild(sv("rect", merge(VE, { "class":cls, x:p.x, y:p.y, width:p.w, height:p.h })));
+      g.appendChild(sv("text", { "class":"dg-label", x:p.x+8, y:p.y+18 }, e.name));
+      if (e.addr) g.appendChild(sv("text", { "class":"dg-sub", x:p.x+8, y:p.y+32 }, e.addr));
+      if (e.age)  g.appendChild(sv("text", { "class":"dg-sub", x:p.x+8, y:p.y+32 }, e.age));
+      /* the link back to the owning device — one line, orthogonal */
+      if (e.id === "u-reth0" || e.id === "u-reth1")
+        g.appendChild(sv("path", merge(VE, { "class":"dg-line", d:"M232,"+(p.y+20)+" L"+p.x+","+(p.y+20) })));
+      break;
+    case "bracketL":   /* the reth bracket — device end only. Label is hidden and counted. */
+      g.appendChild(sv("path", merge(VE, { "class":"dg-line",
+        d:"M"+p.x+","+p.y+" L"+(p.x+p.w)+","+p.y+" L"+(p.x+p.w)+","+(p.y+p.h)+" L"+p.x+","+(p.y+p.h) })));
+      break;
+    case "bracketR":   /* zone bracket — stroke only, never a fill (survives forced colours) */
+      g.appendChild(sv("path", merge(VE, { "class":"dg-line",
+        d:"M"+p.x+","+p.y+" L"+(p.x+p.w)+","+p.y+" L"+(p.x+p.w)+","+(p.y+p.h)+" L"+p.x+","+(p.y+p.h) })));
+      g.appendChild(sv("text", { "class":"dg-band-label", x:p.x+14, y:p.y+p.h/2+4 }, e.name));
+      break;
+    case "pset":       /* zone-pair policy set — one edge between brackets, open-V at `to` */
+      g.appendChild(sv("path", merge(VE, { "class":"dg-line",
+        d:"M408,84 L488,84 L488,168 L412,168 M418,164 L412,168 L418,172" })));
+      g.appendChild(sv("text", { "class":"dg-band-label", x:412, y:160 }, e.name));
+      break;
+    case "route":
+      g.appendChild(sv("rect", merge(VE, { "class":"dg-box", x:p.x, y:p.y, width:p.w, height:p.h })));
+      g.appendChild(sv("text", { "class":"dg-label", x:p.x+8, y:p.y+19 }, "10.2.0.0/16"));
+      g.appendChild(sv("path", merge(VE, { "class":"dg-line",
+        d:"M"+(p.x+p.w)+",190 L268,190 M262,186 L268,190 L262,194" })));
+      break;
+    case "conduit":
+      g.appendChild(sv("path", merge(VE, { "class":"dg-line", d:"M332,216 L332,296" })));
+      g.appendChild(sv("path", merge(VE, { "class":"dg-line",
+        d:"M332,296 L560,296 M332,301 L560,301 M332,296 L332,301 M560,296 L560,301" })));
+      break;
+    case "label":
+      g.appendChild(sv("text", { "class":"dg-sub", x:p.x, y:p.y }, e.name));
+      break;
+    case "peer":
+      g.appendChild(sv("path", merge(VE, { "class":"dg-box",
+        d:"M"+(p.x+p.w)+","+p.y+" L"+p.x+","+p.y+" L"+p.x+","+(p.y+p.h)+" L"+(p.x+p.w)+","+(p.y+p.h) })));
+      g.appendChild(sv("text", { "class":"dg-label", x:p.x+10, y:p.y+20 }, e.name));
+      g.appendChild(sv("text", { "class":"dg-sub", x:p.x+10, y:p.y+36 }, "site-b · not modelled"));
+      break;
+    case "spoke":
+      g.appendChild(sv("path", merge(VE, { "class":"dg-line",
+        d:"M332,"+(p.y+12)+" L"+p.x+","+(p.y+12)+" M332,"+(p.y+17)+" L"+p.x+","+(p.y+17) })));
+      g.appendChild(sv("path", merge(VE, { "class":"dg-box",
+        d:"M"+(p.x+p.w)+","+p.y+" L"+p.x+","+p.y+" L"+p.x+","+(p.y+p.h)+" L"+(p.x+p.w)+","+(p.y+p.h) })));
+      g.appendChild(sv("text", { "class":"dg-label", x:p.x+10, y:p.y+19 }, e.name));
+      break;
+    default: return null;
+  }
+  return g;
+}
+
+function paintFocusRing(){
+  var ring = document.getElementById("focus-ring");
+  if (!ring) return;
+  var id = S.drawn[S.cursor];
+  var target = id ? el(id) : null;
+  var ae = document.activeElement;
+  var onOutline = !!(ae && ae.getAttribute && ae.getAttribute("data-orow") !== null);
+  if (!target || !target.pos || !onOutline){
+    ring.setAttribute("width", 0); ring.setAttribute("height", 0);
+    return;
+  }
+  var p = target.pos;
+  ring.setAttribute("x", p.x - 4);
+  ring.setAttribute("y", p.y - 4);
+  ring.setAttribute("width", Math.max(p.w, 8) + 8);
+  ring.setAttribute("height", Math.max(p.h, 8) + 8);
+}
+
+function renderSceneNotes(aggregate){
+  var h = "";
+  if (aggregate){
+    h += note("Above the element ceiling this view aggregates",
+      "The spokes are no longer drawn individually. <em>An engineer who wants their whole estate on one screen cannot get it, and the answer is the inventory view.</em> Saying “use the table” is the true answer and it is worse than the answer they wanted. The product's ceiling is 2,000 live SVG elements (44 §4.7.4); this fixture's is " + CEILING + " so you can cross it.",
+      [["go to inventory","act-inv"]]);
+  }
+  if (S.spokes >= 3 && !aggregate){
+    h += note("One hub, " + S.spokes + " spokes, one peer address",
+      "Clearing Phase 1 on this peer tears down every child SA under it — on a hub that is every spoke at once, <em>which is also forty DH exponentiations landing on the routing engine at once</em>. Population rule, from the same engine as every other finding (invariant 5).",
+      [["read the corpus entry","act-clear"]]);
+  }
+  $("#scene-notes").innerHTML = h;
+}
+
+function note(label, body, acts){
+  var a = (acts||[]).map(function(x){ return '<button type="button" class="act" data-act="'+x[1]+'">'+esc(x[0])+'</button>'; }).join("");
+  return '<div class="note"><span class="lab">' + esc(label) + '</span>' + body +
+         (a ? '<div class="acts">'+a+'</div>' : '') + '</div>';
+}
+
+/* =========================================================================
+   THE DOCK — the question under the scene.
+   ========================================================================= */
+function renderDock(){
+  var d = $("#dock");
+  if (S.view === "diagram")      d.innerHTML = dockOutline();
+  else if (S.view === "inventory") d.innerHTML = dockInventory();
+  else if (S.view === "findings")  d.innerHTML = dockFindings();
+  else if (S.view === "config")    d.innerHTML = dockConfig();
+  else if (S.view === "walkthrough") d.innerHTML = dockWalkthrough();
+  else if (S.view === "finder")    d.innerHTML = dockFinderNote();
+  wireDock();
+}
+
+function dockOutline(){
+  var rows = S.drawn.map(function(id, i){
+    var e = (id === "aggregate")
+      ? { id:"aggregate", kind:"Aggregate", name:S.spokes+" spokes", spoken:"aggregate of "+S.spokes+" external peers and their tunnels" }
+      : el(id);
+    var t = tier(id);
+    return '<button type="button" class="orow ' + (t === "primary" ? "is-primary" : t === "related" ? "is-related" : "") +
+      '" data-orow="' + i + '" data-id="' + esc(id) + '" tabindex="' + (i === S.cursor ? "0" : "-1") + '">' +
+      '<span class="g">' + (t === "primary" ? "▸" : "") + ' ' + esc(e.kind.slice(0,13)) + '</span>' +
+      '<span class="k">' + esc(e.name) + '</span>' +
+      '<span class="s">' + esc(e.spoken ? e.spoken.slice(0, 62) : "") + '</span></button>';
+  }).join("");
+  return blockhead("The outline — one row per drawn element",
+      "55 §4.5 · bijection asserted over all 31 layer masks") +
+    '<p class="mt">the picture holds no focus. the outline does, and the picture mirrors it. ↑↓ moves · enter selects · ←→ nudges the selection 4px · shift ←→ 32px</p>' +
+    '<div class="outline scroller" role="listbox" aria-label="Diagram outline">' + rows + '</div>' +
+    note("A new decoration is not shippable until it has an outline row",
+      "If a fact cannot be expressed as a row with a spoken sentence, it probably should not be in the picture either — because a fact that can only be seen and not said is a fact the export, the digest, the CLI and the ticket will all lose. That is a design filter as much as an accessibility one.", []);
+}
+
+function dockInventory(){
+  var rows = allElems().filter(function(e){ return e.inv; }).map(function(e){
+    return { id:e.id, inv:e.inv, drawn:isDrawn(e.id), prov:e.prov };
+  }).concat(NOT_DRAWN.map(function(e){
+    return { id:e.id, inv:e.inv, drawn:false, prov:{origin:"Parsed", at:"2026-04-18"} };
+  }));
+
+  var key = S.invSort;
+  rows.sort(function(a,b){
+    var av, bv;
+    if (key === "findings"){
+      var rank = function(id){
+        var f = findingsFor(id).filter(function(r){ return !S.suppressed[r.id]; });
+        if (!f.length) return "9";
+        var worst = f.some(function(r){return r.sev==="high";}) ? "0" : f.some(function(r){return r.sev==="med";}) ? "1" : "2";
+        return worst + (9 - f.length);
+      };
+      av = rank(a.id); bv = rank(b.id);
+    } else if (key === "prov"){
+      av = a.prov.at; bv = b.prov.at;
+    } else { av = a.inv[key] || ""; bv = b.inv[key] || ""; }
+    if (av < bv) return -1 * S.invDir;
+    if (av > bv) return 1 * S.invDir;
+    return a.id < b.id ? -1 : 1;
+  });
+
+  var body = rows.map(function(r){
+    var t = tier(r.id);
+    return '<tr data-id="' + esc(r.id) + '" tabindex="-1" class="' +
+      (t === "primary" ? "is-primary" : t === "related" ? "is-related" : "") + '">' +
+      '<td>' + esc(r.inv.kind) + '</td>' +
+      '<td class="m">' + esc(r.inv.name) + '</td>' +
+      '<td class="m">' + esc(r.inv.device) + '</td>' +
+      '<td class="m">' + esc(r.inv.addr) + '</td>' +
+      '<td>' + esc(r.inv.zone) + '</td>' +
+      '<td class="m">' + esc(r.prov.origin.toLowerCase() + " " + r.prov.at) +
+        (r.drawn ? "" : ' <span class="mt">not drawn · inspector only</span>') + '</td>' +
+      '<td>' + esc(aggFindings(r.id)) + '</td></tr>';
+  }).join("");
+
+  var head = ["kind","name","device","addr","zone"].map(function(k){
+    return '<th scope="col"><button type="button" class="link" data-sort="' + k + '">' + k +
+      (S.invSort === k ? (S.invDir > 0 ? " ▴" : " ▾") : "") + '</button></th>';
+  }).join("");
+
+  var obs = "";
+  if (!S.cluster && !S.clusterDismissed){
+    obs += note("Two SRX devices, no cluster",
+      "<span class=\"m\">reth0</span> exists on SRX-DC-EAST-A. A reth exists only on a chassis cluster, and nothing in this workspace says these two devices are one. Fathom is guessing from two facts. A population rule, and a rule like any other (invariant 5).",
+      [["model it as a cluster","act-cluster"],["not a cluster","act-nocluster"]]);
+  } else if (S.cluster){
+    obs += note("Chassis cluster modelled",
+      "<span class=\"m\">ChassisCluster</span> node added 2026-07-28, hand-entered. The observation is closed because the population it describes no longer holds. Seven cluster corpus entries become reachable — <span class=\"m\">show chassis cluster status</span>, <span class=\"m\">show security ipsec security-associations node all</span> — because an empty SA listing on a cluster can mean wrong node, not down.", []);
+  } else {
+    obs += note("Two SRX devices, no cluster — suppressed",
+      "<span class=\"mt\">suppressed · not a cluster</span> — the observation is muted and counted in the band, not deleted. Suppression is a state on a separate channel, never a severity.", [["unsuppress","act-uncluster"]]);
+  }
+
+  return blockhead("Inventory — the estate, and what the rule engine thinks of each row",
+      "52 §3.7 · columns generated from schema.yaml · fixture") +
+    '<p class="mt">click a row to select it in the picture · the rightmost column is not a field, it is the per-row finding aggregate · sorting by it sorts by worst severity then count</p>' +
+    '<div class="scroller"><table class="inv"><thead><tr>' + head +
+    '<th scope="col"><button type="button" class="link" data-sort="prov">provenance</button></th>' +
+    '<th scope="col"><button type="button" class="link" data-sort="findings">findings' +
+      (S.invSort === "findings" ? (S.invDir > 0 ? " ▴" : " ▾") : "") + '</button></th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table></div>' + obs +
+    '<div class="seam"><span class="lab">This is where a new node kind plugs in — M7, the schema is data</span>' +
+    '<p style="font-size:var(--t-small);margin:var(--s2) 0 0;max-width:var(--measure)">' +
+    'The columns above are not written anywhere in the UI. They are generated from <span class="m">schema.yaml</span> (11 §11.6), which six subsystems consume: fex’s type environment, the parser’s identity tuples, the pack lint’s kind universe, the platform enum map, the emitter’s accessor codegen and the artifact build. Adding a kind adds a diagram rendering, inventory columns, rule targets and explainer subjects at once, with no UI code — because a view is three pure functions and the core never knows a view exists.</p>' +
+    '<pre>' + esc(
+'# schema.yaml — one new kind\n' +
+'kinds:\n' +
+'  - name: BgpNeighbor\n' +
+'    fields: [peer_as, local_as, address, authentication]\n' +
+'    identity: [address]\n\n' +
+'# 56 §4.1 — one row in the projection table\n' +
+'#   element        physical  L2   L3      security  overlay\n' +
+'#   BgpNeighbor    —         —    arrow   —         —\n\n' +
+'# and the UI gains, with zero UI code:\n' +
+'#   · an inventory column set + a sortable opinions cell\n' +
+'#   · an outline row (mandatory — 56 §7 bijection)\n' +
+'#   · a rule target: applies_to: { kind: BgpNeighbor }\n' +
+'#   · an explainer subject class (15 §2.2)\n' +
+'# what it must NOT gain: a seventh view. M10.') + '</pre></div>';
+}
+
+function dockFindings(){
+  var vis = RULES.filter(function(r){ return !S.suppressed[r.id]; });
+  var sup = RULES.filter(function(r){ return S.suppressed[r.id]; });
+  var order = vis.concat(sup);
+
+  var rows = order.map(function(r, i){
+    var supp = !!S.suppressed[r.id];
+    var sevc = r.sev === "high" ? "sev-high" : r.sev === "med" ? "sev-med" : "sev-low";
+    var drawn = r.el && isDrawn(r.el);
+    return '<div role="button" tabindex="0" class="finding ' + sevc + (supp ? " suppressed" : "") +
+      (S.sel && r.el === S.sel ? " is-primary" : "") + '" data-fi="' + i + '" data-rule="' + esc(r.id) + '">' +
+      '<span><span class="fkey">' + esc(r.id) + '</span><br>' +
+      '<span class="fmeta">' + esc(r.node) + (drawn ? "" : " · not drawn") + '<br>' +
+      esc(r.pack) + " " + esc(r.ver) + ' · ' + esc(r.cat) + '</span></span>' +
+      '<span class="fbody"><span class="ftitle">' + esc(r.sev.toUpperCase()) + ' — ' + esc(r.title) + '</span>' +
+      '<span class="mt" style="float:right">' + esc(r.conf === "probable" ? "probable" : "definite") + '</span>' +
+      '<p>' + r.why + '</p>' +
+      '<p class="lab">Symptom if mismatched</p><p>' + r.symptom + '</p>' +
+      '<p class="lab">Acceptable when</p><p>' + esc(r.acceptable) + '</p>' +
+      '<p class="lab">Sources</p><p class="fmeta">' + esc(r.sources.join(" · ")) + '</p>' +
+      (supp ? '<p class="mt">suppressed · demonstrating the state channel — press u</p>' : '') +
+      '</span></div>';
+  }).join("");
+
+  return blockhead("Findings — the card's error decoder, literally",
+      "52 §3.5 · sort (severity desc, node emit order, rule id)") +
+    '<p class="mt">left column is the lookup key · right column is the answer · severity is a 4px bar in four neutral tones, never a colour · f produces a change set · s suppresses · u unsuppresses</p>' +
+    '<div class="scroller" id="findings-list">' + rows + '</div>' +
+    note("Why is my high-severity finding not red",
+      "Red already means <em>drops live traffic</em>, and a finding does not drop traffic — the command you paste might. The three colours classify what a command does to a live box and nothing else, forever. Severity rides a separate channel: a 4px left bar in four tones, and under forced colours it switches from tone to width, because width is not overridden.", []) +
+    note("This is where a rule plugs in — M1, rules are data",
+      "<span class=\"m\">mtu.mss-clamp.absent</span> above is not built into the product. It is a YAML document with a <span class=\"m\">platforms</span> predicate, a <span class=\"m\">versions</span> predicate, a <span class=\"m\">condition</span> in fex, an <span class=\"m\">applies_to</span> selector, prose at three depths, a remediation, sources and — mandatory on every rule — <span class=\"m\">acceptable_when</span>. One engine, no per-vendor modules, so N vendors × M domains grows linearly. Note its pack attribution differs from the other two rows: a whole domain arrives as a signed, versioned, scoped-trust bundle.", []);
+}
+
+function dockConfig(){
+  if (S.cfgMode === "changeset") return dockChangeSet();
+  var blockers = BLOCKERS.map(function(b){
+    return '<tr><th>' + esc(b[0]) + '</th><td>' + esc(b[1]) + '</td></tr>';
+  }).join("");
+
+  var lines = EMIT.map(function(l){
+    var t = tier(l.src);
+    var mark = l.risk === "danger" ? "▪" : l.risk === "caution" ? "▪" : "▪";
+    var body = l.lines.map(function(x, i){ return (i === 0 ? x : x); }).join("\n");
+    var word = l.risk === "safe" ? "Read-only" : l.risk === "caution" ? "Changes config" : "Disruptive";
+    var vh = l.risk === "safe" ? " — safe on production" : l.risk === "caution" ? " — needs a commit" : " — drops live traffic";
+    var srcDrawn = isDrawn(l.src);
+    var safe = esc(body);
+    if (l.placeholder) safe = safe.replace("&lt;PSK&gt;", '<span class="ph">&lt;PSK&gt;</span>');
+    return '<div role="button" tabindex="0" class="cline ' + (t === "primary" ? "is-primary" : t === "related" ? "is-related" : "") +
+      '" data-cline="' + l.n + '" data-src="' + esc(l.src) + '">' +
+      '<span class="gut">' + (t === "primary" ? "▸" : " ") + String(l.n) + ' ' + mark + '</span>' +
+      '<pre>' + safe + '</pre>' +
+      '<span class="rw ' + l.risk + '">' + word + '<span class="vh">' + vh + '</span></span></div>' +
+      (t === "primary" ?
+        '<div class="prov">└ ' + esc(el(l.src) ? el(l.src).kind + " " + el(l.src).name : l.src) +
+        ' · ' + esc(l.field) + ' · ' + esc(el(l.src) && el(l.src).prov ? el(l.src).prov.origin.toLowerCase() + " " + el(l.src).prov.at : "parsed 2026-04-18") +
+        (srcDrawn ? "" : " · not drawn in the diagram") +
+        (l.rules.length ? '<br>&nbsp;&nbsp;rules: ' + esc(l.rules.join(", ")) : "") +
+        (l.corpus ? '<br>&nbsp;&nbsp;corpus: ' + esc(l.corpus) : "") + '</div>' : "");
+  }).join("");
+
+  return blockhead("Config · full — emit(graph, junos-srx)",
+      "invariant 6 · every line carries source_node, source_fields, rules_applied, risk, order_hint") +
+    '<p class="mt">click any line to select its source node — the picture follows · wrapped at 72 columns with the continuation backslash preserved · alt d switches to change set</p>' +
+    '<div class="note"><span class="lab">Blockers — from emit</span>' +
+    '<table class="fields"><tbody>' + blockers + '</tbody></table>' +
+    '<p style="margin:var(--s2) 0 0">Nothing is emitted for a field nobody supplied. The connect gesture never invents a DH group so the config “just works” — that would be a value nobody chose with provenance <span class="m">Hand</span>, and a rule would read it as intentional.</p></div>' +
+    '<div class="cfg scroller" style="margin-top:var(--s3)">' + lines + '</div>';
+}
+
+function dockChangeSet(){
+  var r = null;
+  for (var i=0;i<RULES.length;i++){ if (RULES[i].id === S.changeSetFrom) r = RULES[i]; }
+  if (!r) r = RULES[0];
+  var seq = 1;
+  function block(label, arr){
+    var out = '<p class="lab">' + label + '</p>';
+    out += arr.map(function(pair){
+      var word = pair[1] === "safe" ? "Read-only" : pair[1] === "caution" ? "Changes config" : pair[1] === "danger" ? "Disruptive" : "";
+      return '<div class="cline"><span class="gut">' + (pair[1] ? String(seq++) : " ") + ' ▪</span>' +
+             '<pre>' + esc(pair[0]) + '</pre>' +
+             (word ? '<span class="rw ' + pair[1] + '">' + word + '</span>' : '<span></span>') + '</div>';
+    }).join("");
+    return out;
+  }
+  return blockhead("Config · change set · " + (r.fixLines.length + r.verify.length + r.rollback.length + 2) + " lines",
+      "52 §3.4.1 · verify(diff(graph)) is a MODE, not a seventh view") +
+    '<p class="mt">from finding ' + esc(r.id) + ' · commit confirmed 5 is line 1, always · alt d returns to full</p>' +
+    '<div class="cfg">' +
+    block("Change", [["commit confirmed 5","caution"]].concat(r.fixLines)) +
+    block("Verify — the pruned ladder", r.verify) +
+    block("Rollback", r.rollback.concat([["commit","caution"]])) +
+    '</div>' +
+    note("The cost of a mode, stated rather than hidden",
+      "Config now has a mode selector. The mitigation is naming it in the band — <span class=\"m\">config · change set · " + (r.fixLines.length + r.verify.length + r.rollback.length + 2) + " lines</span> — rather than hiding it. This is the precedent that says new functionality lands as a mode of an existing view, a layer, a diagram layer, an inventory kind or a rule pack, and never as a seventh tab.", []);
+}
+
+function dockWalkthrough(){
+  return blockhead("Walkthrough — the controller owns the canvas",
+      "52 §3.3, §6 · drive(graph, task) · step 4 of 19") +
+    '<p class="mt">everything else reads the graph. this writes to it. it may not be pinned as the second pane — a controller in a 400px pane is a form in a gutter</p>' +
+    '<div class="note"><span class="lab">walk:junos-srx.s2s-ipsec · step 4 · phase1-gateway</span>' +
+    '<p style="font-size:var(--t-body);margin:var(--s2) 0"><b>Which port does the far end’s traffic actually arrive on?</b></p>' +
+    '<p class="mt">the question is in your words, not the field’s words</p>' +
+    '<div class="acts">' +
+    '<button type="button" class="act" data-wt="reth0.0">reth0.0 · 198.51.100.5</button>' +
+    '<button type="button" class="act" data-wt="reth1.0">reth1.0 · 10.1.0.1/24</button>' +
+    '<button type="button" class="act" data-wt="st0.0">st0.0 · 10.255.0.1/30</button>' +
+    '</div>' +
+    '<p style="margin-top:var(--s3)"><span class="lab">writes</span> <span class="m">IkeGateway GW-B . external_interface</span></p>' +
+    '<p><span class="lab">arms</span> <span class="m">zone.host-inbound.ike-missing</span> — this rule becomes checkable at this step, which is why the finding appears at the earliest honest moment rather than at the end.</p>' +
+    '</div>' +
+    note("Answering st0.0 here is the mistake the card names",
+      "<span class=\"m\">external-interface</span> is the WAN unit the IKE packets leave by, not <span class=\"m\">st0</span>. <span class=\"m\">st0</span> only exists once Phase 2 has installed, and Phase 1 has to happen over the underlay to get there. The walkthrough is authored corpus — <span class=\"m\">Task { id, version, platforms, root_kind, steps, armed_rules }</span> — so a new guided task is a YAML document and zero lines of code.", []);
+}
+
+function dockFinderNote(){
+  return blockhead("Finder — the one corpus surface",
+      "52 §3.2 · find(corpus, query, graph?) · zero setup, zero data entry, zero trust") +
+    '<p class="mt">the only view whose primary object is a CorpusId, not a graph element — so it is also the only view that does not annotate the picture, and the only one that works with no workspace at all</p>' +
+    '<div class="acts" style="margin:var(--s3) 0"><button type="button" class="act" data-act="open-finder">open the finder — ctrl k</button></div>' +
+    note("This is the whole of v1 under ADR-0006",
+      "ADR-0006 (Accepted) decides <em>v1 is phase 0 alone — v1 = the finder … nothing about a graph</em>. Everything else on this page is graph-backed and lands in phases 1–3, which is 46–66 solo weeks beyond v1 by 71 §2’s own figures, before the diagram is restored as a view rather than an SVG export. Both goals the owner named need the graph. The disagreement is real, both documents are in force, and this concept draws the boundary rather than picking a side.", []);
+}
+
+function blockhead(t, cite){
+  return '<div class="blockhead"><h2>' + esc(t) + '</h2><span class="mt">' + esc(cite) + '</span></div>';
+}
+
+/* =========================================================================
+   THE INSPECTOR — the one second surface. A column, never an overlay.
+   ========================================================================= */
+function renderInspector(){
+  var box = $("#inspector");
+  if (!S.sel){
+    box.innerHTML = '<h3>Inspector</h3>' +
+      '<p class="stamp">junos-srx 21.4R3 · unverified</p>' +
+      '<p class="prose">Nothing is selected. Selecting anything — a shape, an outline row, an inventory row, a finding, a config line — fills this column and leaves every other surface where it was. A view switch never changes the selection; it changes how the selection is drawn.</p>' +
+      '<p class="lab">The window into teaching</p>' +
+      '<p class="prose">Try <span class="m">reth0.0</span> (the most-missed line on the card), <span class="m">st0.0</span>, <span class="m">zone WAN</span>, or the conduit.</p>' +
+      '<p class="lab">Keys</p>' +
+      '<table class="fields"><tbody>' +
+      '<tr><th>alt 1–alt 6</th><td>switch view — the scene does not move</td></tr>' +
+      '<tr><th>Ctrl K</th><td>the finder, from anywhere</td></tr>' +
+      '<tr><th>↑ ↓</th><td>move the outline cursor</td></tr>' +
+      '<tr><th>← →</th><td>nudge the selection 4px · shift 32px</td></tr>' +
+      '<tr><th>e · v</th><td>explain · cycle depth</td></tr>' +
+      '<tr><th>f · s · u</th><td>fix · suppress · unsuppress</td></tr>' +
+      '<tr><th>w · c · g</th><td>walkthrough · copy · guidebook</td></tr>' +
+      '<tr><th>Esc</th><td>unwind one level</td></tr>' +
+      '</tbody></table>';
+    return;
+  }
+
+  var e = el(S.sel);
+  if (!e){ box.innerHTML = '<h3>Inspector</h3>'; return; }
+  var c = e.corpus ? CORPUS[e.corpus] : null;
+  var h = '';
+
+  h += '<h3>' + esc(e.name) + '</h3>';
+  h += '<p class="sub">' + esc(e.kind) + (isDrawn(e.id) ? "" : " · not drawn in the diagram") + '</p>';
+  h += '<p class="stamp">junos-srx 21.4R3 · <b>unverified</b> · reviewed_by &lt;named human&gt;</p>';
+  h += '<p class="mt">nothing in this corpus has been run on a box by its author</p>';
+
+  if (c){
+    h += '<p class="lab">' + (c.mode === "operational" ? "Read this" : "Emits") + '</p>';
+    var word = c.risk === "safe" ? "Read-only" : c.risk === "caution" ? "Changes config" : "Disruptive";
+    h += '<div class="cline stacked" style="border-left:var(--rule-accent) solid var(--ink)">' +
+         '<span class="gut">▪</span><span class="rw ' + c.risk + '">' + word + '</span>' +
+         '<pre>' + esc(c.cmd) + '</pre></div>';
+    h += '<p class="prose" style="margin-top:var(--s2)"><b>Answers:</b> ' + esc(c.answers) + '</p>';
+    if (c.read) h += '<p class="prose"><b>Read:</b> ' + esc(c.read) + '</p>';
+    if (c.blast) h += '<p class="prose"><b>Blast radius:</b> ' + esc(c.blast) + '</p>';
+
+    h += '<p class="lab">Why</p>';
+    h += '<div class="depth" role="group" aria-label="Explainer depth — v or alt \\">' +
+      ["terse","explained","teaching"].map(function(d){
+        return '<button type="button" data-depth="' + d + '" aria-pressed="' + (S.depth === d) + '">' + d + '</button>';
+      }).join("") + '</div>';
+    h += '<div class="prose">' + c.explain[S.depth] + '</div>';
+    h += '<p class="mt">three texts, not three lengths — terse is not the first sentence of explained</p>';
+
+    if (c.fields){
+      h += '<p class="lab">Output fields</p><table class="fields"><tbody>' +
+        c.fields.map(function(f){ return '<tr><th>' + esc(f[0]) + '</th><td>' + f[1] + '</td></tr>'; }).join("") +
+        '</tbody></table>';
+    }
+    if (c.next && c.next.length){
+      h += '<p class="lab">If bad</p><div class="cfg">' + c.next.map(function(n, i){
+        var w = n[1] === "safe" ? "Read-only" : n[1] === "caution" ? "Changes config" : n[1] === "danger" ? "Disruptive" : "";
+        return '<div class="cline stacked"><span class="gut">' + (i + 1) + ' ▪</span>' +
+          (w ? '<span class="rw ' + n[1] + '">' + w + '</span>' : '<span class="mt">explainer</span>') +
+          '<pre>' + esc(n[0]) + '</pre></div>';
+      }).join("") + '</div>';
+    }
+    h += '<p class="lab">Sources</p><p class="stamp">' + esc(c.sources.join("<br>")).replace(/&lt;br&gt;/g,"<br>") + '</p>';
+  } else {
+    h += '<p class="lab">Why</p>';
+    h += '<p class="prose">No corpus entry resolves to <span class="m">' + esc(e.kind) + '</span>. The explainer resolves through the spine-and-rails ladder over 13 subject classes (15 §3.2) and this kind is not one of them today. The row renders one fewer line — never a placeholder, never an empty state.</p>';
+    h += '<p class="mt">this is what M3 looks like from the outside: an entry lacking a field renders less, not worse</p>';
+  }
+
+  var fs = findingsFor(e.id);
+  if (fs.length){
+    h += '<p class="lab">Findings on this element</p>';
+    h += fs.map(function(r){
+      return '<div class="finding ' + (r.sev === "high" ? "sev-high" : "sev-med") + '" style="cursor:default">' +
+        '<span class="fkey">' + esc(r.id) + '</span>' +
+        '<span class="fbody"><span class="ftitle">' + esc(r.sev.toUpperCase()) + '</span> ' + esc(r.title) + '</span></div>';
+    }).join("");
+    h += '<div class="acts" style="display:flex;gap:var(--s3);margin-top:var(--s2)">' +
+      '<button type="button" class="act" data-act="fix">f — produce a change set</button></div>';
+  }
+
+  h += '<p class="lab">Provenance</p><table class="fields"><tbody>' +
+    '<tr><th>origin</th><td>' + esc(e.prov ? e.prov.origin : "—") + '</td></tr>' +
+    '<tr><th>asserted</th><td class="num">' + esc(e.prov ? e.prov.at : "—") + '</td></tr>' +
+    '<tr><th>age</th><td>' + esc(e.prov && e.prov.origin === "Parsed" ? (e.age || "parsed") : "human assertions do not age") + '</td></tr>' +
+    '<tr><th>layers</th><td class="m">' + esc((e.layers || []).join(", ") || "none — inspector only") + '</td></tr>' +
+    '</tbody></table>';
+
+  if (e.movable){
+    h += '<p class="lab">Position — a layout hint, not topology</p>' +
+      '<div class="nudge">' +
+      '<button type="button" class="act" data-nudge="-4,0">← 4</button>' +
+      '<button type="button" class="act" data-nudge="4,0">→ 4</button>' +
+      '<button type="button" class="act" data-nudge="0,-4">↑ 4</button>' +
+      '<button type="button" class="act" data-nudge="0,4">↓ 4</button>' +
+      '<button type="button" class="act" data-nudge="-32,0">shift ← 32</button>' +
+      '<button type="button" class="act" data-nudge="32,0">shift → 32</button>' +
+      '</div>' +
+      '<p class="mt">every binding has a visible affordance — a binding with no affordance is a feature only the author has</p>';
+  } else if (!e.pos){
+    h += '<p class="lab">Position</p><p class="mt">this kind has no rendering in 56 §4.1 at any layer — it lives in the inventory and the inspector, and a canvas-first tool has to say so rather than point you at the nearest drawn thing</p>';
+  } else {
+    h += '<p class="lab">Position</p><p class="mt">derived geometry — it has no position of its own. move its endpoints.</p>';
+  }
+
+  h += '<p class="lab">Where this selection exists</p>' +
+    '<p class="stamp">' + ribbonFragments(e).join(" · ") + '</p>';
+
+  box.innerHTML = h;
+}
+
+function ribbonFragments(e){
+  var out = [];
+  var n = EMIT.filter(function(l){ return l.src === e.id; }).length;
+  out.push(n ? n + " lines in config" : "no lines in config");
+  var f = findingsFor(e.id).length;
+  out.push(f ? f + (f === 1 ? " finding" : " findings") : "no findings");
+  out.push(isDrawn(e.id) ? "1 node in diagram" : "not in diagram");
+  out.push(e.inv ? "1 row in inventory" : "not in inventory");
+  if (e.layers && e.layers.indexOf("l2") < 0) out.push("not in L2");
+  return out;
+}
+
+/* =========================================================================
+   CHROME
+   ========================================================================= */
+function renderBand(){
+  var counts = {
+    finder: "junos-srx · 98 entries",
+    walkthrough: "4 of 19",
+    config: S.cfgMode === "changeset" ? "change set" : (EMIT.length + " lines · 2 blocked"),
+    findings: (RULES.filter(function(r){ return r.sev === "high" && !S.suppressed[r.id]; }).length) + " high" +
+              (Object.keys(S.suppressed).length ? " · 1 suppressed" : ""),
+    diagram: S.drawn.length + " nodes · " + (activeLayers().length) + " layers",
+    inventory: (allElems().filter(function(e){ return e.inv; }).length + NOT_DRAWN.length) + " rows · " +
+               ((S.cluster || S.clusterDismissed) ? "0" : "1") + " observation"
+  };
+  var changed = { findings: RULES.length !== S.seenCounts.findings };
+  $("#band").innerHTML = VIEWS.map(function(v, i){
+    var cur = S.view === v;
+    return '<button type="button" class="link' + (changed[v] ? " chg" : "") + '" data-view="' + v +
+      '" aria-current="' + cur + '">' + (cur ? "▸" : "") + v + ' · ' + esc(counts[v]) + '</button>';
+  }).join("");
+}
+
+function renderLayers(){
+  var box = document.querySelector(".layers");
+  box.innerHTML = '<span class="mt">layers alt l</span>' + LAYERS.map(function(l){
+    return '<button type="button" class="link" data-layer="' + l + '" aria-pressed="' + !!S.layers[l] + '">' + l + '</button>';
+  }).join("") +
+  '<span class="mt">·</span>' +
+  '<button type="button" class="link" data-spoke="1" style="font-size:var(--t-tab)">+ 1 spoke</button>' +
+  '<button type="button" class="link" data-spoke="8" style="font-size:var(--t-tab)">+ 8 spokes</button>' +
+  '<button type="button" class="link" data-spoke="0" style="font-size:var(--t-tab)">reset spokes</button>';
+}
+
+function renderRibbon(){
+  if (!S.sel){
+    $("#ribbon").innerHTML = "nothing selected · click a shape, or press <b>↓</b> in the outline";
+    return;
+  }
+  var e = el(S.sel);
+  $("#ribbon").innerHTML = "selected: <b>" + esc(e.kind) + " " + esc(e.name) + "</b> · " +
+    ribbonFragments(e).map(esc).join(" · ");
+}
+
+function renderChrome(){
+  $("#imperative").textContent = IMPERATIVE[S.gsheet ? "artifact" : S.view];
+  var idx = VIEWS.indexOf(S.view) + 1;
+  var prev = VIEWS[(idx - 2 + 6) % 6], next = VIEWS[idx % 6];
+  $("#folio-left").textContent = "View " + idx + " of 6 — " + S.view.toUpperCase() +
+    "   alt ← " + prev.toUpperCase() + "   " + next.toUpperCase() + " alt →";
+  $("#mast-title").textContent = S.gsheet ? "Guidebook · the artifact" : "Fathom · Canvas";
+  $("#ledger").innerHTML = S.ops.length
+    ? '<b>op ledger — every gesture terminates in an op against the graph</b><br>' + S.ops.map(esc).join("<br>")
+    : '<b>op ledger</b><br>empty · drag a box, nudge it, or model the cluster';
+}
+
+function render(){
+  renderLayers();
+  renderScene();
+  renderBand();
+  renderDock();
+  renderInspector();
+  renderRibbon();
+  renderChrome();
+  renderGsheet();
+}
+
+/* =========================================================================
+   THE ARTIFACT SHEET — the explainer layer in its sheet placement, subject
+   THE ARTIFACT. It audits this document live; every number is measured.
+   ========================================================================= */
+function audit(){
+  var out = [];
+  var meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+  var csp = meta ? meta.getAttribute("content") : "";
+  out.push(["Content-Security-Policy, read from this document's head", '<span class="m">' + esc(csp) + '</span>']);
+  out.push(["connect-src 'none'", /connect-src\s+'none'/.test(csp) ? "present" : "ABSENT — this page is broken"]);
+  out.push(["form-action 'none'", /form-action\s+'none'/.test(csp) ? "present — a submit is a navigation, not a fetch, and connect-src does not cover it" : "ABSENT"]);
+
+  var scripts = document.querySelectorAll("script[src]").length;
+  out.push(["&lt;script src&gt; elements", scripts + " — measured now"]);
+
+  var remote = 0, remoteList = [];
+  var all = document.querySelectorAll("*");
+  for (var i=0;i<all.length;i++){
+    var n = all[i];
+    var attrs = n.attributes;
+    for (var j=0;j<attrs.length;j++){
+      var v = attrs[j].value || "";
+      if (/^(https?:)?\/\//i.test(v) && attrs[j].name !== "xmlns"){ remote++; remoteList.push(n.tagName.toLowerCase() + "@" + attrs[j].name); }
+    }
+  }
+  out.push(["elements carrying an absolute URL", remote + (remote ? " — " + esc(remoteList.join(", ")) : " — measured across " + all.length + " elements")]);
+  out.push(["&lt;img&gt;, &lt;iframe&gt;, &lt;object&gt;, &lt;video&gt;",
+    document.querySelectorAll("img,iframe,object,video,audio,embed").length + " — measured now"]);
+
+  /* Self-grep. The needles are split so that this file's own audit is not a
+     false positive when somebody greps the file for a call site. */
+  var NEEDLES = ["fet"+"ch", "XMLHttp"+"Request", "Web"+"Socket", "Event"+"Source", "send"+"Beacon", "navigator.send"+"Beacon"];
+  var src = document.getElementById("app-script").textContent;
+  var hits = 0, found = [];
+  for (var k=0;k<NEEDLES.length;k++){
+    var re = new RegExp("\\b" + NEEDLES[k].replace(".","\\.") + "\\s*\\(", "g");
+    var m = src.match(re);
+    if (m){ hits += m.length; found.push(NEEDLES[k]); }
+  }
+  out.push(["call sites for network APIs in this page's own script",
+    hits + (hits ? " — " + esc(found.join(", ")) : " — greped " + src.length + " characters of script text, just now")]);
+  out.push(["stylesheets", document.styleSheets.length + " — one inline block and design/tokens.css, both same-origin"]);
+  return out;
+}
+
+function renderGsheet(){
+  var g = $("#gsheet");
+  /* Placement (c): the SHEET. It takes the full body — the masthead reads
+     GUIDEBOOK and the footer still says which view you came from. */
+  document.querySelector("main.body").style.display = S.gsheet ? "none" : "";
+  if (!S.gsheet){ g.setAttribute("data-open","false"); g.innerHTML = ""; return; }
+  g.setAttribute("data-open","true");
+  var rows = audit().map(function(r){ return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join("");
+  g.innerHTML =
+    blockhead("The artifact — what makes this legibly, checkably offline",
+      "34 §2.2 · 41 §3.7 · 71 §3.6 · still view " + (VIEWS.indexOf(S.view)+1) + " of 6") +
+    '<p class="mt">this is not a badge, not a shield, not a lock, and not green — green means read-only, and that colour is reserved forever</p>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s5)">' +
+    '<div><p class="lab">Measured from this document, now</p>' +
+    '<table class="fields"><tbody>' + rows + '</tbody></table></div>' +
+    '<div><p class="lab">Asserted by the build, and how it is checked</p>' +
+    '<table class="fields"><tbody>' +
+    '<tr><th>wasm import section</th><td>2 entries, total: <span class="m">fathom_entropy(ptr,len)</span> routed to <span class="m">crypto.getRandomValues</span>, and <span class="m">fathom_now_ms()</span> for provenance timestamps only, never in a byte-compared path. <span class="m">wasm-objdump -x</span> asserts every import against a committed allowlist. <b>This is the check that makes connect-src ‘none’ an architectural property rather than a header.</b></td></tr>' +
+    '<tr><th>ship gate X0.8</th><td>The CSP of the shipped artifact contains <span class="m">connect-src ‘none’</span>, asserted against the final bytes, not the template.</td></tr>' +
+    '<tr><th>ship gate X0.9</th><td>No network request is issued in a 30-minute scripted session, verified by a proxy that fails the test on any connection attempt.</td></tr>' +
+    '<tr><th>corpus</th><td>Lazily-decompressed zstd frames inside the artifact. Lazy means from local memory, never from a network. Adding teaching material means adding frames to one file.</td></tr>' +
+    '<tr><th>fonts</th><td>Five faces, bundled base64, 126 KB inlined — precisely because invariant 1 forbids a font CDN.</td></tr>' +
+    '<tr><th>credentials</th><td>None, ever. Emitted config uses a visible placeholder: <span class="m">ascii-text "<span class="ph">&lt;PSK&gt;</span>"</span>. There is no secrets field and no vault panel to build.</td></tr>' +
+    '<tr><th>device reachability</th><td>None, ever. No SSH, no NETCONF, no API, no jump path. A total compromise of Fathom yields no reachability. Every command here is a thing you will paste into your own terminal.</td></tr>' +
+    '<tr><th>telemetry</th><td>Structurally impossible. There is no funnel, no DAU and no retention curve, and there never will be — which is a cost the owner has to own, not a feature.</td></tr>' +
+    '</tbody></table></div></div>' +
+    note("What this surface must never become",
+      "A green shield, a lock glyph, a “secure” badge or a trust score. All four would spend a reserved colour or invent a pictorial icon, and both are forbidden. The honest device is the card’s own: a two-column lookup table, a number you can check, and a sentence that is also a disclaimer.",
+      [["close","act-close-sheet"]]);
+}
+
+/* =========================================================================
+   THE FINDER — the one corpus surface. Ctrl+K from anywhere.
+   ========================================================================= */
+function finderRows(){
+  var q = S.finderQ.trim().toLowerCase();
+  var ids = Object.keys(CORPUS);
+  var scored = ids.map(function(id){
+    var c = CORPUS[id];
+    var hay = (c.cmd + " " + c.answers + " " + (c.aka||[]).join(" ")).toLowerCase();
+    var score = 0;
+    if (!q) score = 1;
+    else {
+      var toks = q.split(/\s+/);
+      toks.forEach(function(t){ if (t && hay.indexOf(t) >= 0) score += 1; });
+      score = score / Math.max(1, toks.length);
+      /* An exact `aka` phrase is what the corpus format exists to capture —
+         it outranks a bag of tokens that happen to be present. */
+      if ((c.aka || []).some(function(a){ return a.toLowerCase() === q; })) score += 2;
+      else if ((c.aka || []).some(function(a){ return a.toLowerCase().indexOf(q) >= 0; })) score += 1;
+    }
+    return { id:id, c:c, score:score };
+  }).filter(function(r){ return r.score > 0; });
+  /* Deterministic: pure function of query and corpus order. Risk prior — a
+     Disruptive row never outranks a ReadOnly row on equal score (16 §8.3). */
+  var rank = { safe:0, caution:1, danger:2 };
+  scored.sort(function(a,b){
+    if (b.score !== a.score) return b.score - a.score;
+    if (rank[a.c.risk] !== rank[b.c.risk]) return rank[a.c.risk] - rank[b.c.risk];
+    return a.id < b.id ? -1 : 1;
+  });
+  return scored;
+}
+
+function renderFinder(){
+  var rows = finderRows();
+  if (S.finderSel >= rows.length) S.finderSel = Math.max(0, rows.length - 1);
+  $("#finder-meta").textContent = rows.length + " · 0.8 ms";
+  $("#finder-hits").innerHTML = rows.length ? rows.map(function(r, i){
+    var c = r.c;
+    var word = c.risk === "safe" ? "Read-only" : c.risk === "caution" ? "Changes config" : "Disruptive";
+    var vh = c.risk === "safe" ? " — safe on production" : c.risk === "caution" ? " — needs a commit" : " — drops live traffic";
+    return '<li class="hit' + (i === S.finderSel ? " sel" : "") + '" role="option" aria-selected="' + (i === S.finderSel) +
+      '" data-hit="' + i + '" data-cid="' + esc(r.id) + '">' +
+      '<span class="hit-cmd"><code>' + esc(c.cmd) + '</code>' +
+      '<span class="hit-risk ' + c.risk + '">' + word + '<span class="vh">' + vh + '</span></span></span>' +
+      '<span class="hit-ans">' + esc(c.answers) + '</span>' +
+      (i === S.finderSel && c.read ? '<span class="hit-read"><b>Read:</b> ' + esc(c.read) + '</span>' : '') +
+      '</li>';
+  }).join("") : '<li class="hit"><span class="hit-ans">nothing above the cutoff for <code>' + esc(S.finderQ) +
+      '</code> · logged locally and never transmitted</span></li>';
+}
+
+function openFinder(on){
+  S.finderOpen = on;
+  $("#finder").setAttribute("data-open", String(on));
+  $("#scrim").setAttribute("data-open", String(on));
+  if (on){
+    /* 52 §3.2.1: the overlay is the top of the BODY. The masthead, the
+       imperative and the risk legend stay visible and un-scrimmed, because
+       the risk legend is exactly the thing you want visible while you are
+       looking at a command you are about to run. */
+    var floor = Math.max(0, $("#band").getBoundingClientRect().bottom);
+    $("#scrim").style.top = floor + "px";
+    $("#finder").style.top = (floor + 12) + "px";
+    renderFinder(); $("#finder-q").focus();
+  }
+  else { say("finder closed"); }
+}
+
+/* =========================================================================
+   SELECTION AND OPS
+   ========================================================================= */
+function select(id, origin){
+  S.sel = id;
+  var i = S.drawn.indexOf(id);
+  if (i >= 0) S.cursor = i;
+  render();
+  if (origin) say("selected from " + origin + " · the view did not change and nothing scrolled");
+}
+
+function nudge(dx, dy){
+  if (!S.sel) { say("nothing selected"); return; }
+  var e = el(S.sel);
+  if (!e || !e.movable){
+    say(e ? (e.kind + " is derived geometry — move its endpoints") : "nothing selected");
+    return;
+  }
+  e.pos.x = Math.round((e.pos.x + dx) / 4) * 4;
+  e.pos.y = Math.round((e.pos.y + dy) / 4) * 4;
+  op("Op::SetLayoutHint { node: fathom:" + e.kind.toLowerCase() + ":" + e.id +
+     ", pin: At { x: " + e.pos.x + ", y: " + e.pos.y + " } }  — one op, one undo step");
+  render();
+}
+
+function cycleDepth(){
+  var d = ["terse","explained","teaching"];
+  S.depth = d[(d.indexOf(S.depth) + 1) % 3];
+  renderInspector();
+  say("depth · " + S.depth);
+}
+
+function setView(v){
+  S.view = v;
+  S.gsheet = null;
+  if (v === "finder"){ render(); openFinder(true); return; }
+  render();
+  say(v + " · the selection did not change and the scene did not move");
+}
+
+/* =========================================================================
+   WIRING
+   ========================================================================= */
+function wireDock(){
+  var d = $("#dock");
+
+  d.querySelectorAll("[data-orow]").forEach(function(b){
+    b.addEventListener("click", function(){
+      S.cursor = parseInt(b.getAttribute("data-orow"), 10);
+      select(b.getAttribute("data-id"), "the outline");
+    });
+    b.addEventListener("focus", function(){
+      S.cursor = parseInt(b.getAttribute("data-orow"), 10);
+      paintFocusRing();
+    });
+    b.addEventListener("keydown", function(ev){
+      if (ev.key === "ArrowDown" || ev.key === "j"){
+        ev.preventDefault(); moveCursor(1);
+      } else if (ev.key === "ArrowUp" || ev.key === "k"){
+        ev.preventDefault(); moveCursor(-1);
+      } else if (ev.key === "Enter" || ev.key === " "){
+        ev.preventDefault(); select(b.getAttribute("data-id"), "the outline");
+      }
+    });
+  });
+
+  d.querySelectorAll("table.inv tbody tr").forEach(function(tr){
+    tr.addEventListener("click", function(){ select(tr.getAttribute("data-id"), "the inventory"); });
+    tr.setAttribute("tabindex","0");
+    tr.addEventListener("keydown", function(ev){
+      if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); select(tr.getAttribute("data-id"), "the inventory"); }
+    });
+  });
+
+  d.querySelectorAll("[data-sort]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var k = b.getAttribute("data-sort");
+      if (S.invSort === k) S.invDir = -S.invDir; else { S.invSort = k; S.invDir = 1; }
+      renderDock(); say("sorted by " + k + " · stable, deterministic, same order every run");
+    });
+  });
+
+  d.querySelectorAll("[data-rule]").forEach(function(b){
+    var go = function(){
+      var rid = b.getAttribute("data-rule");
+      S.findingCursor = parseInt(b.getAttribute("data-fi"), 10);
+      var r = null; RULES.forEach(function(x){ if (x.id === rid) r = x; });
+      if (r && r.el){ select(r.el, "a finding"); }
+      else { S.sel = "pol-ipsec"; render(); say("IpsecPolicy IPSEC-POL is not drawn at any layer — the picture cannot show you this one"); }
+    };
+    b.addEventListener("click", go);
+    b.addEventListener("keydown", function(ev){
+      if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); go(); }
+    });
+  });
+
+  d.querySelectorAll("[data-cline]").forEach(function(b){
+    var go = function(){ S.facet = "Line"; select(b.getAttribute("data-src"), "a config line"); };
+    b.addEventListener("click", go);
+    b.addEventListener("keydown", function(ev){
+      if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); go(); }
+    });
+  });
+
+  d.querySelectorAll("[data-wt]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var v = b.getAttribute("data-wt");
+      op("Op::SetField { node: IkeGateway GW-B, field: external_interface, value: " + v + ", provenance: Hand }");
+      if (v === "st0.0"){
+        say("st0 only exists once Phase 2 has installed — Phase 1 has to happen over the underlay");
+      } else if (v === "reth0.0"){
+        say("armed: zone.host-inbound.ike-missing — the finding appears at the earliest honest moment");
+      } else {
+        say("reth1.0 is the LAN unit — the peer would see a source it has never heard of");
+      }
+      render();
+    });
+  });
+
+  d.querySelectorAll("[data-act]").forEach(function(b){
+    b.addEventListener("click", function(){ doAct(b.getAttribute("data-act")); });
+  });
+}
+
+function doAct(a){
+  if (a === "act-cluster"){
+    S.cluster = true;
+    op("Op::AddNode { kind: ChassisCluster, name: SRX-DC-EAST, members: [dev-a, dev-b], provenance: Hand }");
+    render(); say("modelled · the observation closed because the population it described no longer holds");
+  } else if (a === "act-nocluster"){
+    S.clusterDismissed = true;
+    render(); say("suppressed · muted and counted in the band, not deleted");
+  } else if (a === "act-uncluster"){
+    S.clusterDismissed = false; render(); say("unsuppressed");
+  } else if (a === "act-inv"){
+    setView("inventory");
+  } else if (a === "act-clear"){
+    S.sel = "peer"; setView("diagram"); say("corpus entry junos-srx/ike.sa.clear-peer — read the inspector");
+  } else if (a === "act-close-sheet"){
+    S.gsheet = null; render(); say("closed");
+  } else if (a === "open-finder"){
+    openFinder(true);
+  } else if (a === "fix"){
+    doFix();
+  }
+}
+
+function doFix(){
+  var e = S.sel ? el(S.sel) : null;
+  var fs = e ? findingsFor(e.id) : [];
+  if (!fs.length){ say("no finding on the selection · f needs a finding"); return; }
+  S.changeSetFrom = fs[0].id;
+  S.cfgMode = "changeset";
+  S.view = "config";
+  render();
+  say("change set from " + fs[0].id + " · commit confirmed 5 is line 1, always");
+}
+
+function wireStatic(){
+  document.querySelector(".layers").addEventListener("click", function(ev){
+    var b = ev.target.closest("[data-layer]");
+    if (b){
+      var l = b.getAttribute("data-layer");
+      S.layers[l] = !S.layers[l];
+      render();
+      say("layer " + l + " " + (S.layers[l] ? "on" : "off") + " · toggling a layer never moves anything");
+      return;
+    }
+    var s = ev.target.closest("[data-spoke]");
+    if (s){
+      var n = parseInt(s.getAttribute("data-spoke"), 10);
+      S.spokes = n === 0 ? 0 : S.spokes + n;
+      if (S.sel && S.sel.indexOf("spoke-") === 0 &&
+          parseInt(S.sel.split("-")[1], 10) > S.spokes) S.sel = null;
+      render();
+      say(S.spokes + " spokes · " + ($("#scene-count").textContent.indexOf("aggregated") >= 0
+        ? "above the ceiling — the view aggregated and the answer is now the table"
+        : "under the ceiling"));
+    }
+  });
+
+  $("#band").addEventListener("click", function(ev){
+    var b = ev.target.closest("[data-view]");
+    if (b) setView(b.getAttribute("data-view"));
+  });
+
+  $("#scene-notes").addEventListener("click", function(ev){
+    var a = ev.target.closest("[data-act]");
+    if (a) doAct(a.getAttribute("data-act"));
+  });
+
+  $("#inspector").addEventListener("click", function(ev){
+    var d = ev.target.closest("[data-depth]");
+    if (d){ S.depth = d.getAttribute("data-depth"); renderInspector(); say("depth · " + S.depth); return; }
+    var n = ev.target.closest("[data-nudge]");
+    if (n){ var p = n.getAttribute("data-nudge").split(","); nudge(parseInt(p[0],10), parseInt(p[1],10)); return; }
+    var a = ev.target.closest("[data-act]");
+    if (a){ doAct(a.getAttribute("data-act")); }
+  });
+
+  $("#gsheet").addEventListener("click", function(ev){
+    var a = ev.target.closest("[data-act]");
+    if (a) doAct(a.getAttribute("data-act"));
+  });
+
+  $("#tab-artifact").addEventListener("click", function(){
+    S.gsheet = S.gsheet ? null : "artifact";
+    render();
+    say(S.gsheet ? "the artifact · every number below is measured from this document" : "closed");
+  });
+
+  /* --- scene: click and drag. One delegated listener, never one per element. */
+  var svg = $("#scene");
+  var drag = null;
+
+  svg.addEventListener("pointerdown", function(ev){
+    var g = ev.target.closest("[data-id]");
+    if (!g) { S.sel = null; render(); return; }
+    var id = g.getAttribute("data-id");
+    if (id === "aggregate"){ setView("inventory"); return; }
+    select(id, "the picture");
+    var e = el(id);
+    if (e && e.movable){
+      var pt = toScene(ev);
+      drag = { id:id, ox:pt.x - e.pos.x, oy:pt.y - e.pos.y, moved:false };
+      svg.setPointerCapture(ev.pointerId);
+    } else if (e){
+      say(e.kind + " is derived geometry — it has no position of its own");
+    }
+  });
+
+  svg.addEventListener("pointermove", function(ev){
+    if (!drag) return;
+    var e = el(drag.id);
+    var pt = toScene(ev);
+    e.pos.x = Math.round((pt.x - drag.ox) / 4) * 4;
+    e.pos.y = Math.round((pt.y - drag.oy) / 4) * 4;
+    drag.moved = true;
+    renderScene();
+  });
+
+  svg.addEventListener("pointerup", function(ev){
+    if (!drag) return;
+    if (drag.moved){
+      var e = el(drag.id);
+      op("Op::SetLayoutHint { node: fathom:" + e.kind.toLowerCase() + ":" + e.id +
+         ", pin: At { x: " + e.pos.x + ", y: " + e.pos.y + " } }  — committed on pointerup, one undo step");
+      say("layout hint written · topology unchanged");
+    }
+    drag = null;
+    render();
+  });
+
+  function toScene(ev){
+    var r = svg.getBoundingClientRect();
+    var vb = svg.getAttribute("viewBox").split(" ");
+    var sx = parseFloat(vb[2]) / r.width, sy = parseFloat(vb[3]) / r.height;
+    return { x:(ev.clientX - r.left) * sx, y:(ev.clientY - r.top) * sy };
+  }
+
+  /* --- finder --- */
+  $("#finder-q").addEventListener("input", function(){
+    S.finderQ = $("#finder-q").value; S.finderSel = 0; renderFinder();
+  });
+  $("#finder-hits").addEventListener("click", function(ev){
+    var li = ev.target.closest("[data-hit]");
+    if (!li) return;
+    S.finderSel = parseInt(li.getAttribute("data-hit"), 10);
+    renderFinder();
+  });
+  $("#scrim").addEventListener("click", function(){ openFinder(false); });
+
+  /* --- theme --- */
+  document.querySelectorAll("[data-theme-set]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var m = b.getAttribute("data-theme-set");
+      if (m === "auto") document.documentElement.removeAttribute("data-theme");
+      else document.documentElement.setAttribute("data-theme", m);
+      document.querySelectorAll("[data-theme-set]").forEach(function(x){
+        x.setAttribute("aria-pressed", String(x.getAttribute("data-theme-set") === m));
+      });
+      say("theme " + m + " · dark is derived, not inverted");
+    });
+  });
+}
+
+function moveCursor(d){
+  var n = S.drawn.length;
+  if (!n) return;
+  S.cursor = (S.cursor + d + n) % n;
+  var target = document.querySelector('[data-orow="' + S.cursor + '"]');
+  if (target){
+    document.querySelectorAll("[data-orow]").forEach(function(x){ x.setAttribute("tabindex","-1"); });
+    target.setAttribute("tabindex","0");
+    target.focus();
+  }
+  paintFocusRing();
+}
+
+/* --- the keymap. Single-letter verbs never fire inside a text input. ------ */
+document.addEventListener("keydown", function(ev){
+  var inText = ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA");
+
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "k" || ev.key === "K")){
+    ev.preventDefault(); openFinder(!S.finderOpen); return;
+  }
+
+  if (S.finderOpen){
+    var rows = finderRows();
+    if (ev.key === "Escape"){ ev.preventDefault(); openFinder(false); return; }
+    if (ev.key === "ArrowDown"){ ev.preventDefault(); S.finderSel = Math.min(rows.length - 1, S.finderSel + 1); renderFinder(); return; }
+    if (ev.key === "ArrowUp"){ ev.preventDefault(); S.finderSel = Math.max(0, S.finderSel - 1); renderFinder(); return; }
+    if (ev.key === "Enter"){
+      ev.preventDefault();
+      var r = rows[S.finderSel];
+      if (r) say("copied · " + r.c.cmd);
+      return;
+    }
+    if (!inText) return;
+    if (ev.key === "w"){ /* handled below when focus leaves the field */ }
+    return;
+  }
+
+  if (ev.altKey && !ev.ctrlKey && !ev.metaKey){
+    var n = parseInt(ev.key, 10);
+    if (n >= 1 && n <= 6){ ev.preventDefault(); setView(VIEWS[n - 1]); return; }
+    if (ev.key === "ArrowLeft"){ ev.preventDefault(); setView(VIEWS[(VIEWS.indexOf(S.view) + 5) % 6]); return; }
+    if (ev.key === "ArrowRight"){ ev.preventDefault(); setView(VIEWS[(VIEWS.indexOf(S.view) + 1) % 6]); return; }
+    if (ev.key === "d" || ev.key === "D"){
+      ev.preventDefault();
+      S.cfgMode = S.cfgMode === "full" ? "changeset" : "full";
+      if (S.cfgMode === "changeset" && !S.changeSetFrom) S.changeSetFrom = RULES[0].id;
+      S.view = "config"; render(); say("config · " + S.cfgMode); return;
+    }
+    if (ev.key === "l" || ev.key === "L"){
+      ev.preventDefault();
+      var first = document.querySelector("[data-layer]");
+      if (first) first.focus();
+      say("layers · inline, not a menu"); return;
+    }
+    if (ev.key === "\\"){ ev.preventDefault(); cycleDepth(); return; }
+    return;
+  }
+
+  if (inText) return;
+
+  if (ev.key === "Escape"){ if (S.gsheet){ S.gsheet = null; render(); say("closed"); } else if (S.sel){ S.sel = null; render(); say("selection cleared"); } return; }
+  if (ev.key === "ArrowLeft"){ ev.preventDefault(); nudge(ev.shiftKey ? -32 : -4, 0); return; }
+  if (ev.key === "ArrowRight"){ ev.preventDefault(); nudge(ev.shiftKey ? 32 : 4, 0); return; }
+  if (ev.key === "ArrowUp" && ev.shiftKey){ ev.preventDefault(); nudge(0, -32); return; }
+  if (ev.key === "ArrowDown" && ev.shiftKey){ ev.preventDefault(); nudge(0, 32); return; }
+
+  switch (ev.key){
+    case "v": cycleDepth(); break;
+    case "e":
+      if (S.sel){ setView("diagram"); say("explainer is a layer, not a view — it always explains the thing you are looking at"); }
+      break;
+    case "c":
+      if (S.sel){ say("copied · " + (el(S.sel) && el(S.sel).corpus ? CORPUS[el(S.sel).corpus].cmd : el(S.sel).name)); }
+      break;
+    case "f": doFix(); break;
+    case "s":
+      if (RULES[S.findingCursor]){ S.suppressed[RULES[S.findingCursor].id] = true; render(); say("suppressed · counted in the band, never deleted"); }
+      break;
+    case "u":
+      S.suppressed = {}; render(); say("unsuppressed"); break;
+    case "w":
+      setView("walkthrough"); break;
+    case "g":
+      S.gsheet = "artifact"; render(); say("guidebook sheet · the artifact"); break;
+    case "?":
+      say("keys are listed in the inspector when nothing is selected"); break;
+    default: break;
+  }
+});
+
+/* Refusals state their reason; nothing is silently inert. */
+window.addEventListener("resize", function(){
+  if (window.innerWidth < 1100 && !S._narrow){ S._narrow = true; say("split needs 1100px — the second surface is unavailable"); }
+  if (window.innerWidth >= 1100) S._narrow = false;
+});
+
+wireStatic();
+render();
+</script>
+</body>
+</html>
