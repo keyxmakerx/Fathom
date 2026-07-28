@@ -1,0 +1,467 @@
+SIDE 1
+BUILD · PROVISION · PLUMB
+read this first
+most-missed
+verify as you go
+VERIFY AGAINST YOUR OWN BOX BEFORE ACTING
+S R X  IP S E C  —  B U IL D IN G  A  T U N N E L
+THE OBJECT CHAIN · COMPANION TO THE SRX FIELD CARD
+READ-ONLY — SAFE ON PRODUCTION CHANGES CONFIG — NEEDS A COMMIT DISRUPTIVE — DROPS LIVE TRAFFIC
+TW O  P H A S E S , TW O  JO B S
+IKE negotiates (UDP 500, or 4500 through NAT). IPsec is the encrypted
+tunnel that carries data (ESP, IP proto 50).
+Phase 1 → authenticate the peers, build one
+          secure channel (the IKE SA)
+Phase 2 → inside it, negotiate the data tunnel
+          + traffic selectors (the IPsec SA)
+Phase 2 rides inside Phase 1. P1 can be perfectly healthy while P2 fails
+forever —  that split is the m ost useful diagnostic fact on this card.
+TH E  O B JE C T C H A IN
+Junos builds a VPN from  six nam ed objects, each referencing the one
+before it by nam e. Knowing which object owns a knob tells you where to
+look.
+PHASE 1
+ ike proposal  →  ike policy  →  ike gateway
+ algorithms       mode            address
+ dh-group         pre-shared-key  external-interface
+ lifetime                         version (v1/v2)
+                                  dead-peer-detection
+                                  local/remote-identity
+PHASE 2
+ ipsec proposal → ipsec policy → ipsec vpn
+ protocol esp     perfect-        ike gateway  ↰ joins P1
+ algorithms       forward-        ike ipsec-policy
+ lifetime         secrecy         bind-interface st0.N
+                                  traffic-selector
+                                  establish-tunnels
+                                  df-bit / vpn-monitor
+Junos enforces these references at com m it —  a m issing policy nam e fails
+the com m it. W hat it cannot catch is a nam e that exists but holds values the
+far end won't accept. That failure waits for negotiation.
+P H A S E  1 —  P R O P O S A L, P O LIC Y, G ATE W AY
+set security ike proposal IKE-P1 \
+  authentication-method pre-shared-keys
+set security ike proposal IKE-P1 dh-group group14
+set security ike proposal IKE-P1 \
+  authentication-algorithm sha-256
+set security ike proposal IKE-P1 \
+  encryption-algorithm aes-256-cbc
+set security ike proposal IKE-P1 lifetime-seconds 28800
+set security ike policy IKE-POL proposals IKE-P1
+set security ike policy IKE-POL pre-shared-key \
+  ascii-text "<psk>"
+set security ike gateway GW-B ike-policy IKE-POL
+set security ike gateway GW-B address 203.0.113.10
+set security ike gateway GW-B external-interface reth0.0
+set security ike gateway GW-B version v2-only
+set security ike gateway GW-B dead-peer-detection \
+  always-send interval 10 threshold 3
+external-interface  is the W AN unit the IKE packets leave by, not st0.
+W rong on a m ulti-hom ed box m eans Phase 1 sources from  an address the
+peer has never heard of.
+P H A S E  2 —  P R O P O S A L, P O LIC Y, V P N
+set security ipsec proposal IPSEC-P2 protocol esp
+set security ipsec proposal IPSEC-P2 \
+  encryption-algorithm aes-256-gcm
+set security ipsec proposal IPSEC-P2 lifetime-seconds 3600
+set security ipsec policy IPSEC-POL \
+  perfect-forward-secrecy keys group14
+set security ipsec policy IPSEC-POL proposals IPSEC-P2
+set security ipsec vpn VPN-B ike gateway GW-B
+set security ipsec vpn VPN-B ike ipsec-policy IPSEC-POL
+set security ipsec vpn VPN-B bind-interface st0.0
+set security ipsec vpn VPN-B establish-tunnels immediately
+set security ipsec vpn VPN-B traffic-selector TS1 \
+  local-ip 10.1.0.0/16 remote-ip 10.2.0.0/16
+G CM  is AEAD, so there is no separate authentication-algorithm . W ith
+CBC you m ust set both —  a m issing hash is a silent proposal m ism atch.
+TH E  FIV E  P LU M B IN G  P IE C E S
+#1  the tunnel interface
+set interfaces st0 unit 0 family inet \
+  address 10.255.0.1/30
+#2  st0 into a zone
+set security zones security-zone VPN interfaces st0.0
+#3  let IKE reach the box on the WAN zone
+set security zones security-zone WAN \
+  interfaces reth0.0 host-inbound-traffic \
+  system-services ike
+#4  route the remote prefix at st0
+set routing-options static route 10.2.0.0/16 \
+  next-hop st0.0
+#5  policy for the zone pair, each direction
+set security policies from-zone TRUST to-zone VPN \
+  policy TO-B match source-address any \
+  destination-address any application any
+set security policies from-zone TRUST to-zone VPN \
+  policy TO-B then permit
+M iss #3 and Phase 1 tim es out with nothing useful in the log —  the box drops
+the peer's IKE before processing it. M iss #1, #2, #4 or #5 and the tunnel reads
+UP while passing zero packets.
+R O U TE -B A S E D  V S  P O LIC Y-B A S E D
+  ROUTE-BASED POLICY-BASED
+Tunnel iface st0.N none
+Selected by routing table the policy
+Routing proto yes, over st0 no
+Many selectors yes one pair each
+Policy-based sets then permit tunnel ipsec-vpn NAME  and has no st0 at
+all. Legacy —  use route-based for anything new.
+B R IN G -U P O R D E R
+1 commit confirmed 5 — always, remotely
+2 ike security-associations      P1 up?
+3 ipsec security-associations    P2 installed?
+4 ipsec inactive-tunnels         if not, why
+5 show interfaces st0.0 terse    up?
+6 show route <remote>           via st0?
+7 ping across, sourced from the LAN side
+8 show security flow session     real sessions?
+9 show log kmd | match <peer>    the story
+Stop at the first failure. Steps 5–8 failing while 2–4 are clean is plum bing, not
+crypto —  no proposal tweaking will fix it.
+SIDE 1 OF 4 — BUILD, PROVISION, PLUMB
+
+===== PAGE =====
+
+SIDE 2
+CRYPTO · TIMERS · IDENTITY
+why it exists
+BOTH ENDS MUST AGREE — EVERY VALUE, EXACTLY
+C H O O S IN G  T H E  K N O B S
+PFS · LIFETIMES · IKE VERSION · IDENTITY · DPD · NAT-T
+READ-ONLY — SAFE ON PRODUCTION CHANGES CONFIG — NEEDS A COMMIT DISRUPTIVE — DROPS LIVE TRAFFIC
+P R O P O S A L PA R A M E TE R S
+authentication-method  —  pre-shared-keys, rsa-signatures
+dh-group  —  group14 (2048) baseline; group19 / group20 (ECP 256/384); group2 and
+group5 are legacy
+encryption-algorithm  —  aes-256-gcm, aes-256-cbc, aes-128-cbc; 3des-cbc
+legacy
+authentication-algorithm  —  sha-256, sha-384. Omit entirely with GCM
+lifetime-seconds  —  P1 28800, P2 3600. Both default to 3600. Range 180–86400
+protocol  (P2) —  esp. AH is integrity-only and breaks through NAT
+Every value m ust m atch the peer exactly. There is no negotiating down to a
+com m on denom inator beyond picking a whole proposal that already m atches.
+proposal-set standard  saves typing but is old —  it still leads with DH group
+2, and you cannot see what it offered without the docs. W rite proposals out.
+P E R FE C T FO R W A R D  S E C R E C Y
+W ithout PFS, the Phase 2 keys are derived from  the Phase 1 key m aterial.
+O ne com prom ised IKE SA secret unlocks every data key derived under it —
+including traffic som ebody recorded off the wire m onths ago.
+W ith PFS, each Phase 2 negotiation runs its ow n fresh Diffie-Hellm an
+exchange. The key is m athem atically independent of Phase 1 and of every
+previous Phase 2 key, so breaking one yields exactly one rekey interval of
+traffic and nothing either side of it. That is the "forward" in forward secrecy:
+today's break cannot read yesterday's capture.
+set security ipsec policy IPSEC-POL \
+  perfect-forward-secrecy keys group14
+THE THREE RULES
+1 The group m ust be identical both ends, not m erely com patible.
+2 PFS on one side, absent on the other →  Phase 2 fails w hile Phase 1
+stays up. The classic "IKE looks fine but the tunnel keeps dropping."
+3 The PFS group need not equal the P1 dh-group, but m atching them
+rem oves a whole class of confusion.
+Cost is one extra DH exponentiation per SA per rekey —  irrelevant unless
+hundreds of tunnels rekey together. Turn it on.
+Under IKEv2 the first child SA is always keyed from  the IKE SA regardless;
+PFS applies to later child rekeys. A capture of the initial bring-up showing no
+DH is not a m isconfiguration.
+LIFE TIM E S  &  R E K E Y
+Junos rekeys on a soft lifetim e shortly before the hard one expires, so there
+is no gap. Soft is hard m inus a random  jitter —  which is why rekeys drift and
+never land on the sam e second twice.
+IKEv1 Lifetimes are negotiated. Lower value wins.
+IKEv2 Not negotiated. Each side rekeys on its own clock; the shorter side drives
+it. A mismatch is legal, not an error.
+kilobytes lifetime-kilobytes  rekeys on volume, so a busy tunnel rekeys far
+more often than the clock suggests.
+Healthy rekey is seam less: the SA index changes, traffic does not stop. A
+tunnel that goes dow n at the lifetim e boundary is a rekey collision or a peer
+refusing the new SA —  not a tim er that needs raising. If flaps track throughput
+rather than tim e, check lifetime-kilobytes  first.
+IK E V 1 V S  IK E V 2
+  IKEV1 IKEV2
+Exchange main (6 msg) or aggressive (3) one 4-message exchange
+Identity clear in aggressive always protected
+Selectors one proxy-ID many selectors
+Liveness DPD bolted on built in
+set security ike gateway GW-B version v2-only
+set security ike policy IKE-POL mode main    # v1 only
+Aggressive m ode exists alm ost solely for PSK with a dynam ic peer IP,
+because m ain m ode with a PSK m ust identify the peer by address. It leaks
+the identity and is offline-crackable. O n v2 you never need it.
+mode  is silently ignored under v2-only . Seeing mode aggressive  in a v2
+config m eans nothing —  do not chase it.
+P E E R  ID E N TITY
+set security ike gateway GW-B \
+  local-identity inet 198.51.100.5
+set security ike gateway GW-B \
+  remote-identity inet 203.0.113.10
+set security ike gateway GW-B \
+  dynamic hostname site-b.example.net
+Needed when the peer cannot identify you by your outer source IP: behind
+NAT, dynam ic addressing, certificate auth, or a peer expecting an FQ DN or
+em ail-style ID.
+dynamic  replaces address  for peers with no fixed IP. Under IKEv1 that
+com bination also forces aggressive m ode.
+A m ism atch reads as peer's IKE-ID validation failed  or a bare
+AUTHENTICATION_FAILED  —  easily m isread as a wrong pre-shared key.
+Check identity before you re-type the PSK.
+D E A D  P E E R  D E TE C TIO N
+set security ike gateway GW-B dead-peer-detection \
+  always-send interval 10 threshold 3
+optimized Probe only when we are sending and hearing nothing back.
+Default.
+probe-idle-tunnel Probe when idle too.
+always-send Probe every interval regardless. Best for a backup you need to
+trust.
+Tim e to declare a peer dead = interval × threshold. Junos defaults to 10 × 5
+= 50 s of blackhole before failover even starts.
+Too tight and a two-second underlay hiccup tears down a healthy tunnel —
+you then spend a week debugging self-inflicted flaps. Too loose and traffic
+pours into a dead tunnel. 10 × 3 is a reasonable m iddle.
+DPD rides the outer IKE session on UDP 500/4500, never st0. Silence on st0
+does not m ean the tunnel is dead.
+N AT TR AV E R S A L
+ESP is IP protocol 50 with no ports, so a NAT device doing PAT cannot track
+it. IKE detects NAT during Phase 1 and both peers m ove to UDP 4500,
+wrapping ESP in UDP. Costs 8 bytes —  an M TU problem , see side 4.
+set security ike gateway GW-B nat-keepalive 20
+Confirm  from  show security ike security-associations detail : rem ote
+port 4500 m eans NAT-T is active. A peer address that does not m atch the
+source you actually see also m eans NAT in path.
+If the NAT device's UDP idle tim er is shorter than the keepalive, the m apping
+dies and the tunnel goes one-way until the next rekey. Sym ptom : "works, then
+stops after N m inutes of quiet."
+SIDE 2 OF 4 — CRYPTO, TIMERS, IDENTITY
+
+===== PAGE =====
+
+SIDE 3
+VERIFY · DECODE · TRACE
+fields that matter
+what the log means
+up-ness
+THE JOIN KEY ACROSS ALL OUTPUT IS VPN NAME + PEER IP, NEVER ST0
+P R O V IN G  IT  —  L O G S  &  F A IL U R E S
+A TUNNEL HAS NO WIRE — IT FAILS AS A LIFECYCLE EVENT, SO READ THE LOG
+READ-ONLY — SAFE ON PRODUCTION CHANGES CONFIG — NEEDS A COMMIT DISRUPTIVE — DROPS LIVE TRAFFIC
+TH E  V E R IFY LA D D E R
+show security ike security-associations
+show security ike security-associations detail
+show security ike security-associations index <n> detail
+show security ike active-peer
+show security ipsec security-associations
+show security ipsec security-associations \
+  vpn-name VPN-B detail
+show security ipsec inactive-tunnels   # + reason
+show security ipsec statistics index <id>
+show security ipsec next-hop-tunnels   # NHTB
+show interfaces st0.0 detail
+show route 10.2.0.0/16
+inactive-tunnels  is the underused one —  it nam es what is down and prints
+a Tunnel Dow n Reason, which is often the whole answer.
+R E A D IN G  TH E  S A  O U TP U T
+Index P1 SA identifier. Same index a minute later = stable. New index = it
+rebuilt.
+Role Initiator or Responder. Always Responder means your side never
+initiates —  check establish-tunnels and the route.
+Port 500 direct, 4500 = NAT-T in path.
+State P2 wants Installed. Anything else is not passing traffic.
+SPI One per direction —  two lines per selector is correct, not a
+duplicate.
+Lifetime Hard and soft countdown to the next rekey. Use it to time a capture
+around the event.
+Bind-interface The join back to st0. The logs never mention st0, so this is the only
+link.
+S TATIS TIC S  &  C O U N TE R S
+show security ipsec statistics
+show security ipsec statistics index <id>
+clear security ipsec statistics
+Read the byte and packet counters first, then the error block: ESP
+authentication failures, replay errors, bad headers, decryption failures.
+THE ONE-W AY TELL
+Encrypted clim bing, decrypted flat = your ESP is leaving and nothing is
+com ing back. That is a return-path or far-end problem , not a crypto
+problem . Stop reading proposals.
+ESP auth failures with traffic still flowing usually m eans corruption in path, not
+a key m ism atch —  a wrong key fails everything, not som e of it.
+C LE A R IN G  &  R E N E G O TIATIN G
+clear security ike security-associations <peer-ip>
+clear security ike security-associations index <n>
+clear security ipsec security-associations
+Clearing P1 tears dow n every child SA under it —  on a hub that is every
+spoke at once. Always scope by peer or index. Clearing P2 alone forces a
+rekey and is the cheapest way to prove a tunnel com es back cleanly.
+LO G S  &  TR A C E O P TIO N S
+show log kmd | match <peer-ip>
+show log kmd | last 200
+show log messages | match KMD_VPN
+monitor start kmd    # tail -f; monitor stop kmd
+set security ike traceoptions file ike-trace \
+  size 5m files 5
+set security ike traceoptions flag ike
+set security ipsec traceoptions flag security-associations
+commit confirmed 5
+  # reproduce, then: show log ike-trace
+delete security ike traceoptions
+delete security ipsec traceoptions
+commit         # ALWAYS clean up
+W ithout a file  statem ent IKE tracing lands in km d. flag all  buries the
+signal and loads the RE. Traceoptions left on will fill /var , which breaks
+logging and com m its both.
+E R R O R  D E C O D E R
+IN THE LOG GO LOOK AT
+NO_PROPOSAL_CHOSEN (P1) dh-group, encryption, hash, authentication-method
+NO_PROPOSAL_CHOSEN (P2) PFS group, ESP algorithms, esp vs ah
+INVALID_KE_PAYLOAD DH group mismatch —  P1 dh-group or PFS keys
+TS_UNACCEPTABLE Traffic selectors do not mirror (v2)
+INVALID_ID_INFORMATION Proxy-ID mismatch (v1)
+AUTHENTICATION_FAILED PSK, cert chain, clock skew —  or identity
+IKE-ID validation failed local-identity / remote-identity
+Phase-1 timeout, no
+response
+host-inbound ike, upstream ACL, peer address, NAT
+Bad SPI / INVALID_SPI ESP for an SA we no longer hold. Brief after a flap is
+normal; persistent = rekey out of step
+"No proposal chosen" from  the responder m eans what you offered is not in
+their list; from  you, the reverse. The role tells you whose config to open.
+FLA P PATTE R N  →  C A U S E
+TIMING LIKELY CAUSE
+Even interval, round number Lifetime / rekey mismatch or collision
+Interval = DPD interval × threshold DPD tearing down a healthy tunnel
+Irregular, bursty Underlay path loss
+P2 cycles, P1 solid Selector or PFS mismatch
+P1 rebuilding Reachability, PSK, identity
+Only when idle establish-tunnels on-traffic —  by design
+Only under load MTU, or lifetime-kilobytes
+FA K E  FLA P S
+set security ipsec vpn VPN-B establish-tunnels \
+  immediately | on-traffic | responder-only
+set security ipsec vpn VPN-B vpn-monitor
+set security ipsec vpn VPN-B vpn-monitor \
+  source-interface reth1.0 destination-ip 10.2.0.1
+set security ipsec vpn-monitor-options interval 10 threshold 5
+on-traffic Default. Negotiates only when a packet is routed at st0 —  an idle
+backup cycles in the log by design.
+immediately Pinned up from commit. Use for anything monitored, carrying an
+adjacency, or where failover time matters.
+responder-only Never initiates. Right for a peer behind NAT; fatal on both ends at
+once.
+vpn-monitor  pings through the tunnel and tears the SA down on failure,
+taking st0 with it —  which is what lets a route or adjacency over st0 fail over.
+W ithout it, a route out st0 stays "good" while traffic blackholes. The probe
+target m ust answer ICM P from  inside the traffic selector.
+SIDE 3 OF 4 — VERIFY, DECODE, TRACE
+
+===== PAGE =====
+
+SIDE 4
+MTU · FRAGMENTS · CONTEXT
+approx
+DF ping
+not VPN-specific
+OVERHEAD FIGURES APPROXIMATE — CIPHER-DEPENDENT
+W H E N  IT  IS N 'T  T H E  C R Y P T O
+MTU · THE DF BIT · REPLAY · BOX-LEVEL CONTEXT · THINGS THAT BITE
+READ-ONLY — SAFE ON PRODUCTION CHANGES CONFIG — NEEDS A COMMIT DISRUPTIVE — DROPS LIVE TRAFFIC
+TH E  M TU  S TO R Y
+M TU is the largest fram e an interface will pass —  standard Ethernet 1500.
+IPsec wraps every packet in new headers, so the payload that still fits
+shrinks. Send a full 1500 into a tunnel and it m ust fragm ent, and firewalls
+along the way routinely drop fragm ents.
+THE TELL-TALE SYMPTOM
+Ping works. SSH connects. Then ls hangs, or a transfer stalls at 0% .
+Sm all packets fit; full-size ones exceed the tunnel M TU and vanish.
+Handshake fine, data stalls = M TU until proven otherw ise.
+O V E R H E A D  B U D G E T
+LAYER BYTES
+New outer IP header 20
+ESP header + SPI + seq 8
+IV 8–16
+Pad + trailer + next-header 2–255
+ICV (integrity) 12–16
+NAT-T UDP 4500, if present +8
+Roughly 50–70+ bytes, cipher-dependent. From  1500 that leaves about 1430
+—  which is why tunnel M TU is conventionally clam ped to 1400 for headroom .
+TH R E E  FIX E S  —  K N O W  TH E  D IFFE R E N C E
+1 · MSS CLAMP —  PREFERRED
+Rewrites the TCP handshake so both ends agree to sm aller segm ents up
+front. Surgical, prevents fragm entation before it starts, needs no ICM P.
+TCP only —  does nothing for UDP.
+2 · LOW ER THE TUNNEL MTU
+Universal, covers UDP, but the box now fragm ents before encryption.
+Costs CPU, and those fragm ents can still be dropped downstream .
+3 · DF-BIT CLEAR —  THE VALVE
+Clears DF in the outer header so the network m ay fragm ent the encrypted
+packet rather than drop it. The rescue when you control neither endpoint
+nor the far side. Costs reassem bly at the peer. copy  (default) copies the
+inner DF; set  forces it on.
+Rule of thum b: M SS = tunnel M TU − 40 (IP + TCP). 1400 M TU →  clam p
+1360; m any shops use 1350 for m argin.
+P M TU D  &  TH E  D F B IT
+Path M TU Discovery lets endpoints learn the sm allest hop by sending DF-set
+packets; an oversized one should trigger an ICM P fragm entation needed
+(Type 3 Code 4) back to the sender.
+It breaks constantly because that ICM P is filtered som ewhere. The sender
+never learns to shrink, and big packets disappear in silence. This is exactly
+why M SS clam ping exists —  it does not depend on ICM P getting through.
+R E P LAY E R R O R S
+Every ESP packet carries a sequence num ber and the receiver keeps a
+sliding window. Duplicate or too-old packets are dropped and counted as
+replay.
+Alm ost always benign reordering: ECM P or per-packet load-balancing in the
+underlay, or rekey overlap. A sm all static count is noise. A clim bing count
+m eans real reordering or loss —  and lost DPD probes on that sam e path will
+tear the tunnel down. That is how replay counters and flapping connect.
+TE S T IT FR O M  TH E  B O X
+ping 10.2.0.1 do-not-fragment size 1472 count 3
+ping 10.2.0.1 do-not-fragment size 1372 count 3 \
+  source 10.1.0.1 routing-instance <ri>
+ping 10.2.0.1 size 1400 rapid count 50
+size  is the ICM P payload. Add 28 (20 IP + 8 ICM P) for wire size: 1472 →
+1500. If 1472 fails and 1372 passes, path M TU is around 1400 —  binary-
+search between them .
+A bare ping from  the SRX tests the SRX's own path. To test the tunnel,
+source from  an address inside the traffic selector, or from  the LAN interface.
+W H E R E  TO  S E T IT
+set interfaces st0 unit 0 family inet mtu 1400
+set security flow tcp-mss ipsec-vpn mss 1360
+set security ipsec vpn VPN-B df-bit clear
+set security flow tcp-mss all-tcp mss 1350
+set security flow force-ip-reassembly
+show interfaces st0.0 | match MTU
+show interfaces reth0.0 extensive | match MTU
+tcp-mss ipsec-vpn  clam ps only tunnel traffic —  the clean fix. all-tcp  hits
+everything through the box, a far bigger blast radius than m ost people intend.
+O n SRX the physical M TU includes L2 overhead; the logical-unit M TU is the
+IP M TU. Different num bers for the sam e link —  confirm  which layer you are
+reading before com paring against a peer.
+B O X -LE V E L C O N TE X T
+show system commit       # who changed what, when
+show system uptime       # last boot + last commit
+show system alarms
+show chassis alarms
+show chassis routing-engine    # RE cpu / memory
+show system processes extensive | match kmd
+show system storage      # /var full = no logs
+show system users        # who else is on here
+show security flow status
+show security monitoring fpc 0  # flow cpu, sessions
+show interfaces reth0.0 extensive | match -i error
+show version
+RUN THIS FIRST
+show system commit . If the newest com m it lines up with the first flap in
+kmd , you have your answer and it is not PFS. Correlate before you
+theorise.
+TH IN G S  TH AT B ITE
+Missing host-inbound ike. The W AN zone drops the peer's IKE before it is
+processed. Phase 1 times out with no local clue. Check this before touching crypto.
+Source NAT eating tunnel traffic. The interface NAT rule for internet-bound traffic
+also grabs packets routed at st0. The far end sees the wrong source and rejects the
+selector. Needs an explicit no-NAT rule above it.
+Tunnel UP, zero traffic. st0 has no zone, no policy, or nothing routed at it. The SA
+proves crypto, not reachability.
+Default selector is 0.0.0.0/0. W ith no traffic-selector configured the SRX proposes
+any-to-any. Peers that build one SA per subnet pair reject it outright.
+Both ends on-traffic, or both responder-only. Nobody initiates, nothing is
+misconfigured, tunnel never comes up.
+Clock skew kills certificates. Check NTP before re-issuing anything.
+SIDE 4 OF 4 — MTU, FRAGMENTS, CONTEXT
