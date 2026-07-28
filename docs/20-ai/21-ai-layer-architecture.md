@@ -172,6 +172,12 @@ this product least needs from them.
 
 ### 2.3 The proposal type
 
+> **Merged per ADR-0021 (2).** `22` §2.2's `Proposal<T>` is the one proposal type; it absorbs
+> this section's `PredictedEffect`, `Basis` and `caveats`. `Basis` and `22`'s
+> `ProposalConfidence` are the same three-value idea and must not both exist. The type below
+> is retained for `PredictedEffect` and the boundary argument; where the two definitions
+> disagree, `22` §2.2 wins.
+
 ```rust
 /// `fathom:proposal:<ulid>` — same identifier scheme as node IDs (conventions §Identifiers).
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -843,6 +849,10 @@ pub struct AiBudget {
     pub output_tokens: u32,       // default 8_000
     pub egress_bytes: u32,        // default 262_144 — tiers 1 and 3 only
     pub model_calls: u16,         // default 12
+    /// ADR-0022: gate probing costs budget. Probes-per-accepted-claim is
+    /// reported in the eval and in `SubagentVerdict` — a subagent whose
+    /// claims each cost four probes is searching for the gate's blind spot.
+    pub gate_probes: u8,          // default 6
 }
 ```
 
@@ -859,8 +869,10 @@ Truncation is a visible outcome, not a silent one. A user who sees the banner kn
 answer is partial; a user who sees a confident short answer that happens to be partial does
 not.
 
-Defaults are justified as: 24 tool calls is the observed shape of §13's scenario with one
-retry of headroom; 4 spawns is one per residue cluster in a typical paste plus an adversary.
+Defaults are justified as: headroom over the observed shape of §13's scenario — which, as
+written, makes **seven** tool calls, not the fourteen §10.1 stated or the twenty-four this
+section previously attributed to it (recounted per M20); 4 spawns is one per residue cluster
+in a typical paste plus an adversary.
 **These are starting values.** They should be re-derived from the first release's telemetry —
 which, at tier 0 and tier 2, is local-only and never leaves the machine.
 
@@ -2149,7 +2161,7 @@ Per request, per §4.5. The defaults again, with their justification:
 | Dimension | Default | Why that number |
 |---|---|---|
 | `wall_ms` | 20 000 | Beyond ~20 s a user has moved on. The deterministic answer is already on screen (§10.2), so this bounds an addition, not the response. |
-| `tool_calls` | 24 | §13's scenario uses 14 with one retry of headroom; 24 leaves room for a second subagent round. |
+| `tool_calls` | 24 | §13's scenario as written makes **seven** calls (recounted per M20 — the 14 previously stated here did not close against §13's own text); 24 leaves generous room for retries and a second subagent round. |
 | `model_calls` | 12 | Two per subagent plus supervisor overhead. |
 | `subagent_spawns` | 4 | One per residue cluster in a typical paste, plus an adversary. |
 | `input_tokens` | 60 000 | Dominated by corpus excerpts and graph projections; §13 measures ~34 000 for the largest realistic case. |

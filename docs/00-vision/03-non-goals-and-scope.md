@@ -531,7 +531,7 @@ means the answer is a link rather than a debate.
 | A funder | "We need a hosted multi-tenant version to sell" | `N-D-1`, and §8 |
 
 The AI-layer row deserves emphasis because it is the one with a built-in advocate. An agent
-architecture creates continuous pressure toward giving the agent more capabilities, and each
+architecture creates continuous pressure toward giving the subagent more capabilities, and each
 individual grant is defensible. `21` §§7–9 fences it; this document is why the fence exists.
 
 ---

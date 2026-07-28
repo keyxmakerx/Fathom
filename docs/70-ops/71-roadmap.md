@@ -172,7 +172,7 @@ that makes the finder the wedge:
 
 | The days-estimate assumes | Reality |
 |---|---|
-| The corpus already exists | 84 seed entries exist in `corpus/commands/junos-srx-ipsec.yaml`, authored from the field card, **none of them run on a box**, all carrying `reviewed_by: <named human>` which the build is required to reject. The corpus does not exist; a proof that the format works exists. |
+| The corpus already exists | 91 seed entries exist in `corpus/commands/junos-srx-ipsec.yaml`, authored from the field card, **none of them run on a box**, all carrying `reviewed_by: <named human>` which the build is required to reject. The corpus does not exist; a proof that the format works exists. |
 | Substring search is good enough | For the brief's own flagship query, `check if a tunnel is up`, token overlap with the correct entry's `answers` field (`Is Phase 2 installed and passing traffic?`) is **zero** (`16` §2). Substring search returns nothing. |
 | The artifact does not have to be verifiable | "Zero trust required" is only true if the thing is offline, deterministic and hash-checkable by a stranger, which is the whole of `35` and a large part of `43` §3. |
 
@@ -181,7 +181,7 @@ structure, plus a build that a stranger can verify.** That is three to four mont
 
 ### 3.2 RECOMMENDATION — spend two weeks proving the content before building the machine
 
-Before phase 0, build a throwaway: one static HTML page, the 84 seed entries inline, dumb
+Before phase 0, build a throwaway: one static HTML page, the 91 seed entries inline, dumb
 substring matching over `cmd` + `answers` + `aka`, no index, no WASM, no build system, no
 tests. Two weeks including cleanup.
 
@@ -212,7 +212,7 @@ spike that survives becomes the architecture, and this one must not.
 
 | Content | Count | Source |
 |---|---|---|
-| Command entries, `junos-srx`, IPsec domain | 84 seed → ~120 after expert review and gap-filling | The four-side field card, then verified on a box |
+| Command entries, `junos-srx`, IPsec domain | 91 seed → ~120 after expert review and gap-filling | The four-side field card, then verified on a box |
 | Concepts, IPsec + general diagnostic | ~120 | `16` §3.6: harvested from `aka:` lists, vendor doc section titles, and the miss log. Not invented at a desk. |
 | Explainers, classes `command` + `output` + `error` | ~83 | `15` §12.5 phase P1 — *"the corpus that makes the wedge shippable"* |
 | Explainer reference set (the voice spec) | 50 | `15` §12.5 P0. **Nothing else starts until this exists.** |

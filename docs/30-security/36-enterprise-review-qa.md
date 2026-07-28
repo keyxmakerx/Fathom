@@ -79,11 +79,13 @@ colours.
 
 `34-browser-hardening.md` §2.1 names five shapes. Half the questions below have a different
 answer per shape, and the fastest way through a review is to fix the shape in the first ten
-minutes.
+minutes. (Corrected per ADR-0017, which adopts `43` §3.5: the single file is a complete
+single-session product, and the corpus-wide shape names are `43` §1.1's D1–D4 — the letters
+below are retained only until the mechanical rename lands.)
 
 | Mode | Artifact | Holds a workspace? | Server? | Egress | AI tiers available |
 |---|---|---|---|---|---|
-| **A — reference artifact** | one `.html`, opened from disk | **no** | no | `connect-src 'none'` | 0 |
+| **A / D1 — offline single file** | one `.html`, opened from disk | **yes — in memory, for one session; no browser storage of any kind** (ADR-0017) | no | `connect-src 'none'` | 0 |
 | **B — offline workspace** | static bundle served from loopback by `fathom serve` | yes | loopback only | `'none'` | 0, 2a, 2b |
 | **C — self-hosted with sync** | same bundle + the Axum service on one host you run | yes | yours | one origin, yours | 0, 1, 2 |
 | **D — enterprise** | same code, load-balanced, your infrastructure | yes | yours | one origin, yours | 0, 1, 2, 3 |
@@ -117,7 +119,7 @@ On the machine the engineer is using. Every location, exhaustively:
 | OPFS / IndexedDB working cache | ciphertext | B, C, D | same-origin code; a disk image |
 | `workspace.fathom` file, or `workspace.fathom.d/` directory | ciphertext | B–E | file permissions |
 | Your git repository, including **every historical version** | ciphertext | B–E | whoever can read the repo, forever |
-| Your sync service, if you run one | ciphertext + metadata M1–M10 (`31` §7.2) | C, D | your operator, your hosting provider |
+| Your sync service, if you run one | ciphertext + metadata M1–M11 (`31` §7.2; M11 per ADR-0015) | C, D | your operator, your hosting provider |
 | The clipboard | **plaintext, by design** | all | any application on the machine |
 | Wherever the engineer pasted it — terminal, ticket, chat, wiki | **plaintext** | all | that system's access model. Outside our model entirely |
 | A plaintext export, if someone made one | **plaintext, with a header saying so** | all | file permissions |
@@ -186,7 +188,7 @@ Depends on which "you", and this is the question where the deployment shape does
 | Our source repository | integrity risk only; the source is public and diffable; reproducible builds make a silent change detectable *if someone rebuilds* | same | same |
 | Our rule-pack signing key | a correctly signed pack can downgrade a finding or manufacture consent (`31` §5.1 row 11) | same | same |
 | Our corporate email, laptops, tickets | nothing of yours is in them | nothing of yours is in them | your account email, if you gave us one |
-| A sync service **we** operate | not applicable | not applicable | your ciphertext + M1–M10 + account identifiers |
+| A sync service **we** operate | not applicable | not applicable | your ciphertext + M1–M11 (`31` §7.2) + account identifiers |
 | Our hosting provider | not applicable | not applicable | same as above |
 
 Two honest riders:
@@ -239,11 +241,14 @@ and the ordinary honest gap — a deletion propagates to live storage immediatel
 on the backup rotation, not before. We will state the rotation as a number in the DPA rather
 than as "promptly".
 
-There is a second answer that is better than the first: because the server holds no key,
-**crypto-erasure is available to you unilaterally.** Rotate the workspace root key and every
-blob we still hold, including in any backup, becomes undecryptable by anyone including you.
-`32` §9.2 prices that rotation; `37` §7.4 states honestly where regulators have been sceptical
-that key destruction is "erasure".
+The second answer that used to stand here claimed crypto-erasure by key rotation. It was false
+and is withdrawn (ADR-0015; R02): **crypto-erasure is not available against a backup that
+contains the keyholder record, which every backup of a workspace does.** `RK_e` is recoverable
+from any surviving epoch keyholder record by anyone holding the passphrase, the printed
+recovery code, `k` Shamir shares, a member key or the WebAuthn PRF, and `32` §9.2 says so in
+terms — *"the git-history problem is not solvable by rotation."* What is available is deletion
+of the replica (`33` §2.8), plus the honest statement that the original is on your endpoints
+and in your repository. `37` §7.4 states the corrected position.
 
 ### Q10. Can you produce our data on legal request?
 
@@ -267,15 +272,16 @@ Four statements, each of which is a property of the protocol rather than of our 
 | Claim | Mechanism |
 |---|---|
 | The server never receives a key or key-derivation secret | The workspace key derives from the passphrase in the client (`32` §3). Account authentication is OPAQUE, so the server never receives the password, a hash of it, or anything password-equivalent (`33-sync-protocol.md` §3.2) |
-| The server receives only AEAD-sealed frames | `17` §5.2. A modified frame fails its tag; the server can drop, delay, duplicate or reorder, and nothing else |
+| The server receives only AEAD-sealed records | `32` §7 (ADR-0012/ADR-0013: whole sealed records, no frames). A modified record fails its tag; the server can drop, delay, duplicate or reorder, and nothing else |
 | The server cannot merge, compact or garbage-collect | It cannot decrypt. `33` §9 is the entire consequence, and it is a real operational cost we pay for this property |
-| The server cannot distinguish content from padding | Frame bodies are opaque and Padmé-padded (`31` §7.6) |
+| The server cannot distinguish content from padding | Record bodies are opaque and Padmé-padded (`31` §7.6; `32` §6.4) |
 
 And the sentence that goes on the sync setup screen, verbatim, because the four statements above
 are not the whole truth:
 
 > **The server cannot read your workspace. It can see that you have one, roughly how big it is,
-> and every time you change it.**
+> every time you change it, and which kind of record changed.** *(last clause added per
+> ADR-0015 — M11)*
 
 ### Q12. Prove it. On a running instance.
 
@@ -293,9 +299,9 @@ as something a person executes.
 | 7 | Grep, including encodings | `grep -R -a -F 'CANARY-8f2a1c' /tmp/dump.sql /tmp/blobs` and then the base32/base64/hex forms: `grep -R -a -F "$(printf 'CANARY-8f2a1c' \| base64)" …` | **no hits** |
 | 8 | Grep the logs | `docker logs fathom-sync 2>&1 \| grep -a -F CANARY` | **no hits** |
 | 9 | Grep service memory | `docker exec fathom-sync gcore -o /tmp/c 1` then `strings /tmp/c.1 \| grep -F CANARY` | **no hits**, on a running process with an active session |
-| 10 | Inspect the wire | put mitmproxy in front, look at a `POST /v1/w/{wid}/frames` body | high-entropy bytes; the header fields are exactly the ones `33` §2.6 lists and no others |
+| 10 | Inspect the wire | put mitmproxy in front, look at a record-upload body (`33` §2.6, as rebuilt against whole records per ADR-0013) | high-entropy bytes; the header fields are exactly the ones `33` §2.6 lists and no others |
 | 11 | Inspect authentication | look at `POST /v1/auth` — two round trips, OPAQUE | no password, no password hash, no key, no passphrase-derived value |
-| 12 | Confirm what *is* visible | read the same capture and the same tables for what the server legitimately holds | workspace id, sizes, generation counters, timestamps, device public keys, source IP. That is M1–M10, and it is the honest answer to "what do you see" |
+| 12 | Confirm what *is* visible | read the same capture and the same tables for what the server legitimately holds | workspace id, sizes, generation counters, timestamps, device public keys, source IP, and the record kind in the clear. That is M1–M11 (`31` §7.2; M11 added per ADR-0015), and it is the honest answer to "what do you see" |
 
 Step 12 is the one to actually spend time on. The interesting output of this exercise is not
 "the canary was absent" — it is the list from step 12, which is what you are really deciding
@@ -318,8 +324,10 @@ Two controls, in order of strength:
 
 ### Q14. What does the server learn that you are not telling us about?
 
-Nothing withheld — `31` §7.2 enumerates ten channels and `33` §12 states which ones this
-protocol's specific choices create or worsen. The short list, and the honest priority order:
+Nothing withheld — `31` §7.2 enumerates eleven channels (M11 was found after the first ten and
+added per ADR-0015, which is itself the honest demonstration that this list is "the channels we
+have found") and `33` §12 states which ones this protocol's specific choices create or worsen.
+The short list, and the honest priority order:
 
 | | Channel | Removed by |
 |---|---|---|
@@ -329,6 +337,7 @@ protocol's specific choices create or worsen. The short list, and the honest pri
 | M6 | device count, therefore team size | nothing |
 | M7 | source addresses, therefore organisation and sites | a relay, which does not touch the channels that matter |
 | M8 | which part of the graph was edited | whole-container sync, which is the default; per-record sync is opt-in with this cost named (`32` D7) |
+| M11 | the record *kind* in the clear (`IndexEntry.kind_opaque`, `33` §2.5) — which makes the suppressions record, ranked **V3** in `31` §2.1, individually identifiable and trackable | enforcing per-kind caps client-side instead (`33` §18 S-3); until then it is a stated disclosure, added per ADR-0015 |
 
 `31` §7.6's DECISION is that batching ships off by default because it costs a real
 recovery-point objective, and the stated cost of that decision is exactly this: **the default
@@ -581,7 +590,7 @@ projected (`21` §8.2):
 | Class | Examples | Default at tier 1 | Configurable |
 |---|---|---|---|
 | Structural | node kinds, edge roles, cardinalities, presence states | sent | no — without it nothing works |
-| Crypto parameters | `dh_group`, `encryption_algorithm`, `lifetime_seconds`, `perfect_forward_secrecy`, IKE version, DPD mode | sent | yes, per field |
+| Crypto parameters | `dh_group`, `encryption_algorithm`, `lifetime_seconds`, `perfect_forward_secrecy`, IKE version, DPD mode | **withheld** (ADR-0015: `31` §2.1 ranks "which tunnels lack PFS" V6 — the boolean that says whose traffic is worth harvesting — and pseudonymising the gateway while sending it was exactly backwards) | yes — sending them is the per-field opt-in |
 | Topology addresses | addresses, prefixes, ASNs | **pseudonymised** | yes → withhold |
 | Names | hostnames, `GW-B`, `VPN-B`, zone names, descriptions | **pseudonymised** | yes → withhold |
 | Free text | notes, descriptions | **withheld** | yes → send |
@@ -710,34 +719,42 @@ defence, OT and regulated as the market a SaaS competitor structurally cannot se
 
 | Piece | Air-gapped answer |
 |---|---|
-| The command finder, corpus, explainers, guidebook | mode A: one `.html`, opened from disk, no server, no workspace |
-| Workspaces, emitters, findings, diagram | mode B: a static bundle served from loopback by `fathom serve` |
+| Everything, single-session — the finder, a workspace opened in memory, every engine, emit, and a sealed save back out | mode A / D1: one `.html`, opened from disk, no server, **no browser storage of any kind** (corrected per ADR-0017 — the earlier "no workspace" answer stated one side of a then-live fork as fact) |
+| Workspaces with persistence, crash recovery and the full header set | mode B: a static bundle served from loopback by `fathom serve` |
 | Everything, headless | mode E: the CLI |
 | Sync | absent. There is no server, so there is no sync and no metadata |
 | AI | tier 0, or tier 2 with a model file you supplied |
 
 ### Q40. There is a catch in that answer, isn't there?
 
-Yes, and it is `34` §3.4's stated cost, which we will not let you discover in month three.
+Yes — two, and they are different catches from the one this answer used to give. (Rewritten per
+ADR-0017: the earlier text told an air-gapped customer the single file could not hold a
+workspace, which was `34` §3.3's since-superseded position. The single file is a complete
+product for one session, and the HTML file that passes change control as a document is now also
+the tool, not just the reference card.)
 
-**The artifact that holds a workspace is no longer a single HTML file.** It is a static bundle
-plus a binary that serves it from loopback. `34` §3.3's decision — *"we do not put a secret
-behind a policy we cannot deliver"* — is right, because a `<meta>`-delivered CSP silently
-discards `frame-ancestors`, `sandbox`, COOP, COEP, CORP, `X-Frame-Options`, `Permissions-Policy`
-and violation reporting, and every one of those is load-bearing for an artifact holding a
-decrypted network estate.
+**Catch one — no crash recovery, at all.** Mode A / D1 holds the workspace in memory only and
+uses no browser storage of any kind. A discarded tab loses everything since the last save, and
+the user most likely to be in mode A is on an unfamiliar machine in a controlled environment,
+which is exactly where a tab gets closed. The save path outside Chromium is genuinely poor:
+`workspace (14).fathom` in the Downloads folder (`32` §13.1). There is no mitigation that does
+not reintroduce browser storage, and we chose not to.
 
-The cost lands hardest exactly where the product is most differentiated: **in a high-assurance
-environment an HTML file passes change control and an executable does not.** `34` §3.4 names
-this as the strongest argument against the decision and does not answer it. Neither will we.
+**Catch two — the missing headers.** A `<meta>`-delivered CSP silently discards
+`frame-ancestors`, `sandbox`, COOP, COEP, CORP, `X-Frame-Options`, `Permissions-Policy` and
+violation reporting. With no browser storage there is no secret at rest behind the missing
+policy — which is what satisfies `34`'s own rule — but two post-XSS exfiltration channels
+(top-level navigation and `window.open`) remain open in mode A permanently, and `34` §11
+records that as a `material` residual specific to this mode rather than pretending the headers
+do not matter.
 
 Your options, in the order we would try them:
 
-1. Put the binary through your software approval process. It is one static Rust binary,
-   reproducible, signed, no installer, no service, no network, no privileged operation.
-2. Use mode A for the finder and the reference content — which is the feature people open ten
-   times a day, needs none of the crypto and none of the graph, and passes change control as a
-   document — and mode E for the modelling work.
+1. Use mode A as the air-gapped tool, saving early and often, with the residual above in your
+   risk register.
+2. Put the `fathom serve` binary through your software approval process for daily-driver use —
+   one static Rust binary, reproducible, signed, no installer, no service, no network, no
+   privileged operation — and keep mode A as the artifact that needs no approval at all.
 3. **Tell us.** `34` §3.5 names the trigger that turns this into a packaged desktop application:
    a customer whose requirement is specifically "no browser extensions in the same process as our
    configurations". If enough air-gapped customers cannot take a binary, that trigger fires.
@@ -1195,7 +1212,7 @@ What actually helps, in order:
 | Control | Effect |
 |---|---|
 | **Member removal on a shared workspace** — eager and blocking: epoch bump, every record re-sealed before the flow reports success (`32` D11) | they cannot read anything written *after* removal. "Revoked, but 400 records are still readable by them" is a lie told by a progress bar, so we do not do lazy re-seal |
-| **Root key rotation** (`32` §9.2) | crypto-erases every copy of the old ciphertext everywhere, including backups and the sync service, for everyone including you |
+| **Root key rotation** (`32` §9.2) | protects ciphertext written **after** the rotation. It does not reach copies that already exist — every copy carries its epoch's keyholder record, so a departed colleague holding a clone plus any epoch credential still opens it (ADR-0015; and note `32` §11.1: a printed recovery code is re-wrapped at every epoch bump, so removal must include the re-print-or-revoke step) |
 | **Treat departure as disclosure of everything they could read** | the appropriate response to a departure that matters is a network change — rotating the peer's PSK, revisiting the zones they knew about — not a password change. That is an unpleasant sentence and it is the correct one |
 | Repository access removal and history rewriting | removes future access; does nothing about the clone they already have |
 
@@ -1266,8 +1283,8 @@ Less than you are used to, and the reason is structural rather than an omission.
 because it is a hard requirement in some frameworks:
 
 A read audit requires an authority that observes reads. The only candidate is the sync service,
-and the sync service cannot observe reads: a client fetches ciphertext frames and decrypts them
-locally, so "fetched a frame" is not "read a device", and in the common case a user reads a
+and the sync service cannot observe reads: a client fetches ciphertext records and decrypts them
+locally, so "fetched a record" is not "read a device", and in the common case a user reads a
 workspace they already have on disk without contacting anything at all. Adding a read audit means
 adding a component that sees plaintext and knows who is looking at it, which is the surveillance
 the product exists to avoid.
@@ -1449,7 +1466,7 @@ security document to interpret.
 | A GDPR Article 28 DPA over ciphertext and metadata | hosted sync only | `37` §5, including the clauses we strike and why |
 | Named sub-processor list, with notice of change | hosted sync only | one entry: the hosting provider |
 | Data residency of ciphertext and metadata to a stated region | hosted sync only | |
-| Deletion on request, with a stated backup rotation as a number | hosted sync only | plus the crypto-erasure route you control unilaterally (Q9) |
+| Deletion on request, with a stated backup rotation as a number | hosted sync only | replica deletion only — crypto-erasure is not available against existing copies and is not claimed (Q9, ADR-0015) |
 | A transparency statement of legal requests received | hosted sync only | no canary (Q10) |
 
 Not offered, and we will say so at contract stage rather than negotiate: an availability SLA with
@@ -1463,14 +1480,14 @@ behalf, and any promise about what a compromised browser does.
 | Claim | Source |
 |---|---|
 | Compromised browser, extensions, isolated worlds, `world: "MAIN"`, the `debugger` permission | `31-threat-model.md` §6.2 and its sources |
-| Metadata channels M1–M10, the six-week worked inference, Padmé padding, the batching cost | `31-threat-model.md` §7; Nikitin et al., PoPETs 2019(4) for the padding bounds |
+| Metadata channels M1–M11, the six-week worked inference, Padmé padding, the batching cost | `31-threat-model.md` §7; Nikitin et al., PoPETs 2019(4) for the padding bounds |
 | Attack trees, the cheapest leaves, no-auto-update DECISION, the rollback branch | `31-threat-model.md` §8 |
 | Abuse-case position, the weakening interlock, the export gate types | `31-threat-model.md` §9 |
 | The non-claims register, including "no security audit claim of any kind" | `31-threat-model.md` §10.1 |
 | CI checks that make claims fail a build | `31-threat-model.md` §12 |
 | Argon2id parameters, `p=1` decision, ChaCha20-Poly1305, key commitment, member log, revocation, recovery | `32-cryptography.md` D1–D15 |
 | OPAQUE authentication; the server's four jobs and six prohibitions; nine endpoints | `33-sync-protocol.md` §1, §2, §3.2 |
-| CSP per mode; `<meta>` discards `frame-ancestors` and reporting; the two-artifact decision and its four costs; clipboard headers; third-party isolation in CI | `34-browser-hardening.md` §2, §3, §6, §8 |
+| CSP per mode; `<meta>` discards `frame-ancestors` and reporting; the single-session single-file decision and its costs (rewritten per ADR-0017); clipboard headers; third-party isolation in CI | `34-browser-hardening.md` §2, §3, §6, §8 |
 | AI tiers, build-time CSP, `EgressEnvelope`, pseudonymisation into `100.64.0.0/10`, the pre-flight, consent grants, the egress log retaining literal bodies, the armed indicator, the plain statement | `21-ai-layer-architecture.md` §7, §8 |
 | Injection is bounded, not prevented | `23-ai-safety-and-injection.md` |
 | Workspace format, export gate and export header text, version pins, the AI audit log | `17-workspace-format.md` §8, §11, §15 |

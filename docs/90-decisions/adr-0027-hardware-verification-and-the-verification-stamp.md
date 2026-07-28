@@ -8,7 +8,7 @@
 
 ## Context
 
-`71` §3.1 records the current state without softening: 84 seed command entries exist and **none of
+`71` §3.1 records the current state without softening: 91 seed command entries exist and **none of
 them has been run on a box.** `61` §20 concedes that hardware for platforms two, three and four
 *"is not currently satisfied by anyone named in this project"*. Every entry carries `reviewed_by`
 as a placeholder, so the corpus breaches invariant 10 today and says so in a YAML comment (`83` P12).

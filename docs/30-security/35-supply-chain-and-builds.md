@@ -1733,7 +1733,8 @@ whatever they already run.
 $ fathom verify ./fathom-3.2.0.html
 
 ARTIFACT       fathom-3.2.0.html
-SIZE           28,114,552 bytes
+SIZE           3,381,204 bytes    (illustrative; `44` §5.3 owns the size table per ADR-0017
+                                   — A1 target ≤ 3.5 MB, unmeasured until the phase-0 spike)
 SHA-256        3f1c…9ab2
 BLAKE3-256     7d02…41ee
 

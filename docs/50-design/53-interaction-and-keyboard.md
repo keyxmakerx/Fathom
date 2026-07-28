@@ -1,6 +1,8 @@
 # 53 — Interaction and the keyboard
 
-> **Status:** Proposed
+> **Status:** Proposed · **Owns the keymap for the whole product** per R11, ADR-0024; §3
+> carries the decided collision resolutions, and §12.3's announcement table is amended per
+> M35 (exactly one `assertive` region: egress arming).
 
 Companion documents: `52-information-architecture.md` (the shell, the six views and the selection
 model this keymap drives), `51-design-tokens.md` (the visual system — focus rings, weights and rules
@@ -184,6 +186,26 @@ Three properties of the rule:
 ## 3. The keymap, in full
 
 *margin tab: the whole thing*
+
+> **Decided — R11, ADR-0024: this section owns the keymap for the whole product.** Every
+> other document (`52`, `54`, `55`, `56`) deletes its map and points here — a single-source
+> keymap is the only structure in which conflicts are actually visible. Four collisions found
+> in the review are resolved as follows, and a CI test parses every `<kbd>` table in
+> `docs/50-design/` and fails on any key bound to two actions in overlapping scopes:
+>
+> - `n` / `p` / `u` are **scoped**: diff-navigation meanings apply only while focus is inside
+>   a diff block, using §2.3's focus rule; unscoped, they keep this section's meanings
+>   (filter match / platform filter / unsuppress).
+> - `g` is this section's **sequence prefix** and cannot also be an Outline command with
+>   type-ahead live in the same widget. The Outline's graph traversal is `⌥→` / `⌥←`, which
+>   are free inside a list.
+> - `Esc` unwinds **one level** of §3.7's ladder, everywhere. `54` §2.5's "collapse all" is a
+>   second press at the top of the ladder, not a competing behaviour. `55`'s "move focus to
+>   the heading" is likewise a rung, not a rival.
+> - Explainer depth is `⌥\`; `Ctrl+1/2/3` and `Ctrl+Shift+1/2/3` do not exist.
+>
+> `⇧A` / `⇧R` stay (§3.8): a keyboard binding is a security control here, and the same rule
+> covers unsuppress, delete and any op that commits a security decision.
 
 Notation: `⌘` is `Cmd` on macOS and `Ctrl` elsewhere, and both are bound in parallel on macOS
 because macOS users with external keyboards use `Ctrl` too (`16` §19.1). `⌥` is `Alt`/`Option`.
@@ -1304,7 +1326,7 @@ Remapping is **not** offered in v1 (OD-3).
 | The copy confirmation | `aria-live="polite"` region in the footer. Polite, so it never interrupts a line being read |
 | Findings appearing | `aria-live="polite"` on the findings count only, not on the list. Announcing eleven findings as they stream is announcing nothing |
 | A merge landing | Polite, once, with the count (`33` §7.3's one line) |
-| Nothing, ever | `aria-live="assertive"`. There is no event in this product that justifies interrupting somebody |
+| Exactly one: the egress-armed transition (`55` §4.6) | `aria-live="assertive"` (via `role="alert"`, `54` §20). Nothing else, ever. *(Amended per M35, ADR-0024 (5): the previous absolute — "there is no event in this product that justifies interrupting somebody" — was contradicted by `55` §4.6 and `54` §20, and `55` is right: egress arming is the one thing that changes what leaves the machine, and it can be initiated by a grant given last month. Interruption is for what you did not just do.)* |
 
 ### 12.4 Colour
 

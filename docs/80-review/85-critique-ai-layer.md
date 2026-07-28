@@ -4,7 +4,7 @@
 
 Lens: the AI layer only. Scope read in full — `docs/20-ai/21`, `22`, `23`, `24`, `25`; the AI
 sections of `30-security/31`, `34`, `36`, `37`; the AI touchpoints in `50-design/52`, `53`; and
-the shipped `corpus/` (36 rules, 91 command entries, 41 explainers) against which the AI
+the shipped `corpus/` (37 rules, 91 command entries, 41 explainers) against which the AI
 documents' worked examples are checked. `81-critique-security` §5 covers the egress *path*; this
 document does not repeat it. `84-critique-product` P3 and §9.1 cover the *phasing* argument; this
 document does not repeat that either, and agrees with both.
@@ -77,9 +77,9 @@ complete while being wrong.
 ### 2.1 What was checked
 
 Every `RuleId`, `CorpusId` and command ID that appears inside a worked example in `20-ai/` was
-grepped against the shipped corpus. The corpus is not a placeholder: `corpus/rules/` carries 36
-complete rules with `condition`, `acceptable_when`, three explainer depths, `reviewed_by` and
-fixtures; `corpus/commands/` carries 91 entries; `corpus/explainers/` carries 41.
+grepped against the shipped corpus. The corpus is not a placeholder: `corpus/rules/` carries 37
+complete rules with `condition`, `acceptable_when`, three explainer depths and `reviewed_by` —
+and no fixtures; `corpus/commands/` carries 91 entries; `corpus/explainers/` carries 41.
 
 **Result: eleven of eleven cited rule IDs do not exist.**
 
@@ -1248,13 +1248,13 @@ Named, because a critique that finds only faults is not a critique.
 
 | Claim | Source |
 |---|---|
-| Every rule, command and explainer ID checked in §2 | `corpus/rules/ipsec-junos-srx.yaml` (36 rules), `corpus/commands/junos-srx-ipsec.yaml` (91 entries), `corpus/explainers/ipsec-concepts.yaml` (41 entries), grepped by exact ID |
+| Every rule, command and explainer ID checked in §2 | `corpus/rules/ipsec-junos-srx.yaml` (37 rules), `corpus/commands/junos-srx-ipsec.yaml` (91 entries), `corpus/explainers/ipsec-concepts.yaml` (41 entries), grepped by exact ID |
 | `ipsec.traffic-selector.not-mirrored`'s `requires: [peer_config]`, `on_unset: skip`, mirroring condition | `corpus/rules/ipsec-junos-srx.yaml:978–1046` |
 | `ike.dpd.too-slow`'s `carries_adjacency(vpn)` guard and `severity: medium` | `corpus/rules/ipsec-junos-srx.yaml:2367–2400` |
 | `junos-srx/ike.sa.clear-peer`, `…clear-index`, `…clear-all` | `corpus/commands/junos-srx-ipsec.yaml:4238, 4311, 4385` |
 | `Actor::Supervisor`, `ProvenanceRecord::supersedes`, and open decision 8 | `docs/10-core/11-ir-schema.md:1326, 1372–1396, 3043` |
 | The boundary, verbs, tiers, egress machinery, metrics, §14's verdicts | `docs/20-ai/21-ai-layer-architecture.md` |
-| `SubagentSpec`, `ToolGrant`, the nineteen tools, G1–G11, F1–F10, §13's refusals, §14.2's build order, §18's costs | `docs/20-ai/22-agent-catalog.md` |
+| `SubagentSpec`, `ToolGrant`, the nineteen tools, G1–G11, F1–F10, §13's refusals, §14.2's build order, §18's costs | `docs/20-ai/22-subagent-catalogue.md` |
 | Vectors, goals, the matrix, spotlighting, IL-1/IL-2, the channels, L1–L8, the mock model | `docs/20-ai/23-ai-safety-and-injection.md` |
 | Runtimes, the LNA decision, `ModelPin`/`PromptDigest`/`AiValueRecord`, the cache, the degradation matrix, drift | `docs/20-ai/24-ai-determinism-and-offline.md` |
 | The comparison protocol, set sizing, CWR/iCWR/HBR, calibration, the suites, kill criteria, cost | `docs/20-ai/25-ai-evaluation.md` |

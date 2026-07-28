@@ -7,7 +7,9 @@ icons, no colour beyond the risk enum, hairlines and mono), `10-core/11-ir-schem
 kinds, edges and provenance this view projects), `50-design/51-design-tokens.md` §4, §9, §12 (the
 channel budget, the three rule weights, and the fact that a dashed rule already means something),
 `50-design/52-information-architecture.md` §3.6, §5 (the view's place in the shell and the
-selection model it participates in), `50-design/55-accessibility.md` §4.5 (the Outline — which is
+selection model it participates in), `50-design/53-interaction-and-keyboard.md` (**the sole
+owner of the keymap** per R11, ADR-0024 — this document binds no keys),
+`50-design/55-accessibility.md` §4.5 (the Outline — which is
 this view's keyboard and screen-reader interface and is not optional), `40-stack/41-technology-choices.md`
 §4.5b (layout in the core, SVG in the UI, hit-testing in TS), `40-stack/44-performance-budgets.md`
 §4.7 (B12, B13, the 2,000-element ceiling), `30-security/34-browser-hardening.md` §5.6 (the closed
@@ -195,8 +197,9 @@ This is not a compromise dressed as a decision. It is right for four independent
 
 **The cost, stated plainly:** long free-text names look worse in mono than they would in Liberation
 Sans, and a site called `Manchester Distribution Centre` will be truncated to fit. Truncation is at
-the *end*, with an ellipsis character, and the full text is in the node's `<title>`, in the Outline
-row, and in the inspector. Names that are identifiers — which in this product is almost all of them
+the *end*, with an ellipsis character, and the full text is in the Outline
+row and in the inspector (the per-node `<title>` is deleted per M32 — it was hover-only and
+inside an `aria-hidden` subtree, so it mitigated nothing for keyboard or screen-reader users). Names that are identifiers — which in this product is almost all of them
 — are unaffected.
 
 ### 2.5 The element inventory at 500 nodes
@@ -636,8 +639,11 @@ treatment, not a layer.
 
 ### 5.1 The constraint
 
-`design-language.md`, *What the card never does*: **no logos, no icons, no illustrations, no
-rounded corners, no drop shadows, no gradients.** And `51` R1: the three risk colours are reserved
+`design-language.md`, *What the card never does*: **no logos, no pictorial icons, no
+illustrations, no rounded corners, no drop shadows, no gradients** — restated per M31: the
+product does use a small closed set of typographic glyphs (`▸`, `▲`, `▴`/`▾`, `↳`, ticks and
+brackets drawn as geometry), enumerated in `54` §22, and the absolute "no icons" wording was
+falsified by them. And `51` R1: the three risk colours are reserved
 for what a *command* does to a live box, which is a property of emitted config lines and has no
 meaning on a topology node.
 
@@ -651,7 +657,7 @@ one channel, one meaning, and nothing may be added to it without taking somethin
 
 | # | Channel | Values | Meaning | Reserved by |
 |---|---|---|---|---|
-| G1 | Node boundary **tone** | `--ink` / `--muted` | Freshness: Fresh+Ageing / Stale+Unverified | §8 |
+| G1 | Node boundary **tone** | `--ink` / `--muted` | Freshness: Fresh+Ageing / Stale+Unverified. **Light theme only (M39):** `--ink` vs `--muted` is 2.381:1 in dark, so §8.1 forces the age label on at every zoom there — the dark diagram has nine channels, not ten | §8 |
 | G2 | Node boundary **dash** | solid / dashed | Deterministic / AI-proposed | `51` §9, product-wide. **Unavailable to this document** |
 | G3 | Node boundary **weight** | 1 px / 2 px | Unselected / selected | §6.1 |
 | G4 | Edge **rail count** | 1 / 2 separate / 2 capped | Simple link / aggregate-or-reth members / tunnel conduit | §4.2, §4.6 |
@@ -723,7 +729,7 @@ are dropped with the rest of the detail.
 | Node primary (`SRX-A`, `reth0.0`) | `--t-mono` 12.5 px | as stored |
 | Node second line (age) | `--t-micro` 10 px, `--muted` | lowercase, unpunctuated — the margin-tab register |
 | Edge label | `--t-tab` 11 px | as stored |
-| Band label (zone, VLAN, routing instance) | `--t-micro` 10 px, uppercase, `--track-head` | uppercase |
+| Band label (zone, VLAN, routing instance) | `--t-micro` 10 px, uppercase, `--track-head` — **and the label carries the kind** (M38): `WAN` reads `zone WAN`, a VLAN band reads `vlan 10`, an instance box reads `ri CUST-A`. The kind prefix is lowercase, in the margin-tab register. Ten geometric forms with no legend is answered the card's way — with a word, never a legend of shapes | uppercase (kind prefix lowercase) |
 | Port stub | `--t-micro` 10 px | as stored |
 
 **Placement:** each label has an anchor and four candidate positions, tried in a fixed order — E,
@@ -758,31 +764,42 @@ other reason is that below zoom 1 it cannot, and the Outline row is the Equivale
 
 ### 5.7 A drawn element, as it is actually emitted
 
-One node and one edge, exactly as the builder produces them. Presentation attributes only, closed
-tag set, no `style`, no `href`, no `class` that is not in the stylesheet.
+> **Amended — M33 (ADR-0026 (3)) and M32, ADR-0025 group.** Two changes to what follows.
+> **(1) The live tree is drawn with `class` only** — colour resolves in the stylesheet from
+> tokens, never as literal hex presentation attributes. As previously specified the diagram
+> emitted `fill="#FFFFFF"`, `stroke="#5C6772"`, `fill="#14171A"` literally, exempt from `51`
+> §3.3's `tokens/no-raw-hex` by a loophole: in dark mode the product drew white boxes with
+> near-black text on a `#0F1215` page — 20% of the surface fighting the theme. The **export**
+> serialises by resolving each class against the **light** token set explicitly (the export
+> must freeze concrete values, `34` §5.6 forbids `<style>`), and the export header states
+> that exports are light-only. One function, and it also satisfies `55` §7.3's forced-colours
+> rules, which assume class-based styling. **(2) The per-node `<title>` is deleted** — it was
+> a hover tooltip on up to 500 elements inside a subtree `55` §4.8 marks `aria-hidden`, i.e.
+> mouse-hover-only, the precise failure `55` §1.4 lists as impossible. §2.4's real
+> truncation mitigations (Outline row, inspector, digest) are sufficient; node provenance
+> goes in the inspector. The root-level `<title>` of the export (§9) is unaffected.
+
+One node and one edge. Live tree: `class` only. Export: the same tree with each class resolved
+to the light token set as presentation attributes, closed tag set, no `style`, no `href`.
 
 ```xml
-<g class="dg-node" data-id="fathom:device:01JZQ8…">
-  <rect x="320" y="192" width="140" height="52"
-        fill="#FFFFFF" stroke="#5C6772" stroke-width="1"
+<!-- live tree -->
+<g class="dg-node dg-stale" data-id="fathom:device:01JZQ8…">
+  <rect class="dg-box" x="320" y="192" width="140" height="52"
         vector-effect="non-scaling-stroke"/>
-  <text x="332" y="212" font-family="DejaVu Sans Mono, monospace" font-size="12.5"
-        fill="#14171A">SRX-345-DC-EAST</text>
-  <text class="dg-age" x="332" y="228" font-family="DejaVu Sans Mono, monospace"
-        font-size="10" fill="#5C6772">parsed 11 months ago</text>
-  <title>Device SRX-345-DC-EAST, junos-srx, chassis cluster. Parsed 11 months ago.</title>
+  <text class="dg-label" x="332" y="212">SRX-345-DC-EAST</text>
+  <text class="dg-age" x="332" y="228">parsed 11 months ago</text>
 </g>
 
 <path class="dg-edge dg-conduit" d="M460 218 L612 218 M460 223 L612 223
                                     M460 218 L460 223 M612 218 L612 223"
-      fill="none" stroke="#14171A" stroke-width="1"
-      vector-effect="non-scaling-stroke"/>
+      fill="none" vector-effect="non-scaling-stroke"/>
 ```
 
-Note the node stroke is `--muted` `#5C6772`, not `--ink` — this node is 11 months old (§8). Note
-the conduit is one `<path>` with four subpaths: two rails and two caps. **Every edge is exactly one
-`<path>` element**, however many strokes it appears to have, which is what keeps the element count
-in §2.5 honest.
+Note the stale node's stroke resolves to `--muted`, not `--ink` — this node is 11 months old
+(§8). Note the conduit is one `<path>` with four subpaths: two rails and two caps. **Every
+edge is exactly one `<path>` element**, however many strokes it appears to have, which is what
+keeps the element count in §2.5 honest.
 
 ---
 

@@ -1,12 +1,16 @@
 # 52 — Information architecture
 
-> **Status:** Proposed
+> **Status:** Proposed · Amended in place per ADR-0025 (R35 one second surface, R36 furniture
+> stated as 210px, R49 selection = `▸` plus ground, M36 egress band, M42 imperative slot),
+> ADR-0024 (`53` owns the keymap) and ADR-0027 (verification stamp as required chrome).
 
 Companion documents: `.context/design-language.md` (the grammar every layout in here is written
 in — it is ground truth, not interpretation), `51-design-tokens.md` (the visual system: tokens, type scale,
 rule weights — this document assumes it and does not restate it), `54-component-catalog.md`
 (the components each view is assembled from), `53-interaction-and-keyboard.md`
-(the keyboard model that drives everything specified here), `10-core/16-command-finder.md` §19
+(the keyboard model that drives everything specified here, and — per R11, ADR-0024 — **the
+sole owner of the keymap**; any binding named in this document is a citation of `53`, not a
+definition), `10-core/16-command-finder.md` §19
 (the finder's own keymap and shell, which this document extends but does not override),
 `20-ai/21-ai-layer-architecture.md` §2.5 (the proposal card, whose placement this document
 decides), `40-stack/44-performance-budgets.md` (every millisecond quoted below).
@@ -168,15 +172,23 @@ The body changes. The furniture does not. It is the card's own skeleton
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Everything above the body is 8 lines of text and 4 rules. Measured at `51`'s type scale that is
-about 150 px on a desktop and it does not scale with the size of the workspace, the number of
+**The honest number is ~210px, not 150 (R36, ADR-0025 (4)).** Summed from `54`'s own CSS the
+furniture as first specified was ≈279px — masthead 140, legend 50, rail 60, ribbon 29 — which
+is 35% of a 1280×800 viewport, permanently, before any content, and it is the comparison the
+left-rail rejection below depends on. Three cuts bring it to ~210px, still large, honest and
+defensible: the selection ribbon merges into the masthead subtitle (they are the same fact at
+two heights, −29px); the `VIEW 3 OF 6 · FINDINGS` eyebrow is deleted, because a view band
+whose current tab reads `▸findings · 3 high` says the same thing (−20px); the legend
+tightens to the card's own leading (−20px). The diagram above predates the cuts and shows the
+pre-cut rows. The furniture still does not scale with the size of the workspace, the number of
 findings or the number of views. Compare: a left rail costs 200 px horizontally *and* a header
 costs 60 px vertically, in every application that has both.
 
-**The masthead is not chrome; it is the answer to "where am I".** `VIEW 3 OF 6 · FINDINGS` is the
-card's `SIDE 1 OF 4 — BUILD, PROVISION, PLUMB`, and it appears twice — top and bottom — for the
-same reason the card repeats it: you look at the top when you arrive and the bottom when you
-finish. §9 is the full treatment.
+**The masthead is not chrome; it is the answer to "where am I".** At the top that answer is
+now carried by the view band's current tab (`▸findings · 3 high`) — the `VIEW 3 OF 6 ·
+FINDINGS` eyebrow is deleted per R36 (ADR-0025), because the two were the same fact twice. The
+footer keeps `VIEW 3 OF 6 — FINDINGS`, the card's `SIDE 1 OF 4` device, for the reason the
+card repeats it: you look at the bottom when you finish. §9 is the full treatment.
 
 ### 2.3 The split — pinning a second view
 
@@ -185,6 +197,17 @@ watching the config change*, and *walking a walkthrough while watching findings 
 are core (brief §4.1 consequence 3; §6.2's "findings raised inline as you go").
 
 **DECISION — exactly two panes, never three, and the second pane is pinned rather than opened.**
+
+> **Amended — R35, ADR-0025 (3).** The pinned pane and `54` §18's inspector are **the same
+> surface**: there is one second column, at 62/38. This document never mentioned the
+> inspector in 1,639 lines, and the union of the two mechanisms gave 340px per pane — below
+> the number this section's own table says breaks the type. The arithmetic already agreed and
+> nobody noticed: 62/38 on 1132px of content gives 702/430, which is `54` §18's 420px
+> inspector to within a rounding step. Consequences: the 50/50 position applies only when the
+> second surface is a pinned *view*; opening the inspector *is* opening the second surface;
+> and the card's two-column body is a property of a view's body with the second surface
+> closed (`51` §7.8, as amended). Comparing two views side by side therefore costs the
+> inspector — stated as a cost, not hidden.
 
 ```
 ├ 1px hairline ─────────────────────────┬────────────────────────────────────────┤
@@ -278,7 +301,7 @@ all. That asymmetry is §5.2 and it is the hardest part of the selection model.
 |---|---|
 | **Purpose** | Close the vocabulary gap (brief §2.1). Answer "what is this called" and "what do I type" in under one frame, with no workspace, no account and no trust |
 | **Primary object** | A `CorpusId` — a command entry, an explainer, a rule, a task. **Not a graph element.** The finder is the one surface whose primary object is corpus, not graph |
-| **Shows** | Ranked results as answer blocks: command, `Risk` label as text and colour, `answers`, `read_field`, `next_if_bad`, `rosetta` — `16` §17 owns the shape |
+| **Shows** | Ranked results as answer blocks: command, `Risk` label as text and colour, `answers`, `read_field`, `next_if_bad`, `rosetta` — `16` §17 owns the shape. **Plus the verification stamp, required chrome per ADR-0027:** every result row, every explainer header and every emitted line's explainer carries, in muted mono at the margin-tab weight, `junos-srx 21.4R3 · verified 2026-05-12 · K. Okafor` — or renders **unverified** when `verified_against` is null. Derived `Staleness` is shown at the point of use. The stamp is exempt from ADR-0025's three-tabs-per-region budget because it is not a tab; it is the row's own provenance line, the card's device for per-row facts |
 | **Lets you change** | Nothing in the graph. The finder is read-only over the corpus by construction. It *acts* — copy, navigate, start a walkthrough, open an explainer — and every one of those actions is either a clipboard write or a view switch |
 | **Connects to** | Everything. Every result carries at least one link out: `G` to the guidebook entry, `W` to the walkthrough that builds it, `Enter` to the clipboard. With a workspace open, results interpolate real values (`16` §16) and the interpolated slots are selections into the graph |
 
@@ -370,14 +393,20 @@ an export action, not a view state.
 #### 3.5.1 Severity is rendered in neutrals
 
 Non-negotiable, from the conventions: the three colours mean `ReadOnly`, `ChangesConfig`,
-`Disruptive` and nothing else. Finding severity is a **weight and rule** treatment:
+`Disruptive` and nothing else. **Amended per M37 (D-38), adopting `54`'s reconciliation
+proposal that this section had received and never answered:** severity is a **4px left bar in
+four tones** — the card's own accent-bar device — not the top-rule treatment previously
+specified here, which collided with the row separator that already exists between findings.
+Four severities, with `suppressed` as a *state* on a separate channel, per `63`'s
+`info | low | medium | high` and `12` §10.2's `FindingState`:
 
-| Severity | Treatment |
+| Severity | Treatment (`54` §13) |
 |---|---|
-| high | Rule above the row is 2px ink; the severity word is bold ink, letterspaced |
-| medium | 1px hairline; severity word is regular ink |
-| low | 1px hairline; severity word is muted |
-| suppressed | Row is muted throughout; margin tab `suppressed · <reason first 40 chars>`; collapsed by default, counted in the view band |
+| high | 4px left bar, `--ink`; the severity word is bold ink, letterspaced |
+| medium | 4px left bar, `--muted`; severity word is regular ink |
+| low | 4px left bar, `--hairline`; severity word is muted |
+| info | no bar; severity word is muted |
+| suppressed (state, not a severity) | Row is muted throughout; margin tab `suppressed · <reason first 40 chars>`; collapsed by default, counted in the view band |
 
 A user asking "why is my high-severity finding not red" is asking a fair question and the answer
 is on screen: red already means *drops live traffic*, and a finding does not drop traffic — the
@@ -601,14 +630,22 @@ selects one node. Pointing at a node selects one node. The *closure* is rendered
 rendered as **related**, not as selected, and the distinction is visible.
 
 ```
-  PRIMARY   the selection itself        4px ink left bar, ink text
-  RELATED   the closure of the selection 1px ink left bar, #F2F4F6 wash, ink text
-  DIMMED    everything else              muted text, no bar
+  PRIMARY   the selection itself         ▸ in the gutter + --surface ground, ink text
+  RELATED   the closure of the selection --surface-2 ground, ink text
+  DIMMED    everything else              muted text
 ```
+
+> **Changed — R49, ADR-0025 (6).** The 4px ink left bar that carried PRIMARY here is deleted:
+> `51` §4.2 forbids a coloured bar for selection **by name** — the same edge of the same
+> element cannot mean severity in one row and "you clicked this" in the next, on the screen
+> `51` §1 says is read under pressure. Selection is `▸` plus ground, as `51` §4.2 decided;
+> the block's default ground moves to `--page` so selected rows can take `--surface` (`54`
+> §8.4). The two-tier PRIMARY/RELATED distinction survives — it is carried by ground steps
+> and the `▸`, not by bars.
 
 **Selection highlighting is neutrals only.** The three colours mean `ReadOnly`, `ChangesConfig`
 and `Disruptive` and nothing else (conventions, *The risk enum*). A selected `Disruptive` line is
-a `Disruptive` line with an ink bar on it, and both facts are legible.
+a `Disruptive` line with the selection ground and `▸` on it, and both facts are legible.
 
 Why the two-tier treatment matters: without it, selecting `VPN-B` in the diagram lights up 31
 config lines identically, and the user reasonably concludes they selected 31 things. Then they
@@ -619,10 +656,10 @@ for the closure, and that only works if the two tiers were visibly different fir
 
 | View | `select_at` produces | `resolve` renders primary as | `resolve` renders related as |
 |---|---|---|---|
-| **config** | `Facet::Line`, narrowed to the line's `source_node` + `source_fields` | 4px ink bar on the line, the line's block header in ink | wash on every line whose `source_node ∈ set` or whose `source_fields` intersect the selected fields |
-| **findings** | `Facet::Finding`, narrowed to `finding.node` | the finding row expanded, 4px ink bar | rows for the same node, and rows for nodes in the emit closure, un-dimmed while everything else dims |
+| **config** | `Facet::Line`, narrowed to the line's `source_node` + `source_fields` | `▸` + `--surface` ground on the line (R49), the line's block header in ink | ground step on every line whose `source_node ∈ set` or whose `source_fields` intersect the selected fields |
+| **findings** | `Facet::Finding`, narrowed to `finding.node` | the finding row expanded, `▸` + selection ground (R49 — the severity bar keeps the left edge) | rows for the same node, and rows for nodes in the emit closure, un-dimmed while everything else dims |
 | **diagram** | `Facet::Element` for a node; `Facet::Element` for an edge; **`Facet::Field` for a decoration** (a tunnel's `st0.N` label is a decoration on an edge and selects `LogicalUnit.name`) | 2px ink stroke on the shape, label in ink | 1px ink stroke on closure members, everything else at 40 % opacity in the same ink |
-| **inventory** | `Facet::Element` for a row, `Facet::Field` for a cell | row background `#F2F4F6`, 4px ink bar in the row gutter | child rows and referenced rows get the 1px bar |
+| **inventory** | `Facet::Element` for a row, `Facet::Field` for a cell | `▸` in the row gutter + selection ground (R49) | child rows and referenced rows get the related ground step |
 | **walkthrough** | `Facet::Field` for a question | the step expanded | steps that write to the same node get the 1px bar |
 | **finder** | sets the selection only when the result names a graph element (an interpolated slot) | — | — |
 
@@ -662,7 +699,7 @@ Semantics of a multi-selection, per view:
 |---|---|---|
 | **diagram** | **Not a node.** It is a decoration on the tunnel edge between SRX-A and SRX-B — the label `st0.0` sitting on the edge, plus the `10.255.0.1/30` address on the near end. In the L3 layer it is the edge's identity; in the physical layer it does not exist at all | Strokes the edge at 2px ink and puts the label in ink. **In a layer where it does not exist, `resolve` returns `Offscreen(reason: "not in this layer")`** and the view band's diagram tab reads `diagram · selection not in L2` |
 | **inventory** | A row, indented under `Interface st0` under `Device SRX-A`, with columns `name`, `family`, `address`, `mtu`, `zone`, and the opinions column | Row gutter bar, and if the row is inside a collapsed group, the group **expands** — this is the one case where `resolve` mutates view-local state, and it is allowed because a highlight you cannot see is not a highlight |
-| **config** | **Four lines in three different blocks**: `set interfaces st0 unit 0 family inet address 10.255.0.1/30` (interfaces block), `set security zones security-zone VPN interfaces st0.0` (zones block), `set security ipsec vpn VPN-B bind-interface st0.0` (vpn block), `set routing-options static route 10.2.0.0/16 next-hop st0.0` (routing block) | All four get the 4px primary bar, because all four have `st0.0` in `source_node` or `source_fields`. The blocks between them stay dimmed. **The view does not scroll to all four** — it scrolls to the first, and the footer reads `4 lines · 3 blocks · ⌥N next` |
+| **config** | **Four lines in three different blocks**: `set interfaces st0 unit 0 family inet address 10.255.0.1/30` (interfaces block), `set security zones security-zone VPN interfaces st0.0` (zones block), `set security ipsec vpn VPN-B bind-interface st0.0` (vpn block), `set routing-options static route 10.2.0.0/16 next-hop st0.0` (routing block) | All four get the primary treatment — `▸` plus selection ground (R49) — because all four have `st0.0` in `source_node` or `source_fields`. The blocks between them stay dimmed. **The view does not scroll to all four** — it scrolls to the first, and the footer reads `4 lines · 3 blocks · ⌥N next` |
 
 This example is the reason `resolve` returns a `ViewHighlight` rather than a boolean per element:
 
@@ -1258,10 +1295,15 @@ product.**
 `[ keep this ]` creates a workspace **in memory**. No passphrase, no filename, no account, no
 dialogue.
 
-The masthead's imperative line becomes, and stays:
+The unsaved state is announced — but **not** in the imperative slot (changed per M42,
+ADR-0025 group): the one-line imperative is *"a disclaimer that is also the most useful
+sentence on the page"* and it stays domain-governing, always, with `54` §5's per-view table
+as its only source. Overwriting it with chrome for the duration of the most common session
+shape teaches the user that the slot holds chrome. The unsaved warning renders where this
+section's own controls table already puts three of its four controls — the footer:
 
 ```
-   UNSAVED · IN MEMORY ONLY · NOT YET ENCRYPTED
+   footer: UNSAVED · IN MEMORY ONLY · NOT YET ENCRYPTED
 ```
 
 **DECISION — the passphrase is asked for at first save, not at first value.** The alternative —
@@ -1275,7 +1317,7 @@ the tab. Controls:
 
 | Control | Detail |
 |---|---|
-| The imperative line, always, in caps | It is the most prominent text on the sheet after the view name |
+| The footer's unsaved line, always, in caps (M42 — moved out of the imperative slot) | Beside the `beforeunload` guard, in the row the user reads on finishing |
 | `beforeunload` | The **only** browser-native dialogue this product uses. It is not ours, it is not styleable, and it is the correct tool for exactly this |
 | The footer state | `unsaved · 4 edits` from the first edit onward |
 | A margin tab at 10 minutes | `unsaved for 10 minutes` — muted, in the masthead tab row. Not a toast, not a nag, not growing more urgent |
@@ -1407,16 +1449,21 @@ placeholder in every input. `design-language.md`: no icons, no logos, no illustr
 
 ### 8.5 The egress strip
 
-At tier 1 (egress to a named endpoint), a 1px strip sits **above the 3px masthead rule** — the
-only element in the product above that rule. It reads:
+> **Superseded on treatment — M36 (D-32), ADR-0025.** The egress indicator takes `54` §20's
+> **inverted band** (`--ink` ground, `--page` text), not the 1px `▲` strip specified below;
+> the `▲` glyph is deleted. Position survives: above the 3px masthead rule, the only element
+> in the product above that rule. `54` §20's form, stickiness, height and focus order govern.
+
+At tier 1 (egress to a named endpoint), the band sits **above the 3px masthead rule**. It
+reads:
 
 ```
-▲ this workspace may send graph excerpts to api.example.internal · 3 requests this session · what was sent
+this workspace may send graph excerpts to api.example.internal · 3 requests this session · what was sent
 ```
 
 It is not dismissible. `what was sent` opens the AI audit log (`17` §11) as a sheet. In tiers 2
-and 3 (local model, no egress) the strip is absent entirely — not present-and-green, absent. A
-persistent "you are safe" banner trains people to ignore the strip that matters.
+and 3 (local model, no egress) the band is absent entirely — not present-and-green, absent. A
+persistent "you are safe" banner trains people to ignore the band that matters.
 
 ### 8.6 Counting
 
@@ -1449,11 +1496,13 @@ and `Disruptive`.
 The card answers both questions already, and it does it with three devices: **`SIDE n OF 4`**,
 **margin tabs**, and **dense headers**.
 
-### 9.2 `VIEW n OF 6` — top and bottom
+### 9.2 `VIEW n OF 6` — footer only
 
-The masthead eyebrow reads `VIEW 3 OF 6 · FINDINGS`. The footer rule reads `VIEW 3 OF 6 —
-FINDINGS`, with the neighbours and their keys. This is the card's `SIDE 1 OF 4 — BUILD, PROVISION,
-PLUMB`, unchanged, and it is a better "you are here" than a highlighted nav item because it also
+**Amended per R36, ADR-0025 (4): the masthead eyebrow is deleted** — it and the view band's
+current tab (`▸findings · 3 high`) were the same fact twice, and the cut is −20px of permanent
+furniture. The footer rule keeps `VIEW 3 OF 6 — FINDINGS`, with the neighbours and their keys.
+This is the card's `SIDE 1 OF 4 — BUILD, PROVISION, PLUMB`, and it is a better "you are here"
+than a highlighted nav item because it also
 tells you **how many there are** and **that they are ordered**.
 
 The order is fixed and never reorders: `finder · walkthrough · config · findings · diagram ·
@@ -1495,7 +1544,12 @@ underlined; the `▸` marker is a character, not a shape.
 
 ### 9.4 The selection ribbon
 
-One muted line between the band and the body, present only when something is selected:
+> **Merged into the masthead subtitle — R36, ADR-0025 (4).** The ribbon no longer occupies its
+> own row between the band and the body: it and the subtitle are the same fact at two heights,
+> and the merge recovers 29px of permanent furniture. The content contract below is unchanged;
+> it renders in the masthead's subtitle slot when a selection exists.
+
+One muted line, present only when something is selected:
 
 ```
    selected: IkeGateway GW-B · 6 lines in config · 2 findings · 1 node in diagram · not in L2
@@ -1519,14 +1573,16 @@ out`.
 | A "recently viewed" list | The finder's recents, which already exist (`44` §4.2) |
 | Tab close buttons | There is nothing to close |
 | An overflow menu | Six views fit. If a seventh is ever added, this design has a real problem and an overflow menu would be hiding it |
-| Icons of any kind | Words. `design-language.md`: *no icons* |
+| Pictorial icons (restated per M31 — the absolute "no icons" claim was falsified by the product's own glyphs) | Words, plus a small closed set of typographic glyphs enumerated in `54` §22. An un-enumerated glyph set grows |
 
 ### 9.6 The scent budget
 
 A rule for reviewers, stated as a number so it can be enforced: **the furniture above the body
-carries at most 14 discrete facts.** Currently: view ordinal, view name, one masthead statistic,
-title, subtitle (3 facts: device, workspace, platform version), imperative, 3 legend entries, 6
-band tabs, 1 ribbon. That is at the ceiling. **Adding a fact to the header means removing one**,
+carries at most 14 discrete facts.** After R36's cuts (ADR-0025 — eyebrow deleted, ribbon
+merged into the subtitle): one masthead statistic, title, subtitle (3 facts: device, workspace,
+platform version — or the selection ribbon's facts when a selection exists), imperative,
+3 legend entries, 6 band tabs. That is under the ceiling, which is the point of the cuts.
+**Adding a fact to the header means removing one**,
 and the review question for any addition is "which fact does this replace".
 
 Without a budget, headers grow. The card's header does not grow, because it is printed.

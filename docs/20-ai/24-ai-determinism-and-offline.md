@@ -3,7 +3,7 @@
 > **Status:** Proposed
 
 Companion to `21-ai-layer-architecture.md`, which owns the boundary, the supervisor, the
-consent model and the deployment tiers, and to `22-agent-catalog.md`, which owns the
+consent model and the deployment tiers, and to `22-subagent-catalogue.md`, which owns the
 subagents themselves. This document owns four things those two deliberately leave open:
 
 1. **Where inference actually runs** when it is not a hosted provider, evaluated against real
@@ -1480,7 +1480,7 @@ Project documents:
 - `.context/owner-brief.md`, `.context/conventions.md`, `.context/design-language.md`,
   `.context/field-card-srx-ipsec.txt` — every worked example in this document is drawn from
   the field card.
-- `21-ai-layer-architecture.md`, `22-agent-catalog.md`, `23-ai-safety-and-injection.md`,
+- `21-ai-layer-architecture.md`, `22-subagent-catalogue.md`, `23-ai-safety-and-injection.md`,
   `11-ir-schema.md`, `12-rule-engine.md`, `13-emitters-and-provenance.md`,
   `15-explainer-corpus.md`, `16-command-finder.md`, `18-diff-verify-rollback.md`.
 
@@ -1492,7 +1492,8 @@ first-party source at the time of writing. None of them should survive into a re
 ## 11. Disagreements
 
 Two conventions are obeyed as written throughout this document, and both are, I think, slightly
-wrong. Stated per `conventions.md`'s own instruction.
+wrong. Stated per `conventions.md`'s own instruction. A third disagreement — with `21` §7.3
+rather than with the conventions — is filed at §11.2a, late, per M16.
 
 ### 11.1 Invariant 9 omits the rule-pack version
 
@@ -1550,6 +1551,25 @@ which means it will be quoted in an enterprise review and then contradicted by t
 
 This keeps the teeth — build-time, closed, published — and stops the invariant being trivially
 falsifiable by counting.
+
+### 11.2a A third disagreement, filed late — `21` §7.3's loopback shape (added per M16, ADR-0020)
+
+**The sibling decision.** `21` §7.3/§7.5 specifies tier 2b as a served browser page reaching
+`llama-server` over loopback, with `connect-src http://127.0.0.1:<port>` in its CSP table, and
+rates tier 2 as the tier the product should want people on.
+
+**The objection, which this document argued in §§2–3 without filing it.** §3.4's Local Network
+Access argument is decisive: the first interaction with that shape is a browser permission
+prompt whose wording we do not write, shown at a moment we do not choose, whose denial is
+sticky, describing an action a security-conscious network engineer — precisely our user — is
+correctly trained to deny. §3.7's DECISION picks a native shell that owns the sidecar as a
+child process; §3.8 prices it, including the sentence that matters most: *"the shape we chose
+for security reasons is the one the most security-constrained users cannot run."*
+
+**Resolution — ADR-0020 adopts this document's position.** `21` §7.3 is rewritten from §§2–3
+here; tier 2b is *native shell (primary) / served loopback flavour (secondary)*; the CSP
+surface for local inference is owned by `34` per ADR-0001, so three documents stop describing
+three different CSP surfaces.
 
 ### 11.3 One thing that is not a disagreement, recorded so it is not raised as one
 

@@ -1,13 +1,15 @@
 # 55 — Accessibility
 
-> **Status:** Proposed
+> **Status:** Proposed · Amended in place per ADR-0026 (R10 cascade fix, R37 qualified AA
+> claim, arithmetic and tritanopia corrections) and ADR-0024 (keymap moved to `53`).
 
 Companion documents: `.context/design-language.md` (ground truth — every value audited below was
 machine-extracted from the owner's field card, not chosen by me), `51-design-tokens.md` (the token
 set, its contrast tables and its forced-colours path — this document verifies those numbers
 independently and adds the ones they do not carry), `52-information-architecture.md` §5 (selection,
 which is what a screen reader has to be able to follow), `53-interaction-and-keyboard.md` (the
-keyboard model; this document specifies what focus *looks like*, not where it goes),
+keyboard model, and — per R11, ADR-0024 — **the sole owner of the keymap**; this document
+specifies what focus *looks like*, not where it goes, and binds no keys),
 `54-component-catalog.md` §24 (the summarised contract — this document is the long form of it),
 `56-diagram-view.md` (the diagram; §4.5 here specifies its non-visual representation and that
 document implements it), `10-core/13-emitters-and-provenance.md` (`Risk`, which is the only
@@ -55,8 +57,19 @@ do the work and the screen looking right.
 
 ### 1.1 The claim
 
-**DECISION — the product targets WCAG 2.2 Level AA in full, plus five named AAA criteria, and it
-ships an opt-in contrast mode that reaches AAA for text.**
+**DECISION (amended per R37, ADR-0026) — the product targets WCAG 2.2 Level AA in full; one
+known exception is tracked at `54` §26 and blocks the claim until closed. Plus five named AAA
+criteria, and an opt-in contrast mode that reaches AAA for text.**
+
+The exception: `54` §12's finder input removes its focus indicator
+(`#q:focus-visible { outline: none }`) on the ground that the dialog shell is the indicator —
+but the shell's border is present whenever the dialog is open regardless of where focus is,
+and a caret is not a component focus indicator. That is SC 2.4.7 Focus Visible (Level AA), in
+the product's most-used surface. It closes when the input gets a real indicator
+(`#q:focus-visible { background: var(--surface) }` plus a 2px `--ink` bottom rule on the input
+row) and the footer's two spans become real `<button>`s or the claimed Tab cycle is dropped.
+Until then this document does not say "AA in full" unqualified — an accessibility document
+whose value is honesty cannot carry one optimistic sentence at the top.
 
 The five AAA criteria taken deliberately, because they are cheap in this design and expensive in
 most:
@@ -66,7 +79,7 @@ most:
 | 2.4.12 Focus Not Obscured (Enhanced) | AAA | There is one sticky element in the product (`51` §11's `--z-egress`) and one modal layer. Nothing else can obscure focus because nothing else floats |
 | 2.4.13 Focus Appearance | AAA | The indicator is already a 2px solid `--ink` outline. §5.3 shows the arithmetic |
 | 2.2.4 Interruptions | AAA | There is no interruption. No toast, no nag, no auto-save banner, no re-engagement prompt |
-| 2.3.3 Animation from Interactions | AAA | `--motion-state: 0ms`. The only animation in the product is a 90 ms opacity fade on content that is already in the DOM |
+| 2.3.3 Animation from Interactions | AAA | `--motion-state: 0ms`. The product has no animation (M34 — the disclosure fade is deleted) |
 | 3.3.9 Accessible Authentication (Enhanced) | AAA | The only credential in the product is the workspace passphrase, and paste into that field is never blocked (invariant 3's one exception). Blocking paste into a passphrase field is the single most common way products fail 3.3.8 |
 
 ### 1.2 What is not claimed, and why
@@ -106,7 +119,7 @@ Worth stating before the audit, because the audit is a list of problems and the 
 | Focus indicator removed by a design system | There is exactly one outline in the product and `51` §4.7 makes it a token |
 | Meaning conveyed by an icon with no label | There are no icons. `design-language.md`: *"No logos. No icons. No illustrations."* |
 | Content hidden behind hover | There are no tooltips and no popovers. `51` §11: disclosure is inline and pushes content down |
-| Motion-triggered vestibular symptoms | One 90 ms opacity fade, product-wide |
+| Motion-triggered vestibular symptoms | No animation, product-wide (M34) |
 | A modal that traps a screen reader | Two modal surfaces exist (finder palette, dialog) and both are enumerated |
 | Contrast destroyed by a gradient or an image behind text | There are no gradients and no images |
 | Text baked into an image | There are no images. Even the diagram is text and vector geometry |
@@ -176,8 +189,13 @@ Non-text pairs that matter:
 | `--ink` `#DFE4E8` | **14.67** | 14.06 | 13.35 | 13.14 / 13.32 / 13.34 |
 | `--muted` `#8A95A0` | **6.16** | 5.91 | 5.61 | 5.52 / 5.59 / 5.60 |
 | `--safe` `#35A06E` | **5.73** | 5.49 | 5.21 | **5.13** |
-| `--caution` `#D97328` | **5.76** | 5.52 | 5.24 | **5.15** |
-| `--danger` `#EA6260` | **5.74** | 5.50 | 5.22 | **5.14** |
+| `--caution` `#D97328` | **5.76** | 5.52 | 5.24 | **5.22** |
+| `--danger` `#EA6260` | **5.74** | 5.50 | 5.22 | **5.22** |
+
+<!-- ADR-0026 (4): the caution and danger own-wash figures previously printed here (5.15,
+     5.14) were wrong; the recomputed value is 5.22 for both — `51`'s figures were right and
+     this table's were not, so §2.1's independence claim was false as printed. These tables
+     are to be generated from the CI check rather than hand-typed. -->
 | `--hairline` `#2B3138` | 1.43 | 1.37 | 1.30 | 1.28–1.30 |
 
 | Pair | Ratio | Verdict |
@@ -269,21 +287,21 @@ land on** — which means the worst case is its own wash, not the page.
 
 | Token | Default | Adjusted | OKL | Chroma | Worst CR | What changed |
 |---|---|---|---|---|---|---|
-| `--muted` | `#5C6772` | `#48525D` | 0.508 → 0.435 | 0.0221 held | 7.01 | Two steps darker. Same hue, same chroma. Margin tabs get heavier; the card's "almost apologetic" register survives because it is still the *lightest* thing on the page |
-| `--safe` | `#1F6F4A` | `#015E3A` | 0.484 → 0.424 | 0.0973 held | 7.01 | A darker green. Still unmistakably the card's green |
-| `--caution` | `#A8571B` | `#843E00` | 0.545 → 0.446 | 0.1268 → 0.1146 | 7.00 | **The biggest change in the set.** Burnt orange becomes a dark rust; 10% of chroma had to go because the sRGB gamut narrows as it darkens at that hue |
+| `--muted` | `#5C6772` | `#48525D` | 0.508 → 0.435 | 0.0221 held | ≥ 7.0 | Two steps darker. Same hue, same chroma. Margin tabs get heavier; the card's "almost apologetic" register survives because it is still the *lightest* thing on the page |
+| `--safe` | `#1F6F4A` | `#015E3A` | 0.484 → 0.424 | 0.0973 held | ≥ 7.0 | A darker green. Still unmistakably the card's green |
+| `--caution` | `#A8571B` | `#843E00` | 0.545 → 0.446 | 0.1268 → 0.1146 | ≥ 7.0 | **The biggest change in the set.** Burnt orange becomes a dark rust; 10% of chroma had to go because the sRGB gamut narrows as it darkens at that hue |
 | `--danger` | `#8C2F2F` | `#8C2F2F` | unchanged | unchanged | 7.25 | **Nothing.** Oxblood already clears AAA on every permitted ground |
-| `--hairline` | `#D2D7DD` | `#878C91` | 0.877 → 0.638 | — | 3.00 | Only in this mode does a hairline meet 1.4.11, which means only in this mode may it bound a control — and it still does not, because §2.5 F1's structural rule is simpler than a mode-dependent one |
+| `--hairline` | `#D2D7DD` | `#878C91` | 0.877 → 0.638 | — | ≥ 3.0 | Only in this mode does a hairline meet 1.4.11, which means only in this mode may it bound a control — and it still does not, because §2.5 F1's structural rule is simpler than a mode-dependent one |
 
 **Dark:**
 
 | Token | Default | Adjusted | Worst CR | Note |
 |---|---|---|---|---|
-| `--muted` | `#8A95A0` | `#9DA9B4` | 7.00 | |
-| `--safe` | `#35A06E` | `#53BA86` | 7.00 | |
-| `--caution` | `#D97328` | `#F58C46` | 7.00 | |
-| `--danger` | `#EA6260` | **`#FF827D`** | 7.00 | **This is the pink.** Chroma had to drop from 0.1695 to 0.1530 to stay in gamut |
-| `--hairline` | `#2B3138` | `#626870` | 3.00 | |
+| `--muted` | `#8A95A0` | `#9DA9B4` | ≥ 7.0 | |
+| `--safe` | `#35A06E` | `#53BA86` | ≥ 7.0 | |
+| `--caution` | `#D97328` | `#F58C46` | ≥ 7.0 | |
+| `--danger` | `#EA6260` | **`#FF827D`** | ≥ 7.0 | **This is the pink.** Chroma had to drop from 0.1695 to 0.1530 to stay in gamut |
+| `--hairline` | `#2B3138` | `#626870` | ≥ 3.0 | |
 
 **Two honest costs, both of which a reasonable person could use to argue against shipping this
 mode.**
@@ -305,11 +323,26 @@ mode.**
    §3.
 
 ```css
+/* Rewritten per R10 (ADR-0026, blocker). The previous second rule's selector list —
+   `:root[data-theme="dark"], :root:not([data-theme="light"])` — matched whenever no explicit
+   theme had been chosen (the default state of every fresh workspace) and was not nested in
+   `@media (prefers-color-scheme: dark)`. A light-screen user with OS-level "Increase
+   contrast" matched both rules, the dark block won, and the dark AAA tokens landed on
+   `--page: #FFFFFF`: --muted 2.40, --safe 2.40, --caution 2.41, --danger on its own light
+   wash 2.13 — a Level AA failure on every semantic token, delivered only to low-vision
+   users, by the feature written for them. */
 @media (prefers-contrast: more) {
-  :root:not([data-theme="dark"]) {
+  :root, :root[data-theme="light"] {
     --muted: #48525D; --safe: #015E3A; --caution: #843E00; --hairline: #878C91;
   }
-  :root[data-theme="dark"], :root:not([data-theme="light"]) {
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* dark AAA set, see the table above */
+  }
+}
+@media (prefers-contrast: more) {
+  :root[data-theme="dark"] {
     /* dark AAA set, see the table above */
   }
 }
@@ -347,6 +380,17 @@ Four token sets: light, dark, light-more, dark-more. Twenty-two permitted pairs 
 runs in under a millisecond and it is the only reason the numbers in §2.2 and §2.3 will still be
 true in a year.
 
+> **Amended — R10, ADR-0026.** Testing four token sets in isolation cannot catch the defect
+> this document actually shipped: §2.6's cascade bug lived in the *interaction* of selectors,
+> and `contrast_more_clears_aaa` passed while a light-screen `prefers-contrast: more` user got
+> 2.13:1. The check therefore moves from token sets to the **resolved cascade**: compute the
+> resolved value of every token under each of the eight (theme × contrast × forced-colors)
+> states in a headless browser, and assert there. The per-set test above stays as the fast
+> path; the rendered-cascade run is the one that gates. The contrast tables in §2.2, §2.3 and
+> §2.6 are generated from this check rather than hand-typed — hand-typing produced two wrong
+> cells in the table headed "the real numbers" (§2.3) and a "worst CR" column that printed
+> 7.00/7.01 for values that compute to 7.02–7.13 (§2.6, now printed as `≥ 7.0`).
+
 ---
 
 ## 3. Colour independence
@@ -381,13 +425,12 @@ colour system**, and every abbreviation elsewhere depends on it being there.
 Method: linearise sRGB, transform to LMS with the Viénot, Brettel & Mollon (1999) matrices as
 commonly implemented, project onto the dichromatic plane, transform back. Achromatopsia is
 computed as the WCAG relative luminance rendered as a neutral.
-<!-- VERIFY: the protan/deutan projections below are the single-plane Viénot 1999 method, which
-     that paper states is valid for protanopia and deuteranopia. The tritan row uses the same
-     single-plane form and Viénot explicitly notes it is not valid for tritanopia — Brettel's
-     two-plane method is required. Re-run the tritan row against a reference implementation
-     (or against Machado, Oliveira & Fernandes 2009's severity-parameterised matrices, which also
-     give the useful anomalous-trichromat cases this table does not cover) before quoting it
-     anywhere outside this document. -->
+<!-- ADR-0026 (5): the tritanopia rows are DELETED, not re-verified. The single-plane Viénot
+     1999 method does not support tritanopia — which this section's own VERIFY already argued —
+     and the previously published values (`#5353BC` for a mid green) do not reproduce under any
+     standard simulation. A fabricated-looking number in a document whose value is that its
+     numbers are real costs more than the row is worth. If tritanopia rows return, they are
+     re-run with Brettel's two-plane method, for both themes, or not printed. -->
 
 **Light theme:**
 
@@ -396,8 +439,10 @@ computed as the WCAG relative luminance rendered as a neutral.
 | Typical | `#1F6F4A` | `#A8571B` | `#8C2F2F` | 1.18 | 1.34 | 1.58 |
 | Protanopia | `#69694A` | `#64641D` | `#424230` | 1.10 | 1.82 | 1.65 |
 | Deuteranopia | `#60604C` | `#76760E` | `#58582A` | 1.34 | 1.15 | 1.55 |
-| Tritanopia | `#5353BC` | `#878700` | `#6A6A00` | 1.64 | 1.09 | 1.49 |
 | Achromatopsia | `#626262` | `#6D6D6D` | `#4F4F4F` | 1.18 | 1.34 | 1.58 |
+
+*(Tritanopia row deleted per ADR-0026 — the method does not support it; see the comment
+above.)*
 
 **Dark theme:**
 
@@ -447,7 +492,7 @@ const RISK_TEXT: Record<Risk, { short: string; full: string; cls: string }> = {
 /** `visible: false` is legal only where the legend is on screen (§3.1). */
 export function riskMark(risk: Risk, visible: boolean): Element {
   const el = document.createElement('span');
-  el.className = `risk-dot ${RISK_TEXT[risk].cls}`;
+  el.className = `risk-bar ${RISK_TEXT[risk].cls}`;  // M41: 4px accent bar, was a dot
   const word = document.createElement('span');
   word.className = visible ? 'risk-word' : 'vh';   // `.vh` = 51 §14's visually-hidden
   word.textContent = visible ? RISK_TEXT[risk].short : RISK_TEXT[risk].full;
@@ -806,21 +851,17 @@ user reading this table are getting the same facts in the same words.
 
 #### 4.5.6 Navigation keys
 
-| Key | In the Outline |
-|---|---|
-| <kbd>↑</kbd> <kbd>↓</kbd> | Previous / next visible row |
-| <kbd>→</kbd> | Expand; if expanded, move to first child |
-| <kbd>←</kbd> | Collapse; if collapsed, move to parent |
-| <kbd>Home</kbd> <kbd>End</kbd> | First / last row |
-| <kbd>Enter</kbd> | Open connections in the inspector |
-| <kbd>g</kbd> | **Go to a connection** — moves focus to the far element of the focused row's *n*th link, entered as a number. The graph traversal key |
-| <kbd>b</kbd> | Back — the traversal stack, so `g` is reversible |
-| Type-ahead | Jumps to the next row whose `label` starts with the typed characters |
+> **Superseded — R11, ADR-0024.** `53-interaction-and-keyboard.md` owns the keymap; the
+> binding table that stood here is deleted, because four documents each publishing a
+> product-wide map is how bare `a` ended up bound to accepting an AI change to a firewall.
+> The Outline's bindings are `53` §3's: standard tree keys (`↑` `↓` `→` `←` `Home` `End`,
+> type-ahead), and graph traversal on `⌥→` / `⌥←` — **not** `g`, which is `53`'s sequence
+> prefix and cannot also be an Outline command with type-ahead live in the same widget.
 
-`g` and `b` are what turn a tree into a graph browser. Without them a user can see that `reth0.0`
-connects to `GW-B` and has no way to *get* to `GW-B` except by walking the tree back up to the
-device and down another branch. With them, following a tunnel from one site to the other is two
-keystrokes.
+The traversal keys are what turn a tree into a graph browser. Without them a user can see that
+`reth0.0` connects to `GW-B` and has no way to *get* to `GW-B` except by walking the tree back
+up to the device and down another branch. With them, following a tunnel from one site to the
+other is two keystrokes.
 
 #### 4.5.7 The topology digest — a text artifact you can paste
 
@@ -1246,9 +1287,9 @@ makes rows re-measure, it survives.
 
 ### 7.1 Motion — already settled, restated in one line
 
-One animation product-wide: a 90 ms opacity fade on inline disclosure, on content that is already
-in the DOM and already announced (`51` §12). `prefers-reduced-motion: reduce` zeroes it and **loses
-nothing**, which is the whole reason it is the only animation.
+No animation product-wide (`51` §12, as amended per M34 — the disclosure fade could not run as
+written and is deleted). The one scroll behaviour is smooth scrolling (`52` §5.6.4), reduced to
+`auto` under `prefers-reduced-motion: reduce`, which therefore loses nothing.
 
 ### 7.2 What this document adds: the diagram's motion candidates, and their refusal
 

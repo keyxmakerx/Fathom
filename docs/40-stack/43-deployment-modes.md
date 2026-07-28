@@ -590,7 +590,7 @@ one person, on one machine.** Here is the exhaustive subtraction.
 | # | Lost | Consequence | Recoverable by |
 |---|---|---|---|
 | 1 | Sync, members, sharing, the sync-side conflict UI | One person, one machine | D2/D3 |
-| 2 | Git transport and the merge driver | No history, no review, no blame on the workspace | D2/D4 |
+| 2 | Git transport (there is no merge driver to lose — ADR-0013 deleted it in every mode) | No history, no review, no blame on the workspace | D2/D4 |
 | 3 | Crash-recovery cache | §3.12 F3 | D2 |
 | 4 | Save in place, outside Chromium | §3.8 | D2 (same limit) / D4 (no limit) |
 | 5 | `sandbox`, `frame-ancestors`, COOP/COEP/CORP, `Permissions-Policy`, `Integrity-Policy`, `X-Content-Type-Options`, HSTS, `Cache-Control`, `Clear-Site-Data`, violation reporting | §3.7, `34` §2.8 and §2.10 | D2 |
@@ -1679,7 +1679,7 @@ and branches.
 |---|---|
 | `fathom sync init <ws> --origin https://… ` | Enrol this client; generate its keypair; sign into the member list |
 | `fathom sync push` / `pull` / `status` / `repush` | `repush` is the DR path (§6.13) |
-| `fathom git install` / `git show-record` | The merge driver (`17` §12.3) — it cannot be committed, so it must be installed |
+| `fathom git install` / `git show-record` | The diff `textconv` only (`17` §12.7) — git will not run repository-supplied commands, so it must be installed. There is no merge driver (`17` §12.3, ADR-0013) |
 | `fathom serve [--port 7440] [--bind 127.0.0.1] [--open]` | §7.8 |
 | `fathom verify <artifact> [--rebuild] [--json] [--strict]` | `35` §13.2, unchanged |
 | `fathom diagnose <ws> --out f.json` | §6.12.7 |
@@ -2169,7 +2169,12 @@ pressure:
 
 Step 7 is the one that is easy to skip and is the one that recovers the most data.
 
-### 9.5 R5 — Frame store loss with an intact index
+### 9.5 R5 — Blob store loss with an intact index
+
+> **Vocabulary per ADR-0013/ADR-0016 (see §5.5's note):** the store's unit is the whole
+> sealed record, not a frame; "frame" below reads as "record blob" until the deferred sync
+> service is rebuilt against `33`'s record-based wire. The content-addressing and idempotent
+> re-upload this runbook relies on carry over unchanged.
 
 Worth its own runbook because it is the failure the architecture handles unusually well and nobody
 expects it to.

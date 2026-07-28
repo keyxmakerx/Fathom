@@ -571,8 +571,12 @@ declines to adopt either number until the measured authoring median has run for 
 *margin tab: reconstructed*
 
 Anything marked **DECISION** in the owner's brief is a fork that is expensive to change later.
-Eighteen of them are now answered in `docs/90-decisions/`; six are not, and every one of the six
-is blocked on a measurement or on the owner rather than on an argument.
+Twenty-nine forks are now answered in `docs/90-decisions/` (ADR-0001 … ADR-0030, with ADR-0023
+still Proposed); the table below lists the first eighteen, and ADRs 0019–0030 cover the render
+layer, the AI layer's shipping shape (0020–0022), the keymap, density, contrast and
+verification chrome (0024–0027), corpus authorship (0028–0029) and the second platform (0030).
+Six questions are not answered, and every one of the six is blocked on a measurement or on the
+owner rather than on an argument.
 
 | # | Fork | State | What it costs to be wrong |
 |---|---|---|---|

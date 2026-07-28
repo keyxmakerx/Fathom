@@ -800,7 +800,7 @@ migrating them. R2 at 800 lines, R4 at 3,000.
 | **Current lean** | Yes. Two physical boxes with a path between them, run by the domain author |
 | **Detail in** | `71` §3.1, §15.1; `45` |
 
-**The fork.** `71` §3.1 records the current state without softening: 84 seed command entries exist,
+**The fork.** `71` §3.1 records the current state without softening: 91 seed command entries exist,
 authored from the field card, **none of them run on a box**, all carrying `reviewed_by: <named
 human>` which the build is required to reject. The corpus does not exist yet; a proof that the format
 works exists.

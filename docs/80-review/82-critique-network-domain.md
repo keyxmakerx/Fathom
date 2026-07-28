@@ -492,8 +492,8 @@ Non-correctness rules: **25**, not 23. `high` non-correctness rules: **4** —
 budget. The argument in G1 is sound; the arithmetic offered to close it is wrong by roughly
 a factor of two and lands on the wrong side of the gate it is trying to pass.
 
-Related: header note `F6` says *"Ten entries carry `weight: 3`"*; the file contains
-**eleven**. Since gate 7 is "at most one `weight: 3` per (concept, platform)", an
+Related, in `corpus/commands/junos-srx-ipsec.yaml`: header note `F6` says *"Ten entries carry
+`weight: 3`"*; that file contains **eleven**. Since gate 7 is "at most one `weight: 3` per (concept, platform)", an
 uncounted eleventh is exactly the shape of a gate violation.
 
 **Fix.** Recount, restate, and either demote one of the four (`ipsec.pfs.group-mismatch` is

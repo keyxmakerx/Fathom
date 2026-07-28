@@ -166,7 +166,7 @@ R1 is enforceable, not aspirational. Two checks belong in CI:
 
 | Check | Rule |
 |---|---|
-| `tokens/reserved-colour` | The identifiers `--safe`, `--caution`, `--danger` and their washes may appear only inside selectors matching `.r-safe`, `.r-caution`, `.r-danger`, `.risk-*`, `.pill.*`, `.note.safe\|caution\|danger`, `.legend-*`. Anywhere else is a build failure. |
+| `tokens/reserved-colour` | The identifiers `--safe`, `--caution`, `--danger` and their washes may appear only inside selectors matching `.r-safe`, `.r-caution`, `.r-danger`, `.risk-*`, `.hit-risk.*` (M29 — `.pill` is deleted), `.note.safe\|caution\|danger`, `.legend-*`. Anywhere else is a build failure. |
 | `tokens/no-raw-hex` | No hex literal may appear in any stylesheet outside `51-design-tokens.css`. |
 
 The second check is what stops the first from being routed around.
@@ -340,7 +340,7 @@ This is the hardest assignment in the table and the one that costs the most.
 | State | Underline | Gutter | Message |
 |---|---|---|---|
 | valid / untouched | 1px solid `--hairline` | — | — |
-| unanswered, required | 1px dashed `--hairline` | — | field's own margin tab: `needs an answer` |
+| unanswered, required | 1px **dotted** `--hairline` (changed from dashed per M30, ADR-0025 — `dashed` is exclusive to AI-proposed content; this matches §9's `--rule-style-pending` and `54` §2.4. CI: `dashed` may appear only in selectors matching `.prop*`, `.dg-proposed`) | — | field's own margin tab: `needs an answer` |
 | invalid | **2px solid `--ink`** | `!` | one line, `--ink`, 700, directly beneath |
 
 The 2px `--ink` underline is the heaviest thing on a form. Since nothing else on a form is
@@ -394,18 +394,30 @@ The case for, in order of weight:
 1. **Where this product is used.** A network engineer at 02:00 during a change window, in a
    NOC with the lights down, next to a terminal that is already dark. The tool sits beside a
    terminal emitting `show security ike security-associations`, and a white 992px sheet next
-   to a dark terminal is a flashbulb. This is not a preference, it is the actual deployment
-   environment named in §6.7 of the owner's brief (change-window work).
-2. **Offline single-file deployment.** There is no server to remember a preference and no
-   telemetry to discover one. `prefers-color-scheme` is the only signal available, and
-   ignoring it means the OS-level accessibility setting a low-vision user has already made is
-   silently discarded.
+   to a dark terminal is a flashbulb. That is true and needs no reference. (The brief citation
+   that stood here is deleted per ADR-0026 (6): brief §6.7 is *Verification and rollback
+   generation* — it names no environment, no NOC and no time of day, and `conventions.md`
+   says never fabricate a reference.)
+2. **Respecting the OS signal.** Ignoring `prefers-color-scheme` means the OS-level setting a
+   user has already made is silently discarded. (The "no server to remember a preference"
+   half of this argument is deleted per ADR-0026: §5.6 stores the theme in `Settings`, so the
+   premise was void by this document's own wiring.)
 3. **It is cheap to get wrong and cheap to verify.** The verification is a contrast matrix,
    §5.5, and it is a CI check, not a judgement call.
 
 **DECISION — dark theme ships, derived not inverted, and light is the default.** `light dark`
 in `color-scheme`, `prefers-color-scheme` respected, and an explicit `data-theme` override that
 wins in both directions. There is no third theme, no "auto-dim", no sepia.
+
+> **Superseded as unconditional — ADR-0026.** Light is the product. The dark theme ships
+> **only if three things land**, because as specified it is two visual languages, not two
+> palettes: (1) one severity encoding in both themes — width in both, the tone ramp deleted
+> (`55` §2.5 F3's recommendation, on the usability argument); (2) the diagram themes — `56`
+> §5.7 currently emits literal light-theme hex as SVG presentation attributes, so in dark
+> mode 20% of the surface fights the theme; (3) the `prefers-contrast` cascade is tested as a
+> rendered cascade (`55` §2.7 as amended per R10). Until all three land: light only, and say
+> why. The 02:00 case above is real and, if the conditions are not funded, is answered more
+> cheaply — and worse — by a single dimmed light palette.
 
 ### 5.2 Why inversion fails — with the numbers
 
@@ -502,9 +514,12 @@ The hairline and surface ratios land within 0.02 of paper. That is the goal: the
 are preserved, the values are not.
 
 **This supersedes the dark values in `design/prototype/index.html`**, which were hand-picked by
-eye. They are not wrong-looking, but `--danger: #D07A78` there is at 7.4:1 and is the pink
-failure mode described in §5.2, and the washes there were chosen without a lightness-step
-target. The prototype should be updated to these values.
+eye. They are not wrong-looking, but `--danger: #D07A78` there computes at **5.98:1** — not the
+7.4:1 previously printed here, a 24% error in the direction that made the argument work
+(corrected per ADR-0026 (4)). The conclusion survives for a different reason: the prototype's
+value is the same lightness at lower chroma, so the correct criticism is §5.3 M4 (chroma
+equalisation), not §5.2's pink failure mode. The washes there were also chosen without a
+lightness-step target. The prototype should be updated to these values.
 
 ### 5.5 Verification — dark contrast matrix
 
@@ -564,7 +579,7 @@ Read that list against §4 and three things break:
 
 | Device | Breaks how | Fix |
 |---|---|---|
-| Risk colour | All three collapse to `CanvasText` | R2 already guarantees a word is present. In forced colours, reveal the visually-hidden word: `@media (forced-colors: active) { .risk-dot .vh { position: static; clip-path: none; width:auto; height:auto; } }` |
+| Risk colour | All three collapse to `CanvasText` | R2 already guarantees a word is present. In forced colours, reveal the visually-hidden word: `@media (forced-colors: active) { .risk-bar .vh { position: static; clip-path: none; width:auto; height:auto; } }` (M41: the risk mark is the 4px `.risk-bar`) |
 | Severity ramp (`--ink`/`--muted`/`--hairline` bars) | All three border colours collapse to one | Switch the ramp from tone to **width**: 4px / 2px / 1px / 0 under forced colours. Width is not overridden. |
 | AI hatch (`repeating-linear-gradient`) | `background-image` forced to `none` | The dashed *border* survives (`border-style` is not overridden). Keep the dash as the primary signal and the hatch as reinforcement, never the reverse. |
 | Egress inversion | `--ink`/`--page` collapse | Explicitly restate as system colours: `background: CanvasText; color: Canvas;` — inversion survives because both keywords are defined. |
@@ -577,7 +592,7 @@ Read that list against §4 and three things break:
   .finding.low    { border-left-width: 1px; }
   .finding.info   { border-left-width: 0; }
   .egress { background: CanvasText; color: Canvas; forced-color-adjust: none; }
-  .risk-dot .vh, .risk-bar .vh { position: static; width: auto; height: auto; clip-path: none; }
+  .risk-bar .vh { position: static; width: auto; height: auto; clip-path: none; }
 }
 ```
 
@@ -771,6 +786,14 @@ sheet    = 550 × 2 + 32 + 48             = 1180px
 **`--sheet: 1180px` exists because a two-column grid at that width holds exactly 73 columns of
 `--t-mono`, and the emitter wraps at 72.** It is not a round number chosen for taste.
 
+> **Restated honestly — R35, ADR-0025 (3).** The derivation above holds only with the second
+> surface closed: with `54` §18's 420px inspector open at its 32px gutter, the content is
+> `1180 − 48 − 420 − 32 = 680px`, below `--bp-cols: 860px`, and the two-column grid never
+> renders. The card's two-column body is a property of a **view's body with the second surface
+> closed** — a reading state — not of the sheet. `--sheet` stays 1180px with that constraint
+> stated, rather than being re-derived; the previous text presented a coincidence as a
+> consequence.
+
 For comparison, the card's own content width is 744pt = 992px, so the screen sheet is 1.19× a
 card side. Deliberately not wider: the card's density depends on the measure, and a 1400px
 sheet turns a reference card into a dashboard.
@@ -960,22 +983,27 @@ break, because it never had shadows to lose.
 
 ```css
 --motion-state:      0ms;    /* hover, selection, press, focus — instantaneous */
---motion-disclosure: 90ms;   /* opacity only, on inline disclosure */
 --motion-ease:       linear;
+/* --motion-disclosure deleted per M34 (ADR-0025 group) — see below */
 ```
 
-**There is one animation in this product.** Inline disclosure panels — the provenance panel
-under a config line, the expanded body of a finding row, the inspector's field detail — fade in
-over 90ms, opacity only.
+**The product has no animation** (amended per M34). The 90ms disclosure fade that stood here
+could not run as written — `opacity` does not transition out of `display: none` without
+`transition-behavior: allow-discrete` plus a `@starting-style` rule, neither of which was
+specified, and the elements start at `opacity: 1` in both states — and three documents each
+named a different "only motion in the product". Deleting the fade and `--motion-disclosure` is
+more in the card's spirit, removes a token, a media query and two failure modes, and stops the
+first person who notices from "fixing" it with a height transition the table below forbids by
+name. The one scroll behaviour is smooth scrolling, owned by `52` §5.6.4.
 
-Everything else is `0ms`, and `--motion-state: 0ms` is a *token* rather than an absence so that
-adding a transition is a visible change to a shared value rather than a line in a component.
+`--motion-state: 0ms` remains a *token* rather than an absence so that adding a transition is
+a visible change to a shared value rather than a line in a component.
 
 Rules:
 
 | Property | Animatable? | Why |
 |---|---|---|
-| `opacity` | Yes, on disclosure only | Cheap, compositor-only, and it is the only cue that says "this appeared" |
+| `opacity` | **Never** (was "on disclosure only"; deleted per M34) | The disclosure fade could not run as written and is removed; content appears instantly |
 | `height` / `max-height` | **Never** | It makes disclosure feel slow, it breaks scroll anchoring, and in a 200-line config block it reflows everything below |
 | `transform` | **Never** | Nothing in this product slides. Sliding implies spatial layers and §11 says there are none |
 | `background-color` | **Never** | A 150ms hover fade on a 200-row list is 200 concurrent transitions and it makes cursor movement feel laggy |
@@ -988,8 +1016,9 @@ Rules:
 }
 ```
 
-Because the only animation is a 90ms opacity fade on content that is also fully present in the
-DOM and announced to assistive tech, disabling it loses nothing.
+Because the product has no animation (M34), the reduced-motion block is a guard against
+regressions rather than a mitigation of anything that ships. Scroll behaviour: smooth
+scrolling per `52` §5.6.4, reduced to `auto` under `prefers-reduced-motion` as above.
 
 **The egress indicator does not pulse, flash or animate.** This was considered and rejected. A
 pulsing alarm is what you add when the static design is not loud enough; the inverted band
@@ -1044,8 +1073,8 @@ treatment.
 
 ```css
 @media print {
-  .legend-item, .swatch, .pill, .note.safe, .note.caution, .note.danger,
-  .risk-dot, .risk-bar {
+  .legend-item, .hit-risk, .note.safe, .note.caution, .note.danger,
+  .risk-bar {
     -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
   }
@@ -1229,7 +1258,7 @@ names and declares no hex, no px font sizes and no durations of its own.
 
   /* --- motion --------------------------------------------------- §12 ---- */
   --motion-state:      0ms;
-  --motion-disclosure: 90ms;
+  /* --motion-disclosure deleted per M34 — the product has no animation */
   --motion-ease:       linear;
 }
 
@@ -1319,7 +1348,7 @@ input, button, select, textarea {
   clip-path: inset(50%); white-space: nowrap;
 }
 @media (forced-colors: active) {
-  .risk-dot .vh, .risk-bar .vh, .pill .vh {
+  .risk-bar .vh, .hit-risk .vh {
     position: static; width: auto; height: auto; clip-path: none;
   }
 }
@@ -1407,14 +1436,21 @@ page-margin boxes. Marked VERIFY there.
 
 ## 18. Disagreements
 
-None with the binding conventions. Two notes on things adjacent to them:
+**0. The dark theme redefines the three pinned risk colours (registered per M28).**
+`conventions.md` pins `--safe`/`--caution`/`--danger` by hex, and `design-language.md` calls
+them *"ground truth, machine-extracted"*. §5.4 substitutes `#35A06E`/`#D97328`/`#EA6260` in
+dark — hue-matched, contrast-solved, and previously a silent redefinition of a pinned
+constant. Proposed amendment to the convention: *"the three pairs are pinned for the light
+theme; a dark theme substitutes hue-matched pairs at equal or better contrast, listed here."*
+
+Otherwise none with the binding conventions. Two notes on things adjacent to them:
 
 **1. `design/prototype/index.html` is superseded on three points**, and this is a proposed change
 to that file rather than a disagreement with a convention:
 
 | Prototype | This document | Why |
 |---|---|---|
-| Dark values hand-picked; `--danger: #D07A78` at 7.4:1 | `#EA6260` at 5.74:1 | The prototype's value is the pink failure mode of §5.2 |
+| Dark values hand-picked; `--danger: #D07A78` at **5.98:1** (corrected per ADR-0026 — 7.4:1 was a 24% arithmetic error) | `#EA6260` at 5.74:1 | The prototype's value is the same lightness at lower chroma — §5.3 M4's criticism, not §5.2's pink failure mode |
 | `.egress` uses `--caution` and `--caution-wash` | Inversion: `--ink` ground, `--page` text | It reuses a reserved colour, which conventions forbid. Inversion is louder and costs nothing |
 | `line-height: 1.5` (unitless) on body | `var(--lh-step)`, a length | Unitless ratios put 12.5px mono and 13px prose on different rhythms, §7.6 |
 

@@ -427,7 +427,7 @@ Every count below is sourced. Every rate is labelled as a measurement or an assu
 | Artefact | Count | Source of the count | Minutes each | Rate source | Hours |
 |---|---|---|---|---|---|
 | Explainer entries, all 13 classes | 430 | `15` §12.2, machine-counted denominators | 35 | `15` §12.6 (assumption, self-flagged) | 251 |
-| Command corpus entries | 120 | `71` §3.3 (84 seed → ~120 after review) | 37 | `61` §18 (30–45, assumption) | 74 |
+| Command corpus entries | 120 | `71` §3.3 (91 seed → ~120 after review) | 37 | `61` §18 (30–45, assumption) | 74 |
 | Finder concepts — retrieval surfaces, **not** `concept` explainers | 120 | `71` §3.3, from `16` §3.6 | 10 | assumption | 20 |
 | Statement dictionary, domain slice | 250 | `71` §4.2 | 10 | `71` §14.1 (derived, not measured) | 42 |
 | Rules, each with ≥2 fixtures | 50 | `71` §4.2 (40–60) | 75 | `71` §14.1 (60–90) | 63 |
@@ -1493,7 +1493,7 @@ cannot drift. `fathom-verify` never links `fathom-ai` and the symbol table prove
 genuinely a pleasure to build and it demoed beautifully to other engineers, who all said the
 same thing, which was some version of "that's a nice architecture."
 
-The corpus stayed at the 84 seed entries from the field card. I kept meaning to expand it, and
+The corpus stayed at the 91 seed entries from the field card. I kept meaning to expand it, and
 every time I sat down to write forty entries I found an emitter bug instead, and the emitter
 bug was real, and fixing it was progress by any measure I was keeping.
 

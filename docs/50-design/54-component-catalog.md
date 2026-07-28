@@ -1,8 +1,13 @@
 # 54 — Component catalogue
 
-> **Status:** Proposed
+> **Status:** Proposed · Amended in place per ADR-0024 (`53` owns the keymap — the maps in
+> §15, §19 and §23 are deleted; `⇧A`/`⇧R` stay), ADR-0025 (density, wrap default, `.pill` and
+> `.swatch` deleted, risk bar, margin-tab budget, view-band treatment, Copy part) and
+> ADR-0026 (finder focus indicator, R37).
 
-Companion documents: `docs/50-design/51-design-tokens.md` (every value used here),
+Companion documents: `docs/50-design/53-interaction-and-keyboard.md` (**owns the keymap** —
+R11, ADR-0024; keyboard sections here are component-local behaviour and pointers, never
+bindings), `docs/50-design/51-design-tokens.md` (every value used here),
 `docs/10-core/13-emitters-and-provenance.md` (`EmittedLine`, `Risk`, `WrapPolicy`),
 `docs/10-core/12-rule-engine.md` (`Finding`, `Severity`, `Confidence`, `FindingState`,
 `Suppression`), `docs/10-core/16-command-finder.md` (what the palette searches),
@@ -57,7 +62,8 @@ Nothing is lorem.
 
 ## 1. How to read this catalogue
 
-Every entry has the same eight parts. If an entry omits one, it says why.
+Every entry has the same nine parts (the ninth added per M43, ADR-0025). If an entry omits
+one, it says why.
 
 | Part | What it contains |
 |---|---|
@@ -66,8 +72,9 @@ Every entry has the same eight parts. If an entry omits one, it says why.
 | **HTML** | Complete and copy-pasteable. No framework. No `div` where an element exists. |
 | **CSS** | Complete. Every value is a token from `51-design-tokens.md`. No hex, no raw px font sizes. |
 | **States** | Every state, and the channel that carries it (tokens §4.2). |
-| **Keyboard** | Every key. "None" means the component is not interactive, and that is a claim. |
+| **Keyboard** | Per R11 (ADR-0024) a pointer into `53` §3, which owns the keymap, plus component-local focus behaviour. "None" means the component is not interactive, and that is a claim. |
 | **Accessibility contract** | Roles, names, relationships, live regions, and the non-visual equivalent of every visual signal. |
+| **Copy** | Every user-visible string, authored, under the same discipline invariant 10 applies to explainers, linted against the five voice characteristics in `design-language.md`. §12's empty-state string is the worked example of what passing looks like. Existing entries carry their strings in HTML/States until back-filled; new entries may not omit this part. |
 | **Cost** | What this component is worse at than the conventional alternative. Named, not buried. |
 
 **The three global rules from `51-design-tokens.md` §1 are in force in every entry:**
@@ -88,7 +95,7 @@ These are not components. They are the four things every component uses.
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden;
       clip-path: inset(50%); white-space: nowrap; }
 @media (forced-colors: active) {
-  .risk-dot .vh, .risk-bar .vh, .pill .vh {
+  .risk-bar .vh, .hit-risk .vh {
     position: static; width: auto; height: auto; clip-path: none; }
 }
 ```
@@ -201,7 +208,7 @@ A list of *n* interactive rows is **one tab stop**, not *n*. Inside it:
 | <kbd>Home</kbd> / <kbd>End</kbd> | First / last row. |
 | <kbd>PgDn</kbd> / <kbd>PgUp</kbd> | ±10 rows. |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Activate — expand the row's disclosure, or select. |
-| <kbd>Esc</kbd> | Collapse all disclosures in the list; focus stays. Second press moves focus to the list container. |
+| <kbd>Esc</kbd> | Unwinds **one level** of `53` §3.7's ladder, everywhere (R11, ADR-0024 — the "collapse all disclosures" behaviour that stood here competed with `53`'s and `55`'s). "Collapse all" is a second press at the top of the ladder, not a competing behaviour. |
 | <kbd>Tab</kbd> | Leaves the list entirely. |
 
 **Why this deviates from the APG's usual "every button is a tab stop".** A 200-line config
@@ -408,6 +415,7 @@ These are content rules, and they are as load-bearing as the CSS:
 | One to four words | `verify as you go` is four. `this section explains the concept of dead peer detection` is a paragraph |
 | Says *how to weight*, not *what it is* | `most-missed` and `approx` weight. `Configuration` describes, and the heading already did that |
 | Never a verb phrase addressed to the user | `read this first` is the one exception on the card, and it earns it by being first |
+| **At most three per screen region, and a tab may only weight a section, never annotate a row** (R48, ADR-0025) | The card has ten across four sides; one inspector view carried more than that alone. Row-level metadata — provenance dates, field origin, delta class, review state — belongs in the two-column hairline table (§9), the card's device for per-row facts. ADR-0027's verification stamp is exempt: it is not a tab, it is the row's own provenance line |
 
 ### States
 
@@ -488,21 +496,24 @@ DISRUPTIVE  — DROPS LIVE TRAFFIC      #8C2F2F on #F8EFEF
 
 ```
  ───────────────────────────────────────────────────  1px --hairline
- ▪ READ-ONLY — SAFE ON PRODUCTION    ▪ CHANGES CONFIG — NEEDS A COMMIT   ▪ DISRUPTIVE — …
- └ .swatch                           └ .legend-item.r-caution
+ ▎READ-ONLY — SAFE ON PRODUCTION    ▎CHANGES CONFIG — NEEDS A COMMIT   ▎DISRUPTIVE — …
+ └ 4px accent bar + ink on wash      └ .legend-item.r-caution
  ───────────────────────────────────────────────────  1px --hairline
 ```
+
+*(Amended per M40, ADR-0025 (6): the 14×10px filled `.swatch` is deleted. Both halves of the
+previous rendering were inventions — the extraction states each semantic as an `{ink, wash}`
+pair, and the card's own device for "here is what this colour means" is the 4px accent bar,
+which `design-language.md` describes as "never a box". Deleting `.swatch` also removes an
+`aria-hidden` element this section was apologising for.)*
 
 ### HTML
 
 ```html
 <ul class="legend" aria-label="Risk legend">
-  <li class="legend-item r-safe">
-    <span class="swatch" aria-hidden="true"></span>Read-only — safe on production</li>
-  <li class="legend-item r-caution">
-    <span class="swatch" aria-hidden="true"></span>Changes config — needs a commit</li>
-  <li class="legend-item r-danger">
-    <span class="swatch" aria-hidden="true"></span>Disruptive — drops live traffic</li>
+  <li class="legend-item r-safe">Read-only — safe on production</li>
+  <li class="legend-item r-caution">Changes config — needs a commit</li>
+  <li class="legend-item r-danger">Disruptive — drops live traffic</li>
 </ul>
 ```
 
@@ -510,8 +521,9 @@ DISRUPTIVE  — DROPS LIVE TRAFFIC      #8C2F2F on #F8EFEF
 
 ```css
 .legend {
-  display: flex; flex-wrap: wrap; gap: var(--s5);
-  margin: var(--s3) 0 0; padding: var(--s2) 0;
+  /* R36 / ADR-0025 (4): spacing tightened to the card's own leading (−20px of furniture). */
+  display: flex; flex-wrap: wrap; gap: var(--s4);
+  margin: 0; padding: var(--s1) 0;
   list-style: none;
   border-top: var(--rule-hair) solid var(--hairline);
   border-bottom: var(--rule-hair) solid var(--hairline);
@@ -521,14 +533,16 @@ DISRUPTIVE  — DROPS LIVE TRAFFIC      #8C2F2F on #F8EFEF
   font-size: var(--t-micro); font-weight: 700;
   letter-spacing: var(--track-legend); text-transform: uppercase;
 }
-.swatch { width: 14px; height: 10px; flex: none; }
-.r-safe    { color: var(--safe); }    .r-safe    .swatch { background: var(--safe); }
-.r-caution { color: var(--caution); } .r-caution .swatch { background: var(--caution); }
-.r-danger  { color: var(--danger); }  .r-danger  .swatch { background: var(--danger); }
+/* .swatch DELETED per M40 / ADR-0025 (6). Ink on wash with a 4px accent bar — the card's
+   own device: */
+.legend-item { border-left: var(--rule-accent) solid; padding-left: var(--s2); }
+.r-safe    { color: var(--safe);    background: var(--safe-wash);    border-left-color: var(--safe); }
+.r-caution { color: var(--caution); background: var(--caution-wash); border-left-color: var(--caution); }
+.r-danger  { color: var(--danger);  background: var(--danger-wash);  border-left-color: var(--danger); }
 
 .legend.repeat { display: none; }
 @media print {
-  .legend, .swatch { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .legend, .legend-item { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .legend.repeat { display: flex; break-before: avoid; }
   .legend { break-inside: avoid; }
 }
@@ -557,8 +571,8 @@ None. `<ul>` with three `<li>`, no focusable children.
 ### Accessibility contract
 
 - `<ul aria-label="Risk legend">` so a screen reader can find it in the landmark/list rotor.
-- The swatch is `aria-hidden` — the text beside it already says the same thing, and announcing
-  "image" three times is noise.
+- No `aria-hidden` element remains (M40 deleted the swatch); the accent bar and wash are
+  borders and backgrounds, invisible to assistive tech, and the text says everything.
 - Contrast: `--caution` on `--page` is 5.19:1 at 10px bold (tokens §3.4). 10px is below the
   "large text" threshold, so 4.5:1 is the requirement and it clears. `--caution` at `--t-micro`
   is never permitted on `--surface` (4.71:1 is too close to the floor for 10px type) — the
@@ -706,7 +720,7 @@ alongside them.
  │ ├──────────────────────────────────────────────────────────────────────────── │
  │ ▌ 4  ▪ set security ipsec vpn VPN-B bind-interface st0.0                      │
  └───────────────────────────────────────────────────────────────────────────────┘
-   │  │  └ .risk-dot, 6px, the reserved colour + a .vh word
+   │  │  └ .risk-bar, 4px accent bar (M41 — was a 6px dot), the reserved colour + a .vh word
    │  └ .gut — line number, --t-micro, tabular, right-aligned in --gutter-num
    └ 4px --hairline block edge; becomes --ink on the expanded line
 ```
@@ -736,7 +750,7 @@ text node and wraps visually:
 ```html
 <button class="cfg-line" tabindex="0" aria-expanded="false" aria-controls="prov-3">
   <span class="gut" aria-hidden="true">1</span>
-  <span class="risk-dot caution" aria-hidden="true"></span>
+  <span class="risk-bar caution" aria-hidden="true"></span>
   <span class="vh">Changes config. </span>
   <span class="cfg-text">set security ike proposal IKE-P1 authentication-method pre-shared-keys</span>
 </button>
@@ -745,12 +759,17 @@ text node and wraps visually:
 …with `.cfg-text` styled `white-space: pre-wrap; text-indent: 0; hanging-indent` and the
 backslash drawn by the renderer only in the copy-for-print and copy-with-continuations paths.
 
-**DECISION — the visible backslash is a rendering flavour, not markup.** Two flavours:
-`Display` (soft wrap, hanging indent, no backslash — the default, and what a screen reader
-sees) and `Terminal` (hard wrap with ` \` and two-space indent, what the card does and what
-prints). The view rail's config screen offers `wrap: soft | terminal` as a per-block margin tab.
-This preserves the card's texture where it matters — on paper, and for anyone who wants it —
-without lying to assistive tech.
+**DECISION (amended per R39, ADR-0025) — the visible backslash is a rendering flavour, not
+markup, and `Terminal` is the default.** Two flavours: `Terminal` (hard wrap with ` \` and
+two-space indent — what the card does, what prints, and now the default: the continuation
+backslash is design-language device 5, the most recognisable typographic mark on side 1, and
+`51` §2 derived the entire sheet from the wrap it measures) and `Display` (soft wrap, hanging
+indent, no backslash — the narrow-viewport accessibility affordance `55` §6.3 already
+specifies, under its existing `wrap to fit` control). The view rail's config screen offers
+`wrap: terminal | soft` as a per-block margin tab. The screen-reader concern is solved
+identically in both flavours — rule 3 above and `55` §4.3 rule 4: the backslash lives in an
+`aria-hidden` span and the accessible name is the unwrapped logical line — so the default was
+a free choice, and the card decides it.
 <!-- VERIFY: 13-emitters §13.3 flags that it is unconfirmed whether the Junos CLI accepts backslash continuation on a pasted `set` line or via `load set terminal`. Until that is recorded per Junos train, `Terminal` flavour must never be the clipboard payload — only the printed one. -->
 
 ### 8.3 HTML
@@ -772,7 +791,7 @@ without lying to assistive tech.
     <div role="listitem" class="cfg-row">
       <button class="cfg-line" tabindex="0" aria-expanded="false" aria-controls="prov-1">
         <span class="gut" aria-hidden="true">1</span>
-        <span class="risk-dot caution" aria-hidden="true"></span>
+        <span class="risk-bar caution" aria-hidden="true"></span>
         <span class="vh">Changes config. </span>
         <span class="cfg-text">set security ike proposal IKE-P1 authentication-method pre-shared-keys</span>
       </button>
@@ -782,7 +801,7 @@ without lying to assistive tech.
     <div role="listitem" class="cfg-row">
       <button class="cfg-line" tabindex="-1" aria-expanded="false" aria-controls="prov-2">
         <span class="gut" aria-hidden="true">2</span>
-        <span class="risk-dot caution" aria-hidden="true"></span>
+        <span class="risk-bar caution" aria-hidden="true"></span>
         <span class="vh">Changes config. </span>
         <span class="cfg-text">set security ike gateway GW-B external-interface reth0.0</span>
       </button>
@@ -802,7 +821,9 @@ without lying to assistive tech.
 .block-head .copy { margin-left: auto; }
 
 .block {
-  background: var(--surface);
+  /* ADR-0025 (6): the block's default ground is --page (was --surface), so a selected row
+     can take --surface and `▸` means selection only; hover keeps its one ground step. */
+  background: var(--page);
   border-left: var(--rule-accent) solid var(--hairline);
   font-family: var(--mono); font-size: var(--t-mono); line-height: var(--lh-step);
   overflow-x: auto;
@@ -810,16 +831,21 @@ without lying to assistive tech.
 
 .cfg-line {
   display: flex; align-items: flex-start; gap: var(--s2);
-  width: 100%; min-height: var(--row-min);
+  width: 100%;
+  /* R38 (ADR-0025): `min-height: var(--row-min)` is removed from the row — it inflated a
+     40-line block by 160px and shipped the default at 83% of the card's density. `51` §8's
+     own rule is implemented instead: padding goes on the interactive element, never on the
+     row. The visual row is the 20px line grid; the 24px hit target (SC 2.5.8) comes from
+     2px of vertical padding pulled back with negative margin: */
+  padding: 2px var(--s3) 2px 0; margin-top: -2px; margin-bottom: -2px;
   background: none; border: 0;
   border-left: var(--rule-accent) solid transparent;
   margin-left: calc(var(--rule-accent) * -1);
-  padding: 0 var(--s3) 0 0;
   font: inherit; color: var(--ink); text-align: left; cursor: pointer;
   border-radius: var(--radius); transition: none;
 }
-.cfg-line:hover { background: var(--page); }
-.cfg-line[aria-expanded="true"] { background: var(--page);
+.cfg-line:hover { background: var(--surface-2); }
+.cfg-line[aria-expanded="true"] { background: var(--surface);   /* ADR-0025 (6): selection = ▸ plus ground */
                                   border-left-color: var(--ink); }
 .cfg-line:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
                           outline-offset: var(--focus-offset-inset); }
@@ -836,11 +862,17 @@ without lying to assistive tech.
 .cfg-text { white-space: pre-wrap; overflow-wrap: normal;
             padding-left: 2ch; text-indent: -2ch; }   /* hanging indent = the card's 2 spaces */
 
-/* The risk channel. R1: this is the ONLY colour inside a config block. */
-.risk-dot { display: inline-block; width: 6px; height: 6px; flex: none; margin-top: 7px; }
-.risk-dot.safe    { background: var(--safe); }
-.risk-dot.caution { background: var(--caution); }
-.risk-dot.danger  { background: var(--danger); }
+/* The risk channel. R1: this is the ONLY colour inside a config block.
+   M41 / ADR-0025 (6): the 6px square dot at margin-top: 7px (a value in no token file, off
+   the 4px grid) is replaced by a 4px accent bar in the semantic ink on the line's left edge
+   inside the block gutter — exactly `51` §4.3's stated collision rule — snapped to --s1.
+   Its ABSENCE is device 0 of the AI surface (§19): absence survives forced colours, print,
+   monochrome and colour-vision deficiency, because the difference is presence, not hue. */
+.risk-bar { display: inline-block; width: var(--rule-accent); align-self: stretch;
+            flex: none; margin-top: var(--s1); margin-bottom: var(--s1); }
+.risk-bar.safe    { background: var(--safe); }
+.risk-bar.caution { background: var(--caution); }
+.risk-bar.danger  { background: var(--danger); }
 
 /* Terminal wrap flavour — what prints, and what the card does. */
 .block[data-wrap="terminal"] .cfg-text { white-space: pre; }
@@ -850,7 +882,7 @@ without lying to assistive tech.
   .block { break-inside: avoid; overflow: visible; }
   .block[data-wrap] .cfg-text { white-space: pre-wrap; }
   .copy, .block-head .tab { display: none; }
-  .risk-dot { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .risk-bar { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 ```
 
@@ -1167,7 +1199,7 @@ each step is a command:
 <li class="plumb-item">
   <span class="plumb-n" aria-hidden="true">1</span>
   <div class="plumb-t">
-    <span class="risk-dot caution" aria-hidden="true"></span><span class="vh">Changes config. </span>
+    <span class="risk-bar caution" aria-hidden="true"></span><span class="vh">Changes config. </span>
     <code>commit confirmed 5</code> <span class="tab">always, remotely</span>
   </div>
 </li>
@@ -1178,16 +1210,18 @@ each step is a command:
 None. The list is static content.
 
 **Except** in the Verify view, where the ladder is generated per change (`verify(diff(graph))`)
-and each step can be marked done by the user. That variant adds a checkbox — the only checkbox
-in the product — because a verify ladder that you work down is exactly the case a checkbox
-exists for, and there is no card device for it. It is a native `<input type="checkbox">` with
-`appearance: none`, a 12px square with a 1px `--muted` border, and a `✓` in `--ink` when
-checked. State is session-only and never persisted (it is not a fact about the network).
+and each step can be marked done by the user. **The 12px `✓` checkbox that stood here is
+deleted (M31, ADR-0025 group):** it failed SC 2.5.8, was unlisted in `55` §6.5's target
+walk-through, and falsified three documents' "no icons" claims. The card's device for "done"
+is the **ordinal, struck**: the whole row is the 24px target, toggled as a button with
+`aria-pressed`, and the step's ordinal takes C9's strike when done. State is session-only and
+never persisted (it is not a fact about the network). The "no icons" claim is restated as *"no
+pictorial icons; a small closed set of typographic glyphs, enumerated in §22"*.
 
 ### Keyboard
 
-None for the static variant. The checkbox variant is a normal tab stop with
-<kbd>Space</kbd> to toggle.
+None for the static variant. The done-toggle variant is a normal tab stop with
+<kbd>Space</kbd> to toggle (`aria-pressed`).
 
 ### Accessibility contract
 
@@ -1207,12 +1241,23 @@ difference between a config line fitting and wrapping. Accepted: the numbers are
 
 ## 11. View rail
 
+> **Superseded on treatment — M36, ADR-0025.** The view band takes `52` §9.3's treatment:
+> lowercase italic margin tabs with a `▸` marker on the current view — **not** the bold
+> tracked uppercase with a 3px `--ink` underline specified below. This section's own
+> Provenance admits it is inventing, and it spends `51` §9's scarcest weight (the masthead
+> rule) on navigation chrome. The eyebrow row is deleted with it (R36, ADR-0025 (4)):
+> `VIEW 3 OF 6 · FINDINGS` and a band whose current tab reads `▸findings · 3 high` are the
+> same fact twice, and the cut is −20px of permanent furniture. The HTML structure, roles and
+> keyboard contract below survive; the visual treatment is `52` §9.3's. View switching is
+> `⌥1`…`⌥6` per `53` (R11, ADR-0024), not `Ctrl+1–6`.
+
 ### Provenance
 
 **New.** The card has four sides and you turn it over. A screen has six views and needs a
-control. This is the smallest thing that does the job in the card's language: uppercase tracked
-labels on a hairline baseline, with the active one carrying a 3px `--ink` underline — the
-masthead rule, reused at the one place a second 3px rule is justified.
+control. ~~This is the smallest thing that does the job in the card's language: uppercase
+tracked labels on a hairline baseline, with the active one carrying a 3px `--ink` underline —
+the masthead rule, reused at the one place a second 3px rule is justified.~~ *(Treatment
+superseded — see the note above.)*
 
 ### HTML
 
@@ -1262,7 +1307,7 @@ The APG tabs pattern, automatic activation:
 | <kbd>←</kbd> / <kbd>→</kbd> | Previous / next tab, wrapping, and activate it |
 | <kbd>Home</kbd> / <kbd>End</kbd> | First / last tab |
 | <kbd>Tab</kbd> | Leaves the tablist and lands on the active panel |
-| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>6</kbd> | Jump directly to a view from anywhere |
+| <kbd>⌥</kbd>+<kbd>1</kbd>…<kbd>6</kbd> | Jump directly to a view from anywhere (`53` §3 owns this binding — R11, ADR-0024; was `Ctrl+1–6` here) |
 
 Automatic activation (arrow = switch) rather than manual (arrow = move, Enter = switch), because
 switching is cheap here — every view is already rendered client-side and there is no fetch.
@@ -1294,7 +1339,7 @@ browser tab, or nobody uses it.
  ┌ .finder-shell — 1px --ink, on --page, over a --page scrim at 0.72 ────────┐
  │ CTRL K │ is the tunnel up                                    │ 3 · 0.8 ms │
  ├────────┴───────────────────────────────────────────────────┴─────────────┤
- │ ▌ show security ipsec security-associations        [READ-ONLY]           │  ← .hit.sel
+ │ ▸ show security ipsec security-associations        READ-ONLY             │  ← .hit.sel
  │ ▌ Is Phase 2 installed and passing traffic?                              │
  │ ▌ │ Read: State — want Installed                                         │
  │   show security ipsec inactive-tunnels             [READ-ONLY]           │
@@ -1328,7 +1373,7 @@ browser tab, or nobody uses it.
     <li id="hit-0" role="option" aria-selected="true" class="hit sel">
       <span class="hit-cmd">
         <code>show security ipsec security-associations</code>
-        <span class="pill safe">Read-only<span class="vh"> — safe on production</span></span>
+        <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span>
       </span>
       <span class="hit-ans">Is Phase 2 installed and passing traffic?</span>
       <span class="hit-read"><b>Read:</b> State — want <code>Installed</code>.
@@ -1337,7 +1382,7 @@ browser tab, or nobody uses it.
     <li id="hit-1" role="option" aria-selected="false" class="hit">
       <span class="hit-cmd">
         <code>show security ipsec inactive-tunnels</code>
-        <span class="pill safe">Read-only<span class="vh"> — safe on production</span></span>
+        <span class="hit-risk safe">Read-only<span class="vh"> — safe on production</span></span>
       </span>
       <span class="hit-ans">Which tunnels are down, and why?</span>
       <span class="hit-read"><b>Read:</b> the Tunnel Down Reason — often the whole answer.</span>
@@ -1345,6 +1390,10 @@ browser tab, or nobody uses it.
   </ul>
 
   <div class="finder-foot">
+    <!-- R37 (ADR-0026): §4 says a tab is never focusable and never a link, so the previous
+         two <span class="tab"> elements could not be part of any Tab cycle. The claimed
+         cycle is dropped; these are static text. Any element that must be reachable here
+         becomes a real <button>. -->
     <span class="tab">junos-srx · corpus 1.4.0</span>
     <span class="tab">Enter copies · → opens the guidebook entry</span>
   </div>
@@ -1384,7 +1433,13 @@ browser tab, or nobody uses it.
   padding: var(--s3); outline: none;
 }
 #q::placeholder { color: var(--muted); }
-#q:focus-visible { outline: none; }   /* the shell IS the focus indicator here, §12 note */
+/* R37 (ADR-0026): the previous rule here was `outline: none` on the ground that "the shell
+   IS the focus indicator" — but the shell's border is present whenever the dialog is open
+   regardless of focus, and a caret is not a focus indicator. That was SC 2.4.7 (Level AA)
+   in the product's most-used surface. The input row inverts instead — the card's own
+   vocabulary, no double-draw: */
+#q:focus-visible { outline: none; background: var(--surface); }
+.finder-input-row:has(#q:focus-visible) { border-bottom: 2px solid var(--ink); }
 .finder-meta { display: flex; align-items: center; flex: none;
                padding: 0 var(--s3); font-size: var(--t-micro); color: var(--muted);
                letter-spacing: var(--track-label); text-transform: uppercase;
@@ -1399,7 +1454,8 @@ browser tab, or nobody uses it.
 }
 .hit:last-child { border-bottom: 0; }
 .hit:hover { background: var(--surface-2); }
-.hit.sel   { background: var(--surface); border-left-color: var(--ink); }
+.hit.sel   { background: var(--surface); }   /* R49: ▸ plus ground; the ink bar is deleted */
+.hit.sel .hit-cmd::before { content: "\25B8  "; }  /* ▸ */
 .hit-cmd { display: flex; align-items: baseline; gap: var(--s2);
            font-family: var(--mono); font-size: var(--t-mono); }
 .hit-ans { display: block; color: var(--muted); font-size: var(--t-small); margin-top: 2px; }
@@ -1407,12 +1463,16 @@ browser tab, or nobody uses it.
             padding-left: var(--s3);
             border-left: var(--rule-hair) solid var(--hairline); }
 
-.pill { font-size: var(--t-micro); font-weight: 700;
-        letter-spacing: var(--track-legend); text-transform: uppercase;
-        padding: 1px 5px; flex: none; white-space: nowrap; }
-.pill.safe    { color: var(--safe);    background: var(--safe-wash); }
-.pill.caution { color: var(--caution); background: var(--caution-wash); }
-.pill.danger  { color: var(--danger);  background: var(--danger-wash); }
+/* `.pill` is DELETED per M29 / ADR-0025 (6): it was the badge `51` §4.5 rejected by name,
+   and `.pill.caution` computed at 4.73:1 — 0.02 from the pair §6 declares impermissible at
+   that size. The risk word goes at the end of the command line in semantic ink at --t-tab
+   on --page (5.19:1 for caution), no fill, no box — which is what the card does: */
+.hit-risk { font-size: var(--t-tab); font-weight: 700;
+            letter-spacing: var(--track-legend); text-transform: uppercase;
+            margin-left: auto; flex: none; white-space: nowrap; }
+.hit-risk.safe    { color: var(--safe); }
+.hit-risk.caution { color: var(--caution); }
+.hit-risk.danger  { color: var(--danger); }
 
 .finder-foot { flex: none; display: flex; justify-content: space-between; gap: var(--s4);
                padding: var(--s2) var(--s3);
@@ -1422,13 +1482,13 @@ browser tab, or nobody uses it.
 @media print { .finder-shell, .scrim { display: none !important; } }
 ```
 
-### Why the selection bar is `--ink` and not a risk colour
+### Selection is `▸` plus ground — the bar exception is revoked
 
-Selection is C5+C3 per tokens §4.2, and here the selected hit already sits on `--surface`, so
-the `▸` glyph is replaced by a 4px `--ink` left bar. This is the one place the 4px bar carries
-selection rather than severity or risk — and it is unambiguous because a finder result has no
-severity, and its risk lives in the pill, which is a different element on a different edge. §22
-records this as an audited exception.
+> **Changed — R49, ADR-0025 (6).** The 4px `--ink` left bar that carried selection here is
+> deleted: `51` §4.2 forbids a coloured bar for selection *by name*, and the "audited
+> exception" framing is exactly how the 4px bar accumulated six meanings. Selection is C5+C3
+> as `51` §4.2 decided — the `▸` glyph in the gutter plus the `--surface` ground — the same
+> vocabulary as every other selectable row in the product.
 
 ### States
 
@@ -1439,7 +1499,7 @@ records this as an audited exception.
 | Open, no results | — | `.empty`: *"Nothing matched. The corpus indexes the question a command answers — try `is the tunnel up` rather than `ipsec sa`."* |
 | Result active | C3 + C1 | `--surface` ground + 4px `--ink` bar |
 | Result hovered but not active | C3 | `--surface-2` |
-| Risk of the result | reserved colour | `.pill`, with the word visible |
+| Risk of the result | reserved colour | `.hit-risk` — the trailing risk word in semantic ink (M29: `.pill` deleted), word visible |
 
 ### Keyboard
 
@@ -1466,7 +1526,7 @@ records this as an audited exception.
 - **The input has no visible focus ring** because the shell's 1px `--ink` border is the focus
   indicator for the whole dialog and the caret marks the insertion point. This is a deliberate
   exception to "focus is always an outline" and it is the only one. Recorded in §22.
-- `pill` carries the risk word visibly (`Read-only`) plus the rest in `.vh`, so R2 holds even
+- `.hit-risk` carries the risk word visibly (`Read-only`) plus the rest in `.vh`, so R2 holds even
   before forced-colours.
 
 ### Cost
@@ -1621,7 +1681,7 @@ which is what makes a finding arguable rather than merely asserted.
 .finding[data-confidence="definite"] .f-head::after { content: none; }
 
 .f-body { padding-left: 52px; margin-top: var(--s2); font-size: var(--t-small);
-          opacity: 1; transition: opacity var(--motion-disclosure) var(--motion-ease); }
+          opacity: 1; /* transition deleted per M34 — the product has no animation */ }
 .f-body[hidden] { display: none; }
 .f-body dl { display: grid; grid-template-columns: max-content 1fr;
              gap: var(--s1) var(--s4); margin: 0 0 var(--s3); }
@@ -1661,7 +1721,7 @@ concern:
 | `Superseded` | none | Collapses to one muted line: `superseded by ipsec.pfs.weak-group` |
 | Severity high/medium/low/info | C1 tone | 4px bar, four tones |
 | Confidence | C10 | Margin tab, right-aligned |
-| Expanded | — | `hidden` removed, 90ms opacity fade (tokens §12) |
+| Expanded | — | `hidden` removed, appears instantly (M34 — the fade is deleted) |
 
 Under forced colours the severity ramp switches from tone to width (tokens §6).
 
@@ -1932,7 +1992,7 @@ Brief §5.4: depth is *"user-toggled globally and per-block."*
 
 | Scope | Where | Behaviour |
 |---|---|---|
-| Global | Settings, and <kbd>Ctrl</kbd>+<kbd>1/2/3</kbd> | Sets the default for every block that has no override |
+| Global | Settings, and <kbd>⌥</kbd>+<kbd>\</kbd> (`53` §3 — R11, ADR-0024; `Ctrl+1/2/3` does not exist) | Sets the default for every block that has no override |
 | Per-block | This component | Overrides the global for one block, for this session only |
 
 A per-block override renders an extra margin tab on the head: `overridden`. Without it, a user
@@ -1962,7 +2022,10 @@ The APG radiogroup pattern:
 | <kbd>Tab</kbd> | Enters the group at the checked radio; one tab stop for all three |
 | <kbd>←</kbd> / <kbd>→</kbd> / <kbd>↑</kbd> / <kbd>↓</kbd> | Move and check, wrapping |
 | <kbd>Space</kbd> | Check the focused radio |
-| <kbd>Ctrl</kbd>+<kbd>1/2/3</kbd> | Set the **global** depth from anywhere |
+
+Global depth bindings are `53`'s (R11, ADR-0024): depth is <kbd>⌥</kbd>+<kbd>\</kbd>;
+`Ctrl+1/2/3` does not exist — the binding that stood here collided with this document's own
+§23 view-switch row, since deleted.
 
 ### Accessibility contract
 
@@ -2066,17 +2129,17 @@ on additions.**
 <div class="block diffblock" role="list" aria-label="Configuration change set">
   <div role="listitem" class="dl add">
     <span class="dg" aria-hidden="true">+</span><span class="vh">Added. </span>
-    <span class="risk-dot caution" aria-hidden="true"></span><span class="vh">Changes config. </span>
+    <span class="risk-bar caution" aria-hidden="true"></span><span class="vh">Changes config. </span>
     <code>set security ipsec policy IPSEC-POL perfect-forward-secrecy keys group14</code>
   </div>
   <div role="listitem" class="dl del">
     <span class="dg" aria-hidden="true">−</span><span class="vh">Removed. </span>
-    <span class="risk-dot danger" aria-hidden="true"></span><span class="vh">Disruptive. </span>
+    <span class="risk-bar danger" aria-hidden="true"></span><span class="vh">Disruptive. </span>
     <code>delete security ipsec vpn VPN-B traffic-selector TS1</code>
   </div>
   <div role="listitem" class="dl same">
     <span class="dg" aria-hidden="true">·</span>
-    <span class="risk-dot caution" aria-hidden="true"></span><span class="vh">Changes config. </span>
+    <span class="risk-bar caution" aria-hidden="true"></span><span class="vh">Changes config. </span>
     <code>set security ipsec policy IPSEC-POL proposals IPSEC-P2</code>
   </div>
 </div>
@@ -2127,8 +2190,8 @@ normal config block. Additionally:
 
 | Key | Behaviour |
 |---|---|
-| <kbd>n</kbd> / <kbd>p</kbd> | Next / previous **changed** line, skipping context |
-| <kbd>u</kbd> | Toggle unchanged-context lines |
+| <kbd>n</kbd> / <kbd>p</kbd> | Next / previous **changed** line, skipping context — **diff-scoped: only while focus is inside a diff block** (R11, ADR-0024; unscoped, `n`/`p` keep `53`'s meanings) |
+| <kbd>u</kbd> | Toggle unchanged-context lines — same diff scope (unscoped `u` is `53`'s unsuppress) |
 
 ### Accessibility contract
 
@@ -2192,7 +2255,7 @@ hairlines, on `--page` inside the block's `--surface`. Same information, no z-la
     <dt>Provenance</dt> <dd>entered by hand · <time datetime="2026-07-02">2026-07-02</time></dd>
     <dt>Rules</dt>      <dd><code>ike.gateway.external-interface.wrong-unit</code>
                             <span class="tab">passed</span></dd>
-    <dt>Risk</dt>       <dd><span class="pill caution">Changes config<span class="vh">
+    <dt>Risk</dt>       <dd><span class="hit-risk caution">Changes config<span class="vh">
                             — needs a commit</span></span></dd>
   </dl>
   <p class="why"><code>external-interface</code> is the WAN unit the IKE packets leave by, not
@@ -2216,7 +2279,7 @@ hairlines, on `--page` inside the block's `--surface`. Same information, no z-la
   border-bottom: var(--rule-hair) solid var(--hairline);
   font-family: var(--sans); font-size: var(--t-small);
   white-space: normal;
-  opacity: 1; transition: opacity var(--motion-disclosure) var(--motion-ease);
+  opacity: 1; /* transition deleted per M34 — the product has no animation */
 }
 .prov[hidden] { display: none; }
 .prov dl { display: grid; grid-template-columns: max-content 1fr;
@@ -2233,26 +2296,22 @@ hairlines, on `--page` inside the block's `--surface`. Same information, no z-la
 The left padding aligns the panel's content with the config text, not with the block edge — so
 the panel reads as belonging to the line above it rather than to the block.
 
-### The one exception: the diagram surface
+### The one exception: the diagram surface — deleted
 
-On the diagram (`6.5`), a node has no line to expand under, so provenance must be positioned.
-That variant uses the native `popover` attribute with `position-anchor`, and it is still bounded
-by a 1px `--ink` rule with `box-shadow: var(--shadow)` — which is `none`. It floats; it does not
-appear to float.
-
-```css
-.prov[popover] { border: var(--rule-hair) solid var(--ink);
-                 max-width: 40ch; box-shadow: var(--shadow); }
-```
-
-<!-- VERIFY: CSS Anchor Positioning (`position-anchor` / `anchor()`) shipped in Chromium ahead of other engines; check current Firefox and WebKit status before depending on it. Fallback: position with a small JS measure on open, which is what the diagram already needs for edge routing. -->
+> **Deleted — M32, ADR-0025 group.** The popover variant that stood here was a fourth
+> stacking layer arriving via the native `popover` attribute, above the three-value `z-index`
+> enum `51` §11 declared *"so nobody invents a fourth"*. Node provenance on the diagram goes
+> in the inspector instead — `56` §2.4's real mitigations (Outline row, inspector, digest)
+> are already sufficient, and `56` §5.7's per-node `<title>` hover tooltips are deleted with
+> it (they lived inside an `aria-hidden` subtree and were mouse-hover-only, the precise
+> failure `55` §1.4 lists as impossible). This component now has no exception.
 
 ### States
 
 | State | Rendering |
 |---|---|
 | Collapsed | `hidden`; out of the accessibility tree |
-| Expanded | Visible, 90ms opacity fade — the only animation in the product |
+| Expanded | Visible, appears instantly (M34 — the fade could not run as written and is deleted) |
 | Provenance = `parsed` | Extra margin tab with the capture age: `parsed 2026-03-04, 4 months old` |
 | Provenance = `inferred` | Extra margin tab: `inferred — not confirmed against the device` |
 | Line has an active finding | The `Rules` row shows the rule id and links to the finding row |
@@ -2344,18 +2403,23 @@ viewed as a field list, which is exactly what the card's `THE OBJECT CHAIN` bloc
     <thead><tr><th scope="col">Field</th><th scope="col">Value</th>
                <th scope="col">Provenance</th></tr></thead>
     <tbody>
+      <!-- R48 / ADR-0025 (5): the provenance column is a plain <td> in --muted, not a
+           margin tab. A tab may only weight a *section*, never annotate a *row* — the
+           two-column hairline table is the card's device for per-row facts, and thirty
+           11px italic tabs per node was the margin tab industrialised into a badge
+           system. Budget: at most three margin tabs per screen region. -->
       <tr><th scope="row" class="m">address</th>
           <td class="m">203.0.113.10</td>
-          <td><span class="tab">hand · 2026-07-02</span></td></tr>
+          <td class="prov-td">hand · 2026-07-02</td></tr>
       <tr><th scope="row" class="m">external-interface</th>
           <td class="m">reth0.0</td>
-          <td><span class="tab">hand · 2026-07-02</span></td></tr>
+          <td class="prov-td">hand · 2026-07-02</td></tr>
       <tr><th scope="row" class="m">dead-peer-detection</th>
           <td class="m">always-send interval 10 threshold 3</td>
-          <td><span class="tab">inferred — not confirmed against the device</span></td></tr>
+          <td class="prov-td">inferred — not confirmed against the device</td></tr>
       <tr class="unset"><th scope="row" class="m">local-identity</th>
           <td class="m">—</td>
-          <td><span class="tab">unset</span></td></tr>
+          <td class="prov-td">unset</td></tr>
     </tbody>
   </table>
 
@@ -2393,6 +2457,8 @@ viewed as a field list, which is exactly what the card's `THE OBJECT CHAIN` bloc
                                border-bottom: var(--rule-hair) solid var(--hairline);
                                white-space: nowrap; }
 .insp-fields tr.unset td, .insp-fields tr.unset th { color: var(--muted); }
+/* R48 / ADR-0025 (5): per-row provenance is a plain table cell, not a margin tab. */
+.prov-td { color: var(--muted); font-size: var(--t-small); font-style: normal; }
 .insp-block { margin-top: var(--s5); }
 .insp-block h3 { display: flex; justify-content: space-between; gap: var(--s3);
                  border-bottom: var(--rule-hair) solid var(--ink);
@@ -2424,9 +2490,9 @@ unambiguously — a name can be renamed, an ID cannot.
 
 | State | Channel | Rendering |
 |---|---|---|
-| Field set, hand-entered | C10 | tab `hand · 2026-07-02` |
-| Field set, parsed | C10 | tab `parsed 2026-03-04, 4 months old` |
-| Field inferred | C10 | tab `inferred — not confirmed against the device` |
+| Field set, hand-entered | C10 | provenance cell `hand · 2026-07-02` (plain `<td>` in `--muted` — R48, ADR-0025) |
+| Field set, parsed | C10 | provenance cell `parsed 2026-03-04, 4 months old` |
+| Field inferred | C10 | provenance cell `inferred — not confirmed against the device` |
 | Field unset | C3 + C10 | `—` in `--muted`, tab `unset` |
 | Field being edited | §2.4 | inline `.field` replaces the value cell |
 | Field invalid | C8 + C5 | 2px `--ink` underline + `!` |
@@ -2487,19 +2553,23 @@ state in one line:
 
 | # | Device | Survives print? | Survives forced colours? | Survives a screen reader? |
 |---|---|---|---|---|
+| 0 | **The absent risk bar** (promoted per M41) — deterministic lines carry the 4px `.risk-bar`; a proposal line never does. The difference is presence, not hue, so it survives forced colours, print, monochrome and every colour-vision deficiency | Yes | Yes | Yes — the `.vh` risk word is likewise absent |
 | 1 | **Dashed 1px border**, all four sides | Yes | Yes — `border-style` is not overridden | No |
 | 2 | **Hatched 4px left gutter** | Yes | **No** — `background-image` is forced to `none` | No |
 | 3 | **`--surface-2` ground** | Yes (with `print-color-adjust`) | No | No |
 | 4 | **Banner: `PROPOSAL — NOT DETERMINISTIC`** | Yes | Yes | Yes |
 | 5 | **`role="region" aria-label="AI proposal, not deterministic"`** | n/a | Yes | Yes |
 
-Devices 4 and 5 are the ones that always work, which is why they are mandatory and the visual
-ones are reinforcement. Device 1 is the primary *visual* signal because it is the only visual
-one that survives forced colours.
+Devices 0, 4 and 5 are the ones that always work, which is why they are mandatory and the
+visual ones are reinforcement. Device 0 is the strongest of the three (M41): it is the only
+device that survives every degradation simultaneously, which is why the risk bar must be an
+unmissable fixture of every deterministic config line — its absence is the signal. Device 1 is
+the primary *decorative* signal because it is the only decoration that survives forced
+colours.
 
 ### Two rules that make it categorical rather than decorative
 
-**Rule 1 — an AI proposal never renders a risk dot or a risk pill.** `Risk` is a property of
+**Rule 1 — an AI proposal never renders a risk mark or a risk word.** `Risk` is a property of
 emitted lines produced by a deterministic emitter with a corpus entry behind them. A proposed
 line has not been through that pipeline. Showing a green dot next to an unvalidated line would
 be the single most dangerous thing this interface could do. Proposed config renders in mono, on
@@ -2645,12 +2715,15 @@ Three `<dt>`s may never be omitted:
 
 ### Keyboard
 
-| Key | Behaviour |
-|---|---|
-| <kbd>Tab</kbd> | Normal order; Accept is first, so the destructive-by-default path is never the fastest |
-| <kbd>A</kbd> | Accept — only when focus is inside the region, and only after the region has been focused once (no blind accept from a global shortcut) |
-| <kbd>R</kbd> | Reject |
-| <kbd>Esc</kbd> | Collapse the proposal without deciding |
+> **Superseded — R11, ADR-0024.** The bindings that stood here bound bare letters to Accept
+> and Reject; `53` §3 owns the keymap and its §3.8 principle governs: accepting or rejecting a
+> proposal commits a security decision, so it is <kbd>⇧</kbd>+<kbd>A</kbd> /
+> <kbd>⇧</kbd>+<kbd>R</kbd>, focus inside the region, region focused at least once — never a
+> bare letter, never `Enter`, never a global shortcut. The friction is the mitigation for
+> proposal fatigue and it may not be moved behind a preference; a safety modifier behind a
+> setting is not a safety modifier. <kbd>Esc</kbd> unwinds one level of `53` §3.7's ladder
+> (collapse without deciding). <kbd>Tab</kbd> order is unchanged: Accept first, so the
+> destructive-by-default path is never the fastest.
 
 There is no "accept all". A surface that lets a user accept twelve unvalidated proposals with
 one keystroke has defeated the purpose of having a review surface.
@@ -2894,64 +2967,58 @@ re-run whenever a component is added.
 | Masthead | — | — | — | — | — | emphasis | — | — | annotation | — |
 | Risk legend | — | — | — | — | — | — | — | — | — | **Risk** |
 | Note | Risk *or* neutral | — | wash | — | — | — | — | — | — | **Risk** |
-| Config block | expanded | — | hover/select | focus | line no. + select `▸` | — | — | — | annotation | **Risk** (dot) |
+| Config block | expanded | — | hover/select | focus | line no. + select `▸` | — | — | — | annotation | **Risk** (bar) |
 | Table | — | — | hover/zebra | focus | sort mark | — | — | — | annotation | — |
 | Plumbing list | — | — | — | focus | ordinal | title | — | — | annotation | **Risk** (ladder only) |
-| View rail | — | — | — | focus | — | — | active (3px) | — | — | — |
-| Finder | **selection** | — | active/hover | *(shell border)* | — | — | — | — | corpus meta | **Risk** (pill) |
+| View rail | — | — | — | focus | — | — | — | — | `▸` marker + italic tabs (M36 — `52` §9.3's treatment; the 3px underline is deleted) | — |
+| Finder | — (R49: the selection bar is deleted) | — | active/hover + selection ground | focus (R37: input row inverts) | select `▸` | — | — | — | corpus meta | **Risk** (trailing word, M29) |
 | Finding row | **severity** | **state** | hover | focus | — | severity high | — | suppressed | **confidence** | **Risk** (fix block only) |
 | Suppression | — | hatch = suppressed | orphaned | focus | — | rule id | — | expired/orphaned | **review state** | — |
 | Depth toggle | — | — | — | focus | — | active | active | — | overridden | — |
 | Diff, field | — | — | — | focus | — | after value | — | — | **DeltaClass** | — |
-| Diff, line | — | — | **add/chg** | focus | **+ − ~ ·** | — | — | **removed** | — | **Risk** (dot) |
-| Provenance | — | — | — | focus | — | — | — | — | prov class + age | **Risk** (pill) |
+| Diff, line | — | — | **add/chg** | focus | **+ − ~ ·** | — | — | **removed** | — | **Risk** (bar) |
+| Provenance | — | — | — | focus | — | — | — | — | prov class + age | **Risk** (word) |
 | Inspector | — | — | unset rows | focus | — | — | **validation** | — | **provenance** | — |
 | AI proposal | — | **dashed = proposed** | surface-2 | focus | — | — | — | — | unsupported | **none — Rule 1** |
 | Egress | — | — | **inversion** | focus | — | — | — | — | — | — |
 
-**Two audited exceptions**, both recorded rather than hidden:
-
-1. **Finder — C1 carries selection**, not severity or risk. Safe because a finder result has no
-   severity and its risk lives in a pill on the opposite edge.
-2. **Finder input — no focus outline.** The dialog's 1px `--ink` border plus the caret is the
-   indicator. The only component in the product where C4 is not the focus channel.
+> **Audit superseded — R49, ADR-0025.** The "two audited exceptions" framing that stood here
+> is deleted: the audit recorded two and `86` found at least four more — the 4px left bar
+> carried six meanings (note, severity, block edge, selection, AI-proposed, zone stub), `▸`
+> inside a config block carried three, and `--surface` was both the default and the selected
+> ground. Under ADR-0025 (6): selection is `▸` plus ground, as `51` §4.2 already decided
+> (`52` §5.2 and §12 here change); the block's default ground moves to `--page` so selected
+> rows can take `--surface`; `dashed` is exclusive to AI; the finder input's focus indicator
+> is real (R37). This audit is to be **re-run honestly** against the amended components, with
+> the CI check `51` §3.3 already has the pattern for; until then its rows are unaudited
+> claims. The enumerated typographic glyph set (M31) also lives here when the re-run lands —
+> an un-enumerated glyph set grows.
 
 **One column that is deliberately almost empty:** the AI proposal's colour cell reads `none`.
 That is Rule 1 in §19 and it is the strongest single signal in the whole scheme — the absence of
-the risk dot that every other config block has.
+the risk bar that every other config block has.
 
 ---
 
 ## 23. Product-wide keyboard map
 
-Every global binding, in one place, so conflicts are visible.
+> **Deleted — R11, ADR-0024.** The map that stood here is removed;
+> **`53-interaction-and-keyboard.md` §3 owns the keymap** and every other document points at
+> it. This section's own header claimed "so conflicts are visible", and it is the table `86`
+> D-33 falsified: it bound bare <kbd>a</kbd> to accepting an unvalidated model-generated
+> change to a firewall (against `53` §3.8's `⇧A`), bound view switching to `Ctrl+1–6` against
+> `53`'s `⌥1–6`, and contradicted its own §15 on explainer depth. Under ADR-0024: `⇧A`/`⇧R`
+> stay — every action that removes data or commits a security decision requires `Shift` plus
+> its letter; depth is `⌥\` and `Ctrl+1/2/3` does not exist; `n`/`p`/`u` are diff-scoped only
+> when focus is inside a diff block and otherwise keep `53`'s meanings; `Esc` unwinds one
+> level of `53` §3.7's ladder, everywhere. A CI test parses every `<kbd>` table in
+> `docs/50-design/` and fails on any key bound to two actions in overlapping scopes.
 
-| Key | Scope | Action |
-|---|---|---|
-| <kbd>Ctrl/⌘</kbd>+<kbd>K</kbd> | Global, including inside text fields | Open the finder palette |
-| <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>6</kbd> | Global | Jump to view 1–6 |
-| <kbd>Ctrl</kbd>+<kbd>I</kbd> | Global | Focus the inspector |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>1/2/3</kbd> | Global | Set global explainer depth |
-| <kbd>Ctrl/⌘</kbd>+<kbd>P</kbd> | Global | Print / export the field card |
-| <kbd>Esc</kbd> | Global | Close the topmost open thing: dialog → disclosure → nothing |
-| <kbd>/</kbd> | Global, outside text fields | Focus the in-view filter |
-| <kbd>?</kbd> | Global, outside text fields | Open the keyboard map — which is this table, rendered |
-| <kbd>↑</kbd> <kbd>↓</kbd> <kbd>Home</kbd> <kbd>End</kbd> <kbd>PgUp</kbd> <kbd>PgDn</kbd> | Any roving list | Navigate (§2.5) |
-| <kbd>←</kbd> <kbd>→</kbd> | Tabs, radiogroups, finding rows | Move / expand / collapse |
-| <kbd>Enter</kbd> <kbd>Space</kbd> | Any row | Activate |
-| <kbd>n</kbd> <kbd>p</kbd> | Diff view | Next / previous changed line |
-| <kbd>u</kbd> | Diff view | Toggle unchanged context |
-| <kbd>s</kbd> | Findings | Suppress the focused finding |
-| <kbd>c</kbd> | Findings, config | Copy the fix / the block |
-| <kbd>a</kbd> <kbd>r</kbd> | AI proposal, focus inside only | Accept / reject |
-
-**No single-letter binding fires while focus is in a text input.** That includes the finder's
-own input, which is why <kbd>Ctrl/⌘</kbd>+<kbd>K</kbd> is the only global that works from inside
-a field.
-
-**Every single-letter binding has a visible equivalent.** `?` renders this table; each row's
-action also exists as a button in the component. A keyboard-only affordance that has no visible
-twin is a secret.
+Two rules from the deleted table survive as component requirements, restated because they are
+about components rather than bindings: **no single-letter binding fires while focus is in a
+text input**, and **every single-letter binding has a visible equivalent** — `?` renders `53`'s
+map; each action also exists as a button in the component. A keyboard-only affordance that has
+no visible twin is a secret.
 
 ---
 
@@ -3002,8 +3069,10 @@ Everything a reviewer needs to check, in one list.
 
 **DECISION — the `Terminal` wrap flavour and the clipboard (§8.2).** Until
 `13-emitters-and-provenance.md`'s open VERIFY on Junos backslash continuation is closed,
-`Terminal` may be a *display and print* flavour only. **RECOMMENDATION:** ship `Display` as the
-default, `Terminal` as an opt-in per block, and never as the clipboard payload.
+`Terminal`'s backslash is a *display and print* rendering only — the clipboard payload stays
+the unwrapped logical line regardless. ~~**RECOMMENDATION:** ship `Display` as the default~~
+**Decided the other way per R39, ADR-0025: `Terminal` is the default** — the clipboard rule
+above is unaffected, because §8.2 rule 2 already separates display wrap from copy payload.
 
 **DECISION — high-severity findings expanded by default (§13).** Costs vertical space, buys the
 `acceptable_when` field being read. **RECOMMENDATION:** ship it expanded, and revisit if the
@@ -3015,10 +3084,13 @@ argued with by anyone who reviews the interface visually. **RECOMMENDATION:** re
 design review as intentional, with the sentence from §19's cost section, so the argument is had
 once.
 
-**Open — the finder input's missing focus ring (§12).** It is an audited exception and it may be
-the wrong call. The alternative is an inset ring on a control that already has a caret and a
-1px `--ink` dialog border 1px away from it, which double-draws.
-<!-- VERIFY: test with a screen-magnifier user at 400% zoom whether the dialog border alone is a sufficient focus indicator for the finder input, or whether an inset ring is needed despite the double-draw. -->
+**Closed — the finder input's missing focus ring (§12) — R37, ADR-0026.** It was not an
+audited exception; it was an SC 2.4.7 (Level AA) failure in the product's most-used surface,
+and it is the one known exception that blocks `55` §1.1's "AA in full" claim until closed.
+§12 now inverts the input row on focus (`background: var(--surface)` plus a 2px `--ink`
+bottom rule) — the card's own vocabulary, no double-draw — and the footer's claimed Tab cycle
+to non-focusable spans is dropped. This entry is the tracking record: the AA claim stays
+qualified until the fix ships in the built product.
 
 **Open — `::after` content for the confidence tab (§13).** Marked VERIFY there. If any of
 NVDA/JAWS/VoiceOver drops generated content in 2026, the tab moves into markup and the CSS gets
@@ -3079,6 +3151,15 @@ than two vocabularies that each mean half a thing.
 
 ### Reconciliation with `52-information-architecture.md`
 
+> **Known incomplete — M36/D-31/D-32, ADR-0025.** This section enumerated three divergences
+> and missed at least two, including the most-looked-at control in the product: the **view
+> band** (`52` §9.3's lowercase italic tabs with `▸` versus §11's uppercase underlined bar —
+> decided for `52`) and the **egress indicator** (the paragraph below claimed the two
+> documents "agree"; they agree on position only and differ on form, stickiness, height,
+> glyph and focus order — decided for §20's inverted band, with `52` §2.2/§8.5 amended and
+> the `▲` deleted). Because it was trusted while wrong on two counts, the three entries below
+> are unaudited until this reconciliation is **re-run against all of `52`**.
+
 These two documents were authored independently and diverge on three points. **`52` owns
 layout, `54` owns components**, so the proposals below are offered to `52` rather than imposed;
 all three are cheap to change in either direction and should be settled once.
@@ -3089,8 +3170,7 @@ all three are cheap to change in either direction and should be settled once.
 | Severity levels | Three, plus `suppressed` | Four — `high`/`medium`/`low`/`info` — with `suppressed` handled as a *state* on a separate channel (C2) | Take `54`'s. `63-rulepack-spec.md` defines `info \| low \| medium \| high`, and `12-rule-engine.md` §10.2 makes `Suppressed` a `FindingState`, not a severity. Conflating them means a suppressed high and a suppressed info render identically |
 | Suppression reason | Margin tab shows the first 40 characters | The record quotes the reason in full, never clamped (§14 rule 2) | Both, and they are not in conflict: the 40-character tab belongs to the *finding row* in a list; the full quote belongs to the *suppression record* in the review list. `54` §14 governs the second and should say so — it now does |
 
-One point where the two agree and it is worth recording that they arrived there separately:
-the egress indicator sits **above the 3px masthead rule**, outside the sheet's own furniture.
-`52` §2.2 puts it there for layout reasons; `54` §20 puts it there because it is shell-rendered
-and no view may suppress it. `54` additionally specifies the treatment — inversion, not a
-1px strip in `--caution` — for the reason in §28 note 2.
+On the egress indicator the two documents agree **on position only** (above the 3px masthead
+rule, outside the sheet's own furniture) — the previous claim here that they "agree" was
+false on form, stickiness, height, glyph and focus order (M36, D-32). Decided: §20's inverted
+band, for the reason in §28 note 2; `52` §2.2/§8.5 change, including deleting the `▲` strip.

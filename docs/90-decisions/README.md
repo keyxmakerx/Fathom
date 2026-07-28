@@ -29,6 +29,10 @@ season.
 
 ## The record
 
+*Register* names the fork(s) in `70-ops/73-open-decisions.md` the record answers; `new` means the
+question was not in the register. *R* is the reversal cost from `73` §1.2 — R0 (a setting) to R5
+(not reversible without other people's consent).
+
 | # | Decision | Status | Register | R |
 |---|---|---|---|---|
 | **[0001](adr-0001-document-ownership-and-precedence.md)** | Every settled question has one owning document; precedence, `Superseded by`, and a "building on" declaration | Accepted | new | R1 |

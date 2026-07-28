@@ -368,7 +368,7 @@ document.
 
 | Field | Value |
 |---|---|
-| Subject matter | storage and retrieval of sealed workspace frames |
+| Subject matter | storage and retrieval of sealed workspace records |
 | Duration | for the term, plus the stated deletion windows |
 | Nature and purpose | availability of ciphertext to the controller's own clients; ordering authority for replay defence; an availability ACL; metering. That is the complete list of the four jobs in `33` §1.1 |
 | Types of personal data | (a) **ciphertext of unknown content**, which the controller knows and we do not; (b) account identifiers; (c) device public keys; (d) source IP addresses; (e) timestamps, sizes and counters |
@@ -385,7 +385,7 @@ worse.
 
 | Art 28(3) | Obligation | What we can honestly commit |
 |---|---|---|
-| (a) | process only on documented instructions, including as to transfers | **Yes.** The complete instruction set is: accept these frames, return these frames, delete on request. There is no further processing available to us |
+| (a) | process only on documented instructions, including as to transfers | **Yes.** The complete instruction set is: accept these records, return these records, delete on request. There is no further processing available to us |
 | (b) | persons authorised to process are under confidentiality | **Yes**, and it is nearly vacuous — no person of ours can reach plaintext at any level of authorisation |
 | (c) | take measures required by Article 32 | **Yes**, and the annex is `32-cryptography.md` rather than a generic list. Argon2id, ChaCha20-Poly1305, per-record derivation, key commitment, AEAD-authenticated headers, TLS 1.3, no key at the server |
 | (d) | respect conditions for engaging another processor | **Yes.** One sub-processor: the hosting provider, named, with prior notice of change and a right to object |
@@ -411,8 +411,13 @@ than as a refusal:
 > (ii) providing the Controller, on request, with the complete list of metadata the Processor
 > holds in relation to that workspace, as enumerated in Annex [y];
 > (iii) confirming in writing that no other data relating to that workspace is held; and
-> (iv) supporting the Controller's own key rotation, following which every copy of the prior
-> ciphertext held by the Processor, including in backups, is undecryptable by any party.
+> (iv) supporting the Controller's own key rotation. Rotation protects ciphertext written
+> after the rotation against removed keyholders; it does not render previously held copies
+> undecryptable, because every copy of a workspace, including a backup, contains the
+> keyholder record for its own epoch, and any party holding that copy together with an
+> epoch credential (a passphrase, a printed recovery code, sufficient escrow shares, a
+> member key, or a registered passkey) can still open it (`32` §9.2; ADR-0015). Removal of
+> the Processor's copies is effected by (i), not by rotation.
 >
 > The Controller acknowledges that the Processor's inability to act upon individual records is a
 > designed property of the service and not a limitation of effort, and that responsibility for
@@ -502,7 +507,7 @@ Our position sits squarely in the effective column, and the argument is unusuall
 | Can the importer access the data in the clear? | No, at any price. No key exists at the importer and none can be derived from what it holds (`32` §3) |
 | Could the importer be compelled to provide access? | It can be compelled to provide the ciphertext. Compulsion cannot produce a key that does not exist |
 | Is the measure contractual or technical? | Technical, and independently verifiable by the exporter in forty minutes (`36` Q12) |
-| What remains exposed? | **The metadata.** M1–M10, in the clear, at the importer. This is the part of the transfer that a TIA should actually be about |
+| What remains exposed? | **The metadata.** M1–M11 (`31` §7.2, M11 added per ADR-0015), in the clear, at the importer. This is the part of the transfer that a TIA should actually be about |
 | Simpler alternative? | **Self-host in your own region.** There is then no transfer to assess and the whole section is moot |
 
 **The honest framing to give a customer:** the supplementary-measures argument for the ciphertext
@@ -539,22 +544,21 @@ erasure:
 | Decision | Where | Why it resists erasure |
 |---|---|---|
 | **Inventory as a document, not a database** (brief §6.4) | the workspace is a file the customer owns, git-versionable and diffable | there is no central store to delete from. There are as many copies as somebody made, and we cannot enumerate them |
-| **Frames are an append-only set, not a sequence** (`17` §5.3) | sync and offline both | an edit adds a frame; it does not overwrite one. The prior value persists until a compaction removes it |
-| **CRDT merge with tombstones** (`33` §5, §6) | multi-writer | a delete is a tombstone, which is a record that something existed. Tombstones must survive long enough for offline peers to converge |
+| **Whole-record rewrite in git** (ADR-0013; `17` §12–§13) | every git-versioned workspace | an edit rewrites the shard, and git retains the prior sealed blob forever. The prior value persists in every historical commit and every clone |
+| **CRDT merge with tombstones** (`33` §5, §6 — **deferred by ADR-0016**; applies only if multi-writer sync is ever built) | multi-writer | a delete is a tombstone, which is a record that something existed. Tombstones must survive long enough for offline peers to converge |
 
 Add git, which retains every historical version forever by design and cannot forget without a
 history rewrite that does not reach clones, and the honest statement is:
 
-> **There is no per-record erasure in this architecture that reaches every copy. There are three
+> **There is no per-record erasure in this architecture that reaches every copy. There are two
 > coarser operations, and the customer needs to know which one they are actually performing.**
 
-### 7.2 The three operations that do exist
+### 7.2 The two operations that do exist
 
 | Operation | What it removes | What it does not reach | Cost |
 |---|---|---|---|
-| **Overwrite the field** (edit the description; rename the device) | the current value | every prior frame until compaction; every git commit; every clone; every export already made; the egress log; **the provenance record and `FormerName`, which retain the old value on purpose** | free |
-| **Compact** (`33` §9, client-driven because the server cannot decrypt) | superseded frames for the compacted records, in the copies that receive the compaction | clones and exports that already exist; git history unless rewritten; any client still offline holding old frames | a full rewrite of the compacted records; opposed to git-friendliness (`17` §13.6) |
-| **Rotate the root key** (`32` §9.2) | the readability of **every** prior ciphertext everywhere, including backups and any server copy | nothing, if the goal is unreadability. Everything, if the goal is "that specific person's name is gone from the current workspace" — it is not a targeted operation | expensive: a full re-seal, and it invalidates every existing copy for legitimate holders too |
+| **Overwrite the field** (edit the description; rename the device) | the current value from the current record — under whole-record rewrite (ADR-0013) the rewritten shard no longer carries it | every git commit; every clone; every export already made; the egress log; **the provenance record and `FormerName`, which retain the old value on purpose** | free |
+| **Rotate the root key** (`32` §9.2) | the readability of ciphertext written **after** the rotation, for removed keyholders only | **every copy that already exists** (corrected per ADR-0015): each carries its epoch's keyholder record, so anyone holding a copy plus an epoch credential still opens it. And it is not a targeted operation — it cannot make one person's name gone from anything | expensive: a full re-seal, and it invalidates every existing copy for legitimate holders too |
 
 **RECOMMENDATION — `fathom redact`.** A single command that performs the honest composite and,
 critically, *reports what it could not reach*:
@@ -564,13 +568,13 @@ $ fathom redact --node fathom:interface:01JZQ8… --field description \
                 --reason "SAR 2026-114, name removed on instruction of the DPO"
 
   redacted   1 field on 1 node
-  compacted  4 superseded frames for record dev-srx-edge-lhr-01.hot
+  resealed   node shard 2a — the rewritten record no longer carries the value
   recorded   in the export log as a redaction, with your reason
 
   ▌ WHAT THIS DID NOT REACH                                    read this
     git history            12 commits contain the prior value. A rewrite will
                            not reach clones. Listed in redact-report.txt
-    other clients          2 device ids have not compacted since 2026-06-04
+    other clients          2 clones have not pulled since 2026-06-04
     plaintext exports      3 recorded in the export log, destinations unknown
     the AI egress log      the prior value appears in 2 retained request bodies
     provenance             FormerName retains the prior value by design;
@@ -590,27 +594,32 @@ storage immediately, backups on the stated rotation. That deletes a **replica**.
 on the customer's endpoints and in their repository, and saying so plainly prevents a customer
 from believing that a deletion request to us discharged their obligation.
 
-### 7.4 Crypto-erasure, and whether it counts
+### 7.4 Crypto-erasure — not available here (rewritten per ADR-0015)
 
-Rotating the root key renders every prior ciphertext undecryptable by anyone, including the
-customer. Technically that is as complete as erasure gets — the data is not merely inaccessible,
-it is gone in any operational sense, because the key material that could recover it no longer
-exists.
+> **Superseded by ADR-0015 (R02):** the claim that previously stood here — that rotating the
+> root key renders every prior ciphertext undecryptable by anyone, including the customer,
+> because the key material that could recover it no longer exists — is **false under this
+> product's own design**, and it is withdrawn, not re-hedged.
 
-Legally, it is contested. Regulators have been cautious about treating "rendered inaccessible by
-destroying the key" as erasure rather than as a form of restriction, on the reasoning that the
-ciphertext still exists and the analysis depends on assumptions about future cryptanalysis.
-The EDPB's guidelines on blockchain technologies engage with the same question in a context where
-deletion is structurally impossible, and the direction of travel there is that inaccessibility is
-not automatically erasure.
-<!-- VERIFY: quote the EDPB's position on key destruction as erasure from the final adopted text
-of Guidelines 02/2025 on processing of personal data through blockchain technologies before
-relying on it in a customer-facing document. Do not paraphrase it from a summary. -->
+The technical fact, from `32` §9.2: **crypto-erasure is not available against a backup that
+contains the keyholder record, and every backup of a workspace does.** `RK_e` is recoverable
+from any surviving epoch-`e` keyholder record by anyone holding the passphrase, the printed
+recovery code, `k` Shamir shares, a member X25519 secret, or the WebAuthn PRF — and rotation
+does not reach copies that already exist. *"The git-history problem is not solvable by
+rotation."* What rotation does do is protect ciphertext written **after** the rotation against
+removed keyholders. That is revocation going forward; it is not erasure of anything.
 
-**The position we take:** crypto-erasure is offered, described accurately as "no party can decrypt
-this any more, including you", and never described as erasure under Article 17 without the
-customer's own counsel agreeing that it is. We will not settle a live legal question in a product
-tooltip.
+**What is available**, and what this document offers a DPO instead:
+
+- **Deletion of the replica** (`33` §2.8; §7.3): the operator's copy, live storage
+  immediately, backups on the stated rotation.
+- **The honest statement**: the original is on the customer's endpoints and in their
+  repository, in as many copies as somebody made, and neither rotation nor any operation the
+  Processor can perform reaches them.
+
+No Article 17 argument in this document rests on key destruction. The Article 17 answer is
+§7.2's two operations and §7.3's replica deletion, with `fathom redact`'s gap report as the
+record of proportionate effort.
 
 ### 7.5 The retention trap nobody looks at
 
@@ -667,7 +676,7 @@ it from a regulator.
 | Right | Against a workspace the customer holds | Against a sync service we operate |
 |---|---|---|
 | **Art 15 access** | Feasible, and this is where the product is genuinely *better* than the alternative: the graph is typed and queryable, so "every field in the estate containing this string" is a query rather than a manual read of forty configs. `fathom grep --field-class FreeText` is a small feature with real compliance value | We hold ciphertext we cannot read, plus the metadata in §5.1. We respond with the metadata list and refer the request to the controller |
-| **Art 16 rectification** | Edit the node. §7.2's caveats about prior frames, git and provenance apply | Not possible; not ours |
+| **Art 16 rectification** | Edit the node. §7.2's caveats about git history, clones and provenance apply | Not possible; not ours |
 | **Art 17 erasure** | §7. The honest, difficult one | Delete the workspace in full. There is no partial deletion available to us |
 | **Art 18 restriction** | **No mechanism exists today.** There is no way to mark a node as restricted from processing. §8.4 proposes one | Not possible; not ours |
 | **Art 20 portability** | Strong. `fathom export` produces a deterministic, documented format with published test vectors. Portability is a property we get for free from `17` and invariant 9 | Not applicable — we hold nothing intelligible |
@@ -745,7 +754,7 @@ consequence, which is why the generated path is the default in the UI rather tha
 
 ### 9.4 The metadata breach nobody classifies
 
-A dump of a sync store discloses the ciphertext **and** M1–M10. Even if the Article 34(3)(a)
+A dump of a sync store discloses the ciphertext **and** M1–M11 (`31` §7.2; M11 per ADR-0015). Even if the Article 34(3)(a)
 argument holds for the blob, the metadata is in the clear and it is personal data: source IP
 addresses, per-account timestamps, device counts, and change patterns from which working hours and
 individual activity are derivable (§2.4, `31` §7.3).
@@ -1050,8 +1059,8 @@ sections above fail a build rather than age quietly. They extend `31` §12 rathe
 | The `privacy.*` rule domain exists and every rule in it has a non-empty `acceptable_when` | §2.5, invariant 8 | a `privacy.*` rule omits it |
 | The parser does not emit an `Identity`-class value into the graph unless the capture opted in | §2.5 RECOMMENDATION 2 | a fixture config containing `set system login user …` produces a graph node carrying the username |
 | Export header default is a pseudonym | §2.5 RECOMMENDATION 3 | the default export path writes a real identity into the header |
-| Redaction reports its own gaps | §7.2 | `fathom redact` exits successfully without listing git commits, un-compacted peers, prior exports and egress-log occurrences |
-| Deleted-node canary after compaction | §7.2 | a value deleted and compacted still appears in the compacted record set |
+| Redaction reports its own gaps | §7.2 | `fathom redact` exits successfully without listing git commits, stale clones, prior exports and egress-log occurrences |
+| Deleted-node canary after rewrite | §7.2 | a value deleted still appears in any current record after the shard rewrite (ADR-0013) |
 | Egress-log persistence is documented | §7.5 | the product documentation does not state that deleting a node does not delete it from the egress log |
 | DPA annexes match the code | §5.1 | the metadata list in the DPA annex differs from the fields the sync service actually stores. This is a real check: generate the annex from the schema |
 | Export-control note present in the release | §11.7 | a release is tagged without the classification note |
@@ -1068,12 +1077,12 @@ Ranked by what deserves attention next, using `31` §1.4's four-value scale.
 
 | # | Residual | Tag | Accepted because | Revisit when |
 |---|---|---|---|---|
-| P1 | **No per-record erasure reaches every copy.** Git history, clones, prior exports and un-compacted peers persist | `material` | The document-not-database decision (brief §6.4) is right at team scale, and the alternative is a central store that can read your estate | If a customer's erasure obligation becomes a purchase blocker, or when `fathom redact` ships and the gap report shows what customers actually face |
+| P1 | **No per-record erasure reaches every copy.** Git history, clones and prior exports persist | `material` | The document-not-database decision (brief §6.4) is right at team scale, and the alternative is a central store that can read your estate | If a customer's erasure obligation becomes a purchase blocker, or when `fathom redact` ships and the gap report shows what customers actually face |
 | P2 | **Free text is the main personal-data channel and the detector is a pattern match** | `material` | A rule with `acceptable_when` is the correct shape; the alternative is either nothing or a model at runtime, and the second breaks invariant 9 | If false positives cause the `privacy.*` domain to be suppressed wholesale — that is the signal the rule is wrong, not that users are careless |
 | P3 | **Provenance and `FormerName` retain values a user believes they removed** | `material` | Provenance is load-bearing for review and for the parsed-versus-drawn distinction (brief §6.5) | Now, in the sense that `fathom redact` must report it and the UI must say it at rename time |
 | P4 | **The AI egress log outlives the graph** | `material` | `21` §8.6's decision to retain literal bodies is right; a digest is not an audit | If the 25 MB cap proves to be the wrong shape — a time-based cap may serve retention better than a size-based one |
 | P5 | **Metadata is personal data and survives every mitigation but "do not sync"** | `material` | `31` §7.7. Only the offline shapes remove M1 | If a customer's requirement makes M1 disqualifying — the answer is mode B or E, not a feature |
-| P6 | **Crypto-erasure's legal status is unsettled** | `bounded` | We describe it accurately and do not call it erasure | When the EDPB position on key destruction is settled |
+| P6 | **Crypto-erasure is not available and is not claimed** (corrected per ADR-0015; §7.4) | `bounded` | Rotation does not reach existing copies — every backup carries its epoch's keyholder record. What is offered is replica deletion and the gap report, described in those terms | If the design ever gains a mechanism that reaches existing copies — nothing currently proposed does |
 | P7 | **Export classification is not yet done** | `material` | The project has not shipped | **Before the first public release.** §11.7 |
 | P8 | **No Article 18 restriction mechanism exists** | `bounded` | Nobody has asked yet, and the fix is a day | §8.4. Build it before a customer asks, not after |
 | P9 | **We cannot enumerate special-category data and do not claim to** | `bounded` | A claim we cannot meet is worse than no claim | Never — this is the model |
@@ -1107,7 +1116,7 @@ Ranked by what deserves attention next, using `31` §1.4's four-value scale.
 | Cybersecurity measures including supply chain security | Directive (EU) 2022/2555 (NIS2) |
 | AI Act obligations and the 2026 deferral of high-risk timelines; Article 50 transparency from 2 August 2026 | Regulation (EU) 2024/1689 as amended by the 2026 digital omnibus <!-- VERIFY final OJ text --> |
 | UK compelled disclosure of a key or passphrase | Regulation of Investigatory Powers Act 2000, Part III, ss.49 and 53 |
-| Argon2id parameters and the entropy argument; Padmé padding; metadata channels M1–M10 | `31-threat-model.md` §2.4, §7; RFC 9106; Nikitin et al., PoPETs 2019(4) |
+| Argon2id parameters and the entropy argument; Padmé padding; metadata channels M1–M11 | `31-threat-model.md` §2.4, §7; RFC 9106; Nikitin et al., PoPETs 2019(4) |
 | Key hierarchy, rotation, revocation, recovery, the envelope construction and its test vectors | `32-cryptography.md` §3, §7, §9, §16 |
 | The server's four jobs, six prohibitions and nine endpoints; compaction being client-driven | `33-sync-protocol.md` §1, §2, §9 |
 | CSP per mode; no third-party runtime code; the clipboard header | `34-browser-hardening.md` §2, §6, §8 |

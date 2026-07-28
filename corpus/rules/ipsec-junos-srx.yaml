@@ -25,7 +25,7 @@
 # =============================================================================
 #
 # 63 §2 says one directory per rule with `rule.yaml` inside it and no multi-doc
-# YAML. This is a bundle, for the same reason as the command seed: 36 rules
+# YAML. This is a bundle, for the same reason as the command seed: 37 rules
 # authored in one pass need one diff. `fathom-rules split` writes `rules[i]` to
 # `rules/<id>/rule.yaml`. Not a proposed change to §2.
 #
@@ -88,7 +88,7 @@
 #      the end under § DERIVED PREDICATES, with what it must compute, so the
 #      schema work is scoped rather than discovered rule by rule.
 #
-#  G6. **`versions: "*"` is used on all 36 rules and that is not a virtue.**
+#  G6. **`versions: "*"` is used on all 37 rules and that is not a virtue.**
 #      The owner brief is explicit that version predicates are not optional and
 #      that a rule correct on one train and wrong on another is worse than no
 #      rule. The card does not state a train. Nobody on this project has an SRX

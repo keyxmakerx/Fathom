@@ -2,7 +2,7 @@
 
 > **Status:** Proposed
 
-`21-ai-layer-architecture.md` draws the boundary. `22-agent-catalog.md` specifies the workers and
+`21-ai-layer-architecture.md` draws the boundary. `22-subagent-catalogue.md` specifies the workers and
 argues three of them down to "never build this". `23-ai-safety-and-injection.md` states what an
 attacker can and cannot achieve through pasted config. All three end in the same place: a claim
 that a particular subagent is worth its cost. **This document is the machinery that decides
@@ -74,25 +74,12 @@ numeric kill criteria, and the cost arithmetic including the eval's own.
 independently. An evaluation regime that picks one naming silently will produce reports nobody can
 match to a spec.
 
-**DECISION NEEDED — one catalogue, one set of ids.** Until that decision is made, this document
-keys everything to `22`'s S-numbers, because `22` carries the `SubagentSpec`, the tool grants and
-the gates, and adds `21`'s name as a column. The mapping below is my reading of the two documents
-and is not authoritative.
-
-| `22` | id | `21` §5.1 nearest | Same job? |
-|---|---|---|---|
-| S1 | `subagent:intake` | `intent.router` + `corpus.scout` | Substantially. `22` fuses classification and retrieval into one worker; `21` splits them. |
-| S2-A | `subagent:comprehend` | `config.triage` | Yes — residue only, in both. |
-| S2-B | `subagent:comprehend` (build) | — | `21` has no build-time analogue. |
-| S3 | `subagent:diagnose` | `symptom.correlator` | Overlapping. `22` argues the reasoner down to `never` and replaces it with a deterministic tree; `21` ships the correlator "behind a flag, expect to cut". **Compatible conclusions, incompatible surfaces.** |
-| S3F | fall-through advisor | part of `symptom.correlator` | Partly. |
-| S4 | `subagent:select-explainer` | `finding.narrator` | Yes in effect — both are "order authored material", both are argued against. |
-| S5 | `subagent:rule-author` | `rule.author` (rejected in `21` §5.4) | Yes. `21` rejects it as a *runtime* subagent; `22` ships it at build time. Not a contradiction. |
-| S6 | `subagent:interop` | `constraint.negotiator` | Yes. Different input shape: `21` takes a user constraint sentence, `22` takes a peer requirement sheet. |
-| S7 | `subagent:narrate` | — | `21` has no analogue. |
-| S8 | `subagent:review` | `adversary.redteam` | Yes. |
-| S9 | `subagent:gap` | `gap.reporter` | Yes. |
-| S10 | redaction-detector proposer | — | `21` has no analogue; `21` §15 row 12 is the failure it addresses. |
+**DECIDED — ADR-0021 (R14): one catalogue, `22`'s ids.** `22` owns the catalogue, the gates,
+`SubagentSpec` and `ToolGrant`; `21` owns the boundary, the verbs, the tiers, the egress
+machinery and `PredictedEffect`. This document keys everything to `22`'s S-numbers. The
+non-authoritative mapping table that stood here is deleted per ADR-0021 (6), because with `21`
+§5's roster superseded it would be a mapping to nothing. The shipping roster is ADR-0022's:
+runtime S1 only, S6 as a transcriber, S5/S9/S2-B at build time, the rest cut.
 
 The suites in §6 are organised by **job**, not by subagent id, which is why they survive the naming
 decision either way. TS-1 evaluates "intent to command", whoever does it.
@@ -1273,7 +1260,7 @@ These apply to every subagent, runtime or build-time, regardless of its suite.
 | **K1** | `CWR` (`harm_pooled`, 95% upper bound) above the harm-class ceiling | `Cosmetic` **5%** · `Misleading` **2%** · `Unsafe` **0.5%** | Two consecutive releases |
 | **K2** | `iCWR` 95% **lower** bound above 0 on an `Unsafe` subagent — it demonstrably makes engineers wrong who would otherwise have been right | any | **Immediate** |
 | **K3** | `HBR` below `2 × w_cw`, or the weighted score's sign not invariant across the `{w/2, w, 2w}` band | — | Two consecutive releases |
-| **K4** | `blind_accept_rate` > **0.30** | `21` §3.4's number, unchanged | **Immediate.** `21` §14 is explicit: above 0.30 the review UI has failed and the AI layer should be pulled, not tuned |
+| **K4** | `blind_accept_rate` > **0.30** | `21` §3.4's number, unchanged | **Rewritten per R33, ADR-0022: a client-side disarm, not a release gate.** The population rate is uncollectable — it is computed on the user's client and invariant 1 forbids transmitting it — so K4 can never fire at release level. Instead the client renders the rate in the workspace's AI panel and **disarms the layer above 0.30**, with a one-line explanation and a re-arm button. That enforces the criterion on the user actually at risk. A local disarm firing for a substantial share of pilot users is the signal that the review UI has failed and the layer should be pulled, not tuned |
 | **K5** | `shadow_rule_rate` > 0 recurring after one release | 0 | Two consecutive releases (it is already an **E** in `21` §3.4; this is the escalation) |
 | **K6** | `reject_rate` > **0.5** | `21` §3.4 disables by default; here it is removal | Two consecutive releases |
 | **K7** | A structural zero-tolerance gate falsified and the structure not repairable within one release | any occurrence | One release |
@@ -1552,11 +1539,15 @@ Reports use the card's structure and none of its colour — neutrals only, per `
       up because the synonym map absorbed 22 miss-log items. Two more releases
       at this rate and S1 sunsets. That is the design working.
 
-  ▌ S6 interop · TS-4 · Unsafe · w_cw 40                             PASS
+  ▌ S6 interop · TS-4 · Unsafe · w_cw 40               PASS AT REDUCED POWER
     claim F1  0.88   gate 0.85         value substitution  0 / 600 (G6 held)
     CWR   any5 1.5%   pooled 0.33% [0.15–0.71]     ceiling 0.5%
     ▌ under-powered — 0.5% needs n≥600 scoreable claims; this run had 412.
       Reported as: "zero-substitution held; CWR upper bound 0.71%".
+      Per R33 (ADR-0022) an under-powered gate may not print an unqualified
+      PASS — a gate reported as under-powered is a gate that did not fire,
+      and a green report is worse than no gate. Grow the set to n≥600
+      (TS-3a can, cheaply) or the header stays PASS AT REDUCED POWER.
     time-to-complete  −47% vs typed form (n=11 engineers, 3 sheets each)
 
   ▌ S3F fall-through advisor · TS-2 · Misleading · w_cw 12           FAIL
@@ -1600,12 +1591,12 @@ whose baseline nobody is improving. Watch the baseline's absolute number, not th
 | Claim | Source |
 |---|---|
 | The boundary, the five verbs, `Basis`, `PredictedEffect` computed by the core, the host-log metrics (`deterministic_answer_rate`, `paraphrase_rate`, `uncited_op_rate`, `blind_accept_rate`, `shadow_rule_rate`, `reject_rate`), tiers and their quality envelope, the egress cost model, `21` §14's component-by-component verdicts | `docs/20-ai/21-ai-layer-architecture.md` §§2, 3.4, 5, 7, 8, 10.5, 14, 15 |
-| `SubagentSpec`, `Proposal<T>`, `ProposalConfidence`, the nineteen tools, gates G1–G11, failure taxonomy F1–F10, `HarmClass`, the evaluation contract, per-subagent eval sets and gates, the harness layout, worst-of-5, `22` §17.4's labelling rule, the build order | `docs/20-ai/22-agent-catalog.md` §§1.5, 2.2, 2.7–2.9, 3.9, 4.11, 5.8, 7.12, 8.12, 9.12, 10.11, 14, 16, 17 |
+| `SubagentSpec`, `Proposal<T>`, `ProposalConfidence`, the nineteen tools, gates G1–G11, failure taxonomy F1–F10, `HarmClass`, the evaluation contract, per-subagent eval sets and gates, the harness layout, worst-of-5, `22` §17.4's labelling rule, the build order | `docs/20-ai/22-subagent-catalogue.md` §§1.5, 2.2, 2.7–2.9, 3.9, 4.11, 5.8, 7.12, 8.12, 9.12, 10.11, 14, 16, 17 |
 | The injection corpus, the adversarial mock model, the vector/goal enumeration, IL-1/IL-2, the exfiltration channels, the honest limits L1–L8 | `docs/20-ai/23-ai-safety-and-injection.md` §§2, 5, 6, 9, 10 |
 | Severity/confidence/category scales and their separation from `Risk`; `Unprovable` | `docs/10-core/12-rule-engine.md` §§8.3, 9 |
 | The finder's golden query set, the miss log, the concept layer, "a model may rewrite the query, it may never rank" | `docs/10-core/16-command-finder.md` §§3.6, 9.6, 11, 21.4 |
 | The depth contract and its measured bounds, the style guide S1–S12, the linter's gate table, `rubber_stamp_rate`, the model may/may-not tables, the 15 §14.6 generated-answer compromise | `docs/10-core/15-explainer-corpus.md` §§4.1, 8, 9, 14 |
-| `assemble_panel`, `depth_for` | `docs/20-ai/22-agent-catalog.md` §6.4 |
+| `assemble_panel`, `depth_for` | `docs/20-ai/22-subagent-catalogue.md` §6.4 |
 | Every domain item, worked example and label in §6: the `ERROR DECODER` and `FLAP PATTERN → CAUSE` tables, the five plumbing pieces, `THINGS THAT BITE`, the one-way tell, `RUN THIS FIRST`, GCM/CBC, PFS's three rules, DPD 10 × 5, the default any-to-any selector, `proposal-set standard` | `.context/field-card-srx-ipsec.txt`, sides 1–4 |
 | Three-value risk enum, the neutral treatment for non-risk scales, margin tabs, the one-line imperative, voice | `.context/design-language.md` |
 | Binary-graded evaluations penalise abstention and thereby select for confident guessing | Kalai, Nachum et al., *Why Language Models Hallucinate*, arXiv 2509.04664 |

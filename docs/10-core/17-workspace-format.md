@@ -339,8 +339,8 @@ the flat 512-byte floor for small plaintexts.
 
 | Record kind | Compressed before sealing? | Why |
 |---|---|---|
-| `DeviceGraph`, `Fabric` | yes | CBOR with `FieldKey(u16)` keys still has structural redundancy; ULIDs do not compress and are ~25 % of the bytes |
-| `DeviceProv`, `DeviceHistory` | yes | Same |
+| `Nodes`, `Edges` shards (ADR-0013's taxonomy, §4.2) | yes | CBOR with `FieldKey(u16)` keys still has structural redundancy; ULIDs do not compress and are ~25 % of the bytes |
+| `Provenance` segments | yes | Same |
 | Captures | yes, and it is the biggest win | Configuration text compresses roughly 5–10× (`11-ir-schema.md` §14.1) |
 | `Settings`, `Pins`, `Suppressions` | **no** | Small, and containing short attacker-influenceable strings next to secrets-adjacent values. Compression-before-encryption leaks plaintext similarity through length; on a record small enough that one field dominates the length, that is a usable oracle |
 | `ai/cache/*` | yes | Model output, highly redundant |
@@ -757,7 +757,7 @@ undoes an encryption story.
 | `post-merge` hook that rebuilds the manifest | Unnecessary. The manifest rebuilds on open (§7.3), and a hook that runs a decryption on `git pull` is a hook that will surprise someone |
 | Git LFS | **No.** Records are hundreds of kilobytes, not hundreds of megabytes, and LFS moves the ciphertext to a second server with a second access model, which is a new trust boundary for no benefit. Captures are the largest objects and they are immutable, which is the case git handles best |
 | `git-crypt` / `git-remote-gcrypt` underneath | **No.** Encrypting an already-encrypted store adds a second key to lose for no benefit. `git-crypt`'s own documentation states the cost: encrypted files do not delta-compress and the whole file is re-stored on every change |
-| Committing `manifest.fm` | No. §7.4 |
+| Committing `manifest.fm` | **Yes** — required. §7.4 (ADR-0013): without it the git shape has no rollback detection |
 
 ---
 
@@ -813,8 +813,9 @@ plumbing pieces, no capture: **≈ 12 KB**, in ~40 nodes.
 | One field edit: bytes written | ~350 B | ~350 B | ~350 B |
 | One device re-parse: frames appended | ~840 KB | ~840 KB | ~840 KB |
 
-Open time assumes ~250 MB/s for XChaCha20-Poly1305 and ~80 MB/s for canonical CBOR decode in
-WASM. Both are soft; WASM AEAD without SIMD can be several times slower.
+Open time assumes ~250 MB/s for ChaCha20-Poly1305 (the AEAD `32` D4 ships; ADR-0012) and
+~80 MB/s for canonical CBOR decode in WASM. Both are soft; WASM AEAD without SIMD can be several
+times slower.
 
 <!-- VERIFY: AEAD and CBOR throughput in the actual WASM build, with and without the
      `simd128` target feature, on a mid-range laptop and on a five-year-old one. The open-time
@@ -869,7 +870,13 @@ opinions that brief §6.4 says are the point.
 
 ### 13.5 Git repository growth, which is the number nobody budgets for
 
-This is where the append-frame design earns its complexity, and where it does not.
+> **Superseded by ADR-0013:** the update model is **whole-record rewrite**, not frame
+> append. Every save of a touched shard is a full new blob, git's delta compression cannot
+> help because the bytes are ciphertext, and a busy workspace's history is roughly an order
+> of magnitude larger than the frame model would have produced — that is the stated price of
+> hiding the device count. The frame-append rows and arithmetic below are retained only as
+> the rejected comparison; recompute this section against whole-record rewrite before any
+> figure is quoted.
 
 | Scenario | Working tree | New git objects | Note |
 |---|---|---|---|

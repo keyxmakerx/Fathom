@@ -1220,10 +1220,10 @@ never for status, severity or measurement confidence.
 
 **Two proposed changes to sibling documents**, both stated in place rather than smuggled:
 
-| # | Document | Change | Where |
-|---|---|---|---|
-| 1 | `32-cryptography.md` §4.2 | Calibrate Argon2's `m` against a **declared floor device**, not the creating device; add an authenticated `DeviceFloor` field to the keyholder descriptor; default to `AnyDevice`, which pins `m` at `FLOOR` | §4.8.4 |
-| 2 | `32-cryptography.md` §6 / `17-workspace-format.md` | Shard the graph **by device** rather than by node-ID hash above a device-count threshold, accepting that the record count then leaks the device count | §4.8.6 |
+| # | Document | Change | Where | Outcome |
+|---|---|---|---|---|
+| 1 | `32-cryptography.md` §4.2 | Calibrate Argon2's `m` against a **declared floor device**, not the creating device; add an authenticated `DeviceFloor` field to the keyholder descriptor; default to `AnyDevice`, which pins `m` at `FLOOR` | §4.8.4 | **Accepted — ADR-0014.** Landed in `32` §4.2, with `32` §4.6's table restated floor-first |
+| 2 | `32-cryptography.md` §6 / `17-workspace-format.md` | Shard the graph **by device** rather than by node-ID hash above a device-count threshold, accepting that the record count then leaks the device count | §4.8.6 | **Rejected — ADR-0013.** The device count is the single highest-value metadata property; a permanent leak in immutable history is unrecoverable, an open-time regression is re-engineerable |
 
 Change 1 costs about 2.4 bits of KDF work and buys a workspace that opens on the device the user
 owns. Change 2 costs a structural metadata leak and buys the 100-device case. Neither is this
