@@ -138,7 +138,7 @@ svg.scene.is-panning { cursor: grabbing; }
    The stack (three outlines of the same form, 4px apart on the lattice) is
    the only new mark in this file. The count is --ink because it is content,
    not annotation; the range that qualifies it is --muted. */
-.dg-stack   { fill: none; stroke: var(--ink); stroke-width: 1; }
+.dg-stack   { fill: var(--page); stroke: var(--ink); stroke-width: 1; }
 .dg-stack.aged { stroke: var(--muted); }
 .dg-count   { font-family: var(--mono); font-size: var(--t-micro); fill: var(--ink); }
 .dg-count.q { fill: var(--muted); }
@@ -328,8 +328,8 @@ g.dimmed { opacity: 0.4; }
     <div class="cgroup">
       <span class="clabel">aggregation — the comparison</span>
       <div class="crow" role="group" aria-label="aggregation">
-        <button class="seg" data-agg="1" aria-pressed="true" type="button">aggregated</button>
-        <button class="seg" data-agg="0" aria-pressed="false" type="button">every one drawn</button>
+        <button class="seg" data-aggmode="1" aria-pressed="true" type="button">aggregated</button>
+        <button class="seg" data-aggmode="0" aria-pressed="false" type="button">every one drawn</button>
       </div>
     </div>
 
@@ -406,6 +406,20 @@ g.dimmed { opacity: 0.4; }
 
     <aside class="side">
       <section class="panel">
+        <div class="panel-head">Risk legend <span class="tab">ADR-0011 · reserved</span></div>
+        <div class="panel-body">
+          <div class="cmd r-read">show security ike active-peer</div>
+          <div class="risk r-read">read-only — safe on production</div>
+          <div class="cmd r-change" style="margin-top:var(--s2)">set security ike gateway GW-B external-interface reth0.0</div>
+          <div class="risk r-change">changes config — needs a commit</div>
+          <div class="cmd r-disrupt" style="margin-top:var(--s2)">set security ipsec vpn VPN-B bind-interface st0.0</div>
+          <div class="risk r-disrupt">disruptive — drops live traffic</div>
+          <p class="aggnote" style="margin-top:var(--s2)">These three hues mean what a COMMAND does to a
+             live box. They are the only colour on this page, and not one of them appears
+             inside the picture — which is the whole reason a topology node is never green.</p>
+        </div>
+      </section>
+      <section class="panel">
         <div class="panel-head">Inspector <span class="tab" id="insp-tab">nothing selected</span></div>
         <div class="panel-body" id="inspector">
           <p class="insp-empty">Select an element in the picture, or focus a row in the Outline.
@@ -429,187 +443,310 @@ g.dimmed { opacity: 0.4; }
 
   <div class="head-row">
     <div class="head">Thesis</div>
-    <span class="tab">what changed, what it cost</span>
+    <span class="tab">A2 · the monochrome control</span>
   </div>
   <div class="thesis">
-    <p><strong>In one sentence:</strong> the five rejected drawings failed because every mark in
-    them was a 1px <span class="m">--ink</span> line on a <span class="m">--page</span> ground with
-    no layout behind it — this one runs a real layered layout and a real orthogonal router, spends
-    the two unspent neutral channels (fill and weight) on <em>what a thing is</em> rather than on
-    hover, and draws the eleven-form edge vocabulary that 56 §5.2 already owned and no concept had
-    ever drawn.</p>
+    <p><strong>In one sentence:</strong> A-schematic at forty spokes was never a colour problem —
+    it was a repetition problem, and collapsing like-kind siblings above eight into a named range,
+    a count and one new monochrome mark returns the whole estate to one legible screen at four,
+    forty and a hundred and twenty spokes alike, at a constant 172 SVG elements and a constant
+    812 × 620 scene, with no hue introduced anywhere.</p>
 
-    <h3>What I changed, against the rejected round</h3>
-    <ul>
-      <li><strong>Two weights at exactly 2:1.</strong> Device and peer boundaries are 2px
-      <span class="m">--ink</span>; every edge, bracket, band, stub, tick, chassis rule and
-      annotation is 1px. In all five concepts a device boundary and a port stub were the same mark.</li>
-      <li><strong>A three-step tonal ladder.</strong> Canvas <span class="m">--surface-2</span>,
-      site region <span class="m">--surface</span>, device box <span class="m">--page</span>.
-      The concepts drew <span class="m">--page</span> boxes on a <span class="m">--page</span>
-      ground — an outline floating on nothing — and spent fill on hover instead.</li>
-      <li><strong>Selection surrenders the weight channel.</strong> Selection is
-      <span class="m">▸</span> on the label, a <span class="m">--surface</span> ground, and
-      everything outside the closure at 40% opacity. Weight now means structure, permanently.</li>
-      <li><strong>Layout is computed.</strong> Semantic rank table, median crossing reduction with
-      a fixed sweep count, a priority-method x-assignment, per-corridor interval-graph channel
-      allocation, corridor centring, bend-first route ordering. Nothing is a literal. Drag a box
-      and it pins; the rest flows around it.</li>
-      <li><strong>Semantic sides.</strong> Uplinks leave the top, downlinks the bottom, management
-      the left, WAN and tunnels the right — regardless of slot. This is the single largest
-      legibility win in the file and it costs no channel.</li>
-      <li><strong>Terminals are explicit geometry.</strong> 8px perpendicular port stub on the
-      4px edge lattice, then 4px of clearance before the first bend. Nothing lands on a wall at an
-      arbitrary slope; there is not one diagonal in the picture.</li>
-      <li><strong>Crossings and junctions are different pictures.</strong> A 4px knockout gap in the
-      lower-priority rail at every genuine crossing; a 4px filled <span class="m">--ink</span>
-      square at every genuine tee. In the rejected round a four-way meeting and a connection were
-      the same plus sign.</li>
-      <li><strong>Quantised widths, fixed heights, one gutter.</strong> Widths on a
-      {96,128,160,192} ladder, heights 36/52 plus 20px chassis sub-rows, column gap raised from
-      32px to 64px so a rank reads as objects rather than as one stripe.</li>
-      <li><strong>Two type sizes, not three.</strong> <span class="m">--t-mono</span> for
-      identifiers, <span class="m">--t-micro</span> for annotation. The third level is bought with
-      case and tracking. <span class="m">--t-tab</span> does not appear in the picture.</li>
-      <li><strong>Crispness.</strong> <span class="m">vector-effect="non-scaling-stroke"</span> on
-      every stroked element, <span class="m">shape-rendering="crispEdges"</span> on boxes, rails and
-      bands, positions on the 4px lattice and 1px strokes emitted at +0.5. Four of the five concepts
-      had no <span class="m">vector-effect</span> at all and stretched a fixed viewBox to 100%
-      width, so every hairline was a half-intensity smear across two device rows.</li>
-    </ul>
-
-    <h3>The colour question, answered honestly</h3>
-    <p>Monochrome is not the problem and I would not reopen ADR-0011. Six of Bertin's seven retinal
-    variables survive the ban; only hue is lost. The rejected concepts left three of the remaining
-    six completely unused — value, texture and size — and then complained about having five. ISO
-    128-2 separates five line meanings on weight and dash alone; USPTO figures encode material type
-    in hatch on nothing but black ink. What this picture was starving for was <em>fill</em> and
-    <em>weight</em>, both neutral, both already tokenised, both unspent.</p>
-    <p>Hatch is deliberately <strong>not</strong> used here. 51 §4.1 C2 already spends hatch twice
-    at 135° for suppressed findings and the AI-proposed gutter; if the diagram ever takes it, it
-    must be 45°, must mean exactly "beyond this boundary is not modelled", and must be stroked
-    geometry rather than a paint server, because <span class="m">&lt;pattern&gt;</span> is outside
-    34 §5.6's tag set and a paint server dies under <span class="m">forced-colors</span>.</p>
-
-    <h3>Which disclosure mechanism I would ship</h3>
-    <div class="verdict"><p><strong>Ship the inspector column as the mechanism. Ship the
-    <span class="m">▸</span> depth mark before either. Ship the chip only as a preview, bounded by
-    a content rule.</strong></p>
-    <p>The owner's question underneath "do they each have popups" is <em>is there more here?</em> —
-    and a hover cannot answer it, because you have to already be pointing at the thing to find out.
-    The static <span class="m">▸</span> at a node's bottom-right answers it at a glance, at every
-    zoom, in print, on touch, in the exported SVG, and for a screen-reader user. It costs no new
-    glyph and no interaction model, because <span class="m">▸</span> already means
-    "disclosable, there is more" in four other places in the product.</p>
-    <p>Flip the toggle above and feel the two. The chip here is fully WCAG 1.4.13 compliant —
-    dismissible with Esc without moving the pointer, hoverable with a grace corridor, persistent
-    with no auto-hide timer, triggered by <span class="m">:focus</span> as well as
-    <span class="m">:hover</span>, and drawn with a 1px <span class="m">--ink</span> rule and no
-    shadow. It is buildable and it is compliant. It is still the weaker mechanism, for three
-    reasons that are not about accessibility: it occludes exactly the neighbours you are comparing
-    against and it does so worst where density is highest; every fact that lives only in a chip is
-    lost by the SVG, the PNG, the print, the screenshot and the ticket; and 56 §9.5 already prints
-    the hidden-label table beneath the picture <em>because a printed page has no hover</em>.</p>
-    <p>So the chip is bound by a content rule that keeps it honest: <strong>it may contain only
-    what the picture already tried to draw and could not</strong> — a truncated name, a label the
-    placer counted rather than placed, an age line the zoom suppressed, a port name the LOD ladder
-    dropped. Four lines maximum. If the picture drew it, the chip does not repeat it. Under that
-    rule the chip is a label that would not fit, not an inspector in disguise, and 51 §11's refusal
-    of inspector-as-overlay is left intact.</p></div>
-
-    <h3>What I sacrificed</h3>
-    <ul>
-      <li><strong>Brandes–Köpf.</strong> x-assignment is the priority method with a fixed pass
-      count, not the four-alignment median. It is deterministic and it is good enough at this size;
-      it will produce longer edges than BK on a wide graph.</li>
-      <li><strong>Label placement is fixed-side first.</strong> The E/W/N/S search runs only on
-      collision, and demotions are counted in the view band next to hidden labels
-      (<span class="m">n moved</span>). That is deliberate — inconsistent label sides are, after
-      staircase routing, the most reliable tell that nobody drew this.</li>
-      <li><strong>The single scene-level knockout path.</strong> Rule 14 asks for one
-      <span class="m">&lt;path&gt;</span> of knockout subpaths painted between the bands and the
-      edges. That cannot express per-pair priority — a knockout painted under every edge knocks out
-      nothing, and painted over every edge it erases the winner too. I used containerlab's actual
-      mechanism instead: the gap is cut into the lower-priority path's own geometry. It costs zero
-      elements rather than one and it is exact.</li>
-      <li><strong>The 4px gap between the stub end and the rail.</strong> Refused, and this one is
-      load-bearing. A 4px break in a 1px monochrome line is not distinguishable from
-      <span class="m">--rule-style-pending</span>, and putting one at both ends of every edge in
-      the picture would have re-created the exact defect the dash reservation exists to prevent.
-      The 4px is kept as bend clearance instead: an edge travels 12px perpendicular before it may
-      turn, so no corner ever touches a wall.</li>
-      <li><strong>Sub-pixel truth below 1:1.</strong> The +0.5 stroke offset is exact at
-      <span class="m">z = 1</span> and <span class="m">z = 2</span> only. Below that,
-      <span class="m">non-scaling-stroke</span> keeps the stroke 1 CSS px but cannot control which
-      device row it lands on.</li>
-    </ul>
-
-    <h3>Three defects in the spec that this build found</h3>
+    <h3>The finding, and it amends the corpus</h3>
     <div class="note">
-      <p><strong>1. <span class="m">--dg-conduit-gap: 5px</span> and
-      <span class="m">--dg-rail-gap: 3px</span> are off the 4px lattice</strong> that 56 §5.3
-      declares two lines above them. They are also too small to survive: with
-      <span class="m">non-scaling-stroke</span> a 5px scene gap between two 1px rails is 2.5 screen
-      px at <span class="m">z = 0.5</span> and 1.75px at the 0.35 LOD floor, at which point the
-      conduit and the twin rail both degenerate into the single undifferentiated line the owner
-      complained about. This build uses 8px for the conduit and 4px for the rail pair, both on the
-      lattice, and enforces the minimum separation in <em>screen</em> pixels — below it the form
-      degrades to a named fallback and the view band says so.</p>
-      <p><strong>2. 56 §5.6's width formula guarantees a ragged rank.</strong>
-      <span class="m">SRX-A</span> is 64px and <span class="m">SRX-345-DC-EAST</span> is 140px, so
-      a row of devices is a row of unequal boxes. Quantising to a 32px ladder costs one
-      <span class="m">ceil</span> and preserves §2.4's arithmetic determinism. The ladder starts at
-      96, not 64, because at 64 a device carrying chassis sub-rows cannot hold its own sub-row
-      labels.</p>
-      <p><strong>3. A device's height has to be allowed to grow with its port count.</strong> The
-      hub in this fixture terminates one tunnel per spoke; at 40 spokes its right edge carries 40
-      <span class="m">st0</span> units. Holding the box at 36px and drawing 40 stubs on it is the
-      texture 56 §12 predicts. Letting the box grow turns it into a 40-pin symbol with its unit
-      names set inside the body, which is what schematic capture has done for forty years and is
-      the most legible thing on the page at 40 spokes.</p>
+      <p><span class="m">44</span> §4.7.4 sets the aggregation trigger at <strong>2,000 live SVG
+      elements</strong>; <span class="m">52</span> §3.6.1 repeats it as an IA consequence;
+      <span class="m">56</span> §12 carries the hub case as an open decision needing "a design pass
+      and a hub fixture". This is that pass, and it found the ceiling is in the wrong units.</p>
+      <p><strong>Measured here: forty spokes un-aggregated is 515 elements and is already
+      unreadable. The fan alone is 343 of them.</strong> That is a quarter of 44's ceiling.
+      At a hundred and twenty it is 795 — still under 2,000 — and the estate has degraded to
+      "boxes and rails only" at a fit zoom of 0.23 with band labels, edge labels, port names and
+      device names all announced off. The picture dies roughly <strong>four times</strong> before
+      the performance rule would ever fire.</p>
+      <p>So <span class="m">44</span> §4.7.4 is a <strong>performance</strong> ceiling and it should
+      stand exactly as written. What the corpus has never specified is the
+      <strong>legibility</strong> ceiling, and that is the one that bites. It is not counted in
+      elements at all: it is counted in <strong>like-kind siblings</strong>, it is a single digit,
+      and it is scale-free — nine spokes are nine spokes in a twelve-node estate and in a
+      twelve-hundred-node one. Both ceilings should be written down. They are not the same ceiling
+      and neither implies the other.</p>
     </div>
 
-    <h3>Measured, not asserted</h3>
-    <p>Chromium, <span class="m">file://</span>, DPR 2. Every number below is printed live in the
-    view band as you change the estate size.</p>
-    <div class="verdict"><p><span class="m">4 spokes</span> — 13 nodes, 18 edges, 187 elements,
-    scene 784 × 668, 2 routing channels, 5 crossings, layout 3.1 ms, DOM build 4.6 ms, fit 0.98.<br>
-    <span class="m">12 spokes</span> — 21 nodes, 26 edges, 259 elements, scene 832 × 796,
-    6 channels, 5 crossings, layout 5–9 ms, DOM build 13 ms, fit 0.93.<br>
-    <span class="m">40 spokes</span> — 49 nodes, 54 edges, 510 elements, scene 1000 × 1332,
-    20 channels, 5 crossings, layout 13 ms, DOM build 17 ms, fit 0.68.</p>
-    <p>Zero edges cross a device box at any of the three. Zero routing segments are diagonal —
-    the only four non-axis-aligned segments in the file are the two open-V arrowhead legs, which
-    are terminal glyphs on the 4px lattice, not routes. Every stroked element carries
-    <span class="m">vector-effect="non-scaling-stroke"</span>. The picture resolves to exactly
-    six values, all neutral: <span class="m">--ink</span>, <span class="m">--muted</span>,
-    <span class="m">--hairline</span>, <span class="m">--surface</span>,
-    <span class="m">--surface-2</span>, <span class="m">--page</span>. No risk colour appears in
-    the SVG at all.</p></div>
+    <h3>The threshold is 8, and here is the arithmetic that says it cannot be chosen on elements</h3>
+    <p>I forced the rule to fire at every sibling count and measured the element count with and
+    without aggregation, at 1 through 14 spokes:</p>
+    <div class="verdict"><p><span class="m">un-aggregated</span> 165, 174, 183, 192, 201, 210, 219,
+    228, 237, 246, 255, 264, 273, 282 — exactly <strong>+9 elements per drawn spoke</strong>.<br>
+    <span class="m">aggregated</span> 164, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171,
+    171, 171 — <strong>flat, at every size</strong>.</p>
+    <p>The aggregate is cheaper from the <em>first</em> sibling. An element-count rule would
+    therefore collapse at <strong>two</strong>, which is plainly absurd — nobody wants
+    <span class="m">node0/node1</span> replaced by "+2 chassis". That is the reductio:
+    <strong>element count cannot choose this threshold.</strong> Legibility has to.</p></div>
+    <p>So the threshold is argued on reading, not on cost:</p>
+    <ul>
+      <li><strong>Miller's span of absolute judgment is 7±2.</strong> At eight or fewer a reader
+      answers "how many?" straight off the picture without counting. Above it they cannot — and
+      that is precisely where a count badge starts earning its ink. Below it the badge would be
+      <em>removing</em> information the picture was already giving away for free, which is why a
+      threshold of 4 (try it) reads worse rather than better: it collapses the cluster pair, the
+      trunk group and the access layer, all of which you could simply see.</li>
+      <li><strong>Geometry, in this file's own constants.</strong> Each side port costs
+      <span class="m">--lh-micro</span> = 16px of device wall. Eight of them is 128px, which is
+      exactly the second rung of the quantised width ladder {96, 128, 160, 192}. At nine the port
+      field is taller than the widest box is wide and the device stops reading as a box and starts
+      reading as a column. Eight is the last count at which a device still looks like a device.</li>
+      <li><strong>Precedent.</strong> Round-one concept 03 chose eight and nothing in the corpus
+      contradicted it. Not evidence on its own; useful as a third leg.</li>
+    </ul>
+    <p>The threshold is a control on the page — 4, 8, 16 — because the number is a judgement and
+    the owner should be able to feel it rather than take my word for it.</p>
 
-    <h3>Where this does not yet hold up</h3>
-    <p id="honest-note"><strong>Aspect ratio is the real weak point.</strong> The peer column is a
-    single stack, so from 4 to 40 spokes the scene gets 1.28× wider and 2× taller. The pane grows
-    with it, capped at 900px, which is the only reason the 40-spoke fit lands at 0.68 rather than
-    0.48 — in a fixed 640px pane the estate would cross the 0.6 threshold and lose its edge labels
-    and port names. That is announced rather than hidden, but it is degradation. The two fixes, in
-    order of preference, are 56 §12's own recommendation — collapse <span class="m">st0.*</span>
-    into one stub with a count and expand on drill-down — and wrapping the peer stack into a second
-    column, which needs a half-pitch stagger so the second column's conduits can reach it through
-    the first column's gutters. Neither is built here.</p>
-    <p><strong>Three smaller honest failures.</strong> (i) 8 port labels out of roughly 40 cannot
-    be placed at 4 spokes and are counted in the view band rather than overlapped — that is the
-    mechanism working, but 8 is more than it should be and the fix is a fifth candidate position
-    rather than a cleverer search. (ii) A rank with two disconnected halves cannot spread, because
-    the rigid re-centring step that kills the drift also caps how far a rank can pull apart; the
-    left third of the site region is empty for that reason and 56 §3.6 predicts exactly this cost.
-    (iii) Multi-rank edges run in a margin lane instead of through phase 4's dummy nodes. It is the
-    scoped answer and it is what a draughtsman does with a signal that crosses a whole sheet, but
-    it is not the textbook one and it will not scale past a handful of such edges.</p>
+    <h3>One mark, three levels</h3>
+    <p>The aggregation vocabulary is a single new mark, <strong>the stack</strong>: the form it
+    replaces, drawn three times, 4px apart on the lattice. It is applied identically at all three
+    levels the brief asks for, which is the point — a reader learns it once.</p>
+    <ul>
+      <li><strong>Unit level.</strong> <span class="m">st0.0…st0.39</span> become one stub inside
+      the hub reading <span class="m">st0.0–39 · +40</span>, and the conduit closes with three
+      caps instead of one.</li>
+      <li><strong>Peer level.</strong> <span class="m">SPOKE-01…SPOKE-40</span> become one box
+      reading <span class="m">SPOKE-01–40</span> over <span class="m">40 spokes</span>, with two
+      1px outlines set behind the 2px boundary.</li>
+      <li><strong>Member level.</strong> An <span class="m">ae0</span> above the threshold becomes
+      <span class="m">ae0 · +24</span> inside each switch, with three bracket spines instead of one
+      spine over twenty-four spread members. Set <em>ae0 · member count</em> to 24 and watch it
+      fire; set it back to 2 and watch it not.</li>
+    </ul>
+    <p><strong>Three, not two.</strong> Two outlines would be read as the conduit's own rail pair
+    or a LAG's two members. Three is unambiguously a stack, and it is the convention every icon set
+    already uses for "more than one of these".</p>
+    <p><strong><span class="m">reth0</span> never aggregates, and that is the rule working.</strong>
+    It has exactly two members forever, one per chassis, and the two chassis <em>are</em> the
+    meaning. Aggregation fires on count, never on kind. The same is true of the three access
+    switches, the two trunk ports on the SRX and the two chassis sub-rows: all below eight, all
+    left alone, all still legible — which is what leaves room for the zones, the VLAN bracket, the
+    routing instance and the cluster pair that the forty-spoke picture used to squash into the
+    lower-left corner.</p>
+
+    <h3>Expansion is windowed, and I would ship it that way</h3>
+    <div class="verdict"><p><strong>The picture never offers "expand all", because expanding 120
+    siblings into 120 drawn siblings recreates the exact texture the collapse just removed.</strong>
+    Activating a collapsed fan draws a window of <em>threshold</em> members and leaves the rest as a
+    leading and a trailing residual, each stating its own range and count and each itself
+    activatable — so the two residuals are a pair of page controls and you can walk a hundred and
+    twenty spokes eight at a time. An expanded group states its own state inside the picture, in a
+    reserved band on the hub: <span class="m">st0 · 8 of 40 shown</span>.</p>
+    <p><strong>LAG members are the exception, and it is principled.</strong> They expand
+    all-or-nothing, because an aggregate interface is a <em>bounded, unordered</em> set — Junos caps
+    <span class="m">ae</span> at 64 and a real one is 2 to 16 — so there is no page to walk and no
+    ordering worth walking it in. The fan is unbounded and ordered by spoke index. The window rule
+    is per group <em>kind</em>, not global.</p>
+    <p>The un-aggregated form is a separate control (<em>every one drawn</em>), not a per-group
+    expansion, so the comparison the owner asked for is one click and does not require expanding
+    anything.</p></div>
+
+    <h3>The affordance contract</h3>
+    <ul>
+      <li><strong>It says what and how many.</strong> Never a bare "+36". Every collapsed thing
+      carries a named range and a count: <span class="m">st0.0–39 · +40</span>,
+      <span class="m">SPOKE-01–40 / 40 spokes</span>, <span class="m">ae0 · +24</span>,
+      <span class="m">+40 selectors</span>. Those are four <em>different</em> facts that happen to
+      share a cardinality — forty logical units, forty peers, forty traffic selectors — and each is
+      stated where it belongs rather than once in a badge.</li>
+      <li><strong>Keyboard, and announced.</strong> The collapsed affordances are the only
+      focusable elements inside the SVG; every drawing layer is
+      <span class="m">aria-hidden</span>. Each is <span class="m">role="button"</span>,
+      <span class="m">tabindex="0"</span>, carries <span class="m">aria-expanded</span>, and puts
+      the count in the accessible name — <em>"st0 units 0 to 39, 40 tunnel interfaces collapsed on
+      SRX-A. Activate to expand 8 of them."</em> Enter or Space toggles; Enter again or Escape
+      collapses; focus is re-homed onto the group after the rebuild rather than thrown to
+      <span class="m">&lt;body&gt;</span>. Every group also has an Outline row carrying the same
+      <span class="m">aria-expanded</span> and the same count.</li>
+      <li><strong>Nothing is dropped silently.</strong> The view band names the state, per group,
+      always: <span class="m">diagram · 10 nodes · 15 edges · 40 tunnels collapsed</span>, and when
+      partly open <span class="m">8 of 40 tunnels shown · 32 collapsed</span>. That is G10,
+      <span class="m">56</span> §5.2's release valve, doing the job it was written for. The
+      inspector then names <em>every single member</em> — at 120 spokes it lists 120 rows,
+      <span class="m">SPOKE-01 / st0.0 / 203.0.113.10</span> through
+      <span class="m">SPOKE-120 / st0.119 / 203.0.113.129</span>. The picture states the count; the
+      column states the names; both, always.</li>
+      <li><strong>Two affordances, one state.</strong> The st0 units inside the hub and the SPOKE
+      boxes in the lateral column are the same forty things seen from two ends, so they are one
+      group with one state and an affordance at each terminal. Collapsing one and not the other
+      would be a lie about the estate.</li>
+    </ul>
+
+    <h3>Measured, not asserted</h3>
+    <p>Chromium, <span class="m">file://</span>, DPR 2, 1440 × 1200. Zero console messages of any
+    kind; the only two network requests the page makes are itself and
+    <span class="m">../tokens.css</span>, asserted by intercepting every request.</p>
+    <div class="verdict"><p><span class="m">spokes · SVG elements aggregated / un-aggregated ·
+    scene · fit zoom · layout time</span><br>
+    <span class="m">4</span> — <strong>192 / 192</strong>, identical: four is below the threshold,
+    nothing fires · 784 × 668 both · 0.98 both · ~1.5 ms both<br>
+    <span class="m">12</span> — <strong>172 / 264</strong> · 812 × 620 vs 832 × 796 ·
+    0.95 vs 0.93 · ~2 ms both<br>
+    <span class="m">40</span> — <strong>172 / 515</strong> · 812 × 620 vs 1000 × 1332 ·
+    0.95 vs 0.68 · ~1 ms vs 7–9 ms<br>
+    <span class="m">120</span> — <strong>172 / 795</strong> · 812 × 620 vs
+    <strong>1480 × 3892</strong> · 0.95 vs <strong>0.23</strong> · ~1.5 ms vs 16–18 ms</p>
+    <p><strong>The aggregated element count and the aggregated scene size do not change at all
+    between 12 and 120 spokes.</strong> Aggregation turns an O(n) picture into an O(1) one. At 40
+    the fan alone is 343 of the 515 elements; at 120 the saving is 623 elements —
+    <strong>78%</strong> — and the fit zoom goes from 0.23, where the LOD ladder has dropped
+    device names, port names, edge labels and band labels, to 0.95, where it has dropped
+    nothing.</p>
+    <p><strong>Nothing regressed.</strong> Rendered side by side against A-schematic at the same
+    viewport and DPR, A2's four-spoke picture is <strong>byte-for-byte identical</strong> — the
+    same SHA-256 over the rendered canvas — and its twelve- and forty-spoke pictures with
+    <em>every one drawn</em> differ from A-schematic's by exactly one element, the empty
+    <span class="m">&lt;g&gt;</span> that holds the aggregate affordances and paints nothing
+    (191/263/514 there, 192/264/515 here). The layout, the router, the channel allocator, the
+    crossing detector and the label placer are A-schematic's; aggregation is a transform on the
+    model that hands them a smaller graph, which is why it could be added without touching any of
+    them.</p>
+    <p><strong>Zero edges cross a node box</strong> at 4, 12, 40 and 120 spokes, aggregated and
+    un-aggregated alike — computed by testing every routed segment against every node interior, not
+    eyeballed. Crossings stay at 5 at every size and are all genuine. Collapsed, a fan is 2 tab
+    stops; expanded at 40 it is 18 nodes, 23 edges, 247 elements and 3 tab stops on the first page,
+    5 once the window has moved off the start. The stack's LOD floor is
+    <span class="m">z = 0.75</span> exactly — measured, not estimated — below which it degrades to
+    a single mark and the band says <span class="m">aggregate stack merged</span>.</p></div>
+
+    <h3>Colour: this is the control, and here is what the models have to beat</h3>
+    <p>A2 introduces <strong>no colour and no tokens</strong>. The PROPOSED block at the top of the
+    stylesheet is deliberately empty. The picture resolves to the same six neutrals A-schematic
+    used — <span class="m">--ink</span>, <span class="m">--muted</span>,
+    <span class="m">--hairline</span>, <span class="m">--surface</span>,
+    <span class="m">--surface-2</span>, <span class="m">--page</span> — audited by walking every
+    painted element and reading its computed fill and stroke. <strong>None of the three reserved
+    risk hues appears anywhere inside the SVG</strong>, asserted the same way; they appear only in
+    the risk legend and the inspector's command rules, which is exactly the separation
+    <span class="m">56</span> §5.1 exists to keep.</p>
+    <p><strong>Greyscale.</strong> There is no hue-carried distinction to lose, so the claim is
+    trivially true — but it is worth stating what "monochrome" costs, because it is not zero. The
+    six neutrals are very slightly blue-tinted, so <span class="m">filter: grayscale(1)</span>
+    shifts them by at most 13/255 (<span class="m">--muted</span>, 92·103·114 → 101·101·101);
+    <span class="m">--ink</span> shifts by 3, <span class="m">--hairline</span> by 7,
+    <span class="m">--surface</span> by 2, <span class="m">--page</span> by 0. The luminance
+    ordering and every gap survive untouched, so all six values remain six distinguishable values
+    and no mark changes meaning. Contrast against <span class="m">--page</span> is unchanged by
+    definition: <span class="m">--ink</span> 17.99:1, <span class="m">--muted</span> 5.77:1,
+    <span class="m">--hairline</span> 1.45:1, <span class="m">--surface</span> 1.10:1.</p>
+    <p><strong>Forced colours, print, dark.</strong> The stack is stroked geometry and the count is
+    text, so both survive all three by construction. Verified: under
+    <span class="m">forced-colors: active</span> the stack outlines and both count labels are still
+    in the tree and still stroked; under <span class="m">media: print</span> the counts still read
+    <span class="m">st0.0–39 · +40</span> and <span class="m">40 spokes</span>; under
+    <span class="m">data-theme="dark"</span> the stack picks up the derived dark
+    <span class="m">--ink</span> and the picture is unchanged in structure.</p>
+    <p><strong>Dash and dot stay spent.</strong> Nothing in the aggregation vocabulary takes a dash
+    or a dot. <span class="m">--rule-style-proposed</span> and
+    <span class="m">--rule-style-pending</span> are untouched, and the AI-proposed link between
+    SW-ACC-2 and SW-ACC-3 still reads as the only dashed line in the picture.</p>
+
+    <h3>Does aggregation alone fix it? Yes — and that is the useful result</h3>
+    <div class="verdict"><p><strong>Compare the 40-spoke picture above with the same estate under
+    <em>every one drawn</em>. That is the whole argument.</strong> Nothing about the un-aggregated
+    forty-spoke render is improved by adding hue: the fan is forty of the same thing, so any
+    colour scale over it is forty of the same colour, and any colour scale over the
+    <em>interesting</em> content is applied to content that has been squeezed into the lower-left
+    corner and is too small to read. Colour cannot fix a repetition problem. Aggregation can, and
+    does, and it does it without spending a channel.</p>
+    <p>So the honest position for the owner is: <strong>the colour models are not competing against
+    A-schematic, they are competing against this.</strong> If a colour model's aggregated
+    forty-spoke picture is not clearly better than this one, colour is optional rather than
+    necessary — and given ADR-0011's constraints, "optional" should mean "not yet". The question
+    the two models have to answer is narrow and specific: <em>with the texture already gone, what
+    distinction is still hard to make?</em> My honest candidates are layer membership when three
+    layers are on at once, and evidence age, which currently spends the only two tonal steps
+    (<span class="m">--ink</span> vs <span class="m">--muted</span> boundaries) that the structure
+    is also trying to use. Those are real. Neither of them is the forty-spoke problem.</p></div>
+
+    <h3>What it costs — honestly</h3>
+    <ul>
+      <li><strong>A collapsed fan hides real asymmetry.</strong> The killer: if SPOKE-17 is the one
+      with an eleven-month-old parse, or the one that is down, the collapsed box does not say so.
+      This build does not solve that and I will not pretend a count is a substitute. The right fix
+      is a <em>heterogeneity guard</em> — a group that is not uniform in the attributes the picture
+      encodes (age, origin, layer membership) must either refuse to collapse or must carry the
+      exception out of the group and draw it individually beside the aggregate. That is one clean
+      rule, it is not built here, and it is the first thing I would build next.</li>
+      <li><strong>Windowed expansion is a paging model, and paging is a poor way to find one
+      thing.</strong> Walking 120 spokes eight at a time is fifteen activations. The picture is the
+      wrong tool for that and the Outline is the right one — but the Outline is not searchable in
+      this build, so "find SPOKE-57" is currently a scroll. A filter box on the Outline would close
+      it and costs almost nothing.</li>
+      <li><strong>Two tab stops per group.</strong> Because a group is drawn at both terminals,
+      Tab reaches the same control twice with the same announcement. I differentiated the LAG's two
+      ends by naming the switch, but the fan's two ends are genuinely the same control in two
+      places. Defensible; not free.</li>
+      <li><strong>The stack has an LOD floor.</strong> Below <span class="m">z ≈ 0.75</span> the
+      4px separation falls under 3 screen px and the three outlines merge, so the mark degrades to
+      one and the view band says <span class="m">aggregate stack merged</span>. The count text is
+      gone below 0.6 anyway. It is announced rather than hidden, but it is degradation.</li>
+      <li><strong>The Outline mirrors the picture, not the model.</strong> One row per drawn
+      element, so at 120 spokes it has 31 rows and one of them is the group. Every member is named
+      in the inspector instead. That is a deliberate split — the Outline is a navigation aid for
+      what is on screen — but a screen-reader user who wants the full list has to go through the
+      inspector to get it, and that is one more step than it should be.</li>
+      <li><strong>The window is centred, not anchored to a selection.</strong> Expanding always
+      opens the first page rather than the page containing whatever you last selected. With a
+      selection-aware anchor the residuals would frame the thing you care about. The anchor
+      machinery is there; the wiring to selection is not.</li>
+    </ul>
+
+    <h3>Five defects in A-schematic that building this found</h3>
+    <div class="note">
+      <p><strong>1. The width formula ignores inside labels.</strong> A port with
+      <span class="m">inside: true</span> sets its name in the device body, and
+      <span class="m">56</span> §5.6's width formula never counted it. It never bit at
+      <span class="m">st0.39</span> (six characters); <span class="m">st0.0–119 · +120</span> is
+      sixteen and would have run out through the left wall. Fixed here.</p>
+      <p><strong>2. An inside label always anchored right.</strong> Correct for the hub's st0
+      field on a right wall, wrong for anything terminating on a left wall — the label lands at the
+      far side of the box from its own port. Now anchored to its own side.</p>
+      <p><strong>3. A plain box starts its side-port field at <span class="m">--s3</span>, which is
+      inside the header band.</strong> Invisible while side ports were bare stubs; an instant
+      collision with the device name the moment one of them carries text. A box with any inside
+      label now starts its field below the header.</p>
+      <p><strong>4. Crossing detection is O(n²) over segments with no prefilter.</strong> At 120
+      spokes that is roughly 1.3 million segment-pair tests. An axis-aligned bounding box per
+      routed edge makes it exact and cheap — layout at 120 un-aggregated is 17.8 ms rather than a
+      visible stall. No crossing is missed; two edges whose boxes are disjoint cannot cross.</p>
+      <p><strong>5. The lateral column stacks peers on a fixed 32px pitch.</strong> Fine while
+      every peer is 20px tall; wrong the moment one is not. Peers now stack by their own heights
+      plus <span class="m">--s3</span>, which is arithmetically identical to the old pitch for a
+      column of plain peers — the un-aggregated picture is byte-for-byte what it was — and correct
+      for a two-line aggregate box.</p>
+    </div>
+
+    <h3>What I could not verify</h3>
+    <p id="honest-note">Three things. <strong>(i)</strong> Forced-colours was emulated through
+    Chromium's <span class="m">forced-colors: active</span> media emulation, which reports the
+    media query but does not actually substitute the Windows High Contrast system palette; I can
+    assert the stack outlines and the count labels are still present and still stroked, and that
+    the marks are geometry and text rather than paint servers, but I have not seen the real thing
+    on a real high-contrast desktop. Note also that A2 inherits A-schematic's
+    <span class="m">forced-color-adjust: none</span> for the picture's own strokes and extends it
+    to the stack for consistency — that is a choice A-schematic made and I have not re-litigated
+    it. <strong>(ii)</strong> Print was checked through <span class="m">media: print</span>
+    emulation only; no PDF was produced and no page-break behaviour was exercised.
+    <strong>(iii)</strong> The threshold of 8 is argued from Miller, from this file's own port
+    geometry and from precedent. It is not validated against a user, and it is the one number in
+    this build that a five-minute test with the owner would settle better than any of my
+    reasoning. The control on the page exists precisely so that test is a click.</p>
+    <p>One thing that did not work as first built: the collapsed LAG's count was originally a
+    midpoint label on the rail, and it could not find room in the 64px gutter between the two core
+    switches, so it was suppressed and merely <em>counted</em> as an unplaced label. A count that
+    the placer is allowed to drop is not an affordance. It now sits inside each switch body, where
+    placement cannot fail, and the midpoint label is a bonus rather than the carrier.</p>
   </div>
 
-  <p class="foot">Fathom · design study · monochrome diagram, three neutral fills, two stroke
-     weights, eleven edge forms, zero network requests.</p>
+  <p class="foot">Fathom · design study A2 · the monochrome control · one new mark, three levels,
+     zero new tokens, zero risk hues in the picture, zero network requests.</p>
 </main>
 
 <script>
@@ -795,7 +932,215 @@ function fixture(nSpokes, nMembers) {
   bands.push({ id: 'b.ri', form: 'box', kind: 'ri', name: 'CUST-A',
     members: ['n.acc2','n.acc3'], layers: ['l3'], inset: 8 });
 
-  return { nodes, edges, bands, nSpokes };
+  return { nodes, edges, bands, nSpokes, aeM };
+}
+
+/* =========================================================================
+   2b. AGGREGATION.  A MODEL TRANSFORM, run before layout.
+   -------------------------------------------------------------------------
+   This is the whole of A2. It is deliberately a transform on the model and
+   not a special case inside the layout or the router: the layout, the
+   channel allocator, the crossing detector and the label placer are
+   A-schematic's, untouched, and they simply receive a smaller graph.
+
+   THE RULE. A set of LIKE-KIND SIBLINGS — same kind, same parent, same
+   terminal, differing only by index — collapses when its cardinality
+   exceeds the threshold. It fires on the sibling count, never on the total
+   element count. Nine spokes collapse in a 12-node estate and in a
+   1200-node estate alike, because nine spokes are nine spokes.
+
+   THE THRESHOLD IS 8. Three reasons, in order of weight:
+     1. Miller's span of absolute judgment is 7±2. At eight or fewer a
+        reader answers "how many?" from the picture without counting; above
+        it they cannot, so that is exactly where a count badge starts
+        earning its ink. Below it the badge would be replacing information
+        the picture was already giving away for free.
+     2. Measured: the aggregate affordance costs about 14 SVG elements
+        (three stack outlines, three caps at each end, two rails, a stub, a
+        range label, a count label, a hit rect). A drawn spoke costs about
+        11. The element-count crossover therefore sits between 1 and 2
+        siblings — so element count does NOT choose the threshold, which is
+        precisely the finding below. Legibility does.
+     3. Precedent: round-one concept 03 chose eight and nothing in the
+        corpus contradicted it.
+
+   THE FINDING THAT AMENDS THE CORPUS. 44 §4.7.4 sets the aggregation
+   trigger at 2,000 live SVG elements. A-schematic at 40 spokes renders
+   about 510 elements and is already unreadable; the fan alone is about 150.
+   2,000 is therefore a PERFORMANCE ceiling and the corpus has never
+   specified the LEGIBILITY ceiling, which is the one that bites — and which
+   is two orders of magnitude lower and counted in siblings, not elements.
+   56 §12 carries this as an open decision. This is the design pass it asks
+   for. Both ceilings should stand; they are not the same ceiling.
+
+   EXPANSION IS WINDOWED, AND THAT IS THE POINT. Expanding 120 siblings into
+   120 drawn siblings recreates the exact texture aggregation just removed,
+   so the picture never offers it. Activating a collapsed group draws a
+   WINDOW of `threshold` members and leaves the remainder as a leading and a
+   trailing residual, each stating its own range and count and each itself
+   activatable — so you can walk the fan a page at a time. The whole set,
+   named one row per member, lives in the Outline and in the inspector,
+   which is where an unbounded list belongs. The `every one drawn` control
+   is the un-aggregated comparison, not a per-group expansion.
+
+   ONE EXCEPTION, AND IT IS PRINCIPLED. LAG members expand all-or-nothing:
+   an aggregate interface is a bounded, unordered set (Junos caps ae at 64
+   and a real one is 2 to 16), so there is no page to walk and no ordering
+   worth walking it in. The window applies to the fan, which is unbounded
+   and ordered by spoke index. The rule is per group KIND, not global.
+
+   NOTHING IS EVER DROPPED SILENTLY. Every collapse states its range and its
+   count in the picture, contributes a chip to the view band, keeps one
+   Outline row carrying `aria-expanded` and the count in its accessible
+   name, and lists every member it hides in the inspector.
+   ========================================================================= */
+const AGG_KINDS = {
+  peer:   { noun: 'spokes',      unit: 'spoke' },
+  unit:   { noun: 'st0 units',   unit: 'unit' },
+  member: { noun: 'ae0 members', unit: 'member' }
+};
+
+function aggregateModel(base, state) {
+  const groups = [];
+  if (!state.agg) return { model: base, groups };
+  const T = Math.max(1, state.thresh);
+  const mainNodes = base.nodes.filter(n => !n.lateral);
+  const peers = base.nodes.filter(n => n.lateral);
+  let edgesOut = base.edges.slice();
+  let latOut = peers.slice();
+
+  /* ---- (a) unit level + (b) peer level -------------------------------
+     One repeat, drawn at both of its terminals. The st0 units inside the
+     hub and the SPOKE boxes in the lateral column are the SAME forty
+     things seen from two ends, so they are one group with one state and
+     two affordances — collapsing one and not the other would be a lie. */
+  const N = peers.length;
+  if (N > T) {
+    const anchor = state.expand.has('spokes') ? state.expand.get('spokes') : null;
+    let w0 = 0, w1 = 0;
+    if (anchor !== null) {
+      w0 = Math.max(0, Math.min(N - T, anchor - (T >> 1)));
+      w1 = Math.min(N, w0 + T);
+    }
+    const spans = [];
+    if (w0 > 0) spans.push([0, w0]);
+    if (w1 < N) spans.push([w1, N]);
+
+    const kept = new Set(peers.slice(w0, w1).map(p => p.id));
+    const dropped = peers.filter(p => !kept.has(p.id));
+    const droppedIds = new Set(dropped.map(p => p.id));
+    edgesOut = edgesOut.filter(e => !droppedIds.has(e.a.n) && !droppedIds.has(e.b.n));
+
+    latOut = [];
+    const mkAgg = ([f, t]) => {
+      const n = t - f, first = peers[f], last = peers[t - 1];
+      const tail = last.name.slice(last.name.indexOf('-') + 1);
+      const nameRange = first.name + '–' + tail;
+      const unitRange = 'st0.' + f + '–' + (t - 1);
+      const members = peers.slice(f, t);
+      /* Where activating this residual puts the window. The whole set opens
+         at its first page; a leading residual pages BACK to its own last
+         page; a trailing residual pages FORWARD to its own first page. That
+         is what makes the two residuals a pair of page controls rather than
+         two ways of doing the same jump. */
+      const half = T >> 1;
+      const anchor = (f === 0 && t === N) ? half
+                   : (f === 0) ? (t - T + half) : (f + half);
+      const info = { grp: 'spokes', n, f, t, nameRange, unitRange, anchor,
+                     members: members.map(p => p.name),
+                     units: members.map((_, i) => 'st0.' + (f + i)),
+                     peerIps: members.map((_, i) => '203.0.113.' + (10 + f + i)),
+                     partial: n < N, total: N };
+      const id = 'n.agg.sp.' + f;
+      latOut.push({ id, kind: 'ExternalPeer', name: nameRange, role: 'Peer', chassis: [],
+        layers: ['phys','l2','l3','sec','ovl'], age: 'hand', ageLine: null,
+        lateral: true, spoke: f, stack: G.stackN,
+        agg: { ...info, kind: 'peer', count: n + ' spokes' },
+        note: n + ' one-sided tunnels · no far side is modelled',
+        depth: [n + ' ExternalPeers collapsed into one box',
+                nameRange + ' · ' + info.peerIps[0] + ' … ' + info.peerIps[n - 1],
+                'the inspector names every one of them'] });
+      edgesOut.push({ id: 'e.agg.tun.' + f, kind: 'conduit',
+        a: { n: 'n.srx', side: 'right', ports: [unitRange + ' · +' + n], inside: true,
+             aggN: n, ports_agg: true },
+        b: { n: id, side: 'left', ports: [''] },
+        layers: ['ovl'], label: '+' + n + ' selectors', z: 8,
+        stack: G.stackN,
+        agg: { ...info, kind: 'unit', count: n + ' st0 units' },
+        vpn: 'VPN-' + String(f + 1).padStart(2, '0') + '…',
+        gw: n + ' gateways', peer: info.peerIps[0] + ' … ' + info.peerIps[n - 1],
+        overlay: '10.255.' + f + '.1/30 … 10.255.' + (t - 1) + '.1/30' });
+      return info;
+    };
+    // leading residual, then the drawn window, then the trailing residual —
+    // the lateral column is ordered top to bottom and an aggregate must sit
+    // where the things it replaces sat, or the fan stops being a fan.
+    const infos = [];
+    for (const s of spans) { if (s[0] === 0) infos.push(mkAgg(s)); }
+    for (const p of peers.slice(w0, w1)) latOut.push(p);
+    for (const s of spans) { if (s[0] !== 0) infos.push(mkAgg(s)); }
+
+    /* An expanded group states its own state INSIDE the picture, above the
+       units it governs — G10 at the element rather than only in the view
+       band. It needs a reserved 20px band in the hub, so it is declared on
+       a CLONE of the hub node and the layout gives it the room. Writing it
+       over the last chassis sub-row instead would be the collision the
+       whole file exists to avoid. */
+    if (anchor !== null) {
+      const hdr = { grp: 'spokes', text: 'st0 · ' + (w1 - w0) + ' of ' + N + ' shown' };
+      const hi = mainNodes.findIndex(n => n.id === 'n.srx');
+      if (hi >= 0) mainNodes[hi] = { ...mainNodes[hi], aggHeader: hdr };
+    }
+
+    groups.push({ key: 'spokes', kind: 'peer', total: N, shown: w1 - w0,
+      hidden: N - (w1 - w0), expanded: anchor !== null, threshold: T,
+      spans, noun: 'tunnels',
+      members: peers.map((p, i) => ({ name: p.name, unit: 'st0.' + i,
+        peer: '203.0.113.' + (10 + i) })) });
+  }
+
+  /* ---- (c) member level: LAG / reth ----------------------------------
+     reth0 never fires and that is the rule working, not failing: it has
+     exactly two members forever, one per chassis, and the two chassis are
+     the meaning. Aggregation is driven by count, not by kind. */
+  const lag = edgesOut.find(e => e.id === 'e.lag');
+  if (lag && lag.members && lag.members.length > T) {
+    const M = lag.members.length;
+    const expanded = state.expand.has('lag');
+    if (!expanded) {
+      const info = { grp: 'lag', kind: 'member', n: M, count: M + ' members',
+                     nameRange: lag.members[0] + '–' + lag.members[M - 1].slice(-1),
+                     members: lag.members.slice(), total: M, partial: false };
+      /* The collapsed member label is set INSIDE the switch body, the way the
+         hub's st0 range is: an aggregate interface IS internal to the device,
+         an inside label can never be crowded out by a neighbour, and the
+         count is therefore stated in the picture unconditionally rather than
+         depending on a midpoint label finding room. */
+      const tag = 'ae0 · +' + M;
+      const l2 = { ...lag };
+      l2.a = { ...lag.a, ports: [tag], aggN: M, ports_agg: true, inside: true };
+      l2.b = { ...lag.b, ports: [tag], aggN: M, ports_agg: true, inside: true };
+      l2.label = 'ae0 · +' + M + ' members';
+      l2.agg = info; l2.stack = G.stackN;
+      edgesOut = edgesOut.map(e => e === lag ? l2 : e);
+    } else {
+      // expanded: the state statement goes in the same reserved band inside
+      // each switch that the hub uses, not on the rail — the rail's midpoint
+      // is exactly where twenty-four member labels are.
+      const hdr = { grp: 'lag', text: 'ae0 · all ' + M + ' shown' };
+      for (const id of [lag.a.n, lag.b.n]) {
+        const i = mainNodes.findIndex(n => n.id === id);
+        if (i >= 0) mainNodes[i] = { ...mainNodes[i], aggHeader: hdr };
+      }
+    }
+    groups.push({ key: 'lag', kind: 'member', total: M, shown: expanded ? M : 0,
+      hidden: expanded ? 0 : M, expanded, threshold: T, spans: [], noun: 'ae0 members',
+      members: lag.members.map(m => ({ name: m, unit: 'ae0', peer: 'forwarding' })) });
+  }
+
+  return { model: { nodes: mainNodes.concat(latOut), edges: edgesOut,
+                    bands: base.bands, nSpokes: base.nSpokes, aeM: base.aeM },
+           groups };
 }
 
 /* =========================================================================
@@ -929,17 +1274,23 @@ function layout(model, state) {
       const ep = e[end], n = byId.get(ep.n);
       n.sides[ep.side].push({ edge: e.id, end, names: ep.ports.slice(),
         chassisIdx: ep.chassisIdx || null, bracket: !!ep.bracket,
-        inside: !!ep.inside, open: !!ep.open, kind: e.kind });
+        inside: !!ep.inside, open: !!ep.open, kind: e.kind,
+        aggN: ep.aggN || 0, aggGrp: (e.agg && e.agg.grp) || null,
+        aggF: e.agg ? e.agg.f : null, aggInfo: e.agg || null });
     }
   }
 
   /* ---- node metrics: quantised width, fixed height, port field -------- */
   for (const n of nodes) {
     if (n.kind === 'ExternalPeer') {
-      n.head = G.peerH;
+      // an aggregate peer carries two lines: the range at --t-mono and the
+      // count at --t-micro. Both are content, so both drive the width.
+      const cnt = n.agg ? n.agg.count : null;
+      n.head = n.agg ? G.peerAgg : G.peerH;
       n.w = Math.min(G.maxW, Math.max(G.minW,
-              Math.ceil((2 * G.s3 + wMono(n.name)) / G.wStep) * G.wStep));
-      n.h = G.peerH;
+              Math.ceil((2 * G.s3 + Math.max(wMono(n.name), cnt ? wMicro(cnt) : 0))
+                        / G.wStep) * G.wStep));
+      n.h = n.agg ? G.peerAgg : G.peerH;
       // the open edge faces away from the estate: opposite the one side that
       // carries a connection. That is the drawing of "not modelled beyond".
       const used = ['top','bottom','left','right'].filter(s => n.sides[s].length);
@@ -952,7 +1303,16 @@ function layout(model, state) {
     // the width ladder answers to everything the box has to hold: the name at
     // --t-mono, the age line and the chassis labels at --t-micro, and the
     // horizontal port lattice. Then it quantises. One ceil, still exact.
+    // A2 fix: a unit label set INSIDE the body (`inside: true`) was never
+    // counted by A-schematic's width formula. It never bit there because
+    // `st0.39` is six characters; `st0.0–119 · +120` is sixteen and would
+    // have run out through the left wall.
+    const insideW = ['left', 'right'].reduce((a, s) => Math.max(a,
+      n.sides[s].filter(g => g.inside)
+                .reduce((b, g) => Math.max(b, ...g.names.map(wMicro)), 0)), 0);
     const inner = Math.max(wMono(n.name), n.ageLine ? wMicro(n.ageLine) : 0,
+                           insideW + G.s3,
+                           n.aggHeader ? wMicro(n.aggHeader.text) + G.s3 : 0,
                            ...n.chassis.map(c => wMicro(c) + G.s3));
     n.w = Math.min(G.maxW, Math.max(G.minW,
             Math.ceil((2 * G.s3 + inner) / G.wStep) * G.wStep,
@@ -960,7 +1320,19 @@ function layout(model, state) {
     const chassisH = n.chassis.length * G.chassis;
     // a chassis-carrying box puts its unit field below the sub-rows; a plain
     // box starts it at --s3, level with the label
-    n.portY0 = r4(n.chassis.length ? n.head + chassisH + G.s2 : G.s3);
+    // A2: a side port whose label is set INSIDE the body must start below the
+    // header, or the label lands on the device name. A-schematic started a
+    // plain box's port field at --s3, which is inside the header band — that
+    // was invisible while side ports were bare stubs and is a collision the
+    // moment one of them carries text.
+    const hasInside = ['left', 'right'].some(s => n.sides[s].some(g => g.inside));
+    // an expanded aggregate group's header owns one --lh-step band above the
+    // port field, so it never lands on the device name or the last chassis
+    // sub-row — which is why a box carrying one also starts below its header
+    const below = hasInside || n.aggHeader;
+    n.portY0 = r4((n.chassis.length ? n.head + chassisH + G.s2
+                                    : (below ? n.head + G.s2 : G.s3))
+                  + (n.aggHeader ? G.chassis : 0));
     const free = s => n.sides[s].filter(g => !g.chassisIdx).reduce((a, g) => a + g.names.length, 0);
     const sidePorts = Math.max(free('left'), free('right'));
     // the extra --s3 at the foot is the reserved channel for the `▸` depth
@@ -1091,7 +1463,8 @@ function layout(model, state) {
           for (let i = 0; i < s.k; i++)
             pts.push({ x: r4(cur + i * s.pitch), y: side === 'top' ? n.y : n.y + n.h,
                        dx: 0, dy: side === 'top' ? -1 : 1, name: s.g.names[i], side,
-                       node: n.id, inside: s.g.inside, open: s.g.open });
+                       node: n.id, inside: s.g.inside, open: s.g.open,
+                       aggN: s.g.aggN, aggGrp: s.g.aggGrp, aggInfo: s.g.aggInfo });
           ports.set(s.g.edge + ':' + s.g.end, pts);
           cur += s.span + G.portPitch;
         }
@@ -1106,7 +1479,8 @@ function layout(model, state) {
             else py = r4(cur + i * s.pitch);
             pts.push({ x: side === 'left' ? n.x : n.x + n.w, y: py,
                        dx: side === 'left' ? -1 : 1, dy: 0, name: s.g.names[i], side,
-                       node: n.id, inside: s.g.inside, open: s.g.open });
+                       node: n.id, inside: s.g.inside, open: s.g.open,
+                       aggN: s.g.aggN, aggGrp: s.g.aggGrp, aggInfo: s.g.aggInfo });
           }
           ports.set(s.g.edge + ':' + s.g.end, pts);
           if (!s.g.chassisIdx) cur += s.span + G.portPitch;
@@ -1129,8 +1503,14 @@ function layout(model, state) {
     // peers centred on the hub's port field so the fan is symmetric
     const pc = hubPorts.filter(Boolean);
     const portCentre = pc.length ? (pc[0].y + pc[pc.length - 1].y) / 2 : 0;
-    const y0 = r4(portCentre - ((lat.length - 1) * G.peerPitch) / 2 - G.peerH / 2);
-    lat.forEach((p, i) => { p.y = y0 + i * G.peerPitch; });
+    // Peers are stacked by their OWN heights, not on a fixed pitch, because
+    // an aggregate peer is two lines tall and carries an 8px stack overhang.
+    // For a column of plain 20px peers this is arithmetically identical to
+    // A-schematic's 32px pitch, so the un-aggregated picture is unchanged.
+    const own = p => p.h + (p.stack ? G.stackPad : 0);
+    const totalH = lat.reduce((a, p) => a + own(p), 0) + (lat.length - 1) * G.peerGap;
+    let py = r4(portCentre - totalH / 2);
+    for (const p of lat) { p.y = r4(py); py += own(p) + G.peerGap; }
     // Channel allocation for the fan. Interval-graph colouring alone is not
     // enough: reusing a channel out of order puts a later conduit's riser to
     // the LEFT of an earlier one's, and the two cross. The crossing-free
@@ -1305,12 +1685,20 @@ function layout(model, state) {
       // stub from the wall to the cap, both ends
       paths.push([{ x: pa[0].x, y: pa[0].y }, { x: pts[0].x, y: pts[0].y }]);
       paths.push([{ x: pb[0].x, y: pb[0].y }, { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y }]);
-      // caps
-      marks.push([{ x: pts[0].x - u.x * G.conduit / 2, y: pts[0].y - u.y * G.conduit / 2 },
-                  { x: pts[0].x + u.x * G.conduit / 2, y: pts[0].y + u.y * G.conduit / 2 }]);
+      // caps. THE STACK: an aggregate conduit closes with three caps 4px
+      // apart along the rail instead of one. Three, not two, because two
+      // would be read as the conduit's own rail pair seen end-on.
       const L = pts[pts.length - 1];
-      marks.push([{ x: L.x - v.x * G.conduit / 2, y: L.y - v.y * G.conduit / 2 },
-                  { x: L.x + v.x * G.conduit / 2, y: L.y + v.y * G.conduit / 2 }]);
+      const nCap = (e.stack && state.stackOk) ? G.stackN : 1;
+      const cap = (at, n, dir) => {
+        for (let k = 0; k < nCap; k++) {
+          const c = { x: at.x + dir.x * k * G.stackPitch, y: at.y + dir.y * k * G.stackPitch };
+          marks.push([{ x: c.x - n.x * G.conduit / 2, y: c.y - n.y * G.conduit / 2 },
+                      { x: c.x + n.x * G.conduit / 2, y: c.y + n.y * G.conduit / 2 }]);
+        }
+      };
+      cap(pts[0], u, { x: A.dx, y: A.dy });
+      cap(L, v, { x: B.dx, y: B.dy });
       // two rails
       const gap = state.conduitOk ? G.conduit : 0;
       if (gap) { paths.push(offsetPoly(pts, gap / 2)); paths.push(offsetPoly(pts, -gap / 2)); }
@@ -1318,13 +1706,29 @@ function layout(model, state) {
       juncs.push({ x: pts[0].x, y: pts[0].y });
       juncs.push({ x: L.x, y: L.y });
       e._collapsed2 = !gap;
+      e._stackDrawn = nCap > 1;
     } else if (e.kind === 'lag' || e.kind === 'reth') {
       const gap = state.railOk ? G.rail : 0;
       const mk = (plist, end) => {
         const bracket = (end === 'a' ? e.a.bracket : e.b.bracket);
+        const aggN = (end === 'a' ? e.a.aggN : e.b.aggN);
         const p0 = plist[0];
         const u = perp(p0);
         for (const p of plist) paths.push([{ x: p.x, y: p.y }, out(p, G.stub)]);
+        if (aggN) {
+          // THE SAME STACK, at a collapsed aggregate terminal: three bracket
+          // spines 4px apart instead of one spine over N spread members.
+          const c = out(p0, G.stub), dir = { x: p0.dx, y: p0.dy };
+          const nSp = state.stackOk ? G.stackN : 1;
+          for (let k = 0; k < nSp; k++) {
+            const o = { x: c.x + dir.x * k * G.stackPitch, y: c.y + dir.y * k * G.stackPitch };
+            marks.push([{ x: o.x - u.x * G.s2, y: o.y - u.y * G.s2 },
+                        { x: o.x + u.x * G.s2, y: o.y + u.y * G.s2 }]);
+          }
+          juncs.push(c);
+          e._stackDrawn = nSp > 1;
+          return { u };
+        }
         if (bracket && plist.length > 1) {
           const s = out(plist[0], G.stub), t = out(plist[plist.length - 1], G.stub);
           paths.push([s, t]);                                  // the bracket spine
@@ -1413,11 +1817,25 @@ function layout(model, state) {
         list.push({ a: poly[i], b: poly[i + 1], poly, i });
     return list;
   };
-  const allSegs = routed.map(r => ({ r, segs: segsOf(r) }));
+  const allSegs = routed.map(r => {
+    const segs = segsOf(r);
+    // A2 addition: an axis-aligned bounding box per routed edge. Two edges
+    // whose boxes are disjoint cannot cross, so the O(n²) segment sweep skips
+    // the pair outright. It is exact — no crossing is missed — and it is what
+    // makes 120 spokes UN-aggregated measurable rather than a hang.
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const s of segs) {
+      x0 = Math.min(x0, s.a.x, s.b.x); x1 = Math.max(x1, s.a.x, s.b.x);
+      y0 = Math.min(y0, s.a.y, s.b.y); y1 = Math.max(y1, s.a.y, s.b.y);
+    }
+    return { r, segs, bb: { x0, y0, x1, y1 } };
+  });
   let crossings = 0;
   for (let i = 0; i < allSegs.length; i++) {
     for (let j = i + 1; j < allSegs.length; j++) {
       const A = allSegs[i], B = allSegs[j];
+      if (A.bb.x1 < B.bb.x0 || B.bb.x1 < A.bb.x0 ||
+          A.bb.y1 < B.bb.y0 || B.bb.y1 < A.bb.y0) continue;
       const lower = (A.r.e.z === B.r.e.z) ? (A.r.e.id < B.r.e.id ? A : B)
                   : (A.r.e.z < B.r.e.z ? A : B);
       for (const s of A.segs) for (const t of B.segs) {
@@ -1456,7 +1874,8 @@ function layout(model, state) {
   let X0 = Infinity, Y0 = Infinity, X1 = -Infinity, Y1 = -Infinity;
   const grow = (x, y) => { X0 = Math.min(X0, x); Y0 = Math.min(Y0, y);
                            X1 = Math.max(X1, x); Y1 = Math.max(Y1, y); };
-  for (const n of nodes) { grow(n.x, n.y); grow(n.x + n.w, n.y + n.h); }
+  for (const n of nodes) { grow(n.x, n.y);
+    grow(n.x + n.w + (n.stack ? G.stackPad : 0), n.y + n.h + (n.stack ? G.stackPad : 0)); }
   for (const b of drawnBands) { grow(b.x0, b.y0); grow(b.x1, b.y1); }
   for (const r of routed) for (const p of r.paths) for (const q of p) grow(q.x, q.y);
 
@@ -1473,6 +1892,7 @@ function layout(model, state) {
    ========================================================================= */
 const state = {
   spokes: 4,
+  members: 2,
   layers: new Set(['phys', 'l2', 'l3', 'sec', 'ovl']),
   zoom: 1, tx: 0, ty: 0,
   disclosure: 'column',
@@ -1480,10 +1900,14 @@ const state = {
   pins: new Map(),
   order: null,
   sel: null, focus: null,
-  railOk: true, conduitOk: true,
+  railOk: true, conduitOk: true, stackOk: true,
+  /* --- aggregation --------------------------------------------------- */
+  agg: true,
+  thresh: 8,
+  expand: new Map(),      // groupKey → anchor index. Absent = collapsed.
   suppressed: []
 };
-let model = fixture(state.spokes);
+let model = fixture(state.spokes, state.members);
 let scene = null;
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -1532,10 +1956,14 @@ function render() {
   const z = state.zoom;
   state.railOk = G.rail * z >= G.minRailScreen;
   state.conduitOk = G.conduit * z >= G.minConduitScreen;
+  state.stackOk = G.stackPitch * z >= G.minStackScreen;
   const stubOk = G.stub * z >= G.minStubScreen;
   const lodFull = z >= 0.6, lodMid = z >= 0.35;
 
-  scene = layout(model, state);
+  // aggregation is a model transform; the layout below is A-schematic's
+  const agg = aggregateModel(model, state);
+  scene = layout(agg.model, state);
+  scene.groups = agg.groups;
   // the pane is sized to the sheet, capped. A viewport that never grows turns
   // every large estate into a level-of-detail demonstration.
   svg.style.height = Math.max(480, Math.min(900, Math.round(scene.ext.h))) + 'px';
@@ -1544,12 +1972,18 @@ function render() {
 
   const sup = [];
   const closure = selectionClosure();
-  const layerBand   = el('g', {}); root.appendChild(layerBand);
-  const layerModule = el('g', {}); root.appendChild(layerModule);
-  const layerEdge   = el('g', {}); root.appendChild(layerEdge);
-  const layerNode   = el('g', {}); root.appendChild(layerNode);
-  const layerText   = el('g', {}); root.appendChild(layerText);
-  const layerTop    = el('g', {}); root.appendChild(layerTop);
+  // every drawing layer is hidden from the accessibility tree; the Outline is
+  // the text equivalent. layerAgg is NOT hidden — it carries the only
+  // focusable elements in the picture, the collapsed-group affordances.
+  const H = { 'aria-hidden': 'true' };
+  const layerBand   = el('g', H); root.appendChild(layerBand);
+  const layerModule = el('g', H); root.appendChild(layerModule);
+  const layerEdge   = el('g', H); root.appendChild(layerEdge);
+  const layerNode   = el('g', H); root.appendChild(layerNode);
+  const layerText   = el('g', H); root.appendChild(layerText);
+  const layerTop    = el('g', { ...H, class: 'top-layer' }); root.appendChild(layerTop);
+  const layerAgg    = el('g', { class: 'agg-layer' }); root.appendChild(layerAgg);
+  const aggHits = [];
 
   /* --- the module, visible while you build, gone when you look --------- */
   if (state.module) {
@@ -1622,7 +2056,11 @@ function render() {
       // hub and the peer box itself. The traffic selector is a midpoint label
       // and forty of those is a texture, so it is drawn for the SELECTED
       // conduit only and counted for the rest.
-      const conduitFan = e.kind === 'conduit' && state.sel !== e.id;
+      // an AGGREGATE conduit always draws its label: `+40 selectors` is a
+      // third distinct fact, not a restatement of the 40 units and the 40
+      // spokes its two terminals already name. Forty individual selector
+      // labels are a texture; one is a sentence.
+      const conduitFan = e.kind === 'conduit' && !e.agg && state.sel !== e.id;
       if (conduitFan) { edgeLabelsOff++; }
       else {
         const at = pointAtPoly(r.paths[r.paths.length - 1], 0.5);
@@ -1686,9 +2124,24 @@ function render() {
         if (!p.name) continue;
         const n = scene.byId.get(p.node);
         if (p.inside && n) {
-          const t = el('text', { class: 'dg-anno', x: n.x + n.w - G.s3, y: p.y + 4,
-            'text-anchor': 'end' });
+          // an aggregate unit label is CONTENT — the range and the count are
+          // the fact the picture is making — so it is --ink, not --muted.
+          // A2 fix: an inside label now anchors to ITS OWN side. A-schematic
+          // always anchored right, which is correct for the hub's st0 field
+          // and wrong for anything terminating on a left wall.
+          const onLeft = p.dx < 0;
+          const lx = onLeft ? n.x + G.s3 : n.x + n.w - G.s3;
+          const t = el('text', { class: p.aggN ? 'dg-count' : 'dg-anno',
+            x: lx, y: p.y + 4, 'text-anchor': onLeft ? 'start' : 'end' });
           t.textContent = p.name; layerText.appendChild(t);
+          if (p.aggN) {
+            const lw = wMicro(p.name);
+            aggHits.push({ grp: p.aggGrp, info: p.aggInfo, on: n.name,
+              where: p.aggGrp === 'lag' ? 'member' : 'stub',
+              x: (onLeft ? lx - G.s3 - G.stub : lx - lw - G.s1),
+              y: p.y - G.s3,
+              w: lw + G.s1 * 2 + G.s3 + G.stub + G.s2, h: G.s5 });
+          }
           continue;
         }
         const w = wMicro(p.name);
@@ -1712,12 +2165,18 @@ function render() {
                         x1: c.anchor === 'end' ? c.bx : c.bx + w, y1: c.by + 2 };
           if (!hits(box)) { put = { c, box }; placed.push(box); break; }
         }
-        if (!put) { portLabelsOff++; continue; }
+        if (!put) { portLabelsOff++;
+          if (p.aggN) aggHits.push({ grp: p.aggGrp, info: p.aggInfo, where: 'member',
+            x: p.x + (p.dx < 0 ? -G.s5 : 0), y: p.y - G.s3, w: G.s5, h: G.s5 });
+          continue; }
         if (overRail(put.box)) plate({ x0: put.box.x0 - G.s1, y0: put.box.y0,
           x1: put.box.x1 + G.s1, y1: put.box.y1 });
-        const t = el('text', { class: 'dg-anno', x: put.c.bx, y: put.c.by,
-          'text-anchor': put.c.anchor });
+        const t = el('text', { class: p.aggN ? 'dg-count' : 'dg-anno', x: put.c.bx,
+          y: put.c.by, 'text-anchor': put.c.anchor });
         t.textContent = p.name; layerText.appendChild(t);
+        if (p.aggN) aggHits.push({ grp: p.aggGrp, info: p.aggInfo, where: 'member',
+          x: Math.min(p.x, put.box.x0) - G.s1, y: p.y - G.s3,
+          w: Math.abs(put.box.x1 - put.box.x0) + G.s5 + G.s2, h: G.s5 });
       }
     }
   } else sup.push('ports collapsed');
@@ -1757,15 +2216,28 @@ function render() {
     if (state.sel === n.id)
       g.appendChild(el('rect', { class: 'dg-sel-ground', x: n.x, y: n.y, width: n.w, height: n.h }));
     if (n.kind === 'ExternalPeer') {
-      const L = n.x, R = n.x + n.w, T = n.y, B = n.y + n.h;
-      const d = { right:  `M${R} ${T} H${L} V${B} H${R}`,
-                  left:   `M${L} ${T} H${R} V${B} H${L}`,
-                  top:    `M${L} ${T} V${B} H${R} V${T}`,
-                  bottom: `M${L} ${B} V${T} H${R} V${B}` }[n.openSide || 'right'];
+      const outline = (ox, oy) => {
+        const L = n.x + ox, R = n.x + n.w + ox, T = n.y + oy, B = n.y + n.h + oy;
+        return { right:  `M${R} ${T} H${L} V${B} H${R}`,
+                 left:   `M${L} ${T} H${R} V${B} H${L}`,
+                 top:    `M${L} ${T} V${B} H${R} V${T}`,
+                 bottom: `M${L} ${B} V${T} H${R} V${B}` }[n.openSide || 'right'];
+      };
+      // THE STACK. Back to front, each filled --page so it occludes the one
+      // behind it. The backs are 1px so the front keeps the 2:1 structural
+      // weight; they are a MARK meaning "more of these", not separate objects.
+      const back = (n.stack && state.stackOk) ? n.stack - 1 : 0;
+      for (let k = back; k >= 1; k--)
+        g.appendChild(el('path', { class: 'dg-stack' + (aged ? ' aged' : ''),
+          d: outline(k * G.stackPitch, k * G.stackPitch), fill: 'var(--page)',
+          'stroke-linejoin': 'miter', 'vector-effect': 'non-scaling-stroke',
+          'shape-rendering': 'crispEdges' }));
       g.appendChild(el('path', { class: 'dg-peer' + (aged ? ' aged' : ''),
-        d, fill: 'var(--page)',
+        d: outline(0, 0), fill: 'var(--page)',
         'stroke-linejoin': 'miter', 'vector-effect': 'non-scaling-stroke',
         'shape-rendering': 'crispEdges' }));
+      if (n.agg) aggHits.push({ grp: n.agg.grp, info: n.agg, where: 'peer',
+        x: n.x, y: n.y, w: n.w + G.stackPad, h: n.h + G.stackPad });
     } else {
       g.appendChild(el('rect', { class: 'dg-box' + (aged ? ' aged' : ''),
         x: n.x, y: n.y, width: n.w, height: n.h,
@@ -1794,6 +2266,11 @@ function render() {
       const t = el('text', { class: 'dg-label', x: n.x + G.s3,
         y: n.y + (isPeer ? 14 : 22) });
       t.textContent = tr.t; layerText.appendChild(t);
+      // the aggregate's second line: HOW MANY, in words, under WHAT
+      if (n.agg && lodFull) {
+        const c = el('text', { class: 'dg-count', x: n.x + G.s3, y: n.y + 30 });
+        c.textContent = n.agg.count; layerText.appendChild(c);
+      } else if (n.agg) { n._countHidden = true; }
       if (n.ageLine && lodFull) {
         const at = truncate(n.ageLine, maxPx, G.advMicro);
         const a = el('text', { class: 'dg-anno', x: n.x + G.s3, y: n.y + 38 });
@@ -1817,6 +2294,50 @@ function render() {
   if (!state.conduitOk && scene.lat.length) sup.push('conduit collapsed');
   if (!state.railOk) sup.push('lag rails collapsed');
   if (!stubOk) sup.push('stubs below 6px');
+  if (!state.stackOk && scene.groups.length) sup.push('aggregate stack merged');
+
+  /* =======================================================================
+     THE AGGREGATE AFFORDANCES.
+     An expanded group gets a HEADER in the picture stating its own state —
+     `st0 · 8 of 40 shown` — which is G10 applied at the element rather than
+     only in the view band, and which is the thing whose aria-expanded is
+     "true" and whose activation collapses the group again.
+     ======================================================================= */
+  for (const n of scene.nodes) {
+    if (!n.aggHeader) continue;
+    const grp = scene.groups.find(g => g.key === n.aggHeader.grp);
+    if (!grp || !grp.expanded) continue;
+    const txt = n.aggHeader.text;
+    const y = n.y + n.portY0 - G.s2;
+    if (lodMid) {
+      const t = el('text', { class: 'dg-count q', x: n.x + n.w - G.s3, y,
+        'text-anchor': 'end' });
+      t.textContent = txt; layerText.appendChild(t);
+      // a hairline under the header separates it from the field it governs,
+      // the same way a chassis sub-row rule works
+      layerNode.appendChild(el('path', { class: 'dg-chassis',
+        d: `M${hp(n.x)} ${hp(n.y + n.portY0 - G.s1)} H${hp(n.x + n.w)}`,
+        'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+    }
+    aggHits.push({ grp: n.aggHeader.grp, header: true, info: grp, on: n.name,
+      x: n.x + n.w - G.s3 - wMicro(txt) - G.s1, y: y - G.s3,
+      w: wMicro(txt) + G.s4, h: G.s5 });
+  }
+
+  for (const a of aggHits) {
+    const grp = scene.groups.find(g => g.key === a.grp);
+    if (!grp) continue;
+    const expanded = !!a.header;
+    const anchor = a.header ? -1 : (a.info && a.info.anchor !== undefined ? a.info.anchor : 0);
+    layerAgg.appendChild(el('rect', {
+      class: 'agg-hit', x: r4(a.x), y: r4(a.y),
+      width: Math.max(G.s5, r4(a.w)), height: Math.max(G.s5, r4(a.h)),
+      role: 'button', tabindex: '0',
+      'aria-expanded': String(expanded),
+      'aria-label': aggName(grp, a),
+      'data-agg': a.grp, 'data-anchor': String(anchor),
+      'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+  }
 
   buildHitGrid();
   state.suppressed = [...new Set(sup)];
@@ -1838,7 +2359,7 @@ function moveFocusRing() {
   const old = svg.querySelector('.dg-focus');
   if (old) old.remove();
   if (!state.focus || !scene) return;
-  const top = svg.firstChild && svg.firstChild.lastChild;
+  const top = svg.querySelector('.top-layer');
   if (!top) return;
   const n = scene.byId.get(state.focus);
   let box = null;
@@ -1874,6 +2395,70 @@ function markOutlineSelection() {
   document.querySelectorAll('.orow').forEach(b =>
     b.setAttribute('aria-selected', String(state.sel === b.dataset.id)));
 }
+
+/* =========================================================================
+   5b. THE AGGREGATE AFFORDANCE — name, state, activation.
+   The accessible name always carries WHAT and HOW MANY, because a stub that
+   announces "+36" and nothing else is a worse control than no stub at all.
+   ========================================================================= */
+function aggName(grp, a) {
+  const T = grp.threshold;
+  if (a.header) {
+    return grp.key === 'lag'
+      ? `ae0 member interfaces on ${a.on || 'this switch'}, all ${grp.total} shown, expanded. `
+        + `Activate to collapse all ${grp.total}.`
+      : `st0 tunnel interfaces, ${grp.shown} of ${grp.total} shown, expanded. `
+        + `Activate to collapse all ${grp.total} again.`;
+  }
+  const i = a.info || {};
+  if (a.where === 'member')
+    return `ae0 on ${a.on || 'this switch'}, ${i.n} member interfaces collapsed, `
+         + `${i.members[0]} to ${i.members[i.members.length - 1]}. `
+         + `Activate to expand all ${i.n}.`;
+  if (a.where === 'stub')
+    return `${i.unitRange.replace('st0.', 'st0 units ').replace('–', ' to ')}, `
+         + `${i.n} tunnel interfaces collapsed on SRX-A. `
+         + `Activate to expand ${Math.min(T, i.n)} of them.`;
+  return `${i.nameRange.replace('–', ' to SPOKE-')}, ${i.n} spoke peers collapsed. `
+       + `Activate to expand ${Math.min(T, i.n)} of them.`;
+}
+
+/* Activation. A header collapses; a residual moves the window to its own
+   page; activating the residual that produced the current window collapses,
+   which is the "second activation collapses" the brief asks for. */
+function toggleAgg(key, anchor) {
+  if (anchor < 0) state.expand.delete(key);
+  else if (key === 'lag') {
+    if (state.expand.has(key)) state.expand.delete(key); else state.expand.set(key, 0);
+  } else if (state.expand.get(key) === anchor) state.expand.delete(key);
+  else state.expand.set(key, anchor);
+  state.sel = null;
+  render(); paintInspector();
+}
+function collapseAll() {
+  if (!state.expand.size) return false;
+  state.expand.clear(); render(); paintInspector(); return true;
+}
+svg.addEventListener('click', ev => {
+  const h = ev.target.closest && ev.target.closest('.agg-hit');
+  if (!h) return;
+  ev.preventDefault(); ev.stopPropagation();
+  toggleAgg(h.dataset.agg, parseInt(h.dataset.anchor, 10));
+});
+svg.addEventListener('keydown', ev => {
+  const h = ev.target.closest && ev.target.closest('.agg-hit');
+  if (!h) return;
+  if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+    ev.preventDefault(); ev.stopPropagation();
+    const key = h.dataset.agg;
+    toggleAgg(key, parseInt(h.dataset.anchor, 10));
+    // keep the keyboard where the user left it: focus the header if the group
+    // is now expanded, or the first remaining stub of the same group if not
+    const next = svg.querySelector(`.agg-hit[data-agg="${key}"][aria-expanded="true"]`)
+              || svg.querySelector(`.agg-hit[data-agg="${key}"]`);
+    if (next) next.focus();
+  }
+});
 function pointAtPoly(pts, t) {
   let total = 0; const segs = [];
   for (let i = 0; i + 1 < pts.length; i++) {
@@ -2009,6 +2594,33 @@ const CORPUS = {
     terse: 'Step 2 of the ladder. One row per peer. Want UP.',
     explained: 'Phase 2 rides inside Phase 1. P1 can be perfectly healthy while P2 fails forever — that split is the most useful diagnostic fact on this card.'
   },
+  /* --- the three entries an AGGREGATE is the right shape for. The corpus
+         already knows that the answer to a hub with forty spokes is a
+         collapsed roll-call, not forty per-tunnel reads. ---------------- */
+  'ike.active-peer.show': {
+    id: 'junos-srx/ike.active-peer.show',
+    cmd: 'show security ike active-peer',
+    risk: 'ReadOnly',
+    answers: 'Which far ends currently have a live session with this box?',
+    terse: 'A peer roll-call. Fastest read on a hub with many spokes.',
+    explained: 'This collapses the Phase 1 view to one line per peer, which on a hub is the quickest way to answer "which sites are up right now" without reading SA state for every one of them.'
+  },
+  'ipsec.inactive-tunnels.show': {
+    id: 'junos-srx/ipsec.inactive-tunnels.show',
+    cmd: 'show security ipsec inactive-tunnels',
+    risk: 'ReadOnly',
+    answers: 'Which tunnels are down, and what reason does the box give?',
+    terse: 'Names what is down and why.',
+    explained: 'The Tunnel Down Reason column is the box telling you what it decided and why. Run this before `show log kmd`, every time.'
+  },
+  'ike.sa.show-index-detail': {
+    id: 'junos-srx/ike.sa.show-index-detail',
+    cmd: 'show security ike security-associations index <sa-index> detail',
+    risk: 'ReadOnly',
+    answers: 'Everything about one Phase 1 SA, by index.',
+    terse: 'The one you use on a hub, once you already have an index.',
+    explained: 'On a hub terminating forty it is the difference between reading one SA and scrolling past thirty-nine. Get the index from the unscoped listing first.'
+  },
   'chassis.cluster.status.show': {
     id: 'junos-srx/chassis.cluster.status.show',
     cmd: 'show chassis cluster status',
@@ -2027,6 +2639,39 @@ function inspectorFor(id) {
   const n = scene.byId.get(id);
   const e = scene.edges.find(x => x.id === id);
   const rows = [], secs = [];
+  if (n && n.agg) {
+    /* THE NON-DROP GUARANTEE, made good. The picture states a range and a
+       count; the inspector names every single thing behind them. */
+    const a = n.agg;
+    rows.push(['kind', 'Aggregate · ' + a.n + ' ExternalPeer']);
+    rows.push(['hides', a.n + ' spokes · ' + a.n + ' st0 units · ' + a.n + ' conduits']);
+    rows.push(['range', a.nameRange]);
+    rows.push(['units', a.unitRange]);
+    rows.push(['peers', a.peerIps[0] + ' … ' + a.peerIps[a.n - 1]]);
+    rows.push(['of', a.total + ' in this fan']);
+    rows.push(['box', `${n.w} × ${n.h} at ${n.x},${n.y}`]);
+    secs.push({ t: 'every member · ' + a.n, body:
+      '<p class="aggnote">Nothing here is hidden from you — the picture states the count, '
+      + 'this list states the names. Both, always.</p><div class="memb-list">'
+      + a.members.map((m, i) => `<div class="memb"><span>${esc(m)}</span>`
+        + `<span>${esc(a.units[i])} · ${esc(a.peerIps[i])}</span></div>`).join('')
+      + '</div>' });
+    secs.push({ t: 'reading a hub, not forty tunnels', body:
+      '<p>The corpus already answers this. On a hub the first read is a roll-call, '
+      + 'not forty per-tunnel SA reads — which is the same decision this drawing makes.</p>'
+      + cmdHtml('ike.active-peer.show') + cmdHtml('ipsec.inactive-tunnels.show')
+      + cmdHtml('ike.sa.show-index-detail')
+      + '<p>Identify a tunnel by VPN name and peer IP rather than by <span class="m">st0.7</span>: '
+      + 'on a hub with forty spokes that is the difference between a search and a scroll.</p>' });
+    secs.push({ t: 'why this is collapsed', body:
+      `<p>This group has ${a.total} like-kind siblings and the threshold is `
+      + `${state.thresh}. Collapse fires on the SIBLING count, never on the total element `
+      + 'count — nine spokes are nine spokes in a twelve-node estate and in a twelve-hundred-node '
+      + 'one alike.</p><p>Expanding draws a window of '
+      + `${state.thresh}, not all ${a.total}: drawing all of them is the texture the collapse `
+      + 'just removed. The full list is above, and one row per member is in the Outline.</p>' });
+    return { rows, secs, title: n.name };
+  }
   if (n) {
     rows.push(['kind', n.kind + (n.role ? ' · ' + n.role : '')]);
     rows.push(['name', n.name]);
@@ -2055,8 +2700,16 @@ function inspectorFor(id) {
     rows.push(['to', nameOf(e.b.n) + (e.b.ports[0] ? ' · ' + e.b.ports[0] : '')]);
     if (e.label) rows.push(['label', e.label]);
     rows.push(['channel', channelOf(e.kind)]);
-    if (e.members) secs.push({ t: 'member interfaces · ' + e.members.length,
-      body: e.members.map(m => `<div class="memb"><span>${esc(m)}</span><span>forwarding</span></div>`).join('') });
+    if (e.agg) {
+      rows.push(['aggregate', e.agg.n + ' collapsed of ' + e.agg.total]);
+      secs.push({ t: 'every member · ' + e.agg.n, body:
+        '<p class="aggnote">The rail states a count. This states the names.</p>'
+        + '<div class="memb-list">' + e.agg.members.map((m, i) =>
+          `<div class="memb"><span>${esc(m)}</span><span>${esc(
+            e.agg.units ? e.agg.units[i] : 'member')}</span></div>`).join('') + '</div>' });
+    }
+    if (e.members && !e.agg) secs.push({ t: 'member interfaces · ' + e.members.length,
+      body: '<div class="memb-list">' + e.members.map(m => `<div class="memb"><span>${esc(m)}</span><span>forwarding</span></div>`).join('') + '</div>' });
     if (e.kind === 'conduit') {
       rows.push(['vpn', e.vpn]); rows.push(['gateway', e.gw + ' → ' + e.peer]);
       rows.push(['overlay', e.overlay]); rows.push(['selector', e.label]);
@@ -2179,9 +2832,13 @@ function hideChip() { chip.classList.remove('shown'); chipFor = null; }
 chip.addEventListener('pointerenter', () => { chipHover = true; });
 chip.addEventListener('pointerleave', () => { chipHover = false; hideChip(); });
 document.addEventListener('keydown', ev => {
-  if (ev.key === 'Escape' && chip.classList.contains('shown')) {
-    chipDismissed = chipFor; hideChip(); ev.stopPropagation();
+  if (ev.key !== 'Escape') return;
+  // the chip first — it is the more transient thing on screen — then any
+  // expanded aggregate group. Escape never does both in one press.
+  if (chip.classList.contains('shown')) {
+    chipDismissed = chipFor; hideChip(); ev.stopPropagation(); return;
   }
+  if (collapseAll()) ev.stopPropagation();
 });
 
 /* =========================================================================
@@ -2190,8 +2847,18 @@ document.addEventListener('keydown', ev => {
 function paintViewBand() {
   const b = document.getElementById('viewband');
   const nEl = scene.elements || 0;
+  /* G10, 56 §5.2's release valve. The band NAMES the collapsed state. This
+     is the guarantee that nothing is ever dropped silently: every group is
+     a chip here, whether it is collapsed, partly expanded or fully drawn. */
+  const lead = [`diagram · ${scene.nodes.length} nodes · ${scene.edges.length} edges`];
+  for (const g of scene.groups) {
+    if (g.hidden > 0 && g.shown === 0) lead.push(`${g.hidden} ${g.noun} collapsed`);
+    else if (g.hidden > 0) lead.push(`${g.shown} of ${g.total} ${g.noun} shown · ${g.hidden} collapsed`);
+    else lead.push(`all ${g.total} ${g.noun} drawn`);
+  }
   const parts = [
-    `<span class="lead">diagram · ${scene.nodes.length} nodes · ${scene.edges.length} edges</span>`,
+    `<span class="lead">${esc(lead.join(' · '))}</span>`,
+    `<span class="sup">${state.agg ? 'aggregate above ' + state.thresh : 'aggregation off'}</span>`,
     `<span class="sup">${[...state.layers].join(' ')}</span>`,
     `<span class="sup">layout ${scene.ms.toFixed(1)} ms · render ${(scene.renderMs||0).toFixed(1)} ms</span>`,
     `<span class="sup">${scene.chanCount} channels · ${scene.crossings} crossings</span>`,
@@ -2208,24 +2875,49 @@ let outlineSig = null;
 function paintOutline() {
   const host = document.getElementById('outline');
   const rows = [];
-  for (const n of scene.nodes) rows.push({ id: n.id, kind: n.kind === 'Device' ? 'device' : 'peer',
-    name: n.name, depth: depthOf(n).length,
-    spoken: `${n.kind} ${n.name}, rank ${n.rank}${n.ageLine ? ', ' + n.ageLine : ''}` });
+  for (const n of scene.nodes) {
+    if (n.agg) {
+      // an aggregate node's row carries aria-expanded and the COUNT in its
+      // accessible name, and activating it expands the group rather than
+      // merely selecting it
+      rows.push({ id: n.id, kind: 'group', name: n.name + ' · ' + n.agg.count,
+        depth: 1, agg: 'spokes', anchor: n.agg.anchor, expandedState: false,
+        spoken: `${n.agg.n} spoke peers collapsed, ${n.agg.nameRange}, `
+              + `${n.agg.n} st0 units, collapsed. Activate to expand.` });
+      continue;
+    }
+    rows.push({ id: n.id, kind: n.kind === 'Device' ? 'device' : 'peer',
+      name: n.name, depth: depthOf(n).length,
+      spoken: `${n.kind} ${n.name}, rank ${n.rank}${n.ageLine ? ', ' + n.ageLine : ''}` });
+  }
+  for (const g of scene.groups) {
+    if (g.expanded)
+      rows.push({ id: 'g.' + g.key, kind: 'group',
+        name: g.noun + ' · ' + g.shown + ' of ' + g.total,
+        depth: 1, agg: g.key, anchor: -1, expandedState: true,
+        spoken: `${g.noun}, ${g.shown} of ${g.total} shown, expanded. Activate to collapse all ${g.total}.` });
+    else if (g.key === 'lag')     // the LAG has no aggregate node to hang on
+      rows.push({ id: 'g.' + g.key, kind: 'group', name: 'ae0 · +' + g.total + ' members',
+        depth: 1, agg: g.key, anchor: 0, expandedState: false,
+        spoken: `ae0, ${g.total} member interfaces collapsed. Activate to expand all ${g.total}.` });
+  }
   for (const e of scene.edges) rows.push({ id: e.id, kind: 'edge', name: edgeKindName(e.kind)
     + ' · ' + nameOf(e.a.n) + ' → ' + nameOf(e.b.n), depth: 1,
     spoken: `${edgeKindName(e.kind)} from ${nameOf(e.a.n)} to ${nameOf(e.b.n)}${e.label ? ', ' + e.label : ''}` });
   for (const b of scene.bands) rows.push({ id: b.id, kind: b.kind, name: b.name,
     depth: 0, spoken: `${b.kind} ${b.name}, ${b.n} members` });
-  const sig = rows.map(r => r.id + '/' + r.depth).join('|');
+  const sig = rows.map(r => r.id + '/' + r.depth + '/' + (r.name || '')).join('|');
   if (sig === outlineSig) return;               // do not rebuild under a focused row
   outlineSig = sig;
   host.innerHTML = rows.map((r, i) =>
     `<button class="orow" type="button" role="option" data-id="${esc(r.id)}"
+       ${r.agg ? `data-agg="${esc(r.agg)}" data-anchor="${r.anchor}"
+       aria-expanded="${r.expandedState}"` : ''}
        tabindex="${i === 0 ? 0 : -1}" aria-selected="${state.sel === r.id}"
-       aria-describedby="chip" title="${esc(r.spoken)}">
+       aria-describedby="chip" aria-label="${esc(r.spoken)}" title="${esc(r.spoken)}">
        <span class="okind">${esc(r.kind)}</span>
        <span class="oname">${esc(r.name)}</span>
-       <span class="odepth">${r.depth ? '▸' : ''}</span></button>`).join('');
+       <span class="odepth">${r.agg ? (r.expandedState ? '▾' : '+') : (r.depth ? '▸' : '')}</span></button>`).join('');
   document.getElementById('out-tab').textContent = rows.length + ' rows · one per drawn element';
   host.querySelectorAll('.orow').forEach((b, i, list) => {
     b.addEventListener('focus', () => {
@@ -2236,6 +2928,12 @@ function paintOutline() {
     });
     b.addEventListener('blur', () => { if (!chipHover) hideChip(); });
     b.addEventListener('click', () => {
+      if (b.dataset.agg) {          // a group row expands; it does not select
+        toggleAgg(b.dataset.agg, parseInt(b.dataset.anchor, 10));
+        const back = document.querySelector('.orow[data-agg="' + b.dataset.agg + '"]');
+        if (back) back.focus();
+        return;
+      }
       state.sel = b.dataset.id; state.focus = b.dataset.id;
       render(); paintInspector(); b.focus();
     });
@@ -2290,6 +2988,9 @@ svg.addEventListener('pointermove', ev => {
 });
 svg.addEventListener('pointerleave', () => { if (!chipHover) hideChip(); });
 svg.addEventListener('pointerdown', ev => {
+  // an aggregate affordance owns its own pointer: it must not also select,
+  // pan or start a pin drag
+  if (ev.target.closest && ev.target.closest('.agg-hit')) return;
   const r = svg.getBoundingClientRect();
   const sx = ev.clientX - r.left, sy = ev.clientY - r.top;
   const h = hitTest(sx, sy);
@@ -2318,10 +3019,20 @@ function applyTransform() {
    11. CONTROLS
    ========================================================================= */
 function setSpokes(n) {
-  state.spokes = Math.max(0, Math.min(64, n));
+  state.spokes = Math.max(0, Math.min(128, n));
   document.getElementById('ro-spokes').textContent = state.spokes;
-  model = fixture(state.spokes);
-  state.sel = null; state.focus = null;
+  model = fixture(state.spokes, state.members);
+  state.sel = null; state.focus = null; state.expand.clear();
+  const s = render(); state.order = s.order;
+  paintInspector();
+  return s;
+}
+function setMembers(m) {
+  state.members = m;
+  document.querySelectorAll('[data-memb]').forEach(o =>
+    o.setAttribute('aria-pressed', String(+o.dataset.memb === m)));
+  model = fixture(state.spokes, state.members);
+  state.sel = null; state.focus = null; state.expand.delete('lag');
   const s = render(); state.order = s.order;
   paintInspector();
   return s;
@@ -2346,6 +3057,21 @@ document.getElementById('controls').addEventListener('click', ev => {
   const b = ev.target.closest('button'); if (!b) return;
   if (b.dataset.spoke) setSpokes(state.spokes + parseInt(b.dataset.spoke, 10));
   if (b.dataset.spokeset) setSpokes(parseInt(b.dataset.spokeset, 10));
+  if (b.dataset.memb) setMembers(parseInt(b.dataset.memb, 10));
+  if (b.dataset.aggmode) {
+    state.agg = b.dataset.aggmode === '1';
+    document.querySelectorAll('[data-aggmode]').forEach(o =>
+      o.setAttribute('aria-pressed', String((o.dataset.aggmode === '1') === state.agg)));
+    state.sel = null; state.focus = null; state.expand.clear();
+    render(); paintInspector();
+  }
+  if (b.dataset.thresh) {
+    state.thresh = parseInt(b.dataset.thresh, 10);
+    document.querySelectorAll('[data-thresh]').forEach(o =>
+      o.setAttribute('aria-pressed', String(+o.dataset.thresh === state.thresh)));
+    state.sel = null; state.focus = null; state.expand.clear();
+    render(); paintInspector();
+  }
   if (b.dataset.layer) {
     const l = b.dataset.layer;
     if (state.layers.has(l) && state.layers.size > 1) state.layers.delete(l);
@@ -2399,7 +3125,13 @@ const KEY = [
   { k: 'cross', name: 'Crossing', chan: 'no channel — a legibility mark',
     d: 'A 4px knockout gap in the lower-priority rail. A crossing with no square means no connection.' },
   { k: 'junction', name: 'Junction', chan: 'no channel — a legibility mark',
-    d: 'A 4px filled --ink square at a genuine tee. A square means connection. The convention is a century old.' }
+    d: 'A 4px filled --ink square at a genuine tee. A square means connection. The convention is a century old.' },
+  { k: 'stack', name: 'Aggregate terminal — NEW', chan: 'G4 unchanged · the cap is drawn three times',
+    d: 'The one new mark in A2. Three caps 4px apart instead of one says "more of these than are drawn". Three, not two — two would be read as the conduit\'s own rail pair seen end-on. It is shape and position only; no channel is spent and no hue is introduced.' },
+  { k: 'aggbox', name: 'Aggregate node — NEW', chan: 'the same stack, on a boundary',
+    d: 'Two 1px outlines behind the 2px boundary, 4px apart on the lattice. The front box keeps the structural weight; the backs are a mark, not objects. Carries the range on line one and the count on line two.' },
+  { k: 'aggbrk', name: 'Aggregate bracket — NEW', chan: 'the same stack, on a LAG spine',
+    d: 'Three bracket spines instead of one spine over N spread members. The same mark at the third level, which is the point: one aggregate vocabulary, applied at unit, peer and member level alike.' }
 ];
 function specimen(k) {
   const W = 96, H = 44, cy = 22, x0 = 12, x1 = 84;
@@ -2413,7 +3145,7 @@ function specimen(k) {
   // the two device walls, at the structural weight, so every specimen shows
   // the terminal as what it is: geometry outside the body
   const WALLS = ['link','lag','reth','conduit','access','trunk','atrunk','route',
-                 'inferred','proposed'];
+                 'inferred','proposed','stack','aggbrk'];
   if (WALLS.includes(k)) {
     s.appendChild(el('path', { class: 'dg-box', fill: 'none',
       d: `M${x0} ${cy - 14} V${cy + 14} M${x1} ${cy - 14} V${cy + 14}`,
@@ -2458,6 +3190,26 @@ function specimen(k) {
   } else if (k === 'junction') {
     P(`M${x0}.5 ${cy}.5 H${x1}.5 M${48}.5 ${cy}.5 V${cy + 12}.5`);
     J(48.5, cy + 0.5);
+  } else if (k === 'stack') {
+    P(`M${x0}.5 ${cy}.5 H${x0 + 8}.5 M${x1}.5 ${cy}.5 H${x1 - 8}.5`);
+    for (let i = 0; i < 3; i++)
+      P(`M${x0 + 8 + i * 4}.5 ${cy - 4}.5 V${cy + 4}.5` +
+        ` M${x1 - 8 - i * 4}.5 ${cy - 4}.5 V${cy + 4}.5`);
+    P(`M${x0 + 8}.5 ${cy - 4}.5 H${x1 - 8}.5 M${x0 + 8}.5 ${cy + 4}.5 H${x1 - 8}.5`);
+    J(x0 + 8.5, cy + 0.5); J(x1 - 7.5, cy + 0.5);
+  } else if (k === 'aggbrk') {
+    P(`M${x0}.5 ${cy}.5 H${x0 + 8}.5`);
+    for (let i = 0; i < 3; i++)
+      P(`M${x0 + 8 + i * 4}.5 ${cy - 8}.5 V${cy + 8}.5`);
+    J(x0 + 8.5, cy + 0.5);
+    P(`M${x0 + 8}.5 ${cy - 2}.5 H${x1}.5 M${x0 + 8}.5 ${cy + 2}.5 H${x1}.5`);
+  } else if (k === 'aggbox') {
+    const bx = 16, by = 8, bw = 56, bh = 20;
+    const box = (o, cls) => s.appendChild(el('path', { class: cls, fill: 'var(--page)',
+      d: `M${bx + bw + o} ${by + o} H${bx + o} V${by + bh + o} H${bx + bw + o}`,
+      'stroke-linejoin': 'miter', 'vector-effect': 'non-scaling-stroke',
+      'shape-rendering': 'crispEdges' }));
+    box(8, 'dg-stack'); box(4, 'dg-stack'); box(0, 'dg-peer');
   }
   return s;
 }
@@ -2485,23 +3237,92 @@ paintInspector();
 
 window.__dia = {
   setSpokes: n => { const s = setSpokes(n); fit(); return stats(); },
+  setMembers: m => { setMembers(m); fit(); return stats(); },
+  setAgg: on => { state.agg = !!on; state.expand.clear();
+    document.querySelectorAll('[data-aggmode]').forEach(o =>
+      o.setAttribute('aria-pressed', String((o.dataset.aggmode === '1') === state.agg)));
+    render(); fit(); paintInspector(); return stats(); },
+  setThresh: t => { state.thresh = t; state.expand.clear();
+    document.querySelectorAll('[data-thresh]').forEach(o =>
+      o.setAttribute('aria-pressed', String(+o.dataset.thresh === state.thresh)));
+    render(); fit(); paintInspector(); return stats(); },
+  expand: (key, anchor) => { toggleAgg(key, anchor); fit(); return stats(); },
+  select: id => { state.sel = id; state.focus = id; render(); paintInspector(); return stats(); },
+  collapseAll: () => { collapseAll(); fit(); return stats(); },
   setZoom, fit, state, stats,
+  /* every routed segment against every node box — the "no edge crosses a
+     node" assertion, computed rather than eyeballed */
+  edgeNodeHits() {
+    let hits = 0; const where = [];
+    for (const r of scene.routed) for (const p of r.paths)
+      for (let i = 0; i + 1 < p.length; i++) {
+        const a = p[i], b = p[i + 1];
+        const sx0 = Math.min(a.x, b.x), sx1 = Math.max(a.x, b.x);
+        const sy0 = Math.min(a.y, b.y), sy1 = Math.max(a.y, b.y);
+        for (const n of scene.nodes) {
+          // a segment legitimately touches the wall of the node it terminates
+          // on, so the test is strict overlap of the INTERIOR
+          if (sx1 <= n.x + 1 || sx0 >= n.x + n.w - 1) continue;
+          if (sy1 <= n.y + 1 || sy0 >= n.y + n.h - 1) continue;
+          hits++; where.push(r.e.id + ' × ' + n.id);
+        }
+      }
+    return { hits, where: where.slice(0, 8) };
+  },
+  aggAudit() {
+    return [...svg.querySelectorAll('.agg-hit')].map(h => ({
+      grp: h.dataset.agg, anchor: h.dataset.anchor,
+      tabindex: h.getAttribute('tabindex'),
+      role: h.getAttribute('role'),
+      ariaExpanded: h.getAttribute('aria-expanded'),
+      name: h.getAttribute('aria-label'),
+      hasCount: /\b\d+\b/.test(h.getAttribute('aria-label') || ''),
+      w: +h.getAttribute('width'), h: +h.getAttribute('height')
+    }));
+  },
+  outlineAudit() {
+    return [...document.querySelectorAll('.orow[data-agg]')].map(b => ({
+      grp: b.dataset.agg, ariaExpanded: b.getAttribute('aria-expanded'),
+      name: b.getAttribute('aria-label'),
+      hasCount: /\b\d+\b/.test(b.getAttribute('aria-label') || '')
+    }));
+  },
+  paints() {                       // every colour actually painted in the SVG
+    const set = new Set();
+    for (const e of svg.querySelectorAll('*')) {
+      const cs = getComputedStyle(e);
+      for (const p of ['fill', 'stroke', 'color']) {
+        const v = cs.getPropertyValue(p);
+        if (v && v !== 'none' && !v.startsWith('rgba(0, 0, 0, 0)')) set.add(p + ':' + v);
+      }
+    }
+    return [...set].sort();
+  },
   get scene() { return scene; }
 };
 function stats() {
+  const g = (scene.groups || []).map(x => ({ key: x.key, total: x.total,
+    shown: x.shown, hidden: x.hidden, expanded: x.expanded }));
   return {
     spokes: state.spokes,
+    members: state.members,
+    aggregated: state.agg,
+    threshold: state.thresh,
+    groups: g,
+    collapsed: g.reduce((a, x) => a + x.hidden, 0),
     nodes: scene.nodes.length,
     edges: scene.edges.length,
     bands: scene.bands.length,
     layoutMs: +scene.ms.toFixed(2),
     renderMs: +(scene.renderMs || 0).toFixed(2),
     elements: scene.elements,
+    aggHits: svg.querySelectorAll('.agg-hit').length,
     channels: scene.chanCount,
     crossings: scene.crossings,
     sceneW: Math.round(scene.ext.w),
     sceneH: Math.round(scene.ext.h),
     zoom: state.zoom,
+    viewband: (document.getElementById('viewband').textContent || '').trim(),
     suppressed: state.suppressed.slice()
   };
 }
