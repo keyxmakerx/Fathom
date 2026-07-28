@@ -64,6 +64,15 @@ Do not add a fourth. Do not reuse these colours for anything else (not for findi
 severity, not for status, not for diff). Finding severity is a separate scale rendered
 in neutrals with a weight/rule treatment — see the design docs.
 
+**Amendment (ADR-0011 — risk is a property of effect).** The three values, their colours
+and their ordering are unchanged. Two refinements: risk is assigned by *effect*, not by
+command mode — `Disruptive` iff committing or running the statement can interrupt an
+established flow, SA or adjacency on a device already carrying traffic. And the caption is
+separable from the band: *"Exactly three bands. The caption is the default rendering of the
+band and may be overridden per corpus entry where the default is untrue; the ink, wash and
+ordering may not."* The override field is `risk_caption_override` (`61` §4.6). See
+`docs/90-decisions/adr-0011-risk-is-a-property-of-effect.md`.
+
 ## Identifiers
 
 - Node IDs: `fathom:<kind-lower>:<ulid>` — ULID for lexicographic sortability and
