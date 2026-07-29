@@ -81,17 +81,22 @@ second-order consequence would belong in `73` as forks, or nowhere at all.
 
 **The instruction was restated when four clarifications arrived after this register was first
 written** — the two that answer the date question (§3.8, §4.4) and the two that open C-05 (§7) and
-C-06 (§8). It arrived in the same terms: these are plans, and the new material is not to be acted
-on. **That restatement reaches this register as a paraphrase too**, so §13 row 7's defect now
-covers two statements of one instruction rather than one. The four clarifications themselves *are*
-preserved verbatim, at §3.8, §4.4, §7.1 and §8.1, and §15 records each.
+C-06 (§8). That restatement **is** preserved, in the owner's words:
 
-> **The verbatim wording of that instruction is not preserved in this document, and it should be.**
-> §2.1 states the reason it matters — *"paraphrasing a governance instruction is how it decays"* —
-> and the paragraph above is a paraphrase. Whoever next touches this register with access to the
-> original exchange should replace it with the owner's words. Recorded as a live defect in §13
-> row 7 rather than papered over: a reconstructed quotation would be worse than an admitted gap,
-> because it would read as evidence.
+> *"these are just plans btw don't act on the new stuff atm"*
+
+*"The new stuff"* is those four clarifications, so that sentence governs C-05, C-06 and both halves
+of the date answer directly. The four clarifications themselves are likewise preserved verbatim, at
+§3.8, §4.4, §7.1 and §8.1, and §15 records each.
+
+> **The wording of the *original* instruction — the one that arrived with the four capability
+> requests in §3.1, §5.1 and §6.1 — is still not preserved here, and it should be.** §2.1 states the
+> reason it matters — *"paraphrasing a governance instruction is how it decays"* — and the opening
+> paragraph of this subsection is a paraphrase of it. Whoever next touches this register with access
+> to that exchange should replace that paraphrase with the owner's words. Recorded as a live defect
+> in §13 row 7 rather than papered over: a reconstructed quotation would be worse than an admitted
+> gap, because it would read as evidence. **The restatement quoted above is not a substitute**, because
+> it was said of different material.
 
 Every entry states what is wanted, where it would attach, what it drags in, and what must be
 decided first — and then stops. Concretely, and these are the failure conditions a reviewer
@@ -468,7 +473,12 @@ stamping a date means reading a clock. That is not the thing invariant 9 forbids
 | | What is read | What it produces | Effect on invariant 9 |
 |---|---|---|---|
 | **A completion stamp** | The clock, **once**, at the moment of a user action | A stored value, written into the workspace as an ordinary op | **None.** The write changes the workspace, so it is a different workspace, and *"same workspace + same corpus version + same build"* is untouched |
+| **A stored date compared at build** | The clock, **once per build**, against a stored date | A value baked into the built artifact | **None, and this row already ships.** Invariant 9's premise is *"same workspace + same corpus version + same **build**"*, so a value fixed at build time is constant across every render of that build. `15` §13.2's `Staleness` is exactly this shape — §4.4 works it through |
 | **An expiry evaluated at render** | The clock, on **every** render | Nothing stored | **Breaks it.** One unchanged workspace renders differently on two different days |
+
+The middle row is here because it is the shape a reader reaches for first and the two-row version of
+this table had no cell for it. What the clarification rules out for lifecycle dates is the **render**-time
+comparison, not date arithmetic as such.
 
 **Checked against the corpus rather than asserted, because if the corpus forbade reading wall-clock
 time anywhere the answer would be different.** It does not, and the scoping is explicit. `12` §3.4's
@@ -639,11 +649,42 @@ emitted line's explainer carries, in muted mono:
 junos-srx 21.4R3 · verified 2026-05-12 · K. Okafor
 ```
 
-That is a stored date, displayed as text, and it is never evaluated against anything. ADR-0027 item
-4 *does* derive `Staleness` and show it — but it derives it from the entry's **platform version**
-against the workspace's platform version (*"an entry verified against a train two majors behind"*),
-not from its date against a clock. The stamp is exactly the shape the owner described, and it is
-already on every row of the v1 product.
+The stamp is a stored date rendered as text, and **the rendering evaluates nothing**: no branch in
+the product asks how old `2026-05-12` is before drawing it. It is exactly the shape the owner
+described, and it is already on every row of the v1 product.
+
+**The `Staleness` value shown alongside it is a different shape, it reads the same underlying date,
+and an earlier draft of this subsection described it wrongly.** That draft said `Staleness` is
+derived from platform versions and *"not from its date against a clock"*. It is derived from both.
+ADR-0027 item 4 derives and shows `Staleness` *"per `15` §13.2"* — item 4's own text — and `15`
+§13.2's definition has two **disjunctive** limbs, only one of which is about versions:
+
+> `Aging` — *"> 18 months since verification, **or** ≥ 2 vendor majors behind."*
+>
+> `Stale` — *"> 36 months, **or** explicitly contradicted by a newer verification."*
+
+The months-elapsed limb is a date comparison, it runs against `verified_against` — which `15` §6.2
+types as a *"list of `{platform, version, on}`"*, so it carries a date — and it changes what is
+displayed: `15` §3.4's filter table drops a `Stale` entry **from the spine** and tags an `Aging` one
+with the margin tab `unverified since <ver>`. `15` §7.2's re-review triggers add a second
+elapsed-date gate on the same field — *"`verified_against` newest entry > 24 months old | build
+warning, then error at 36"*. So the corpus does compare a stored date against a clock, in a way that
+changes output.
+
+**What keeps that inside invariant 9 is *when* the comparison happens, not what it compares.**
+`15` §13.2's own sentence is *"Computed at build from `verified_against` and the release calendar.
+Never stored by hand."* Invariant 9's premise is *"same workspace + same corpus version + same
+**build**"*, so a value fixed at build time is constant across every render of that build and the
+same workspace opened on two different days still renders identically. **This is the third row of
+§3.8's table, not a counterexample to it**, and the distinction it draws is render-time versus
+build-time — not dates versus versions.
+
+**Why that matters for C-01 and C-02 rather than being trivia.** It removes an argument nobody
+should make: *the corpus already compares dates, so a lifecycle expiry may too*. `Staleness` compares
+dates over **corpus** content, at build, where the result is frozen into the artifact alongside the
+corpus version invariant 9 already names as a premise. A lifecycle date is **workspace** content,
+which no build sees. The precedent therefore transfers to nothing in C-01 or C-02, and the owner's
+answer at Q9 (§11) — dates are stored values, never compared — is not narrowed by it.
 
 #### Two consequences, and the second is a divergence that must be recorded rather than resolved
 
@@ -1670,7 +1711,7 @@ no shared critical path.
 | 4 | **It duplicates `73`** | An entry becomes a well-formed fork and stays here anyway, so the same question has two homes and they drift | The *forked* exit is the intended one. When an entry becomes answerable, it moves and this row is struck through with a pointer |
 | 5 | **Its cost claims rot** | The "nearly free" column ages badly: `18` §5's rollback generator changes shape and §12.1 still says the emitter is free | Every §12 claim names the document and section it rests on, so the claim breaks visibly when that section changes |
 | 6 | **The standing priority instruction is read as licence to re-litigate** | Every settled decision gets reopened because "sunk cost is not an argument", and the project stops converging | §2.2's second column, and the rule that a reopening needs either a fired `Revisit if` trigger or a new requirement — not a new opinion |
-| 7 | **The governing instruction is paraphrased, not quoted — and this one is live now, not hypothetical** | §1.2 states the owner's "record, do not act" instruction in this register's words rather than the owner's. §2.1 names the mechanism by which that decays: *"paraphrasing a governance instruction is how it decays"* — the paraphrase gradually becomes the instruction, and the boundary it draws moves with whoever restates it. Every other owner input in this document is quoted verbatim (§2.1, §3.1, §3.8, §4.4, §5.1, §6.1, §7.1, §8.1); the one that defines the document's licence to exist is not. **The defect has since doubled**: the instruction was restated when the four clarifications arrived (§1.2) and that restatement reached this register as a paraphrase too, so there are now two paraphrases of one instruction and no quotation of either | Replace §1.2's paraphrases with the owner's words at the next opportunity. **Do not reconstruct them** — an invented quotation would read as evidence and would be worse than the gap. Until then, §1.2 carries the admission and §15 records the instruction's source as a paraphrase rather than a citation |
+| 7 | **The *original* governing instruction is paraphrased, not quoted — and this one is live now, not hypothetical** | §1.2 states the owner's "record, do not act" instruction, as it arrived with the four capability requests in §3.1, §5.1 and §6.1, in this register's words rather than the owner's. §2.1 names the mechanism by which that decays: *"paraphrasing a governance instruction is how it decays"* — the paraphrase gradually becomes the instruction, and the boundary it draws moves with whoever restates it. Every other owner input in this document is quoted verbatim (§2.1, §3.1, §3.8, §4.4, §5.1, §6.1, §7.1, §8.1); the one that defines the document's licence to exist is not. **This is one statement, not two.** An earlier draft reported the defect as doubled on the ground that the restatement accompanying the four clarifications was also a paraphrase. It is not — that restatement is now quoted verbatim in §1.2, *"these are just plans btw don't act on the new stuff atm"*, and §15 carries it as a citation | Replace §1.2's remaining paraphrase with the owner's words at the next opportunity. **Do not reconstruct them** — an invented quotation would read as evidence and would be worse than the gap. The restatement does not close this row, because *"the new stuff"* names the four clarifications rather than the original four requests. Until then, §1.2 carries the admission and §15 records the original instruction's source as a paraphrase rather than a citation |
 
 ---
 
@@ -1711,7 +1752,8 @@ is not this document's to make.
 | **The owner's clarification on config backup, verbatim** — *"oh! maybe we can have config backups and such as well…"* | Owner, in conversation, after this register was first written. Quoted in full at §7.1. It supplies C-05 |
 | **The owner's clarification on teaching-off and operational procedures, verbatim** — *"wait no you misunderstood, fathom is a teaching device but also make a person's life easier device…"* | Owner, in conversation, after this register was first written. Quoted in full at §8.1. It supplies C-06 and the observation in §9 |
 | The standing priority instruction — prior work does not constrain future quality | Owner, in conversation, quoted verbatim in §2.1 |
-| The instruction that these are recorded as intent and are not to be acted on | Owner, in conversation, **twice**: once with the original four requests and once with the four clarifications above. **Paraphrased both times, in §1.2 — not quoted anywhere in this document.** The verbatim wording of neither is preserved here, and §13 row 7 records that as a live defect rather than treating the paraphrases as citations |
+| **The restatement of the "record, do not act" instruction, verbatim** — *"these are just plans btw don't act on the new stuff atm"* | Owner, in conversation, alongside the four clarifications above. **Quoted in full at §1.2.** *"The new stuff"* is those four clarifications, so this is the governing instruction for C-05, C-06 and both halves of the date answer. It is not a record of how the original instruction was worded |
+| The same instruction **as it arrived with the original four capability requests** (§3.1, §5.1, §6.1) | Owner, in conversation. **Paraphrased in §1.2 — not quoted anywhere in this document.** The verbatim wording is not preserved here, and §13 row 7 records that as a live defect rather than treating the paraphrase as a citation |
 | The register/roadmap/ADR division of labour, and the entry-shape conventions this document copies | `docs/70-ops/73-open-decisions.md` §1.1, §1.4, §10.1–10.4 |
 | "Retired boundaries are struck through, not deleted", and the two retirement routes | `docs/00-vision/03-non-goals-and-scope.md` §10.1–10.3 |
 | `N-R-2`, `N-R-3`, `N-P-2`, the scope rule and its capability closure, and the twelve refusals table | `docs/00-vision/03-non-goals-and-scope.md` §3.2, §4.2, §4.3, §5.1, §5.2 |
@@ -1773,7 +1815,8 @@ is not this document's to make.
 | The amended invariant 3 — *"A pasted capture may **contain** a credential; it is redacted at the ingest gate…"* — its `Accepted` status, and its own warning that *"the weaker sentences are the true ones"* | `docs/90-decisions/adr-0002-invariant-amendments-and-the-residual-scale.md` |
 | The *round up* rule quoted as the corpus's own, and that risk is assigned by effect | `docs/90-decisions/adr-0011-risk-is-a-property-of-effect.md` |
 | R39 — `Terminal` as the default wrap, and the clipboard rule that follows from it | `docs/90-decisions/adr-0025-restore-the-cards-density-and-channel-budget.md`, as applied at `54` §8 (*"the visible backslash is a rendering flavour, not…"*) and recorded again at `54` §26's open decisions |
-| **The verification stamp `junos-srx 21.4R3 · verified 2026-05-12 · K. Okafor` as chrome on every finder row and explainer header — a stored date, displayed, never evaluated** — and that the `Staleness` derived alongside it compares platform **versions**, not dates | `docs/90-decisions/adr-0027-hardware-verification-and-the-verification-stamp.md`, Decision items 3 and 4 |
+| **The verification stamp `junos-srx 21.4R3 · verified 2026-05-12 · K. Okafor` as chrome on every finder row and explainer header — a stored date, displayed, with nothing in the stamp itself evaluated** | `docs/90-decisions/adr-0027-hardware-verification-and-the-verification-stamp.md`, Decision item 3 (*"The stamp is chrome, not metadata"*) |
+| **That `Staleness` has two disjunctive limbs and one of them is an elapsed-months date comparison — `Aging` *"> 18 months since verification, or ≥ 2 vendor majors behind"*, `Stale` *"> 36 months, or explicitly contradicted by a newer verification"* — that it is *"Computed at build from `verified_against` and the release calendar"*, that `verified_against` is a *"list of `{platform, version, on}`"* and so carries a date, that a `Stale` entry is dropped from the spine, and that a second elapsed-date gate warns at 24 months and errors at 36.** ADR-0027 item 4 shows one illustrative case — *"an entry verified against a train two majors behind"* — and is **not** the source for the general rule; `15` §13.2 is. An earlier draft of §4.4 cited item 4 for the claim that `Staleness` compares versions and not dates, which item 4's own referent refutes | `docs/10-core/15-explainer-corpus.md` **§13.2**, and §3.4's filter table, §6.2's field reference, §7.2's re-review triggers |
 
 ---
 
