@@ -1,0 +1,213 @@
+/* =========================================================================
+   Fathom design tokens.
+
+   SOURCE OF TRUTH: docs/50-design/51-design-tokens.md §14.
+   This file is a transcription of that section. Change the document first,
+   then regenerate this file — never the other way round. A value here that
+   the document does not carry is a defect.
+
+   Values marked [E] are machine-extracted from the owner's SRX IPsec field
+   card. Values marked [D] are derived — the derivation is in
+   docs/50-design/51-design-tokens.md at the section noted. Values marked [C]
+   were chosen; the reasoning is in the same place.
+
+   Everything else in the product references these names and declares no hex,
+   no px font sizes and no durations of its own. (51 §14, opening sentence.)
+   ========================================================================= */
+
+:root {
+  color-scheme: light dark;
+
+  /* --- neutrals ------------------------------------------------- §3.1 --- */
+  --ink:        #14171A;   /* [E] 162 uses */
+  --muted:      #5C6772;   /* [E] 152 uses */
+  --surface:    #F2F4F6;   /* [E]  54 uses */
+  --hairline:   #D2D7DD;   /* [E]  34 uses */
+  --page:       #FFFFFF;   /* [E]  16 uses */
+  --surface-2:  #FAFBFC;   /* [D] ink hue at OKL 0.988 */
+
+  /* --- the risk enum. Reserved. See §1 R1 ----------------------- §3.2 --- */
+  --safe:       #1F6F4A;   --safe-wash:    #EEF5F1;   /* [E] ReadOnly      */
+  --caution:    #A8571B;   --caution-wash: #FBF3EA;   /* [E] ChangesConfig */
+  --danger:     #8C2F2F;   --danger-wash:  #F8EFEF;   /* [E] Disruptive    */
+
+  /* --- rules ---------------------------------------------------- §9 ----- */
+  --rule-hair:   1px;      /* [E] */
+  --rule-mast:   3px;      /* [E] */
+  --rule-accent: 4px;      /* [E] 3pt in the source PDF */
+  --rule-style-deterministic: solid;
+  --rule-style-proposed:      dashed;
+  --rule-style-pending:       dotted;
+  --hatch: repeating-linear-gradient(135deg,
+            var(--muted) 0 2px, transparent 2px 5px);
+
+  /* --- radius and elevation ------------------------------ §10, §11 ----- */
+  --radius: 0;             /* [C] deliberate. Read §10 before changing.     */
+  --shadow: none;          /* [C] there is no elevation scale.              */
+  --scrim-opacity: 0.72;
+  --z-content: auto;  --z-egress: 10;  --z-modal: 20;
+
+  /* --- space ---------------------------------------------------- §8 ----- */
+  --s1:  4px;  --s2:  8px;  --s3: 12px;  --s4: 16px;
+  --s5: 24px;  --s6: 32px;  --s7: 48px;  --s8: 64px;
+
+  /* --- geometry ------------------------------------------- §2, §7.8 ---- */
+  --sheet:      1180px;    /* [D] 2 × 72ch mono + gutter + padding */
+  --sheet-card:  992px;    /* [E] the card's 744pt content width   */
+  --col:         480px;    /* [E] the card's 360pt column          */
+  --measure:      68ch;    /* [C] prose line cap                   */
+  --bp-cols:     860px;    /* [C] two columns → one                */
+  --gutter-num:   34px;    /* [D] 6 digits of --t-micro + --s2     */
+  --cfg-cols:       72;    /* [D] must equal WrapPolicy::Display cols */
+  --row-min:      24px;    /* [C] WCAG 2.5.8. 20px in compact mode.   */
+
+  /* --- type ----------------------------------------------------- §7 ----- */
+  --sans: "Liberation Sans", Inter, "Helvetica Neue", Arial, system-ui, sans-serif;
+  --mono: "DejaVu Sans Mono", "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  --t-micro: 0.625rem;     /* 10px   */
+  --t-tab:   0.6875rem;    /* 11px   */
+  --t-small: 0.75rem;      /* 12px   */
+  --t-mono:  0.78125rem;   /* 12.5px */
+  --t-body:  0.8125rem;    /* 13px   */
+  --t-head:  0.8125rem;    /* 13px   */
+  --t-mast:  0.9375rem;    /* 15px   */
+  --t-title: 1.3125rem;    /* 21px   */
+  /* VERIFY (51 §16, open, not decided): --t-mono at 12.5px is optically correct
+     and mechanically awkward — a half-pixel size may round inconsistently across
+     engines at fractional devicePixelRatio. Render 12.5px DejaVu Sans Mono at DPR
+     1, 1.25, 1.5 and 2 in Chromium, Firefox and WebKit and compare rasterised
+     x-height against 13px Liberation Sans. If it rounds inconsistently, fall back
+     to 13px mono with --mono-optical: 1.0 and accept the 3.5% overshoot, which
+     errs toward legibility. */
+
+  --lh-step:  1.25rem;     /* 20px — the baseline unit, 5 × --s1 */
+  --lh-micro: 1rem;        /* 16px — off-grid on purpose, §7.6   */
+  --lh-title: 1.5rem;      /* 24px */
+
+  --mono-optical:      0.96;   /* [D] x-height match, §7.4 */
+  --mono-optical-caps: 0.94;   /* [D] cap-height match     */
+
+  --track-head:   0.14em;  /* [E] */
+  --track-mast:   0.16em;  /* [E] */
+  --track-label:  0.10em;
+  --track-legend: 0.09em;
+
+  --num-tabular: tabular-nums;
+
+  /* --- focus ---------------------------------------------------- §4.7 --- */
+  --focus-width:  2px;
+  --focus-colour: var(--ink);
+  --focus-offset-inset: -2px;
+  --focus-offset-outset: 2px;
+
+  /* --- motion --------------------------------------------------- §12 ---- */
+  --motion-state:      0ms;
+  /* --motion-disclosure deleted per M34 — the product has no animation */
+  --motion-ease:       linear;
+}
+
+/* --- dark. Derived, not inverted. §5 ------------------------------------ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink:       #DFE4E8;  --muted:      #8A95A0;
+    --surface:   #191C20;  --surface-2:  #141719;
+    --hairline:  #2B3138;  --page:       #0F1215;
+    --safe:      #35A06E;  --safe-wash:    #132019;
+    --caution:   #D97328;  --caution-wash: #29180E;
+    --danger:    #EA6260;  --danger-wash:  #271817;
+  }
+}
+:root[data-theme="dark"] {
+  --ink:       #DFE4E8;  --muted:      #8A95A0;
+  --surface:   #191C20;  --surface-2:  #141719;
+  --hairline:  #2B3138;  --page:       #0F1215;
+  --safe:      #35A06E;  --safe-wash:    #132019;
+  --caution:   #D97328;  --caution-wash: #29180E;
+  --danger:    #EA6260;  --danger-wash:  #271817;
+}
+:root[data-theme="light"] {
+  --ink:       #14171A;  --muted:      #5C6772;
+  --surface:   #F2F4F6;  --surface-2:  #FAFBFC;
+  --hairline:  #D2D7DD;  --page:       #FFFFFF;
+  --safe:      #1F6F4A;  --safe-wash:    #EEF5F1;
+  --caution:   #A8571B;  --caution-wash: #FBF3EA;
+  --danger:    #8C2F2F;  --danger-wash:  #F8EFEF;
+}
+
+/* --- forced colours. §6 ------------------------------------------------- */
+@media (forced-colors: active) {
+  :root { --focus-colour: Highlight; }
+}
+
+/* --- reduced motion. §12 ------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0ms !important;
+      animation-duration: 0ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important; }
+}
+
+/* --- fonts. §7.2. Five faces, base64 WOFF2, 126 KB inlined. -------------
+
+   VERIFY: 51 §14 prints these five @font-face rules with the base64 payload
+   elided as "…". The payload is NOT in the document and has not been invented
+   here — emitting `src:url(data:font/woff2;base64,…)` would be invalid CSS and
+   would fail every face. The block is therefore held as a comment and the
+   product renders from the --sans / --mono fallback stacks until the build
+   inlines the real faces.
+
+   `xtask assemble` must substitute the five encoded WOFF2 faces at build time:
+     Liberation Sans   400 normal
+     Liberation Sans   700 normal
+     Liberation Sans   400 italic
+     DejaVu Sans Mono  400 normal
+     DejaVu Sans Mono  700 normal
+   all with font-display: block, per 51 §7.2's bundling decision.
+
+   Until then, rendering depends on locally-installed faces, so any measurement
+   taken against this file — x-height matching (§7.4), the --t-mono question in
+   §16, the contrast audit in 55 §2 — is provisional.
+   ----------------------------------------------------------------------- */
+
+/* --- the base layer ----------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-body);
+  line-height: var(--lh-step);
+  font-variant-numeric: var(--num-tabular);
+  -webkit-font-smoothing: antialiased;
+}
+
+input, button, select, textarea {
+  font: inherit; color: inherit;
+  border-radius: var(--radius);
+  appearance: none;
+}
+
+:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: var(--focus-offset-outset);
+}
+
+/* Visually hidden, but present for AT and revealed under forced colours. */
+.vh {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+@media (forced-colors: active) {
+  .risk-bar .vh, .hit-risk .vh {
+    position: static; width: auto; height: auto; clip-path: none;
+  }
+}
+
+/* Mono in prose. §7.4 */
+code, .m { font-family: var(--mono); font-size: 0.96em; }
+.m-caps  { font-family: var(--mono); font-size: 0.94em; letter-spacing: 0.01em; }
