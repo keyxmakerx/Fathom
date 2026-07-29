@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'none'; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Fathom — build st0.0, teaching on and off</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* ==========================================================================
+   Build view — the config half of the product, rendered in both postures.
+   Component CSS transcribed from 54 §3 (masthead), §6 (risk legend),
+   §8 (mono config block), §10 (numbered plumbing list), §15 (depth toggle),
+   §21 (folio). Declares no hex, no px font-size, no duration of its own.
+
+   C-06 (75-capability-register) is RECORDED, NOT DECIDED. This page renders
+   one reading of it so the owner can see the two postures side by side. It
+   decides nothing.
+   ========================================================================== */
+
+.sheet { max-width: var(--sheet); margin: 0 auto; padding: var(--s4) var(--s4) var(--s8); }
+
+/* --- 54 §3 masthead ---------------------------------------------------- */
+.mast { border-bottom: var(--rule-mast) solid var(--ink); padding-bottom: var(--s2); }
+.mast-row { display: flex; justify-content: space-between; align-items: baseline;
+            gap: var(--s4); flex-wrap: wrap; }
+.mast h1 { margin: 0; font-size: var(--t-title); line-height: var(--lh-title);
+           letter-spacing: var(--track-mast); text-transform: uppercase; }
+.mast .crumb { font-size: var(--t-micro); color: var(--muted);
+               letter-spacing: var(--track-label); text-transform: uppercase; }
+.honest { text-align: right; font-size: var(--t-tab); color: var(--muted);
+          font-family: var(--mono); line-height: var(--lh-micro); }
+.imperative { font-size: var(--t-head); font-weight: 700;
+              letter-spacing: var(--track-head); text-transform: uppercase;
+              margin-top: var(--s2); }
+
+/* --- 54 §6 risk legend. NEVER suppressed by the mode. ------------------ */
+.legend { display: flex; flex-wrap: wrap; gap: var(--s4); margin: 0;
+          padding: var(--s1) 0; list-style: none;
+          border-top: var(--rule-hair) solid var(--hairline);
+          border-bottom: var(--rule-hair) solid var(--hairline); }
+.legend-item { display: flex; align-items: center; gap: var(--s2);
+               font-size: var(--t-micro); font-weight: 700;
+               letter-spacing: var(--track-legend); text-transform: uppercase;
+               border-left: var(--rule-accent) solid; padding-left: var(--s2); }
+.r-safe    { color: var(--safe);    background: var(--safe-wash);    border-left-color: var(--safe); }
+.r-caution { color: var(--caution); background: var(--caution-wash); border-left-color: var(--caution); }
+.r-danger  { color: var(--danger);  background: var(--danger-wash);  border-left-color: var(--danger); }
+
+/* --- mode band --------------------------------------------------------- */
+.modebar { display: flex; align-items: baseline; gap: var(--s4); flex-wrap: wrap;
+           padding: var(--s2) 0;
+           border-bottom: var(--rule-hair) solid var(--hairline); }
+.modebar .lbl { font-size: var(--t-micro); letter-spacing: var(--track-label);
+                text-transform: uppercase; color: var(--muted); }
+.seg { display: flex; border: var(--rule-hair) solid var(--hairline); }
+.seg button { background: var(--page); color: var(--muted); border: 0;
+              padding: var(--s1) var(--s3); cursor: pointer;
+              font-size: var(--t-tab); font-weight: 700;
+              letter-spacing: var(--track-label); text-transform: uppercase; }
+.seg button + button { border-left: var(--rule-hair) solid var(--hairline); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--page); }
+.modebar .count { margin-left: auto; font-size: var(--t-tab); color: var(--muted);
+                  font-family: var(--mono); }
+
+/* --- step list --------------------------------------------------------- */
+.steps { margin: 0; padding: 0; list-style: none; }
+.step { border-bottom: var(--rule-hair) solid var(--hairline);
+        padding: var(--s3) 0; }
+.step:last-child { border-bottom: 0; }
+.step-head { display: flex; align-items: baseline; gap: var(--s3); }
+/* 54 §10 numbered plumbing list — the ordinal is content, not decoration */
+.ord { font-family: var(--mono); font-size: var(--t-mono); color: var(--muted);
+       flex: none; width: var(--gutter-num); text-align: right;
+       font-variant-numeric: var(--num-tabular); }
+.q { font-size: var(--t-body); font-weight: 700; }
+.piece { font-size: var(--t-tab); color: var(--muted);
+         letter-spacing: var(--track-label); text-transform: uppercase; }
+
+/* --- 54 §8 mono config block + click-to-copy --------------------------- */
+.cmd { display: flex; align-items: flex-start; gap: var(--s3);
+       margin: var(--s2) 0 0 var(--gutter-num); }
+.copy {
+  flex: 1; min-width: 0; text-align: left; cursor: pointer;
+  font-family: var(--mono); font-size: var(--t-mono); line-height: var(--lh-step);
+  color: var(--ink); background: var(--surface);
+  border: var(--rule-hair) solid var(--hairline);
+  border-left: var(--rule-accent) solid var(--ink);
+  padding: var(--s2) var(--s3);
+  white-space: pre-wrap; word-break: break-word;
+}
+.copy:hover { background: var(--surface-2); }
+.copy[data-copied="true"] { border-left-color: var(--safe); }
+.copy .hint { display: block; font-size: var(--t-tab); color: var(--muted);
+              letter-spacing: var(--track-label); text-transform: uppercase;
+              margin-top: var(--s1); }
+.copy[data-copied="true"] .hint { color: var(--safe); }
+/* a block copies as a unit — 53 §6, display wrap is not the copy payload */
+.copy.block { border-left-style: double; }
+
+.risk { flex: none; font-size: var(--t-tab); font-weight: 700;
+        letter-spacing: var(--track-legend); text-transform: uppercase;
+        white-space: nowrap; padding-top: var(--s2); }
+.risk.safe { color: var(--safe); } .risk.caution { color: var(--caution); }
+.risk.danger { color: var(--danger); }
+
+/* --- the teaching layer, hidden wholesale when teaching is off --------- */
+.teach { margin: var(--s2) 0 0 var(--gutter-num); max-width: var(--measure); }
+.teach .depth { display: flex; gap: var(--s3); font-size: var(--t-tab);
+                letter-spacing: var(--track-label); text-transform: uppercase;
+                color: var(--muted); margin-bottom: var(--s1); }
+.teach .depth button { background: none; border: 0; padding: 0; cursor: pointer;
+                       font: inherit; letter-spacing: inherit;
+                       text-transform: inherit; color: var(--muted); }
+.teach .depth button[aria-pressed="true"] { color: var(--ink); font-weight: 700; }
+.teach p { margin: 0 0 var(--s2); font-size: var(--t-small); }
+.teach .lab { font-size: var(--t-micro); font-weight: 700; color: var(--muted);
+              letter-spacing: var(--track-head); text-transform: uppercase;
+              margin: var(--s3) 0 var(--s1); }
+.blast { border-left: var(--rule-accent) solid var(--danger);
+         background: var(--danger-wash); padding: var(--s2) var(--s3);
+         font-size: var(--t-small); }
+.blast.caution { border-left-color: var(--caution); background: var(--caution-wash); }
+
+/* --- checks strip — survives teaching-off, that is the point ----------- */
+.checks { border: var(--rule-hair) solid var(--ink); margin-top: var(--s5); }
+.checks h2 { margin: 0; font-size: var(--t-head); font-weight: 700;
+             letter-spacing: var(--track-head); text-transform: uppercase;
+             padding: var(--s2) var(--s3);
+             border-bottom: var(--rule-hair) solid var(--ink);
+             display: flex; justify-content: space-between; gap: var(--s4);
+             flex-wrap: wrap; align-items: baseline; }
+.checks h2 .sub { font-weight: 400; letter-spacing: 0; text-transform: none;
+                  color: var(--muted); font-size: var(--t-small); }
+.chk { display: grid; grid-template-columns: max-content max-content 1fr;
+       gap: var(--s3); align-items: baseline;
+       padding: var(--s2) var(--s3);
+       border-bottom: var(--rule-hair) solid var(--hairline);
+       font-size: var(--t-small); }
+.chk:last-child { border-bottom: 0; }
+.chk .state { font-family: var(--mono); font-size: var(--t-tab); font-weight: 700;
+              letter-spacing: var(--track-label); text-transform: uppercase; }
+.chk.pass .state { color: var(--safe); }
+.chk.open .state { color: var(--danger); }
+.chk.info .state { color: var(--muted); }
+.chk .rid { font-family: var(--mono); font-size: var(--t-mono); color: var(--muted); }
+.chk .txt .aw { display: block; color: var(--muted); margin-top: 2px; }
+.chk .txt .sym { display: block; margin-top: 2px; }
+body[data-teach="off"] .chk .txt .aw,
+body[data-teach="off"] .chk .txt .sym { display: none; }
+
+/* --- verify ladder ----------------------------------------------------- */
+.verify { margin-top: var(--s5); border-top: var(--rule-hair) solid var(--ink);
+          padding-top: var(--s2); }
+.verify h2 { margin: 0 0 var(--s2); font-size: var(--t-head); font-weight: 700;
+             letter-spacing: var(--track-head); text-transform: uppercase; }
+
+/* --- teaching-off compression ------------------------------------------ */
+body[data-teach="off"] .teach { display: none; }
+body[data-teach="off"] .q { font-weight: 400; color: var(--muted);
+                            font-size: var(--t-small); }
+body[data-teach="off"] .piece { display: none; }
+body[data-teach="off"] .step { padding: var(--s1) 0; border-bottom: 0; }
+body[data-teach="off"] .cmd { margin-top: var(--s1); }
+body[data-teach="off"] .copy { padding: var(--s1) var(--s3); background: var(--page); }
+body[data-teach="off"] .copy .hint { display: none; }
+body[data-teach="off"] .step-head { gap: var(--s2); }
+body[data-teach="off"] .offonly { display: inline; }
+.offonly { display: none; }
+
+.folio { border-top: var(--rule-hair) solid var(--hairline); margin-top: var(--s6);
+         padding-top: var(--s2); font-size: var(--t-tab); color: var(--muted);
+         display: flex; justify-content: space-between; gap: var(--s4);
+         flex-wrap: wrap; }
+.note { border-left: var(--rule-accent) solid var(--ink);
+        background: var(--surface-2); padding: var(--s2) var(--s3);
+        font-size: var(--t-small); margin: var(--s4) 0; max-width: var(--measure); }
+.live { position: absolute; width: 1px; height: 1px; overflow: hidden;
+        clip-path: inset(50%); white-space: nowrap; }
+</style>
+</head>
+<body data-teach="on">
+<div class="sheet">
+
+  <header class="mast">
+    <div class="mast-row">
+      <div>
+        <h1>Build — st0.0</h1>
+        <div class="crumb">SRX-A · workspace DC-EAST · junos-srx 21.4R3 · route-based site-to-site · fixture estate</div>
+      </div>
+      <div class="honest">
+        no sockets, ever<br>
+        corpus unverified<br>
+        nothing is run for you
+      </div>
+    </div>
+    <div class="imperative">Every line is copied by you and pasted by you</div>
+  </header>
+
+  <ul class="legend" aria-label="Risk legend">
+    <li class="legend-item r-safe">Read-only — safe on production</li>
+    <li class="legend-item r-caution">Changes config — needs a commit</li>
+    <li class="legend-item r-danger">Disruptive — drops live traffic</li>
+  </ul>
+
+  <div class="modebar">
+    <span class="lbl">Teaching</span>
+    <span class="seg" role="group" aria-label="Teaching mode">
+      <button type="button" id="t-on"  aria-pressed="true">On</button>
+      <button type="button" id="t-off" aria-pressed="false">Off</button>
+    </span>
+    <span class="lbl offonly" style="color:var(--ink)">Compressed · checks still run</span>
+    <span class="count" id="count">6 steps · 4 disruptive · 7 checks</span>
+  </div>
+  <span class="live" role="status" aria-live="polite" id="live"></span>
+
+  <p class="note">
+    Building a route-based tunnel endpoint on an SRX. The corpus numbers these as
+    <b>plumbing pieces one to four</b> — the card's own sequence — plus the VPN binding
+    and the segment clamp. Teaching off compresses the page to the lines and the checks;
+    it never removes the risk marks and it never removes the checks.
+  </p>
+
+  <ol class="steps" id="steps"></ol>
+
+  <section class="checks" aria-labelledby="chk-h">
+    <h2 id="chk-h">
+      <span>Checks — security and functionality</span>
+      <span class="sub">run against the graph, not against the text · 3 still open after all six lines</span>
+    </h2>
+    <div id="chklist"></div>
+  </section>
+
+  <section class="verify">
+    <h2>Then verify — read-only, safe on production</h2>
+    <ol class="steps" id="verify"></ol>
+  </section>
+
+  <footer class="folio">
+    <span>Fathom · build st0.0 · teaching <b id="fmode">on</b></span>
+    <span>offline artifact · nothing here contacts a device · corpus <b>unverified</b></span>
+  </footer>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Content is real: every command, question, risk and rule below is lifted from
+// corpus/commands/junos-srx-ipsec.yaml and corpus/rules/ipsec-junos-srx.yaml.
+// The estate (VPN-B, 10.2.0.0/16, reth0.0) is the field card's worked topology,
+// used as a fixture.
+// ---------------------------------------------------------------------------
+var STEPS = [
+  { piece: 'Plumbing piece one',
+    q: 'How does the virtual tunnel endpoint get built?',
+    cmd: 'set interfaces st0 unit 0 family inet address 10.255.0.1/30',
+    risk: 'danger', riskWord: 'Disruptive',
+    blast: 'Creates the unit the tunnel routes at. On a box already carrying a tunnel, changing this address drops every session using it.',
+    terse: 'The unit that the VPN binds to and routes point at.',
+    explained: 'st0 is a virtual tunnel interface. Unit 0 is one endpoint. The /30 is link-local between the two gateways — it does not have to be routable anywhere else, and it is not the traffic you are carrying.',
+    teaching: 'Route-based VPNs put the encryption decision behind a routing decision: traffic is encrypted because it was routed at st0, not because it matched a proxy-ID. That is why the four pieces below exist and why three of them are not about crypto at all. The /30 is a convention, not a requirement — what matters is that both ends agree and that nothing else on the box wants the same prefix.',
+    arms: ['tunnel.st0.zone-unbound','route.remote-prefix.no-next-hop-st0','mtu.st0.unset'] },
+
+  { piece: 'The binding',
+    q: 'How does a route-based tunnel get an interface to route at?',
+    cmd: 'set security ipsec vpn VPN-B bind-interface st0.0',
+    risk: 'danger', riskWord: 'Disruptive',
+    blast: 'Rebinds the VPN. The existing SA is torn down and rebuilt on commit.',
+    terse: 'Ties the IPsec VPN to the unit you just made.',
+    explained: 'Without bind-interface the VPN is policy-based and st0.0 carries nothing. This one statement is what makes the tunnel route-based.',
+    teaching: 'This is the line people forget when converting a policy-based tunnel, and the symptom is maddening: Phase 1 and Phase 2 both come up, the SA reads Installed, and st0.0 stays down with zero packets. The tunnel is genuinely established — it just has no interface to deliver into.' },
+
+  { piece: 'Plumbing piece two',
+    q: 'How does the tunnel unit become policy-addressable?',
+    cmd: 'set security zones security-zone VPN interfaces st0.0',
+    risk: 'danger', riskWord: 'Disruptive',
+    blast: 'Moves the unit into a zone. Any policy referencing its old zone stops matching.',
+    terse: 'A unit with no zone cannot be named by any policy.',
+    explained: 'Junos evaluates policy between zones. An interface outside every zone is unreachable by policy, so traffic is dropped with no policy deny to find in the log.',
+    teaching: 'This is the single most common cause of the tunnel reads UP while passing zero packets complaint. The SA is fine, the route may be fine, and the packet dies at policy lookup because the zone pair does not exist. It produces no error anywhere — there is nothing to log, because no policy was ever consulted.',
+    clears: ['tunnel.st0.zone-unbound'], arms: ['policy.zone-pair.missing'] },
+
+  { piece: 'Plumbing piece three',
+    q: 'Why is the far end’s negotiation being dropped?',
+    cmd: 'set security zones security-zone WAN interfaces reth0.0 host-inbound-traffic system-services ike',
+    risk: 'caution', riskWord: 'Changes config',
+    blast: 'Opens IKE inbound on the external unit. It admits negotiation from any peer the policy permits.',
+    terse: 'The outside interface must accept IKE or Phase 1 never starts.',
+    explained: 'host-inbound-traffic controls what the box itself will accept on an interface, separately from transit policy. IKE is traffic to the box, so it needs this even when policy would allow it.',
+    teaching: 'The failure is a Phase 1 timeout with no response and no local error — identical on the wire to an upstream ACL, a wrong peer address, or NAT in path. So it is routinely misdiagnosed as a crypto problem and people start changing proposals. Check this before you touch a single algorithm.',
+    clears: ['zone.host-inbound.ike-missing'] },
+
+  { piece: 'Plumbing piece four',
+    q: 'How does the far side’s prefix reach the tunnel?',
+    cmd: 'set routing-options static route 10.2.0.0/16 next-hop st0.0',
+    risk: 'danger', riskWord: 'Disruptive',
+    blast: 'Redirects the remote prefix into the tunnel. If that prefix is currently reached another way, this moves live traffic.',
+    terse: 'Nothing enters the tunnel until something routes at it.',
+    explained: 'In a route-based design the route is the selector. No route, no traffic — regardless of how healthy the SA looks.',
+    teaching: 'Pair this with vpn-monitor. Without it, the route out st0 stays valid while traffic blackholes, because the interface stays up whether or not the far end is reachable. A route that never withdraws is worse than no route, because it hides the failure behind a working-looking control plane.',
+    clears: ['route.remote-prefix.no-next-hop-st0'] },
+
+  { piece: 'The clamp',
+    q: 'How do both ends agree to smaller segments up front?',
+    cmd: 'set security flow tcp-mss ipsec-vpn mss 1360',
+    risk: 'caution', riskWord: 'Changes config',
+    blast: 'Rewrites MSS on TCP handshakes entering the tunnel. Existing sessions keep their negotiated size until they reconnect.',
+    terse: 'Stops full-size TCP dying inside the tunnel.',
+    explained: 'Encapsulation costs bytes. Without a clamp, a full-size segment plus overhead exceeds the path MTU and is dropped — and often silently, if the DF bit is set and the ICMP is filtered.',
+    teaching: 'The symptom is the one everybody misreads: ping works, SSH connects, then ls hangs or a transfer stalls at 0%. Small packets fit and full-size ones vanish. It is not a crypto fault and it is not a routing fault, and no amount of looking at the SA will show it. Clamp to ipsec-vpn rather than all-tcp so the rewrite applies to tunnel traffic only.',
+    clears: ['mtu.mss-clamp.absent'] }
+];
+
+var VERIFY = [
+  { cmd: 'show interfaces st0.0 terse', risk: 'safe', riskWord: 'Read-only',
+    read: 'Admin and Link — want up/up' },
+  { cmd: 'show security ipsec security-associations', risk: 'safe', riskWord: 'Read-only',
+    read: 'State — want Installed. Anything else is not passing traffic.' },
+  { cmd: 'show route 10.2.0.0/16', risk: 'safe', riskWord: 'Read-only',
+    read: 'Next hop — want st0.0, not the default gateway' }
+];
+
+var CHECKS = [
+  { id: 'tunnel.st0.zone-unbound', sev: 'high', state: 'pass',
+    title: 'Tunnel interface is not bound to a security zone',
+    sym: 'Tunnel UP, zero traffic. The SA shows Installed and nothing moves.',
+    aw: 'Never as a finished state. Acceptable transiently during a staged build.' },
+  { id: 'zone.host-inbound.ike-missing', sev: 'high', state: 'pass',
+    title: 'The WAN zone does not admit IKE on the gateway’s external interface',
+    sym: 'Phase 1 timeout with no response and no local error.',
+    aw: 'Acceptable only on a gateway being staged and not yet expected to negotiate.' },
+  { id: 'route.remote-prefix.no-next-hop-st0', sev: 'high', state: 'pass',
+    title: 'Nothing routes the remote prefix at the tunnel interface',
+    sym: 'Tunnel UP, zero traffic.',
+    aw: 'Acceptable when the tunnel is a standby deliberately not carrying traffic.' },
+  { id: 'mtu.mss-clamp.absent', sev: 'medium', state: 'pass',
+    title: 'No TCP MSS clamp for tunnel traffic',
+    sym: 'Ping works. SSH connects. Then ls hangs, or a transfer stalls at 0%.',
+    aw: 'Acceptable where the underlay carries jumbo frames or path MTU is known good.' },
+  { id: 'policy.zone-pair.missing', sev: 'high', state: 'open',
+    title: 'No security policy exists for the tunnel’s zone pair',
+    sym: 'Tunnel UP, zero traffic, and no sessions in the flow table.',
+    aw: 'Acceptable when the tunnel carries only a routing adjacency or management traffic.' },
+  { id: 'ipsec.pfs.absent', sev: 'high', state: 'open',
+    title: 'Perfect Forward Secrecy is not configured',
+    sym: 'PFS on one side and absent on the other fails Phase 2 while Phase 1 stays up.',
+    aw: 'Interoperating with a peer whose platform cannot offer PFS at all.' },
+  { id: 'mtu.st0.unset', sev: 'low', state: 'open',
+    title: 'The tunnel interface has no explicit MTU',
+    sym: 'UDP that stalls where TCP does not, because the clamp rescues TCP only.',
+    aw: 'Acceptable where the underlay carries jumbo frames or path MTU is known good.' }
+];
+
+var depth = 'explained';
+
+function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+function copyBtn(cmd, extra){
+  return '<button type="button" class="copy' + (extra||'') + '" data-cmd="' + esc(cmd) + '">'
+       + esc(cmd) + '<span class="hint">click or press Enter to copy</span></button>';
+}
+
+function renderSteps(){
+  document.getElementById('steps').innerHTML = STEPS.map(function(s, i){
+    var t = '<div class="teach">'
+      + '<div class="depth" role="group" aria-label="Explainer depth">'
+      +   ['terse','explained','teaching'].map(function(d){
+            return '<button type="button" data-depth="' + d + '" aria-pressed="'
+                 + (d === depth) + '">' + d + '</button>'; }).join('')
+      + '</div>'
+      + '<p>' + esc(s[depth]) + '</p>'
+      + '<div class="lab">Blast radius</div>'
+      + '<div class="blast' + (s.risk === 'caution' ? ' caution' : '') + '">' + esc(s.blast)
+      +   ' <b>Reversible:</b> commit confirmed 5.</div>'
+      + '</div>';
+    return '<li class="step">'
+      + '<div class="step-head">'
+      +   '<span class="ord">#' + (i + 1) + '</span>'
+      +   '<span><span class="piece">' + esc(s.piece) + '</span><br>'
+      +   '<span class="q">' + esc(s.q) + '</span></span>'
+      + '</div>'
+      + '<div class="cmd">' + copyBtn(s.cmd)
+      +   '<span class="risk ' + s.risk + '">' + esc(s.riskWord) + '</span></div>'
+      + t + '</li>';
+  }).join('');
+
+  document.getElementById('verify').innerHTML = VERIFY.map(function(v, i){
+    return '<li class="step"><div class="cmd">'
+      + copyBtn(v.cmd) + '<span class="risk ' + v.risk + '">' + esc(v.riskWord) + '</span></div>'
+      + '<div class="teach"><p><b>Read:</b> ' + esc(v.read) + '</p></div></li>';
+  }).join('');
+
+  document.getElementById('chklist').innerHTML = CHECKS.map(function(c){
+    return '<div class="chk ' + c.state + '">'
+      + '<span class="state">' + (c.state === 'pass' ? '✓ clear' : '▸ open') + '</span>'
+      + '<span class="rid">' + esc(c.id) + '</span>'
+      + '<span class="txt">' + esc(c.title)
+      +   '<span class="sym"><b>Symptom:</b> ' + esc(c.sym) + '</span>'
+      +   '<span class="aw"><b>Acceptable when:</b> ' + esc(c.aw) + '</span></span>'
+      + '</div>';
+  }).join('');
+}
+
+document.addEventListener('click', function(e){
+  var c = e.target.closest ? e.target.closest('.copy') : null;
+  if (c) {
+    var text = c.getAttribute('data-cmd');
+    // Clipboard write is local to the document. No network is involved.
+    if (navigator.clipboard) { navigator.clipboard.writeText(text).catch(function(){}); }
+    c.setAttribute('data-copied', 'true');
+    document.getElementById('live').textContent = 'Copied: ' + text;
+    return;
+  }
+  var d = e.target.closest ? e.target.closest('[data-depth]') : null;
+  if (d) { depth = d.getAttribute('data-depth'); renderSteps(); return; }
+});
+
+function setMode(on){
+  document.body.setAttribute('data-teach', on ? 'on' : 'off');
+  document.getElementById('t-on').setAttribute('aria-pressed', String(on));
+  document.getElementById('t-off').setAttribute('aria-pressed', String(!on));
+  document.getElementById('fmode').textContent = on ? 'on' : 'off';
+  document.getElementById('live').textContent = on
+    ? 'Teaching on. Explanations shown.'
+    : 'Teaching off. Lines and checks only. Risk marks and checks are unchanged.';
+}
+document.getElementById('t-on').addEventListener('click', function(){ setMode(true); });
+document.getElementById('t-off').addEventListener('click', function(){ setMode(false); });
+
+renderSteps();
+</script>
+</body>
+</html>
