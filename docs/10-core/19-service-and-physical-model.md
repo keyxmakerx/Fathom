@@ -1,6 +1,8 @@
 # 19 — The service and physical model
 
-> **Status:** Proposed
+> **Status:** Proposed — **blocked on four preconditions in §13.1**, three of which are edits this
+> document requires in `11` and one of which is an ADR that does not exist. None is a matter of taste
+> and none can be enacted here.
 
 This document extends `11-ir-schema.md`. It does not replace it, does not re-decide anything `11`
 decided, and does not touch a single existing field. It adds two layers to the one graph `11`
@@ -43,7 +45,7 @@ for), `docs/50-design/56-diagram-view.md` §4.1 (the projection table §3.10 ext
 | 10 | What the owner must decide |
 | 11 | Sizing |
 | 12 | Failure modes |
-| 13 | Open decisions |
+| 13 | Open decisions, and the preconditions (§13.1) |
 | 14 | Sources consulted |
 | 15 | Disagreements |
 
@@ -57,11 +59,12 @@ for), `docs/50-design/56-diagram-view.md` §4.1 (the projection table §3.10 ext
 |---|---|---|
 | New node kinds | **10** | `PhysicalPort`, `Cable`, `Premises`, `PassiveNode`, `Tenant`, `Service`, `ServiceType`, `ServiceEndpoint`, `ServicePath`, `PathSegment` |
 | New asserted edge kinds | **21** | §5.1 and §5.2 |
-| New derived edge kinds | **3** | `Cabled`, `ResolvesVia`, `CarriedBy` (§5.3) |
+| New derived edge kinds | **2** | `WarpResolvesVia`, `CarriedBy` (§5.3). `Cabled` is **not** new: `11` §6.4 already declares `Cabled → Interface (0..1)` as the `Interface`-side name of `Link`, and §3.8 re-classes that existing name from asserted to derived |
 | New semantic scalars | **5** | `Clli`, `PostalAddress`, `Date`, `LatLon`, `AttrValue` (§7.3) |
 | New workspace record class | **1** | `Policy` `0x23` (§8.1) |
 | New per-kind schema attribute | **1** | `layer` (§2.2) |
-| Kinds amended | **2** | `Site` gains one out-edge; `Interface` gains one out-edge and two fields |
+| Kinds amended | **2** | `Site` gains one out-edge (`AtPremises`); `Interface` gains one out-edge (`Occupies`). **Neither gains a field.** Earlier drafts of this table claimed two new `Interface` fields and never named them; that claim is withdrawn, because ADR-0008 property 1 makes a field that exists in prose and not in `schema.yaml` a field that does not exist, and this document may not commit the defect it cites `82` §15's `Device.aggregate_device_count` for |
+| **Amendments this document requires in `11`** | **3** | `11` §10.4 step 1's scope filter and `11` §10.5's absence table (both §9.1), and `11` §8.7's staleness bands scoped to `layer == config` (§3.9). All three are edits to `11`, not declarations in `62`, and none is optional |
 | Edge kinds superseded | **1** | `Link` (§3.8) |
 | Existing fields removed or retyped | **0** | — |
 | Containment relations restructured | **0** | — |
@@ -128,10 +131,26 @@ Four arguments, in the order they bite.
 
 **The honest counter, and its answer.** Service and physical data is entirely `Origin::Hand` or
 `Origin::Imported`, is never emitted, and no parser produces it — so a re-parse would be running
-over nodes it can never match. That objection dissolves against a mechanism already in `11` §10.4
-step 1: re-identification is scoped by `config_path(kind(n)) ⊆ covered_paths(S)`. **These kinds
-declare no `config_path`, so re-identification cannot reach them.** One schema property, not a
-second graph. §9.1 works this through.
+over nodes it can never match, and if it tombstoned them the one-graph decision would cost the
+estate its most expensive facts on the first whole-device paste.
+
+**The answer is a one-line amendment to `11` §10.4, not a property these kinds already have.** An
+earlier draft of this section claimed the exclusion falls out of `11` §10.4 step 1's existing scope
+filter, `config_path(kind(n)) ⊆ covered_paths(S)`, because the new kinds declare no `config_path`.
+**That reasoning is inverted and the claim was false.** An empty `config_path` is the empty set, and
+`∅ ⊆ covered_paths(S)` holds for *every* `S` — an empty config path does not exclude, it universally
+admits. Nine of the ten new kinds escape anyway, but they escape on the filter's **first** conjunct,
+`owner_device(n) = D`, because they are root-owned or premises-owned and have no owning device.
+`PhysicalPort` does not: it is contained by `Chassis` (§5.1 `HasPort`), which `11` §7.2 contains by
+`Device`, so `owner_device` resolves and both conjuncts pass. Every port on the pasted device would
+enter `Gs`, match nothing in `P` (R-L2 forbids a parser creating one), fall through to step 6, and be
+tombstoned under `CaptureScope::Whole`.
+
+**So the mechanism is a positive test on `layer`, added to step 1**, and §9.1 states the amendment,
+its second half (`11` §10.5's absence table has no `Origin::Imported` column and the catalogue
+populates ports as `Imported`), and what `62` and `11` each have to carry. One schema property plus
+one three-token edit to a published algorithm, not a second graph — but the edit is real, it is
+`11`'s to accept, and this document does not get to assume it.
 
 ### 2.2 `layer` is a declared per-kind attribute
 
@@ -146,7 +165,7 @@ second graph. §9.1 works this through.
 | Consumer | Behaviour |
 |---|---|
 | Emit (`11` §9.2) | A kind with `emits: false` is excluded from every emit unit on every platform, and from `13` §9.5's field-coverage report. Without this, forty estate fields are permanent false coverage holes |
-| Re-identification (`11` §10.4) | A kind with no `config_path` is outside every capture's covered paths |
+| Re-identification (`11` §10.4) | `layer != config` is the **positive** out-of-scope test added to step 1 by §9.1's amendment. It does not fall out of the existing `config_path ⊆ covered_paths` clause, which admits an empty config path rather than excluding it |
 | Diagram (`56` §4.1) | The layer mask is a filter over `layer` plus edge kind |
 | Inventory (`52` §3.7) | The default kind list per mode |
 
@@ -233,10 +252,22 @@ Consequences taken as rules, not aspirations:
 - A `Cable` never references an `Interface`. It terminates on ports.
 - No field in this layer asserts currency, status, or up/down. Invariant 2 forbids a device touch, so
   `11` §6.9's own rule applies verbatim: the tool has no honest way to hold runtime state. Occupancy
-  is *derived* from the presence of a `Cable`. This is also what makes the whole layer pass `03`
-  §4.2 `N-R-2`'s own written test — *"no field in the workspace format asserts currency or
-  authority"* — which is `76` §3.3's argument, and it means the physical layer does not depend on
-  `76` Q3 being answered route A.
+  is *derived* from the presence of a `Cable`. This is what makes the whole layer pass `03` §4.2
+  `N-R-2`'s own written test — *"no field in the workspace format asserts currency or authority"* —
+  which is `76` §3.3's argument.
+
+> **The scope of that claim, because an earlier draft overstated it.** Passing `N-R-2`'s *written
+> test* is not the same as being independent of `76` Q3, and the draft said the physical layer *"does
+> not depend on `76` Q3 being answered route A"* as though the question were settled. It is not: §10
+> F4 is an explicit fork, one of whose routes carries `Reopens if: Never`, and §15 Disagreement 4
+> concedes that §6.10's header line *"is closer to route A than route B, and calling it route B is a
+> convenience I should not be allowed to have unexamined."* What is true is narrower and worth having:
+> **every field in §3 passes the test as written, so the physical layer does not *force* route A.** It
+> does not follow that nothing here depends on the answer. Two things do — §3.9's provenance-age
+> rendering, which is why that section declines `11` §8.7's bands rather than inheriting them, and
+> §6.10's continuously-visible corroboration line, which §15 Disagreement 4 is about. **F4 is the fork
+> under this document and it is answered nowhere in it.** Sixty decisions rest on one open question,
+> and that ratio is stated here rather than discovered in §15.
 
 ### 3.3 `PhysicalPort`
 
@@ -254,9 +285,25 @@ A front-panel opening. Contained by whatever has a faceplate: a `Chassis` or a `
 
 ```yaml
 identity:
-  - [ owner(Chassis), position ]     # tier 1 — a physical coordinate
-  - [ owner(Chassis), label ]        # tier 2 — the silkscreen
+  - [ owner(PortHost), position ]    # tier 1 — a physical coordinate
+  - [ owner(PortHost), label ]       # tier 2 — the silkscreen
 ```
+
+**`PortHost` is a class, and it has to be**, because a tuple is usable on a node only when every term
+is `Set` (`11` §10.3). Tuples written as `owner(Chassis)` are dead on every port a `PassiveNode`
+owns — an ODF port, a splitter leg, a patch-panel hole — since `owner(Chassis)` is not `Set` there.
+Both tiers would be unusable on exactly the ports §3.6 exists to introduce and `trace()` exists to
+walk through, leaving them unaddressable by `fsck --repair` and unable to anchor a suppression. So:
+
+> **`62` §5 declares `PortHost = { Chassis, PassiveNode }`**, following `11` §10.3's own
+> `LogicalUnit → [ owner(InterfaceLike), index ]` precedent — a class in an identity tuple is
+> established, not novel. It is the same kind set `HasPort` already takes (§5.1), named once.
+
+**A `PassiveNode` port usually has no `position`, so tier 2 carries it.** An ODF has numbered
+positions and behaves like a chassis; a splitter leg and a handhole termination normally have only a
+silkscreen or a hand-written tag. That makes `[owner(PortHost), label]` the working tier for most
+passive plant, and §9.5's *"stable"* verdict is qualified there accordingly: a tier-2 match is a
+candidate needing confirmation (ADR-0010), and re-labelling a splitter leg costs a prompt.
 
 **Earns a kind** on all three of `11` §6.1's limbs. Distinct required-field set: `position`,
 `connector`, `transceiver` exist on nothing else. Distinct edge signature: contained by `Chassis` or
@@ -306,7 +353,8 @@ model, replacing a line card destroys the record of what was patched where.
 
 | Field | T | Card. | Emit | Notes |
 |---|---|---|---|---|
-| `label` | `Text` | 0..1 | — | The tag. Also the assembly id shared by the four cables of a breakout, and the bundle id for a strand in a multi-fibre run |
+| `label` | `Text` | 0..1 | — | The tag on **this** cable. Unique among the cables it could be confused with, or absent. Identity tier 2 |
+| `assembly` | `Text` | 0..1 | — | The grouping id **deliberately shared**: the assembly id across the four cables of a breakout, the bundle id across the strands of a multi-fibre run. **Excluded from identity** |
 | `media` | `enum {Cat5e, Cat6, Cat6a, Twinax, Smf, Mmf, Coax, Power, Virtual, Other}` | 0..1 | — | Deliberately **no** `Unknown` variant — see below |
 | `length_m` | `u32` | 0..1 | — | |
 | `installed_on` | `Date` | 0..1 | — | Stored, rendered, never evaluated (`75` §4.4) |
@@ -318,7 +366,25 @@ model, replacing a line card destroys the record of what was patched where.
 identity:
   - [ edge(Terminates:A), edge(Terminates:B) ]   # tier 1 — the pair of ports IS the cable
   - [ label ]                                    # tier 2 — one-ended and planned cables
+  # `assembly` is NOT an identity term. See below.
 ```
+
+**`label` and `assembly` are split, and an earlier draft that conflated them made tier 2 ambiguous by
+construction for exactly the cases it was added to serve.** That draft had one field carrying both the
+per-cable tag *and* the breakout assembly id *and* the multi-fibre bundle id, while §3.10 instructed
+the operator to *"record one `Cable` per lit strand and put the bundle ID in `label`"*. `11` §10.4
+step 3 matches only *"if the bucket is unambiguous (exactly one candidate)"*, so twelve strands of
+bundle `F-1204` sharing one `label` never match at tier 2 — and because tier 1 is unusable whenever an
+end is missing, a **planned multi-fibre run had zero usable tiers**. Two fields cost one column and
+fix it: `label` distinguishes, `assembly` groups, and grouping is a query
+(`all cables where assembly == "F-1204"`) rather than a key.
+
+**A one-ended cable with no `label` has no recovery key, and that is stated rather than papered
+over.** Tier 1 needs both ends; tier 2 needs a tag somebody wrote. A planned run with neither is
+identifiable only by its `NodeId`, which survives everything inside the workspace and nothing across a
+re-import. The data-entry consequence is the honest one: **if you record a planned cable, label it.**
+`62` §18 lints for a `Cable` with fewer than two `Terminates` and no `label`, at advisory level,
+because refusing the write would make it impossible to record the ground before the tag is assigned.
 
 `media` drops the `Unknown` variant that `Link.media` carried, because an enum variant that
 duplicates a `Presence` state is exactly how `11` §5.2's `is_none` bug gets in through the type
@@ -373,7 +439,7 @@ coordinate pair is a different thing and is storable.
 | `clli` | `Clli` | 0..1 | — | |
 | `form` | `enum {CentralOffice, Hut, Cabinet, Headend, DataCentre, CustomerPremises, Pole, Handhole, Other}` | 0..1 | — | |
 | `region` | `Identifier` | 0..1 | — | The `{ST}` candidate under one reading; §10 F2 |
-| `coordinates` | `LatLon` | 0..1 | — | **User-typed only. Never looked up.** Stated explicitly so it is not re-litigated |
+| `coordinates` | `LatLon` | 0..1 | — | **User-typed only. Never looked up.** Stated explicitly so it is not re-litigated. **Fixed-point, never float:** `{ lat_e7: i32, lon_e7: i32 }`, degrees × 10⁷ (~1 cm), defined in `62` §3. `12` §3.4 excludes floats to buy determinism and `11` §14.1 chose canonical CBOR on the strength of *"no floats needed anywhere in this schema"*; a coordinate pair is the one field that would have falsified both, and it does not have to |
 | `notes` | `Text` | 0..1 | — | |
 
 ```yaml
@@ -571,6 +637,12 @@ kept, and it becomes a **derived** edge:
 (`Occupies`, `Terminates`, `PassThrough`), so `11` §9.5 constraint 1 holds; the hop cap of 16 bounds
 it, which `11` §3.5 requires of any inference rule.
 
+**`Cabled` has no inference consumer, and that is a declared property rather than an accident**
+(§6.4). Under `11` §9.5 constraint 1 the pass is one level deep, so no other inference rule — in
+particular not `infer.service.warp.resolve` — may read it. Its consumers are the diagram, the port
+row's peer cell and the trace surface. `62` §11 records the property; a future rule that reads
+`Cabled` is a two-level pass and fails the loader.
+
 Three consequences, all of them improvements:
 
 - `56` §5.4's edge vocabulary and `56` §4.1's `Link edge → line` row keep working, against a derived
@@ -613,8 +685,39 @@ Creating a `Chassis` with a known `model` offers *"populate 24 ports"*. It is sh
 reviewed content in the `61`/`63` shape; it costs no schema; a model not in the catalogue falls back
 to manual entry. Created ports carry
 `Origin::Imported { format: HardwareCatalogue, document_digest, locator: "calix/e7-2#port/1" }` — a
-new `ImportFormat` variant, a minor bump — so `11` §8.7's staleness bands apply to the port census
-for free, which is the beginning of an answer to `77` §10's *"how current is this"* obligation.
+new `ImportFormat` variant, a minor bump — which records **where each port came from and when it was
+asserted**, with the catalogue's digest, so a port census is attributable and re-importable.
+
+**It does not buy `11` §8.7's staleness bands, and an earlier draft that said it did contradicted four
+other parts of this corpus at once.** §8.7's bands are computed entirely against the current date —
+*Fresh < 30 d*, *Ageing 30 d – 6 mo*, *Unverified > 18 mo*, the last adding *"every finding derived
+from that node carries an added one-line imperative"* — so both the chrome and the finding text change
+as the calendar advances. Opting the port census in would mean the physical layer renders differently
+on two days, which is what §6.10 argues against (*"a **graph function, not a clock function**… survives
+`75` §4.4's 'THE PRODUCT NEEDS NO CONCEPT OF THE CURRENT TIME' untouched"*), what §12 row 7 guards
+against, what §10 F4's route-B recommendation rests on (*"dates are stored and never evaluated"*), and
+what `75` §4.4 states outright: *"**the same workspace renders identically forever**, because nothing
+about the rendering depends on when the file was opened."*
+
+So the position is the one the rest of the document already takes: **`asserted_at` is recorded and
+rendered; it is not banded.** A port census shows `imported 2026-08-14 · calix/e7-2` in the ADR-0027
+register, evaluating nothing, and *"how current is this"* is answered by §6.10's corroboration —
+whether the graph can confirm the port, not how many months old the row is.
+
+**And declining the bands is an act, not an omission, which is the part that has to be written down.**
+`11` §8.7 ages a node on `max(asserted_at)` over every field whose `Origin` is `Parsed` **or
+`Imported`** — so catalogue-populated ports would be banded by default, and *"the physical layer is
+clock-free"* would be false on the first import unless something stops it. The carve-out is the same
+attribute the rest of §2.2 uses:
+
+> **`11` §8.7 bands apply where `layer == config`.** A `physical`- or `service`-layer node records
+> `asserted_at` and renders it; it is not aged, and no finding derived from it acquires §8.7's
+> imperative.
+
+This is a third `11` amendment alongside §9.1's two, it is smaller than either, and it is the price of
+the clock-freedom claim in §6.10, §10 F4 and §12 row 7 being true rather than asserted. If the owner
+would rather have the bands, then those three places move together as one amendment — not one section
+at a time, which is how the document ended up asserting both.
 
 One side effect worth a sentence: the catalogue is keyed by vendor + model, so
 `Chassis.model → catalogue → vendor` gives `76` X11's `{TYPE}` a second data source without adding a
@@ -635,7 +738,7 @@ never omit anything whose later addition would be a containment change.**
 | **Module / line card / module bay** | No | Position is three optional fields on the port. A `LineCard` kind later is minor. **Safe, loss named:** you cannot say "these 24 ports went down together because the card was pulled", and you cannot inventory spares |
 | **Device bays, child devices** | No | `Chassis` already covers the cluster case; blade chassis are out of domain. **Safe** |
 | **Inventory items (fans, PSUs, optics as assets)** | **Optics only** | `PhysicalPort.transceiver` is kept because it decides whether a port *can* carry a service — that is `52` §3.7.1's *"the inventory has opinions"* applied to plant, and it is the differentiator `76` §12 says survives the teaching/record fork. Fans and PSUs are asset management. **Safe** |
-| **Fibre strands, splices, closures** | **Refused in writing** | A strand model needs a splice model needs a closure model — three kinds and an ordering relation, and it is a fibre-management product rather than a feature. Record one `Cable` per lit strand and put the bundle ID in `label`. **Loss named:** *"which strand of bundle F-1204 is this"* and *"what is the loss budget on this PON leg"* are both unanswerable. Reopens only if the estate does its own splice management, in which case the honest question is not whether it is useful but whether it will be kept current |
+| **Fibre strands, splices, closures** | **Refused in writing** | A strand model needs a splice model needs a closure model — three kinds and an ordering relation, and it is a fibre-management product rather than a feature. Record one `Cable` per lit strand, put the bundle ID in `assembly` and the per-strand tag in `label` (§3.4 — they are separate fields precisely so this case has a usable identity tier). **Loss named:** *"which strand of bundle F-1204 is this"* and *"what is the loss budget on this PON leg"* are both unanswerable. Reopens only if the estate does its own splice management, in which case the honest question is not whether it is useful but whether it will be kept current |
 | **IPAM (global prefixes, VLAN registry)** | No | `11` already has `Address`, `Vlan`, `IpPrefix` scoped to devices. A service-wide registry belongs to a model nobody has stated |
 | **Circuits and providers** | **Deferred with a written trigger** | §3.4.2 |
 | **Custom fields** | **Refused** | A runtime schema by another name. §7.1 |
@@ -782,22 +885,82 @@ pub struct AttributeDecl {
 }
 
 pub enum AttrType {
-    Bool, Integer, Decimal, Text, Enum,
+    Bool, Integer, Text, Enum,
     Bandwidth, VlanId, IpPrefix, InterfaceAddress, Identifier, Date,
 }
 ```
 
-Every `AttrType` maps onto an existing `11` §4.3 semantic scalar. **No new scalar families, no
-user-defined types, no code path of any kind.** This is `76` X5's recommended shape for a naming
-scheme — *"a closed template grammar… no user code loaded, so the closed-corpus supply-chain posture
-in `34` and `35` is untouched"* — applied to service types, which is what `76` §10's *"answer it
-once, for both"* asked for.
+**`Decimal` is deleted, and it was the one variant that could not be made to work.** An earlier draft
+carried it, and it introduces floating point into a product that structurally excludes it: `12` §3.4
+lists floats among `fex`'s deliberately absent features — *"No field in the graph needs one… No NaN,
+no `-0.0`, no locale-dependent formatting, no cross-platform rounding. **This buys determinism for
+free**"* — and `11` §14.1 chose canonical CBOR partly because there are *"no floats needed anywhere in
+this schema"*. A user-declarable decimal attribute would falsify both sentences from inside a map
+field. Bandwidths are integers of bits per second, lengths are integers of metres, and nothing else in
+`77` asks for a fraction.
 
-`AttrType` deliberately excludes `SecretPlaceholder`, mirroring extension-bag rule 8 (`11` §12.4).
-`Text` is permitted here, unlike in the bag, because a service attribute is never emitted into a
-config line — the bag's `Text` prohibition exists to stop it becoming a back door into emitted output,
-and that hazard is absent. It does land in `37` §2.2's privacy inventory with a verdict, because a
-free-text field is that document's named number-one personal-data channel.
+**`Premises.coordinates: LatLon` is the second float carrier and it is fixed-point, not a pair of
+`f64`s** (§3.5). `62` §3 defines it as `{ lat_e7: i32, lon_e7: i32 }` — degrees × 10⁷, which is the
+resolution GPS hardware and every geodetic wire format already use, ~1 cm, exactly representable,
+totally ordered and byte-identical across platforms. It is a user-typed value that is stored, rendered
+and exported and never computed with (§3.5, §12 row 12), so no arithmetic is lost.
+
+**An earlier draft asserted *"every `AttrType` maps onto an existing `11` §4.3 semantic scalar"*.
+Seven of the eleven did not.** The sentence is replaced by the mapping, per variant, naming both the
+`11` §4.3 scalar it binds to and the `12` §3.5 `Value` a rule sees:
+
+| Variant | `11` §4.3 scalar | `12` §3.5 `Value` | Note |
+|---|---|---|---|
+| `Bool` | **none** — a plain primitive, not a semantic scalar | `Bool` | |
+| `Integer` | **none** — a plain primitive | `Int` | `i64`, checked arithmetic |
+| `Text` | `Text` | `Str` | The only free-string type |
+| `Enum` | **none** — variants come from `AttributeDecl.enum_values` | `Enum(EnumId, VariantId)` | The `EnumId` is allocated per `AttributeDecl`, not per platform |
+| `Bandwidth` | **missing from `11` §4.3** — §7.3 | `Int` | Bits per second. `62` §3 must define it; `11` §6.4's `Interface.speed` already uses it |
+| `VlanId` | `VlanId` | `Int` | |
+| `IpPrefix` | `IpPrefix` | `Prefix` | Host bits zeroed |
+| `InterfaceAddress` | `InterfaceAddress` | **none** | See below |
+| `Identifier` | `Identifier` | `Str` | Validated, never normalised |
+| `Date` | **none** — `Timestamp` is a millisecond instant and a date is not. One of §1.1's five new scalars | **none** | See below |
+
+**Two variants have no `Value` landing, and they are not rule-readable.** `12` §3.5's lattice is
+closed at `Null | Bool | Int | Str | Enum | Dur | Addr | Prefix | List | Node`, and neither
+`InterfaceAddress` nor `Date` appears. Mapping `InterfaceAddress` onto `Value::Prefix` is refused: `11`
+§4.3 calls conflating the two *"the most common modelling bug in this domain"*, and committing it
+inside an extension mechanism is how it becomes permanent. So both types are **stored, validated,
+rendered, sorted and exported, and invisible to `fex`**: `attr(service, key)` on an attribute of
+either type makes the rule `NotApplicable`, reusing §4.3's existing `uses_attr` outcome for an
+undeclared key, with no new `Value` variant and no `12` change. The cost is stated plainly — *"every
+LTE service must have an APN"* is expressible and *"every service installed before this date"* is not,
+which is consistent with §13 open decision 3's *no, for now* on comparing stored dates.
+
+**No new scalar families, no user-defined types, no code path of any kind** — that half of the
+original claim survives, and it is the half that matters. This is `76` X5's recommended shape for a
+naming scheme — *"a closed template grammar… no user code loaded, so the closed-corpus supply-chain
+posture in `34` and `35` is untouched"* — applied to service types, which is what `76` §10's *"answer
+it once, for both"* asked for.
+
+**`AttrType` excludes `SecretPlaceholder`, and `Text` is admitted on its own terms rather than on a
+misreading of `11`.** An earlier draft justified `Text` by claiming *"the bag's `Text` prohibition
+exists to stop it becoming a back door into emitted output"*. `11` §12.4 rule 8 says the opposite and
+says it in one line: *"**Never a secret.** `value_type` may not be `SecretPlaceholder` and may not be
+`Text`. **The bag is not a back door around invariant 3, and `Text` is how it would become one.**"*
+Emission is not mentioned. The named hazard is a human typing a PSK into a free-text slot, and that
+hazard is fully present here — a service attribute is a free-text slot on an object a customer's
+credentials get discussed around.
+
+`Text` is kept anyway, because a service type genuinely needs prose an operator can label (*"handover
+notes"*, *"NNI reference"*) and `Service.description` is one field for all of them. It is kept with
+the compensating controls stated rather than with the hazard denied:
+
+- **`37` §2.2 gains a row** for `Service.attributes` and `ServiceEndpoint.attributes`, with a verdict.
+  That document already names free-text as its number-one personal-data channel, and this adds a
+  channel whose *keys* are operator-chosen, which is worse than a fixed field, not better.
+- **`62` §18 lints an `AttributeDecl { value_type: Text }`** whose `key` or `label` matches the
+  secret-shaped token list (`psk`, `secret`, `key`, `password`, `passphrase`, `credential`), refusing
+  the declaration with a stable error code. That is the rule-8 hazard caught at declaration time,
+  which is the only point at which it is catchable — the value is user data and cannot be inspected.
+- **Nothing in this layer emits** (§7.2), so invariant 3's emitted-output limb is untouched. That was
+  always true; it was never the reason rule 8 exists.
 
 **An `AttributeDecl` is never deleted, only `withdrawn`.** That is the protobuf field-number lesson,
 and it is what makes merge, export and a stored value with no live declaration survivable: a
@@ -1055,8 +1218,19 @@ declaration.
 | Edge kind | From | To | Produced by | Fields |
 |---|---|---|---|---|
 | `Cabled` | `Interface` | `Interface`, `ExternalPeer` | `infer.port.cabled-peer` | `via_passive: u8` |
-| `ResolvesVia` | `PathSegment` | `PhysicalPort` | `infer.service.warp.resolve` | `candidate: u8`, `ordinal: u16` |
+| `WarpResolvesVia` | `PathSegment` | `PhysicalPort` | `infer.service.warp.resolve` | `candidate: u8`, `ordinal: u16` |
 | `CarriedBy` | `Service` | `Device`, `PassiveNode` | `infer.service.carried-by` | — |
+
+**`WarpResolvesVia`, not `ResolvesVia`, and the rename is not cosmetic.** `ResolvesVia` is already
+taken: `11` §7.6 declares `ResolvesVia | StaticRoute | LogicalUnit | infer.route.next-hop-interface`,
+and `11` §3.4 uses it as the canonical derived-edge example. Edge kinds are a **generated enum**
+(`11` §11.6) with per-kind `from`/`to` sets, so a second declaration under the same name with a
+different `from`, a different `to` and a different producer is a redeclaration that fails codegen —
+not an overload. An earlier draft named it `ResolvesVia` in §5.3 and `ResolvedVia` in §12 row 1, which
+is the collision arriving twice and being noticed neither time. §1.3 lists derived edges among what
+`11` decided and this document never re-argues, so nothing in the review path would have caught it.
+`SegmentTraverses` was the alternative and was passed over only because it reads as an assertion about
+the path rather than a resolution of it.
 
 All three obey `11` §3.5: separate arena, never serialised, never merged, never edited, recomputed on
 load and after every mutation batch, rendered with `11` §7.6's hairline and `inferred` margin tab.
@@ -1098,9 +1272,19 @@ It is exactly the thing that goes stale the day Hub B arrives.
 | The resolution — the concrete hops that claim currently corresponds to | derived edges + a derived value | **never** | `infer.service.warp.resolve` |
 
 **Lazy resolution is not a new mechanism. It is `11` §3.5 applied to a service path.** That is why the
-whole feature costs one inference rule rather than a subsystem: `11` §3.5 already recomputes derived
-elements on load and after every mutation batch, so a path recorded before Hub B existed gains Hub B
-on the next open, with no migration, no re-entry and no stored hop to go stale.
+whole feature costs one inference rule rather than a subsystem: derived elements live in an arena that
+is rebuilt from the asserted graph rather than stored, so a path recorded before Hub B existed gains
+Hub B the next time anybody looks at it, with no migration, no re-entry and no stored hop to go stale.
+
+**"The next time anybody looks" and not "on the next open", and the difference is priced in §6.6.**
+`11` §3.5 recomputes derived elements on load, and for the inference rules `11` §9.5 lists that is a
+linear scan — but §3.5 is explicit that this *"puts a hard ceiling on how expensive an inference rule
+is allowed to be, and that ceiling will be hit."* `resolve_warp` hits it: §11.6's census puts a
+ten-thousand-service estate at ~240,000 segments, and resolving all of them eagerly on every open is
+not `O(N + E)`. So resolution is **demand-driven and budgeted** (§6.6's fourth bound), which changes
+nothing about the lazy property — a segment is still a pure function of the asserted graph, still
+never stored, still gains Hub B without being rewritten — and changes only *when* the function is
+evaluated.
 
 ### 6.2 `ServicePath` and `PathSegment`
 
@@ -1114,6 +1298,7 @@ operator records.
 
 | `ServicePath` field | T | Card. | Emit | Notes |
 |---|---|---|---|---|
+| `ordinal` | `u32` | 1 | — | Stable display order within the service; gaps legal. Also the identity discriminant — see below |
 | `role` | `enum {Working, Protect, Historic}` | 1 | — | |
 | `label` | `Text` | 0..1 | — | |
 | `last_confirmed` | `Date` | 0..1 | — | `Origin::Hand` only, never compared |
@@ -1121,9 +1306,25 @@ operator records.
 
 ```yaml
 identity:
-  - [ owner(Service), edge(PathFrom), role ]
+  - [ owner(Service), ordinal ]
   - [ owner(Service), label ]
 ```
+
+**`ordinal` is not decoration; without it tier 1 is degenerate in the two cases this kind exists
+for.** An earlier draft used `[ owner(Service), edge(PathFrom), role ]`, which collides the moment a
+service records two paths of the same role from the same endpoint — and this section invites exactly
+that twice over. `Historic` paths **accumulate by definition** (line above: *"a `Historic` path
+outlives the service's current routing"*), all carrying `role: Historic` and the same `PathFrom`, so
+tier 1 is ambiguous after the first re-route. Diverse `Working` routing from one endpoint is the same
+shape and is the normal case, not an edge case. Tier 2 does not rescue it: `label` is `0..1` and
+nothing enforces that a human types a distinct one.
+
+The cost of the collision is not a duplicate — it is silent unrepairability. §9.5 derives
+`FindingKey.anchor_nk` from the tier-1 tuple, so every finding on every historic path of one service
+would share an anchor, and `fsck --repair` re-binds only *"where exactly one node matches"* — never,
+here. `PathSegment` and `ServiceEndpoint` both already carry an `ordinal` for precisely this reason
+(§6.2, §4.4), and `SecurityPolicy.ordinal` is `11`'s own precedent. This is the third instance of one
+pattern, not a new mechanism.
 
 `PathSegment` is a node rather than an edge for two reasons, both from `11` §3.4. First, things
 reference it: a finding attaches to a segment, the diagram addresses one, the resolution attaches to
@@ -1176,7 +1377,8 @@ pub enum SegmentKind {
 | Meaning | Where it lives | Produces | Reads as |
 |---|---|---|---|
 | **Resolved** | `kind: Warp`, resolution `Resolved{n}` | the hops, drawn `inferred` | *"here is what it crosses today"* |
-| **Not modelled yet** | `kind: Warp`, resolution `Unresolved` | an `Unprovable` (`12` §8.3) with a count in the findings footer and a *model it* target | *"I could not look"* |
+| **Not modelled yet** | `kind: Warp`, resolution `Unresolved` | an `Unprovable` (`12` §8.3) with a count in the findings footer and a *model it* target | *"I looked and there is nothing there"* |
+| **Not looked at yet** | `kind: Warp`, no computed resolution (§6.6) | counted separately in the footer as *not examined* — never folded into the `Unprovable` count, which would be a number nobody paid for | *"I have not looked"* |
 | **Deliberately out of scope** | `kind: Boundary` | **nothing at all** | *"there is nothing to look at"* |
 | **The record is wrong** | any kind, resolution `Contradicted` | a **finding**, `service.path.contradicted` | *"what you told me disagrees with what else you told me"* |
 
@@ -1213,9 +1415,34 @@ fn port_of(g: &Graph, v: NodeId) -> Vertex {
 }
 ```
 
-`Vertex::Port` walks plant. `Vertex::Iface` walks `Cabled` (the derived edge, §3.8) and device
-siblings. Both are handled by one step relation. This is the join that makes a path recorded against
-interfaces gain plant detail the day the plant is entered, without the path being rewritten.
+`Vertex::Port` walks plant — the asserted `Terminates` / `PassThrough` pair, exactly as `trace()`
+does (§6.5). `Vertex::Iface` walks **device siblings only**, over asserted containment. Both are
+handled by one step relation. This is the join that makes a path recorded against interfaces gain
+plant detail the day the plant is entered, without the path being rewritten: the moment an
+`Occupies` is asserted, `port_of` returns `Vertex::Port` for that interface and the plant limb takes
+over.
+
+> **`Vertex::Iface` does not walk `Cabled`, and an earlier draft that said it did broke `11` §9.5
+> constraint 1** — *"It may read only asserted values, never other inferred ones. The inference pass
+> is one level deep and is not a fixpoint."* `Cabled` is **derived**, produced by
+> `infer.port.cabled-peer` (§3.8, §5.3), so `resolve_warp` reading it would put one inference rule
+> downstream of another, make the pass two levels deep and order-dependent, and forfeit the exact
+> constraint §6.6 claims to satisfy. §5.3 applies the rule correctly to `infer.service.carried-by`
+> and the adjacent rule must not break it.
+
+**The limb was also unreachable, which is why deleting it costs nothing.** `port_of` returns
+`Vertex::Iface(i)` for an `Interface` **only** when `i` has no `Occupies`; `infer.port.cabled-peer`
+emits `Cabled` **only** from a port an `Interface` occupies. An interface with no `Occupies` has no
+`Cabled` out-edge, by construction. The other `Vertex::Iface` producers — `AggregateInterface`,
+`RethInterface`, `TunnelInterface`, and a `LogicalUnit` under any of them — are outside `Cabled`'s
+`from` set (`[Interface]`, §5.3) and outside `Occupies`' (§3.7). The limb could never fire in any
+case reachable from `port_of`.
+
+**So `Cabled` has no inference consumer at all.** It is a presentation and click-through convenience:
+it keeps `56` §4.1's `Link edge → line` row working, it answers `77` §6's *"click on a port which goes
+to other equipment"* from the interface side, and it renders with `11` §7.6's hairline and `inferred`
+tab. Nothing in the inference pass reads it, and `62` §11 should record that as a declared property
+rather than a coincidence, because re-adding a consumer is how the two-level pass comes back.
 
 ### 6.5 `trace` — clicking a port and travelling
 
@@ -1260,11 +1487,14 @@ One inference rule in `11` §9.5's pass, subject to its four constraints.
 **The step relation.** From a vertex you may step to (a) whatever `trace()` reaches, or (b) any
 sibling `Interface`/`PhysicalPort` on the same `Device`. Device-crossing adjacency is **computed
 inside the search, never materialised** — materialising it is `O(ports²)` per device and buys nothing.
+Both limbs read **asserted edges only** — `Terminates`, `PassThrough`, `Occupies`, containment — and
+no derived edge, `Cabled` included (§6.4). That is `11` §9.5 constraint 1 and it is checkable by
+reading the two limbs.
 
 **The search.** Bidirectional BFS from `port_of(EntersAt)` and `port_of(ExitsAt)`, enumerating up to
 **K = 4** distinct simple paths, and honouring every `MustTraverse` constraint on the segment.
 
-**Three bounds, all reported, none silent:**
+**Three per-segment bounds, all reported, none silent — and a fourth, per open:**
 
 1. `max_hops` — per-segment override, workspace default **8**.
 2. A node-visit guard of **4096** per segment. This is `11` §10.4's existing guard constant, reused
@@ -1272,6 +1502,46 @@ inside the search, never materialised** — materialising it is `O(ports²)` per
    than guessed.
 3. K = 4 candidates. If a fifth is found the state is `Ambiguous { candidates: 4, more: true }` and
    the label reads `4+ possible paths` — never a total that was not counted.
+
+**A fourth bound, and it is the one an earlier draft left out.** Bounds 1–3 are per segment. The
+design's whole lazy-resolution property comes from recomputing on every open (§6.1), and `11` §3.5
+says what that costs: *"opening a workspace pays the inference pass every time… it puts a hard ceiling
+on how expensive an inference rule is allowed to be, **and that ceiling will be hit.**"* `11` §14.3
+prices the inference pass at `O(N + E)`. A bidirectional BFS enumerating up to four simple paths under
+a 4096-node-visit guard is not `O(N + E)`, and the per-segment bounds do not compose into a per-open
+one: §11.6's own arithmetic puts ten thousand services at ~330,000 nodes and ~240,000 segments, which
+at the guard is on the order of 10⁹ node visits per open. `44` §7.1 already puts workspace open at ~100
+devices with the residual recorded literally as *"Unresolved"*. Resolving every warp eagerly on every
+open is therefore not viable at any estate size worth having this feature for.
+
+> **DECISION — resolution is demand-driven and budgeted per open, not eager.**
+>
+> | | |
+> |---|---|
+> | **On open** | Nothing is resolved, and that is **not** `Resolution::Unresolved` — that variant means *the search ran and found nothing*, which is a different claim. A segment simply has no computed `Resolution` yet, which is the ordinary state of a derived field before it is demanded (`11` §3.5; §7.3(i)). It renders `not yet examined`. **The enum is unchanged and there are still six outcomes** |
+> | **On demand** | A segment resolves when something asks: the path is drawn, its service is opened, a finding needs it, or an export requests it. The result lands in the derived arena (`11` §3.5), so a second ask is free |
+> | **Invalidation** | A mutation batch touching any of `Terminates`, `PassThrough`, `Occupies`, `MustTraverse`, `EntersAt`, `ExitsAt` or the containment of a `Chassis`/`PassiveNode` drops the cached resolutions that read it — `12` §6.3–6.5's `ReadBy` machinery, unchanged, over the read set `resolve_warp` already names per `11` §9.5 constraint 3 |
+> | **Per-open ceiling** | `RESOLVER_BUDGET` node visits across all segments resolved in one session-open, workspace default **2²⁰**. On exhaustion further segments return `BudgetExhausted { bound: Visits }` — a visible state with a control that raises it, never a silent truncation |
+>
+> This keeps §6.1's property exactly: a path recorded before Hub B existed gains Hub B the next time
+> anybody looks at it, with no migration, no re-entry and no stored hop. What it gives up is that the
+> `Unprovable` **count** in §6.3's findings footer is over segments *examined*, not over all segments,
+> so the footer reads `1 warp has no modelled path · 240,000 not examined` rather than a total nobody
+> paid for. That is `12` §8.4 rule 1's own discipline — never a number that was not counted — and it
+> is the honest form.
+
+**Per-open cost, as a function of the thing that drives it:** `O(S_asked × min(4096, N_reachable))`
+where `S_asked` is the number of segments something actually asked about, capped by `RESOLVER_BUDGET`.
+For one service on screen, `S_asked ≤ 6` and the cost is invisible. For a whole-estate export,
+`S_asked` is every segment and the budget is what stops it. **The eager form's cost was
+`O(S_total × 4096)` with no cap at all**, and that is the number §11 never carried.
+<!-- VERIFY: RESOLVER_BUDGET's 2²⁰ is a guess of the same kind as the 4096 (§13 item 2) and must be
+     measured in WASM against a real service census before it is quoted. -->
+
+**`44` §7.1's breakage table needs a new row for this**, between its rows 4 and 6: *workspace open
+with a populated service layer*, breaking at a **segment** count rather than a device count, mitigated
+by demand-driven resolution, residual *"whole-estate export is a slow operation and must look like
+one"*. `44` cannot write that row without §11.6's census, and this document cannot write it into `44`.
 
 **Determinism** (invariant 9; `71` X4.1): the frontier is a sorted structure keyed by `NodeId`;
 candidates are ordered by `(hop_count, lexicographic sequence of NodeIds)`. That is `11` §7.4's own
@@ -1375,10 +1645,32 @@ Two amendments to `59` follow, both small, both written as replacement text:
 
 1. **`59` §3.6** — *"the count label"* becomes *"the disclosure label"*, and the never-demoted rule
    attaches to it whether its content is a cardinal (aggregation) or a predicate (warp). One sentence.
-2. **`59` §3.11's heterogeneity guard transfers with full force.** A path whose segments are
-   `Resolved` over hops 1–3 and `Unresolved` at hop 4 is a heterogeneous group and may not collapse to
-   a uniform mark. Same rule, different declared attribute set — and it is the same failure mode
-   `59` §8 row 2 calls *"the most dangerous failure in this document."*
+2. **`59` §3.11's heterogeneity guard transfers with full force — to a rule that does not exist yet,
+   and that is the honest statement of it.** A path whose segments are `Resolved` over hops 1–3 and
+   `Unresolved` at hop 4 is a heterogeneous group and may not collapse to a uniform mark. It is the
+   same failure mode `59` §8 row 2 calls *"the most dangerous failure in this document."*
+
+   Two things about this amendment are not settled and were previously written as though they were.
+
+   **(a) The guard is unbuilt.** `59` §3.11 is titled *"the rule that is **not built**, and the fixture
+   that hides it"*, calls itself *"the single largest gap in all three variants"*, and schedules
+   construction as `59` §7 items 1 and 2. §12 failure-mode 6's guard therefore points at machinery
+   that does not exist. **The dependency is one-directional and it is on the critical path:** the warp
+   cannot inherit a guard that has not been written, so `59` §7 item 2 becomes a **precondition** of
+   the warp mark shipping, not a parallel workstream. Until it lands, a partly-resolved path must not
+   collapse at all — it draws its segments individually, which is correct, uglier, and cheap because a
+   path is six segments and not forty spokes.
+
+   **(b) The attribute set is being extended, and `59` has to accept the extension.** `59` §3.11's
+   declared uniformity attributes are *"evidence age band (`56` §8), provenance origin, layer
+   membership, and any attribute that changes a node's stroke or adds a second label line."* **Segment
+   resolution state is none of those.** It is not an age band, not an origin, not a layer, and whether
+   it changes a stroke is exactly the question `59` §3.11 leaves to the fixture it does not have. So
+   this is an amendment to the declared set, not an application of it: `62` and `59` must add
+   `PathSegment.resolution` to the set, and `59` §3.11's own instruction — *"the attribute set is data,
+   in the same register as `56` §3.4's rank table"* — is what makes that a data change rather than a
+   redesign. **Stated rather than performed:** §15's reconciliation of `77` §5.3 asserted this transfer
+   and did not carry it out, and `59` owns the file.
 
 **It spends no channel.** `56` §5.2's budget is full — G2 is spent product-wide on AI-proposed, G4's
 `2 capped` is the tunnel conduit — and a "broken edge" treatment would be an eleventh channel. It does
@@ -1391,6 +1683,7 @@ not need one, because a `PathSegment` is a node and a node box is existing vocab
 | `Unresolved` | `L2 P2P · not modelled` | a stated refusal: `no modelled path between LEAF-A ge-0/0/1 and LEAF-C ge-0/0/1 within 8 hops` |
 | `BudgetExhausted` | `L2 P2P · search capped at 8 hops` | the refusal, plus the control that raises the budget |
 | `Contradicted` | `L2 P2P · conflicts with cabling` | both sides, side by side, `11` §5.4's treatment |
+| *no computed resolution* | `L2 P2P · not yet examined` | resolution on demand, then whichever row above applies. Distinct from `Unresolved`, which is a completed search (§6.6) |
 | `Boundary` | drawn as its terminal box: `out of scope · customer premises` | **nothing. It is not a disclosure control and carries no `aria-expanded`** |
 
 That last row is load-bearing. **A full stop that can be pressed is indistinguishable from a refusal
@@ -1405,12 +1698,14 @@ that can be pressed**, which is exactly the confusion `77` §5.4 asks to be elim
 - one `ServicePath { role: Working }`, one `PathSegment { ordinal: 1, kind: Warp,
   warp_technology: L2Ptp }`, `EntersAt` and `ExitsAt` on the two ports
 
-Load: the resolver finds nothing. `Unresolved`. Picture: `L2 P2P · not modelled`. Findings footer:
-`1 warp has no modelled path`. **Nothing is stored beyond the endpoints, the segment kind and the two
-port references.**
+Opening the service asks the resolver, which finds nothing. `Unresolved`. Picture: `L2 P2P · not
+modelled`. Findings footer: `1 warp has no modelled path`. **Nothing is stored beyond the endpoints,
+the segment kind and the two port references** — the resolution lives in the derived arena and is
+recomputed, not saved (§6.6).
 
-**Day 90.** Someone models Hub B and cables it. **No service record is touched.** On the next load
-the resolver runs over the changed graph and finds
+**Day 90.** Someone models Hub B and cables it. **No service record is touched.** The mutation batch
+invalidates the cached resolution (§6.6); the next time anybody opens the service the resolver runs
+over the changed graph and finds
 `HUB-A ge-0/0/1 → HUB-B ge-0/0/3 → (device) → HUB-B ge-0/0/4 → HUB-C ge-0/0/1`. `Resolved{3}`. The
 mark changes to `L2 P2P · 3 hops · inferred`; activating it draws Hub B and its interlinks with the
 `inferred` tab. The `Unprovable` count drops by one. That is `77` §5.1's requirement, met without a
@@ -1503,14 +1798,14 @@ it is the strongest counter-argument in this design and the next reader should s
 | Question | Answer |
 |---|---|
 | Can a user add a field to `Service`? | No. They can add an `AttributeDecl` to a `ServiceType`, which adds a **key** to one declared map field |
-| Can an attribute have a type the product does not know? | No. `AttrType` is a closed Rust enum, every variant mapping to an existing `11` §4.3 scalar |
+| Can an attribute have a type the product does not know? | No. `AttrType` is a closed Rust enum. §4.3's mapping table names, per variant, the `11` §4.3 scalar and the `12` §3.5 `Value` it lands on — including the three that need a scalar `11` does not have yet and the two that are not rule-readable |
 | Can an attribute be emitted? | No. Nothing in this layer emits, and the grammar has no `emit:` key. That is a stronger guarantee than a prohibition a hurried person can argue with |
 | Can an attribute be load-bearing for identity? | No. Identity tuples may not reference attribute keys — the same rule as `11` §12.4 rule 5 |
-| Can an attribute hold a secret? | No. `SecretPlaceholder` is not an `AttrType` variant |
+| Can an attribute hold a secret? | **Not structurally, and this row is weaker than the others.** `SecretPlaceholder` is not an `AttrType` variant, but `11` §12.4 rule 8's stated hazard is `Text`, not `SecretPlaceholder` — *"`Text` is how it would become one"* — and `Text` **is** a variant (§4.3). The control is a `62` §18 declaration-time lint on secret-shaped keys plus a `37` §2.2 verdict, not a type-system guarantee |
 | Can a rule read an attribute? | Only with a declared `uses_attr: [key]`, returning `NotApplicable` on an undeclared key (§4.3) |
 | Can a service type change path semantics? | **No.** A type declares endpoint cardinality, identifier policy, required attributes and a completeness profile. It declares nothing about segments, warps or resolution — letting a user-defined type invent path modes is `77` C1's failure mode arriving through a side door |
 
-### 7.3 Three mechanisms `62` must add that `11` does not have
+### 7.3 Three mechanisms `62` must add, and two amendments only `11` can make
 
 **(i) Derived fields.** `11` §3.5 already has derived *edges*, rebuilt on load and after every
 mutation batch, never serialised. `62` generalises the identical contract to fields: `derived: true`,
@@ -1529,10 +1824,23 @@ names.
 already has `R*` for *"required only on the platforms noted"*; this generalises the predicate from a
 platform to an expression over the emit unit.
 
+**Two amendments to `11`, which `62` may transcribe but may not originate.** §9.1 states both at
+length; they are listed here because §7.4's §9 row is where an implementer will look for them.
+
+| # | Amendment | Why it cannot be a `62` declaration |
+|---|---|---|
+| **A1** | `11` §10.4 step 1 gains a positive `layer(kind(n)) == config` conjunct — or `config_path` becomes `Option<ConfigPath>` and the filter requires `.is_some()` before the subset test | The scope filter is an algorithm in `11`, not a per-kind property. Declaring no `config_path` in `62` does not exclude a kind: `∅ ⊆ covered_paths(S)` is true for every `S` |
+| **A2** | `11` §10.5's absence table gains an `Origin::Imported` column, valued **nothing happens** under `Section` and `Whole` | The table is `11`'s and it governs kinds far outside this layer. §3.9's catalogue ports are the first `Imported` nodes with a device owner, and they make an existing hole in `11` reachable |
+| **A3** | `11` §8.7's staleness bands apply only where `layer == config` (§3.9) | §8.7 ages every `Parsed` or `Imported` node against the current date. Without the carve-out, catalogue ports render differently on two days and §6.10, §10 F4 and §12 row 7 are all false |
+
 **Two scalars are already missing and this makes it visible.** `Bandwidth` and `TzName` are used by
-`11` §6.3–6.4 and absent from §4.3's catalogue; `PhysicalPort.speed_max` depends on `Bandwidth`. This
-is ADR-0008's own prediction — *"Writing it will reveal that `11` is incomplete"* — arriving on
-schedule, alongside `82` §15's `Device.aggregate_device_count`.
+`11` §6.3–6.4 and absent from §4.3's catalogue; `PhysicalPort.speed_max` depends on `Bandwidth`, and
+so does `AttrType::Bandwidth` (§4.3). `AttrType::Date` compounds it in the other direction: it maps
+onto no existing `11` §4.3 scalar at all — `Timestamp` is a millisecond instant and a `Date` is not —
+so `Date` is one of §1.1's five *new* scalars and `62` §3 must define it rather than bind it. Three of
+`AttrType`'s eleven variants therefore rest on scalars that do not exist today, and §4.3's mapping
+table names each one. This is ADR-0008's own prediction — *"Writing it will reveal that `11` is
+incomplete"* — arriving on schedule, alongside `82` §15's `Device.aggregate_device_count`.
 
 ### 7.4 What `62-schema-spec.md` must contain
 
@@ -1542,7 +1850,7 @@ schedule, alongside `82` §15's `Device.aggregate_device_count`.
 | 2 | The YAML subset accepted, key ordering, doc-comment convention, and why the file is ordered (declaration order is diff order, `18` §3) |
 | 3 | **Scalars.** `11` §4.3's catalogue as declarations, each binding to a Rust type and the `Scalar` trait; the five new ones in §1.1; the distinction between a `Scalar` and a plain structured value type (§3.5's `PostalAddress`); per-field constraints that live in the schema rather than the type. **The known holes go here:** `Bandwidth`, `TzName`, `PlatformId`, `PolicyAction`, `RouteTarget`, `HostService`, `InferenceRuleId`, `Device.aggregate_device_count` |
 | 4 | **Kinds.** Declaration shape; per-field type, cardinality, `Presence` semantics, `emit` column (`R`/`R*`/`O`/`—`); `layer`, `emits`, `derived`, `merge_class`, `case_sensitive`, comparator |
-| 5 | **Classes** — named kind sets (`11` §12.1), and why they are not inheritance |
+| 5 | **Classes** — named kind sets (`11` §12.1), and why they are not inheritance. Carries the new `PortHost = {Chassis, PassiveNode}` (§3.3) alongside `InterfaceLike` and `MultiMemberInterface` |
 | 6 | **Edges.** Role names, `from`/`to` kind sets, cardinality at both ends and **which level enforces each bound**, reverse-index requirement, edge fields, `symmetric`, class, emit template hook |
 | 7 | **Enums.** Variants, the neutral name, the generated unknown arm (`11` §11.3), `default_by_platform`, `platform_spellings`. `63` §5.3's platform enum map moves here per ADR-0008 |
 | 8 | **Identity.** Ordered tuples per kind, the term grammar (`owner()`, `edge()`, `edge_in()`, field paths), the tier-1 hash ADR-0010 permits as a *recovery* key and nothing else, and the prohibitions (no extension key, no service attribute, no inferred value) |
@@ -1565,13 +1873,59 @@ schedule, alongside `82` §15's `Device.aggregate_device_count`.
 the least coupled to anything else, and holding the rest hostage to it is the sequencing error to
 avoid.
 
+#### 7.4.1 Which scope `62` is written against, since this document holds two positions
+
+The outline above is the **full** scope: ten kinds, twenty-one edges, the service half included. §15
+Disagreement 1 argues against building roughly half of it — ship §3 and §8, defer §4, §6 and the
+service half of §9 — on the grounds that the service layer's risk is *"data entry that nobody has
+costed"*, and §11.6 supplies the arithmetic that supports the objection (~330,000 nodes at ten
+thousand services, against `44` §7.1 row 6's ~20,000-node sweep line and `11` §14.2's 50–80-device
+residency ceiling). **Leaving both positions standing and letting `62`'s author pick is the failure
+`76` §12 disagreement 1 names — a plan without exits gets one anyway, chosen under pressure.** So:
+
+> **DECISION — `62` is written to the full scope in one pass, and the build is sliced, not the
+> specification.**
+
+Three reasons, in the order they bite.
+
+1. **The two halves share the mechanisms, not just the file.** §7.3's three additions — derived
+   fields, cross-node write-time constraints, conditional requiredness — are each demanded by both
+   halves: `PhysicalPort.occupied` and `Device.name_conformance` need derived fields exactly as
+   `PathSegment.Resolution` does; `boundary_reason`'s `required_when` and `Cable`'s
+   ownership-conditional completeness are the same clause. Specifying them twice is how they diverge.
+2. **`62` §16's version and content hash are per-file.** Landing the service kinds later is a second
+   schema bump with a second generated-artifact set and a second migration fixture, for kinds that
+   cost the store **zero** (§11.3 row 1). Declaring a kind nothing creates yet is free; adding one to
+   a populated schema is not.
+3. **§15 Disagreement 1's own exception points the same way.** It insists §3's port/interface
+   separation and §3.4's `Cable` promotion must **not** be deferred, because `76` X7 rates it *"low
+   today, high after data exists"*. That argument is about **entered data**, not about declared
+   schema — and it applies unchanged to `ServiceEndpoint` and `PathSegment`.
+
+**What is sliced is §11.3's core work and §11.4's surfaces, and §15 Disagreement 1's recommendation
+stands there in full**: build and ship the physical layer, let the estate be entered, and decide the
+service layer's entry cost against a real port census. A declared-but-unbuilt kind costs a row in
+`schema.yaml` and a generated enum variant. A half-entered service estate costs `CarriedBy`
+under-reporting on *"what breaks if this device is decommissioned"*, which is Disagreement 1's actual
+objection and is not addressed by deferring the declaration.
+
 ### 7.5 The bump this lands as, and ADR-0030's trigger
 
 Checked against `11` §11.3's table, item by item: ten new node kinds (minor ×10), twenty-one new edge
-kinds (minor ×21), three derived edge kinds (not serialised, so no bump), two widened `from`/`to` kind
-sets (relaxed constraint, minor), two new optional fields on `Interface` (minor), one new
-`ImportFormat` variant (minor), one new `Origin`-adjacent format token (minor). **Zero re-parenting,
-zero field removals, zero cardinality lower bounds raised, zero identity tuples removed or reordered.**
+kinds (minor ×21), two new derived edge kinds plus one existing name re-classed (not serialised, so no
+bump), two widened `from`/`to` kind sets (relaxed constraint, minor), one new `ImportFormat` variant
+(minor), one new `Origin`-adjacent format token (minor), one new `Cable` field (`assembly`, §3.4;
+minor). **Zero new fields on any existing kind. Zero re-parenting, zero field removals, zero
+cardinality lower bounds raised, zero identity tuples removed or reordered.**
+
+An earlier draft of this line, and of §1.1's *Kinds amended* row, priced *"two new optional fields on
+`Interface`"* and named neither. **The claim is withdrawn rather than filled in**, because nothing in
+this document needs an `Interface` field: §3.7 gives `Interface` one out-edge (`Occupies`) and the
+hardware facts it might have carried — `position`, `connector`, `speed_max`, `transceiver` — are the
+whole reason `PhysicalPort` is a separate kind (§3.1–3.3). Two unnamed fields are precisely the defect
+ADR-0008 property 1 exists to stop — *"a field that exists in prose and not in `schema.yaml` does not
+exist"* — and §7.4's §4 row requires `62` to carry per-field type, cardinality, `Presence` semantics
+and Emit column for every field, which cannot be written from a count.
 
 > **The entire model lands as one minor bump, which old clients preserve.**
 
@@ -1593,6 +1947,16 @@ vendor-neutrality. The decisive evidence is the second half of the trigger: **no
 Every edge added is binary, typed, optionally fielded, exactly like the thirty that exist. That is the
 half that actually tests the graph model, and it passes. `76` X3 warns that option (c) — conflate the
 axes and let the trigger fire — *"is what happens by default if nobody writes (a) down."*
+
+> **And nobody has written it down, so as of this document's status the contradiction is live.**
+> This is not a caveat on the argument; it is a **blocking precondition** and it is recorded as one in
+> §13 item 10 rather than only as §12 failure-mode 14. ADR-0030 decision item 3's *"more than three"*
+> was written in advance precisely so it would be honoured, and §15 Disagreement 3 refuses to let the
+> axis argument absorb the number: *"the trigger's more than three was written to be honoured, and ten
+> is not three."* An argument in a design document is not an amendment to an accepted ADR. **Until an
+> ADR takes `76` X3 option (a) or (b), the trigger has fired at ten kinds and the correct reading of
+> the corpus is that the schema bet is in its `72` §3.5 narrowing branch** — not that this document
+> reasoned it out of one. This document cannot discharge that and does not claim to.
 
 ---
 
@@ -1734,10 +2098,28 @@ the union over the closed role vocabulary — a fixed, small, knowable set — p
 `DepKey::Workspace(WsConstId::NamingPolicy)`. The *exact* read set is recorded by construction,
 because the scheme evaluator runs inside `EvalCtx` and performs every graph read through the same
 recording path a `LOAD_FIELD` opcode uses. It is not a side channel. `12` §6.6's short-circuit
-soundness argument is unchanged: the evaluator reads a scheme and a graph, and nothing else. The
-static over-approximation exceeds the 2× bound `12` §5.4 sets and `12` §15.3 gate 5 enforces, so
-**the four naming builtins are exempted from gate 5 and the exemption is written into the gate rather
-than discovered as a CI failure.**
+soundness argument is unchanged: the evaluator reads a scheme and a graph, and nothing else.
+
+The static over-approximation exceeds the 2× bound, so **the four naming builtins are exempted from
+`12` §15.3 gate 6 — read-set tightness, `|static| ≤ 2 × max(|actual|)` — and the exemption is written
+into the gate rather than discovered as a CI failure.**
+
+> **Gate 6, not gate 5, and the distinction is not pedantry.** `12` §15.3's gate **5a** is *"**Read-set
+> soundness.** Instrumented evaluator records actual reads; assert `actual ⊆ static` on every
+> fixture"*; gate **5b** is the phantom-dependency pair; the 2× bound is gate **6**. **5a and 5b apply
+> to these builtins unchanged and must never be relaxed** — `12` §5.3 calls read-set soundness *"the
+> invariant the whole incremental engine rests on"* and §5.3's own gloss on an unsound read-set is
+> silent staleness. Exempting a rule from 5a would buy nothing here and would forfeit that. What makes
+> 5a *satisfiable* for a builtin whose static set is deliberately loose is the recording path named in
+> the paragraph above: every read the evaluator performs is recorded, so `actual ⊆ static` holds by
+> construction and the over-approximation costs re-evaluation frequency, which is gate 6's subject,
+> and nothing else.
+>
+> An earlier draft of this paragraph named gate 5, following `12` §5.4's own cross-reference — which
+> reads *"(§15.3, gate 5)"* and points at the wrong gate. **That is a defect in `12` §5.4 and it is
+> raised as one**, not silently worked around: §5.4's parenthetical should read *gate 6*. It is
+> recorded here because propagating a sibling's numbering error into an engineering instruction is how
+> a soundness gate gets switched off by someone who trusted the citation.
 
 Editing a scheme fires one `Change::WorkspaceConst`; `ReadBy[Workspace(NamingPolicy)]` names every
 live instance; the estate re-checks in Tier B. `12` §6.3–6.4 already implement this and nothing is
@@ -1872,7 +2254,7 @@ consequences.
 
 *margin tab: this is ADR-0010's problem again*
 
-### 9.1 Re-identification cannot reach these kinds
+### 9.1 Re-identification must be made unable to reach these kinds — two amendments to `11`
 
 `11` §10.4 step 1 scopes re-identification:
 
@@ -1880,11 +2262,58 @@ consequences.
 Gs := { n ∈ G : owner_device(n) = D ∧ config_path(kind(n)) ⊆ covered_paths(S) }
 ```
 
-All ten new kinds declare **no `config_path`**, so no capture's covered paths contain them and the
-scope filter excludes them at step 1. A re-parse cannot rename, re-bind, tombstone or duplicate a
-port, a cable, a premises, a passive node, a tenant, a service, a type, an endpoint, a path or a
-segment. **That property is a declaration in `schema.yaml`, not a special case in the algorithm**, and
-it is the mechanical reason §2.1's one-graph decision costs nothing on the re-parse path.
+**As written, this does not exclude `PhysicalPort`, and the failure is silent and total.** The
+reasoning that says it does — *these kinds declare no `config_path`, so no capture's covered paths
+contain them* — reads the subset relation backwards. `config_path(kind(n))` for a kind that declares
+none is `∅`, and `∅ ⊆ covered_paths(S)` is **true for every `S`**. An empty config path universally
+admits; it does not exclude.
+
+Nine of the ten kinds are excluded anyway, and it is worth being precise about *which* conjunct does
+it, because the ninth is not the one the argument names:
+
+| Kind | `owner_device(n)` | Excluded by |
+|---|---|---|
+| `Cable`, `Premises`, `Tenant`, `ServiceType` | none — root-owned (§5.1, §5.2) | conjunct 1 |
+| `PassiveNode` | none — contained by `Premises` | conjunct 1 |
+| `Service`, `ServiceEndpoint`, `ServicePath`, `PathSegment` | none — under `Tenant`, under root | conjunct 1 |
+| **`PhysicalPort`** | **`D`, when contained by a `Chassis`** (§5.1 `HasPort`; `11` §7.2 contains `Chassis` by `Device`) | **nothing** |
+
+Follow it through. A whole-device paste puts every port on that device into `Gs`. Step 2 buckets by
+kind. `P` contains zero `PhysicalPort`s, because R-L2 forbids a parser creating one. Steps 3 and 4
+match nothing, because there is nothing to match against. Step 6 sends every one of them to `11`
+§10.5, which under `CaptureScope::Whole` **tombstones** them. §9.2's table row claiming the cable is
+untouched because *"it hangs off the `PhysicalPort`, which was never parsed and never re-identified"*
+would then be false: after one paste every port on the device carries `absent_since`, and the argument
+for §3.1–3.3 collapses with it.
+
+> **AMENDMENT 1 to `11` §10.4 step 1 — scope on `layer`, positively.**
+>
+> ```
+> Gs := { n ∈ G : owner_device(n) = D
+>               ∧ layer(kind(n)) == config
+>               ∧ config_path(kind(n)) ⊆ covered_paths(S) }
+> ```
+>
+> The new conjunct is a positive test on the §2.2 attribute, so a kind is in scope only if it says it
+> is. The equivalent formulation — make `config_path` an `Option<ConfigPath>` and require
+> `config_path(kind(n)).is_some()` before the subset test — is accepted as a substitute if `11`
+> prefers to keep the filter phrased in config paths. **Set inclusion alone is not, and a schema
+> declaration of absence is not self-enforcing.**
+
+> **AMENDMENT 2 to `11` §10.5 — the absence table has no `Origin::Imported` column.** Its two columns
+> are `Origin::Parsed` and `Origin::Hand`. §3.9's catalogue-populated ports are
+> `Origin::Imported { format: HardwareCatalogue, … }`, so even under the charitable reading of step 1
+> their behaviour on absence is **undefined**, not safe. `11` §10.5 must gain a third column, and its
+> value under `Section` and `Whole` must be **nothing happens** — the same as `Fragment` — because an
+> import is not a closed-world observation of a device and `11` §8.5 already refuses it the authority
+> to assert absence. Amendment 1 makes this unreachable for ports; the column is still required,
+> because `Origin::Imported` is not confined to this layer.
+
+With both amendments, a re-parse cannot rename, re-bind, tombstone or duplicate a port, a cable, a
+premises, a passive node, a tenant, a service, a type, an endpoint, a path or a segment. **The
+property is then one declared attribute read by one conjunct**, which is what §2.1's one-graph
+decision needs and is cheap — but it is an edit to a published algorithm in a sibling document, and
+until `11` carries it this layer is not safe to populate. §13 item 9 tracks it as a precondition.
 
 ### 9.2 The anchoring problem, which is exactly ADR-0010's
 
@@ -1906,7 +2335,7 @@ it is free.
 | Tier 2 `[owner(Device), name.raw]` | no match | no match |
 | Residue (`11` §10.4 step 4) | may decline; ADR-0010 makes any tier>1 match a candidate needing confirmation | same |
 | The old `Interface` | tombstoned (`absent_since`) | tombstoned |
-| **The cable** | **orphaned onto a tombstoned node** | **untouched. It hangs off the `PhysicalPort`, which was never parsed and never re-identified** |
+| **The cable** | **orphaned onto a tombstoned node** | **untouched — conditional on §9.1 amendment 1.** It hangs off the `PhysicalPort`, which is never parsed; without the amendment the port itself is tombstoned by step 6 and this row reads the same as the left-hand column |
 | The `Occupies` edge | n/a | points at the tombstoned `Interface`; `infer.port.occupies` suggests a new one against the new interface's parsed location |
 | The service path | orphaned | **untouched if it names ports; degraded to a suggestion if it names interfaces** |
 
@@ -1940,7 +2369,7 @@ Three findings carry the residue:
 | `port.occupies.tombstoned` | an `Occupies` source carries `absent_since`, with the `infer.port.occupies` suggestion attached |
 | `service.path.contradicted` | a `Physical` segment's two ports have no cable, or a `MustTraverse` target no longer exists |
 
-### 9.3 Import needs a scope, and this is a small edit `62` must make
+### 9.3 Import needs a scope, and capture scope needs a layer test
 
 `11` §10.4 is scoped to *"every re-parse of a config"*. `Premises`, `PhysicalPort`, `Cable`,
 `ServiceType` and `Tenant` are never parsed; they arrive by **import** — a site list, a NetBox export,
@@ -1951,6 +2380,13 @@ by import and not by re-parse, and there is no import-side analogue of `CaptureS
 > identity tiers an import may match against, and whether an absence in the imported document is
 > `Absent`, `Unknown` or nothing at all. Without it, re-importing a site list duplicates every
 > premises, and `11` §8.5's rule on who may assert `Absent` has no answer for an importer.
+
+> **And `62` §9 must restate `CaptureScope` itself**, carrying §9.1's two amendments as schema data
+> rather than as prose in this document: the `layer` conjunct in the scope filter, and the
+> `Origin::Imported` column in the absence table. `ImportScope` is a new declaration `62` owns
+> outright; `CaptureScope` is an existing `11` concept `62` is transcribing, and transcribing it
+> unamended is how the defect in §9.1 gets re-introduced by someone reading `62` and not `11`. The
+> two requests travel together and neither is sufficient alone.
 
 ### 9.4 Merge — `33` §6.4's classes, extended
 
@@ -1963,8 +2399,8 @@ that distinction and it is right).
 | Class | New members | Concurrent divergence resolves to |
 |---|---|---|
 | **A — material** | `PathSegment.kind`, `boundary_reason`, `warp_technology`; `Cable.ownership`; `ServiceType.endpoint_cardinality`, `endpoint_identifier_required`, `uni_scope`, `requires_cid`; `Service.reach` | **`Conflicted`.** Never auto-resolved |
-| **N — name** | `Service.cid`, `ServiceEndpoint.uni_id`, `PhysicalPort.label`, `Premises.clli`, `Tenant.code`, `ServiceType.code` | **`Conflicted`**, both appended to `Node.aka` |
-| **B — descriptive** | `label`, `description`, `notes`, `Cable.length_m`, `Cable.media`, `PhysicalPort.connector`, `PhysicalPort.service`, `Premises.form`, `coordinates`, all `*_on` dates | **LWW** by `(hlc, actor)`; loser in history |
+| **N — name** | `Service.cid`, `ServiceEndpoint.uni_id`, `PhysicalPort.label`, `Cable.label`, `Premises.clli`, `Tenant.code`, `ServiceType.code` | **`Conflicted`**, both appended to `Node.aka` |
+| **B — descriptive** | `label` on kinds where it is not an identity term, `description`, `notes`, `Cable.assembly`, `Cable.length_m`, `Cable.media`, `PhysicalPort.connector`, `PhysicalPort.service`, `Premises.form`, `coordinates`, all `*_on` dates | **LWW** by `(hlc, actor)`; loser in history |
 | **C — append-only** | provenance, history, `AttributeDecl` list (append plus `withdrawn`) | **Union** |
 | **D — structural** | existence of every new kind; every containment edge; `Terminates`, `Occupies`, `PassThrough`, `AtPremises`, `EntersAt`, `ExitsAt`, `MustTraverse` | **Add-wins**, with the L1 rules in §5.2 reporting over-cardinality |
 | **E — set-valued** | `Service.attributes`, `ServiceEndpoint.attributes` | **OR-Set add-wins** |
@@ -1979,11 +2415,32 @@ somewhere or configures something".** The cost is the same cost `33` §6.3 alrea
 conflicts reach humans. The mitigation is the same: it applies to a small set, and a `Conflicted` field
 is two named values with two named authors, not a merge marker in a text file.
 
-**`ServiceType` deserves one extra sentence**, because it is the schema-shaped object in the graph and
-the counter-design in §15 Disagreement 2 is right that this is where the node form is weakest. Its
-class-A fields make a concurrent divergence `Conflicted` and block nothing (nothing emits) but produce
-a finding `servicetype.contested` that names both values and every service of that type. That is
-weaker than a merge refusal and it is visible, which is the trade.
+**`ServiceType` deserves more than one extra sentence, because it sits inside a stated exclusion in
+`11` and the compensating control is one I have already judged inadequate.**
+
+`11` §6.9 keeps rule packs, suppressions and corpus entries out of the graph with a one-line reason:
+they are *"workspace siblings, not graph nodes. Suppressions reference `ElementId`s but are not part
+of the graph, **so a graph merge cannot manufacture one**."* A `ServiceType` is a type definition, it
+is a graph node, and a graph merge can therefore manufacture one. **That is not an edge case of `11`
+§6.9's rule; it is the case the rule was written for.** §15 Disagreement 2 concedes the point in the
+counter-design's favour and this table is where the concession has to be operational rather than
+rhetorical.
+
+What is actually shipped: `ServiceType`'s vocabulary fields are class A, so a concurrent divergence
+becomes `Conflicted` rather than silently merging; nothing is blocked, because nothing emits; and a
+finding `servicetype.contested` names both values and every service of that type. **That is weaker
+than a merge refusal, it is weaker on purpose, and the weakness is the whole of the trade** — it is
+visible instead of impossible, and it costs one declared field set instead of a second schema
+language (§15 Disagreement 2's cost argument).
+
+> **The contradiction is live, not resolved, and it gets a written reopen trigger so it is not settled
+> by attrition.** Reopen the node-versus-second-document decision if any one of these occurs:
+> a merge produces a `ServiceType` neither side authored; `servicetype.contested` fires on a real
+> workspace and the finding is judged insufficient by whoever has to act on it; or a second customer
+> appears for a workspace-local vocabulary document, the absence of which is §15 Disagreement 2's
+> stated deciding reason. **`11` §6.9 should carry a one-line exception naming `ServiceType`** — an
+> exclusion with an unlisted exception is worse than an exclusion with a listed one, because the next
+> reader applies the rule and finds the graph already breaks it.
 
 ### 9.5 Suppression survival
 
@@ -1993,8 +2450,10 @@ weaker than a merge refusal and it is visible, which is the trade.
 |---|---|---|
 | `Service` | `[owner(Tenant), cid]` | the CID |
 | `ServiceEndpoint` | `[owner(Service), uni_id]` | the UNI ID |
-| `PhysicalPort` | `[owner(Chassis), position]` | a physical coordinate — **stable** |
-| `Cable` | `[edge(Terminates:A), edge(Terminates:B)]` | the port pair — **stable** |
+| `PhysicalPort` (on a `Chassis` or an ODF) | `[owner(PortHost), position]` | a physical coordinate — **stable** |
+| `PhysicalPort` (on a splitter, panel or handhole) | tier 1 unusable; tier 2 `[owner(PortHost), label]` | the silkscreen or the tag — **a candidate, not a binding** (ADR-0010). Re-labelling costs a prompt |
+| `Cable` (two-ended) | `[edge(Terminates:A), edge(Terminates:B)]` | the port pair — **stable** |
+| `Cable` (one-ended or planned) | tier 1 unusable; tier 2 `[label]` | the per-cable tag. `Absent` where no tag was recorded, in which case **there is no recovery key** (§3.4) |
 | `Premises` | `[clli]` | the CLLI |
 
 Ports and cables get the good outcome by construction, because their tier-1 tuples are physical.
@@ -2078,11 +2537,22 @@ stops being answerable from the graph.
 | B — clarify along `N-R-2`'s own test | *"No field in the workspace format asserts currency or authority; provenance records how and when a value arrived, never that it is correct now."* Ports, cables, addresses, services and paths are facts with provenance |
 | C — hold | Refuses `77` §5, §6 and §7 outright |
 
-> **RECOMMENDATION — route B.** **Every field in this document passes `N-R-2`'s test as written.**
-> There is no status field, no up/down, no authority flag; dates are stored and never evaluated;
-> occupancy is derived from a cable; and §6.10's corroboration model is a graph function rather than a
-> claim of currency. Route A is only needed if the owner wants the *product* to say it is
-> authoritative, which is a positioning change this design does not require.
+> **RECOMMENDATION — route B, with the recommendation's own weakness stated.** **Every field in this
+> document passes `N-R-2`'s test as written.** There is no status field, no up/down, no authority
+> flag; dates are stored and never evaluated (which is why §3.9 declines `11` §8.7's staleness bands
+> rather than inheriting them — an earlier draft took them, and taking them makes this sentence
+> false); occupancy is derived from a cable; and §6.10's corroboration model is a graph function
+> rather than a claim of currency. Route A is only needed if the owner wants the *product* to say it
+> is authoritative, which is a positioning change this design does not require.
+>
+> **But the recommendation is contested from inside this document and the owner should read the
+> objection before taking it.** §15 Disagreement 4 argues that a product printing *"2 unwitnessed · 1
+> never confirmed"* in its header is making a claim about its own currency even when the claim is a
+> confession, and concludes that §6.10 *"is closer to route A than route B, and calling it route B is
+> a convenience I should not be allowed to have unexamined."* I have not resolved that and I do not
+> think this document can: it is a positioning question, and `76` §12 disagreement 2's
+> **RECOMMENDATION — choose, in writing, at Q3 and Q10, before S2 begins** is where it belongs.
+> **This document is written against route B and is not safe to read as evidence for it.**
 
 **Consequence.** Left unanswered, this layer ships while `03` §4.2, `03` §11, `01`, `02` §12.3, `52`
 §3.7 and `31`'s threat model all assert the opposite of what the product does — which is `76`'s named
@@ -2110,7 +2580,7 @@ document is the reason: §7.3 names three mechanisms `11` does not have and two 
 |---|---|
 | `62` §§3, 4, 5, 6, 7, 16 for ten kinds, twenty-one edges, five scalars, ten identity tuple sets | +1.5–2.5 |
 | `62` §§11, 12 — derived fields, cross-node constraints, conditional requiredness (§7.3) | +0.5–1 |
-| `62` §9 — `ImportScope` (§9.3) | +0.2 |
+| `62` §9 — `ImportScope`, and `CaptureScope` restated with §9.1's two amendments (§9.3) | +0.3 |
 | `62` §15 — the `Policy` grammar | +0.3–0.5 |
 | **`62` total** | **5–8**, against ADR-0008's own 3–5 |
 
@@ -2120,16 +2590,17 @@ document is the reason: §7.3 names three mechanisms `11` does not have and two 
 |---|---|---|
 | Store support for ten kinds and twenty-one edges | **0** | Ordinary kinds over generated types. This is the one-graph decision paying out |
 | `trace()`, `port_of()`, the hop cap, `infer.port.cabled-peer` | 0.5–1 | |
-| `resolve_warp` — bidirectional bounded search, six outcomes, determinism, `MustTraverse`, invalidation | 1.5–2.5 | Derived by analogy to `71` §4.7's inference-pass line |
+| `resolve_warp` — bidirectional bounded search, six outcomes, determinism, `MustTraverse`, invalidation | 1.5–2.5 | Derived by analogy to `71` §4.7's inference-pass line. **This is engineering weeks and is not a runtime budget** — §6.6's fourth bound carries that, and §11.6 is where the two meet |
+| Demand-driven resolution: the per-open budget, the derived-arena cache, `ReadBy` invalidation over the resolver's read set (§6.6) | 0.5–1 | Reuses `12` §6.3–6.5 rather than adding a scheduler. Without it, §6.1's recompute-on-load property is `O(S_total × 4096)` per open and unbounded |
 | `infer.port.occupies` as a suggestion producer | 0.3 | |
 | Attribute validation, the L0 `validated_against` clause, `AttrValue` | 0.5–1 | |
 | `by_cid` / `by_uni` indexes, incremental maintenance, two duplicate rules | 0.5 | |
 | Corroboration derived value plus three attachment findings | 0.5–1 | |
 | `Policy` record class, seal/load/merge path, `fathom policy show\|set` | 1–1.5 | |
-| Naming: scheme compiler, four builtins, gate-5 exemption, policy lint, generator | 1.5–2.5 | |
+| Naming: scheme compiler, four builtins, gate-6 exemption, policy lint, generator | 1.5–2.5 | Gate 5a and 5b unchanged (§8.2) |
 | Hardware catalogue: format, loader, populate-from-model action | 0.5 | Entries themselves are D1 content and never finish |
 | `Link → Cable` migration with a golden fixture per `11` §11.5 | 0.5 | Converts zero instances today |
-| **Core subtotal** | **7.5–13** | |
+| **Core subtotal** | **8–14** | |
 
 ### 11.4 Surfaces, on top of S4 and S7
 
@@ -2146,8 +2617,15 @@ Not designed here, and priced only so the number is not read as a total.
 
 ### 11.5 The total, and what it excludes
 
-**Specification 5–8 · core 7.5–13 · surfaces 7.5–13.5 — roughly 20–35 solo weeks, on top of S3's
+**Specification 5–8 · core 8–14 · surfaces 7.5–13.5 — roughly 21–36 solo weeks, on top of S3's
 5–7 and inside S4's and S7's existing lines for the surface half.**
+
+**Every figure above is engineering time. None of them is a runtime budget**, and the one runtime
+number this design actually depends on is §6.6's fourth bound — per-open resolver cost as a function
+of segment count. §11.6 supplies the census that makes it alarming; §6.6 supplies the cap. A reader
+who takes 1.5–2.5 weeks for `resolve_warp` as evidence that resolution is cheap has read an
+implementation estimate as a performance claim, and those are the only two numbers in this document
+that can be confused for each other.
 
 Excluded deliberately, because including them would make the number a fiction: the access-domain
 corpus (`76` §6.3: 25–35 person-weeks of D1 time, the one resource `71` §15.1 says cannot be
@@ -2160,6 +2638,11 @@ A service with 4 endpoints and 4 paths of 6 segments is **~33 nodes and ~60 edge
 a 1:32 split, its ODF and its cabling is **~70 nodes**. Ten thousand services is **~330,000 nodes** —
 an order of magnitude past `44` §7.1 row 6's ~20,000-node full-sweep line and far past `11` §14.2's
 50–80-device browser residency ceiling.
+
+Those are also the numbers §6.6's fourth bound exists for: ~330,000 nodes is ~240,000 segments, and a
+resolver that ran over all of them on every open would put ~10⁹ node visits between the user and their
+workspace. Demand-driven resolution is not an optimisation here; it is what makes §6.1's property
+affordable above a demo.
 
 > **The service layer is a scale input to `76` X1, not a passenger on it.** `76` S1's estate census
 > must be restated as *"how many services, how many endpoints per service, how many hops per path,
@@ -2177,24 +2660,27 @@ per chassis times the chassis count, and that is a number only the owner can pro
 
 | # | Failure | What it looks like | The guard |
 |---|---|---|---|
-| 1 | **Somebody caches a warp resolution "for performance"** | A path shows Hub B after Hub B is deleted | `11` §3.5. The derived arena is excluded from the ciphertext; the store must **refuse** to serialise `ResolvedVia` and `Cabled`, not merely omit them |
+| 1 | **Somebody caches a warp resolution "for performance"** | A path shows Hub B after Hub B is deleted | `11` §3.5. The derived arena is excluded from the ciphertext; the store must **refuse** to serialise `WarpResolvesVia` and `Cabled`, not merely omit them |
 | 2 | **The chooser writes hops instead of a constraint** | Lazy resolution silently dies and the record goes stale on the next internal recable | §6.7. `MustTraverse → Device`, never a hop list. `split` is opt-in and labelled as freezing |
 | 3 | **A parser is given permission to create a `PhysicalPort`** "just for the configured ones" | The layers re-fuse; port identity becomes name-derived; cabling is orphaned by a card swap again | R-L2 (§2.3), enforced in the parser-to-graph binding layer and tested by a fixture that pastes a config and asserts zero ports created |
 | 4 | **`Boundary` is given an expander** | An out-of-scope terminus and an unresolved warp become indistinguishable, which is the failure `77` §4 warns about | §6.8. `Boundary` carries no `aria-expanded` and is not in the disclosure contract's producer set |
 | 5 | **The resolver is trusted** | Somebody is dispatched along a path that crosses a device where the VLAN is not permitted | §6.6. `Confidence::Heuristic`, `11` §7.6's `inferred` treatment, and the label says `inferred` in the picture |
-| 6 | **A partly-resolved path collapses to a uniform mark** | Three known hops and one unknown read as "3 hops" | §6.8 amendment 2. `59` §3.11's heterogeneity guard, transferred |
+| 6 | **A partly-resolved path collapses to a uniform mark** | Three known hops and one unknown read as "3 hops" | §6.8 amendment 2 — **and the guard it names is not built.** `59` §3.11 calls itself *"the rule that is not built"* and schedules it for `59` §7. Until that lands the interim guard is *do not collapse a path at all*, and `59` §7 item 2 is a precondition of the warp mark, not a parallel track |
 | 7 | **`last_confirmed` grows a countdown** | The file renders differently on two days; invariant 9 is gone | §6.10, `75` §4.4. Sort, never compare. The divergence from `54` §14 is deliberate and recorded there |
-| 8 | **The search escapes its bounds** | Load time becomes a function of estate size | §6.6. Three bounds, all reported. `BudgetExhausted` is a visible state, not a silent truncation |
+| 8 | **The search escapes its bounds** | Load time becomes a function of estate size | §6.6. **Four** bounds, all reported. Bounds 1–3 are per segment; the fourth is the per-open budget plus demand-driven resolution, which is the one that stops estate size entering load time at all. `BudgetExhausted` is a visible state, not a silent truncation |
+| 8a | **Resolution is made eager again "so the footer count is accurate"** | Every open pays `O(segments × 4096)`; at §11.6's census that is ~10⁹ node visits and the workspace stops opening | §6.6. The footer counts what was examined and says so, per `12` §8.4 rule 1. An accurate total is not worth an unopenable file, and the two are genuinely exclusive here |
 | 9 | **Service types are allowed to declare path semantics** | The product acquires a runtime schema through a side door | §7.2's closure table, and a `62` §18 lint |
 | 10 | **An `AttributeDecl` is deleted rather than withdrawn** | Stored values with no live declaration are silently dropped on the next write | §4.3. `withdrawn: bool`, and the key is never reused |
 | 11 | **The catalogue is allowed to assert `Absent` transceivers** | "The cage is empty" becomes a claim nobody made | §3.3. `11` §8.5 permits `Absent` only from a closed-world parser or an explicit human, and a catalogue is `Origin::Imported` |
 | 12 | **`Premises` acquires geocoding "just for the map view"** | Invariant 1 is gone, and the offline build is no longer offline | §3.5. `coordinates` is user-typed only, stated in the schema comment so it is refused in review rather than discovered in a CSP violation |
 | 13 | **The naming baseline is offered twice** | The non-conforming population stops shrinking and the feature becomes decoration | §8.4. Once, on the transition out of `off`, and never again |
-| 14 | **Nobody writes `76` X3 option (a) down** | ADR-0030's trigger fires at ten kinds and produces `72` §3.5's narrowing on evidence nobody gathered | §7.5. It must be an ADR **before** this lands, not after |
+| 14 | **Nobody writes `76` X3 option (a) down** | ADR-0030's trigger fires at ten kinds and produces `72` §3.5's narrowing on evidence nobody gathered | §7.5. It must be an ADR **before** this lands, not after — **and it does not exist**, so this row is a live precondition (§13.1 item 10) and not a guard |
+| 15 | **`Cabled` acquires an inference consumer** | The inference pass becomes two levels deep and order-dependent, and `11` §9.5 constraint 1 is gone | §6.4, §3.8. `Cabled` is presentation and click-through only; the loader rejects an inference rule that reads a derived edge |
+| 16 | **A `62` author transcribes `CaptureScope` from `11` unamended** | §9.1's defect is silently re-introduced through the file six subsystems consume | §9.3. The `CaptureScope` restatement travels with the `ImportScope` request and neither is sufficient alone |
 
 ---
 
-## 13. Open decisions
+## 13. Open decisions, and the preconditions
 
 | # | Question | My position | Why it is still open |
 |---|---|---|---|
@@ -2206,6 +2692,23 @@ per chassis times the chassis count, and that is a number only the owner can pro
 | 6 | Does the per-equipment page need a `PhysicalPort` row for a port with no `Occupies` and no `Terminates`? | Yes — that is the empty cage, and it is the point of the census | It is also `76` Q5, which is unanswered, and the answer decides whether §3.9's catalogue is essential or optional |
 | 7 | Is `Corroboration` per segment, per path, or per service? | Per segment, rolled up per path and per service for the header line (§6.10) | Rolling up three states is a max over a partial order and nobody has argued which order |
 | 8 | Should the `Internal` tenant be visible in the tenant list, or implicit? | Visible, because *"which services are internal"* is a real filter | An implicit tenant that appears in one view and not another is the kind of asymmetry that costs an afternoon later |
+
+### 13.1 Preconditions — things that must land elsewhere before this does
+
+Distinct from the table above: these are not open *questions*, they are decided things owned by other
+files that this document depends on and cannot enact. Each is a blocker, not a caveat.
+
+| # | Precondition | Owner | What breaks without it |
+|---|---|---|---|
+| 9 | **`11` §10.4 step 1 gains the `layer == config` conjunct; `11` §10.5 gains an `Origin::Imported` column; `11` §8.7's bands are scoped to `layer == config`** (§9.1, §3.9, §7.3 A1–A3) | `11` | One whole-device paste tombstones every port on that device, and §9.2's table — the argument for §3.1–3.3 — becomes false. **The most dangerous of the four, because it fails silently and after data exists** |
+| 10 | **An ADR taking `76` X3 option (a) or (b)** (§7.5, §12 row 14, §15 Disagreement 3) | ADR process | ADR-0030's break trigger has fired at ten kinds and stays fired. `76` X3 option (c) — *"what happens by default if nobody writes (a) down"* — produces `72` §3.5's narrowing on evidence nobody gathered |
+| 11 | **`59` §7 item 2 — the heterogeneity guard, built** (§6.8 amendment 2, §12 row 6) | `59` | The warp mark has no guard against a partly-resolved path collapsing to a uniform label. Interim: paths do not collapse at all |
+| 12 | **`03` §4.2 `N-R-2` answered — F4** (§3.2, §10 F4, §15 Disagreement 4) | `03`, via `76` §12 disagreement 2's *choose in writing at Q3 and Q10* | Sixty decisions here rest on it. This document is written against route B and §15 Disagreement 4 argues §6.10 is closer to route A |
+
+**Two defects in sibling documents, raised rather than worked around:** `12` §5.4's cross-reference
+to the 2× read-set bound cites *"§15.3, gate 5"* and the bound is gate 6 (§8.2); and
+`MemberOfReth.chassis` is a `NodeId` in an edge-field body, which `11` §3.2 forbids for node fields
+and does not address for edge fields (§3.7).
 
 ---
 
@@ -2281,6 +2784,11 @@ short list.
 
 So: **build the physical layer first, ship it, and let the estate be entered.** Then decide whether the
 service layer earns its entry cost against a real port census rather than against a design document.
+**§7.4.1 records what this does and does not change**: the *build* is sliced this way, and the
+*specification* is not — `62` is written to the full scope in one pass, because the two halves share
+§7.3's three mechanisms and because a declared-but-unbuilt kind is free where a second schema bump
+against a populated file is not. This disagreement is about entered data, and deferring a declaration
+does not defer entry.
 `76` S0's fourth input — *"one real service record: a CID, its type, its endpoints, and the equipment
 and ports it traverses end to end"* — is already on the fit-test list, and three questions should be
 added to that walk: how many segments a real service needs, what fraction of them are warps, and how
@@ -2330,6 +2838,12 @@ language.
 
 **If this is reversed, reverse it before `62` is written, not after.** The two designs share nothing at
 the file level.
+
+**The first bullet is a live contradiction with `11` §6.9, not a rhetorical concession, and §9.4 now
+carries it as one** — with the exception written into `11` §6.9 rather than left implicit, and with a
+three-clause reopen trigger so the decision is not settled by attrition. Shipping the weaker
+mechanism while knowing it is weaker is defensible; shipping it while `11` §6.9 still reads as though
+nothing in the graph can manufacture a type definition is not.
 
 ### 3. Ten kinds fires ADR-0030's trigger by a factor of three, and that should be argued, not absorbed
 
