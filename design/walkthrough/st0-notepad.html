@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'none'; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Fathom — the buffer: click to copy, hover for context</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* ==========================================================================
+   THE BUFFER — teaching-off as a notepad rather than a stepped walkthrough.
+   Renders 52 §3.4.2's config line (ordinal, provenance, armed rules, inline
+   explanation) with the explanation moved behind hover/focus.
+
+   The hover surface is built to WCAG 1.4.13: dismissible with Escape without
+   moving the pointer, hoverable (the pointer may enter it), persistent until
+   dismissed — and it opens on FOCUS as well as hover, so it is not
+   hover-only. No shadow: 51 §11 forbids elevation, so it is bounded by a 1px
+   --ink rule, which is the card's own device.
+
+   NOTE: 51 §11 says "a tooltip does not exist" and 53 §11 says "nothing is
+   hover-only". The owner has asked for this twice, explicitly. It is built
+   here so it can be looked at; C-06 in 75-capability-register remains
+   RECORDED, NOT DECIDED.
+   ========================================================================== */
+.sheet { max-width: var(--sheet); margin: 0 auto; padding: var(--s4) var(--s4) var(--s8); }
+
+.mast { border-bottom: var(--rule-mast) solid var(--ink); padding-bottom: var(--s2); }
+.mast-row { display: flex; justify-content: space-between; align-items: baseline;
+            gap: var(--s4); flex-wrap: wrap; }
+.mast h1 { margin: 0; font-size: var(--t-title); line-height: var(--lh-title);
+           letter-spacing: var(--track-mast); text-transform: uppercase; }
+.crumb { font-size: var(--t-micro); color: var(--muted);
+         letter-spacing: var(--track-label); text-transform: uppercase; }
+.honest { text-align: right; font-size: var(--t-tab); color: var(--muted);
+          font-family: var(--mono); line-height: var(--lh-micro); }
+
+.legend { display: flex; flex-wrap: wrap; gap: var(--s4); margin: 0;
+          padding: var(--s1) 0; list-style: none;
+          border-top: var(--rule-hair) solid var(--hairline);
+          border-bottom: var(--rule-hair) solid var(--hairline); }
+.legend-item { display: flex; align-items: center; gap: var(--s2);
+               font-size: var(--t-micro); font-weight: 700;
+               letter-spacing: var(--track-legend); text-transform: uppercase;
+               border-left: var(--rule-accent) solid; padding-left: var(--s2); }
+.r-safe    { color: var(--safe);    background: var(--safe-wash);    border-left-color: var(--safe); }
+.r-caution { color: var(--caution); background: var(--caution-wash); border-left-color: var(--caution); }
+.r-danger  { color: var(--danger);  background: var(--danger-wash);  border-left-color: var(--danger); }
+
+/* --- the four doors ---------------------------------------------------- */
+.doors { display: flex; gap: var(--s1); flex-wrap: wrap; align-items: center;
+         padding: var(--s2) 0; border-bottom: var(--rule-hair) solid var(--hairline); }
+.doors .lbl { font-size: var(--t-micro); letter-spacing: var(--track-label);
+              text-transform: uppercase; color: var(--muted); margin-right: var(--s2); }
+.door { background: var(--page); color: var(--ink);
+        border: var(--rule-hair) solid var(--hairline);
+        padding: var(--s1) var(--s3); cursor: pointer;
+        font-size: var(--t-tab); letter-spacing: var(--track-label);
+        text-transform: uppercase; }
+.door:hover { background: var(--surface); }
+.door .k { font-family: var(--mono); color: var(--muted); }
+.doors .dev { margin-left: auto; font-family: var(--mono); font-size: var(--t-tab);
+              color: var(--muted); }
+
+/* --- the buffer -------------------------------------------------------- */
+.wrap { display: grid; grid-template-columns: 1fr 380px; gap: var(--s5);
+        margin-top: var(--s4); align-items: start; }
+@media (max-width: 1100px) { .wrap { grid-template-columns: 1fr; } }
+
+.buf { border: var(--rule-hair) solid var(--ink); }
+.buf-head { display: flex; justify-content: space-between; align-items: baseline;
+            gap: var(--s4); flex-wrap: wrap; padding: var(--s2) var(--s3);
+            border-bottom: var(--rule-hair) solid var(--ink);
+            font-size: var(--t-head); font-weight: 700;
+            letter-spacing: var(--track-head); text-transform: uppercase; }
+.buf-head .sub { font-weight: 400; letter-spacing: 0; text-transform: none;
+                 color: var(--muted); font-size: var(--t-small); }
+.lines { margin: 0; padding: 0; list-style: none; }
+.line { display: grid; grid-template-columns: var(--gutter-num) 1fr max-content;
+        gap: var(--s2); align-items: baseline;
+        border-bottom: var(--rule-hair) solid var(--hairline); }
+.line:last-child { border-bottom: 0; }
+.line .n { font-family: var(--mono); font-size: var(--t-tab); color: var(--muted);
+           text-align: right; padding: var(--s2) 0;
+           font-variant-numeric: var(--num-tabular); }
+.line .txt {
+  font-family: var(--mono); font-size: var(--t-mono); line-height: var(--lh-step);
+  padding: var(--s2) var(--s2); margin: 0; border: 0; background: none;
+  color: var(--ink); text-align: left; width: 100%; cursor: pointer;
+  white-space: pre-wrap; word-break: break-word;
+}
+.line:hover .txt, .line:focus-within .txt { background: var(--surface); }
+.line .txt[data-copied="true"] { background: var(--safe-wash); }
+.line .rk { font-size: var(--t-tab); font-weight: 700; white-space: nowrap;
+            letter-spacing: var(--track-legend); text-transform: uppercase;
+            padding: var(--s2) var(--s3) var(--s2) 0; }
+.rk.safe { color: var(--safe); } .rk.caution { color: var(--caution); }
+.rk.danger { color: var(--danger); }
+.buf-foot { padding: var(--s2) var(--s3); font-size: var(--t-tab); color: var(--muted);
+            border-top: var(--rule-hair) solid var(--hairline);
+            display: flex; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; }
+
+/* --- the hover surface. 1.4.13. No shadow — a rule, per 51 §11. -------- */
+.pop { position: absolute; z-index: var(--z-modal); display: none;
+       max-width: 460px; background: var(--page);
+       border: var(--rule-hair) solid var(--ink);
+       border-left: var(--rule-accent) solid var(--ink);
+       padding: var(--s3); font-size: var(--t-small); line-height: var(--lh-step); }
+.pop[data-open="true"] { display: block; }
+.pop .does { margin: 0 0 var(--s2); }
+.pop .lab { font-size: var(--t-micro); font-weight: 700; color: var(--muted);
+            letter-spacing: var(--track-head); text-transform: uppercase;
+            margin: var(--s2) 0 var(--s1); }
+.pop .ctx { margin: 0; }
+.pop .ctx b { font-family: var(--mono); font-size: var(--t-mono); font-weight: 400;
+              background: var(--surface); padding: 0 2px; }
+.pop .esc { display: block; margin-top: var(--s2); font-size: var(--t-tab);
+            color: var(--muted); letter-spacing: var(--track-label);
+            text-transform: uppercase; }
+.pop .warn { border-left: var(--rule-accent) solid var(--caution);
+             background: var(--caution-wash); padding: var(--s2);
+             margin-top: var(--s2); }
+
+/* --- the checker ------------------------------------------------------- */
+.side { border: var(--rule-hair) solid var(--ink); }
+.side h2 { margin: 0; padding: var(--s2) var(--s3); font-size: var(--t-head);
+           font-weight: 700; letter-spacing: var(--track-head); text-transform: uppercase;
+           border-bottom: var(--rule-hair) solid var(--ink); }
+.side .grp { padding: var(--s2) var(--s3);
+             border-bottom: var(--rule-hair) solid var(--hairline); }
+.side .grp:last-child { border-bottom: 0; }
+.side .gl { font-size: var(--t-micro); font-weight: 700; color: var(--muted);
+            letter-spacing: var(--track-head); text-transform: uppercase;
+            margin-bottom: var(--s1); }
+.c { display: grid; grid-template-columns: max-content 1fr; gap: var(--s2);
+     font-size: var(--t-small); padding: 2px 0; align-items: baseline; }
+.c .s { font-family: var(--mono); font-size: var(--t-tab); font-weight: 700;
+        letter-spacing: var(--track-label); text-transform: uppercase; }
+.c.pass .s { color: var(--safe); } .c.open .s { color: var(--danger); }
+.c.na .s { color: var(--muted); }
+.c .rid { font-family: var(--mono); font-size: var(--t-mono); }
+.c .t { grid-column: 2; color: var(--muted); font-size: var(--t-tab); }
+
+/* --- Ctrl+K ------------------------------------------------------------ */
+.scrim { position: fixed; inset: 0; background: var(--page);
+         opacity: var(--scrim-opacity); display: none; z-index: calc(var(--z-modal) - 1); }
+.scrim[data-open="true"] { display: block; }
+.finder { position: fixed; z-index: var(--z-modal); top: 12vh; left: 50%;
+          transform: translateX(-50%); width: min(var(--sheet-card), calc(100vw - var(--s6)));
+          background: var(--page); border: var(--rule-hair) solid var(--ink);
+          display: none; flex-direction: column; max-height: 70vh; }
+.finder[data-open="true"] { display: flex; }
+.frow { display: flex; align-items: stretch;
+        border-bottom: var(--rule-hair) solid var(--hairline); }
+.frow .kk { display: flex; align-items: center; padding: 0 var(--s3);
+            font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
+            border-right: var(--rule-hair) solid var(--hairline); }
+#q { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink);
+     font-family: var(--mono); font-size: var(--t-mast); padding: var(--s3); outline: none; }
+#q:focus-visible { outline: none; background: var(--surface); }
+.frow:has(#q:focus-visible) { border-bottom: 2px solid var(--ink); }
+.hits { margin: 0; padding: 0; list-style: none; overflow-y: auto; }
+.hit { padding: var(--s3); border-bottom: var(--rule-hair) solid var(--hairline);
+       cursor: pointer; border-left: var(--rule-accent) solid transparent; }
+.hit.sel { background: var(--surface); }
+.hit.sel .hc::before { content: "\25B8  "; }
+.hc { display: flex; gap: var(--s2); align-items: baseline;
+      font-family: var(--mono); font-size: var(--t-mono); }
+.ha { display: block; color: var(--muted); font-size: var(--t-small); margin-top: 2px; }
+.hr { margin-left: auto; font-size: var(--t-tab); font-weight: 700;
+      letter-spacing: var(--track-legend); text-transform: uppercase; }
+.ffoot { padding: var(--s2) var(--s3); border-top: var(--rule-hair) solid var(--hairline);
+         font-size: var(--t-tab); color: var(--muted);
+         display: flex; justify-content: space-between; gap: var(--s4); }
+.note { border-left: var(--rule-accent) solid var(--ink); background: var(--surface-2);
+        padding: var(--s2) var(--s3); font-size: var(--t-small);
+        margin: var(--s4) 0 0; max-width: var(--measure); }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip-path: inset(50%); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header class="mast">
+    <div class="mast-row">
+      <div>
+        <h1>Buffer — change set</h1>
+        <div class="crumb">SRX-A · SRX345 · chassis cluster node0/node1 · junos-srx 21.4R3 · workspace DC-EAST · fixture</div>
+      </div>
+      <div class="honest">no sockets, ever<br>corpus unverified<br>nothing is run for you</div>
+    </div>
+  </header>
+
+  <ul class="legend" aria-label="Risk legend">
+    <li class="legend-item r-safe">Read-only — safe on production</li>
+    <li class="legend-item r-caution">Changes config — needs a commit</li>
+    <li class="legend-item r-danger">Disruptive — drops live traffic</li>
+  </ul>
+
+  <div class="doors">
+    <span class="lbl">Add a line</span>
+    <button class="door" id="d-find" type="button">Find by what it does <span class="k">Ctrl K</span></button>
+    <button class="door" id="d-task" type="button">Insert a task block</button>
+    <button class="door" id="d-type" type="button">Type it</button>
+    <button class="door" id="d-paste" type="button">Paste a config</button>
+    <span class="dev">device: SRX345 · cluster · 21.4R3</span>
+  </div>
+
+  <div class="wrap">
+    <section class="buf" aria-label="Change set buffer">
+      <div class="buf-head">
+        <span>Change set — 6 lines</span>
+        <span class="sub">click a line to copy it · hover or focus for what it does here</span>
+      </div>
+      <ol class="lines" id="lines"></ol>
+      <div class="buf-foot">
+        <span id="tally">4 disruptive · 2 changes config</span>
+        <span>copy all · commit confirmed 5 wraps every paste</span>
+      </div>
+    </section>
+
+    <aside class="side" aria-label="Checker">
+      <h2>Checker</h2>
+      <div class="grp">
+        <div class="gl">Equipment</div>
+        <div class="c pass"><span class="s">✓ ok</span><span class="rid">SRX345 · 21.4R3</span></div>
+        <div class="c t" style="grid-column:1/-1;color:var(--muted);font-size:var(--t-tab)">
+          Every line below is valid on this model and train. `set security flow tcp-mss ipsec-vpn`
+          exists from 12.1X44.
+        </div>
+        <div class="c na"><span class="s">n/a</span><span class="rid">reth0.0 is cluster-owned</span></div>
+        <div class="c t" style="grid-column:1/-1;color:var(--muted);font-size:var(--t-tab)">
+          Line 4 applies to whichever node owns RG1. It is not a per-node setting.
+        </div>
+      </div>
+      <div class="grp">
+        <div class="gl">Security</div>
+        <div id="sec"></div>
+      </div>
+      <div class="grp">
+        <div class="gl">Functionality</div>
+        <div id="fun"></div>
+      </div>
+      <div class="grp">
+        <div class="gl">Not checked</div>
+        <div class="c na"><span class="s">—</span><span class="rid">the far end</span></div>
+        <div class="c t" style="grid-column:1/-1;color:var(--muted);font-size:var(--t-tab)">
+          Fathom models this box only. Proposal agreement, peer identity and the remote
+          selector are the other gateway's config and nothing here can see it.
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <p class="note">
+    <b>How lines get in.</b> Four doors, all of them already specified in the corpus: the
+    finder answers <i>what does this do</i> in reverse (<code>16</code> §11), a task emits an
+    authored block, typing is recognised by the reverse query (<code>16</code> §15), and a
+    pasted config is parsed into the graph (<code>14</code>). They all land in one buffer,
+    which is <code>52</code> §3.4's config view in <code>ChangeSet</code> mode.
+  </p>
+</div>
+
+<div class="pop" id="pop" role="dialog" aria-label="What this line does here"></div>
+<div class="scrim" id="scrim" data-open="false"></div>
+<div class="finder" id="finder" data-open="false" role="dialog" aria-modal="true" aria-label="Find a command">
+  <div class="frow">
+    <span class="kk" aria-hidden="true">Ctrl K</span>
+    <input id="q" type="text" role="combobox" aria-expanded="true" aria-controls="hits"
+           aria-autocomplete="list" autocomplete="off" spellcheck="false"
+           placeholder="how do I bind a tunnel to a zone" aria-label="Find a command">
+  </div>
+  <ul class="hits" id="hits" role="listbox" aria-label="Results"></ul>
+  <div class="ffoot"><span>↑↓ move · ⏎ insert into buffer · esc close</span><span>junos-srx · corpus unverified</span></div>
+</div>
+<span class="vh" role="status" aria-live="polite" id="live"></span>
+
+<script>
+// ---------------------------------------------------------------------------
+// Commands, risks and rules are from corpus/commands/junos-srx-ipsec.yaml and
+// corpus/rules/ipsec-junos-srx.yaml. The estate is the field card's worked
+// topology, used as a fixture. `ctx` is the part that does not exist yet: it is
+// written BY REFERENCE to the other lines and to modelled device state, which
+// is what makes it graph-backed and therefore phase 1+, not phase 0.
+// ---------------------------------------------------------------------------
+var LINES = [
+ { cmd:'set interfaces st0 unit 0 family inet address 10.255.0.1/30', rk:'danger', rw:'Disruptive',
+   does:'Creates the tunnel unit st0.0 and gives it a link-local address.',
+   ctx:'Nothing references <b>st0.0</b> yet — lines 2, 3 and 5 all will. On this box <b>st0</b> is not reth-bound, so the unit exists on both cluster nodes. No explicit MTU is set here, which leaves <b>mtu.st0.unset</b> open below.' },
+ { cmd:'set security ipsec vpn VPN-B bind-interface st0.0', rk:'danger', rw:'Disruptive',
+   does:'Makes VPN-B route-based by binding it to a tunnel interface.',
+   ctx:'Binds to <b>st0.0</b> from line 1. <b>VPN-B</b>’s gateway <b>GW-B</b> sits at 203.0.113.10 and negotiates over <b>reth0.0</b> in zone WAN — line 4 is what lets that negotiation in. Without bind-interface this VPN stays policy-based and st0.0 carries nothing.' },
+ { cmd:'set security zones security-zone VPN interfaces st0.0', rk:'danger', rw:'Disruptive',
+   does:'Moves st0.0 into zone VPN so policy can name it.',
+   ctx:'Clears <b>tunnel.st0.zone-unbound</b>. But zone <b>VPN</b> currently has no policy to or from <b>TRUST</b>, where <b>reth1.0</b> lives — so traffic still dies at policy lookup with nothing in the log.',
+   warn:'This is why the tunnel will read UP and pass zero packets until a policy exists.' },
+ { cmd:'set security zones security-zone WAN interfaces reth0.0 host-inbound-traffic system-services ike', rk:'caution', rw:'Changes config',
+   does:'Lets the box accept IKE on its external interface.',
+   ctx:'<b>reth0.0</b> is already in zone <b>WAN</b> and is the unit <b>GW-B</b> negotiates to, so this is additive rather than a move. It is cluster-owned: the setting follows whichever node holds <b>RG1</b>, not a node. Clears <b>zone.host-inbound.ike-missing</b>.' },
+ { cmd:'set routing-options static route 10.2.0.0/16 next-hop st0.0', rk:'danger', rw:'Disruptive',
+   does:'Routes the far side’s prefix into the tunnel.',
+   ctx:'Points <b>10.2.0.0/16</b> at <b>st0.0</b> from line 1. No <b>vpn-monitor</b> is configured on VPN-B, so this route stays valid even when the far end is unreachable — the interface does not go down on its own. Clears <b>route.remote-prefix.no-next-hop-st0</b>.' },
+ { cmd:'set security flow tcp-mss ipsec-vpn mss 1360', rk:'caution', rw:'Changes config',
+   does:'Rewrites TCP MSS on traffic entering the tunnel.',
+   ctx:'Scoped to <b>ipsec-vpn</b>, so it does not touch the <b>reth0.0</b> transit path — that is the difference from <b>all-tcp</b>, which would clamp everything on the box. Clears <b>mtu.mss-clamp.absent</b>. Line 1 set no MTU on st0.0, so UDP is still unprotected.' }
+];
+
+var SEC = [
+ { s:'pass', id:'zone.host-inbound.ike-missing', t:'cleared by line 4' },
+ { s:'pass', id:'tunnel.st0.zone-unbound',       t:'cleared by line 3' },
+ { s:'open', id:'policy.zone-pair.missing',      t:'no policy VPN ↔ TRUST — nothing in this set writes one' },
+ { s:'open', id:'ipsec.pfs.absent',              t:'VPN-B proposes no PFS group' }
+];
+var FUN = [
+ { s:'pass', id:'route.remote-prefix.no-next-hop-st0', t:'cleared by line 5' },
+ { s:'pass', id:'mtu.mss-clamp.absent',                t:'cleared by line 6' },
+ { s:'open', id:'mtu.st0.unset',                       t:'no explicit MTU on st0.0' }
+];
+
+var CORPUS = [
+ { cmd:'set security zones security-zone VPN interfaces st0.0', a:'How does the tunnel unit become policy-addressable?', rk:'danger', rw:'Disruptive' },
+ { cmd:'set security ipsec vpn VPN-B bind-interface st0.0', a:'How does a route-based tunnel get an interface to route at?', rk:'danger', rw:'Disruptive' },
+ { cmd:'set security policies from-zone VPN to-zone TRUST policy allow-dc match source-address any', a:'How do I let tunnel traffic reach the inside?', rk:'caution', rw:'Changes config' },
+ { cmd:'set interfaces st0 unit 0 family inet mtu 1400', a:'How do I shrink what the tunnel accepts?', rk:'danger', rw:'Disruptive' },
+ { cmd:'show security ipsec security-associations', a:'Is the data tunnel installed and carrying traffic?', rk:'safe', rw:'Read-only' }
+];
+
+function esc(s){ return String(s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+// `ctx` and `warn` are authored HTML with <b> only; everything interpolated
+// into them is authored here, never user input.
+function render(){
+  document.getElementById('lines').innerHTML = LINES.map(function(l,i){
+    return '<li class="line">'
+      + '<span class="n">'+(i+1)+'</span>'
+      + '<button class="txt" type="button" data-i="'+i+'">'+esc(l.cmd)+'</button>'
+      + '<span class="rk '+l.rk+'">'+esc(l.rw)+'</span></li>';
+  }).join('');
+  document.getElementById('tally').textContent =
+    LINES.filter(function(l){return l.rk==='danger';}).length + ' disruptive · '
+  + LINES.filter(function(l){return l.rk==='caution';}).length + ' changes config';
+  function chk(a){ return a.map(function(c){
+    return '<div class="c '+c.s+'"><span class="s">'+(c.s==='pass'?'✓ clear':'▸ open')
+         + '</span><span class="rid">'+esc(c.id)+'</span></div>'
+         + '<div class="c t" style="grid-column:1/-1">'+esc(c.t)+'</div>'; }).join(''); }
+  document.getElementById('sec').innerHTML = chk(SEC);
+  document.getElementById('fun').innerHTML = chk(FUN);
+}
+
+/* ---- the hover surface: 1.4.13 dismissible, hoverable, persistent ------ */
+var pop = document.getElementById('pop'), hoverTimer = null, popOwner = null;
+function showPop(btn){
+  var l = LINES[+btn.getAttribute('data-i')];
+  pop.innerHTML = '<p class="does"><b>'+esc(l.does)+'</b></p>'
+    + '<div class="lab">Here, on this device</div>'
+    + '<p class="ctx">'+l.ctx+'</p>'
+    + (l.warn ? '<div class="warn">'+esc(l.warn)+'</div>' : '')
+    + '<span class="esc">esc dismisses · pointer may enter</span>';
+  var r = btn.getBoundingClientRect();
+  pop.setAttribute('data-open','true');
+  var top = r.bottom + window.scrollY + 4;
+  var left = Math.min(r.left + window.scrollX, window.innerWidth - 470);
+  pop.style.top = top+'px'; pop.style.left = Math.max(8,left)+'px';
+  popOwner = btn;
+}
+function hidePop(){ pop.setAttribute('data-open','false'); popOwner = null; }
+
+document.addEventListener('mouseover', function(e){
+  var b = e.target.closest && e.target.closest('.line .txt');
+  if (b) { clearTimeout(hoverTimer); hoverTimer = setTimeout(function(){ showPop(b); }, 600); return; }
+  if (pop.contains(e.target)) { clearTimeout(hoverTimer); return; }   // hoverable
+});
+document.addEventListener('mouseout', function(e){
+  var to = e.relatedTarget;
+  if (pop.contains(e.target) && to && pop.contains(to)) return;
+  if (to && (pop.contains(to) || (to.closest && to.closest('.line .txt') === popOwner))) return;
+  clearTimeout(hoverTimer);
+});
+document.addEventListener('focusin', function(e){          // not hover-only
+  var b = e.target.closest && e.target.closest('.line .txt');
+  if (b) showPop(b);
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') {                                 // dismissible
+    if (pop.getAttribute('data-open') === 'true') { hidePop(); e.stopPropagation(); return; }
+    if (fin.getAttribute('data-open') === 'true') closeFinder();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openFinder(); }
+});
+
+/* ---- click to copy ----------------------------------------------------- */
+document.addEventListener('click', function(e){
+  var b = e.target.closest && e.target.closest('.line .txt');
+  if (!b) return;
+  var t = LINES[+b.getAttribute('data-i')].cmd;
+  if (navigator.clipboard) navigator.clipboard.writeText(t).catch(function(){});
+  b.setAttribute('data-copied','true');
+  document.getElementById('live').textContent = 'Copied line '+(+b.getAttribute('data-i')+1);
+});
+
+/* ---- door 1: the finder ------------------------------------------------ */
+var fin = document.getElementById('finder'), scrim = document.getElementById('scrim'),
+    q = document.getElementById('q'), sel = 0, shown = [];
+function paint(){
+  var v = q.value.toLowerCase();
+  shown = CORPUS.filter(function(c){ return !v || (c.cmd+' '+c.a).toLowerCase().indexOf(v) >= 0; });
+  if (sel >= shown.length) sel = Math.max(0, shown.length - 1);
+  document.getElementById('hits').innerHTML = shown.map(function(c,i){
+    return '<li class="hit'+(i===sel?' sel':'')+'" role="option" aria-selected="'+(i===sel)+'">'
+      + '<span class="hc"><code>'+esc(c.cmd)+'</code><span class="hr '+c.rk+'" style="color:var(--'
+      + (c.rk==='danger'?'danger':c.rk==='caution'?'caution':'safe')+')">'+esc(c.rw)+'</span></span>'
+      + '<span class="ha">'+esc(c.a)+'</span></li>'; }).join('');
+}
+function openFinder(){ fin.setAttribute('data-open','true'); scrim.setAttribute('data-open','true');
+  q.value=''; sel=0; paint(); q.focus(); }
+function closeFinder(){ fin.setAttribute('data-open','false'); scrim.setAttribute('data-open','false'); }
+function insert(){
+  var c = shown[sel]; if (!c) return;
+  LINES.push({ cmd:c.cmd, rk:c.rk, rw:c.rw, does:c.a,
+    ctx:'Inserted from the finder. Context is computed against the other lines and the modelled device once the graph exists.' });
+  render(); closeFinder();
+  document.getElementById('live').textContent = 'Inserted: '+c.cmd;
+}
+q.addEventListener('input', function(){ sel=0; paint(); });
+q.addEventListener('keydown', function(e){
+  if (e.key==='ArrowDown'){ sel=Math.min(sel+1, shown.length-1); paint(); e.preventDefault(); }
+  if (e.key==='ArrowUp'){ sel=Math.max(sel-1,0); paint(); e.preventDefault(); }
+  if (e.key==='Enter'){ insert(); e.preventDefault(); }
+});
+document.getElementById('hits').addEventListener('click', function(e){
+  var li = e.target.closest('.hit'); if(!li) return;
+  sel = [].indexOf.call(li.parentNode.children, li); insert();
+});
+document.getElementById('d-find').addEventListener('click', openFinder);
+scrim.addEventListener('click', closeFinder);
+['d-task','d-type','d-paste'].forEach(function(id){
+  document.getElementById(id).addEventListener('click', function(){
+    document.getElementById('live').textContent = 'Door not wired in this study — see the note below the buffer.';
+  });
+});
+
+render();
+</script>
+</body>
+</html>
