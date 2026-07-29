@@ -82,7 +82,7 @@ That is a three-layer model, and the corpus currently has one layer:
 |---|---|---|
 | **Tenant / customer** | Who a service belongs to | No |
 | **Service** | CID, type, endpoints, state | No |
-| **Physical** | Equipment, ports, cables, sites | Partially — logical interfaces, not physical ports (`76`) |
+| **Physical** | Equipment, ports, cables, sites | **Largely yes** — `Interface` *is* a physical port (`11` §6.4) and `Link` is a cable edge between two of them (`11` §7.3–7.4). Sites and addresses are the gap |
 
 **The size range is a requirement, not a footnote.** A five-element DIA in a straight line and an
 internal core with dozens of virtual interlinks are both first-class, and they are three orders of
@@ -359,7 +359,7 @@ Ranked by how expensive each is to discover late. None is resolved here.
 | **C4** | A diagram that edits (§8) | `52` §1 (the diagram is a view); `71` R-VIEW names view-becomes-state as *"brief §4.1's forbidden outcome"* | Cheap if editing writes through to the graph; corrupting if the picture starts holding truth |
 | **C5** | Naming validated against the graph (§7) | No home exists for per-workspace private policy; `63` rule packs are shared content | A small requirement that reveals a missing concept |
 | **C6** | Wheel-driven cabling (§8) | `53`/`55` keyboard obligations; `56` §6 may already own the wheel | Needs a keyboard twin before it ships, not after |
-| **C7** | Physical ports and cables (§6) | The IR models logical interfaces, not front-panel ports | Everything in §5 and §8 depends on this landing first |
+| ~~**C7**~~ | ~~Physical ports and cables (§6)~~ | **WITHDRAWN — this was wrong.** `11` §6.4 heads a kind *"`Interface` — a physical port"*, carrying `form {Ethernet, Serial, Loopback, Management, Irb}`, `speed`, `duplex`, `flow_control`, and holds it distinct from `LogicalUnit`. `11` §7.3 declares `Link \| Interface \| Interface \| 0..1 \| 0..1 \| physical cabling`, and §7.4 gives it `media {Copper, Fibre, Dac, Virtual, Unknown}`, `length_m`, `label` (*"patch panel reference"*) and `provider_circuit`. §6.4 names the traversal from the port side: `Cabled → Interface (0..1)`. There is no collision. R1, R2 and R6 build on existing machinery | — |
 
 ---
 
@@ -438,13 +438,25 @@ continuously rather than mention it once in documentation. This is not an argume
 decision. It is an argument that the decision has a design obligation attached, and it is not yet
 written down anywhere.
 
-**3. The service layer is a bigger addition than the diagram work that prompted it.** Tenants,
+**3. A correction to this document, recorded rather than quietly edited.** As first written, §2.2
+and §11 C7 both claimed the IR models logical interfaces and not physical ports, and that ports and
+cables were therefore a missing foundation everything else waited on. That was wrong, and the
+architectural analysis in `76` caught it. `11` §6.4 heads a kind *"`Interface` — a physical port"*;
+`11` §7.3 declares `Link` as an `Interface → Interface` edge for *"physical cabling"*; `11` §7.4
+gives that edge `media`, `length_m`, `label` and `provider_circuit`; and `56` §6.4.1 already
+specifies the cabling gesture itself, down to offering only unlinked ports because `Cabled` is
+`0..1` at both ends, and producing one `Op::AddEdge` and one undo step. Three of the seven
+requirements are therefore extensions of working machinery rather than new foundations. The
+correction is recorded here rather than silently applied because a capture document that quietly
+rewrites its own findings cannot be trusted by the next reader.
+
+**4. The service layer is a bigger addition than the diagram work that prompted it.** Tenants,
 services, CIDs, UNIs, paths and user-defined types are a second modelling domain sitting on top of
 the configuration graph. It is plausible that it, rather than the diagram, is the actual product —
 and if so, the roadmap is not merely disturbed, it is superseded. `76` should say so if the
 analysis bears it out.
 
-**4. `62-schema-spec.md` is now blocking three separate requirement clusters and still is not
+**5. `62-schema-spec.md` is now blocking three separate requirement clusters and still is not
 scheduled.** It was already a prerequisite for lifecycle state (`75`). It is now also a prerequisite
 for service types, for ports, and for naming policy. A document that four workstreams wait on
 should not be absent from the phase table.

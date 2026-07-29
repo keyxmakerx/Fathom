@@ -310,7 +310,7 @@ will not put a number on it before the word is defined.**
 
 | Piece | Where | State |
 |---|---|---|
-| Regex over a name, inside a rule | `12` §—'s function table: `matches(s, /re/)`, *"Regex literal only, compiled at pack build. Linear-time engine, no backreferences, no lookaround"* | Specified, and used in anger in `63` |
+| Regex over a name, inside a rule | `12` §3.7's builtin table: `matches(s, /re/)`, *"Regex literal only, compiled at pack build. Linear-time engine, no backreferences, no lookaround"* | Specified, and used in anger in `63` §7 |
 | A site-code hook described in R4's own terms | `11` §6.3 `Site.code: Identifier 0..1` — *"Short code used in generated object names"* | One table cell, no generator |
 | Validation at the moment of creation, against grammar **plus** a graph fact | `56` §6.4.1's `+ new interface`: *"the name is validated against the platform's interface-name grammar and the device's `Chassis.slots`"* | The exact interaction shape R4 wants, on a different object |
 | Per-workspace, operator-authored, private data the engine consumes | `12` §11's `Suppression` — mandatory reason, expiry ladder, natural-key survival across re-parse | 0% of R4's content, most of its shape |
