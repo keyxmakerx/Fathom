@@ -352,9 +352,16 @@ the entire cost of the Chromium requirement, paid once, in the calendar invite. 
 
 1. **Run the `file://` smoke test on the demo machine** (§2.6's VERIFY). Two minutes. If it passes,
    the demo runs from `file://` — the purest form of "no server side". If it fails, the demo runs
-   from `fathom serve` on loopback (`34` §2.2 mode B headers, still no server in the owner's
-   sense — no workspace passes through it in its current, unamended form). Rehearse both before
-   demo day; never discover the answer live.
+   the **same D1 single-file artifact** from `fathom serve` on loopback (`34` §2.2 mode B headers;
+   still no server in the owner's sense — the file is one manifest entry, and no workspace passes
+   through the process). Two pre-staged amendments make that fallback lawful, carried in §10 A5:
+   `43` §3.12 F6's non-`file:` refusal gains a loopback exception, and `34` §3.6's embedded
+   manifest gains the single file — without them, F6 refuses the fallback's own origin by design.
+   The fallback is **never** the mode-B offline bundle: that bundle carries the OPFS ciphertext
+   cache by design (`43` §3.5, `34` §3.6), which would break §1 row 4 and §7's empty-origin-storage
+   row on the demo machine itself. Serving the D1 build keeps both true on either origin, because
+   the build has no storage code to key to the loopback origin. Rehearse both origins before demo
+   day; never discover the answer live.
 2. **Unlock:** the user picks `site-b.fathom` with `showOpenFilePicker`, types username +
    passphrase (§5). The masthead states the posture (`34` §3.7's control, unchanged).
 3. **First save:** on the user's click, acquire the writable **immediately** (§4.3 rule 1), seal,
@@ -555,14 +562,16 @@ is exfiltrated. Under §4's demo answer plus §5.2's username scheme:
 | `fathom-<ver>.html` | Nothing — it is the published artifact, one file, one hash; a tampered copy fails its own CSP hash and does not execute (`43` §3.12 F8) |
 | `site-b.fathom` | One sealed workspace: Argon2id (FLOOR, per-workspace random salt) → ChaCha20-Poly1305, key-committing, padded (ADR-0014). The holder learns the size and the format version (`17` §2.2) — no device names, no topology, no findings, **no identity**: the username is not in the file in any form |
 | Numbered fallback copies in Downloads, if the fallback was ever used | The same envelope, older generations. Each historical copy is separately attackable under whatever key epoch sealed it (`32` §4.7 #3) — more copies is more ciphertext, not more plaintext |
-| Browser profile (origin storage) | **Empty**, by decision and by CI canary (`43` §3.8, `34` §10 H19–H20). No OPFS, no IndexedDB, no serialized file handle naming the workspace's path — the artifact O2 would have left is the one this walk-through exists to show absent |
+| Browser profile (origin storage) | **Empty**, by decision and by CI canary (`43` §3.8, `34` §10 H19–H20). No OPFS, no IndexedDB, no serialized file handle naming the workspace's path — the artifact O2 would have left is the one this walk-through exists to show absent. True on either §4.2 origin: the fallback serves the same D1 build (§10 A5), never the mode-B bundle and its OPFS cache |
 | Process memory, if the compromise is live during an unlocked session | Everything — graph, keys, plaintext. `31` §6.2 owns this and no storage decision changes it: a compromised endpoint with an open session is lost in every design. The mitigation is operational: lock when not presenting, dedicated browser profile, or the CLI |
 
 **The offline attack, with the numbers the corpus already publishes.** The exfiltrated file's only
-defence is the passphrase (`32`'s governing rule). At the shipping FLOOR, ADR-0014's honest table:
-a memorable ~30-bit sentence falls in ≈2.9 hours to 10⁴ GPUs; six EFF-wordlist words survive
-geological time. The username adds approximately zero bits to this search (§5.3) and must never be
-counted. **Operational consequence for the demo, binding: the demo workspace uses a generated
+defence is the passphrase (`32`'s governing rule). At the shipping FLOOR, `32` §4.6's table —
+quoted by guess rate, because ADR-0014's restatement of the same rows mislabels its GPU counts by
+100× (§10 A6): a memorable ~30-bit sentence falls in ≈2.9 hours at 5×10⁴ guesses/s (100 GPUs under
+`32`'s model) and in ≈1.7 minutes at 5×10⁶ guesses/s (10 000 GPUs); six EFF-wordlist words survive
+geological time in every column. The username adds approximately zero bits to this search (§5.3)
+and must never be counted. **Operational consequence for the demo, binding: the demo workspace uses a generated
 six-word passphrase (`32` §4.7 #1), not a memorable sentence invented at the kitchen table.**
 
 **What each rejected option would have added to the haul:** O2 — a durable origin-storage artifact
@@ -585,7 +594,7 @@ Residuals on the `none | bounded | material` scale `43` §3.12 uses.
 | **F4** | The workspace file changed on disk under an open session (second tab, another tool, a sync client) | Silent last-writer-wins | §4.3 rule 2: `getFile().lastModified` compared before every write; mismatch enters the F7 conflict flow (`43` §3.12) | `bounded` — detection, not merge; D1's one-writer model stands |
 | **F5** | Write fails mid-save (disk full, device removed) | Potentially torn file | §2.3 spec atomicity + §4.3 rule 3 `writable.abort()`: the file is the old one or the new one | `none` on the FSA path; the fallback path never overwrites anything |
 | **F6** | Brave, or any Chromium with FSA disabled | Capability check fails despite a Chromium UA | Detection is by capability, never UA (§2.1); the user lands on §4.4's path with its honest notice | `bounded` — correct behaviour, surprising browser |
-| **F7** | The §2.6 inference is wrong on the demo machine: pickers refuse under `file://` | Save falls to the download path mid-demo | The smoke test (§4.2 step 1) runs before demo day; `fathom serve` is the rehearsed fallback origin | `none`, if and only if the rehearsal happened |
+| **F7** | The §2.6 inference is wrong on the demo machine: pickers refuse under `file://` | Save falls to the download path mid-demo | The smoke test (§4.2 step 1) runs before demo day; `fathom serve` is the rehearsed fallback origin, serving the same D1 artifact under §10 A5's loopback exception | `none`, if and only if the rehearsal happened |
 | **F8** | Username normalisation mismatch — between sessions, keyboards, or future implementations | `WrongKey` for a correct passphrase; at worst a permanently unopenable workspace | §5.4: one pinned `normalize()` in the format spec, byte vectors in `32` §16, "check both fields" error copy | `bounded` — the typo class is real and permanent; the vectors keep it from becoming the unopenable-workspace class |
 | **F9** | Legacy export cannot report success or cancellation (§2.4) | The app believes work is saved when the user cancelled the download | The unsaved count is cleared only by a confirmed in-place write; exports never clear it (§4.4) | `bounded` — honest state, mildly nagging UI |
 
@@ -598,7 +607,7 @@ Residuals on the `none | bounded | material` scale `43` §3.12 uses.
 | **Q1** | Does the username enter the KDF for the demo, or is the field UI-only until the format vectors exist? | (a) §5.2 now, vectors in `32` §16 before first ship (b) UI-only placeholder, derivation unchanged, format bump later | **(a)** — `32` §2.4 makes the info string a format matter; deciding after ship costs a `format_version`. If (b), the field must be visibly labelled as not yet part of the encryption, which is an awkward sentence to defend |
 | **Q2** | The hashed-username descriptor hint (§5.5) | (a) never (b) add when multi-keyholder unlock UX hurts | (a) for the demo; (b) needs a new leak-register row first |
 | **Q3** | When the trigger fires, does `fathom serve` gain the workspace endpoint (O5) or does the trigger re-open the shell debate? | (a) O5, amendment pre-staged (§10 A3) (b) re-litigate | **(a)** — zero new artifact classes against three signed ones; `34` §3.5 already wrote the conclusion |
-| **Q4** | Demo origin | (a) `file://` if the smoke test passes (b) `fathom serve` regardless | (a), with (b) rehearsed. `file://` is the purer demo of "no server side" and F8/`43` §3.12's tamper story is identical either way |
+| **Q4** | Demo origin | (a) `file://` if the smoke test passes (b) `fathom serve` regardless | (a), with (b) rehearsed under §10 A5. `file://` is the purer demo of "no server side" and F8/`43` §3.12's tamper story is identical either way |
 | **Q5** | Is Chrome-for-Android 132+ support claimed anywhere user-facing? | (a) no — desktop-only claim (b) claim it | (a). The two primary sources disagree in freshness (BCD says 132+, caniuse still says "n"); a support claim that eats a workspace is the one error class this document exists to prevent. Test on a real device before ever claiming it |
 | **Q6** | IndexedDB functionality under `file://` | unresolved — no primary source consulted | Moot under D1's storage ban and recorded so it stays moot: if the ban is ever relaxed (O2), this becomes load-bearing and must be tested first |
 
@@ -632,6 +641,36 @@ one allowed origin (`24` §3.7's invariants applied to a second listener). Until
 **A4 — `32` §16, contingent on Q1(a):** username normalisation vectors (NFC, trim, case-fold —
 including a non-ASCII case and a trailing-space case) join the cross-implementation set, and `32`
 §7.4's unlock-error copy gains the two-field wording of §5.4.
+
+**A5 — `43` §3.12 F6 and `34` §3.6, so §4.2's rehearsed fallback origin is lawful.**
+F6's control — the D1 build *"detects a non-`file:` protocol and refuses to unlock"* — as written
+refuses this document's own fallback: `http://127.0.0.1` is a non-`file:` protocol, so the D1
+artifact served by `fathom serve` cannot unlock, and the only artifact `fathom serve` ships today
+is the mode-B bundle, whose OPFS cache §4.2 rules out for the demo. The amendment, in two parts:
+(1) F6's check permits unlock when the protocol is `http:` **and** the host is `127.0.0.1` or
+`[::1]`; every other non-`file:` origin still refuses with F6's message, so the served-from-a-share
+scenario F6 exists for is untouched. (2) `34` §3.6's embedded manifest gains `fathom-<ver>.html`,
+so the CLI serves the D1 artifact exactly as it serves every other built file — path-matched, no
+filesystem lookup. Unlike A3, this is not dormant: §4.2 requires the fallback rehearsed before
+demo day, so both parts land in the demo build whatever the smoke test says. The storage posture
+is unchanged by construction — the D1 build has no storage code, so `43` §3.8's canary holds on
+either origin, which is what keeps §1 row 4 and §7's walk-through row unconditional. Two costs,
+stated: any local process squatting loopback can now host an unlockable copy of the same bytes the
+user could open from disk — a widened F6 residual, recorded, still `bounded`; and `34` §3.4 lists
+as unverified whether mode B's `sandbox` header blocks `showSaveFilePicker` — the §4.2 rehearsal
+settles it, and if it blocks, `fathom serve` emits the mode-B header set minus `sandbox` for this
+one artifact, recorded in `34` §2.2.
+
+**A6 — ADR-0014 decision item 4's GPU labels, against `32` §4.6's model.**
+ADR-0014's restated rows read *"~30 bits, 10⁴ GPUs → ≈2.9 hours (FLOOR)"* and *"10⁶ GPUs → ≈1.7
+minutes"*. The times are `32` §4.6's, but the labels promote `32`'s **guess rates** to GPU counts:
+under `32`'s own model (≈5×10² guesses/s per GPU at FLOOR), 5×10⁴ guesses/s is **100 GPUs** and
+5×10⁶ guesses/s is **10 000 GPUs** — `32`'s column headings say so, and the arithmetic checks
+(2²⁹ guesses ÷ 5×10⁴ s⁻¹ ≈ 3.0 h; ÷ 5×10⁶ s⁻¹ ≈ 1.8 min). As printed, ADR-0014 understates the
+attacker by 100× in the security-favourable direction, in exactly the quote-it-back position its
+own item 4 exists to protect. The amendment: relabel the rows by guess rate, with the GPU count
+derived beside it, matching `32` §4.6 — the KDF's owning document, which needs no change. §7 above
+already quotes the corrected form.
 
 ---
 
