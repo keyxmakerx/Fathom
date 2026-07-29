@@ -33,19 +33,21 @@
 
    THE RESERVATION IS RESPECTED.  ADR-0011 invariant 11 keeps green / amber /
    red for the risk enum, permanently, product-wide.  Every hue below is
-   measured OUTSIDE those families: the five sit at HSL hue 250°, 225°, 209°,
-   197° and 188° — indigo, blue, cyan.  Green begins at 90° and ends at 150°;
-   amber sits at 30–60°; red wraps 330–20°.  Nothing here is within 38° of
-   any of them.
+   measured OUTSIDE those families: the five sit at HSL hue 272°, 252°, 228°,
+   208° and 198° — violet, indigo, blue, cyan.  Green begins at 90° and ends
+   at 150°; amber sits at 30–60°; red wraps 330–20°.  The nearest approach of
+   any hue here to any reserved family is 48°.
 
    COLOUR IS NEVER THE SOLE CARRIER (WCAG 1.4.1 / 55 §3).  Two independent
    non-chromatic carriers ride with every hue:
      · VALUE.  The five strokes are luminance-ordered by distance from the
        protected inside, so `filter: grayscale(1)` converts hue into an
        ORDERED value ramp instead of destroying it.  Greyscale bytes are
-       47 · 58 · 70 · 80 · 91, every one strictly between --ink (23) and
+       47 · 58 · 69 · 80 · 92, every one strictly between --ink (23) and
        --muted (101), so no zone hue can be mistaken for ink or for the
-       de-emphasis tone.
+       de-emphasis tone.  Chroma is the largest the sRGB gamut allows at
+       those five values, not an arbitrary "low-chroma" choice: at grey 47
+       the gamut ceiling in OKLCH is C≈0.147 and these sit at 0.135.
      · TEXT.  Every zone name is printed — on the band, on the node, and on
        the terminals of the boundary device.  Delete every hue in this block
        and the picture still says which zone everything is in.
@@ -54,28 +56,31 @@
    collapses back to exactly A-schematic's three neutral steps.
    ========================================================================= */
 :root {
-  /* zone / domain hues — light. Ordered outward from the protected inside. */
-  --z-trust:        #322A5C;   --z-trust-wash:   #F3F3FF;   /* grey  47 */
-  --z-vpn:          #2A3A6C;   --z-vpn-wash:     #EFF4FF;   /* grey  58 */
-  --z-mgmt:         #1F4C76;   --z-mgmt-wash:    #ECF5FE;   /* grey  70 */
-  --z-wan:          #155E7B;   --z-wan-wash:     #E9F6FC;   /* grey  80 */
-  --z-untrust:      #1C6C79;   --z-untrust-wash: #E8F6F9;   /* grey  91 */
+  /* zone / domain hues — light. Ordered outward from the protected inside.
+     stroke greys 47 · 58 · 69 · 80 · 92 · washes all 243–244 = --surface  */
+  --z-trust:        #4C2072;   --z-trust-wash:   #F7F1FF;
+  --z-vpn:          #413185;   --z-vpn-wash:     #F3F3FF;
+  --z-mgmt:         #2F4495;   --z-mgmt-wash:    #EFF4FF;
+  --z-wan:          #0E5CA0;   --z-wan-wash:     #ECF5FF;
+  --z-untrust:      #126C92;   --z-untrust-wash: #E7F6FF;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --z-trust:      #CCC8FB;   --z-trust-wash:   #1B1B22;   /* grey 204 */
-    --z-vpn:        #ADC0EF;   --z-vpn-wash:     #191C22;   /* grey 192 */
-    --z-mgmt:       #91B8DF;   --z-mgmt-wash:    #171C22;   /* grey 178 */
-    --z-wan:        #78AFCA;   --z-wan-wash:     #151D21;   /* grey 166 */
-    --z-untrust:    #63A6B2;   --z-untrust-wash: #141D1F;   /* grey 153 */
+    /* stroke greys 205 · 191 · 178 · 165 · 153, all above dark --muted (147);
+       washes all 27–28 = dark --surface                                    */
+    --z-trust:      #DCC3FB;   --z-trust-wash:   #201928;
+    --z-vpn:        #BEBAF9;   --z-vpn-wash:     #1B1A2A;
+    --z-mgmt:       #9AB3F8;   --z-mgmt-wash:    #161C2A;
+    --z-wan:        #6BAFF6;   --z-wan-wash:     #111D2A;
+    --z-untrust:    #28B2EC;   --z-untrust-wash: #0D1F28;
   }
 }
 :root[data-theme="dark"] {
-  --z-trust:        #CCC8FB;   --z-trust-wash:   #1B1B22;
-  --z-vpn:          #ADC0EF;   --z-vpn-wash:     #191C22;
-  --z-mgmt:         #91B8DF;   --z-mgmt-wash:    #171C22;
-  --z-wan:          #78AFCA;   --z-wan-wash:     #151D21;
-  --z-untrust:      #63A6B2;   --z-untrust-wash: #141D1F;
+  --z-trust:        #DCC3FB;   --z-trust-wash:   #201928;
+  --z-vpn:          #BEBAF9;   --z-vpn-wash:     #1B1A2A;
+  --z-mgmt:         #9AB3F8;   --z-mgmt-wash:    #161C2A;
+  --z-wan:          #6BAFF6;   --z-wan-wash:     #111D2A;
+  --z-untrust:      #28B2EC;   --z-untrust-wash: #0D1F28;
 }
 /* forced colours (51 §6): the hue channel is not ours to keep. Every zone
    token collapses to the system stroke and the printed zone names carry the
@@ -539,194 +544,361 @@ g.dimmed { opacity: 0.4; }
   </div>
 
   <div class="head-row">
-    <div class="head">The edge vocabulary</div>
-    <span class="tab">the lack of types of lines — answered</span>
+    <div class="head">The edge and zone vocabulary</div>
+    <span class="tab">A-schematic's eleven forms, plus five that are new here</span>
   </div>
   <div class="key" id="key"></div>
 
   <div class="head-row">
     <div class="head">Thesis</div>
-    <span class="tab">what changed, what it cost</span>
+    <span class="tab">the threshold, the palette, and what both cost</span>
   </div>
   <div class="thesis">
-    <p><strong>In one sentence:</strong> the five rejected drawings failed because every mark in
-    them was a 1px <span class="m">--ink</span> line on a <span class="m">--page</span> ground with
-    no layout behind it — this one runs a real layered layout and a real orthogonal router, spends
-    the two unspent neutral channels (fill and weight) on <em>what a thing is</em> rather than on
-    hover, and draws the eleven-form edge vocabulary that 56 §5.2 already owned and no concept had
-    ever drawn.</p>
+    <p><strong>In one sentence:</strong> the forty-spoke picture was unreadable at under 600 SVG
+    elements — two orders of magnitude below <span class="m">44</span> &sect;4.7.4's 2,000-element
+    cap — so that cap is a <em>performance</em> ceiling and the corpus has never written down the
+    <em>legibility</em> ceiling that actually bites; this variant sets it at six like-kind
+    siblings, collapses on that, and then spends the one channel A-schematic refused on the one
+    meaning the field card itself groups by — the security zone.</p>
 
-    <h3>What I changed, against the rejected round</h3>
+    <h3>1 &middot; The aggregation finding, and the threshold</h3>
+    <p><span class="m">44</span> &sect;4.7.4 decides the diagram &ldquo;never renders more than
+    2,000 live SVG elements&rdquo; and aggregates above that; <span class="m">52</span> &sect;3.6.1
+    repeats it as an IA consequence; <span class="m">56</span> &sect;12 carries the st0 fan as an
+    OPEN decision needing &ldquo;a design pass and a hub fixture&rdquo;. This is that pass, and it
+    found the rule stated in the wrong unit. A-schematic's fixture at 40 spokes measures
+    <strong>587 elements</strong> and is already a texture. At 120 it measures 807 — still 60%
+    below the cap — and the fit zoom falls to <span class="m">0.23</span>, under the 0.35
+    level-of-detail floor, so the picture degrades to boxes and rails with no labels at all
+    <em>while remaining comfortably inside the element budget</em>. A ceiling that never fires is
+    not a ceiling.</p>
+    <div class="note"><p><strong><span class="m">44</span> &sect;4.7.4's 2,000 is a performance
+    ceiling on TOTAL elements. The legibility ceiling is a separate number, it is counted per
+    LIKE-KIND SIBLING SET rather than per scene, and it is two orders of magnitude smaller.</strong>
+    Both are needed: the element cap stops the browser dying, the sibling cap stops the reader
+    dying. Only the second one ever fires on a real estate.</p></div>
+    <p><strong>The threshold is six</strong>, and it is six because two independent arguments land
+    on the same number:</p>
     <ul>
-      <li><strong>Two weights at exactly 2:1.</strong> Device and peer boundaries are 2px
-      <span class="m">--ink</span>; every edge, bracket, band, stub, tick, chassis rule and
-      annotation is 1px. In all five concepts a device boundary and a port stub were the same mark.</li>
-      <li><strong>A three-step tonal ladder.</strong> Canvas <span class="m">--surface-2</span>,
-      site region <span class="m">--surface</span>, device box <span class="m">--page</span>.
-      The concepts drew <span class="m">--page</span> boxes on a <span class="m">--page</span>
-      ground — an outline floating on nothing — and spent fill on hover instead.</li>
-      <li><strong>Selection surrenders the weight channel.</strong> Selection is
-      <span class="m">▸</span> on the label, a <span class="m">--surface</span> ground, and
-      everything outside the closure at 40% opacity. Weight now means structure, permanently.</li>
-      <li><strong>Layout is computed.</strong> Semantic rank table, median crossing reduction with
-      a fixed sweep count, a priority-method x-assignment, per-corridor interval-graph channel
-      allocation, corridor centring, bend-first route ordering. Nothing is a literal. Drag a box
-      and it pins; the rest flows around it.</li>
-      <li><strong>Semantic sides.</strong> Uplinks leave the top, downlinks the bottom, management
-      the left, WAN and tunnels the right — regardless of slot. This is the single largest
-      legibility win in the file and it costs no channel.</li>
-      <li><strong>Terminals are explicit geometry.</strong> 8px perpendicular port stub on the
-      4px edge lattice, then 4px of clearance before the first bend. Nothing lands on a wall at an
-      arbitrary slope; there is not one diagonal in the picture.</li>
-      <li><strong>Crossings and junctions are different pictures.</strong> A 4px knockout gap in the
-      lower-priority rail at every genuine crossing; a 4px filled <span class="m">--ink</span>
-      square at every genuine tee. In the rejected round a four-way meeting and a connection were
-      the same plus sign.</li>
-      <li><strong>Quantised widths, fixed heights, one gutter.</strong> Widths on a
-      {96,128,160,192} ladder, heights 36/52 plus 20px chassis sub-rows, column gap raised from
-      32px to 64px so a rank reads as objects rather than as one stripe.</li>
-      <li><strong>Two type sizes, not three.</strong> <span class="m">--t-mono</span> for
-      identifiers, <span class="m">--t-micro</span> for annotation. The third level is bought with
-      case and tracking. <span class="m">--t-tab</span> does not appear in the picture.</li>
-      <li><strong>Crispness.</strong> <span class="m">vector-effect="non-scaling-stroke"</span> on
-      every stroked element, <span class="m">shape-rendering="crispEdges"</span> on boxes, rails and
-      bands, positions on the 4px lattice and 1px strokes emitted at +0.5. Four of the five concepts
-      had no <span class="m">vector-effect</span> at all and stretched a fixed viewBox to 100%
-      width, so every hairline was a half-intensity smear across two device rows.</li>
+      <li><strong>Perceptual.</strong> Enumeration without counting — subitising — is exact to four
+      and gone by six. Six is the last count a reader can still verify by pairing rather than by
+      counting one at a time. Above it you are asking a human to do arithmetic the drawing could
+      have done for them, and it will be done wrong.</li>
+      <li><strong>Geometric, and it falls out of this layout's own constants.</strong> Six units at
+      <span class="m">G.portPitch</span> (16px) is 96px, which is exactly
+      <span class="m">G.pitch</span>, the rank pitch. A sibling set that outgrows one rank pitch has
+      stopped being a property of its node and become a structure in its own right — and structures
+      get drawn once, with a count, not <em>n</em> times.</li>
     </ul>
+    <p>Concept 03 in round one chose eight and the corpus never contradicted it; six is tighter and
+    it is derived rather than picked. The consequence is visible in the controls: at
+    <strong>4 spokes nothing collapses at all</strong> — the aggregated and un-aggregated renders
+    are identical at 228 elements — and the machinery only appears when the picture actually needs
+    it. That is the test of a threshold: it must be invisible on a small estate.</p>
+    <p><strong>The expansion page is twelve</strong> = 2 &times; the threshold, and 12 &times; 16px
+    = 192px = <span class="m">G.maxW</span>, the widest box the width ladder allows, so one expanded
+    page is at most one box tall. An explicit request tolerates more than a default does; it does
+    not tolerate 120. Expanding a 120-spoke bundle shows twelve and a counted, focusable
+    <span class="m">+108 more</span> continuation — because expanding 120 into 120 is the texture
+    again with extra steps.</p>
 
-    <h3>The colour question, answered honestly</h3>
-    <p>Monochrome is not the problem and I would not reopen ADR-0011. Six of Bertin's seven retinal
-    variables survive the ban; only hue is lost. The rejected concepts left three of the remaining
-    six completely unused — value, texture and size — and then complained about having five. ISO
-    128-2 separates five line meanings on weight and dash alone; USPTO figures encode material type
-    in hatch on nothing but black ink. What this picture was starving for was <em>fill</em> and
-    <em>weight</em>, both neutral, both already tokenised, both unspent.</p>
-    <p>Hatch is deliberately <strong>not</strong> used here. 51 §4.1 C2 already spends hatch twice
-    at 135° for suppressed findings and the AI-proposed gutter; if the diagram ever takes it, it
-    must be 45°, must mean exactly "beyond this boundary is not modelled", and must be stroked
-    geometry rather than a paint server, because <span class="m">&lt;pattern&gt;</span> is outside
-    34 §5.6's tag set and a paint server dies under <span class="m">forced-colors</span>.</p>
-
-    <h3>Which disclosure mechanism I would ship</h3>
-    <div class="verdict"><p><strong>Ship the inspector column as the mechanism. Ship the
-    <span class="m">▸</span> depth mark before either. Ship the chip only as a preview, bounded by
-    a content rule.</strong></p>
-    <p>The owner's question underneath "do they each have popups" is <em>is there more here?</em> —
-    and a hover cannot answer it, because you have to already be pointing at the thing to find out.
-    The static <span class="m">▸</span> at a node's bottom-right answers it at a glance, at every
-    zoom, in print, on touch, in the exported SVG, and for a screen-reader user. It costs no new
-    glyph and no interaction model, because <span class="m">▸</span> already means
-    "disclosable, there is more" in four other places in the product.</p>
-    <p>Flip the toggle above and feel the two. The chip here is fully WCAG 1.4.13 compliant —
-    dismissible with Esc without moving the pointer, hoverable with a grace corridor, persistent
-    with no auto-hide timer, triggered by <span class="m">:focus</span> as well as
-    <span class="m">:hover</span>, and drawn with a 1px <span class="m">--ink</span> rule and no
-    shadow. It is buildable and it is compliant. It is still the weaker mechanism, for three
-    reasons that are not about accessibility: it occludes exactly the neighbours you are comparing
-    against and it does so worst where density is highest; every fact that lives only in a chip is
-    lost by the SVG, the PNG, the print, the screenshot and the ticket; and 56 §9.5 already prints
-    the hidden-label table beneath the picture <em>because a printed page has no hover</em>.</p>
-    <p>So the chip is bound by a content rule that keeps it honest: <strong>it may contain only
-    what the picture already tried to draw and could not</strong> — a truncated name, a label the
-    placer counted rather than placed, an age line the zoom suppressed, a port name the LOD ladder
-    dropped. Four lines maximum. If the picture drew it, the chip does not repeat it. Under that
-    rule the chip is a label that would not fit, not an inspector in disguise, and 51 §11's refusal
-    of inspector-as-overlay is left intact.</p></div>
-
-    <h3>What I sacrificed</h3>
+    <h3>2 &middot; What collapses, and what it says while collapsed</h3>
     <ul>
-      <li><strong>Brandes–Köpf.</strong> x-assignment is the priority method with a fixed pass
-      count, not the four-alignment median. It is deterministic and it is good enough at this size;
-      it will produce longer edges than BK on a wide graph.</li>
-      <li><strong>Label placement is fixed-side first.</strong> The E/W/N/S search runs only on
-      collision, and demotions are counted in the view band next to hidden labels
-      (<span class="m">n moved</span>). That is deliberate — inconsistent label sides are, after
-      staircase routing, the most reliable tell that nobody drew this.</li>
-      <li><strong>The single scene-level knockout path.</strong> Rule 14 asks for one
-      <span class="m">&lt;path&gt;</span> of knockout subpaths painted between the bands and the
-      edges. That cannot express per-pair priority — a knockout painted under every edge knocks out
-      nothing, and painted over every edge it erases the winner too. I used containerlab's actual
-      mechanism instead: the gap is cut into the lower-priority path's own geometry. It costs zero
-      elements rather than one and it is exact.</li>
-      <li><strong>The 4px gap between the stub end and the rail.</strong> Refused, and this one is
-      load-bearing. A 4px break in a 1px monochrome line is not distinguishable from
-      <span class="m">--rule-style-pending</span>, and putting one at both ends of every edge in
-      the picture would have re-created the exact defect the dash reservation exists to prevent.
-      The 4px is kept as bend clearance instead: an edge travels 12px perpendicular before it may
-      turn, so no corner ever touches a wall.</li>
-      <li><strong>Sub-pixel truth below 1:1.</strong> The +0.5 stroke offset is exact at
-      <span class="m">z = 1</span> and <span class="m">z = 2</span> only. Below that,
-      <span class="m">non-scaling-stroke</span> keeps the stroke 1 CSS px but cannot control which
-      device row it lands on.</li>
+      <li><strong>Unit level.</strong> <span class="m">st0.0</span>&hellip;<span class="m">st0.39</span>
+      become one stub inside the SRX reading <span class="m">st0.0&ndash;39 &middot; +40</span>.</li>
+      <li><strong>Peer level.</strong> <span class="m">SPOKE-01</span>&hellip;<span class="m">40</span>
+      become one ExternalPeer box reading <span class="m">SPOKE-01&ndash;40</span> over
+      <span class="m">40 spokes &#9656;</span>.</li>
+      <li><strong>Member level.</strong> ae0's members collapse to
+      <span class="m">xe-0/0/2&ndash;17 &middot; +16</span> with the edge label
+      <span class="m">ae0 &middot; 16 members</span>. Two members never reach the threshold, so the
+      LAG member count is a control on this page — a collapse rule you cannot exercise is a collapse
+      rule you have not tested.</li>
+      <li><strong>Port level is the same code path.</strong> Aggregation is a property of a port
+      group on a side, so any side of any node crossing the threshold collapses by the same
+      mechanism. In this fixture only the hub's right wall does.</li>
     </ul>
+    <p><strong>The unit stub and the peer box share one expansion state, deliberately.</strong> They
+    are the same forty objects seen from two ends — the 1:1:1 of unit, conduit and peer — and there
+    is no useful state in which forty units fan into one box. Both are separately focusable and
+    separately announced; they just tell the truth about the same set.
+    <strong>Expansion is otherwise partial:</strong> expanding the tunnel bundle does not expand
+    ae0, because a reader following one path asked about one thing. Global expansion exists as its
+    own control, <span class="m">show every one</span>, and it is there so the two forms can be put
+    side by side.</p>
+    <div class="verdict"><p><strong>Nothing is ever hidden without a count, and the count is the one
+    label in the picture that may not be demoted.</strong> Every other label here can be counted out
+    by the collision search or dropped by the level-of-detail ladder. A count cannot: aggregate
+    labels claim their boxes <em>before</em> anything else is placed, are exempt from the LOD gate,
+    and are drawn even if every candidate position collides. Six carriers say the same number at
+    once — the stub label, the box's second line, the conduit's own label, the view band's lead
+    (<span class="m">diagram &middot; 10 nodes &middot; 15 edges &middot; 40 tunnels collapsed</span>,
+    which is G10 / <span class="m">56</span> &sect;5.2's release valve), the Outline row, and the
+    accessible name.</p></div>
 
-    <h3>Three defects in the spec that this build found</h3>
-    <div class="note">
-      <p><strong>1. <span class="m">--dg-conduit-gap: 5px</span> and
-      <span class="m">--dg-rail-gap: 3px</span> are off the 4px lattice</strong> that 56 §5.3
-      declares two lines above them. They are also too small to survive: with
-      <span class="m">non-scaling-stroke</span> a 5px scene gap between two 1px rails is 2.5 screen
-      px at <span class="m">z = 0.5</span> and 1.75px at the 0.35 LOD floor, at which point the
-      conduit and the twin rail both degenerate into the single undifferentiated line the owner
-      complained about. This build uses 8px for the conduit and 4px for the rail pair, both on the
-      lattice, and enforces the minimum separation in <em>screen</em> pixels — below it the form
-      degrades to a named fallback and the view band says so.</p>
-      <p><strong>2. 56 §5.6's width formula guarantees a ragged rank.</strong>
-      <span class="m">SRX-A</span> is 64px and <span class="m">SRX-345-DC-EAST</span> is 140px, so
-      a row of devices is a row of unequal boxes. Quantising to a 32px ladder costs one
-      <span class="m">ceil</span> and preserves §2.4's arithmetic determinism. The ladder starts at
-      96, not 64, because at 64 a device carrying chassis sub-rows cannot hold its own sub-row
-      labels.</p>
-      <p><strong>3. A device's height has to be allowed to grow with its port count.</strong> The
-      hub in this fixture terminates one tunnel per spoke; at 40 spokes its right edge carries 40
-      <span class="m">st0</span> units. Holding the box at 36px and drawing 40 stubs on it is the
-      texture 56 §12 predicts. Letting the box grow turns it into a 40-pin symbol with its unit
-      names set inside the body, which is what schematic capture has done for forty years and is
-      the most legible thing on the page at 40 spokes.</p>
+    <h3>3 &middot; Colour: one meaning, permanently</h3>
+    <p>The hue channel carries the <strong>security zone or domain</strong> and nothing else —
+    because that is what the field card itself groups by (<span class="m">security-zone VPN</span>,
+    <span class="m">security-zone WAN</span>, <span class="m">from-zone TRUST to-zone VPN</span>)
+    and it is what an engineer traces when following a path. Five domains, all real in
+    <span class="m">corpus/commands/junos-srx-ipsec.yaml</span>: TRUST, VPN, MGMT, WAN, UNTRUST.
+    Zone bands take the hue, node boundaries take the hue, and an edge takes the hue of its zone.
+    Everything else — the site region, the VLAN bracket, the RI box, chassis rules, junctions,
+    crossings, plates, annotation, selection and focus — stays exactly as neutral as A-schematic
+    left it. <strong>18.6% of the SVG elements carry a hue.</strong></p>
+    <p>Three rules make it a design rather than a paint job:</p>
+    <ul>
+      <li><strong>A terminal carries the zone of its own interface, not of the box it lands on.</strong>
+      On a firewall those differ, and that difference <em>is</em> the firewall. So the SRX's
+      <span class="m">reth0</span> stubs are WAN, its <span class="m">fxp0</span> is MGMT, its
+      <span class="m">ge-0/0/4&ndash;5</span> are TRUST and its <span class="m">st0.*</span> are
+      VPN — and each of those five terminals prints its zone next to its interface name.</li>
+      <li><strong>A boundary device is computed, not declared, and keeps the neutral outline.</strong>
+      Any node whose terminals span two or more zones is a boundary device — it is in no zone
+      because it is the thing that defines them. It prints <span class="m">BOUNDARY</span>. Neutral
+      therefore still has exactly one meaning in this picture.</li>
+      <li><strong>An edge that changes zone changes tone at the zone boundary.</strong> The split is
+      put on the zone band's own rectangle and the geometry is cut there, not faded. Two edges do
+      this in the fixture — <span class="m">WAN &rarr; UNTRUST</span> at the ISP and
+      <span class="m">TRUST &rarr; VPN</span> on the policy edge — and the view band counts them.</li>
+    </ul>
+    <p><strong>Evidence age outranks zone.</strong> A stale or unverified box keeps its
+    <span class="m">--muted</span> outline and loses its hue, because &ldquo;this evidence is sixteen
+    months old&rdquo; is a stronger thing to say about a box than &ldquo;it is in TRUST&rdquo;.
+    Likewise an inferred edge stays <span class="m">--muted</span> and a proposed edge stays dashed:
+    provenance beats zone, product-wide, and the precedence is written into the cascade rather than
+    into a comment.</p>
+
+    <h3>4 &middot; The reservation, kept — and the redundancy, proved</h3>
+    <p>ADR-0011 invariant 11 keeps green, amber and red for the risk enum permanently. The five zone
+    hues are measured at HSL 272&deg;, 251&deg;, 228&deg;, 208&deg; and 198&deg; — violet through
+    indigo and blue to cyan. Green runs 90&ndash;150&deg;, amber 30&ndash;60&deg;, red wraps
+    330&ndash;20&deg;. <strong>The nearest approach of any hue here to any reserved family is
+    48&deg;</strong> (UNTRUST to the green boundary). No topology object in this file resolves to
+    <span class="m">--safe</span>, <span class="m">--caution</span> or
+    <span class="m">--danger</span>, at any layer, in any state.</p>
+    <p>WCAG 1.4.1 says colour may never be the sole carrier. <strong>Two independent non-chromatic
+    carriers ride with every hue, and the page ships a control to check it.</strong></p>
+    <ul>
+      <li><strong>Value.</strong> The five strokes are luminance-ordered by distance from the
+      protected inside, so <span class="m">filter: grayscale(1)</span> converts hue into an
+      <em>ordered</em> value ramp rather than destroying it. Greyscale bytes are 47 &middot; 58
+      &middot; 69 &middot; 80 &middot; 92, evenly spaced 11&ndash;12 apart, every one strictly
+      between <span class="m">--ink</span> (23) and <span class="m">--muted</span> (101) so no zone
+      hue can be misread as ink or as de-emphasis. The washes are isoluminant with
+      <span class="m">--surface</span> by construction — 243, 244, 244, 244, 243 against 244 — so in
+      greyscale the tonal ladder collapses back to A-schematic's exact three neutral steps.</li>
+      <li><strong>Text.</strong> Every zone name is printed: on the band
+      (<span class="m">zone TRUST</span>), on every node (a right-aligned tag on the name row), and
+      on every terminal of the boundary device. Delete the entire proposal block and the picture
+      still says which zone everything is in.</li>
+    </ul>
+    <div class="note"><p><strong>A finding the drawing forced.</strong> A security zone is a set of
+    interfaces, not a region of the picture. Zone VPN owns the st0 units inside the SRX
+    <em>and</em> every peer those units reach, and those live in different columns — one band cannot
+    enclose both without swallowing the core layer. So VPN is drawn as two bands with the same name.
+    That is exactly why the per-node printed tag is <strong>not optional</strong>: enclosure alone
+    cannot carry a discontiguous set, so a design that leaned on the band as the non-chromatic
+    carrier would have a hole in it precisely where zones get interesting.</p></div>
+    <p><strong>Forced colours and print.</strong> Under <span class="m">forced-colors: active</span>
+    every zone token collapses to <span class="m">CanvasText</span> / <span class="m">Canvas</span>
+    and the box stroke resolves to the system stroke — measured, not asserted — while all ten zone
+    tags stay drawn. That is the test that the redundancy is real, and this variant deliberately
+    reverses A-schematic's <span class="m">forced-color-adjust: none</span> on the diagram classes:
+    a neutral tonal ladder is worth defending from the UA, a hue channel is not.
+    <span class="m">@media print</span> forces the zone tags on and exempts them from the LOD ladder,
+    because a mono printer erases every hue in the file.</p>
+
+    <h3>5 &middot; Does it look better, or just busier?</h3>
+    <div class="verdict">
+    <p><strong>Better in one specific way, busier in another, and the honest answer depends on which
+    question the reader arrived with.</strong></p>
+    <p><em>Better:</em> the picture now has a second readable structure. In A-schematic the only
+    grouping visible at a glance is rank — what is above what. Here the zone partition is legible
+    before you read a single label, and the two genuinely interesting facts about this estate are
+    exactly the two the hue makes loud: the SRX is the only neutral box in a coloured picture (it is
+    the boundary), and precisely two edges change tone (they are the only two that cross a
+    boundary). Both were <em>already true</em> in A-schematic and both were invisible. Flip
+    <span class="m">monochrome</span> above and count how long it takes to find them.</p>
+    <p><em>Busier:</em> the washes add a fourth and fifth tonal region inside the site region, which
+    at 40 spokes means the lower two thirds of the picture is a large lavender field. The zone bands
+    were always there; tinting them makes them assert themselves at a distance where previously they
+    receded. And the tags are the real cost — see below.</p>
+    <p><em>The load-bearing worry, stated plainly:</em> hue is being spent on a <strong>nominal
+    partition of the nodes</strong>, which is information the bands already carry geometrically and
+    the tags already carry textually. It buys speed, not information. That is a real purchase — a
+    glance is worth a lot — but it is not a new fact, and it is the whole of the case.</p>
     </div>
 
-    <h3>Measured, not asserted</h3>
-    <p>Chromium, <span class="m">file://</span>, DPR 2. Every number below is printed live in the
-    view band as you change the estate size.</p>
-    <div class="verdict"><p><span class="m">4 spokes</span> — 13 nodes, 18 edges, 187 elements,
-    scene 784 × 668, 2 routing channels, 5 crossings, layout 3.1 ms, DOM build 4.6 ms, fit 0.98.<br>
-    <span class="m">12 spokes</span> — 21 nodes, 26 edges, 259 elements, scene 832 × 796,
-    6 channels, 5 crossings, layout 5–9 ms, DOM build 13 ms, fit 0.93.<br>
-    <span class="m">40 spokes</span> — 49 nodes, 54 edges, 510 elements, scene 1000 × 1332,
-    20 channels, 5 crossings, layout 13 ms, DOM build 17 ms, fit 0.68.</p>
-    <p>Zero edges cross a device box at any of the three. Zero routing segments are diagonal —
-    the only four non-axis-aligned segments in the file are the two open-V arrowhead legs, which
-    are terminal glyphs on the 4px lattice, not routes. Every stroked element carries
-    <span class="m">vector-effect="non-scaling-stroke"</span>. The picture resolves to exactly
-    six values, all neutral: <span class="m">--ink</span>, <span class="m">--muted</span>,
-    <span class="m">--hairline</span>, <span class="m">--surface</span>,
-    <span class="m">--surface-2</span>, <span class="m">--page</span>. No risk colour appears in
-    the SVG at all.</p></div>
+    <h3>6 &middot; The two costs of ALWAYS-ON, said out loud</h3>
+    <p><strong>Cost one: the channel is spent permanently and cannot be reallocated.</strong> This is
+    the difference between this variant and an overlay model, and it is not a small one. Once zone
+    owns hue, hue can never mean utilisation, health, VLAN, routing-instance, blast radius,
+    change-set membership, or &ldquo;the six devices this command is about to touch&rdquo;. Every one
+    of those is a plausible future ask; the last is close to Fathom's actual purpose. An always-on
+    model answers the question the designer picked in advance and refuses every later one. A diagram
+    is a long-lived artefact and this is a one-way door.</p>
+    <p><strong>Cost two: the risk legend is a few hundred pixels away, and yes, they compete — but
+    not for meaning.</strong> Look at <span class="m">agg-A4-withlegend.png</span>, or at the Risk
+    panel to the right of the picture on this page. The three reserved chips are green, amber and
+    red; the picture is violet, indigo, blue and cyan; nothing in the diagram is within 48&deg; of a
+    reserved family and no reader will confuse a TRUST switch with a safe command. The
+    <em>semantic</em> collision the reservation exists to prevent does not happen.</p>
+    <p>What does happen is an <strong>attentional</strong> collision, and it runs the opposite way
+    from the one you would expect. The three risk chips are the only warm, high-saturation marks on
+    an otherwise cool page, so the eye goes to them first even though they are three 32px swatches
+    against a 976px drawing. Beside a monochrome diagram the risk legend was the only colour on the
+    page and therefore self-evidently the most important thing on it. Beside a coloured diagram it is
+    still the most salient thing, but it now reads as one of several colour systems rather than as
+    <em>the</em> colour system — the reservation is defended semantically and diluted rhetorically.
+    <strong>If &ldquo;what does red mean here&rdquo; has to survive being learned once and trusted
+    forever, that dilution is the real price, and this variant pays it on every screen, permanently,
+    whether or not the reader cares about zones today.</strong></p>
 
-    <h3>Where this does not yet hold up</h3>
-    <p id="honest-note"><strong>Aspect ratio is the real weak point.</strong> The peer column is a
-    single stack, so from 4 to 40 spokes the scene gets 1.28× wider and 2× taller. The pane grows
-    with it, capped at 900px, which is the only reason the 40-spoke fit lands at 0.68 rather than
-    0.48 — in a fixed 640px pane the estate would cross the 0.6 threshold and lose its edge labels
-    and port names. That is announced rather than hidden, but it is degradation. The two fixes, in
-    order of preference, are 56 §12's own recommendation — collapse <span class="m">st0.*</span>
-    into one stub with a count and expand on drill-down — and wrapping the peer stack into a second
-    column, which needs a half-pitch stagger so the second column's conduits can reach it through
-    the first column's gutters. Neither is built here.</p>
-    <p><strong>Three smaller honest failures.</strong> (i) 8 port labels out of roughly 40 cannot
-    be placed at 4 spokes and are counted in the view band rather than overlapped — that is the
-    mechanism working, but 8 is more than it should be and the fix is a fifth candidate position
-    rather than a cleverer search. (ii) A rank with two disconnected halves cannot spread, because
-    the rigid re-centring step that kills the drift also caps how far a rank can pull apart; the
-    left third of the site region is empty for that reason and 56 §3.6 predicts exactly this cost.
-    (iii) Multi-rank edges run in a margin lane instead of through phase 4's dummy nodes. It is the
-    scoped answer and it is what a draughtsman does with a signal that crosses a whole sheet, but
-    it is not the textbook one and it will not scale past a handful of such edges.</p>
+    <h3>7 &middot; Measured, not asserted</h3>
+    <p>Chromium 1194, <span class="m">file://</span>, DPR 2, 1440 &times; 1200. Zero console errors
+    and zero warnings. Two network requests, both under
+    <span class="m">file:///home/user/Fathom/</span> — the page itself and
+    <span class="m">../tokens.css</span> — with every request intercepted and any off-file URL
+    aborted; none was attempted.</p>
+    <div class="verdict"><p><strong>Aggregated vs un-aggregated, same fixture, same router.</strong><br>
+    <span class="m">4 spokes</span> — 13 nodes, 18 edges, <strong>228 / 228 elements</strong>, scene
+    956 &times; 684, layout 1.6 / 1.9 ms. Below the threshold, so the two are identical by design.<br>
+    <span class="m">12 spokes</span> — 10/15 vs 21/26 nodes/edges, <strong>210 / 308 elements</strong>
+    (&minus;32%), scene 976 &times; 636 vs 1004 &times; 812, layout 1.6 / 6.7 ms.<br>
+    <span class="m">40 spokes</span> — 10/15 vs 49/54, <strong>210 / 587 elements</strong>
+    (&minus;64%), scene 976 &times; 636 vs 1172 &times; 1356, layout 2.3 / 25.0 ms, render 3.7 /
+    28.9 ms, fit 0.79 / 0.66.<br>
+    <span class="m">120 spokes</span> — 10/15 vs 129/134, <strong>210 / 807 elements</strong>
+    (&minus;74%), scene 976 &times; 636 vs <strong>1652 &times; 3916</strong>, layout 2.2 / 28.1 ms,
+    render 3.7 / 36.3 ms, fit <strong>0.79 / 0.23</strong>.<br>
+    Expanded to a twelve-spoke window at 40 spokes: 22 nodes, 27 edges, 328 elements, scene
+    1016 &times; 828 at fit 0.76.</p>
+    <p>The 120-spoke row is the whole argument in one line. Un-aggregated it is 807 elements — 60%
+    under <span class="m">44</span> &sect;4.7.4's cap, so the corpus's rule does not fire — and its
+    fit zoom is 0.23, below the 0.35 LOD floor, so it renders as unlabelled boxes and rails on a
+    3,916px-tall canvas. Aggregated it is 210 elements at fit 0.79 with every label present and the
+    view band reading <span class="m">120 tunnels collapsed</span>.</p></div>
+    <div class="verdict"><p><strong>Geometry, at all eight configurations above.</strong>
+    <strong>0</strong> edge segments pass through any node box (sampled every 2 scene px along every
+    segment of every routed path, 1px inset). <strong>0</strong> non-axis-aligned routing segments.
+    <strong>0</strong> stroked elements without
+    <span class="m">vector-effect="non-scaling-stroke"</span>. <strong>0</strong> node coordinates
+    off the 4px lattice. 5 crossings at every size, each drawn as a 4px knockout in the
+    lower-priority rail exactly as A-schematic drew it.</p></div>
+    <div class="verdict"><p><strong>The palette, read back out of the resolved tokens at runtime</strong>
+    — this is what the Zone key panel prints, so it can never drift from the file:<br>
+    <span class="m">TRUST&nbsp;&nbsp;&nbsp;#4C2072 &middot; hsl 272&deg; &middot; grey 47 &middot; 11.95:1 on --page &middot; wash #F7F1FF grey 243</span><br>
+    <span class="m">VPN&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;#413185 &middot; hsl 251&deg; &middot; grey 58 &middot; 10.49:1 &middot; wash #F3F3FF grey 244</span><br>
+    <span class="m">MGMT&nbsp;&nbsp;&nbsp;&nbsp;#2F4495 &middot; hsl 228&deg; &middot; grey 69 &middot; &nbsp;8.82:1 &middot; wash #EFF4FF grey 244</span><br>
+    <span class="m">WAN&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;#0E5CA0 &middot; hsl 208&deg; &middot; grey 80 &middot; &nbsp;6.87:1 &middot; wash #ECF5FF grey 244</span><br>
+    <span class="m">UNTRUST #126C92 &middot; hsl 198&deg; &middot; grey 92 &middot; &nbsp;5.86:1 &middot; wash #E7F6FF grey 243</span><br>
+    <span class="m">--surface grey 244 &middot; --ink grey 23 &middot; --muted grey 101</span><br>
+    Dark theme, derived not inverted: greys 204 &middot; 191 &middot; 179 &middot; 166 &middot; 153,
+    every one above dark <span class="m">--muted</span> (147) and below dark
+    <span class="m">--ink</span> (227); washes 27&ndash;28 against dark
+    <span class="m">--surface</span> 28; contrast on dark <span class="m">--page</span> 11.9:1 down
+    to 7.8:1.</p></div>
+    <div class="verdict"><p><strong>Keyboard and announcement.</strong> Four collapsed affordances
+    are reachable by Tab at 40 spokes with ae0 at 16 — the two unit stubs in the picture, the
+    collapsed peer box, and the first Outline group row (the second is reached with Arrow keys,
+    which is the correct roving-tabindex behaviour for a listbox). <strong>4 of 4 carry
+    <span class="m">aria-expanded</span>; 4 of 4 have a number in the accessible name.</strong>
+    Chromium's own accessibility tree computes them as, verbatim:
+    <span class="m">&ldquo;st0.0&ndash;39: 40 tunnel units, collapsed into one stub. Enter expands
+    12 of 40.&rdquo;</span>, <span class="m">&ldquo;xe-0/0/2&ndash;17: 16 ae0 members, collapsed
+    into one stub. Enter expands 12 of 16.&rdquo;</span>,
+    <span class="m">&ldquo;SPOKE-01&ndash;40: 40 spokes, collapsed into one box. Enter expands 12 of
+    40.&rdquo;</span> Enter on the stub flips <span class="m">aria-expanded</span> to true and the
+    name to <span class="m">&ldquo;tunnel units: expanded, showing 12 of 40, 28 still collapsed.
+    Enter or Escape collapses all 40.&rdquo;</span>; Escape collapses; Enter on the continuation
+    moves the window from st0.0&ndash;11 to st0.12&ndash;23 and says so. Focus is restored to the
+    same affordance across the re-render. The SVG's decorative layers are
+    <span class="m">aria-hidden</span>; the aggregation layer is the one exception, because a
+    collapsed group is a control.</p></div>
+    <div class="verdict"><p><strong>Colour independence, item by item, with how each survives.</strong>
+    (i) <em>Which zone a node is in</em> &rarr; enclosure in a named band, plus the printed tag on
+    the node; 10 tags drawn at 40 spokes, one per node. (ii) <em>Which zone a band delimits</em>
+    &rarr; the band label, 9 drawn, including both <span class="m">zone VPN</span> bands.
+    (iii) <em>Which zone each terminal of the boundary device is in</em> &rarr; 5 printed terminal
+    tags — <span class="m">ge-0/0/0 &middot; WAN</span>,
+    <span class="m">ge-5/0/0 &middot; WAN</span>, <span class="m">fxp0 &middot; MGMT</span>,
+    <span class="m">ge-0/0/4 &middot; TRUST</span>, <span class="m">ge-0/0/5 &middot; TRUST</span> —
+    promoted into the same never-demoted class as the counts, for exactly this reason.
+    (iv) <em>That a node is the boundary</em> &rarr; the printed <span class="m">BOUNDARY</span>
+    tag, plus a value step (<span class="m">--ink</span> 23 against the nearest hue's 47).
+    (v) <em>That an edge crosses a boundary</em> &rarr; a value step of at least 11/255 at the
+    split, the two differing endpoint tags, the inspector's <span class="m">zone</span> row reading
+    <span class="m">WAN &rarr; UNTRUST &middot; crosses a boundary</span>, and the view band's count.
+    (vi) <em>That a thing is collapsed</em> &rarr; the doubled outline, which is shape, and the
+    printed count. <strong>Nothing on that list needs hue.</strong> The greyscale render is at
+    <span class="m">agg-A4-grey.png</span>; the page's own <span class="m">greyscale</span> control
+    reproduces it live.</p></div>
+
+    <h3>8 &middot; What it cost, measured</h3>
+    <ul>
+      <li><strong>The zone tag costs 160px of scene width — 19.6%.</strong> At 40 spokes the scene
+      is 976 &times; 636 with tags and 816 &times; 636 without; the tag enters the width formula, so
+      five boxes climb a step on the {96,128,160,192} ladder. That is the entire price of colour
+      independence and it is paid on every render. It is not all loss: the wider boxes give the
+      label placer more room and hidden labels drop from 8 to 6.</li>
+      <li><strong>Colour itself costs zero elements.</strong> 210 with hue, 210 without, at 40
+      spokes — the split geometry is emitted either way and the class does the painting, so
+      <span class="m">monochrome</span> is provably the same drawing. The washes are 6 rects and the
+      splits 2 extra paths; both exist in both modes.</li>
+      <li><strong>Aggregation costs 3 focusable groups and 2 doubled outlines</strong>, and saves
+      377 elements at 40 spokes and 597 at 120.</li>
+      <li><strong>Two bands now carry the name <span class="m">zone VPN</span>.</strong> Correct, and
+      it will read as a duplicate to anyone who has not been told that a zone is a set of
+      interfaces. A band-level &ldquo;1 of 2&rdquo; badge would fix it and is not built.</li>
+      <li><strong>The security layer gates the hue.</strong> With <span class="m">sec</span> out of
+      the projection there are no zones to mean anything, so the picture returns to monochrome and
+      the view band says <span class="m">zone colour off — security layer out of the
+      projection</span>. Principled, and still a surprise the first time you hit it.</li>
+    </ul>
+
+    <h3>9 &middot; Where this does not hold up</h3>
+    <p><strong>The threshold is a constant, not a function of the pane.</strong> Six is right for a
+    640&ndash;900px pane at fit zoom. On a 4K wall display twelve stacked units are perfectly
+    readable and six is over-eager; on a phone, four would already be too many. The honest version
+    reads the rendered pitch in <em>screen</em> pixels — the same discipline A-schematic already
+    applies to the conduit gap and the twin rail — and collapses when a sibling set would fall below
+    the readable pitch. That is a small change and it is not built here.</p>
+    <p><strong>Group membership is declared, not derived.</strong> The two groups are found by
+    <span class="m">n.lateral</span> and by <span class="m">e.members</span>. A real implementation
+    has to detect like-kind sibling sets from the graph — same kind, same neighbour, same layer,
+    interchangeable — and that classifier is where this design would actually get hard. In
+    particular I have not answered what happens when forty spokes are <em>not</em> alike: if six are
+    stale and one is unverified, collapsing them hides an age distinction that
+    <span class="m">55</span> would very much like kept. The right answer is probably that a
+    collapsed set inherits the worst age in it and says so, and that is neither built nor drawn.</p>
+    <p><strong>Expansion re-runs the whole layout.</strong> Expanding the bundle changes the node
+    count, which changes the peer stack, which changes the corridor, which re-centres every rank.
+    The mental-map seeding in phase 5 keeps the ordering stable, but boxes do move, and
+    <span class="m">56</span> &sect;3.5 is unambiguous that they should not. A proper implementation
+    expands into reserved space.</p>
+    <p><strong>Two labels are force-placed at 40 spokes with ae0 at 16.</strong> The never-demoted
+    rule guarantees a count is drawn; it does not guarantee it is drawn somewhere pretty.
+    <span class="m">ge-0/0/5 &middot; TRUST</span> and
+    <span class="m">ae0 &middot; 16 members</span> sit within a few pixels of each other under the
+    SRX because every candidate position collided. The rule is right — a forced overlap is better
+    than a silent omission — but the candidate set needs to be larger before this ships.</p>
+    <p><strong>UNTRUST and WAN are the weakest hue pair.</strong> 198&deg; against 208&deg;, greys 92
+    and 80. They are adjacent in both channels because the palette is a monotone ramp in hue
+    <em>and</em> in value, and a ramp's neighbours are always its hardest pair. They are printed and
+    they are bracketed, so nothing is lost — but if only two zones were ever going to be confused at
+    a glance it is those two, and &ldquo;the edge&rdquo; against &ldquo;beyond the edge&rdquo; is not
+    a distinction you want soft.</p>
+    <p><strong>Everything A-schematic could not do, it still cannot do.</strong> x-assignment is
+    still the priority method rather than Brandes&ndash;K&ouml;pf; multi-rank edges still run in a
+    margin lane rather than through phase 4's dummy nodes; label placement is still fixed-side
+    first; sub-pixel truth below 1:1 is still exact only at z = 1 and z = 2. This variant inherited
+    those and did not fix them.</p>
   </div>
 
-  <p class="foot">Fathom · design study · monochrome diagram, three neutral fills, two stroke
-     weights, eleven edge forms, zero network requests.</p>
+  <p class="foot">Fathom &middot; design study A4 &middot; like-kind aggregation at six, always-on
+     zone colour on five hues outside the reserved families, three neutral fills, two stroke weights,
+     sixteen drawn forms, zero network requests.</p>
 </main>
 
 <script>
@@ -944,6 +1116,17 @@ function fixture(nSpokes, nLagMembers) {
     members: ['n.isp'], layers: ['sec'], inset: 16 });
   bands.push({ id: 'b.vpn', form: 'vbracket', kind: 'zone', name: 'VPN',
     members: ['n.srx'], layers: ['sec'], inset: 16 });
+  /* A FINDING, drawn. A security zone is a set of interfaces, not a region
+     of the picture: zone VPN owns the st0 units inside the SRX AND every
+     peer those units reach, and those two live in different columns. One
+     band cannot enclose both without swallowing the cores. So VPN gets two
+     bands with the same name — and this is precisely why the printed zone
+     tag on the node is not optional: enclosure alone cannot carry a
+     discontiguous set. */
+  bands.push({ id: 'b.vpnfar', form: 'vbracket', kind: 'zone', name: 'VPN',
+    members: Array.from({ length: nSpokes }, (_, i) => 'n.sp' + String(i + 1).padStart(2, '0'))
+             .concat(['n.sp.agg']),
+    layers: ['sec'], inset: 12 });
   bands.push({ id: 'b.vlan10', form: 'hbracket', kind: 'vlan', name: '10',
     members: ['n.cora','n.corb'], layers: ['l2'], inset: 16 });
   bands.push({ id: 'b.ri', form: 'box', kind: 'ri', name: 'CUST-A',
@@ -1888,7 +2071,7 @@ function clipSegs(segs, axis, coord, keepLow) {
     const inB = keepLow ? vb <= coord : vb >= coord;
     if (inA && inB) { out.push(s); continue; }
     if (!inA && !inB) continue;
-    const t = (coord - va) / (vb - va);
+    const t = Math.max(0, Math.min(1, (coord - va) / (vb - va)));
     const mid = { x: s.a.x + (s.b.x - s.a.x) * t, y: s.a.y + (s.b.y - s.a.y) * t };
     out.push(inA ? { a: s.a, b: mid } : { a: mid, b: s.b });
   }
@@ -1916,7 +2099,7 @@ function zoneSplit(r, bandA, bandB) {
       const cands = horiz ? [rect.x0, rect.x1] : [rect.y0, rect.y1];
       const hit = cands.filter(c => c > lo - 0.5 && c < hi + 0.5)
         .sort((u, w) => Math.abs(u - (horiz ? a.x : a.y)) - Math.abs(w - (horiz ? a.x : a.y)))[0];
-      if (hit !== undefined) return { axis, coord: hit };
+      if (hit !== undefined) return { axis, coord: r4(hit) };
     }
     return null;
   };
@@ -1924,7 +2107,9 @@ function zoneSplit(r, bandA, bandB) {
   if (s) return s;
   const mid = pointAtPoly(path, 0.5);
   if (!mid) return null;
-  return Math.abs(mid.vy) < 0.5 ? { axis: 'x', coord: mid.x } : { axis: 'y', coord: mid.y };
+  // the split lands on the 4px lattice even in the fallback, so the two
+  // halves meet on a whole pixel rather than a fractional one
+  return Math.abs(mid.vy) < 0.5 ? { axis: 'x', coord: r4(mid.x) } : { axis: 'y', coord: r4(mid.y) };
 }
 function truncate(s, maxPx, adv) {
   if (s.length * adv <= maxPx) return { t: s, cut: false };
@@ -2034,6 +2219,98 @@ function render() {
   const placed = [];
   const hits = (r) => placed.some(p => !(r.x1 <= p.x0 || r.x0 >= p.x1 || r.y1 <= p.y0 || r.y0 >= p.y1))
     || scene.nodes.some(n => !(r.x1 <= n.x || r.x0 >= n.x + n.w || r.y1 <= n.y || r.y0 >= n.y + n.h));
+  const plate = b => layerText.appendChild(el('rect', { class: 'dg-plate',
+    x: b.x0, y: b.y0, width: b.x1 - b.x0, height: b.y1 - b.y0,
+    'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
+
+  /* =====================================================================
+     COUNTS ARE PLACED FIRST AND ARE NEVER DEMOTED, AND ARE NEVER DROPPED
+     BY THE LEVEL-OF-DETAIL LADDER.  Every other label in this picture may
+     be counted out by the collision search or suppressed by zoom; a label
+     that says how many objects are hidden may not, because suppressing it
+     would be hiding without a count — the exact failure this variant
+     exists to prevent.  So the aggregate labels claim their boxes before
+     anything else is placed, and everything else routes around them.
+     ===================================================================== */
+  const aggLabelled = new Set();
+  const priorityPort = p => {
+    const n = scene.byId.get(p.node);
+    // A COUNT is exempt from the collision search AND from the LOD ladder.
+    if (p.agg && p.name) return p.name;
+    // The zone of a BOUNDARY device's terminal is the only text that says
+    // which zone each of a firewall's interfaces is in, and so it is the sole
+    // non-chromatic carrier for the one thing hue does that geometry cannot.
+    // It is exempt from the collision search but NOT from the LOD ladder: at
+    // a zoom where no label is legible, forcing 120 of them is not honesty.
+    if (lodFull && n && n.boundary && p.zone && p.name && zonesTagged)
+      return p.name + ' · ' + p.zone;
+    return null;
+  };
+  for (const [key, pts] of scene.ports) for (const p of pts) {
+    const lbl = priorityPort(p);
+    if (!lbl) continue;
+    const n = scene.byId.get(p.node);
+    if (p.inside && n) {
+      const w = wMicro(lbl);
+      const box = { x0: n.x + n.w - G.s3 - w, y0: p.y - 7, x1: n.x + n.w - G.s3, y1: p.y + 4 };
+      const t = el('text', { class: 'dg-anno' + (p.agg ? ' ink' : ''),
+        x: n.x + n.w - G.s3, y: p.y + 4, 'text-anchor': 'end' });
+      t.textContent = lbl; layerText.appendChild(t);
+      placed.push(box);
+    } else {
+      const w = wMicro(lbl);
+      const horiz = p.dx !== 0;
+      const anchor = p.dx < 0 ? 'end' : 'start';
+      const cands = horiz
+        ? [{ bx: p.x + p.dx * (G.stub + G.s1), by: p.y - G.s1 },
+           { bx: p.x + p.dx * (G.stub + G.s1), by: p.y + G.s3 },
+           { bx: p.x + p.dx * (G.stub + G.s1), by: p.y - G.s4 }]
+        : [{ bx: p.x + G.s1, by: p.y + p.dy * (G.stub + 10) },
+           { bx: p.x + G.s1, by: p.y + p.dy * (G.stub + 10 + G.s4) },
+           { bx: p.x - G.s1 - w, by: p.y + p.dy * (G.stub + 10) }];
+      const mk = c => ({ x0: anchor === 'end' ? c.bx - w : c.bx, y0: c.by - 9,
+                         x1: anchor === 'end' ? c.bx : c.bx + w, y1: c.by + 2 });
+      let put = cands[0];
+      for (const c of cands) if (!hits(mk(c))) { put = c; break; }
+      const box = mk(put);
+      plate({ x0: box.x0 - G.s1, y0: box.y0, x1: box.x1 + G.s1, y1: box.y1 });
+      const t = el('text', { class: 'dg-anno' + (p.agg ? ' ink' : ''),
+        x: put.bx, y: put.by, 'text-anchor': anchor });
+      t.textContent = lbl; layerText.appendChild(t);
+      placed.push(box);
+    }
+    aggLabelled.add(key + '#' + p.name);
+  }
+  for (const r of scene.routed) {
+    const e = r.e;
+    if (!e.agg || !e.label) continue;
+    const at = pointAtPoly(r.paths[r.paths.length - 1], 0.5);
+    if (!at) continue;
+    const w = wMicro(e.label), h = 12;
+    // it will be drawn whatever happens — but it still tries four honest
+    // positions before it insists, so a forced count is the last resort
+    // rather than the first
+    const horiz = Math.abs(at.vy) < 0.5;
+    const cands = horiz
+      ? [{ x: at.x - w / 2, y: at.y - G.s5 - h }, { x: at.x - w / 2, y: at.y + G.s4 },
+         { x: at.x - w / 2, y: at.y - G.s8 - h }, { x: at.x - w / 2, y: at.y + G.s6 },
+         { x: at.x - w / 2, y: at.y - G.s8 - G.s6 - h }, { x: at.x - w / 2, y: at.y + G.s8 },
+         { x: at.x - w / 2 - G.s8, y: at.y - G.s5 - h },
+         { x: at.x - w / 2 + G.s8, y: at.y - G.s5 - h }]
+      : [{ x: at.x + G.s4, y: at.y - h / 2 }, { x: at.x - G.s4 - w, y: at.y - h / 2 },
+         { x: at.x + G.s6, y: at.y - h / 2 }, { x: at.x - G.s6 - w, y: at.y - h / 2 },
+         { x: at.x + G.s4, y: at.y - h / 2 - G.s5 }, { x: at.x + G.s4, y: at.y - h / 2 + G.s5 }];
+    let put = cands[0];
+    for (const c of cands) {
+      const bx = { x0: c.x - G.s1, y0: c.y - 1, x1: c.x + w + G.s1, y1: c.y + h + 1 };
+      if (!hits(bx)) { put = c; break; }
+    }
+    const box = { x0: put.x - G.s1, y0: put.y - 1, x1: put.x + w + G.s1, y1: put.y + h + 1 };
+    plate(box); placed.push(box);
+    const t = el('text', { class: 'dg-anno ink', x: put.x, y: put.y + 9 });
+    t.textContent = e.label; layerText.appendChild(t);
+    aggLabelled.add(e.id);
+  }
 
   const bandByZone = new Map();
   for (const b of scene.bands) if (b.kind === 'zone' || b.kind === 'oob') bandByZone.set(b.name, b);
@@ -2076,12 +2353,15 @@ function render() {
         width: G.junc, height: G.junc, 'shape-rendering': 'crispEdges' }));
     layerEdge.appendChild(g);
 
-    if (e.label && lodFull) {
+    if (e.label && aggLabelled.has(e.id)) { edgeLabelsDrawn++; }
+    else if (e.label && lodFull) {
       // A conduit's identity lives at its terminals — the st0 unit inside the
       // hub and the peer box itself. The traffic selector is a midpoint label
       // and forty of those is a texture, so it is drawn for the SELECTED
       // conduit only and counted for the rest.
-      const conduitFan = e.kind === 'conduit' && state.sel !== e.id;
+      // an AGGREGATE conduit is not a fan — it is one object standing for n,
+      // and its count is exactly the label that must never be suppressed
+      const conduitFan = e.kind === 'conduit' && state.sel !== e.id && !e.agg;
       if (conduitFan) { edgeLabelsOff++; }
       else {
         const at = pointAtPoly(r.paths[r.paths.length - 1], 0.5);
@@ -2131,9 +2411,6 @@ function render() {
   }
   const overRail = b => rails.some(r =>
     !(b.x1 <= r.x0 || b.x0 >= r.x1 || b.y1 <= r.y0 || b.y0 >= r.y1));
-  const plate = b => layerText.appendChild(el('rect', { class: 'dg-plate',
-    x: b.x0, y: b.y0, width: b.x1 - b.x0, height: b.y1 - b.y0,
-    'vector-effect': 'non-scaling-stroke', 'shape-rendering': 'crispEdges' }));
 
   let portLabelsOff = 0;
   if (lodFull) {
@@ -2142,7 +2419,8 @@ function render() {
       // so neither of them lands on the rail pair leaving the spine
       const mid = pts.reduce((a, p) => a + (p.dy !== 0 ? p.x : p.y), 0) / pts.length;
       for (const p of pts) {
-        if (!p.name) continue;
+        // counts and boundary-terminal zones were placed first and are done
+        if (!p.name || aggLabelled.has(key + '#' + p.name)) continue;
         const n = scene.byId.get(p.node);
         /* On a BOUNDARY DEVICE the terminal's zone is printed next to the
            interface name. This is the text carrier for the one distinction
@@ -2288,8 +2566,9 @@ function render() {
       // the collapsed set's second line: how many, and of what
       if (n.agg) {
         const c = el('text', { class: 'dg-anno ink', x: n.x + G.s3, y: n.y + 30 });
-        c.textContent = n.agg.n + ' ' + n.agg.noun +
-          (n.agg.residual ? ' of ' + n.agg.total : '') + ' ▸';
+        c.textContent = n.agg.residual
+          ? n.agg.n + ' of ' + n.agg.total + ' spokes ▸'
+          : n.agg.n + ' ' + n.agg.noun + ' ▸';
         layerText.appendChild(c);
       }
       if (n.ageLine && lodFull) {
@@ -3237,21 +3516,87 @@ function paintKey() {
 }
 
 /* =========================================================================
+   12b. THE ZONE KEY — measured live from the resolved tokens, so the numbers
+   printed beside each hue are the ones the browser actually produced, in
+   whichever theme is active. A legend that asserts its own contrast is a
+   legend that will eventually be wrong.
+   ========================================================================= */
+const ZONES = [
+  ['TRUST',   '--z-trust',   'inside the firewall — cores and the access layer'],
+  ['VPN',     '--z-vpn',     'st0 units and everything reached through them'],
+  ['MGMT',    '--z-mgmt',    'out-of-band. fxp0 is in no Junos zone at all'],
+  ['WAN',     '--z-wan',     'the provider-facing edge — reth0.0 lives here'],
+  ['UNTRUST', '--z-untrust', 'nominal: everything past the WAN edge']
+];
+function hex2rgb(h) {
+  h = h.trim();
+  if (h[0] !== '#') return null;
+  if (h.length === 4) h = '#' + [1, 2, 3].map(i => h[i] + h[i]).join('');
+  return [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+}
+const lin1 = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+const relLum = r => 0.2126 * lin1(r[0] / 255) + 0.7152 * lin1(r[1] / 255) + 0.0722 * lin1(r[2] / 255);
+// CSS `filter: grayscale(1)` is applied in gamma-encoded sRGB in Chromium
+const greyByte = r => Math.round(0.2126 * r[0] + 0.7152 * r[1] + 0.0722 * r[2]);
+function contrastOn(rgb, otherRgb) {
+  const a = relLum(rgb), b = relLum(otherRgb);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+function paintZoneLegend() {
+  const cs = getComputedStyle(document.documentElement);
+  const page = hex2rgb(cs.getPropertyValue('--page')) || [255, 255, 255];
+  const host = document.getElementById('zone-legend');
+  host.innerHTML = ZONES.map(([nm, tok, desc]) => {
+    const rgb = hex2rgb(cs.getPropertyValue(tok));
+    const g = rgb ? greyByte(rgb) : '—';
+    const c = rgb ? contrastOn(rgb, page).toFixed(2) : '—';
+    return `<div class="zlegend-row ${esc(ZONE_CLASS[nm])}">
+      <span class="zlegend-sw"></span>
+      <span style="flex:1 1 auto;min-width:0">
+        <span class="legend-nm">${esc(nm)}</span>
+        <span class="legend-ds"> — ${esc(desc)}</span></span>
+      <span class="zlegend-gs">${g} · ${c}:1</span></div>`;
+  }).join('') +
+  `<p class="insp-empty" style="margin-top:var(--s2)">Greyscale byte, then contrast against
+   <span class="m">--page</span>. Every one sits strictly between <span class="m">--ink</span>
+   (23) and <span class="m">--muted</span> (101), so no zone hue can be read as ink or as
+   de-emphasis when the colour is gone. The nearest approach of any hue here to any reserved family is 48° (UNTRUST to the green boundary).</p>`;
+}
+
+/* =========================================================================
    13. BOOT
    ========================================================================= */
 paintKey();
+paintZoneLegend();
+setLag(2);
 setSpokes(4);
 fit(0.6);
 paintInspector();
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintZoneLegend);
 
 window.__dia = {
   setSpokes: n => { const s = setSpokes(n); fit(); return stats(); },
+  setLag: n => { setLag(n); fit(); return stats(); },
+  setAggregate: on => { state.aggregate = !!on; if (!on) state.expanded.clear();
+                        state.sel = null; render(); fit(); return stats(); },
+  setColour: on => { state.colour = !!on; render(); return stats(); },
+  setZoneTags: on => { state.ztags = !!on; state.sel = null; render(); return stats(); },
+  setGrey: on => { state.grey = !!on; render(); return stats(); },
+  expand: key => { state.expanded.set(key, 0); render(); return stats(); },
+  page: key => { const g = scene.groups.find(x => x.key === key);
+                 if (g) pageAgg(key, g.n, g.page); render(); return stats(); },
+  collapse: key => { state.expanded.delete(key); render(); return stats(); },
+  groups: () => scene.groups.map(g => ({ ...g })),
   setZoom, fit, state, stats,
   get scene() { return scene; }
 };
 function stats() {
   return {
     spokes: state.spokes,
+    lagMembers: state.lagMembers,
+    aggregate: state.aggregate,
+    colour: state.colour,
+    ztags: state.ztags,
     nodes: scene.nodes.length,
     edges: scene.edges.length,
     bands: scene.bands.length,
@@ -3263,6 +3608,9 @@ function stats() {
     sceneW: Math.round(scene.ext.w),
     sceneH: Math.round(scene.ext.h),
     zoom: state.zoom,
+    groups: scene.groups.filter(g => g.on).map(g =>
+      ({ key: g.key, n: g.n, expanded: !!g.expanded, shown: g.shown, hidden: g.hidden,
+         lo: g.lo, hi: g.hi })),
     suppressed: state.suppressed.slice()
   };
 }
