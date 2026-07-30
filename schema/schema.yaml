@@ -1,0 +1,2209 @@
+# schema/schema.yaml — the file the product is generated from (ADR-0008; grammar: docs/60-content/62-schema-spec.md).
+# Content: 11-ir-schema.md (config layer) and 19-service-and-physical-model.md (physical + service layers).
+# 62 wins on form, 11/19 win on content; every site where they strain against each other carries a comment.
+# Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
+
+schema:
+  version: "0.1"    # One minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's "3.2" is
+                    # explicitly illustrative; this is the first shipped content of the tree).
+
+scalars:
+  # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
+  # ---- binding targets codegen checks (schema.scalar.unbound).
+  - { name: Ip4Addr,            impl: fathom_ir::scalar::Ip4Addr }
+  - { name: Ip6Addr,            impl: fathom_ir::scalar::Ip6Addr }
+  - { name: IpAddr,             impl: fathom_ir::scalar::IpAddr }
+  - { name: IpPrefix,           impl: fathom_ir::scalar::IpPrefix }
+  - { name: InterfaceAddress,   impl: fathom_ir::scalar::InterfaceAddress }
+  - { name: IpRange,            impl: fathom_ir::scalar::IpRange }
+  - { name: MacAddress,         impl: fathom_ir::scalar::MacAddress }
+  - { name: IpProtocol,         impl: fathom_ir::scalar::IpProtocol }
+  - { name: L4Port,             impl: fathom_ir::scalar::L4Port }
+  - { name: PortRange,          impl: fathom_ir::scalar::PortRange }
+  - { name: VlanId,             impl: fathom_ir::scalar::VlanId }
+  - { name: Asn,                impl: fathom_ir::scalar::Asn }
+  - { name: Seconds,            impl: fathom_ir::scalar::Seconds }
+  - { name: Kilobytes,          impl: fathom_ir::scalar::Kilobytes }
+  - { name: DhGroup,            impl: fathom_ir::scalar::DhGroup }
+  - { name: EncryptionAlgorithm, impl: fathom_ir::scalar::EncryptionAlgorithm }
+  - { name: IntegrityAlgorithm, impl: fathom_ir::scalar::IntegrityAlgorithm }
+  - { name: AuthMethod,         impl: fathom_ir::scalar::AuthMethod }
+  - { name: IkeVersion,         impl: fathom_ir::scalar::IkeVersion }
+  - { name: Identifier,         impl: fathom_ir::scalar::Identifier }
+  - { name: InterfaceName,      impl: fathom_ir::scalar::InterfaceName }
+  - { name: OsVersion,          impl: fathom_ir::scalar::OsVersion }
+  - { name: Timestamp,          impl: fathom_ir::scalar::Timestamp }
+  - { name: Fqdn,               impl: fathom_ir::scalar::Fqdn }
+  - { name: RouteDistinguisher, impl: fathom_ir::scalar::RouteDistinguisher }
+  - { name: SecretPlaceholder,  impl: fathom_ir::scalar::SecretPlaceholder }
+  - { name: Text,               impl: fathom_ir::scalar::Text }
+  # NOTE (form vs content): 11 §4.3 catalogues Mtu and IkeId as semantic scalars; 62 §3.1 row 3
+  # lists both among the structured value types (Mtu is a struct {bytes, layer} per 11 §4.4;
+  # IkeId is a tagged union). 62's binding form is followed; the divergence is a defect to file
+  # per 62 §1's precedence rule.
+  - { name: Mtu,                impl: fathom_ir::value::Mtu,            structured: true }
+  - { name: IkeId,              impl: fathom_ir::value::IkeId,          structured: true }
+  # ---- 62 §3.1's remaining structured value types.
+  - { name: PeerSpec,           impl: fathom_ir::value::PeerSpec,       structured: true }
+  - { name: Dpd,                impl: fathom_ir::value::Dpd,            structured: true }
+  - { name: PostalAddress,      impl: fathom_ir::value::PostalAddress,  structured: true }
+  - { name: AttrValue,          impl: fathom_ir::value::AttrValue,      structured: true }
+  - { name: NameConformance,    impl: fathom_ir::value::NameConformance, structured: true }
+  # ---- The five new scalars 62 §3.3 defines (transcription candidates for 11 §4.3,
+  # ---- 62 §24 Disagreement 1). PostalAddress and AttrValue are above.
+  - { name: Date,               impl: fathom_ir::scalar::Date }
+  - { name: LatLon,             impl: fathom_ir::scalar::LatLon }
+  # VERIFY: Clli accepted lengths (8-char site prefix vs 11-char full code) — 62 §3.3's own
+  # marker; charset-and-length validation only until confirmed.
+  - { name: Clli,               impl: fathom_ir::scalar::Clli }
+  # ---- The known holes 62 §3.4 closes (PolicyAction and HostService are schema enums and live
+  # ---- under schema/enums/; aggregate_device_count / reth_count are Device fields below).
+  - { name: Bandwidth,          impl: fathom_ir::scalar::Bandwidth }
+  - { name: TzName,             impl: fathom_ir::scalar::TzName }
+  - { name: PlatformId,         impl: fathom_ir::scalar::PlatformId }
+  - { name: InferenceRuleId,    impl: fathom_ir::scalar::InferenceRuleId }
+  - { name: RouteTarget,        impl: fathom_ir::scalar::RouteTarget }
+  # ---- Bindings used as field types by 11 §6 / 19 §§3-6 but present in no scalar catalogue.
+  # VERIFY: none of the following appears in 11 §4.3 or 62 §3; each is used as a type by a field
+  # table (shape given in the citing section where one is given). Declared structured — no vendor
+  # round-trip is stated for any of them. Confirm classification at 11's next catalogue edit.
+  - { name: NextHop,            impl: fathom_ir::value::NextHop,        structured: true, contains_reference: true }
+      # 11 §6.5 — the registered NodeId exception
+  - { name: QualifiedNextHop,   impl: fathom_ir::value::QualifiedNextHop, structured: true, contains_reference: true }
+      # 11 §6.5 StaticRoute.qualified: [(NextHop, preference, metric)]
+  - { name: NodePriority,       impl: fathom_ir::value::NodePriority,   structured: true }
+      # 11 §6.3 RedundancyGroup.node_priority: [(member_index, u8)]
+  - { name: OspfArea,           impl: fathom_ir::value::OspfArea,       structured: true }
+  - { name: OspfAreaId,         impl: fathom_ir::scalar::OspfAreaId }
+  - { name: PolicyScope,        impl: fathom_ir::value::PolicyScope,    structured: true, contains_reference: true }
+      # 11 §6.6 — carries zone/unit NodeIds, registered like NextHop
+  - { name: AddressValue,       impl: fathom_ir::value::AddressValue,   structured: true }
+  - { name: L4Spec,             impl: fathom_ir::value::L4Spec,         structured: true }
+  - { name: NatScope,           impl: fathom_ir::value::NatScope,       structured: true, contains_reference: true }
+      # 11 §6.6 — Zone/Interface/RoutingInstance NodeIds
+  - { name: NatAction,          impl: fathom_ir::value::NatAction,      structured: true }
+  - { name: VpnMonitor,         impl: fathom_ir::value::VpnMonitor,     structured: true, contains_reference: true }
+      # 11 §6.7 — source_interface: NodeId
+  - { name: PortPosition,       impl: fathom_ir::value::PortPosition,   structured: true }
+  - { name: Transceiver,        impl: fathom_ir::value::Transceiver,    structured: true }
+  - { name: SplitRatio,         impl: fathom_ir::value::SplitRatio,     structured: true }
+  - { name: EndpointCardinality, impl: fathom_ir::value::EndpointCardinality, structured: true }
+      # 19 §4.3 { min: u8, max: Option<u8> }
+  - { name: AttributeDecl,      impl: fathom_ir::value::AttributeDecl,  structured: true }
+  - { name: FieldPath,          impl: fathom_ir::value::FieldPath,      structured: true }
+  - { name: Resolution,         impl: fathom_ir::value::Resolution,     structured: true }
+      # 19 §6.6 — derived-only; never serialised (62 §11)
+  - { name: SyslogHost,         impl: fathom_ir::value::SyslogHost,     structured: true }
+      # VERIFY: 11 §6.8 writes SyslogTarget.host: IpAddr|Fqdn — a union 62 §4.3's type grammar
+      # cannot spell; a tagged structured value in the PeerSpec shape is assumed here.
+
+classes:
+  - class: InterfaceLike
+    members: [Interface, AggregateInterface, RethInterface, TunnelInterface]
+    doc: Anything a LogicalUnit can be contained by and an endpoint can attach to.
+  - class: MultiMemberInterface
+    members: [AggregateInterface, RethInterface]
+    doc: |
+      Cross-vendor rules address this, never the kinds — 11 §12.1's reth/LAG split.
+  - class: PortHost
+    members: [Chassis, PassiveNode]
+    doc: The two owners of PhysicalPort. 19 §3.3, carried per 19 §7.4 row 5.
+
+kinds:
+  # Identity tuples are transcribed only where 11 §10.3 or 19 states them. Kinds for which no
+  # source document states a tuple carry `identity: []` with the reason in doc, per 62 §4.2 —
+  # inventing a natural key here would be the defect, not the gap.
+
+  # ======================= config layer — 11 §6.3 organisational and device =======================
+  - kind: Site
+    layer: config
+    emits: true          # stays emits: true because Site.timezone is Emit O (62 §4.2)
+    doc: |
+      Organisational grouping of devices and external peers (11 §6.3). Contains Device and
+      ExternalPeer; a Tunnel spans sites and is contained by the workspace root.
+    fields:
+      - { name: name,        type: Text,       card: "1",    emit: "—", doc: Display name. }
+      - { name: code,        type: Identifier, card: "0..1", emit: "—", doc: Short code used in generated object names. }
+      - { name: address,     type: Text,       card: "0..1", emit: "—", doc: Free prose. }
+      - { name: timezone,    type: TzName,     card: "0..1", emit: O, doc: Feeds NTP/logging emit. }
+      - { name: criticality, type: "enum { core, branch, lab, dc }", card: "0..1", emit: "—", doc: "Used by rule severity weighting, not by emit." }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for Site.
+
+  - kind: Device
+    layer: config
+    emits: true
+    doc: |
+      The unit that a configuration file is a configuration file of (11 §6.3). An SRX chassis
+      cluster is one Device with two Chassis, because it has one config.
+    fields:
+      - { name: hostname,   type: Identifier, card: "1", emit: R }
+      - { name: platform,   type: PlatformId, card: "1", emit: R, doc: "junos-srx, panos, ios-xe. Not \"vendor\". FK into schema/platforms.yaml." }
+      - { name: os_version, type: OsVersion,  card: "0..1", emit: "—", doc: Drives every rule versions predicate (11 §4.7). }
+      - { name: role, type: "enum { firewall, router, switch, load_balancer, other }", card: "0..1", emit: "—" }
+      - { name: domain_name, type: Fqdn, card: "0..1", emit: O, doc: Batfish Domain_Name. }
+      - { name: management_address, type: IpAddr, card: "0..1", emit: "—", doc: Inventory only. Never used to reach the device (invariant 2). }
+      - { name: cluster_id, type: u16, card: "0..1", emit: "R*", emit_required_when: { platforms: [junos-srx] }, doc: junos-srx chassis cluster only. }
+          # VERIFY: 11 §6.3 scopes R* to "junos-srx chassis cluster only"; the cluster-only half
+          # of the predicate is not stated in 62 §12.3's grammar terms.
+      - { name: default_cross_zone_action, type: enum(policy_action), card: "0..1", emit: "—", doc: "Batfish. Almost always Default(deny) — a provenance state, not a variant (62 §3.4)." }
+      - { name: default_inbound_action, type: enum(policy_action), card: "0..1", emit: "—", doc: Batfish. }
+      - name: aggregate_device_count
+        type: u16
+        card: "0..1"
+        emit: "R*"
+        emit_required_when: { platforms: ["junos-*"], when: "exists(AggregateInterface within Device)" }
+        doc: |
+          set chassis aggregated-devices ethernet device-count N. 62 §3.4 / 82 §15 — required
+          when the device owns at least one AggregateInterface. Paired with reth_count.
+      - name: reth_count
+        type: u16
+        card: "0..1"
+        emit: "R*"
+        emit_required_when: { platforms: [junos-srx], when: "exists(RethInterface within Device)" }
+        doc: set chassis cluster reth-count N. 62 §3.4 / 82 §15's first hard stop.
+      - name: name_conformance
+        type: NameConformance
+        card: "1"
+        emit: "—"
+        derived: { fn: derive.device.name-conformance, depends_on: [hostname, platform] }
+        doc: |
+          19 §8.3 — { state: enum(conformance_state), reason: Text? } per 62 §11.2. Evaluated
+          against the active Policy naming scheme.
+          VERIFY: the derive fn name and the full depends_on (19 §8.3 says it includes the
+          traversal to Premises via Site) are not stated as declarations anywhere; the read
+          set above is the minimum the prose names and is certainly incomplete.
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for Device.
+
+  - kind: Chassis
+    layer: config
+    emits: true
+    doc: One physical box of a Device (11 §6.3). Standalone boxes have one.
+    fields:
+      - { name: member_index, type: u8, card: "1", emit: "R*", emit_required_when: { platforms: [] }, doc: Junos node0/node1; VC member id. }
+          # VERIFY: R* platform set unstated in 11 §6.3 (the note names Junos forms only);
+          # platforms: [] carries the unstated set — the RoutingInstance.route_distinguisher
+          # spelling, required by 62 §4.3's iff-rule.
+      - { name: model,  type: Identifier, card: "0..1", emit: "—", doc: SRX345. }
+      - { name: serial, type: Identifier, card: "0..1", emit: "—", doc: Inventory. Sensitive-ish; never leaves the workspace. }
+      - { name: slots,  type: u8, card: "0..1", emit: "—", doc: "FPC count, for interface-name validation." }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for Chassis.
+
+  - kind: RedundancyGroup
+    layer: config
+    emits: true
+    doc: |
+      Junos chassis-cluster redundancy group, owned by Device — both nodes share one
+      configuration, so the RG is a property of the config, not of a box (11 §6.3).
+    fields:
+      - { name: number, type: u8, card: "1", emit: R, doc: RG0 is the routing-engine group; RG1+ carry interfaces. }
+      - { name: node_priority, type: NodePriority, card: "0..n", emit: "R*", emit_required_when: { platforms: [] } }
+          # VERIFY: R* platform set unstated in 11 §6.3; platforms: [] carries the unstated set
+          # (the RoutingInstance.route_distinguisher spelling), per 62 §4.3's iff-rule.
+      - { name: preempt, type: bool, card: "0..1", emit: O }
+      - { name: hold_down_interval, type: Seconds, card: "0..1", emit: O }
+          # VERIFY: 11 §6.3's own marker — exact Junos statement names and defaults for
+          # hold-down-interval and gratuitous-arp-count on current SRX releases.
+      - { name: gratuitous_arp_count, type: u8, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for RedundancyGroup.
+
+  - kind: ExternalPeer
+    layer: config
+    emits: false    # VERIFY: kind-level flag unstated; every field is Emit "—" in 11 §6.3
+                    # ("the far end you do not model"), so false is the conservative reading.
+    doc: |
+      The far end you do not model (11 §6.3). Required by partiality — a Tunnel with one
+      modelled side is the normal case, not an error. Also the physical horizon terminal
+      (19 §3.4.1) and a path terminal (19 §5.2).
+    fields:
+      - { name: label,   type: Text,   card: "1",    emit: "—", doc: "\"Site B\", \"AWS eu-west-1 VGW\"." }
+      - { name: address, type: IpAddr, card: "0..1", emit: "—", doc: The peer address as we see it. }
+      - { name: organisation, type: Text, card: "0..1", emit: "—" }
+      - { name: contact,      type: Text, card: "0..1", emit: "—" }
+      - { name: platform_guess, type: PlatformId, card: "0..1", emit: "—", doc: Origin::Inferred from IKE behaviour or what the user said. Drives interop rules only. }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for ExternalPeer.
+
+  # ======================= config layer — 11 §6.4 interface kinds =======================
+  - kind: Interface
+    layer: config
+    emits: true
+    doc: |
+      A physical-port configuration object (11 §6.4; 19 §3.1 — the hardware census lives on
+      PhysicalPort, reached through Occupies). Loopbacks and IRBs are form discriminants,
+      not kinds (11 §6.1).
+    fields:
+      - { name: name, type: InterfaceName, card: "1", emit: R, comparator: parsed_then_raw, doc: "ge-0/0/0. parsed wins on comparison, raw wins on emit (11 §4.6)." }
+      - { name: form, type: "enum { ethernet, serial, loopback, management, irb }", card: "1", emit: "—", doc: "Discriminant, not a kind (11 §6.1)." }
+      - { name: description, type: Text, card: "0..1", emit: O }
+      - { name: admin_up, type: bool, card: "0..1", emit: O, doc: Junos emits the negative (disable); the emitter owns that inversion. }
+      - { name: mtu, type: Mtu, card: "0..1", emit: O, doc: L2Frame-layer by schema constraint (11 §4.4). }
+      - { name: speed, type: Bandwidth, card: "0..1", emit: O, doc: The configured rate — a different fact from PhysicalPort.speed_max (19 §3.3). }
+      - { name: duplex, type: "enum { full, half, auto }", card: "0..1", emit: O }
+      - { name: flow_control, type: bool, card: "0..1", emit: O }
+      - { name: vlan_tagging, type: bool, card: "0..1", emit: "R*", emit_required_when: { platforms: ["junos-*"] }, doc: Required on Junos before a unit may carry a VLAN id. }
+          # VERIFY: the unit-carries-a-vlan half of the predicate is not stated in 62 §12.3 terms.
+    identity:
+      - [ owner(Device), name.parsed ]
+      - [ owner(Device), name.raw ]
+
+  - kind: AggregateInterface
+    layer: config
+    emits: true
+    doc: |
+      LAG — ae on Junos, port-channel on IOS, bond on Linux (11 §6.4). One kind with
+      per-platform naming. Junos emit requires the sibling Device.aggregate_device_count
+      (emission: emit.junos.aggregate-device-count).
+    fields:
+      - { name: name, type: InterfaceName, card: "1", emit: R }
+      - { name: lacp_mode, type: enum(lacp_mode), card: "0..1", emit: O }
+      - { name: lacp_periodic, type: "enum { fast, slow }", card: "0..1", emit: O }
+      - { name: minimum_links, type: u8, card: "0..1", emit: O }
+      - { name: link_speed, type: Bandwidth, card: "0..1", emit: "R*", emit_required_when: { platforms: ["junos-*"] }, doc: Junos aggregated-ether-options link-speed. }
+      - { name: description, type: Text, card: "0..1", emit: O }
+      - { name: admin_up, type: bool, card: "0..1", emit: O }
+      - { name: mtu, type: Mtu, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for AggregateInterface.
+
+  - kind: RethInterface
+    layer: config
+    emits: true
+    doc: |
+      Junos chassis-cluster redundant Ethernet (11 §6.4). Not a LAG — members are on
+      different chassis, one forwarding at a time. The required InRedundancyGroup edge is
+      what earns the kind.
+    fields:
+      - { name: name, type: InterfaceName, card: "1", emit: R, doc: reth0. }
+      - { name: minimum_links, type: u8, card: "0..1", emit: O }
+      - { name: lacp_mode, type: enum(lacp_mode), card: "0..1", emit: O, doc: reth can run LACP across the cluster on supported releases. }
+      - { name: description, type: Text, card: "0..1", emit: O }
+      - { name: admin_up, type: bool, card: "0..1", emit: O }
+      - { name: mtu, type: Mtu, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for RethInterface.
+
+  - kind: TunnelInterface
+    layer: config
+    emits: true
+    doc: |
+      st0 on SRX, Tunnel0 on IOS, tunnel.1 on PAN-OS (11 §6.4). No speed, no duplex,
+      no media — that absence is the reason it is a kind.
+    fields:
+      - { name: name, type: InterfaceName, card: "1", emit: R, doc: st0. }
+      - { name: technology, type: "enum { ipsec_vti, gre, gre_over_ipsec, vxlan, other }", card: "1", emit: "—", doc: Determines which rules apply. }
+      - { name: description, type: Text, card: "0..1", emit: O }
+      - { name: admin_up, type: bool, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for TunnelInterface.
+
+  - kind: LogicalUnit
+    layer: config
+    emits: true
+    doc: |
+      The Junos unit / the Cisco sub-interface (11 §6.4). Contained by any InterfaceLike.
+      st0.0 is rendered from (TunnelInterface st0, index 0), never stored joined (11 §4.6).
+    fields:
+      - { name: index, type: u32, card: "1", emit: R }
+      - { name: description, type: Text, card: "0..1", emit: O }
+      - { name: vlan_id, type: VlanId, card: "0..1", emit: "R*", emit_required_when: { platforms: ["junos-*"] }, doc: Junos vlan-id on a tagged unit. }
+          # VERIFY: the tagged-unit half of the predicate is not stated in 62 §12.3 terms.
+      - { name: families, type: "set{family}", card: "0..n", emit: R, doc: At least one family is required for the unit to carry an address. }
+      - { name: family_mtu, type: "map(Family, Mtu)", card: "0..n", emit: O, doc: set interfaces st0 unit 0 family inet mtu 1400. L3Payload-layer (11 §4.4). }
+          # NOTE (form vs content): 62 §4.3 states map keys are Identifier; 11 §6.4 keys this
+          # map by Family. 11 wins on content; the grammar mismatch is a defect to file.
+      - { name: encapsulation, type: Identifier, card: "0..1", emit: O }
+      - { name: admin_up, type: bool, card: "0..1", emit: O }
+    identity:
+      - [ owner(InterfaceLike), index ]
+
+  - kind: Address
+    layer: config
+    emits: true
+    doc: An IP address on a LogicalUnit (11 §6.4). Not a postal address — that is Premises.
+    fields:
+      - { name: value, type: InterfaceAddress, card: "1", emit: R, doc: 10.255.0.1/30 — host bits preserved (11 §4.3). }
+      - { name: family, type: "enum { inet, inet6 }", card: "1", emit: R, doc: Derivable from value; stored because an Unknown value still has a known family. }
+      - { name: is_primary, type: bool, card: "0..1", emit: O }
+      - { name: is_preferred, type: bool, card: "0..1", emit: O, doc: Junos distinguishes these; most platforms do not. }
+      - { name: vrrp_group, type: u8, card: "0..1", emit: O, doc: Batfish VRRP_Groups. }
+    identity:
+      - [ owner(LogicalUnit), value ]
+
+  - kind: Vlan
+    layer: config
+    emits: true
+    doc: A VLAN on a Device (11 §6.4).
+    fields:
+      - { name: vlan_id, type: VlanId, card: "1", emit: R }
+      - { name: name, type: Identifier, card: "0..1", emit: "R*", emit_required_when: { platforms: ["junos-*"] }, doc: Junos names VLANs; IOS numbers them. }
+          # VERIFY: R* platform set inferred from "Junos names VLANs"; not stated as a set.
+      - { name: description, type: Text, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for Vlan.
+
+  # ======================= config layer — 11 §6.5 routing kinds =======================
+  - kind: RoutingInstance
+    layer: config
+    emits: true
+    doc: |
+      The neutral core of Junos instance-type / Cisco vrf / PAN virtual router (11 §6.5,
+      §12.3). The default instance is modelled explicitly, not as None.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R }
+      - { name: isolation, type: "enum { routing_table_only, l3_vpn, l2_bridge, forwarding, non_forwarding }", card: "1", emit: R }
+      - { name: router_id, type: Ip4Addr, card: "0..1", emit: O }
+      - { name: route_distinguisher, type: RouteDistinguisher, card: "0..1", emit: "R*", emit_required_when: { platforms: [], when: "isolation == L3Vpn" }, doc: L3Vpn only (11 §6.5). }
+          # VERIFY: platform set unstated (empty = the predicate alone governs — a reading 62
+          # §4.3 does not pin down).
+      - { name: vrf_import, type: Identifier, card: "0..n", emit: "R*", emit_required_when: { platforms: [], when: "isolation == L3Vpn" }, doc: "Policy names, resolved to RoutingPolicy nodes when those exist." }
+          # VERIFY: 11 marks R* with no platform or predicate; L3Vpn is inferred from the
+          # route_distinguisher row.
+      - { name: vrf_export, type: Identifier, card: "0..n", emit: "R*", emit_required_when: { platforms: [], when: "isolation == L3Vpn" } }
+          # VERIFY: as vrf_import.
+      - { name: vrf_target, type: RouteTarget, card: "0..n", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for RoutingInstance.
+
+  - kind: StaticRoute
+    layer: config
+    emits: true
+    doc: A static route in a RoutingInstance (11 §6.5).
+    fields:
+      - { name: destination, type: IpPrefix, card: "1", emit: R, doc: 10.2.0.0/16 — host bits zeroed (11 §4.3). }
+      - name: next_hop
+        type: NextHop
+        card: "1..n"
+        emit: R
+        doc: |
+          Address / Interface(NodeId -> LogicalUnit) / Discard / Reject / NextTable.
+          The registered contains_reference exception (11 §6.5).
+      - { name: preference, type: u16, card: "0..1", emit: O, doc: Junos preference; Cisco administrative distance. }
+      - { name: metric, type: u32, card: "0..1", emit: O }
+      - { name: resolve, type: bool, card: "0..1", emit: O }
+      - { name: no_readvertise, type: bool, card: "0..1", emit: O }
+      - { name: qualified, type: QualifiedNextHop, card: "0..n", emit: O, doc: Junos qualified-next-hop. }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for StaticRoute.
+
+  - kind: LearnedRoute
+    layer: config
+    emits: false    # VERIFY: kind-level flag unstated; 11 §6.5 says "Never emitted. Never
+                    # hand-entered. Produced by inference only", so false is the conservative reading.
+    doc: Inference output only (11 §6.5, §9.5). Never emitted, never hand-entered.
+    fields:
+      - { name: destination, type: IpPrefix, card: "1", emit: "—" }
+      - { name: via, type: NodeId, card: "1", emit: "—", doc: The LogicalUnit or RoutingProtocol it resolves through. }
+          # NOTE (form vs content): NodeId is not a declarable type in 62 §4.3's grammar; 11 §6.5
+          # states it. Transcribed as written; a defect to file alongside MemberOfReth.chassis.
+      - { name: basis, type: InferenceRuleId, card: "1", emit: "—", doc: Which heuristic produced it. }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for LearnedRoute.
+
+  - kind: RoutingProtocol
+    layer: config
+    emits: true
+    doc: A routing protocol instance under a RoutingInstance (11 §6.5).
+    fields:
+      - { name: protocol, type: "enum { ospf, ospf_v3, bgp, isis, rip, ldp }", card: "1", emit: R }
+      - { name: router_id, type: Ip4Addr, card: "0..1", emit: O }
+      - { name: local_as, type: Asn, card: "0..1", emit: "R*", emit_required_when: { platforms: [], when: "protocol == Bgp" }, doc: BGP. }
+      - { name: reference_bandwidth, type: Bandwidth, card: "0..1", emit: O, doc: Batfish OSPF property. }
+      - { name: areas, type: OspfArea, card: "0..n", emit: "R*", emit_required_when: { platforms: [], when: "protocol == Ospf" }, doc: OSPF. }
+          # VERIFY: whether OspfV3 also requires areas is unstated in 11 §6.5.
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for RoutingProtocol.
+
+  - kind: ProtocolAdjacency
+    layer: config
+    emits: true
+    doc: A neighbour/adjacency under a RoutingProtocol (11 §6.5).
+    fields:
+      - { name: peer_address, type: IpAddr, card: "0..1", emit: "R*", emit_required_when: { platforms: [] }, doc: BGP neighbour. }
+          # VERIFY: the BGP-only predicate reads the owning RoutingProtocol.protocol, which 62
+          # §12.3's path grammar (edge-hop only, no owner hop) cannot spell; platforms: []
+          # carries the declarable half per 62 §4.3's iff-rule, the predicate stays undeclared.
+      - { name: peer_as, type: Asn, card: "0..1", emit: "R*", emit_required_when: { platforms: [] }, doc: BGP. }
+          # VERIFY: as peer_address.
+      - { name: local_address, type: IpAddr, card: "0..1", emit: O }
+      - { name: area, type: OspfAreaId, card: "0..1", emit: "R*", emit_required_when: { platforms: [] }, doc: OSPF interface adjacency. }
+          # VERIFY: as peer_address (OSPF-only, owner-hop predicate).
+      - { name: cost, type: u32, card: "0..1", emit: O, doc: Batfish OSPF_Cost. }
+      - { name: network_type, type: "enum { broadcast, point_to_point, non_broadcast, p2mp }", card: "0..1", emit: O, doc: Batfish OSPF_Network_Type. }
+      - { name: import_policy, type: Identifier, card: "0..n", emit: O }
+      - { name: export_policy, type: Identifier, card: "0..n", emit: O }
+      - { name: route_reflector_client, type: bool, card: "0..1", emit: O }
+      - { name: passive, type: bool, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for ProtocolAdjacency.
+
+  # ======================= config layer — 11 §6.6 security-policy kinds =======================
+  - kind: Zone
+    layer: config
+    emits: true
+    doc: A security zone (11 §6.6). Per-interface host-inbound lives on the ZoneMember edge.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R, doc: "WAN, VPN, TRUST." }
+      - { name: description, type: Text, card: "0..1", emit: O }
+      - { name: host_inbound_system_services, type: "set{host_service}", card: "0..n", emit: O, doc: Zone-wide; the per-interface form lives on the edge (11 §7.5). }
+      - { name: host_inbound_protocols, type: "set{host_protocol}", card: "0..n", emit: O, doc: "ospf, bgp, bfd." }
+      - { name: screen, type: Identifier, card: "0..1", emit: O, doc: "Reference to a screen profile, unmodelled for now (11 §12.4 bag)." }
+      - { name: application_tracking, type: bool, card: "0..1", emit: O }
+      - { name: tcp_rst, type: bool, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for Zone.
+
+  - kind: PolicySet
+    layer: config
+    emits: true
+    doc: |
+      The ordered container that absorbs the deepest cross-vendor break (11 §6.6, §12.2):
+      Junos zone-pair lists, PAN one global list.
+    fields:
+      - { name: scope, type: PolicyScope, card: "1", emit: R, doc: ZonePair / InterfaceDirection / Global / Vsys. Registered contains_reference. }
+      - { name: evaluation, type: "enum { first_match, first_match_global }", card: "1", emit: "—" }
+      - { name: default_action, type: enum(policy_action), card: "0..1", emit: "—", doc: "Batfish Default_Cross_Zone_Action, per set." }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for PolicySet.
+
+  - kind: SecurityPolicy
+    layer: config
+    emits: true
+    doc: One security policy within a PolicySet (11 §6.6).
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R, doc: TO-B. }
+      - { name: ordinal, type: u32, card: "1", emit: R, doc: Position within the PolicySet. Gaps are legal and deliberate. }
+      - { name: action, type: enum(policy_action), card: "1", emit: R }
+      - { name: match_any_source, type: bool, card: "0..1", emit: R, doc: Set(true) means the vendor's any keyword — distinct from an everything-set. }
+      - { name: match_any_destination, type: bool, card: "0..1", emit: R }
+      - { name: log_init, type: bool, card: "0..1", emit: O }
+      - { name: log_close, type: bool, card: "0..1", emit: O }
+      - { name: count, type: bool, card: "0..1", emit: O }
+      - { name: scheduler, type: Identifier, card: "0..1", emit: O }
+      - { name: description, type: Text, card: "0..1", emit: O }
+      - { name: enabled, type: bool, card: "0..1", emit: O, doc: Junos deactivate / PAN disabled. }
+    identity:
+      - [ owner(PolicySet), name ]
+      - [ owner(PolicySet), ordinal ]
+
+  - kind: AddressObject
+    layer: config
+    emits: true
+    doc: |
+      A named address object (11 §6.6). Zone-scoped address books are the InAddressBook
+      edge, not a field — the global book is simply the absence of the edge.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R }
+      - { name: value, type: AddressValue, card: "1", emit: R, doc: Prefix / Range / Dns / Wildcard. }
+      - { name: description, type: Text, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for AddressObject.
+
+  - kind: AddressSet
+    layer: config
+    emits: true
+    doc: |
+      A named set of address objects (11 §6.6). Nesting via Contains is legal; cycles are an
+      L0 validity error checked on write (union-find) — the check is store-side, not a §12
+      constraint declaration, because 62 §12.3's grammar cannot express acyclicity.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R }
+      - { name: description, type: Text, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for AddressSet.
+
+  - kind: Application
+    layer: config
+    emits: true
+    doc: |
+      A service/application object (11 §6.6). app_id set with l4 Unknown is emittable on
+      panos and blocked on junos-srx (NoL4Equivalent) — the honest boundary of 11 §12.2.
+    fields:
+      - { name: l4, type: L4Spec, card: "0..1", emit: "R*", emit_required_when: { platforms: [] }, doc: "{ protocol, source_ports, destination_ports }." }
+          # VERIFY: R* platform set unstated; 11 §6.6 implies required everywhere except panos
+          # when app_id is Set, which 62 §4.3's emit_required_when cannot negate. platforms: []
+          # carries the declarable half per 62 §4.3's iff-rule.
+      - { name: name, type: Identifier, card: "1", emit: R }
+      - { name: app_id, type: Identifier, card: "0..1", emit: "R*", emit_required_when: { platforms: [panos] }, doc: PAN-OS App-ID. No Junos equivalent (11 §12.2). }
+      - { name: inactivity_timeout, type: Seconds, card: "0..1", emit: O }
+      - { name: alg, type: Identifier, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for Application.
+
+  - kind: ApplicationSet
+    layer: config
+    emits: true
+    doc: A named set of applications (11 §6.6).
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R }
+          # VERIFY: 11 §6.6 heads "Application, ApplicationSet" but tables only Application's
+          # fields; name alone is declared here rather than mirroring AddressSet's description.
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for ApplicationSet.
+
+  - kind: NatRuleSet
+    layer: config
+    emits: true
+    doc: A NAT rule set (11 §6.6). NAT is modelled because side 4's tunnel trap needs it.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R }
+      - { name: nat_type, type: "enum { source, destination, static }", card: "1", emit: R }
+      - { name: from, type: NatScope, card: "1", emit: R, doc: Zone / Interface / RoutingInstance. Registered contains_reference. }
+      - { name: to, type: NatScope, card: "0..1", emit: "R*", emit_required_when: { platforms: [], when: "nat_type == Source" }, doc: Source NAT only. }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for NatRuleSet.
+
+  - kind: NatRule
+    layer: config
+    emits: true
+    doc: One NAT rule (11 §6.6). NatAction::Off is the explicit no-NAT rule.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R }
+      - { name: ordinal, type: u32, card: "1", emit: R }
+      - { name: match_source, type: IpPrefix, card: "0..n", emit: O }
+      - { name: match_destination, type: IpPrefix, card: "0..n", emit: O }
+      - { name: then, type: NatAction, card: "1", emit: R, doc: Interface / Pool / Off / Static. }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for NatRule.
+
+  # ======================= config layer — 11 §6.7 crypto and VPN kinds =======================
+  - kind: IkeProposal
+    layer: config
+    emits: true
+    doc: IKE phase-1 proposal (11 §6.7). The AEAD constraint is declared in constraints:.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R, doc: IKE-P1. }
+      - { name: authentication_method, type: AuthMethod, card: "0..1", emit: R }
+      - { name: dh_group, type: DhGroup, card: "0..1", emit: R }
+      - { name: encryption_algorithm, type: EncryptionAlgorithm, card: "0..1", emit: R }
+      - name: authentication_algorithm
+        type: IntegrityAlgorithm
+        card: "0..1"
+        emit: "R*"
+        emit_required_when: { platforms: [], when: "encryption_algorithm.aead == false" }
+        doc: |
+          Must be Absent when the encryption algorithm is AEAD; with CBC both must be set —
+          a missing hash is a silent proposal mismatch (11 §6.7).
+        # VERIFY: 11 states the R* condition only as the AEAD note; the == false spelling is
+        # this file's transcription into 62 §12.3's grammar.
+      - { name: lifetime_seconds, type: Seconds, card: "0..1", emit: O, constraints: { range: { min: 180, max: 86400, platforms: ["junos-*"] } }, doc: "Default 3600; 28800 is the P1 recommendation, not the default (11 §5.3)." }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for IkeProposal.
+
+  - kind: IkePolicy
+    layer: config
+    emits: true
+    doc: IKE phase-1 policy (11 §6.7).
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R, doc: IKE-POL. }
+      - { name: mode, type: "enum { main, aggressive }", card: "0..1", emit: "R*", emit_required_when: { platforms: [] }, doc: IKEv1 only; silently ignored under v2-only (11 §6.7). }
+          # VERIFY: the IKEv1-only predicate reads the referencing gateway's version — a
+          # cross-node direction 62 §12.3's one-edge-hop grammar cannot reach from here.
+          # platforms: [] carries the declarable half per 62 §4.3's iff-rule.
+      - { name: pre_shared_key, type: SecretPlaceholder, card: "0..1", emit: "R*", emit_required_when: { platforms: [] }, doc: "11 §4.5. Emits pre-shared-key ascii-text \"<PSK>\" — a correct emit, not a blocked one." }
+          # VERIFY: R* condition (pre-shared-keys auth method, held by the proposal) unstated in
+          # declarable form; platforms: [] carries the declarable half per 62 §4.3's iff-rule.
+      - { name: certificate_id, type: Identifier, card: "0..1", emit: "R*", emit_required_when: { platforms: [] }, doc: rsa-signatures. }
+          # VERIFY: as pre_shared_key.
+      - { name: description, type: Text, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for IkePolicy.
+
+  # 62 §20.1's worked example (fields, identity, similarity), content-identical; reflowed to
+  # single-line flow because §20.1's own multi-line layout violates 62 §2.2 ("flow-style
+  # maps/sequences on a single line only") — a 62-internal §2.2-vs-§20 contradiction, a defect
+  # to file against 62 per §1.
+  - kind: IkeGateway
+    layer: config
+    emits: true
+    doc: |
+      IKE phase-1 gateway (11 §6.7). One per peer relationship.
+    fields:
+      - { name: name,            type: Identifier, card: "1",    emit: R }
+      - { name: peer,            type: PeerSpec,   card: "0..1", emit: R, doc: Address(IpAddr) or Dynamic(IkeId) — one field with two shapes. }
+      - { name: version,         type: IkeVersion, card: "0..1", emit: O }
+      - { name: local_identity,  type: IkeId,      card: "0..1", emit: O }
+      - { name: remote_identity, type: IkeId,      card: "0..1", emit: O }
+      - { name: dpd,             type: Dpd,        card: "0..1", emit: O }
+      - { name: nat_keepalive,   type: Seconds,    card: "0..1", emit: O }
+      - { name: no_nat_traversal, type: bool,      card: "0..1", emit: O }
+      - { name: description,     type: Text,       card: "0..1", emit: O }
+    identity:
+      - [ owner(Device), name ]                                    # tier 1
+      - [ owner(Device), peer.address, edge(ExternalInterface) ]   # tier 2 —
+                                                                   # survives rename
+      - [ edge_in(TunnelEndpoint via IpsecVpn), side ]             # tier 3 —
+                                                                   # survives readdressing
+    similarity: { name: 4, peer.address: 3, edge(ExternalInterface): 2 }  # illustrative
+
+  - kind: IpsecProposal
+    layer: config
+    emits: true
+    doc: IPsec phase-2 proposal (11 §6.7).
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R, doc: IPSEC-P2. }
+      - { name: protocol, type: "enum { esp, ah }", card: "0..1", emit: R, doc: AH is integrity-only and breaks through NAT. }
+      - { name: encryption_algorithm, type: EncryptionAlgorithm, card: "0..1", emit: "R*", emit_required_when: { platforms: [], when: "protocol == Esp" }, doc: ESP only. }
+      - { name: authentication_algorithm, type: IntegrityAlgorithm, card: "0..1", emit: "R*", emit_required_when: { platforms: [], when: "encryption_algorithm.aead == false" }, doc: Same AEAD constraint as IkeProposal. }
+          # VERIFY: as IkeProposal.authentication_algorithm.
+      - { name: lifetime_seconds, type: Seconds, card: "0..1", emit: O, constraints: { range: { min: 180, max: 86400, platforms: ["junos-*"] } }, doc: Default 3600. }
+      - { name: lifetime_kilobytes, type: Kilobytes, card: "0..1", emit: O, doc: "If flaps track throughput rather than time, check lifetime-kilobytes first." }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for IpsecProposal.
+
+  - kind: IpsecPolicy
+    layer: config
+    emits: true
+    doc: IPsec phase-2 policy (11 §6.7).
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R, doc: IPSEC-POL. }
+      - { name: perfect_forward_secrecy, type: DhGroup, card: "0..1", emit: O, doc: "ipsec.pfs.absent reads exactly this field and requires Absent, not Unknown, to fire." }
+      - { name: description, type: Text, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for IpsecPolicy.
+
+  - kind: IpsecVpn
+    layer: config
+    emits: true
+    doc: |
+      The VPN object binding gateway, policy and (route-based) an st0 unit (11 §6.7).
+      mode determines whether BindsInterface is required or forbidden — see
+      constraints: ipsec-vpn.mode-binds-interface.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R, doc: VPN-B. }
+      - { name: establish_tunnels, type: enum(establish_tunnels), card: "0..1", emit: O, doc: "Default on_traffic (sourced in corpus/defaults, 11 §5.3)." }
+      - { name: df_bit, type: "enum { copy, clear, set }", card: "0..1", emit: O, doc: Default copy. }
+      - { name: vpn_monitor, type: VpnMonitor, card: "0..1", emit: O }
+      - { name: idle_time, type: Seconds, card: "0..1", emit: O }
+      - { name: mode, type: enum(vpn_mode), card: "1", emit: R }
+      - { name: description, type: Text, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for IpsecVpn.
+
+  - kind: TrafficSelector
+    layer: config
+    emits: true
+    doc: |
+      A phase-2 traffic selector (11 §6.7). Zero selectors is modelled as absence; the SRX's
+      implied any-to-any is an inferred node with Origin::Inferred, distinguishable from one
+      the user wrote.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R, doc: TS1. }
+      - { name: local_ip, type: IpPrefix, card: "1", emit: R }
+      - { name: remote_ip, type: IpPrefix, card: "1", emit: R }
+      - { name: protocol, type: IpProtocol, card: "0..1", emit: O }
+      - { name: local_ports, type: PortRange, card: "0..n", emit: O, doc: Not expressible on every platform; blocks emit where not. }
+      - { name: remote_ports, type: PortRange, card: "0..n", emit: O }
+    identity:
+      - [ owner(IpsecVpn), name ]
+      - [ owner(IpsecVpn), local_ip, remote_ip ]
+
+  - kind: Tunnel
+    layer: config
+    emits: false    # VERIFY: kind-level flag unstated; every field is Emit "—" ("this node has
+                    # no vendor representation", 11 §6.7), so false is the conservative reading.
+    doc: |
+      The cross-device abstraction (11 §6.7). Two IpsecVpn endpoints, or one plus an
+      ExternalPeer; zero IpsecVpn endpoints is a planned tunnel and is legal. The
+      exactly-one-of-two-shapes rule is prose in 11 §6.7 with no declared constraint id —
+      not transcribed as a constraints: entry.
+    fields:
+      - { name: name, type: Text, card: "1", emit: "—" }
+      - { name: mode, type: enum(vpn_mode), card: "0..1", emit: "—", doc: Must agree with both endpoints. }
+      - { name: intended_state, type: "enum { up, standby, decommissioned }", card: "0..1", emit: "—", doc: Drives severity — a flapping standby is not a flapping primary. }
+      - { name: overlay_prefix, type: IpPrefix, card: "0..1", emit: "—", doc: "The st0 transit link, when both sides are modelled." }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for Tunnel.
+
+  # ======================= config layer — 11 §6.8 device-level settings =======================
+  - kind: SecurityFlowSettings
+    layer: config
+    emits: true
+    doc: One per Device (11 §6.8). Exists because mtu.mss-clamp.absent needs somewhere to look.
+    fields:
+      - { name: tcp_mss_all_tcp, type: u16, card: "0..1", emit: O, doc: all-tcp hits everything through the box. }
+      - { name: tcp_mss_ipsec_vpn, type: u16, card: "0..1", emit: O, doc: Clamps only tunnel traffic — the clean fix. }
+      - { name: tcp_mss_gre_in, type: u16, card: "0..1", emit: O }
+      - { name: tcp_mss_gre_out, type: u16, card: "0..1", emit: O }
+      - { name: force_ip_reassembly, type: bool, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for SecurityFlowSettings.
+
+  - kind: SystemSettings
+    layer: config
+    emits: true
+    doc: One per Device (11 §6.8).
+    fields:
+      - { name: time_zone, type: TzName, card: "0..1", emit: O }
+      - { name: root_authentication_set, type: bool, card: "0..1", emit: "—", doc: A fact about whether a credential exists. Never the credential (invariant 3). }
+      - { name: name_servers, type: IpAddr, card: "0..n", emit: O, doc: Batfish DNS_Servers. }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for SystemSettings.
+
+  - kind: NtpServer
+    layer: config
+    emits: true
+    doc: |
+      An NTP server target (11 §6.8). In the schema because clock skew kills certificates.
+      VERIFY: 11 §6.8 gives only the struct sketch { address: IpAddr, prefer: bool,
+      key_id: u32 } — every card and emit flag below is the conservative reading, not stated.
+    fields:
+      - { name: address, type: IpAddr, card: "1", emit: O }
+      - { name: prefer, type: bool, card: "0..1", emit: O }
+      - { name: key_id, type: u32, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for NtpServer.
+
+  - kind: SyslogTarget
+    layer: config
+    emits: true
+    doc: |
+      A syslog target (11 §6.8).
+      VERIFY: 11 §6.8 gives only the struct sketch { host: IpAddr|Fqdn, facility, severity,
+      structured_data: bool } — facility/severity are untyped there and every card and emit
+      flag below is the conservative reading, not stated.
+    fields:
+      - { name: host, type: SyslogHost, card: "1", emit: O }
+      - { name: facility, type: Identifier, card: "0..1", emit: O }
+      - { name: severity, type: Identifier, card: "0..1", emit: O }
+      - { name: structured_data, type: bool, card: "0..1", emit: O }
+    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for SyslogTarget.
+
+  # ======================= physical layer — 19 §3 =======================
+  - kind: PhysicalPort
+    layer: physical
+    emits: false
+    doc: |
+      A front-panel opening (19 §3.3). Contained by whatever has a faceplate — Chassis or
+      PassiveNode (the PortHost class). A port exists because hardware exists; an interface
+      exists because configuration exists; neither may be the other's identity (19 §3.2).
+      NOTE (form vs content): 62 §4.1's declaration sketch shows position: Identifier,
+      card "1"; 19 §3.3's field table (PortPosition, 0..1) is the normative content and wins.
+    fields:
+      - { name: label, type: Text, card: "1", emit: "—", doc: "The silkscreen: \"1\", \"PON 0/1\". Not the interface name." }
+      - { name: position, type: PortPosition, card: "0..1", emit: "—", doc: "{ slot: Option<u8>, subslot: Option<u8>, index: u16 }." }
+      - { name: connector, type: "enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, other }", card: "0..1", emit: "—" }
+      - { name: service, type: "enum { ethernet, pon, rf, serial, console, management, other }", card: "0..1", emit: "—", doc: What the cage is for. }
+      - { name: speed_max, type: Bandwidth, card: "0..1", emit: "—", doc: The cage's ceiling — a different fact from Interface.speed. }
+      - name: transceiver
+        type: Transceiver
+        card: "0..1"
+        emit: "—"
+        doc: |
+          Absent means we looked and the cage is empty; Unknown means nobody looked. A
+          catalogue-populated port is Unknown and may not be Absent (11 §8.5).
+      - { name: notes, type: Text, card: "0..1", emit: "—" }
+      # 62 §11.2's derived-field example, verbatim.
+      - name: occupied
+        type: bool
+        card: "1"
+        emit: "—"                          # forced; declaring anything else is an error
+        derived:
+          fn: derive.physicalport.occupied
+          depends_on:
+            - adjacency(self, Occupies, In)
+        doc: True iff at least one Interface Occupies this port.
+    identity:
+      - [ owner(PortHost), position ]    # tier 1 — a physical coordinate
+      - [ owner(PortHost), label ]       # tier 2 — the silkscreen
+
+  - kind: Cable
+    layer: physical
+    emits: false
+    doc: |
+      A physical run between two termination points (19 §3.4). Promoted from 11 §7.3's Link
+      edge. label distinguishes; assembly groups (excluded from identity). A one-ended cable
+      with no label has no recovery key — if you record a planned cable, label it; the
+      fewer-than-two-Terminates-and-no-label advisory lint 19 §3.4 asks of 62 §18 is not in
+      62 §18.2's shipped warning table and is not invented here.
+    fields:
+      - { name: label, type: Text, card: "0..1", emit: "—", doc: "The tag on this cable. Unique among the cables it could be confused with, or absent." }
+      - name: assembly
+        type: Text
+        card: "0..1"
+        emit: "—"
+        doc: |
+          The grouping id deliberately shared — breakout assembly, multi-fibre bundle.
+          Excluded from identity; grouping is a query, not a key.
+      - { name: media, type: "enum { cat5e, cat6, cat6a, twinax, smf, mmf, coax, power, virtual, other }", card: "0..1", emit: "—", doc: Deliberately no unknown-shaped variant — Presence carries that (19 §3.4). }
+      - { name: length_m, type: u32, card: "0..1", emit: "—" }
+      - { name: installed_on, type: Date, card: "0..1", emit: "—", doc: "Stored, rendered, never evaluated (75 §4.4)." }
+      - { name: ownership, type: "enum { ours, provider, customer }", card: "0..1", emit: "—", doc: Carries the modelling horizon (19 §3.4.1). }
+      - { name: provider_circuit, type: Text, card: "0..1", emit: "—", doc: Free prose until Circuit exists — promotion trigger written in 19 §3.4.2. }
+      - { name: notes, type: Text, card: "0..1", emit: "—" }
+      - { name: last_confirmed, type: Date, card: "0..1", emit: "—", doc: "19 §6.10 — Origin::Hand only; rendered as ADR-0027's stamp, never evaluated." }
+    identity:
+      # NOTE (form vs content): 62 §8.1's term grammar has edge(E) with no end qualifier;
+      # 19 §3.4 writes the tier with Terminates:A / Terminates:B (end field normalised by
+      # NodeId order). 19's content is transcribed verbatim; the grammar gap is a defect to file.
+      - [ edge(Terminates:A), edge(Terminates:B) ]   # tier 1 — the pair of ports IS the cable
+      - [ label ]                                    # tier 2 — one-ended and planned cables
+
+  - kind: PassiveNode
+    layer: physical
+    emits: false
+    doc: |
+      A splitter, ODF, patch panel, WDM mux, media converter or enclosure — hardware with
+      ports and no configuration (19 §3.6). Owns PhysicalPorts exactly as a Chassis does.
+      Contained by Premises, not Site.
+    fields:
+      - { name: label, type: Text, card: "1", emit: "—", doc: "No hostname: nothing addresses it." }
+      - { name: form, type: "enum { splitter, patch_panel, odf, wdm, media_converter, enclosure, other }", card: "1", emit: "—" }
+      - { name: split_ratio, type: SplitRatio, card: "0..1", emit: "—", doc: "{ inputs: u8, outputs: u16 } — 1:32." }
+      - { name: model, type: Identifier, card: "0..1", emit: "—" }
+      - { name: serial, type: Identifier, card: "0..1", emit: "—" }
+    identity:
+      - [ owner(Premises), label ]
+
+  - kind: Premises
+    layer: physical
+    emits: false
+    doc: |
+      A place with a street address (19 §3.5). Not called Address — that kind is an IP
+      address. Enrichment is closed permanently: no geocoding, no lookup; coordinates are
+      user-typed only. One kind serves a central office and a customer location.
+    fields:
+      - { name: label, type: Text, card: "1", emit: "—", doc: "Riverside CO, 412 Oak St." }
+      - { name: street, type: PostalAddress, card: "0..1", emit: "—", doc: "Structured value type, not a Scalar (62 §3.1). Personal-data channel — 37 §2.2." }
+      - { name: clli, type: Clli, card: "0..1", emit: "—" }
+      - { name: form, type: "enum { central_office, hut, cabinet, headend, data_centre, customer_premises, pole, handhole, other }", card: "0..1", emit: "—" }
+      - { name: region, type: Identifier, card: "0..1", emit: "—", doc: "The {ST} candidate under one reading (19 §10 F2)." }
+      - { name: coordinates, type: LatLon, card: "0..1", emit: "—", doc: "User-typed only. Never looked up. Fixed-point, never float (62 §3.3)." }
+      - { name: notes, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ clli ]        # tier 1 — globally unique, machine-assigned
+      - [ street ]      # tier 2 — via canonical()
+      - [ label ]       # tier 3
+
+  # ======================= service layer — 19 §4 and §6 =======================
+  - kind: Tenant
+    layer: service
+    emits: false
+    doc: |
+      Contains services and nothing physical (19 §4.1) — tenancy of infrastructure is never
+      asserted, so it can never drift. The operator is a Tenant; a workspace is seeded with
+      exactly one Tenant { kind: internal } at creation, making containment total.
+    fields:
+      - { name: name, type: Text, card: "1", emit: "—" }
+      - { name: code, type: Identifier, card: "0..1", emit: "—" }
+      - { name: kind, type: "enum { customer, internal }", card: "1", emit: "—", doc: "Discriminant, not a kind (11 §6.1)." }
+      - { name: account_ref, type: Identifier, card: "0..1", emit: "—" }
+      - { name: contact, type: Text, card: "0..1", emit: "—" }
+      - { name: description, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ code ]
+      - [ name ]
+
+  # 62 §20.2's worked example, content-identical; reflowed to single-line flow per 62 §2.2
+  # (§20.2's own multi-line layout is the §2.2-vs-§20 contradiction filed at IkeGateway).
+  - kind: Service
+    layer: service
+    emits: false
+    doc: One sold or internal service (19 §4.2). The type is the OfType edge.
+    fields:
+      - { name: cid,   type: Identifier, card: "0..1", emit: "—", fold: ascii_case, required_when: "edge(OfType).requires_cid == true", doc: "The carrier identifier. A name, never identity." }
+          # L1 hole, never
+          #   a refusal
+      - { name: reach, type: "enum { external, internal }", card: "1", emit: "—" }
+      - { name: label, type: Text, card: "0..1", emit: "—" }
+      - { name: in_service_on,  type: Date, card: "0..1", emit: "—", doc: "Stored, rendered, never evaluated (75 §3.8)." }
+      - { name: ceased_on,      type: Date, card: "0..1", emit: "—" }
+      - { name: last_confirmed, type: Date, card: "0..1", emit: "—", doc: "Origin::Hand only. Stored, sorted, exported, never compared." }
+      - { name: attributes, type: "map(Identifier, AttrValue)", card: "0..n", emit: "—", validated_against: edge(OfType) }
+      - { name: description, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ owner(Tenant), cid ]
+      - [ owner(Tenant), label ]
+
+  - kind: ServiceType
+    layer: service
+    emits: false
+    doc: |
+      The closed metamodel's extension point (19 §4.3): what varies is the contents of a
+      declared map, not the set of declared fields. Built-ins ship as corpus declarations
+      (corpus/service-types/, 62 §20.4) and are materialised at workspace creation with
+      Origin::Imported { format: Corpus }; a user's edit is Origin::Hand and wins on merge.
+      An AttributeDecl is never deleted, only withdrawn.
+    fields:
+      - { name: name, type: Text, card: "1", emit: "—" }
+      - { name: code, type: Identifier, card: "1", emit: "—" }
+      - { name: builtin_id, type: Identifier, card: "0..1", emit: "—", doc: Set on shipped types; Absent on user types. }
+      - { name: endpoint_cardinality, type: EndpointCardinality, card: "1", emit: "—", doc: DIA 1..1; E-Line 2..2; E-LAN 2..n. }
+      - { name: endpoint_identifier_required, type: bool, card: "1", emit: "—", doc: The UNI ID switch. }
+      - { name: uni_scope, type: "enum { global, per_tenant, per_service }", card: "1", emit: "—", doc: Scope of the UNI-ID uniqueness rule. }
+      - { name: requires_cid, type: bool, card: "1", emit: "—", doc: false for internal types. }
+      - { name: attributes, type: AttributeDecl, card: "0..n", emit: "—", doc: "The extension point, closed (AttrType is a closed Rust enum, 62 §13.3)." }
+      - { name: endpoint_attributes, type: AttributeDecl, card: "0..n", emit: "—", doc: Per-endpoint extension point. }
+      - { name: completeness, type: FieldPath, card: "0..n", emit: "—", doc: "The 11 §9.1 L3 profile, per type." }
+    identity:
+      - [ builtin_id ]
+      - [ code ]
+
+  - kind: ServiceEndpoint
+    layer: service
+    emits: false
+    doc: |
+      One location of a service — E-LAN first (19 §4.4). A Demarc endpoint with no
+      AttachesTo is legal and is not a hole.
+    fields:
+      - { name: uni_id, type: Identifier, card: "0..1", emit: "—", fold: ascii_case, doc: The per-location identifier. Absent where the type declares none; never invented. }
+      - { name: role, type: "enum { uni, nni, enni, demarc }", card: "1", emit: "—", doc: Which side of the demarcation. }
+      - { name: ordinal, type: u32, card: "1", emit: "—", doc: Stable display order; gaps legal (SecurityPolicy.ordinal precedent). }
+      - { name: label, type: Text, card: "0..1", emit: "—" }
+      - { name: in_service_on, type: Date, card: "0..1", emit: "—", doc: "Per-endpoint, because E-LAN sites turn up separately." }
+      - { name: ceased_on, type: Date, card: "0..1", emit: "—" }
+      - name: attributes
+        type: "map(Identifier, AttrValue)"
+        card: "0..n"
+        emit: "—"
+        doc: |
+          Validated against ServiceType.endpoint_attributes (19 §4.4).
+          VERIFY: the validation context is two hops away (owner(Service) then OfType);
+          62 §12.2's validated_against takes a single edge of this kind, so the clause is
+          not declarable here as written — a form gap to file.
+    identity:
+      - [ owner(Service), uni_id ]
+      - [ owner(Service), ordinal ]
+      - [ owner(Service), edge(AttachesTo) ]
+
+  - kind: ServicePath
+    layer: service
+    emits: false
+    doc: |
+      A service holds ordered paths; a path holds ordered segments (19 §6.2). A Historic
+      path outlives the service's current routing; ordinal keeps tier 1 non-degenerate.
+    fields:
+      - { name: ordinal, type: u32, card: "1", emit: "—", doc: Stable display order within the service; gaps legal. The identity discriminant. }
+      - { name: role, type: "enum { working, protect, historic }", card: "1", emit: "—" }
+      - { name: label, type: Text, card: "0..1", emit: "—" }
+      - { name: last_confirmed, type: Date, card: "0..1", emit: "—", doc: "Origin::Hand only, never compared." }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ owner(Service), ordinal ]
+      - [ owner(Service), label ]
+
+  - kind: PathSegment
+    layer: service
+    emits: false
+    doc: |
+      One claim along a path (19 §6.2). A node, not an edge — a Boundary segment has one
+      endpoint. A segment names its two ports and never the cable: re-patch a cable and
+      every path through it follows automatically.
+    fields:
+      - { name: ordinal, type: u32, card: "1", emit: "—", doc: Position along the path; gaps legal. }
+      - { name: kind, type: enum(segment_kind), card: "1", emit: "—", doc: The discriminant (19 §6.3). }
+      - name: boundary_reason
+        type: "enum { customer_premises, third_party_carrier, not_ours, policy_stop }"
+        card: "0..1"
+        emit: "—"
+        required_when: "kind == Boundary"
+        doc: |
+          19 §6.2 marks this R* when kind == Boundary; on an emits: false kind the emit
+          column is forced to "—", so the conditional lands as 62 §4.3's required_when —
+          an L1 hole, never a refusal. (62 §4.3 itself names this field as the example.)
+      - { name: warp_technology, type: "enum { l2ptp, pseudowire, evpn, vlan, other }", card: "0..1", emit: "—", required_when: "kind == Warp", doc: Same transcription as boundary_reason — 19's R* cell as required_when. }
+      - { name: max_hops, type: u8, card: "0..1", emit: "—", doc: Overrides the workspace default of 8 (19 §6.6). }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+      - name: resolution
+        type: Resolution
+        card: "0..1"
+        emit: "—"
+        derived:
+          fn: derive.pathsegment.resolution
+          depends_on:
+            - adjacency(self, EntersAt, Out)
+            - adjacency(self, ExitsAt, Out)
+            - adjacency(self, MustTraverse, Out)
+        doc: |
+          19 §6.6's six-outcome enum; demand-driven and budgeted, never serialised.
+          VERIFY: the derive fn name is unstated (the computation is resolve_warp /
+          infer.service.warp.resolve) and card 0..1 reflects the demanded-not-yet state —
+          both are conservative readings, not declarations in 19.
+      - name: corroboration
+        type: "enum { corroborated, unwitnessed, contradicted }"
+        card: "0..1"
+        emit: "—"
+        derived:
+          fn: derive.pathsegment.corroboration
+          depends_on:
+            - resolution
+            - adjacency(self, EntersAt, Out)
+            - adjacency(self, ExitsAt, Out)
+        doc: |
+          19 §6.10 — a graph function, not a clock function.
+          VERIFY: fn name and exact depends_on unstated in 19; transcribed conservatively.
+    identity:
+      - [ owner(ServicePath), ordinal ]
+      # NOTE (form vs content): EntersAt / ExitsAt carry two-level bounds (0..n at L0), and
+      # 62 §8.2 prohibits identity terms through a relaxed range (schema.identity.ambiguous-edge).
+      # 19 §6.2 declares this tier anyway; 19's content is transcribed and the collision is a
+      # defect to file per 62 §1.
+      - [ owner(ServicePath), edge(EntersAt), edge(ExitsAt) ]
+
+edges:
+  # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
+  # require reverse adjacency, and ADR-0007's reverse index already guarantees it (11 §14.3).
+  # emit_dict is null except where a dictionary entry ships (62 §19.5's sequencing: the schema
+  # ships first; the dictionary grows behind the coverage ledger).
+
+  # ---- containment, 11 §7.2 ----
+  # NOTE (form vs content): 11 §7.2 and 19 §5 write "*root*" for workspace-root containment;
+  # 62's grammar gives from:/to: as kind sets with no root token. `root` below is that token,
+  # transcribed — a form gap to file.
+  - edge: HasDevice
+    class: containment
+    from: [Site]
+    to: [Device]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasChassis
+    class: containment
+    from: [Device]
+    to: [Chassis]
+    out: "1..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2. Standalone boxes have one.
+  - edge: HasRedundancyGroup
+    class: containment
+    from: [Device]
+    to: [RedundancyGroup]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasInterface
+    class: containment
+    from: [Device]
+    to: [Interface, AggregateInterface, RethInterface, TunnelInterface]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasUnit
+    class: containment
+    from: [InterfaceLike]
+    to: [LogicalUnit]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2. The class is expanded at codegen (62 §6.2).
+  - edge: HasAddress
+    class: containment
+    from: [LogicalUnit]
+    to: [Address]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasVlan
+    class: containment
+    from: [Device]
+    to: [Vlan]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasRoutingInstance
+    class: containment
+    from: [Device]
+    to: [RoutingInstance]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasStaticRoute
+    class: containment
+    from: [RoutingInstance]
+    to: [StaticRoute]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasRoutingProtocol
+    class: containment
+    from: [RoutingInstance]
+    to: [RoutingProtocol]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasAdjacency
+    class: containment
+    from: [RoutingProtocol]
+    to: [ProtocolAdjacency]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasZone
+    class: containment
+    from: [Device]
+    to: [Zone]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasPolicySet
+    class: containment
+    from: [Device]
+    to: [PolicySet]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasPolicy
+    class: containment
+    from: [PolicySet]
+    to: [SecurityPolicy]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasAddressObject
+    class: containment
+    from: [Device]
+    to: [AddressObject, AddressSet]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasApplication
+    class: containment
+    from: [Device]
+    to: [Application, ApplicationSet]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasNatRuleSet
+    class: containment
+    from: [Device]
+    to: [NatRuleSet]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasNatRule
+    class: containment
+    from: [NatRuleSet]
+    to: [NatRule]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasIkeProposal
+    class: containment
+    from: [Device]
+    to: [IkeProposal]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      11 §7.2 — crypto objects hang off Device, not off each other; the config tree writes
+      them as independently deletable siblings. The chain between them is reference.
+  - edge: HasIkePolicy
+    class: containment
+    from: [Device]
+    to: [IkePolicy]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasIkeGateway
+    class: containment
+    from: [Device]
+    to: [IkeGateway]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasIpsecProposal
+    class: containment
+    from: [Device]
+    to: [IpsecProposal]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasIpsecPolicy
+    class: containment
+    from: [Device]
+    to: [IpsecPolicy]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasIpsecVpn
+    class: containment
+    from: [Device]
+    to: [IpsecVpn]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasTrafficSelector
+    class: containment
+    from: [IpsecVpn]
+    to: [TrafficSelector]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasFlowSettings
+    class: containment
+    from: [Device]
+    to: [SecurityFlowSettings]
+    out: "0..1"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasSystemSettings
+    class: containment
+    from: [Device]
+    to: [SystemSettings]
+    out: "0..1"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasNtpServer
+    class: containment
+    from: [SystemSettings]
+    to: [NtpServer]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasSyslogTarget
+    class: containment
+    from: [SystemSettings]
+    to: [SyslogTarget]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2.
+  - edge: HasExternalPeer
+    class: containment
+    from: [Site, Premises]
+    to: [ExternalPeer]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      11 §7.2, amended by 19 §5.1: from widened to [Site, Premises] so a subscriber endpoint
+      can be a labelled terminal at a street address with no Site node. Widening is minor.
+  - edge: HasTunnel
+    class: containment
+    from: [root]
+    to: [Tunnel]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.2 — a Tunnel spans sites and is contained by the workspace root.
+
+  # ---- containment, 19 §5.1 / §5.2 ----
+  - edge: HasPremises
+    class: containment
+    from: [root]
+    to: [Premises]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.1.
+  - edge: HasPort
+    class: containment
+    from: [Chassis, PassiveNode]
+    to: [PhysicalPort]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.1 — the same kind set PortHost names.
+  - edge: HasPassiveNode
+    class: containment
+    from: [Premises]
+    to: [PassiveNode]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.1.
+  - edge: HasCable
+    class: containment
+    from: [root]
+    to: [Cable]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.1 — root-level; a cable spans two premises and cannot be contained by one.
+  - edge: HasTenant
+    class: containment
+    from: [root]
+    to: [Tenant]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.2.
+  - edge: HasServiceType
+    class: containment
+    from: [root]
+    to: [ServiceType]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.2.
+  - edge: HasService
+    class: containment
+    from: [Tenant]
+    to: [Service]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.2.
+  - edge: HasEndpoint
+    class: containment
+    from: [Service]
+    to: [ServiceEndpoint]
+    out: "1..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      19 §5.2 — a service with no endpoint is not a service. The upper bound comes from
+      ServiceType.endpoint_cardinality and is checked at L1, per service, not here.
+  - edge: HasPath
+    class: containment
+    from: [Service]
+    to: [ServicePath]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.2.
+  - edge: HasSegment
+    class: containment
+    from: [ServicePath]
+    to: [PathSegment]
+    out: "1..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.2.
+
+  # ---- reference, 11 §7.3 ----
+  - edge: UsesIkePolicy
+    class: reference
+    from: [IkeGateway]
+    to: [IkePolicy]
+    out: "1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ike gateway GW-B ike-policy IKE-POL (11 §7.3).
+  - edge: UsesProposal
+    class: reference
+    from: [IkePolicy, IpsecPolicy]
+    to: [IkeProposal, IpsecProposal]
+    out: "1..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: ordinal, type: u8, card: "1", emit: "—" }
+        # VERIFY: 11 §7.3 gives the field as "ordinal: u8" with no card or emit; card 1 and
+        # emit "—" are the conservative reading (an ordered proposal list needs the ordinal).
+    emit_dict: null
+    doc: |
+      ike policy IKE-POL proposals IKE-P1 / ipsec policy IPSEC-POL proposals IPSEC-P2.
+      NOTE (form vs content): 11 §7.3 declares TWO rows named UsesProposal (IkePolicy ->
+      IkeProposal and IpsecPolicy -> IpsecProposal); 62 §6.2 makes edge names unique across
+      the file (schema.edge.duplicate — the WarpResolvesVia precedent), so the rows are merged
+      here into one declaration. The merged from/to sets do not forbid the cross pairing
+      IkePolicy -> IpsecProposal; that narrowing needs either a rename in 11 or an L0 rule.
+      Defect to file per 62 §1.
+  - edge: ExternalInterface
+    class: reference
+    from: [IkeGateway]
+    to: [LogicalUnit]
+    out: "1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: junos-srx/security.ike.gateway.external-interface   # 62 §20.1's hook
+    doc: |
+      The WAN unit IKE packets leave by — an edge to a unit, never a name
+      field (11 §6.7's "single most valuable typing decision").
+  - edge: UsesIkeGateway
+    class: reference
+    from: [IpsecVpn]
+    to: [IkeGateway]
+    out: "1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ipsec vpn VPN-B ike gateway GW-B (11 §7.3).
+  - edge: UsesIpsecPolicy
+    class: reference
+    from: [IpsecVpn]
+    to: [IpsecPolicy]
+    out: "1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ipsec vpn VPN-B ike ipsec-policy IPSEC-POL (11 §7.3).
+  - edge: BindsInterface
+    class: reference
+    from: [IpsecVpn]
+    to: [LogicalUnit]
+    out: "0..1"
+    in: "0..1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      bind-interface st0.0. in: 0..1 — two VPNs on one st0 unit is a validity error
+      (11 §7.3). Required when mode == RouteBased, forbidden when PolicyBased — see
+      constraints: ipsec-vpn.mode-binds-interface.
+  - edge: MonitorSource
+    class: reference
+    from: [IpsecVpn]
+    to: [LogicalUnit]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: vpn-monitor source-interface reth1.0 (11 §7.3).
+  - edge: PeerIs
+    class: reference
+    from: [IkeGateway]
+    to: [ExternalPeer]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: Inventory linkage; no vendor form (11 §7.3).
+  - edge: TunnelEndpoint
+    class: reference
+    from: [Tunnel]
+    to: [IpsecVpn]
+    out: "0..2"
+    in: "0..1"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: side, type: "enum { a, b }", card: "1", emit: "—", doc: The fielded side marker — the precedent 19 §3.4 cites for Terminates.end. }
+        # VERIFY: 11 §7.3 gives "side: A|B" with no card or emit; card 1 / emit "—" is the
+        # conservative reading.
+    emit_dict: null
+    doc: No vendor form (11 §7.3).
+  - edge: TunnelPeer
+    class: reference
+    from: [Tunnel]
+    to: [ExternalPeer]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: No vendor form (11 §7.3).
+  - edge: ZoneMember
+    class: reference
+    from: [Zone]
+    to: [LogicalUnit]
+    out: "0..n"
+    in: "0..1"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: host_inbound_system_services, type: "set{host_service}", card: "0..n", emit: O, doc: Per-interface host-inbound-traffic system-services (11 §7.5). }
+      - { name: host_inbound_protocols, type: "set{host_protocol}", card: "0..n", emit: O, doc: "ospf, bgp, bfd, all." }
+    emit_dict: null
+    doc: |
+      zones security-zone VPN interfaces st0.0 (11 §7.5). The edge with fields —
+      zone.host-inbound.ike-missing fires against this edge, not against a Zone.
+  - edge: InPolicySet
+    class: reference
+    from: [SecurityPolicy]
+    to: [PolicySet]
+    out: "1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: Implicit in from-zone X to-zone Y (11 §7.3).
+  - edge: MatchSource
+    class: reference
+    from: [SecurityPolicy]
+    to: [AddressObject, AddressSet]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: match source-address NAME (11 §7.3).
+  - edge: MatchDestination
+    class: reference
+    from: [SecurityPolicy]
+    to: [AddressObject, AddressSet]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: match destination-address NAME (11 §7.3).
+  - edge: MatchApplication
+    class: reference
+    from: [SecurityPolicy]
+    to: [Application, ApplicationSet]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: match application NAME (11 §7.3).
+  - edge: TunnelsVia
+    class: reference
+    from: [SecurityPolicy]
+    to: [IpsecVpn]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: then permit tunnel ipsec-vpn NAME — policy-based VPN, legacy (11 §7.3).
+  - edge: Contains
+    class: reference
+    from: [AddressSet]
+    to: [AddressObject, AddressSet]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      address-set NAME address MEMBER (11 §7.3). Nesting legal; cycles are an L0 validity
+      error checked store-side on write with a union-find (11 §6.6) — not expressible in
+      62 §12.3's grammar, so no constraints: entry.
+  - edge: ContainsApp
+    class: reference
+    from: [ApplicationSet]
+    to: [Application, ApplicationSet]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 11 §7.3.
+  - edge: InAddressBook
+    class: reference
+    from: [AddressObject, AddressSet]
+    to: [Zone]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: Zone address books (11 §7.3); the global book is the absence of this edge.
+  - edge: InRoutingInstance
+    class: reference
+    from: [LogicalUnit, IkeGateway]
+    to: [RoutingInstance]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: routing-instances NAME interface st0.0 (11 §7.3).
+  - edge: MemberOfAggregate
+    class: reference
+    from: [Interface]
+    to: [AggregateInterface]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ether-options 802.3ad ae0 (11 §7.3).
+  - edge: MemberOfReth
+    class: reference
+    from: [Interface]
+    to: [RethInterface]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - name: chassis
+        type: NodeId
+        card: "0..1"
+        emit: "—"
+        doc: |
+          DEPRECATED, not removed (19 §3.7) — removal is a major bump. Disagreement with
+          Occupies -> HasPort <- Chassis is an L1 consistency finding. The only NodeId in
+          a field body in 11 besides NextHop/LearnedRoute.via — a noted, unfixed defect;
+          NodeId is also not a 62 §4.3 type, transcribed as written.
+        # VERIFY: card and emit unstated in 11 §7.3; 0..1 / "—" is the conservative reading.
+      - { name: weight, type: u8, card: "0..1", emit: "—" }
+        # VERIFY: card and emit unstated in 11 §7.3.
+    emit_dict: null
+    doc: gigether-options redundant-parent reth0 (11 §7.3).
+  - edge: InRedundancyGroup
+    class: reference
+    from: [RethInterface]
+    to: [RedundancyGroup]
+    out: "1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: redundant-ether-options redundancy-group 1 (11 §7.3). The required edge that earns the kind.
+  - edge: MonitorsInterface
+    class: reference
+    from: [RedundancyGroup]
+    to: [Interface]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: weight, type: u8, card: "0..1", emit: "—" }
+        # VERIFY: card and emit unstated in 11 §7.3 ("weight: u8").
+    emit_dict: null
+    doc: interface-monitor ge-0/0/0 weight 255 (11 §7.3).
+  - edge: VlanMember
+    class: reference
+    from: [LogicalUnit]
+    to: [Vlan]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: mode, type: "enum { access, trunk }", card: "0..1", emit: "—" }
+        # VERIFY: card and emit unstated in 11 §7.3 ("mode: Access|Trunk").
+    emit_dict: null
+    doc: The owner's Membership (11 §7.3).
+  - edge: L3Interface
+    class: reference
+    from: [Vlan]
+    to: [LogicalUnit]
+    out: "0..1"
+    in: "0..1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: IRB / SVI (11 §7.3).
+  - edge: Link
+    class: reference
+    from: [Interface]
+    to: [Interface]
+    out: "0..1"
+    in: "0..1"
+    reverse_index: true
+    symmetric: true
+    fields:
+      # NOTE (form vs content): the declared variant `unknown` trips 62 §7 rule 2 / §18.1
+      # schema.enum.reserved-variant (the unknown arm is generated, never declared), but 11 §7.4
+      # declares it and 19 §3.4 reaffirms it ("Link keeps its unknown variant", contrasting
+      # Cable.media, which dropped it). 11/19's content is transcribed as written; the collision
+      # is a defect to file per 62 §1 — resolution (renaming the variant, or amending rule 2 for
+      # superseded edges) belongs to 11/62, not this tree.
+      - { name: media, type: "enum { copper, fibre, dac, virtual, unknown }", card: "0..1", emit: "—", doc: Link keeps its unknown variant; Cable deliberately dropped it (19 §3.4). }
+        # VERIFY: cards and emits for all four Link fields unstated in 11 §7.4's table.
+      - { name: length_m, type: u32, card: "0..1", emit: "—" }
+      - { name: label, type: Text, card: "0..1", emit: "—", doc: Patch panel reference. }
+      - { name: provider_circuit, type: Text, card: "0..1", emit: "—", doc: Free prose until Circuit exists. }
+    emit_dict: null
+    doc: |
+      SUPERSEDED by Cable + Terminates (19 §3.8) and kept per 19 §7.5 — removal would be a
+      major bump. Direction is normalised on write (smaller NodeId becomes from, 11 §7.4);
+      consumers must never read meaning into the direction of a symmetric edge. The Cabled
+      traversal is now a derived edge.
+  - edge: PeersWith
+    class: reference
+    from: [Device]
+    to: [Device]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: redundancy, type: "enum { vpc, mlag, vrrp, other }", card: "0..1", emit: "—" }
+        # VERIFY: card and emit unstated in 11 §7.3 ("redundancy: Vpc|Mlag|Vrrp|Other").
+    emit_dict: null
+    doc: Out of day-one scope; the edge exists so there is a home (11 §7.3).
+
+  # ---- reference, 19 §5.1 physical ----
+  - edge: AtPremises
+    class: reference
+    from: [Site]
+    to: [Premises]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      19 §5.1. in: 0..n IS the requirement — "several units at this address" becomes a count
+      of in-edges, not a population scan.
+  # 62 §6.1's worked declaration, content-identical (§20.3 names it the edge exemplar and orders
+  # verbatim reuse); reflowed to single-line flow per 62 §2.2 — §6.1's own multi-line layout is
+  # the §2.2-vs-§20 contradiction filed at IkeGateway.
+  - edge: Terminates
+    class: reference           # containment | reference   (derived edges: §11.4)
+    from: [Cable]
+    to: [PhysicalPort, ExternalPeer]
+    out: "0..2"                # bound at the from end; bare range = enforced at L0
+    in:  "0..n"                # bound at the to end
+    reverse_index: true        # 12's reverse-indexing requirement
+    symmetric: false
+    fields:
+      - { name: end,  type: enum(cable_end), card: "1",    emit: "—", doc: Which end of the cable this termination is. A or B. }
+      - { name: lane, type: u8,              card: "0..1", emit: "—" }
+    emit_dict: null            # §6.3
+    doc: |
+      A cable end lands on a port, or on an external peer at the modelling
+      horizon. 19 §5.1. A breakout is four cables sharing a near-end port,
+      never a four-ended cable — hyperedges are unrepresentable, deliberately.
+  - edge: Occupies
+    class: reference
+    from: [Interface]
+    to: [PhysicalPort]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: lane, type: u8, card: "0..1", emit: "—", doc: Breakout lane; Absent = whole port. }
+    emit_dict: null
+    doc: |
+      19 §3.7 — from is [Interface] only, not InterfaceLike: reth/ae reach hardware through
+      their members; st0 reaches nothing. Created by the user (a parser may not — R-L2);
+      infer.port.occupies produces a suggestion, never a graph change. L0 constraint
+      occupies.same-device holds the layer separation.
+  - edge: PassThrough
+    class: reference
+    from: [PhysicalPort]
+    to: [PhysicalPort]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: true
+    fields: []
+    emit_dict: null
+    doc: |
+      "These two holes are the same hole" (19 §5.1) — the ODF/panel/splitter/WDM traversal.
+      Degree drives rendering and traversal: exactly one makes the panel transparent; more
+      than one is a fan-out. The shipped symmetric example (62 §6.2).
+
+  # ---- reference, 19 §5.2 service ----
+  - edge: OfType
+    class: reference
+    from: [Service]
+    to: [ServiceType]
+    out: "1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: The type is an edge to a node, not an enum field (19 §4.2).
+  - edge: PathFrom
+    class: reference
+    from: [ServicePath]
+    to: [ServiceEndpoint]
+    out: "1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.2.
+  - edge: PathTo
+    class: reference
+    from: [ServicePath]
+    to: [ServiceEndpoint, Device, ExternalPeer]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.2. A Boundary-terminated path may point at an ExternalPeer or a Demarc endpoint.
+  - edge: AtLocation
+    class: reference
+    from: [ServiceEndpoint]
+    to: [Site, Premises]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §4.4, §5.2.
+  - edge: AttachesTo
+    class: reference
+    from: [ServiceEndpoint]
+    to: [InterfaceLike, LogicalUnit, PhysicalPort]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      19 §4.4 — the class admits the four interface kinds; LogicalUnit because a UNI is
+      frequently a tagged unit; PhysicalPort because a demarcation may be recorded before any
+      configuration exists. Reference, so R-L1 holds — deleting a service never deletes a port.
+  - edge: EntersAt
+    class: reference
+    from: [PathSegment]
+    to: [PhysicalPort, InterfaceLike, LogicalUnit]
+    out: { l0: "0..n", l1: "0..1" }
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      19 §5.2. Two-level bound: a concurrent write of two entry ports on one segment must
+      converge rather than conflict, so the store bound relaxes and the L1 rule
+      service.path.segment.multiple-entry patrols the excess (62 §6.2's requirement that the
+      patrolling rule be named here).
+  - edge: ExitsAt
+    class: reference
+    from: [PathSegment]
+    to: [PhysicalPort, InterfaceLike, LogicalUnit]
+    out: { l0: "0..n", l1: "0..1" }
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      19 §5.2. Same two-level bound as EntersAt; patrolled by
+      service.path.segment.multiple-entry. A Boundary segment deliberately leaves this unset.
+  - edge: MustTraverse
+    class: reference
+    from: [PathSegment]
+    to: [Device, PassiveNode]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: 19 §5.2, §6.7 — constrain, never freeze; honoured by resolve_warp.
+
+derived_edges:
+  # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load
+  # and after every mutation batch (11 §3.5; 62 §11). produced_by is an InferenceRuleId.
+  - edge: ResolvesVia
+    from: [StaticRoute]
+    to: [LogicalUnit]
+    produced_by: infer.route.next-hop-interface
+    fields: []
+    doc: |
+      Matches NextHop::Interface, or NextHop::Address against a connected Address prefix
+      (11 §7.6).
+  - edge: SelectorCovers
+    from: [TrafficSelector]
+    to: [StaticRoute]
+    produced_by: infer.ts.route-coverage
+    fields: []
+    doc: The selector's remote_ip is covered by a route pointing at the bound st0 unit (11 §7.6).
+  - edge: NatOverlaps
+    from: [NatRule]
+    to: [TrafficSelector]
+    produced_by: infer.nat.tunnel-overlap
+    fields: []
+    doc: Side 4's source-NAT trap (11 §7.6).
+  - edge: WouldNegotiate
+    from: [IpsecVpn]
+    to: [IpsecVpn]
+    produced_by: infer.tunnel.compat
+    fields: []
+    doc: The Batfish-shaped static compatibility check, only when both sides are modelled (11 §7.6).
+  - edge: SharesFate
+    from: [LogicalUnit]
+    to: [RedundancyGroup]
+    produced_by: infer.reth.fate
+    fields: []
+    doc: A unit on a reth inherits the RG's failover (11 §7.6).
+  - edge: Cabled
+    from: [Interface]
+    to: [Interface, ExternalPeer]
+    produced_by: infer.port.cabled-peer
+    fields:
+      - { name: via_passive, type: u8, card: "1", emit: "—", doc: How many PassThrough hops were walked. }
+    doc: |
+      11 §6.4's traversal name kept, re-classed derived (19 §3.8). DECLARED PROPERTY (19 §6.4,
+      recorded here per 62 §11): Cabled has NO inference consumer — its consumers are the
+      diagram, the port row's peer cell and the trace surface. A future rule reading it is a
+      two-level pass and fails the loader.
+  - edge: WarpResolvesVia
+    from: [PathSegment]
+    to: [PhysicalPort]
+    produced_by: infer.service.warp.resolve
+    fields:
+      - { name: candidate, type: u8, card: "1", emit: "—" }
+        # VERIFY: cards and emits for candidate/ordinal unstated in 19 §5.3's table.
+      - { name: ordinal, type: u16, card: "1", emit: "—" }
+    doc: |
+      The warp's derived expansion (19 §5.3, §6.6). Named WarpResolvesVia because ResolvesVia
+      is taken — the collision schema.edge.duplicate exists to catch.
+  - edge: CarriedBy
+    from: [Service]
+    to: [Device, PassiveNode]
+    produced_by: infer.service.carried-by
+    fields: []
+    doc: |
+      Asserted EntersAt/ExitsAt/AttachesTo only — never through a resolved
+      warp; one level deep per 11 §9.5 constraint 1. Under-reports across
+      warps and its explainer must say so (19 §5.3).
+
+constraints:
+  - id: ike-proposal.aead-excludes-hash
+    kind: IkeProposal
+    level: L2
+    require: "encryption_algorithm.aead == true implies authentication_algorithm is Absent"
+    on_violation: block_emit
+    doc: |
+      11 §6.7: GCM is AEAD, so there is no separate authentication-algorithm; with CBC both
+      must be set.
+      NOTE (form vs content): 11 writes this as when:/require: with "is Absent or Unknown";
+      62 §12.3's grammar has implies but no disjunction, so the Unknown arm is not spellable.
+      11's content wins in intent; the grammar gap is a defect to file.
+      VERIFY: the dropped "or Unknown" arm — as declared, an Unknown hash on an AEAD proposal
+      blocks emit, which is stricter than 11 states.
+  - id: ipsec-proposal.aead-excludes-hash
+    kind: IpsecProposal
+    level: L2
+    require: "encryption_algorithm.aead == true implies authentication_algorithm is Absent"
+    on_violation: block_emit
+    doc: 11 §6.7 — "same AEAD constraint as IkeProposal". Same form notes as its sibling.
+  - id: ipsec-vpn.mode-binds-interface
+    kind: IpsecVpn
+    level: L1
+    require: "mode == RouteBased implies edge(BindsInterface) is Set"
+    on_violation: report_hole
+    doc: |
+      11 §6.7: BindsInterface is required when mode == RouteBased and forbidden when
+      PolicyBased.
+      VERIFY: 11 states this as prose with no id or level; L1 is the conservative reading
+      (a missing edge is a hole). The forbidden-when-PolicyBased half needs negation, which
+      §12.3's grammar lacks, and edge(...) with no field path strains the path grammar —
+      both defects to file.
+  - id: occupies.same-device
+    edge: Occupies
+    level: L0
+    require: "device_of(from) == device_of(owner(to))"
+    on_violation: reject_write
+    doc: |
+      19 §3.7, verbatim: without this, Occupies becomes a general "this config points at that
+      hardware" edge and the layer separation rots in a month.
+      NOTE (form vs content): device_of() and owner(to) are not 62 §12.3 grammar productions;
+      19's content is transcribed as written — a grammar gap to file.
+  - id: passthrough.same-owner
+    edge: PassThrough
+    level: L0
+    require: "owner(from) == owner(to)"
+    on_violation: reject_write
+    doc: 62 §12.2, verbatim (19 §5.1).
+  - id: service.attributes.typed-by-oftype
+    kind: Service
+    field: attributes
+    level: L0
+    validated_against: edge(OfType)
+    on_violation: reject_write
+    doc: |
+      19 §4.3: unknown keys and wrong-typed values are refused against the
+      ServiceType reached through OfType. The field may not be written while
+      that edge is absent; the error names the missing edge.
+  - id: service.cid.required-when-external
+    kind: Service
+    level: L1
+    require: "reach == External implies cid is Set"
+    on_violation: report_hole
+    doc: |
+      62 §12.2 / 19 §4.6 — L1 rather than L0 because a service must be creatable before its
+      CID is known. Surfaces as a completeness prompt.
+
+emission:
+  requires_for_emit:
+    - id: emit.junos.aggregate-device-count
+      platforms: ["junos-*"]
+      when: "exists(AggregateInterface within Device)"
+      requires: [Device.aggregate_device_count]
+      on_violation: block_emit
+    - id: emit.junos-srx.reth-count
+      platforms: [junos-srx]
+      when: "exists(RethInterface within Device)"
+      requires: [Device.reth_count]
+      on_violation: block_emit
+
+matching:
+  residue_guard:
+    accept: 0.75        # minimum similarity for a residue match to bind
+    margin: 0.15        # best must beat runner-up by this, else ambiguous → no bind
+    max_residue: 4096   # when |unmatched G| × |unmatched P| exceeds this, per kind
+                        # (11 §10.4 step 4), the matcher does not attempt residue
+                        # matching at all; everything orphans explicitly
+
+scopes:
+  capture:
+    layer_filter: config      # 19 §9.1 A1: re-identification step 1 gains the
+                              # positive conjunct layer(kind(n)) == config
+    absence_origin_columns:
+      imported: nothing       # 19 §9.1 A2: Origin::Imported under Section/Whole
+                              # scope → nothing happens. Catalogue ports do not
+                              # tombstone because a config re-parse omitted them
+    staleness_bands: config_only  # 19 §7.3 A3 / §3.9: 11 §8.7's wall-clock
+                              # staleness bands apply only where layer == config.
+                              # Without this, a catalogue port renders differently
+                              # on two days and 19 §6.10's determinism argument
+                              # is false
+  import:
+    - format: Corpus              # builtin service types, 19 §4.3.1
+      kinds: [ServiceType]
+      tiers: [1]                  # builtin_id only — a corpus refresh may never
+                                  # re-identify a user type by code
+      absence: nothing
+    - format: HardwareCatalogue   # 19 §3.9
+      kinds: [PhysicalPort]
+      tiers: [1]
+      absence: nothing
+    - format: SiteList
+      kinds: [Premises, Site]
+      tiers: [1, 2]
+      absence: nothing
+    - format: TypeSet             # 19 §4.3.2's export/import
+      kinds: [ServiceType]
+      tiers: [1, 2]               # builtin_id, then code
+      absence: nothing
+    # No shipped import scope asserts `absent` in v1 (62 §9.5's DECISION);
+    # declaring absence: absent is schema.scope.absent-unshipped.
+
+naming_eligible:
+  - Device.hostname                    # the anchor field a scheme may select
+  - site.premises.region               # paths a `field` segment may read,
+  - site.premises.clli                 # each ≤ 3 hops from the anchor kind
+  - site.name

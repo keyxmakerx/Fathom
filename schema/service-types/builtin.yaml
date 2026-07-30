@@ -1,0 +1,51 @@
+# The four shipped ServiceType declarations — 62 §20.4, verbatim below the header.
+# HOMING NOTE: 62 §2.1 homes this file at corpus/service-types/builtin.yaml — it is
+# authored content validated against the schema, not part of it. It is materialised here
+# because this change owns schema/ only; move this file verbatim (dropping this header)
+# when the corpus tree is written. VERIFY: final home is corpus/service-types/.
+#
+# corpus/service-types/builtin.yaml — materialised into the graph at workspace
+# creation with Origin::Imported { format: Corpus } (19 §4.3.1). One mechanism,
+# seeded; a user's edit is an ordinary Origin::Hand assertion and wins on merge.
+service_types:
+  - builtin_id: dia
+    code: dia
+    name: "Dedicated Internet Access"
+    endpoint_cardinality: { min: 1, max: 1 }     # 1..1, not 1..2 — the provider
+    endpoint_identifier_required: false          # side is where the PATH ends,
+    uni_scope: global                            # not a second endpoint
+    requires_cid: true
+    attributes: []
+    endpoint_attributes: []
+    completeness: []          # the cid-when-external check is §12.2's L1
+                              # constraint, not a per-type profile — no duplicate
+  - builtin_id: eline
+    code: eline
+    name: "E-Line"
+    endpoint_cardinality: { min: 2, max: 2 }
+    endpoint_identifier_required: false          # operator's choice (19 §4.3.1);
+    uni_scope: global                            # edit the node, Hand wins
+    requires_cid: true
+    attributes: []
+    endpoint_attributes: []
+    completeness: []
+  - builtin_id: elan
+    code: elan
+    name: "E-LAN"
+    endpoint_cardinality: { min: 2, max: null }
+    endpoint_identifier_required: true           # the load-bearing detail —
+    uni_scope: global                            # a UNI ID per location (77 §3.1)
+    requires_cid: true
+    attributes: []
+    endpoint_attributes: []
+    completeness: []
+  - builtin_id: internal-interlink
+    code: internal-interlink
+    name: "Internal interlink"
+    endpoint_cardinality: { min: 2, max: 2 }
+    endpoint_identifier_required: false
+    uni_scope: global
+    requires_cid: false                          # internal services have no CID
+    attributes: []                               # (19 §4.6): cid is Absent,
+    endpoint_attributes: []                      # asserted, and not a hole
+    completeness: []

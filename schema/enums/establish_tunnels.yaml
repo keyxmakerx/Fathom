@@ -1,0 +1,19 @@
+# schema/enums/establish_tunnels.yaml — 62 §7's worked example, verbatim.
+# NOTE (form vs content): 11 §6.7's IpsecVpn table lists three variants
+# {Immediately, OnTraffic, ResponderOnly}; 62 §7's declaration adds
+# responder_only_no_rekey. 62's declaration is reused verbatim per its own
+# instruction; the extra variant is a divergence to file per 62 §1's
+# precedence rule (11 wins on intent).
+variants: [immediately, on_traffic, responder_only, responder_only_no_rekey]
+default_by_platform:
+  junos-srx: on_traffic
+platform_spellings:
+  junos-srx:
+    immediately:    "immediately"
+    on_traffic:     "on-traffic"
+    responder_only: "responder-only"
+doc: |
+  Neutral variants; per-platform surface strings. 63 §5.3's platform enum
+  map lives here per ADR-0008 — 63 references it and no longer carries it.
+  The junos-srx default is sourced in corpus/defaults/junos-srx.yaml
+  (11 §5.3: "field card side 3 — 'on-traffic  Default.'").

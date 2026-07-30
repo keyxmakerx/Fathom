@@ -1,0 +1,7 @@
+# schema/enums/policy_action.yaml — defined by 62 §3.4 (a known hole, closed there).
+# Used by SecurityPolicy.action, PolicySet.default_action, Device.default_*_action.
+# The unknown arm is generated, never declared (62 §7 rule 2).
+variants: [permit, deny, reject]
+doc: |
+  62 §3.4: 11 §6.3's "almost always Default(Deny)" is Presence::Default carrying
+  deny — a provenance state, not a fourth variant.

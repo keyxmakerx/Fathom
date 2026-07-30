@@ -1,0 +1,24 @@
+# schema/platforms.yaml — the platform registry and the vendors block (62 §14, verbatim).
+# Vendor ids are schema; token spellings are policy (Policy.vendor_tokens, 62 §15).
+# PlatformId (62 §3.4) is a foreign key into this file; free-text platform strings are a
+# build error wherever they appear.
+
+vendors:
+  juniper:   {}
+  palo-alto: {}
+  cisco:     {}
+  arista:    {}
+  fortinet:  {}
+  calix:     {}          # hardware-catalogue vendors are the same namespace —
+  nokia:     {}          # 19 §3.9's catalogue vendor: is a FK into this block,
+  adtran:    {}          # which is what makes 76 X11's cross-check possible
+
+platforms:
+  junos-srx: { vendor: juniper,   family: junos,   version_scheme: junos }
+  junos-mx:  { vendor: juniper,   family: junos,   version_scheme: junos }
+  junos-ex:  { vendor: juniper,   family: junos,   version_scheme: junos }
+  panos:     { vendor: palo-alto, family: panos,   version_scheme: panos }
+  ios-xe:    { vendor: cisco,     family: ios,     version_scheme: iosxe }
+  nx-os:     { vendor: cisco,     family: nxos,    version_scheme: nxos }
+  eos:       { vendor: arista,    family: eos,     version_scheme: eos }
+  fortios:   { vendor: fortinet,  family: fortios, version_scheme: fortios }
