@@ -1,0 +1,12 @@
+[package]
+name = "fathom-ir"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The IR's type home: scalar/value binding targets (stubs), the field-bag contract, and the fathom-schemagen-generated types (62 §17)"
+
+[dependencies]
+# Workspace-internal only. The no-external-dependencies position (35, workspace
+# Cargo.toml) holds: fathom-id needs nothing but core.
+fathom-id = { path = "../fathom-id" }

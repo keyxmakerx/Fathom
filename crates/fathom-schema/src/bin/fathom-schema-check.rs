@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 const NOT_YET_CHECKABLE: &[(&str, &str)] = &[
-    ("schema.scalar.unbound", "needs the fathom-ir scalar impls"),
     ("schema.derive.unknown-fn", "needs the derive fn registry"),
     ("schema.emit.unread", "needs emitter read sets"),
     ("schema.emit.attr-read", "needs emitter read sets"),
@@ -22,18 +21,49 @@ const NOT_YET_CHECKABLE: &[(&str, &str)] = &[
         "needs 62 §6.2's patrol wiring",
     ),
     ("schema.edge.reverse-unindexed", "needs the index build"),
-    ("schema.attrtype.drift", "needs the generated AttrType enum"),
     (
         "schema.version.bump-too-small",
         "schema/released/ holds no snapshot yet",
     ),
-    ("schema.migration.chain-broken", "no migrations exist yet"),
-    ("schema.codegen.stale", "codegen does not exist yet"),
+    (
+        "schema.migration.chain-broken",
+        "schema/migrations/manifest.toml declares an (honestly) empty chain; \
+         completeness from 1.0 becomes checkable at the first release",
+    ),
     ("ext.budget.exceeded", "needs workspace data"),
     ("schema.order.inserted", "needs git history"),
     (
         "schema.enum.default-unsourced",
         "needs the corpus defaults source",
+    ),
+];
+
+/// Gates that ARE checked, but elsewhere in the workspace — listed on every
+/// run so this binary's report stays the one honest inventory of 62 §18
+/// coverage.
+const CHECKED_ELSEWHERE: &[(&str, &str)] = &[
+    (
+        "schema.scalar.unbound",
+        "compile-time: generated ir_types.rs references every bound impl \
+         path, so `cargo build -p fathom-ir` is the check (trait conformance \
+         waits on the Scalar trait; fathom-schemagen additionally refuses \
+         paths outside fathom_ir::scalar::/value::)",
+    ),
+    (
+        "schema.attrtype.drift",
+        "cargo test -p fathom-schemagen (tests/attrtype_drift.rs): 62 §13.3's \
+         fenced enum vs fathom_ir::value::AttrType, order included",
+    ),
+    (
+        "schema.codegen.stale",
+        "cargo test -p fathom-schemagen (tests/determinism.rs): regenerate \
+         and byte-compare the checked-in artifacts; CLI face: \
+         fathom-schemagen --check",
+    ),
+    (
+        "schema.codegen.nondeterministic",
+        "cargo test -p fathom-schemagen (tests/determinism.rs): run twice, \
+         byte-compare",
     ),
 ];
 
@@ -86,6 +116,15 @@ fn main() -> ExitCode {
         "not yet checkable ({} gates): {}",
         NOT_YET_CHECKABLE.len(),
         NOT_YET_CHECKABLE
+            .iter()
+            .map(|(c, _)| *c)
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    println!(
+        "checked elsewhere ({} gates): {}",
+        CHECKED_ELSEWHERE.len(),
+        CHECKED_ELSEWHERE
             .iter()
             .map(|(c, _)| *c)
             .collect::<Vec<_>>()

@@ -7,5 +7,20 @@ name = "fathom-id"
 version = "0.1.0"
 
 [[package]]
+name = "fathom-ir"
+version = "0.1.0"
+dependencies = [
+ "fathom-id",
+]
+
+[[package]]
 name = "fathom-schema"
 version = "0.1.0"
+
+[[package]]
+name = "fathom-schemagen"
+version = "0.1.0"
+dependencies = [
+ "fathom-ir",
+ "fathom-schema",
+]

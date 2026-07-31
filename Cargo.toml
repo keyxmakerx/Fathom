@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/fathom-id", "crates/fathom-schema"]
+members = [
+    "crates/fathom-id",
+    "crates/fathom-ir",
+    "crates/fathom-schema",
+    "crates/fathom-schemagen",
+]
 
 [workspace.package]
 edition = "2021"

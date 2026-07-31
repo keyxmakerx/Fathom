@@ -12,11 +12,23 @@ defect to file, not to interpret around. The codegen (`fathom-schemagen`, `62` �
 
 **Checking:** `cargo run -p fathom-schema --bin fathom-schema-check` parses this tree
 against `62` §2.2's YAML subset and enforces the mechanically-checkable `62` §18 gates
-(the ones needing codegen, git history or a released snapshot are listed on every run as
-not yet checkable). The shipped tree's zero-failure state is pinned by
-`crates/fathom-schema/tests/shipped_tree.rs`, so a schema edit that breaks a gate fails
-`cargo test`. Codes the spec does not name are emitted with a `proposed:` prefix — each
-one is a gap to file against `62` §18, not to silence.
+(the ones needing git history or a released snapshot are listed on every run as not yet
+checkable; the ones that live elsewhere are listed as checked elsewhere). The shipped
+tree's zero-failure state is pinned by `crates/fathom-schema/tests/shipped_tree.rs`, so a
+schema edit that breaks a gate fails `cargo test`. Codes the spec does not name are
+emitted with a `proposed:` prefix — each one is a gap to file against `62` §18, not to
+silence.
+
+**Codegen:** `cargo run -p fathom-schemagen` regenerates the `62` §17.1 artifacts from
+this tree (gates first — it refuses while any failure-severity gate fires);
+`cargo run -p fathom-schemagen -- --check` compares without writing. Every schema edit is
+therefore: edit the tree, regenerate, commit both — `cargo test` fails otherwise, because
+`crates/fathom-schemagen/tests/determinism.rs` regenerates and byte-compares the
+checked-in outputs (`schema.codegen.stale`) and runs the generator twice
+(`schema.codegen.nondeterministic`), and `tests/attrtype_drift.rs` holds `62` §13.3's
+`AttrType` table against the shipped enum. `schema.scalar.unbound`'s compile-time half is
+the generated binding inventory in `crates/fathom-ir/src/generated/ir_types.rs`: every
+declared `impl:` path is referenced there, so `cargo build -p fathom-ir` is the check.
 
 | Path | What |
 |---|---|
@@ -26,10 +38,13 @@ one is a gap to file against `62` §18, not to silence.
 | `field-keys.yaml` | The append-only field-key registry — integer keys per field, assigned once, never reused (`62` §2.3, §17.1) |
 | `released/` | One checked-in `schema.json` snapshot per released version (`62` §16.4). Empty: nothing has been released |
 | `service-types/builtin.yaml` | The four shipped `ServiceType` declarations (`62` §20.4). Homed at `corpus/service-types/` by `62` §2.1; parked here until the corpus tree is written |
+| `generated/` | `schema.json` (canonical, the content-hashed artifact) and `ir_types.ts` (the UI-boundary mirror), written by `fathom-schemagen` — never edited by hand |
+| `migrations/manifest.toml` | The declared migration chain (`62` §17.1) — generated, and honestly empty pre-1.0 |
 
-**Generated artifacts do not exist yet.** None of `ir_types.rs`, `accessors.rs`,
-`schema.json`, `ir_types.ts` or `migrations/manifest.toml` (`62` §17.1) has been generated;
-`released/` is empty and no `schema_hash` has been published.
+**Generated artifacts exist and are checked in** (`62` §17.2 requirement 2): the two
+files above plus `crates/fathom-ir/src/generated/{ir_types.rs, accessors.rs}`; the
+staleness and determinism gates run as cargo tests in `fathom-schemagen`. `released/` is
+still empty and no `schema_hash` has been published — that happens at the first release.
 
 **Version:** `0.1` — the entire config + physical + service model lands as **one minor
 bump from an empty baseline** (`19` §7.5's arithmetic against `11` §11.3's table; `62`
