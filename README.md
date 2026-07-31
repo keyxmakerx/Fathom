@@ -1,30 +1,43 @@
-# Fathom — architecture corpus
+# Fathom — architecture corpus, schema, and first code
 
-**This repository contains no code.** It is the design corpus for a security-first, client-side
-network engineering tool: forty-odd specification documents, twenty-nine accepted decision
-records (plus one proposed, ADR-0023), six adversarial critiques, one reconciliation register,
-and a seed content corpus in YAML.
+The design corpus, declared schema and first toolchain for a security-first, client-side
+network engineering tool. Fifty-odd specification documents, thirty decision records, six
+adversarial critiques, a seed content corpus, a declared `schema/` tree, two Rust crates that
+parse and gate it, and a full-application interactive mockup.
 
 Fathom models a network as one typed graph and projects it into a diagram, a configuration, a set
 of findings, an explanation, a verification ladder and an inventory. It never touches a device,
-never accepts a credential, and never opens a connection the user did not configure.
+never accepts a credential, and never opens a connection the user did not configure — permanently
+(`docs/30-security/38-the-egress-question.md` prices every future exception).
 
-> **Status: planning. Nothing is committed to code.** The corpus has been through one adversarial
-> review round; all twelve blockers are closed in `docs/90-decisions/`. Six questions remain open
-> and four of them are blocked on measurements nobody has taken — see
-> `docs/00-vision/01-vision-and-thesis.md` §12.1. *Fathom* is a working codename and ADR-0005
-> requires a rename before publication.
+> **Status: the product was redefined mid-corpus, deliberately.** The original corpus specifies a
+> teaching-and-modelling tool with the command finder as v1 (ADR-0006, `71`). The owner has since
+> decided Fathom is also **the system of record for a service-provider estate** — tenants,
+> services with CIDs, E-Line/E-LAN with per-location UNI IDs, physical ports and cables,
+> addresses and CLLI-coded naming — with teaching co-equal. That redefinition is captured in
+> `docs/70-ops/77-service-model-requirements.md` (the owner's words), analysed in
+> `docs/70-ops/76-scope-expansion-analysis.md` (the revised build order), and modelled in
+> `docs/10-core/19-service-and-physical-model.md`. Where `71` and `76` disagree on sequence,
+> the disagreement is real and recorded — the owner has reopened decisions on merit and said so
+> (`75` §2). *Fathom* is a working codename; ADR-0005 requires a rename before publication.
 
-## Reading order
+## Picking this up cold — the new-session path
 
 | | Read | Why |
 |---|---|---|
-| 1 | `docs/00-vision/01-vision-and-thesis.md` | The front door. Stands alone if you read nothing else |
-| 2 | `.context/conventions.md` | Ten invariants and the vocabulary every document is bound by |
-| 3 | `.context/design-language.md` | The three-colour legend and the voice, extracted from the owner's field card |
-| 4 | `docs/80-review/80-reconciliation.md` | What was wrong and what was decided. The register of record |
-| 5 | `docs/90-decisions/` | ADR-0001 … ADR-0030 — Accepted ADRs are binding; ADR-0023 is Proposed, not yet in force |
-| 6 | The area you are implementing | `10-core` first — everything else depends on the graph |
+| 1 | `CLAUDE.md` | One page: state, rules, next actions |
+| 2 | `docs/00-vision/01-vision-and-thesis.md` | The original thesis. Still the voice and the security posture |
+| 3 | `.context/conventions.md` | Ten invariants and the vocabulary every document is bound by |
+| 4 | `docs/70-ops/77-…` then `76-…` | The redefinition, verbatim, then the analysis and **the build order** |
+| 5 | `docs/10-core/19-service-and-physical-model.md` | The IR extension: ports, cables, tenants, services, the warp, the schema mechanism |
+| 6 | `docs/60-content/62-schema-spec.md` + `schema/` | The grammar and its first instance. `cargo test` gates both |
+| 7 | `docs/70-ops/75-capability-register.md` | Everything intended but not yet decided or scheduled — and the two standing instructions |
+| 8 | `design/prototype/fathom-app.html` | Open from disk. The whole product, interactive — the fidelity bar |
+
+Three tasks are **owner-only** and block the rest: the S0 fixture exports (`76` §7), the four
+forks in `19` §10, and the named expert review of the corpus (invariant 10). The next
+engineering item is `fathom-schemagen` (`62` §17). The original reading order for the
+foundational corpus follows unchanged below.
 
 ## `.context/` — the inputs
 
@@ -61,6 +74,7 @@ carry `Accepted`.
 | `16-command-finder.md` | The wedge: concept layer, BM25F, FST trie, ranking determinism |
 | `17-workspace-format.md` | On-disk tree, record taxonomy, git behaviour, `fsck`, import and export |
 | `18-diff-verify-rollback.md` | Graph diff, the verify ladder, rollback generation, aggregate risk |
+| `19-service-and-physical-model.md` | **Post-redefinition.** Physical ports and cables split from config interfaces; tenants, services, CIDs, UNIs; the warp; the schema mechanism; naming policy |
 
 ### `20-ai/` — quarantined, optional, absent by default
 | | |
@@ -81,6 +95,7 @@ carry `Accepted`.
 | `35-supply-chain-and-builds.md` | Reproducible builds, signing, published hashes, the fork story |
 | `36-enterprise-review-qa.md` | The questions a security reviewer asks, answered. Customer-facing |
 | `37-privacy-and-compliance.md` | Processor analysis, retention, data subject rights. Customer-facing |
+| `38-the-egress-question.md` | **Post-redefinition.** What never connecting buys, priced per guarantee; the trust-gated ladder for every future connected capability. Nothing in it is approval |
 
 ### `40-stack/`
 | | |
@@ -90,6 +105,7 @@ carry `Accepted`.
 | `43-deployment-modes.md` | D1 single file, D2 single node, D3 cluster, D4 CLI |
 | `44-performance-budgets.md` | Size, memory and latency budgets, and the work-counter gate |
 | `45-testing-strategy.md` | Golden fixtures, property tests, conformance, the CI gate set |
+| `46-workspace-persistence-and-identity.md` | **Post-redefinition.** The save path per browser engine (verified from primary sources); the demo posture; username as typed HKDF context; the SSO bridges |
 
 ### `50-design/`
 | | |
@@ -100,13 +116,15 @@ carry `Accepted`.
 | `54-component-catalog.md` | Every component, with copy as a required part |
 | `55-accessibility.md` | Contrast under eight resolved cascade states, targets, forced colours |
 | `56-diagram-view.md` | Layered views, deterministic layout, SVG export |
+| `58-ui-direction-study.md` | Five rendered directions judged; **the paired ledger chosen**, with three named adoptions |
+| `59-diagram-aggregation-and-colour.md` | **Decided:** like-kind siblings collapse above six; the diagram takes no colour (reversal path pre-written to the overlay model) |
 
 ### `60-content/`
 | | |
 |---|---|
 | `61-command-corpus-spec.md` | The command entry format, `answers`, `risk`, `blast_radius`, `rosetta` |
 | `63-rulepack-spec.md` | Rule pack format, signing, lint gates, the severity budget |
-| *(`62-schema-spec.md`)* | Not yet written. Required by ADR-0008 — six subsystems depend on it |
+| `62-schema-spec.md` | **Written.** The `schema/` grammar: YAML subset, declaration grammars, identity terms, ~40 gates with stable codes, worked examples incl. a user-defined E-LAN |
 
 ### `70-ops/`
 | | |
@@ -115,6 +133,9 @@ carry `Accepted`.
 | `72-risks.md` | What kills this, with leading indicators, and a five-story pre-mortem. **Reconstructed** — the brief's promised §§11–14 never arrived |
 | `73-open-decisions.md` | D01–D23, ranked by the latest responsible moment |
 | `74-governance-and-licensing.md` | Licence split, contribution policy, advisory handling, continuity |
+| `75-capability-register.md` | **Post-redefinition.** Intent recorded, nothing decided: lifecycle, tickets, bulk action, backup, teaching-off, hooks (refused on security), planning modes, freeform, stencils, pockets — plus the two standing instructions (sunk cost never argues; real-time must not be foreclosed) |
+| `76-scope-expansion-analysis.md` | **Post-redefinition.** What the new requirements hit, and the revised build order — S0 is a fit test on owner-supplied fixtures, no code |
+| `77-service-model-requirements.md` | **Post-redefinition.** The owner's requirements verbatim: tenants, CIDs, E-LAN/UNI, the warp, the modelling horizon, naming. Records seven collisions; resolves none |
 
 ### `80-review/` — the adversarial round
 | | |
@@ -154,7 +175,7 @@ and the verification stamp is required UI chrome · `0028` corpus authorship and
 
 | | |
 |---|---|
-| `commands/junos-srx-ipsec.yaml` | 91 command entries. Reclassification pending per ADR-0011 |
+| `commands/junos-srx-ipsec.yaml` | 98 command entries (91 from the card + 7 chassis-cluster per R09) |
 | `rules/ipsec-junos-srx.yaml` | 37 rules. Corrections pending; **no fixtures yet** |
 | `explainers/ipsec-concepts.yaml` | 41 explainers at three depths |
 
@@ -162,6 +183,30 @@ and the verification stamp is required UI chrome · `0028` corpus authorship and
 > are no fixtures. Both are declared in the files' own headers and both are release blockers on
 > phase 0, not comments.
 
-## `design/prototype/`
+## `schema/` — the declared schema (post-redefinition)
 
-`index.html` — a static rendering of the design language. Not the product, not a build target.
+The first instance of `62`'s grammar: 48 kinds, 89 edges, 61 scalars, the platform registry,
+the append-only field-key registry, the four shipped service types. `62` wins on form, `11`/`19`
+win on content; every strain between them is commented at the site. Checked by
+`cargo run -p fathom-schema --bin fathom-schema-check` and pinned at zero failures by
+`cargo test`. One warning is deliberately left standing: `Site` has no identity tuple because no
+source ever stated one — the S0 site list forces that decision.
+
+## `crates/` — the first code
+
+| | |
+|---|---|
+| `fathom-id` | ULID over Crockford base32; `CommandId` / `ConceptId`. No clock, no RNG — parts are supplied by the caller (invariant 9) |
+| `fathom-schema` | The `62` §2.2 YAML-subset parser (bespoke, zero dependencies — the subset is small so that this is trivial) and every mechanically-checkable `62` §18 gate. 36 tests; toolchain pinned |
+
+## `design/` — from tokens to the whole product
+
+| | |
+|---|---|
+| `tokens.css` | The canonical token file — a verified transcription of `51` §14. Change the document first |
+| `prototype/fathom-app.html` | **The whole product as one interactive file.** Six views, the service layer, the warp both ways, the per-equipment page, both themes. Open from disk; ⌥1–⌥6, Ctrl+K |
+| `prototype/finder-states.html` | Every state of the phase-0 finder |
+| `prototype/index.html` | The original interface study (pre-dates the token file) |
+| `concepts/01–05` | The five direction studies `58` judged; 05 is the chosen base |
+| `diagrams/` | The diagram research builds; `A2-aggregated.html` carries the decided treatment |
+| `walkthrough/` | The build view (teaching on/off) and the buffer/notepad study |
