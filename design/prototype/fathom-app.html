@@ -107,11 +107,16 @@ button.tab[aria-pressed="true"] { color: var(--ink); border-bottom-style: solid;
 /* ================================================================ ledger == */
 .ledger { flex: 1 1 auto; min-height: 0; position: relative;
           display: grid; grid-template-columns: 62fr 38fr; column-gap: 0; }
-.sheet[data-width="narrow"] .ledger { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+/* Narrow: explicit row tracks. The 50% cap lives on the TRACK (minmax), not on
+   the item — a max-height:50% on the item cannot resolve against an auto row
+   and lets the meaning row swallow the whole ledger, collapsing the fact
+   column to 0 through min-height:0. */
+.sheet[data-width="narrow"] .ledger {
+  grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) fit-content(50%); }
 .col { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .col.meaning { border-left: var(--rule-hair) solid var(--ink); }
 .sheet[data-width="narrow"] .col.meaning {
-  border-left: 0; border-top: var(--rule-hair) solid var(--ink); max-height: 50%; }
+  border-left: 0; border-top: var(--rule-hair) solid var(--ink); }
 .colhead {
   flex: none; display: flex; align-items: baseline; justify-content: space-between;
   gap: var(--s3); padding: var(--s1) var(--s3);
@@ -242,6 +247,21 @@ button.tab[aria-pressed="true"] { color: var(--ink); border-bottom-style: solid;
 }
 .inv td .cell { cursor: default; }
 .invwrap { overflow-x: auto; }
+/* The opinions column is not a field — it must never scroll out of view.
+   Sticky inside .invwrap: always visible against row identity even if some
+   future row set overflows the fact column. */
+.inv th.opcol, .inv td.opcol {
+  position: sticky; right: 0; background: var(--page);
+  border-left: var(--rule-hair) solid var(--hairline); }
+/* A cell marked wrap may break to a second line instead of widening the
+   table past the column — same rule the finder's .cmd already lives by. */
+.inv td button.wrap { white-space: normal; }
+.inv td button.wrap .nb { white-space: nowrap; }
+/* The fact-column inventory is the widest surface in the app: its cells take
+   the tighter gutter so all five kinds fit beside the meaning column at the
+   verified 1280 viewport. The meaning-column tables keep --s3. */
+#factBody .inv th, #factBody .inv td button, #factBody .inv td .cell {
+  padding-right: var(--s2); }
 .inv tr[data-tier="primary"] td { background: var(--surface); }
 .inv tr[data-tier="related"] td { background: var(--surface-2); }
 .inv td button:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
@@ -1991,13 +2011,20 @@ function nodeW(label, sub) {
 
 /* model builders ----------------------------------------------------------- */
 function estateEdges() {
-  var out = [];
+  /* parallel cables between one device pair merge into one drawn edge whose
+     label carries both — two coincident lines would be a false statement */
+  var byPair = {}, order = [];
   CABLES.forEach(function (c) {
     var pa = elOf(c.a), pb = elOf(c.b);
     if (pa.dev === pb.dev) return;                    /* fabric self-cable */
-    out.push({ a:pa.dev, b:pb.dev, label:c.label });
+    var key = [pa.dev, pb.dev].sort().join('|');
+    if (!byPair[key]) { byPair[key] = { a:pa.dev, b:pb.dev, labels:[] }; order.push(key); }
+    byPair[key].labels.push(c.label);
   });
-  return out;
+  return order.map(function (k) {
+    var e = byPair[k];
+    return { a:e.a, b:e.b, label:e.labels.join(' · ') };
+  });
 }
 function buildModel(scope) {
   var m = { nodes:[], edges:[], horiz:false, collapsed:0, shown:0, title:'' };
@@ -2215,7 +2242,9 @@ function edgePath(a, b, horiz) {
   if (horiz) {
     var y1 = a.y + a.h / 2, y2 = b.y + b.h / 2, x1 = a.x + a.w, x2 = b.x;
     if (x2 < x1) { x1 = b.x + b.w; x2 = a.x; y1 = b.y + b.h / 2; y2 = a.y + a.h / 2; }
-    var mx = (x1 + x2) / 2;
+    /* bend just before the target so a long run can never pass through an
+       intermediate box and read as a hop that is not there */
+    var mx = Math.max(x1 + 8, x2 - 24);
     p = 'M' + x1 + ' ' + y1 + ' L' + mx + ' ' + y1 + ' L' + mx + ' ' + y2 + ' L' + x2 + ' ' + y2;
   } else if (a.rank === b.rank) {
     var lo = a.x < b.x ? a : b, hi = a.x < b.x ? b : a;
@@ -2277,9 +2306,19 @@ RENDER.diagram = function (host) {
     if (!a || !b2) return;
     svg2.appendChild(sEl('path', { 'class':'dg-edge', d:edgePath(a, b2, m.horiz) }));
     if (e2.label) {
-      var t2 = sEl('text', { 'class':'dg-anno',
-        x:(a.x + a.w / 2 + b2.x + b2.w / 2) / 2 + 4,
-        y:((a.y + a.h + b2.y) / 2) - 3 });
+      /* label placement: same-rank cables sit ABOVE the boxes; cross-rank
+         cables sit just above the lower node's entry point — measured to
+         clear every box, not floated mid-channel */
+      var lx, ly;
+      if (a.rank === b2.rank) {
+        lx = (Math.min(a.x + a.w, b2.x + b2.w) + Math.max(a.x, b2.x)) / 2 - e2.label.length * ADVM / 2;
+        ly = Math.min(a.y, b2.y) - 6;
+      } else {
+        var bot2 = a.rank < b2.rank ? b2 : a;
+        lx = bot2.x + bot2.w / 2 + 6;
+        ly = bot2.y - 6;
+      }
+      var t2 = sEl('text', { 'class':'dg-anno', x:lx, y:ly });
       t2.textContent = e2.label;
       svg2.appendChild(t2);
     }
@@ -2396,23 +2435,34 @@ function kindRows(kind) {
   if (kind === 'Tenant') return TENANTS;
   return PREMISES;
 }
+/* Cells are terse on purpose: the full sentence lives in the meaning column
+   when the row posts. Elision is at a word boundary and marked with an
+   ellipsis — never a mid-word clip. */
+function clip(s, n) {
+  s = String(s);
+  if (s.length <= n) return s;
+  var cut = s.slice(0, n), sp = cut.lastIndexOf(' ');
+  return (sp > 0 ? cut.slice(0, sp) : cut).replace(/[\s·—-]+$/, '') + '…';
+}
 function cellsFor(kind, e) {
   if (kind === 'Device') {
     var pr = premOf(e.prem) || {};
-    return [e.name, e.platform, e.os, e.role, pr.clli + ' · ' + pr.label,
-      e.conf.state + (e.conf.state !== 'conforming' ? ' — ' + e.conf.reason.split('—')[0] : ' · letter ' + (e.name.slice(-1)) ) ];
+    return [e.name, e.platform, e.os, e.role, pr.clli || pr.label,
+      e.conf.state + (e.conf.state === 'conforming' ? ' · letter ' + (e.name.slice(-1)) : '') ];
   }
   if (kind === 'PhysicalPort') {
     var c = cableAt(e.id), far = '—';
     if (c) { var fp = elOf(c.far); far = 'true → ' + (elOf(fp.dev) || {}).name + ' · ' + fp.label; }
-    else if (PORT_NOTES[e.id]) far = 'tail — ' + unesc(PORT_NOTES[e.id]).replace(/<[^>]*>/g, '');
+    else if (PORT_NOTES[e.id])
+      far = 'tail — ' + clip(unesc(PORT_NOTES[e.id]).replace(/<[^>]*>/g, '').split(' — ')[0], 22);
     else far = 'false';
     return [e.label, (elOf(e.dev) || {}).name, e.connector, e.service, e.speed, far];
   }
   if (kind === 'Service') {
     var t = TENANTS.filter(function (x) { return x.id === e.tenant; })[0] || {};
-    return [e.cid || 'Absent — internal', t.code, SVCTYPES[e.type].name, e.reach,
-      e.endpoints.length + (SVCTYPES[e.type].uni ? ' · UNI per location' : ''), e.label];
+    return [e.cid || 'Absent — internal', t.code, e.type, e.reach,
+      e.endpoints.length + (SVCTYPES[e.type].uni ? ' · UNI each' : ''),
+      String(e.label).replace(/ · \d+ locations?$/, '')];
   }
   if (kind === 'Tenant')
     return [e.name, e.code, e.tkind,
@@ -2439,7 +2489,7 @@ RENDER.inventory = function (host) {
   var t = el('table', 'inv');
   var thead = el('thead'), htr = el('tr');
   KCOLS[S.invKind].forEach(function (c) { htr.appendChild(el('th', null, c)); });
-  htr.appendChild(el('th', null, 'opinions'));
+  htr.appendChild(el('th', 'opcol', 'opinions'));
   thead.appendChild(htr); t.appendChild(thead);
   var tb = el('tbody');
   tb.setAttribute('data-rove', 'v');
@@ -2455,9 +2505,14 @@ RENDER.inventory = function (host) {
       b.setAttribute('data-post', 'el:' + e.id);
       if (ci === 0) b.setAttribute('data-rove-item', '');
       b.innerHTML = (ci === 0 && tierOf(e.id) === 'primary' ? '▸ ' : '') + esc(String(c));
+      if (S.invKind === 'Service' && ci === 5) {
+        b.className = 'wrap';
+        // break at spaces only — never inside a hyphenated identifier
+        b.innerHTML = esc(String(c)).replace(/\S*-\S*/g, '<span class="nb">$&</span>');
+      }
       td.appendChild(b); tr.appendChild(td);
     });
-    var tdo = el('td');
+    var tdo = el('td', 'opcol');
     var ob = el('button', 'op');
     ob.type = 'button';
     ob.setAttribute('data-opinion', e.id);
