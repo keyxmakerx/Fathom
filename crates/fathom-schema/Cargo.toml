@@ -1,0 +1,13 @@
+[package]
+name = "fathom-schema"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Parses the schema/ tree per 62 §2.2's YAML subset and enforces the mechanically-checkable 62 §18 gates"
+
+[dependencies]
+
+[[bin]]
+name = "fathom-schema-check"
+path = "src/bin/fathom-schema-check.rs"

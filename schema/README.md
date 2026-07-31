@@ -8,8 +8,15 @@ is data, and the code is generated from it. A field that exists in prose and not
 and version discipline. Content is owned by `docs/10-core/11-ir-schema.md` (config layer)
 and `docs/10-core/19-service-and-physical-model.md` (physical and service layers); `62`
 wins on form, the source documents win on intent, and a disagreement between them is a
-defect to file, not to interpret around. This tree is **data** — the repo still contains
-no application code; the codegen (`fathom-schemagen`, `62` §17) is separate work.
+defect to file, not to interpret around. The codegen (`fathom-schemagen`, `62` §17) is separate work.
+
+**Checking:** `cargo run -p fathom-schema --bin fathom-schema-check` parses this tree
+against `62` §2.2's YAML subset and enforces the mechanically-checkable `62` §18 gates
+(the ones needing codegen, git history or a released snapshot are listed on every run as
+not yet checkable). The shipped tree's zero-failure state is pinned by
+`crates/fathom-schema/tests/shipped_tree.rs`, so a schema edit that breaks a gate fails
+`cargo test`. Codes the spec does not name are emitted with a `proposed:` prefix — each
+one is a gap to file against `62` §18, not to silence.
 
 | Path | What |
 |---|---|
