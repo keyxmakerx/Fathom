@@ -1,0 +1,8 @@
+# schema/enums/lacp_mode.yaml.
+# Used by AggregateInterface.lacp_mode and RethInterface.lacp_mode (11 §6.4) — a second
+# use, so it is a file rather than an inline enum (62 §7 rule 4).
+variants: [active, passive, "off"]  # "off" quoted: a 62 §2.2 refused plain scalar (YAML 1.1
+                                    # loaders read bare off as boolean false; 11 §6.4's
+                                    # variant set is {Active, Passive, Off}).
+doc: |
+  LACP mode. reth can run LACP across the cluster on supported releases (11 §6.4).

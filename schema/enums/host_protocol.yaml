@@ -1,0 +1,8 @@
+# schema/enums/host_protocol.yaml.
+# Used by Zone.host_inbound_protocols and the ZoneMember edge (11 §6.6, §7.5).
+# VERIFY: 62 §3.4 closes HostService but not HostProtocol; the variant list below is the
+# union of 11 §6.6 ("ospf, bgp, bfd") and §7.5 ("ospf, bgp, bfd, all") and is certainly
+# incomplete — the unknown arm carries the rest until the SRX dictionary ships.
+variants: [ospf, bgp, bfd, all]
+doc: |
+  Junos host-inbound-traffic protocols. Unknown arm generated (62 §7 rule 2).

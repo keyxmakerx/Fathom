@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/fathom-id", "crates/fathom-schema"]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+# No external dependencies anywhere in the workspace yet. That is a position,
+# not an accident (35-supply-chain-and-builds.md): the schema toolchain parses
+# a deliberate YAML subset (62 §2.2) precisely so it does not need a general
+# YAML implementation, and fathom-id needs nothing but core.
+[workspace.dependencies]

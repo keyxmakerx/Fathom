@@ -1,0 +1,9 @@
+# schema/enums/conformance_state.yaml.
+# Used inside the NameConformance structured value (62 §11.2:
+# { state: enum(conformance_state), reason: Text? }) carried by Device.name_conformance.
+# 19 §8.3 writes the derived field as enum {Conforming, NonConforming(reason), Unevaluable};
+# 62 §11.2 restructures the payload into state + reason. 62's form is followed.
+variants: [conforming, non_conforming, unevaluable]
+doc: |
+  Name conformance against the active Policy naming scheme (19 §8.3). Derived-only;
+  never serialised.

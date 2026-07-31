@@ -1,0 +1,7 @@
+# schema/enums/segment_kind.yaml.
+# Used by PathSegment.kind (19 §6.3's SegmentKind).
+variants: [physical, warp, boundary]
+doc: |
+  19 §6.3: Physical traverses modelled equipment (hops asserted); Warp stands in for an
+  L2 P2P (interior resolves lazily); Boundary is the modelling horizon — where we stop,
+  on purpose. A path ending in a Boundary segment is complete by construction.

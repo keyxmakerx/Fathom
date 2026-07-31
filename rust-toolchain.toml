@@ -1,0 +1,4 @@
+# Locked toolchain (71 §3.3 xtask row: "locked toolchain"; 35 §4 reproducibility).
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt", "clippy"]

@@ -1,0 +1,8 @@
+# schema/enums/family.yaml.
+# Used by LogicalUnit.families (set) and as the key of LogicalUnit.family_mtu (11 §6.4).
+# Address.family is a different, two-variant inline enum — conflating them would let an
+# Address claim family mpls.
+variants: [inet, inet6, iso, mpls, ethernet_switching]
+doc: |
+  Junos family names are the surface spelling; the variants are neutral (62 §7 rule 1).
+  Unknown arm generated.

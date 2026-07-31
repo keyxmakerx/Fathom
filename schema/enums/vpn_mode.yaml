@@ -1,0 +1,8 @@
+# schema/enums/vpn_mode.yaml.
+# Used by IpsecVpn.mode and Tunnel.mode (11 §6.7) — a second use, so it is a file rather
+# than an inline enum (62 §7 rule 4).
+variants: [route_based, policy_based]
+doc: |
+  Route-based versus policy-based VPN. Determines whether BindsInterface is required or
+  forbidden (constraints: ipsec-vpn.mode-binds-interface); Tunnel.mode must agree with
+  both endpoints.

@@ -1,0 +1,7 @@
+# schema/enums/cable_end.yaml.
+# Used by the Terminates edge's end field (62 §6.1's worked declaration).
+variants: [a, b]
+doc: |
+  Which end of the cable a termination is. A is the endpoint with the lexicographically
+  smaller NodeId (19 §3.4 — 11 §7.4's Link normalisation applied to Terminates), which
+  makes Cable's tier-1 identity tuple ordered and deterministic.

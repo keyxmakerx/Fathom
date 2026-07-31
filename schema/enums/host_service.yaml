@@ -1,0 +1,8 @@
+# schema/enums/host_service.yaml — defined by 62 §3.4 (a known hole, closed there).
+# Used by Zone.host_inbound_system_services and the ZoneMember edge (11 §6.6, §7.5).
+# VERIFY: the full Junos host-inbound-traffic system-services list before the SRX
+# dictionary ships — 62 §3.4's own marker; the generated unknown arm makes the gap
+# survivable, not invisible.
+variants: [ike, ssh, ping, https, dhcp, all]
+doc: |
+  Shipped variants are 11 §7.5's list. Unknown arm generated (62 §7 rule 2).
