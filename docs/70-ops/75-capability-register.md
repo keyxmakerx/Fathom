@@ -13,7 +13,12 @@ often are `docs/10-core/11-ir-schema.md`, `docs/10-core/12-rule-engine.md`,
 C-06 add four more to that list** — `docs/10-core/14-parsers-and-ingest.md`,
 `docs/10-core/15-explainer-corpus.md`, `docs/50-design/54-component-catalog.md` and
 `docs/60-content/61-command-corpus-spec.md` — and they move `docs/10-core/17-workspace-format.md`
-from an occasional citation to a load-bearing one. Two decision records govern how entries leave:
+from an occasional citation to a load-bearing one. **C-07, C-08 and C-09 widen the list again**, into
+the design half of the corpus — `docs/50-design/51-design-tokens.md`,
+`docs/50-design/55-accessibility.md`, `docs/50-design/56-diagram-view.md` and
+`docs/50-design/59-diagram-aggregation-and-colour.md` — plus `docs/10-core/19-service-and-physical-model.md`,
+and C-08 is the first entry to cite `schema/schema.yaml` directly rather than through a document
+about it. Two decision records govern how entries leave:
 `docs/90-decisions/adr-0008-the-schema-is-a-specified-artifact.md` blocks every field-shaped entry
 here, and `docs/90-decisions/adr-0010-identity-reparse-and-suppression-survival.md` supplies most of
 C-01's machinery. **C-05's blocker is not a decision record at all**: it is a `Refused` boundary,
@@ -26,21 +31,24 @@ C-01's machinery. **C-05's blocker is not a decision record at all**: it is a `R
 | § | | margin tab |
 |---|---|---|
 | 1 | What this register is, the gap it fills, and the line it does not cross | *read this first* |
-| 2 | The standing priority instruction — prior work does not constrain future quality | *governance* |
+| 2 | The standing instructions — sunk cost is not an argument; the real-time groundwork | *governance* |
 | 3 | C-01 — element lifecycle state | *decommission, maintenance, etc* |
 | 4 | C-02 — ticket reference and date annotation | *(a) is free, (b) is refused* |
 | 5 | C-03 — multi-select and bulk action as first-class | *you select in order to act* |
 | 6 | C-04 — integration hooks, deferred on security grounds | **NOT APPROVED** |
 | 7 | C-05 — config backup and restore | *copy paste, copy and paste* |
 | 8 | C-06 — teaching-off posture and operational procedures | *the other half of the product* |
-| 9 | The corpus is lopsided toward teaching | *an observation, not an entry* |
-| 10 | Second-order consequences | *what each entry drags in* |
-| 11 | What the owner must decide — candidates for `73` | *the questions nobody asked* |
-| 12 | Nearly free versus large | *the cost is in the state model, not the feature* |
-| 13 | Failure modes of this register | *how a register rots* |
-| 14 | Open decisions this register raises and does not answer | |
-| 15 | Sources consulted | |
-| 16 | Disagreements | |
+| 9 | C-07 — freeform annotation, and the planning overlay modes | *drawn on the glass, never in the model* |
+| 10 | C-08 — typed stencils: "router", "switch", and the etc | *a typed node, not clip art* |
+| 11 | C-09 — the pocket | *click in, work small, leave everything intact* |
+| 12 | The corpus is lopsided toward teaching | *an observation, not an entry* |
+| 13 | Second-order consequences | *what each entry drags in* |
+| 14 | What the owner must decide — candidates for `73` | *the questions nobody asked* |
+| 15 | Nearly free versus large | *the cost is in the state model, not the feature* |
+| 16 | Failure modes of this register | *how a register rots* |
+| 17 | Open decisions this register raises and does not answer | |
+| 18 | Sources consulted | |
+| 19 | Disagreements | |
 
 ---
 
@@ -87,14 +95,19 @@ C-06 (§8). That restatement **is** preserved, in the owner's words:
 
 *"The new stuff"* is those four clarifications, so that sentence governs C-05, C-06 and both halves
 of the date answer directly. The four clarifications themselves are likewise preserved verbatim, at
-§3.8, §4.4, §7.1 and §8.1, and §15 records each.
+§3.8, §4.4, §7.1 and §8.1, and §18 records each.
+
+**A fifth batch arrived after that restatement** — the standing constraint in §2.4 and the three
+entries C-07, C-08 and C-09 — and no restatement of the instruction accompanied it. §9.1 states its
+status once, for all three entries: recorded under the original instruction's licence, quoted
+verbatim, acted on by nobody.
 
 > **The wording of the *original* instruction — the one that arrived with the four capability
 > requests in §3.1, §5.1 and §6.1 — is still not preserved here, and it should be.** §2.1 states the
 > reason it matters — *"paraphrasing a governance instruction is how it decays"* — and the opening
 > paragraph of this subsection is a paraphrase of it. Whoever next touches this register with access
 > to that exchange should replace that paraphrase with the owner's words. Recorded as a live defect
-> in §13 row 7 rather than papered over: a reconstructed quotation would be worse than an admitted
+> in §16 row 7 rather than papered over: a reconstructed quotation would be worse than an admitted
 > gap, because it would read as evidence. **The restatement quoted above is not a substitute**, because
 > it was said of different material.
 
@@ -121,10 +134,10 @@ entries are not even leans.
 
 An entry that never leaves is a wish. **Everything in this subsection is a proposal about how this
 document should be governed, and this document cannot enact it.** ADR-0001 gives every settled
-question one owning document, and §16 item 1 records that `75` is not named anywhere and owns
+question one owning document, and §19 item 1 records that `75` is not named anywhere and owns
 nothing settled — so a register cannot legislate its own review process from inside itself. The
 exits, the cadence and the disposal rule below are offered to whoever makes the `73` §10 edit
-proposed in §16 item 1. Until that edit exists, they bind nobody, including this document.
+proposed in §19 item 1. Until that edit exists, they bind nobody, including this document.
 
 Four exits are proposed.
 
@@ -163,7 +176,7 @@ still wanted. Whether that is the right cadence is for `73` §10 to say, not for
 **How to read the "Not before" column.** It is a *lower bound derived from prerequisites*, not a
 phase assignment. It says: the machinery this entry needs does not exist until here, so it cannot
 land earlier. It does not say it lands there, or that it lands at all. **Scheduling is `71`'s to
-do and this register does not own `71`**; Q22 (§11) leaves the actual phase open, and §11 Q22's own
+do and this register does not own `71`**; Q22 (§14) leaves the actual phase open, and §14 Q22's own
 note is that deciding this as one feature and scheduling it as one feature will not survive contact
 with `71`'s phase boundaries. The column exists so that nothing here reads as near-term.
 
@@ -178,6 +191,9 @@ with `71`'s phase boundaries. The column exists so that nothing here reads as ne
 | **C-05b** | Config backup and restore — the *expensive* half: store a snapshot series, diff it, generate restore lines | Intent recorded | Not before phase 3; `18` §5's generator is phase-3 machinery | Same `N-R-10` refusal, plus `18` OD-1, plus conventions.md still carrying the pre-ADR-0002 invariant 3 | §7 |
 | **C-06a** | Teaching-off as a **copy payload** — the bare command, not the command plus its context | Intent recorded | **Already in phase 0**, on two keys | None found. `53` §6.3 already specifies both payloads and `71` §3.5 renders the legend | §8 |
 | **C-06b** | Teaching-off as a **product-wide posture**, plus an authored operational procedure for a planned change | Intent recorded | Not before phase 3 for the procedure; the posture is not gated by the graph at all | No third program type exists (`52` §6.2 versus `18` §4.2); `15` §6.3 forbids a fourth `Depth` **by name**; `54` §8.7 rule 4 refuses the pointer affordance the owner asked for | §8 |
+| **C-07** | Freeform annotation layer, plus planning overlay modes with customisable colour categories | Intent recorded | Not before phase 4 — both halves land on the diagram | `59` §4.1's **DECISION — no colour** stands, with its own written gate (`59` §4.7) and its own pre-written reversal shape; the reserved risk trio bounds any palette (`51` §1 R1, §3.3) | §9 |
+| **C-08** | Typed stencils — quick-create for hand-origin nodes: `Device` with `role: router`, `switch`, … | Intent recorded | Not before phase 1; on the canvas not before phase 4 | None structural found — `Device.role` is a declared schema field and `Origin::Hand` is a first-class origin. The design language refuses the pictorial *form*, not the capability | §10 |
+| **C-09** | The pocket — a named working set that scopes canvas, inventory and findings to itself | Intent recorded | Not before phase 2; on the canvas not before phase 4 | `52` §5.7 makes selection deliberately un-persisted and un-synced. A pocket is what selection is not, so it cannot ride selection's type and needs its own record answer | §11 |
 
 **Read the C-04 row before reading anything else.** The owner deferred it for security reasons and
 was right to. What the owner may not know is that it is not merely deferred: `03` §4.3 `N-R-3`
@@ -199,13 +215,13 @@ the split as a footer legend, `⏎ copy   ⇧⏎ copy with context`. §8.4 recor
 which is that a large part of what the owner asked for in clarification (4) exists on two keys and
 does not exist as a posture.
 
-**The merge-semantics problems raised in §3 and §10 split in two,
+**The merge-semantics problems raised in §3 and §13 split in two,
 and only one half is dormant.** An earlier draft of this section claimed both halves were dormant
 until ADR-0016 was reversed. That was wrong, and ADR-0016's own text is what refutes it.
 
 | Half | Live from | Why |
 |---|---|---|
-| **`33` §6.4's field-class question** — which of A/N/B/C/D/E a lifecycle register is (§10 row 11), and the HLC/actor machinery behind it | **Dormant.** Only if ADR-0016 is reversed | ADR-0016 defers the multi-writer CRDT entirely: *"No multi-writer convergence."* `33` remains *"the specification for when one is built. It is deferred, not deleted"* |
+| **`33` §6.4's field-class question** — which of A/N/B/C/D/E a lifecycle register is (§13 row 11), and the HLC/actor machinery behind it | **Dormant.** Only if ADR-0016 is reversed | ADR-0016 defers the multi-writer CRDT entirely: *"No multi-writer convergence."* `33` remains *"the specification for when one is built. It is deferred, not deleted"* |
 | **`11` §8.6's resolution question** — what happens when two copies of a workspace assert different values for the same field | **Live from the first git merge**, which is phase 0 | ADR-0016 ships *"a workspace file plus git"* for v1 and phases 0–3, and its own "not this" table reads: *"A git merge conflict on a record is opened in the application with the passphrase and merged on plaintext by `11` §8.6."* `17` §12.4 specifies the mechanism — `fathom merge --resolve` reads the three index stages, opens them under an explicit unlock, and *"merges values per `11-ir-schema.md` §8.6"* |
 
 `11` §8.6's ladder is four deterministic steps — higher `Confidence`, then `Origin` precedence,
@@ -216,11 +232,11 @@ resolves by that ladder, in phase 2, with no CRDT anywhere near it. So does D3's
 across a sync merge"* (§5.4).
 
 **The consequence for this register:** every entry that touches merge must say which half it is in.
-§3.4, §5.4 and §10 row 11 now do.
+§3.4, §5.4 and §13 row 11 now do.
 
 ---
 
-## 2. The standing priority instruction
+## 2. The standing instructions
 
 *margin tab: governance*
 
@@ -270,10 +286,45 @@ is recorded so that whoever acts on this next re-establishes the answer rather t
 |---|---|---|
 | **D3 — is inventory bulk-edit in v1 at all** | `52` §12 | D3 leans *defer* and its argument was made when bulk edit was a convenience. C-03 makes it a primary application path. See §5.4 |
 | **`11` §17 #4 — should suppressions live in the graph as nodes** | `11` §17 | The identical fork returns one level up for a second kind of user-attached annotation, and one of its two stated reasons does not carry over. See §3.6 |
-| **`52` §14's request that `44` §3 adopt budgets S1–S5** | `52` §5.6.3, §14 vs `44` §3 | `52` asked; `44` never took it. C-03 adds a bulk *write* across a selection, which has no budget at all. See §10 |
+| **`52` §14's request that `44` §3 adopt budgets S1–S5** | `52` §5.6.3, §14 vs `44` §3 | `52` asked; `44` never took it. C-03 adds a bulk *write* across a selection, which has no budget at all. See §13 |
 
 In each case the earlier answer may still be best. ADR-0010 in particular looks best on the
 merits and not merely first (§3.5). That should be re-established, not assumed.
+
+### 2.4 A second standing instruction — the real-time groundwork
+
+Recorded verbatim from the owner, for §2.1's reason — paraphrasing a governance instruction is how
+it decays. The sentence arrived opening the fifth batch, and it is quoted again in §9.1 because the
+two halves are read by different people:
+
+> *"As long as the groundwork is there for the real time stuff, that'll be important eventually,
+> but we should probably do freeform stuff, even if it's temporary or permanent doesn't matter."*
+
+**The first clause is not a capability request and it gets no entry.** It is a standing constraint:
+**nothing built now may foreclose live multi-writer collaboration later.** The corpus already holds
+almost all of it, which is why this subsection is short — the constraint is recorded so that it
+binds this register's own entries rather than being re-derived per entry:
+
+| Where the groundwork already is | What it holds |
+|---|---|
+| `33` | The multi-writer sync protocol, specified in full — the op model, the §6.4 field classes, the convergence machinery. ADR-0016's own row: *"`33` remains the specification for when one is built. It is deferred, not deleted"* |
+| `73` D18 | *"Does v1 have multi-writer sync at all?"* — decided as a deferral with a reopening condition, not a closure: *"No. File plus git for v1. Single-writer sync with an advisory lock next. Multi-writer only on evidence"*, and `73` §6.2's own text records that *"the op log stays either way"* |
+| `73` D19 | The CRDT choice, pre-argued and parked: hand-rolled with Loro as the named fallback, live only if D18 reopens |
+| `38` §5.3, §5.8 | The capability ladder prices the server rung — E1, *"shared synced database, load balancing, HA, DR"* — including, per D-38.6, *"the one exposure that never reverses"* |
+
+**What the constraint does inside this register.** Two things, both already this document's
+discipline and now stated as owed to an instruction rather than to taste:
+
+1. Every entry that adds user-visible state must say which merge half it lands in (§1.6), and must
+   say whether that state rides `33` §5.1's op model or is deliberately session-local. The op log
+   is what a future CRDT converges; state written beside it instead of through it is state that
+   multi-writer collaboration can never carry. `52` §6.2's run state is the precedent — *"Written
+   as ordinary ops (`33` §5.1), so it syncs and merges"* — and C-07 and C-09 are the first entries
+   whose state has no answer yet (§14 Q36, Q40).
+2. The constraint does not reverse anything. `52` §5.7's refusal stands in its own words — *"Shared
+   cursors are a collaboration feature this product has not earned and they leak what a colleague
+   is looking at"* — and the owner's sentence asks for groundwork, not for cursors. A reader taking
+   "the real time stuff" as approval of live presence has misread both.
 
 ---
 
@@ -330,7 +381,7 @@ Two structural questions come before any list of words.
 up. `Maintenance` is a temporary overlay on an element that is otherwise live. Folding them into
 one enum means an element in maintenance cannot also be scheduled for decommission, which is a
 common real combination. Two orthogonal fields — a lifecycle stage plus a transient operational
-state — cost one more field now and avoid a shape change later. **Not decided here.** §12 notes
+state — cost one more field now and avoid a shape change later. **Not decided here.** §15 notes
 that a shape change after phase 1 is a major schema bump (`11` §11.3), and `11` §11.4 states what
 a major bump does to an air-gapped user.
 
@@ -379,10 +430,10 @@ it is the reason somebody will argue a lifecycle state should have been a kind.
 | `17` | **§12.3–12.4** | The mechanism behind the row above, and the reason it is not theoretical. §12.3 removed the custom merge driver entirely, so records carry `merge=binary` and git leaves a conflicted path. §12.4's `fathom merge --resolve` then reads the three index stages, opens them under an explicit unlock, and *"merges values per `11-ir-schema.md` §8.6"*. A lifecycle field acquires whatever §8.6 gives it, automatically, with no work and no decision |
 | `11` | §11.3 | A new optional field is a **minor** bump that old clients preserve. Changing its shape later is a **major** bump |
 | `12` | §3.6, §5 | Only touched if rules may *read* lifecycle. If they may, it enters the `fex` name environment, the static read-set extractor, the dependency keys and the invalidation algorithm. If they may not, `12` is untouched and lifecycle is inert |
-| `13` | §2.4 | The emit half, and the most valuable thing in the request. See §10 row 4 |
+| `13` | §2.4 | The emit half, and the most valuable thing in the request. See §13 row 4 |
 | `17` | §4.2 | As a node field it lands in the `Nodes` shards for free — no new class byte, no new merge path. As a workspace sibling alongside `Suppressions` `0x20` it needs a class byte and §9.2's leak argument applies |
-| `18` | §2.5, §6.2 | Free if it is a schema field — the diff walks the schema in declaration order, so a lifecycle change becomes a `FieldDelta` automatically. `DeltaClass` is a separate question (§11) |
-| `33` | §6.4 | A row must be added to the A/N/B/C/D/E class table. See §10 row 11 for which classes are candidates and why the choice is contested. **This row alone is dormant under ADR-0016** — the field classes are CRDT machinery, and `33` is *"deferred, not deleted"*. It does **not** carry the `11` §8.6 row above with it (§1.6) |
+| `18` | §2.5, §6.2 | Free if it is a schema field — the diff walks the schema in declaration order, so a lifecycle change becomes a `FieldDelta` automatically. `DeltaClass` is a separate question (§14) |
+| `33` | §6.4 | A row must be added to the A/N/B/C/D/E class table. See §13 row 11 for which classes are candidates and why the choice is contested. **This row alone is dormant under ADR-0016** — the field classes are CRDT machinery, and `33` is *"deferred, not deleted"*. It does **not** carry the `11` §8.6 row above with it (§1.6) |
 | `52` | §3.7 | Inventory is the named home: *"the one view where bulk editing is appropriate"*, with columns *"chosen from the schema (`11` §11.6 makes the schema data, so the column picker is generated, not hand-written)"*. A lifecycle column is generated rather than written — **but only if lifecycle is a schema field.** A node-level attribute like `absent_since` is not in `schema.yaml` and would need a hand-written exception |
 | `54` | §14 | Either a sibling component or a generalisation of the suppression record |
 
@@ -431,7 +482,7 @@ In order. Each blocks the ones below it.
 | 2 | **`03` §4.3 `N-R-3`'s test must be settled.** Its review rule reads: *"no workspace field represents a human's approval or a process state."* Its *"Reopens if"* cell reads **Never** | `Decommissioned` and `Maintenance` are process states on the ordinary reading. This is not resolvable by wording. Either the enumeration is reframed as intent about the *estate* — which `11` §10.5's `Divergent` already models, and which is a defensible reading of "we intend to retire this" — or `N-R-3` is amended via `03` §10.1. **The two framings produce different fields**, so nobody should add the field before this is settled |
 | 3 | **`03` §4.2 `N-R-2`'s test must be checked.** *"no field in the workspace format asserts currency or authority; provenance records how and when a value arrived, never that it is correct now."* Also `Reopens if: Never` | `Decommissioned` asserts something is currently true of the world. The honest counter is that `absent_since` and `Divergent` already do exactly this. Either the boundary is already bent and should be restated, or those two are distinguishable because they are *derived from a parse* while a lifecycle dropdown is *asserted by a human*. **That distinction is the thing to test**, and it is the difference between an amendment and a clarification |
 | 4 | **`11`'s `notes` contradiction must be resolved** (§6.2 versus §13) | It decides whether a free-text user-attached carrier exists at all, and therefore what a lifecycle carrier would sit beside |
-| 5 | **The node-attribute versus schema-field fork must be taken** (§3.4 row 1) | It decides rule visibility, inventory column generation, merge class and diff behaviour in one move. See §11 |
+| 5 | **The node-attribute versus schema-field fork must be taken** (§3.4 row 1) | It decides rule visibility, inventory column generation, merge class and diff behaviour in one move. See §14 |
 | 6 | **`11` §17 #4 must be re-answered for a second kind of annotation** | Its two stated reasons do not both carry over: *"a suppression targeting a tombstoned node has no clean lifecycle either way"* carries exactly; *"putting them in the graph makes merges manufacture waivers"* does not, because a lifecycle field is not a waiver. The answer may legitimately differ |
 
 ### 3.7 The premise that is false, and it is the useful finding
@@ -509,7 +560,7 @@ carry into semantics.
 | **`03` §4.3 `N-R-3`** | §3.6 blocker 2 asks whether a lifecycle value is a *process state*. A **button that completes a task** is, if anything, the more process-shaped reading of the two, not the less. This clarification makes blocker 2 harder to clear, not easier, and that should be said plainly rather than discovered during the review |
 | **The inverse** | §5.5 records that `Op::Untombstone` does not exist and that `53` §16 calls it *"a required addition"*. Un-completing a completed transition is the same missing op seen from a second direction |
 
-**One consequence that is an improvement, and it is worth recording as such.** §10 row 15 prices a
+**One consequence that is an improvement, and it is worth recording as such.** §13 row 15 prices a
 *time-derived* state against `12` §6.6's incrementality proof: such a state changes with no graph
 delta, invalidates no dependency key, and is therefore never re-evaluated — *"an element stays in
 maintenance forever"*. A completion **action** produces an op, an op produces a delta, and a delta
@@ -684,7 +735,7 @@ should make: *the corpus already compares dates, so a lifecycle expiry may too*.
 dates over **corpus** content, at build, where the result is frozen into the artifact alongside the
 corpus version invariant 9 already names as a premise. A lifecycle date is **workspace** content,
 which no build sees. The precedent therefore transfers to nothing in C-01 or C-02, and the owner's
-answer at Q9 (§11) — dates are stored values, never compared — is not narrowed by it.
+answer at Q9 (§14) — dates are stored values, never compared — is not narrowed by it.
 
 #### Two consequences, and the second is a divergence that must be recorded rather than resolved
 
@@ -714,7 +765,7 @@ countdowns, with no reference value at all.
 > the underlying facts differ, and flattening them to one rule would be a decision this document is
 > not entitled to take (§1.2).
 
-**One thing the divergence sharpens.** §16 item 4 records that `workspace.as_of` is used by four
+**One thing the divergence sharpens.** §19 item 4 records that `workspace.as_of` is used by four
 documents and defined by none. After this clarification, **`54` §14's countdown is the only date
 surface in this register's scope that still needs it.** That makes `as_of` a smaller blocker for
 C-01 and C-02 — they no longer queue behind it — and exactly the same size of defect for `12`, `18`
@@ -724,9 +775,9 @@ and `54`. It stops being this register's problem without stopping being a proble
 
 | Standing problem | State after the clarification |
 |---|---|
-| **`workspace.as_of` has no home** — referenced by `12` §3.6 item 4, `12` §3.4, `18` §6.4 and `54` §14; absent from `17` §10.1's `Settings`, from `17` §4.2's record taxonomy and from `11` | **Unchanged as a defect, removed as a blocker for this entry.** §16 item 4 and Q8 stand |
-| **A time-derived state would break `12` §6.6's soundness argument** — the proof's step 2 requires a pure function of the values read, *"no side effects, no ambient state, no clock"* | **Dissolved for lifecycle**, because no state is derived from `(window_end, today)` any more. See §3.8's closing note and §10 row 15. The constraint stays; lifecycle stops tripping it |
-| **Unrouted wall-clock already in the product** — `11` §8.7 bands node age from `max(asserted_at)` and `56` §8.1 renders those bands into the SVG, and neither document says what the comparison is against. `71` X4.1 requires *"same graph + same build ⇒ byte-identical SVG. No `HashMap` iteration, no wall-clock, no randomised seeds"*, and X4.7 requires the same of the diagram inside a change ticket | **Completely untouched, and this is the one to guard.** It was never caused by lifecycle dates and it is not fixed by removing them. Q10 and §16 item 3 stand exactly as written. A reader who takes "the date question is answered" to mean "the clock question is answered" has misread this subsection |
+| **`workspace.as_of` has no home** — referenced by `12` §3.6 item 4, `12` §3.4, `18` §6.4 and `54` §14; absent from `17` §10.1's `Settings`, from `17` §4.2's record taxonomy and from `11` | **Unchanged as a defect, removed as a blocker for this entry.** §19 item 4 and Q8 stand |
+| **A time-derived state would break `12` §6.6's soundness argument** — the proof's step 2 requires a pure function of the values read, *"no side effects, no ambient state, no clock"* | **Dissolved for lifecycle**, because no state is derived from `(window_end, today)` any more. See §3.8's closing note and §13 row 15. The constraint stays; lifecycle stops tripping it |
+| **Unrouted wall-clock already in the product** — `11` §8.7 bands node age from `max(asserted_at)` and `56` §8.1 renders those bands into the SVG, and neither document says what the comparison is against. `71` X4.1 requires *"same graph + same build ⇒ byte-identical SVG. No `HashMap` iteration, no wall-clock, no randomised seeds"*, and X4.7 requires the same of the diagram inside a change ticket | **Completely untouched, and this is the one to guard.** It was never caused by lifecycle dates and it is not fixed by removing them. Q10 and §19 item 3 stand exactly as written. A reader who takes "the date question is answered" to mean "the clock question is answered" has misread this subsection |
 
 **One sub-question the clarification opens and does not close, recorded rather than answered.**
 *"Nothing computes overdue"* is unambiguous about the clock. It is not obviously a statement about
@@ -734,7 +785,7 @@ and `54`. It stops being this register's problem without stopping being a proble
 against a workspace-supplied date. So: **may a rule compare a stored lifecycle date against
 `workspace.as_of` and fire a finding?** That is deterministic, it needs no clock, and it is the
 mechanism `12` already sanctions — and it is also the closest thing to an overdue view, which is
-what the owner said is not needed. New Q23 in §11. Not answered here.
+what the owner said is not needed. New Q23 in §14. Not answered here.
 
 #### The machinery that was already correct and stays correct
 
@@ -747,7 +798,7 @@ trigger. The machinery for offline, deterministic, date-sensitive evaluation is 
 **None of that is disturbed by the clarification, and none of it is needed by C-02's dates.** The
 machinery stands, unused by this entry, in service of the surfaces that do need a reference date —
 `54` §14's countdown, and whatever answers Q23. **The register's earlier framing of this as an open
-three-way fork is superseded**, and the fork's cost has moved to §12.2's row on time-derived state,
+three-way fork is superseded**, and the fork's cost has moved to §15.2's row on time-derived state,
 where it is priced as a constraint rather than as a live option.
 
 **The one line from the superseded fork worth keeping**, because it is what makes the owner's answer
@@ -760,7 +811,7 @@ treats invariant 9's carve-out as a door to be kept shut*.
 1. `62-schema-spec.md` (ADR-0008), same as C-01.
 2. ~~Where `workspace.as_of` lives, who sets it, whether it merges, and whether it advances on
    open.~~ **No longer a blocker for this entry**, per §4.4: a stored date needs no reference value.
-   It remains a live defect owned by `12`, `18` and `54` §14 — §16 item 4, Q8 — and it is still
+   It remains a live defect owned by `12`, `18` and `54` §14 — §19 item 4, Q8 — and it is still
    upstream of Q23, which is the only date question this entry leaves open.
 3. Whether `11` §8.7 and `56` §8.1's age bands compare against `as_of` or against the system clock.
    **Unchanged, and not fixed by §4.4.** It was never a lifecycle problem.
@@ -878,7 +929,7 @@ Applied to a bulk decommission across a merge, that leaves the estate in a mixed
 elements restored, some still decommissioned. `53` §7.4 makes undo an *edit* — it appends
 compensating ops and shows up in provenance, the diff and a colleague's sync — so a partially
 undone bulk decommission is a permanent, visible, half-finished record. And if lifecycle drives
-emit (§10 row 4), the next change set generates deletes for the elements that were not restored.
+emit (§13 row 4), the next change set generates deletes for the elements that were not restored.
 
 Separately: **`Op::Untombstone` does not exist.** `53` §16 raises it formally as *"a required
 addition"* to `33` §5.1, noting that without it *"undoing a deletion is not expressible as a
@@ -1192,7 +1243,7 @@ Four things, and none of them is the diff engine.
 config exposes and `31` §2.5 places it all at *"at rest, local"*. A time series adds a dimension `31`
 does not model: not what the estate looks like, but **when each thing changed, and therefore when
 each window of exposure opened**. `31` §12's CI checks and `14` §9.11's canary corpus both test for
-credentials, not for volume and not for temporal inference. This composes badly with §10 row 22,
+credentials, not for volume and not for temporal inference. This composes badly with §13 row 22,
 which already prices maintenance dates as the highest-value metadata channel in the threat model.
 
 ### 7.8 What is only corpus authoring — and it is larger than one command
@@ -1342,7 +1393,7 @@ is an advance-on-assertion variant, a run record, and freedom from the `GraphDif
 §4.5 assume — three changes to one existing type, against a fourth artefact with its own YAML form,
 CI gates, review pipeline and version-drift story (`52` §6.9). **It also costs the clarity of
 `18` §4's own title, *"The verification ladder as a directed graph"*, and drags `61` §10.2's gate
-onto every operational verb.** That is a trade, not an answer, and §11 Q30 asks it.
+onto every operational verb.** That is a trade, not an answer, and §14 Q30 asks it.
 
 ### 8.4 There is no teaching-off mode, and the nearest thing is a different axis
 
@@ -1375,7 +1426,7 @@ ways.** `15` §11.3's **DECISION** — *"`user_default` lives in local settings,
 workspace. A workspace shared with a junior engineer must not force the senior's Terse on them"* —
 and `17` §10.2's rule that per-machine state in a shared document *"means two people fight over it
 on every sync, forever"* both point at local settings. `15` §11.3's own `workspace_default` points
-the other way. **Not resolved here**; §11 Q33.
+the other way. **Not resolved here**; §14 Q33.
 
 ### 8.5 The three details the clarification names
 
@@ -1414,7 +1465,7 @@ of them routed through the teaching surface:
 point"*, and `blast_radius` and `scope_required` are **prose** — which is exactly what a posture
 suppresses. `15` §3.3's sentence answers it for depth and has never been asked of a posture. **This
 is the most consequential unanswered question in the entry, because it is the one where getting it
-wrong drops live traffic.** §11 Q32.
+wrong drops live traffic.** §14 Q32.
 
 **One thing that may already be the answer**, recorded as an observation rather than a proposal:
 `53` §6.5 puts the risk composition on the **copy path** rather than the teaching path — the footer
@@ -1442,7 +1493,7 @@ they arrived together rather than separately.**
 | `52` | §6.2 | The run record. `WalkthroughRun` is the only per-run state in the product; generalising it is the cheapest honest route and it drags in `17` §4.2's record taxonomy — a new `RecordKind`, or reuse of the walkthrough's |
 | `52` | §1.1, §3.8, §9.5, §9.6 | **Where it appears in the shell, and §1.1's honest count has no slot for it.** It renders no graph projection, so it is not a renderer; it writes nothing, so it is not the controller. `52` §9.5: *"If a seventh is ever added, this design has a real problem and an overflow menu would be hiding it."* The likely landing is a **mode** of an existing view, by the same argument `52` §1.1 used to make `verify(diff(graph))` a mode rather than a seventh view |
 | `52` | §9.6 | The scent budget — *"the furniture above the body carries at most 14 discrete facts"*, and *"Adding a fact to the header means removing one, and the review question for any addition is 'which fact does this replace'"*. A visible posture costs one of the 14; an invisible one is `53` §2.2's mode errors waiting to happen |
-| `15` | §6.3, §11.3 | The posture is **not** a fourth `Depth` (§8.4). Where its value lives is §11 Q33 |
+| `15` | §6.3, §11.3 | The posture is **not** a fourth `Depth` (§8.4). Where its value lives is §14 Q33 |
 | `17` | §10.1, §10.2 | Only if the posture is a workspace setting rather than a local one. `15` §11.3's DECISION argues it should not be |
 | `54` | §8.7 rule 4, §17 | The pointer-affordance collision in §8.5. `54` owns the rule |
 | `53` | §6.3 | New **context rows** in the payload table: what one procedure step copies, and what a whole procedure copies. Nothing structural — the table's shape already accommodates it |
@@ -1473,7 +1524,325 @@ they arrived together rather than separately.**
 
 ---
 
-## 9. The corpus is lopsided toward teaching
+## 9. C-07 — Freeform annotation, and the planning overlay modes
+
+*margin tab: drawn on the glass, never in the model*
+
+> **THE GLASS IS NOT THE GRAPH. AN ANNOTATION THE MODEL CANNOT SEE IS THE ONLY KIND THAT IS SAFE
+> TO DRAW**
+
+### 9.1 What is wanted
+
+From the owner, verbatim. One message carries the whole fifth batch — this entry, C-08, C-09 and
+§2.4's standing constraint — and each quotes its own part:
+
+> *"As long as the groundwork is there for the real time stuff, that'll be important eventually,
+> but we should probably do freeform stuff, even if it's temporary or permanent doesn't matter.
+> I'm thinking having a planning mode would be good to, which would have those colors we mentioned?
+> Planning, Commenting, Maintenance, etc? Each with their own customizable colors."*
+
+**The batch instruction, stated once for all three entries.** No restatement of §1.2's
+record-do-not-act instruction accompanied this batch. It is recorded under the original
+instruction's licence, quoted verbatim per §16 row 7's discipline, and nothing in §§9–11 is to be
+acted on.
+
+**Two requests arrive together and they are one cluster.** The freeform layer is the surface; the
+mode is what makes the surface legible. A freeform mark with no mode is an unexplained tint — the
+exact thing `59` §4.3's invariant exists to forbid — and a mode with no marks is a colour looking
+for a referent. They are one entry so that neither is scoped without the other's questions.
+
+**And this is a reversal, which is the owner's to make.** The recommendation being reversed was
+this project's own — the conversation that produced this batch had laid out what the diagram-tool
+incumbents have and Fathom refuses, and the owner accepted every refusal except these. §2.1's
+instruction covers the situation exactly: where the earlier answer is kept, it is kept because it
+is best, never because it is already written. The corpus's recorded refusals in this territory are
+colour (`59` §4.1, `56` §5.1) and shared cursors (`52` §5.7); the owner has reopened the first and
+left the second alone (§2.4 point 2). This entry records the intent and the fixed parts of the
+shape. It decides nothing.
+
+### 9.2 The annotation layer — the safe shape, and who licensed it
+
+The owner's *"even if it's temporary or permanent doesn't matter"* is doing more work than it
+looks like: it removes the one requirement — durability inside the model — that would force
+annotations into the graph. That licenses the architecturally cheap form.
+
+**RECOMMENDATION — a scratch annotation layer: visibly annotation, never mistakable for the model,
+and excluded from emit, findings, diff and completeness. Recorded as the recommended shape, decided
+by nobody.** The grounds, one per exclusion:
+
+| Property | Why it is the safe shape |
+|---|---|
+| **Visibly annotation** | `56` §5.2's contract is *"one channel, one meaning"*. An annotation drawn in a model channel makes one channel mean two things, which is §13 row 8's collision again. The layer needs its own register, distinguishable at a glance and in greyscale |
+| **Excluded from emit** | `13`'s emitters return `(line, provenance)` pairs; a callout has neither. Nothing on the glass may ever reach a device |
+| **Excluded from findings and diff** | An annotation that raises or quiets a finding is the unaudited path §13 row 3 exists to forbid, and a diff that reports scribbles is a diff nobody reads |
+| **Excluded from completeness** | An annotation asserts nothing about the estate, so no completeness claim may count it — in either direction |
+
+**What the shape protects, and it is priced.** `71` §1.4's R-VIEW — *"The diagram stops being a
+view and starts being state, which is brief §4.1's forbidden outcome"* — is rated
+*architecture-corrupting*, at phase 4. The failure R-VIEW names is the picture starting to hold
+truth. An annotation layer the model cannot read is the one form of drawing on the picture that
+cannot start holding truth, because nothing consumes it. That is why *"temporary or permanent
+doesn't matter"* is the load-bearing clause: either answer is safe **only** while the layer stays
+invisible to the engine.
+
+**The nearest precedent is the suppression, and §3.5's warning transfers verbatim.** Human-authored,
+never parsed, anchored to an `ElementId`, must orphan rather than vanish when a re-parse mints
+fresh ULIDs — ADR-0010's anchoring machinery is reusable as-is. Its semantics are not: a
+suppression is consumed by the engine and an annotation must never be. Reuse the anchoring; do not
+let the resemblance carry.
+
+### 9.3 The planning mode is a reversal path the corpus has already written
+
+This is the unusual part and it should be said plainly: **the owner has asked for the thing whose
+reversal was pre-authored.** `59` §4.1 decided no colour, and wrote, inside the decision block
+itself:
+
+> *"If this is ever reversed, it is reversed to A3's overlay architecture and never to A4's
+> always-on model."*
+
+`59` §4.7 wrote the gate; `59` §5 measured the palette and shelved it, marked at every heading as
+not adopted, *"so that the decision to spend the channel is a decision and not a rebuild"*. The
+owner's request is not the gate's trigger — §4.7's G1 wants *"a pilot engineer, unprompted"*,
+recorded verbatim twice — and this register cannot fire a gate or reverse a DECISION. What it
+records is that the intent now exists, and that if the reversal is ever taken, the shape is already
+fixed:
+
+| Fixed by | The shape |
+|---|---|
+| `59` §4.1, §4.7 | Overlay, never always-on. Neutral base; colour arrives with the mode and leaves with it |
+| `59` §4.3, §5.7 rule 1 | The key is generated by the mode and destroyed with it. Colour is a pure function of the graph — no `node.color`, no inherited map whose colours mean whatever the last engineer chose |
+| `59` §5 | The palette exists, measured: hue clearance from the reserved trio (§5.3), contrast both themes (§5.4), greyscale survival (§5.5) |
+
+*"Planning, Commenting, Maintenance, etc"* maps onto that architecture directly: each category is
+an overlay mode, each mode generates its own key. **Three guardrails are not negotiable and are
+recorded as constraints, not design:**
+
+| # | Guardrail | Source |
+|---|---|---|
+| 1 | **No custom colour enters the reserved risk families.** The green/amber/red trio and their washes mean one thing forever | `.context/conventions.md` §"The risk enum" — *"Do not reuse these colours for anything else"* — left untouched by ADR-0011's amendment, whose own text is that *"the ink, wash and ordering may not"* be overridden; `51` §1 R1; `51` §3.3's `tokens/reserved-colour` lint; `59` §5.3 gives the benchmark — the shelved palette's closest approach to a reserved hue, measured at 44.9° light and 42.3° dark — but no document declares a minimum clearance a user-picked value must meet, and this register does not invent one. The missing validation rule is §13 row 40 |
+| 2 | **Colour is never the sole carrier** | `51` §1 R2 (WCAG 1.4.1); `55` §3.1's operational form; and A3's invariant, adopted by `59` §5.7 rule 2: *"Nothing is tinted that is not also tagged"* — enforced in the renderer, refusals counted in the view band, *"Not a guideline"* |
+| 3 | **Forced-colours and greyscale survival** | `59` §5.7 rules 3, 6 and 8; `55` §3.4's monochrome test extended to the diagram; `51` §6's exactly-once rule for `forced-color-adjust: none`; and `59` §6.1's base defect — the declaration on five diagram classes that contradicts `51` §6 and `55` §7.3 — is fixed **first**, or every overlay inherits it |
+
+**One category on the owner's list is not a new thing, and saying so now prevents a parallel
+system.** *"Maintenance"* is C-01's lifecycle state wearing an overlay rendering — one underlying
+datum (§3), one mode that renders it. If the category system lets a user define "Maintenance"
+independently of the lifecycle field, one word acquires two homes with two update paths, which is
+the same class of collision §3.2 records for decommission-versus-tombstone. §14 Q38.
+
+### 9.4 Customisable by whom — the missing home, a third time
+
+*"Each with their own customizable colors"* lands on the fork Q33 already holds for the teaching-off
+posture — `15` §11.3's DECISION and `17` §10.2's fight-on-every-sync rule point at local settings;
+a shared vocabulary points at the workspace — with one new fact Q33 did not have: **`19` §8 has
+since designed the home for per-workspace private policy**, the `Policy` record class, built for
+exactly the shape "our workspace's private conventions, never in the corpus". A colour *preference*
+is local; a category *vocabulary* is policy. The two failure modes exclude each other — two people
+fighting over a colour on every sync, versus two people reading different colours for one category
+— and picking between them is §14 Q37, not this document's to take.
+
+### 9.5 Where it would attach
+
+| Document | Section | What would change |
+|---|---|---|
+| `59` | §4.1, §4.7 | The reversal, if taken, is recorded **there** — a DECISION is unmade where it was made. This register's entry then points at it and strikes through |
+| `59` | §5, §5.7 | The palette leaves the shelf; the nine adoption rules become normative. Rule 6's specificity requirement (§5.6) and rule 8's monochrome-test extension are the two with CI teeth |
+| `56` | §5.2 | The channel budget. An overlay while active is a channel; §13 row 39 records the accounting, and G10's view band carries the mode name so an active mode is never invisible state (`53` §2.2: no mode errors) |
+| `51` | §3.3 | Both lints assume colours live in stylesheets. A user-picked colour is runtime data no stylesheet lint sees; the checks move from build time to input time. §13 row 40 |
+| `55` | §3.4, §7.3 | The monochrome test and forced-colours behaviour extended to a layer that did not exist when they were written |
+| `52` | §9.5, §9.6 | A mode, not a seventh view — the same argument that made `verify(diff(graph))` a mode. A visible mode indicator costs one of the 14 facts; an invisible one is forbidden. Q34's twin |
+| `53` | — | Mode entry and exit, and whatever key draws or places an annotation. ADR-0024: `53` owns the keymap; nothing here names a key |
+| `17` | §4.2 | Only if annotations or the category list persist as workspace records — a new record class, or a deliberate statement that they are session-local. §14 Q36, Q37 |
+| `11` | §6.2 versus §13 | The `notes` contradiction (§3.4 row 1, §19 item 2) is upstream again: whether a free-text user carrier exists decides what an element-anchored annotation would sit beside |
+| `34` | §5.1 | Annotation text is user-typed text — U3, *"none, treated as U2"*. It stays inside the product only if the exclusions in §9.2 hold; if annotations ever export, §5.5's per-path rules apply |
+
+### 9.6 What must be decided first
+
+1. **Whether `59` §4.1 is reversed** — through `59` §4.7's gate or by the owner's explicit
+   decision, recorded in `59` either way. Everything colour-shaped queues behind it; the
+   annotation layer does not.
+2. **Annotation persistence** — session state or a workspace record class, and if a record, which
+   merge half (§1.6) and which `33` §6.4 class. §14 Q36; §2.4 point 1 makes "unstated" not an
+   option.
+3. **Category ownership** — local preference or `19` §8-style workspace policy. §14 Q37.
+4. **Whether "Maintenance" the category is C-01's lifecycle state rendered, or a free label.**
+   §14 Q38. If C-01's enumeration is still open (Q3), the category list inherits that openness.
+5. **The anchoring rule** — ADR-0010's machinery for annotations anchored to elements; free-floating
+   annotations need a position anchor instead, and `59` §3's aggregation moves what they point at.
+
+**Not before phase 4.** Both halves land on the diagram, and ADR-0006 puts the diagram at phase 4.
+The floor is a floor, not an assignment (§1.5).
+
+---
+
+## 10. C-08 — Typed stencils: "router", "switch", and the etc
+
+*margin tab: a typed node, not clip art*
+
+> **THE QUICK BOX IS A REAL NODE, OR IT IS A LIE THE PLAN TELLS THE MODEL**
+
+### 10.1 What is wanted
+
+From the owner, verbatim, continuing §9.1's message:
+
+> *"Otherwise, the rest makes sense, so long as we have generic shapes to bring over, like "router"
+> or "switch" etc. Does that make sense? Like it won't be the primary thing, but it'll help in
+> needing quick planning situations."*
+
+The batch instruction in §9.1 governs this entry too.
+
+### 10.2 What a stencil is not, and what it decodes to
+
+**Not clip art.** The design language refuses the pictorial form by name —
+`.context/design-language.md`, "What the card never does": *"No logos. No icons. No
+illustrations."* — and the diagram's nodes are boxes with words. Nothing in this entry proposes an
+icon library, and any implementation that reaches for one has left the design language.
+
+**What it is instead: a quick-create for a typed hand-origin node.** The two pieces already exist,
+declared, not implied:
+
+| Piece | Where | The declared shape |
+|---|---|---|
+| The type | `schema/schema.yaml`, `Device` | `role`, typed `enum { firewall, router, switch, load_balancer, other }`, cardinality `0..1`, emit `—` — an annotation-only field, exactly the class `11` §6.3 built the Emit `—` column for |
+| The origin | `11` | `Origin::Hand` is a first-class provenance origin; §3.7 already records that a user-writable, never-emitted layer is corpus-sanctioned |
+
+So *"bring over a router shape"* decodes to: **create `Device { role: router }` at `Origin::Hand`,
+rendered exactly as every other node is rendered.** The stencil is a creation affordance, not a
+rendering. Nothing new exists structurally; it is UI over hand-origin creation.
+
+### 10.3 The payoff, and it is structural rather than cosmetic
+
+**The quick-planning box is already a real model element, so a plan becoming real requires no
+re-drawing.** The sketch and the estate are one graph. And the corpus pays a second dividend
+unprompted: `11` §10.5's `Divergent { since }` makes a hand-origin node missing from a `Section` or
+`Whole` re-parse *"intended but not deployed"* — which is precisely what a planned-but-unbuilt
+device is. The compliance diff the corpus calls a feature (*"Nautobot Golden Config's compliance
+diff obtained as a side effect of one schema"*, §3.7) applies to quick-planning boxes for free.
+
+**The same dividend is the entry's sharpest cost, and it is recorded rather than solved.** A
+forty-node plan is forty standing `Divergent` findings on every re-parse until the plan is built.
+That is the machinery doing its job and it will read as noise — and the answer is not to quiet
+findings, because §13 row 3's constraint (any quieting produces a reason and an audit record)
+applies here with full force. §13 row 44; the pocket (§11) is one honest framing, and it is not
+decided.
+
+### 10.4 What is missing is the affordance, not the machinery
+
+No verb in `53` §3.4's table creates a node. The specified creation path is the walkthrough —
+`w`, and `52` §6.2's `Step` carries `creates` — which `52` §6.10 makes deliberately slow, *"for
+the case where you do not know the answers, which is the case where you should be slowed down"*.
+A stencil is the opposite case: the user knows exactly what they are placing and wants it placed
+now. That makes this the same imbalance §12 records — the corpus serves the user who needs
+teaching and under-serves the one who already knows — surfacing at the creation path rather than
+at the reading path.
+
+Two open edges, neither invented here:
+
+- **The "etc" is a closed enum today.** `role`'s five values end in `other`. Either `other`
+  absorbs the owner's etc or the enum grows, and growth is a schema bump under `11` §11.3's
+  discipline — cheap now, priced later. §14 Q39.
+- **The affordance's home.** ADR-0024 gives `53` the keymap; `54` owns the component. A stencil
+  reachable from the canvas is a diagram affordance, and the diagram is a view — creation from it
+  must write through to the graph, never into the picture, or it is R-VIEW (`71` §1.4) by another
+  door.
+
+### 10.5 What must be decided first
+
+1. **Which kinds get stencils.** `Device` roles are the owner's examples; edges, sites and
+   services are not asked for and not assumed.
+2. **What a stencil-created node contains** — beyond `role`, whether `platform` or a layer is
+   demanded at creation or left absent. Nothing here decides a required-field policy; that is the
+   schema's.
+3. **§14 Q39** — does `role`'s enum grow, and by what process.
+4. **The findings-volume framing** (§10.3, §13 row 44) — before a stencil ships, not after the
+   first forty-node plan.
+
+**Not before phase 1** — hand-origin creation needs the graph, and ADR-0006's phase 0 is *"Nothing
+about a graph"*. **On the canvas, not before phase 4.** Floors, not assignments.
+
+---
+
+## 11. C-09 — The pocket
+
+*margin tab: click in, work small, leave everything intact*
+
+> **A POCKET IS EVERYTHING SELECTION DELIBERATELY IS NOT. THAT IS THE ENTRY, IN ONE SENTENCE**
+
+### 11.1 What is wanted
+
+From the owner, verbatim, closing §9.1's message:
+
+> *"Perhaps even having a "pocket" where you can click into and focus only on certain pieces of
+> equipment, which would be great for planning and such. Especially inside a large scale network."*
+
+The batch instruction in §9.1 governs this entry too.
+
+### 11.2 What already exists — the through-line and the drill
+
+| Already specified | Where |
+|---|---|
+| Selection as the product's through-line: `set: BTreeSet<ElementId>` plus a distinct `anchor`, per-view `resolve`, the whole §5 architecture | `52` §5.1–5.6 |
+| The safety furniture for a set the screen cannot fully show: `OffscreenReason::FilteredOut`, `3 of 11 selected are filtered out`, full-count confirm text | `52` §5.8 row 5 |
+| A one-key drill into a subset the picture has folded away: `OffscreenReason::Aggregated { drill_into }` | `52` §5.8 row 6 |
+| Entering and leaving a machine-chosen subset with an exact round-trip: windowed expansion, and the exit criterion *"Expand → collapse restores the element count **exactly**"* | `59` §3.7, §7.2 X5 |
+
+The composition is real: `59` §3's aggregation is the machine choosing a subset to fold; a pocket
+is the user choosing a subset to inhabit. *Enter by click, leave intact* is the same round-trip
+discipline `59` §7.2 X5 already demands of expansion, applied to a user-named set — and a pocket
+opened from an aggregate stack is the natural long form of `52` §5.8 row 6's one-key drill.
+
+### 11.3 What is genuinely new, and the collision that defines it
+
+A **named, held working set** that scopes canvas, inventory and findings at once. Selection cannot
+be it, and the corpus says so on purpose — `52` §5.7's anti-table makes selection **not undoable,
+not synced, not persisted across a lock**, each with a stated reason. A pocket is precisely the
+thing selection is forbidden to become. So the pocket is not a selection feature: it is a new
+object beside selection, and selection operates normally **within** it. *Minted from the current
+selection* is the obvious creation gesture, not the definition — §11.2's drill from an aggregate
+stack is a second door, and a pocket whose membership is a stored query (§11.5 item 3) would be
+minted from a filter, not from a selected list. The mint path is open with the membership
+question, and this entry closes neither.
+
+Two inherited hazards, named now:
+
+- **`52` §5.7's sharpest sentence is one step away**: *"Shared cursors are a collaboration feature
+  this product has not earned and they leak what a colleague is looking at."* A pocket that syncs
+  is a shared viewport — what a colleague is working on, persisted. Nothing here proposes it;
+  §14 Q40 asks where a pocket lives so that it is not inherited by accident.
+- **A pocket is an ambient filter over every surface at once.** The lying-view hazard `52` §5.8
+  row 5 solves for one selection becomes standing: a findings panel scoped to a pocket that does
+  not say so is §13 row 2's lying panel; a bulk action launched inside a pocket must count what
+  the pocket hides, and `33` §7.4's by-construction scoping applies unchanged. §13 row 45.
+
+### 11.4 Where it would attach
+
+| Document | Section | What would change |
+|---|---|---|
+| `52` | §5 | A new type beside `Selection` — able to consume it, never a widening of it. §5.7's anti-table is the contract that keeps them distinct |
+| `52` | §3.7, §9.6 | Inventory scoped to the pocket; the furniture states the scope — `pocket · DC-EAST refresh · 14 elements` is one of the 14 facts, and it displaces one |
+| `59` | §3 | Composition with aggregation: what a collapsed stack shows when only part of it is in the pocket, and whether entering a pocket is `drill_into` writ large |
+| `12` | — | Nothing, if findings are filtered at render. Everything, if anyone proposes evaluating rules over only the pocket — that is a scope the engine does not have and this entry does not ask for |
+| `17` | §4.2, §10.2 | Only if pockets persist. A workspace record syncs and merges (which half, §1.6; which class, `33` §6.4 — a member set is class-E-shaped, and `merge.set.widened` exists); per-machine state in a shared document is `17` §10.2's permanent fight. §14 Q40 |
+| `53` | — | Enter by click; leave; where the pocket sits in the Escape ladder `59` §7.1 item 3 describes. ADR-0024: `53` owns the keys |
+
+### 11.5 What must be decided first
+
+1. **§14 Q40 — where a pocket persists**: session state, local settings, or a workspace record;
+   and if it syncs, whether it is private. This is Q33 and Q36's fork a third time, with `52`
+   §5.7's shared-viewport hazard attached.
+2. **§14 Q41 — what the scoped surfaces admit**: whether findings and counts inside a pocket show
+   the pocket's numbers, the estate's, or both. One of these is a lying panel; which one depends
+   on the answer being stated on screen.
+3. **Membership**: an explicit element list, or a stored query. A list orphans as elements go
+   (ADR-0010 again); a query is a saved filter with different staleness. Not chosen here.
+4. **Cardinality and nesting**: one pocket or many, and whether a pocket may contain a pocket.
+   The owner's *"large scale network"* leans many; nothing is decided.
+
+**Not before phase 2** — the pocket scopes inventory, which is phase 2. **On the canvas, not
+before phase 4.** Floors, not assignments.
+
+---
+
+## 12. The corpus is lopsided toward teaching
 
 *margin tab: an observation, not an entry*
 
@@ -1482,7 +1851,7 @@ they arrived together rather than separately.**
 
 **This is not a capability and it does not belong in §1.5's table.** It is an observation about the
 whole document set, larger than any entry, and it is recorded here because C-06 surfaced it and
-because §16 item 6 shows this register already carries one register-wide observation of exactly this
+because §19 item 6 shows this register already carries one register-wide observation of exactly this
 class. Read the two together: item 6 says these entries push toward a system of record; this section
 says the corpus as a whole under-serves the user who already knows the answer.
 
@@ -1519,11 +1888,11 @@ person's life easier device"*.
 form of this observation is a review question, not a project: *for any new corpus surface, which of
 the two users does it serve, and if the answer is "the one who wants to learn" again, is that a
 choice or a habit?* A project to "balance the corpus" would be a project with no exit criterion,
-which §13 row 1 is the register's own warning about.
+which §16 row 1 is the register's own warning about.
 
 ---
 
-## 10. Second-order consequences
+## 13. Second-order consequences
 
 *margin tab: what each entry drags in*
 
@@ -1569,10 +1938,17 @@ Severity is the cost of getting it wrong, not the effort of doing it.
 | 36 | **Teaching-off cannot be a fourth `Depth`, and there is no other control idiom for it** | `15` §6.3 forbids a fourth by name in the type comment; `17` §10.1's `Settings.depth` is that enum; `15` §11.3's resolution ladder is written over exactly three values; and `52` §4.3 keeps the depth control deliberately setting-free. A posture is therefore a second, orthogonal axis with no existing home, no idiom, and no slot in `52` §9.6's 14-fact scent budget without displacing something | high | `15` §6.3, §11.3; `17` §10.1; `52` §4.3, §9.6 |
 | 37 | **An operational procedure surfaced through the finder is ranked down by a safety control** | `16` §8.3's prior is `ReadOnly +0.05, ChangesConfig −0.10, Disruptive −0.25`, and the document states it is *"a safety control, not a relevance signal"*. An upgrade procedure is mostly `ChangesConfig` and `Disruptive`. Nothing here is wrong; it is a collision between two correct designs, and it is cheaper to notice now than to discover as a ranking bug | medium | `16` §8.3; `61` §10.1 |
 | 38 | **Reusing the `Ladder` type drags `61` §10.2's containment gate onto every operational verb** | *"If a command entry is a step in any ladder, its `next_if_bad` must be a subset of that ladder's `on_fail` targets. CI gate 11."* A verb appearing in three procedures is constrained by the intersection of three `on_fail` sets — a real authoring cost that appears only under the reuse framing, and that the new-type framing avoids at a different price | medium | `61` §10.2 |
+| 39 | **Overlay colour lands on a spent channel budget, and the accounting is already written** | `56` §5.2: *"one channel, one meaning, and nothing may be added to it without taking something away."* `59` §4.5's measurement is why the overlay form survives at all — the hue is free; the carrier that makes the hue legal is what costs — and G1 already owns tone, so any palette must stay near-isoluminant (`59` §5.7 rule 3). G10 carries the active mode's name so the mode is never invisible state, and `52` §9.3 rule 3's two-fact cap on the band tab applies to it | high | `56` §5.2; `59` §4.5, §5.3, §5.7; `52` §9.3 |
+| 40 | **A user-picked colour is invisible to both of `51` §3.3's lints** | `tokens/reserved-colour` and `tokens/no-raw-hex` are build-time checks over stylesheets; a customisable category colour is runtime data no stylesheet contains. The guardrails move from build time to input time — validate at pick: clear of the reserved trio, near-isoluminant, contrast-checked both themes — and `59` §5.7 anticipates renderer-side enforcement but nothing specifies validation of arbitrary user values. `59` §5.3 measures the shelved palette's clearance (closest approach 44.9° light, 42.3° dark) and declares no minimum for a user value; what number "clear of the trio" means is part of the unwritten rule, not this register's to set | high | `51` §3.3; `59` §5.3, §5.7 |
+| 41 | **The forced-colours base defect is inherited by any overlay built on it** | `59` §6.1: `forced-color-adjust: none` on five diagram classes, contradicting `51` §6's *"exactly once in the product"* and `55` §7.3's *let the UA win* — plus `59` §5.6's specificity bug, where the fallback loses to the dark override in Windows High Contrast Black, the common case. Both are cheap, both are known, and both must land before any colour mode or the mode ships broken on high-contrast desktops | medium | `59` §5.6, §6; `51` §6; `55` §7.3 |
+| 42 | **"Maintenance" the category and Maintenance the lifecycle state are one datum or two systems** | If the overlay category is free-form, one word gets two homes with two update paths — the decommission-versus-tombstone collision (§3.2, row 12) re-run at the rendering layer. If it is C-01's field rendered, the category list inherits C-01's open enumeration (Q3) and its blockers | high | §3.2; §9.3; §14 Q38 |
+| 43 | **Annotations and pockets meet merge from the first git merge, like everything else** | §1.6's discipline applies: as workspace records they run `11` §8.6's ladder via `fathom merge --resolve` (`17` §12.4) — `Hand` against `Hand` resolves by step-3 recency, last-writer-wins — and they need a `33` §6.4 class when the CRDT half wakes (a pocket's member set is class-E-shaped; `merge.set.widened` exists). An annotation whose anchor element is re-parsed away is ADR-0010's orphan problem a third time (§3.5) | high | `11` §8.6; `17` §12.4; `33` §6.4, §6.8; ADR-0010 |
+| 44 | **A stencil-built plan is a standing wall of `Divergent` findings** | `11` §10.5 makes a `Hand` node missing from a `Whole`/`Section` re-parse `Divergent { since }`, which raises a finding — correct for one intended-but-undeployed gateway, noise at forty planned nodes. The answer is not quieting findings (row 3's constraint holds); the honest framings are a scoped view (§11) or a `Divergent`-aware rendering, and neither is chosen here | medium | `11` §10.5; §10.3; row 3 |
+| 45 | **A pocket is an ambient filter, and the product's honesty machinery assumes filters are momentary** | `52` §5.8 row 5's furniture — `FilteredOut` reasons, full-count confirm text — was built for one selection against one filter. A pocket makes the mismatch standing: findings counts inside a pocket, bulk actions that reach past its edge, and `33` §7.4's by-construction scoping all need the pocket named in the surface, or the panel lies by omission (row 2's failure, ambient) | high | `52` §5.8; `33` §7.4; §11.3 |
 
 ---
 
-## 11. What the owner must decide
+## 14. What the owner must decide
 
 *margin tab: the questions nobody asked*
 
@@ -1581,8 +1957,8 @@ yes/no or a pick-one answers it, which is `73` §1.1's admission test.
 
 | # | Question | Why it must be answered before anything is built |
 |---|---|---|
-| **Q1** | Is lifecycle a **schema field** — in `schema.yaml`, generated into the node body, readable by `fex`, present in `FieldDelta`, in the generated column picker, with a `FieldClass` — or a **node-level attribute** like `absent_since`? | Everything else depends on it, and it must be taken before `62-schema-spec.md` is written. §10 rows 1 and 10 |
-| **Q2** | One axis or two? A lifecycle stage and a transient operational state are different things | Folding them means an element in maintenance cannot also be scheduled for decommission, which is the most common real combination. Fixing it later is a major bump (§10 row 23) |
+| **Q1** | Is lifecycle a **schema field** — in `schema.yaml`, generated into the node body, readable by `fex`, present in `FieldDelta`, in the generated column picker, with a `FieldClass` — or a **node-level attribute** like `absent_since`? | Everything else depends on it, and it must be taken before `62-schema-spec.md` is written. §13 rows 1 and 10 |
+| **Q2** | One axis or two? A lifecycle stage and a transient operational state are different things | Folding them means an element in maintenance cannot also be scheduled for decommission, which is the most common real combination. Fixing it later is a major bump (§13 row 23) |
 | **Q3** | What is the full enumeration? The owner named two and said "etc" | Each state is a row in every emit-behaviour table and every merge matrix. §3.3 lists candidates |
 | **Q4** | Does a decommissioned element still emit — nothing, `delete` lines, or `deactivate` lines? Per-state or per-element? | `13` §2.4 makes the answer per-state, which means the emitter needs a per-state line form rather than a boolean |
 | **Q5** | What happens on PAN-OS and IOS-XE, where `deactivate` is already `Unrepresentable { NoFeature }`? | A permanent `NOT EMITTED` block on the second platform is honest and looks like a defect |
@@ -1591,8 +1967,8 @@ yes/no or a pick-one answers it, which is `73` §1.1's admission test.
 | **Q8** | **Who sets `workspace.as_of`, where is it stored, does it merge, and does it advance on open?** | Referenced by `12`, `18` and `54` §14's suppression countdown; defined nowhere. If it advances from the system clock, an untouched workspace stops reproducing its own change ticket. **No longer gates C-01 or C-02** (§4.4), and still gates Q23 |
 | **Q9** | ~~Does a maintenance window expire by itself, or is "past its stated end date" a finding computed against `as_of`?~~ | **ANSWERED BY THE OWNER — nothing expires by itself.** §3.8 and §4.4. Lifecycle transitions are driven by an explicit completion action; dates are stored values, never compared. The residue is Q23 |
 | **Q10** | Do `11` §8.7 and `56` §8.1's age bands compare against `as_of` or the system clock? | Already ambiguous, already in tension with `71` X4.1 and X4.7 |
-| **Q11** | **(a)** Is `11` §8.6's last-writer-wins step 3 acceptable for a lifecycle value when two clones of a git-synced workspace diverge? **(b)** Which `33` §6.4 class is lifecycle, and is `absent_since`'s assumed class B actually right? | **These have different due dates and must not be answered as one.** (a) is live from the first git merge — phase 0 machinery, phase 2 exposure (§1.6, §10 row 11). (b) is dormant while ADR-0016 stands. Class B *is* a register, so (b) is a suitability question — whether lifecycle is descriptive enough for LWW — not a structural one |
-| **Q12** | Is "decommissioned" the same thing as "tombstoned", or a second independent absence? If both, what do the four combinations mean? | §10 row 12 |
+| **Q11** | **(a)** Is `11` §8.6's last-writer-wins step 3 acceptable for a lifecycle value when two clones of a git-synced workspace diverge? **(b)** Which `33` §6.4 class is lifecycle, and is `absent_since`'s assumed class B actually right? | **These have different due dates and must not be answered as one.** (a) is live from the first git merge — phase 0 machinery, phase 2 exposure (§1.6, §13 row 11). (b) is dormant while ADR-0016 stands. Class B *is* a register, so (b) is a suitability question — whether lifecycle is descriptive enough for LWW — not a structural one |
+| **Q12** | Is "decommissioned" the same thing as "tombstoned", or a second independent absence? If both, what do the four combinations mean? | §13 row 12 |
 | **Q13** | Can **edges** carry lifecycle, or only nodes? | `Node` has `absent_since`; `Edge` does not. "Decommission this link" and "this tunnel is in a maintenance window" are both things people will want |
 | **Q14** | Is the ticket reference free text or a validated pattern, and one per element or many? | Many means a set-valued field, `33` §6.4 class E, and the `merge.set.widened` finding |
 | **Q15** | Do the ticket reference and the maintenance window appear in the change ticket (`18` §6) and the plaintext export (`17` §15)? | Those artefacts leave the encrypted workspace. If yes, `17` §15.3's gate and `31` §7.2's channel list both need a line |
@@ -1601,7 +1977,7 @@ yes/no or a pick-one answers it, which is `73` §1.1's admission test.
 | **Q18** | Which key, and which gate? `⇧D` and `⇧P` are the two nearest neighbours and both are taken | And is the lifecycle verb excluded from `.` repeat (`53` §3.6)? |
 | **Q19** | What happens to a decommissioned element's suppressions, findings, diagram position, provenance and layout pin? | `11` §10.6 answers this for renames. There is no equivalent table for retirement |
 | **Q20** | Does the CLI get an `--as-of` flag? | `fathom lint` in CI reading a clock is a test that fails once a year |
-| **Q21** | Should preserve mode still permit emit once lifecycle exists? | §10 row 24. Preserve mode already refuses to write back suppressions for the same reason |
+| **Q21** | Should preserve mode still permit emit once lifecycle exists? | §13 row 24. Preserve mode already refuses to write back suppressions for the same reason |
 | **Q22** | Which phase does this land in? | It touches `11`, `12`, `13`, `17`, `18`, `52`, `53` and `56`. Schema and emitter are phases 1–3; inventory and bulk are 2–3; merge semantics are 5. **Deciding it is one feature and scheduling it as one feature will not survive contact with `71`'s phase boundaries** |
 
 **Questions raised by the four clarifications.** Q23 is the residue of the date answer; Q24–Q29
@@ -1614,18 +1990,30 @@ belong to C-05; Q30–Q35 to C-06.
 | **Q25** | Is `N-R-10` retired, clarified, or left standing? | `03` §10.1's procedure: an issue arguing the boundary is *wrong* rather than the feature useful, a named `03` §5.1 clause, two maintainers, an ADR, and the amendment landing in the same PR as the first line of implementation. It is a boundary conversation, not a feature conversation |
 | **Q26** | Which restore is being asked for — the platform fallback (`rollback 1`, a per-platform constant) or generated inverse lines (`18` §5, both sides parsed into graphs)? | §7.5. Two features, an order of magnitude apart in cost, and the owner's sentence covers both. The second is bounded by dictionary coverage and is gated on `18` OD-1 |
 | **Q27** | **`18` OD-1**, unchanged and now load-bearing: is the diff computable against a pasted running config as a first-class mode — and what is the *statements-we-did-not-understand* count and the threshold above which it refuses? | OD-1's own objection is *"a diff that reports 40 spurious changes because we do not model 40 statements is worse than no diff"*. C-05 turns OD-1 from an option into a prerequisite |
-| **Q28** | How many snapshots per device are kept, and does anything ever delete one? | §10 row 29. `17` has no capture retention policy, compaction never touches captures, and a deleted blob survives in git history in every clone forever |
-| **Q29** | Does `show configuration \| display set` become a command entry, a filter entry, or both? And does the snapshot-restore path carry the `$9$` caveat? | `61` §2 puts `\| display set` under `filters/`, §17 says filters are explained separately, D4 leans *Separate*, and the seed corpus ships no `filters/` file. The `$9$` half is §10 row 31 |
+| **Q28** | How many snapshots per device are kept, and does anything ever delete one? | §13 row 29. `17` has no capture retention policy, compaction never touches captures, and a deleted blob survives in git history in every clone forever |
+| **Q29** | Does `show configuration \| display set` become a command entry, a filter entry, or both? And does the snapshot-restore path carry the `$9$` caveat? | `61` §2 puts `\| display set` under `filters/`, §17 says filters are explained separately, D4 leans *Separate*, and the seed corpus ships no `filters/` file. The `$9$` half is §13 row 31 |
 | **Q30** | **Is an operational procedure a new authored type, or a generalisation of `Ladder` plus a run record?** | §8.3. Three deltas to one existing type against a fourth artefact with its own YAML form, CI gates, review pipeline and version-drift story. Not answerable from the corpus alone |
 | **Q31** | Does teaching-off change what is **rendered**, or only what is **copied**? | If only copied, `53` §6.3's two payloads and `71` §3.5's legend already answer it and no posture state is needed. The owner said the whole interface changes register, which is the first — and the first has no control idiom |
 | **Q32** | **Does teaching-off suppress `blast_radius`?** | `61` §4.2 calls it *"mandatory, and it is the whole point"*, and it is prose, which is what a posture suppresses. `15` §3.3's *"Depth controls explanation, never warning"* answers it for depth and has never been asked of a posture. **This is the question where a wrong answer drops live traffic** |
 | **Q33** | Where does the posture value live — local per-machine settings or workspace `Settings`? | `15` §11.3 holds both precedents in one section and they point opposite ways. Its DECISION was written against exactly the failure a shared teaching-off posture would cause |
 | **Q34** | Which of `52` §9.6's 14 facts does a visible posture displace? And which view is it a mode of, given `52` §9.5 forbids a seventh? | *"Adding a fact to the header means removing one."* An invisible mode is `53` §2.2's *"No mode errors"* rule waiting to be broken |
-| **Q35** | Does a procedure need `armed_rules`, and what does un-ticking a step do? | §10 row 34. A step that writes nothing has no `tx`, so it has no undo unit, and there is nothing for a rule to fire against |
+| **Q35** | Does a procedure need `armed_rules`, and what does un-ticking a step do? | §13 row 34. A step that writes nothing has no `tx`, so it has no undo unit, and there is nothing for a rule to fire against |
+
+**Questions raised by the fifth batch.** Q36–Q38 belong to C-07; Q39 to C-08; Q40–Q41 to C-09.
+§2.4's standing constraint raises no question of its own — it is an instruction, not a fork.
+
+| # | Question | Why it must be answered before anything is built |
+|---|---|---|
+| **Q36** | **Where does an annotation live** — session state, or a workspace record class — and does it sync? | The owner licensed either (*"temporary or permanent doesn't matter"*), and the format cannot ship "either". A record needs a `17` §4.2 class, runs `11` §8.6's ladder on every git merge, and needs a `33` §6.4 class when the CRDT wakes (§13 row 43); session state needs §2.4 point 1's deliberate statement that it is session-local |
+| **Q37** | **Who defines the colour categories, and where does the list live** — per-user local settings, or per-workspace policy in the shape `19` §8's `Policy` record designed? | Q33's fork a second time, with a new home available. A local palette means two people read different colours for one category; a workspace palette means `17` §10.2's fight on every sync unless it is policy, not preference. §9.4 |
+| **Q38** | **Is "Maintenance" the category C-01's lifecycle state rendered, or a free label?** | One datum or two systems (§13 row 42). If it is the field, the mode machinery consumes Q1–Q3's answers; if it is a label, the same word diverges in two places and the register has recorded how that ends (§3.2) |
+| **Q39** | **Which kinds and roles get stencils, and does `Device.role`'s enum grow?** | The owner said *"etc"* and `role` is a closed five-value enum ending in `other`. Growth is a schema bump under `11` §11.3 — cheapest today, a major-bump risk after phase 1 (§13 row 23's argument, transferred) |
+| **Q40** | **Where does a pocket persist, and is it private?** | `52` §5.7 makes selection deliberately un-persisted and un-synced; a pocket that syncs is a shared viewport one step from the shared cursor `52` §5.7 refuses. Session, local settings and workspace record give three different products; §11.5 item 1 |
+| **Q41** | **Inside a pocket, do findings and counts show the pocket's numbers, the estate's, or both?** | One of the answers is a lying panel and which one depends on what the surface says about its own scope (§13 row 45). The confirm-text rule for bulk actions (`52` §5.8 row 5) must name what the pocket hides |
 
 ---
 
-## 12. Nearly free versus large
+## 15. Nearly free versus large
 
 *margin tab: the cost is in the state model, not the feature*
 
@@ -1635,7 +2023,7 @@ belong to C-05; Q30–Q35 to C-06.
 smallest unit is the person-week. Nothing below is priced more finely than that, and where the
 corpus gives no figure this section says so rather than inventing one.
 
-### 12.1 Nearly free, because the corpus already built it
+### 15.1 Nearly free, because the corpus already built it
 
 | Item | Why it is nearly free | Unit, where one exists |
 |---|---|---|
@@ -1655,7 +2043,7 @@ corpus gives no figure this section says so rather than inventing one.
 | **The ticket string in the clipboard** | `34` §6.3 already carries `# Fathom — change block for CHG-2026-0211` | Ships |
 | **The privacy inventory row** | One row in `37` §2.2, plus optionally one rule in the shape `37` §2 already drafts | Below `71`'s granularity |
 
-### 12.2 Large, and mostly not where it looks
+### 15.2 Large, and mostly not where it looks
 
 | Item | Why it is large |
 |---|---|
@@ -1668,13 +2056,13 @@ corpus gives no figure this section says so rather than inventing one.
 | **Anything that makes a state time-derived rather than human-asserted** | It reopens invariant 9, requires ADR-0002's amendment process, and `12` §6.6's incrementality proof has to be re-argued. **Q9 is answered and nothing in C-01 or C-02 is time-derived (§3.8, §4.4), so this row is now a constraint on future proposals rather than a price on a live option.** It is kept, not struck through, because the cheapest-looking future shortcut is exactly the thing it forbids |
 | **The lifecycle annotation surface as a component** | Comparable, not an estimate: `71` §6.6 prices *"suppression lifecycle and review view"* at 1–1.5 solo weeks. `54` §14 is the same component family, and **two of its three non-negotiables transfer intact** — the mandatory `unverified — workspace-local text, not an identity` tab, and the reason quoted in full and never `line-clamp`ed. **The third does not: `54` §14 renders expiry as a countdown, and §4.4 records that lifecycle dates deliberately diverge from it.** A component built by copying `54` §14 wholesale would import the countdown and therefore import a reference date the owner said is not needed |
 | **Retiring or clarifying `03` §4.10 `N-R-10`** (C-05) | Not code at all, and it gates everything in §7. `03` §10.1's procedure needs a written argument that the boundary is *wrong*, a named `03` §5.1 clause, two maintainers, an ADR and a struck-through register row. **And §7.3 says the argument has to start by settling what the boundary's own test means**, because it already contradicts `11`, `17` and `37` |
-| **A snapshot series, once the boundary allows one** (C-05b) | Not the storage — `17` §4.5 gives write-once content-addressed captures for free. The cost is retention policy against a substrate that has none, in a format where deletion is not deletion (`17` §12.8, §13.5), on the largest and most sensitive per-device byte class, plus `31`'s missing temporal-inference dimension (§10 rows 29–30) |
+| **A snapshot series, once the boundary allows one** (C-05b) | Not the storage — `17` §4.5 gives write-once content-addressed captures for free. The cost is retention policy against a substrate that has none, in a format where deletion is not deletion (`17` §12.8, §13.5), on the largest and most sensitive per-device byte class, plus `31`'s missing temporal-inference dimension (§13 rows 29–30) |
 | **Generated restore lines from two snapshots** (C-05b) | Both sides must be parsed into graphs, so the feature's quality is bounded by dictionary coverage rather than by the generator. `18` OD-1 already names the failure mode and already says it needs an unrecognised-statement count and a refusal threshold that do not exist |
-| **A run record for an ordered procedure** (C-06b) | `52` §6.2's `WalkthroughRun` is the only per-run state in the product and it is `TaskId`-keyed. Generalising it is the cheapest honest route and it reaches into `17` §4.2's record taxonomy. **The genuinely expensive part is not the record — it is that a step writing nothing to the graph has no `tx`, so it has no undo unit and no armed rules** (§10 row 34) |
+| **A run record for an ordered procedure** (C-06b) | `52` §6.2's `WalkthroughRun` is the only per-run state in the product and it is `TaskId`-keyed. Generalising it is the cheapest honest route and it reaches into `17` §4.2's record taxonomy. **The genuinely expensive part is not the record — it is that a step writing nothing to the graph has no `tx`, so it has no undo unit and no armed rules** (§13 row 34) |
 | **A product-wide posture** (C-06b) | Not a boolean. `15` §6.3 forbids the cheap implementation by name, `52` §4.3 kept the adjacent control deliberately setting-free, `52` §9.6's 14-fact budget means a visible posture displaces something, and `53` §2.2 forbids an invisible one. Four documents have to agree before it has a home |
 | **Corpus authoring for backup, restore and upgrade verbs** | `71` identifies the corpus as the project's longest pole, and this is a block of entries in a file that currently has 98 and none of these. **No new machinery** — `61` §3.7's fields cover them — but every entry needs `blast_radius`, `reversible`, `commit_model`, a risk band assigned by effect, and a named reviewer under invariant 10 |
 
-### 12.3 The asymmetry worth stating
+### 15.3 The asymmetry worth stating
 
 **The feature is cheap. The state model is expensive.** For C-01 and C-02 the cost sat in three
 decisions — Q1 (schema field versus node attribute), Q2 (one axis or two) and Q9 (asserted versus
@@ -1699,7 +2087,7 @@ no shared critical path.
 
 ---
 
-## 13. Failure modes of this register
+## 16. Failure modes of this register
 
 *margin tab: how a register rots*
 
@@ -1709,13 +2097,13 @@ no shared critical path.
 | 2 | **It becomes a specification by accretion** | An entry gains a type, then a component contract, then an enum, and a future reader treats the register as authority. This is the most likely failure, because writing the specification is more satisfying than writing the constraint | §1.2's table, and one review question: *does any entry contain a thing another document owns?* ADR-0001 makes ownership checkable |
 | 3 | **It is read as approval** | Somebody finds C-04 and reads "planned" where the document says "refused". This is the failure with the largest consequence, because it is the one that would end with a network request in the artifact. **C-05 adds a second and quieter instance**: `03` §4.10 `N-R-10` is `Refused` too, but it is refused on storage rather than on egress, so nothing in the build catches a breach of it | §6's heading, the `NOT APPROVED` margin tab, and the register table in §1.5. For C-05, §7.2 states the refusal before any of the engineering, and §7.3 states that the boundary's own test is already contradicted — a reader who skips to §7.4 and starts building has skipped the two subsections that exist to stop them |
 | 4 | **It duplicates `73`** | An entry becomes a well-formed fork and stays here anyway, so the same question has two homes and they drift | The *forked* exit is the intended one. When an entry becomes answerable, it moves and this row is struck through with a pointer |
-| 5 | **Its cost claims rot** | The "nearly free" column ages badly: `18` §5's rollback generator changes shape and §12.1 still says the emitter is free | Every §12 claim names the document and section it rests on, so the claim breaks visibly when that section changes |
+| 5 | **Its cost claims rot** | The "nearly free" column ages badly: `18` §5's rollback generator changes shape and §15.1 still says the emitter is free | Every §15 claim names the document and section it rests on, so the claim breaks visibly when that section changes |
 | 6 | **The standing priority instruction is read as licence to re-litigate** | Every settled decision gets reopened because "sunk cost is not an argument", and the project stops converging | §2.2's second column, and the rule that a reopening needs either a fired `Revisit if` trigger or a new requirement — not a new opinion |
-| 7 | **The *original* governing instruction is paraphrased, not quoted — and this one is live now, not hypothetical** | §1.2 states the owner's "record, do not act" instruction, as it arrived with the four capability requests in §3.1, §5.1 and §6.1, in this register's words rather than the owner's. §2.1 names the mechanism by which that decays: *"paraphrasing a governance instruction is how it decays"* — the paraphrase gradually becomes the instruction, and the boundary it draws moves with whoever restates it. Every other owner input in this document is quoted verbatim (§2.1, §3.1, §3.8, §4.4, §5.1, §6.1, §7.1, §8.1); the one that defines the document's licence to exist is not. **This is one statement, not two.** An earlier draft reported the defect as doubled on the ground that the restatement accompanying the four clarifications was also a paraphrase. It is not — that restatement is now quoted verbatim in §1.2, *"these are just plans btw don't act on the new stuff atm"*, and §15 carries it as a citation | Replace §1.2's remaining paraphrase with the owner's words at the next opportunity. **Do not reconstruct them** — an invented quotation would read as evidence and would be worse than the gap. The restatement does not close this row, because *"the new stuff"* names the four clarifications rather than the original four requests. Until then, §1.2 carries the admission and §15 records the original instruction's source as a paraphrase rather than a citation |
+| 7 | **The *original* governing instruction is paraphrased, not quoted — and this one is live now, not hypothetical** | §1.2 states the owner's "record, do not act" instruction, as it arrived with the four capability requests in §3.1, §5.1 and §6.1, in this register's words rather than the owner's. §2.1 names the mechanism by which that decays: *"paraphrasing a governance instruction is how it decays"* — the paraphrase gradually becomes the instruction, and the boundary it draws moves with whoever restates it. Every other owner input in this document is quoted verbatim (§2.1, §2.4, §3.1, §3.8, §4.4, §5.1, §6.1, §7.1, §8.1, §9.1, §10.1, §11.1); the one that defines the document's licence to exist is not. **This is one statement, not two.** An earlier draft reported the defect as doubled on the ground that the restatement accompanying the four clarifications was also a paraphrase. It is not — that restatement is now quoted verbatim in §1.2, *"these are just plans btw don't act on the new stuff atm"*, and §18 carries it as a citation | Replace §1.2's remaining paraphrase with the owner's words at the next opportunity. **Do not reconstruct them** — an invented quotation would read as evidence and would be worse than the gap. The restatement does not close this row, because *"the new stuff"* names the four clarifications rather than the original four requests. Until then, §1.2 carries the admission and §18 records the original instruction's source as a paraphrase rather than a citation |
 
 ---
 
-## 14. Open decisions this register raises and does not answer
+## 17. Open decisions this register raises and does not answer
 
 These are the forks this document surfaces. They belong in `73` §2 with an `R` value and a latest
 responsible moment, and **this document does not put them there** — that is an edit to `73`, which
@@ -1723,37 +2111,39 @@ is not this document's to make.
 
 | Raised | Where it lands | Note |
 |---|---|---|
-| Q1–Q22 (§11) | `73` §2, as `Dnn` rows | Q1, Q2 and Q8 gate the others. **Q9 is struck through — the owner answered it** (§3.8, §4.4) |
-| **Q23–Q35 (§11)** | `73` §2, as `Dnn` rows | Raised by the four clarifications. **Q24 gates all of C-05** and is a `03` conversation rather than a `73` one; **Q32 is the one where a wrong answer drops live traffic** |
+| Q1–Q22 (§14) | `73` §2, as `Dnn` rows | Q1, Q2 and Q8 gate the others. **Q9 is struck through — the owner answered it** (§3.8, §4.4) |
+| **Q23–Q35 (§14)** | `73` §2, as `Dnn` rows | Raised by the four clarifications. **Q24 gates all of C-05** and is a `03` conversation rather than a `73` one; **Q32 is the one where a wrong answer drops live traffic** |
+| **Q36–Q41 (§14)** | `73` §2, as `Dnn` rows | Raised by the fifth batch. **Q36 and Q40 are the two that §2.4's constraint refuses to leave unstated** — new state says whether it rides the op log or is session-local; Q38 is C-01's enumeration seen from the rendering side |
+| **Whether `59` §4.1's no-colour DECISION is reversed to the overlay tier** | `59`, through §4.7's gate or by the owner's explicit decision — recorded there, not here | The reversal shape is pre-written in the DECISION block itself and the palette is measured and shelved in `59` §5, so reversing costs a decision and not a rebuild. This register records the intent and cannot fire the gate. §9.3 |
 | **Whether `03` §4.10 `N-R-10` is retired, clarified, or left standing** | `03` §10.1's retirement process | Its *"Reopens if"* cell names one door — *"A user-initiated, explicitly-labelled attachment is a §10 amendment, not a default"* — and the owner's loop is user-initiated. §7.2 |
-| **What `N-R-10`'s test actually means, given that `11` §8.4, `17` §4.2 and `37` §2.2 row 20 already contradict its literal reading** | `03` §4.10, as a clarification — or `11`/`17`, if the test is right and they are wrong | **Not caused by this register.** `N-R-10` is cited by no other document in the repository, so nobody has had to reconcile it. §7.3, §16 item 8 |
+| **What `N-R-10`'s test actually means, given that `11` §8.4, `17` §4.2 and `37` §2.2 row 20 already contradict its literal reading** | `03` §4.10, as a clarification — or `11`/`17`, if the test is right and they are wrong | **Not caused by this register.** `N-R-10` is cited by no other document in the repository, so nobody has had to reconcile it. §7.3, §19 item 8 |
 | **`18` OD-1 — diff against a pasted running config as a first-class mode** | `18` §10, unchanged | C-05 turns it from an option into a prerequisite, and its unanswered sub-question is the unrecognised-statement count and the refusal threshold. §7.5 |
 | **`14` §16 D3 — adopt `CaptureIntent { Observed, Intended }`** | `14` §16, then `11` §8.4 | Leaning *"probably yes"* already. A backup snapshot is unambiguously observed, which makes D3 load-bearing rather than tidy. §7.9 |
 | **Whether an operational procedure is a new type or a generalisation of `Ladder`** | `18` §4, which owns the ladder type per `61` §10's delegation | Q30. It also decides whether `61` §10.2's containment gate lands on every operational verb |
 | **Where a teaching-off posture's value lives** | `15` §11.3 and `17` §10.1–10.2 | Two precedents in one section pointing opposite ways. Q33 |
-| **Whether a corpus surface's default audience is a choice or a habit** | Nowhere yet — §9 proposes it as a review question rather than as work | §9. It is a lens, not a project, and a project to "balance the corpus" would have no exit criterion |
+| **Whether a corpus surface's default audience is a choice or a habit** | Nowhere yet — §12 proposes it as a review question rather than as work | §12. It is a lens, not a project, and a project to "balance the corpus" would have no exit criterion |
 | Whether `03` §4.3 `N-R-3`'s test permits an estate-state field | `03` §10.1's retirement process, or a clarification that it was never in scope | The `Reopens if: Never` cell means this is a boundary conversation, not a feature conversation |
 | Whether `03` §4.2 `N-R-2` is already bent by `absent_since` and `Divergent` | Same | The parsed-versus-asserted distinction is the thing to test |
 | Whether `52` §12 D3 flips | `52` §12, and then `73` if it needs an `R` | §5.4 |
 | Whether `44` §3 adopts S1–S5, and what a bulk-write budget measures | `44` §3 | `52` §14 asked once and nothing happened |
 | Whether `11` §17 #4's answer differs for a second kind of annotation | `11` §17 | §3.6 blocker 6 |
 | Whether `11` §6.2's implicit `notes: [Text]` exists | `11` — a straight contradiction with §13, needing an edit either way | §3.4 row 1 |
-| Whether `absent_since` is really `33` §6.4 class B | `33` §6.4, or `53` §16's proposed change | `53` §16 asserted it in passing and nobody checked. Class B *is* structurally a register, so the question is whether lifecycle-ish state is descriptive enough to accept LWW — not whether B fits mechanically. §10 row 11 |
-| **Whether `11` §8.6's step-3 recency tiebreak is acceptable for a lifecycle value across a git merge** | `11` §8.6, or `33` §6.3's proposed amendment to it extended beyond class A | **Due in phase 2, not phase 5.** `17` §12.4 runs this ladder on every `fathom merge --resolve`, and ADR-0016 keeps that path in phases 0–3. `33` §6.3 already amends §8.6 for class A on exactly this ground and scopes itself there deliberately. §1.6, §10 row 11 |
+| Whether `absent_since` is really `33` §6.4 class B | `33` §6.4, or `53` §16's proposed change | `53` §16 asserted it in passing and nobody checked. Class B *is* structurally a register, so the question is whether lifecycle-ish state is descriptive enough to accept LWW — not whether B fits mechanically. §13 row 11 |
+| **Whether `11` §8.6's step-3 recency tiebreak is acceptable for a lifecycle value across a git merge** | `11` §8.6, or `33` §6.3's proposed amendment to it extended beyond class A | **Due in phase 2, not phase 5.** `17` §12.4 runs this ladder on every `fathom merge --resolve`, and ADR-0016 keeps that path in phases 0–3. `33` §6.3 already amends §8.6 for class A on exactly this ground and scopes itself there deliberately. §1.6, §13 row 11 |
 
 ---
 
-## 15. Sources consulted
+## 18. Sources consulted
 
 | Claim | Source |
 |---|---|
 | The owner's four capability requests, verbatim | Owner, in conversation. C-01 and C-02 quoted in §3.1; C-03 in §5.1; C-04 in §6.1 |
 | **The owner's clarification on lifecycle dates and the completion action, verbatim** — *"I like the decommission idea as long as it includes what I wanted and we don't need a now, we only need a date for when events need to happen. maybe a button to complete out that task, etc."* | Owner, in conversation, after this register was first written. **Quoted in full twice, at §3.8 and at §4.4**, because the two halves are read by different people. It supplies clarifications (1) and (2) |
 | **The owner's clarification on config backup, verbatim** — *"oh! maybe we can have config backups and such as well…"* | Owner, in conversation, after this register was first written. Quoted in full at §7.1. It supplies C-05 |
-| **The owner's clarification on teaching-off and operational procedures, verbatim** — *"wait no you misunderstood, fathom is a teaching device but also make a person's life easier device…"* | Owner, in conversation, after this register was first written. Quoted in full at §8.1. It supplies C-06 and the observation in §9 |
+| **The owner's clarification on teaching-off and operational procedures, verbatim** — *"wait no you misunderstood, fathom is a teaching device but also make a person's life easier device…"* | Owner, in conversation, after this register was first written. Quoted in full at §8.1. It supplies C-06 and the observation in §12 |
 | The standing priority instruction — prior work does not constrain future quality | Owner, in conversation, quoted verbatim in §2.1 |
 | **The restatement of the "record, do not act" instruction, verbatim** — *"these are just plans btw don't act on the new stuff atm"* | Owner, in conversation, alongside the four clarifications above. **Quoted in full at §1.2.** *"The new stuff"* is those four clarifications, so this is the governing instruction for C-05, C-06 and both halves of the date answer. It is not a record of how the original instruction was worded |
-| The same instruction **as it arrived with the original four capability requests** (§3.1, §5.1, §6.1) | Owner, in conversation. **Paraphrased in §1.2 — not quoted anywhere in this document.** The verbatim wording is not preserved here, and §13 row 7 records that as a live defect rather than treating the paraphrase as a citation |
+| The same instruction **as it arrived with the original four capability requests** (§3.1, §5.1, §6.1) | Owner, in conversation. **Paraphrased in §1.2 — not quoted anywhere in this document.** The verbatim wording is not preserved here, and §16 row 7 records that as a live defect rather than treating the paraphrase as a citation |
 | The register/roadmap/ADR division of labour, and the entry-shape conventions this document copies | `docs/70-ops/73-open-decisions.md` §1.1, §1.4, §10.1–10.4 |
 | "Retired boundaries are struck through, not deleted", and the two retirement routes | `docs/00-vision/03-non-goals-and-scope.md` §10.1–10.3 |
 | `N-R-2`, `N-R-3`, `N-P-2`, the scope rule and its capability closure, and the twelve refusals table | `docs/00-vision/03-non-goals-and-scope.md` §3.2, §4.2, §4.3, §5.1, §5.2 |
@@ -1790,7 +2180,7 @@ is not this document's to make.
 | The ten hard invariants, the terminology table, and the depth requirement — **including invariant 3 as it still reads in that file, which ADR-0002 supersedes and did not amend in place** | `.context/conventions.md` |
 
 **Sources consulted for the four clarifications**, listed separately so that a reader checking §3.8,
-§4.4, §7, §8 and §9 can see exactly what each claim rests on.
+§4.4, §7, §8 and §12 can see exactly what each claim rests on.
 
 | Claim | Source |
 |---|---|
@@ -1818,9 +2208,33 @@ is not this document's to make.
 | **The verification stamp `junos-srx 21.4R3 · verified 2026-05-12 · K. Okafor` as chrome on every finder row and explainer header — a stored date, displayed, with nothing in the stamp itself evaluated** | `docs/90-decisions/adr-0027-hardware-verification-and-the-verification-stamp.md`, Decision item 3 (*"The stamp is chrome, not metadata"*) |
 | **That `Staleness` has two disjunctive limbs and one of them is an elapsed-months date comparison — `Aging` *"> 18 months since verification, or ≥ 2 vendor majors behind"*, `Stale` *"> 36 months, or explicitly contradicted by a newer verification"* — that it is *"Computed at build from `verified_against` and the release calendar"*, that `verified_against` is a *"list of `{platform, version, on}`"* and so carries a date, that a `Stale` entry is dropped from the spine, and that a second elapsed-date gate warns at 24 months and errors at 36.** ADR-0027 item 4 shows one illustrative case — *"an entry verified against a train two majors behind"* — and is **not** the source for the general rule; `15` §13.2 is. An earlier draft of §4.4 cited item 4 for the claim that `Staleness` compares versions and not dates, which item 4's own referent refutes | `docs/10-core/15-explainer-corpus.md` **§13.2**, and §3.4's filter table, §6.2's field reference, §7.2's re-review triggers |
 
+**Sources consulted for the fifth batch** (§2.4, C-07, C-08, C-09), listed separately in the same
+discipline. Every section reference below was re-verified against the named file when this batch
+was recorded.
+
+| Claim | Source |
+|---|---|
+| **The owner's fifth batch, verbatim** — the real-time groundwork sentence, the freeform and planning-mode request with its category list, the stencil request, and the pocket — one message | Owner, in conversation. Quoted at §2.4 and §9.1 — the opening sentence appears in both, and §2.4 states why — then §10.1 and §11.1. No restatement of the record-do-not-act instruction accompanied it; §9.1 records its status |
+| The no-colour DECISION and its pre-written reversal sentence — *"If this is ever reversed, it is reversed to A3's overlay architecture and never to A4's always-on model"*; the four arguments; what refusing A3 costs, including its invariant; the always-on costs and G1 owning tone; the three-trigger gate | `docs/50-design/59-diagram-aggregation-and-colour.md` §4.1–4.7 |
+| The palette, measured and shelved, marked **PROPOSED — not adopted** at the margin tab; the measured clearance from the reserved trio (closest approach 44.9° light, 42.3° dark); greyscale survival; the two forced-colours bugs and their specificity cause; the nine rules any adoption must carry, rule 2 being *"Nothing is tinted that is not also tagged… Not a guideline"* | `docs/50-design/59-diagram-aggregation-and-colour.md` §5, §5.3–5.7 |
+| The base defects independent of both decisions, `forced-color-adjust: none` on five diagram classes first among them | `docs/50-design/59-diagram-aggregation-and-colour.md` §6 |
+| Like-kind sibling aggregation at six; windowed expansion and the measured ladders; the exact expand-collapse round trip as exit criterion X5 | `docs/50-design/59-diagram-aggregation-and-colour.md` §3, §3.7, §7.2 |
+| R1 — the three risk colours reserved; R2 — no meaning in colour alone, named as WCAG 1.4.1; the two CI lints and the fact that both read stylesheets; `forced-color-adjust: none` *"exactly once in the product"* | `docs/50-design/51-design-tokens.md` §1, §3.3, §6 |
+| The colour-independence rule in operational form; the monochrome test; *let the UA win* | `docs/50-design/55-accessibility.md` §3.1, §3.4, §7.3 |
+| The channel budget — *"one channel, one meaning, and nothing may be added to it without taking something away"* — G1 owning tone, G10 as the view band | `docs/50-design/56-diagram-view.md` §5.2 |
+| The reserved trio in conventions — *"Do not reuse these colours for anything else"* — and ADR-0011's amendment leaving *"the ink, wash and ordering"* unoverridable. **Note for anyone verifying: the reservation is not a numbered hard invariant** — `.context/conventions.md` carries exactly ten — **it lives in the risk-enum section**, restated as `51` §1 R1 and linted by `51` §3.3 | `.context/conventions.md` §"The risk enum"; `docs/90-decisions/adr-0011-risk-is-a-property-of-effect.md` |
+| R-VIEW — *"The diagram stops being a view and starts being state, which is brief §4.1's forbidden outcome"* — medium, architecture-corrupting, phase 4 | `docs/70-ops/71-roadmap.md` §1.4 |
+| Selection as the through-line and its type; the anti-table — not undoable, not synced, not persisted across a lock — with *"Shared cursors are a collaboration feature this product has not earned"*; `FilteredOut` and the full-count confirm; `Aggregated { drill_into }` | `docs/50-design/52-information-architecture.md` §5.1, §5.7, §5.8 |
+| **`Device.role` declared as `enum { firewall, router, switch, load_balancer, other }`, cardinality `0..1`, emit `—`** | `schema/schema.yaml`, the `Device` kind's field list, read directly |
+| *"No logos. No icons. No illustrations."* | `.context/design-language.md`, §"What the card never does" |
+| That no verb in the single-letter table creates a node, and that the walkthrough's `Step.creates` is the specified creation path | `docs/50-design/53-interaction-and-keyboard.md` §3.4; `docs/50-design/52-information-architecture.md` §6.2 |
+| The multi-writer protocol deferred, not deleted; D18 decided as *"No. File plus git for v1… Multi-writer only on evidence"* with *"the op log stays either way"*; D19 leaning hand-rolled with Loro as the named fallback, live only if D18 reopens | `docs/90-decisions/adr-0016-git-is-the-sync-for-v1.md`; `docs/70-ops/73-open-decisions.md` §2 D18–D19, §6.2, §6.3 |
+| The capability ladder's ordering axis and E1 — *"shared synced database, load balancing, HA, DR"* — as the priced server rung, D-38.6 carrying *"the one exposure that never reverses"* | `docs/30-security/38-the-egress-question.md` §5.0, §5.3, §5.8, §11 D-38.6 |
+| Per-workspace private policy's designed home — the `Policy` record class | `docs/10-core/19-service-and-physical-model.md` §8 |
+
 ---
 
-## 16. Disagreements
+## 19. Disagreements
 
 No disagreement with any hard invariant **as amended**, with the risk enum, or with the terminology
 table. One disagreement with the *text* of invariant 3 as `.context/conventions.md` currently
@@ -1894,15 +2308,15 @@ a record class, it has a byte budget, and it appears in the privacy inventory as
 Either the test means *pre-redaction* text — which the refusal's own rationale clause supports and
 which would make the boundary already satisfied — or four core documents are in breach of a
 `Refused` boundary. **Not caused by this register**; C-05 is only what made someone read the two
-side by side. It should be resolved in `03` regardless of whether C-05 is ever built, and §14 records
+side by side. It should be resolved in `03` regardless of whether C-05 is ever built, and §17 records
 where it lands.
 
-**9. The corpus is lopsided toward teaching, and that is recorded at §9 rather than here.** It is
+**9. The corpus is lopsided toward teaching, and that is recorded at §12 rather than here.** It is
 the same class of thing as item 6 — an observation about the whole document set rather than an
 objection to a convention — and the two should be read together. Item 6 says these entries push
-toward a system of record; §9 says the corpus as a whole under-serves the engineer who already knows
+toward a system of record; §12 says the corpus as a whole under-serves the engineer who already knows
 the answer, and that the owner has now named that engineer as half the product. Neither is a
-proposal. §9 gives the evidence and the one thing it recommends is a review question, not work.
+proposal. §12 gives the evidence and the one thing it recommends is a review question, not work.
 
 **10. `.context/conventions.md`'s invariant 3 is superseded text and the amendment was never
 applied.**
@@ -1915,4 +2329,4 @@ applied.**
 
 **This document does not make that edit** — it owns `75` and nothing else — and the edit is ADR-0002's
 to have landed, not this register's to land late. It is recorded because C-05 cannot be discussed
-against the stale sentence without being refused for a superseded reason (§7.6, §10 row 32).
+against the stale sentence without being refused for a superseded reason (§7.6, §13 row 32).
