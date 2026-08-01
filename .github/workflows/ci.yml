@@ -1,0 +1,27 @@
+# The mechanical verification floor (78-execution-protocol.md §: every PR, no exceptions).
+# Zero external crate dependencies means this is fast; the toolchain is pinned by
+# rust-toolchain.toml and rustup honours it — nothing here chooses a version.
+name: gates
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain (reads rust-toolchain.toml)
+        run: rustup toolchain install
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy, warnings are errors
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --workspace
+      - name: Schema gates
+        run: cargo run -p fathom-schema --bin fathom-schema-check
