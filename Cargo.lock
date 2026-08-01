@@ -3,6 +3,22 @@
 version = 4
 
 [[package]]
+name = "fathom-corpus"
+version = "0.1.0"
+dependencies = [
+ "fathom-id",
+ "fathom-schema",
+]
+
+[[package]]
+name = "fathom-find"
+version = "0.1.0"
+dependencies = [
+ "fathom-corpus",
+ "fathom-id",
+]
+
+[[package]]
 name = "fathom-id"
 version = "0.1.0"
 

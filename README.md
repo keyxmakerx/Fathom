@@ -197,7 +197,9 @@ source ever stated one — the S0 site list forces that decision.
 | | |
 |---|---|
 | `fathom-id` | ULID over Crockford base32; `CommandId` / `ConceptId`. No clock, no RNG — parts are supplied by the caller (invariant 9) |
-| `fathom-schema` | The `62` §2.2 YAML-subset parser (bespoke, zero dependencies — the subset is small so that this is trivial) and every mechanically-checkable `62` §18 gate. 36 tests; toolchain pinned |
+| `fathom-schema` | The `62` §2.2 YAML-subset parser (bespoke, zero dependencies) and every mechanically-checkable `62` §18 gate |
+| `fathom-schemagen` | `62` §17's generator: gates first, then deterministic codegen; stale/nondeterminism wired as cargo tests; canonical `schema.json` |
+| `fathom-ir` | Stub scalar/value types at the declared impl paths, plus the checked-in generated `ir_types.rs` / `accessors.rs` — `cargo build` proves schema and code agree. 59 workspace tests; toolchain pinned |
 
 ## `design/` — from tokens to the whole product
 

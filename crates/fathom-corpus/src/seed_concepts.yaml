@@ -1,0 +1,280 @@
+# =============================================================================
+# SEED CONCEPT GRAPH — transcribed, not invented.
+# =============================================================================
+# The corpus tree has no authored `concepts/<domain>.yaml` files yet (owner-
+# blocking work, CLAUDE.md). Without the concept graph the finder cannot do
+# what 16 §12 specifies — breadth resolution and the object gate both need
+# relations that entries alone do not carry. This file is the minimal graph,
+# and every concept in it is transcribed from the specification's own worked
+# examples or derived one step from the seed corpus:
+#
+#   state.operational + surfaces .......... 16 §3.2 verbatim
+#   p2.installed + surfaces ............... 16 §3.2 / 61 §8 verbatim
+#   obj.tunnel + surfaces + narrower ...... 61 §8 verbatim
+#   check→act.verify, tunnel→obj.tunnel ... 16 §12.2
+#   show→act.verify 0.60, ike→obj.ike-sa .. 16 §13
+#   state.down as opposite ................ 16 §3.2 / §12.5 (E3)
+#   act.diagnose related act.verify ....... 16 §12.6 (E3's 0.35 term)
+#   iface.link-up → state.interface-up .... 16 §12.3 mapped onto the id the
+#                                           seed bundle actually uses
+#   obj.child-sa under obj.tunnel ......... the card via ipsec.sa.clear-vpn's
+#                                           teaching (child SA = the P2 SA)
+#
+# Everything else is a surface on a concept the seed bundle declares, at the
+# confidence discipline of 61 §8.2. Replaced wholesale by corpus/concepts/
+# when that tree is authored; reviewed_by is the invariant-10 placeholder and
+# is counted in the gate inventory like every other unreviewed document.
+# =============================================================================
+version: 1
+reviewed_by: "<named human>"
+concepts:
+
+  - id: concept:state.operational
+    kind: state
+    label: "up, in the sense the person asking means it"
+    surfaces:
+      - { text: "up", conf: 0.72 }
+      - { text: "is up", conf: 0.80 }
+      - { text: "working", conf: 0.70 }
+      - { text: "healthy", conf: 0.70 }
+      - { text: "active", conf: 0.60 }
+      - { text: "come up", conf: 0.80 }
+      - { text: "came up", conf: 0.80 }
+      - { text: "green", conf: 0.55 }
+      - { text: "alive", conf: 0.60 }
+    narrower:
+      - concept:p1.established
+      - concept:p2.installed
+      - concept:dataplane.passing
+      - concept:state.interface-up
+    opposite: concept:state.down
+
+  - id: concept:state.down
+    kind: state
+    label: "down, broken, not working"
+    surfaces:
+      - { text: "down", conf: 0.80 }
+      - { text: "broken", conf: 0.60 }
+      - { text: "not up", conf: 0.70 }
+      - { text: "not working", conf: 0.70 }
+
+  - id: concept:p1.established
+    kind: state
+    label: "the IKE SA is established"
+    surfaces:
+      - { text: "established", conf: 1.00 }
+      - { text: "phase 1 up", conf: 1.00 }
+      - { text: "p1 up", conf: 1.00 }
+      - { text: "ike up", conf: 0.95 }
+    related: [concept:p2.installed]
+
+  - id: concept:p2.installed
+    kind: state
+    label: "the IPsec SA is installed"
+    surfaces:
+      - { text: "installed", conf: 1.00 }
+      - { text: "phase 2 up", conf: 1.00 }
+      - { text: "p2 up", conf: 1.00 }
+      - { text: "sa installed", conf: 1.00 }
+      - { text: "ipsec sa up", conf: 0.95 }
+
+  - id: concept:dataplane.passing
+    kind: state
+    label: "traffic is actually passing"
+    surfaces:
+      - { text: "passing traffic", conf: 1.00 }
+      - { text: "passing packets", conf: 0.95 }
+      - { text: "traffic flowing", conf: 0.90 }
+
+  - id: concept:state.interface-up
+    kind: state
+    label: "the interface is admin and link up"
+    surfaces:
+      - { text: "link up", conf: 0.90 }
+      - { text: "interface up", conf: 0.90 }
+
+  - id: concept:obj.tunnel
+    kind: object
+    label: "an IPsec tunnel, as a whole"
+    surfaces:
+      - { text: "tunnel", conf: 1.00 }
+      - { text: "vpn", conf: 0.90 }
+      - { text: "ipsec", conf: 0.85 }
+      - { text: "crypto", conf: 0.60 }
+      - { text: "s2s", conf: 0.80 }
+      - { text: "site to site", conf: 0.95 }
+    narrower:
+      - concept:obj.ike-sa
+      - concept:obj.ipsec-sa
+      - concept:obj.st0
+      - concept:obj.child-sa
+
+  - id: concept:obj.ike-sa
+    kind: object
+    label: "the Phase 1 / IKE SA"
+    surfaces:
+      - { text: "ike", conf: 0.85 }
+      - { text: "ike sa", conf: 1.00 }
+      - { text: "phase 1", conf: 0.95 }
+      - { text: "p1", conf: 0.95 }
+
+  - id: concept:obj.ipsec-sa
+    kind: object
+    label: "the Phase 2 / IPsec SA"
+    surfaces:
+      - { text: "ipsec sa", conf: 1.00 }
+      - { text: "phase 2", conf: 0.95 }
+      - { text: "p2", conf: 0.95 }
+      - { text: "sa", conf: 0.70 }
+
+  - id: concept:obj.st0
+    kind: object
+    label: "the st0 secure tunnel interface"
+    surfaces:
+      - { text: "st0", conf: 1.00 }
+      - { text: "tunnel interface", conf: 0.90 }
+
+  - id: concept:obj.child-sa
+    kind: object
+    label: "a child SA under one IKE SA"
+    surfaces:
+      - { text: "child sa", conf: 1.00 }
+
+  - id: concept:obj.ike-gateway
+    kind: object
+    label: "the far-end peer / gateway"
+    surfaces:
+      - { text: "peer", conf: 0.75 }
+      - { text: "peers", conf: 0.75 }
+      - { text: "gateway", conf: 0.80 }
+      - { text: "spoke", conf: 0.70 }
+      - { text: "spokes", conf: 0.70 }
+
+  - id: concept:obj.counter
+    kind: object
+    label: "byte, packet and error counters"
+    surfaces:
+      - { text: "counter", conf: 0.90 }
+      - { text: "counters", conf: 0.90 }
+
+  - id: concept:obj.log
+    kind: object
+    label: "the daemon logs"
+    surfaces:
+      - { text: "log", conf: 0.90 }
+      - { text: "logs", conf: 0.90 }
+
+  - id: concept:act.verify
+    kind: action
+    label: "verify that a thing is healthy"
+    surfaces:
+      - { text: "check", conf: 1.00 }
+      - { text: "verify", conf: 1.00 }
+      - { text: "show", conf: 0.60 }
+      - { text: "status", conf: 0.55 }
+    related:
+      - concept:act.diagnose
+      - concept:act.inspect
+      - concept:act.check-interface
+      - concept:act.check-cluster
+      - concept:act.count
+
+  - id: concept:act.diagnose
+    kind: action
+    label: "find out why it is broken"
+    surfaces:
+      - { text: "why", conf: 0.70 }
+      - { text: "diagnose", conf: 1.00 }
+      - { text: "debug", conf: 0.65 }
+      - { text: "reason", conf: 0.55 }
+
+  - id: concept:act.clear
+    kind: action
+    label: "tear down so it renegotiates"
+    surfaces:
+      - { text: "clear", conf: 1.00 }
+      - { text: "restart", conf: 0.80 }
+      - { text: "reset", conf: 0.80 }
+      - { text: "bounce", conf: 0.75 }
+      - { text: "renegotiate", conf: 0.85 }
+
+  - id: concept:act.configure
+    kind: action
+    label: "set configuration"
+    surfaces:
+      - { text: "configure", conf: 1.00 }
+      - { text: "set", conf: 0.90 }
+
+  - id: concept:attr.rekey
+    kind: attribute
+    label: "rekeying and lifetimes"
+    surfaces:
+      - { text: "rekey", conf: 1.00 }
+
+  - id: concept:attr.mtu
+    kind: attribute
+    label: "MTU and packet size"
+    surfaces:
+      - { text: "mtu", conf: 1.00 }
+
+  - id: concept:attr.mss
+    kind: attribute
+    label: "TCP MSS clamping"
+    surfaces:
+      - { text: "mss", conf: 1.00 }
+
+  - id: concept:attr.nat-traversal
+    kind: attribute
+    label: "NAT traversal"
+    surfaces:
+      - { text: "nat-t", conf: 1.00 }
+      - { text: "nat traversal", conf: 1.00 }
+      - { text: "nat", conf: 0.80 }
+      - { text: "4500", conf: 0.85 }
+
+  - id: concept:attr.cluster-node
+    kind: attribute
+    label: "which cluster node answers"
+    surfaces:
+      - { text: "cluster", conf: 0.80 }
+      - { text: "node all", conf: 0.90 }
+
+  - id: concept:phase.p1
+    kind: phase
+    label: "Phase 1"
+    surfaces:
+      - { text: "phase 1", conf: 1.00 }
+      - { text: "p1", conf: 1.00 }
+    related: [concept:phase.p2]
+
+  - id: concept:phase.p2
+    kind: phase
+    label: "Phase 2"
+    surfaces:
+      - { text: "phase 2", conf: 1.00 }
+      - { text: "p2", conf: 1.00 }
+
+  - id: concept:symptom.one-way-traffic
+    kind: symptom
+    label: "traffic moves one way only"
+    surfaces:
+      - { text: "one way", conf: 0.95 }
+      - { text: "one-way", conf: 0.95 }
+
+  - id: concept:symptom.stalls-under-load
+    kind: symptom
+    label: "handshake fine, stalls on big transfers"
+    surfaces:
+      - { text: "stalls", conf: 0.90 }
+      - { text: "stall", conf: 0.90 }
+      - { text: "hangs", conf: 0.80 }
+      - { text: "big files", conf: 0.90 }
+
+  - id: concept:symptom.tunnel-flapping
+    kind: symptom
+    label: "the tunnel goes up and down"
+    surfaces:
+      - { text: "flapping", conf: 1.00 }
+      - { text: "flaps", conf: 0.90 }
+      - { text: "flap", conf: 0.90 }
+      - { text: "bouncing", conf: 0.70 }

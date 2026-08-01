@@ -20,7 +20,9 @@ access, no credentials, no telemetry, permanently (invariants 1–3,
   scalars); `crates/fathom-schema` parses and checks it; `cargo test` pins zero failures.
 - **Design: decided and demonstrated.** `design/prototype/fathom-app.html` is the whole
   product as one interactive file — the fidelity bar for anything built.
-- **Application code beyond the schema toolchain: none yet.**
+- **Code: the schema toolchain is complete** (`fathom-id`, `fathom-schema`,
+  `fathom-schemagen`, `fathom-ir` with checked-in generated types; 59 tests).
+  Application code beyond it: none yet — the finder core is the next slice.
 
 ## Rules that bind every session
 
@@ -40,9 +42,14 @@ access, no credentials, no telemetry, permanently (invariants 1–3,
 
 ## Next actions
 
-- **Engineering:** `fathom-schemagen` — codegen from `schema/` to Rust types +
-  `schema.json` (`62` §17), which unlocks four more deferred gates in
-  `fathom-schema-check`.
+- **Engineering (done → next):** `fathom-schemagen` shipped — codegen is checked in,
+  deterministic, and gated by `cargo test`; four gates moved to checked-elsewhere.
+  **Next: the finder core** — `fathom-corpus` (load and gate the seed corpus, build the
+  in-memory index) and `fathom-find` (`16`'s machine: normaliser, the three matchers,
+  fusion, the golden-query harness). The seed corpus is richer YAML than `62`'s subset
+  (folded `>` scalars); extend the one parser rather than adding a dependency.
+  After that: the `Scalar` trait and real parsing in `fathom-ir` (retiring the stub
+  caveat), then emitters or ingest per `76`'s order.
 - **Owner-only, blocking:** the S0 fixture exports (`76` §7: Calix/Nokia/DIA configs, one
   service record end-to-end, the site list — which also settles the `Site` identity
   warning the checker surfaces on every run); the four forks in `19` §10; the named
