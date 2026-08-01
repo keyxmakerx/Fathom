@@ -12,6 +12,24 @@
 
 use crate::value::{Node, Value};
 
+/// Which dialect of the subset a source file is parsed under.
+///
+/// `Schema` is the 62 §2.2 subset exactly as shipped — folded (`>`) block
+/// scalars, same-indent sequences and multi-line flow are refused the same
+/// way they always were. `Corpus` carries exactly the three extensions the
+/// seed corpus bundles are written in, no more: `key: >` folded block scalars
+/// (YAML *clip* semantics), a block sequence at the same indent as its key,
+/// and flow collections that continue until they close. Everything else —
+/// anchors, aliases, tags, single quotes, `yes/no`, octal, multi-document,
+/// tabs — stays refused identically in both profiles. This is an option on
+/// the one parser, not a second parser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Profile {
+    #[default]
+    Schema,
+    Corpus,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubsetError {
     pub line: usize,
@@ -36,6 +54,10 @@ struct Line {
 }
 
 pub fn parse(source: &str) -> Result<Node, SubsetError> {
+    parse_profile(source, Profile::Schema)
+}
+
+pub fn parse_profile(source: &str, profile: Profile) -> Result<Node, SubsetError> {
     let raw: Vec<&str> = source.lines().collect();
     let mut lines: Vec<Line> = Vec::new();
     let mut i = 0usize;
@@ -63,8 +85,16 @@ pub fn parse(source: &str) -> Result<Node, SubsetError> {
         }
 
         // Block scalars swallow their following lines verbatim, comments and
-        // all, so they are folded into one Line here at lex time.
-        if let Some(key) = block_scalar_key(stripped) {
+        // all, so they are folded into one Line here at lex time. Literal (`|`)
+        // blocks exist in both profiles; folded (`>`) blocks only in Corpus.
+        let literal_key = block_scalar_key(stripped);
+        let folded_key = if profile == Profile::Corpus {
+            folded_scalar_key(stripped)
+        } else {
+            None
+        };
+        if let Some(key) = literal_key.or(folded_key) {
+            let folded = literal_key.is_none();
             let mut j = i + 1;
             let mut body_lines: Vec<(usize, &str)> = Vec::new();
             while j < raw.len() {
@@ -90,19 +120,56 @@ pub fn parse(source: &str) -> Result<Node, SubsetError> {
                 .map(|(li, _)| *li)
                 .min()
                 .unwrap_or(indent + 2);
-            let mut text = String::new();
-            for (li, l) in &body_lines {
-                if *li == 0 {
-                    text.push('\n');
-                } else {
-                    text.push_str(&l[base.min(l.len())..]);
-                    text.push('\n');
+            let text = if folded {
+                fold_clip(&body_lines, base)
+            } else {
+                let mut text = String::new();
+                for (li, l) in &body_lines {
+                    if *li == 0 {
+                        text.push('\n');
+                    } else {
+                        text.push_str(&l[base.min(l.len())..]);
+                        text.push('\n');
+                    }
                 }
-            }
+                text
+            };
             lines.push(Line {
                 no,
                 indent,
                 text: format!("{key}: \u{0}BLOCK\u{0}{text}"),
+            });
+            i = j;
+            continue;
+        }
+
+        // Corpus profile only: a flow collection may continue across lines
+        // until it closes (the seed bundles' `new_concepts` block is written
+        // that way). Continuation lines are joined with a single space. The
+        // schema profile refuses multi-line flow exactly as before.
+        if profile == Profile::Corpus && flow_depth_delta(stripped) > 0 {
+            let mut joined = stripped.to_owned();
+            let mut depth = flow_depth_delta(stripped);
+            let mut j = i + 1;
+            while j < raw.len() && depth > 0 {
+                let cont = strip_trailing_comment(raw[j].trim()).trim_end();
+                if !cont.is_empty() {
+                    joined.push(' ');
+                    joined.push_str(cont);
+                    depth += flow_depth_delta(cont);
+                }
+                j += 1;
+            }
+            if depth > 0 {
+                return Err(SubsetError::new(
+                    no,
+                    "flow collection does not close before end of file",
+                ));
+            }
+            lines.push(Line {
+                no,
+                indent,
+                text: joined,
             });
             i = j;
             continue;
@@ -117,7 +184,7 @@ pub fn parse(source: &str) -> Result<Node, SubsetError> {
     }
 
     let mut cursor = 0usize;
-    let root = parse_block(&lines, &mut cursor, 0)?;
+    let root = parse_block(&lines, &mut cursor, 0, profile)?;
     if cursor < lines.len() {
         let l = &lines[cursor];
         return Err(SubsetError::new(
@@ -164,6 +231,26 @@ fn strip_trailing_comment(s: &str) -> &str {
     s
 }
 
+/// Net `{`/`[` vs `}`/`]` depth outside double quotes — the corpus profile's
+/// multi-line-flow continuation test.
+fn flow_depth_delta(s: &str) -> i32 {
+    let mut depth = 0i32;
+    let mut in_quotes = false;
+    let mut k = 0usize;
+    let bytes = s.as_bytes();
+    while k < bytes.len() {
+        match bytes[k] {
+            b'"' => in_quotes = !in_quotes,
+            b'\\' if in_quotes => k += 1,
+            b'{' | b'[' if !in_quotes => depth += 1,
+            b'}' | b']' if !in_quotes => depth -= 1,
+            _ => {}
+        }
+        k += 1;
+    }
+    depth
+}
+
 fn block_scalar_key(s: &str) -> Option<&str> {
     let rest = s.strip_suffix('|')?;
     let rest = rest.trim_end();
@@ -174,16 +261,78 @@ fn block_scalar_key(s: &str) -> Option<&str> {
     Some(key)
 }
 
-fn parse_block(lines: &[Line], cursor: &mut usize, indent: usize) -> Result<Node, SubsetError> {
+/// `key: >` — a folded block scalar header. Same key rule as `|`: the `>` must
+/// stand alone as the value, so `key: a > b` is a plain scalar in every
+/// profile. Corpus profile only.
+fn folded_scalar_key(s: &str) -> Option<&str> {
+    let rest = s.strip_suffix('>')?;
+    let rest = rest.trim_end();
+    let key = rest.strip_suffix(':')?;
+    if key.is_empty() || key.contains(' ') {
+        return None;
+    }
+    Some(key)
+}
+
+/// YAML folded-scalar *clip* semantics over the pre-lexed body lines:
+/// a single break between two base-indented lines folds to one space; `k`
+/// blank lines between them become `k` newlines; breaks adjacent to a
+/// more-indented line are literal; the value ends with exactly one newline.
+fn fold_clip(body_lines: &[(usize, &str)], base: usize) -> String {
+    let mut out = String::new();
+    let mut pending_blanks = 0usize;
+    let mut prev_more_indented = false;
+    let mut first = true;
+    for (li, l) in body_lines {
+        if *li == 0 {
+            pending_blanks += 1;
+            continue;
+        }
+        let more_indented = *li > base;
+        let content = &l[base.min(l.len())..];
+        if first {
+            first = false;
+        } else if more_indented || prev_more_indented {
+            for _ in 0..=pending_blanks {
+                out.push('\n');
+            }
+        } else if pending_blanks > 0 {
+            for _ in 0..pending_blanks {
+                out.push('\n');
+            }
+        } else {
+            out.push(' ');
+        }
+        out.push_str(content);
+        pending_blanks = 0;
+        prev_more_indented = more_indented;
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
+fn parse_block(
+    lines: &[Line],
+    cursor: &mut usize,
+    indent: usize,
+    profile: Profile,
+) -> Result<Node, SubsetError> {
     let first = &lines[*cursor];
     if first.text == "-" || first.text.starts_with("- ") {
-        parse_seq(lines, cursor, indent)
+        parse_seq(lines, cursor, indent, profile)
     } else {
-        parse_map(lines, cursor, indent)
+        parse_map(lines, cursor, indent, profile)
     }
 }
 
-fn parse_seq(lines: &[Line], cursor: &mut usize, indent: usize) -> Result<Node, SubsetError> {
+fn parse_seq(
+    lines: &[Line],
+    cursor: &mut usize,
+    indent: usize,
+    profile: Profile,
+) -> Result<Node, SubsetError> {
     let start_line = lines[*cursor].no;
     let mut items: Vec<Node> = Vec::new();
     while *cursor < lines.len() {
@@ -198,7 +347,7 @@ fn parse_seq(lines: &[Line], cursor: &mut usize, indent: usize) -> Result<Node, 
             *cursor += 1;
             if *cursor < lines.len() && lines[*cursor].indent > indent {
                 let child_indent = lines[*cursor].indent;
-                items.push(parse_block(lines, cursor, child_indent)?);
+                items.push(parse_block(lines, cursor, child_indent, profile)?);
             } else {
                 items.push(Node::new(Value::Null, item_line));
             }
@@ -212,7 +361,7 @@ fn parse_seq(lines: &[Line], cursor: &mut usize, indent: usize) -> Result<Node, 
             // at the body indent on the following lines.
             *cursor += 1;
             let mut entries: Vec<(String, Node)> = Vec::new();
-            let first_val = map_entry_value(lines, cursor, body_indent, val, item_line)?;
+            let first_val = map_entry_value(lines, cursor, body_indent, val, item_line, profile)?;
             entries.push((key, first_val));
             while *cursor < lines.len() && lines[*cursor].indent == body_indent {
                 let ml = &lines[*cursor];
@@ -223,7 +372,7 @@ fn parse_seq(lines: &[Line], cursor: &mut usize, indent: usize) -> Result<Node, 
                     .ok_or_else(|| SubsetError::new(ml.no, "expected `key: value` in block map"))?;
                 let mline = ml.no;
                 *cursor += 1;
-                let value = map_entry_value(lines, cursor, body_indent, v, mline)?;
+                let value = map_entry_value(lines, cursor, body_indent, v, mline, profile)?;
                 entries.push((k, value));
             }
             items.push(Node::new(Value::Map(entries), item_line));
@@ -235,7 +384,12 @@ fn parse_seq(lines: &[Line], cursor: &mut usize, indent: usize) -> Result<Node, 
     Ok(Node::new(Value::Seq(items), start_line))
 }
 
-fn parse_map(lines: &[Line], cursor: &mut usize, indent: usize) -> Result<Node, SubsetError> {
+fn parse_map(
+    lines: &[Line],
+    cursor: &mut usize,
+    indent: usize,
+    profile: Profile,
+) -> Result<Node, SubsetError> {
     let start_line = lines[*cursor].no;
     let mut entries: Vec<(String, Node)> = Vec::new();
     while *cursor < lines.len() {
@@ -250,7 +404,7 @@ fn parse_map(lines: &[Line], cursor: &mut usize, indent: usize) -> Result<Node, 
             .ok_or_else(|| SubsetError::new(l.no, "expected `key: value` in block map"))?;
         let line_no = l.no;
         *cursor += 1;
-        let value = map_entry_value(lines, cursor, indent, val, line_no)?;
+        let value = map_entry_value(lines, cursor, indent, val, line_no, profile)?;
         entries.push((key, value));
     }
     Ok(Node::new(Value::Map(entries), start_line))
@@ -264,6 +418,7 @@ fn map_entry_value(
     key_indent: usize,
     val: &str,
     line_no: usize,
+    profile: Profile,
 ) -> Result<Node, SubsetError> {
     if let Some(body) = val.strip_prefix("\u{0}BLOCK\u{0}") {
         return Ok(Node::new(Value::Str(body.to_owned()), line_no));
@@ -273,7 +428,16 @@ fn map_entry_value(
     }
     if *cursor < lines.len() && lines[*cursor].indent > key_indent {
         let child_indent = lines[*cursor].indent;
-        return parse_block(lines, cursor, child_indent);
+        return parse_block(lines, cursor, child_indent, profile);
+    }
+    // Corpus profile only: a block sequence at the same indent as its key
+    // (`entries:` with `- …` items at column 0) — the style the seed bundles
+    // are written in. The schema profile refuses it exactly as before.
+    if profile == Profile::Corpus && *cursor < lines.len() {
+        let l = &lines[*cursor];
+        if l.indent == key_indent && (l.text == "-" || l.text.starts_with("- ")) {
+            return parse_seq(lines, cursor, key_indent, profile);
+        }
     }
     Ok(Node::new(Value::Null, line_no))
 }
@@ -682,6 +846,96 @@ mod tests {
     fn floats_accepted_pragmatically() {
         let n = parse_ok("match_threshold: 0.75\n");
         assert!(matches!(n.get("match_threshold").unwrap().value, Value::Float(f) if f == 0.75));
+    }
+
+    #[test]
+    fn corpus_profile_folds_clip_semantics() {
+        let n = parse_profile(
+            "doc: >\n  line one\n  line two\n\n  paragraph two\nnext: 1\n",
+            Profile::Corpus,
+        )
+        .expect("corpus profile should fold");
+        assert_eq!(
+            n.get("doc").unwrap().as_str(),
+            Some("line one line two\nparagraph two\n")
+        );
+        assert_eq!(n.get("next").unwrap().as_int(), Some(1));
+    }
+
+    #[test]
+    fn corpus_profile_folded_more_indented_lines_stay_literal() {
+        let n = parse_profile(
+            "doc: >\n  intro\n    kept literal\n  outro\n",
+            Profile::Corpus,
+        )
+        .unwrap();
+        assert_eq!(
+            n.get("doc").unwrap().as_str(),
+            Some("intro\n  kept literal\noutro\n")
+        );
+    }
+
+    #[test]
+    fn corpus_profile_keeps_every_other_refusal() {
+        for bad in [
+            "a: 'single'\n",
+            "a: yes\n",
+            "a: ~\n",
+            "a: &anchor 1\n",
+            "a: *alias\n",
+            "a: !tag x\n",
+            "a: 017\n",
+            "---\na: 1\n",
+            "\ta: 1\n",
+        ] {
+            assert!(
+                parse_profile(bad, Profile::Corpus).is_err(),
+                "corpus profile must still refuse {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn corpus_profile_same_indent_seq_and_multiline_flow() {
+        // The two block styles the seed bundles are written in; the schema
+        // profile refuses both exactly as before.
+        let seq = "entries:\n- id: a\n- id: b\n";
+        let n = parse_profile(seq, Profile::Corpus).unwrap();
+        assert_eq!(n.get("entries").unwrap().as_seq().unwrap().len(), 2);
+        assert!(
+            parse(seq).is_err(),
+            "schema profile refuses same-indent seq"
+        );
+
+        let flow = "kinds: [a,\n        b, c]\n";
+        let n = parse_profile(flow, Profile::Corpus).unwrap();
+        assert_eq!(n.get("kinds").unwrap().as_seq().unwrap().len(), 3);
+        assert!(
+            parse(flow).is_err(),
+            "schema profile refuses multi-line flow"
+        );
+        assert!(
+            parse_profile("a: [1, 2\n", Profile::Corpus).is_err(),
+            "an unclosed flow is still an error in the corpus profile"
+        );
+    }
+
+    #[test]
+    fn schema_profile_still_refuses_folded_scalars() {
+        // Exactly the pre-Profile behaviour, pinned: the `>` reads as a plain
+        // scalar and the indented body is then unexpected content.
+        let e = parse("a: >\n  body text\n").unwrap_err();
+        assert!(e.message.contains("unexpected content"), "{}", e.message);
+        // A bodyless `a: >` was (and stays) the literal string ">".
+        let n = parse("a: >\n").unwrap();
+        assert_eq!(n.get("a").unwrap().as_str(), Some(">"));
+    }
+
+    #[test]
+    fn folded_scalar_value_position_only() {
+        // `>` inside a plain scalar is text in both profiles.
+        let n = parse_profile("a: x > y\n", Profile::Corpus).unwrap();
+        assert_eq!(n.get("a").unwrap().as_str(), Some("x > y"));
     }
 
     #[test]

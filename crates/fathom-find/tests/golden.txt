@@ -1,0 +1,107 @@
+# Golden query set — 16 §9.6's discipline at seed scale. Format:
+#   q: <query>                 the query, verbatim
+#   top3: a | b | c            expected ranked ids, in order (fewer allowed)
+#   reverse: id                shape-D full match must resolve to this entry
+#   absent: a b …              must not appear in the shown list at all
+#   below_readonly: a b …      each is absent or ranked below every shown ReadOnly row
+#   notrank1: id               must not be rank 1
+#   broad: yes                 §3.4 breadth resolution must fire (ladder-group trigger)
+# A blank line ends each case. Expectations are measured output, sanity-checked
+# against the corpus's own answers/aka and 16 §12–15; a diff here is a review
+# item (16 §9.6), and the determinism assertion is separate and absolute.
+
+# ── Worked trace A — the flagship (16 §12): P1/P2 verify ladder on top,
+#    the Disruptive clears nowhere near it, breadth resolution fired.
+q: check if a tunnel is up
+top3: junos-srx/ipsec.sa.show-vpn-detail | junos-srx/ipsec.sa.show | junos-srx/ike.sa.show
+below_readonly: junos-srx/ike.sa.clear-all junos-srx/ike.sa.clear-peer junos-srx/ike.sa.clear-index junos-srx/ipsec.sa.clear-vpn
+absent: junos-srx/ike.sa.clear-all
+broad: yes
+
+q: is the tunnel up
+top3: junos-srx/ipsec.sa.show | junos-srx/ipsec.sa.show-vpn-detail | junos-srx/ipsec.sa.show-node-all
+below_readonly: junos-srx/ike.sa.clear-all junos-srx/ipsec.sa.clear-vpn
+
+q: why is the tunnel down
+top3: junos-srx/ipsec.inactive-tunnels.show | junos-srx/log.kmd.match-peer | junos-srx/system.commit.show
+
+q: tunnel down reason
+top3: junos-srx/ipsec.inactive-tunnels.show | junos-srx/ipsec.sa.show-vpn-detail | junos-srx/ipsec.sa.show
+
+# ── Worked trace B — half-remembered syntax (16 §13). The R09-canonical
+#    `node all` form (weight 3) outranks the bare leaf (weight 2) here;
+#    §13's trace assumed the pre-R09 canonicality.
+q: show security ike sec assoc
+top3: junos-srx/ike.sa.show-node-all | junos-srx/ike.sa.show | junos-srx/ike.sa.show-detail
+
+q: show ipsec sa
+top3: junos-srx/ipsec.sa.show-vpn-detail | junos-srx/ipsec.sa.show-node-all | junos-srx/ipsec.sa.show
+
+q: show secuirty ipsec security-associations
+top3: junos-srx/ipsec.sa.show-vpn-detail | junos-srx/ipsec.sa.show | junos-srx/ipsec.sa.show-node-all
+
+q: show security ipsec
+top3: junos-srx/ipsec.sa.show-vpn-detail | junos-srx/ipsec.sa.show | junos-srx/ipsec.sa.show-node-all
+
+# ── Worked trace D — the reverse paste (16 §15), prompt stripped, pipe
+#    filter held aside, vpn := VPN-B captured.
+q: user@srx-a> show security ipsec security-associations vpn-name VPN-B detail | match Installed
+reverse: junos-srx/ipsec.sa.show-vpn-detail
+top3: junos-srx/ipsec.sa.show-vpn-detail | junos-srx/ipsec.sa.show
+
+# ── F7 / §8.3 / §16.5 — the risk prior as a safety control. "clear the
+#    tunnel" returns the scoped P2 clear first (the card's own instruction);
+#    the unscoped estate-wide clear is not concept-reachable at all.
+q: clear the tunnel
+top3: junos-srx/ipsec.sa.clear-vpn | junos-srx/ike.sa.clear-peer | junos-srx/ike.sa.clear-index
+notrank1: junos-srx/ike.sa.clear-all
+absent: junos-srx/ike.sa.clear-all
+
+q: restart the tunnel
+top3: junos-srx/ike.sa.clear-peer | junos-srx/ike.sa.clear-index | junos-srx/ike.sa.show-detail
+absent: junos-srx/ike.sa.clear-all
+
+q: restart phase 2
+top3: junos-srx/ipsec.sa.clear-vpn | junos-srx/ipsec.sa.show-vpn-detail | junos-srx/ipsec.sa.show
+
+q: force a rekey
+top3: junos-srx/ipsec.sa.clear-vpn | junos-srx/ipsec.sa.show-vpn-detail
+
+# …but typed as syntax, the unscoped form is findable (16 §16.5: hiding a
+# command an engineer needs makes the tool a liar).
+q: clear security ike security-associations
+top3: junos-srx/ike.sa.clear-peer | junos-srx/ike.sa.clear-all | junos-srx/ike.sa.clear-index
+
+# ── Authored from entries' answers/aka.
+q: is phase 1 up
+top3: junos-srx/ike.sa.show | junos-srx/ike.sa.show-detail | junos-srx/ike.sa.show-node-all
+
+q: did the peers authenticate
+top3: junos-srx/ike.sa.show | junos-srx/ike.sa.show-detail | junos-srx/ike.sa.show-node-all
+
+q: is nat-t active
+top3: junos-srx/ike.sa.show-detail | junos-srx/ike.sa.show | junos-srx/ike.sa.show-node-all
+
+q: one way tunnel
+top3: junos-srx/ipsec.statistics.index | junos-srx/ipsec.statistics.all
+
+q: is traffic flowing
+top3: junos-srx/ipsec.statistics.index | junos-srx/ipsec.statistics.all
+
+q: esp errors
+top3: junos-srx/ipsec.statistics.all | junos-srx/ipsec.statistics.index | junos-srx/ipsec.statistics.clear
+
+q: reset the counters
+top3: junos-srx/ipsec.statistics.clear | junos-srx/ipsec.statistics.all | junos-srx/ipsec.statistics.index
+
+q: why does it stall on big files
+top3: junos-srx/mtu.ping.df-sized
+
+q: is st0 up
+top3: junos-srx/interface.st0.terse | junos-srx/route.remote.show | junos-srx/interface.st0.mtu.show
+
+q: who is connected
+top3: junos-srx/ike.active-peer.show | junos-srx/ike.sa.show-detail
+
+q: is the tunnel up on a cluster
+top3: junos-srx/ipsec.sa.show-node-all | junos-srx/ipsec.sa.show | junos-srx/ipsec.sa.show-vpn-detail
