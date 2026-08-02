@@ -2,8 +2,9 @@
 
 The design corpus, declared schema and first toolchain for a security-first, client-side
 network engineering tool. Fifty-odd specification documents, thirty decision records, six
-adversarial critiques, a seed content corpus, a declared `schema/` tree, two Rust crates that
-parse and gate it, and a full-application interactive mockup.
+adversarial critiques, a seed content corpus, a declared `schema/` tree, six Rust crates —
+the schema toolchain and the working command finder — a full-application interactive mockup,
+and a work-order queue (`docs/70-ops/79-work-orders/`) that pre-decides the engineering line.
 
 Fathom models a network as one typed graph and projects it into a diagram, a configuration, a set
 of findings, an explanation, a verification ladder and an inventory. It never touches a device,
@@ -33,11 +34,13 @@ never accepts a credential, and never opens a connection the user did not config
 | 6 | `docs/60-content/62-schema-spec.md` + `schema/` | The grammar and its first instance. `cargo test` gates both |
 | 7 | `docs/70-ops/75-capability-register.md` | Everything intended but not yet decided or scheduled — and the two standing instructions |
 | 8 | `design/prototype/fathom-app.html` | Open from disk. The whole product, interactive — the fidelity bar |
+| 9 | `docs/70-ops/78-execution-protocol.md` + `79-work-orders/00-INDEX.md` | If building: the protocol, then the queue — the topmost OPEN order is the work |
 
 Three tasks are **owner-only** and block the rest: the S0 fixture exports (`76` §7), the four
-forks in `19` §10, and the named expert review of the corpus (invariant 10). The next
-engineering item is `fathom-schemagen` (`62` §17). The original reading order for the
-foundational corpus follows unchanged below.
+forks in `19` §10, and the named expert review of the corpus (invariant 10). Engineering work
+goes through the queue: `docs/70-ops/78-execution-protocol.md` is the protocol, and
+`docs/70-ops/79-work-orders/00-INDEX.md` names the next order. The original reading order for
+the foundational corpus follows unchanged below.
 
 ## `.context/` — the inputs
 
@@ -136,6 +139,8 @@ carry `Accepted`.
 | `75-capability-register.md` | **Post-redefinition.** Intent recorded, nothing decided: lifecycle, tickets, bulk action, backup, teaching-off, hooks (refused on security), planning modes, freeform, stencils, pockets — plus the two standing instructions (sunk cost never argues; real-time must not be foreclosed) |
 | `76-scope-expansion-analysis.md` | **Post-redefinition.** What the new requirements hit, and the revised build order — S0 is a fit test on owner-supplied fixtures, no code |
 | `77-service-model-requirements.md` | **Post-redefinition.** The owner's requirements verbatim: tenants, CIDs, E-LAN/UNI, the warp, the modelling horizon, naming. Records seven collisions; resolves none |
+| `78-execution-protocol.md` | The protocol for execution sessions: the session loop, the escalation rule, the never list, the verification floor CI enforces |
+| `79-work-orders/` | The queue: `00-INDEX.md` plus eight adversarially-verified work orders (WO-01–WO-08) covering scalars, the graph store, ingest, emitters, the workspace file, finder completion, the WASM shell, and the inventory face |
 
 ### `80-review/` — the adversarial round
 | | |
@@ -199,7 +204,9 @@ source ever stated one — the S0 site list forces that decision.
 | `fathom-id` | ULID over Crockford base32; `CommandId` / `ConceptId`. No clock, no RNG — parts are supplied by the caller (invariant 9) |
 | `fathom-schema` | The `62` §2.2 YAML-subset parser (bespoke, zero dependencies) and every mechanically-checkable `62` §18 gate |
 | `fathom-schemagen` | `62` §17's generator: gates first, then deterministic codegen; stale/nondeterminism wired as cargo tests; canonical `schema.json` |
-| `fathom-ir` | Stub scalar/value types at the declared impl paths, plus the checked-in generated `ir_types.rs` / `accessors.rs` — `cargo build` proves schema and code agree. 59 workspace tests; toolchain pinned |
+| `fathom-ir` | Stub scalar/value types at the declared impl paths (WO-01 retires the stubs), plus the checked-in generated `ir_types.rs` / `accessors.rs` — `cargo build` proves schema and code agree |
+| `fathom-corpus` | Loads and gates the 98-entry seed corpus through the one parser (`Corpus` profile); the 28-concept seed graph; the deterministic atanh-series `ln` |
+| `fathom-find` | `16`'s machine: normaliser, BM25F, syntax and concept matchers, fusion with the risk prior — deterministic, golden-tested, safety-ordered. 80 workspace tests; toolchain pinned |
 
 ## `design/` — from tokens to the whole product
 
