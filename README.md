@@ -152,6 +152,8 @@ carry `Accepted`.
 | `84-critique-product.md` | No buyer for the differentiating pillar; the wedge's comparables all stopped |
 | `85-critique-ai-layer.md` | Every worked example cites corpus that does not exist |
 | `86-critique-design.md` | The design set kept the card's vocabulary and lost its grammar |
+| `87-verification-report.md` | **Accepted**, not Contested. The independent re-verification of the repaired corpus: the twelve blockers re-judged, the seed-corpus counts re-parsed |
+| `88-state-review-and-recommendations.md` | **Proposed.** The tree reviewed against the code, schema, corpus and queue as of 2026-08-06: five blockers, eleven majors, thirteen minors, and the seven questions only the owner can answer |
 
 ### `90-decisions/` — binding once Accepted
 `README.md` in this directory is the index of record: per-ADR summaries, statuses, the ordering
