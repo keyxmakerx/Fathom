@@ -184,7 +184,7 @@ and the verification stamp is required UI chrome · `0028` corpus authorship and
 |---|---|
 | `commands/junos-srx-ipsec.yaml` | 98 command entries (91 from the card + 7 chassis-cluster per R09) |
 | `rules/ipsec-junos-srx.yaml` | 37 rules. Corrections pending; **no fixtures yet** |
-| `explainers/ipsec-concepts.yaml` | 41 explainers at three depths |
+| `explainers/ipsec-concepts.yaml` | 42 explainers at three depths |
 
 > **The corpus breaches invariant 10 today.** Every entry carries a placeholder reviewer and there
 > are no fixtures. Both are declared in the files' own headers and both are release blockers on
@@ -196,7 +196,7 @@ The first instance of `62`'s grammar: 48 kinds, 89 edges, 61 scalars, the platfo
 the append-only field-key registry, the four shipped service types. `62` wins on form, `11`/`19`
 win on content; every strain between them is commented at the site. Checked by
 `cargo run -p fathom-schema --bin fathom-schema-check` and pinned at zero failures by
-`cargo test`. One warning is deliberately left standing: `Site` has no identity tuple because no
+`cargo test`. Two warnings are deliberately left standing: `Site` has no identity tuple because no
 source ever stated one — the S0 site list forces that decision.
 
 ## `crates/` — the first code

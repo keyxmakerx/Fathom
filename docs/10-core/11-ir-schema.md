@@ -1786,13 +1786,14 @@ Constraints on an inference rule, enforced by the loader:
 
 ### 10.1 IDs
 
-Per conventions: `fathom:<kind-lower>:<ulid>`. ULID because it is 128 bits, lexicographically
+Per conventions, as amended by ADR-0005 (no product name in any identifier):
+`<kind-lower>:<ulid>`. ULID because it is 128 bits, lexicographically
 sortable, carries a 48-bit millisecond timestamp and 80 bits of randomness, and needs no
 coordinator — which matters because the client is offline by default and there is no server
 to allocate from.
 
 Edges use the same format with their own kind (`fathom:zone-member:01J…`). Conventions
-say node IDs are `fathom:<kind-lower>:<ulid>` and invariant 7 requires edges to carry stable
+say node IDs are `<kind-lower>:<ulid>` and invariant 7 requires edges to carry stable
 opaque IDs; reading edge kinds as kinds satisfies both without inventing a second format.
 
 In memory the ID is 17 bytes, not a string:

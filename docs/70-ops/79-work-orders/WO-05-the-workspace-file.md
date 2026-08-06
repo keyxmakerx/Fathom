@@ -95,7 +95,7 @@ citations and are not re-derived here. The sources specific to this work order:
 | `docs/90-decisions/adr-0012-one-workspace-container.md` §Decision | Ownership: `17` the container, `32` the cryptography — this work order builds inside `17`'s plaintext territory only | *"Neither may specify the other's half."* |
 | `docs/90-decisions/adr-0013-record-granularity-frames-and-the-manifest.md` §Decision | The sealed record model this work order must not pre-build | *"Fixed hash shards, whole-record rewrite, a committed manifest"* |
 | `docs/70-ops/79-work-orders/WO-02-the-graph-store.md` §4 | The store's public API this work order consumes and extends; every name quoted in §3 below | the Deliverables tables of that document |
-| `.context/conventions.md` § *Identifiers*, § *Terminology* | The rendered id form; and the fact that a **workspace** is by definition encrypted — so nothing plaintext is ever called one | *"Node IDs: `fathom:<kind-lower>:<ulid>`"* / workspace: *"one encrypted document"* |
+| `.context/conventions.md` § *Identifiers*, § *Terminology* | The rendered id form; and the fact that a **workspace** is by definition encrypted — so nothing plaintext is ever called one | *"Node IDs: `<kind-lower>:<ulid>`"* (ADR-0005: no product name in any identifier) / workspace: *"one encrypted document"* |
 | `schema/schema.yaml` line 7 | The schema version the face header carries | `version: "0.1"` |
 
 ### 2.1 The crypto boundary — what `32` and `35` actually decide, verbatim
@@ -212,7 +212,7 @@ is handled by `78` §8's correction test or `78` §4 — nothing else.
 
 From `WO-02-the-graph-store.md` §4, quoted by name so divergence is detectable:
 `fathom-graph`'s composite `NodeId { kind, ulid }` / `EdgeId { kind, ulid }` / `ElementId` with
-`Display` rendering `fathom:<kind-lower>:<ulid>` (kebab-case kind, 26-char ULID); `Timestamp`,
+`Display` rendering `<kind-lower>:<ulid>` (kebab-case kind, 26-char ULID; no product-name prefix — ADR-0005); `Timestamp`,
 `ProvenanceId`, `UserId`, `Actor::User`, `Confidence::{Asserted, Derived, Heuristic}`,
 `Origin::Hand`, `ProvenanceRecord`; `StoredPresence::{Set, Absent, Unknown}`, `FieldInfo`,
 `FieldHistory` (`entries()`, `truncated()`), `HistoryEntry { presence, value: Option<Box<dyn
@@ -405,7 +405,7 @@ deliverable set is modified, renamed, or re-specified.
 ```rust
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IdParseError {
-    Shape,                                  // not fathom:<kebab>:<26 chars>
+    Shape,                                  // not <kebab>:<26 chars>
     UnknownKind { kebab: String },
     Ulid(fathom_id::DecodeError),
     NonCanonicalUlid,                       // decodes, but re-encodes differently
@@ -701,7 +701,7 @@ a red gate and §7 applies.
 |---|---|---|
 | G1 | `cargo fmt --all --check` | exit 0, no output |
 | G2 | `cargo clippy --all-targets -- -D warnings` | exit 0 |
-| G3 | `cargo run -p fathom-schemagen` then `git status --porcelain` | regeneration succeeds; no unstaged diff (generated Rust committed in step 4; `schema/generated/schema.json`, `ir_types.ts`, `schema/migrations/manifest.toml` byte-identical to their pre-WO state) |
+| G3 | `cargo run -p fathom-schemagen` then `git status --porcelain -- crates/fathom-ir/src/generated schema/generated schema/migrations` | regeneration succeeds; the path-scoped `git status` prints nothing. The unscoped tree is dirty at this step by design — steps 5–11 create files that commit later — so do not widen the path list. (Generated Rust committed in step 4; `schema/generated/schema.json`, `ir_types.ts`, `schema/migrations/manifest.toml` byte-identical to their pre-WO state) |
 | G4 | `cargo test -p fathom-canon` | every §4.5 row-1 test listed, all `ok`, `0 failed` — including `parse_emit_identity_on_accepted_vectors`, the strictness law |
 | G5 | `cargo test -p fathom-ir` | `canon_laws.rs` suite all `ok`; every pre-existing suite unchanged |
 | G6 | `cargo test -p fathom-graph` | `ids.rs` and `snapshot.rs` suites all `ok`; every WO-02 suite unchanged (no test deleted, loosened or ignored — `78` §5.5) |

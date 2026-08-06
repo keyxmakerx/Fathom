@@ -75,7 +75,7 @@ ordering may not."* The override field is `risk_caption_override` (`61` §4.6). 
 
 ## Identifiers
 
-- Node IDs: `fathom:<kind-lower>:<ulid>` — ULID for lexicographic sortability and
+- Node IDs: `<kind-lower>:<ulid>` — ULID for lexicographic sortability and
   monotonic-in-time generation without a coordinator. Opaque to users.
 - Rule IDs: dotted, stable forever, namespaced by domain: `ipsec.pfs.absent`,
   `zone.host-inbound.ike-missing`, `mtu.mss-clamp.absent`.

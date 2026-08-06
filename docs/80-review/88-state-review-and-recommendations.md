@@ -16,6 +16,26 @@ This is a review, not an execution. Nothing in the tree was changed. Every findi
 smallest fix and whose job it is under `78` §7, and nothing here decides anything: a finding that
 proposes a decision is marked **owner** and stays open.
 
+## 0.0 What has already been closed
+
+On the owner's authorisation, the two one-line safety edits and every finding that was a pure
+factual correction were applied in the same pull request as this document. **Nothing that touches a
+fork was applied.** The floor was re-run after: fmt clean, clippy clean, 80 passed / 0 failed,
+schema check exit 0 with the two standing `Site` warnings.
+
+| Closed | What changed |
+|---|---|
+| §4.1 | `rust-toolchain.toml` gained `targets = ["wasm32-unknown-unknown"]`, outside the queue. WO-07 §4/§4.1/§5 step 1 now say the line is already on disk and is not that order's to touch, and §4.1 quotes `78` §5 item 7's no-exception sentence. `rustup` installed the target cleanly and `cargo build --target wasm32-unknown-unknown` is reachable, so WO-07 §3 probe 1's precondition holds here |
+| §4.2 | `.context/conventions.md` § *Identifiers* is now `<kind-lower>:<ulid>` (ADR-0005 action 1). The five citations in WO-02, WO-05 and WO-08 are corrected and name the ADR; `11` §21's two are too. The three surviving `fathom:<…>` strings are in ADR-0005's own Context and `73`'s D04 — historical record of the state the decision replaced, correctly left alone |
+| §5.1 | WO-01 §4 and WO-07 §4 gained the `Cargo.lock` row and the clause WO-02/04/05/08 already carry |
+| §5.2 | WO-05's G3 is the path-scoped form, with WO-02's *"the unscoped tree is dirty at this step by design"* note |
+| §6.1–6.5 | README 41 → 42 explainers; README *"One warning"* → *"Two warnings"*; README gained rows for `87` and this document; `78` §12 item 3 restated as closed and §3 step 2's satisfied `<!-- VERIFY -->` deleted; the four `if the index exists` hedges dropped from WO-01, WO-02 and WO-07; WO-06 §4.6's two rows now name WO-08, quoting WO-07 §8's own non-goal |
+| §6.8 (part) | The five `34 §14` citations corrected to `34 §7.5` in `58`, `fathom-app.html` and `04-console.html`. `34` ends at §13; §7.5 is the import allowlist, cited as such at `34`:1525 |
+
+**Still open and untouched:** §4.3, §4.4, §4.5, §5.3–§5.11, §6.6, §6.7, the rest of §6.8, §6.9–§6.13
+— and all seven questions in §8. Every one of them either needs an owner decision or changes
+something a reasonable person could do differently.
+
 ## 0. Contents
 
 | § | | margin tab |

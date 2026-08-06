@@ -239,7 +239,9 @@ pub struct EdgeId { pub kind: EdgeKind, pub ulid: Ulid }
 pub enum ElementId { Node(NodeId), Edge(EdgeId) }
 ```
 
-`Display` renders the conventions' form `fathom:<kind-lower>:<ulid>` with `<kind-lower>` the
+`Display` renders the conventions' form `<kind-lower>:<ulid>` — **no product-name prefix**, per
+ADR-0005 (*"may not appear in any identifier, file magic, MIME type, ID prefix or on-disk key"*),
+whose action 1 `.context/conventions.md` now carries — with `<kind-lower>` the
 kebab-case of the enum variant name (`IkeGateway` → `ike-gateway`) and the ULID's 26-character
 Crockford encoding. `From<NodeId> for ElementId` and `From<EdgeId> for ElementId` exist.
 **DECISION — the name `NodeId` collides with `fathom_id::NodeId` and the collision is accepted:**
@@ -585,7 +587,7 @@ otherwise. No reordering, no merging (`78` §3.6).
     dumps are byte-identical; the second test runs one construction function twice in-process
     and asserts byte-identical dumps.
 12. **Floor.** Run §6's gates. Fix only defects in this WO's own new code; anything else is §7.
-13. **Bookkeeping.** Status line → `DONE`; mirror the `00-INDEX.md` row if the index exists (its
+13. **Bookkeeping.** Status line → `DONE`; mirror the `00-INDEX.md` row (its
     absence is noted in §3 and is not this session's to fix). Commit per `78` §3.9, push, open
     the PR listing every gate's output verbatim. Do not merge.
 

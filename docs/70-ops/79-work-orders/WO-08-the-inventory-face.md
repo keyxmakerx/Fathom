@@ -245,7 +245,8 @@ and what is **contracted by the blocking work orders**; the executing session re
   `Bandwidth` and `OsVersion` canonical forms are WO-01's; this WO's tests bind to them **by
   calling `canonical()`**, never by restating the format (§4.3).
 - **WO-02** delivers `crates/fathom-graph`: `Graph`, composite `NodeId { kind, ulid }` /
-  `EdgeId` / `ElementId` with `Display` rendering `fathom:<kind-lower>:<ulid>` (the ULID's
+  `EdgeId` / `ElementId` with `Display` rendering `<kind-lower>:<ulid>` (no product-name prefix —
+  ADR-0005; the ULID's
   26-character Crockford encoding); `begin_batch`/`end_batch`; `insert_node`/`insert_edge`/
   `set_field`/`assert_absent`; `nodes_of_kind`, `out`, `inn`, `owner`, `device_of`, `presence`,
   `provenance`, `resolve_ref`; `FieldBag` on `Node`/`Edge` serving `Set` slots only;
@@ -370,7 +371,7 @@ impl InvKind {
 }
 
 /// One inventory row. `id` is the element's full display id
-/// (`fathom:<kind-lower>:<ulid>`) — rows reference IDs, never names
+/// (`<kind-lower>:<ulid>`, ADR-0005) — rows reference IDs, never names
 /// (invariant 7). `opinions` is "—" in this build: no rule engine exists,
 /// and the column is structural (52 §3.7.1), so it renders empty rather
 /// than being dropped.

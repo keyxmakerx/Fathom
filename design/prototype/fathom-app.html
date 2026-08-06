@@ -1658,7 +1658,7 @@ function renderTranscript() {
     ['form-action', '<code>' + (form ? esc(form[0]) : '—') + '</code> — a form submission is a navigation; connect-src does not cover it (34 §2.3)'],
     ['subresources', res.length + ' — ' + (res.map(function (r) { return r.name.split('/').pop(); }).join(', ') || 'none') + '. The only permitted fetch is ../tokens.css.'],
     ['storage', stor],
-    ['wasm imports', 'none loaded in this mockup. The shipped core declares exactly 2 — <code>fathom_entropy</code>, <code>fathom_now_ms</code> — checked by <code>wasm-objdump -x</code> against a committed allowlist (34 §14)'],
+    ['wasm imports', 'none loaded in this mockup. The shipped core declares exactly 2 — <code>fathom_entropy</code>, <code>fathom_now_ms</code> — checked by <code>wasm-objdump -x</code> against a committed allowlist (34 §7.5)'],
     ['device access', 'none, permanently. All output is copy-paste. A total compromise of Fathom yields no reachability.'],
     ['telemetry', 'structurally impossible — no funnel, no DAU, and there never will be']
   ], true));
