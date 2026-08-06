@@ -315,10 +315,11 @@ Seven, and they fit in one sitting. Nothing else in this document is blocked on 
 
 | Q | The question | Unblocks |
 |---|---|---|
-| **Q1** | Do the crates run at **zero external dependencies**, or at `35` §5.1's budget of ≤ 30 with a review per addition? | §5.7 — five of eight work orders, each currently deferring the same question separately |
-| **Q2** | Is **v1 still the finder** (ADR-0006), or is it the inventory face the queue actually builds? | §4.4, and the CLI's existence |
-| **Q3** | Is **SRX/IPsec retired, carried, or frozen** now that the first domain may be access/FTTx on Calix? (`76` §8 Q10) | §5.9 — whether PAN-OS is still the second platform, and whether S0 and ADR-0030 are the same measurement paid for twice |
-| **Q4** | May a **rule anchor on an edge**? If not, `zone.host-inbound.ike-missing` re-anchors to a node kind | §4.5 — and whether `87` §3's RESOLVED stands |
+| ~~**Q1**~~ | **ANSWERED 2026-08-06** — third-party code is permitted, conditioned on bundling and on not being *"a security risk vector"*. Recorded verbatim at `70` §3; drafted as **ADR-0032**, which adds the two research passes the owner asked for | §5.7 discharged, pending ratification |
+| ~~**Q2**~~ | **ANSWERED 2026-08-06** — *"All features must be included in V1, how you wish to plan that out is your discretion."* Recorded verbatim at `70` §4; drafted as **ADR-0031**. Broader than either option this table offered | §4.4 discharged, pending ratification |
+| **Q3** | **RE-ASKED** — the question was unanswerable as phrased. Restated at `70` §7.1 in terms of the owner's own work: *do you still work on Juniper SRX firewalls — most weeks, occasionally, or hardly at all?* Still open | §5.9 — whether PAN-OS is still the second platform, and whether S0 and ADR-0030 are the same measurement paid for twice |
+| **Q4** | **RE-ASKED** — the question was unanswerable as phrased. Restated at `70` §7.2 in product terms: *when Fathom flags the missing IKE permission, should the warning sit on the interface or on the zone?* — with the security consequence stated before the question. Still open | §4.5 — and whether `87` §3's RESOLVED stands |
+| **New** | Ratify **ADR-0031, ADR-0032, ADR-0033**, all `Proposed`. They record decisions the owner has already made in substance; ratification makes them binding under `CLAUDE.md` rule 2 | §4.4, §5.7, and the motion doctrine `70` §5 records |
 | **Q5** | Do you want the **ADR-0002 invariant texts** pasted into `conventions.md` now, or only invariant 3 (the one that is false as written)? | §4.3 — every session's first read |
 | **Q6** | Is the repository going **public at phase 0 under Apache-2.0 / CC BY-SA 4.0** as ADR-0004 decided? If yes, the licence files want writing before the DCO retrofit gets more expensive | §5.8 — 45 commits and counting |
 | **Q7** | **When you re-import your site list, what makes a row the same site** as one already in the workspace — the site code, the name, the CLLI of its premises, or something else, and in what order of preference? | §6.13 — the two standing warnings, and duplicate-free re-import |

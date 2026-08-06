@@ -1,7 +1,7 @@
 # Fathom — architecture corpus, schema, and first code
 
 The design corpus, declared schema and first toolchain for a security-first, client-side
-network engineering tool. Fifty-odd specification documents, thirty decision records, six
+network engineering tool. Fifty-odd specification documents, thirty-three decision records, six
 adversarial critiques, a seed content corpus, a declared `schema/` tree, six Rust crates —
 the schema toolchain and the working command finder — a full-application interactive mockup,
 and a work-order queue (`docs/70-ops/79-work-orders/`) that pre-decides the engineering line.
@@ -29,15 +29,18 @@ never accepts a credential, and never opens a connection the user did not config
 | 1 | `CLAUDE.md` | One page: state, rules, next actions |
 | 2 | `docs/00-vision/01-vision-and-thesis.md` | The original thesis. Still the voice and the security posture |
 | 3 | `.context/conventions.md` | Ten invariants and the vocabulary every document is bound by |
-| 4 | `docs/70-ops/77-…` then `76-…` | The redefinition, verbatim, then the analysis and **the build order** |
+| 4 | `docs/70-ops/77-…` then `70-…` | The redefinition, verbatim, then the owner's later answers and standing priority order, verbatim |
+| 4b | `docs/70-ops/76-…` | The analysis and **the build order** |
 | 5 | `docs/10-core/19-service-and-physical-model.md` | The IR extension: ports, cables, tenants, services, the warp, the schema mechanism |
 | 6 | `docs/60-content/62-schema-spec.md` + `schema/` | The grammar and its first instance. `cargo test` gates both |
 | 7 | `docs/70-ops/75-capability-register.md` | Everything intended but not yet decided or scheduled — and the two standing instructions |
 | 8 | `design/prototype/fathom-app.html` | Open from disk. The whole product, interactive — the fidelity bar |
 | 9 | `docs/70-ops/78-execution-protocol.md` + `79-work-orders/00-INDEX.md` | If building: the protocol, then the queue — the topmost OPEN order is the work |
 
-Three tasks are **owner-only** and block the rest: the S0 fixture exports (`76` §7), the four
-forks in `19` §10, and the named expert review of the corpus (invariant 10). Engineering work
+Owner-only and blocking: ratifying ADR-0031–0033 (drafted from the owner's answers in `70`),
+`70` §7's two re-asked questions, the S0 fixture exports (`76` §7), the `Site` identity rule
+(`88` §6.13 — not blocked on those exports), the four forks in `19` §10, the licence files
+ADR-0004 decided (`88` §5.8), and the named expert review of the corpus (invariant 10). Engineering work
 goes through the queue: `docs/70-ops/78-execution-protocol.md` is the protocol, and
 `docs/70-ops/79-work-orders/00-INDEX.md` names the next order. The original reading order for
 the foundational corpus follows unchanged below.
@@ -132,7 +135,8 @@ carry `Accepted`.
 ### `70-ops/`
 | | |
 |---|---|
-| `71-roadmap.md` | Eight phases, exit criteria, kill points. Re-cut by ADR-0006 |
+| `70-owner-answers-and-standing-priorities.md` | **The owner's answers, verbatim**, and the standing priority order. The companion to `77`. Names the dynamic-correlation gap |
+| `71-roadmap.md` | Eight phases, exit criteria, kill points. **Superseded as a plan** by ADR-0031; §13.1's thirteen permanent boundaries stand |
 | `72-risks.md` | What kills this, with leading indicators, and a five-story pre-mortem. **Reconstructed** — the brief's promised §§11–14 never arrived |
 | `73-open-decisions.md` | D01–D23, ranked by the latest responsible moment |
 | `74-governance-and-licensing.md` | Licence split, contribution policy, advisory handling, continuity |
@@ -157,8 +161,8 @@ carry `Accepted`.
 
 ### `90-decisions/` — binding once Accepted
 `README.md` in this directory is the index of record: per-ADR summaries, statuses, the ordering
-rationale, and the seven ADRs that block everything else. Twenty-nine records are Accepted;
-ADR-0023 is Proposed and not in force. In one line each:
+rationale, and the seven ADRs that block everything else. Twenty-nine of thirty-three records are
+Accepted; ADR-0023 and ADR-0031–0033 are Proposed and not in force. In one line each:
 
 `0001` one owning document per question · `0002` invariant amendments and the residual scale ·
 `0003` a tool, not a business · `0004` licence and publication · `0005` rename, and strip the name
@@ -176,7 +180,9 @@ transcriber, three build-time tools · *(`0023` a local read-only corpus MCP ser
 `0025` restore the card's density, geometry and channel budget · `0026` light is the product;
 the dark theme ships on three conditions; the AA claim is qualified · `0027` two physical boxes,
 and the verification stamp is required UI chrome · `0028` corpus authorship and contribution ·
-`0029` domain corrections before the seed corpus ships · `0030` PAN-OS is the second platform.
+`0029` domain corrections before the seed corpus ships · `0030` PAN-OS is the second platform · *(`0031` all features ship and the phases are retired ·
+`0032` third-party code is permitted, gated and vendored · `0033` motion must carry meaning —
+**all three Proposed**, drafted from the owner's answers in `70`, not in force)*.
 
 ## `corpus/` — seed content
 

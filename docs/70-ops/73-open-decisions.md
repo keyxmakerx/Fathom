@@ -1,6 +1,14 @@
 # 73 — Open decisions: every fork that must be answered before code is written
 
-> **Status:** Proposed
+> **Status:** Proposed — **§§5–8's ranking is stale**; see the banner below
+
+> **The ranking is denominated in phases, and the phases are being retired.** Ranks A and B are
+> event-denominated and stand. Ranks C–F (*"before phase 1 exits"*, *"phases 4 and 5"*, *"phase 6"*,
+> *"phase 7"*) are not, and §6's margin tab *"what v1 does not need"* is falsified outright by
+> ADR-0031 (Proposed). The ranking does not merely go stale — it **inverts**: ranks C–F existed to
+> say *"these can safely wait"*, and their contents now move toward Rank A. Re-anchoring them onto
+> events is planning work, named in ADR-0031 §5, and it needs an ordering principle this document
+> does not yet have. Until then, treat every rank below B as unranked rather than as deferred.
 
 Companion documents: this register does not re-specify anything. Every decision below names the
 document that carries its detail. The ones that carry the most are

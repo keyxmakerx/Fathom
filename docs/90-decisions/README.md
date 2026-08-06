@@ -7,7 +7,7 @@ This directory is the answer to `70-ops/73-open-decisions.md`. The register hold
 holds the decisions. A lean in the register is not an answer — an answer lives here, in a numbered
 file, with the rejected option's strongest argument recorded in its own words.
 
-**These thirty records draw from four sources**, in this order of authority: the owner's brief; every
+**These thirty-three records draw from four sources** (0031–0033 are `Proposed` and record the owner's answers of 2026-08-06; see `docs/70-ops/70-owner-answers-and-standing-priorities.md`), in this order of authority: the owner's brief; every
 `DECISION` marker across the corpus; the twenty-three forks in `73`; and the six adversarial
 critiques in `80-review/`. Where two documents made incompatible decisions, **the ADR is where the
 conflict is resolved** — one side is picked, and the record names what must change in the losing
@@ -65,6 +65,9 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0028](adr-0028-corpus-authorship-and-contribution.md)** | One voice owner and a second-author test; contribution split by genre; first-party rule packs only | Accepted | D10, D11, D14 | R5 |
 | **[0029](adr-0029-domain-corrections-before-the-seed-corpus-ships.md)** | Eight rules, one explainer, the arithmetic, the cluster schema, and the fabricated corpus IDs — corrected before publication | Accepted | new | R1 |
 | **[0030](adr-0030-pan-os-is-the-second-platform.md)** | PAN-OS, with a read-only ingest spike in phase 2 to settle the schema bet eighteen months early | Accepted | D23 | R4 |
+| **[0031](adr-0031-all-features-ship-and-the-phases-are-retired.md)** | All features ship; the phase scheme is retired as a scoping device; sequencing is planning's | **Proposed** | D02, `76` Q11 | R4 |
+| **[0032](adr-0032-the-dependency-policy.md)** | Third-party code is permitted, gated at the build boundary, vendored, and owner-approved per crate | **Proposed** | `88` §5.7 | R2 |
+| **[0033](adr-0033-motion-must-carry-meaning.md)** | Motion ships only if it has purpose, direction and legibility; the interaction path stays instant | **Proposed** | `80` M34 | R1 |
 
 ## The seven that block everything else
 
