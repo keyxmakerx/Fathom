@@ -12,6 +12,10 @@ vendors:
   calix:     {}          # hardware-catalogue vendors are the same namespace —
   nokia:     {}          # 19 §3.9's catalogue vendor: is a FK into this block,
   adtran:    {}          # which is what makes 76 X11's cross-check possible
+  ciena:     {}          # owner-named 2026-08-06 (70 §3.1). Vendor only: no platform is
+                         # declared below because no Ciena config has been seen, and
+                         # inventing a family or version_scheme would fabricate vendor
+                         # behaviour (conventions § Document conventions)
 
 platforms:
   junos-srx: { vendor: juniper,   family: junos,   version_scheme: junos }
