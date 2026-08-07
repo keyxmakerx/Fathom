@@ -19,14 +19,15 @@ what a planning session made of it.
 | 4 | Scope — the answer, verbatim | *→ ADR-0031* |
 | 5 | Motion — the answer, verbatim | *→ ADR-0033* |
 | 6 | The dynamic-correlation goal, verbatim | *the largest unspecified requirement* |
-| 7 | The platforms — the equipment the owner works on | *answers §10.1* |
+| 7 | The platforms — the equipment the owner works on | *answers §11.1* |
 | 8 | Hosting, load balancing and stored state | *not the collision it looks like* |
 | 9 | What "off the ground" means | *there is no thin first release* |
-| 10 | Questions still outstanding | *re-asked in plain language* |
-| 11 | Failure modes |  |
-| 12 | Open decisions |  |
-| 13 | Sources consulted |  |
-| 14 | Disagreements |  |
+| 10 | The graph and the diagram — two owner observations | *one decided, one a real gap* |
+| 11 | Questions still outstanding | *re-asked in plain language* |
+| 12 | Failure modes |  |
+| 13 | Open decisions |  |
+| 14 | Sources consulted |  |
+| 15 | Disagreements |  |
 
 ---
 
@@ -123,7 +124,7 @@ as three tests, all of which a motion must pass:
 | Legibility | *"easily to have context of why that animation was there"* | Can a person say why it happened, without being taught? |
 
 Drafted as ADR-0033. The corpus's existing position turns out to be narrower than its headline
-(§13, `86` §9.4), so this is largely a reconciliation rather than a reversal.
+(§14, `86` §9.4), so this is largely a reconciliation rather than a reversal.
 
 ## 6. The dynamic-correlation goal, verbatim
 
@@ -246,10 +247,57 @@ a comparable pasteable device configuration is **not something this document wil
 conventions forbid stating a vendor behaviour without a primary source, and no Meraki artifact
 exists in this tree.
 
-**The question is in §10.3.** It is not a small one: if Meraki's configuration is not obtainable as
+**The question is in §11.3.** It is not a small one: if Meraki's configuration is not obtainable as
 text the owner can copy, then Meraki cannot be a platform under invariant 2, and supporting it would
 require either a different input shape (an exported file) or a connection the product will never
 make. That is a boundary question, not a scheduling one.
+
+### 7.4 Versions, known bugs, and command differences
+
+> *"We also need to account for the fact that different versions have known bugs that should be
+> avoided, and different commands too."*
+
+This splits into two requirements that look alike and are in completely different states.
+
+**Half one — version-gated commands and rules. The mechanism exists; the content does not.**
+Every rule and every command entry in `corpus/` already carries a `versions:` predicate.
+`schema/platforms.yaml` gives each platform a `version_scheme`, and `Device.os_version`
+(field key 8) is documented in `schema/schema.yaml` as the field that *"drives every rule versions
+predicate (11 §4.7)"*. The design anticipated this requirement in full.
+
+What the content does is another matter, and the corpus says so about itself. From the header of
+`corpus/rules/ipsec-junos-srx.yaml`, gap G6, verbatim:
+
+> *"`versions: "*"` is used on all 37 rules and that is not a virtue. The owner brief is explicit
+> that version predicates are not optional and that a rule correct on one train and wrong on
+> another is worse than no rule. … `"*"` here means "unverified across trains", and the review
+> that replaces `<named reviewer>` should narrow every one of them."*
+
+So the honest position: **every rule and command in the product currently claims to apply to every
+software version ever shipped, and none of that has been checked.** The owner has now asked for the
+thing the corpus already knew it owed. This is authoring work against an existing mechanism, not a
+schema change, and it is bounded by the same named-reviewer requirement as everything else in
+`corpus/` (invariant 10).
+
+**Half two — known-defect advisories. Not modelled anywhere.** A version predicate and a known-bug
+warning are different assertions. A predicate says *"this command exists on these trains"*; an
+advisory says *"this train is defective in this specific way, avoid it or work around it"*. Nothing
+in the 48 kinds carries the second. A search of `schema/` and `docs/10-model/` for advisory, PSIRT,
+CVE, defect or errata returns nothing relevant.
+
+This is a genuine schema extension, and **the hard part is not the schema — it is the sourcing.**
+Three problems have to be answered before a field is added, and none of them is technical:
+
+| Problem | Why it bites |
+|---|---|
+| **Where does the data come from?** | Vendor defect databases are the authority, and invariant 2 means the product can never fetch one. So the data is hand-authored corpus content, at the authoring rate `72` already names as the long pole |
+| **Who reviews it?** | Invariant 10 requires a named human on every corpus entry. A defect advisory is a higher-stakes claim than a command explainer: telling an engineer a train is safe when it is not is a worse failure than any this product currently risks |
+| **What happens when it goes stale?** | A defect list that is out of date is worse than no defect list, because it is trusted. `56` §1.2 already refuses to let the diagram claim currency for exactly this reason, and the argument applies here with more force |
+
+**RECOMMENDATION —** treat these as two separate pieces of work, in this order. Narrowing the
+existing `versions: "*"` predicates needs no new schema and no new decision, and it is the larger
+correctness win. The advisory kind needs an owner decision on sourcing and staleness first, and it
+should get one before any field is designed. Logged in §13.
 
 ## 8. Hosting, load balancing and stored state
 
@@ -314,12 +362,85 @@ demonstrable at intervals even though nothing ships until the bar in this sectio
 preserves the owner's decision exactly while converting some of the estimate into measurement. It
 needs no decision and no new document; it is how the queue is already ordered.
 
-## 10. Questions still outstanding
+## 10. The graph and the diagram — two owner observations
+
+> *"i came across one today that had like 10 links to a bridge device, so we will need to make sure
+> we account for those situations on the graph. Also how do you have the graphics seperated, is it
+> per like location or…? How will they interact with each other?"*
+
+One of these is decided and measured. The other is a real gap, and the question is what exposed it.
+
+### 10.1 The high-degree node — decided, measured, with one hole the example may fall into
+
+`59` is a whole document about this, and it found something worth repeating. The corpus's existing
+ceiling — `44` §4.7.4's *"never more than 2,000 live SVG elements"* — **never fires**. A forty-spoke
+hub renders in 514 elements, 26% of that ceiling, and is already unreadable. `59` §2.1's finding:
+the 2,000-element rule is a PERFORMANCE ceiling, and *"the corpus has never specified the LEGIBILITY
+ceiling, and the legibility ceiling is the one that bites."*
+
+The measurements, from `59` §2.2 — element cost is exactly `155 + 9n` for `n` drawn spokes:
+
+| spokes | fit zoom | what the view drops |
+|---|---|---|
+| 6 | 0.97 | 7 edge labels |
+| 12 | 0.93 | 13 edge labels |
+| 40 | 0.68 | 41 of 42 edge labels, LAG rails, stubs |
+
+`59` §3 decided the answer: **no more than six like-kind siblings are drawn in one group**, counted
+in siblings and never in elements, because §2.3 proved element count cannot choose the threshold —
+an element rule would collapse the second sibling, *"which nobody wants and which destroys the one
+fact a chassis cluster exists to show."*
+
+So a ten-link bridge is handled **if the ten links are like-kind siblings**: six draw, four
+aggregate into an expandable group.
+
+**The hole the owner's example may fall into.** If those ten links go to ten *different* kinds of
+thing — a firewall, three access switches, a router, a couple of servers — then they are not
+like-kind siblings and the rule does not fire. Ten heterogeneous neighbours is the same legibility
+problem with none of the same remedy, and `59` does not cover it. Whether real bridge fan-out is
+homogeneous or mixed is exactly the sort of thing the owner can answer from the device they saw;
+asked in §11.4.
+
+`59` §6.2 also files a defect worth knowing about: at the top of the range the view band stops
+printing *how many* labels it suppressed, which violates `56` §5.5's own rule — *"a diagram tool
+that silently drops labels is a diagram tool that lies about what it drew."* It loses the number
+precisely when scale makes it matter.
+
+### 10.2 How the graphics are separated — the honest answer is that they are not
+
+The owner asked whether the diagram is split per location. It is not, and nothing in the corpus
+splits it any other way either.
+
+`56` §1 describes **one canvas over the whole graph**, with two mechanisms for coping with size, and
+neither of them is partitioning:
+
+- **Layers.** Five, toggled independently (`56` §4). That is separation by *concern* — physical,
+  logical, security and so on — not by place.
+- **Aggregation.** Above `44` §4.7.4's ceiling it *"aggregates to `Site`/`Device` level and requires
+  a drill-down"*, and `56` §1.2 concedes the cost in plain terms: *"An engineer who wants their
+  200-device estate on one screen cannot have it, and the answer is the inventory table."*
+
+So the answer to *"how will they interact with each other"* is that **the question has no answer in
+the corpus, because there is only ever one of them.** There is no per-site diagram, no notion of two
+diagrams, and therefore no story for how one would link to another.
+
+**This is a real gap, and the owner's question is what exposed it.** "One canvas, aggregate when it
+gets big" is a rendering policy, not a navigation model. An engineer working a multi-site estate
+almost certainly wants to open *a site* and see that site, with the links that leave it drawn as
+edges to somewhere else — which is a per-`Site` view with an inter-site relationship, and neither
+exists.
+
+**RECOMMENDATION —** do not decide this on paper. It sits in the owner's own priority rank 2a
+(usability for the user), it is exactly the kind of question they said they would answer, and it is
+far easier to answer against something on screen than in prose. Put it to them when the diagram
+face is real enough to show two sites. Until then it is logged, not settled. `56` §12 owns it.
+
+## 11. Questions still outstanding
 
 Two questions were asked in jargon and could not be answered. Re-asked here in plain language;
 both remain open and both are owner-only.
 
-### 10.1 Do you still work on Juniper SRX firewalls? — **ANSWERED 2026-08-06, see §7**
+### 11.1 Do you still work on Juniper SRX firewalls? — **ANSWERED 2026-08-06, see §7**
 
 *(was: "is SRX/IPsec retired, carried, or frozen?")*
 
@@ -343,7 +464,7 @@ end-to-end against Junos syntax; ADR-0029 orders six SRX corrections as a gate; 
 2–3 weeks to Palo Alto chosen purely as a second *firewall*. All three were reasoned inside the
 firewall world.
 
-### 10.2 When Fathom finds this problem, what should it point at?
+### 11.2 When Fathom finds this problem, what should it point at?
 
 *(was: "may a rule anchor on an edge?")*
 
@@ -370,7 +491,7 @@ the fix widens to every interface in that zone — which is the exact regression
 to prevent. That argues for the interface, but it is the owner's call and the corpus is genuinely
 split: four documents disagree today and no code catches the disagreement (`88` §4.5).
 
-### 10.3 Is Meraki configured by text you can copy and paste?
+### 11.3 Is Meraki configured by text you can copy and paste?
 
 Every other platform on the owner's list is configured by text an engineer selects from a terminal
 and pastes. That is not a convenience — invariant 2 makes paste the **only** on-ramp the product
@@ -394,7 +515,16 @@ and it belongs in `03` alongside the other eighteen boundaries rather than in th
 **The cheapest way to settle it:** one real Meraki configuration export, however small, with any
 credentials removed. That is the same S0 fixture pattern `76` §7.3 already asks for.
 
-## 11. Failure modes
+### 11.4 The bridge with ten links — were they ten of the same thing?
+
+§10.1 turns on this and it is close to a one-word answer. On the device the owner saw: were the ten
+links going to **ten similar things** (ten access switches, ten identical spokes), or to **a mix** —
+a firewall, some switches, a router, a few servers?
+
+If they are alike, `59` §3's six-sibling rule already handles it. If they are mixed, there is no
+rule, one is needed, and it cannot be the same rule.
+
+## 12. Failure modes
 
 | # | Failure | Control |
 |---|---|---|
@@ -404,7 +534,7 @@ credentials removed. That is the same S0 fixture pattern `76` §7.3 already asks
 | 4 | **The removal of phases (ADR-0031) is read as removing `71` §13.1's refusals** | §4's closing paragraph; ADR-0031 §Decision item 4 restates it |
 | 5 | **§7's two questions go unanswered and the work proceeds on a guess** | Both are listed in `88` §8 and in `CLAUDE.md`'s owner-blocking list |
 
-## 12. Open decisions
+## 13. Open decisions
 
 1. **Modes, or not modes** (§6.2). `53` refuses modes; the owner named two. Whether C-07 ships as a
    mode, a per-record state or a filter is a design decision nobody has taken. Planning proposes,
@@ -413,7 +543,7 @@ credentials removed. That is the same S0 fixture pattern `76` §7.3 already asks
    in `14`. Planning decides; it should precede any code.
 3. **Whether LLDP/CDP paste needs its own corpus format** or reuses the command-output shape.
    Unowned.
-4. Both questions in §10, which are owner-only, plus §10.3's new one on Meraki.
+4. Both questions in §11, which are owner-only, plus §11.3's new one on Meraki.
 5. **When `33` (the wire) is picked up.** ADR-0016 deferred it as *"git is the sync for v1"*;
    ADR-0031 retires v1 as a scoping device, so the deferral's phrasing no longer holds even though
    its evidence-based reasoning does. §8's load-balancing requirement lands on `33`. Planning
@@ -425,12 +555,19 @@ credentials removed. That is the same S0 fixture pattern `76` §7.3 already asks
    the gear one configures versus the estate one records — or two jobs. Nobody has asked. It decides
    whether the access/service layer needs its own platforms and corpus, or only the inventory model
    it already has. Owner, one sentence.
-7. **Whether a registered platform with no content should be visible in the product.** Five of the
+7. **Sourcing and staleness for known-defect advisories** (§7.4 half two) — owner. Where the data
+   comes from, who is named against it, and what the product says when an advisory is old. No field
+   should be designed before this is answered.
+8. **Whether the diagram partitions** (§10.2) — owner, but not yet. Per-`Site` views and how they
+   relate. `56` §12 owns it; the recommendation is to decide it against a running diagram.
+9. **Heterogeneous high-degree nodes** (§10.1) — planning, once §11.4 is answered. `59` §3's rule is
+   like-kind only and may not cover the owner's example.
+10. **Whether a registered platform with no content should be visible in the product.** Five of the
    six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
    selecting `junos-ex` today would get an empty product with no explanation. Design decision;
    `52` and `54` own the surface.
 
-## 13. Sources consulted
+## 14. Sources consulted
 
 | Source | Taken |
 |---|---|
@@ -454,9 +591,13 @@ credentials removed. That is the same S0 fixture pattern `76` §7.3 already asks
 | `docs/40-stack/41-technology-choices.md` §5.5 | `fathom-sync` never links the graph, rules, emit or parse crates, and the linker enforces it |
 | `docs/40-stack/43-deployment-modes.md` §2 | D1–D4; D2 single node and D3 cluster as existing shapes |
 | `docs/70-ops/71-roadmap.md` §13.1, §13.2 | The two refusals quoted in §8, with their qualifiers; the fleet-scale deferral and its ~2,000-device trigger |
-| `docs/90-decisions/adr-0016-git-is-the-sync-for-v1.md` | The deferral §8 and §12 item 5 revisit |
+| `docs/90-decisions/adr-0016-git-is-the-sync-for-v1.md` | The deferral §8 and §13 item 5 revisit |
+| `corpus/rules/ipsec-junos-srx.yaml` header, gap G6 | The `versions: "*"` self-indictment quoted in §7.4 |
+| `grep -rniE "psirt\|advisory\|known.bug\|cve\|errata" schema/*.yaml docs/10-model/` (run 2026-08-06) | One irrelevant hit. Known-defect advisories are not modelled |
+| `docs/50-design/59-diagram-aggregation-and-colour.md` §2.1–2.3, §3, §6.2 | The legibility-ceiling finding, the `155 + 9n` measurements, the six-sibling decision, the silent-count defect |
+| `docs/50-design/56-diagram-view.md` §1.1–1.3, §4 | One canvas, five layers, aggregation to `Site`/`Device`; the inventory-table concession quoted in §10.2 |
 
-## 14. Disagreements
+## 15. Disagreements
 
 1. **Against the framing of the original questions.** Q3 and Q4 were put to the owner in project
    jargon and were unanswerable as asked; the owner said so twice. That is a defect in the asking,
