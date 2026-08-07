@@ -43,7 +43,12 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   answers and await ratification: ADR-0031 (all features ship; phases retired), ADR-0032
   (third-party code permitted, gated and vendored), ADR-0033 (motion must carry meaning).
   `70` §6 names the largest requirement in the corpus with no mechanism behind it: automatic
-  correlation across separately-pasted configs.
+  correlation across separately-pasted configs. `70` §7 settles the platform question — Juniper is
+  primary (SRX/MX/EX), with Nexus, PAN-OS and Meraki; five of the six are already registered in
+  `schema/platforms.yaml`, and only `junos-srx` has any content behind it. `70` §8 finds the
+  owner's load-balancing and Docker-storage requirement compatible with invariant 4: the server
+  stores ciphertext it cannot read, which is what `33` and `43` D2/D3 already specify. `70` §9
+  records that there is **no thin first release** — most features work before anything ships.
 
 ## Rules that bind every session
 
@@ -75,8 +80,8 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   fragment-to-store weld order, still unwritten (`88` §5.3); and gate zero plus the
   `--locked` fix in `ci.yml` **before any dependency lands** (ADR-0032 §6).
 - **Owner-only, blocking:** ratify ADR-0031, ADR-0032 and ADR-0033 (drafted 2026-08-06 from
-  the owner's answers in `70`); answer `70` §7's two re-asked questions — *do you still work
-  on Juniper SRX?* and *should the IKE warning sit on the interface or the zone?*; the S0
+  the owner's answers in `70`); answer `70` §10's open questions — *should the IKE
+  warning sit on the interface or the zone?* and *is Meraki configurable by text you can copy?*; the S0
   fixture exports (`76` §7: Calix/Nokia/DIA configs, one service record end-to-end, the site
   list); the `Site` identity rule, which is **not** blocked on those exports and needs one
   sentence (`88` §6.13); the four forks in `19` §10; the licence files ADR-0004 decided and

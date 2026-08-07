@@ -19,11 +19,14 @@ what a planning session made of it.
 | 4 | Scope — the answer, verbatim | *→ ADR-0031* |
 | 5 | Motion — the answer, verbatim | *→ ADR-0033* |
 | 6 | The dynamic-correlation goal, verbatim | *the largest unspecified requirement* |
-| 7 | Questions still outstanding | *two, re-asked in plain language* |
-| 8 | Failure modes |  |
-| 9 | Open decisions |  |
-| 10 | Sources consulted |  |
-| 11 | Disagreements |  |
+| 7 | The platforms — the equipment the owner works on | *answers §10.1* |
+| 8 | Hosting, load balancing and stored state | *not the collision it looks like* |
+| 9 | What "off the ground" means | *there is no thin first release* |
+| 10 | Questions still outstanding | *re-asked in plain language* |
+| 11 | Failure modes |  |
+| 12 | Open decisions |  |
+| 13 | Sources consulted |  |
+| 14 | Disagreements |  |
 
 ---
 
@@ -120,7 +123,7 @@ as three tests, all of which a motion must pass:
 | Legibility | *"easily to have context of why that animation was there"* | Can a person say why it happened, without being taught? |
 
 Drafted as ADR-0033. The corpus's existing position turns out to be narrower than its headline
-(§10, `86` §9.4), so this is largely a reconciliation rather than a reversal.
+(§13, `86` §9.4), so this is largely a reconciliation rather than a reversal.
 
 ## 6. The dynamic-correlation goal, verbatim
 
@@ -188,12 +191,135 @@ describes the same capability `75` records as C-07, floored at phase 4 (a floor 
 Whether the capability is delivered as a mode, as a per-record state, or as a filter is a design
 question that `53`'s refusal constrains but does not answer. **Not decided here.** Logged in §9.
 
-## 7. Questions still outstanding
+## 7. The platforms — the equipment the owner works on
+
+Two statements, 2026-08-06, verbatim:
+
+> *"we need to add Cienna to the list of Juniper, Cisco, and Nokia engines we'll need to include."*
+
+> *"as far as equipment i use, Juniper SRX, MX, EX, Meraki, Cisco Nexxus, and Palo alto are my main
+> stuff we need engines for, idk if that's per Device type or Manufacturer i'll leave to you."*
+
+**This answers §10.1. Juniper is not retired — it is primary.** ADR-0029's six SRX corrections stay
+live, and ADR-0030's choice of PAN-OS as the second platform is vindicated rather than orphaned:
+Palo Alto is on the owner's own list. `88` §5.9's finding is thereby narrowed, not closed — see §12.
+
+### 7.1 "Per device type or manufacturer?" — neither, and the answer is already in the conventions
+
+A **platform** is *"a vendor+family target (`junos-srx`, `panos`, `ios-xe`)"*, and conventions add
+*"never say **vendor** — a vendor has many platforms"*. The unit is neither the box nor the brand:
+it is the **configuration dialect**. That is why `junos-srx`, `junos-mx` and `junos-ex` are three
+platforms and not one — same vendor, same family, but a parser must know which statement set it is
+reading — and why Nexus is its own platform rather than a kind of Cisco.
+
+This matters practically, and it is the reason invariant 5 exists: a **rule** is written once and
+carries a `platforms` predicate, so *"IKE is not permitted inbound on this interface"* is authored
+once and applies wherever it is true. There are no per-vendor engines and there must not be
+(`71` §13.1). The word *"engines"* in the owner's message maps to **platforms**, and what is
+per-platform is narrow: a parser, a statement dictionary, an emitter, and corpus content.
+
+### 7.2 Five of the six are already registered
+
+`schema/platforms.yaml` as it stands after the 2026-08-06 edit:
+
+| Owner's words | Platform id | Registry state |
+|---|---|---|
+| Juniper SRX | `junos-srx` | Registered · the only one with corpus content (98 commands, 37 rules, 42 explainers) |
+| Juniper MX | `junos-mx` | Registered · no corpus, no dictionary |
+| Juniper EX | `junos-ex` | Registered · no corpus, no dictionary |
+| Cisco Nexus | `nx-os` | Registered · no corpus, no dictionary |
+| Palo Alto | `panos` | Registered · no corpus; ADR-0030 makes it the second platform |
+| **Meraki** | — | **Absent. See §7.3** |
+| Nokia | — | Vendor only, no platform |
+| Ciena | — | Vendor only, added 2026-08-06 |
+
+So the registry needed one line for Ciena and no new platform rows for the owner's list. The gap is
+not registration — it is that **only `junos-srx` has any content behind it**. A registered platform
+with no dictionary, no emitter and no corpus is a name, not a capability.
+
+### 7.3 Meraki is the one that needs an answer before anything is registered
+
+Every other platform on the list is configured by text an engineer can select and paste, which is
+the entire on-ramp (`03` §4.5: *"Config paste is the primary on-ramp"*, and invariant 2 makes paste
+the only on-ramp there will ever be). Meraki is Cisco's cloud-managed line, and whether it presents
+a comparable pasteable device configuration is **not something this document will assert** —
+conventions forbid stating a vendor behaviour without a primary source, and no Meraki artifact
+exists in this tree.
+
+**The question is in §10.3.** It is not a small one: if Meraki's configuration is not obtainable as
+text the owner can copy, then Meraki cannot be a platform under invariant 2, and supporting it would
+require either a different input shape (an exported file) or a connection the product will never
+make. That is a boundary question, not a scheduling one.
+
+## 8. Hosting, load balancing and stored state
+
+> *"all that in a very secure format with expandability for loadbalancing and docker hosted storage
+> saftely in the future."*
+
+**This is not the collision it appears to be, and the distinction is worth stating precisely because
+it is the one that keeps the security argument intact.**
+
+`71` §13.1's permanent refusal is not "a server". It is two narrower things, quoted exactly:
+
+> *"**A server that can read a workspace.** No server-side lint, no server-side emit, no server-side
+> search."* — and — *"**A hosted multi-tenant SaaS that holds plaintext.** It is the product the
+> security posture exists to not be."*
+
+The qualifiers are load-bearing. A server that stores bytes it cannot read is not refused anywhere —
+it is **already the design**. `33` §1: *"The server stores ciphertext and never holds a key."*
+`33` §12 states the consequence plainly: if the server is compromised the attacker gets *"ciphertext
+and metadata"*, and *"it does not yield a single plaintext byte."* `43` already specifies D2 (single
+node) and D3 (cluster) as deployment shapes.
+
+So the line the owner should hold in their head:
+
+| Wanted | Status |
+|---|---|
+| Docker-hosted storage of workspaces | **Designed for.** The server holds ciphertext; `43` D2/D3 are the shapes |
+| Load balancing across nodes | **Compatible.** A node that cannot read a workspace is stateless with respect to its contents; `41` §5.5 has `fathom-sync` never linking the graph, rules, emit or parse crates, *and the linker enforces it* |
+| Server-side search or querying over the estate | **Never.** Invariant 4. It requires plaintext on the server, which is the thing the whole posture exists to prevent |
+| Fleet-scale storage (Postgres-backed inventory) | **Deferred**, `71` §13.2, trigger: a real workspace over ~2,000 devices with genuine concurrent editing. The *"server-side querying"* half of that row is barred by invariant 4 regardless of the trigger |
+
+**One live consequence.** ADR-0016 decides *"git is the sync **for v1**"*, and `33` (the wire) is
+deferred by it. ADR-0031 retires v1 as a scoping device — so `33` comes back into scope, and with it
+the multi-writer question ADR-0016 deferred on evidence rather than on schedule. That deferral was
+argued on merit and this document does not disturb it; but *"expandability for load balancing"* is a
+requirement that lands squarely on `33`, and somebody has to decide when it is picked up. Logged
+in §12.
+
+## 9. What "off the ground" means
+
+> *"I need most features present otherwise this project won't get off the ground. It needs to be
+> useable and have most features working without bugs."*
+
+Put to the owner as a proposal for a thin first milestone — an openable browser artifact with an
+inventory and a per-equipment page, four of the eight work orders — and **declined**. Recorded
+because it closes a question rather than opens one:
+
+- There is **no thin alpha**. The first thing anyone sees has most features working.
+- *"without bugs"* is a quality bar, not a feature. It ratifies the verification floor (`78` §6)
+  and argues for extending it — which is exactly what ADR-0032 unblocks, since property testing and
+  fuzzing the config parser are both currently blocked on the dependency question.
+- Combined with §4's *"all features must be included in V1"*, the sequencing freedom the owner
+  granted is real but bounded: planning chooses the **order**, not the **cut**.
+
+**The honest consequence, stated rather than buried.** No intermediate release means no measurement
+until most of the product exists, so every estimate stays an extrapolation from specification rather
+than from observed velocity. The project's own figures are `71` §2's **106–158 solo weeks** to the
+full product, which `83` §12.5 refuted as optimistic at **170–240**. Those are the corpus's numbers,
+not new ones. `72` names the corpus authoring rate as the variable that moves them most.
+
+**RECOMMENDATION —** internal checkpoints, not releases. Sequence the queue so the tree is
+demonstrable at intervals even though nothing ships until the bar in this section is met. That
+preserves the owner's decision exactly while converting some of the estimate into measurement. It
+needs no decision and no new document; it is how the queue is already ordered.
+
+## 10. Questions still outstanding
 
 Two questions were asked in jargon and could not be answered. Re-asked here in plain language;
 both remain open and both are owner-only.
 
-### 7.1 Do you still work on Juniper SRX firewalls?
+### 10.1 Do you still work on Juniper SRX firewalls? — **ANSWERED 2026-08-06, see §7**
 
 *(was: "is SRX/IPsec retired, carried, or frozen?")*
 
@@ -217,7 +343,7 @@ end-to-end against Junos syntax; ADR-0029 orders six SRX corrections as a gate; 
 2–3 weeks to Palo Alto chosen purely as a second *firewall*. All three were reasoned inside the
 firewall world.
 
-### 7.2 When Fathom finds this problem, what should it point at?
+### 10.2 When Fathom finds this problem, what should it point at?
 
 *(was: "may a rule anchor on an edge?")*
 
@@ -244,7 +370,31 @@ the fix widens to every interface in that zone — which is the exact regression
 to prevent. That argues for the interface, but it is the owner's call and the corpus is genuinely
 split: four documents disagree today and no code catches the disagreement (`88` §4.5).
 
-## 8. Failure modes
+### 10.3 Is Meraki configured by text you can copy and paste?
+
+Every other platform on the owner's list is configured by text an engineer selects from a terminal
+and pastes. That is not a convenience — invariant 2 makes paste the **only** on-ramp the product
+will ever have, permanently, and `03` §4.5 confirms *"config paste is the primary on-ramp"*.
+
+Meraki is Cisco's cloud-managed line. Whether it presents a comparable pasteable device
+configuration is not asserted anywhere in this tree and is not asserted here; no Meraki artifact
+exists in the repository, and conventions forbid stating a vendor behaviour without a primary
+source.
+
+**The question, in the owner's terms:** when you work on a Meraki device, is there a screen or an
+export that gives you its configuration **as text you can select and copy**? If yes, what does it
+look like — is it a CLI-style listing, a JSON or YAML export, a downloaded backup file?
+
+Why it is not a small question. If the answer is *"no, you configure it in a browser and there is no
+text"*, then Meraki cannot be a platform under invariant 2: the only ways in would be a file export
+(a different input shape, which `17` §… covers for import but which no parser targets today) or an
+API call, which the product will never make. That would be a boundary finding, not a scheduling one,
+and it belongs in `03` alongside the other eighteen boundaries rather than in the queue.
+
+**The cheapest way to settle it:** one real Meraki configuration export, however small, with any
+credentials removed. That is the same S0 fixture pattern `76` §7.3 already asks for.
+
+## 11. Failure modes
 
 | # | Failure | Control |
 |---|---|---|
@@ -254,7 +404,7 @@ split: four documents disagree today and no code catches the disagreement (`88` 
 | 4 | **The removal of phases (ADR-0031) is read as removing `71` §13.1's refusals** | §4's closing paragraph; ADR-0031 §Decision item 4 restates it |
 | 5 | **§7's two questions go unanswered and the work proceeds on a guess** | Both are listed in `88` §8 and in `CLAUDE.md`'s owner-blocking list |
 
-## 9. Open decisions
+## 12. Open decisions
 
 1. **Modes, or not modes** (§6.2). `53` refuses modes; the owner named two. Whether C-07 ships as a
    mode, a per-record state or a filter is a design decision nobody has taken. Planning proposes,
@@ -263,9 +413,24 @@ split: four documents disagree today and no code catches the disagreement (`88` 
    in `14`. Planning decides; it should precede any code.
 3. **Whether LLDP/CDP paste needs its own corpus format** or reuses the command-output shape.
    Unowned.
-4. Both questions in §7, which are owner-only.
+4. Both questions in §10, which are owner-only, plus §10.3's new one on Meraki.
+5. **When `33` (the wire) is picked up.** ADR-0016 deferred it as *"git is the sync for v1"*;
+   ADR-0031 retires v1 as a scoping device, so the deferral's phrasing no longer holds even though
+   its evidence-based reasoning does. §8's load-balancing requirement lands on `33`. Planning
+   proposes a trigger; the owner decides. This is the clearest single instance of the re-ranking
+   ADR-0031 §5 hands to `73`.
+6. **What `77`'s Calix/Nokia/DIA estate is, relative to §7's list.** §7 names the equipment the
+   owner *configures*; `77` describes a service-provider estate of Calix and Nokia access gear with
+   CLLI-coded sites and DIA/E-Line/E-LAN services. These may be the same job seen from two angles —
+   the gear one configures versus the estate one records — or two jobs. Nobody has asked. It decides
+   whether the access/service layer needs its own platforms and corpus, or only the inventory model
+   it already has. Owner, one sentence.
+7. **Whether a registered platform with no content should be visible in the product.** Five of the
+   six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
+   selecting `junos-ex` today would get an empty product with no explanation. Design decision;
+   `52` and `54` own the surface.
 
-## 10. Sources consulted
+## 13. Sources consulted
 
 | Source | Taken |
 |---|---|
@@ -284,8 +449,14 @@ split: four documents disagree today and no code catches the disagreement (`88` 
 | `docs/80-review/88-state-review-and-recommendations.md` §§4.4, 4.5, 5.7 | The blockers these answers discharge |
 | `schema/platforms.yaml`; `schema/schema.yaml`; `corpus/` (all three files) | The vendor registry; the 48 kinds; the 177 entries and their platform tags |
 | `rg -ci "calix\|nokia\|clli\|fttx\|gpon\|olt\|ont\|pon\|e-line\|elan\|dia\|uni" corpus/` (run 2026-08-06) | Zero matches |
+| `schema/platforms.yaml` (after the 2026-08-06 edit) | §7.2's registry table: eight vendors, eight platforms |
+| `docs/30-security/33-sync-protocol.md` §1, §12 | *"The server stores ciphertext and never holds a key"*; the compromise outcome quoted in §8 |
+| `docs/40-stack/41-technology-choices.md` §5.5 | `fathom-sync` never links the graph, rules, emit or parse crates, and the linker enforces it |
+| `docs/40-stack/43-deployment-modes.md` §2 | D1–D4; D2 single node and D3 cluster as existing shapes |
+| `docs/70-ops/71-roadmap.md` §13.1, §13.2 | The two refusals quoted in §8, with their qualifiers; the fleet-scale deferral and its ~2,000-device trigger |
+| `docs/90-decisions/adr-0016-git-is-the-sync-for-v1.md` | The deferral §8 and §12 item 5 revisit |
 
-## 11. Disagreements
+## 14. Disagreements
 
 1. **Against the framing of the original questions.** Q3 and Q4 were put to the owner in project
    jargon and were unanswerable as asked; the owner said so twice. That is a defect in the asking,
