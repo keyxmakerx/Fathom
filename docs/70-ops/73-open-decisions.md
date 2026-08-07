@@ -1749,3 +1749,53 @@ document proposes changing, and it costs nothing to change before `fathom-id`'s 
 **6. No disagreement with any hard invariant or with the risk enum.** §9 enumerates them as
 permanent product boundaries rather than as constraints to be managed, which is how they are treated
 throughout.
+
+---
+
+## 14. The escalation register
+
+> **Status:** Live, and **empty** — no execution session has run yet.
+
+### 14.1 What this is, and why it appears after §13
+
+This is the destination `78` §4 names for escalations raised by **execution sessions**: the point
+where a session that hits something its work order does not decide stops and files, rather than
+deciding. It sits after the house-style closing sections because it is a register that accretes
+rows over time, not an argument this document makes. `78` §5's stop-and-escalate list is the
+trigger; this is the inbox.
+
+**It was cited before it existed.** Nine places in the tree route here — `CLAUDE.md`'s planning
+list, `78` §12, `88` §6.11, WO-08 and WO-06 in four separate places, two of which are **code
+comments** that an executing session will write into shipped source. Creating the section is
+therefore a correction, not a new decision: the destination was specified, referenced and depended
+upon, and only the section itself was missing. Filed as a defect in its own right — see §14.4.
+
+### 14.2 The intake form
+
+One row per escalation. A session files by appending; nothing is ever deleted, and a row that turns
+out to be wrong is answered rather than removed.
+
+| E-nn | Raised by | What the order did not decide | What the session did instead | Answer |
+|---|---|---|---|---|
+| *(empty)* | | | | |
+
+- **Raised by** — the work order and section, so the trigger can be re-read.
+- **What the session did instead** — under `78`, a session that escalates does not proceed on a
+  guess. Where an order specifies a conservative fallback, this records that it was taken.
+- **Answer** — filled by planning or the owner. Empty means open.
+
+### 14.3 What is already known to land here
+
+WO-06 names four filings its execution will produce, each pinned by a test comment so the
+contradiction is visible in source rather than only in prose: the `78` §4 inbox-width question, the ranking-formula gap, the tie-break contradiction, and the leaf-ordering
+under-specification. These are **not** pre-filed here. A register that lists escalations before the
+session that raises them would defeat its purpose, which is to record what building actually hit.
+
+### 14.4 Two things this section does not decide
+
+1. **How escalations are triaged.** `78` §12 leaves open *"whether `73` §14 escalations are triaged
+   into D-numbered register entries or answered in place"*, and `88` §6.11 proposes an answer — that
+   they be answered as ADRs. That question stays open; this section only guarantees the rows have
+   somewhere to go.
+2. **Who answers.** `78` §7's test decides that per row. Some escalations are planning work and
+   some are the owner's, and the distinction is not knowable before the row exists.

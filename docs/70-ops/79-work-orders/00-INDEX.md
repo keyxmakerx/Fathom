@@ -3,6 +3,11 @@
 > **Status:** Living — planning-maintained; execution sessions edit only status cells (`78` §3
 > step 8, §8).
 
+**The long-term plan is `00-PROGRAM-PLAN.md`, beside this file.** It sequences the whole product
+into eleven stages, names the work orders that do not exist yet, and collects every owner decision
+the build waits on into one tier-ordered list. This queue stays the operational truth: where the
+plan and this table disagree about what is next, **this table wins** and the plan is corrected.
+
 The queue `78` §8 defines: one row per work order, in queue order. The order refines `76` §7.2's
 build order under `76` §7.1's principle — *"retire the cheapest expensive risk first"* — and
 re-cutting it is planning work. Every session starts at `78` §3's loop: take the **topmost OPEN

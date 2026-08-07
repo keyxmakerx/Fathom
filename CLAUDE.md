@@ -69,13 +69,20 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Next actions
 
+- **The long-term plan is `docs/70-ops/79-work-orders/00-PROGRAM-PLAN.md`** (Proposed): eleven
+  stages from today to shippable, the work orders that do not exist yet, and **every owner decision
+  the build waits on in one tier-ordered list of 34** — the first five unblock more than the other
+  twenty-nine combined, and three of those are single-line file edits. Its §20 proposes the standing
+  authorisation the owner asked for. The queue below stays the operational truth; on disagreement
+  the queue wins.
 - **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — WO-06 (finder
   completion, the shakedown order) leads; WO-01 (the `Scalar` trait) and WO-02 (the graph
   store) unblock everything downstream. Every order carries its own plan, gates, and
   stop-and-escalate list; `78` governs.
 - **Planning-only, queued in the orders' §10 lists:** the crypto route for the workspace
   file (WO-05 §2 — never execution work), the dictionary reconciliation (WO-04 §10.2),
-  the `73` §14 escalation triage as it fills. Added 2026-08-06 by ADR-0031/0032: re-anchor
+  the `73` §14 escalation register as it fills (the section now exists; it was cited from nine
+  places before it did). Added 2026-08-06 by ADR-0031/0032: re-anchor
   `73`'s ranks C–F onto events (the ranking inverts, it does not merely age); the
   fragment-to-store weld order, still unwritten (`88` §5.3); and gate zero plus the
   `--locked` fix in `ci.yml` **before any dependency lands** (ADR-0032 §6).
