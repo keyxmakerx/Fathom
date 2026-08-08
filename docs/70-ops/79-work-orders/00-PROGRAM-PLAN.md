@@ -464,8 +464,8 @@ vindicates that choice — Palo Alto is on the owner's own list.
 | *Platform bring-up: `junos-mx`, `junos-ex`, `nx-os`* | The same four pieces each. The Juniper pair should be cheapest — same vendor, same family, different statement set — and that expectation is itself the schema test |
 | *Platform bring-up: Meraki* | Conditional on §16 row 13. If the answer is *"no pasteable text"* this is not a work order at all but a boundary finding for `03` (`70` §7.3) |
 | *Version-predicate narrowing* | Replace `versions: "*"` on all 37 rules and every command entry with real trains. `70` §7.4 quotes the corpus indicting itself: *"`versions: "*"` is used on all 37 rules and that is not a virtue … `"*"` here means 'unverified across trains'."* **No schema change and no new decision** — this is authoring work against a mechanism that already exists, and `70` §7.4 calls it *"the larger correctness win"* |
-| *The known-defect advisory kind* | A genuine schema extension, and `70` §7.4 says the hard part is not the schema but the sourcing. **Gated on §16 row 14** — *"No field should be designed before this is answered"* (`70` §13 item 7) |
-| *Platform visibility* | What a user selecting a registered platform with no content actually sees. `70` §13 item 10: *"A user selecting `junos-ex` today would get an empty product with no explanation."* `52` and `54` own the surface |
+| *The known-defect advisory kind* | A genuine schema extension, and `70` §7.4 says the hard part is not the schema but the sourcing. **Gated on §16 row 14** — *"No field should be designed before this is answered"* (`70` §13 item 8) |
+| *Platform visibility* | What a user selecting a registered platform with no content actually sees. `70` §13 item 14: *"A user selecting `junos-ex` today would get an empty product with no explanation."* `52` and `54` own the surface |
 
 **Owner-blocked on:** §16 rows 12 (the named reviewer — this stage is almost entirely corpus
 content and invariant 10 binds all of it), 13 (Meraki), 14 (advisory sourcing and staleness) and 25
@@ -601,7 +601,7 @@ not so they are answered today.
 | 2 | **Change `.context/conventions.md`'s ID form** to drop the product name (ADR-0005's action 1, never executed) | `88` §4.2 | WO-02 — the queue's main unblocker — plus WO-05 and WO-08. One line |
 | 3 | **Add the wasm target line to `rust-toolchain.toml`**, outside the queue | `88` §4.1 | WO-07, and through it WO-08. One line. Nobody can execute WO-07 as written today |
 | 4 | **Paste ADR-0002's invariant texts into `conventions.md`** — or at minimum invariant 3, *"the one that is false as written"* | `88` §4.3, §8 Q5 | Every session's first read. WO-03 builds against invariant 3 |
-| 5 | **The crypto route:** adopt `32` §15.1's crate set as the repository's first external dependencies, or something else. Travels with `46` §9 Q1's username-in-KDF fork and `32` §16's vector tree | WO-05 §10 item 1; `70` §13 item 4 | All of Stage H. *"Until answered, WO-06-and-later work orders that presuppose sealing are unwritable"* |
+| 5 | **The crypto route:** adopt `32` §15.1's crate set as the repository's first external dependencies, or something else. Travels with `46` §9 Q1's username-in-KDF fork and `32` §16's vector tree | WO-05 §10 item 1 (`70` §13 has no row for it — the crypto route is a work-order open decision, not an owner-answer one) | All of Stage H. *"Until answered, WO-06-and-later work orders that presuppose sealing are unwritable"* |
 
 ### Tier 2 — each blocks a named stage
 
@@ -620,7 +620,7 @@ not so they are answered today.
 | # | The decision | Stated at | Unblocks |
 |---|---|---|---|
 | 13 | **Is Meraki configured by text you can select and copy?** If no, Meraki cannot be a platform under invariant 2 and this is a boundary finding for `03`, not a scheduling one | `70` §11.3 | Stage I |
-| 14 | **Sourcing and staleness for known-defect advisories:** where the data comes from, who is named against it, what the product says when an advisory is old | `70` §13 item 7 | Stage I. *"No field should be designed before this is answered"* |
+| 14 | **Sourcing and staleness for known-defect advisories:** where the data comes from, who is named against it, what the product says when an advisory is old | `70` §13 item 8 | Stage I. *"No field should be designed before this is answered"* |
 | 15 | **When is `33` (the wire) picked up?** ADR-0016 deferred it as *"git is the sync for v1"*; ADR-0031 retires v1 as a scoping device, and `70` §8's load-balancing requirement lands squarely on `33` | `70` §13 item 5 | Stage H |
 | 16 | **F1 — are subscriber endpoints modelled, and at what depth?** The node-count question | `19` §10 F1 | Stage J |
 | 17 | **F2 — what is `{ST}`**, a state code or a site type? (Same as `76` §8 Q7) | `19` §10 F2; `76` §8 Q7 | Stage J. Blocks the first generated name |

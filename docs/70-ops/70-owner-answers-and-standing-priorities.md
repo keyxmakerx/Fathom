@@ -591,7 +591,9 @@ stops, because `56` owns the diagram and `62`'s grammar owns any schema extensio
 Grouped { group: GroupId, ordinal: u16 },
 ```
 
-**`GroupId` occurs exactly once in the entire repository** — in that line (`grep -rn "GroupId" .`,
+**`GroupId` had exactly one occurrence in the repository before this section was written** — in that line — one **definition site**, no type, no schema entry, no persistence rule.
+Re-running the command now also matches the sections that discuss it, including this one
+(`grep -rn "GroupId" .`,
 run 2026-08-08). There is no type definition, no `schema/` entry, no identifier form, no rule for how
 a group is created, named, renamed, dissolved, drawn, exported, or reconciled when two writers group
 overlapping sets. Four specific holes, each of which has to be filled before anything is built:
@@ -798,7 +800,7 @@ example, so answering this question did not close it. §13 item 10.
    state"* and `56` §1.3 lists manual position as workspace-persistent, but no position field exists
    in `schema/`. Under ADR-0008 it does not exist. This blocks `move`, and `move` is the one verb on
    the owner's list that everyone assumes is already done. Planning; `62`'s grammar governs.
-11. **Whether a registered platform with no content should be visible in the product.** Five of the
+14. **Whether a registered platform with no content should be visible in the product.** Five of the
    six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
    selecting `junos-ex` today would get an empty product with no explanation. Design decision;
    `52` and `54` own the surface.

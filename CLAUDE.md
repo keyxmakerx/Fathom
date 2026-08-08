@@ -84,7 +84,7 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 - **The long-term plan is `docs/70-ops/79-work-orders/00-PROGRAM-PLAN.md`** (Proposed): eleven
   stages from today to shippable, the work orders that do not exist yet, and **every owner decision
-  the build waits on in one tier-ordered list of 34** — the first five unblock more than the other
+  the build waits on in one tier-ordered list of 35** — the first five unblock more than the other
   twenty-nine combined, and three of those are single-line file edits. Its §20 proposes the standing
   authorisation the owner asked for. The queue below stays the operational truth; on disagreement
   the queue wins.

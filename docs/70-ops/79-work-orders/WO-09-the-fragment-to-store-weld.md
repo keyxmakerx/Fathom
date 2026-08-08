@@ -82,7 +82,7 @@ The sources specific to this work order:
 | `docs/10-core/14-parsers-and-ingest.md` §7.3 | The one rule that decides what happens to `Fragment.pending` | *"create a **`Pending` edge**: recorded, not materialised, retried on every future ingest for this device. Never a finding"* |
 | `14` §7.4 | Why the scope is `Fragment` and stays there in this WO | (§ title) *"Capture scope, computed not declared"* — WO-03 pins the conservative value (its §12 item 6) |
 | `14` §8.5 | Where residue lives — not in the graph | *"Lives in the workspace, in the capture section (IR §14.1), not in the graph."* / *"The residue is not a log. It is workspace content."* |
-| `14` §9.5 | The obligation this WO exists to discharge on the redaction manifest | `orig_len`: *"for the in-session report only; the persistence layer must not store it. Enforced by doc comment now, by the store weld later."* (transcribed verbatim at `crates/fathom-ingest/src/redact.rs:54`) |
+| `14` §9.5 | The obligation this WO exists to discharge on the redaction manifest | `orig_len`: *"for the in-session report only; the persistence layer must not store it. Enforced by doc comment now, by the store weld later."* — **this is `crates/fathom-ingest/src/redact.rs:54`'s doc comment, not `14`'s words.** `14` §9.5 states the same obligation differently (*"kept ONLY in the in-memory manifest, never persisted"*, and *"it is in the in-memory manifest only and is not part of `RedactedCapture`"*); the phrase *"by the store weld later"* appears nowhere in `14`. The code transcribes the document's intent, not its text, and the binding obligation is `14`'s (transcribed verbatim at `crates/fathom-ingest/src/redact.rs:54`) |
 | `14` §10.1 | Device identification, which this WO does not perform | *"Every other match depends on it, because identity tuples are scoped by `owner(Device)`."* |
 | `14` §10.3 | The `ReconciliationPlan` this WO does not build, and its auto-apply rule | *"a plan is auto-applied only when it is purely additive"* |
 | `docs/60-content/62-schema-spec.md` §6.2 | That the store's bound enforcement is the schema's, read from generated tables | *"A bare range is enforced at **L0** — the store refuses the violating write."* |
@@ -166,10 +166,8 @@ divergence found during execution is handled by `78` §8's correction test and n
 - **`schema/schema.yaml`.** `Device.hostname` is `Identifier` card `1`; `Device.platform` is
   `PlatformId` card `1` (`Device.platform: 7` in `schema/field-keys.yaml`); **`Device` declares
   `identity: []`**, with the transcription note *"VERIFY: no identity tuple stated in 11 §10.3 for
-  Device."* Eight kinds carry real tuples (`Interface`, `LogicalUnit`, `Address`, `SecurityPolicy`,
-  `IkeGateway`, `TrafficSelector`, and the `19` physical/service kinds); the rest carry `identity:
-  []` under the file's own rule that *"inventing a natural key here would be the defect, not the
-  gap."*
+  Device."* Sixteen kinds carry a non-empty `identity` — `Interface`, `LogicalUnit`, `Address`, `SecurityPolicy`, `IkeGateway`, `TrafficSelector`, and ten from `19`'s physical and service model (`PhysicalPort`, `Cable`, `PassiveNode`, `Premises`, `Tenant`, `Service`, `ServiceType`, `ServiceEndpoint`, `ServicePath`, `PathSegment`); counted over
+  `schema/generated/schema.json` on 2026-08-08.
 - **Nothing in the workspace evaluates an identity tuple.** `crates/fathom-schema/src/model.rs:26`
   parses them as `identity: Vec<(Vec<String>, usize)>` — raw term strings — and `gates.rs` checks
   their *form*. `fathom-schemagen` emits no identity table; `fathom-ir` has none; no crate scores a
@@ -207,7 +205,7 @@ Exactly these files change or are created. **No file under `schema/`, `crates/fa
 | `crates/fathom-weld/tests/{apply,provenance,containment,determinism,fixture}.rs` | New — §4.6 |
 | `crates/fathom-graph/src/prov.rs` | `Origin::Parsed`, `CaptureId`, `CaptureSpan`; `discriminant`; the module-doc line naming `Parsed` as arrived (§4.2) |
 | `crates/fathom-graph/src/lib.rs` | Two names added to the `pub use prov::{…}` list (§4.2) |
-| `crates/fathom-graph/src/graph.rs` | One doc comment corrected on `assert_absent` (§4.2) |
+| `crates/fathom-graph/src/graph.rs` | One doc comment corrected on `assert_absent` (§4.2), **and `WriteError`'s derive line** (§4.5.1) |
 | `crates/fathom-ingest/src/dict.rs` | One public method, `Dictionary::entry_id` (§4.2) |
 | `crates/fathom-inventory/src/render.rs` | One match arm (§4.2) |
 | This file | Status line → `DONE` at step 11; `00-INDEX.md` row mirrored |
@@ -215,7 +213,8 @@ Exactly these files change or are created. **No file under `schema/`, `crates/fa
 ### 4.1 The crate
 
 Root `Cargo.toml` `members` gains one line, keeping the list's existing order (after
-`"crates/fathom-schemagen"` if the list is alphabetical at execution time; the executing session
+`"crates/fathom-wasm"` — i.e. **last** — if the list is alphabetical at execution time,
+since `wa` sorts before `we`; the executing session
 matches the list it finds and changes nothing else):
 
 ```toml
@@ -538,6 +537,39 @@ here and in §5–§6.
 
 `repo_root()` follows `crates/fathom-ingest/tests/srx_fixture.rs`'s precedent
 (`env!("CARGO_MANIFEST_DIR")` plus `..`).
+
+### 4.5.1 One derive line in `fathom-graph`, and why this order authorises it
+
+**`WeldError` as declared in §4.5 does not compile against the tree as it stands.** Its
+`Store(fathom_graph::WriteError)` variant sits under `#[derive(Debug, Clone, PartialEq, Eq)]`, and
+`crates/fathom-graph/src/graph.rs:107` declares `WriteError` as `#[derive(Debug)]` — no `Clone`, no
+`PartialEq`, no `Eq`, and no hand-written impls. Compiling it yields three errors: E0277
+(`WriteError: Clone` not satisfied), E0369 (`==` cannot be applied to `&WriteError`), and E0277
+(`WriteError: Eq` not satisfied). Verified by building a scratch crate against the real
+`fathom-graph` on 2026-08-08, not by reading.
+
+**Without this subsection the order is unexecutable and the session must escalate**, because §7
+trigger 6 forbids both available fixes: changing the variant's payload introduces a public shape
+§4 does not list, and editing `graph.rs` beyond §4.2's one doc comment exceeds this order's grant.
+That is a work order that specifies a type it also forbids you to make compile.
+
+> **AUTHORISED, exactly and only this.** In `crates/fathom-graph/src/graph.rs`, change
+> `WriteError`'s derive line from `#[derive(Debug)]` to `#[derive(Debug, Clone, PartialEq, Eq)]`.
+> No other change to `WriteError` — no new variant, no changed payload, no `Copy`.
+
+**Why this is the right half of the fix rather than weakening `WeldError`.** The asymmetry is an
+oversight, not a design: `ReadError` at `graph.rs:307` already derives
+`Debug, Clone, Copy, PartialEq, Eq`, and the two are siblings in the same module describing the two
+directions of the same store. `WriteError`'s payloads are ids, kinds and field keys — all already
+`Clone + Eq` — so the derive is mechanical. The alternative, collapsing the variant to
+`Store(String)`, would throw away the typed reason a caller needs to distinguish an L0 refusal from
+a batch-state error, and this order's whole argument is that the weld refuses rather than guesses.
+
+**It compiles.** `cargo check -p fathom-graph --locked` was run on 2026-08-08 with the derive line
+changed, and finished clean; the change was then reverted so this order still has it to make. This
+order does not hand an executing session a change it has not tried. If it nonetheless fails, that is
+a real finding about `WriteError`'s payloads: stop and escalate under `78` §4 rather than reaching
+for `Store(String)`.
 
 ## 5. The plan
 

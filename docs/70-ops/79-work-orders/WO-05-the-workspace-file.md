@@ -1068,7 +1068,7 @@ ADR-0005)"*; §4.3 says *"`parse` inverts `Display` exactly"*; §4.4 says *"comp
 `Display` form"*. §2's Binding sources cites `.context/conventions.md` § *Identifiers* for
 *"Node IDs: `<kind-lower>:<ulid>`"* and *"(ADR-0005: no product name in any identifier)"*.
 
-**What was found.** `crates/fathom-graph/src/id.rs:74`:
+**What was found.** `crates/fathom-graph/src/id.rs:75`:
 
 ```rust
 impl fmt::Display for NodeId {
@@ -1081,7 +1081,7 @@ impl fmt::Display for NodeId {
 ```
 
 which renders `device:00000000000000000000000001`. WO-02's own test pins it —
-`id.rs:104` `ike_gateway_renders_kebab` asserts `assert!(!rendered.contains("fathom"))` under the
+`id.rs:107` `ike_gateway_renders_kebab` asserts `assert!(!rendered.contains("fathom"))` under the
 comment *"ADR-0005 action 1: the product name is in no identifier."*
 
 So `write_plain` on §4.4's stated construction cannot produce §4.4's stated bytes, and the two id
@@ -1101,8 +1101,8 @@ work."* §7 trigger 3 says the same.
 There is no fork here worth the owner's time. ADR-0005 is Accepted, its action 1 is *"Now, before
 `fathom-id`'s first commit: decouple the identifier namespace from the product name … node IDs
 change to `<kind-lower>:<ulid>`"*, it has been executed into `.context/conventions.md`
-§ *Identifiers*, into `fathom-graph`'s `Display` (`id.rs:74`, with the ADR cited in the doc
-comment) and into a test that asserts the absence literally (`id.rs:104`,
+§ *Identifiers*, into `fathom-graph`'s `Display` (`id.rs:75`, with the ADR cited in the doc
+comment) and into a test that asserts the absence literally (`id.rs:107`,
 `assert!(!rendered.contains("fathom"))`). Three independent sites agree and one document — this
 one — disagreed with itself in four places while quoting the correct rule in three others. That is
 a transcription defect, not a design question, and reopening a decision on merit (`75` §2) needs a

@@ -1240,7 +1240,10 @@ Added 2026-08-08 for §3.13–3.14, and read for this document rather than quote
 - `grep -n "Cable\|PhysicalPort\|PassiveNode\|Premises\|Terminates" docs/50-design/56-diagram-view.md
   docs/50-design/59-diagram-aggregation-and-colour.md` (run 2026-08-08) — one hit, `Cabled` at `56`
   §6.4. Nothing else.
-- `grep -rn "GroupId" .` (run 2026-08-08) — one hit in the whole tree, `56` §3.5's type sketch.
+- `grep -rn "GroupId" .` (run 2026-08-08, **before this section was written**) — one hit in the
+  whole tree, `56` §3.5's type sketch. Re-running it now also matches this document and `70` §10.3,
+  which discuss it; the finding is that there is exactly one **definition site** and no type, no
+  schema entry and no persistence rule.
 
 ---
 
