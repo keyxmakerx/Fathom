@@ -78,6 +78,27 @@ pub fn containment_edge(owner: NodeKind, child: NodeKind) -> Option<EdgeKind> {
         .find(|k| admits_containment(*k, owner, child))
 }
 
+/// The one node kind the schema allows to contain `child`, or `None` when
+/// zero kinds may or several may.
+///
+/// This is the lookup WO-09 §10 item 10's answer names: a fragment node that
+/// declares no `owner` does not need a default, because its containment parent
+/// is already determined by its kind. Where the schema stops determining it —
+/// zero parents, or more than one — the caller refuses rather than choosing
+/// (`apply.rs`, `WeldError::NoContainmentEdge`).
+pub(crate) fn sole_containment_parent(child: NodeKind) -> Option<NodeKind> {
+    let mut found: Option<NodeKind> = None;
+    for owner in NodeKind::ALL {
+        if containment_edge(owner, child).is_some() {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(owner);
+        }
+    }
+    found
+}
+
 /// Is `kind` a containment edge that admits `owner` at its from end and
 /// `child` at its to end? A root-containment kind is excluded: its owner is
 /// the workspace root, which is not a node, and the store refuses it

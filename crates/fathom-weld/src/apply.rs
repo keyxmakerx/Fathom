@@ -39,8 +39,10 @@ pub struct WeldOutput {
     pub nodes: Vec<NodeId>,
     /// Index-aligned with `Fragment.edges`.
     pub edges: Vec<EdgeId>,
-    /// The containment edges materialised from `FragNode.owner`, in the
-    /// order §4.4 step 4 mints them.
+    /// The containment edges materialised for every node but `nodes[0]`, in
+    /// the order §4.4 step 4 mints them: from `FragNode.owner` where the
+    /// fragment declared one, and from the parent kind the schema determines
+    /// where it did not (§10 item 10).
     pub containment: Vec<EdgeId>,
     /// Every `Fragment.pending` entry, in fragment order. Never lost, never
     /// materialised, never an error (`14` §7.3).
@@ -145,16 +147,29 @@ pub fn apply_new_device(
         )
         .map_err(field_error)?;
 
-    // 5. Containment, from `FragNode.owner`. 6. `nodes[0]` has no owner and
-    //    therefore no containment in-edge: `Site` is not in the fragment and
-    //    this WO does not invent one. A `Device` with no `HasDevice` in-edge
-    //    is L0-valid — `11` §7.2's rule is an upper bound at write time.
+    // 5. Containment. Where the fragment declares an `owner`, that node is the
+    //    parent; where it does not, the schema already determines the parent
+    //    from the child's kind (WO-09 §10 item 10), so nothing is guessed.
+    //    6. `nodes[0]` is the one node with no containment in-edge: `Site` is
+    //    not in the fragment and this WO does not invent one. A `Device` with
+    //    no `HasDevice` in-edge is L0-valid — `11` §7.2's rule is an upper
+    //    bound at write time.
+    let root_kind = fragment
+        .nodes
+        .first()
+        .map(|n| n.kind)
+        .ok_or(WeldError::NotDeviceRooted)?;
     let mut containment: Vec<EdgeId> = Vec::with_capacity(fragment.nodes.len());
     for (index, node) in fragment.nodes.iter().enumerate() {
-        let Some(owner) = node.owner else { continue };
-        // `validate` proved `owner` points at an earlier existing index, so
-        // every lookup below answers; refused rather than assumed.
-        let at = usize::try_from(owner.0).unwrap_or(usize::MAX);
+        if index == 0 {
+            continue;
+        }
+        // `validate` proved a declared `owner` points at an earlier existing
+        // index, so every lookup below answers; refused rather than assumed.
+        let at = match node.owner {
+            Some(owner) => usize::try_from(owner.0).unwrap_or(usize::MAX),
+            None => derived_owner(root_kind, node.kind)?,
+        };
         let owner_kind = fragment
             .nodes
             .get(at)
@@ -227,6 +242,29 @@ pub fn apply_new_device(
         unresolved,
         minted: mint.issued(),
     })
+}
+
+/// The fragment index of the containment parent for a node that declares no
+/// `owner` — WO-09 §10 item 10's answer, which is a derivation and not a
+/// default: the schema already fixes which kind may contain a given kind, so
+/// the fragment never had to say it.
+///
+/// A first application writes one device and everything else the capture
+/// stated about it, so the only parent such a node can have is `nodes[0]`.
+/// The schema must agree twice over: exactly one kind may contain `child`,
+/// and that kind is the fragment root's. Anything else — no parent kind, or
+/// more than one — is refused with `NoContainmentEdge`, which names the root
+/// kind it could not place the child under. Refusing rather than choosing is
+/// the answer's own instruction: an ambiguous containment edge is a schema
+/// change nobody has thought through, not a case to guess at.
+fn derived_owner(root_kind: NodeKind, child: NodeKind) -> Result<usize, WeldError> {
+    match crate::sole_containment_parent(child) {
+        Some(parent) if parent == root_kind => Ok(0),
+        _ => Err(WeldError::NoContainmentEdge {
+            owner: root_kind,
+            child,
+        }),
+    }
 }
 
 /// `Device.platform`'s wire key, read from the generated registry and never

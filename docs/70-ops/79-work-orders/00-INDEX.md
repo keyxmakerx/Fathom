@@ -74,6 +74,23 @@ earlier, never that every non-root node has one; WO-09 §4.5 step 5 presumes it 
 in-edge per node"* is an L1/L2 lower bound, so the store accepts the graph and the floor is green —
 which is why nothing caught it. **The queue again has no runnable row.**
 
+**WO-09 ran a fourth time on 2026-08-08 and is DONE.** §10 item 10's answer was executed as written:
+an ownerless non-root `FragNode` takes the containment parent the **schema** determines for its
+kind, and the weld refuses with `NoContainmentEdge` if the schema ever stops determining exactly
+one. The applied device is no longer degree zero — the fixture's thirteen nodes and nineteen edges
+are one connected estate rooted at it, and `tests/fixture.rs` walks `out`/`inn` over all 81 edge
+kinds to prove nothing sits outside that walk. §4.6's five test files all exist; the crate carries
+24 tests and the floor is **354 passed / 0 failed / 0 ignored**, with the two pinned `Site` warnings
+unmoved. Every §6 gate G1–G9 is green.
+
+One correction rides with it, under `78` §8: the answer's *"no kind has more than one possible
+containment parent — not one"* is wrong for three kinds (`LogicalUnit`, `ExternalPeer`,
+`PhysicalPort`) and seven have none at all. The decision it made is unaffected, because its own
+guard refuses exactly those cases and none is reachable from the shipped dictionary; WO-09 §12 item
+15 carries the computation. **Nothing new was escalated.** Reconciliation stays unbuilt and
+owner-blocked on the `Device` identity sentence (WO-09 §10 item 1), and WO-04's G8 stays unarmed on
+its own three preconditions.
+
 **WO-04 was re-taken on 2026-08-08 to test whether WO-09's landing had armed G8. It had not, and
 WO-04 stays BLOCKED.** The session re-ran WO-04 §5 step 12's three preconditions against the
 documents on disk: (a) holds, (b) failed **at the time that paragraph was written (2026-08-08, commit `9c58255`)** — no weld order was DONE, and no `fathom-weld` crate or
@@ -95,7 +112,7 @@ last of them in `73` §14). The tree is unchanged apart from the two status reco
 | 6 | WO-04 | `WO-04-the-emitters.md` | BLOCKED on WO-09 | WO-01, WO-02 | `fathom-emit`: graph to junos-srx set-statements with per-line provenance; the round-trip gate arms only once WO-03 and the weld order land (its §5 steps 12–13) |
 | 7 | WO-05 | `WO-05-the-workspace-file.md` | DONE | WO-02 | `fathom-canon` and the plaintext workspace face: canonical serialisation, versioned header, byte-identical round trip; sealing stays owner-gated (its §2) |
 | 8 | WO-08 | `WO-08-the-inventory-face.md` | DONE | WO-01, WO-02, WO-07 | The first product face: browser artifact, inventory table, inspector, per-equipment page with cabled-peer navigation over a pinned demo estate |
-| 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | OPEN | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |
+| 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | DONE | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |
 
 **Owner-blocking items** (not queue rows; listed in `CLAUDE.md`): the S0 fixture exports
 (`76` §7.3), the four `19` §10 forks, the named expert review of `corpus/`. WO-03 §10.8–10.9

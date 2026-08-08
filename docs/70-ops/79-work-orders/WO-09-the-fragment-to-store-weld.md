@@ -1,19 +1,25 @@
 # WO-09 — `fathom-weld`: the fragment-to-store weld
 
-> **Status:** OPEN — §10 item 10 answered 2026-08-08 by planning. An ownerless
-> non-root node takes the containment parent the **schema** declares for its kind; no kind in
-> `schema/schema.yaml` has more than one, so the lookup always resolves, and `NoContainmentEdge`
-> refuses if that ever stops being true.
+> **Status:** DONE — 2026-08-08. All three escalations (§10 items 8, 9, 10) were answered by
+> planning and all three are executed. `crates/fathom-weld` ships `apply_new_device`,
+> `containment_edge`, `Mint` and the provenance constructors; §4.6's five test files all exist and
+> pass (24 tests in this crate); every §6 gate is green and the floor is 354 passed / 0 failed /
+> 0 ignored.
 >
-> §10 items 8 and 9 are both answered and both **executed**. Item 8: the wire form is `17` §15.6 (a
-> payload-bearing variant is a single-key tagged object; `Origin::Hand` stays the bare `"hand"`, so
-> WO-05 §4.4's pinned vector does not move), and §4.2 carries `fathom-workspace`'s writer
-> (`lib.rs:329`) and reader (`lib.rs:617`) match sites. Item 9: option (b) — one `scalar:` value in
-> `corpus/dict/junos-srx/interfaces.yaml:13`, one `ValueTy` arm, one `BoundValue` variant — and the
-> fixture no longer refuses. Plan steps 1–8 are complete and floor-green, and three of step 9's five
-> test files now exist: `tests/apply.rs` (nine tests, restored to §4.6's names and passing),
-> `tests/provenance.rs` (six) and `tests/determinism.rs` (one), alongside `tests/containment.rs`.
-> Only `tests/fixture.rs` is unwritten, for the reason in §10 item 10.
+> Item 8: the wire form is `17` §15.6 (a payload-bearing variant is a single-key tagged object;
+> `Origin::Hand` stays the bare `"hand"`, so WO-05 §4.4's pinned vector does not move), with
+> `fathom-workspace`'s writer (`lib.rs:329`) and reader (`lib.rs:617`) match sites carried in §4.2.
+> Item 9: option (b) — one `scalar:` value in `corpus/dict/junos-srx/interfaces.yaml:13`, one
+> `ValueTy` arm, one `BoundValue` variant. Item 10: an ownerless non-root node takes the containment
+> parent the **schema** determines for its kind, refusing with `NoContainmentEdge` if the schema ever
+> stops determining exactly one — so the applied device now contains every object the paste stated
+> and the fixture's thirteen nodes and nineteen edges are one connected estate rooted at it (§6.1).
+> Three kinds do carry more than one possible containment parent, which the answer said none did;
+> the guard it wrote covers them and none is reachable from this dictionary (§12 item 15).
+>
+> Reconciliation is still escalated, not built: `Device` declares `identity: []` and nothing in the
+> workspace evaluates an identity tuple (§8 item 1, §10 item 1). A second paste of one box still
+> makes two devices.
 
 Depends on: **WO-02** (`fathom-graph` — the store this writes into), **WO-03** (`fathom-ingest` —
 the fragment this reads). Both DONE.
@@ -660,6 +666,28 @@ exact; anything else is a red gate and §7 applies.
 | G8 | `git diff --exit-code -- schema/ crates/fathom-ir crates/fathom-schema crates/fathom-schemagen corpus/` | exit 0, no output — this WO touches none of them |
 | G9 | `cargo run --locked -q -p fathom-schema --bin fathom-schema-check` | exit 0; `0 failure(s), 2 warning(s)`, both `schema.identity.unexercised` — the pinned baseline, unchanged |
 
+### 6.1 The fixture's counts, from the run (§5 step 11's backfill)
+
+Every number below is read off the apply of `crates/fathom-ingest/tests/fixtures/junos-srx-s0-synthetic.txt`
+through the shipped dictionary on 2026-08-08, and every one of them is pinned by an assertion in
+`crates/fathom-weld/tests/fixture.rs` or re-derived from the store in `tests/provenance.rs`. None is
+transcribed from a document.
+
+| Quantity | Value | Where it is pinned |
+|---|---|---|
+| Fragment nodes → store nodes | 13 | `the_synthetic_srx_fixture_applies`; `nodes_land_index_aligned` proves the alignment |
+| Fragment edges → store edges | 7 | `the_synthetic_srx_fixture_applies`; `fragment_edges_and_their_fields_land` |
+| Containment edges materialised | 12 | every node but `nodes[0]`: 3 from a declared `FragNode.owner`, 9 from the schema-determined parent (§10 item 10) |
+| Store edges, total | 19 | 7 + 12 |
+| `unresolved` | 2 | both `reth0.0` — the `external-interface` and the zone-membership references; the fixture declares `st0` and never `reth0` |
+| `minted` | 99 | `records_are_never_shared_between_assertions` re-derives it as `1 + records + elements` = 1 + 66 + 32 |
+| Ops in the one batch | 66 | 13 `AddNode` + 19 `AddEdge` + 34 `SetField` (31 node-field assertions + 2 edge-field assertions + `Device.platform`); `one_batch_holds_every_op` |
+| Nodes reachable from the device | 13 | the whole store: `the_synthetic_srx_fixture_applies` walks `out`/`inn` over all 81 edge kinds |
+
+The `unresolved` count is the one number here that is a defect rather than a fact about the weld:
+the two rows are `14` §7.3's *"recorded, not materialised"* working exactly as specified, and they
+are also §10 item 2's third precondition for WO-04's G8, which stays unarmed.
+
 ## 7. Stop-and-escalate triggers
 
 The general rule is `78` §4; escalating is success. Specific to this work order, stop and escalate
@@ -1284,6 +1312,11 @@ escalation inbox under `78` §4 step 2.
     `1 + records + element ULIDs`; `tests/provenance.rs`'s
     `records_are_never_shared_between_assertions` re-derives it from the store rather than pinning
     it as a literal, so it does not go stale silently.
+    **Superseded by §6.1**, which is the backfill §5 step 11 asks for and is read off the DONE
+    order's own run: `containment` is 12 and `minted` is 99 once §10 item 10's answer is executed,
+    because nine nodes that were skipped now take the containment parent the schema determines. The
+    numbers above are left in place as the escalation's state, not deleted, so the two runs can be
+    compared.
 
 12. **`WeldError::NotDeviceRooted` is returned for a condition §4.5 does not declare, and this list
     did not record it.** §4.5 declares it as *"`fragment.nodes` is empty, or `nodes[0].kind !=
@@ -1319,3 +1352,47 @@ escalation inbox under `78` §4 step 2.
     totals proving nothing else was created). **No evidence of weakening, and no proof of identity.**
     The lesson is procedural: a session that deletes a red test should commit it first on a scratch
     ref, or the next session cannot tell restoration from reinvention.
+
+15. **§10 item 10's answer says *"no kind has more than one possible containment parent — not one"*.
+    Three kinds do, and seven have none — corrected under `78` §8; the decision the answer makes is
+    unchanged, because the answer's own guard is what covers them.** Computed over
+    `schema/generated/schema.json` on 2026-08-08, expanding `classes` exactly as
+    `EdgeKind::from_kinds()`/`to_kinds()` do:
+    `LogicalUnit` has four possible containment parents (`Interface`, `AggregateInterface`,
+    `RethInterface`, `TunnelInterface` — the `@interface_like` class on `HasUnit`'s from end),
+    `ExternalPeer` has two (`Premises`, `Site`) and `PhysicalPort` has two (`Chassis`,
+    `PassiveNode`). Seven kinds have no node-kind parent at all — `Site`, `LearnedRoute`, `Tunnel`,
+    `Cable`, `Premises`, `Tenant`, `ServiceType` — the last five because their containment is
+    root-owned (§12 item 7). `tests/containment.rs`'s
+    `every_kind_pair_has_at_most_one_containment_edge` already pinned that orphan list before this
+    correction was written, from the same tables.
+    The two halves of §3 the answer relied on are untouched: no *pair* is carried by two containment
+    edge kinds, and the answer's instruction — *"if the lookup ever returns anything other than
+    exactly one parent kind, refuse with the existing `NoContainmentEdge` and stop"* — is
+    implemented literally, so the three ambiguous kinds are refused rather than guessed. None of
+    them is reachable from this dictionary today: the fixture's only `LogicalUnit` carries a
+    declared `owner`, and no entry under `corpus/dict/junos-srx/` produces an `ExternalPeer` or a
+    `PhysicalPort`. What is wrong is the answer's *"it cannot fire today"*, not what it decided.
+
+16. **`WeldError::NoContainmentEdge`'s payload in the derived branch names the fragment root's kind,
+    which is a second widening of a declared shape (§12 item 12 records the first).**
+    `crates/fathom-weld/src/apply.rs`'s `derived_owner` refuses with
+    `NoContainmentEdge { owner: root_kind, child }` in both failing cases — no parent kind, and more
+    than one — because there is no owner kind to name in either. The statement the payload makes is
+    true for every kind in the schema today (`containment_edge(Device, child)` is `None` for all ten
+    of §12 item 15's kinds, so *"no containment edge is declared from the root device to this
+    child"* is exactly what happened), and it stops being true the day a kind is contained by
+    `Device` **and** something else. Adding a variant instead would be a public name §4 does not
+    list, which §7 trigger 6 forbids, so this is recorded rather than acted on. **Planning decides**
+    whether §4.5's variant list widens or gains a case for a child the schema does not place.
+
+17. **`tests/apply.rs`'s `owner_becomes_the_declared_containment_edge` was rewritten, not weakened,
+    and the diff is the record.** Its previous body asserted `out.containment.len() == owned` and
+    *"node {index} gained an owner"* for every `owner: None` node — i.e. it pinned the behaviour
+    §10 item 10 was escalated about, which the answer then reversed. The replacement pins strictly
+    more: 12 containment edges rather than 3, every node but `nodes[0]` contained, the declared and
+    derived cases counted separately and both asserted non-empty, and — for each derived case — that
+    the schema names `Device` as the *sole* parent of that kind, computed in the test over all 48
+    kinds rather than read back from the weld. The prior version is committed at `b3e1bcb`, so
+    `git diff b3e1bcb -- crates/fathom-weld/tests/apply.rs` is the check §12 item 14 could not
+    perform on the file's first appearance.

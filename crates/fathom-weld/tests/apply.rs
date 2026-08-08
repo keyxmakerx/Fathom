@@ -106,35 +106,59 @@ fn nodes_land_index_aligned() {
 
 /// §4.5 step 5: every `FragNode.owner` became the containment edge the schema
 /// declares for that (owner kind, child kind) pair, and `Graph::owner` walks
-/// back to the fragment's owner.
+/// back to the fragment's owner. Where the fragment declared no `owner`, the
+/// parent is the one the **schema** determines for the child's kind (§10 item
+/// 10's answer), which for every kind this fixture produces is the device —
+/// so every node but `nodes[0]` ends the apply contained.
 #[test]
 fn owner_becomes_the_declared_containment_edge() {
     let (graph, ingest, out) = applied();
     let fragment = &ingest.fragment;
 
-    let owned = fragment.nodes.iter().filter(|n| n.owner.is_some()).count();
-    assert_eq!(out.containment.len(), owned);
-    assert!(owned > 0, "the fixture must exercise containment");
+    let declared = fragment.nodes.iter().filter(|n| n.owner.is_some()).count();
+    assert!(declared > 0, "the fixture must exercise declared owners");
+    let derived = fragment.nodes.len() - 1 - declared;
+    assert!(derived > 0, "the fixture must exercise derived owners");
+    assert_eq!(out.containment.len(), fragment.nodes.len() - 1);
 
     for (index, node) in fragment.nodes.iter().enumerate() {
         let id = *out.nodes.get(index).expect("index-aligned");
-        match node.owner {
-            None => assert_eq!(graph.owner(id), None, "node {index} gained an owner"),
+        if index == 0 {
+            assert_eq!(graph.owner(id), None, "the device gained an owner");
+            continue;
+        }
+        let owner_id = match node.owner {
             Some(FragNodeId(at)) => {
                 let at = usize::try_from(at).expect("a fragment index fits");
-                let owner_id = *out.nodes.get(at).expect("owner is an earlier node");
-                assert_eq!(graph.owner(id), Some(owner_id), "owner moved at {index}");
-                let want = containment_edge(owner_id.kind, id.kind)
-                    .expect("the pair the weld resolved still resolves");
-                let edge = graph
-                    .inn(id, want)
-                    .next()
-                    .expect("the containment in-edge exists");
-                assert_eq!(edge.from, owner_id);
-                assert_eq!(edge.to, id);
-                assert!(out.containment.contains(&edge.id));
+                *out.nodes.get(at).expect("owner is an earlier node")
             }
-        }
+            // Derived, not defaulted: the device is the only node kind the
+            // schema lets contain this kind. Proved here over every kind, not
+            // assumed from the pair the weld happened to pick.
+            None => {
+                let parents: Vec<NodeKind> = NodeKind::ALL
+                    .into_iter()
+                    .filter(|owner| containment_edge(*owner, id.kind).is_some())
+                    .collect();
+                assert_eq!(
+                    parents,
+                    vec![NodeKind::Device],
+                    "the schema no longer determines {}'s parent",
+                    id.kind.name()
+                );
+                out.device
+            }
+        };
+        assert_eq!(graph.owner(id), Some(owner_id), "owner moved at {index}");
+        let want = containment_edge(owner_id.kind, id.kind)
+            .expect("the pair the weld resolved still resolves");
+        let edge = graph
+            .inn(id, want)
+            .next()
+            .expect("the containment in-edge exists");
+        assert_eq!(edge.from, owner_id);
+        assert_eq!(edge.to, id);
+        assert!(out.containment.contains(&edge.id));
     }
 }
 
