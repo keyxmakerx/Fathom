@@ -1,10 +1,11 @@
-# Weld and round trip — what landed and what is blocked
+# Round trip, second attempt — what landed and what is blocked
 
-> **Status:** Audit record, written 2026-08-08 after the run on branch
-> `claude/weld-and-first-browser-run`, at commit `fa72d80`. Everything below was re-established by
-> running the checks and reading the tree and git history directly. No session's report of itself
-> was taken on trust. The one claim that matters most — §2 — was tested by writing a throwaway
-> program and running it, not by reading anyone's account of it.
+> **Status:** Audit record, written 2026-08-08 after the second run on branch
+> `claude/weld-and-first-browser-run`, at commit `2e4716a`. Everything below was re-established by
+> running the checks and reading the tree and the git history directly. No session's report of
+> itself was taken on trust. The one claim that matters most — §2 — was tested by writing a
+> throwaway program, running it, printing what came out, and then deleting it. It was not read out
+> of anyone's account.
 
 Written for someone who runs networks, not someone who writes Rust. Where a document or a file is
 named, what it is comes with it.
@@ -18,7 +19,7 @@ named, what it is comes with it.
 | 3 | The verification floor — the exact numbers |
 | 4 | What actually ran, in order |
 | 5 | The queue: every row, claimed against real |
-| 6 | The escalation inbox — seven questions, three still open |
+| 6 | The escalation inbox — eight questions, three still open |
 | 7 | Look at these first |
 | 8 | What needs a decision, and from whom |
 | 9 | How this was checked |
@@ -27,386 +28,306 @@ named, what it is comes with it.
 
 ## 1. The short version
 
-Two commits landed since the last report. They are small in size and large in consequence.
+Four commits landed since the last report. One of them is engineering; three are decisions and
+research written down.
 
-**The missing join now exists.** The last report's central finding was that Fathom could read a
-Juniper config and could write one, but had no code connecting the two — the reader produced a
-result nothing could load into the model. That code is now written. It is called `fathom-weld`, it
-compiles, and part of it is proved.
+**The join between the reader and the model now works on the real config.** The last report ended
+with Fathom's new joining code refusing the only Juniper config in the tree, because the Juniper
+vocabulary file and the data model had disagreed for weeks about what type an interface name is.
+That disagreement was settled and the fix was made — a single word in one vocabulary file, plus the
+two small code changes that word needed. The shipped config now goes all the way from pasted text
+into the model without complaint. Sixteen new tests were written to prove it, and none of them was
+softened to make it pass.
 
-**And it refuses the only real Juniper config in the tree.** Not because of a bug in the new code.
-Because the Juniper vocabulary and the data model have disagreed for weeks about what type an
-interface name is, and nothing in the project ever compared the two. The join is simply the first
-code that puts both halves in one call, so it is the first thing that could notice.
+**The pipeline then produced 19 of the 21 lines it is supposed to produce, and correctly refused to
+hand them over.** This is the real result of the run, and §2 sets it out in full. It is much closer
+to working than "blocked" makes it sound, and the two things missing are both known, both named,
+and both waiting on a decision rather than on code.
 
-So the honest position is: **the round trip still does not work, but the distance to it changed
-shape.** It used to be "three decisions and a missing component." It is now "three decisions" — and
-the first of the three is one sentence choosing between four spelled-out options.
+**What is now blocked is smaller and sharper than what was blocked yesterday.** Yesterday it was
+"three decisions and a missing component." Today the component exists and works; what remains is
+three decisions, each with the options spelled out and none of them requiring anyone to invent
+anything.
 
-Everything automated is green: 337 tests, none failing, none skipped. Nothing was weakened to get
-there — a test that went red was deleted rather than softened, and that deletion is recorded in the
-open. That is the behaviour the project's rules ask for, and it happened.
+Everything automated is green: **353 tests, none failing, none skipped, none filtered out** — up
+from 337. The code formatter, the code linter and the schema checker are all clean.
 
 ## 2. The headline: can Fathom read a Juniper config and write it back?
 
-**No. Not yet.** This audit tested it rather than reading a claim about it.
+**Almost. It reads the config, rebuilds the commands correctly, and then refuses to release them —
+for two reasons that are both correct refusals, not bugs.**
 
-### What is now true
+This audit tested it rather than reading a claim about it. Here is exactly what was done and
+exactly what came out.
 
-**Reading works.** Fathom takes pasted Juniper SRX `set`-form text, frames it line by line,
-tokenises it, strips credentials at a gate that cannot be switched off, and records every line it
-did not understand. Tested against a 42-line config file.
+### The test that was run
 
-**Writing works.** Fathom takes its internal model of an estate and writes Juniper `set` commands
-back out, each line carrying a record of where it came from. Thirty-five tests cover it, including
-a 21-line golden block reproduced exactly. But read that test carefully: it builds the model **by
-hand in Rust code** and emits from it. It has never emitted from a model that came from a parsed
-config.
+A throwaway program was written that does the whole loop, end to end, with nothing hand-fed in the
+middle:
 
-**The join now exists.** `crates/fathom-weld` is new this run. Its entry point,
-`apply_new_device`, takes a parsed fragment and writes it into the store: every parsed item becomes
-a stored item with a freshly minted identifier, every "this lives inside that" relationship becomes
-the containment link the data model declares for that pair of types, every field carries a record
-saying *parsed from this capture, at these bytes*, and the whole thing lands as one undoable batch.
-One of its gates is green and was re-run here: over all 48 × 48 combinations of record types, no
-pair of types is claimed by two different containment links. Forty-six pairs resolve, and the test
-pins that number.
+1. Read the checked-in Juniper SRX config file
+   `crates/fathom-ingest/tests/fixtures/junos-srx-s0-synthetic.txt` — 42 lines of `set`-form
+   configuration, marked in its own first line as synthetic and not a capture of any real device.
+2. Parse it with Fathom's real Juniper vocabulary (the files under `corpus/dict/junos-srx/`).
+3. Load the result into Fathom's model with the new joining code (`crates/fathom-weld`).
+4. Ask Fathom's writer (`crates/fathom-emit`) to write the VPN back out as Juniper commands.
+5. Print everything that came out, including every refusal.
 
-### What is not true
+**No crate in the tree does steps 1–4 and step 5 together.** The reading half and the writing half
+have never been in the same program before this probe. That is the gap this report exists to
+measure, and the probe was removed again afterwards — the tree is exactly as the run left it.
 
-**The join refuses the shipped Juniper config.** This audit wrote a small throwaway program that
-loads the real Juniper vocabulary, parses the checked-in config file
-`crates/fathom-ingest/tests/fixtures/junos-srx-s0-synthetic.txt`, and calls `apply_new_device` on
-the result. It returns an error: `SlotType { key: FieldKey(55) }`. Field 55 is
-`TunnelInterface.name` — the name of a tunnel interface, `st0` in that config.
+### What came out
 
-The cause, checked in three files independently:
+The parse produced **13 objects** from the config. The writer walked the VPN and produced
+**19 configuration lines**. Those 19 lines are, word for word and in the same order, 19 of the 21
+lines that Fathom's own reference answer says a correct emit of that VPN should produce. Not
+similar — identical, checked line by line by a script, with zero unexpected lines and zero
+reordering.
 
-- `schema/schema.yaml` — the data model — declares an interface's `name` as type `InterfaceName`,
-  on all four kinds of interface (lines 234, 256, 274, 289).
-- `corpus/dict/junos-srx/interfaces.yaml` line 13 — the Juniper vocabulary file that says what
-  `set interfaces ... unit ... family inet address ...` means — binds that same field as type
-  `Identifier`.
-- `crates/fathom-ingest/src/bind.rs` — the parser's list of value types — has **no `InterfaceName`
-  entry at all**. So this is not a mis-typed line in a vocabulary file that the vocabulary alone
-  can fix. The parser is currently incapable of carrying the type the store demands.
+The two missing lines are exactly these:
 
-Two things about this are worth sitting with. First, **the two halves of the round trip have
-disagreed since before either the join or its work order existed** — the writer already emits
-`InterfaceName` on those same fields. The join did not create the disagreement; it is the first
-code to put the reader and the store in one call, so it is the first thing that could trip over it.
-Second, **nothing in the project compares a vocabulary entry's declared type against the data
-model's declared type.** That is why this survived every gate the ingest work carried and all 337
-tests. Only `st0` fires today because the test config declares only a tunnel interface; the same
-disagreement sits unexercised on ordinary, aggregate and redundant-ethernet interfaces.
+```
+set security ike gateway GW-B external-interface reth0.0
+set security ipsec vpn VPN-B bind-interface st0.0
+```
 
-**Two further things block the round trip even after that is fixed**, both re-confirmed here:
+Both are interface references. Both are missing for the same reason: **the config file mentions
+`reth0.0` and `st0.0` but never configures them**, so Fathom has nothing to point those references
+at and honestly leaves them dangling rather than inventing an interface.
 
-1. **Nothing tells Fathom whether a VPN is route-based or policy-based when it re-reads a config.**
-   The data model declares `mode` on an IPsec VPN as required. Searching every Juniper vocabulary
-   file for an entry that sets it finds exactly one `mode` binding — and it is on the IKE *policy*,
-   a different thing. So after parsing, a VPN's mode is unknown, and the writer refuses to emit a
-   config with a required field unknown. That refusal is correct: a tool that guessed here would be
-   inventing a value the engineer never chose.
-2. **The test config references two interfaces it never declares.** The 21-line golden block
-   mentions `reth0.0` and `st0.0` but contains no `set interfaces` line for `reth0`. An unresolved
-   reference is recorded but not built, so that line cannot be reproduced on the way out.
+Then the writer **refused to hand over the finished config**, and reported two blockers:
 
-### The bottom line
+| Blocker | What it means in plain terms |
+|---|---|
+| The IKE gateway `GW-B` has no external interface | The same dangling `reth0.0` reference above. Fathom will not emit a gateway it knows is incomplete. |
+| The VPN `VPN-B` has no `mode` | Nobody has yet decided where the VPN's mode comes from when a config is *re-read* rather than built by hand. The field is genuinely unknown, and Fathom will not guess. |
 
-The round-trip test file does not exist. `crates/fathom-emit/tests/` contains six test files and
-none of them is `round_trip.rs`. The gate that would prove the round trip — called G8 in the
-emitter work order — has never been run, was not weakened, and was not forced. That is recorded
-honestly in the tree.
+So the answer to the headline question is: **the reading works, the model-building works, the
+writing works, and the release gate correctly says no.** What is missing is not machinery. It is
+two facts the config file does not contain and one decision nobody has made.
 
-**What that test would catch if the writer were wrong:** it parses the golden config, applies it
-into a fresh store, emits it again, and demands the rendered output be **byte-for-byte identical**
-to the input — not "equivalent", not "same set of lines", identical bytes. It additionally demands
-the emit report show zero blockers, zero conflicts, exactly one credential substitution agreeing
-with the original on token, line number and label, and an empty set of gaps. A writer that dropped
-a line, reordered two statements, changed spacing, or silently substituted a value would fail it.
-That is why it is the project's most consequential test and why nobody should be comfortable until
-it runs.
+### The security result, which is the good news buried in the above
 
-**One practical consequence:** there is still no command-line tool to try any of this by hand. The
-only three executables in the tree are the command finder, the data-model checker and the code
-generator. Reading, writing and the join all exist as library code, callable only from tests.
+One of the 19 lines is:
+
+```
+set security ike policy IKE-POL pre-shared-key ascii-text "<PSK>"
+```
+
+The source file at that point contains a pre-shared key. It went in as a secret and came out as the
+placeholder `<PSK>`. **No credential from the source file appeared anywhere in the output.** The
+config file is deliberately seeded with marker strings that look like secrets so this can be
+checked; none of them survived. The redaction gate is not a promise in a document — it was watched
+working, in the same run, on the whole loop.
+
+### What the tests would catch if the writer were wrong
+
+The writer's own test (`crates/fathom-emit/tests/worked_example.rs`) holds the correct 21-line
+output as literal text in the test file and compares the emitted bytes against it character for
+character. If any command's spelling, argument order, quoting or line order changed, that test goes
+red immediately — there is no fuzzy matching and no regeneration-on-failure. What that test does
+**not** cover is the path this audit probed: its model is built by hand inside the test, not read
+from a config file. The test that would close that gap is
+`crates/fathom-emit/tests/round_trip.rs`, and **it does not exist yet** — it is specified in detail
+and is waiting on the decisions in §8.
+
+### The honest limitation
+
+Nothing above says Fathom can round-trip an arbitrary Juniper config. It says Fathom round-tripped
+**one synthetic 42-line SRX VPN config, minus two lines it could not resolve, and refused to
+publish the result.** One config, one platform, one feature area. That is a real milestone and it
+is a narrow one.
 
 ## 3. The verification floor — the exact numbers
 
-All four required checks re-run against `fa72d80` from a clean tree. Measured here, not quoted.
+All four required checks were re-run from a clean state on 2026-08-08 at commit `2e4716a`.
 
-| # | Check | Result |
-|---|---|---|
-| 1 | `cargo fmt --all --check` — code formatting | No output, exit 0. Clean |
-| 2 | `cargo clippy --all-targets -- -D warnings` — the linter, warnings treated as errors | Exit 0. Clean |
-| 3 | `cargo test --workspace --locked` — the whole test suite | **337 passed, 0 failed, 0 ignored, 0 filtered out** |
-| 4 | `cargo run -p fathom-schema --bin fathom-schema-check` — the data-model gate | Exit 0. `48 kinds · 89 edges · 61 scalars · 10 enums · 14 files parsed`. **0 failures, 2 warnings** |
+| Check | Result |
+|---|---|
+| Code formatting (`cargo fmt --all --check`) | Clean — no output, exit 0 |
+| Code linter, warnings treated as errors (`cargo clippy --all-targets -- -D warnings`) | Clean |
+| Test suite (`cargo test --workspace --locked`) | **353 passed, 0 failed, 0 ignored, 0 filtered out** |
+| Schema checker (`fathom-schema-check`) | Exit 0. 48 object kinds, 89 relationship kinds, 61 value types, 10 enumerations, 14 files. 0 failures, 2 warnings — both the long-standing `Site` warnings that are deliberate and waiting on an owner decision |
 
-The two warnings are the long-standing pair about `Site` — the record type meaning a physical
-location. They are deliberate, they wait on one sentence from the owner (§8), and they are
-unchanged. Nothing new appeared.
+"0 ignored, 0 filtered out" is the number that matters as much as 353: it means no test was
+switched off, marked as skipped, or excluded to reach a green result.
 
-**Tests went from 329 to 337.** Nothing was deleted, weakened or skipped to get there: zero ignored,
-zero filtered, checked directly. One test file *was* removed during the run — `tests/apply.rs`,
-which went red because of §2's type disagreement. Removing a red test is the kind of thing that
-should set off alarms, so: it was removed rather than softened, the removal is stated in the commit
-message and in the work order, and the work order's own gate list still names the four test files
-that remain unwritten. That is disclosure, not laundering. It is still a debt.
-
-**A fifth check, which is not part of the required floor and is not in CI.**
-`python3 scripts/check-citations.py` verifies that every internal cross-reference in the project's
-own documents points at a section that exists:
-
-```
-8559 cross-references checked, 58 unresolved   (exit code 1)
-```
-
-Unchanged in substance from the last report: all 58 are pre-existing references between old review
-documents, and the code — the surface the tool was written to protect — is clean. See §7.4.
-
-**Three other measured numbers.** The assembled single-file browser page is 796,376 bytes and
-rebuilds on demand (`cargo run -p fathom-artifact`). It grew by 1,784 bytes this run, which is the
-one line added so the inventory screen can display "parsed" as an origin. The page's security
-policy still contains `connect-src 'none'` — the mechanically checked statement that the page
-cannot make a network request. The project still has **zero external dependencies**: fifteen
-packages in the lock file, all of them Fathom's own.
+**A fifth check exists and is not in CI: `scripts/check-citations.py`.** It verifies that every
+cross-reference between the project's documents points at a section that really exists. It reports
+**8,635 references checked, 58 unresolved, exit code 1.** That looks alarming and is not new: the
+identical script run against the branch point reports **58 unresolved out of 8,376**. This run added
+259 cross-references and **zero new broken ones**. The 58 are a pre-existing backlog, concentrated in
+the review and decision documents, and no one has ever set out to clear them. It is worth clearing;
+it is not a result of this run.
 
 ## 4. What actually ran, in order
 
-Two commits since the previous report, oldest first:
+Four commits, all on 2026-08-08, all on `claude/weld-and-first-browser-run`, none yet merged to the
+main branch.
 
-| Commit | What it did |
-|---|---|
-| `eaf4221` | **A decision, no code.** Answered the question that had stopped the join at its first step: how "parsed from here" is written to disk. The answer turned out not to be a new rule at all — the workspace file already applied an unwritten convention in three places (a value with no payload is written as a bare word; a value carrying a payload is written as a small labelled object). The join's case obeys that convention rather than breaking it. The rule was written down where the file format lives. Also fixed a citation that was off by one line in three places, and a queue row that still said the join order was open after the same commit had blocked it |
-| `fa72d80` | **Built the join.** Eight of nine planned steps landed: the store learned a second kind of origin (`parsed`, carrying which capture and which bytes), the workspace file learned to read and write it without moving a single byte of the previously pinned save format, the inventory screen learned to display it, and the whole `fathom-weld` component was written — identifier minting, provenance records, the value dispatch, containment links computed from the generated tables rather than hand-written, and the entry point. Its containment gate is green. Step nine stopped on §2's type disagreement and filed it |
+| Time | Commit | What it did |
+|---|---|---|
+| 20:19 | `403b80b` | **Settled the type disagreement.** Decided that the Juniper vocabulary was wrong and the data model was right about interface names, authorised the exact one-line fix, and filed the missing safety check that would have caught the disagreement years earlier. Documents only. |
+| 20:47 | `a34b05e` | **Answered the owner's question about grouping and tagging.** Recommends a deliberate "Group" object over free-text tags, and records the finding that shrinks the question: most of what people want tags for, the model already does — every device already belongs to exactly one site and cannot not. The free-text case was checked against how two mature systems actually behave rather than assumed. Documents only. |
+| 22:05 | `f8ee388` | **Recorded the owner's decisions about the diagram view.** Documents only. |
+| 22:26 | `2e4716a` | **The engineering commit.** Executed the authorised one-word fix in `corpus/dict/junos-srx/interfaces.yaml`, plus the two small code changes it needed, and the shipped config then loaded cleanly. Wrote three new test files — 16 tests covering the join itself, the record of where every value came from, and the guarantee that the same input always produces the same output. Then stopped, and filed the reason. |
 
-The second commit also corrected a factual error in the join's own work order: it had said 51
-containment pairs; five of those are owned by the workspace root, which is not a record, so the
-real number over pairs of record types is 46. The test pins 46.
+The engineering commit's own message is worth quoting on the point that matters most: the main test
+file *"is back, with §4.6's nine names and no assertion softened — it was right and the tree was
+wrong, and the tree is fixed."* That is the correct order of operations, and this audit confirmed
+it: the assertions in that file are the ones the work order specified, unaltered.
 
 ## 5. The queue: every row, claimed against real
 
-The protocol says that when the summary table and a work order's own status line disagree, the
-status line wins. **This audit compared all nine, one at a time. They do not disagree.** Nine for
-nine.
+The project tracks work as numbered "work orders." There is an index table and each order also
+carries its own status line; the rule is that **the order's own status line is the truth and the
+index mirrors it.** Both were read.
 
-| # | Order | What it is | Status |
-|---|---|---|---|
-| 1 | WO-06 | Finishing the command finder | DONE |
-| 2 | WO-01 | Typed values — IP addresses, algorithms, and so on | DONE |
-| 3 | WO-02 | The graph store — the in-memory model of an estate | DONE |
-| 4 | WO-07 | The browser module | DONE |
-| 5 | WO-03 | Juniper SRX config ingest | DONE |
-| 6 | **WO-04** | The emitters — model back out to Juniper commands | **BLOCKED** on the join. Eight of nine gates green; the round trip cannot arm (§2) |
-| 7 | WO-05 | The workspace file | DONE |
-| 8 | WO-08 | The inventory screen | DONE |
-| 9 | **WO-09** | The join between parser and store | **BLOCKED** at step 9 of 11, on §2's type disagreement |
+| Order | What it builds | Index says | Its own file says | Agree? |
+|---|---|---|---|---|
+| WO-06 | Search/finder cleanup | DONE | DONE | Yes |
+| WO-01 | The value-type system | DONE | DONE | Yes |
+| WO-02 | The model store | DONE | DONE | Yes |
+| WO-07 | The browser-shipping shell | DONE | DONE | Yes |
+| WO-03 | Reading Juniper SRX configs | DONE | DONE | Yes |
+| WO-04 | Writing Juniper SRX configs | BLOCKED on WO-09 | BLOCKED on WO-09 | Status agrees — **but its stated reasons are stale; see below** |
+| WO-05 | The saved workspace file | DONE | DONE | Yes |
+| WO-08 | The first product screen | DONE | DONE | Yes |
+| WO-09 | The join between reader and model | BLOCKED | BLOCKED | Yes |
 
-Seven of nine done. The two that are not are the two standing between the project and its central
-promise, and they are now blocked on the *same* question rather than on three separate ones.
+**One real divergence, and it is in the reasons rather than the verdict.** WO-04's own status line
+still says the join order is *"BLOCKED at its first plan step"* over a question about how one piece
+of data is written to disk, and that *"no `fathom-weld` crate and no `apply_new_device` exist in the
+tree."* All three claims are now false against the tree: that question was answered and executed
+earlier in this branch, the crate exists, and the function exists. WO-04 is still correctly
+**BLOCKED** — its verdict is right — but anyone reading its status line to find out *why* will be
+told something that stopped being true nine hours before this report. The index table, by contrast,
+is current. Both should say the same thing, and the fix belongs in the work-order file.
 
-Against the run report handed to this audit — the join BLOCKED, the emitter order not re-attempted
-— **the tree agrees.** Nothing was claimed finished that was not.
+**One thing the project's own front page gets wrong.** `CLAUDE.md`, the file a new session reads
+first, still says the sixteen manual browser checks are *"honestly recorded NOT RUN"* and that
+*"nothing has ever been opened in a browser."* That was true two days ago. Earlier on this same
+branch (commit `6702307`, 13:19) the product was opened in a browser for the first time and **all
+sixteen checks passed**, with two screenshots committed as evidence. The checks include the one that
+matters most for the project's core promise: the page made exactly one network request — for itself
+— and none beyond it.
 
-**The queue currently has no runnable row.** Every remaining order is either done or waiting on a
-decision. That is not a stall in the engineering; it is the engineering having caught up with the
-decisions.
+## 6. The escalation inbox — eight questions, three still open
 
-## 6. The escalation inbox — seven questions, three still open
+When a build session hits something its instructions do not decide, it is required to stop and file
+the question rather than guess. The register is section 14 of
+`docs/70-ops/73-open-decisions.md`. It now holds **eight rows. Five are answered. Three are open.**
 
-When a session hits something its instructions do not settle, it must stop and file rather than
-guess. The inbox is at the end of `docs/70-ops/73-open-decisions.md`, section 14. It now holds
-seven rows.
+**Answered:**
 
-**Four are answered.** The three from before (the inbox's own form; the workspace file's on-disk
-table, which would have silently written the placeholder `<PSK>` into a TACACS field after a save
-and reload; and a worked example rendering identifiers in a form the code refuses), plus one new
-this run: how "parsed from here" is written to disk, answered by finding the convention that
-already existed.
+- How the register itself should be formatted (answered; the protocol's format won over an invented
+  one).
+- Two questions from the workspace-file order about how values are written to disk (both answered:
+  the wire format follows the value type, and one identifier format was re-issued to match what
+  three other places in the tree already did).
+- How the parse-origin record is written to disk (answered, then executed).
+- **The interface-name type disagreement** (answered, then executed — this is the one that unblocked
+  §2's result).
 
-**Three are open, and all three are for a planning session rather than for the owner:**
+**Still open:**
 
-| Question | Raised |
-|---|---|
-| The search-ranking formula has no term for query-side weighting, so a hyphenated search term scores as three separate words | 2026-08-02 |
-| A worked trace in the search specification expects a result order the implemented arithmetic does not produce | 2026-08-02 |
-| **The type disagreement (§2):** the Juniper vocabulary calls an interface name one type, the data model calls it another, and the parser cannot represent the data model's type at all | 2026-08-08 |
+1. **(Search) The ranking formula has no term for query-side word weights**, so a hyphenated search
+   term scores as three whole words. Either the formula gains the factor or the factor is removed
+   and the reference results are regenerated.
+2. **(Search) A worked example in the specification expects a tie to break one way** and the
+   implemented arithmetic breaks it the other. Either the example is rewritten to the real
+   arithmetic, or a tie-break rule is specified.
+3. **(The join) Ten of the thirteen objects a parsed config produces have no stated parent** — see
+   §7, this is the one that stopped the run.
 
-That third row is now the single highest-leverage unblock in the project. It is written up with
-four options and deliberately no preference:
-
-- **(a) Move the data model to match the vocabulary** — declare interface names as the looser type.
-  This retires a constraint that exists precisely to constrain interface names, and it regenerates
-  code that two other components already use.
-- **(b) Move the vocabulary and the parser to match the data model** — teach the parser the stricter
-  type and change the one vocabulary line. This reopens the ingest order and re-pins its test
-  counts.
-- **(c) Convert at the join** — translate one type to the other as it crosses. This contradicts an
-  explicit promise that the store can hold every parsed assertion *without conversion*, and it
-  requires a hand-written table duplicating a fact the data model already states.
-- **(d) Whichever of the above is chosen, add the check that would have caught it.** Nothing
-  anywhere compares a vocabulary entry's type against the data model's. This is the control, not
-  the fix, and it is the item most likely to prevent the next one of these.
-
-Worth noticing: **four of the seven escalations ever raised are against the workspace file's
-on-disk format.** It is by a distance the most-escalated surface in the project. That is either a
-sign the format is under-specified or a sign it is the only thing being exercised hard. Either way
-it deserves a deliberate look rather than another one-off answer.
+The first two are search-quality questions that block nothing. The third blocks the queue.
 
 ## 7. Look at these first
 
-Ordered by what costs most if left alone.
+In the order a human should look at them.
 
-### 7.1 The file every new session reads first is now wrong in four places, for the second report running
+### 7.1 The parsed config produces an unreachable device
 
-`CLAUDE.md` is the pickup document — the first thing anyone or anything reads when starting work.
-It currently says:
+This is the single thing that stopped the run, and it is worth understanding because it affects more
+than one part of the product.
 
-> **Nothing has ever been opened in a browser**: WO-08's sixteen manual rows are honestly recorded
-> NOT RUN.
+When Fathom parses that Juniper config it produces 13 objects. **Only 3 of them say what they belong
+to**, and none of those 3 says it belongs to the device. So the device object ends up with nothing
+attached to it — checked directly: zero connections of any of the 81 possible kinds. The VPN, the
+IKE proposals, the policies, the zones all exist, but nothing links them back to the box they came
+from.
 
-That has been false since 13:19 on 8 August. All sixteen checks were run, all sixteen pass, and two
-screenshots are checked into `docs/80-review/evidence/`. It is also wrong that there are 282 tests
-(there are 337), wrong that four of eight orders are done (seven of nine), and it lists the
-components without the three built since — the canonical writer, the workspace file, and the join
-that §2 is entirely about.
+The model store is right to accept this — the "everything has exactly one parent" rule is checked
+later, at export and validation time, not at write time. Which is exactly why every automated check
+stayed green while this was true. That is the useful lesson: **the floor was green and the result
+was wrong, and the floor was not lying.** It was measuring something else.
 
-**This was item number one in the previous report and it is unchanged.** A pickup file that is wrong
-about what has been proved is how the next session either redoes finished work or repeats a retired
-claim. It is a five-minute edit and it is now the oldest untouched item on the list.
+The consequence is concrete. Any screen that starts at a device and walks outward — the inventory
+screen, the config writer, any future diagram — would find nothing after the first paste. The build
+session correctly refused to paper over it, and wrote out four options with no preference expressed:
+the join could default the parent to the device; the parser could set it; the vocabulary files could
+declare it; or the requirement could be withdrawn as premature. Each has a named cost. The full
+argument is in section 10, item 10 of
+`docs/70-ops/79-work-orders/WO-09-the-fragment-to-store-weld.md`.
 
-### 7.2 One sentence unblocks the two orders that matter
+**One sentence closes this.** It is the highest-value sentence available to write today.
 
-§2 and §6 are the same story. The type disagreement is written up with four mechanically enumerable
-options and no preference stated. Choosing one unblocks the join; the join plus two further
-decisions unblocks the round trip. Nothing else in the tree is close to this in leverage.
+### 7.2 The Juniper vocabulary file still has a placeholder where a reviewer's name goes
 
-The person best placed to choose is someone who knows both Juniper and the data model, because
-option (a) quietly relaxes a validity constraint on interface names and option (b) makes the parser
-stricter about what it will accept from a real config. Those are different bets about how tolerant
-Fathom should be of unusual interface naming in the field.
+`corpus/dict/junos-srx/interfaces.yaml` — the file that was edited this run — carries
+`reviewed_by: <named human>`. That is a placeholder, and the file itself says so in a comment. The
+project's tenth invariant requires a named human to have reviewed every vocabulary entry, and no
+entry in this file has one. That was true before this run; this run edited the file and did not
+change it. It is not a new problem, but it now sits on the file that just decided the shape of §2's
+result.
 
-### 7.3 The bug class, not the bug
+### 7.3 The stale status line on the config-writing order
 
-Option (d) above is the part to read twice. This disagreement sat in the tree through an entire
-work order's gate set and 337 passing tests, and was only found because someone wrote the first
-code that used both halves at once. **There is no check anywhere that a vocabulary entry's declared
-type matches the data model's declared type.** Today one field trips it. Three sibling fields —
-ordinary, aggregate and redundant-ethernet interface names — carry the identical disagreement and
-simply are not exercised by the one test config in the tree. When real Juniper exports arrive
-(§8), they will exercise them.
+Covered in §5. Small, mechanical, and it will mislead the next person who reads it.
 
-Adding that check is small and it is worth doing before the next vocabulary entry is written, not
-after.
+### 7.4 The 58 broken cross-references, and that nothing enforces them
 
-### 7.4 A check that fails is not wired into anything
-
-`scripts/check-citations.py` exits with a failure code — 58 unresolved references — and CI does not
-run it. CI runs four checks; this is a fifth that exists, fails, and gets quoted in reports as
-though it were a gate. Nothing is currently wrong because of it. But an unenforced check drifts.
-Either wire it in with the 58 recorded as an accepted baseline, or stop quoting its number.
-Unchanged from the last report.
-
-### 7.5 The Juniper vocabulary has still never been read by a network engineer
-
-Every entry in `corpus/dict/junos-srx/` — the files that say what each Juniper command means — still
-carries the literal text `reviewed_by: <named human>`. That is the placeholder, not a name, and the
-project's tenth standing rule says this review is not optional.
-
-It matters more each time. **Two of the three things blocking the round trip live inside these
-files**: the missing VPN mode (§2) is a vocabulary gap, and the type disagreement (§2) is a
-vocabulary line. A network engineer reading these files is the person most likely to find both, and
-the ones not yet found.
-
-### 7.6 The browser result is real but can never be re-checked automatically
-
-Carried forward, unchanged. Sixteen manual checks pass with two screenshots as evidence; this audit
-did not re-open a browser (none is available here) and did not re-verify the screenshots, which the
-previous audit read and matched against the written results. There is still no automated regression
-for any screen, because the browser test harness the project specifies needs external libraries the
-project has deliberately never taken. That decision still has no owner.
-
-To repeat the check by hand: `cargo run -p fathom-artifact`, then open
-`target/artifact/fathom-dev.html?fixture=demo-estate` from disk. The checklist is section 6 of
-`docs/70-ops/79-work-orders/WO-08-the-inventory-face.md`, rows M1–M16.
-
-### 7.7 Smaller things, carried forward
-
-- **The workspace-file order touched two files its own list does not name** — the code generator and
-  a graph field type. Flagged in the last report, still unrecorded. Both changes look like
-  consequences of the work, but the rule exists so that "consequence of the work" is a judgement
-  someone else makes. A line in the order's record either way would close it.
-- **The test config is synthetic.** `junos-srx-s0-synthetic.txt` is assembled from documented
-  command strings, not captured from a device, and its first line says so in capitals. Every ingest
-  test — and the join test that cannot yet be written — passes or fails against a config no device
-  ever produced.
-- **The browser page still allows inline scripts.** `script-src 'unsafe-inline'` remains, where the
-  specification wants exact cryptographic fingerprints. Recorded as scaffolding; the file is named
-  `fathom-dev.html`, not a release name. The half carrying the core promise — `connect-src 'none'` —
-  is real and checked against the final assembled bytes.
-- **The check that would refuse an unapproved third-party library still does not exist.** Zero
-  dependencies today, so nothing is breached, but this is the last guard between the project and its
-  first unreviewed library.
+Covered in §3. The count did not grow, but the check is not part of the automated gate set, so
+nothing stops it growing. The project already has a story about why this matters: it was written
+after nine places in the tree pointed at a document section that did not exist.
 
 ## 8. What needs a decision, and from whom
 
-Nothing on this list is programming work. Every item is a decision, and the build has now run out of
-rows that do not need one.
+**Blocking the queue right now — nobody can build the next thing until these are answered:**
 
-**For a planning session — these are what the round trip waits on:**
+1. **Where does a top-level object's parent come from?** (§7.1.) Four options written out, no
+   preference expressed. One sentence.
+2. **Where does a VPN's `mode` come from when a config is read back?** This is the second of the two
+   blockers in §2, and it is the last thing standing between the current state and a genuine
+   config-in, config-out proof. Also one sentence.
+3. **What should happen when a config references an interface it never configures?** — the
+   `reth0.0` / `st0.0` case. Today Fathom leaves the reference dangling and refuses to emit the line,
+   which is defensible; it needs to be a decision rather than a default.
 
-1. **Where the interface-name type disagreement is fixed** (§2, §6, §7.2). Four options written up,
-   no preference. Unblocks the join, which is stopped dead.
-2. **Whether a check is added comparing vocabulary types against the data model** (§7.3). Small,
-   and it is the control for a whole class of defect rather than one instance.
-3. **Where a re-read config gets its VPN mode from.** When Fathom reads a config back, nothing tells
-   it whether a VPN is route-based or policy-based. The *fact* is not in doubt — a VPN bound to a
-   tunnel interface is route-based, and the model allows only two values. What is undecided is
-   *which part of the system deduces it*. It must not be the writer, which would be inventing a
-   value the engineer never chose.
-4. **The two interfaces the golden config references but never declares.** Either the config gets
-   those lines, or unresolved references get a home in the store.
+**Owner-only, still outstanding from before this run:**
 
-**For the owner — unchanged, and now more expensive than last week:**
-
-5. **Real Juniper SRX configuration exports.** Every ingest test runs against a synthetic file. Real
-   captures turn a plausible parser into a proven one — and, given §7.3, would exercise the three
-   interface types the synthetic file never touches. Highest-leverage item on this list.
-6. **One sentence on how a site is identified.** The two standing warnings in the data-model gate
-   exist solely because this is unanswered. Not blocked on anything else.
-7. **One sentence on how a device is identified.** The sibling of the above, and it is now on the
-   critical path: without it, re-reading a config for a box Fathom already knows creates a second
-   copy of that box rather than updating the first. The join's documentation says so in its own
-   header. Reconciliation cannot be written until this is answered.
-8. **Where the IKE warning attaches** — to the interface, or to the security zone?
-9. **Is Meraki configurable by text you can copy?** Decides whether it can be supported at all.
-10. **Four forks in the graph-extension document.**
-11. **Named expert review of the Juniper vocabulary** (§7.5) — now on the critical path, not backlog.
+- The rule for when two site records are the same site, and the same rule for devices. Without the
+  device rule, pasting the same box's config twice creates two devices rather than updating one. One
+  sentence each.
+- The real sample configs from the field (Calix, Nokia, a DIA circuit), one service record traced
+  end to end, and the site list. Everything about non-Juniper platforms waits on these.
+- A named expert to review the Juniper vocabulary files (§7.2).
+- Whether the IKE warning belongs on the interface or the zone; whether Meraki is configurable by
+  text you can copy.
 
 ## 9. How this was checked
 
-- The working tree at `fa72d80` on `claude/weld-and-first-browser-run`, read directly. Nothing
-  uncommitted; local and remote at the same commit before this file was written.
-- All four floor checks re-run from a clean tree, plus the citation checker. Test totals summed
-  across every test binary rather than quoted from a summary line.
-- `git log` and `git show --stat` across both commits of this run, each one's file list read.
-- The nine work-order files and the queue index, status lines read one at a time and compared.
-- `docs/70-ops/73-open-decisions.md` §14, every row.
-- **For §2, tested rather than read.** A throwaway integration test was written into the join
-  component, run, and deleted: it loads the shipped Juniper vocabulary, parses the checked-in
-  config file, and calls `apply_new_device` into a fresh store. It returned
-  `Err(SlotType { key: FieldKey(55) })`. Field 55 was resolved to `TunnelInterface.name` in the
-  generated field table. The cause was then confirmed in three separate files — the data model's
-  four interface declarations, the vocabulary line binding the looser type, and the parser's value
-  list, which has no entry for the stricter type at all. The tree was left clean afterwards.
-- Also for §2: `crates/fathom-emit/tests/` listed in full to confirm no round-trip test file exists;
-  every Juniper vocabulary file searched for an entry setting a VPN's mode (one `mode` binding
-  exists and it is on the IKE policy, not the VPN).
-- The join's own containment gate re-run: 46 pairs, green.
-- `Cargo.lock` (fifteen packages, all first-party), `.github/workflows/ci.yml`, `CLAUDE.md`, and the
-  rebuilt `target/artifact/fathom-dev.html` including its security policy.
-
-**Disagreements.** None with the tree's own records — the run's account of itself matched what the
-tree shows, including the part that reflects badly on it. The disagreements recorded above (§7.1,
-§7.7) are between the tree and itself.
+- Every number in §3 comes from running the command and reading its output in this session. None was
+  copied from a commit message, a work order, or the previous report.
+- §2's result comes from a program written in this session that ran the whole loop and printed what
+  came out. Its output was compared line by line against the writer's reference answer by a script,
+  not by eye. The program was deleted and the working tree confirmed clean afterwards.
+- §3's citation baseline comes from checking out the branch point into a separate working copy and
+  running the identical script there, so "58 was already 58" is a measurement rather than an
+  assumption.
+- §5 comes from reading each work order's own status line and comparing it against the index table
+  and against what is actually on disk — including checking whether the crate and function WO-04
+  says do not exist, exist. They do.
+- §4's commit list comes from `git log` against the main branch, not from any session's account of
+  itself.
