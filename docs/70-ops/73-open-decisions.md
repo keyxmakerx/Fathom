@@ -38,6 +38,7 @@ document that carries its detail. The ones that carry the most are
 | 11 | The decisions that are secretly one decision | *coupling* |
 | 12 | Sources | |
 | 13 | Disagreements | |
+| 14 | The escalation register | *the inbox (`78` §4)* |
 
 ---
 
@@ -1777,7 +1778,7 @@ out to be wrong is answered rather than removed.
 
 | E-nn | Raised by | What the order did not decide | What the session did instead | Answer |
 |---|---|---|---|---|
-| *(empty)* | | | | |
+| **E-01** (2026-08-08) | WO-06 §4.5, §7 trigger 7 | How WO-06 §4.5's two pre-authored rows are filed now that this §14 exists. §4.5 directs a verbatim `## 14. Escalations from execution sessions` with a four-column `Date / Work order / Question / Detail` table appended after §13; §14.2 above is a five-column `E-nn` form under a different title. §7 trigger 7 assigns merging inboxes to planning | Stopped at `78` §3 step 5, before plan step 1; no deliverable file touched and no plan step executed, because steps 1–3 write *"filed … in 73 §14"* into shipped source and that claim is untrue until §4.5's filing lands (`78` §5 item 8). §7 trigger 7's stated action — report the existing §14 verbatim — taken in WO-06 §10.5, with the four mechanically enumerable options and no lean. Detail in WO-06 § Open decisions (§10.5) | |
 
 - **Raised by** — the work order and section, so the trigger can be re-read.
 - **What the session did instead** — under `78`, a session that escalates does not proceed on a

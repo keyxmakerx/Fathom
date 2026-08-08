@@ -1,6 +1,7 @@
 # WO-06 — Finder completion: the four MINORs and the deferred-section map
 
-> **Status:** OPEN
+> **Status:** BLOCKED on how §4.5's two verbatim rows are filed now that `73` §14 exists as *"The
+> escalation register"* with a different intake form (§10.5)
 
 Depends on: nothing in the queue. Every edit is doc-comment, test or prose-level in
 `crates/fathom-find/` plus one filing in `73`; no deliverable of WO-01–WO-05 is touched, so this
@@ -508,6 +509,113 @@ not decided here:
 4. **The clear-vpn naming defect**: rename the id (invariant 7 makes ids load-bearing) or keep
    id and add the missing scoped sibling (`ipsec.sa.clear-index`, `87` §1 R03's named
    remainder). Expert reviewer with the owner, per `87` §5 item 6.
+
+### 10.5 ESCALATION (2026-08-08) — `73` §14 exists, in a different form to §4.5's
+
+Raised under `78` §4 by the execution session that took this order. Filed as E-01 in `73` §14.2.
+
+**Step reached.** `78` §3 step 5 (verifying §3 Prior state against the tree), before plan step 1.
+No plan step was executed and no deliverable file was touched.
+
+**What this work order says.** §3 Prior state, *The filing target*:
+
+> *"`docs/70-ops/73-open-decisions.md` ends at `## 13. Disagreements`; the `## 14` inbox `78` §4
+> step 3 defines does not exist yet. Its contents table (§0) has three columns (`§`, title, margin
+> tab)."*
+
+§4.5 then directs, verbatim: a contents-table row `| 14 | Escalations from execution sessions |
+*the inbox (78 §4)* |`, and *"Append at the end of the file (after §13's final paragraph),
+verbatim"* a `## 14. Escalations from execution sessions` section whose table is
+`| Date | Work order | Question | Detail |`, carrying two pre-authored rows. §7 trigger 7:
+
+> *"`docs/70-ops/73-open-decisions.md` already contains a `## 14` section (another session filed
+> first): stop, report its content verbatim; merging inboxes is planning work."*
+
+**What was found.** `docs/70-ops/73-open-decisions.md` line 1755 onward — a `## 14` exists,
+created by commit `1300444` (*"Add the program plan, and create the escalation register nine
+citations pointed at"*), and `CLAUDE.md` records it (*"the `73` §14 escalation register as it
+fills (the section now exists; it was cited from nine places before it did)"*). It is not `## 14.
+Escalations from execution sessions`, it carries a different intake form, and it names this work
+order. Reported verbatim as §7 trigger 7 requires — the section in full:
+
+> ```markdown
+> ## 14. The escalation register
+>
+> > **Status:** Live, and **empty** — no execution session has run yet.
+>
+> ### 14.1 What this is, and why it appears after §13
+>
+> This is the destination `78` §4 names for escalations raised by **execution sessions**: the point
+> where a session that hits something its work order does not decide stops and files, rather than
+> deciding. It sits after the house-style closing sections because it is a register that accretes
+> rows over time, not an argument this document makes. `78` §5's stop-and-escalate list is the
+> trigger; this is the inbox.
+>
+> **It was cited before it existed.** Nine places in the tree route here — `CLAUDE.md`'s planning
+> list, `78` §12, `88` §6.11, WO-08 and WO-06 in four separate places, two of which are **code
+> comments** that an executing session will write into shipped source. Creating the section is
+> therefore a correction, not a new decision: the destination was specified, referenced and depended
+> upon, and only the section itself was missing. Filed as a defect in its own right — see §14.4.
+>
+> ### 14.2 The intake form
+>
+> One row per escalation. A session files by appending; nothing is ever deleted, and a row that turns
+> out to be wrong is answered rather than removed.
+>
+> | E-nn | Raised by | What the order did not decide | What the session did instead | Answer |
+> |---|---|---|---|---|
+> | *(empty)* | | | | |
+>
+> - **Raised by** — the work order and section, so the trigger can be re-read.
+> - **What the session did instead** — under `78`, a session that escalates does not proceed on a
+>   guess. Where an order specifies a conservative fallback, this records that it was taken.
+> - **Answer** — filled by planning or the owner. Empty means open.
+>
+> ### 14.3 What is already known to land here
+>
+> WO-06 names four filings its execution will produce, each pinned by a test comment so the
+> contradiction is visible in source rather than only in prose: the `78` §4 inbox-width question, the ranking-formula gap, the tie-break contradiction, and the leaf-ordering
+> under-specification. These are **not** pre-filed here. A register that lists escalations before the
+> session that raises them would defeat its purpose, which is to record what building actually hit.
+>
+> ### 14.4 Two things this section does not decide
+>
+> 1. **How escalations are triaged.** `78` §12 leaves open *"whether `73` §14 escalations are triaged
+>    into D-numbered register entries or answered in place"*, and `88` §6.11 proposes an answer — that
+>    they be answered as ADRs. That question stays open; this section only guarantees the rows have
+>    somewhere to go.
+> 2. **Who answers.** `78` §7's test decides that per row. Some escalations are planning work and
+>    some are the owner's, and the distinction is not knowable before the row exists.
+> ```
+
+`73` §0's contents table still ended at `| 13 | Disagreements | |`; §14 had no contents row and has
+no `*margin tab:*` line. `78` §4 step 3 mandates *"creating the section (and its contents-table
+row) on first use"*, so this session added the missing contents row alone, copying §14's own
+heading text. Two further defects in §14 are **left for planning, not repaired here**, because `78`
+§4 step 3's grant is *"append a row"* and nothing wider: its status line still reads *"Live, and
+**empty** — no execution session has run yet"*, which E-01 falsifies on both counts; and §14 sits
+after §13 Disagreements, so `73` no longer ends on a house-style closer.
+
+**The smallest decision that unblocks.** How §4.5's two pre-authored spec-gap rows are filed
+against the §14 that exists. The options are mechanically enumerable from the two forms:
+
+| | Option | What §4.5 becomes |
+|---|---|---|
+| A | Retitle `73` §14 to *"Escalations from execution sessions"* and replace §14.2's intake form with §4.5's four-column table | §4.5 executes verbatim minus the append; §14.1/§14.3/§14.4 prose is re-anchored by planning |
+| B | Keep §14 as written and rewrite §4.5's two rows into §14.2's five-column `E-nn` form | §4.5's *"verbatim"* no longer holds; the row text is re-authored, which is authoring |
+| C | Keep both: §4.5's table lands as a new `### 14.5` subsection beside §14.2's | Two intake tables in one inbox — `78` §12 item 2's *"second, worse register"* inside §14 |
+| D | Rule that §4.5's two rows are not escalations at all (they are planning-decided filings, §12 item 2) and route them elsewhere | §4.5 is re-scoped; the WO-06 §12 item 2 widening is withdrawn |
+
+Reconciling the two forms is *"merging inboxes"*, which §7 trigger 7 assigns to planning, and it is
+judgment-shaped under `78` §7's test — four defensible answers exist above. No lean is recorded.
+
+**Why no plan step was executed first.** Plan steps 1–3 write, into shipped source, the claims
+*"filed as a spec gap in 73 §14"* (§4.1's constant doc-comment), *"the contradiction is filed in 73
+§14"* (§4.2's module note and §4.3's test doc-comment). Those sentences are true only once plan
+step 5's filing lands; shipping them with nothing filed would assert a citation that is not true
+(`78` §5 item 8). Plan step 4 does not cite `73`, but executing it alone is step reordering under
+`78` §3 step 6. The whole plan is therefore inseparable from the blocked step, and the tree is left
+at its floor-green pre-session state (`78` §4 step 1).
 
 ## 11. Sources consulted
 
