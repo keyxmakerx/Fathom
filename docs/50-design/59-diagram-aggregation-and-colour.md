@@ -48,7 +48,7 @@ the claim is named.
 |---|---|
 | 1 | What was asked, what was built, and how every number here was produced |
 | 2 | The legibility ceiling — a proposed amendment to `44` §4.7.4 and `52` §3.6.1 |
-| 3 | **DECISION — like-kind sibling aggregation, at six.** The design pass `56` §12 asks for |
+| 3 | **DECISION — like-kind sibling aggregation, at six.** The design pass `56` §12 asks for — plus §3.13–3.14, a **PROPOSED** sixth level for parallel edges between one pair of nodes, added 2026-08-08 |
 | 4 | **DECISION — no colour.** What the three rendered data points actually showed |
 | 5 | The palette, measured and shelved — a PROPOSED addition to `51` §14, not adopted |
 | 6 | What the variants found in the base that has to be fixed regardless |
@@ -509,6 +509,151 @@ only thing that makes the failure visible to the person deciding.
 > finished: it is uniform, and §3.11 is the part of the design pass it cannot yet demonstrate.**
 > §12's entry is replaced by §3.11's, which is narrower and answerable.
 
+### 3.13 Parallel edges between one pair of nodes — what fires today, and what it does instead
+
+*margin tab: added 2026-08-08*
+
+The owner described an estate this document did not model: *"2 boxes core and bridge with them
+having 10 10g pipes"*, and, asked whether the ten were bundled into one logical interface or were
+ten standalone links, answered **"they were standalone"** (recorded verbatim in `70` §10.1). That is
+not the high-degree fan-out §3.3's Peer level was written for. It is **one pair of nodes joined ten
+times**, and §§1–3.12 above do not address it anywhere.
+
+**None of §3.3's five levels counts edges.** Unit, Peer, Member, Selector and Port all collapse
+*nodes* — logical units, like-kind peers, member interfaces, traffic selectors, port stubs. The one
+that looks like a counter-example is Member, and it is not: it collapses the member `Interface`s of
+an `AggregateInterface` or a `RethInterface`, and the bundle those members belong to was **already
+one drawn edge before the collapse**, because `56` §5.4 draws a LAG member set as two rails with a
+bracket at both ends whatever its member count. Member level thins the inside of a device box. It
+never reduces the number of lines between two boxes.
+
+**What the model says, which is not what the picture draws.** The distinction matters because the
+two are being asked different questions.
+
+| | |
+|---|---|
+| **Ten standalone links, in the model** | Ten `Link` edges — `schema/schema.yaml` declares `edge: Link`, `from: [Interface]`, `to: [Interface]`, `out: "0..1"`, `in: "0..1"`, `symmetric: true` — one per interface pair. Under `19` §3.8's supersession the same estate is ten `Cable` nodes, each carrying two `Terminates` edges to `PhysicalPort`s, surfaced to the diagram as ten **derived** `Cabled` edges |
+| **A bundle, in the model** | One `AggregateInterface` node plus ten `MemberOfAggregate` edges (`schema/schema.yaml`), drawn as **one** edge by `56` §5.4 |
+| **What the owner's answer settles** | There is no `AggregateInterface` in this estate. **Nothing in the model groups the ten.** Any grouping in the picture is therefore a drawing decision and has to be labelled as one — it may not be drawn in a form that asserts a bundle |
+| **The one model-level grouping the schema does carry** | `Cable.assembly` — *"The grouping id deliberately shared — breakout assembly, multi-fibre bundle. Excluded from identity; grouping is a query, not a key."* It records that several runs travel together (`19` §3.4's breakout case: one QSFP cage, four lanes, four cables). It does not make them one interface |
+
+**What the picture does today is worse than "nothing fires".** Take the owner's estate and walk
+§3.3's table over it:
+
+| Level | Fires? | Consequence |
+|---|---|---|
+| Port | **Yes, at both ends.** Ten ports on one side exceeds six | Each device's port field collapses to one stack with a count (§3.5) |
+| Peer | **No.** There is exactly one peer — the bridge — not seven | The far box is drawn as itself, correctly |
+| Unit, Member, Selector | No | — |
+| The ten edges | **Nothing.** No level counts them | Ten lines are routed between the two boxes |
+
+> **THE FINDING. The two ends collapse and the ten edges do not, so the picture draws ten lines
+> terminating on a stack that draws one stub. That is not a legibility problem, it is a
+> contradiction: §3.3's own rule is that a group is "one group with one state and two affordances",
+> and here both ends of the group are collapsed while the thing between them is drawn ten times.**
+
+Two channel facts bound any fix, and both are already spent:
+
+- **`56` §5.2 G4 owns the two-rail form.** Its three values are 1 / 2 separate / 2 capped = simple
+  link / aggregate-or-reth members / tunnel conduit. **A collapsed parallel-edge group drawn with
+  two rails would assert a LAG that does not exist** — the exact claim the owner's clarification
+  rules out. §3.5 already reached the same conclusion for the node-level mark and took three.
+- **`56` §5.2 G5 owns the terminal.** Its three values are port stub / bracket both ends / bracket
+  one end = plain link / LAG / reth. **The stub is what says *standalone*,** so a collapse must keep
+  it. A bracket at both ends means the members were aggregated, which is a statement about the
+  device's configuration and not about the drawing.
+
+**One gap this exercise exposes that is wider than the rule.** `56` §4.1's projection table predates
+`19`'s physical model. `19` §3.8 states that *"`56` §5.4's edge vocabulary and `56` §4.1's `Link edge
+→ line` row keep working, against a derived edge instead of an asserted one"* — true, and the table
+has not been amended to say so. Grepped for this document, 2026-08-08: the strings `Cable`,
+`PhysicalPort`, `PassiveNode`, `Premises` and `Terminates` do not occur anywhere in `56` (`Cabled`
+occurs once, in §6.4), and none of them occurs in this document either. **The document that owns the
+diagram has no row for the kind that now carries a physical run.** Filed in §9; it is `56`'s to
+answer.
+
+### 3.14 PROPOSED — the sixth level: parallel edges, one drawn edge, one visible count
+
+*margin tab: proposed to `56`, not decided here*
+
+> **PROPOSED — a sixth aggregation level, `Link`, on the same counter and the same constant.** Two
+> nodes joined by more than **six** edges that are **indistinguishable in every channel `56` §5.2
+> allocates** are drawn as **one edge carrying a visible count**, expandable. It is counted in
+> edges, never in elements and never in ports. The threshold is §3.1's six and the counter is §7.2
+> X1's `sibling_group_max`; §9 already refuses a second number until there is evidence for one.
+>
+> Like every other level it is a **transform on the model, run before layout** (§3.1). The router,
+> the channel allocator and the label placer receive one edge and are not modified.
+
+#### 3.14.1 The mark
+
+| | |
+|---|---|
+| **Form** | §3.5's stack, applied to an edge: **three rails**, the form it replaces drawn three times. Not two — G4 owns two, and two would say LAG |
+| **Terminals** | **Port stubs at both ends, never brackets.** G5's stub is the channel that says the members are standalone (§3.13). No caps either: G4's capped pair is the tunnel conduit |
+| **Label** | A named range at each end **plus** the count, per §3.6's affordance contract: `xe-0/0/0–9 ↔ xe-1/0/0–9 · 10 links`. **Never a bare `+10`** — §3.6's governing rule is that a collapse states *what* it is hiding and *how many*, and an edge collapse hides two port ranges, not one |
+| **The count is never suppressed** | It claims its box before anything else is placed, is exempt from `44` §4.7.2's LOD gate, and is drawn even if every candidate position collides. That is A4's never-demoted rule (§3.6), and X9 asserts it down to zoom 0.25. `59` §6.2 files the defect where counts vanish at scale; a new mark must not inherit it |
+| **The accessible name** | Carries the cardinal and both ranges, in §3.8's form: *"xe-0/0/0 to xe-0/0/9 on CORE-01, 10 standalone links to BRIDGE-01. Activate to expand 6 of them."* The word **standalone** is load-bearing and is not decoration |
+| **The rail gap** | **Not set here.** `56` §5.3 owns `--dg-stroke`, `--dg-rail-gap` (3 px) and `--dg-conduit-gap` (5 px), and this document binds no token. The constraint is stated instead: at the LOD floor a three-rail stack must not converge on either. §3.5 measured the node-level stack merging at zoom 0.74; the edge-level analogue has not been measured and must be, against a real render, before the value is chosen. Request against `56` §5.3 |
+
+#### 3.14.2 The grouping key — what may share one drawn edge
+
+> **PROPOSED — two parallel edges group only when every allocated channel would render them
+> identically.** G4 rail count, G5 terminal, G6 mid-tick, G9 arrowhead, the `--muted` stroke and
+> `inferred` tab that `11` §7.6 gives derived edges, and the drawn form `56` §5.4 assigns. **Any
+> channel that differs splits the group.** Mixed kinds between the same pair therefore group by
+> kind, one drawn edge per group, each with its own count.
+
+This is not a second rule. It is **§3.11's heterogeneity guard applied to edges**, with the channel
+budget standing in for §3.11's *"declared attribute set"* — which is the right declared set for an
+edge, because the channels are exactly what the picture claims about it. Three consequences:
+
+- A pair joined by six standalone links, one `ae0` LAG and one tunnel draws **three** edges with
+  three counts, never one edge reading `8 links`.
+- A group of one is drawn as itself. There is no `1 link`.
+- A mix of asserted `Link` edges and derived `Cabled` edges between the same pair splits, because
+  `11` §7.6 renders derived edges in `--muted` with an `inferred` tab and that is a channel
+  difference. If one of the ten is stale or inferred, it is carried out of the group and drawn
+  beside it, and the aggregate then reads `9 links` and is true (§3.11).
+
+#### 3.14.3 What happens at 2, at 10, and at 100
+
+| n | What is drawn | Why |
+|---|---|---|
+| **2** | Two lines, two pairs of port stubs, both labels. **Nothing fires** | Two is below six. Two links between one pair is a redundancy fact the picture gives away for free, and §3.4's argument for the reth pair is the same argument: aggregation fires on count, never on kind, and a threshold that fired here would be collapsing information that cost nothing to draw |
+| **10** | One three-rail edge, port stubs at both ends, `xe-0/0/0–9 ↔ xe-1/0/0–9 · 10 links`. The two port fields are already collapsed by §3.3's Port level, and they collapse **with** this group rather than independently | Above six. This is the owner's estate. Element cost falls to §2.5's O(1) shape for the ten lines and their twenty stubs |
+| **100** | **The same drawing.** The count reads `100 links`; the range reads the real first and last port names. Element cost is the 10 case's | This is what X3 asserts for nodes, applied to edges. A hundred parallel runs is a real shape in a data-centre fabric, and the picture must not be a function of it |
+
+#### 3.14.4 One state, three affordances
+
+§3.3 states the rule for the unit group and the peer group: *"one group with one state and two
+affordances."* A parallel-edge group has **three** — the near port stack, the drawn edge, and the far
+port stack — because the edge itself is drawn and is reachable. Expanding any one expands all three;
+collapsing any one collapses all three. Failure mode 7 is the same failure, one shape further on: a
+picture that says ten at the core, ten at the bridge and draws six lines is describing an estate that
+does not exist.
+
+#### 3.14.5 Expansion
+
+§3.7's windowed model, unchanged. Parallel links between one pair are **unbounded and ordered by
+port index** — the same shape as the spoke fan, not the shape of an `ae`, which §3.7 exempts because
+it is bounded and unordered. At 100: `6 of 100 shown · 94 collapsed`, with a leading and a trailing
+residual, each stating its own range and count. X6 binds unchanged: **no reachable state may draw
+more elements than the un-aggregated form**, which is the measured failure §3.7 records against A3.
+
+#### 3.14.6 What this proposal deliberately does not do
+
+- **It adds no channel.** The three-rail stack is a repetition of an existing form (§3.5), and the
+  expansion state is G10 at the element, per §9's existing recommendation. `56` §5.2's table gains
+  no row.
+- **It does not decide the heterogeneous fan.** Ten neighbours of ten different kinds — `70` §10.1's
+  other hole — is a different shape with none of the same remedy, and §3.14.2's key deliberately
+  refuses to group it. It stays open in `70` §13.
+- **It does not say how a `Cable` is drawn.** §3.13's last paragraph; that is `56` §4.1's to answer.
+- **It never asserts a bundle.** If an operator wants ten runs treated as one interface, the model
+  already has the word for it and the word is `AggregateInterface`. A drawing that says it on the
+  model's behalf is the failure this whole section exists to prevent.
+
 ---
 
 ## 4. DECISION — no colour
@@ -950,6 +1095,10 @@ Ordered. Each item is a day to a few days, and each one is finishable.
 | 12 | **`forced-color-adjust: none` spreads** | A high-contrast user gets a white island in a black page, and the setting they chose is defeated | "high contrast mode is broken" | §6.1. `51` §6 permits it exactly once, on the egress band |
 | 13 | **A forced-colours fallback is written at `:root`** | It works in light and silently loses to the dark override in dark, which is the default HC theme | "Chromium doesn't repaint SVG" | §5.6. Measured in A4 |
 | 14 | **The picture is checked at four spokes** | Every claim holds, because below the threshold nothing fires | "it passed review" | §2.2, and X8. Test at the top of the range |
+| 15 | **A parallel-edge collapse is drawn with two rails** | A reader sees a LAG where the estate has ten standalone links, and plans a change against a bundle that does not exist | "the bracket is missing" | §3.13, §3.14.1. G4 owns two rails and G5's stub owns *standalone*; the stack is three rails and keeps the stubs |
+| 16 | **The ports collapse and the edges do not** | Ten lines land on a stack that draws one stub. **This is the behaviour the ladder specifies today** | "the router is duplicating edges" | §3.13's finding, and §3.14.4. One group, one state, three affordances |
+| 17 | **A parallel group is keyed on the node pair rather than on the channels** | A tunnel, a LAG and six links between the same two boxes read as one edge saying `8 links` | "the count is wrong" | §3.14.2. Any channel that differs splits the group; a group of one is drawn as itself |
+| 18 | **The count survives but the range does not** | `10 links` between two collapsed port stacks, and no way to tell which ten ports | "the label was too long for the gutter" | §3.6 and §3.14.1. An edge collapse hides **two** port ranges and must print both; the inspector names every member (§3.8) |
 
 ---
 
@@ -990,6 +1139,28 @@ is worse than one number with two derivations.
 *expansion state* is a new thing the picture says (`st0 · 6 of 40 shown` in a reserved band). It is
 arguably G10 at the element rather than in the view band. **RECOMMENDATION — treat it as G10, and
 record it in §5.2's G10 row rather than as an eleventh channel.**
+
+**PROPOSED — a sixth aggregation level for parallel edges between one pair of nodes (§3.14).**
+**RECOMMENDATION — take it, and take §3.14.2's grouping key with it**, because the key is what stops
+the level from making the false claim the mark was designed to avoid. The counter-case is that six
+was derived for a *stacked field on a device wall* — `56` §5.6's `layer_pitch ÷ --lh-micro` (§3.2) —
+and an edge fan between two boxes is a horizontal quantity with no such derivation, so six is
+imported here on the strength of *one rule is better than two* alone. That is the same argument §9
+already makes for port level and it is weaker here. **If a render moves it, it moves once, for both.**
+
+**Open, not decided — the gap between the three rails (§3.14.1).** `56` §5.3 owns the stroke tokens
+and this document binds none. The value must keep a three-rail stack distinguishable from G4's
+two-rail LAG (`--dg-rail-gap`, 3 px) and from the tunnel conduit (`--dg-conduit-gap`, 5 px) down the
+LOD ladder. **RECOMMENDATION — do not pick the number in prose.** §3.5's node-level analogue was
+measured merging at zoom 0.74; the edge-level figure has not been measured and inventing one would
+be inventing a benchmark. Request against `56` §5.3.
+
+**Open, not decided — whether `Cable` is drawn, and as what.** `56` §4.1's projection table predates
+`19`'s physical model; `19` §3.8 says the `Link edge → line` row *"keeps working"* against the
+derived `Cabled` edge, and the table was not amended to say so. `Cable`, `PhysicalPort`,
+`PassiveNode`, `Premises` and `Terminates` have no row in it (§3.13). This is not this document's to
+answer and it is not a detail: it decides what noun a parallel-edge count uses — `10 links` against
+`10 cables` — and whether ten runs sharing one `Cable.assembly` are one fact or ten. `56` owns it.
 
 **Requested against `53` (ADR-0024).** §3.8's disclosure semantics — `Enter`/`Space` to expand,
 `Escape` scoped to the focused group to collapse — need to be either confirmed as instances of `53`
@@ -1048,6 +1219,28 @@ written as replacement text rather than as a complaint.
   solo weeks, and §7.1's *"for four phases the product has no picture"*).
 - Miller, G. A. (1956), *The Magical Number Seven, Plus or Minus Two* — cited for the span of
   absolute judgment in §3.2, as a supporting argument only. The settling argument is `56` §5.4.
+
+Added 2026-08-08 for §3.13–3.14, and read for this document rather than quoted from a summary:
+
+- `docs/70-ops/70-owner-answers-and-standing-priorities.md` §10.1 — the owner's clarification,
+  verbatim, and the correction it forced on the analysis that preceded it.
+- `schema/schema.yaml` — `edge: Link` (`from: [Interface]`, `to: [Interface]`, `out: "0..1"`,
+  `in: "0..1"`, `symmetric: true`, marked SUPERSEDED and retained); `edge: MemberOfAggregate` and
+  `edge: MemberOfReth`; `edge: Terminates` (`from: [Cable]`, `out: "0..2"`); `edge: Cabled`
+  (derived, `produced_by: infer.port.cabled-peer`); `kind: Cable` and its `assembly` field —
+  *"grouping is a query, not a key."*
+- `docs/10-core/19-service-and-physical-model.md` §3.4 (`Cable` promoted from an edge to a node; the
+  breakout case — one QSFP cage, four lanes, four cables), §3.8 (`Link` superseded, `Cabled` derived,
+  and its statement that `56` §4.1's row *"keeps working"*).
+- `docs/10-core/11-ir-schema.md` §7.4 (`Link` is an edge, not a node), §7.6 (derived edges render
+  `--muted` with an `inferred` tab — the channel §3.14.2 keys on).
+- `docs/50-design/56-diagram-view.md` §4.1 (the projection table, and what is missing from it),
+  §5.2 G4/G5/G10 (the two-rail and terminal channels §3.13 finds already spent), §5.3 (the stroke
+  tokens §3.14.1 declines to set).
+- `grep -n "Cable\|PhysicalPort\|PassiveNode\|Premises\|Terminates" docs/50-design/56-diagram-view.md
+  docs/50-design/59-diagram-aggregation-and-colour.md` (run 2026-08-08) — one hit, `Cabled` at `56`
+  §6.4. Nothing else.
+- `grep -rn "GroupId" .` (run 2026-08-08) — one hit in the whole tree, `56` §3.5's type sketch.
 
 ---
 

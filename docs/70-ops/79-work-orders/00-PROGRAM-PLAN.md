@@ -639,7 +639,9 @@ not so they are answered today.
 | # | The decision | Stated at | Unblocks |
 |---|---|---|---|
 | 27 | **Does the diagram partition per `Site`, and how do two sites relate?** `70` §10.2's recommendation is explicit: **do not decide this on paper** | `70` §13 item 8; `56` §12 | Stage G, asked at Stage G |
-| 28 | **The bridge with ten links — were they ten of the same thing, or a mix?** Close to a one-word answer. If mixed, `59` §3's like-kind rule does not fire and a new rule is needed | `70` §11.4 | Stage G |
+| ~~28~~ | ~~**The bridge with ten links — were they ten of the same thing, or a mix?**~~ **ANSWERED 2026-08-08 — neither.** Two nodes joined by ten **standalone** links: one neighbour, ten parallel edges. Both offered answers assumed many neighbours. `59` §3's levels count nodes and none counts edges, so nothing fires; `59` §3.13 records the finding and `59` §3.14 proposes a sixth level. **The mixed-neighbour case was never the owner's example and is still open** — `70` §13 item 10 | `70` §10.1, §11.4 | Stage G |
+| 28a | **Is `59` §3.14's sixth aggregation level adopted** — parallel edges between one pair of nodes collapse to one drawn edge with a visible count, keyed on the channel budget? Three sub-forks travel with it: the threshold, the three-rail gap (a `56` §5.3 token nobody has measured), and whether a `Cable` is drawn at all | `59` §9; `70` §13 item 11 | Stage G. `56` owns the diagram and therefore owns the answer |
+| 28b | **`group` and `tag` — schema questions before design questions.** The owner named both. `GroupId` occurs once in the tree with no definition, no `schema/` entry and a keybinding that collides with `53`; `tag` does not exist at all; and node position is not in `schema/` either, so `move` is unbuilt too | `70` §10.3; `70` §13 items 12–13 | Stage G, and the schema work precedes it |
 | 29 | **The e2e harness fork:** an owner exception for the harness crates, a first-party WebDriver client, or the manual checklist as the standing gate | WO-08 §10 item 1 | Stage K. Until answered, WO-08's G10 is the gate every UI order inherits |
 | 30 | **The UI language:** adopt ADR-0019's TypeScript toolchain (an owner exception on dependencies), or amend the ADR to match the hand-authored JS the tree has | WO-08 §10 item 2 | Stage K |
 | 31 | **Does the CLI ship?** `88` §4.4 records that without one the determinism claim has no testing surface | `73` §4.5 (D13) | Stage K |
@@ -824,8 +826,8 @@ The owner's request, verbatim: *"maybe we make one and that way i can just keep 
 you run with all of this and only get back to me if you need decisions i can answer like ux,
 animations, what about this, etc etc."*
 
-That is a reasonable ask and this plan is most of the answer — §16's thirty-four rows are precisely
-the set of things that need them. What follows is the rule for everything else.
+That is a reasonable ask and this plan is most of the answer — §16's rows are precisely
+the set of things that need them — thirty-five open as of 2026-08-08, one struck (row 28). What follows is the rule for everything else.
 
 ### 20.1 The three buckets
 
@@ -854,7 +856,7 @@ wrong is either unrecoverable or invisible until it is expensive.
 
 ### 20.3 What this does not do
 
-It does not reduce §16. Those thirty-four rows still need answering — the authorisation governs the
+It does not reduce §16. Those rows still need answering — the authorisation governs the
 space *between* them, which is most of the work. And it does not licence proceeding through a
 `78` §5 stop-and-escalate condition: an execution session's escalation rules are stricter than this
 section and are unaffected by it.

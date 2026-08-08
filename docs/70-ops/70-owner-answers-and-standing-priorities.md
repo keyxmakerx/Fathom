@@ -22,7 +22,7 @@ what a planning session made of it.
 | 7 | The platforms — the equipment the owner works on | *answers §11.1* |
 | 8 | Hosting, load balancing and stored state | *not the collision it looks like* |
 | 9 | What "off the ground" means | *there is no thin first release* |
-| 10 | The graph and the diagram — two owner observations | *one decided, one a real gap* |
+| 10 | The graph and the diagram — three owner observations | *one corrected, two real gaps* |
 | 11 | Questions still outstanding | *re-asked in plain language* |
 | 12 | Failure modes |  |
 | 13 | Open decisions |  |
@@ -444,15 +444,62 @@ demonstrable at intervals even though nothing ships until the bar in this sectio
 preserves the owner's decision exactly while converting some of the estimate into measurement. It
 needs no decision and no new document; it is how the queue is already ordered.
 
-## 10. The graph and the diagram — two owner observations
+## 10. The graph and the diagram — three owner observations
 
 > *"i came across one today that had like 10 links to a bridge device, so we will need to make sure
 > we account for those situations on the graph. Also how do you have the graphics seperated, is it
 > per like location or…? How will they interact with each other?"*
 
-One of these is decided and measured. The other is a real gap, and the question is what exposed it.
+Asked in follow-up on 2026-08-08 what the ten links were, the owner described the device:
 
-### 10.1 The high-degree node — decided, measured, with one hole the example may fall into
+> *"2 boxes core and bridge with them having 10 10g pipes"*
+
+and, asked directly whether the ten were bundled into one logical interface or were ten standalone
+links, answered:
+
+> *"they were standalone"*
+
+In the same message:
+
+> *"we need to account for all kinds of those situations and be dynamic about it while letting the
+> user move stuff, collapse, expand, group, tag, etc as needed."*
+
+Three observations, then. §10.1's analysis of the first was **aimed at the wrong shape and is
+corrected below** rather than amended away. §10.2 is a real gap. §10.3 is a second one, and it is
+larger than it looks.
+
+### 10.1 The high-degree node — the analysis was aimed at the wrong shape
+
+> **CORRECTION, 2026-08-08. What follows below the rule was written against *many neighbours* and
+> the owner's device is *many links to one neighbour*. Those are different shapes with different
+> remedies, and the difference is not a detail — it is the whole of why `59` §3's six-sibling rule
+> does not fire on the estate this section was written to explain.**
+>
+> The original reading treated *"10 links to a bridge device"* as high-degree fan-out and pointed at
+> `59` §3's like-kind sibling rule, whose Peer level collapses *"`SPOKE-01 … SPOKE-40` in the lateral
+> column"* — seven or more **like-kind peers**. The owner's clarification says there is exactly
+> **one** peer, the bridge, reached ten times over ten standalone links. Peer level therefore never
+> fires. `59` §3.3's Port level does fire, at both ends, because ten ports on one side exceeds six —
+> **so the ends of the group collapse and the ten edges between them do not.** `59` §3.13 states the
+> consequence: the picture draws ten lines terminating on a stack that draws one stub.
+>
+> **What was right and stays right:** the legibility-ceiling finding, the `155 + 9n` measurements,
+> the six-sibling threshold, and §2.3's proof that element count cannot choose a threshold. None of
+> that depended on the shape. **What was wrong:** the conclusion, stated below as *"a ten-link bridge
+> is handled if the ten links are like-kind siblings — six draw, four aggregate"*. It is not handled,
+> in either reading. If the ten links are alike, no level counts them; if the ten neighbours are
+> alike, Peer level counts those, but the owner does not have ten neighbours.
+>
+> **What now covers it:** `59` §3.13 (the finding, and what the model represents against what the
+> diagram draws) and `59` §3.14 (a PROPOSED sixth level — parallel edges collapse to one drawn edge
+> with a visible count, expandable, keyed on the channel budget so that mixed kinds split). It is
+> **proposed, not decided**: `56` owns the diagram and `59` §9 carries the fork. Listed in §13.
+>
+> **One thing the correction does not change and the owner should know.** The proposed mark keeps
+> `56` §5.2 G5's port stubs and takes three rails rather than two, because two rails already mean
+> LAG-or-reth. A collapsed group of standalone links must never be drawn in the form that says
+> *bundle*, and *"they were standalone"* is exactly the fact that would be destroyed by getting it
+> wrong.
 
 `59` is a whole document about this, and it found something worth repeating. The corpus's existing
 ceiling — `44` §4.7.4's *"never more than 2,000 live SVG elements"* — **never fires**. A forty-spoke
@@ -473,15 +520,19 @@ in siblings and never in elements, because §2.3 proved element count cannot cho
 an element rule would collapse the second sibling, *"which nobody wants and which destroys the one
 fact a chassis cluster exists to show."*
 
-So a ten-link bridge is handled **if the ten links are like-kind siblings**: six draw, four
-aggregate into an expandable group.
+~~So a ten-link bridge is handled **if the ten links are like-kind siblings**: six draw, four
+aggregate into an expandable group.~~ **Superseded by the correction above, 2026-08-08.** The
+sentence read the ten links as ten siblings of one kind hanging off one node. `59` §3.3's levels
+count nodes, not edges, so ten edges between one pair collapse under none of them.
 
-**The hole the owner's example may fall into.** If those ten links go to ten *different* kinds of
-thing — a firewall, three access switches, a router, a couple of servers — then they are not
-like-kind siblings and the rule does not fire. Ten heterogeneous neighbours is the same legibility
-problem with none of the same remedy, and `59` does not cover it. Whether real bridge fan-out is
-homogeneous or mixed is exactly the sort of thing the owner can answer from the device they saw;
-asked in §11.4.
+**The hole the owner's example may fall into — and it fell into a different one.** If ten links go
+to ten *different* kinds of thing — a firewall, three access switches, a router, a couple of servers
+— then they are not like-kind siblings and the rule does not fire. Ten heterogeneous neighbours is
+the same legibility problem with none of the same remedy, and `59` does not cover it. **That hole is
+still open and is still unowned**; `59` §3.14.6 states explicitly that its grouping key refuses to
+group it. It is simply not the hole the owner's device fell into: §11.4 is answered, and the answer
+was *"they were standalone"*, which is the parallel-edge shape and not the mixed-neighbour one.
+Kept in §13 as its own row, because answering §11.4 did not answer it.
 
 `59` §6.2 also files a defect worth knowing about: at the top of the range the view band stops
 printing *how many* labels it suppressed, which violates `56` §5.5's own rule — *"a diagram tool
@@ -516,6 +567,76 @@ exists.
 (usability for the user), it is exactly the kind of question they said they would answer, and it is
 far easier to answer against something on screen than in prose. Put it to them when the diagram
 face is real enough to show two sites. Until then it is logged, not settled. `56` §12 owns it.
+
+### 10.3 *"move stuff, collapse, expand, group, tag"* — two of the five are specified, one is a placeholder, one does not exist
+
+The owner named five verbs. They are not five features of one size, and the honest report is that
+the list splits three ways. **Nothing is designed here** — this section names what is missing and
+stops, because `56` owns the diagram and `62`'s grammar owns any schema extension.
+
+| Verb | State | Where it is, or where it isn't |
+|---|---|---|
+| **move** | **Specified in design, absent from `schema/`** | `56` §3.5 gives `LayoutHint { pin, pinned_under, at }` and `Pin::{Free, At, InLayer, Grouped}`, states that positions are *"graph data, not view state"*, keys them by `NodeId` so they survive a rename, and makes unpinning an undoable op. `56` §1.3 lists *"Manual position, per node, workspace-persistent"* in scope. **But**: grepped 2026-08-08, `schema/` contains no `LayoutHint`, no `Pin` and no node position of any kind (`PortPosition` is a physical slot coordinate and unrelated). Under ADR-0008 *a field that is not in `schema/` does not exist*, so the thing `56` calls graph data is not yet in the graph |
+| **collapse / expand** | **Specified** | `59` §3.7 (windowed expansion, leading and trailing residuals), §3.8 (the ARIA disclosure contract — `role="button"`, `aria-expanded`, `aria-controls`, the count in the accessible name), and `53`'s `h` / `l` aliases bound to collapse / expand. This is the best-specified verb on the list |
+| **group** | **A half-drawn placeholder** | §10.3.1 |
+| **tag** | **Does not exist anywhere** | §10.3.2 |
+
+#### 10.3.1 `group` — one identifier, mentioned once, defined nowhere
+
+`56` §3.5's `Pin` enum ends with:
+
+```rust
+/// Weakest: keep these nodes adjacent and in this relative order.
+/// Produced by selecting several nodes and pressing `G`.
+Grouped { group: GroupId, ordinal: u16 },
+```
+
+**`GroupId` occurs exactly once in the entire repository** — in that line (`grep -rn "GroupId" .`,
+run 2026-08-08). There is no type definition, no `schema/` entry, no identifier form, no rule for how
+a group is created, named, renamed, dissolved, drawn, exported, or reconciled when two writers group
+overlapping sets. Four specific holes, each of which has to be filled before anything is built:
+
+1. **It is not in `schema/`.** ADR-0008 is unambiguous. `62`'s grammar governs adding it.
+2. **It has no identifier form.** `.context/conventions.md` § *Identifiers* fixes node IDs as
+   `<kind-lower>:<ulid>`. A group is not obviously a node, and if it is one it needs a kind.
+3. **The keybinding collides.** *"pressing `G`"* — but `53` binds `g g` / `G` to *first / last* in any
+   list, and ADR-0024 makes `53` the sole owner of the keymap. `56` may not bind `G`.
+4. **It is a different thing from `56` §3.7's `Group by zone` / `Group by site` / `Group by routing
+   instance`.** Those are layout **commands** computed from graph data the user did not author;
+   `Pin::Grouped` is a user-authored set. The two share a word and nothing else, and shipping both
+   under one name is how a picture becomes unreadable.
+
+#### 10.3.2 `tag` — not a gap in the design, an absence from the model
+
+There is no tag in `schema/` and none in the design documents. Grepped 2026-08-08: the seven
+occurrences of the string `tag` in `schema/schema.yaml` are `Interface.vlan_tagging`, two mentions of
+a **tagged union** as a value shape, three mentions of a **tagged unit** — `LogicalUnit.vlan_id`'s
+emit predicate, its `VERIFY` note, and the `AttachesTo` edge's doc explaining that a UNI is
+frequently one — and `Cable.label`'s prose, *"the tag on this cable"*. **None of them is a
+user-applied label on a node.**
+
+Two things must be said about it, and the second is the one that decides how it is treated.
+
+**It is not the free-floating clutter `56` §1.3 refuses.** That row puts *"free-floating annotations,
+text boxes, arrows that are not edges, clip art, background images"* out of scope, and the reason is
+that those things are not statements about anything — they float over a picture and decay into
+graffiti. A tag is the opposite: **a user-authored fact about a real device**, attached to a node
+with a stable ID, surviving a rename because `56` §3.5's own argument for positions applies
+identically. *"These four switches are the ones we are replacing in Q3"* is estate-of-record content,
+which is one of this product's two co-equal goals.
+
+**And it is therefore a schema question before it is a design question.** A tag that is real is a
+kind or a field in `schema/`, with an identity rule, a provenance origin (`Origin::Hand`, which
+`11` §8.7 deliberately does not age), an emit column reading `—`, and a decision about whether it is
+free text or a controlled vocabulary. It is also, unavoidably, a **new plaintext channel in the
+workspace**, which puts it in front of §2's rank 1 before it goes anywhere near a diagram: a tag
+field is somewhere a user can type a credential, and invariant 3's ingest-gate redaction covers
+pasted configuration, not typed prose.
+
+**RECOMMENDATION —** treat `group` and `tag` as one planning item and not two, because they have the
+same shape: a user-authored set or label over nodes, needing a schema entry, an identity rule, a
+persistence story and a sync story before any of it is drawn. Neither is designed here. Both are
+listed in §13.
 
 ## 11. Questions still outstanding
 
@@ -597,14 +718,23 @@ and it belongs in `03` alongside the other eighteen boundaries rather than in th
 **The cheapest way to settle it:** one real Meraki configuration export, however small, with any
 credentials removed. That is the same S0 fixture pattern `76` §7.3 already asks for.
 
-### 11.4 The bridge with ten links — were they ten of the same thing?
+### 11.4 The bridge with ten links — were they ten of the same thing? — **ANSWERED 2026-08-08, see §10.1**
 
-§10.1 turns on this and it is close to a one-word answer. On the device the owner saw: were the ten
-links going to **ten similar things** (ten access switches, ten identical spokes), or to **a mix** —
-a firewall, some switches, a router, a few servers?
+*(was: were the ten links going to ten similar things, or to a mix?)*
 
-If they are alike, `59` §3's six-sibling rule already handles it. If they are mixed, there is no
-rule, one is needed, and it cannot be the same rule.
+The question offered two answers and the real one was a third. The owner's device is **two nodes —
+core and bridge — joined by ten standalone 10G links**: one neighbour, ten parallel edges. Not ten
+neighbours of one kind, and not ten neighbours of mixed kinds.
+
+Both of the offered answers assumed *many neighbours*, which is the defect §10.1's correction
+records: the question was framed from the analysis rather than from the device, and the owner
+answered the device. The lesson is §15 item 1's, again — a question for the owner is phrased in terms
+of what they would see.
+
+`59` §3's six-sibling rule does **not** already handle it, in either offered reading: its five levels
+count nodes and none of them counts edges. `59` §3.13 states the finding and `59` §3.14 proposes the
+rule. **The mixed-neighbour case is still unanswered and still unowned** — it was never the owner's
+example, so answering this question did not close it. §13 item 10.
 
 ## 12. Failure modes
 
@@ -645,8 +775,29 @@ rule, one is needed, and it cannot be the same rule.
    should be designed before this is answered.
 9. **Whether the diagram partitions** (§10.2) — owner, but not yet. Per-`Site` views and how they
    relate. `56` §12 owns it; the recommendation is to decide it against a running diagram.
-10. **Heterogeneous high-degree nodes** (§10.1) — planning, once §11.4 is answered. `59` §3's rule is
-   like-kind only and may not cover the owner's example.
+10. **Heterogeneous high-degree nodes** (§10.1) — planning, and **§11.4's answer did not close it**.
+   The owner's example turned out to be parallel edges to one neighbour, not a mixed fan, so the
+   mixed fan remains a real shape with no rule: `59` §3's Peer level is like-kind only, and `59`
+   §3.14.6 states that the proposed parallel-edge key deliberately refuses to group it. Nobody owns
+   it. Unblocked — it needs no owner answer, only a design pass against `56`.
+11. **Whether the parallel-edge level is adopted** (§10.1's correction) — `59` §3.14 proposes a sixth
+   aggregation level for many links between one pair of nodes, in `59` §9's fork form. `56` owns the
+   diagram and therefore owns the answer. Three sub-forks travel with it, all in `59` §9: the
+   threshold (six, imported from a derivation that was about a *vertical* stacked field and does not
+   obviously transfer to a horizontal fan), the three-rail gap (a `56` §5.3 token, deliberately not
+   chosen in prose because nobody has measured the render), and whether a `Cable` is drawn at all —
+   which decides whether the count reads `10 links` or `10 cables`.
+12. **`group` and `tag`** (§10.3) — the owner asked for both by name. `group` is one identifier
+   mentioned once in the tree with no definition, no `schema/` entry, no persistence rule and a
+   keybinding that collides with `53`; `tag` does not exist anywhere. Both are **schema questions
+   before they are design questions** (ADR-0008), both are user-authored facts about real devices
+   rather than the annotations `56` §1.3 refuses, and `tag` opens a new plaintext channel that meets
+   §2 rank 1 first. Planning proposes the schema extension under `62`'s grammar; `56` and `53` own
+   the surface and the keymap. **Nothing is designed in §10.3 and nothing should be built from it.**
+13. **Node position is not in `schema/`** (§10.3). `56` §3.5 calls `LayoutHint` *"graph data, not view
+   state"* and `56` §1.3 lists manual position as workspace-persistent, but no position field exists
+   in `schema/`. Under ADR-0008 it does not exist. This blocks `move`, and `move` is the one verb on
+   the owner's list that everyone assumes is already done. Planning; `62`'s grammar governs.
 11. **Whether a registered platform with no content should be visible in the product.** Five of the
    six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
    selecting `junos-ex` today would get an empty product with no explanation. Design decision;
@@ -657,6 +808,14 @@ rule, one is needed, and it cannot be the same rule.
 | Source | Taken |
 |---|---|
 | The owner, in conversation, 2026-08-06 | Every quotation in §§2–6, verbatim |
+| The owner, in conversation, 2026-08-08 | §10's three additional quotations, verbatim — the core-and-bridge description, *"they were standalone"*, and the five verbs |
+| `docs/50-design/59-diagram-aggregation-and-colour.md` §3.3, §3.13, §3.14, §9 | The five levels and what they count; the parallel-edge finding; the proposed sixth level and its forks |
+| `docs/50-design/56-diagram-view.md` §1.3, §3.5, §3.7, §5.2 G4/G5 | Manual position in scope; `LayoutHint`, `Pin` and `GroupId`; the regroup **commands**, which are a different thing; the two channels a parallel-edge mark may not spend |
+| `docs/50-design/53-interaction-and-keyboard.md` §2.2 and its vi-alias table | `h` / `l` bound to collapse / expand; `g g` / `G` bound to first / last, which is the collision `56` §3.5's *"pressing `G`"* creates. ADR-0024 makes `53` the sole owner |
+| `grep -rn "GroupId" .` (run 2026-08-08) | One hit in the whole tree — `56` §3.5's type sketch |
+| `grep -rni "layouthint\|layout_hint\|pin" schema/` and `grep -rni "position\|layout" schema/schema.yaml` (run 2026-08-08) | No node position, no `LayoutHint`, no `Pin` in `schema/`. `PortPosition` is a physical slot coordinate |
+| `grep -rn "tag" schema/schema.yaml schema/field-keys.yaml` (run 2026-08-08) | Seven hits, none a user-applied label — §10.3.2 enumerates them |
+| `schema/schema.yaml` — `edge: Link`, `edge: MemberOfAggregate`, `kind: Cable` | Ten standalone links are ten model objects; a bundle would be one `AggregateInterface`; `Cable.assembly` is *"a query, not a key"* |
 | `docs/00-vision/03-non-goals-and-scope.md` §4.5 (`N-R-5`) | Correlation and LLDP paste declared in scope; the refused adjacent |
 | `docs/10-core/11-ir-schema.md` §10.4, §10.6; ADR-0010 | Re-identification is scoped by `owner_device`; the cross-device limitation row |
 | `docs/10-core/19-service-and-physical-model.md` §§2.1, 3.3, 3.7, 3.9, 6.1–6.6 | *"no parser produces it"*; `infer.port.occupies` as suggestion; the warp, its resolver and its asserted-edges-only rule |
