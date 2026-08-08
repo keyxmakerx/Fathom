@@ -27,6 +27,7 @@ name = "fathom-ir"
 version = "0.1.0"
 dependencies = [
  "fathom-id",
+ "fathom-schema",
 ]
 
 [[package]]

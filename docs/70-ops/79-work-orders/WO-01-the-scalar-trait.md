@@ -1,6 +1,6 @@
 # WO-01 — The `Scalar` trait and the real scalar implementations
 
-> **Status:** OPEN
+> **Status:** DONE
 
 Depends on: nothing in the queue. Everything §3 describes is merged on `main`.
 `docs/70-ops/79-work-orders/00-INDEX.md` may not exist when this order is taken; §3's closing

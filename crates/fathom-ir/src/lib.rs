@@ -2,12 +2,13 @@
 //!
 //! Three layers live here, deliberately separated:
 //!
-//! - `scalar` / `value` — **stub** binding targets for every entry in
-//!   `schema/schema.yaml`'s `scalars:` block (62 §3). The `Scalar` trait
-//!   (11 §4.2: `parse`/`emit`/`canonical`/`validate`, three property-tested
-//!   laws) does not exist yet; these types exist so the paths the schema
-//!   binds resolve, which makes `cargo build` of this crate the compile-time
-//!   half of gate `schema.scalar.unbound` (62 §18.1).
+//! - `scalar` — the semantic scalars (11 §4.3's catalogue as bound by
+//!   `schema/schema.yaml`), each implementing the `Scalar` trait's canonical
+//!   half (WO-01); the per-platform halves land with the emitters.
+//!   `SecretPlaceholder` implements no `Scalar` (11 §4.5).
+//! - `value` — **stub** binding targets for the structured value types
+//!   (62 §3.1 row 3): canonical serialisation and total order land with the
+//!   store.
 //! - `bag` — the handwritten field-bag contract the generated accessors read
 //!   through (62 §17.1's "typed fallible accessors", ADR-0007's mitigation).
 //! - `generated` — code written by `fathom-schemagen` from the `schema/`
