@@ -275,7 +275,7 @@ gate, the statement dictionary, the typed fragment with its residue ledger), **W
 
 | Proposed name | One line |
 |---|---|
-| *The fragment-to-store weld* | The missing order `88` §5.3 names: provenance records, ULID minting, reconciliation — without it WO-03 produces a fragment nothing can load and WO-04's G8 can never arm (WO-03 §4.8; WO-04 §10 item 7(a)) |
+| *The fragment-to-store weld* | **Authored 2026-08-08 as WO-09**, and now a queue row rather than a proposal: provenance records, ULID minting, the containment materialisation (WO-03 §4.8; WO-04 §10 item 7(a)). Reconciliation is **not** in it — `Device` declares `identity: []` and no identity-tuple evaluator exists (WO-09 §10 item 1), so a re-parse order is still to be authored |
 | *`IpsecVpn.mode` resolution* | Whatever makes `mode` `Set` on a re-parsed graph — a weld-time or dictionary-level derivation, or a new statement row; WO-04 §10 item 7(b) rules out an emitter-side inference because it *"would invent a value the user never chose"* |
 | *The dictionary reconciliation* | Whether and when WO-04 §4.6's crate-const emit tables migrate into `corpus/dict/junos-srx/` — one shared table per `14` §6.4, or two co-verified halves — decided **before a second platform duplicates the knowledge** (WO-04 §10 item 2; WO-03 §10 item 7) |
 | *The paste surface* | The paste-while-looking-at-a-device flow and its warning prompt, and the reverse explanation — the user-facing half of `76` §7.2's S6 |
@@ -288,7 +288,7 @@ retired until it runs on a real config the project did not write.**
 
 **Exit condition:**
 
-1. WO-04's **G8**, the round-trip gate, green. It is the proof Fathom can read a config and write it back, and it is unrunnable until the weld order and the `mode` resolution both land.
+1. WO-04's **G8**, the round-trip gate, green. It is the proof Fathom can read a config and write it back, and it is unrunnable until **three** things land: the weld order (WO-09), the `mode` resolution, and a fix for the golden's undeclared interface references — WO-04 §4.9 cites `reth0.0` and `st0.0` while declaring no interface, so under `14` §7.3 both stay `Pending` and neither edge exists in the re-parsed graph (WO-09 §10 item 2).
 2. WO-03's redaction gate demonstrably non-optional — a fixture containing a secret refuses.
 3. The residue ledger reports a rate on a real config, and that number is written down. It is the honest measure of R-RESIDUE and it does not exist yet.
 4. Every emitted line carries provenance (invariant 6), checked by gate rather than by review.
@@ -727,7 +727,7 @@ authored by this document.
 | C | `xtask assemble` | Execution |
 | C | The finder view | Execution |
 | C | The virtualised renderer | Execution |
-| D | The fragment-to-store weld | Execution, **and it is on nobody's list today** (`88` §5.3) |
+| D | The fragment-to-store weld | Execution — **authored 2026-08-08 as WO-09**, closing `88` §5.3. Reconciliation is not in it (WO-09 §10 item 1) |
 | D | `IpsecVpn.mode` resolution | Planning decision, then execution |
 | D | The dictionary reconciliation | Planning decision (WO-04 §10 item 2), then execution |
 | D | The paste surface | Execution |

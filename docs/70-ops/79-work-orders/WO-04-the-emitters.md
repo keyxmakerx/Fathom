@@ -1,8 +1,11 @@
 # WO-04 — `fathom-emit`: graph to junos-srx commands with provenance
 
-> **Status:** BLOCKED on the fragment-to-store weld order, which does not exist (G8, the round-trip
-> gate, cannot arm; all other gates green). WO-03 was the other half of this block and completed
-> 2026-08-08 — corrected here under `78` §8 as a factual correction, not a re-scope.
+> **Status:** BLOCKED on the fragment-to-store weld order — **authored 2026-08-08 as WO-09 and
+> still OPEN**, so §5 step 12's precondition (b) is not met and G8, the round-trip gate, cannot arm;
+> all other gates green. WO-03 was the other half of this block and completed 2026-08-08. Two
+> corrections here under `78` §8, neither a re-scope: WO-03's completion, and the weld order's
+> existence. **§10 item 7 is not the whole precondition list any more** — WO-09 §10 item 2 records a
+> third, against §4.9's own golden.
 
 The reverse face of ingest — from graph state to copy-pasteable configuration lines, each line
 carrying the provenance that produced it. This is the notepad's engine: `53` §6's copy machinery
@@ -15,7 +18,7 @@ DONE before this work order is taken. §6 G8, the flagship round-trip, additiona
 **WO-03** (junos-srx ingest — on disk, BLOCKED on WO-01/WO-02 at revision time) **and** the
 fragment-to-store weld work order WO-03 §4.8 defers (*"constructing the store's provenance
 records, minting node ULIDs (`fathom-id` from caller-supplied parts only), and reconciliation
-are the weld WO's work"*) — a work order that does not exist yet. G8 gates nothing else in this
+are the weld WO's work"*) — **WO-09, authored 2026-08-08 and OPEN**. G8 gates nothing else in this
 document; §5 steps 12–13 state the machine-followable rule for finishing every other gate first,
 and §10 item 7 holds the round-trip preconditions planning must resolve before step 13 can run.
 
@@ -921,14 +924,18 @@ the escalation inbox under `78` §4 step 2.
    second platform.
 6. **Where `Risk` lives long-term.** Defined in `fathom-emit` this slice; the rule engine takes
    risk *"from the emitter"* (`12` §10.5), so a shared home may be wanted when `12` is built.
-7. **The round-trip preconditions (G8).** Two facts, both verified against the documents on
+7. **The round-trip preconditions (G8).** **Three** facts, each verified against the documents on
    disk, keep step 13 unrunnable until planning acts; step 12 (c) checks this item for the
-   record of their resolution and nothing else.
-   (a) *No text-to-store entry point exists or is specified anywhere.* WO-03 delivers
+   record of their resolution and nothing else. (Item (c) was added 2026-08-08 by WO-09's
+   authoring, which is where it first became checkable; (a) is now specified but not yet built.)
+   (a) *No text-to-store entry point exists or is specified anywhere.* **Specified 2026-08-08:**
+   WO-09 §4.5's `apply_new_device(&mut Graph, &IngestOutput, &Manifest) -> Result<WeldOutput,
+   WeldError>` is the entry point step 12 (b) asks for; the order is OPEN, so (b) is met only when
+   it is DONE. The paragraph below records the state that made this item necessary. WO-03 delivers
    `ingest(paste: &[u8], dict: &dict::Dictionary) -> Result<IngestOutput, IngestRefusal>`
    producing a fragment; the fragment-to-store weld — provenance records, ULID minting,
-   reconciliation — *"are the weld WO's work"* (WO-03 §4.8), and that work order is unwritten.
-   Planning must author it before step 13 has anything to call.
+   reconciliation — *"are the weld WO's work"* (WO-03 §4.8), and that work order was unwritten
+   until 2026-08-08.
    (b) *Nothing sets `IpsecVpn.mode` in a re-parsed graph.* The schema declares `mode`
    `card: "1"`, `emit: R`; §4.6 reads it `need`-first and emits no statement for it; WO-03's
    dictionary entry 30 binds only the `BindsInterface` edge, and no entry binds `mode`. So
@@ -937,7 +944,18 @@ the escalation inbox under `78` §4 step 2.
    resolutions — a weld-time or dictionary-level rule deriving `RouteBased` from a
    `bind-interface` statement, or a new `mode`-bearing statement row — belong to WO-03, the
    weld WO or planning, never to this crate: an emitter-side inference would invent a value
-   the user never chose (§4.4).
+   the user never chose (§4.4). WO-09 §10 item 5 adds one input without deciding it: the deduction
+   *`BindsInterface` Set ⇒ `RouteBased`* holds inside the schema — `schema/enums/vpn_mode.yaml`
+   declares exactly two variants and `BindsInterface`'s own doc says the edge is forbidden when
+   `PolicyBased` — so the open question is the **mechanism**, not the fact.
+   (c) *§4.9's golden references two interfaces it never declares.* The 21 lines contain
+   `external-interface reth0.0` and `bind-interface st0.0` and no `set interfaces` statement at
+   all. Under `14` §7.3 an unresolved reference in a `Fragment`-scope capture is *"recorded, not
+   materialised"*, so after `parse(golden)` neither the `ExternalInterface` nor the
+   `BindsInterface` edge exists and the second emit cannot reproduce those two lines. Resolving it
+   means editing §4.9's byte-exact block (a Disagreements-bearing change to this document), giving
+   `Pending` edges a store representation, or deciding referent materialisation against `14` §7.3.
+   WO-09 §10 item 2 holds the analysis. Planning.
 
 ## 11. Sources consulted
 
