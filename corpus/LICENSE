@@ -1,0 +1,39 @@
+corpus/ — Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+==================================================================================
+
+Everything under this directory — the commands, the rules, the explainers, and every
+entry's provenance and review metadata — is licensed CC BY-SA 4.0.
+
+  Canonical licence text:  https://creativecommons.org/licenses/by-sa/4.0/legalcode
+  Human-readable summary:  https://creativecommons.org/licenses/by-sa/4.0/
+  SPDX identifier:         CC-BY-SA-4.0
+
+The full legal code is referenced by URL rather than copied here, which is how
+Creative Commons intends its licences to be applied. The URL above is authoritative;
+nothing in this file modifies it.
+
+IN SHORT, AND WITHOUT REPLACING THE LICENCE ITSELF
+
+  You may share and adapt this content, including commercially, provided you give
+  appropriate credit and license your adaptations under the same terms.
+
+WHY SHARE-ALIKE IS HERE AND NOT ON THE CODE
+
+  Per ADR-0004. The code is first-party infrastructure that nobody wants in isolation.
+  This directory is the product, and it is the part a competitor would lift. Share-alike
+  is on it for that reason: adaptations stay open. The code carries Apache-2.0 instead,
+  because its patent grant is worth more there than copyleft would be.
+
+WHAT THIS LICENCE DOES NOT REACH
+
+  A rule pack authored by a third party is not a derivative work of this corpus merely
+  because Fathom can load both. A workspace is the user's own document. See the root
+  LICENSE.
+
+A WARNING THAT IS NOT A LICENCE TERM
+
+  Under invariant 10, no entry here is content until a named human has reviewed it and
+  is recorded in its `reviewed_by` field. Entries still carrying the `<named human>`
+  placeholder have NOT been verified against real equipment. They are licensed to you
+  all the same; they are not warranted, and Section 5 of the licence disclaims exactly
+  this. Check the field before you rely on an entry.

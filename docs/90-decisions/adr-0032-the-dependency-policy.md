@@ -1,6 +1,7 @@
 # ADR-0032 — Third-party code is permitted, gated at the build boundary, and vendored
 
-> **Status:** Proposed — awaiting owner ratification
+> **Status:** **Accepted** — ratified by the owner 2026-08-08 (*"yes to all 3"*). Binding under
+> `CLAUDE.md` rule 2; reopenable on merit under `75` §2, never on sunk cost.
 > **Date:** 2026-08-06
 > **Register entry:** `88` §5.7 (the position no record owned); `78` §12 item 5
 > **Reversal cost:** R2 while the count is zero; R4 once a dependency ships in a released artifact

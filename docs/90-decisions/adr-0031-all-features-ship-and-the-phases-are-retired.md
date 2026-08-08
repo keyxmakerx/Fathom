@@ -1,6 +1,7 @@
 # ADR-0031 — All features ship, and the phase scheme is retired as a scoping device
 
-> **Status:** Proposed — awaiting owner ratification
+> **Status:** **Accepted** — ratified by the owner 2026-08-08 (*"yes to all 3"*). Binding under
+> `CLAUDE.md` rule 2; reopenable on merit under `75` §2, never on sunk cost.
 > **Date:** 2026-08-06
 > **Register entry:** `73` §3 (D02), `76` §8 Q11; `88` §4.4
 > **Reversal cost:** R4 — reinstating a reduced first release after the queue has been re-cut costs the re-cut, not the code

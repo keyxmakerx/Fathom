@@ -1,6 +1,7 @@
 # ADR-0033 — Motion must carry meaning; M34's blanket refusal is replaced by a three-part test
 
-> **Status:** Proposed — awaiting owner ratification
+> **Status:** **Accepted** — ratified by the owner 2026-08-08 (*"yes to all 3"*). Binding under
+> `CLAUDE.md` rule 2; reopenable on merit under `75` §2, never on sunk cost.
 > **Date:** 2026-08-06
 > **Register entry:** `80` §3 M34; `86` §9.4 D-35, D-36
 > **Reversal cost:** R1 — the tokens exist, the reduced-motion switch exists, and no code has motion in it yet

@@ -38,6 +38,33 @@ not only prose** (`85` §15.1, ADR-0002).
 
 The register is `docs/00-vision/01-ownership.md` (ADR-0001).
 
+## Currency — security is never answered from memory
+
+Stated as law by the owner, 2026-08-08; ADR-0034 carries the reasoning.
+
+**Never assert from recall, always look up, every time:** a known vulnerability, advisory or CVE;
+whether a cryptographic primitive, parameter or construction is currently sound and whether
+something better now exists; whether a library is maintained, audited, deprecated or superseded; a
+vendor's current behaviour, syntax, defaults or lifecycle.
+
+Three rules make a lookup count:
+
+1. **Name the source and the date.** *"Checked, clean"* is worthless six weeks later. Record what
+   was queried, against what, when, and what came back — including *"nothing found"*, which is a
+   result and is written as one.
+2. **Two independent sources for a negative.** A failed query and a clean result look identical from
+   one database.
+3. **"I could not establish this" outranks a confident guess**, always, and is never smoothed into
+   something more assured.
+
+The ranking is the owner's — *"for pretty much anything but security the most"*. Security claims are
+checked without exception; other outside-world claims are checked when being wrong costs more than
+looking. This does not apply to arithmetic or to a file already open.
+
+**A dated lookup is a record, not a control** — it cannot notice it has gone stale. The control is
+`78` §6's floor, which ADR-0034 §4 extends with a dependency-vulnerability scan, landing before the
+first external crate does.
+
 ## The residual-risk scale — exactly four values
 
 `none | bounded | material | total`. Pinned by ADR-0002 and already adopted by `31`, `32`, `34`,
