@@ -19,6 +19,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fathom-graph"
+version = "0.1.0"
+dependencies = [
+ "fathom-id",
+ "fathom-ir",
+]
+
+[[package]]
 name = "fathom-id"
 version = "0.1.0"
 

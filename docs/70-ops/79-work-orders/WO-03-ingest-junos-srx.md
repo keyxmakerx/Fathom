@@ -1,6 +1,6 @@
 # WO-03 — Ingest, one platform: the junos-srx lexer, shaper, and bind
 
-> **Status:** BLOCKED on WO-01 (the `Scalar` trait), WO-02 (the store)
+> **Status:** OPEN
 
 Depends on: WO-01 (bind's stage-5 scalar dispatch needs `Scalar::parse` and the real
 `SecretPlaceholder`), WO-02 (the store this fragment is designed to apply onto must exist so the

@@ -1,6 +1,6 @@
 # WO-05 — The workspace file: canonical serialisation, and the crypto boundary
 
-> **Status:** BLOCKED on WO-02 (the graph store)
+> **Status:** OPEN
 
 Depends on: WO-02 (the store — `Graph` is the thing serialised, and this work order extends it
 with a snapshot pair). WO-01 is deliberately **not** a dependency, but if it lands first the slot
