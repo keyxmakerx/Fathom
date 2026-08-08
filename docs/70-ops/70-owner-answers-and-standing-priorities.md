@@ -299,6 +299,49 @@ existing `versions: "*"` predicates needs no new schema and no new decision, and
 correctness win. The advisory kind needs an owner decision on sourcing and staleness first, and it
 should get one before any field is designed. Logged in §13.
 
+### 7.5 The owner's answer on versions — target one release, keep engines independent, defer
+
+> *"Well i mean personally i'd just go with what seems to be the best case for whatever version of
+> that OS. Since the engine will be something that can be added/removed/edited after the fact, as
+> they should all independent, i'd say we'd do that later yea?"*
+
+Three separable things: a **policy** on version targeting, an **architectural assumption** about
+platform independence, and a **deferral request**.
+
+**The policy — author against one named target release per platform.** This is a real decision and
+it is strictly better than what the corpus does today. `versions: "*"` does not mean "works
+everywhere"; the corpus's own gap G6 (quoted in §7.4) says it means *"unverified across trains"*.
+Naming a target release replaces an unverifiable claim with a checkable one, and it is what makes
+the named reviewer of invariant 10 able to review anything at all — a human can put their name to
+*"this is correct on release X, which I ran it on"*. They cannot put their name to *"correct on
+every release ever shipped"*.
+
+**The architectural assumption — platforms are independently addable, removable and editable.**
+Recorded as the owner's expectation. It is **not yet confirmed**, and it is the sort of assumption
+that is cheap to hold and expensive to discover is false. `71` §13.1 permanently refuses *"a plugin
+system that executes third-party code in the application"* while sanctioning the alternative in the
+same breath — *"rule packs and corpus entries are **data**, signed and versioned; that is the
+extension mechanism."* So the owner's expectation is compatible with the product boundary **for
+anything that is data**. Whether a whole platform is data is a different question: a platform
+plausibly also needs a config parser and an emitter, and those are Rust. Under investigation as of
+2026-08-07; the answer belongs here when it lands.
+
+**The deferral — mostly safe, with one part that is not.** Split it:
+
+| | Safe to defer? |
+|---|---|
+| Known-defect advisories (§7.4 half two) | **Yes.** Nothing is modelled, nothing depends on it, and the sourcing question wants an answer before a field is designed. Deferring costs nothing |
+| The `versions:` value on entries authored **from now on** | **No.** Every entry written meanwhile carries `"*"`, and correcting it later is per-entry work by a named human. Deferring does not postpone the cost, it multiplies it by however many entries are written in the interval |
+
+**RECOMMENDATION —** adopt the policy now and defer the work. They are different things. Naming a
+target release per platform is a one-line change to the authoring convention that costs nothing
+today and stops the debt growing; going back over existing entries, and the advisory kind, both wait.
+The distinction matters because the corpus is about to grow from 177 entries toward the six
+platforms §7.2 names, and `"*"` written 500 more times is 500 more corrections.
+
+**Still needed for the policy to be actionable:** the target release per platform, which is a
+`schema/platforms.yaml` field that does not exist. Logged in §13.
+
 ## 8. Hosting, load balancing and stored state
 
 > *"all that in a very secure format with expandability for loadbalancing and docker hosted storage
@@ -555,14 +598,17 @@ rule, one is needed, and it cannot be the same rule.
    the gear one configures versus the estate one records — or two jobs. Nobody has asked. It decides
    whether the access/service layer needs its own platforms and corpus, or only the inventory model
    it already has. Owner, one sentence.
-7. **Sourcing and staleness for known-defect advisories** (§7.4 half two) — owner. Where the data
+7. **The target release per platform** (§7.5) — owner, one value each for `junos-srx`, `junos-mx`,
+   `junos-ex`, `nx-os` and `panos`. There is no field for it in `schema/platforms.yaml` today and
+   `62`'s grammar governs adding one. Cheap now; per-entry later.
+8. **Sourcing and staleness for known-defect advisories** (§7.4 half two) — owner. Where the data
    comes from, who is named against it, and what the product says when an advisory is old. No field
    should be designed before this is answered.
-8. **Whether the diagram partitions** (§10.2) — owner, but not yet. Per-`Site` views and how they
+9. **Whether the diagram partitions** (§10.2) — owner, but not yet. Per-`Site` views and how they
    relate. `56` §12 owns it; the recommendation is to decide it against a running diagram.
-9. **Heterogeneous high-degree nodes** (§10.1) — planning, once §11.4 is answered. `59` §3's rule is
+10. **Heterogeneous high-degree nodes** (§10.1) — planning, once §11.4 is answered. `59` §3's rule is
    like-kind only and may not cover the owner's example.
-10. **Whether a registered platform with no content should be visible in the product.** Five of the
+11. **Whether a registered platform with no content should be visible in the product.** Five of the
    six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
    selecting `junos-ex` today would get an empty product with no explanation. Design decision;
    `52` and `54` own the surface.
