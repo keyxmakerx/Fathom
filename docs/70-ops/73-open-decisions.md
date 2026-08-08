@@ -38,7 +38,7 @@ document that carries its detail. The ones that carry the most are
 | 11 | The decisions that are secretly one decision | *coupling* |
 | 12 | Sources | |
 | 13 | Disagreements | |
-| 14 | The escalation register | *the inbox (`78` §4)* |
+| 14 | Escalations from execution sessions | *the inbox (`78` §4)* |
 
 ---
 
@@ -1753,50 +1753,72 @@ throughout.
 
 ---
 
-## 14. The escalation register
+## 14. Escalations from execution sessions
 
-> **Status:** Live, and **empty** — no execution session has run yet.
+> **Status:** Live. One row, E-01, open.
 
-### 14.1 What this is, and why it appears after §13
+*margin tab: the inbox (`78` §4)*
 
-This is the destination `78` §4 names for escalations raised by **execution sessions**: the point
-where a session that hits something its work order does not decide stops and files, rather than
-deciding. It sits after the house-style closing sections because it is a register that accretes
-rows over time, not an argument this document makes. `78` §5's stop-and-escalate list is the
-trigger; this is the inbox.
+### 14.1 What this is, and why it is at the end of the file
 
-**It was cited before it existed.** Nine places in the tree route here — `CLAUDE.md`'s planning
-list, `78` §12, `88` §6.11, WO-08 and WO-06 in four separate places, two of which are **code
-comments** that an executing session will write into shipped source. Creating the section is
-therefore a correction, not a new decision: the destination was specified, referenced and depended
-upon, and only the section itself was missing. Filed as a defect in its own right — see §14.4.
+The destination `78` §4 step 3 names for escalations raised by **execution sessions**: where a
+session that hits something its work order does not decide stops and files, rather than deciding.
+`78` §4's opening states the principle — *"Escalating is success. Deciding is the defect."* `78` §5's
+ten prohibitions and §4's seven triggers are what stop a session; this is where it files.
 
-### 14.2 The intake form
+It sits after §13 because `78` §4 step 3 says *"at the end of the file"*. That is the protocol's
+instruction, not a house-style lapse, and it should not be "fixed".
 
-One row per escalation. A session files by appending; nothing is ever deleted, and a row that turns
-out to be wrong is answered rather than removed.
+**The form below is `78` §4 step 3's, verbatim, and this section previously got it wrong.** It was
+created on 2026-08-07 by a planning session because nine places in the tree already routed here and
+the section did not exist — two of them code comments an executing session would have written into
+shipped source. That was the right problem to fix and the wrong way to fix it: the planning session
+invented a five-column form with `E-nn` identifiers instead of transcribing the four columns `78`
+§4 step 3 specifies, and titled the section *"The escalation register"* instead of the title the
+protocol names. WO-06 §4.5 was transcribing the protocol correctly; the first session to execute a
+work order stopped on the collision (§7 trigger 7) before touching a deliverable. **The protocol
+was right and the drive-by fix was wrong**; the drive-by is what has been changed. Recorded here
+rather than quietly corrected, because the failure — a planning session doing work the queue
+already owned, in a form it invented — is the more useful artifact.
 
-| E-nn | Raised by | What the order did not decide | What the session did instead | Answer |
-|---|---|---|---|---|
-| **E-01** (2026-08-08) | WO-06 §4.5, §7 trigger 7 | How WO-06 §4.5's two pre-authored rows are filed now that this §14 exists. §4.5 directs a verbatim `## 14. Escalations from execution sessions` with a four-column `Date / Work order / Question / Detail` table appended after §13; §14.2 above is a five-column `E-nn` form under a different title. §7 trigger 7 assigns merging inboxes to planning | Stopped at `78` §3 step 5, before plan step 1; no deliverable file touched and no plan step executed, because steps 1–3 write *"filed … in 73 §14"* into shipped source and that claim is untrue until §4.5's filing lands (`78` §5 item 8). §7 trigger 7's stated action — report the existing §14 verbatim — taken in WO-06 §10.5, with the four mechanically enumerable options and no lean. Detail in WO-06 § Open decisions (§10.5) | |
+### 14.2 The inbox
 
-- **Raised by** — the work order and section, so the trigger can be re-read.
-- **What the session did instead** — under `78`, a session that escalates does not proceed on a
-  guess. Where an order specifies a conservative fallback, this records that it was taken.
-- **Answer** — filled by planning or the owner. Empty means open.
+`78` §4 step 3: *"append a row — date, work order, the question in one line, `"detail in WO-nn §
+Open decisions"` — to a table under `## 14. Escalations from execution sessions` at the end of the
+file, creating the section (and its contents-table row) on first use."*
+
+The row is deliberately thin. The detail lives in the work order's own **Open decisions** section
+and is not duplicated here, so there is one place to maintain and one place to read.
+
+| Date | Work order | Question | Detail |
+|---|---|---|---|
+| 2026-08-08 | WO-06 | How §4.5's two pre-authored rows are filed, now that §14 exists in a form §4.5 does not expect | detail in WO-06 § Open decisions (§10.5) |
+
+**Answered — E-01, 2026-08-08, planning.** Option A of the four §10.5 enumerates. `78` §4 step 3
+specifies both the section title and the four columns; WO-06 §4.5 transcribes them and this section
+did not. The conflicting form is replaced above rather than merged, so §4.5 executes as written.
+The two rows §4.5 pre-authors land in this table in `78` §4 step 3's form when WO-06 runs. **Do not
+re-open on the grounds that the thin row loses information**: that is the protocol's design, and
+§14.4 records what it costs.
 
 ### 14.3 What is already known to land here
 
 WO-06 names four filings its execution will produce, each pinned by a test comment so the
-contradiction is visible in source rather than only in prose: the `78` §4 inbox-width question, the ranking-formula gap, the tie-break contradiction, and the leaf-ordering
-under-specification. These are **not** pre-filed here. A register that lists escalations before the
-session that raises them would defeat its purpose, which is to record what building actually hit.
+contradiction is visible in source rather than only in prose: the `78` §4 inbox-width question, the
+ranking-formula gap, the tie-break contradiction, and the leaf-ordering under-specification. These
+are **not** pre-filed. A register that lists escalations before the session that raises them records
+what planning predicted, not what building hit.
 
-### 14.4 Two things this section does not decide
+### 14.4 Three things this section does not decide
 
 1. **How escalations are triaged.** `78` §12 leaves open *"whether `73` §14 escalations are triaged
    into D-numbered register entries or answered in place"*, and `88` §6.11 proposes an answer — that
-   they be answered as ADRs. That question stays open; this section only guarantees the rows have
-   somewhere to go.
-2. **Who answers.** `78` §7's test decides that per row. Some escalations are planning work and
-   some are the owner's, and the distinction is not knowable before the row exists.
+   they be answered as ADRs. E-01 above is answered **in place**, which is not a ruling on that
+   question; it is the smallest thing that unblocks a stopped order. `78` §4 step 3's *"do not touch
+   `73`'s register; D-numbers are planning work"* still holds.
+2. **Who answers.** `78` §7's test decides per row.
+3. **Whether an escalation row needs a citable identifier.** `78` §4 step 3's four columns have
+   none, so a row can only be cited by date and work order. The 2026-08-07 session invented `E-nn`
+   to solve this and thereby created E-01. The need may be real; inventing a column to meet it,
+   outside the protocol that specifies the table, is not how it gets solved. Amending `78` is
+   planning work and nobody has proposed it.

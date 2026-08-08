@@ -1,7 +1,7 @@
 # WO-06 — Finder completion: the four MINORs and the deferred-section map
 
-> **Status:** BLOCKED on how §4.5's two verbatim rows are filed now that `73` §14 exists as *"The
-> escalation register"* with a different intake form (§10.5)
+> **Status:** OPEN — E-01 answered 2026-08-08 (§10.5). `73` §14 now carries `78` §4 step 3's title
+> and its four columns, so §4.5 executes as written apart from its append (the section exists).
 
 Depends on: nothing in the queue. Every edit is doc-comment, test or prose-level in
 `crates/fathom-find/` plus one filing in `73`; no deliverable of WO-01–WO-05 is touched, so this
@@ -608,6 +608,26 @@ against the §14 that exists. The options are mechanically enumerable from the t
 
 Reconciling the two forms is *"merging inboxes"*, which §7 trigger 7 assigns to planning, and it is
 judgment-shaped under `78` §7's test — four defensible answers exist above. No lean is recorded.
+
+**ANSWER (2026-08-08, planning). Option A.** `78` §4 step 3 specifies both the section title —
+*"a table under `## 14. Escalations from execution sessions`"* — and the four columns — *"date, work
+order, the question in one line, `"detail in WO-nn § Open decisions"`"*. **§4.5 was transcribing the
+protocol; `73` §14 was not.** The 2026-08-07 planning session that created §14 invented a
+five-column `E-nn` form under a different title, so the conflict is between the protocol and a
+drive-by, not between two work orders. `73` §14 has been changed to the protocol's title and form,
+and `73` §14.1 records the error rather than hiding it.
+
+**What this means for execution.** §4.5 executes as written **except** that the section already
+exists, so its *"append at the end of the file"* instruction is satisfied and must not be repeated —
+appending a second `## 14` is exactly what §7 trigger 7 exists to prevent. Add §4.5's two
+pre-authored rows to the table that is there, in the four-column form, which is the form §4.5
+already writes them in. The contents-table row exists and needs no edit. §3 Prior state's *"the
+`## 14` inbox … does not exist yet"* is now factually stale; correcting it is a `78` §8 factual
+correction the executing session makes in passing, not a further escalation.
+
+**Not decided here:** whether escalation rows should carry citable identifiers at all. `78` §4 step
+3's form has none, E-01 exists only because the drive-by invented one, and amending `78` is planning
+work nobody has proposed. Filed at `73` §14.4 item 3.
 
 **Why no plan step was executed first.** Plan steps 1–3 write, into shipped source, the claims
 *"filed as a spec gap in 73 §14"* (§4.1's constant doc-comment), *"the contradiction is filed in 73

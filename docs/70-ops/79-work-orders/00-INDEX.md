@@ -35,7 +35,7 @@ because it retires the ships-to-the-browser risk with no dependency on it.
 
 | # | Work order | File | Status | Depends | Deliverable |
 |---|---|---|---|---|---|
-| 1 | WO-06 | `WO-06-finder-completion.md` | BLOCKED on `73` §14's form (E-01) | — | The four recorded finder MINORs closed (doc/test/prose only); every deferred `16` section mapped blocked with its blocker named |
+| 1 | WO-06 | `WO-06-finder-completion.md` | OPEN | — | The four recorded finder MINORs closed (doc/test/prose only); every deferred `16` section mapped blocked with its blocker named |
 | 2 | WO-01 | `WO-01-the-scalar-trait.md` | OPEN | — | The `Scalar` trait and the real scalar implementations in `fathom-ir`, retiring the stub caveat |
 | 3 | WO-02 | `WO-02-the-graph-store.md` | OPEN | — | `fathom-graph`: the typed store — L0 write-time enforcement, three-state presence, provenance, batch-grouped op log, deterministic iteration |
 | 4 | WO-07 | `WO-07-the-wasm-shell.md` | OPEN | — | `fathom-wasm`: the finder compiled to `wasm32-unknown-unknown` behind `41` §3.7's raw ABI, with import/export/size/determinism audits |
