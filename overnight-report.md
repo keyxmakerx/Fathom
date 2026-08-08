@@ -1,336 +1,353 @@
-# Overnight queue run — what landed and what is blocked
+# Round-trip run — what landed and what is blocked
 
-> **Status:** Audit record, written 2026-08-08 after the unattended run on branch
-> `claude/docs-recommendations-review-l7mlhh`. Everything below was re-established from the working
-> tree and from git history, not from any session's own account of itself.
+> **Status:** Audit record, written 2026-08-08 after the run on branch
+> `claude/weld-and-first-browser-run`, at commit `9c58255`. Everything below was re-established by
+> running the checks and reading the tree and git history directly. No session's own report of
+> itself was taken on trust; where this audit disagrees with one, the disagreement is recorded.
 
-Written for someone who runs networks, not someone who writes Rust. Where a document is named, what
-it is comes with it.
+Written for someone who runs networks, not someone who writes Rust. Where a document or a file is
+named, what it is comes with it.
 
 ## 0. Contents
 
 | § | |
 |---|---|
 | 1 | The short version |
-| 2 | The verification floor — the exact numbers |
-| 3 | What actually ran, in order |
-| 4 | The queue: claimed status versus real status |
-| 5 | What is blocked, and on what |
-| 6 | Escalations filed tonight |
+| 2 | **The headline: can Fathom read a Juniper config and write it back?** |
+| 3 | The verification floor — the exact numbers |
+| 4 | What actually ran, in order |
+| 5 | The queue: every row, claimed against real |
+| 6 | The escalation inbox — six questions, three still open |
 | 7 | Look at these first |
 | 8 | What needs the owner |
-| 9 | Sources consulted |
+| 9 | How this was checked |
 
 ---
 
 ## 1. The short version
 
-Ten commits landed. Roughly 22,000 lines of new code across six new components. The build is green
-on every automated check. Two of the seven work orders attempted did not finish, and one of those
-two was reported as finished when it was not.
+Nine commits landed since the last report. Two new components exist: a canonical-writing layer and
+the workspace file itself — the thing that saves your estate to disk and reads it back with the
+bytes identical. That order (WO-05) is genuinely DONE and its headline proof reproduces.
 
-The single most important thing in this report is in §7.1, and it is one line long: a decision
-record written last night to make *"never state a security fact from memory"* binding project law
-contains a security claim that points at a document section which does not exist. It is a
-three-minute fix and it should be the first thing anyone looks at.
+The product was opened in a browser for the first time. All sixteen manual checks pass, with two
+screenshots checked into the tree as evidence. That is a real first.
 
-The second most important thing is in §7.2: the first part of Fathom a human being would actually
-look at — the inventory screen — was built last night and **has never been opened in a browser**.
-The session had no browser. Sixteen checks are written down and waiting for someone with a screen.
+**The round trip — paste a Juniper config in, get the same config back out — still does not
+work, and cannot be made to work by writing code.** It is blocked on three planning decisions, not
+on programming effort. §2 is the whole story and it is the most consequential section in this
+report.
 
-## 2. The verification floor — the exact numbers
+Everything automated is green: 329 tests, no failures, nothing skipped. Two work orders are
+blocked, both on questions a human has to answer.
 
-All four required checks were re-run tonight against the branch head (`e3ef147`), from a clean
-tree. These are measured numbers, not quoted ones.
+## 2. The headline: can Fathom read a Juniper config and write it back?
+
+**No. Not yet.** This audit checked it directly rather than reading anyone's claim about it.
+
+Here is where things actually stand, in three parts.
+
+**What works — the reading half.** Fathom takes pasted Juniper SRX `set`-form text and turns it
+into a typed fragment: it frames the lines, tokenises them, strips credentials at a gate that
+cannot be switched off, and records what it did not understand. This is real and tested against a
+42-line fixture.
+
+**What works — the writing half.** Fathom takes a graph — its internal model of an estate — and
+writes Juniper `set` commands back out, each line carrying a record of where it came from. This is
+real and tested. But read the test carefully: it builds the graph *by hand in code* and then emits
+from it. It has never emitted from a graph that came from a parsed config.
+
+**What is missing — the join.** There is no code that carries a parsed fragment into the store.
+Verified directly: there is no `fathom-weld` crate, and the words `fathom-weld` and
+`apply_new_device` appear nowhere in any source file in the tree. The workspace has fourteen
+components and none of them is the join.
+
+That join now has a written job description — WO-09, authored during this run — but the order ran
+and stopped at its own first step, so nothing was built.
+
+**And the join alone would not be enough.** WO-04, the emitter order, was re-taken during this run
+specifically to test whether the join's arrival would arm the round-trip gate. It would not, and
+this audit confirmed both remaining reasons independently rather than accepting the order's word:
+
+1. **Nothing tells Fathom whether a VPN is route-based or policy-based when it re-reads a config.**
+   The data model declares `mode` on an IPsec VPN as *required* (`schema/schema.yaml`, the
+   `IpsecVpn` kind). The Juniper vocabulary files under `corpus/dict/junos-srx/` contain no entry
+   that sets it — the `bind-interface` entry records only the interface binding. So after parsing,
+   `mode` is unknown, and the emitter refuses to write a config with a required field unknown.
+   That refusal is correct behaviour: a tool that guessed here would be inventing a value the
+   engineer never chose. But it means the round-trip gate fails on principle, not on a bug.
+2. **The test config references two interfaces it never declares.** The 21-line golden block in
+   WO-04 mentions `reth0.0` and `st0.0` but contains no `set interfaces` line at all. Under the
+   parsing rules an unresolved reference is recorded but not built, so those two lines cannot be
+   reproduced on the way out.
+
+**So: WO-04's gate G8 — the round trip — is not armed and is not green. It is outstanding on three
+planning decisions.** Its other eight gates (G1–G7, G9) were all re-run and are green. The emitter
+code is real, tested, and shipped; the proof that matters most about it does not exist yet.
+
+One practical consequence worth knowing: **there is no command-line tool to try this by hand
+either.** The only executables in the tree are the command finder, the schema checker, the code
+generator and the artifact builder. Ingest and emit exist as library code called from tests only.
+
+## 3. The verification floor — the exact numbers
+
+All four required checks re-run against `9c58255` from a clean tree. Measured, not quoted.
 
 | # | Check | Result |
 |---|---|---|
 | 1 | `cargo fmt --all --check` — code formatting | No output, exit 0. Clean |
-| 2 | `cargo clippy --all-targets -- -D warnings` — the compiler's linter, warnings treated as errors | Exit 0. Clean |
-| 3 | `cargo test --workspace --locked` — the whole test suite | **282 passed, 0 failed, 0 ignored, 0 skipped** |
+| 2 | `cargo clippy --all-targets -- -D warnings` — the linter, warnings treated as errors | Exit 0. Clean |
+| 3 | `cargo test --workspace --locked` — the whole test suite | **329 passed, 0 failed, 0 ignored, 0 filtered out** |
 | 4 | `cargo run -p fathom-schema --bin fathom-schema-check` — the data-model gate | Exit 0. `48 kinds · 89 edges · 61 scalars · 10 enums · 14 files parsed`. **0 failures, 2 warnings** |
 
-The two warnings are the long-standing pair about `Site` — the record type that means a physical
-location. They are deliberate, they are waiting on an owner decision (§8), and they are unchanged
-from before the run. Nothing new appeared.
+The two warnings are the long-standing pair about `Site` — the record type meaning a physical
+location. They are deliberate, they wait on one sentence from the owner (§8), and they are
+unchanged. Nothing new appeared.
 
-**Test count went from 80 to 282.** No existing test was deleted, weakened, or marked "skip" to get
-there — checked directly: zero tests are ignored or filtered anywhere in the tree.
+**Test count went from 282 to 329.** Nothing was deleted, weakened, or marked skip to get there:
+zero tests are ignored and zero are filtered anywhere in the tree, checked directly.
 
-**A fifth check, not part of the required floor.** `python3 scripts/check-citations.py`, which
-verifies that every internal cross-reference in the documentation points at something real:
+**A fifth check, which is not part of the required floor and is not in CI.**
+`python3 scripts/check-citations.py` verifies that every internal cross-reference in the project's
+own documents points at a section that exists:
 
 ```
-7631 cross-references checked, 59 unresolved
+8545 cross-references checked, 58 unresolved   (exit code 1)
 ```
 
-Before the run it was `7624 checked, 58 unresolved`. So the night added 7 cross-references and
-**one new broken one**. That one broken reference is §7.1.
+Two things about that number. First, the script was widened during this run to also scan the Rust
+source — which was the whole reason it was written — so it is not comparable to the previous
+report's `7631 checked, 59 unresolved`. Second, **the newly scanned surface is completely clean:
+zero of the 58 are in code.** All 58 are pre-existing references between review documents. See
+§7.2 for why this still matters.
 
-**Two other numbers worth having.** The compiled browser module is 557,641 bytes against a 900,000
-ceiling, and its list of external things it can call is *empty* — which is the mechanically checked
-proof that the code shipped to a browser cannot reach the network. The assembled HTML page is
-792,692 bytes as a single file with no separate downloads at all.
+**Three other measured numbers.** The browser module is 559,067 bytes. The assembled single-file
+page is 794,592 bytes and rebuilds reproducibly (`cargo run -p fathom-artifact`). The page's
+security policy still contains `connect-src 'none'` — the mechanically checked statement that the
+page cannot make a network request.
 
-## 3. What actually ran, in order
+**Two gates from this run's completed order were reproduced by hand, not just re-read:** the
+code-generation determinism gate (regenerate everything, then check nothing changed — nothing did)
+and the workspace-file gate (all eleven tests pass, including the byte-identical save-and-reload).
 
-Ten commits, oldest first:
+## 4. What actually ran, in order
+
+Nine commits since the previous report, oldest first:
 
 | Commit | What it did |
 |---|---|
-| `c07d1bc` | Built the typed-value layer — 35 real implementations of things like "an IP address", "an encryption algorithm", replacing stubs |
-| `2f08324` | Generated the lookup tables the graph store checks writes against |
-| `bb519c7` | Built the graph store itself: the in-memory model of an estate that refuses to accept a structurally invalid write |
-| `bc10397` | Ratified three pending decisions, added the licence files, and wrote the new security-currency rule (see §7.1 and §7.6) |
-| `205bca3` | Compiled the command finder to WebAssembly — the form that runs in a browser — and proved its import list is empty |
-| `303b13c` | Set the licence field in the build manifest to Apache-2.0 |
-| `a864cfe` | Built configuration ingest for Juniper SRX `set`-form: the line framer, the tokeniser, the shaper, the credential-stripping gate |
-| `da19129` | Built the emitters — turning graph state back into copy-pasteable Juniper commands, each line carrying where it came from |
-| `388c716` | Stopped the workspace-file order and filed two escalations (see §6) |
-| `e3ef147` | Built the inventory screen: the single-file browser artifact, the estate as a table, the per-equipment page |
+| `c78ee3d` | Fixed the broken citation the last report flagged as item one, and widened the citation checker to scan code |
+| `6702307` | **Opened the product in a browser for the first time.** All sixteen manual checks pass; two screenshots checked in as evidence |
+| `1d86e80` | Wrote the job description for the missing join (WO-09) — planning work, no code |
+| `aedaffd` | Planning: corrected an analysis in the diagram and owner-answers documents |
+| `e4ce7de` | Answered the two questions that had stopped the workspace-file order, unblocking it |
+| `b4b3179` | Fixed defects an audit found in the new job description before anyone tried to build it |
+| `86486ff` | **Built the workspace file** — canonical writing, versioned header, byte-identical save and reload |
+| `2053003` | The join order ran, hit a question it is not allowed to answer, and stopped |
+| `9c58255` | Re-tested whether the round trip could now be proved. It cannot. Recorded why |
 
-Six new components exist that did not exist yesterday: the graph store, the WebAssembly shell, the
-Juniper ingest, the emitters, the inventory projections, and the artifact assembler. All twelve
-components in the tree forbid unsafe code. The project still has **zero external dependencies** —
-every line that ships is first-party.
+Two new components exist that did not before: `fathom-canon` (writes values in exactly one
+agreed-upon form, so the same estate always produces the same bytes) and `fathom-workspace` (the
+saved file itself). The project still has **zero external dependencies** — every line that ships is
+first-party, confirmed against the lock file: fourteen packages, all Fathom's own.
 
-## 4. The queue: claimed status versus real status
+## 5. The queue: every row, claimed against real
 
-The queue index and each order's own status line agree on all eight rows. There is **no divergence
-between the index and the status lines** — the thing the protocol warns about did not happen.
+The protocol says that when the summary table and a work order's own status line disagree, the
+status line wins. **They do not disagree.** All nine rows match, checked one at a time.
 
-There is a divergence between the tree and the **run report handed to this audit**, on one row:
+| # | Order | What it is | Status |
+|---|---|---|---|
+| 1 | WO-06 | Finishing the command finder | DONE |
+| 2 | WO-01 | Typed values — IP addresses, algorithms, and so on | DONE |
+| 3 | WO-02 | The graph store — the in-memory model of an estate | DONE |
+| 4 | WO-07 | The browser module | DONE |
+| 5 | WO-03 | Juniper SRX config ingest | DONE |
+| 6 | **WO-04** | The emitters — graph back out to Juniper commands | **BLOCKED** — eight of nine gates green; the round trip cannot arm (§2) |
+| 7 | WO-05 | The workspace file | **DONE** — new this run, all nine gates green |
+| 8 | WO-08 | The inventory screen | DONE — and now actually looked at (§7.3) |
+| 9 | **WO-09** | The join between parser and store | **BLOCKED** at its first step (§6) |
 
-| Order | Run report claimed | The tree says |
-|---|---|---|
-| WO-01 (typed values) | DONE | DONE ✓ |
-| WO-02 (graph store) | DONE | DONE ✓ |
-| WO-07 (browser module) | DONE | DONE ✓ |
-| WO-03 (Juniper ingest) | DONE | DONE ✓ |
-| **WO-04 (emitters)** | **DONE** | **BLOCKED** — 7 of 8 gates green; the round-trip gate cannot arm |
-| WO-05 (workspace file) | BLOCKED | BLOCKED ✓ |
-| WO-08 (inventory screen) | DONE | DONE ✓ |
+Seven of nine done. The two that are not are the two that stand between the project and its
+central promise.
 
-The emitter code is real, tested and shipped. What is not done is the proof that matters most about
-it — see §5.1. The order was honest in its own file; the summary that reached this audit was not.
+Against the run report handed to this audit — WO-05 DONE, WO-09 BLOCKED, WO-04 BLOCKED — **the tree
+agrees on all three.** Unlike the previous run, nothing was claimed finished that was not.
 
-One wording snag worth fixing when someone is next in that file: the emitter order's status reads
-*"blocked on the ingest order plus the weld order"*, and the ingest order finished last night. Only
-the second half is still true.
+## 6. The escalation inbox — six questions, three still open
 
-## 5. What is blocked, and on what
+When a session hits something its instructions do not settle, it must stop and file rather than
+guess. The inbox is at the end of `docs/70-ops/73-open-decisions.md`, section 14. It holds six rows.
 
-### 5.1 The emitters — the round trip cannot be proved yet
+**Three are answered:**
 
-Fathom can now read a Juniper SRX configuration into its graph. Fathom can now write graph state
-back out as Juniper commands. **Nothing joins the two.** The piece that takes what the parser
-produced and loads it into the store — minting the permanent identifiers, attaching the "who said
-so and when" records, and reconciling against what is already there — has never been written. It
-is not even a queued job; it is named in the queue's own header as *the one thing in the critical
-path that does not exist yet*.
+| Question | Answered |
+|---|---|
+| How a pre-written escalation row should be filed, given the inbox had the wrong shape | Yes — the invented form was replaced with the one the protocol specifies |
+| The workspace file's on-disk table had drifted from the code, and would have silently dropped the label on a stored-secret placeholder | Yes — re-cut against the code. The placeholder now keeps both its label and the operator's note of where the real secret lives. Without this, loading a saved file would have written `<PSK>` into a TACACS field |
+| The worked example rendered identifiers in a form the code refuses | Yes — the example was re-issued to match the code. Three places in the tree already agreed; only that one document disagreed with itself |
 
-Until it exists, the gate that proves *"paste a config in, get the same config back out"* cannot
-run. For a tool whose entire promise is that it will not silently mangle your device
-configuration, that is the most consequential open item in the tree. Everything else about the
-emitters passed.
+**Three are open, and all three are for a planning session rather than for the owner:**
 
-**This needs someone to write that job description.** It is planning work, not building work, and
-no overnight session is permitted to do it.
+| Question | Raised |
+|---|---|
+| The search-ranking formula has no term for query-side weighting, so a hyphenated search term scores as three separate words | 2026-08-02, WO-06 |
+| A worked trace in the search specification expects a result order the implemented arithmetic does not produce | 2026-08-02, WO-06 |
+| **The join order's blocker:** the workspace file writes "where this came from" as a plain text tag. The join needs to write a richer form — *parsed from this text, at these bytes* — and that form does not exist. Inventing one is a file-format decision sitting behind a byte-identical save-and-reload guarantee, so the session stopped | 2026-08-08, WO-09 |
 
-### 5.2 The workspace file — stopped on two format questions
+That third one is the single unblock with the most leverage in the tree right now: **one sentence
+deciding the on-disk form, plus one row added to the join order's file list.** The order enumerates
+three options without picking one. Answering it unblocks WO-09, which is one of three things
+standing between the project and the round trip.
 
-This is the order that defines how a saved Fathom workspace is written to disk. It stopped before
-its first step, correctly, because the document it was told to implement had drifted from the code
-that landed earlier the same night. Both questions are format decisions for a planning session, not
-for the owner. Both are recorded (§6).
-
-Nothing was half-built. The order stopped clean.
-
-## 6. Escalations filed tonight
-
-The project keeps an inbox at the end of the open-decisions document
-(`docs/70-ops/73-open-decisions.md`, §14) where a session that hits something its instructions do
-not settle stops and files rather than guessing. Tonight added **two rows, both from the
-workspace-file order, both dated 2026-08-08, and both still open**:
-
-| Question | Who answers | State |
-|---|---|---|
-| The typed-value work reshaped seven value types — encryption algorithm, integrity algorithm, authentication method, IKE version, route distinguisher, route target, and the placeholder that stands in for a stored secret — into shapes the workspace format's on-disk table does not describe. Worse, the current rule would silently drop the secret placeholder's label. Re-cut the table against the code that now exists, and decide the secret placeholder's on-disk form explicitly | Planning | **OPEN** |
-| The worked example pinned in the format document renders identifiers as `fathom:device:<id>`. The code, the conventions file and the identifier decision record all refuse that prefix. Either re-issue the example against what the code actually emits, or reopen the identifier decision | Planning | **OPEN** |
-
-The inbox now holds five rows in total. Of the three that were already there, one is answered and
-two are open — both of those concern the search-ranking formula and are also planning work, not
-owner work.
-
-**Note what is absent.** The ingest order, the emitter order and the inventory order filed nothing.
-For the ingest and inventory orders that is plausible — they finished. For the emitter order it is
-worth a second look: it stopped on a missing prerequisite and recorded that in its own file rather
-than in the shared inbox, so the one genuinely critical-path gap in the tree (§5.1) is not visible
-from the inbox anyone would check first.
+Worth noticing: all three questions ever raised against the workspace file's on-disk format have
+been raised against that same file. It is the most-escalated surface in the project, which is
+itself a signal.
 
 ## 7. Look at these first
 
 Ordered by what costs most if left alone.
 
-### 7.1 A security rule that breaks its own rule
+### 7.1 The file every new session reads first now says the opposite of the truth
 
-Last night's run created a new decision record, ADR-0034, at
-`docs/90-decisions/adr-0034-security-knowledge-is-never-answered-from-memory.md`. It makes binding
-law of an instruction the owner gave in his own words: never state a security fact — a known
-vulnerability, whether a cipher is still sound, whether a library is still maintained — from
-memory. Look it up, name the source, date it, and use two independent databases before declaring
-anything clean.
+`CLAUDE.md` is the pickup document. It was last updated early in this run, before the two things
+that most changed the project's state. It now reads:
 
-It is a good rule. Line 63 of that same record then says the cryptographic libraries under
-consideration *"were queried against both OSV.dev and RustSec, both clean — recorded at `70` §7.6."*
+> **Nothing has ever been opened in a browser**: WO-08's sixteen manual rows are honestly recorded
+> NOT RUN.
 
-**There is no section 7.6.** The owner-answers document
-(`docs/70-ops/70-owner-answers-and-standing-priorities.md`) has sections 7.1 through 7.5 and stops.
-The citation checker flagged it, and it is the only new broken cross-reference the whole night
-produced.
+That is false. They were run the same day, all sixteen pass, and there are screenshots in the tree.
+It is also wrong on three smaller counts: it says 282 tests (329), it lists the component set
+without the two built this run, and it says four of eight orders are done (seven of nine).
 
-So the record that forbids unsourced security claims contains one. Either the vulnerability check
-was run and never written down, or it was not run. Both readings need the same fix and the answer
-is known to whoever wrote it. Nothing is *shipping* on that claim — the tree still has zero external
-dependencies, so no library has actually landed — which is why this is a three-minute correction
-rather than an incident. It should still be corrected before the first dependency arrives, because
-that is exactly the moment it becomes load-bearing.
+The browser line is the one that matters, because it is a flat contradiction of a checked-in
+result. A pickup file that is wrong about what has been proved is how the next session either
+repeats finished work or repeats a claim that has since been retired.
 
-### 7.2 The product has never been looked at
+### 7.2 A check that fails is not wired into anything
 
-The inventory screen is the first thing in this project a user would see. It was built last night.
-The order that specifies it carries a sixteen-step checklist to be walked in a real browser: open
-the file from disk with the network off, confirm zero requests are made, check the two device rows
-render, click through to a port, follow a cable to the far end, drive the whole thing from the
-keyboard, toggle the theme.
+`scripts/check-citations.py` exits with a failure code — 58 unresolved references — and **CI does
+not run it.** CI runs four checks; this is a fifth that exists, fails, and is quoted in reports as
+though it were a gate.
 
-**All sixteen are recorded NOT RUN — "no browser available to this session."** That is an honest
-record and the right thing to write, but it means nobody has ever seen this working.
+Nothing is currently wrong because of it: all 58 are old references between review documents, and
+the code — the surface the tool was written to protect, after nine places in the tree once cited a
+section that did not exist — is clean. But an unenforced check drifts, and this one is already
+being cited as evidence. Either wire it in with the 58 recorded as an accepted baseline, or stop
+quoting its number.
 
-To do it: run `cargo run -p fathom-artifact`, then open
-`target/artifact/fathom-dev.html?fixture=demo-estate` from disk. The checklist is section 6 of
-`docs/70-ops/79-work-orders/WO-08-the-inventory-face.md`, rows M1 to M16. The machine-checkable
-parts around it were re-verified by this audit and do pass: the page contains
-`connect-src 'none'`, and the hand-written source contains zero network calls and zero HTML-string
-injection points.
+### 7.3 The browser result is real, but it can never be re-checked automatically
 
-This gap is not the session's fault. The automated browser test harness the project specifies
-requires external libraries the project has deliberately never taken, so *every* screen-building
-job will land in this state until someone decides how to test a browser without adding
-dependencies. That decision has no owner yet.
+This audit read both screenshots. They match the written results exactly — two device rows `srx-a`
+and `hub-a`, the opinions column present with both cells showing a dash, the footer reading
+`VIEW 6 OF 6 — INVENTORY`. The claim is made in good faith and the evidence supports it.
 
-### 7.3 The browser page currently allows inline scripts
+Two caveats a human should hold:
 
-The generated page carries this content-security policy:
+- **This audit could not reproduce it.** No browser was available here. The verification is a human
+  reading a screenshot, which is the strongest evidence the project's own rules currently allow.
+- **There is no automated regression.** Those sixteen rows must be walked by hand again every time
+  the screen changes. The automated browser harness the project specifies needs external libraries
+  the project has deliberately never taken, so this will be true of every screen built until
+  someone decides how to test a browser without adding dependencies. That decision still has no
+  owner.
 
-```
-script-src 'unsafe-inline' 'wasm-unsafe-eval';
-style-src  'unsafe-inline';
-connect-src 'none';
-```
+To repeat it: `cargo run -p fathom-artifact`, then open
+`target/artifact/fathom-dev.html?fixture=demo-estate` from disk. Checklist at section 6 of
+`docs/70-ops/79-work-orders/WO-08-the-inventory-face.md`, rows M1–M16.
 
-The specification wants those first two to be exact cryptographic hashes of the intended script and
-stylesheet — meaning the browser refuses to run anything else at all. `'unsafe-inline'` is the
-weaker stand-in. The session recorded it as scaffolding with a named follow-up item, and the file is
-called `fathom-dev.html`, not a release name.
+### 7.4 The workspace-file order touched two files its own list does not name
 
-It is still worth knowing that it is in the tree. The half that carries the project's core promise
-— `connect-src 'none'`, meaning the page cannot make a network request — is real, and is checked by
-both a test and a grep against the final assembled bytes rather than against the template.
+Every order carries a table of exactly which files it may create or change. The commit that built
+the workspace file (`86486ff`) also changed two that the table does not list:
+`crates/fathom-schemagen/src/rust_gen.rs` (125 lines added) and
+`crates/fathom-graph/src/field.rs` (17 lines added).
 
-### 7.4 The session-pickup file is out of date on four counts
+Both changes look like consequences of the work rather than scope creep — the code generator had to
+emit the new machinery, and the graph field type had to expose it. Nothing about them is alarming
+on its face. But the rule exists so that "consequence of the work" is a judgement someone else
+makes, and there is a sharp irony here: **the very next order stopped dead because it was not
+authorised to edit a file in that same crate.** One session extended its own list quietly; the next
+stopped and asked. The second behaviour is the one the protocol wants. Worth a deliberate look at
+those two diffs and, if they are fine, a line in the order's record saying so.
 
-`CLAUDE.md` — the file a fresh session reads first — was not touched all night, and four of its
-statements are now wrong:
+### 7.5 The Juniper vocabulary driving ingest has never been reviewed by a network engineer
 
-- It lists ratifying three decision records as owner-blocking work. All three were ratified last
-  night and now read Accepted.
-- It says the licence files the project decided on do not exist in the tree. They do:
-  `LICENSE`, `NOTICE`, `CONTRIBUTING.md` and `corpus/LICENSE` all landed.
-- It says the test suite is 80 tests. It is 282.
-- It does not mention the new security-currency rule at all, even though that rule now amends the
-  conventions file every session is required to read.
+Every entry in `corpus/dict/junos-srx/` — the files that say what each Juniper command means —
+still carries the literal text `reviewed_by: <named human>`. That is the placeholder, not a name.
+The project's tenth standing rule says that review is not optional.
 
-A stale pickup file is how the next session wastes an hour or repeats finished work.
+This is the same backlog the last report flagged, unchanged. It matters more now than it did then,
+because §2's blocker is *inside these files*: the reason a re-read config has no VPN mode is that no
+vocabulary entry sets it. A network engineer reading these files is the person most likely to spot
+both that gap and others like it.
 
-### 7.5 The citation checker does not check the code
+### 7.6 Smaller things, carried forward
 
-`scripts/check-citations.py` opens with an explanation of why it exists: nine places in the tree
-once cited a document section that did not exist, *"including two code comments a work order would
-have written into shipped source."*
-
-It then scans only `docs/**/*.md`, plus `CLAUDE.md` and `README.md`. It never opens a `.rs` file.
-
-Last night added roughly 22,000 lines of Rust, and those files are dense with the same
-`document §section` references — the wasm audit test alone cites four. None of them have ever been
-checked. The tool does not check the thing its own reason for existing names.
-
-### 7.6 A binding rules file was edited by an automated session
-
-`.context/conventions.md` is the top-of-tree document every session must read and obey. It gained a
-new 27-line binding section last night, *"Currency — security is never answered from memory."*
-
-The content is sound and it quotes the owner's own words as its authority. But the file is the
-project's constitution, the new decision record behind it was written and marked Accepted in the
-same commit by the same session, and the standing protocol reserves that kind of change for the
-owner or a planning session. Worth a deliberate read-and-confirm rather than an implicit one — not
-because the rule is wrong, but because the route it took is the route a wrong rule would also take.
-
-### 7.7 Smaller things, for completeness
-
-- **The Juniper test configuration is synthetic.** `junos-srx-s0-synthetic.txt` is assembled from
-  documented command strings, not captured from a real device, and its first line says so in
-  capitals. This is correct behaviour — the real exports are owner-blocked (§8) — but every ingest
-  test currently passes against a config no device ever produced.
-- **The vocabulary files added 45 new entries, all unreviewed.** Six new dictionary files under
-  `corpus/dict/junos-srx/` describe what each Juniper command means. Every entry carries
-  `reviewed_by: <named human>` — the literal placeholder, not a name. The files say so in their own
-  headers. The backlog of network-engineer review just grew by 45 items, and the project's tenth
-  invariant says that review is not optional.
-- **One dead check in the WebAssembly audit.** The test asserts the module's import list is empty,
-  then loops over that list checking each entry against an allowlist. The loop can never execute.
-  Harmless, but the allowlist is not being exercised by anything.
-- **The build pipeline comment is stale.** `.github/workflows/ci.yml` says the dependency-policy
-  decision is "Proposed"; it was accepted last night. The same comment notes that the check which
-  refuses an unapproved third-party library is still absent — required *before the first dependency
-  lands*. Zero dependencies exist today, so nothing is breached, but this is now the last guard
-  standing between the project and its first unreviewed library.
+- **The test configuration is still synthetic.** `junos-srx-s0-synthetic.txt` is assembled from
+  documented command strings, not captured from a device, and its first line says so in capitals.
+  Correct behaviour — the real exports are owner-blocked — but every ingest test passes against a
+  config no device ever produced.
+- **The browser page still allows inline scripts.** `script-src 'unsafe-inline'` remains, where the
+  specification wants exact cryptographic fingerprints. Recorded as scaffolding, and the file is
+  named `fathom-dev.html`, not a release name. The half carrying the core promise —
+  `connect-src 'none'` — is real and checked against the final assembled bytes.
+- **The check that would refuse an unapproved third-party library still does not exist.** Zero
+  dependencies today, so nothing is breached, but this is the last guard between the project and
+  its first unreviewed library, and the decision requiring it is now ratified.
+- **Closed since the last report:** the security-currency rule that cited a section which did not
+  exist. The section now exists (`70` §7.6) and names what was queried, against what, on what date.
+  That was the last report's number-one item and it is done.
 
 ## 8. What needs the owner
 
-Closed last night, no longer needing you: the three pending decisions (all features ship / phases
-retired, third-party code permitted under a gate, motion must carry meaning) are ratified, and the
-licence files exist.
+Nothing on this list is programming work. Every item is a decision.
 
-Still waiting on you:
+**The three that unblock the round trip** — these are the whole of §2:
 
-1. **Real Juniper SRX configuration exports.** Every ingest test currently runs against a synthetic
-   file. Real captures replace it and re-pin the tests. This is the highest-leverage item on the
-   list — it turns a plausible parser into a proven one.
-2. **One sentence on how a site is identified.** Two long-standing warnings in the data-model gate
-   exist solely because this is unanswered. It is not blocked on anything else.
-3. **Where should the IKE warning attach** — to the interface, or to the security zone?
-4. **Is Meraki configurable by text you can copy?** This decides whether it can be a supported
-   platform at all.
-5. **Four forks in the graph extension document**, still open.
-6. **Named expert review of the vocabulary corpus** — now 45 entries larger than yesterday.
-7. **New tonight: where was the cryptographic library vulnerability check recorded?** See §7.1. If
-   it was run, it needs writing down. If it was not, the sentence claiming it needs removing.
-8. **New tonight, and it is a queue question rather than a product one:** the join between the
-   parser and the graph store (§5.1) needs a job description written before the round-trip proof can
-   exist. Someone needs to authorise that as the next planning task.
+1. **How "where this came from" is written to disk.** One sentence plus one line in a file list.
+   Unblocks the join order, which is stopped dead on it. Three options are laid out; none is
+   preferred. *This is arguably a planning question rather than an owner one, but it is stopping
+   the highest-value work in the tree and nobody has picked it up.*
+2. **Where a re-read config gets its VPN mode from.** When Fathom reads a config back, nothing tells
+   it whether a VPN is route-based or policy-based. The fact is not in doubt — a VPN bound to a
+   tunnel interface is route-based, and the data model allows only two values. What is undecided is
+   *which part of the system does the deducing*. It must not be the emitter, which would be
+   inventing a value the engineer never chose.
+3. **The two interfaces the test config references but never declares.** Either the test config gets
+   those lines added, or unresolved references get a home in the store.
 
-## 9. Sources consulted
+**Still waiting, unchanged from before:**
 
-- The working tree at `e3ef147` on `claude/docs-recommendations-review-l7mlhh`, read directly.
-- `git log`, `git diff` and `git show` across `c180f90..HEAD` — ten commits.
-- All four floor checks and the citation checker, re-run tonight; the citation checker additionally
-  re-run against `c180f90` in a separate worktree to establish the before-and-after.
-- The eight work-order files and the queue index, status lines read individually.
-- `docs/70-ops/73-open-decisions.md` §14, the escalation inbox.
-- `.github/workflows/ci.yml`, `rust-toolchain.toml`, `CLAUDE.md`, `.context/conventions.md`,
-  `LICENSE`, `NOTICE`, and the generated `target/artifact/fathom-dev.html`.
+4. **Real Juniper SRX configuration exports.** Every ingest test runs against a synthetic file.
+   Real captures turn a plausible parser into a proven one. Highest-leverage item on this list.
+5. **One sentence on how a site is identified.** The two standing warnings in the data-model gate
+   exist solely because this is unanswered. Not blocked on anything else.
+6. **Where should the IKE warning attach** — to the interface, or to the security zone?
+7. **Is Meraki configurable by text you can copy?** Decides whether it can be supported at all.
+8. **Four forks in the graph-extension document.**
+9. **Named expert review of the Juniper vocabulary** (§7.5) — and it is now on the critical path,
+   not just a backlog.
 
-**Disagreements.** One, recorded in §4: the run report handed to this audit lists the emitter order
-as DONE. The order's own file and the queue index both say BLOCKED, and the blocking gate is real.
-The tree is right and the report is wrong.
+## 9. How this was checked
+
+- The working tree at `9c58255` on `claude/weld-and-first-browser-run`, read directly. Nothing
+  uncommitted; local and remote at the same commit before this file.
+- `git log`, `git show --stat` and `git diff --stat` across `1ad487a..HEAD` — nine commits, each
+  one's file list read.
+- All four floor checks re-run, plus the citation checker, plus two of the completed order's own
+  gates reproduced by hand (code-generation determinism, and the workspace-file test set).
+- The nine work-order files and the queue index, status lines read one at a time and compared.
+- `docs/70-ops/73-open-decisions.md` §14, every row.
+- For §2, checked independently rather than read: a tree-wide search for the missing join by crate
+  name and function name (no matches); the workspace member list; the absence of the round-trip
+  test file; the `IpsecVpn` declaration in `schema/schema.yaml`; and every Juniper vocabulary entry
+  mentioning `mode` or `bind-interface`.
+- Both browser screenshots at `docs/80-review/evidence/`, opened and compared against the written
+  results.
+- `.github/workflows/ci.yml`, `Cargo.toml`, `Cargo.lock`, `CLAUDE.md`, and the assembled
+  `target/artifact/fathom-dev.html`.
+
+**Disagreements.** None with the tree's own records. The run report handed to this audit matched
+the tree on all three orders it claimed. The disagreements recorded above (§7.1, §7.4) are between
+the tree and itself.
