@@ -1,0 +1,123 @@
+# corpus/dict/junos-srx/security-ike.yaml — WO-03 §4.7 entries 8-21.
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+entries:
+  - id: junos-srx/security.ike.proposal.authentication-method
+    path: [security, ike, proposal, "$p", authentication-method, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkeProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier }, { field: authentication_method, from: "$v", scalar: AuthMethod } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.proposal.dh-group
+    path: [security, ike, proposal, "$p", dh-group, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkeProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier }, { field: dh_group, from: "$v", scalar: DhGroup } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.proposal.authentication-algorithm
+    path: [security, ike, proposal, "$p", authentication-algorithm, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkeProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier }, { field: authentication_algorithm, from: "$v", scalar: IntegrityAlgorithm } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.proposal.encryption-algorithm
+    path: [security, ike, proposal, "$p", encryption-algorithm, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkeProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier }, { field: encryption_algorithm, from: "$v", scalar: EncryptionAlgorithm } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.proposal.lifetime-seconds
+    path: [security, ike, proposal, "$p", lifetime-seconds, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkeProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier }, { field: lifetime_seconds, from: "$v", scalar: Seconds } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.policy.proposals
+    path: [security, ike, policy, "$pol", proposals, "$prop"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkePolicy, key: "$pol", fields: [ { field: name, from: "$pol", scalar: Identifier } ] }
+      edges:
+        - { kind: UsesProposal, from: n0, to: { by_name: { kind: IkeProposal, from: "$prop" } }, ordinal_from_position: true }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.policy.mode
+    path: [security, ike, policy, "$pol", mode, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkePolicy, key: "$pol", fields: [ { field: name, from: "$pol", scalar: Identifier }, { field: mode, from: "$v", scalar: IkePolicyMode } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.policy.pre-shared-key.ascii
+    path: [security, ike, policy, "$pol", pre-shared-key, ascii-text, "$v"]
+    secret: { label: psk }
+    binds:
+      nodes:
+        - { as: n0, kind: IkePolicy, key: "$pol", fields: [ { field: name, from: "$pol", scalar: Identifier }, { field: pre_shared_key, secret_placeholder: psk } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.policy.pre-shared-key.hex
+    path: [security, ike, policy, "$pol", pre-shared-key, hexadecimal, "$v"]
+    secret: { label: psk }
+    binds:
+      nodes:
+        - { as: n0, kind: IkePolicy, key: "$pol", fields: [ { field: name, from: "$pol", scalar: Identifier }, { field: pre_shared_key, secret_placeholder: psk } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.gateway.ike-policy
+    path: [security, ike, gateway, "$gw", ike-policy, "$pol"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkeGateway, key: "$gw", fields: [ { field: name, from: "$gw", scalar: Identifier } ] }
+      edges:
+        - { kind: UsesIkePolicy, from: n0, to: { by_name: { kind: IkePolicy, from: "$pol" } } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.gateway.address
+    path: [security, ike, gateway, "$gw", address, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkeGateway, key: "$gw", fields: [ { field: name, from: "$gw", scalar: Identifier }, { field: peer, from: "$v", scalar: PeerAddress } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.gateway.external-interface
+    path: [security, ike, gateway, "$gw", external-interface, "$unit"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkeGateway, key: "$gw", fields: [ { field: name, from: "$gw", scalar: Identifier } ] }
+      edges:
+        - { kind: ExternalInterface, from: n0, to: { interface_unit: "$unit" } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.gateway.version
+    path: [security, ike, gateway, "$gw", version, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkeGateway, key: "$gw", fields: [ { field: name, from: "$gw", scalar: Identifier }, { field: version, from: "$v", scalar: IkeVersion } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.gateway.nat-keepalive
+    path: [security, ike, gateway, "$gw", nat-keepalive, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IkeGateway, key: "$gw", fields: [ { field: name, from: "$gw", scalar: Identifier }, { field: nat_keepalive, from: "$v", scalar: Seconds } ] }
+    versions: "*"
+    reviewed_by: <named human>

@@ -1,6 +1,6 @@
 # WO-03 — Ingest, one platform: the junos-srx lexer, shaper, and bind
 
-> **Status:** OPEN
+> **Status:** DONE
 
 Depends on: WO-01 (bind's stage-5 scalar dispatch needs `Scalar::parse` and the real
 `SecretPlaceholder`), WO-02 (the store this fragment is designed to apply onto must exist so the
@@ -1153,15 +1153,24 @@ gate (`78` §3 step 7).
 
 ### 6.1 The pinned fixture counts — backfilled by the executing session, same PR
 
+Pinned by the executing session against the built pipeline, and asserted in
+`tests/srx_fixture.rs::fixture_counts_pinned`.
+
 | Quantity | Pinned value |
 |---|---|
-| Physical lines in / logical lines | ⟨builder pins⟩ |
-| Bound / Unmapped / Unshaped / Quarantined / Noise / Blank | ⟨builder pins⟩ |
-| Fragment nodes, total and per kind | ⟨builder pins⟩ |
-| Resolved edges, per `EdgeKind` | ⟨builder pins⟩ |
-| Pending edges, with targets | ⟨builder pins⟩ |
-| Drop-manifest entries, label multiset | ⟨builder pins⟩ |
-| `already_redacted` entries | ⟨builder pins⟩ |
+| Physical lines in / logical lines | 43 / 42 (one backslash join; the trailing newline opens the 43rd physical line — §12 item 14) |
+| Bound / Unmapped / Unshaped / Quarantined / Noise / Blank | 27 / 6 / 1 / 1 / 5 / 2 |
+| Fragment nodes, total and per kind | 13 — `Device` 1, `IkeProposal` 1, `IkePolicy` 1, `IkeGateway` 1, `IpsecProposal` 1, `IpsecPolicy` 1, `IpsecVpn` 1, `TrafficSelector` 1, `TunnelInterface` 1, `LogicalUnit` 1, `Address` 1, `Zone` 2 |
+| Resolved edges, per `EdgeKind` | 7 — `UsesProposal` 2, `UsesIkePolicy` 1, `UsesIkeGateway` 1, `UsesIpsecPolicy` 1, `BindsInterface` 1, `ZoneMember` 1 |
+| Pending edges, with targets | 2 — `ExternalInterface` from `GW-B` and `ZoneMember` from `WAN`, both to `InterfaceUnit { RethInterface, "reth0", 0 }`; the second carries `host_inbound_system_services = {Ike}` |
+| Drop-manifest entries, label multiset | 5 — `Psk` 1, `SnmpCommunity` 2, `TacacsKey` 1, `Unknown` 1 (the quarantined clipped head) |
+| `already_redacted` entries | 1 — the `pre-shared-key hexadecimal "<REDACTED>"` line |
+
+Residue is 8 entries (`Unmapped` 6 + `Unshaped` 1 + `Quarantined` 1); `truncated` is true and
+`uses_groups` is false. Detector sets, as `DetectorSet` bits: the ascii-text PSK line is
+`PATH | CRYPT_PREFIX | LEAF_NAME` (35), `snmp community` and `tacplus-server … secret` are
+`PATH | LEAF_NAME` (33), `snmp trap-group` is `PATH` alone (1), and the quarantine is
+`LEAF_NAME` (32) — exactly §4.9's expected table.
 
 Once written, these values are load-bearing: any later change to fixture, dictionary or pipeline
 that moves one of them requires a §12 Disagreements entry stating old → new and why, in the PR
@@ -1361,3 +1370,47 @@ not decided here:
     `SECRET_WORD_LIST` and no value-shape detector compensates, so a real community in a
     trap-group statement would have passed the gate unredacted as `Unmapped` residue and
     persisted. Entry 39 restores the row; the fixture carries a canary in that position.
+
+---
+
+Items 14–18 are the executing session's, recorded under `78` §8's correction rule: each is
+proved by the code at the stated path and changes no decision this work order makes.
+
+14. **Physical lines are `split('\n')`, not `lines()` — and the fixture header is residue.**
+    Invariant L as `14` §4.6 words it ("the ledger's spans, plus the single-byte separators
+    **between** them, tile `[0, capture_len)` exactly") is unsatisfiable for any input ending in
+    a newline if the terminator is folded into the last line: one byte is left over. Splitting on
+    `\n` makes the trailing newline a separator and opens a final empty line, which the ledger
+    records as `Blank`. The fixture therefore has two `Blank` entries rather than the one §4.9's
+    table names, and 43 physical lines to 42 logical. Separately, the `# SYNTHETIC FIXTURE …`
+    header §4.9 mandates is not verb-initial and `display set` output has no comment form, so it
+    is `Unshaped { NotVerbInitial }` residue — preserved and counted, never skipped. Both are
+    additions to §4.9's table, not divergences from a row it states; §6.1 pins them.
+    Path: `crates/fathom-ingest/src/frame.rs::frame`.
+15. **The path detector redacts the entry's *last* capture position.** §4.6's row says *"the
+    argument capture(s) named by the entry are redacted"* and the grammar's `secret: { label: … }`
+    names no capture. Read as "every capture", entry 6 would also redact the tacplus server's IP
+    address and §4.9's expected table — one drop per secret line, with the labels it states —
+    would be unsatisfiable. The last capture is the value position in all nine `secret:` entries
+    and is `14` §14.3's own worked case. Path: `crates/fathom-ingest/src/dict.rs::Entry::secret_pos`.
+16. **The lookup-budget gate reports as `DictGate::Shadowing`.** §4.7 fixes `DictGate`'s ten
+    variants and none of them is a budget code; adding one is a §7 trigger 3. The gate runs
+    inside `Dictionary::load` and reports under `Shadowing`, which is also its cause —
+    backtracking happens exactly where one entry's literal branch shadows another's capture
+    branch. `tests/dict_gates.rs::lookup_budget_within_8` asserts the load succeeds; the exact
+    visit counts are measured by the unit test of the same name in `src/dict.rs`, which can see
+    the trie. The same shape applies to the other load-time gates: the integration tests assert
+    the shipped dictionary passes, and the negative cases are unit tests against the
+    filesystem-free load path, which the fixed public surface deliberately does not expose.
+17. **`Cargo.lock` is a deliverable §4's table omits.** Adding the workspace member changes the
+    lockfile, and `78` §6's floor runs `cargo test --workspace --locked`, which fails on a stale
+    one. `78` §5 item 7's manifest exception covers *"a new workspace member … together with the
+    `Cargo.lock` change that edit produces"*; the eight added lines are exactly that and nothing
+    else. WO-01 §4's table listed the row; this one's did not.
+18. **A visit is counted per edge followed, not per stack unwind.** §4.7 defines a visit so that
+    *"a straight-line walk of an entry's own path therefore costs exactly `path.len() + 1`"*, and
+    also says a node re-inspected on backtrack counts again. Counting every pop as a
+    re-inspection contradicts the first half — entry 33's own-path lookup would cost 21 rather
+    than 11 and the gate would be red on a correct trie. The implementation counts the root, one
+    visit per edge followed, and one extra when a node is returned to and follows a second edge.
+    Path: `crates/fathom-ingest/src/dict.rs::Dictionary::lookup`.

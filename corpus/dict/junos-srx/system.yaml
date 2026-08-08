@@ -1,0 +1,61 @@
+# corpus/dict/junos-srx/system.yaml — WO-03 §4.7 entries 1-7 and 39.
+#
+# Seven of these eight entries exist to feed the redaction gate, not the
+# binder: `14` §9.1's fourth structural property is that the set of `secret:`
+# entries IS the redaction catalogue, so a stanza Fathom does not model still
+# has to be catalogued here or its credential reaches the store.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name. Invariant 10 is
+# not satisfied until a named SRX-competent human replaces every one of them
+# (WO-03 §10 item 9).
+platform: junos-srx
+entries:
+  - id: junos-srx/system.host-name
+    path: [system, host-name, "$h"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device, fields: [ { field: hostname, from: "$h", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/system.root-authentication.encrypted-password
+    path: [system, root-authentication, encrypted-password, "$v"]
+    secret: { label: password }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/system.root-authentication.plain-text-password
+    path: [system, root-authentication, plain-text-password, "$v"]
+    secret: { label: password }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/system.login.user.encrypted-password
+    path: [system, login, user, "$u", authentication, encrypted-password, "$v"]
+    secret: { label: password }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/system.login.user.plain-text-password
+    path: [system, login, user, "$u", authentication, plain-text-password, "$v"]
+    secret: { label: password }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/system.tacplus-server.secret
+    path: [system, tacplus-server, "$ip", secret, "$v"]
+    secret: { label: tacacs-key }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/snmp.community
+    path: [snmp, community, "$name"]
+    secret: { label: snmp-community }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/snmp.trap-group
+    path: [snmp, trap-group, "$g"]
+    secret: { label: snmp-community }
+    versions: "*"
+    reviewed_by: <named human>

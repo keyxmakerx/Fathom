@@ -5,6 +5,7 @@ members = [
     "crates/fathom-find",
     "crates/fathom-graph",
     "crates/fathom-id",
+    "crates/fathom-ingest",
     "crates/fathom-ir",
     "crates/fathom-schema",
     "crates/fathom-schemagen",
