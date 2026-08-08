@@ -1,9 +1,10 @@
 # WO-04 — `fathom-emit`: graph to junos-srx commands with provenance
 
 > **Status:** BLOCKED on two planning decisions, neither of them code and neither of them a
-> dependency any more: **§10 item 7(b)** — the source of `IpsecVpn.mode` in a re-parsed graph — and
-> **WO-09 §10 item 2** — §4.9's golden references `reth0.0` and `st0.0` and declares no interface,
-> so both edges stay `Pending` under `14` §7.3. §5 step 12 was re-run on 2026-08-08 after WO-09
+> dependency any more: **§10 item 7(b)** — the source of `IpsecVpn.mode` in a re-parsed graph,
+> **examined 2026-08-08 and deliberately left unestablished under ADR-0034** (see the note in §10) —
+> and **WO-09 §10 item 2** — §4.9's golden references `reth0.0` and `st0.0` and declares no
+> interface, so both edges stay `Pending` under `14` §7.3. §5 step 12 was re-run on 2026-08-08 after WO-09
 > reached DONE: precondition (a) holds, **(b) now holds** (WO-09 is DONE and
 > `crates/fathom-weld/src/apply.rs:100` is `pub fn apply_new_device`), (c) fails — item 7's first
 > question (the weld entry point) is resolved, its second (the `mode` source) is not, and no
@@ -966,6 +967,33 @@ the escalation inbox under `78` §4 step 2.
    WO-09 §10 item 2 holds the analysis. Planning. **The weld that now exists confirms this from
    code rather than from doctrine:** `crates/fathom-weld/src/apply.rs:221` — *"Pending references:
    carried out, not written (`14` §7.3)"* — returns them as `Unresolved`, and writes no edge.
+
+   **PLANNING STOPPED HERE, 2026-08-08, and did not decide — under ADR-0034.**
+
+   The deduction looks obvious and I nearly made it. `IpsecVpn.mode` is `RouteBased | PolicyBased`
+   plus the generated unknown arm (`crates/fathom-ir/src/generated/ir_types.rs:2167`), and
+   `11` §6.7 says `BindsInterface` is *"required when mode == RouteBased and forbidden when
+   PolicyBased"*. If that biconditional holds, then a VPN that binds an interface **is** route-based,
+   `mode` is derivable at weld time, and `Confidence::Derived` — *"follows necessarily from asserted
+   facts"* — is exactly the right label for it. The mechanism exists; nothing needs inventing.
+
+   **Two things stop it being a planning call, and both are the kind that get waved through.**
+
+   1. **The schema declares only half of it.** `schema/schema.yaml`'s constraint is
+      `mode == RouteBased implies edge(BindsInterface) is Set` — one direction. The
+      forbidden-when-PolicyBased half exists in `11`'s prose and **is not expressible**: `62` §12.3's
+      grammar has no negation, and the schema's own doc comment flags it as *"defects to file"*. So
+      the deduction rests on a constraint the tree documents but cannot enforce.
+   2. **It rests on a vendor claim I have not sourced.** That the two named modes are the only real
+      ones on Junos — that the unknown arm will never carry a third — is a statement about Juniper's
+      behaviour, and **ADR-0034 forbids asserting one from memory.** No primary source for it exists
+      anywhere in this tree.
+
+   Under that law *"I could not establish this"* outranks a confident guess, so this is recorded as
+   unestablished rather than answered. **What unblocks it:** a primary Juniper source confirming the
+   mode set, and a decision on whether a deduction may rest on a constraint the grammar cannot
+   express. Both are small; neither is guessable. The deduction is very probably right, and *very
+   probably right* is precisely the standard ADR-0034 exists to refuse.
 
 ## 11. Sources consulted
 

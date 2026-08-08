@@ -100,7 +100,7 @@ re-run green; only G8 is outstanding, and it is outstanding on three planning de
 code. Nothing new was escalated: the questions are already filed (WO-09 §10 items 2, 5 and 8, the
 last of them in `73` §14). The tree is unchanged apart from the two status records.
 
-**That paragraph is history, not the present tense.** `crates/fathom-weld` and `apply_new_device` have existed since `fa72d80`; `cargo build --workspace` compiles them and 353 tests pass. Left in place with this note rather than rewritten, because it records why WO-04 was correctly left BLOCKED on the day it was re-taken.
+**That paragraph is history, not the present tense.** `crates/fathom-weld` and `apply_new_device` have existed since `fa72d80`; `cargo build --workspace` compiles them and 354 tests pass. Left in place with this note rather than rewritten, because it records why WO-04 was correctly left BLOCKED on the day it was re-taken.
 
 **WO-04 was taken again on 2026-08-08, after WO-09 reached DONE, and stays BLOCKED — but on
 nothing this queue can build.** Step 12's precondition (b) now **holds**: WO-09 is DONE and
