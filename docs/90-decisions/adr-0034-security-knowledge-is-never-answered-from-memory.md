@@ -60,7 +60,16 @@ must be written as one rather than left as silence.
 **3. Two independent sources for a negative.** *"No vulnerability found"* from a single database is
 indistinguishable from a lookup that silently failed. A clean result is only reportable when two
 independent sources agree. (Discharged in practice on 2026-08-08: the fifteen crates `32` §15 pins
-were queried against both OSV.dev and RustSec, both clean — recorded at `70` §7.6.)
+were queried against both OSV.dev and RustSec on 2026-08-08, both clean — recorded with its
+sources, its date and its three limits at `70` §7.6.)
+
+> **This record broke its own rule on the day it was written.** The sentence above originally cited
+> `70` §7.6 when no such section existed — an unsourced reference inside the document forbidding
+> unsourced references. Caught by an independent audit the same night, and fixed by *writing the
+> section* rather than by deleting the citation, because the lookup was real and belonged in the
+> record. Left visible here deliberately: the author of a rule is not exempt from it, and a rule
+> that is not mechanically checked will be broken by the person who wrote it. `73` §14 is the other
+> instance of the same class, three days apart.
 
 **4. Currency is a build gate, not a memory.** A dated lookup in a document is a record, not a
 control: it cannot notice that it has gone stale. A dependency-vulnerability scan therefore joins

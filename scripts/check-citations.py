@@ -56,12 +56,24 @@ def has_section(body, sec):
 def main():
     docs = docmap()
     bodies = {k: io.open(v, encoding='utf-8').read() for k, v in docs.items()}
-    targets = sorted(glob.glob('docs/**/*.md', recursive=True)) + ['CLAUDE.md', 'README.md']
+    # .rs is scanned too. The nine dangling `73` §14 references this script exists to
+    # catch included two CODE COMMENTS a work order would have written into shipped
+    # source -- so a checker that only reads markdown misses the case in its own
+    # rationale. Rust files cite as `16 §9.3` (no backticks) inside doc comments, so
+    # the pattern is applied to both forms.
+    targets = (sorted(glob.glob('docs/**/*.md', recursive=True))
+               + sorted(glob.glob('crates/**/*.rs', recursive=True))
+               + ['CLAUDE.md', 'README.md'])
     bad, total = [], 0
     for f in targets:
         if not os.path.exists(f):
             continue
-        for num, sec in re.findall(r'`(\d{2})`\s*§+\s*([\d.]+\d)', io.open(f, encoding='utf-8').read()):
+        body = io.open(f, encoding='utf-8').read()
+        # (?<!WO-) so `WO-04 §4.4` is not read as document 04 -- work-order
+        # citations are a different namespace and are not checked here.
+        pat = (r'`(\d{2})`\s*§+\s*([\d.]+\d)' if f.endswith('.md')
+               else r'(?<!WO-)(?<![\d-])(\d{2})\s*§+\s*([\d.]+\d)')
+        for num, sec in re.findall(pat, body):
             total += 1
             if num not in docs:
                 bad.append((f, num, sec, 'no such document'))

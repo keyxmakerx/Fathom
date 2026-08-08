@@ -31,8 +31,12 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   product as one interactive file — the fidelity bar for anything built.
 - **Code: the schema toolchain and the finder core are complete** (`fathom-id`,
   `fathom-schema`, `fathom-schemagen`, `fathom-ir` with checked-in generated types,
-  `fathom-corpus`, `fathom-find`; 80 tests). The flagship query answers correctly,
-  deterministically, safety-ordered, from real code.
+  `fathom-corpus`, `fathom-find`). **As of 2026-08-08 the queue has run: six more crates exist** —
+  `fathom-graph` (the typed store), `fathom-ingest` (junos-srx set-form, with the redaction gate),
+  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`. **282 tests, zero external
+  dependencies.** Four of eight work orders DONE (WO-06, WO-01, WO-02, WO-07 — then WO-03, WO-08);
+  WO-04 is BLOCKED on the weld and WO-05 on two filed escalations. **Nothing has ever been opened in
+  a browser**: WO-08's sixteen manual rows are honestly recorded NOT RUN.
 - **The plan layer is live.** `78` (the execution protocol), `79-work-orders/` (eight
   orders, adversarially verified), and CI (`.github/workflows/ci.yml`) enforcing the
   verification floor on every PR.
@@ -52,6 +56,11 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Rules that bind every session
 
+0. **ADR-0034 (2026-08-08) is law and it binds this session:** a security claim is **never**
+   answered from memory. Look it up, name the source *and the date*, two independent databases for
+   a clean result, and *"I could not establish this"* outranks a confident guess. Carried in
+   `.context/conventions.md` § *Currency*. The ADR broke this rule in its own text on day one and
+   `70` §7.6 records how — read that before assuming you are exempt.
 1. Read `.context/conventions.md` before writing anything — the ten invariants and the
    vocabulary are binding, and the risk enum (three values, reserved colours) is never
    extended or reused. **Re-read it if you last read it before 2026-08-08:** ADR-0002 was
@@ -90,13 +99,12 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   `73`'s ranks C–F onto events (the ranking inverts, it does not merely age); the
   fragment-to-store weld order, still unwritten (`88` §5.3); and gate zero plus the
   `--locked` fix in `ci.yml` **before any dependency lands** (ADR-0032 §6).
-- **Owner-only, blocking:** ratify ADR-0031, ADR-0032 and ADR-0033 (drafted 2026-08-06 from
-  the owner's answers in `70`); answer `70` §10's open questions — *should the IKE
+- **Owner-only, blocking:** ADR-0031/0032/0033 are **ratified** (2026-08-08) and ADR-0034 is
+  Accepted — see rule 1. Answer `70` §10's open questions — *should the IKE
   warning sit on the interface or the zone?* and *is Meraki configurable by text you can copy?*; the S0
   fixture exports (`76` §7: Calix/Nokia/DIA configs, one service record end-to-end, the site
   list); the `Site` identity rule, which is **not** blocked on those exports and needs one
-  sentence (`88` §6.13); the four forks in `19` §10; the licence files ADR-0004 decided and
-  the tree does not have (`88` §5.8); the named expert review of `corpus/` (invariant 10 —
+  sentence (`88` §6.13); the four forks in `19` §10; the named expert review of `corpus/` (invariant 10 —
   every entry still carries `reviewed_by: <named human>`).
 
 ## Verify before you trust
@@ -105,8 +113,8 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 80 tests as of the plan-layer merge; green is the
-  gate, not the number.
+- `cargo test --workspace --locked` — 282 tests as of 2026-08-08; green is the gate, not the
+  number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0; the standing baseline
   is two `schema.identity.unexercised` warnings against `Site`, deliberate and
   owner-blocked.

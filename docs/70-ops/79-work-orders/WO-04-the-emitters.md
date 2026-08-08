@@ -1,7 +1,8 @@
 # WO-04 — `fathom-emit`: graph to junos-srx commands with provenance
 
-> **Status:** BLOCKED on WO-03 + the weld WO (G8, the round-trip gate, outstanding; all other
-> gates green)
+> **Status:** BLOCKED on the fragment-to-store weld order, which does not exist (G8, the round-trip
+> gate, cannot arm; all other gates green). WO-03 was the other half of this block and completed
+> 2026-08-08 — corrected here under `78` §8 as a factual correction, not a re-scope.
 
 The reverse face of ingest — from graph state to copy-pasteable configuration lines, each line
 carrying the provenance that produced it. This is the notepad's engine: `53` §6's copy machinery

@@ -342,6 +342,45 @@ platforms §7.2 names, and `"*"` written 500 more times is 500 more corrections.
 **Still needed for the policy to be actionable:** the target release per platform, which is a
 `schema/platforms.yaml` field that does not exist. Logged in §13.
 
+### 7.6 The dependency vulnerability check — what was queried, against what, on what date
+
+**This section exists because ADR-0034 cited it before it existed.** The record making it law that a
+security claim is never asserted from memory, and that a lookup must name its source and its date,
+shipped with a forward reference to a section nobody had written. That is the same class of defect
+as the nine dangling references to `73` §14, arriving inside the document written to prevent it, and
+it is recorded here rather than quietly repaired because the failure is the more useful artifact:
+**a rule does not enforce itself, and the author of a rule is not exempt from it.**
+
+The lookup below is the one ADR-0034 §3 refers to. It is reproduced with its date and its sources so
+that a later reader can tell how stale it is without re-deriving it.
+
+**Queried:** 2026-08-08. **Sources:** OSV.dev (Google's open-source vulnerability database) and
+RustSec (the Rust community advisory database) — two independent databases, as ADR-0034 §3 requires
+for a negative result, because a failed query and a clean result are indistinguishable from one.
+
+**Scope:** the fifteen crates `32` §15 pins by exact version, plus their transitive dependencies —
+`argon2`, `chacha20poly1305`, `hkdf`, `sha2`, `blake3`, `x25519-dalek`, `ed25519-dalek`,
+`curve25519-dalek`, `getrandom`, `zeroize`, `secrecy`, `subtle`, `vsss-rs`, `ml-kem`.
+
+**Result: zero known vulnerabilities against any of them, in either database.** Both databases agree,
+which is the point of using two.
+
+**Three limits on that result, which are part of the result:**
+
+| | |
+|---|---|
+| **"No known vulnerability" means nothing has been *reported*** | It is not an audit, not a maturity signal, and not evidence that no flaw exists undiscovered. It is the best available check and it is not a guarantee |
+| **It is true as of the date above, and decays from that moment** | This is precisely why ADR-0034 §4 puts a dependency scan on `78` §6's floor rather than trusting a dated line in a document. A record cannot notice it has gone stale |
+| **It says nothing about how the primitives are *assembled*** | Choosing sound libraries and building a sound scheme from them are different jobs. The workspace file's key hierarchy, its recovery path and what the server can infer are open design questions (`70` §13 item 4, WO-05 §2) and are not answered by this check |
+
+**Recommendation, unchanged from the research: keep `32` §15's list as it stands.** There is no
+security reason to substitute anything, and the alternative AEAD construction considered alongside it
+has no advantage on this evidence. **Nothing in this section authorises a crate to land** — ADR-0032's
+per-crate approval gate and its gate zero in CI both still apply, and ADR-0032 §6 requires gate zero
+to exist *before* the first dependency does. As of this date the workspace still has **zero** external
+dependencies, so nothing has been breached; that is also why the gate is now the last guard rather
+than one of several.
+
 ## 8. Hosting, load balancing and stored state
 
 > *"all that in a very secure format with expandability for loadbalancing and docker hosted storage

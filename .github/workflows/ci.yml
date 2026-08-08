@@ -8,7 +8,10 @@
 #
 # NOT YET PRESENT: gate zero — fail the build when Cargo.lock gains a non-first-party
 # package with no approval record. ADR-0032 §6 requires it before any dependency lands,
-# and ADR-0032 is Proposed. It is Stage A of the program plan, not this commit.
+# and ADR-0032 was ratified on 2026-08-08 — so this is now the LAST guard between an
+# unapproved crate and the tree, and it does not exist yet. Zero dependencies today,
+# so nothing is breached; it must land before the first one does. ADR-0034 §4 adds a
+# second gate here at the same time: a dependency-vulnerability scan on every run.
 name: gates
 on:
   push:
