@@ -1097,6 +1097,52 @@ additional line, and it is not softened:
 
 ---
 
+### 15.6 How an enum variant is written on the wire
+
+Added 2026-08-08, answering WO-09 §10 item 8. This document owns the workspace format
+(`docs/00-vision/01-ownership.md`), so the rule belongs here rather than in a work order.
+
+**The rule, which the plaintext face already follows three times over:**
+
+> A variant **with no payload** is written as its bare lower-case token — a JSON string.
+> A variant **carrying a payload** is written as a single-key object whose key is that same token
+> and whose value is the payload.
+
+That is not a new convention. It is the one `crates/fathom-workspace/src/lib.rs` already applies,
+and it was applied without anyone writing it down:
+
+| Value | Shape | On the wire |
+|---|---|---|
+| `Confidence::Asserted` \| `Derived` \| `Heuristic` | payload-free | `"asserted"` |
+| `StoredPresence::Set` \| `Absent` \| `Unknown` | payload-free | `"set"` (`presence_token`) |
+| `Origin::Hand` | payload-free | `"hand"` |
+| `Actor::User(UserId)` | carries a payload | `{"user": "01ARZ…"}` (`tagged("user", …)`) |
+
+**Therefore `Origin::Parsed { capture, span }` is `{"parsed": {"capture": …, "span": …}}`**, and
+`Origin::Hand` stays the bare `"hand"` it already is.
+
+**Why this and not the alternatives.** WO-09 §10 item 8 enumerated three options with no lean, as
+`78` §4 step 2 requires. Answered here:
+
+| Option | Verdict |
+|---|---|
+| **(a) tagged object for `Parsed`, bare string for `Hand`** | **Adopted.** It is not an asymmetry and not a special case — it is the rule above, which three existing fields already obey. The escalating session read only the `origin` line and so saw an inconsistency where there is a convention |
+| (b) every origin becomes a tagged object, `"hand"` included | Rejected. It would make `origin` the only field in the format encoding a payload-free variant as an object, breaking the symmetry with `confidence` and `presence` rather than creating one — and it changes bytes WO-05 §4.4's vector pins, for no information gained. `Hand` is also the common case: every hand-entered field carries it, and §13's budgets are not helped by inflating it |
+| (c) discriminant plus payload | Rejected on two grounds. It couples the wire to `Origin::discriminant()`, which `11` §8.6 defines as a **history-retention grouping key** — an internal concern — so reordering variants would silently change the file. And it destroys readability, which §12 treats as a requirement rather than a nicety: *"git then diffs that, and `git log -p` becomes readable."* A number is not readable |
+
+**The reader's refusal message.** The current text — *"the one shipped origin, `hand`"* — is stale
+the moment a second variant exists. It becomes a list of accepted tokens, which is what every other
+refusal in the file already does.
+
+**What this does not decide.** How `CaptureId` and `CaptureSpan` themselves render inside the
+payload is WO-09 §4's to state, in the same way it states every other public shape it creates;
+this section fixes only the enclosing form. And `Origin::Parsed` as WO-09 declares it is a
+deliberate two-field cut of the five-field record `11` §8.2 specifies — the order says so in the
+declaration's own doc comment and files the remainder at its §10 items 3–4, because no capture
+store and no corpus version exist in the tree. **When those land, `Parsed` widens and this wire
+form does not have to change**, which is the practical argument for the tagged object over a bare
+string: a payload can grow, a token cannot.
+
 ## 16. Corruption, truncation and recovery
 
 ### 16.1 The failure modes, and what each looks like

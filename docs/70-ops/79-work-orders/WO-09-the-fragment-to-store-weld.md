@@ -1,7 +1,9 @@
 # WO-09 — `fathom-weld`: the fragment-to-store weld
 
-> **Status:** BLOCKED on the canonical wire form for `Origin::Parsed` in `fathom-workspace`'s
-> plaintext serialisation, and the authorisation to edit that crate (§10 item 8)
+> **Status:** OPEN — §10 item 8 answered 2026-08-08 by planning. The wire form is `17` §15.6 (a
+> payload-bearing variant is a single-key tagged object; `Origin::Hand` stays the bare `"hand"`, so
+> WO-05 §4.4's pinned vector does not move), and §4.2 is authorised to add `fathom-workspace`'s
+> writer (`lib.rs:329`) and reader (`lib.rs:617`) match sites.
 
 Depends on: **WO-02** (`fathom-graph` — the store this writes into), **WO-03** (`fathom-ingest` —
 the fragment this reads). Both DONE.
@@ -780,7 +782,7 @@ escalation inbox under `78` §4 step 2.
 
    It is not a rendering match like `render.rs`'s. It is one half of the **canonical plaintext
    workspace serialisation**, and it has a reader on the other side
-   (`crates/fathom-workspace/src/lib.rs:618`):
+   (`crates/fathom-workspace/src/lib.rs:617`):
 
    ```rust
    // writer, line 329
@@ -789,7 +791,7 @@ escalation inbox under `78` §4 step 2.
    };
    // ... ("origin", Json::Str(origin.to_owned()))
 
-   // reader, line 618
+   // reader, line 617
    let origin = match get_str(key_or(m, "origin", &path)?, &path)? {
        "hand" => Origin::Hand,
        _ => return Err(shape(&path, "the one shipped origin, `hand`")),
@@ -827,8 +829,38 @@ escalation inbox under `78` §4 step 2.
    Each also needs the reader's refusal message re-worded — *"the one shipped origin, `hand`"* is
    already stale prose the moment a second variant exists.
 
-   **Not decided here, and deliberately not attempted.** `78` §5 item 10 binds the next session:
-   whoever answers this does not then execute WO-09.
+   **ANSWER (2026-08-08, planning). Option (a) — and it is not a special case.**
+
+   The decision is written into `17` §15.6, because `17` owns the workspace format
+   (`docs/00-vision/01-ownership.md`) and a work order may not ship a second specification for
+   something it does not own (`.context/conventions.md` § *Precedence*). The rule stated there:
+
+   > A variant **with no payload** is written as its bare lower-case token. A variant **carrying a
+   > payload** is written as a single-key object whose key is that token and whose value is the
+   > payload.
+
+   **The escalation was right to stop and slightly wrong about what it found.** It read the `origin`
+   line in isolation and saw an inconsistency; the file already applies that rule three times —
+   `Confidence` and `StoredPresence` are payload-free and are bare tokens, `Actor::User(UserId)`
+   carries a payload and is `tagged("user", …)` at `crates/fathom-workspace/src/lib.rs:334`. So
+   option (a) does not introduce an asymmetry, it obeys the convention already in the file, and
+   options (b) and (c) each break something — (b) makes `origin` the only payload-free variant
+   encoded as an object, (c) couples the file to `Origin::discriminant()`, which `11` §8.6 defines
+   as a retention grouping key and not a wire contract.
+
+   **What the executing session does.** `Origin::Parsed { capture, span }` writes as
+   `{"parsed": {"capture": …, "span": …}}`; `Origin::Hand` stays `"hand"`, so WO-05 §4.4's pinned
+   vector is unchanged. §4 must state how `CaptureId` and `CaptureSpan` render inside the payload,
+   in the same way it states every other public shape it creates — `17` §15.6 fixes only the
+   enclosing form. The reader's refusal message becomes a list of accepted tokens; *"the one shipped
+   origin, `hand`"* is stale the moment a second variant exists.
+
+   **Adding `fathom-workspace`'s two match sites to §4.2 is authorised by this answer** — the writer
+   at `lib.rs:329` and the reader at `lib.rs:617` — since §3's Prior state named only `render.rs`
+   and could not have named a crate that did not exist when this order was authored.
+
+   **`78` §5 item 10 binds whoever answers this**: the session that wrote this answer does not
+   execute WO-09.
 
 ## 11. Sources consulted
 
