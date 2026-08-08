@@ -45,9 +45,9 @@ use std::collections::BTreeMap;
 
 use fathom_canon::Json;
 use fathom_graph::{
-    Actor, Batch, BatchId, Confidence, EdgeId, EdgeSnap, ElementId, FieldSnap, Graph,
-    HistoryEntrySnap, HistorySnap, IdParseError, NodeId, NodeSnap, Op, Origin, ProvenanceId,
-    ProvenanceRecord, Snapshot, SnapshotError, StoredPresence, Timestamp, UserId,
+    Actor, Batch, BatchId, CaptureId, CaptureSpan, Confidence, EdgeId, EdgeSnap, ElementId,
+    FieldSnap, Graph, HistoryEntrySnap, HistorySnap, IdParseError, NodeId, NodeSnap, Op, Origin,
+    ProvenanceId, ProvenanceRecord, Snapshot, SnapshotError, StoredPresence, Timestamp, UserId,
 };
 use fathom_id::Ulid;
 use fathom_ir::bag::FieldKey;
@@ -250,6 +250,13 @@ fn ulid_json(u: Ulid) -> Json {
     Json::Str(u.encode())
 }
 
+fn span_to_json(s: CaptureSpan) -> Json {
+    obj(vec![
+        ("end", Json::Int(i64::from(s.end))),
+        ("start", Json::Int(i64::from(s.start))),
+    ])
+}
+
 fn presence_token(p: StoredPresence) -> &'static str {
     match p {
         StoredPresence::Set => "set",
@@ -326,15 +333,27 @@ fn provenance_to_json(r: &ProvenanceRecord) -> Json {
         Confidence::Derived => "derived",
         Confidence::Heuristic => "heuristic",
     };
+    // `17` §15.6: a payload-free variant is its bare lower-case token; a
+    // payload-bearing variant is a single-key object keyed by that token.
+    // `CaptureId` renders as a bare canonical ULID string, like every other id
+    // in this file; `CaptureSpan` as a two-key object of byte offsets
+    // (WO-09 §4.2).
     let origin = match r.origin {
-        Origin::Hand => "hand",
+        Origin::Hand => Json::Str("hand".to_owned()),
+        Origin::Parsed { capture, span } => tagged(
+            "parsed",
+            obj(vec![
+                ("capture", ulid_json(capture.0)),
+                ("span", span_to_json(span)),
+            ]),
+        ),
     };
     let mut pairs = vec![
         ("asserted_at", Json::Int(r.asserted_at.0 as i64)),
         ("asserted_by", tagged("user", ulid_json(user))),
         ("confidence", Json::Str(confidence.to_owned())),
         ("id", ulid_json(r.id.0)),
-        ("origin", Json::Str(origin.to_owned())),
+        ("origin", origin),
     ];
     if let Some(s) = r.supersedes {
         pairs.push(("supersedes", ulid_json(s.0)));
@@ -503,6 +522,36 @@ fn read_ulid(j: &Json, path: &str) -> Result<Ulid, PlainError> {
     Ok(decoded)
 }
 
+/// `17` §15.6's rule, read back: the bare token for a payload-free variant,
+/// the one-key object for a payload-bearing one. The refusal names every
+/// accepted token, which is what the rest of this file's refusals already do.
+fn read_origin(j: &Json, path: &str) -> Result<Origin, PlainError> {
+    const ACCEPTED: &str = "one of the origins hand / parsed";
+    if let Json::Str(token) = j {
+        return match token.as_str() {
+            "hand" => Ok(Origin::Hand),
+            _ => Err(shape(path, ACCEPTED)),
+        };
+    }
+    let m = get_obj(j, path)?;
+    if m.len() != 1 {
+        return Err(shape(path, "a one-key origin object"));
+    }
+    let payload = get_obj(m.get("parsed").ok_or_else(|| shape(path, ACCEPTED))?, path)?;
+    let span = get_obj(key_or(payload, "span", path)?, path)?;
+    Ok(Origin::Parsed {
+        capture: CaptureId(read_ulid(key_or(payload, "capture", path)?, path)?),
+        span: CaptureSpan {
+            start: read_u32(key_or(span, "start", path)?, path)?,
+            end: read_u32(key_or(span, "end", path)?, path)?,
+        },
+    })
+}
+
+fn read_u32(j: &Json, path: &str) -> Result<u32, PlainError> {
+    u32::try_from(get_u64(j, path)?).map_err(|_| shape(path, "a byte offset inside u32"))
+}
+
 fn read_presence(j: &Json, path: &str) -> Result<StoredPresence, PlainError> {
     match get_str(j, path)? {
         "set" => Ok(StoredPresence::Set),
@@ -614,10 +663,7 @@ fn snapshot_from_json(j: &Json) -> Result<Snapshot, PlainError> {
             "heuristic" => Confidence::Heuristic,
             _ => return Err(shape(&path, "one of asserted / derived / heuristic")),
         };
-        let origin = match get_str(key_or(m, "origin", &path)?, &path)? {
-            "hand" => Origin::Hand,
-            _ => return Err(shape(&path, "the one shipped origin, `hand`")),
-        };
+        let origin = read_origin(key_or(m, "origin", &path)?, &path)?;
         provenance.push(ProvenanceRecord {
             id: ProvenanceId(read_ulid(key_or(m, "id", &path)?, &path)?),
             origin,

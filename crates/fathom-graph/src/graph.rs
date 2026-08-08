@@ -104,7 +104,12 @@ impl End {
 
 /// Why a mutation did not happen. `62` §12.1's L0 vocabulary: *"A type error.
 /// The write does not happen; the error names the violated declaration."*
-#[derive(Debug)]
+///
+/// The derive matches `ReadError`'s below: both describe one direction of the
+/// same store, and every payload here is an id, a kind or a field key, all of
+/// them already `Clone + Eq`. WO-09 §4.5.1 authorises this line so a caller
+/// can carry a refusal whole instead of collapsing it to a string.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteError {
     NoOpenBatch,
     BatchAlreadyOpen {
@@ -764,9 +769,10 @@ impl Graph {
     }
 
     /// Assert that the field has no value. Only a closed-world observation or
-    /// an explicit human assertion may say this (`11` §8.5); with
-    /// `Origin::Hand` the only constructible origin, every `Absent` here is
-    /// the second of those by construction.
+    /// an explicit human assertion may say this (`11` §8.5); the parser never
+    /// asserts absence, because `14` §7.4 pins its capture scope to
+    /// `Fragment` and `11` §10.5 gives `Fragment` scope no licence to assert
+    /// absence (WO-03 §12 item 6; WO-09 §4.2, §4.5).
     pub fn assert_absent(
         &mut self,
         element: ElementId,

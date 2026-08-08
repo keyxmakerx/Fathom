@@ -1,9 +1,14 @@
 # WO-09 — `fathom-weld`: the fragment-to-store weld
 
-> **Status:** OPEN — §10 item 8 answered 2026-08-08 by planning. The wire form is `17` §15.6 (a
+> **Status:** BLOCKED on where `InterfaceLike.name`'s type disagreement is fixed — the dictionary
+> binds `Identifier`, the schema declares `InterfaceName`, and the fixture cannot apply until one
+> of them moves (§10 item 9, filed 2026-08-08 at plan step 9; `73` §14).
+>
+> §10 item 8 was answered 2026-08-08 by planning and is **executed**: the wire form is `17` §15.6 (a
 > payload-bearing variant is a single-key tagged object; `Origin::Hand` stays the bare `"hand"`, so
-> WO-05 §4.4's pinned vector does not move), and §4.2 is authorised to add `fathom-workspace`'s
-> writer (`lib.rs:329`) and reader (`lib.rs:617`) match sites.
+> WO-05 §4.4's pinned vector does not move), and §4.2 now carries `fathom-workspace`'s writer
+> (`lib.rs:329`) and reader (`lib.rs:617`) match sites. Plan steps 1–8 are complete and floor-green;
+> step 9's four remaining test files are not written (§10 item 9).
 
 Depends on: **WO-02** (`fathom-graph` — the store this writes into), **WO-03** (`fathom-ingest` —
 the fragment this reads). Both DONE.
@@ -211,6 +216,7 @@ Exactly these files change or are created. **No file under `schema/`, `crates/fa
 | `crates/fathom-graph/src/graph.rs` | One doc comment corrected on `assert_absent` (§4.2), **and `WriteError`'s derive line** (§4.5.1) |
 | `crates/fathom-ingest/src/dict.rs` | One public method, `Dictionary::entry_id` (§4.2) |
 | `crates/fathom-inventory/src/render.rs` | One match arm (§4.2) |
+| `crates/fathom-workspace/src/lib.rs` | The two `Origin` match sites — writer (`lib.rs:329`) and reader (`lib.rs:617`) — added by §10 item 8's answer, which §3 could not have named because the crate did not exist when this order was authored (§4.2) |
 | This file | Status line → `DONE` at step 11; `00-INDEX.md` row mirrored |
 
 ### 4.1 The crate
@@ -313,6 +319,28 @@ impl Dictionary {
 **`crates/fathom-inventory/src/render.rs`.** The one-arm match over `rec.origin` gains
 `fathom_graph::Origin::Parsed { .. } => "parsed"`. One word, lower-case, matching the existing
 `"hand"`.
+
+**`crates/fathom-workspace/src/lib.rs`.** The two match sites §10 item 8's answer authorises, and
+nothing else in the file. `17` §15.6 owns the enclosing form — *"A variant with no payload is
+written as its bare lower-case token. A variant carrying a payload is written as a single-key
+object whose key is that token and whose value is the payload."* — so `Origin::Hand` stays the bare
+`"hand"` and WO-05 §4.4's pinned vector does not move. **How the payload renders inside it, which
+`17` §15.6 leaves to this order:**
+
+```json
+"origin": { "parsed": { "capture": "01K2…", "span": { "end": 1481, "start": 1402 } } }
+```
+
+- `CaptureId` is a **bare canonical ULID string** — `ulid_json`, the same rendering every other id
+  in the file already gets, including `Actor::User`'s payload. Not an object: it carries one value.
+- `CaptureSpan` is a **two-key object of non-negative integers**, `start` and `end`, a half-open
+  byte range into the redacted capture (`14` §9.5). Two keys rather than a two-element array
+  because the file has no positional encodings and `17` §12 treats readability as a requirement:
+  a reader of the diff must not have to know which end comes first. Key order is `obj`'s, which is
+  sorted, so `end` precedes `start` on the wire.
+- The reader accepts the bare token **or** a one-key object, refuses any other key count, and its
+  refusal message becomes a list of accepted tokens — *"the one shipped origin, `hand`"* was stale
+  the moment a second variant existed.
 
 ### 4.3 The manifest — what the caller supplies, and why each item cannot be invented
 
@@ -862,6 +890,87 @@ escalation inbox under `78` §4 step 2.
    **`78` §5 item 10 binds whoever answers this**: the session that wrote this answer does not
    execute WO-09.
 
+9. **ESCALATED 2026-08-08 by the executing session, at plan step 9 — the fixture cannot apply,
+   because WO-03 §4.8 contract item 1 is broken for `InterfaceLike.name`, and every fix is outside
+   this order's Deliverables table.**
+
+   **Where it stopped.** Plan step 9, the integration tests. Steps 1–8 are complete and floor-green
+   and are in this PR: `Origin::Parsed` with `CaptureId`/`CaptureSpan` and the two
+   `fathom-workspace` wire sites (§10 item 8's answer, executed); `Dictionary::entry_id`; the
+   `fathom-weld` crate — `Mint`, the provenance constructors, the `BoundValue` dispatch,
+   `apply_new_device`, `containment_edge`; and `tests/containment.rs`, so **G5 is green and §3's
+   uniqueness fact is re-proved from the generated tables**. §4.6's other four test files are not
+   written: the first one attempted, `tests/apply.rs`, went red on every test that applies the
+   fixture, and was removed rather than weakened (`78` §5 item 5).
+
+   **What the work order says.** §4.6's `the_synthetic_srx_fixture_applies` — *"Assert: `Ok`"*.
+   §4.5's `SlotType` doc — *"The declared slot type and the `BoundValue` payload disagree — the
+   WO-03 §4.8 contract item 1 guarantee has broken."* §4's opening — *"**No file under `schema/`,
+   `crates/fathom-ir`, `crates/fathom-schema`, `crates/fathom-schemagen`, `corpus/`, `.context/`,
+   `docs/90-decisions/` or `.github/`.**"*
+
+   **What was found.** Applying the shipped fixture returns `Err(SlotType { key: FieldKey(55) })`.
+   Key 55 is `TunnelInterface.name`.
+
+   - `crates/fathom-ir/src/generated/accessors.rs:296` — `TunnelInterface.name` reads back
+     `&crate::scalar::InterfaceName`, so `slot_type(FieldKey(55))` is
+     `TypeId::of::<scalar::InterfaceName>()`.
+   - `corpus/dict/junos-srx/interfaces.yaml:13`, verbatim:
+     `- { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: Identifier } ] }`
+     — so the fragment carries `BoundValue::Identifier(scalar::Identifier)`.
+   - `crates/fathom-ingest/src/dict.rs`'s `ValueTy` has no `InterfaceName` arm and
+     `crates/fathom-ingest/src/bind.rs`'s `BoundValue` has no `InterfaceName` variant. **The
+     fragment cannot carry the declared type today**, so this is not a mis-set dictionary field
+     that the dictionary alone can correct.
+   - **It is one dictionary entry and therefore four kinds, not one.** `@interface_like` expands
+     to `Interface`, `AggregateInterface`, `RethInterface`, `TunnelInterface`, and
+     `schema/schema.yaml` declares `name: InterfaceName` on all four (keys 27, 41, 48, 55). The
+     fixture defines only `st0`, so only `TunnelInterface` fires today.
+   - **Nothing else in the fixture diverges.** An audit over every `FieldAssertion` the fixture
+     produces — node, edge and pending fields — comparing `slot_type(key)`'s `TypeId` against the
+     `BoundValue` payload's, reported this one line and no other.
+   - **It is not a weld defect and not a new divergence.** `fathom-emit`'s graphs write
+     `InterfaceName` on the same keys, so the store side and the ingest side of the round trip
+     already disagreed; the weld is the first code to put them in one call. This is the third
+     precondition WO-04 §5 step 12's G8 would have hit, and it is not on any of the three lists in
+     §10 item 2 or WO-04 §10 item 7.
+
+   **Why this is §4 and not a `78` §8 correction.** §8 admits a correction only when *"the code
+   proves the correction and the correction changes no decision the work order makes"*, and
+   excludes *"anything touching a decision"*. Every available fix changes a decision **and** a
+   deliverable set — this order's, WO-03's, or the schema's — and each lands in a file §4's opening
+   sentence forbids. Two reasonable people would pick different fixes and both be defensible, which
+   is `78` §7's test for judgment-shaped work.
+
+   **The smallest decision that unblocks.** One sentence naming where the disagreement is resolved,
+   plus the Deliverables rows that fix needs, in whichever order owns it. Mechanically enumerable,
+   with no lean:
+
+   (a) **The schema moves to the dictionary** — `schema/schema.yaml` declares `name: Identifier` on
+   the four interface kinds. `InterfaceName` exists as a scalar precisely to constrain interface
+   names, so this retires a constraint; it re-generates `fathom-ir`, and `fathom-emit` and
+   `fathom-inventory`'s demo estate both write the field. A schema edit is `78` §5 item 3 and §7
+   work, never an execution session's.
+
+   (b) **The dictionary moves to the schema** — `fathom-ingest` gains `ValueTy::InterfaceName` and
+   `BoundValue::InterfaceName(scalar::InterfaceName)`, and
+   `corpus/dict/junos-srx/interfaces.yaml` binds `scalar: InterfaceName`. WO-03 §4.8 states of
+   `BoundValue` that *"a new variant is a §7 trigger"*, so this is WO-03's to reopen, and it
+   re-pins that order's fixture assertions.
+
+   (c) **The weld converts at the boundary** — `Identifier` to `InterfaceName` wherever the
+   declared slot type says so. Against WO-03 §4.8 contract item 1's *"a store whose bags satisfy
+   `fathom_ir::bag::FieldBag` can hold every assertion **without conversion**"*, against this
+   order's §9 failure mode 6, and it needs a per-key conversion table that would be a second,
+   hand-written copy of a schema fact (ADR-0008).
+
+   (d) **Whichever of (a)–(c) is chosen, a gate that would have caught it at dictionary load.**
+   `dict.rs`'s `DictGate` already carries `FieldUnknown` and `TypeUnknown` but nothing that
+   compares a `scalar:` against the field's declared type, so the disagreement survived WO-03's
+   own gate set and the whole `cargo test --workspace` floor. Whether that gate is added, and to
+   which order, is planning's — it is the control for §9's failure-mode table, not a fix for this
+   row.
+
 ## 11. Sources consulted
 
 | Source | Taken |
@@ -925,7 +1034,19 @@ escalation inbox under `78` §4 step 2.
    correction.** Recorded here only to point at it: the second match is a persisted wire format, so
    the divergence changes what this order decides and went to Open decisions under `78` §4 rather
    than to this section under `78` §8.
-7. **`Confidence::Derived` on `Device.platform`, against the simpler reading that everything a
+7. **§3's *"51 distinct (owner kind, child kind) pairs"* is 46 pairs of node kinds, corrected under
+   `78` §8 — the count changes no decision this order makes.** Five of the 51 are owned by the
+   workspace **root**, not by a node kind: `HasTunnel`, `HasPremises`, `HasCable`, `HasTenant` and
+   `HasServiceType` declare `from: [root]` in `schema/schema.yaml`, `root` is not a `NodeKind`, and
+   `EdgeKind::from_kinds()` is therefore `&[]` for each of them
+   (`crates/fathom-ir/src/generated/ir_types.rs`). 51 − 5 = 46, which is what G5's
+   `every_kind_pair_has_at_most_one_containment_edge` now pins across all 48 × 48 pairs, together
+   with the two halves of §3 that were exactly right: 41 containment edge kinds, and no pair
+   carried by two of them. §4.5's `containment_edge` excludes root-containment kinds explicitly as
+   well as by the empty `from_kinds()`, so the store's `RootContainment` refusal is never the thing
+   that catches a mistake here.
+
+8. **`Confidence::Derived` on `Device.platform`, against the simpler reading that everything a
    parser writes is `Asserted`.** No statement in the capture says `junos-srx`; the dictionary that
    parsed it does. `11` §8.3 defines `Derived` as *"Follows necessarily from asserted facts"*,
    which is what this is, and the distinction is not cosmetic: a future re-parse by a different

@@ -123,6 +123,17 @@ impl Dictionary {
     pub fn platform(&self) -> &str {
         &self.platform
     }
+
+    /// The stable dictionary id of the entry a `BindProv.entry` index names —
+    /// `<platform>/<dotted-path>` (conventions § *Identifiers*). `None` when
+    /// the index is out of range.
+    ///
+    /// Added by WO-09 §4.2, by name and by nothing else: `BindProv.entry`'s
+    /// doc comment already promised the id string was *"reachable through the
+    /// Dictionary"* and it was not (WO-09 §12 item 1).
+    pub fn entry_id(&self, index: u16) -> Option<&str> {
+        self.entries.get(usize::from(index)).map(|e| e.id.as_str())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1499,6 +1510,21 @@ mod tests {
         )];
         let e = Dictionary::from_sources(&sources, BTreeMap::new()).unwrap_err();
         assert_eq!(e.gate, DictGate::CaptureArity);
+    }
+
+    /// WO-09 §5 step 2: every index inside `entry_count()` names an entry,
+    /// every index outside it names none.
+    #[test]
+    fn entry_id_is_reachable_inside_the_entry_count() {
+        let d = dict();
+        let count = u16::try_from(d.entry_count()).expect("39 entries fit u16");
+        for index in 0..count {
+            let id = d.entry_id(index).expect("an index inside the count");
+            assert!(!id.is_empty(), "entry {index} has no id");
+            assert_eq!(Some(id), d.entries[usize::from(index)].id.as_str().into());
+        }
+        assert_eq!(d.entry_id(count), None);
+        assert_eq!(d.entry_id(u16::MAX), None);
     }
 
     #[test]

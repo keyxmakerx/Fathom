@@ -1755,7 +1755,7 @@ throughout.
 
 ## 14. Escalations from execution sessions
 
-> **Status:** Live. Six rows. Three came from WO-06's execution on 2026-08-08: E-01 is answered in
+> **Status:** Live. Seven rows. Three came from WO-06's execution on 2026-08-08: E-01 is answered in
 > place, and the two `16` spec gaps are open, and open for **planning** rather than for the owner.
 > Two came from WO-05's on 2026-08-08 — both format questions the work order itself classes as
 > planning-only, and both stopped that session before its first plan step. **Both were answered in
@@ -1763,8 +1763,11 @@ throughout.
 > order it unblocked (`78` §5 item 10). **One came from WO-09's on 2026-08-08**, at its first plan
 > step, and it is a third format question against the same file the two WO-05 rows are about —
 > `fathom-workspace`'s canonical face is now the tree's most escalated surface, which is itself
-> worth planning's attention. Three of six rows answered, three open — the two `16` spec gaps and
-> the WO-09 wire form, all for planning.
+> worth planning's attention. **That row was answered the same day (`17` §15.6) and a seventh
+> arrived on 2026-08-08 from WO-09's second run**, at plan step 9: the junos-srx dictionary and the
+> schema disagree about `InterfaceLike.name`'s type, which no gate in the tree compares. Four of
+> seven rows answered, three open — the two `16` spec gaps and the type disagreement, all for
+> planning.
 >
 > The two spec-gap rows carry `2026-08-02` — the date WO-06 §4.5 pre-authored them, not the date
 > they were filed. §4.5 requires them verbatim, so the executing session was right not to restamp
@@ -1813,6 +1816,7 @@ and is not duplicated here, so there is one place to maintain and one place to r
 | 2026-08-08 | WO-05 | WO-01 reshaped seven registry slot types (`EncryptionAlgorithm`, `IntegrityAlgorithm`, `AuthMethod`, `IkeVersion`, `RouteDistinguisher`, `RouteTarget`, `SecretPlaceholder`) into shapes no row of §4.2's wire table admits, and rule 8 would now silently drop `SecretPlaceholder`'s label — re-cut the table over the post-WO-01 `scalar.rs`, deciding `SecretPlaceholder`'s plaintext wire form explicitly | detail in WO-05 § Open decisions (§10.6) |
 | 2026-08-08 | WO-05 | §4.4's pinned vector and §4.5's two ULID-refusal inputs render ids as `fathom:device:<ulid>`, which `Display` in `fathom-graph/src/id.rs`, `.context/conventions.md` § *Identifiers* and ADR-0005 all refuse — re-issue the vector against the rendering the tree emits, or reopen ADR-0005 | detail in WO-05 § Open decisions (§10.7) |
 | 2026-08-08 | WO-09 | `Origin` is serialised as a bare JSON string by `fathom-workspace`'s canonical plaintext face (writer `lib.rs:329`, reader `lib.rs:617`), so the payload-bearing `Origin::Parsed { capture, span }` the order requires cannot be written or read — decide `Parsed`'s wire form against WO-05 §4.4's byte-identical round trip, and add `crates/fathom-workspace/src/lib.rs` to WO-09 §4's Deliverables table | detail in WO-09 § Open decisions (§10.8) — **ANSWERED 2026-08-08**: `17` §15.6 |
+| 2026-08-08 | WO-09 | `corpus/dict/junos-srx/interfaces.yaml:13` binds `InterfaceLike.name` as `scalar: Identifier` while `schema/schema.yaml` declares it `InterfaceName` on all four interface kinds, so the first call to put ingest and the store together refuses the shipped fixture with `SlotType { key: 55 }` — decide whether the schema moves, the dictionary and `BoundValue` move, or the weld converts, and whether a dictionary-load gate compares a `scalar:` against the declared type at all | detail in WO-09 § Open decisions (§10.9) |
 
 **Answered — both WO-05 rows, 2026-08-08, planning.** The detail is in WO-05 §10.6 and §10.7,
 where the rows already point; repeating it here would be the duplication §14.2 exists to avoid.

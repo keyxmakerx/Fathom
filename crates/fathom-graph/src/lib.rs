@@ -30,7 +30,10 @@ pub use field::{FieldHistory, FieldInfo, HistoryEntry, StoredPresence};
 pub use graph::{Edge, End, Graph, Node, ReadError, WriteError};
 pub use id::{EdgeId, ElementId, IdParseError, NodeId};
 pub use op::{Batch, BatchId, Op};
-pub use prov::{Actor, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId};
+pub use prov::{
+    Actor, CaptureId, CaptureSpan, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp,
+    UserId,
+};
 pub use snap::{
     EdgeSnap, FieldSnap, HistoryEntrySnap, HistorySnap, NodeSnap, Snapshot, SnapshotError,
 };

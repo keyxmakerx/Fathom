@@ -99,6 +99,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fathom-weld"
+version = "0.1.0"
+dependencies = [
+ "fathom-graph",
+ "fathom-id",
+ "fathom-ingest",
+ "fathom-ir",
+ "fathom-schema",
+]
+
+[[package]]
 name = "fathom-workspace"
 version = "0.1.0"
 dependencies = [
