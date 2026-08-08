@@ -1,6 +1,6 @@
 # WO-08 — The inventory face: the artifact, the estate as a table, and the per-equipment page
 
-> **Status:** OPEN
+> **Status:** DONE
 
 The first product surface a user sees — `76` §7.2's S4 slice, part one: *"The virtualised table,
 the kind-plus-filter row set, the generated column picker, the nested device→interface rows, the
@@ -141,8 +141,9 @@ and what is **contracted by the blocking work orders**; the executing session re
   `Ulid::encode() -> String` — the *"26-character Crockford encoding, always uppercase"* (its own
   doc line) — and `Ulid::decode(&str) -> Result<Self, DecodeError>`, which refuses any length
   other than 26 (`DecodeError::Length`). This WO's `parse_display_id` uses that round-trip;
-  nothing new is hand-rolled. A display id `fathom:device:<ulid>` is therefore exactly
-  14 + 26 = **40 characters** — the number §4.7's id test pins.
+  nothing new is hand-rolled. A display id `device:<ulid>` is therefore exactly
+  7 + 26 = **33 characters** — the number §4.7's id test pins (corrected at execution; §12
+  item 9).
 - **`crates/fathom-ir/src/generated/ir_types.rs`.** `NodeKind` (48) with `name()`; generated
   value enums (`ConformanceState`, `InterfaceForm`, `DeviceRole`, the `PhysicalPort` connector
   and service enums, …) each with `token(&self) -> &str` returning the schema token
@@ -336,9 +337,12 @@ publish.workspace = true
 description = "Assembles the dev browser artifact: shell source + design/tokens.css + base64 fathom-wasm, spliced deterministically (42 §2.1's concatenation in a fixed order)"
 ```
 
-Root `Cargo.toml` members list gains two lines, keeping the list alphabetical:
+Root `Cargo.toml` members list gains two lines, **keeping the list alphabetical**:
 `"crates/fathom-artifact",` immediately before `"crates/fathom-corpus"`, and
-`"crates/fathom-inventory",` immediately after `"crates/fathom-id"`.
+`"crates/fathom-inventory",` immediately after `"crates/fathom-ingest"` — WO-03 added
+`fathom-ingest` between `fathom-id` and `fathom-inventory` after this document was authored,
+so the alphabetical rule and the original "immediately after `fathom-id`" wording no longer
+name the same line. The rule wins (§12 item 11).
 
 `crates/fathom-wasm/Cargo.toml` `[dependencies]` gains two lines, after `fathom-find`
 (alphabetical):
@@ -809,12 +813,12 @@ these names; bodies are the session's, to the assertions stated:
 | `physicalport_rows_resolve_the_cabled_peer` | the six §4.8 PhysicalPort rows; `0/3`-on-chassis-0's cell is `hub-a · 0/1/0 · RVSD-FW-01`; `fab` rows read `itself · fab · FAB-0`; uncabled rows read `—`; `speed_max` cells equal `canonical()` of the pinned `Bandwidth` values |
 | `premises_rows_count_devices_via_atpremises` | the three §4.8 Premises rows; `clli` reads `absent` on Bramble (asserted), never `—` |
 | `opinions_cells_are_all_em_dash` | every `Row.opinions == "—"`, all three kinds |
-| `rows_are_insertion_independent` | build the estate twice with node/edge insertion orders interleaved differently (same batch structure); every projection (`rows` ×3, `equipment_page` ×2, `element_page` on every node) renders byte-identically |
+| `rows_are_insertion_independent` (unit, `demo.rs` — §12 item 10) | build the estate twice with node/edge insertion orders interleaved differently (same batch structure); every projection (`rows` ×3, `equipment_page` ×2, `element_page` on every node) renders byte-identically |
 | `equipment_page_ports_never_name_an_interface` | on `srx-a`: four `PortRow`s, in the §4.8 order; no `PortRow` field contains any of `ge-0/0/3`, `ge-5/0/3`, `reth0`, `st0` |
 | `equipment_page_interfaces_join_only_through_occupies` | on `srx-a`: six `IfaceRow`s (`ge-0/0/3`, `ge-5/0/3`, `reth0`, `reth0.0`, `st0`, `st0.0`); `ports` cells are `0/3 · chassis 0`, `0/3 · chassis 1`, `—`, `—`, `—`, `—` |
 | `far_end_navigation_crosses_devices` | `hub-a`'s port `0/1/0` carries `CabledPeer { text: "srx-a · 0/3 · RVSD-FW-01", far_device: <srx-a's display id> }` |
 | `element_page_distinguishes_unset_from_asserted_absent` | Bramble's page: `clli` provenance is `absent — asserted · hand · 2026-07-31`; `region` provenance is `unset`; `label` provenance is `hand · 2026-07-31` |
-| `element_page_shows_the_full_id_and_declared_fields` | on `srx-a`: `id` is **exactly 40 characters** — `fathom:device:` (14) + the ULID's 26-character Crockford encoding (§3.1, fathom-id) — starts `fathom:device:`, and round-trips through `Ulid::decode`; `fields` names equal `NodeKind::Device.fields()`'s wire names in order |
+| `element_page_shows_the_full_id_and_declared_fields` | on `srx-a`: `id` is **exactly 33 characters** — `device:` (7) + the ULID's 26-character Crockford encoding (§3.1, fathom-id) — starts `device:`, and round-trips through `Ulid::decode`; `fields` names equal `NodeKind::Device.fields()`'s wire names in order |
 | `display_id_round_trips` | `parse_display_id(g, &row.id)` resolves every inventory row to its element; a wrong kind prefix and a truncated ULID both return `None` |
 
 #### 4.7.2 `crates/fathom-wasm/tests/face.rs`
@@ -1039,7 +1043,7 @@ disk (`file://`), with the network disconnected if possible.
 | M4 | Read the Device table | 2 rows, `srx-a` then `hub-a`, cells per §4.8; rightmost header `opinions`, both cells `—` |
 | M5 | Narrow the window until the table scrolls horizontally | The opinions column stays visible (sticky); the page body never scrolls horizontally |
 | M6 | Click `PhysicalPort`, then `Premises` | 6 rows then 3 rows, per §4.8; Bramble's `clli` cell reads `absent` |
-| M7 | Click the `srx-a` row | The inspector posts it: eyebrow `Device`, name `srx-a`, the full 40-character `fathom:device:…` id, field table with `unset` provenance on unwritten fields |
+| M7 | Click the `srx-a` row | The inspector posts it: eyebrow `Device`, name `srx-a`, the full 33-character `device:…` id, field table with `unset` provenance on unwritten fields |
 | M8 | Switch the inspector to the equipment face | The per-equipment page: identity rows, 4 ports (per §4.8, chassis column present), 6 interface rows; the findings block reads `unposted — no rule engine in this build` |
 | M9 | In the ports table, activate `hub-a · 0/1/0 · RVSD-FW-01` | The equipment page becomes `hub-a`'s; footer reads `followed the cable to hub-a` |
 | M10 | Press `⌥6`, click a `Premises` row (Bramble), open the equipment face | The empty state (`.unposted`), no guess |
@@ -1265,3 +1269,31 @@ Deliberately not decided here; owner or planning session only (`78` §7).
    planning document is where that extension is decided; the numbers 1–10 keep their `41`
    §3.7 meanings, opcodes 2, 3 and 5–10 stay refused by number (WO-07 §8), and the execution
    session may not add a fifteenth (§7 trigger 9).
+
+Items 9–11 are the executing session's `78` §8 factual corrections: the code proves each, and
+none changes a decision this work order makes.
+
+9. **The display id is 33 characters, not 40; `device:<ulid>`, not `fathom:device:<ulid>`.**
+   Old: §3.1 and §4.7.1 both asserted `fathom:device:` (14) + 26 = 40. New: `device:` (7) + 26
+   = 33. Proving path: `crates/fathom-graph/src/id.rs`, whose `Display for NodeId` writes
+   `"{}:{}"` from `kebab(kind.name())` and the ULID and whose own test asserts *"the product
+   name is in no identifier"* against ADR-0005 action 1. This document already carried the
+   correct form twice — §3.2 (*"`Display` rendering `<kind-lower>:<ulid>` (no product-name
+   prefix — ADR-0005…)"*) and §4.2's `Row.id` doc — so the two 40-character claims were a
+   stale count, not a competing decision. `54` §18's rule is unchanged and is what the test
+   enforces: the id is shown in full and never truncated. §4.7.1's row, §3.1's bullet and
+   G10's M7 row are corrected in place.
+10. **`rows_are_insertion_independent` is a unit test in `src/demo.rs`, not an integration
+    test in `tests/projection.rs`.** Old: §4.7.1 places the eleven unmarked tests in
+    `tests/projection.rs`. New: this one test sits beside the builder. Reason: the second
+    insertion order is reached through `demo::build(reverse)`, and an integration test is a
+    separate crate, so honouring the file split would require a **public** builder — a public
+    name §4's Deliverables do not list, which is `78` §9 failure 1 exactly. The assertions are
+    unchanged and the test is listed by name in G3's output. The other ten integration tests
+    are where §4.7.1 puts them.
+11. **The `fathom-inventory` members line sits after `fathom-ingest`.** Old: *"immediately
+    after `"crates/fathom-id"`"*. New: immediately after `"crates/fathom-ingest"`. Proving
+    path: the root `Cargo.toml` as merged, which gained `crates/fathom-ingest` with WO-03
+    after this document was authored. §4.1's own governing clause — *"keeping the list
+    alphabetical"* — and its positional wording stopped naming the same line; the rule is what
+    binds, and the manifest content is otherwise identical.

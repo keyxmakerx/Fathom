@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "fathom-artifact"
+version = "0.1.0"
+
+[[package]]
 name = "fathom-corpus"
 version = "0.1.0"
 dependencies = [
@@ -49,6 +53,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fathom-inventory"
+version = "0.1.0"
+dependencies = [
+ "fathom-graph",
+ "fathom-id",
+ "fathom-ir",
+]
+
+[[package]]
 name = "fathom-ir"
 version = "0.1.0"
 dependencies = [
@@ -74,4 +87,6 @@ version = "0.1.0"
 dependencies = [
  "fathom-corpus",
  "fathom-find",
+ "fathom-graph",
+ "fathom-inventory",
 ]

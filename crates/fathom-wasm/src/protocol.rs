@@ -28,6 +28,33 @@ pub const ERR_CORPUS_LOAD: u16 = 3;
 pub const ERR_BAD_FRAME: u16 = 4;
 pub const ERR_BAD_UTF8: u16 = 5;
 
+// --- the face record (WO-08 §4.4) --------------------------------------------
+//
+// Record kinds 0–4 are taken (41 §3.3); 5 is the face's. Stride 72:
+//
+//   offset  size  field
+//   0       1     role
+//   1       3     zero
+//   4       4     slot_count (u32)
+//   8       64    eight (u32 off, u32 len) string refs, s0–s7
+//
+// Everything else is WO-07 §4.3–§4.5's, reused unchanged: little-endian, the
+// FDLT skeleton, the string-blob rules, the error record, the arena lifetime.
+
+pub const KIND_FACE_ROW: u16 = 5;
+pub const FACE_ROW_STRIDE: u32 = 72;
+/// Role byte values.
+pub const FACE_HEADER: u8 = 0;
+pub const FACE_INV: u8 = 1;
+pub const FACE_FIELD: u8 = 2;
+pub const FACE_PORT: u8 = 3;
+pub const FACE_IFACE: u8 = 4;
+/// Codes 1–5 are WO-07's.
+pub const ERR_NO_ELEMENT: u16 = 6;
+
+/// How many string slots one face record carries.
+const FACE_SLOTS: usize = 8;
+
 /// The fixed header: magic, version, record_kind, record_count, record_stride.
 const HEADER_LEN: usize = 16;
 
@@ -253,6 +280,170 @@ pub fn encode_query_reply(finder: &Finder, result: &SearchResult) -> Vec<u8> {
     out
 }
 
+// --- the face encoders (WO-08 §4.4) ------------------------------------------
+
+/// One face record before it becomes 72 bytes. The encoders copy the
+/// projections' strings verbatim; nothing is recomputed here.
+struct FaceRecord {
+    role: u8,
+    slot_count: u32,
+    strings: [(u32, u32); FACE_SLOTS],
+}
+
+fn write_face_record(out: &mut Vec<u8>, r: &FaceRecord) {
+    out.push(r.role);
+    out.extend_from_slice(&[0, 0, 0]);
+    out.extend_from_slice(&r.slot_count.to_le_bytes());
+    for (off, len) in r.strings {
+        out.extend_from_slice(&off.to_le_bytes());
+        out.extend_from_slice(&len.to_le_bytes());
+    }
+}
+
+/// Push a record's slots s0–s7 into the blob in order; empty slots contribute
+/// nothing, and there is no de-duplication (invariant 9).
+fn face_slots(blob: &mut Blob, role: u8, slot_count: u32, slots: &[&str]) -> FaceRecord {
+    let mut strings = [(0u32, 0u32); FACE_SLOTS];
+    for (i, s) in slots.iter().take(FACE_SLOTS).enumerate() {
+        strings[i] = blob.push(s);
+    }
+    FaceRecord {
+        role,
+        slot_count,
+        strings,
+    }
+}
+
+fn face_reply(records: Vec<u8>, count: usize, blob: Blob) -> Vec<u8> {
+    let mut out = header(KIND_FACE_ROW, count as u32, FACE_ROW_STRIDE);
+    out.extend_from_slice(&records);
+    out.extend_from_slice(&(blob.bytes.len() as u32).to_le_bytes());
+    out.extend_from_slice(&blob.bytes);
+    out
+}
+
+pub fn encode_inv_reply(
+    kind_label: &str,
+    columns: &[&str],
+    rows: &[fathom_inventory::Row],
+) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    // 2 = the kind label plus the opinions header; the columns sit between.
+    let slot_count = 2 + columns.len() as u32;
+
+    let mut header_slots: Vec<&str> = Vec::with_capacity(FACE_SLOTS);
+    header_slots.push(kind_label);
+    header_slots.extend(columns.iter().copied());
+    while header_slots.len() < FACE_SLOTS - 1 {
+        header_slots.push("");
+    }
+    header_slots.push("opinions");
+    let rec = face_slots(&mut blob, FACE_HEADER, slot_count, &header_slots);
+    write_face_record(&mut records, &rec);
+
+    for row in rows {
+        let mut slots: Vec<&str> = Vec::with_capacity(FACE_SLOTS);
+        slots.push(row.id.as_str());
+        slots.extend(row.cells.iter().map(String::as_str));
+        while slots.len() < FACE_SLOTS - 1 {
+            slots.push("");
+        }
+        slots.push(row.opinions);
+        let rec = face_slots(&mut blob, FACE_INV, slot_count, &slots);
+        write_face_record(&mut records, &rec);
+    }
+
+    face_reply(records, 1 + rows.len(), blob)
+}
+
+fn write_element(
+    blob: &mut Blob,
+    records: &mut Vec<u8>,
+    page: &fathom_inventory::ElementPage,
+) -> usize {
+    let rec = face_slots(
+        blob,
+        FACE_HEADER,
+        4,
+        &[
+            page.kind_word,
+            page.name.as_str(),
+            page.id.as_str(),
+            page.context.as_deref().unwrap_or(""),
+        ],
+    );
+    write_face_record(records, &rec);
+    for f in &page.fields {
+        let rec = face_slots(
+            blob,
+            FACE_FIELD,
+            3,
+            &[f.name, f.value.as_str(), f.provenance.as_str()],
+        );
+        write_face_record(records, &rec);
+    }
+    1 + page.fields.len()
+}
+
+pub fn encode_element_reply(page: &fathom_inventory::ElementPage) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let count = write_element(&mut blob, &mut records, page);
+    face_reply(records, count, blob)
+}
+
+/// `None` is the empty state, not an error: kind 5 with `record_count = 0`.
+pub fn encode_equipment_reply(page: Option<&fathom_inventory::EquipmentPage>) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let Some(page) = page else {
+        return face_reply(records, 0, blob);
+    };
+    let mut count = write_element(&mut blob, &mut records, &page.element);
+
+    for p in &page.ports {
+        let (cable, far) = match &p.cabled {
+            Some(c) => (c.text.as_str(), c.far_device.as_str()),
+            None => ("—", ""),
+        };
+        let rec = face_slots(
+            &mut blob,
+            FACE_PORT,
+            7,
+            &[
+                p.id.as_str(),
+                p.label.as_str(),
+                p.chassis.as_str(),
+                p.connector.as_str(),
+                p.service.as_str(),
+                cable,
+                far,
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    for i in &page.interfaces {
+        let rec = face_slots(
+            &mut blob,
+            FACE_IFACE,
+            4,
+            &[
+                i.id.as_str(),
+                i.name.as_str(),
+                i.kind_word,
+                i.ports.as_str(),
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    face_reply(records, count, blob)
+}
+
 // --- decoding ----------------------------------------------------------------
 
 /// The reference reader — the decoder tests parity against, and the byte-
@@ -274,11 +465,21 @@ pub struct ErrorView {
     pub detail: String,
 }
 
+/// One decoded face record (WO-08 §4.4). `strings` carries every slot,
+/// whether or not `slot_count` declares it meaningful.
+#[derive(Debug, Clone)]
+pub struct FaceRowView {
+    pub role: u8,
+    pub slot_count: u32,
+    pub strings: [String; FACE_SLOTS],
+}
+
 #[derive(Debug, Clone)]
 pub enum ReplyView {
     Empty,
     Error(ErrorView),
     FinderRows(Vec<FinderRowView>),
+    FaceRows(Vec<FaceRowView>),
 }
 
 fn u16_at(bytes: &[u8], off: usize) -> u16 {
@@ -335,6 +536,7 @@ pub fn decode_reply(bytes: &[u8]) -> Result<ReplyView, String> {
     let expected_stride = match kind {
         KIND_ERROR => ERROR_STRIDE,
         KIND_FINDER_ROW => FINDER_ROW_STRIDE,
+        KIND_FACE_ROW => FACE_ROW_STRIDE,
         _ => return Err(format!("unknown record_kind {kind} at offset 6")),
     };
     if stride != expected_stride {
@@ -374,6 +576,22 @@ pub fn decode_reply(bytes: &[u8]) -> Result<ReplyView, String> {
                 code: u16_at(bytes, base),
                 detail: string_at(blob, bytes, base + 20)?,
             }))
+        }
+        KIND_FACE_ROW => {
+            let mut rows = Vec::with_capacity(count);
+            for i in 0..count {
+                let base = HEADER_LEN + i * stride as usize;
+                let mut strings: [String; FACE_SLOTS] = Default::default();
+                for (s, slot) in strings.iter_mut().enumerate() {
+                    *slot = string_at(blob, bytes, base + 8 + s * 8)?;
+                }
+                rows.push(FaceRowView {
+                    role: bytes[base],
+                    slot_count: u32_at(bytes, base + 4),
+                    strings,
+                });
+            }
+            Ok(ReplyView::FaceRows(rows))
         }
         _ => {
             let mut rows = Vec::with_capacity(count);

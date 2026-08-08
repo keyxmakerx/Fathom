@@ -27,6 +27,14 @@ use crate::shell::Shell;
 pub const OP_INIT: u32 = 1;
 pub const OP_QUERY: u32 = 4;
 
+/// The inventory face's four opcodes (WO-08 §4.4). 41 §3.7's table holds
+/// 1–10; these take the next free numbers. A new call is a new opcode, never
+/// a changed one — 2, 3 and 5–10 stay refused by number.
+pub const OP_ESTATE_DEMO: u32 = 11;
+pub const OP_INV_ROWS: u32 = 12;
+pub const OP_ELEMENT: u32 = 13;
+pub const OP_EQUIPMENT: u32 = 14;
+
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
     static REQ: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };

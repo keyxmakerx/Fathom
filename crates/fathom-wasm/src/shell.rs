@@ -11,17 +11,24 @@ use fathom_corpus::{CorpusIndex, Section, SourceFile};
 use fathom_find::Finder;
 
 use crate::protocol::{
-    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_NOT_INITIALISED, ERR_UNKNOWN_OP,
+    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_NOT_INITIALISED, ERR_NO_ELEMENT,
+    ERR_UNKNOWN_OP,
 };
-use crate::{OP_INIT, OP_QUERY};
+use crate::{OP_ELEMENT, OP_EQUIPMENT, OP_ESTATE_DEMO, OP_INIT, OP_INV_ROWS, OP_QUERY};
 
 pub struct Shell {
     finder: Option<Finder>,
+    /// The inventory face's graph (WO-08 §4.4). Absent until
+    /// `OP_ESTATE_DEMO` succeeds; the only workspace this build ever holds.
+    estate: Option<fathom_graph::Graph>,
 }
 
 impl Shell {
     pub fn new() -> Shell {
-        Shell { finder: None }
+        Shell {
+            finder: None,
+            estate: None,
+        }
     }
 
     /// One call, one reply (empty = success with nothing to say).
@@ -32,10 +39,103 @@ impl Shell {
                 Err((code, detail)) => protocol::encode_error(code, &detail),
             },
             OP_QUERY => self.query(req),
+            OP_ESTATE_DEMO => self.estate_demo(req),
+            OP_INV_ROWS => self.inv_rows(req),
+            OP_ELEMENT => self.element(req),
+            OP_EQUIPMENT => self.equipment(req),
             _ => protocol::encode_error(
                 ERR_UNKNOWN_OP,
                 &format!("opcode {op} is not implemented by this module"),
             ),
+        }
+    }
+
+    /// No request bytes. Re-init is permitted, mirroring `OP_INIT`: the held
+    /// estate is replaced.
+    fn estate_demo(&mut self, req: &[u8]) -> Vec<u8> {
+        if !req.is_empty() {
+            return protocol::encode_error(
+                ERR_BAD_FRAME,
+                &format!("OP_ESTATE_DEMO takes no request; got {} bytes", req.len()),
+            );
+        }
+        self.estate = Some(fathom_inventory::demo_estate());
+        Vec::new()
+    }
+
+    fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {
+        let kind = match req {
+            [0] => fathom_inventory::InvKind::Device,
+            [1] => fathom_inventory::InvKind::PhysicalPort,
+            [2] => fathom_inventory::InvKind::Premises,
+            [b] => {
+                return protocol::encode_error(
+                    ERR_BAD_FRAME,
+                    &format!("kind byte {b} is not 0, 1 or 2"),
+                )
+            }
+            other => {
+                return protocol::encode_error(
+                    ERR_BAD_FRAME,
+                    &format!("OP_INV_ROWS takes exactly one byte; got {}", other.len()),
+                )
+            }
+        };
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        protocol::encode_inv_reply(
+            kind.label(),
+            fathom_inventory::columns(kind),
+            &fathom_inventory::rows(estate, kind),
+        )
+    }
+
+    fn element(&mut self, req: &[u8]) -> Vec<u8> {
+        let (estate, node) = match self.node_request(req) {
+            Ok(pair) => pair,
+            Err(reply) => return reply,
+        };
+        match fathom_inventory::element_page(estate, node) {
+            Some(page) => protocol::encode_element_reply(&page),
+            None => protocol::encode_error(ERR_NO_ELEMENT, &String::from_utf8_lossy(req)),
+        }
+    }
+
+    fn equipment(&mut self, req: &[u8]) -> Vec<u8> {
+        let (estate, node) = match self.node_request(req) {
+            Ok(pair) => pair,
+            Err(reply) => return reply,
+        };
+        // The anchor rule yielding None is the empty state, not an error.
+        protocol::encode_equipment_reply(fathom_inventory::equipment_page(estate, node).as_ref())
+    }
+
+    /// The raw UTF-8 display id both element opcodes take, resolved against
+    /// the held estate. An edge id is `ERR_NO_ELEMENT`: this face renders
+    /// nodes.
+    fn node_request<'a>(
+        &'a self,
+        req: &[u8],
+    ) -> Result<(&'a fathom_graph::Graph, fathom_graph::NodeId), Vec<u8>> {
+        let text = match std::str::from_utf8(req) {
+            Ok(t) => t,
+            Err(e) => {
+                return Err(protocol::encode_error(
+                    ERR_BAD_UTF8,
+                    &format!("display id is not UTF-8: {e}"),
+                ))
+            }
+        };
+        let Some(estate) = self.estate.as_ref() else {
+            return Err(protocol::encode_error(
+                ERR_NOT_INITIALISED,
+                "no estate loaded",
+            ));
+        };
+        match fathom_inventory::parse_display_id(estate, text) {
+            Some(fathom_graph::ElementId::Node(n)) => Ok((estate, n)),
+            _ => Err(protocol::encode_error(ERR_NO_ELEMENT, text)),
         }
     }
 
