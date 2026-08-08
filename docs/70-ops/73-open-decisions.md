@@ -1755,7 +1755,14 @@ throughout.
 
 ## 14. Escalations from execution sessions
 
-> **Status:** Live. One row, E-01, open.
+> **Status:** Live. Three rows, all from WO-06's execution on 2026-08-08. E-01 is answered in place;
+> the two `16` spec gaps are open, and open for **planning** rather than for the owner.
+>
+> The two spec-gap rows carry `2026-08-02` — the date WO-06 §4.5 pre-authored them, not the date
+> they were filed. §4.5 requires them verbatim, so the executing session was right not to restamp
+> them. **The defect is in pre-authoring a dated row at all:** `78` §4 step 3's date is *when a
+> session hit the thing*, which an order cannot know in advance. Planning to fix in §4.5's text, not
+> in the rows.
 
 *margin tab: the inbox (`78` §4)*
 
