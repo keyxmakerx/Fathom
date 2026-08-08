@@ -55,8 +55,9 @@ the pan/zoom transform and the layer mask, and both are session state (`52` §10
 | 10 | Performance |
 | 11 | Failure modes |
 | 12 | Open decisions |
-| 13 | Sources consulted |
-| 14 | Disagreements |
+| 13 | **PROPOSED (2026-08-08)** — zoom, containment, and the ladder of places |
+| 14 | Sources consulted |
+| 15 | Disagreements |
 
 ---
 
@@ -1341,7 +1342,202 @@ and a hub fixture.
 
 ---
 
-## 13. Sources consulted
+## 13. PROPOSED (2026-08-08) — zoom, containment, and the ladder of places
+
+*margin tab: proposed, not decided*
+
+> **Status of this section: PROPOSED, in its entirety.** Nothing in it amends a DECISION above.
+> §13.6 is a **reversal** of one row of §1.3's out-of-scope column and is marked as one. Everything
+> else adds.
+>
+> **Where the record is.** The owner's words are quoted verbatim in `70` §10.5 and are not repeated
+> here; `70` §§10.6–10.12 record the resolution and the open decisions it opens (`70` §13 items
+> 16–21). This section is the **design reading** of that record, in this document's idiom, because
+> this document owns the diagram.
+
+### 13.1 What this section amends, and what it leaves alone
+
+| | |
+|---|---|
+| **Amends** | §1.3's out-of-scope row, on one item only — *background images* — see §13.6 |
+| **Adds to** | §1 (a zoom axis the scope section does not have), §4 (a rule about which relations may be enclosed) |
+| **Leaves untouched** | §3.6's DECISION (one scene, filtered), §3.2's DECISION (layered layout, manual positions as constraints), §4.1's projection table, §4.3–§4.5's choice of box / bracket / band, §4.7's rule that an attribute of elements is a treatment and not a layer |
+
+### 13.2 PROPOSED — zoom and view are two independent axes
+
+| Axis | Values | State |
+|---|---|---|
+| **Zoom** | inside-a-device → rack → floor → building → map | **New.** The model half is a proposal — §13.4 |
+| **View** | physical / L2 / L3 / security / overlay | **Decided.** §4, five layers, a 5-bit `LayerMask` |
+
+They **compose**. Five views against five zoom stops is twenty-five pictures if they are enumerated
+and two mechanisms if they are not, and **there is no per-combination design in this proposal.**
+
+§3.6 already argues the layer half and the argument transfers without modification: one layout,
+computed over the union, *filtered* — because the alternative is *"31 layouts, 31 sets of positions
+to store, and a view where turning on the security layer rearranges the physical one."* The same
+sentence with *zoom stop* substituted for *layer* is the proposal. What it costs is the same cost
+§3.6 already accepted and named: a filtered view is laid out to accommodate things it is not
+drawing, so it looks sparse, and it buys a stable picture a user can build a mental map of.
+
+**One collision of names, which is the reason the axes must be separated explicitly.** *Physical* is
+a **view** in §4.1 and, in ordinary speech, also the **innermost zoom stop** — one device, seen
+inside. Two axes wearing one word is how twenty-five pictures get designed by accident.
+
+**Not settled by this section:** whether the zoom stops are discrete rungs or a continuous scale with
+labelled detents. `76` §10 already carries the related unowned item — *"What binds continuous zoom?
+`53` §3.4 binds only `z`; `56` depends on zoom thresholds throughout"* — and `53` owns the keymap
+under ADR-0024. The two should be answered together.
+
+### 13.3 PROPOSED — zoom is navigation; containment is structure
+
+**Zooming into a device must not create a parent-child relation the graph does not have.** §0's
+governing rule is the whole control: if a fact exists only in the picture, the picture has become the
+data structure.
+
+And inside a device, things do not nest, because the model says a unit is several things at once.
+From `schema/schema.yaml`, read 2026-08-08:
+
+| Relation | Class | Cardinality | A `LogicalUnit` is… |
+|---|---|---|---|
+| `HasUnit` — `InterfaceLike → LogicalUnit` | `containment` | `in: "1"` | in exactly one interface |
+| `ZoneMember` — `Zone → LogicalUnit` | `reference` | `in: "0..1"` | in at most one zone |
+| `InRoutingInstance` — `LogicalUnit → RoutingInstance` | `reference` | `out: "0..1"` | in at most one routing instance |
+| `VlanMember` — `LogicalUnit → Vlan` | `reference` | `in: "0..n"` | **in many VLANs at once** |
+
+> **PROPOSED R-Z1 — nothing is drawn as an enclosure for a relation a node can be in twice.**
+> Exactly one of a node's memberships may be drawn as containment; every other is an overlay over
+> the same positions. `VlanMember` at `in: "0..n"` is the case that proves the rule is needed and
+> not merely tidy: a thing cannot be inside two boxes.
+
+**§4 already obeys R-Z1** — §4.5's VLAN band is an open horizontal bracket, not a closed box, and it
+is suppressed above six visible VLANs precisely because overlapping bands are a texture.
+
+**What §4.1 does *not* do, stated so this proposal is not mistaken for a description of it.** §4.1
+does not assign marks by edge class. `Site` is reached by **containment** (`HasDevice`, `in: "1"`)
+and is drawn as a **band**; `RoutingInstance` is reached by a **reference** edge
+(`InRoutingInstance`) and is drawn as a **box** (§4.3). The basis for box / bracket / band in
+§4.3–§4.5 is **contiguity of members**, not edge class, and that basis is defensible and is not
+disturbed here. R-Z1 is the narrower rule that survives both readings, and it is the only one this
+section asks for.
+
+### 13.4 PROPOSED — the place ladder, as a schema proposal this document does not make
+
+The rack / floor / building / map rungs need somewhere to live in the graph. **`19` and `62` own
+that, not this document**, and the proposal is recorded in `70` §10.8 in full: widen `HasPremises`
+from `from: [root]` to `from: [root, Premises]`, keeping `in: "1"`, so `Premises` nests and
+containment stays a forest.
+
+Two consequences land **here**, on the picture, and are worth stating before the schema question is
+answered rather than after:
+
+1. **A zoom stop is not automatically a mark.** A floor is a `Premises` under the proposal, and a
+   `Premises` has members. Whether it is drawn as a box, a bracket or a band is §4.3–§4.5's
+   contiguity question all over again, and by R-Z1 it may be an enclosure — `HasPremises` is
+   containment at `in: "1"`. Nothing here decides which.
+2. **The place tree and the device tree do not meet by containment.** `HasDevice` is
+   `Site → Device`, `in: "1"`, and `AtPremises` is a **reference** from `Site` to `Premises`. So a
+   rack drawn as an enclosure around devices is drawing a relation the graph does not currently
+   have. Under §0's governing rule that is not a rendering detail — it is the picture inventing
+   structure. **Until `70` §13 item 16 is answered, the bottom rungs of the ladder have no model.**
+
+### 13.5 One workspace is one estate — what that removes from this document
+
+`70` §10.9 records the owner's answer to `76` §8 Q1: a *network* crosses places, so it is a **bag**,
+not a container. For this document that closes a question §1 never had to ask and would eventually
+have been asked: **there is no second canvas, because there is no second graph.**
+
+It does **not** answer §12's live item on whether the diagram partitions per `Site` — `70` §10.2
+already logged that, and `70` §13 item 9 keeps the recommendation that it be decided against a
+running diagram rather than on paper. A per-`Site` **view** is a filter over one graph; a per-network
+**container** would have been a second graph. Only the second is refused.
+
+### 13.6 REVERSAL, PROPOSED — a background image is a spatial reference, not decoration
+
+§1.3's out-of-scope column reads:
+
+> *"Free-floating annotations, text boxes, arrows that are not edges, clip art, background images"*
+
+**PROPOSED — strike `background images` from that list, for a place-scoped view only, and leave the
+rest of the row exactly as it is.**
+
+**The argument.** Every other item in that row is **decoration** — a mark that is not a statement
+about anything, which floats over a picture and decays into graffiti. A floor plan is not
+decoration: it is the thing the positions are positions *in*. It gives a coordinate a meaning, which
+is the opposite of what the rest of the row does. (This is the same distinction `70` §10.3.2 used to
+separate a `tag` — a user-authored fact about a real device — from the annotations in the same row.)
+
+**Four costs. They are not counter-arguments to be dismissed; they are the price, and the fourth is
+unanalysed.**
+
+| Cost | Detail |
+|---|---|
+| **Size, and it is the only unbounded thing in the file** | `44` owns size budgets; its gate (`44` §5.5) covers build artifacts — `A1 ≤ 4.5 MB`, WASM, index, pack — and **nothing in it covers workspace content**. `17` §13.2 puts a 50-device hand-modelled workspace at 0.6 MB and a realistic mix at 8 MB, under its own §13.1 recomputation caveat. An imported image's size is chosen by the user. `44` §5.1's binding constraint is distribution: *"a 4 MB attachment goes through email; a 40 MB attachment does not"* |
+| **Opacity, in a file where everything else carries provenance** | Parsed values carry their originating line and their age (§8, `11` §8.7); typed values carry `Origin::Hand`. **Nothing can tell whether an image is current or of the right building.** §1.2's *"The view never says 'current'"* bites harder here than anywhere else in this document, because a wrong field usually looks wrong and a wrong floor plan does not |
+| **No export carries it** | §9.3 and `34` §5.6 both ban `<image>` from the closed tag set. The background is in the application and **in none of the exports**. §9.2 rule 1 already requires the export to be exactly the visible set with the header stating what it is — **so the header must say the background was dropped**, at export time, not afterwards |
+| **A decoder enters the trust boundary and nobody has looked at it** | A user-supplied image is bytes handed to the browser's decoder. `34` has **no section on image decoding** — grepped 2026-08-08 for *decoder*, *jpeg*, *bitmap*, *raster*: zero hits. The surface is **unanalysed, not cleared**, and **no claim is made here in either direction**: ADR-0034 forbids answering it from memory. `70` §13 item 19 puts it to `34`'s owner |
+
+**What it does not cost: a CSP change.** `34` §2.7 (read 2026-08-08) fixes `img-src` at `data:` in
+mode A and `'self' data:` in modes B–D, retaining `data:` deliberately because the diagram export and
+the risk legend need inline SVG data. **A `data:`-URI background is inside the existing policy.** That
+is the difference between this request and §9.4's, which asks for `img-src 'self' blob:` and is a real
+widening — §15 disagreement 3 already says `34` is entitled to refuse that one.
+
+**Three constraints that travel with the reversal if it is taken:**
+
+1. **It is a rendering, like everything else here.** The image is graph data — an attribute of a
+   `Premises` — never view-local state, or §0's rule has been broken to hold a picture of a floor.
+2. **It never carries a finding, a colour or a claim.** It sits behind the scene. The risk enum's
+   three reserved colours (`51` R1) are not spent on it and are not tinted by it.
+3. **It is per place, not per canvas.** A background that is not scoped to a place is exactly the
+   free-floating decoration the rest of the row refuses.
+
+**`70` §13 items 17 and 18 carry this.** It is not decided; this document owns the answer and has not
+taken it.
+
+### 13.7 The line at simulation, stated so it is not drifted across
+
+The owner's ladder puts *"control vs dataplanes"* inside the innermost zoom stop, with the qualifier
+that matters: *"though not everything has that separation"* (`70` §10.5).
+
+**In scope — structure.** That a platform separates a control plane from a data plane is a fact about
+that platform. Under invariant 5 and ADR-0008 it is **corpus content, per platform**, authored and
+reviewed by a named human under invariant 10 — **never a shape this renderer assumes.** Where the
+corpus does not assert it, the device draws as one section, which is §13.8's rule and is already how
+everything else in this document behaves.
+
+**Out of scope, permanently — simulation.** `11` §2.2 rejects control-plane and data-plane simulation
+and states the consequence in the same row: *"Fathom cannot answer 'where does this packet go'."*
+
+> **Showing that a box has two planes is structure. Predicting which one a packet traverses is
+> simulation. The first is in scope; the second is refused and always was.**
+
+They are one word apart in ordinary speech, which is the entire reason this paragraph exists.
+
+### 13.8 *"Show what is available"* — already the rule, restated so it is not relaxed
+
+The owner's *"if there is no information or little then just show what is available"* asks for
+behaviour this document and its neighbours already specify, so **nothing is built for it and nothing
+may be quietly traded against it**:
+
+- The model is **partial by construction** — `11` §2.2's four-state `Presence`, which it calls
+  *"the single largest structural divergence in this document"*.
+- **What is dropped is counted** — §5.5: *"a diagram tool that silently drops labels is a diagram
+  tool that lies about what it drew."* `59` §6.2 files the one place the base breaks it.
+- **A gap is never filled with a guess** — §11 failure mode 15, §6.4.3, `11` §8.5. A sensible default
+  is a value nobody chose with provenance `Hand`.
+
+### 13.9 What this section deliberately does not decide
+
+| | Why not |
+|---|---|
+| The mark for a place at any zoom stop | §4.3–§4.5's contiguity question, and it needs a fixture, not a paragraph |
+| Whether zoom is continuous or detented, and what binds it | `53` owns the keymap (ADR-0024); `76` §10's existing unowned item on continuous zoom is the same question |
+| Whether the diagram partitions per `Site` | §12 and `70` §13 item 9 — to be decided against a running diagram |
+| Anything under `schema/` | `62` governs; ADR-0008 decides what exists. §13.4 is a proposal recorded in `70` §10.8 and **no schema file was touched** |
+| The image-decoder surface | `34` owns it, ADR-0034 governs how it is answered, and §13.6 does not answer it |
+
+## 14. Sources consulted
 
 - `.context/field-card-srx-ipsec.txt` — the object chain and the five plumbing pieces (§6.4.2),
   `external-interface` versus `st0` (§6.4.2), route-based versus policy-based (§4.6), the
@@ -1371,7 +1567,35 @@ and a hub fixture.
 - MDN, `vector-effect` — `non-scaling-stroke`, a presentation attribute with a CSS counterpart,
   Baseline since 2020. §5.3 depends on it.
 
-## 14. Disagreements
+Added for §13 (2026-08-08):
+
+- `docs/70-ops/70-owner-answers-and-standing-priorities.md` §10.5 (the owner's four quotations,
+  verbatim — the record §13 reads), §§10.6–10.12 (the resolution), §10.3.2 (the decoration /
+  statement distinction §13.6 reuses), §13 items 16–21 (the open decisions §13 opens).
+- `schema/schema.yaml`, read 2026-08-08 — `edge: HasUnit` (`containment`, `in: "1"`),
+  `edge: ZoneMember` (`reference`, `in: "0..1"`), `edge: InRoutingInstance` (`reference`,
+  `out: "0..1"`), `edge: VlanMember` (`reference`, `in: "0..n"`), `edge: HasPremises`
+  (`containment`, `from: [root]`), `edge: AtPremises` (`reference`, `Site → Premises`),
+  `edge: HasDevice` (`containment`, `Site → Device`, `in: "1"`). §13.3's table and §13.4's second
+  consequence are read directly off these.
+- `docs/10-core/11-ir-schema.md` §2.2 — the rejection of the total-population assumption, and the
+  rejection of control-plane / data-plane simulation with its consequence, *"Fathom cannot answer
+  'where does this packet go'"*. §13.7 and §13.8.
+- `docs/30-security/34-browser-hardening.md` §2.7 (the `img-src` directive, `data:` in mode A and
+  `'self' data:` in B–D, and why `data:` is retained) and §5.6 (the closed tag set's ban on
+  `<image>`), read 2026-08-08. §13.6.
+- `grep -rniE "image decod|decoder|jpeg|bitmap|raster" docs/30-security/34-browser-hardening.md`,
+  run 2026-08-08 — **zero hits**. §13.6's fourth cost: unanalysed, not cleared.
+- `docs/40-stack/44-performance-budgets.md` §5.1 (distribution as the binding size constraint) and
+  §5.5 (the size gate's scope — build artifacts, not workspace content). §13.6.
+- `docs/10-core/17-workspace-format.md` §13.1 (the pending recomputation caveat) and §13.2 (the
+  derived 0.6 MB / 8 MB workspace figures). §13.6.
+- `docs/10-core/19-service-and-physical-model.md` §3.5 (`Premises`, its `form` enum, and the
+  two-hop sibling query) and §5.1 (the `HasExternalPeer` widening precedent). §13.4.
+- `docs/70-ops/76-scope-expansion-analysis.md` §8 Q1 and Q2 — the network question §13.5 records as
+  answered, and the sealed-container consequence that answer removes.
+
+## 15. Disagreements
 
 None with the binding conventions. Three notes:
 

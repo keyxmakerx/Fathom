@@ -22,7 +22,7 @@ what a planning session made of it.
 | 7 | The platforms — the equipment the owner works on | *answers §11.1* |
 | 8 | Hosting, load balancing and stored state | *not the collision it looks like* |
 | 9 | What "off the ground" means | *there is no thin first release* |
-| 10 | The graph and the diagram — three owner observations | *one corrected, two real gaps* |
+| 10 | The graph and the diagram — owner observations | *three observations, then the structure of the picture* |
 | 11 | Questions still outstanding | *re-asked in plain language* |
 | 12 | Failure modes |  |
 | 13 | Open decisions |  |
@@ -720,6 +720,246 @@ file and travel with it, so anyone handed the file reads them. No per-user layer
 
 **The two questions only the owner can answer are at §11.5 and §11.6.**
 
+### 10.5 The box, the bag and the zoom ladder — the owner's words, 2026-08-08
+
+Later on 2026-08-08, in answer to §11.5's *bag or box*:
+
+> *"I'd say that a box is better, because if someone wanted to floor plan they could, just keep in
+> mind to be dynamic about it, let users rearrange as needed, or let the system dynamically allocate
+> if they want. Also keep in mind floors exist, or networks that span multiple buildings and such."*
+
+Then, unprompted, that the box is scale-free:
+
+> *"a box could be the network layout of a single device shouldn't it? Because keep in mind this is a
+> learning tool as well, so seeing how it routes inside the box is pretty good, like control vs
+> dataplane and etc, and even CVEs could maybe reflect that as well in the future, we don't want to
+> work on those atm."*
+
+On whether one picture can carry all of it:
+
+> *"I mean we need to somehow account for all of them? Maybe even different views, where it's
+> physical, vs vlans, vs etc"*
+
+And the ladder, in full:
+
+> *"physical is per single piece of equipment and how its setup internally, accounting for if there is
+> no information or little then just show what is available, of course it'd be like two sections for
+> most equipment with control vs dataplanes though not everything has that separation. Then you zoom
+> out to be a rack, zoom out for a floor(s) with multiple floors and connections between them and
+> such with the option to upload a drawing or something as the background. Then you zoom out into
+> buildings, zoom out further into i guess like map sizes essentially. But then there's vlan views,
+> vpn views, etc etc?"*
+
+The owner agreed to the resolution set out in §10.6–§10.12. **Nothing in those sections is a new
+owner decision.** They are readings of the words above, plus the consequences a planning session is
+obliged to state — including, at §10.10, a reversal of a written refusal, which is recorded with its
+costs rather than made quietly.
+
+**What this does to §11.5, precisely.** §11.5 asked *"do you ever need a site inside a site?"* and
+offered bag and box as alternatives. The answer is **yes to the box**, and it arrives as a **place
+hierarchy** rather than as nested `Site`s (§10.8). It does **not** withdraw §10.4's recommendation for
+a `Group`, because a bag and a box answer different questions and the owner did not address
+cross-cutting sets in these words at all. §11.5 is therefore **partly answered**; the residue — is the
+`Group` still wanted alongside the place hierarchy — is §13 item 20.
+
+### 10.6 Zoom and view are two independent axes, not one list
+
+The ladder and the layer list are not one enumeration, and reading them as one is the mistake the
+owner's last sentence — *"But then there's vlan views, vpn views, etc etc?"* — is pointing at. **Zoom
+is how far out you are standing. View is which relations are drawn.** They compose.
+
+| Axis | Values | State |
+|---|---|---|
+| **Zoom** | inside-a-device → rack → floor → building → map | New. §10.8 is the model half, and it is a proposal |
+| **View** | physical / L2 / L3 / security / overlay | **Already decided.** `56` §4 — five layers, toggled independently, a 5-bit `LayerMask` |
+
+Five views against five zoom stops is twenty-five pictures if they are enumerated and **two
+mechanisms** if they are not. **There is no per-combination design and there must not be.** `56` §3.6
+already carries the argument in its layer half, as a DECISION: layout is computed once over the union
+of all layers and a toggle *filters* what is drawn, because the alternative is *"31 layouts, 31 sets
+of positions to store"*. Extending the same shape along the zoom axis is proposed in `56` §13.2; it is
+not decided here, and `56` owns the diagram.
+
+**One naming collision, named because it will otherwise be inherited.** The owner's *"physical is per
+single piece of equipment"* uses *physical* as the **innermost zoom stop**. `56` §4 uses *physical* as
+a **view**. They are different axes wearing one word, which is precisely why the axes have to be
+separated by name before anything is built.
+
+### 10.7 Zoom is navigation; containment is structure. They are different things
+
+You may zoom into a device. Inside a device, things do **not** nest as boxes, and the model already
+says so. Verified in `schema/schema.yaml`, 2026-08-08:
+
+| Relation | Class | Cardinality | What it says a `LogicalUnit` is |
+|---|---|---|---|
+| `HasUnit` — `InterfaceLike → LogicalUnit` | `containment` | `in: "1"` | in **exactly one** interface |
+| `ZoneMember` — `Zone → LogicalUnit` | `reference` | `in: "0..1"` | in **at most one** zone |
+| `InRoutingInstance` — `LogicalUnit → RoutingInstance` | `reference` | `out: "0..1"` | in **at most one** routing instance |
+| `VlanMember` — `LogicalUnit → Vlan` | `reference` | `in: "0..n"` | in **many** VLANs at once |
+
+So: **exactly one of a unit's memberships can be drawn as an enclosure, and every other one is an
+overlay over the same positions.** A nested-box drawing of the inside of a device is expressible for
+`HasUnit` and is *unrepresentable* for `VlanMember` — a thing cannot be inside two boxes — and no zoom
+stop changes that. **Box = containment. Band or bracket = reference.** The model draws the line
+already; the recommendation is only that the drawing match it.
+
+**Zoom is therefore navigation, not a new containment level.** Zooming into a device must not create a
+parent-child relation the graph does not have. `56` §0's governing rule is the control: *"IF A FACT
+EXISTS ONLY IN THE PICTURE, THE PICTURE HAS BECOME THE DATA STRUCTURE."*
+
+**One mismatch, named rather than fixed.** `56` §4.1 does not assign its marks by edge class today.
+`Site` is a **containment** parent (`HasDevice`, `in: "1"`) drawn as a **band**; `RoutingInstance` is
+reached by a **reference** edge and drawn as a **box** (`56` §4.3). The box/bracket/band choice in
+`56` §4.3–§4.5 is driven by whether members are contiguous, which is a defensible basis and is not
+disturbed here. The narrow rule §10.7 asks for is the one that survives both: **nothing may be drawn
+as an enclosure for a relation a node can be in twice.** `56` §4.5 already obeys it — the VLAN band is
+an open horizontal bracket, suppressed above six. Carried in `56` §13.3.
+
+### 10.8 The place hierarchy nests — PROPOSED, and it needs no new concept
+
+Verified in `schema/schema.yaml`, 2026-08-08:
+
+- `HasPremises` is `class: containment`, `from: [root]`, `to: [Premises]`, `in: "1"` — **every
+  `Premises` hangs directly off the workspace root, so places are flat.**
+- `AtPremises` is `class: reference`, `Site → Premises`, `out: "0..1"`, `in: "0..n"` — a site points at
+  one premises, and several sites may share one.
+- A `Premises` already contains things: `HasPassiveNode` (`Premises → PassiveNode`), and
+  `HasExternalPeer`, whose `from` was already widened to `[Site, Premises]` (`19` §5.1).
+
+**The proposal: widen `HasPremises` to `from: [root, Premises]`, keeping `in: "1"`.** One line. It
+keeps containment a forest, and it gives campus → building → floor → room → rack **with no new kind**,
+because `Premises` already carries a `form` enum and `19` §3.5's design deliberately makes one kind
+serve a central office and a customer location alike.
+
+**Three costs, all of which must be settled before that line is written:**
+
+1. **The `form` enum has none of those values.** It is
+   `central_office, hut, cabinet, headend, data_centre, customer_premises, pole, handhole, other`.
+   Campus, building, floor, room and rack are absent, and `62` §7 governs adding them.
+2. **`19` §3.5's sibling query stops being two hops.** *"There is more than one of these at this
+   address"* is specified as `premises_of(d) <-AtPremises-- Site --HasDevice--> Device`, at
+   `O(1) + O(deg)`. Under nesting, *"at this address"* becomes ancestor-or-self and the traversal is a
+   walk rather than a hop.
+3. **Devices hang off `Site`, not off `Premises`.** `HasDevice` is `Site → Device`, `in: "1"`, so the
+   place tree and the device tree meet only at `AtPremises`, which is a **reference**. **A rack that
+   contains devices is therefore not expressible by nesting `Premises` alone** — either `HasDevice`
+   widens the way `HasExternalPeer` already did, or a rack is a `Site`. Nobody has decided which, and
+   it is the load-bearing question under the ladder's bottom three rungs.
+
+**This is a proposal and nothing was executed.** No file under `schema/` was touched. `62` governs the
+edit, ADR-0008's rule stands, and until it is in `schema/` a nested premises does not exist. §13
+item 16.
+
+### 10.9 *"Network"* is a bag, not a container — and this answers `76` §8 Q1
+
+`76` §8 **Q1** asks *"What is a 'network', and how many devices are in one? Are they routing domains
+inside one estate, or separate customer/market estates?"*, and marks itself as one of three questions
+that gate S0's inputs. The owner's *"networks that span multiple buildings and such"* settles it:
+**a network crosses places, so it cannot be a place and it cannot be a container.**
+
+`76` §8 **Q2** asks *"Do cables cross network boundaries?"* and states the consequence in the same
+breath: if they do, one-network-per-workspace is *"dead on arrival"* — `11`'s edges are
+`NodeId → NodeId` inside one graph, and *"no edge can span two sealed containers under different
+keys"*. **Q1's answer removes Q2's premise.** If a network is not a container there is no boundary for
+a cable to cross, and the question does not arise in the form Q2 poses it. Q2 is therefore not
+answered so much as **dissolved**, and that distinction is kept because a later reader may reintroduce
+a container and reintroduce the problem with it.
+
+**The operative statement: one workspace is one estate.** A *"network"* is a **bag** — a named set over
+nodes that already live in the estate — which is exactly the shape §10.4 recommends for `Group`, and
+whose failure modes and mitigations §10.4 has already priced. It is not a second workspace, not a
+sealed compartment, and not a second graph.
+
+**Note the two halves do not contradict.** The owner said *"a box is better"* and this section says a
+network is a bag. Both hold, because they are about different things: **places** are boxes (§10.8) and
+**networks** are bags. That is the same box/bag distinction §11.5 drew, applied to two different
+subjects rather than forced onto one.
+
+### 10.10 Background images — a REVERSAL, PROPOSED, with its costs stated
+
+The owner asked for *"the option to upload a drawing or something as the background"* on the floor
+view. `56` §1.3's out-of-scope column currently reads, in full:
+
+> *"Free-floating annotations, text boxes, arrows that are not edges, clip art, background images"*
+
+**This is a deliberate reversal of a written refusal and is recorded as one, not slipped in.**
+
+**The argument for it.** Every other item in that row is **decoration** — a mark that is not a
+statement about anything, floating over a picture and decaying into graffiti. That is the same
+reasoning §10.3.2 used to rescue `tag` from the same row. A floor plan is not decoration: it is a
+**spatial reference**, the thing the positions are positions *in*. It makes a coordinate mean
+something, which is precisely what the rest of that row does not do.
+
+**Four costs. None of them is small, and the fourth is the one that is unanalysed.**
+
+| Cost | Detail |
+|---|---|
+| **Size — and it is the one thing in the file the product does not control** | `44` owns size budgets. Its gate (`44` §5.5) covers **build artifacts** — `A1 ≤ 4.5 MB`, WASM, finder index, rule pack — and nothing in it covers workspace *content*. `17` §13.2's derived figures put a 50-device all-hand-modelled workspace at **0.6 MB** on disk and a realistic 30 %-parsed mix at **8 MB**. An imported image's size is chosen by the user, not by the product, and it is the only thing in the workspace of which that is true. `44` §5.1's distribution row is the operative constraint: *"a 4 MB attachment goes through email; a 40 MB attachment does not"* <!-- VERIFY: the size of a real scanned or exported floor plan of a building an engineer would use, before the claim that one image can exceed the rest of a workspace is repeated as anything but a plausibility. No such figure exists anywhere in this tree. --> |
+| **Opacity — it is unverifiable in a file where everything else is verifiable** | Every other value in the workspace has a provenance the product can inspect: parsed values carry their originating line and their age (`11` §8.7), typed values carry `Origin::Hand`. **Nothing can tell whether an image is current, or even of the right building.** `56` §1.2 already refuses to let the diagram claim currency — *"The view never says 'current'"* — and the argument bites harder here, because a wrong typed field usually looks wrong and a wrong floor plan does not |
+| **Every export loses it** | `34` §5.6's closed SVG tag set (read 2026-08-08) bans `<image>` outright, alongside `<script>`, `<style>`, `<use>` and `<a>`, and `56` §9.3 repeats it for the export path. So the background is present in the application and **absent from every exported picture**. That asymmetry has to be stated **at the export**, not discovered afterwards — `56` §9.2 rule 1 already requires that an export contain exactly the visible set and that the header say what it dropped |
+| **It puts an image decoder inside the trust boundary, and nobody has looked at that** | A user-supplied image is bytes handed to the browser's decoder. `34` has **no section on image decoding**: grepped 2026-08-08 for *decoder*, *jpeg*, *bitmap*, *raster* — **zero hits**. So this surface is **unanalysed, not analysed and cleared**. **No claim is made here about it in either direction.** ADR-0034 forbids answering that from memory, and this document does not answer it; it logs it for `34`'s owner. §13 item 19 |
+
+**One thing this reversal does *not* cost, stated because it is the first question a security reader
+asks.** It needs **no CSP change**. `34` §2.7 (read 2026-08-08) fixes `img-src` at `data:` in mode A
+and `'self' data:` in modes B–D, and retains `data:` deliberately *"because the diagram export and the
+risk legend need inline SVG data"*. A `data:`-URI background is inside that policy already. This is
+unlike `56` §9.4's PNG-export request for `img-src 'self' blob:`, which `56` §12 correctly records as
+a real widening. **The reversal asks for no widening of `34`.**
+
+**And one adjacent channel that is not this document's to settle.** A floor plan of a customer's
+building is plausibly the same class of content as `Premises.street`, which `schema/schema.yaml` marks
+*"Personal-data channel — 37 §2.2"*. `37` owns that question and has not been asked it.
+
+**Scope of the reversal, stated narrowly on purpose.** It covers **a spatial reference image behind a
+place-scoped view**. It does not reopen free-floating annotations, text boxes, arrows that are not
+edges, or clip art, all of which stay refused for the reason that has always been given. `56` §13.6
+carries the PROPOSED form; `56` owns the diagram and therefore owns the answer. §13 items 17 and 18.
+
+### 10.11 *"Show what is available"* is already the house rule — and the line next to it
+
+> *"accounting for if there is no information or little then just show what is available"*
+
+**This is existing behaviour, not a new requirement**, and saying so is the useful part: it means
+nothing has to be built for it and nothing may be quietly relaxed against it.
+
+- **The model is partial by construction.** `11` §2.2 rejects the total-population assumption and
+  calls the consequence *"the single largest structural divergence in this document"*: a four-state
+  `Presence`, four-outcome rule evaluation, and an emitter that reports blockers.
+- **What is dropped is counted, never hidden.** `56` §5.5: *"a diagram tool that silently drops
+  labels is a diagram tool that lies about what it drew."* `59` §6.2 files the one place the base
+  breaks it, which is what a rule with teeth looks like.
+- **A gap is never filled with a guess.** `56` §11 failure mode 15 is exactly this — a connect gesture
+  that fills in a DH group so the config *"just works"* produces *"a value nobody chose, provenance
+  `Hand`, and a rule that reads it as intentional"* (`56` §6.4.3, `11` §8.5).
+
+**Control plane versus data plane is asserted by the corpus, per platform — it is not a shape the
+renderer assumes.** The owner's own clause is the requirement: *"though not everything has that
+separation."* A renderer that always draws two sections is asserting a fact about hardware nobody told
+it. Under invariant 5 and ADR-0008 the split is per-platform **content** — a fact about a platform,
+authored and reviewed by a named human under invariant 10 — and where it is absent the device draws as
+one section.
+
+**The line that sits one word away, stated so a future session does not drift across it.** `11` §2.2
+permanently rejects control-plane and data-plane **simulation**, and states the consequence in the
+same row: *"Fathom cannot answer 'where does this packet go'."* **Drawing that a box has a control
+plane and a data plane is structure, and it is in scope. Predicting which of them a packet traverses
+is simulation, and it is refused.** The two are a single word apart in ordinary speech and the corpus
+has one sentence separating them.
+
+### 10.12 CVEs — parked, by the owner
+
+> *"even CVEs could maybe reflect that as well in the future, we don't want to work on those atm."*
+
+**Parked on the owner's instruction**, and recorded here so it is not re-raised later as though it were
+new.
+
+It is the same question §7.4 half two already carries under a different name — **known-defect
+advisories** — and §7.4's finding transfers unchanged: **the hard part is not the schema and it is not
+the display, it is sourcing and staleness.** Where the data comes from (invariant 2 means the product
+can never fetch a vendor defect database), who is named against it under invariant 10, and what the
+product says when an advisory has gone stale. §13 item 8 already holds it; **no new row is opened**,
+because opening a second row for the same question is how a corpus grows two answers to it.
+
 ## 11. Questions still outstanding
 
 Two questions were asked in jargon and could not be answered. Re-asked here in plain language;
@@ -818,7 +1058,7 @@ count nodes and none of them counts edges. `59` §3.13 states the finding and `5
 rule. **The mixed-neighbour case is still unanswered and still unowned** — it was never the owner's
 example, so answering this question did not close it. §13 item 10.
 
-### 11.5 When you say "group", do you mean a bag or a box?
+### 11.5 When you say "group", do you mean a bag or a box? — **PARTLY ANSWERED 2026-08-08, see §10.5**
 
 A **bag** is a set of things you point at — *the Q3 refresh*, *PCI scope*, *everything on Sunday's
 window* — and one thing can be in several bags at once. A **box** is a place inside a place — a
@@ -829,6 +1069,12 @@ smaller** change — a `Site` that can sit inside another `Site` — and it is w
 one rather than the recommended one.
 
 **The question, in one sentence: do you ever need a site inside a site?**
+
+**Answered in part.** *"a box is better … keep in mind floors exist, or networks that span multiple
+buildings"* (§10.5). Yes to the box, delivered as a **place hierarchy** (§10.8) rather than as nested
+`Site`s — and separately, a *network* is a **bag** (§10.9), so both shapes survive and neither wins
+outright. What is **not** answered is whether §10.4's `Group` is still wanted alongside the place
+hierarchy; the owner did not address cross-cutting sets in those words. §13 item 20.
 
 ### 11.6 Should your groups travel with the file?
 
@@ -849,6 +1095,10 @@ file to read?**
 | 3 | **§6.1 is read as a specification** and someone builds correlation from it | §6.1 states there is no mechanism. It is a named gap; the design document does not exist |
 | 4 | **The removal of phases (ADR-0031) is read as removing `71` §13.1's refusals** | §4's closing paragraph; ADR-0031 §Decision item 4 restates it |
 | 5 | **§7's two questions go unanswered and the work proceeds on a guess** | Both are listed in `88` §8 and in `CLAUDE.md`'s owner-blocking list |
+| 6 | **§10.8 is read as an executed schema change** and someone widens `HasPremises` | §10.8 says twice that it is a proposal and that no file under `schema/` was touched. `62` governs, ADR-0008 decides what exists. §13 item 16 |
+| 7 | **§10.10's reversal is read as reopening the whole of `56` §1.3's out-of-scope row** — annotations, text boxes, arrows, clip art | §10.10's closing paragraph scopes it to a spatial reference behind a place-scoped view, and gives the reason the rest of the row stays refused |
+| 8 | **§10.11's structure/simulation line is crossed** by a future session that finds *"control plane and data plane"* in scope and infers forwarding is too | §10.11's last paragraph, and `11` §2.2's own row. They are one word apart in speech and one sentence apart in the corpus |
+| 9 | **§10.6's two axes are re-flattened into one list** and someone designs twenty-five pictures | §10.6's table, `56` §3.6's DECISION and its *"31 layouts"* argument, and §13 item 21 |
 
 ## 13. Open decisions
 
@@ -914,6 +1164,32 @@ file to read?**
    six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
    selecting `junos-ex` today would get an empty product with no explanation. Design decision;
    `52` and `54` own the surface.
+16. **Whether `HasPremises` widens to `from: [root, Premises]`** (§10.8) — planning proposes under
+   `62` §6, and **nothing may be written to `schema/` before it is decided**. Two riders travel with
+   it and neither is optional: the `form` enum needs campus/building/floor/room/rack values it does
+   not have (`62` §7), and **a rack that contains devices is not expressible by nesting `Premises`
+   alone**, because `HasDevice` is `Site → Device`, `in: "1"`. Either `HasDevice` widens the way
+   `HasExternalPeer` already did (`19` §5.1), or a rack is a `Site`. That sub-question is the
+   load-bearing one and it is unowned.
+17. **Whether `56` §1.3's background-image refusal is reversed** (§10.10) — `56` owns the diagram and
+   therefore owns the answer; `56` §13.6 carries the PROPOSED form with its four costs. The reversal
+   is **narrow** — a spatial reference behind a place-scoped view — and must not be read as reopening
+   the annotations, text boxes, arrows or clip art in the same row.
+18. **Whether an imported image needs a size ceiling, and where it would be enforced** (§10.10).
+   `44` owns size budgets and its gate (`44` §5.5) covers build artifacts, not workspace content.
+   An imported image is the only thing in the workspace whose size the product does not choose.
+   Unowned.
+19. **The image decoder as a trust surface** (§10.10). `34` has no section on image decoding —
+   grepped 2026-08-08, zero hits — so the surface is unanalysed rather than cleared. A question for
+   `34`'s owner. **ADR-0034 forbids answering it from memory and §10.10 does not answer it.**
+20. **The residue of §11.5** (§10.5). The owner answered *box* for places. Whether §10.4's
+   recommended `Group` — the bag, for cross-cutting sets like *"the Q3 refresh"* — is still wanted
+   alongside the place hierarchy was not addressed and is still owner-only. §10.9 argues both shapes
+   are needed, for different subjects; that is an argument, not an answer.
+21. **Whether the zoom axis reuses `56` §3.6's one-scene-filtered mechanism** (§10.6). `56` §3.6
+   decided it for layers with a stated reason — 31 layouts is the alternative — and `56` §13.2
+   proposes the same shape for zoom. `56` owns it. Until it is decided, **no work should enumerate
+   zoom-by-view combinations**, because enumerating them is the failure this item exists to prevent.
 
 ## 14. Sources consulted
 
@@ -921,6 +1197,17 @@ file to read?**
 |---|---|
 | The owner, in conversation, 2026-08-06 | Every quotation in §§2–6, verbatim |
 | The owner, in conversation, 2026-08-08 | §10's three additional quotations, verbatim — the core-and-bridge description, *"they were standalone"*, and the five verbs |
+| The owner, in conversation, 2026-08-08 (later) | §10.5's four quotations, verbatim — the box answer, the box as a single device, *"different views"*, and the zoom ladder |
+| `schema/schema.yaml` — `edge: HasUnit`, `edge: ZoneMember`, `edge: InRoutingInstance`, `edge: VlanMember` (read 2026-08-08) | §10.7's table: one containment at `in: "1"`, two references at at-most-one, and `VlanMember` at `in: "0..n"` — the one that cannot be a box |
+| `schema/schema.yaml` — `edge: HasPremises`, `edge: AtPremises`, `edge: HasDevice`, `edge: HasPassiveNode`, `edge: HasExternalPeer`, `kind: Premises` (read 2026-08-08) | §10.8: places are flat under `root`; `Site → Premises` is a reference; `HasDevice` is `Site → Device`; the `form` enum's nine values, none of them a floor or a rack |
+| `docs/10-core/19-service-and-physical-model.md` §3.5, §5.1 | One kind for a CO and a customer location; the two-hop sibling query §10.8 cost 2 disturbs; `HasExternalPeer`'s existing `from` widening as the precedent |
+| `docs/50-design/56-diagram-view.md` §0, §1.2, §1.3, §3.6, §4.1, §4.3–§4.5, §5.5, §9.2, §9.3, §11 (fm 15), §12 | The governing rule; *"The view never says 'current'"*; the out-of-scope row §10.10 reverses; one scene filtered and the 31-layout argument; the projection table and the `Site`-band / `RoutingInstance`-box mismatch; the dropped-label rule; export rule 1; no `<image>` on export; the sensible-default failure; the `img-src 'self' blob:` request |
+| `docs/30-security/34-browser-hardening.md` §2.7, §5.6 (read 2026-08-08) | `img-src data:` in mode A and `'self' data:` in B–D, with `data:` retained deliberately; the closed SVG tag set and its ban on `<image>` |
+| `grep -rniE "image decod\|decoder\|jpeg\|bitmap\|raster" docs/30-security/34-browser-hardening.md` (run 2026-08-08) | **Zero hits.** §10.10's fourth cost: the decoder surface is unanalysed, not cleared |
+| `docs/40-stack/44-performance-budgets.md` §5.1, §5.5 | The distribution row — *"a 4 MB attachment goes through email"*; the size gate's scope, which is build artifacts and not workspace content |
+| `docs/10-core/17-workspace-format.md` §13.2 | The 0.6 MB / 8 MB derived workspace figures §10.10 measures an image against, and their own pending-recomputation caveat at §13.1 |
+| `docs/10-core/11-ir-schema.md` §2.2 | The rejection of the total-population assumption, and the rejection of control-plane/data-plane simulation with its consequence — *"Fathom cannot answer 'where does this packet go'"* |
+| `docs/70-ops/76-scope-expansion-analysis.md` §8 Q1, Q2 | The question §10.9 answers, and the sealed-container consequence its premise removes |
 | `docs/50-design/59-diagram-aggregation-and-colour.md` §3.3, §3.13, §3.14, §9 | The five levels and what they count; the parallel-edge finding; the proposed sixth level and its forks |
 | `docs/50-design/56-diagram-view.md` §1.3, §3.5, §3.7, §5.2 G4/G5 | Manual position in scope; `LayoutHint`, `Pin` and `GroupId`; the regroup **commands**, which are a different thing; the two channels a parallel-edge mark may not spend |
 | `docs/50-design/53-interaction-and-keyboard.md` §2.2 and its vi-alias table | `h` / `l` bound to collapse / expand; `g g` / `G` bound to first / last, which is the collision `56` §3.5's *"pressing `G`"* creates. ADR-0024 makes `53` the sole owner |
