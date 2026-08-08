@@ -1,7 +1,8 @@
 # WO-06 — Finder completion: the four MINORs and the deferred-section map
 
-> **Status:** OPEN — E-01 answered 2026-08-08 (§10.5). `73` §14 now carries `78` §4 step 3's title
-> and its four columns, so §4.5 executes as written apart from its append (the section exists).
+> **Status:** DONE — executed 2026-08-08. All ten acceptance gates green (G10 against the session's
+> branch point, §12 item 7); the `78` §6 floor green. E-01 was answered 2026-08-08 (§10.5) and §4.5
+> filed its two rows into the `73` §14 table that already existed.
 
 Depends on: nothing in the queue. Every edit is doc-comment, test or prose-level in
 `crates/fathom-find/` plus one filing in `73`; no deliverable of WO-01–WO-05 is touched, so this
@@ -112,9 +113,14 @@ All verified against the working tree at authoring time (2026-08-02; `cargo test
   `monitor start kmd`'s terse *"Pair it with a scoped Phase 2 clear."*
   (`corpus/commands/junos-srx-ipsec.yaml` line 4936) — are already held for the expert reviewer
   by `87` §3.2 and §5 item 6, and are **not** repaired here (§8 item 2).
-- **The filing target.** `docs/70-ops/73-open-decisions.md` ends at `## 13. Disagreements`; the
-  `## 14` inbox `78` §4 step 3 defines does not exist yet. Its contents table (§0) has three
-  columns (`§`, title, margin tab).
+- **The filing target.** ~~`docs/70-ops/73-open-decisions.md` ends at `## 13. Disagreements`; the
+  `## 14` inbox `78` §4 step 3 defines does not exist yet.~~ **Corrected 2026-08-08 (`78` §8; see
+  §12 item 6).** `docs/70-ops/73-open-decisions.md` carries `## 14. Escalations from execution
+  sessions` — created by commit `1300444`, then retitled and reformed to `78` §4 step 3's title
+  and four columns when E-01 was answered (§10.5). Its contents table (§0) has three columns
+  (`§`, title, margin tab) and already carries the `| 14 | Escalations from execution sessions |
+  *the inbox (78 §4)* |` row. §4.5 therefore executes minus its append and minus its
+  contents-table row: the two pre-authored rows are added to the table that is there.
 - **Deferred-section facts** (for §4.6): `crates/fathom-find/src/lib.rs` lines 64–67 carry
   `TODO(16 §17.3): no ladder documents are authored in corpus/ yet`;
   `crates/fathom-corpus/src/seed_concepts.yaml`'s header states *"The corpus tree has no
@@ -438,7 +444,7 @@ gate.
 | G7 | `cargo run -q -p fathom-find --bin fathom-find -- show security ike sec assoc \| grep -c "syntax 1.600"` | `4` |
 | G8 | `cargo run -q -p fathom-schema --bin fathom-schema-check` | Exit 0; `0 failure(s), 2 warning(s)` (the standing `Site` baseline, `78` §6) |
 | G9 | `grep -c "^## 14. Escalations from execution sessions" docs/70-ops/73-open-decisions.md` | `1` |
-| G10 | `git diff --name-only main` — run on the working branch before the `78` §3 step 9 commit; the session branched from `main` (`78` §3 step 4), so `main` is the branch point | Exactly the §4 file list (plus, after `78` §3 step 8, this file's status line and the `00-INDEX.md` row if that index exists by then). Presumes the queue directory is committed before the first execution session runs (`78` §3 step 2's own VERIFY); at authoring time `git status --short` shows `?? docs/70-ops/79-work-orders/`, and an untracked file never appears in `git diff --name-only` — if the directory is still untracked at execution time this gate cannot pass as stated: stop under `78` §4 |
+| G10 | `git diff --name-only <the session's branch point>` — run on the working branch before the `78` §3 step 9 commit. ~~the session branched from `main` (`78` §3 step 4), so `main` is the branch point~~ **Corrected 2026-08-08 (`78` §8; see §12 item 7):** `78` §3 step 4 says only *"Work happens on the working branch the session finds checked out"*; it does not make `main` the branch point, and the executing session found a branch already carrying eight commits of other work. The baseline is the branch head at session start | Exactly the §4 file list (plus, after `78` §3 step 8, this file's status line and the `00-INDEX.md` row if that index exists by then). Presumes the queue directory is committed before the first execution session runs (`78` §3 step 2's own VERIFY); at authoring time `git status --short` shows `?? docs/70-ops/79-work-orders/`, and an untracked file never appears in `git diff --name-only` — if the directory is still untracked at execution time this gate cannot pass as stated: stop under `78` §4. (`git ls-files docs/70-ops/79-work-orders/` at execution time lists all ten files: the presumption now holds.) |
 
 ## 7. Stop-and-escalate triggers
 
@@ -690,3 +696,37 @@ at its floor-green pre-session state (`78` §4 step 1).
    does not exist until WO-07 executes. The draft also called `cafd39e` "the merge commit"; it
    is the finder-core branch commit, merged by `4dd131e` (§11 had it right). Corrected in the
    discipline of `78` §8; no decision changes.
+6. **Against §3 Prior state's filing target — `## 14` exists.** Old: *"the `## 14` inbox `78` §4
+   step 3 defines does not exist yet"*. New: it exists, at `docs/70-ops/73-open-decisions.md`
+   §14, in `78` §4 step 3's title and four columns, with its §0 contents row present. Proving
+   paths: `docs/70-ops/73-open-decisions.md` (the `## 14` heading and the `| 14 | Escalations
+   from execution sessions | *the inbox (78 §4)* |` contents row); `git log 1300444`. This is the
+   state E-01 escalated and §10.5 answered; recording it here is the `78` §8 correction that
+   answer names. It changes no decision — §4.5's two rows are filed verbatim, in the form §4.5
+   already writes them in, into the table that is there.
+7. **Against G10's branch-point presumption.** Old: *"the session branched from `main` (`78` §3
+   step 4), so `main` is the branch point"*. New: `78` §3 step 4 says *"Confirm the checkout is
+   not `main`. Work happens on the working branch the session finds checked out; if the session
+   starts on `main`, create `wo-nn-<slug>` before the first edit"* — it makes `main` the branch
+   point only for a session that starts on `main`. The executing session found
+   `claude/docs-recommendations-review-l7mlhh` checked out with eight commits on top of `main`
+   (`git rev-parse main HEAD`; `git log --oneline`), so `git diff --name-only main` reports those
+   commits' 31 files as well and can never show *"exactly the §4 file list"* on this branch. The
+   gate's decision — that this work order changes exactly §4's files and nothing else — is
+   unchanged; only the baseline ref is corrected to the one `78` §3 step 4 actually implies.
+   Corrected rather than escalated because the proving command settles it and no reasonable
+   second answer exists: measuring a work order's own diff against another work's commits is not
+   a fork, it is a wrong ref. Both forms were run and both results are in the PR body.
+8. **§4.3's tie test is not rustfmt-stable as written.** Pasted verbatim, `cargo fmt --all
+   --check` (G1, and `78` §6 floor row 1) reported one diff: the final `assert!` exceeds the
+   line limit and rustfmt 1.94.1 splits it across three lines. `cargo fmt --all` was run and the
+   split applied. The assertion, its tolerance, its message and every other line of the block are
+   byte-identical to §4.3; only whitespace moved, and the pinned toolchain makes the result
+   deterministic. Recorded rather than escalated because the floor's own row 1 requires an
+   fmt-clean tree and rustfmt's output is not a decision anyone can take differently. Future
+   verbatim Rust blocks in work orders should be fmt-checked at authoring time.
+9. **`73` §14's own status line is left stale, deliberately.** It reads *"Live. One row, E-01,
+   open."*; E-01 is answered in place immediately below the table, and this work order's filing
+   makes it three rows. Repairing it is not in §4's deliverable list and `78` §4 step 3's grant
+   is *"append a row"* and nothing wider — the same reasoning the escalating session recorded in
+   §10.5 for §14's other two defects. Noted here so planning sees it; not touched.

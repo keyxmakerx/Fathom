@@ -9,6 +9,9 @@
 # A blank line ends each case. Expectations are measured output, sanity-checked
 # against the corpus's own answers/aka and 16 §12–15; a diff here is a review
 # item (16 §9.6), and the determinism assertion is separate and absolute.
+# The set is exactly 25 cases; golden.rs pins the count, so growing the set
+# is a deliberate two-line diff, never a drift. (PR #6's build report said
+# 26; the file has always held 25 — WO-06 pinned the true number.)
 
 # ── Worked trace A — the flagship (16 §12): P1/P2 verify ladder on top,
 #    the Disruptive clears nowhere near it, breadth resolution fired.
@@ -50,8 +53,14 @@ reverse: junos-srx/ipsec.sa.show-vpn-detail
 top3: junos-srx/ipsec.sa.show-vpn-detail | junos-srx/ipsec.sa.show
 
 # ── F7 / §8.3 / §16.5 — the risk prior as a safety control. "clear the
-#    tunnel" returns the scoped P2 clear first (the card's own instruction);
-#    the unscoped estate-wide clear is not concept-reachable at all.
+#    tunnel" returns the P2-only clear first — box-wide, no slot: it clears
+#    every child SA on the box while Phase 1 survives, which is what makes
+#    it the cheap first move ("Clearing Phase 2 alone forces a rekey and is
+#    the cheapest way to prove a tunnel comes back cleanly" — the entry's
+#    own explain). The unscoped P1 clear is not concept-reachable at all.
+#    The id's "-vpn" suffix promises a scoping the cmd does not have; that
+#    naming defect is 87 §3.2's, held for the expert reviewer, not papered
+#    over here.
 q: clear the tunnel
 top3: junos-srx/ipsec.sa.clear-vpn | junos-srx/ike.sa.clear-peer | junos-srx/ike.sa.clear-index
 notrank1: junos-srx/ike.sa.clear-all

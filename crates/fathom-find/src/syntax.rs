@@ -2,6 +2,21 @@
 //! exact prefix over the sorted command-key list plus a per-token map with
 //! trigram-filtered Jaro-Winkler fuzz at distance guards. Whole-command
 //! Levenshtein runs at distance 1 only; distance 2 stays off (§6.3).
+//!
+//! Documented divergence from 16 §13 (WO-06): §6.4's token branch
+//! (`0.60·cover + 0.40·mean_jw`) carries no key-length term, so every key
+//! that aligns all five tokens of trace B's query — the bare leaf, its
+//! `detail` form, the `index ⟨n⟩ detail` form, the R09 `node all` form —
+//! ties at the same Ŝ, and the order between them is decided by concept
+//! score, the §8.3 prior and §8.4's ordering key. §13 expected the exact
+//! leaf to lead via the longer keys' "`Ŝ_prefix` term", but §6.2's prefix
+//! score fires only for a key the query string-prefixes, and `show
+//! security ike sec assoc` prefixes none. A length tie-break is not
+//! derivable from §6 as written; the contradiction is filed in 73 §14 and
+//! the tie is pinned by `trace_b_syntax_tie_is_pinned` (tests/golden.rs).
+//! Related, same filing: `token_matches` scores a sub-token strict prefix
+//! at jw 1.0 where §13's arithmetic carried `assoc` at 0.883 — the tie
+//! holds either way (fused contribution 1.600 v 1.585).
 
 use std::collections::BTreeMap;
 

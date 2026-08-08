@@ -1793,6 +1793,8 @@ and is not duplicated here, so there is one place to maintain and one place to r
 | Date | Work order | Question | Detail |
 |---|---|---|---|
 | 2026-08-08 | WO-06 | How §4.5's two pre-authored rows are filed, now that §14 exists in a form §4.5 does not expect | detail in WO-06 § Open decisions (§10.5) |
+| 2026-08-02 | WO-06 | `16` §5.2's formula has no query-side term weight, but §4.1 step 7's 0.6 must apply to query-emitted sub-tokens or a hyphenated query token scores as three whole terms — amend §5.2 to carry the factor, or order its removal with a golden re-run | detail in WO-06 § Open decisions |
+| 2026-08-02 | WO-06 | `16` §13 expects trace B's exact leaf to outrank its `detail` form on syntax, but §6.4 ties equal-cover keys and §6.2's `Ŝ_prefix` cannot fire for that query; R09's canonicality change also post-dates the trace — rewrite §13's trace to the implemented arithmetic, or spec a key-length tie-break in §6.4 under §8.5's golden-delta discipline | detail in WO-06 § Open decisions |
 
 **Answered — E-01, 2026-08-08, planning.** Option A of the four §10.5 enumerates. `78` §4 step 3
 specifies both the section title and the four columns; WO-06 §4.5 transcribes them and this section
