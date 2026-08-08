@@ -1755,8 +1755,10 @@ throughout.
 
 ## 14. Escalations from execution sessions
 
-> **Status:** Live. Three rows, all from WO-06's execution on 2026-08-08. E-01 is answered in place;
-> the two `16` spec gaps are open, and open for **planning** rather than for the owner.
+> **Status:** Live. Five rows. Three came from WO-06's execution on 2026-08-08: E-01 is answered in
+> place, and the two `16` spec gaps are open, and open for **planning** rather than for the owner.
+> Two came from WO-05's on 2026-08-08 — both are format questions the work order itself classes as
+> planning-only, and both stopped that session before its first plan step.
 >
 > The two spec-gap rows carry `2026-08-02` — the date WO-06 §4.5 pre-authored them, not the date
 > they were filed. §4.5 requires them verbatim, so the executing session was right not to restamp
@@ -1802,6 +1804,8 @@ and is not duplicated here, so there is one place to maintain and one place to r
 | 2026-08-08 | WO-06 | How §4.5's two pre-authored rows are filed, now that §14 exists in a form §4.5 does not expect | detail in WO-06 § Open decisions (§10.5) |
 | 2026-08-02 | WO-06 | `16` §5.2's formula has no query-side term weight, but §4.1 step 7's 0.6 must apply to query-emitted sub-tokens or a hyphenated query token scores as three whole terms — amend §5.2 to carry the factor, or order its removal with a golden re-run | detail in WO-06 § Open decisions |
 | 2026-08-02 | WO-06 | `16` §13 expects trace B's exact leaf to outrank its `detail` form on syntax, but §6.4 ties equal-cover keys and §6.2's `Ŝ_prefix` cannot fire for that query; R09's canonicality change also post-dates the trace — rewrite §13's trace to the implemented arithmetic, or spec a key-length tie-break in §6.4 under §8.5's golden-delta discipline | detail in WO-06 § Open decisions |
+| 2026-08-08 | WO-05 | WO-01 reshaped seven registry slot types (`EncryptionAlgorithm`, `IntegrityAlgorithm`, `AuthMethod`, `IkeVersion`, `RouteDistinguisher`, `RouteTarget`, `SecretPlaceholder`) into shapes no row of §4.2's wire table admits, and rule 8 would now silently drop `SecretPlaceholder`'s label — re-cut the table over the post-WO-01 `scalar.rs`, deciding `SecretPlaceholder`'s plaintext wire form explicitly | detail in WO-05 § Open decisions (§10.6) |
+| 2026-08-08 | WO-05 | §4.4's pinned vector and §4.5's two ULID-refusal inputs render ids as `fathom:device:<ulid>`, which `Display` in `fathom-graph/src/id.rs`, `.context/conventions.md` § *Identifiers* and ADR-0005 all refuse — re-issue the vector against the rendering the tree emits, or reopen ADR-0005 | detail in WO-05 § Open decisions (§10.7) |
 
 **Answered — E-01, 2026-08-08, planning.** Option A of the four §10.5 enumerates. `78` §4 step 3
 specifies both the section title and the four columns; WO-06 §4.5 transcribes them and this section

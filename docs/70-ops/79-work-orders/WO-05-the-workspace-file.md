@@ -1,6 +1,7 @@
 # WO-05 — The workspace file: canonical serialisation, and the crypto boundary
 
-> **Status:** OPEN
+> **Status:** BLOCKED on §4.2's wire table and §4.4's pinned vector, both diverged from the merged
+> tree — see §10.6 and §10.7
 
 Depends on: WO-02 (the store — `Graph` is the thing serialised, and this work order extends it
 with a snapshot pair). WO-01 is deliberately **not** a dependency, but if it lands first the slot
@@ -806,6 +807,134 @@ Deliberately not decided here; owner or planning session only (`78` §7):
    the shared substrate either way.
 5. **Whether `Snapshot` grows the sync op envelope** (`33` §5.1's `OpId`/HLC/actor) when sync
    work begins — already registered as open by WO-02 §10.5.
+
+### 10.6 ESCALATED 2026-08-08 — §4.2's wire table has no family for seven registry slot types, WO-01 having reshaped them
+
+**Step reached.** `78` §3 step 5 — verifying §3's Prior state against the merged tree — before
+plan step 1. Nothing in §5's plan was executed; no code was written (`78` §4 step 1, §5 item 10).
+
+**What this work order says.** §3.1, on the tree it was authored against:
+
+> Stub scalar types in `scalar.rs` (newtypes over integers, `String`, `core::net` types; structs
+> `IpPrefix`, `InterfaceAddress`, `IpRange`, `PortRange`, `RouteDistinguisher`, `RouteTarget`,
+> `Date`, `LatLon`; unit `SecretPlaceholder`)
+
+§4.2's structural rule, which decides family membership:
+
+> Family membership is **structural**, decided by the type's shape in `scalar.rs` / `value.rs`,
+> not by its name: a field-less unit struct is rule 8; a multi-field struct is rule 6 unless
+> rules 5 or 7 name it; a hand-written enum is rule 9; a newtype over an integer is rule 2 and
+> over `String` is rule 3.
+
+and the four rows that name the affected types — rule 2 (*"every newtype over one (`L4Port`, …,
+`IkeVersion`, …)"*), rule 3 (*"Newtypes over `String` (`Identifier`, `Text`, `Fqdn`,
+`EncryptionAlgorithm`, `IntegrityAlgorithm`, `AuthMethod`, …)"*), rule 6 (*"Multi-field structs
+(`IpRange`, `PortRange`, `RouteDistinguisher`, `RouteTarget`, `Date`, `LatLon`, `Mtu`,
+`PostalAddress`, `NameConformance`, `QualifiedNextHop`, `NodePriority`, `EndpointCardinality` —
+all twelve …)"*), rule 8 (*"Unit stubs — every field-less struct in `scalar.rs` / `value.rs`:
+`SecretPlaceholder`, `IkeId`, … (all sixteen)"* → wire form *"`Obj` empty, `{}`"*). Rule 9 is
+scoped shut: *"Hand-written enums in `value.rs` (`PeerSpec`, `AttrValue`, `NextHop`, `SyslogHost`
+— all four at slot level …)"*.
+
+**What was found.** WO-01 landed (`c07d1bc`, *"Build the Scalar trait and the 35 real scalar
+implementations in fathom-ir"*), which §Depends anticipated: *"if it lands first the slot types at
+`fathom_ir::scalar` / `fathom_ir::value` change shape underneath §4.2's wire table — §7 trigger 4
+governs that case."* Seven **registry slot types** (each confirmed present in
+`crates/fathom-ir/src/generated/accessors.rs`) now have a shape no family admits:
+
+| Type | §4.2 row that names it | Shape in the tree today |
+|---|---|---|
+| `EncryptionAlgorithm` | rule 3, newtype over `String` | `scalar.rs:188` — `struct { family: EncFamily, key_bits: Option<u16>, mode: EncMode, aead: bool }` |
+| `IntegrityAlgorithm` | rule 3, newtype over `String` | `scalar.rs:200` — 5-variant field-less enum |
+| `AuthMethod` | rule 3, newtype over `String` | `scalar.rs:211` — 3-variant field-less enum |
+| `IkeVersion` | rule 2, newtype over an integer | `scalar.rs:219` — 3-variant field-less enum |
+| `RouteDistinguisher` | rule 6, multi-field struct, *"all twelve"* | `scalar.rs:266` — `enum { Type0 { admin: u16, assigned: u32 }, Type1 { admin: net::Ipv4Addr, assigned: u16 } }` |
+| `RouteTarget` | rule 6, multi-field struct, *"all twelve"* | `scalar.rs:424` — the same two variants |
+| `SecretPlaceholder` | rule 8, field-less, *"all sixteen"*, wire `{}` | `scalar.rs:330` — `struct { label: SecretLabel, hint: Option<SecretHint> }`, **both fields private** |
+
+Structurally, the four enums fall to rule 9, whose parenthetical carries no `…` and so *"enumerates
+today's members in full"* — and is scoped to `value.rs`. `EncryptionAlgorithm` falls to rule 6,
+whose parenthetical is likewise closed at *"all twelve"*. `SecretPlaceholder` matches no family: it
+is neither field-less (rule 8) nor readable by field ident (rule 6 — the fields are private; the
+public surface is `new` / `with_hint` / `label()` / `hint()`, `scalar.rs:335-364`).
+
+Four further types are now reachable from the registry through those slots and have no row at all:
+`EncFamily` (`scalar.rs:170`), `EncMode` (`scalar.rs:178`), `SecretLabel` (`scalar.rs:273`) and
+`SecretHint` (`scalar.rs:300`, private `String`).
+
+Executing rule 8 as written on today's `SecretPlaceholder` would emit `{}` and drop `label` and
+`hint` on every round trip — silent loss that §4.5's own law (`from_canon(to_canon(v)?)? == v`)
+would fail. That is a defect the table cannot be implemented around.
+
+**What did not diverge**, checked in the same pass so the re-cut has a floor: the two `BTreeMap`
+key types are still exactly `ir_types::Family` and `scalar::Identifier` (grep of `accessors.rs`);
+`FIELD_KEYS` is still 299, `NodeKind::ALL` 48, `EdgeKind::ALL` 81; `schema/schema.yaml` still
+declares `version: "0.1"` and no `SCHEMA_VERSION` is generated yet; `value.rs` matches §4.2 rows 6,
+8 and 9 unchanged; `MacAddress` (rule 7), `Timestamp` (rule 2), `IpPrefix` / `InterfaceAddress`
+(rule 5) are unchanged; WO-02's API matches §3.2 (`insert_node(kind, ulid, existence)`,
+`Op` / `Batch` deriving bare `Debug`).
+
+**Why this is not a `78` §8 correction.** §4.2 states its own status — *"These rules are format, not
+implementation; the execution session implements them and may not vary them"* — and §7 trigger 4
+repeats it: *"The wire table is format; only planning changes format."* §8 admits a correction only
+where it *"changes no decision the work order makes"*; assigning a wire form and a parse rule to
+seven slot types is deciding format.
+
+**The smallest decision that unblocks.** Re-cut §4.2's table over the post-WO-01 `scalar.rs`: a wire
+form and parse rule for `EncryptionAlgorithm`, `IntegrityAlgorithm`, `AuthMethod`, `IkeVersion`,
+`RouteDistinguisher`, `RouteTarget` and `SecretPlaceholder`, plus the four reachable types above;
+and whether rule 9's scope extends from `value.rs` to hand-written enums in `scalar.rs`.
+`SecretPlaceholder` needs its own sentence: it is the invariant-3 marker, `{}` no longer
+round-trips it, and what a redaction marker may put on a plaintext wire is a security question, not
+a shape question. §4.5's `exemplar_round_trips_per_family` row count moves with the answer.
+
+### 10.7 ESCALATED 2026-08-08 — §4.4's pinned vector renders ids with a `fathom:` prefix the tree, the conventions and ADR-0005 all refuse
+
+**Step reached.** The same `78` §3 step 5 pass; nothing executed.
+
+**What this work order says.** §4.4's pinned first vector, line 5, twice:
+
+> `{"add_node":{"node":"fathom:device:00000000000000000000000001", …`
+> `"nodes":[{"existence":…,"fields":{},"id":"fathom:device:00000000000000000000000001"}]`
+
+and §4.5's `parse_refuses_noncanonical_ulid_spelling`, whose two inputs are
+`"fathom:device:0000000000000000000000000I"` and `"fathom:device:o0000000000000000000000001"`;
+and §4.3's prose, *"a decode-only `parse` would accept `fathom:device:0o000…`"*.
+
+The same document states the opposite rule three times: §3.2 quotes WO-02's contract as *"`Display`
+rendering `<kind-lower>:<ulid>` (kebab-case kind, 26-char ULID; no product-name prefix —
+ADR-0005)"*; §4.3 says *"`parse` inverts `Display` exactly"*; §4.4 says *"composite ids as their
+`Display` form"*. §2's Binding sources cites `.context/conventions.md` § *Identifiers* for
+*"Node IDs: `<kind-lower>:<ulid>`"* and *"(ADR-0005: no product name in any identifier)"*.
+
+**What was found.** `crates/fathom-graph/src/id.rs:74`:
+
+```rust
+impl fmt::Display for NodeId {
+    /// `.context/conventions.md` § *Identifiers*: `<kind-lower>:<ulid>`, with
+    /// no product-name prefix (ADR-0005 action 1).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", kebab(self.kind.name()), self.ulid)
+    }
+}
+```
+
+which renders `device:00000000000000000000000001`. WO-02's own test pins it —
+`id.rs:104` `ike_gateway_renders_kebab` asserts `assert!(!rendered.contains("fathom"))` under the
+comment *"ADR-0005 action 1: the product name is in no identifier."*
+
+So `write_plain` on §4.4's stated construction cannot produce §4.4's stated bytes, and the two id
+strings in §4.5's refusal test are unparseable by §4.3's `parse` for a reason that is not the
+reason the test names.
+
+**Why this is not a `78` §8 correction.** §4.4 forecloses it in terms: *"If the constructed bytes
+differ from it, the session does not adjust either side to match: it escalates under §7, quoting
+both, because one of the two — the code or this document — is wrong, and deciding which is planning
+work."* §7 trigger 3 says the same.
+
+**The smallest decision that unblocks.** Re-issue §4.4's pinned line 5 and §4.5's two
+`parse_refuses_noncanonical_ulid_spelling` inputs against the rendering the tree emits — or, if the
+`fathom:` segment is intended, reopen ADR-0005, which is owner work (`78` §5 item 4).
 
 ## 11. Sources consulted
 
