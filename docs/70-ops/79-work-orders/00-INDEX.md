@@ -51,6 +51,15 @@ WO-04 stays BLOCKED on WO-09 and WO-09 is BLOCKED on planning. The unblocking an
 sentence plus one Deliverables-table row — see WO-09 §10 item 8, which enumerates three options
 without leaning.
 
+**WO-04 was re-taken on 2026-08-08 to test whether WO-09's landing had armed G8. It had not, and
+WO-04 stays BLOCKED.** The session re-ran WO-04 §5 step 12's three preconditions against the
+documents on disk: (a) holds, (b) fails — no weld order is DONE, and no `fathom-weld` crate or
+`apply_new_device` exists in the tree — and (c) fails, because WO-04 §10 item 7(b), the source of
+`IpsecVpn.mode` in a re-parsed graph, is still undecided. WO-04's gates G1–G7 and G9 were all
+re-run green; only G8 is outstanding, and it is outstanding on three planning decisions, not on
+code. Nothing new was escalated: the questions are already filed (WO-09 §10 items 2, 5 and 8, the
+last of them in `73` §14). The tree is unchanged apart from the two status records.
+
 | # | Work order | File | Status | Depends | Deliverable |
 |---|---|---|---|---|---|
 | 1 | WO-06 | `WO-06-finder-completion.md` | DONE | — | The four recorded finder MINORs closed (doc/test/prose only); every deferred `16` section mapped blocked with its blocker named |
@@ -58,7 +67,7 @@ without leaning.
 | 3 | WO-02 | `WO-02-the-graph-store.md` | DONE | — | `fathom-graph`: the typed store — L0 write-time enforcement, three-state presence, provenance, batch-grouped op log, deterministic iteration |
 | 4 | WO-07 | `WO-07-the-wasm-shell.md` | DONE | — | `fathom-wasm`: the finder compiled to `wasm32-unknown-unknown` behind `41` §3.7's raw ABI, with import/export/size/determinism audits |
 | 5 | WO-03 | `WO-03-ingest-junos-srx.md` | DONE | WO-01, WO-02 | junos-srx set-form ingest: framer, lexer, shaper, the non-optional redaction gate, the statement dictionary, a typed fragment with its residue ledger |
-| 6 | WO-04 | `WO-04-the-emitters.md` | BLOCKED on WO-09 (authored, OPEN) | WO-01, WO-02 | `fathom-emit`: graph to junos-srx set-statements with per-line provenance; the round-trip gate arms only once WO-03 and the weld order land (its §5 steps 12–13) |
+| 6 | WO-04 | `WO-04-the-emitters.md` | BLOCKED on WO-09 (which is itself BLOCKED) | WO-01, WO-02 | `fathom-emit`: graph to junos-srx set-statements with per-line provenance; the round-trip gate arms only once WO-03 and the weld order land (its §5 steps 12–13) |
 | 7 | WO-05 | `WO-05-the-workspace-file.md` | DONE | WO-02 | `fathom-canon` and the plaintext workspace face: canonical serialisation, versioned header, byte-identical round trip; sealing stays owner-gated (its §2) |
 | 8 | WO-08 | `WO-08-the-inventory-face.md` | DONE | WO-01, WO-02, WO-07 | The first product face: browser artifact, inventory table, inspector, per-equipment page with cabled-peer navigation over a pinned demo estate |
 | 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | BLOCKED on `Origin::Parsed`'s canonical wire form (its §10 item 8) | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |
