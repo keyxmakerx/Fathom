@@ -1,6 +1,7 @@
 # WO-04 — `fathom-emit`: graph to junos-srx commands with provenance
 
-> **Status:** OPEN
+> **Status:** BLOCKED on WO-03 + the weld WO (G8, the round-trip gate, outstanding; all other
+> gates green)
 
 The reverse face of ingest — from graph state to copy-pasteable configuration lines, each line
 carrying the provenance that produced it. This is the notepad's engine: `53` §6's copy machinery
@@ -1018,3 +1019,34 @@ the escalation inbox under `78` §4 step 2.
    `src/junos.rs` placement G9 already pinned mechanically (§4.6, §5 step 6), and §4.9's
    explicit statement that the fixture's `GW-B` carries `dpd` `Set` — a fact the report
    clause's `GW-B.dpd` gap entry already required implicitly.
+8. **Correction (`78` §8) — the conflict fixture differs in `lifetime_seconds`, not
+   `dh_group`.** §4.10's `duplicate_path_conflict_blocks_render` row sketches the fixture as
+   *"two proposals both named `IKE-P1` with different `dh_group` under one policy → one
+   `EmitConflict`"*. The code proves that setup cannot produce a conflict: §4.7's `DhGroup`
+   table ships exactly one row (`14`), so of two differing `dh_group` values at most one
+   renders and the other is `Blocker(TokenUnmapped)` — one `dh-group` line, no shared path, no
+   `EmitConflict`, and `render_config` refusing with `Blockers` rather than the stated
+   `Conflicts`. The shipped fixture keeps everything else in the row — two `IkeProposal` nodes
+   both named `IKE-P1` under one `IkePolicy`, one `EmitConflict`, `render_config` →
+   `Conflicts` — and differs them on `lifetime_seconds` (28800 vs 3600), the one emitted field
+   whose values both render through §4.7 (`Scalar::canonical()`, no closed table). No decision
+   in §4 changes: §4.7's table is honoured exactly, and the assertions §4.10 states are the
+   ones the test makes. Proving paths: `crates/fathom-emit/src/junos.rs` (`token_dh_group`),
+   `crates/fathom-emit/tests/blockers.rs` (`duplicate_path_conflict_blocks_render`).
+9. **Correction (`78` §8) — the `READS_*` / `GAPS_*` tables are `pub`, not crate-private.**
+   §4.6 says they are *"public within the crate for the coverage test"*, and §4.10 puts that
+   test in `tests/coverage.rs` — an integration test, which is a separate crate and cannot see
+   `pub(crate)`. The two cannot both hold, so the tables ship `pub` inside the `junos` module
+   §4.1 already names, reached as `fathom_emit::junos::READS_IKE_PROPOSAL` and so on. No name
+   outside §4.6's own list is created, the placement G9 greps is unchanged
+   (`crates/fathom-emit/src/junos.rs`), and no decision moves. Proving path:
+   `crates/fathom-emit/tests/coverage.rs`.
+10. **Correction (`78` §8) — §3's workspace and queue facts have moved on.** §3 records six
+    crates and no `fathom-graph`; the tree now holds nine — WO-02 landed `fathom-graph`
+    (consumed here exactly as §3 cites), WO-03 landed `fathom-ingest`, WO-07 landed
+    `fathom-wasm`. §3 also records WO-03 as `BLOCKED`; its status line reads `DONE`
+    (`docs/70-ops/79-work-orders/WO-03-ingest-junos-srx.md`). Neither changes a decision here:
+    of §5 step 12's three preconditions, (a) now holds, and (b) — a fragment-to-store weld work
+    order with status `DONE` — and (c) — §10 item 7 recording resolved decisions — both still
+    fail, so the step-12 terminal state is unchanged. `00-INDEX.md`'s own banner names the weld
+    order as the one in the critical path that does not exist yet.

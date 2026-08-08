@@ -1,0 +1,17 @@
+[package]
+name = "fathom-emit"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The junos-srx emitters: graph to (line, provenance) pairs, ordered, blocked and reported, never strings (13; conventions invariant 6)"
+
+[dependencies]
+fathom-id = { path = "../fathom-id" }
+fathom-ir = { path = "../fathom-ir" }
+fathom-graph = { path = "../fathom-graph" }
+
+[dev-dependencies]
+# The coverage test reads schema/schema.yaml's emit: markers back through the
+# subset parser — the crate-side half of schema.emit.unread (62 §10.3).
+fathom-schema = { path = "../fathom-schema" }

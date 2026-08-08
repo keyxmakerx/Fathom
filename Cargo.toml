@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/fathom-corpus",
+    "crates/fathom-emit",
     "crates/fathom-find",
     "crates/fathom-graph",
     "crates/fathom-id",
