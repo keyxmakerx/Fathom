@@ -640,6 +640,86 @@ same shape: a user-authored set or label over nodes, needing a schema entry, an 
 persistence story and a sync story before any of it is drawn. Neither is designed here. Both are
 listed in §13.
 
+### 10.4 Grouping and tagging — the recommendation, 2026-08-08
+
+The owner asked: *"the thing is I genuinely do not know what the best way is. recommendations?"*
+Researched across five lenses — what the model already expresses, what the design has decided
+nearby, outside practice, this project's own constraints, and the known failure modes — with every
+claim handed to a separate pass instructed to refute it. **Twelve claims held, none were refuted.**
+
+**The finding that shrinks the question.** Most of what people reach for tags to do, the model
+already does, and in some cases already forces:
+
+| Wanted | Already expressible |
+|---|---|
+| *"these five are the Springfield site"* | `HasDevice` containment runs `Site → Device` with `in: 1`. Every device belongs to exactly one site and **cannot not** |
+| *"which are branches"* | `Site.criticality` is already `core \| branch \| lab \| dc` |
+| *"all the firewalls"*, *"all the SRXs"* | `Device.role` (`firewall \| router \| switch \| load_balancer \| other`) and `Device.platform` |
+| *"everything for Acme"* | `Tenant` is a kind with customer/internal, code, account reference and contact; services hang off it |
+| *"the kit at 412 Oak St"* | `Premises` covers CO, hut, cabinet, DC, customer premises, pole, handhole; a site points at one |
+
+So the estate's organisation is **not** the open question. Three things are genuinely left over:
+
+1. **Notes** — what the engineer knows that the config does not say. `Premises` has a notes field;
+   `Service` and paths have descriptions. **`Site` and `Device` have nothing.**
+2. **Cross-cutting sets** — *"the Q3 firewall refresh"*: three SRX clusters at two sites, an MX,
+   two EX stacks and a customer service. It cuts across sites, tenants and kinds, so no containment
+   tree can name it, and everything in the model is a containment tree.
+3. **Lifecycle** — *"decommissioning in June"*, *"cold spare"*. Real, changes monthly, fits no enum
+   worth freezing.
+
+**RECOMMENDATION — build a `Group`: a named set, created deliberately, holding members by opaque ID.
+Do not build free-text tags. In this order.**
+
+1. **A notes field on `Site` and `Device`**, matching the one `Premises` already has. Nearly free,
+   and it is the honest way to discover what the group names should be: write notes for two months,
+   read them back, and the four or five groups actually needed are there in the owner's own words.
+   Designing a tag taxonomy up front is how a vocabulary nobody uses gets built.
+2. **`Group`** — a new kind (name, optional description, optional colour) and a membership edge to
+   anything. It is a node like any other: it gets `group:<ulid>`, lives in the workspace, survives
+   renaming everything it points at, and appears in the finder. Membership is by selection, never by
+   typing a string.
+3. **Then nothing, and revisit lifecycle later.** The expectation is that *"decommissioning in
+   June"* becomes a group with eleven members — better than an enum, because the customer's service
+   and the physical patch panel can be in it too, which no device-status field could hold.
+
+**Why a created object rather than free text.** Two mature systems reached the same conclusion:
+
+| Source | Read | What it says |
+|---|---|---|
+| NetBox v2.9 release notes | 2026-08-08 | *"Tags are no longer created automatically: A tag must be created by a user before it can be applied to any object."* — they changed this and did not reverse it |
+| NetBox Tag model docs | 2026-08-08 | A Tag is a first-class registered object: name, slug, colour, weight, and a list of object types it may be applied to at all |
+| AWS tagging best practices | 2026-08-08 | Free-text tags, and the guidance is manual compensation — *"decide whether to use Costcenter, costcenter, or CostCenter, and use the same convention for all tags"* |
+
+**Why it fits this product specifically.** `53` refuses modes outright — *"No modes. No mode
+indicator. No mode errors."* — and *"select things, add to group"* is one action against a
+selection, where *"tagging mode"* is a mode. And it stays inside `56` §1.3's out-of-scope list: a
+note is a field on a real object and a group is a view of real data, not a free-floating annotation,
+text box or sticky note on the canvas.
+
+**Failure modes, and the mitigation for each:**
+
+| Risk | Mitigation |
+|---|---|
+| Near-duplicate names (*Q3-refresh*, *Q3 Refresh*) | The picker offers only groups that exist; creating one is a separate, visible action. Exactly NetBox's change |
+| Dead groups accumulating | Show member count and last-changed; sort by staleness; **archive, never delete** — old work stays readable |
+| A group quietly becoming a second, contradictory site model | When a proposed membership is exactly an existing site, tenant or role, say so and offer the existing one. Cheap check, kills the class |
+| A credential typed into a note | Pasted config passes the ingest redaction gate; a hand-typed sentence does not. Say so once, plainly, at the field |
+| Membership pointing at names | **Already closed by invariant 7** — stable opaque IDs, *"renaming a device must not invalidate anything"*. Membership stores IDs |
+| Colours | Not the three reserved for risk. A green group must never read as a clean finding |
+
+**Cost, honestly.** One kind, one edge, two notes fields — then the real work, which is that each of
+the six views must know how to filter by a group and how to draw one. The diagram in particular has
+to decide what a group looks like when its members are scattered, and that is a design problem, not
+a coding one.
+
+**What it forecloses.** A device in two sites (already impossible; groups would paper over it, not
+fix it). Labelling in one keystroke — creating a group is deliberately a step, and on the day the
+owner wants a quick label it will annoy them. And **private labels**: groups live in the workspace
+file and travel with it, so anyone handed the file reads them. No per-user layer is proposed.
+
+**The two questions only the owner can answer are at §11.5 and §11.6.**
+
 ## 11. Questions still outstanding
 
 Two questions were asked in jargon and could not be answered. Re-asked here in plain language;
@@ -737,6 +817,28 @@ of what they would see.
 count nodes and none of them counts edges. `59` §3.13 states the finding and `59` §3.14 proposes the
 rule. **The mixed-neighbour case is still unanswered and still unowned** — it was never the owner's
 example, so answering this question did not close it. §13 item 10.
+
+### 11.5 When you say "group", do you mean a bag or a box?
+
+A **bag** is a set of things you point at — *the Q3 refresh*, *PCI scope*, *everything on Sunday's
+window* — and one thing can be in several bags at once. A **box** is a place inside a place — a
+campus containing three buildings, a region containing eleven sites — and a thing is in exactly one.
+
+§10.4 recommends the bag. If what the owner keeps wanting is the box, that is a **different and
+smaller** change — a `Site` that can sit inside another `Site` — and it is worth building the right
+one rather than the recommended one.
+
+**The question, in one sentence: do you ever need a site inside a site?**
+
+### 11.6 Should your groups travel with the file?
+
+Groups as recommended live in the workspace and go wherever the file goes, so anyone opening it
+reads them — including the one called *chase this before the customer notices*. If some labels are
+notes-to-self that should not travel, that is a **separate storage decision** and it is far cheaper
+designed in than bolted on.
+
+**The question, in one sentence: are your groups something you would be happy for anyone opening the
+file to read?**
 
 ## 12. Failure modes
 
