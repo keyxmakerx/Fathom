@@ -59,6 +59,21 @@ enumerable resolutions and no lean; §4.6's four remaining test files are unwrit
 gate is unmet. **The queue again has no runnable row:** WO-04 stays BLOCKED on WO-09 and WO-09 is
 BLOCKED on planning.
 
+**WO-09 ran a third time on 2026-08-08.** §10 item 9's answer was executed exactly — one `scalar:`
+value in `corpus/dict/junos-srx/interfaces.yaml:13`, one `ValueTy` arm, one `BoundValue` variant —
+and the shipped fixture now applies. `tests/apply.rs` came back with §4.6's nine names and passes,
+joined by `tests/provenance.rs` (six) and `tests/determinism.rs` (one): 353 tests, zero failures,
+zero ignored.
+
+It stopped on the last of §4.6's five files. **Ten of the fixture's thirteen fragment nodes carry
+`owner: None`, and none of the three that carry one is owned by `nodes[0]`**, so the applied
+`Device` has degree zero across all 81 edge kinds and §4.6's *"the `IpsecVpn` closure is reachable
+from the device by `out`/`inn`"* cannot hold. WO-03 §4.8 promises only that an `owner` points
+earlier, never that every non-root node has one; WO-09 §4.5 step 5 presumes it does. Filed as WO-09
+§10 item 10 and `73` §14 with four resolutions and no lean. `11` §7.2's *"exactly one containment
+in-edge per node"* is an L1/L2 lower bound, so the store accepts the graph and the floor is green —
+which is why nothing caught it. **The queue again has no runnable row.**
+
 **WO-04 was re-taken on 2026-08-08 to test whether WO-09's landing had armed G8. It had not, and
 WO-04 stays BLOCKED.** The session re-ran WO-04 §5 step 12's three preconditions against the
 documents on disk: (a) holds, (b) fails — no weld order is DONE, and no `fathom-weld` crate or
@@ -78,7 +93,7 @@ last of them in `73` §14). The tree is unchanged apart from the two status reco
 | 6 | WO-04 | `WO-04-the-emitters.md` | BLOCKED on WO-09 | WO-01, WO-02 | `fathom-emit`: graph to junos-srx set-statements with per-line provenance; the round-trip gate arms only once WO-03 and the weld order land (its §5 steps 12–13) |
 | 7 | WO-05 | `WO-05-the-workspace-file.md` | DONE | WO-02 | `fathom-canon` and the plaintext workspace face: canonical serialisation, versioned header, byte-identical round trip; sealing stays owner-gated (its §2) |
 | 8 | WO-08 | `WO-08-the-inventory-face.md` | DONE | WO-01, WO-02, WO-07 | The first product face: browser artifact, inventory table, inspector, per-equipment page with cabled-peer navigation over a pinned demo estate |
-| 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | OPEN | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |
+| 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | BLOCKED on §10 item 10 | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |
 
 **Owner-blocking items** (not queue rows; listed in `CLAUDE.md`): the S0 fixture exports
 (`76` §7.3), the four `19` §10 forks, the named expert review of `corpus/`. WO-03 §10.8–10.9

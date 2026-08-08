@@ -158,6 +158,7 @@ pub(crate) enum KindSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ValueTy {
     Identifier,
+    InterfaceName,
     AuthMethod,
     DhGroup,
     IntegrityAlgorithm,
@@ -180,6 +181,7 @@ impl ValueTy {
     fn from_name(name: &str) -> Option<ValueTy> {
         Some(match name {
             "Identifier" => ValueTy::Identifier,
+            "InterfaceName" => ValueTy::InterfaceName,
             "AuthMethod" => ValueTy::AuthMethod,
             "DhGroup" => ValueTy::DhGroup,
             "IntegrityAlgorithm" => ValueTy::IntegrityAlgorithm,

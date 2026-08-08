@@ -4,7 +4,7 @@
 //! Two functions and no state. `validate` is §4.5 step 1: everything the weld
 //! can refuse it refuses **before** the batch opens, because `fathom-graph`
 //! cannot roll a batch back (§4.5's atomicity DECISION). `write_field` is the
-//! dispatch over `BoundValue`'s 21 variants — an exhaustive `match`, so a new
+//! dispatch over `BoundValue`'s 22 variants — an exhaustive `match`, so a new
 //! variant upstream is a compile error here, which is the point (§9 failure
 //! mode 6).
 //!
@@ -51,6 +51,7 @@ pub(crate) fn write_field(
     let key = assertion.key;
     match &assertion.value {
         BoundValue::Identifier(v) => graph.set_field(element, key, v.clone(), record),
+        BoundValue::InterfaceName(v) => graph.set_field(element, key, v.clone(), record),
         BoundValue::AuthMethod(v) => graph.set_field(element, key, *v, record),
         BoundValue::DhGroup(v) => graph.set_field(element, key, *v, record),
         BoundValue::IntegrityAlgorithm(v) => graph.set_field(element, key, *v, record),

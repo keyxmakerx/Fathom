@@ -1,15 +1,19 @@
 # WO-09 — `fathom-weld`: the fragment-to-store weld
 
-> **Status:** OPEN — §10 item 9 answered 2026-08-08 by planning: option (b) plus (d). The
-> dictionary moves to the schema's declared type (one `scalar:` value, one `ValueTy` arm, one
-> `BoundValue` variant — authorised in that answer and nothing wider), and `tests/apply.rs` is
-> restored unchanged as the first step, because it was right and the tree was wrong.
+> **Status:** BLOCKED on §10 item 10 — the shipped fragment gives ten of its thirteen nodes no
+> `owner`, so the applied `Device` has degree zero and §4.6's `tests/fixture.rs` assertion *"the
+> `IpsecVpn` closure is reachable from the device by `out`/`inn`"* cannot hold. Every fix lands
+> outside §4's Deliverables table.
 >
-> §10 item 8 was answered 2026-08-08 by planning and is **executed**: the wire form is `17` §15.6 (a
+> §10 items 8 and 9 are both answered and both **executed**. Item 8: the wire form is `17` §15.6 (a
 > payload-bearing variant is a single-key tagged object; `Origin::Hand` stays the bare `"hand"`, so
-> WO-05 §4.4's pinned vector does not move), and §4.2 now carries `fathom-workspace`'s writer
-> (`lib.rs:329`) and reader (`lib.rs:617`) match sites. Plan steps 1–8 are complete and floor-green;
-> step 9's four remaining test files are not written (§10 item 9).
+> WO-05 §4.4's pinned vector does not move), and §4.2 carries `fathom-workspace`'s writer
+> (`lib.rs:329`) and reader (`lib.rs:617`) match sites. Item 9: option (b) — one `scalar:` value in
+> `corpus/dict/junos-srx/interfaces.yaml:13`, one `ValueTy` arm, one `BoundValue` variant — and the
+> fixture no longer refuses. Plan steps 1–8 are complete and floor-green, and three of step 9's five
+> test files now exist: `tests/apply.rs` (nine tests, restored to §4.6's names and passing),
+> `tests/provenance.rs` (six) and `tests/determinism.rs` (one), alongside `tests/containment.rs`.
+> Only `tests/fixture.rs` is unwritten, for the reason in §10 item 10.
 
 Depends on: **WO-02** (`fathom-graph` — the store this writes into), **WO-03** (`fathom-ingest` —
 the fragment this reads). Both DONE.
@@ -1032,6 +1036,111 @@ escalation inbox under `78` §4 step 2.
    artifact this run produced, and it must not be quietly re-authored to fit whatever the code ends
    up doing.
 
+10. **ESCALATED 2026-08-08 by the executing session, at plan step 9 — the applied device contains
+    nothing, because ten of the fixture's thirteen fragment nodes carry no `owner`, and every way
+    to fix that is outside this order's Deliverables table.**
+
+    **Where it stopped.** Plan step 9, at the last of §4.6's five test files. Items 8 and 9 are
+    executed; steps 1–8 stand; `tests/apply.rs`, `tests/provenance.rs` and `tests/determinism.rs`
+    are written to §4.6's names and are green, alongside `tests/containment.rs`. The floor at the
+    escalation commit is green (`78` §4 step 1): `cargo test --workspace --locked` 353 passed / 0
+    failed / 0 ignored, `fathom-schema-check` exit 0 with the two pinned `Site` warnings.
+
+    **What the work order says.** §4.6's `the_synthetic_srx_fixture_applies`, quoted:
+    *"Assert: `Ok`; `WeldOutput.nodes.len()` equals `fragment.nodes.len()`; the `Device` carries
+    `hostname` and `platform` `Set`; **the `IpsecVpn` closure is reachable from the device by
+    `out`/`inn`**; and `unresolved` is non-empty and contains the `reth0.0` `InterfaceUnit`
+    reference."* §4.5 step 5, quoted: *"**Containment.** For each node except `nodes[0]`, in index
+    order: `containment_edge(owner.kind, node.kind)`"*. §3's containment paragraph names the pairs
+    *"this slice's dictionary can produce"*, and its list opens
+    `(Device, IkeProposal) → HasIkeProposal`, `(Device, IkePolicy) → HasIkePolicy`,
+    `(Device, IkeGateway) → HasIkeGateway`, `(Device, Zone) → HasZone`,
+    `(Device, {Interface, …}) → HasInterface`.
+
+    **What was found.** Every other assertion in that test passes. The reachability one cannot:
+    **the applied `Device` has degree zero.** Summed over all 81 `EdgeKind`s,
+    `graph.out(device, k).count() + graph.inn(device, k).count()` is `0`.
+
+    The cause is upstream of the weld and is a fact about the shipped fragment, printed from
+    `fathom_ingest::ingest` over `crates/fathom-ingest/tests/fixtures/junos-srx-s0-synthetic.txt`
+    through the shipped dictionary on 2026-08-08:
+
+    ```text
+    0: Device            owner=None            8: TunnelInterface  owner=None
+    1: IkeProposal       owner=None            9: LogicalUnit      owner=Some(8)
+    2: IkePolicy         owner=None           10: Address          owner=Some(9)
+    3: IkeGateway        owner=None           11: Zone             owner=None
+    4: IpsecProposal     owner=None           12: Zone             owner=None
+    5: IpsecPolicy       owner=None
+    6: IpsecVpn          owner=None
+    7: TrafficSelector   owner=Some(6)
+    ```
+
+    Only three nodes carry an `owner`, and none of the three is owned by `nodes[0]`. §4.5 step 5
+    therefore materialises exactly three containment edges —
+    `IpsecVpn → TrafficSelector` (`HasTrafficSelector`), `TunnelInterface → LogicalUnit`
+    (`HasUnit`), `LogicalUnit → Address` (`HasAddress`) — and **ten of the thirteen store nodes end
+    the apply with no containment in-edge at all.** None of §3's five `Device`-owned pairs is ever
+    reached, because no fragment node names the device as its owner. The seven `FragEdge`s are all
+    reference edges between non-device nodes, so nothing else joins the device either.
+
+    **Neither order is internally broken; they disagree.** WO-03 §4.8 contract item 2 promises only
+    that *"`owner` chains are acyclic and always point at an earlier `FragNodeId`"* — it does not
+    promise that every non-root node has one, and the shipped binder gives one only where a
+    dictionary entry declares `owner: n<k>`. WO-09 §4.5 step 5 says *"for each node except
+    `nodes[0]`"*, which presumes the opposite. The weld as shipped resolves the presumption by
+    skipping an ownerless node (`crates/fathom-weld/src/apply.rs`, `let Some(owner) = node.owner
+    else { continue }`), which is a decision this order does not state either way.
+
+    **What it costs, stated in the corpus's own terms.** `11` §7.2 opens *"Exactly one containment
+    in-edge per node. Together they form a forest rooted at the workspace."* and gives every
+    containment kind `in: 1`. `11` §7.1 makes that a **lower** bound, enforced *"at emit and
+    validity check time (L1/L2)"*, not at write time — so the store is right to accept this graph
+    and `78` §6's floor is right to be green. But the first paste of a real config produces ten
+    orphan nodes, and every face that navigates from a device — the inventory face, the emitter's
+    `EmitScope`, any future diagram — reaches none of them.
+
+    **Why this is §4 and not a `78` §8 correction.** §8 admits a correction only where *"the code
+    proves the correction and the correction changes no decision the work order makes"*, and
+    excludes *"anything touching a decision — an API name, a gate, the deliverable set"*. Dropping
+    the assertion decides that top-level objects have no containment parent; adding a default
+    decides that the weld invents one. `78` §7's test applies squarely: two reasonable people would
+    pick differently and both be defensible.
+
+    **The smallest decision that unblocks.** One sentence naming where a top-level object's
+    containment parent is decided, plus the Deliverables rows that fix needs, in whichever order
+    owns it. Mechanically enumerable, with no lean:
+
+    (a) **The weld defaults it.** A non-root `FragNode` with `owner: None` is contained by
+    `nodes[0]`. Smallest diff — one branch in `apply.rs` — and it makes §3's five `Device` pairs and
+    §4.6's reachability assertion true as written. Against it: the weld would write a containment
+    edge no fragment stated, which is the shape of guess §7 trigger 2 and §12 item 4 refuse
+    elsewhere in this order, and it is wrong for any kind whose real owner is not the device.
+
+    (b) **The binder sets it.** `fathom-ingest`'s `bind.rs` gives every node created without a
+    declared `owner` the implicit device at `nodes[0]`. This is where the implicit device node is
+    already invented, so nothing new is guessed downstream; it changes WO-03's §4.8 contract and
+    re-pins that order's fixture assertions, so it is WO-03's to reopen.
+
+    (c) **The dictionary declares it.** Entries name the device explicitly (`owner: device`, or a
+    reserved `n0`), which needs a grammar term the dictionary loader does not have and touches every
+    entry file under `corpus/dict/junos-srx/`. Most explicit, largest blast radius, and §4's opening
+    bars this order from `corpus/` beyond §10 item 9's one authorised line.
+
+    (d) **Nothing changes and §4.6's assertion is withdrawn.** Top-level objects genuinely have no
+    containment parent until a `Site`/`Device` containment story exists, and `11` §7.2's forest is
+    an L1/L2 obligation nothing in the tree checks yet. Cheapest, and it leaves the first paste
+    producing a graph no device-rooted view can walk.
+
+    Whichever is chosen, the same question decides whether WO-04's `EmitScope` and the inventory
+    face can reach a pasted device's objects at all, so it is not only this order's.
+
+    **Not re-escalated here, recorded for the triage:** the containment gap is the second thing this
+    order has surfaced that no gate could see (§10 item 9's answer names the first). A
+    fragment-shape gate — *every non-root `FragNode` resolves to `nodes[0]` by `owner`* — would have
+    caught it in WO-03's own suite. Like item 9's (d), that gate belongs to whoever owns the
+    fragment, not to a blocked order.
+
 ## 11. Sources consulted
 
 | Source | Taken |
@@ -1113,3 +1222,26 @@ escalation inbox under `78` §4 step 2.
    which is what this is, and the distinction is not cosmetic: a future re-parse by a different
    platform's dictionary must be able to disagree with a derived platform without overwriting an
    asserted one.
+
+9. **`BoundValue` has 22 variants, not 21 — a consequence of §10 item 9's answer, corrected under
+   `78` §8.** §4.5 step 7 and `crates/fathom-weld/src/plan.rs`'s module doc both said *"`BoundValue`'s
+   21 variants"*. Option (b) added `BoundValue::InterfaceName(scalar::InterfaceName)`, so the
+   exhaustive dispatch now carries 22 arms. The count is descriptive; the rule it serves — a new
+   variant upstream is a compile error in the weld (§9 failure mode 6) — is unchanged, and the
+   compile error is exactly what happened.
+
+10. **G8 cannot be exit 0 on `corpus/`, and that was decided rather than discovered.** §6's G8 is
+    `git diff --exit-code -- schema/ crates/fathom-ir crates/fathom-schema crates/fathom-schemagen
+    corpus/`, expected *"exit 0, no output — this WO touches none of them"*. §10 item 9's answer
+    then authorised *"exactly and only … the one `scalar:` value on
+    `corpus/dict/junos-srx/interfaces.yaml:13`"*, so `corpus/` shows exactly that one line and
+    nothing else. Recorded rather than acted on: the four remaining paths in G8's list are all clean
+    (`git diff --exit-code -- schema/ crates/fathom-ir crates/fathom-schema crates/fathom-schemagen`
+    → exit 0, verified 2026-08-08), and re-cutting a gate is planning work, not a correction.
+
+11. **The fixture's counts, recorded here because §5 step 11's `§6.1` backfill belongs to a DONE
+    order.** From the apply the escalation in §10 item 10 describes:
+    `nodes` 13, `edges` 7, `containment` 3, `unresolved` 2, `minted` 81. The last is
+    `1 + records + element ULIDs`; `tests/provenance.rs`'s
+    `records_are_never_shared_between_assertions` re-derives it from the store rather than pinning
+    it as a literal, so it does not go stale silently.

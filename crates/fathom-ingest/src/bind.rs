@@ -100,6 +100,10 @@ pub struct BindProv {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BoundValue {
     Identifier(scalar::Identifier),
+    /// The four `@interface_like` kinds declare `name: InterfaceName`, not
+    /// `Identifier` (WO-09 §10 item 9's answer: where the dictionary and the
+    /// schema disagree, the dictionary is wrong — ADR-0008).
+    InterfaceName(scalar::InterfaceName),
     AuthMethod(scalar::AuthMethod),
     DhGroup(scalar::DhGroup),
     IntegrityAlgorithm(scalar::IntegrityAlgorithm),
@@ -564,6 +568,7 @@ fn scalar_value(dict: &Dictionary, ty: ValueTy, raw: &str) -> Result<BoundValue,
     let neutral = mapped.replace('-', "_");
     Ok(match ty {
         ValueTy::Identifier => BoundValue::Identifier(parse(mapped)?),
+        ValueTy::InterfaceName => BoundValue::InterfaceName(parse(mapped)?),
         ValueTy::AuthMethod => BoundValue::AuthMethod(parse(mapped)?),
         ValueTy::DhGroup => BoundValue::DhGroup(parse(mapped)?),
         ValueTy::IntegrityAlgorithm => BoundValue::IntegrityAlgorithm(parse(mapped)?),
