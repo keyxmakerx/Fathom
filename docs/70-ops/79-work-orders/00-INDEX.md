@@ -40,8 +40,16 @@ it was authored last.
 **WO-05 ran on 2026-08-08 and is DONE.** Both of its escalations had been answered by planning
 earlier the same day; the executing session was a different one (`78` §5 item 10). Its §4.4 pinned
 vector matched the constructed bytes exactly, so trigger 3 did not fire, and nothing new was
-escalated. **The next runnable row is now WO-09** — OPEN, with WO-02 and WO-03 both DONE. WO-04
-above it stays BLOCKED on WO-09.
+escalated.
+
+**WO-09 ran on 2026-08-08 and is BLOCKED at its first plan step.** `Origin::Parsed` — the variant
+the whole order rests on — cannot be added while `fathom-workspace` serialises `Origin` as a bare
+JSON string with a reader on the other side; the payload has no wire form and inventing one is a
+canonical-format decision behind a byte-identical round-trip gate. Filed as WO-09 §10 item 8 and
+`73` §14; the tree is unchanged apart from those records. **The queue now has no runnable row:**
+WO-04 stays BLOCKED on WO-09 and WO-09 is BLOCKED on planning. The unblocking answer is one
+sentence plus one Deliverables-table row — see WO-09 §10 item 8, which enumerates three options
+without leaning.
 
 | # | Work order | File | Status | Depends | Deliverable |
 |---|---|---|---|---|---|
@@ -53,7 +61,7 @@ above it stays BLOCKED on WO-09.
 | 6 | WO-04 | `WO-04-the-emitters.md` | BLOCKED on WO-09 (authored, OPEN) | WO-01, WO-02 | `fathom-emit`: graph to junos-srx set-statements with per-line provenance; the round-trip gate arms only once WO-03 and the weld order land (its §5 steps 12–13) |
 | 7 | WO-05 | `WO-05-the-workspace-file.md` | DONE | WO-02 | `fathom-canon` and the plaintext workspace face: canonical serialisation, versioned header, byte-identical round trip; sealing stays owner-gated (its §2) |
 | 8 | WO-08 | `WO-08-the-inventory-face.md` | DONE | WO-01, WO-02, WO-07 | The first product face: browser artifact, inventory table, inspector, per-equipment page with cabled-peer navigation over a pinned demo estate |
-| 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | OPEN | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |
+| 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | BLOCKED on `Origin::Parsed`'s canonical wire form (its §10 item 8) | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |
 
 **Owner-blocking items** (not queue rows; listed in `CLAUDE.md`): the S0 fixture exports
 (`76` §7.3), the four `19` §10 forks, the named expert review of `corpus/`. WO-03 §10.8–10.9

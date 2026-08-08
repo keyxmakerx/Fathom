@@ -1755,13 +1755,16 @@ throughout.
 
 ## 14. Escalations from execution sessions
 
-> **Status:** Live. Five rows. Three came from WO-06's execution on 2026-08-08: E-01 is answered in
+> **Status:** Live. Six rows. Three came from WO-06's execution on 2026-08-08: E-01 is answered in
 > place, and the two `16` spec gaps are open, and open for **planning** rather than for the owner.
 > Two came from WO-05's on 2026-08-08 — both format questions the work order itself classes as
 > planning-only, and both stopped that session before its first plan step. **Both were answered in
 > place later the same day** and WO-05 is OPEN again; the answering session did not execute the
-> order it unblocked (`78` §5 item 10). Three of five rows answered, two open — the two `16` spec
-> gaps, for planning.
+> order it unblocked (`78` §5 item 10). **One came from WO-09's on 2026-08-08**, at its first plan
+> step, and it is a third format question against the same file the two WO-05 rows are about —
+> `fathom-workspace`'s canonical face is now the tree's most escalated surface, which is itself
+> worth planning's attention. Three of six rows answered, three open — the two `16` spec gaps and
+> the WO-09 wire form, all for planning.
 >
 > The two spec-gap rows carry `2026-08-02` — the date WO-06 §4.5 pre-authored them, not the date
 > they were filed. §4.5 requires them verbatim, so the executing session was right not to restamp
@@ -1809,6 +1812,7 @@ and is not duplicated here, so there is one place to maintain and one place to r
 | 2026-08-02 | WO-06 | `16` §13 expects trace B's exact leaf to outrank its `detail` form on syntax, but §6.4 ties equal-cover keys and §6.2's `Ŝ_prefix` cannot fire for that query; R09's canonicality change also post-dates the trace — rewrite §13's trace to the implemented arithmetic, or spec a key-length tie-break in §6.4 under §8.5's golden-delta discipline | detail in WO-06 § Open decisions |
 | 2026-08-08 | WO-05 | WO-01 reshaped seven registry slot types (`EncryptionAlgorithm`, `IntegrityAlgorithm`, `AuthMethod`, `IkeVersion`, `RouteDistinguisher`, `RouteTarget`, `SecretPlaceholder`) into shapes no row of §4.2's wire table admits, and rule 8 would now silently drop `SecretPlaceholder`'s label — re-cut the table over the post-WO-01 `scalar.rs`, deciding `SecretPlaceholder`'s plaintext wire form explicitly | detail in WO-05 § Open decisions (§10.6) |
 | 2026-08-08 | WO-05 | §4.4's pinned vector and §4.5's two ULID-refusal inputs render ids as `fathom:device:<ulid>`, which `Display` in `fathom-graph/src/id.rs`, `.context/conventions.md` § *Identifiers* and ADR-0005 all refuse — re-issue the vector against the rendering the tree emits, or reopen ADR-0005 | detail in WO-05 § Open decisions (§10.7) |
+| 2026-08-08 | WO-09 | `Origin` is serialised as a bare JSON string by `fathom-workspace`'s canonical plaintext face (writer `lib.rs:329`, reader `lib.rs:618`), so the payload-bearing `Origin::Parsed { capture, span }` the order requires cannot be written or read — decide `Parsed`'s wire form against WO-05 §4.4's byte-identical round trip, and add `crates/fathom-workspace/src/lib.rs` to WO-09 §4's Deliverables table | detail in WO-09 § Open decisions (§10.8) |
 
 **Answered — both WO-05 rows, 2026-08-08, planning.** The detail is in WO-05 §10.6 and §10.7,
 where the rows already point; repeating it here would be the duplication §14.2 exists to avoid.

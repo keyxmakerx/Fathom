@@ -1,6 +1,7 @@
 # WO-09 — `fathom-weld`: the fragment-to-store weld
 
-> **Status:** OPEN
+> **Status:** BLOCKED on the canonical wire form for `Origin::Parsed` in `fathom-workspace`'s
+> plaintext serialisation, and the authorisation to edit that crate (§10 item 8)
 
 Depends on: **WO-02** (`fathom-graph` — the store this writes into), **WO-03** (`fathom-ingest` —
 the fragment this reads). Both DONE.
@@ -750,6 +751,84 @@ escalation inbox under `78` §4 step 2.
    `fathom-ingest` and is the natural place for reconciliation, the plan, and eventually the paste
    surface's model. If reconciliation lands elsewhere, this crate is the thing that should move.
    Planning sequences it.
+8. **ESCALATED 2026-08-08 by the executing session, at plan step 1 — `Origin::Parsed` needs a
+   canonical workspace wire form, and this order forbids writing one.**
+
+   **Where it stopped.** Plan step 1, the first step: the four §4.2 edits (`prov.rs`, `lib.rs`,
+   `graph.rs`'s doc comment, `render.rs`'s arm) were made, and step 1's own gate —
+   *"`cargo test --workspace --locked` green — this step changes no behaviour"* — went red at
+   compile time. The edits have been reverted; the tree is floor-green at the escalation commit
+   (`78` §4 step 1).
+
+   **What the work order says.** §3, Prior state, quoted:
+   *"`crates/fathom-inventory/src/render.rs:73`. `match rec.origin { fathom_graph::Origin::Hand =>
+   "hand" }` — an **exhaustive one-arm match**. Adding a variant to `Origin` breaks this crate's
+   build until it gains an arm."* §4.2 accordingly authorises exactly one match arm, in
+   `render.rs`, and §4's table opens *"Exactly these files change or are created."*
+
+   **What was found.** There are **two** exhaustive matches over `Origin`, not one. The second is
+   in `fathom-workspace` — WO-05's crate, which landed 2026-08-08, after this order was authored,
+   and which §3 does not mention. `cargo build --workspace --locked`, verbatim:
+
+   ```text
+   error[E0004]: non-exhaustive patterns: `Origin::Parsed { .. }` not covered
+      --> crates/fathom-workspace/src/lib.rs:329:24
+       |
+   329 |     let origin = match r.origin {
+       |                        ^^^^^^^^ pattern `Origin::Parsed { .. }` not covered
+   ```
+
+   It is not a rendering match like `render.rs`'s. It is one half of the **canonical plaintext
+   workspace serialisation**, and it has a reader on the other side
+   (`crates/fathom-workspace/src/lib.rs:618`):
+
+   ```rust
+   // writer, line 329
+   let origin = match r.origin {
+       Origin::Hand => "hand",
+   };
+   // ... ("origin", Json::Str(origin.to_owned()))
+
+   // reader, line 618
+   let origin = match get_str(key_or(m, "origin", &path)?, &path)? {
+       "hand" => Origin::Hand,
+       _ => return Err(shape(&path, "the one shipped origin, `hand`")),
+   };
+   ```
+
+   **Why this is §4 and not a `78` §8 correction.** `78` §8 admits a correction only when *"the
+   code proves the correction and the correction changes no decision the work order makes"*, and
+   excludes *"anything touching a decision — an API name, a gate, the deliverable set"*. This
+   touches all three. `Origin` is serialised as a **bare JSON string**; `Origin::Parsed { capture:
+   CaptureId, span: CaptureSpan }` carries a payload no bare string can hold. Making
+   `fathom-workspace` compile therefore requires inventing a wire representation — whether `Parsed`
+   becomes a `tagged()` object like `asserted_by`, what its key names are, how `CaptureId` and
+   `CaptureSpan` render, and what the reader accepts — inside a format whose gate is a
+   **byte-identical round trip** against WO-05 §4.4's pinned vector. Those key names are public
+   names in a persisted format, which is §7 trigger 6 twice over (*"A public name … not listed in
+   §4 is needed"*; *"an edit to a file outside §4's table is needed"*), and the choice is
+   judgment-shaped under `78` §7's test: two reasonable people would pick different wire shapes and
+   both be defensible.
+
+   **Why it cannot be worked around.** §4.2 requires `Origin::Parsed` to exist — the whole order
+   rests on it (§1: *"To carry parse provenance at all, `fathom-graph`'s `Origin` gains its second
+   variant"*). There is no ordering of the plan that reaches step 3 without breaking
+   `fathom-workspace`'s build.
+
+   **The smallest decision that unblocks.** One sentence fixing `Origin::Parsed`'s canonical wire
+   form, plus the authorisation to edit `crates/fathom-workspace/src/lib.rs` (both sites) as a
+   named row in §4's Deliverables table. The mechanically enumerable options, with no lean:
+   (a) the tagged-object form the file already uses for `asserted_by` — `"origin": {"parsed":
+   {...}}` — with `Hand` staying the bare string `"hand"`;
+   (b) every origin becomes a tagged object, `"hand"` included, which changes bytes WO-05 §4.4's
+   vector already pins;
+   (c) `Origin` is serialised by discriminant plus payload, decoupling the wire from the variant
+   names.
+   Each also needs the reader's refusal message re-worded — *"the one shipped origin, `hand`"* is
+   already stale prose the moment a second variant exists.
+
+   **Not decided here, and deliberately not attempted.** `78` §5 item 10 binds the next session:
+   whoever answers this does not then execute WO-09.
 
 ## 11. Sources consulted
 
@@ -797,7 +876,24 @@ escalation inbox under `78` §4 step 2.
    `Interface` node from a reference is exactly the kind of guess that, once it is in the store,
    becomes indistinguishable from something the user configured. §10 item 2 records the problem
    where planning can see it instead.
-5. **`Confidence::Derived` on `Device.platform`, against the simpler reading that everything a
+5. **Three stale numbers in §3, corrected under `78` §8 — none of them changes a decision this
+   order makes.** All three are WO-05 landing between this order's authoring and its execution, and
+   all three were verified against the tree on 2026-08-08 before plan step 1:
+   - *"Twelve crates"* → **fourteen**. `Cargo.toml`'s `members` list carries fourteen entries;
+     `fathom-canon` and `fathom-workspace` are the two §3 does not know about.
+   - *"282 passed, 0 failed"* (§3 preamble and §11's last row) → **329 passed, 0 failed**, over 66
+     test binaries. G4 already governs this: *"Green is the gate, not a count."*
+   - §4.1's parenthetical *"after `crates/fathom-wasm` — i.e. **last**"* → **not last**. The list is
+     alphabetical and now ends `fathom-wasm`, `fathom-workspace`; `fathom-weld` sorts between them
+     (`we` before `wo`). §4.1's binding instruction is unaffected and unchanged — *"the executing
+     session matches the list it finds"* — so only the parenthetical is stale. Recorded rather than
+     acted on: this order stopped at step 1 and never reached step 3, so the members line was never
+     written.
+6. **§3's *"an exhaustive one-arm match"* is now two matches, and that is §10 item 8, not a
+   correction.** Recorded here only to point at it: the second match is a persisted wire format, so
+   the divergence changes what this order decides and went to Open decisions under `78` §4 rather
+   than to this section under `78` §8.
+7. **`Confidence::Derived` on `Device.platform`, against the simpler reading that everything a
    parser writes is `Asserted`.** No statement in the capture says `junos-srx`; the dictionary that
    parsed it does. `11` §8.3 defines `Derived` as *"Follows necessarily from asserted facts"*,
    which is what this is, and the distinction is not cosmetic: a future re-parse by a different
