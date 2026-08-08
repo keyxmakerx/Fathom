@@ -8,6 +8,7 @@ members = [
     "crates/fathom-ir",
     "crates/fathom-schema",
     "crates/fathom-schemagen",
+    "crates/fathom-wasm",
 ]
 
 [workspace.package]
@@ -20,3 +21,17 @@ publish = false
 # a deliberate YAML subset (62 §2.2) precisely so it does not need a general
 # YAML implementation, and fathom-id needs nothing but core.
 [workspace.dependencies]
+
+# 42 §8.1's release profile — the one the WASM artifact gates measure under.
+# overflow-checks stays on in release: 41 §2.5, "a wrapped length in a parser
+# is the bug we are here to avoid". panic = "abort": a panic is a trap at the
+# boundary, never an unwind across it (41 §3.9, 34 §7.5).
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = 0
+overflow-checks = true
+incremental = false

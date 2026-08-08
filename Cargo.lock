@@ -49,3 +49,11 @@ dependencies = [
  "fathom-ir",
  "fathom-schema",
 ]
+
+[[package]]
+name = "fathom-wasm"
+version = "0.1.0"
+dependencies = [
+ "fathom-corpus",
+ "fathom-find",
+]

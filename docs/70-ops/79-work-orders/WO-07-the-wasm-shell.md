@@ -1,6 +1,6 @@
 # WO-07 — The WASM shell and the artifact gates
 
-> **Status:** OPEN
+> **Status:** DONE
 
 Depends on: nothing in the queue. The finder core (`fathom-corpus`, `fathom-find`) is merged on
 `main` and this work order builds on it as it stands. UI consumption of the module — the artifact

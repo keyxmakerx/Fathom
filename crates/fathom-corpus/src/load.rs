@@ -31,25 +31,79 @@ fn err(file: &str, line: usize, message: impl Into<String>) -> LoadError {
     }
 }
 
+/// Which corpus subdirectory a source belongs to. Order is the load order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Section {
+    Commands,
+    Explainers,
+    Rules,
+}
+
+/// One corpus bundle as text. `name` is used verbatim as `LoadError::file`;
+/// it is a label, never opened.
+#[derive(Debug, Clone)]
+pub struct SourceFile {
+    pub section: Section,
+    pub name: String,
+    pub source: String,
+}
+
 /// Load the three seed bundles from a corpus root
 /// (`commands/`, `explainers/`, `rules/`, each holding `*.yaml` bundles).
 pub fn load_corpus(root: &Path) -> Result<Corpus, LoadError> {
+    let mut files = Vec::new();
+    for (section, dir) in [
+        (Section::Commands, "commands"),
+        (Section::Explainers, "explainers"),
+        (Section::Rules, "rules"),
+    ] {
+        for path in yaml_files(&root.join(dir))? {
+            let name = path.display().to_string();
+            let source =
+                fs::read_to_string(&path).map_err(|e| err(&name, 0, format!("read: {e}")))?;
+            files.push(SourceFile {
+                section,
+                name,
+                source,
+            });
+        }
+    }
+    load_corpus_sources(&files)
+}
+
+/// The filesystem-free load path — WO-07's `OP_INIT` and any host without a
+/// filesystem. Sorts a copy by `(section, name)` (mirroring `yaml_files`'s
+/// sorted listing), refuses a duplicate `(section, name)` with a `LoadError`
+/// naming the duplicate (`message` starts `duplicate source`), then loads
+/// exactly as `load_corpus` does.
+pub fn load_corpus_sources(files: &[SourceFile]) -> Result<Corpus, LoadError> {
+    let mut ordered: Vec<&SourceFile> = files.iter().collect();
+    ordered.sort_by(|a, b| (a.section, &a.name).cmp(&(b.section, &b.name)));
+    for pair in ordered.windows(2) {
+        if pair[0].section == pair[1].section && pair[0].name == pair[1].name {
+            let name = &pair[1].name;
+            return Err(err(name, 0, format!("duplicate source `{name}`")));
+        }
+    }
+
     let mut entries = Vec::new();
     let mut bundle = BundleInfo::default();
     let mut declared = DeclaredConcepts::default();
-    for path in yaml_files(&root.join("commands"))? {
-        let (info, mut es, decl) = load_command_bundle(&path)?;
-        bundle = info;
-        entries.append(&mut es);
-        declared.entries.extend(decl.entries);
-    }
     let mut explainers = Vec::new();
-    for path in yaml_files(&root.join("explainers"))? {
-        explainers.append(&mut load_explainer_bundle(&path)?);
-    }
     let mut rules = Vec::new();
-    for path in yaml_files(&root.join("rules"))? {
-        rules.append(&mut load_rule_bundle(&path)?);
+    for f in ordered {
+        match f.section {
+            Section::Commands => {
+                let (info, mut es, decl) = load_command_bundle(&f.source, &f.name)?;
+                bundle = info;
+                entries.append(&mut es);
+                declared.entries.extend(decl.entries);
+            }
+            Section::Explainers => {
+                explainers.append(&mut load_explainer_bundle(&f.source, &f.name)?);
+            }
+            Section::Rules => rules.append(&mut load_rule_bundle(&f.source, &f.name)?),
+        }
     }
     Ok(Corpus {
         bundle,
@@ -76,12 +130,8 @@ fn yaml_files(dir: &Path) -> Result<Vec<std::path::PathBuf>, LoadError> {
     Ok(out)
 }
 
-fn parse_file(path: &Path) -> Result<(Node, String), LoadError> {
-    let file = path.display().to_string();
-    let source = fs::read_to_string(path).map_err(|e| err(&file, 0, format!("read: {e}")))?;
-    let node = parse_profile(&source, Profile::Corpus)
-        .map_err(|e| err(&file, e.line, e.message.clone()))?;
-    Ok((node, file))
+fn parse_source(source: &str, file: &str) -> Result<Node, LoadError> {
+    parse_profile(source, Profile::Corpus).map_err(|e| err(file, e.line, e.message.clone()))
 }
 
 // --- field access helpers ---------------------------------------------------
@@ -129,9 +179,10 @@ fn str_seq(n: &Node, key: &str) -> Vec<String> {
 // --- command bundle ----------------------------------------------------------
 
 fn load_command_bundle(
-    path: &Path,
+    source: &str,
+    file: &str,
 ) -> Result<(BundleInfo, Vec<Entry>, DeclaredConcepts), LoadError> {
-    let (root, file) = parse_file(path)?;
+    let root = parse_source(source, file)?;
     let mut info = BundleInfo::default();
     if let Some(b) = root.get("corpus_bundle") {
         info.id = opt_str(b, "id").unwrap_or_default();
@@ -151,13 +202,13 @@ fn load_command_bundle(
             }
         }
     }
-    let entries_node = req(&root, "entries", &file)?;
+    let entries_node = req(&root, "entries", file)?;
     let seq = entries_node
         .as_seq()
-        .ok_or_else(|| err(&file, entries_node.line, "`entries` must be a sequence"))?;
+        .ok_or_else(|| err(file, entries_node.line, "`entries` must be a sequence"))?;
     let mut entries = Vec::new();
     for item in seq {
-        entries.push(load_entry(item, &file)?);
+        entries.push(load_entry(item, file)?);
     }
     Ok((info, entries, declared))
 }
@@ -264,16 +315,16 @@ fn load_entry(n: &Node, file: &str) -> Result<Entry, LoadError> {
 
 // --- explainer bundle --------------------------------------------------------
 
-fn load_explainer_bundle(path: &Path) -> Result<Vec<ExplainerEntry>, LoadError> {
-    let (root, file) = parse_file(path)?;
-    let entries_node = req(&root, "entries", &file)?;
+fn load_explainer_bundle(source: &str, file: &str) -> Result<Vec<ExplainerEntry>, LoadError> {
+    let root = parse_source(source, file)?;
+    let entries_node = req(&root, "entries", file)?;
     let seq = entries_node
         .as_seq()
-        .ok_or_else(|| err(&file, entries_node.line, "`entries` must be a sequence"))?;
+        .ok_or_else(|| err(file, entries_node.line, "`entries` must be a sequence"))?;
     let mut out = Vec::new();
     for item in seq {
         out.push(ExplainerEntry {
-            id: req_str(item, "id", &file)?,
+            id: req_str(item, "id", file)?,
             class: opt_str(item, "class").unwrap_or_default(),
             title: opt_str(item, "title"),
             reviewed_by: opt_str(item, "reviewed_by"),
@@ -284,16 +335,16 @@ fn load_explainer_bundle(path: &Path) -> Result<Vec<ExplainerEntry>, LoadError> 
 
 // --- rule bundle -------------------------------------------------------------
 
-fn load_rule_bundle(path: &Path) -> Result<Vec<RuleLite>, LoadError> {
-    let (root, file) = parse_file(path)?;
-    let rules_node = req(&root, "rules", &file)?;
+fn load_rule_bundle(source: &str, file: &str) -> Result<Vec<RuleLite>, LoadError> {
+    let root = parse_source(source, file)?;
+    let rules_node = req(&root, "rules", file)?;
     let seq = rules_node
         .as_seq()
-        .ok_or_else(|| err(&file, rules_node.line, "`rules` must be a sequence"))?;
+        .ok_or_else(|| err(file, rules_node.line, "`rules` must be a sequence"))?;
     let mut out = Vec::new();
     for item in seq {
         out.push(RuleLite {
-            id: req_str(item, "id", &file)?,
+            id: req_str(item, "id", file)?,
             reviewed_by: opt_str(item, "reviewed_by"),
         });
     }

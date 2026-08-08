@@ -1,0 +1,15 @@
+[package]
+name = "fathom-wasm"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# cdylib: the .wasm artifact. rlib: the same code linked natively by this
+# crate's own tests, so the protocol has one implementation and two harnesses.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+fathom-corpus = { path = "../fathom-corpus" }
+fathom-find = { path = "../fathom-find" }

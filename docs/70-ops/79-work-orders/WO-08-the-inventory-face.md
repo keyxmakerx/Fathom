@@ -1,6 +1,6 @@
 # WO-08 — The inventory face: the artifact, the estate as a table, and the per-equipment page
 
-> **Status:** BLOCKED on WO-07 (the WASM module)
+> **Status:** OPEN
 
 The first product surface a user sees — `76` §7.2's S4 slice, part one: *"The virtualised table,
 the kind-plus-filter row set, the generated column picker, the nested device→interface rows, the
