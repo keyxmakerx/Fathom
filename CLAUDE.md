@@ -54,7 +54,11 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 1. Read `.context/conventions.md` before writing anything — the ten invariants and the
    vocabulary are binding, and the risk enum (three values, reserved colours) is never
-   extended or reused.
+   extended or reused. **Re-read it if you last read it before 2026-08-08:** ADR-0002 was
+   executed into it and five invariants changed text, including invariant 3, which now reads
+   *"stores no device credential"* and carries the ingest-gate redaction that *"never accepts
+   a credential"* wrongly implied did not exist. Precedence and the residual scale are new
+   sections; `docs/00-vision/01-ownership.md` is the register they point at.
 2. `docs/90-decisions/` ADRs are binding once Accepted — but reopenable **on merit**:
    the owner has instructed that sunk cost never argues for keeping a decision (`75` §2).
    Real-time collaboration must never be foreclosed by new state (`75` §2.4). Reopening

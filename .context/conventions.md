@@ -13,7 +13,7 @@ document, stating the convention, your objection, and your proposed replacement.
 | **graph** | the typed IR — the single data structure the whole product projects from | "model" (ambiguous with ML model), "schema" (that's the type definition) |
 | **node** / **edge** | graph elements | "object", "record", "entity" |
 | **kind** | a node's type discriminant (`Device`, `IkeGateway`, …) | "type", "class" |
-| **model** | an ML model, only | anything else |
+| **model** | an ML model, only | anything else — except that *threat model* may be abbreviated to "the model" inside `30-security/` only (`83` §9.1) |
 | **rule** | one declarative finding definition | "check", "policy" (collides with security policy) |
 | **rule pack** | a signed, versioned bundle of rules | "ruleset" |
 | **finding** | one rule firing against one node | "issue", "error", "violation" |
@@ -24,31 +24,67 @@ document, stating the convention, your objection, and your proposed replacement.
 | **platform** | a vendor+family target (`junos-srx`, `panos`, `ios-xe`) | "vendor" (a vendor has many platforms) |
 | **supervisor** / **subagent** | the AI layer's orchestrator and its workers | "agent" unqualified |
 | **provenance** | how a value got into the graph, and when | "source" |
+| **record** | a unit of encryption in the workspace container; holds many nodes and edges | never a graph element — that is a node or an edge |
+
+**These terms bind filenames, directory names, type names, identifier prefixes and CLI flags,
+not only prose** (`85` §15.1, ADR-0002).
+
+## Precedence — who owns a settled question
+
+> **Precedence.** Where two documents specify the same artifact, exactly one is the **owner** of
+> that artifact and every other document references it rather than restating it. The owner is named
+> in the artifact's own document header. A document that needs to change something it does not own
+> raises a `## Disagreements` entry and **may not ship a second specification in the meantime.**
+
+The register is `docs/00-vision/01-ownership.md` (ADR-0001).
+
+## The residual-risk scale — exactly four values
+
+`none | bounded | material | total`. Pinned by ADR-0002 and already adopted by `31`, `32`, `34`,
+`36` and `37`. Not extended, not reordered, not renamed.
 
 ## Hard invariants — every document must be consistent with these
 
 1. **No egress by default.** The application never opens a connection the user did not
-   configure. `connect-src` is `'none'` in the offline build and exactly one origin in
-   the sync build. No telemetry, no analytics, no font CDN, no error reporting.
+   configure. Enforced by `default-src 'none'` with a per-directive allowlist —
+   `connect-src`, `img-src`, `font-src`, `form-action` and `frame-src` all constrained —
+   plus the `sandbox` directive where the delivery mechanism permits it. No telemetry, no
+   analytics, no font CDN, no error reporting. **Top-level navigation is not covered by any
+   CSP directive and is closed only by `sandbox`; where `sandbox` cannot be delivered, that
+   channel is open and the artifact must not hold secrets.**
 2. **The application never touches a network device.** No SSH, no NETCONF, no API. All
    output is copy-paste. This is a permanent product boundary, not a phase-1 limitation.
-3. **The application never accepts a credential.** No PSKs, no certificates with private
-   keys, no SNMP communities, no TACACS keys, no device passwords. Emitted config uses
-   placeholders. The one exception is the workspace passphrase, which never leaves the
-   client and is never transmitted in any form.
-4. **The server never holds a key.** Zero-knowledge. Ciphertext and metadata only.
+3. **The application stores no device credential.** No PSK, certificate private key, SNMP
+   community, TACACS key or device password is ever written to a workspace, a sync blob, a
+   git object or an export. Emitted configuration uses placeholders. A pasted capture may
+   *contain* a credential; it is redacted at the ingest gate and the unredacted text never
+   reaches the encryptor (`14` §9.9). The secrets the application does hold are enumerated
+   in `32` §21.3 and `33` §18.3, and that enumeration is exhaustive: adding one requires
+   amending this invariant.
+4. **The server never holds secret key material.** Zero-knowledge. Ciphertext, public keys
+   and metadata only. No passphrase, no derived key, no root key, no unwrapped workspace
+   key, and no key-derivation input beyond the public salts carried in the clear inside
+   authenticated headers.
 5. **Findings are data, not code.** One rule engine. Rules carry `platforms` and
    `versions` predicates. No per-vendor engines.
 6. **Emitters return `(line, provenance)` pairs, never strings.**
 7. **Every node, edge and field carries a stable opaque ID.** Rules, explainers,
    emitters and diagram elements reference IDs, never paths or names. Renaming a device
-   must not invalidate anything.
+   must not invalidate anything. The graph contains no natural-key references; the tier-1
+   identity tuple's hash may be persisted as a **recovery** key by `12` §11.4 and by
+   nothing else (ADR-0010).
 8. **`acceptable_when` is mandatory on every rule.** A rule that can never be
    acceptable must say so explicitly; it may not omit the field.
 9. **Determinism where it is observable.** Same workspace + same corpus version + same
    build ⇒ byte-identical emitted config, byte-identical findings, identical finder
    ranking. Anything non-deterministic is quarantined behind the AI layer's boundary and
    labelled as such in the UI.
+   Determinism is a property of *emitted* artifacts — config, findings, finder ranking,
+   exports. The AI session log and the egress log are quarantined records: inside the
+   workspace, never inputs to an emitter, excluded from every determinism assertion
+   (`81` §13.2).
+   "Same workspace" means the same **converged** workspace state (`17` §21.1). The tuple is
+   workspace + corpus version + **rule-pack version set** + build (`24` §11.1).
 10. **The corpus is human-authored and reviewed.** No model output ships in the corpus
     without a named human reviewer recorded in the entry's `reviewed_by`.
 

@@ -32,7 +32,18 @@ schema check exit 0 with the two standing `Site` warnings.
 | §6.1–6.5 | README 41 → 42 explainers; README *"One warning"* → *"Two warnings"*; README gained rows for `87` and this document; `78` §12 item 3 restated as closed and §3 step 2's satisfied `<!-- VERIFY -->` deleted; the four `if the index exists` hedges dropped from WO-01, WO-02 and WO-07; WO-06 §4.6's two rows now name WO-08, quoting WO-07 §8's own non-goal |
 | §6.8 (part) | The five `34 §14` citations corrected to `34 §7.5` in `58`, `fathom-app.html` and `04-console.html`. `34` ends at §13; §7.5 is the import allowlist, cited as such at `34`:1525 |
 
-**Still open and untouched:** §4.3, §4.4, §4.5, §5.3–§5.11, §6.6, §6.7, the rest of §6.8, §6.9–§6.13
+**Closed in the Stage A pass, 2026-08-08** — the blocker this document called the worst of the five,
+and the three items around it that were pure planning work:
+
+| Closed | What changed |
+|---|---|
+| **§4.3** | ADR-0002 executed into `.context/conventions.md`, in full rather than at the minimum. Invariant 1 gains `default-src 'none'`, the per-directive allowlist, `sandbox`, and the sentence naming its own limit — *"top-level navigation … is closed only by `sandbox`; where `sandbox` cannot be delivered, that channel is open and the artifact must not hold secrets"* (`34` §13.1). **Invariant 3 replaced**: *"never accepts a credential"* → *"stores no device credential"*, with the ingest-gate redaction and the exhaustive secret enumeration. Invariant 4 → *"no secret key material"* (`32` §21.2). Invariant 7 gains ADR-0010's no-natural-keys clause. Invariant 9 gains both determinism additions. Terminology gains `record`, the threat-model carve-out, and `85` §15.1's filenames-and-flags rule. The residual scale is pinned as its own section |
+| **ADR-0001 items 1–2** | `docs/00-vision/01-ownership.md` created — the file ADR-0001 ordered *"before any other item in this ADR set is executed"* — and the precedence rule added to `conventions.md` verbatim. Items 3 and 4 are **not** done and are tracked in that file's §4; item 3's `Contested` list predates this set's execution and would mark documents contested that the set resolved |
+| **§5.3** | The fragment-to-store weld named in `00-INDEX.md` above the queue. Authoring it remains planning work |
+| **§6.12** | `90-decisions/README.md`'s cadence gains the owner-changed-the-requirements trigger, and *"at those points only"* — the sentence that let three records go unreviewed — is gone |
+| **CI** | `--locked` on every cargo invocation in `ci.yml`, not just the test step. An unlocked earlier step rewrites `Cargo.lock` and silently repairs what the later locked step exists to catch. Gate zero is **not** added: ADR-0032 is still Proposed |
+
+**Still open and untouched:** §4.4, §4.5, §5.4–§5.12, §6.6, §6.7, the rest of §6.8, §6.9–§6.11, §6.13
 — and all seven questions in §8. Every one of them either needs an owner decision or changes
 something a reasonable person could do differently.
 

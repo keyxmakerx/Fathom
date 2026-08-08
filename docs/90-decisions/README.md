@@ -119,8 +119,19 @@ for by name; ADR-0026 probably means no dark theme in v1. Each says so where a r
 
 ## Cadence
 
-Reviewed at every phase boundary, and at those points only — two questions per record: has its
-revisit trigger fired, and has its evidence arrived. A register reviewed continuously becomes a
-discussion; a register reviewed at phase boundaries becomes a checklist.
+Reviewed at every stage boundary — two questions per record: has its revisit trigger fired, and
+has its evidence arrived. A register reviewed continuously becomes a discussion; a register reviewed
+at stage boundaries becomes a checklist.
+
+**And whenever the owner changes the requirements or the scope**, with one further question per
+record: *does this decision still rest on a premise that is still true?* This trigger was added
+because the event had already happened and nothing caught it — `76` §6.5 records the requirements
+changing outside any boundary, and three Accepted records rested on premises that event moved
+(ADR-0006, ADR-0029, ADR-0030) with none of them reviewed (`88` §6.12). *"At those points only"* was
+the sentence that let that through, and it is gone.
+
+**On "phase boundary".** ADR-0031 retires phases as a scoping device; the stages of
+`70-ops/79-work-orders/00-PROGRAM-PLAN.md` are the successor unit, and the boundaries that matter
+are theirs.
 
 *Side 4 of the field card, on debugging: "Correlate before you theorise."*

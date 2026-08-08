@@ -1,6 +1,14 @@
-# The mechanical verification floor (78-execution-protocol.md §: every PR, no exceptions).
-# Zero external crate dependencies means this is fast; the toolchain is pinned by
-# rust-toolchain.toml and rustup honours it — nothing here chooses a version.
+# The mechanical verification floor (78-execution-protocol.md §6: every PR, no exceptions).
+# The toolchain is pinned by rust-toolchain.toml and rustup honours it — nothing here
+# chooses a version.
+#
+# --locked is on EVERY cargo invocation, not just the test step. A cargo command without
+# it may rewrite Cargo.lock, so an earlier unlocked step silently repairs the lockfile the
+# later locked step was meant to catch: the gate passes and the drift ships. ADR-0032 §4.
+#
+# NOT YET PRESENT: gate zero — fail the build when Cargo.lock gains a non-first-party
+# package with no approval record. ADR-0032 §6 requires it before any dependency lands,
+# and ADR-0032 is Proposed. It is Stage A of the program plan, not this commit.
 name: gates
 on:
   push:
@@ -20,8 +28,8 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy, warnings are errors
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
       - name: Tests
         run: cargo test --workspace --locked
       - name: Schema gates
-        run: cargo run -p fathom-schema --bin fathom-schema-check
+        run: cargo run --locked -p fathom-schema --bin fathom-schema-check

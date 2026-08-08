@@ -3,6 +3,13 @@
 > **Status:** Living — planning-maintained; execution sessions edit only status cells (`78` §3
 > step 8, §8).
 
+**One order in the critical path does not exist yet: the fragment-to-store weld.** WO-03 produces
+a typed fragment and nothing can load it into the graph; WO-04's round-trip gate G8 — the proof
+Fathom can read a config and write it back — cannot arm until the weld lands. It carries provenance
+records, ULID minting and reconciliation (WO-03 §4.8, WO-04 §10 item 7(a)), and it is **not** a row
+below because authoring it is planning work that has not been done. Named here so it stops being
+invisible (`88` §5.3); the plan carries it in §18.
+
 **The long-term plan is `00-PROGRAM-PLAN.md`, beside this file.** It sequences the whole product
 into eleven stages, names the work orders that do not exist yet, and collects every owner decision
 the build waits on into one tier-ordered list. This queue stays the operational truth: where the

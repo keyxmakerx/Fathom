@@ -183,7 +183,12 @@ texts) — and row 11 (licences) for the licence item only.
 **Exit condition:**
 
 1. `88` §4's five blockers each read closed, with the closing commit named.
-2. `grep -rn "fathom:<kind-lower>" .context/ docs/70-ops/79-work-orders/` returns nothing.
+2. The retired identifier form is gone from the binding files. Checked with
+   `grep -rln "fathom:<kind-lower>" .context/ docs/70-ops/79-work-orders/ | grep -v 00-PROGRAM-PLAN`
+   — the exclusion is required because **this file contains the search string in this very line**,
+   so the unqualified grep can never return nothing. (Verified clean 2026-08-08; the historical
+   uses in ADR-0005's own Context and `73`'s D04 are the record of the state the decision replaced
+   and are correctly left alone.)
 3. `ci.yml` fails a PR that adds a package to `Cargo.lock` without a `deps/decisions/` record, demonstrated once against a throwaway branch.
 4. Every cargo invocation in `ci.yml` carries `--locked`.
 5. `LICENSE`, `corpus/LICENSE`, `NOTICE`, `CONTRIBUTING.md` exist and `Cargo.toml`'s `license` is no longer `UNLICENSED`.
