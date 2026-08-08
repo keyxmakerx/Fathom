@@ -102,6 +102,19 @@ last of them in `73` §14). The tree is unchanged apart from the two status reco
 
 **That paragraph is history, not the present tense.** `crates/fathom-weld` and `apply_new_device` have existed since `fa72d80`; `cargo build --workspace` compiles them and 353 tests pass. Left in place with this note rather than rewritten, because it records why WO-04 was correctly left BLOCKED on the day it was re-taken.
 
+**WO-04 was taken again on 2026-08-08, after WO-09 reached DONE, and stays BLOCKED — but on
+nothing this queue can build.** Step 12's precondition (b) now **holds**: WO-09 is DONE and
+`crates/fathom-weld/src/apply.rs:100` is `pub fn apply_new_device`. (c) fails, on one question
+only — the source of `IpsecVpn.mode` in a re-parsed graph (WO-04 §10 item 7(b)); no dictionary
+entry in `corpus/dict/junos-srx/` binds that field, and no planning document decides the
+mechanism. The third precondition — WO-04 §4.9's golden naming `reth0.0` and `st0.0` while
+declaring no interface (WO-09 §10 item 2) — is unresolved too, and the shipped weld now proves it
+from code: `apply.rs:221` carries `Pending` references out as `Unresolved` and writes no edge.
+G1–G7 and G9 were re-run green on the post-WO-09 tree (354 passed / 0 failed / 0 ignored; the two
+pinned `Site` warnings unmoved); only G8 is outstanding, and **it is outstanding on two planning
+decisions, not on a dependency**. Nothing new was escalated: both questions are already filed.
+Detail in WO-04 §12 item 12.
+
 | # | Work order | File | Status | Depends | Deliverable |
 |---|---|---|---|---|---|
 | 1 | WO-06 | `WO-06-finder-completion.md` | DONE | — | The four recorded finder MINORs closed (doc/test/prose only); every deferred `16` section mapped blocked with its blocker named |
@@ -109,7 +122,7 @@ last of them in `73` §14). The tree is unchanged apart from the two status reco
 | 3 | WO-02 | `WO-02-the-graph-store.md` | DONE | — | `fathom-graph`: the typed store — L0 write-time enforcement, three-state presence, provenance, batch-grouped op log, deterministic iteration |
 | 4 | WO-07 | `WO-07-the-wasm-shell.md` | DONE | — | `fathom-wasm`: the finder compiled to `wasm32-unknown-unknown` behind `41` §3.7's raw ABI, with import/export/size/determinism audits |
 | 5 | WO-03 | `WO-03-ingest-junos-srx.md` | DONE | WO-01, WO-02 | junos-srx set-form ingest: framer, lexer, shaper, the non-optional redaction gate, the statement dictionary, a typed fragment with its residue ledger |
-| 6 | WO-04 | `WO-04-the-emitters.md` | BLOCKED on WO-09 | WO-01, WO-02 | `fathom-emit`: graph to junos-srx set-statements with per-line provenance; the round-trip gate arms only once WO-03 and the weld order land (its §5 steps 12–13) |
+| 6 | WO-04 | `WO-04-the-emitters.md` | BLOCKED on planning: `IpsecVpn.mode` (its §10 item 7(b)) and the golden's undeclared interfaces (WO-09 §10 item 2) | WO-01, WO-02 | `fathom-emit`: graph to junos-srx set-statements with per-line provenance; every gate but G8 green — the round-trip gate waits on two planning decisions, not on code (its §5 steps 12–13) |
 | 7 | WO-05 | `WO-05-the-workspace-file.md` | DONE | WO-02 | `fathom-canon` and the plaintext workspace face: canonical serialisation, versioned header, byte-identical round trip; sealing stays owner-gated (its §2) |
 | 8 | WO-08 | `WO-08-the-inventory-face.md` | DONE | WO-01, WO-02, WO-07 | The first product face: browser artifact, inventory table, inspector, per-equipment page with cabled-peer navigation over a pinned demo estate |
 | 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | DONE | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |

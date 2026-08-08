@@ -1,16 +1,15 @@
 # WO-04 — `fathom-emit`: graph to junos-srx commands with provenance
 
-> **Status:** BLOCKED on the fragment-to-store weld order — **WO-09, which ran on 2026-08-08 and is
-> itself BLOCKED at its first plan step** (its §10 item 8: `Origin::Parsed` has no canonical wire
-> form in `fathom-workspace`'s plaintext face). §5 step 12 was re-run on 2026-08-08 against the
-> documents on disk: precondition (a) holds, (b) fails (no weld order is DONE; no `fathom-weld`
-> crate and no `apply_new_device` exist in the tree), (c) fails (§10 item 7(b), the source of
-> `IpsecVpn.mode` in a re-parsed graph, is still open — WO-09 §10 item 5 adds an input without
-> deciding it). **G8, the round-trip gate, therefore cannot arm; every other gate is green** —
-> G1–G7 and G9 re-run 2026-08-08, results transcribed in §12 item 11. WO-03 was the other half of this block and
-> completed 2026-08-08. **§10 item 7 is not the whole precondition list any more** — WO-09 §10 item
-> 2 records a third, against §4.9's own golden, and it is open too. Corrections under `78` §8,
-> none a re-scope: §12 items 10 and 11.
+> **Status:** BLOCKED on two planning decisions, neither of them code and neither of them a
+> dependency any more: **§10 item 7(b)** — the source of `IpsecVpn.mode` in a re-parsed graph — and
+> **WO-09 §10 item 2** — §4.9's golden references `reth0.0` and `st0.0` and declares no interface,
+> so both edges stay `Pending` under `14` §7.3. §5 step 12 was re-run on 2026-08-08 after WO-09
+> reached DONE: precondition (a) holds, **(b) now holds** (WO-09 is DONE and
+> `crates/fathom-weld/src/apply.rs:100` is `pub fn apply_new_device`), (c) fails — item 7's first
+> question (the weld entry point) is resolved, its second (the `mode` source) is not, and no
+> planning document records a decision for it. **G8, the round-trip gate, therefore still cannot
+> arm; every other gate is green** — G1–G7 and G9 re-run 2026-08-08 on the post-WO-09 tree, results
+> transcribed in §12 item 12. Corrections under `78` §8, none a re-scope: §12 items 10, 11 and 12.
 
 The reverse face of ingest — from graph state to copy-pasteable configuration lines, each line
 carrying the provenance that produced it. This is the notepad's engine: `53` §6's copy machinery
@@ -930,17 +929,17 @@ the escalation inbox under `78` §4 step 2.
 6. **Where `Risk` lives long-term.** Defined in `fathom-emit` this slice; the rule engine takes
    risk *"from the emitter"* (`12` §10.5), so a shared home may be wanted when `12` is built.
 7. **The round-trip preconditions (G8).** **Three** facts, each verified against the documents on
-   disk, keep step 13 unrunnable until planning acts; step 12 (c) checks this item for the
-   record of their resolution and nothing else. (Item (c) was added 2026-08-08 by WO-09's
-   authoring, which is where it first became checkable; (a) is now specified but not yet built.)
-   (a) *No text-to-store entry point exists or is specified anywhere.* **Specified 2026-08-08:**
-   WO-09 §4.5's `apply_new_device(&mut Graph, &IngestOutput, &Manifest) -> Result<WeldOutput,
-   WeldError>` is the entry point step 12 (b) asks for; (b) is met only when that order is DONE.
-   **It is not: WO-09 ran on 2026-08-08 and stopped at its own plan step 1** (its §10 item 8 —
-   `Origin::Parsed` has no canonical wire form in `fathom-workspace`'s plaintext serialisation, and
-   that crate is outside WO-09 §4's Deliverables table). No `fathom-weld` crate and no
-   `apply_new_device` exist anywhere in `crates/`. The paragraph below records the state that made
-   this item necessary. WO-03 delivers
+   disk, kept step 13 unrunnable; **(a) is now closed and (b) and (c) still keep it unrunnable
+   until planning acts.** Step 12 (c) checks this item for the record of their resolution and
+   nothing else. (Item (c) was added 2026-08-08 by WO-09's authoring, which is where it first
+   became checkable.)
+   (a) **CLOSED 2026-08-08.** *No text-to-store entry point exists or is specified anywhere.*
+   Specified, then built: WO-09 §4.5's `apply_new_device(&mut Graph, &IngestOutput, &Manifest)
+   -> Result<WeldOutput, WeldError>` is the entry point step 12 (b) asks for, WO-09's status line
+   reads `DONE`, and the function is on disk at `crates/fathom-weld/src/apply.rs:100`. Step 12 (b)
+   is therefore met, and the first of this item's two questions — the weld entry point — has its
+   resolved decision. The paragraph below records the state that made this item necessary. WO-03
+   delivers
    `ingest(paste: &[u8], dict: &dict::Dictionary) -> Result<IngestOutput, IngestRefusal>`
    producing a fragment; the fragment-to-store weld — provenance records, ULID minting,
    reconciliation — *"are the weld WO's work"* (WO-03 §4.8), and that work order was unwritten
@@ -964,7 +963,9 @@ the escalation inbox under `78` §4 step 2.
    `BindsInterface` edge exists and the second emit cannot reproduce those two lines. Resolving it
    means editing §4.9's byte-exact block (a Disagreements-bearing change to this document), giving
    `Pending` edges a store representation, or deciding referent materialisation against `14` §7.3.
-   WO-09 §10 item 2 holds the analysis. Planning.
+   WO-09 §10 item 2 holds the analysis. Planning. **The weld that now exists confirms this from
+   code rather than from doctrine:** `crates/fathom-weld/src/apply.rs:221` — *"Pending references:
+   carried out, not written (`14` §7.3)"* — returns them as `Unresolved`, and writes no edge.
 
 ## 11. Sources consulted
 
@@ -1115,3 +1116,49 @@ the escalation inbox under `78` §4 step 2.
     baseline, unchanged. G7 the `HashMap|HashSet|SystemTime|Instant|random` grep over
     `crates/fathom-emit/src` and `crates/fathom-emit/tests` — no matches, exit 1. G8 — not run;
     unrunnable, per this item. G9 `grep -c "GAPS_" crates/fathom-emit/src/junos.rs` — `14`, exit 0.
+
+12. **Correction (`78` §8) — step 12 (b) now holds; the block has moved off code entirely.** This
+    order was taken again on 2026-08-08, after WO-09 reached `DONE`, to establish whether G8 could
+    arm. §5 step 12's three preconditions were re-run against the documents on disk, in the stated
+    order. Old → new, with the proving paths:
+    - (a) unchanged and holding: `docs/70-ops/79-work-orders/WO-03-ingest-junos-srx.md`'s status
+      line reads `DONE`.
+    - (b), old: *"fails — no weld order is DONE; no `fathom-weld` crate and no `apply_new_device`
+      exist in the tree"*. **New: it holds.** WO-09's status line reads `DONE — 2026-08-08`
+      (`docs/70-ops/79-work-orders/WO-09-the-fragment-to-store-weld.md`), `00-INDEX.md` row 9
+      mirrors it, and its §4.5 entry point is on disk: `crates/fathom-weld/src/apply.rs:100`,
+      `pub fn apply_new_device`. §10 item 7(a) is closed above.
+    - (c), unchanged and still failing. Item 7's **second** question — the source of
+      `IpsecVpn.mode` in a re-parsed graph — has no resolved decision in that item, in WO-09 §10
+      item 5 (which supplies one input and declines the mechanism), or in any planning document
+      either names. `00-PROGRAM-PLAN.md` §18 still lists *"`IpsecVpn.mode` resolution | Planning
+      decision, then execution"* as an order that does not exist. Re-proved from the corpus rather
+      than from the prose: no entry in `corpus/dict/junos-srx/` binds `IpsecVpn.mode` —
+      `security-ike.yaml:55` binds `IkePolicy.mode`, a different kind and a different field, and
+      nothing else mentions `mode` at all.
+    - The third precondition (WO-09 §10 item 2, mirrored as item 7(c) above) is likewise
+      unresolved, and is now provable from code: the weld carries `Pending` references out as
+      `Unresolved` and writes no edge (`crates/fathom-weld/src/apply.rs:221`).
+    **Nothing new was escalated, because nothing new was found**: both remaining questions were
+    already filed by planning in this order's §10 item 7 and in WO-09 §10 items 2 and 5, and
+    `78` §5 item 10's converse applies — an execution session may not decide them, and re-filing an
+    open row would only duplicate the register (`73` §14.2). No round-trip test was written;
+    §4.10's `tests/round_trip.rs` still does not exist, because writing it against a graph whose
+    `mode` is `Unknown` and whose two interface edges do not exist would either fail or be narrowed
+    to pass, and the second is `78` §5 item 5's gate laundering.
+
+    **The gate run behind this status line**, 2026-08-08, from the repository root, on the
+    post-WO-09 tree, verbatim results: G1 `cargo fmt --all --check` — no output, exit 0. G2
+    `cargo clippy --all-targets --locked -- -D warnings` — exit 0, no warnings. G3
+    `cargo test --locked -p fathom-emit` — every §4.10 test except `round_trip` present and `ok`:
+    4 unit + 13 `blockers` + 3 `coverage` + 3 `determinism` + 2 `report` + 3 `secret` +
+    7 `worked_example`, 0 failed, 0 ignored, 0 filtered. G4 `cargo test --workspace --locked` —
+    **354 passed, 0 failed, 0 ignored, 0 filtered** across every suite (green is the gate, not the
+    count — `78` §12 item 3). G5
+    `git diff --exit-code -- schema/ crates/fathom-ir crates/fathom-schema crates/fathom-schemagen`
+    — no output, exit 0. G6 `cargo run --locked -q -p fathom-schema --bin fathom-schema-check` —
+    exit 0, `48 kinds · 89 edges · 61 scalars · 10 enums · 14 files parsed`,
+    `0 failure(s), 2 warning(s)`, both `schema.identity.unexercised` on `Site`: the pinned baseline,
+    unchanged. G7 the `HashMap|HashSet|SystemTime|Instant|random` grep over `crates/fathom-emit/src`
+    and `crates/fathom-emit/tests` — no matches, exit 1. G8 — not run; unrunnable, per this item.
+    G9 `grep -c "GAPS_" crates/fathom-emit/src/junos.rs` — `14`, exit 0.
