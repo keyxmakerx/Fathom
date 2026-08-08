@@ -800,7 +800,15 @@ example, so answering this question did not close it. §13 item 10.
    state"* and `56` §1.3 lists manual position as workspace-persistent, but no position field exists
    in `schema/`. Under ADR-0008 it does not exist. This blocks `move`, and `move` is the one verb on
    the owner's list that everyone assumes is already done. Planning; `62`'s grammar governs.
-14. **Whether a registered platform with no content should be visible in the product.** Five of the
+14. **A dictionary-load gate comparing each `scalar:` against the schema's declared type** —
+    planning, and the most valuable item on this list relative to its size. On 2026-08-08 the weld
+    was the **first code to put ingest and the store in one call**, and it immediately refused the
+    shipped fixture: the dictionary binds `InterfaceLike.name` as `Identifier`, `schema/schema.yaml`
+    declares `InterfaceName`, `fathom-emit` writes `InterfaceName` on the same keys, and **the two
+    sides had disagreed since the day both were written with no gate able to see it** (WO-09 §10
+    item 9). The fix is one line; the gate is what stops the next one. It belongs to whoever owns
+    dictionary loading and wants a work order, not a drive-by.
+15. **Whether a registered platform with no content should be visible in the product.** Five of the
    six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
    selecting `junos-ex` today would get an empty product with no explanation. Design decision;
    `52` and `54` own the surface.

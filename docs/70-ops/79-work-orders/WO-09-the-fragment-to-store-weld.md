@@ -1,8 +1,9 @@
 # WO-09 — `fathom-weld`: the fragment-to-store weld
 
-> **Status:** BLOCKED on where `InterfaceLike.name`'s type disagreement is fixed — the dictionary
-> binds `Identifier`, the schema declares `InterfaceName`, and the fixture cannot apply until one
-> of them moves (§10 item 9, filed 2026-08-08 at plan step 9; `73` §14).
+> **Status:** OPEN — §10 item 9 answered 2026-08-08 by planning: option (b) plus (d). The
+> dictionary moves to the schema's declared type (one `scalar:` value, one `ValueTy` arm, one
+> `BoundValue` variant — authorised in that answer and nothing wider), and `tests/apply.rs` is
+> restored unchanged as the first step, because it was right and the tree was wrong.
 >
 > §10 item 8 was answered 2026-08-08 by planning and is **executed**: the wire form is `17` §15.6 (a
 > payload-bearing variant is a single-key tagged object; `Origin::Hand` stays the bare `"hand"`, so
@@ -970,6 +971,66 @@ escalation inbox under `78` §4 step 2.
    own gate set and the whole `cargo test --workspace` floor. Whether that gate is added, and to
    which order, is planning's — it is the control for §9's failure-mode table, not a fix for this
    row.
+
+   **ANSWER (2026-08-08, planning). Option (b), plus option (d) as a permanent guard.**
+
+   **The two types are behaviourally identical, and that is the whole argument.**
+   `crates/fathom-ir/src/scalar.rs:1015` and `:1028` — `Identifier::parse` and
+   `InterfaceName::parse` both call `ascii_graphic(text)` and wrap the string; both `canonical()`
+   return `self.0.clone()`. They differ only in `NAME`. So the conversion is lossless today and
+   **nothing is at stake in the data** — which is exactly why the cheap-looking option (a) is the
+   wrong one.
+
+   **Why not (a), collapsing the schema to `Identifier`.** `schema/schema.yaml` declares
+   `InterfaceName` on all four `@interface_like` kinds deliberately, and `11` §4.3 makes
+   `Identifier` the *vendor object name* type in general. The distinct type exists so that interface
+   naming can be tightened later — `ge-0/0/0`, `ae0`, `st0.0` have structure a generic identifier
+   does not — **without touching every other name in the model.** Collapsing it discards that option
+   permanently to save one enum variant, and the moment `InterfaceName::parse` does tighten, an
+   ingest path carrying `Identifier` would silently accept names the store would refuse. A
+   distinction that costs nothing today and buys a whole class of validation later is not a
+   distinction to delete.
+
+   **Why not (c), converting at the weld boundary.** It makes the weld responsible for silently
+   reconciling a disagreement between two components that should agree, which is the failure mode
+   this project has hit twice already in a different guise. It also fixes only the weld: `fathom-emit`
+   writes `InterfaceName` on the same keys, so the emit side would still disagree with ingest and
+   nothing would catch it.
+
+   **Adopt (b): the dictionary and `BoundValue` move to the declared type.** The schema is the
+   artifact (ADR-0008), so where dictionary and schema disagree, **the dictionary is wrong**. That
+   is one `ValueTy` arm, one `BoundValue` variant, and one edited line in
+   `corpus/dict/junos-srx/interfaces.yaml:13` (`scalar: Identifier` → `scalar: InterfaceName`).
+   The escalation's own audit over every `FieldAssertion` the fixture produces found **this one line
+   and no other**, so the blast radius is exactly one dictionary entry — which expands to four kinds
+   (`Interface`, `AggregateInterface`, `RethInterface`, `TunnelInterface`, keys 27, 41, 48, 55),
+   only one of which the fixture currently exercises.
+
+   **Adopt (d) as well, and this is the durable half.** A dictionary-load gate comparing each
+   entry's declared `scalar:` against the schema's declared type for that field would have caught
+   this at load time instead of at the first integration. **This class of defect was invisible until
+   the weld put both sides in one call** — the escalation says so plainly: *"`fathom-emit`'s graphs
+   write `InterfaceName` on the same keys, so the store side and the ingest side of the round trip
+   already disagreed; the weld is the first code to put them in one call."* The bug was latent from
+   the day both sides were written and no gate could see it. That is worth more than the fix.
+
+   **Authorisation.** §4's opening bars this order from `corpus/`, and the dictionary lives at
+   `corpus/dict/`. **This answer authorises, exactly and only:** the one `scalar:` value on
+   `corpus/dict/junos-srx/interfaces.yaml:13`; one `InterfaceName` arm in
+   `crates/fathom-ingest/src/dict.rs`'s `ValueTy`; and one `InterfaceName` variant in
+   `crates/fathom-ingest/src/bind.rs`'s `BoundValue`, with its dispatch arm. Nothing else under
+   `corpus/`, and no change to `schema/`. The load gate (d) is **not** authorised here — it is a new
+   gate, it belongs to whoever owns dictionary loading, and it is filed as a planning item rather
+   than bolted onto a blocked order.
+
+   **`78` §5 item 10 binds whoever answers this**: this session does not execute WO-09.
+
+   **On the removed test.** `tests/apply.rs` was written, went red against the real fixture, and was
+   deleted rather than weakened. Under `78` §5 item 5 that is the correct call and it should be said
+   plainly: **the test was right and the tree was wrong.** It should be restored, unchanged, as the
+   first step of the resumed order — a red test that found a real defect is the most valuable
+   artifact this run produced, and it must not be quietly re-authored to fit whatever the code ends
+   up doing.
 
 ## 11. Sources consulted
 
