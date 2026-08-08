@@ -1,9 +1,9 @@
 # WO-09 — `fathom-weld`: the fragment-to-store weld
 
-> **Status:** BLOCKED on §10 item 10 — the shipped fragment gives ten of its thirteen nodes no
-> `owner`, so the applied `Device` has degree zero and §4.6's `tests/fixture.rs` assertion *"the
-> `IpsecVpn` closure is reachable from the device by `out`/`inn`"* cannot hold. Every fix lands
-> outside §4's Deliverables table.
+> **Status:** OPEN — §10 item 10 answered 2026-08-08 by planning. An ownerless
+> non-root node takes the containment parent the **schema** declares for its kind; no kind in
+> `schema/schema.yaml` has more than one, so the lookup always resolves, and `NoContainmentEdge`
+> refuses if that ever stops being true.
 >
 > §10 items 8 and 9 are both answered and both **executed**. Item 8: the wire form is `17` §15.6 (a
 > payload-bearing variant is a single-key tagged object; `Origin::Hand` stays the bare `"hand"`, so
@@ -1141,6 +1141,45 @@ escalation inbox under `78` §4 step 2.
     caught it in WO-03's own suite. Like item 9's (d), that gate belongs to whoever owns the
     fragment, not to a blocked order.
 
+   **ANSWER (2026-08-08, planning). Option (a), but it is a *derivation*, not a default — and the
+   information was never missing.**
+
+   **The deciding fact, computed over `schema/schema.yaml` on 2026-08-08:** across every containment
+   edge in the schema, **no kind has more than one possible containment parent.** Not one. `Zone`,
+   `RoutingInstance`, `PolicySet`, `IkeGateway`, `NatRuleSet`, `Vlan` and `Interface` are each
+   contained by `Device` and by nothing else, and the same holds for every other kind.
+
+   So a node with no `owner` does not need a guess and does not need a default. **Its containment
+   parent is already determined by its kind**, and `containment_edge(owner_kind, child_kind)` — which
+   this order already builds — is the lookup that reads it. The dictionary never declared an owner
+   because it never had to: the schema had already decided.
+
+   **What the executing session does.** For a non-root `FragNode` with `owner: None`, resolve the
+   containment parent by asking the schema which kind may contain this kind. Materialise that edge as
+   §4.5 step 6 already materialises `owner`-derived ones. **If the lookup ever returns anything other
+   than exactly one parent kind, refuse with the existing `NoContainmentEdge` variant and stop** —
+   that is a schema change nobody has thought through, not a case to guess at. Today it cannot fire;
+   the guard exists for the day someone adds an ambiguous edge.
+
+   **Why not the other three.** (b) reopens WO-03 §4.8's contract to carry information the schema
+   already holds. (c) adds a grammar term and edits every `corpus/dict/junos-srx/` file to restate,
+   by hand and fallibly, something derivable — and hand-restating derivable facts is how the
+   `InterfaceLike.name` disagreement in item 9 happened in the first place. (d) withdraws the
+   assertion and ships an estate whose devices contain nothing, which is the defect, not a fix.
+
+   **A correction to the escalation's own arithmetic.** §10 item 10 and its commit message say ten
+   nodes are orphaned. **Nine are.** Ten of thirteen carry `owner: None`, but one of those is
+   `nodes[0]`, the `Device` itself, which §4.5 step 6 correctly gives no containment in-edge — *"a
+   `Device` with no `HasDevice` in-edge is L0-valid"*. The device is the thing navigated **from**,
+   not an orphan. The substance is unaffected and was independently reproduced by the audit.
+
+   **Not authorised here:** the fragment-shape gate the escalation notes in passing (*every non-root
+   `FragNode` resolves by `owner`*). Under this answer that gate would be **wrong** — resolving by
+   `owner` is exactly what stops being required. If a gate is wanted it is the schema-derivation one,
+   and it belongs to whoever owns WO-03's suite.
+
+   **`78` §5 item 10 binds whoever answers this**: this session does not execute WO-09.
+
 ## 11. Sources consulted
 
 | Source | Taken |
@@ -1245,3 +1284,38 @@ escalation inbox under `78` §4 step 2.
     `1 + records + element ULIDs`; `tests/provenance.rs`'s
     `records_are_never_shared_between_assertions` re-derives it from the store rather than pinning
     it as a literal, so it does not go stale silently.
+
+12. **`WeldError::NotDeviceRooted` is returned for a condition §4.5 does not declare, and this list
+    did not record it.** §4.5 declares it as *"`fragment.nodes` is empty, or `nodes[0].kind !=
+    Device`"*, and `crates/fathom-weld/src/plan.rs:24-27` implements exactly that. But
+    `crates/fathom-weld/src/apply.rs` also returns it from five index-lookup sites (lines 162, 167,
+    168, 169 and 269) for a **different** condition — an edge or owner endpoint naming an index the
+    fragment does not have. Reusing a declared variant instead of adding an unlisted one is a
+    defensible reading of §7 trigger 6, and the widening is documented at `apply.rs:53-58`; but it
+    changes the meaning of a public shape §4 declares verbatim, and a list that records ten
+    divergences including a purely descriptive variant count should not omit this one. Introduced at
+    `fa72d80`, found by audit 2026-08-08. **Planning decides** whether §4.5 widens or `apply.rs`
+    gains its own variant.
+
+13. **A comment in `crates/fathom-weld/tests/apply.rs` claims more than the assertion beneath it
+    proves.** `platform_is_stamped_derived`'s comment says the capture-derived platform is *"the
+    **only** `Derived` record in the apply"*, but the code walks node **existence** records only —
+    it never scans field or edge records. The assertion's own message (*"no node exists on a derived
+    assertion"*) is accurate and the narrower property is genuinely proved; the comment describes a
+    stronger one. Not a weakened assertion. Corrected wording is a one-line edit for the next
+    session in this crate, not a reason to reopen a passing test.
+
+14. **The audit's most important check could not be performed, and that is worth recording rather
+    than passing over.** The resumption instruction said `tests/apply.rs` must be *restored
+    unchanged* rather than re-authored, on the premise that a prior version existed to diff against.
+    **It never did.** `git log --all -- crates/fathom-weld/tests/apply.rs` returns only this run's
+    commit; the earlier session wrote and deleted the file inside its working tree without ever
+    committing it. So the instruction rested on a false premise and the claim *"no assertion
+    softened"* is unfalsifiable. What the audit could establish independently, and did: the nine test
+    names match §4.6's list exactly and in order; the seven positive tests apply the **real**
+    `junos-srx-s0-synthetic.txt` through the **real** `Dictionary::load`, not a hand-built fragment;
+    and the assertions carry explicit anti-vacuity guards (`assert!(owned > 0)`, non-empty edge and
+    pending checks, exact op-count arithmetic, exact `Err(..)` equality on both negative tests, and
+    totals proving nothing else was created). **No evidence of weakening, and no proof of identity.**
+    The lesson is procedural: a session that deletes a red test should commit it first on a scratch
+    ref, or the next session cannot tell restoration from reinvention.

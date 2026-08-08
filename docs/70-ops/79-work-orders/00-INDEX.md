@@ -76,12 +76,14 @@ which is why nothing caught it. **The queue again has no runnable row.**
 
 **WO-04 was re-taken on 2026-08-08 to test whether WO-09's landing had armed G8. It had not, and
 WO-04 stays BLOCKED.** The session re-ran WO-04 §5 step 12's three preconditions against the
-documents on disk: (a) holds, (b) fails — no weld order is DONE, and no `fathom-weld` crate or
+documents on disk: (a) holds, (b) failed **at the time that paragraph was written (2026-08-08, commit `9c58255`)** — no weld order was DONE, and no `fathom-weld` crate or
 `apply_new_device` exists in the tree — and (c) fails, because WO-04 §10 item 7(b), the source of
 `IpsecVpn.mode` in a re-parsed graph, is still undecided. WO-04's gates G1–G7 and G9 were all
 re-run green; only G8 is outstanding, and it is outstanding on three planning decisions, not on
 code. Nothing new was escalated: the questions are already filed (WO-09 §10 items 2, 5 and 8, the
 last of them in `73` §14). The tree is unchanged apart from the two status records.
+
+**That paragraph is history, not the present tense.** `crates/fathom-weld` and `apply_new_device` have existed since `fa72d80`; `cargo build --workspace` compiles them and 353 tests pass. Left in place with this note rather than rewritten, because it records why WO-04 was correctly left BLOCKED on the day it was re-taken.
 
 | # | Work order | File | Status | Depends | Deliverable |
 |---|---|---|---|---|---|
@@ -93,7 +95,7 @@ last of them in `73` §14). The tree is unchanged apart from the two status reco
 | 6 | WO-04 | `WO-04-the-emitters.md` | BLOCKED on WO-09 | WO-01, WO-02 | `fathom-emit`: graph to junos-srx set-statements with per-line provenance; the round-trip gate arms only once WO-03 and the weld order land (its §5 steps 12–13) |
 | 7 | WO-05 | `WO-05-the-workspace-file.md` | DONE | WO-02 | `fathom-canon` and the plaintext workspace face: canonical serialisation, versioned header, byte-identical round trip; sealing stays owner-gated (its §2) |
 | 8 | WO-08 | `WO-08-the-inventory-face.md` | DONE | WO-01, WO-02, WO-07 | The first product face: browser artifact, inventory table, inspector, per-equipment page with cabled-peer navigation over a pinned demo estate |
-| 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | BLOCKED on §10 item 10 | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |
+| 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | OPEN | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |
 
 **Owner-blocking items** (not queue rows; listed in `CLAUDE.md`): the S0 fixture exports
 (`76` §7.3), the four `19` §10 forks, the named expert review of `corpus/`. WO-03 §10.8–10.9
