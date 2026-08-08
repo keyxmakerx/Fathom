@@ -1757,8 +1757,11 @@ throughout.
 
 > **Status:** Live. Five rows. Three came from WO-06's execution on 2026-08-08: E-01 is answered in
 > place, and the two `16` spec gaps are open, and open for **planning** rather than for the owner.
-> Two came from WO-05's on 2026-08-08 — both are format questions the work order itself classes as
-> planning-only, and both stopped that session before its first plan step.
+> Two came from WO-05's on 2026-08-08 — both format questions the work order itself classes as
+> planning-only, and both stopped that session before its first plan step. **Both were answered in
+> place later the same day** and WO-05 is OPEN again; the answering session did not execute the
+> order it unblocked (`78` §5 item 10). Three of five rows answered, two open — the two `16` spec
+> gaps, for planning.
 >
 > The two spec-gap rows carry `2026-08-02` — the date WO-06 §4.5 pre-authored them, not the date
 > they were filed. §4.5 requires them verbatim, so the executing session was right not to restamp
@@ -1807,6 +1810,18 @@ and is not duplicated here, so there is one place to maintain and one place to r
 | 2026-08-08 | WO-05 | WO-01 reshaped seven registry slot types (`EncryptionAlgorithm`, `IntegrityAlgorithm`, `AuthMethod`, `IkeVersion`, `RouteDistinguisher`, `RouteTarget`, `SecretPlaceholder`) into shapes no row of §4.2's wire table admits, and rule 8 would now silently drop `SecretPlaceholder`'s label — re-cut the table over the post-WO-01 `scalar.rs`, deciding `SecretPlaceholder`'s plaintext wire form explicitly | detail in WO-05 § Open decisions (§10.6) |
 | 2026-08-08 | WO-05 | §4.4's pinned vector and §4.5's two ULID-refusal inputs render ids as `fathom:device:<ulid>`, which `Display` in `fathom-graph/src/id.rs`, `.context/conventions.md` § *Identifiers* and ADR-0005 all refuse — re-issue the vector against the rendering the tree emits, or reopen ADR-0005 | detail in WO-05 § Open decisions (§10.7) |
 
+**Answered — both WO-05 rows, 2026-08-08, planning.** The detail is in WO-05 §10.6 and §10.7,
+where the rows already point; repeating it here would be the duplication §14.2 exists to avoid.
+In one line each. **The wire table:** re-cut against the `Scalar` trait rather than patched
+type-by-type — a type implementing `fathom_ir::scalar::Scalar` wires as `Str` of its
+`canonical()` (new rule 13, all 35), rules 3/4/5/7 retire into it, and `SecretPlaceholder`, the
+one registered exemption, gets its own rule 14 carrying **both** its label and its hint, because
+`{}` would have emitted `<PSK>` into a TACACS field after a save and load, and destroyed the
+operator's note of where the real secret lives. **The pinned vector:** re-issued as
+`device:<ulid>`, ADR-0005 **not** reopened — three sites in the tree already agree and only WO-05
+disagreed with itself. WO-05's status line and its queue row are OPEN; executing it is a later
+session's (`78` §5 item 10).
+
 **Answered — E-01, 2026-08-08, planning.** Option A of the four §10.5 enumerates. `78` §4 step 3
 specifies both the section title and the four columns; WO-06 §4.5 transcribes them and this section
 did not. The conflicting form is replaced above rather than merged, so §4.5 executes as written.
@@ -1826,8 +1841,10 @@ what planning predicted, not what building hit.
 
 1. **How escalations are triaged.** `78` §12 leaves open *"whether `73` §14 escalations are triaged
    into D-numbered register entries or answered in place"*, and `88` §6.11 proposes an answer — that
-   they be answered as ADRs. E-01 above is answered **in place**, which is not a ruling on that
-   question; it is the smallest thing that unblocks a stopped order. `78` §4 step 3's *"do not touch
+   they be answered as ADRs. The three answered rows above are answered **in place**, which is not
+   a ruling on that question; it is the smallest thing that unblocks a stopped order — and in the
+   WO-05 cases the answer edits the work order's own §4, so an ADR would have been a third copy of
+   a format the order already owns (§ *Precedence*). `78` §4 step 3's *"do not touch
    `73`'s register; D-numbers are planning work"* still holds.
 2. **Who answers.** `78` §7's test decides per row.
 3. **Whether an escalation row needs a citable identifier.** `78` §4 step 3's four columns have
