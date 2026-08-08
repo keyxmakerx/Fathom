@@ -13,7 +13,10 @@ members = [
 
 [workspace.package]
 edition = "2021"
-license = "UNLICENSED"
+# ADR-0004: Apache-2.0 on the code, for its patent grant. corpus/ is CC BY-SA 4.0
+# instead (corpus/LICENSE) and is not a crate, so it is not covered by this field.
+# fathom-sync, when it exists, carries AGPL-3.0-only in its own manifest.
+license = "Apache-2.0"
 publish = false
 
 # No external dependencies anywhere in the workspace yet. That is a position,
