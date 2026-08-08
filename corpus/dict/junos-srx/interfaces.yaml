@@ -1,0 +1,17 @@
+# corpus/dict/junos-srx/interfaces.yaml — WO-03 §4.7 entry 38.
+#
+# `@interface_like` resolves the node kind from the captured interface name:
+# the prefix before the first ASCII digit — `st` -> TunnelInterface, `reth` ->
+# RethInterface, `ae` -> AggregateInterface, anything else -> Interface.
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+entries:
+  - id: junos-srx/interfaces.unit.family-inet-address
+    path: [interfaces, "$if", unit, "$u", family, inet, address, "$a"]
+    binds:
+      nodes:
+        - { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: Identifier } ] }
+        - { as: n1, kind: LogicalUnit, owner: n0, key: "$u", fields: [ { field: index, from: "$u", scalar: u32 }, { field: families, append_enum: Family.inet } ] }
+        - { as: n2, kind: Address, owner: n1, key: "$a", fields: [ { field: value, from: "$a", scalar: InterfaceAddress }, { field: family, const_enum: AddressFamily.inet } ] }
+    versions: "*"
+    reviewed_by: <named human>

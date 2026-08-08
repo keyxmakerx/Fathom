@@ -3,10 +3,24 @@
 version = 4
 
 [[package]]
+name = "fathom-artifact"
+version = "0.1.0"
+
+[[package]]
 name = "fathom-corpus"
 version = "0.1.0"
 dependencies = [
  "fathom-id",
+ "fathom-schema",
+]
+
+[[package]]
+name = "fathom-emit"
+version = "0.1.0"
+dependencies = [
+ "fathom-graph",
+ "fathom-id",
+ "fathom-ir",
  "fathom-schema",
 ]
 
@@ -19,14 +33,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "fathom-graph"
+version = "0.1.0"
+dependencies = [
+ "fathom-id",
+ "fathom-ir",
+]
+
+[[package]]
 name = "fathom-id"
 version = "0.1.0"
+
+[[package]]
+name = "fathom-ingest"
+version = "0.1.0"
+dependencies = [
+ "fathom-ir",
+ "fathom-schema",
+]
+
+[[package]]
+name = "fathom-inventory"
+version = "0.1.0"
+dependencies = [
+ "fathom-graph",
+ "fathom-id",
+ "fathom-ir",
+]
 
 [[package]]
 name = "fathom-ir"
 version = "0.1.0"
 dependencies = [
  "fathom-id",
+ "fathom-schema",
 ]
 
 [[package]]
@@ -39,4 +79,14 @@ version = "0.1.0"
 dependencies = [
  "fathom-ir",
  "fathom-schema",
+]
+
+[[package]]
+name = "fathom-wasm"
+version = "0.1.0"
+dependencies = [
+ "fathom-corpus",
+ "fathom-find",
+ "fathom-graph",
+ "fathom-inventory",
 ]

@@ -1,0 +1,14 @@
+platform: junos-srx
+reviewed_by: <named human>
+token_maps:
+  DhGroup:            # field card side 2: group14 baseline; group19/group20
+    group2: "2"       # ECP 256/384; group2 and group5 legacy
+    group5: "5"
+    group14: "14"
+    group19: "19"
+    group20: "20"
+  IntegrityAlgorithm:
+    sha-256: hmac-sha-256-128     # 14 §14.4 binds `sha-256` to HmacSha256_128
+    sha-384: hmac-sha-384-192
+    # VERIFY: sha-384 -> 192-bit truncation is the parallel of the sha-256
+    # row, not a corpus-attested mapping; confirm before real S0 data lands.

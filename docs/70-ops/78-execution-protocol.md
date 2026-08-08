@@ -71,8 +71,6 @@ One work order per session. A finished session ends; the next session re-reads t
 1. Read `CLAUDE.md`, then `.context/conventions.md`, then this protocol. In that order, every
    session, no exceptions for having "seen them before" — a session has no before.
 2. Open `docs/70-ops/79-work-orders/00-INDEX.md`.
-   <!-- VERIFY: the queue directory is being authored alongside this protocol; the first index
-   must conform to §8's format before the first execution session runs. -->
 3. Take the **topmost OPEN work order whose listed dependencies are all DONE**. If no work order
    qualifies, the queue is empty or blocked: end, reporting that state. Do not invent work.
 4. Confirm the checkout is not `main`. Work happens on the working branch the session finds
@@ -280,9 +278,10 @@ conflict rather than as silent double work.
    being the register. §4 step 3 therefore appends a section to a ranked register that
    deliberately ends at §13. Planning sessions must triage §14 at the `73` §10.4 cadence or this
    becomes a second, worse register.
-3. **`CLAUDE.md`'s test count is stale.** Its *Verify before you trust* section says 36 tests;
-   the workspace runs 80 as of the finder-core merge. This protocol therefore states no counts in
-   §6's floor — green is the gate, not a number. The `CLAUDE.md` refresh is planning work.
+3. **Closed — `CLAUDE.md`'s test count.** An earlier draft recorded it as stale at 36. The same
+   commit that shipped this protocol (`5733121`) corrected it to 80; the number 36 appears nowhere
+   in `CLAUDE.md` today. The rule this item argued for stands and is unchanged: §6's floor states no
+   counts, because green is the gate, not a number.
 4. **`73` §10 describes a directory that no longer matches it.** §10 says *"`docs/90-decisions/`
    exists and is empty"* and files answers as D-named files (its example is
    `docs/90-decisions/D05-ir-shape.md`); the directory actually holds `README.md` plus

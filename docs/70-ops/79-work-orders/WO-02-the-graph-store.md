@@ -1,6 +1,6 @@
 # WO-02 — `fathom-graph`: the typed store
 
-> **Status:** OPEN
+> **Status:** DONE
 
 The in-memory typed graph store — `76` §7.2's S3 slice: *"The store: kinds, edges, scalars,
 `Presence`, provenance, L0 enforcement at write time, ops and undo batches."* This work order is
@@ -239,7 +239,9 @@ pub struct EdgeId { pub kind: EdgeKind, pub ulid: Ulid }
 pub enum ElementId { Node(NodeId), Edge(EdgeId) }
 ```
 
-`Display` renders the conventions' form `fathom:<kind-lower>:<ulid>` with `<kind-lower>` the
+`Display` renders the conventions' form `<kind-lower>:<ulid>` — **no product-name prefix**, per
+ADR-0005 (*"may not appear in any identifier, file magic, MIME type, ID prefix or on-disk key"*),
+whose action 1 `.context/conventions.md` now carries — with `<kind-lower>` the
 kebab-case of the enum variant name (`IkeGateway` → `ike-gateway`) and the ULID's 26-character
 Crockford encoding. `From<NodeId> for ElementId` and `From<EdgeId> for ElementId` exist.
 **DECISION — the name `NodeId` collides with `fathom_id::NodeId` and the collision is accepted:**
@@ -585,7 +587,7 @@ otherwise. No reordering, no merging (`78` §3.6).
     dumps are byte-identical; the second test runs one construction function twice in-process
     and asserts byte-identical dumps.
 12. **Floor.** Run §6's gates. Fix only defects in this WO's own new code; anything else is §7.
-13. **Bookkeeping.** Status line → `DONE`; mirror the `00-INDEX.md` row if the index exists (its
+13. **Bookkeeping.** Status line → `DONE`; mirror the `00-INDEX.md` row (its
     absence is noted in §3 and is not this session's to fix). Commit per `78` §3.9, push, open
     the PR listing every gate's output verbatim. Do not merge.
 
@@ -728,7 +730,21 @@ Deliberately not decided here; owner or planning session only (`78` §7):
    `76` §7.2 says "undo batches". This WO writes `Batch` in code and uses "batch" throughout,
    because `Transaction` in `53` carries fields (`actor`, `at: Hlc`, `source`) this slice
    deliberately does not have; renaming later is mechanical.
-5. **Corrections after adversarial verification (2026-08-02), against this document's own first
+5. **Corrections found in execution (2026-08-08), under `78` §8.** Each is a factual defect the
+   code or a binding record proves, and none changes a decision this work order makes.
+
+   | § | Said | Is | Proving path |
+   |---|---|---|---|
+   | §3 | *"The `Scalar` trait (`11` §4.2) does not exist yet; slots hold the stub types"* | The trait and 35 real scalar implementations exist — WO-01 landed between this order's authoring and its execution | `crates/fathom-ir/src/scalar.rs` (`pub trait Scalar`); `crates/fathom-ir/tests/scalar_contract.rs` (39 tests) |
+   | §3 | *"`cargo test --workspace` passes 80 tests"* | 121 before this order, 160 after | `cargo test --workspace --locked` |
+   | §3 | *"`docs/70-ops/79-work-orders/` may contain no `00-INDEX.md` yet"* | It exists and carries this order's row, so §5 step 13's parenthetical about its absence does not apply and the row is mirrored | `docs/70-ops/79-work-orders/00-INDEX.md` |
+   | §5 step 5 | The `Display` example `fathom:ike-gateway:<26 chars>` | `ike-gateway:<26 chars>` — §4.2's own **DECISION** in this document (*"no product-name prefix, per ADR-0005"*), the conventions' `<kind-lower>:<ulid>`, and ADR-0005 action 1 all agree, and following the parenthetical would have contradicted an Accepted ADR (`78` §5 item 4). The test name §5 gives is unchanged | `docs/90-decisions/adr-0005-name-and-identifier-namespace.md` §Decision action 1; `.context/conventions.md` § *Identifiers* |
+
+   The §3 claim this order actually leans on — *"The store stores whatever type the accessors
+   read — when the real `Scalar` types land at the same paths, this crate is unaffected"* — held:
+   `fathom-graph` reads slot types from the generated registry and names none of them.
+
+6. **Corrections after adversarial verification (2026-08-02), against this document's own first
    revision.** The worked example had `hostname` = `srx-a` and put the `{ike}` host-inbound
    write on the VPN → `st0.0` `ZoneMember`; `11` §15.2 has `Set("srx-a-01")`, and `11` §15.6
    puts `Set({Ike})` on the WAN → `reth0.0` edge (piece #3) with the VPN-side edge field

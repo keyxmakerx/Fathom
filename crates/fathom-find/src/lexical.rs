@@ -9,9 +9,23 @@ pub const K1: f64 = 1.2;
 /// §8.2 — the squash constant, pinned with the field boosts.
 pub const KAPPA: f64 = 6.0;
 
+/// Query-side term weights, milli. Implementation constants (WO-06): 16
+/// §5.2's score formula carries no query-side factor — its `sub_f` is
+/// document-side, folded into the stored weighted tf at index build
+/// (fathom-corpus `index.rs`). The 0.6 here is §4.1 step 7's sub-token
+/// multiplier applied at the query side by the same shared normaliser
+/// ("one function, compiled once, used twice", §4), so a hyphenated query
+/// token does not score as three independent whole terms. The value is
+/// step 7's; the application point is not in §5.2 and is filed as a spec
+/// gap in 73 §14.
+pub const W_WHOLE_MILLI: u32 = 1000;
+/// See `W_WHOLE_MILLI`.
+pub const W_SUB_MILLI: u32 = 600;
+
 /// Unique query terms in dictionary order: (lemma, query-side weight milli).
-/// Whole tokens carry 1000, hyphen/dot sub-parts 600 (§4.1 step 7); a lemma
-/// reached both ways keeps the higher weight. Stopwords are excluded (§4.3).
+/// Whole tokens carry `W_WHOLE_MILLI`, hyphen/dot sub-parts `W_SUB_MILLI`
+/// (the documented deviation on those constants); a lemma reached both ways
+/// keeps the higher weight. Stopwords are excluded (§4.3).
 pub fn query_terms(n: &Normalized) -> Vec<(String, u32)> {
     let mut terms: Vec<(String, u32)> = Vec::new();
     let mut push = |lemma: &str, w: u32| match terms.iter_mut().find(|(t, _)| t == lemma) {
@@ -22,9 +36,9 @@ pub fn query_terms(n: &Normalized) -> Vec<(String, u32)> {
         if tok.stopword {
             continue;
         }
-        push(&tok.lemma, 1000);
+        push(&tok.lemma, W_WHOLE_MILLI);
         for p in &tok.parts {
-            push(&p.lemma, 600);
+            push(&p.lemma, W_SUB_MILLI);
         }
     }
     terms.sort();
@@ -78,4 +92,40 @@ pub fn bm25(
 /// §8.2 — monotone, corpus-independent, deterministic squash into [0,1).
 pub fn squash(bm25: f64) -> f64 {
     bm25 / (bm25 + KAPPA)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fathom_corpus::normalize::{normalize, Lexicons};
+    use std::collections::BTreeSet;
+
+    /// WO-06 MINOR 1 — the query-side weights are implementation constants
+    /// (16 §4.1 step 7's multiplier at the query side; absent from §5.2's
+    /// formula; filed in 73 §14). Pinned so any change is deliberate.
+    #[test]
+    fn query_side_weights_pinned() {
+        let lex = Lexicons::new(BTreeSet::new());
+        let n = normalize("check the inactive-tunnels", &lex);
+        assert_eq!(
+            query_terms(&n),
+            vec![
+                ("check".to_owned(), W_WHOLE_MILLI),
+                ("inactive".to_owned(), W_SUB_MILLI),
+                ("inactive-tunnels".to_owned(), W_WHOLE_MILLI),
+                ("tunnel".to_owned(), W_SUB_MILLI),
+            ],
+            "whole 1000, sub-part 600, stopword excluded, dictionary order"
+        );
+        // A lemma reached whole and as a sub-part keeps the whole weight.
+        let n = normalize("tunnel inactive-tunnels", &lex);
+        assert_eq!(
+            query_terms(&n),
+            vec![
+                ("inactive".to_owned(), W_SUB_MILLI),
+                ("inactive-tunnels".to_owned(), W_WHOLE_MILLI),
+                ("tunnel".to_owned(), W_WHOLE_MILLI),
+            ]
+        );
+    }
 }

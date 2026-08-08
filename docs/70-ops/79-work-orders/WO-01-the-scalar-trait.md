@@ -1,6 +1,6 @@
 # WO-01 — The `Scalar` trait and the real scalar implementations
 
-> **Status:** OPEN
+> **Status:** DONE
 
 Depends on: nothing in the queue. Everything §3 describes is merged on `main`.
 `docs/70-ops/79-work-orders/00-INDEX.md` may not exist when this order is taken; §3's closing
@@ -112,14 +112,14 @@ All verified against the working tree at authoring time (2026-08-02; `cargo test
 Exactly these files change **in the code tree the gates check**: no other code file, no file
 under `schema/`, nothing under `crates/fathom-ir/src/generated/`. Outside this closure sit only
 `78` §3 step 8's bookkeeping edits, which ride the same commit and are not deliverables: this
-file's own status line to `DONE`, and the matching `00-INDEX.md` row **if the index exists** —
-its absence is recorded in §3 and is planning's to fix, not this session's (§5 step 7).
+file's own status line to `DONE`, and the matching `00-INDEX.md` row (§5 step 7).
 
 | File | Change |
 |---|---|
 | `crates/fathom-ir/src/scalar.rs` | Rewritten: trait + error + 35 implementations (§4.1–§4.4) |
 | `crates/fathom-ir/tests/scalar_contract.rs` | New: the law harness, the weld test, the fixtures (§4.5) |
 | `crates/fathom-ir/Cargo.toml` | Adds the dev-dependency, verbatim (§4.6) |
+| `Cargo.lock` | The hunk cargo generates for that edit; it rides the same commit (`78` §5 item 7's manifest exception). CI runs `--locked`, which fails on a stale lockfile |
 | `crates/fathom-ir/src/lib.rs` | Module-doc bullet replaced, verbatim (§4.6) |
 | `crates/fathom-schema/src/bin/fathom-schema-check.rs` | One `CHECKED_ELSEWHERE` string replaced, verbatim (§4.6) |
 

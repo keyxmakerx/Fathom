@@ -1,0 +1,12 @@
+[package]
+name = "fathom-inventory"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The inventory face's projections: row sets, the element page, the per-equipment page, and the demo estate (76 §7.2 S4, part one)"
+
+[dependencies]
+fathom-id = { path = "../fathom-id" }
+fathom-ir = { path = "../fathom-ir" }
+fathom-graph = { path = "../fathom-graph" }

@@ -1,6 +1,8 @@
 # WO-06 — Finder completion: the four MINORs and the deferred-section map
 
-> **Status:** OPEN
+> **Status:** DONE — executed 2026-08-08. All ten acceptance gates green (G10 against the session's
+> branch point, §12 item 7); the `78` §6 floor green. E-01 was answered 2026-08-08 (§10.5) and §4.5
+> filed its two rows into the `73` §14 table that already existed.
 
 Depends on: nothing in the queue. Every edit is doc-comment, test or prose-level in
 `crates/fathom-find/` plus one filing in `73`; no deliverable of WO-01–WO-05 is touched, so this
@@ -111,9 +113,14 @@ All verified against the working tree at authoring time (2026-08-02; `cargo test
   `monitor start kmd`'s terse *"Pair it with a scoped Phase 2 clear."*
   (`corpus/commands/junos-srx-ipsec.yaml` line 4936) — are already held for the expert reviewer
   by `87` §3.2 and §5 item 6, and are **not** repaired here (§8 item 2).
-- **The filing target.** `docs/70-ops/73-open-decisions.md` ends at `## 13. Disagreements`; the
-  `## 14` inbox `78` §4 step 3 defines does not exist yet. Its contents table (§0) has three
-  columns (`§`, title, margin tab).
+- **The filing target.** ~~`docs/70-ops/73-open-decisions.md` ends at `## 13. Disagreements`; the
+  `## 14` inbox `78` §4 step 3 defines does not exist yet.~~ **Corrected 2026-08-08 (`78` §8; see
+  §12 item 6).** `docs/70-ops/73-open-decisions.md` carries `## 14. Escalations from execution
+  sessions` — created by commit `1300444`, then retitled and reformed to `78` §4 step 3's title
+  and four columns when E-01 was answered (§10.5). Its contents table (§0) has three columns
+  (`§`, title, margin tab) and already carries the `| 14 | Escalations from execution sessions |
+  *the inbox (78 §4)* |` row. §4.5 therefore executes minus its append and minus its
+  contents-table row: the two pre-authored rows are added to the table that is there.
 - **Deferred-section facts** (for §4.6): `crates/fathom-find/src/lib.rs` lines 64–67 carry
   `TODO(16 §17.3): no ladder documents are authored in corpus/ yet`;
   `crates/fathom-corpus/src/seed_concepts.yaml`'s header states *"The corpus tree has no
@@ -400,9 +407,9 @@ today**; a session that thinks otherwise has hit §7 item 6.
 | §3 | Authored `corpus/concepts/<domain>.yaml` tree (the 28-concept `seed_concepts.yaml` is a transcribed stand-in) | blocked-on-owner | Corpus authorship under invariant 10; the seed file's own header names it owner-blocking |
 | §3.5 | Anti-synonym (`not_the_same_as`) rendering | blocked-on-owner | Needs authored anti-synonym data (the concept tree above) and a renderer (no app shell exists) |
 | §9 | `finder.idx` on-disk index, §9.5 build, §9.6 at spec scale | blocked-on-planning | Inputs exist (deterministic in-memory index, seed corpus), but §9.1 pins `fst::Map`, zstd and blake3 — three external dependencies against the zero-dependency position (`Cargo.toml`; `78` §5 item 2: *"an escalation, always"*); the fork — amend `16` to hand-rolled structures, or an owner exception — is planning's. §9.4's own banner: *"These are computed from assumptions, not measured. Nothing is built yet."* |
-| §10 | Latency instrumentation | blocked-on-app | The budget is keystroke→painted frame across the JS/WASM boundary and the render; no app shell exists until WO-07 (authored, status OPEN) executes (S4/S7, `76` §7.2) |
+| §10 | Latency instrumentation | blocked-on-app | The budget is keystroke→painted frame across the JS/WASM boundary and the render; no app shell exists until WO-08 executes (authored, status BLOCKED on WO-01, WO-02, WO-07). Not WO-07: its §8 non-goal 1 is *"**The browser artifact.** No HTML is assembled"*, and its §1 assigns the artifact to WO-08. WO-07's "shell" is its opcode dispatcher (S4/S7, `76` §7.2) |
 | §11/§14 | Shape C routing and worked trace C (cross-vendor) | blocked-on-owner | Needs a second platform's corpus and Rosetta documents; `corpus/commands/` holds one platform file |
-| §16 | Slots, the five-rung resolution ladder, `FocusStack`, the `X` context term, chooser chips | blocked-on-workspace | WO-02 (the graph store) + WO-05 (the workspace container — named by WO-02 §8 item 1; authored, status BLOCKED on WO-02, unexecuted) + the shell (WO-07, authored, status OPEN — the shell exists only when it is DONE). §16.5's unscoped gate and §16.6's no-workspace mode already shipped with the core |
+| §16 | Slots, the five-rung resolution ladder, `FocusStack`, the `X` context term, chooser chips | blocked-on-workspace | WO-02 (the graph store) + WO-05 (the workspace container — named by WO-02 §8 item 1; authored, status BLOCKED on WO-02, unexecuted) + the browser artifact (WO-08, authored, status BLOCKED on WO-01, WO-02, WO-07 — WO-07 §1 assigns the HTML to WO-08, so the surface exists only when WO-08 is DONE). §16.5's unscoped gate and §16.6's no-workspace mode already shipped with the core |
 | §17.3 | The ladder group | blocked-on-owner | Ladder documents are authored corpus (`16` §17.2: shape from `18` §4.2–4.3; invariant 10); none exist — `fathom-find/src/lib.rs`'s TODO is the honest record. The group-assembly machine gets its own WO once ≥1 ladder document is authored |
 | §18 | The Rosetta layer | blocked-on-owner | Rosetta documents need an author who knows two platforms (§18.4: *"the Rosetta layer is where this corpus will be wrongest"*); zero exist, and inventing fixtures would fabricate vendor behaviour (conventions § Document conventions) |
 
@@ -437,7 +444,7 @@ gate.
 | G7 | `cargo run -q -p fathom-find --bin fathom-find -- show security ike sec assoc \| grep -c "syntax 1.600"` | `4` |
 | G8 | `cargo run -q -p fathom-schema --bin fathom-schema-check` | Exit 0; `0 failure(s), 2 warning(s)` (the standing `Site` baseline, `78` §6) |
 | G9 | `grep -c "^## 14. Escalations from execution sessions" docs/70-ops/73-open-decisions.md` | `1` |
-| G10 | `git diff --name-only main` — run on the working branch before the `78` §3 step 9 commit; the session branched from `main` (`78` §3 step 4), so `main` is the branch point | Exactly the §4 file list (plus, after `78` §3 step 8, this file's status line and the `00-INDEX.md` row if that index exists by then). Presumes the queue directory is committed before the first execution session runs (`78` §3 step 2's own VERIFY); at authoring time `git status --short` shows `?? docs/70-ops/79-work-orders/`, and an untracked file never appears in `git diff --name-only` — if the directory is still untracked at execution time this gate cannot pass as stated: stop under `78` §4 |
+| G10 | `git diff --name-only <the session's branch point>` — run on the working branch before the `78` §3 step 9 commit. ~~the session branched from `main` (`78` §3 step 4), so `main` is the branch point~~ **Corrected 2026-08-08 (`78` §8; see §12 item 7):** `78` §3 step 4 says only *"Work happens on the working branch the session finds checked out"*; it does not make `main` the branch point, and the executing session found a branch already carrying eight commits of other work. The baseline is the branch head at session start | Exactly the §4 file list (plus, after `78` §3 step 8, this file's status line and the `00-INDEX.md` row if that index exists by then). Presumes the queue directory is committed before the first execution session runs (`78` §3 step 2's own VERIFY); at authoring time `git status --short` shows `?? docs/70-ops/79-work-orders/`, and an untracked file never appears in `git diff --name-only` — if the directory is still untracked at execution time this gate cannot pass as stated: stop under `78` §4. (`git ls-files docs/70-ops/79-work-orders/` at execution time lists all ten files: the presumption now holds.) |
 
 ## 7. Stop-and-escalate triggers
 
@@ -509,6 +516,133 @@ not decided here:
    id and add the missing scoped sibling (`ipsec.sa.clear-index`, `87` §1 R03's named
    remainder). Expert reviewer with the owner, per `87` §5 item 6.
 
+### 10.5 ESCALATION (2026-08-08) — `73` §14 exists, in a different form to §4.5's
+
+Raised under `78` §4 by the execution session that took this order. Filed as E-01 in `73` §14.2.
+
+**Step reached.** `78` §3 step 5 (verifying §3 Prior state against the tree), before plan step 1.
+No plan step was executed and no deliverable file was touched.
+
+**What this work order says.** §3 Prior state, *The filing target*:
+
+> *"`docs/70-ops/73-open-decisions.md` ends at `## 13. Disagreements`; the `## 14` inbox `78` §4
+> step 3 defines does not exist yet. Its contents table (§0) has three columns (`§`, title, margin
+> tab)."*
+
+§4.5 then directs, verbatim: a contents-table row `| 14 | Escalations from execution sessions |
+*the inbox (78 §4)* |`, and *"Append at the end of the file (after §13's final paragraph),
+verbatim"* a `## 14. Escalations from execution sessions` section whose table is
+`| Date | Work order | Question | Detail |`, carrying two pre-authored rows. §7 trigger 7:
+
+> *"`docs/70-ops/73-open-decisions.md` already contains a `## 14` section (another session filed
+> first): stop, report its content verbatim; merging inboxes is planning work."*
+
+**What was found.** `docs/70-ops/73-open-decisions.md` line 1755 onward — a `## 14` exists,
+created by commit `1300444` (*"Add the program plan, and create the escalation register nine
+citations pointed at"*), and `CLAUDE.md` records it (*"the `73` §14 escalation register as it
+fills (the section now exists; it was cited from nine places before it did)"*). It is not `## 14.
+Escalations from execution sessions`, it carries a different intake form, and it names this work
+order. Reported verbatim as §7 trigger 7 requires — the section in full:
+
+> ```markdown
+> ## 14. The escalation register
+>
+> > **Status:** Live, and **empty** — no execution session has run yet.
+>
+> ### 14.1 What this is, and why it appears after §13
+>
+> This is the destination `78` §4 names for escalations raised by **execution sessions**: the point
+> where a session that hits something its work order does not decide stops and files, rather than
+> deciding. It sits after the house-style closing sections because it is a register that accretes
+> rows over time, not an argument this document makes. `78` §5's stop-and-escalate list is the
+> trigger; this is the inbox.
+>
+> **It was cited before it existed.** Nine places in the tree route here — `CLAUDE.md`'s planning
+> list, `78` §12, `88` §6.11, WO-08 and WO-06 in four separate places, two of which are **code
+> comments** that an executing session will write into shipped source. Creating the section is
+> therefore a correction, not a new decision: the destination was specified, referenced and depended
+> upon, and only the section itself was missing. Filed as a defect in its own right — see §14.4.
+>
+> ### 14.2 The intake form
+>
+> One row per escalation. A session files by appending; nothing is ever deleted, and a row that turns
+> out to be wrong is answered rather than removed.
+>
+> | E-nn | Raised by | What the order did not decide | What the session did instead | Answer |
+> |---|---|---|---|---|
+> | *(empty)* | | | | |
+>
+> - **Raised by** — the work order and section, so the trigger can be re-read.
+> - **What the session did instead** — under `78`, a session that escalates does not proceed on a
+>   guess. Where an order specifies a conservative fallback, this records that it was taken.
+> - **Answer** — filled by planning or the owner. Empty means open.
+>
+> ### 14.3 What is already known to land here
+>
+> WO-06 names four filings its execution will produce, each pinned by a test comment so the
+> contradiction is visible in source rather than only in prose: the `78` §4 inbox-width question, the ranking-formula gap, the tie-break contradiction, and the leaf-ordering
+> under-specification. These are **not** pre-filed here. A register that lists escalations before the
+> session that raises them would defeat its purpose, which is to record what building actually hit.
+>
+> ### 14.4 Two things this section does not decide
+>
+> 1. **How escalations are triaged.** `78` §12 leaves open *"whether `73` §14 escalations are triaged
+>    into D-numbered register entries or answered in place"*, and `88` §6.11 proposes an answer — that
+>    they be answered as ADRs. That question stays open; this section only guarantees the rows have
+>    somewhere to go.
+> 2. **Who answers.** `78` §7's test decides that per row. Some escalations are planning work and
+>    some are the owner's, and the distinction is not knowable before the row exists.
+> ```
+
+`73` §0's contents table still ended at `| 13 | Disagreements | |`; §14 had no contents row and has
+no `*margin tab:*` line. `78` §4 step 3 mandates *"creating the section (and its contents-table
+row) on first use"*, so this session added the missing contents row alone, copying §14's own
+heading text. Two further defects in §14 are **left for planning, not repaired here**, because `78`
+§4 step 3's grant is *"append a row"* and nothing wider: its status line still reads *"Live, and
+**empty** — no execution session has run yet"*, which E-01 falsifies on both counts; and §14 sits
+after §13 Disagreements, so `73` no longer ends on a house-style closer.
+
+**The smallest decision that unblocks.** How §4.5's two pre-authored spec-gap rows are filed
+against the §14 that exists. The options are mechanically enumerable from the two forms:
+
+| | Option | What §4.5 becomes |
+|---|---|---|
+| A | Retitle `73` §14 to *"Escalations from execution sessions"* and replace §14.2's intake form with §4.5's four-column table | §4.5 executes verbatim minus the append; §14.1/§14.3/§14.4 prose is re-anchored by planning |
+| B | Keep §14 as written and rewrite §4.5's two rows into §14.2's five-column `E-nn` form | §4.5's *"verbatim"* no longer holds; the row text is re-authored, which is authoring |
+| C | Keep both: §4.5's table lands as a new `### 14.5` subsection beside §14.2's | Two intake tables in one inbox — `78` §12 item 2's *"second, worse register"* inside §14 |
+| D | Rule that §4.5's two rows are not escalations at all (they are planning-decided filings, §12 item 2) and route them elsewhere | §4.5 is re-scoped; the WO-06 §12 item 2 widening is withdrawn |
+
+Reconciling the two forms is *"merging inboxes"*, which §7 trigger 7 assigns to planning, and it is
+judgment-shaped under `78` §7's test — four defensible answers exist above. No lean is recorded.
+
+**ANSWER (2026-08-08, planning). Option A.** `78` §4 step 3 specifies both the section title —
+*"a table under `## 14. Escalations from execution sessions`"* — and the four columns — *"date, work
+order, the question in one line, `"detail in WO-nn § Open decisions"`"*. **§4.5 was transcribing the
+protocol; `73` §14 was not.** The 2026-08-07 planning session that created §14 invented a
+five-column `E-nn` form under a different title, so the conflict is between the protocol and a
+drive-by, not between two work orders. `73` §14 has been changed to the protocol's title and form,
+and `73` §14.1 records the error rather than hiding it.
+
+**What this means for execution.** §4.5 executes as written **except** that the section already
+exists, so its *"append at the end of the file"* instruction is satisfied and must not be repeated —
+appending a second `## 14` is exactly what §7 trigger 7 exists to prevent. Add §4.5's two
+pre-authored rows to the table that is there, in the four-column form, which is the form §4.5
+already writes them in. The contents-table row exists and needs no edit. §3 Prior state's *"the
+`## 14` inbox … does not exist yet"* is now factually stale; correcting it is a `78` §8 factual
+correction the executing session makes in passing, not a further escalation.
+
+**Not decided here:** whether escalation rows should carry citable identifiers at all. `78` §4 step
+3's form has none, E-01 exists only because the drive-by invented one, and amending `78` is planning
+work nobody has proposed. Filed at `73` §14.4 item 3.
+
+**Why no plan step was executed first.** Plan steps 1–3 write, into shipped source, the claims
+*"filed as a spec gap in 73 §14"* (§4.1's constant doc-comment), *"the contradiction is filed in 73
+§14"* (§4.2's module note and §4.3's test doc-comment). Those sentences are true only once plan
+step 5's filing lands; shipping them with nothing filed would assert a citation that is not true
+(`78` §5 item 8). Plan step 4 does not cite `73`, but executing it alone is step reordering under
+`78` §3 step 6. The whole plan is therefore inseparable from the blocked step, and the tree is left
+at its floor-green pre-session state (`78` §4 step 1).
+
 ## 11. Sources consulted
 
 | Source | Taken |
@@ -562,3 +696,37 @@ not decided here:
    does not exist until WO-07 executes. The draft also called `cafd39e` "the merge commit"; it
    is the finder-core branch commit, merged by `4dd131e` (§11 had it right). Corrected in the
    discipline of `78` §8; no decision changes.
+6. **Against §3 Prior state's filing target — `## 14` exists.** Old: *"the `## 14` inbox `78` §4
+   step 3 defines does not exist yet"*. New: it exists, at `docs/70-ops/73-open-decisions.md`
+   §14, in `78` §4 step 3's title and four columns, with its §0 contents row present. Proving
+   paths: `docs/70-ops/73-open-decisions.md` (the `## 14` heading and the `| 14 | Escalations
+   from execution sessions | *the inbox (78 §4)* |` contents row); `git log 1300444`. This is the
+   state E-01 escalated and §10.5 answered; recording it here is the `78` §8 correction that
+   answer names. It changes no decision — §4.5's two rows are filed verbatim, in the form §4.5
+   already writes them in, into the table that is there.
+7. **Against G10's branch-point presumption.** Old: *"the session branched from `main` (`78` §3
+   step 4), so `main` is the branch point"*. New: `78` §3 step 4 says *"Confirm the checkout is
+   not `main`. Work happens on the working branch the session finds checked out; if the session
+   starts on `main`, create `wo-nn-<slug>` before the first edit"* — it makes `main` the branch
+   point only for a session that starts on `main`. The executing session found
+   `claude/docs-recommendations-review-l7mlhh` checked out with eight commits on top of `main`
+   (`git rev-parse main HEAD`; `git log --oneline`), so `git diff --name-only main` reports those
+   commits' 31 files as well and can never show *"exactly the §4 file list"* on this branch. The
+   gate's decision — that this work order changes exactly §4's files and nothing else — is
+   unchanged; only the baseline ref is corrected to the one `78` §3 step 4 actually implies.
+   Corrected rather than escalated because the proving command settles it and no reasonable
+   second answer exists: measuring a work order's own diff against another work's commits is not
+   a fork, it is a wrong ref. Both forms were run and both results are in the PR body.
+8. **§4.3's tie test is not rustfmt-stable as written.** Pasted verbatim, `cargo fmt --all
+   --check` (G1, and `78` §6 floor row 1) reported one diff: the final `assert!` exceeds the
+   line limit and rustfmt 1.94.1 splits it across three lines. `cargo fmt --all` was run and the
+   split applied. The assertion, its tolerance, its message and every other line of the block are
+   byte-identical to §4.3; only whitespace moved, and the pinned toolchain makes the result
+   deterministic. Recorded rather than escalated because the floor's own row 1 requires an
+   fmt-clean tree and rustfmt's output is not a decision anyone can take differently. Future
+   verbatim Rust blocks in work orders should be fmt-checked at authoring time.
+9. **`73` §14's own status line is left stale, deliberately.** It reads *"Live. One row, E-01,
+   open."*; E-01 is answered in place immediately below the table, and this work order's filing
+   makes it three rows. Repairing it is not in §4's deliverable list and `78` §4 step 3's grant
+   is *"append a row"* and nothing wider — the same reasoning the escalating session recorded in
+   §10.5 for §14's other two defects. Noted here so planning sees it; not touched.

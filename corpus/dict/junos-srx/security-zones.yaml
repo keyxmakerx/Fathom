@@ -1,0 +1,26 @@
+# corpus/dict/junos-srx/security-zones.yaml — WO-03 §4.7 entries 36-37.
+# The first entry's path is a strict prefix of the second's, so it carries
+# `partial: true` (`14` §6.5's shadowing gate).
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+entries:
+  - id: junos-srx/security.zones.security-zone.interfaces
+    path: [security, zones, security-zone, "$z", interfaces, "$unit"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier } ] }
+      edges:
+        - { kind: ZoneMember, from: n0, to: { interface_unit: "$unit" } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.zones.security-zone.interfaces.host-inbound-services
+    path: [security, zones, security-zone, "$z", interfaces, "$unit", host-inbound-traffic, system-services, "$svc"]
+    binds:
+      nodes:
+        - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier } ] }
+      edges:
+        - { kind: ZoneMember, from: n0, to: { interface_unit: "$unit" }, fields: [ { field: host_inbound_system_services, append_enum: HostService, from: "$svc" } ] }
+    versions: "*"
+    reviewed_by: <named human>

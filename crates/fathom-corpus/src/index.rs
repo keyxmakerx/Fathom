@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::concepts::{build_concept_table, ConceptTable};
 use crate::detln::ln_milli;
-use crate::load::{load_corpus, LoadError};
+use crate::load::{load_corpus, load_corpus_sources, LoadError, SourceFile};
 use crate::model::{Corpus, Entry, Risk, Status};
 use crate::normalize::{normalize, Lexicons, Normalized};
 
@@ -133,6 +133,16 @@ impl CorpusIndex {
         let corpus = load_corpus(root)?;
         build_index(corpus).map_err(|m| LoadError {
             file: root.display().to_string(),
+            line: 0,
+            message: m,
+        })
+    }
+
+    /// `load_corpus_sources` + `build_index`, the same welding `load` does.
+    pub fn from_sources(files: &[SourceFile]) -> Result<CorpusIndex, LoadError> {
+        let corpus = load_corpus_sources(files)?;
+        build_index(corpus).map_err(|m| LoadError {
+            file: String::new(),
             line: 0,
             message: m,
         })

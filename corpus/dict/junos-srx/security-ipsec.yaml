@@ -1,0 +1,127 @@
+# corpus/dict/junos-srx/security-ipsec.yaml — WO-03 §4.7 entries 22-35.
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+entries:
+  - id: junos-srx/security.ipsec.proposal.protocol
+    path: [security, ipsec, proposal, "$p", protocol, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier }, { field: protocol, from: "$v", scalar: IpsecProposalProtocol } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.proposal.encryption-algorithm
+    path: [security, ipsec, proposal, "$p", encryption-algorithm, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier }, { field: encryption_algorithm, from: "$v", scalar: EncryptionAlgorithm } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.proposal.lifetime-seconds
+    path: [security, ipsec, proposal, "$p", lifetime-seconds, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier }, { field: lifetime_seconds, from: "$v", scalar: Seconds } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.proposal.lifetime-kilobytes
+    path: [security, ipsec, proposal, "$p", lifetime-kilobytes, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier }, { field: lifetime_kilobytes, from: "$v", scalar: Kilobytes } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.policy.perfect-forward-secrecy
+    path: [security, ipsec, policy, "$pol", perfect-forward-secrecy, keys, "$v"]
+    secret_exempt: { reason: "the argument is a Diffie-Hellman group, not a key; the field card's own side-1 line is `perfect-forward-secrecy keys group14`" }
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecPolicy, key: "$pol", fields: [ { field: name, from: "$pol", scalar: Identifier }, { field: perfect_forward_secrecy, from: "$v", scalar: DhGroup } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.policy.proposals
+    path: [security, ipsec, policy, "$pol", proposals, "$prop"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecPolicy, key: "$pol", fields: [ { field: name, from: "$pol", scalar: Identifier } ] }
+      edges:
+        - { kind: UsesProposal, from: n0, to: { by_name: { kind: IpsecProposal, from: "$prop" } }, ordinal_from_position: true }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.vpn.ike-gateway
+    path: [security, ipsec, vpn, "$v", ike, gateway, "$gw"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecVpn, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier } ] }
+      edges:
+        - { kind: UsesIkeGateway, from: n0, to: { by_name: { kind: IkeGateway, from: "$gw" } } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.vpn.ike-ipsec-policy
+    path: [security, ipsec, vpn, "$v", ike, ipsec-policy, "$pol"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecVpn, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier } ] }
+      edges:
+        - { kind: UsesIpsecPolicy, from: n0, to: { by_name: { kind: IpsecPolicy, from: "$pol" } } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.vpn.bind-interface
+    path: [security, ipsec, vpn, "$v", bind-interface, "$unit"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecVpn, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier } ] }
+      edges:
+        - { kind: BindsInterface, from: n0, to: { interface_unit: "$unit" } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.vpn.establish-tunnels
+    path: [security, ipsec, vpn, "$v", establish-tunnels, "$e"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecVpn, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier }, { field: establish_tunnels, from: "$e", scalar: EstablishTunnels } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.vpn.df-bit
+    path: [security, ipsec, vpn, "$v", df-bit, "$e"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecVpn, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier }, { field: df_bit, from: "$e", scalar: IpsecVpnDfBit } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.vpn.traffic-selector
+    path: [security, ipsec, vpn, "$v", traffic-selector, "$ts", local-ip, "$l", remote-ip, "$r"]
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecVpn, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier } ] }
+        - { as: n1, kind: TrafficSelector, owner: n0, key: "$ts", fields: [ { field: name, from: "$ts", scalar: Identifier }, { field: local_ip, from: "$l", scalar: IpPrefix }, { field: remote_ip, from: "$r", scalar: IpPrefix } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.vpn.manual.authentication-key
+    path: [security, ipsec, vpn, "$v", manual, authentication, key, ascii-text, "$k"]
+    secret: { label: psk }
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecVpn, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.vpn.manual.encryption-key
+    path: [security, ipsec, vpn, "$v", manual, encryption, key, ascii-text, "$k"]
+    secret: { label: psk }
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecVpn, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>

@@ -45,9 +45,11 @@ const CHECKED_ELSEWHERE: &[(&str, &str)] = &[
     (
         "schema.scalar.unbound",
         "compile-time: generated ir_types.rs references every bound impl \
-         path, so `cargo build -p fathom-ir` is the check (trait conformance \
-         waits on the Scalar trait; fathom-schemagen additionally refuses \
-         paths outside fathom_ir::scalar::/value::)",
+         path, so `cargo build -p fathom-ir` is the existence check; trait \
+         conformance: cargo test -p fathom-ir (tests/scalar_contract.rs) \
+         welds every non-structured binding to the Scalar trait, \
+         SecretPlaceholder exempt (11 4.5); fathom-schemagen additionally \
+         refuses paths outside fathom_ir::scalar::/value::",
     ),
     (
         "schema.attrtype.drift",

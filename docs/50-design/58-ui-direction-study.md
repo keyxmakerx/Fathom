@@ -93,7 +93,7 @@ whole categories of interface before anything is drawn:
 surface that proves the tool is offline — *legibly, checkably* — is real and citable:
 `connect-src 'none'` in the artifact's own `<head>` (`34` §2.2); a two-entry WASM import
 section, `fathom_entropy` and `fathom_now_ms`, verified by `wasm-objdump -x` against a committed
-allowlist (`41` §3.7; `34` §14: *"This is the check that makes `connect-src 'none'` an
+allowlist (`41` §3.7; `34` §7.5: *"This is the check that makes `connect-src 'none'` an
 architectural property rather than a header"*); a published SHA-256 over the final bytes and a
 locked toolchain (`71` §3.6 X0.3–X0.5); X0.9's 30-minute proxy test; the corpus as zstd frames
 inside the same file (`52` §4.4); no browser storage at all in D1 (`71` §3.4). The right
@@ -511,7 +511,7 @@ first slice.
 **The security row and the modularity row point at the same file.** 04 holds the only `●●●` in
 both, and for the same reason: it made *capability* a rendered object. A verb table that a rule
 pack extends and a transcript that logs every verb are the same list read forwards and
-backwards, and `34` §14's import-section check is that argument in the toolchain rather than in
+backwards, and `34` §7.5's import-section check is that argument in the toolchain rather than in
 the UI. That idea is separable from the command line that carries it, which matters in §5.
 
 **The two goals do not select the same winner, and one of them cannot be selected on.** Goal (a)
@@ -733,7 +733,7 @@ has to pass.
 | 6 | The three depths as three texts with a lowercase margin-tab control (`terse · explained · teaching`), `⌥\` or `v` to cycle, per-block override forgotten when the block closes. No settings screen, no dropdown, no radio group | `15` §4, `52` §4.3, M6 |
 | 7 | The ADR-0027 stamp on every result row and every explainer header, in muted mono at margin-tab weight, rendering **`junos-srx · unverified`** until X0.10 is met | ADR-0027, `52` §3.2 |
 | 8 | The `UNPOSTED` device, wired to the **phase boundary**, not to missing data: `UNPOSTED — graph-backed; not in this build` | §5.1. This is the deliverable that makes §4 legible |
-| 9 | The transcript: append-only, in memory, **never persisted** — D1 stores nothing in browser storage — headed by the artifact audit rows (`connect-src` read from the live `<meta>`, request count, the two WASM imports, artifact SHA-256) | `71` §3.4, `41` §3.7, `34` §14, `71` §3.6 X0.3–X0.5. Adopted from 04 |
+| 9 | The transcript: append-only, in memory, **never persisted** — D1 stores nothing in browser storage — headed by the artifact audit rows (`connect-src` read from the live `<meta>`, request count, the two WASM imports, artifact SHA-256) | `71` §3.4, `41` §3.7, `34` §7.5, `71` §3.6 X0.3–X0.5. Adopted from 04 |
 | 10 | The finder's `Ctrl+K` overlay with a **real focus trap** and the rest of the sheet `inert`, or `aria-modal` removed. Not both as they are today | §2.7(2) |
 
 ### 6.2 Exit criteria for the slice

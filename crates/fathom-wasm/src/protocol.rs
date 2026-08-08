@@ -1,0 +1,625 @@
+//! The byte protocol: 41 §3.3's T2 packed skeleton (a fixed header, fixed-width
+//! records, one trailing UTF-8 string blob) plus 41 §3.9's error reply, decided
+//! down to the offset in WO-07 §4.4.
+//!
+//! Everything is little-endian, written with `to_le_bytes` and read with
+//! `from_le_bytes`, because the reader on the other side is `DataView` with
+//! `littleEndian = true` (41 §3.4's worked row).
+//!
+//! The encoding of a reply is a pure function of its content: records in
+//! order, each record's string fields appended to the blob in field order, no
+//! de-duplication (invariant 9).
+
+use fathom_corpus::{Risk, SourceFile};
+use fathom_find::{Finder, Ranked, SearchResult, CONFIDENT_MILLI};
+
+pub const REPLY_MAGIC: [u8; 4] = *b"FDLT";
+pub const REPLY_VERSION: u16 = 1;
+pub const KIND_ERROR: u16 = 0;
+pub const KIND_FINDER_ROW: u16 = 3;
+pub const ERROR_STRIDE: u32 = 28;
+pub const FINDER_ROW_STRIDE: u32 = 72;
+pub const ROLE_SUMMARY: u8 = 0;
+pub const ROLE_SHOWN: u8 = 1;
+pub const ROLE_BELOW: u8 = 2;
+pub const ERR_UNKNOWN_OP: u16 = 1;
+pub const ERR_NOT_INITIALISED: u16 = 2;
+pub const ERR_CORPUS_LOAD: u16 = 3;
+pub const ERR_BAD_FRAME: u16 = 4;
+pub const ERR_BAD_UTF8: u16 = 5;
+
+// --- the face record (WO-08 §4.4) --------------------------------------------
+//
+// Record kinds 0–4 are taken (41 §3.3); 5 is the face's. Stride 72:
+//
+//   offset  size  field
+//   0       1     role
+//   1       3     zero
+//   4       4     slot_count (u32)
+//   8       64    eight (u32 off, u32 len) string refs, s0–s7
+//
+// Everything else is WO-07 §4.3–§4.5's, reused unchanged: little-endian, the
+// FDLT skeleton, the string-blob rules, the error record, the arena lifetime.
+
+pub const KIND_FACE_ROW: u16 = 5;
+pub const FACE_ROW_STRIDE: u32 = 72;
+/// Role byte values.
+pub const FACE_HEADER: u8 = 0;
+pub const FACE_INV: u8 = 1;
+pub const FACE_FIELD: u8 = 2;
+pub const FACE_PORT: u8 = 3;
+pub const FACE_IFACE: u8 = 4;
+/// Codes 1–5 are WO-07's.
+pub const ERR_NO_ELEMENT: u16 = 6;
+
+/// How many string slots one face record carries.
+const FACE_SLOTS: usize = 8;
+
+/// The fixed header: magic, version, record_kind, record_count, record_stride.
+const HEADER_LEN: usize = 16;
+
+// --- encoding ----------------------------------------------------------------
+
+/// Encode §4.4's OP_INIT frame from bare-named sources. The reference
+/// encoder: WO-08's build step and this crate's tests both use it.
+pub fn pack_corpus(files: &[SourceFile]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&(files.len() as u32).to_le_bytes());
+    for f in files {
+        out.push(section_byte(f.section));
+        out.extend_from_slice(&(f.name.len() as u32).to_le_bytes());
+        out.extend_from_slice(f.name.as_bytes());
+        out.extend_from_slice(&(f.source.len() as u32).to_le_bytes());
+        out.extend_from_slice(f.source.as_bytes());
+    }
+    out
+}
+
+fn section_byte(section: fathom_corpus::Section) -> u8 {
+    match section {
+        fathom_corpus::Section::Commands => 0,
+        fathom_corpus::Section::Explainers => 1,
+        fathom_corpus::Section::Rules => 2,
+    }
+}
+
+/// The trailing string blob under construction, with the `(offset, len)` pairs
+/// the records carry into it.
+#[derive(Default)]
+struct Blob {
+    bytes: Vec<u8>,
+}
+
+impl Blob {
+    /// `(0, 0)` encodes the empty string; otherwise `offset` indexes the blob.
+    fn push(&mut self, s: &str) -> (u32, u32) {
+        if s.is_empty() {
+            return (0, 0);
+        }
+        let off = self.bytes.len() as u32;
+        self.bytes.extend_from_slice(s.as_bytes());
+        (off, s.len() as u32)
+    }
+}
+
+fn header(kind: u16, count: u32, stride: u32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(HEADER_LEN);
+    out.extend_from_slice(&REPLY_MAGIC);
+    out.extend_from_slice(&REPLY_VERSION.to_le_bytes());
+    out.extend_from_slice(&kind.to_le_bytes());
+    out.extend_from_slice(&count.to_le_bytes());
+    out.extend_from_slice(&stride.to_le_bytes());
+    out
+}
+
+pub fn encode_error(code: u16, detail: &str) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let (off, len) = blob.push(detail);
+    let mut out = header(KIND_ERROR, 1, ERROR_STRIDE);
+    out.extend_from_slice(&code.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u64.to_le_bytes());
+    out.extend_from_slice(&0u64.to_le_bytes());
+    out.extend_from_slice(&off.to_le_bytes());
+    out.extend_from_slice(&len.to_le_bytes());
+    out.extend_from_slice(&(blob.bytes.len() as u32).to_le_bytes());
+    out.extend_from_slice(&blob.bytes);
+    out
+}
+
+fn risk_byte(risk: Risk) -> u8 {
+    match risk {
+        Risk::ReadOnly => 0,
+        Risk::ChangesConfig => 1,
+        Risk::Disruptive => 2,
+    }
+}
+
+/// The same quantisation `fathom-find` applies to the score (§8.4).
+fn milli(v: f64) -> i32 {
+    (v * 1000.0).round() as i32
+}
+
+/// One FinderRow record before it becomes 72 bytes.
+struct Record {
+    role: u8,
+    risk: u8,
+    flags: u8,
+    entry: u32,
+    score_milli: i32,
+    contributions_milli: [i32; 5],
+    strings: [(u32, u32); 5],
+}
+
+fn write_finder_record(out: &mut Vec<u8>, r: &Record) {
+    out.push(r.role);
+    out.push(r.risk);
+    out.push(r.flags);
+    out.push(0);
+    out.extend_from_slice(&r.entry.to_le_bytes());
+    out.extend_from_slice(&r.score_milli.to_le_bytes());
+    for c in r.contributions_milli {
+        out.extend_from_slice(&c.to_le_bytes());
+    }
+    for (off, len) in r.strings {
+        out.extend_from_slice(&off.to_le_bytes());
+        out.extend_from_slice(&len.to_le_bytes());
+    }
+}
+
+fn row_flags(r: &Ranked, has_next_if_bad: bool) -> u8 {
+    let mut f = 0u8;
+    if r.score_milli < CONFIDENT_MILLI {
+        f |= 1;
+    }
+    if has_next_if_bad {
+        f |= 2;
+    }
+    f
+}
+
+fn summary_flags(result: &SearchResult) -> u8 {
+    let mut f = 0u8;
+    if result.ladder_group_trigger {
+        f |= 1;
+    }
+    if let Some(rev) = &result.reverse {
+        f |= 2;
+        if rev.full {
+            f |= 4;
+        }
+    }
+    if result.filter_clause.is_some() {
+        f |= 8;
+    }
+    f
+}
+
+pub fn encode_query_reply(finder: &Finder, result: &SearchResult) -> Vec<u8> {
+    let idx = &finder.index;
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+
+    // Record 0 — the query summary. `risk` is 0 and not meaningful here.
+    let captures = match &result.reverse {
+        None => String::new(),
+        Some(rev) => rev
+            .captures
+            .iter()
+            .map(|(slot, value)| format!("{slot} := {value}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    };
+    let summary_strings = [
+        blob.push(result.filter_clause.as_deref().unwrap_or("")),
+        blob.push(&match &result.reverse {
+            None => String::new(),
+            Some(rev) => idx.display_cmd(rev.entry),
+        }),
+        blob.push(match &result.reverse {
+            None => "",
+            Some(rev) => idx.entry(rev.entry).id.as_str(),
+        }),
+        blob.push(&captures),
+        blob.push(&match &result.reverse {
+            None => String::new(),
+            Some(rev) => rev.leftover.join(" "),
+        }),
+    ];
+    write_finder_record(
+        &mut records,
+        &Record {
+            role: ROLE_SUMMARY,
+            risk: 0,
+            flags: summary_flags(result),
+            entry: result.query_concepts.concepts.len() as u32,
+            score_milli: milli(result.g_syn),
+            contributions_milli: [0; 5],
+            strings: summary_strings,
+        },
+    );
+
+    for (role, rows) in [(ROLE_SHOWN, &result.shown), (ROLE_BELOW, &result.below)] {
+        for r in rows.iter() {
+            let e = idx.entry(r.entry);
+            let next_if_bad = e.next_if_bad.first().map(String::as_str).unwrap_or("");
+            let strings = [
+                blob.push(&idx.display_cmd(r.entry)),
+                blob.push(&e.id),
+                blob.push(&e.answers),
+                blob.push(&e.read_field),
+                blob.push(next_if_bad),
+            ];
+            let c = &r.contributions;
+            write_finder_record(
+                &mut records,
+                &Record {
+                    role,
+                    risk: risk_byte(e.risk),
+                    flags: row_flags(r, !e.next_if_bad.is_empty()),
+                    entry: r.entry,
+                    score_milli: r.score_milli,
+                    contributions_milli: [
+                        milli(c.concept),
+                        milli(c.lexical),
+                        milli(c.syntax),
+                        milli(c.context),
+                        milli(c.prior),
+                    ],
+                    strings,
+                },
+            );
+        }
+    }
+
+    let count = 1 + result.shown.len() + result.below.len();
+    let mut out = header(KIND_FINDER_ROW, count as u32, FINDER_ROW_STRIDE);
+    out.extend_from_slice(&records);
+    out.extend_from_slice(&(blob.bytes.len() as u32).to_le_bytes());
+    out.extend_from_slice(&blob.bytes);
+    out
+}
+
+// --- the face encoders (WO-08 §4.4) ------------------------------------------
+
+/// One face record before it becomes 72 bytes. The encoders copy the
+/// projections' strings verbatim; nothing is recomputed here.
+struct FaceRecord {
+    role: u8,
+    slot_count: u32,
+    strings: [(u32, u32); FACE_SLOTS],
+}
+
+fn write_face_record(out: &mut Vec<u8>, r: &FaceRecord) {
+    out.push(r.role);
+    out.extend_from_slice(&[0, 0, 0]);
+    out.extend_from_slice(&r.slot_count.to_le_bytes());
+    for (off, len) in r.strings {
+        out.extend_from_slice(&off.to_le_bytes());
+        out.extend_from_slice(&len.to_le_bytes());
+    }
+}
+
+/// Push a record's slots s0–s7 into the blob in order; empty slots contribute
+/// nothing, and there is no de-duplication (invariant 9).
+fn face_slots(blob: &mut Blob, role: u8, slot_count: u32, slots: &[&str]) -> FaceRecord {
+    let mut strings = [(0u32, 0u32); FACE_SLOTS];
+    for (i, s) in slots.iter().take(FACE_SLOTS).enumerate() {
+        strings[i] = blob.push(s);
+    }
+    FaceRecord {
+        role,
+        slot_count,
+        strings,
+    }
+}
+
+fn face_reply(records: Vec<u8>, count: usize, blob: Blob) -> Vec<u8> {
+    let mut out = header(KIND_FACE_ROW, count as u32, FACE_ROW_STRIDE);
+    out.extend_from_slice(&records);
+    out.extend_from_slice(&(blob.bytes.len() as u32).to_le_bytes());
+    out.extend_from_slice(&blob.bytes);
+    out
+}
+
+pub fn encode_inv_reply(
+    kind_label: &str,
+    columns: &[&str],
+    rows: &[fathom_inventory::Row],
+) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    // 2 = the kind label plus the opinions header; the columns sit between.
+    let slot_count = 2 + columns.len() as u32;
+
+    let mut header_slots: Vec<&str> = Vec::with_capacity(FACE_SLOTS);
+    header_slots.push(kind_label);
+    header_slots.extend(columns.iter().copied());
+    while header_slots.len() < FACE_SLOTS - 1 {
+        header_slots.push("");
+    }
+    header_slots.push("opinions");
+    let rec = face_slots(&mut blob, FACE_HEADER, slot_count, &header_slots);
+    write_face_record(&mut records, &rec);
+
+    for row in rows {
+        let mut slots: Vec<&str> = Vec::with_capacity(FACE_SLOTS);
+        slots.push(row.id.as_str());
+        slots.extend(row.cells.iter().map(String::as_str));
+        while slots.len() < FACE_SLOTS - 1 {
+            slots.push("");
+        }
+        slots.push(row.opinions);
+        let rec = face_slots(&mut blob, FACE_INV, slot_count, &slots);
+        write_face_record(&mut records, &rec);
+    }
+
+    face_reply(records, 1 + rows.len(), blob)
+}
+
+fn write_element(
+    blob: &mut Blob,
+    records: &mut Vec<u8>,
+    page: &fathom_inventory::ElementPage,
+) -> usize {
+    let rec = face_slots(
+        blob,
+        FACE_HEADER,
+        4,
+        &[
+            page.kind_word,
+            page.name.as_str(),
+            page.id.as_str(),
+            page.context.as_deref().unwrap_or(""),
+        ],
+    );
+    write_face_record(records, &rec);
+    for f in &page.fields {
+        let rec = face_slots(
+            blob,
+            FACE_FIELD,
+            3,
+            &[f.name, f.value.as_str(), f.provenance.as_str()],
+        );
+        write_face_record(records, &rec);
+    }
+    1 + page.fields.len()
+}
+
+pub fn encode_element_reply(page: &fathom_inventory::ElementPage) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let count = write_element(&mut blob, &mut records, page);
+    face_reply(records, count, blob)
+}
+
+/// `None` is the empty state, not an error: kind 5 with `record_count = 0`.
+pub fn encode_equipment_reply(page: Option<&fathom_inventory::EquipmentPage>) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let Some(page) = page else {
+        return face_reply(records, 0, blob);
+    };
+    let mut count = write_element(&mut blob, &mut records, &page.element);
+
+    for p in &page.ports {
+        let (cable, far) = match &p.cabled {
+            Some(c) => (c.text.as_str(), c.far_device.as_str()),
+            None => ("—", ""),
+        };
+        let rec = face_slots(
+            &mut blob,
+            FACE_PORT,
+            7,
+            &[
+                p.id.as_str(),
+                p.label.as_str(),
+                p.chassis.as_str(),
+                p.connector.as_str(),
+                p.service.as_str(),
+                cable,
+                far,
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    for i in &page.interfaces {
+        let rec = face_slots(
+            &mut blob,
+            FACE_IFACE,
+            4,
+            &[
+                i.id.as_str(),
+                i.name.as_str(),
+                i.kind_word,
+                i.ports.as_str(),
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    face_reply(records, count, blob)
+}
+
+// --- decoding ----------------------------------------------------------------
+
+/// The reference reader — the decoder tests parity against, and the byte-
+/// level specification WO-08's TypeScript reader mirrors.
+#[derive(Debug, Clone)]
+pub struct FinderRowView {
+    pub role: u8,
+    pub risk: u8,
+    pub flags: u8,
+    pub entry: u32,
+    pub score_milli: i32,
+    pub contributions_milli: [i32; 5],
+    pub strings: [String; 5],
+}
+
+#[derive(Debug, Clone)]
+pub struct ErrorView {
+    pub code: u16,
+    pub detail: String,
+}
+
+/// One decoded face record (WO-08 §4.4). `strings` carries every slot,
+/// whether or not `slot_count` declares it meaningful.
+#[derive(Debug, Clone)]
+pub struct FaceRowView {
+    pub role: u8,
+    pub slot_count: u32,
+    pub strings: [String; FACE_SLOTS],
+}
+
+#[derive(Debug, Clone)]
+pub enum ReplyView {
+    Empty,
+    Error(ErrorView),
+    FinderRows(Vec<FinderRowView>),
+    FaceRows(Vec<FaceRowView>),
+}
+
+fn u16_at(bytes: &[u8], off: usize) -> u16 {
+    u16::from_le_bytes([bytes[off], bytes[off + 1]])
+}
+
+fn u32_at(bytes: &[u8], off: usize) -> u32 {
+    u32::from_le_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
+}
+
+fn i32_at(bytes: &[u8], off: usize) -> i32 {
+    u32_at(bytes, off) as i32
+}
+
+fn string_at(blob: &[u8], bytes: &[u8], off: usize) -> Result<String, String> {
+    let s_off = u32_at(bytes, off) as usize;
+    let s_len = u32_at(bytes, off + 4) as usize;
+    if s_len == 0 {
+        return Ok(String::new());
+    }
+    let end = s_off
+        .checked_add(s_len)
+        .ok_or_else(|| format!("string ref at offset {off} overflows"))?;
+    if end > blob.len() {
+        return Err(format!("string ref at offset {off} runs past the blob"));
+    }
+    std::str::from_utf8(&blob[s_off..end])
+        .map(str::to_owned)
+        .map_err(|e| format!("string ref at offset {off} is not UTF-8: {e}"))
+}
+
+/// Refuses a bad magic, version, kind, stride, count, or out-of-blob string
+/// ref with a message naming the offset. Empty input decodes to Empty.
+pub fn decode_reply(bytes: &[u8]) -> Result<ReplyView, String> {
+    if bytes.is_empty() {
+        return Ok(ReplyView::Empty);
+    }
+    if bytes.len() < HEADER_LEN {
+        return Err(format!(
+            "reply is {} bytes: shorter than the {HEADER_LEN}-byte header at offset 0",
+            bytes.len()
+        ));
+    }
+    if bytes[0..4] != REPLY_MAGIC {
+        return Err("bad magic at offset 0".to_owned());
+    }
+    let version = u16_at(bytes, 4);
+    if version != REPLY_VERSION {
+        return Err(format!("unknown version {version} at offset 4"));
+    }
+    let kind = u16_at(bytes, 6);
+    let count = u32_at(bytes, 8) as usize;
+    let stride = u32_at(bytes, 12);
+    let expected_stride = match kind {
+        KIND_ERROR => ERROR_STRIDE,
+        KIND_FINDER_ROW => FINDER_ROW_STRIDE,
+        KIND_FACE_ROW => FACE_ROW_STRIDE,
+        _ => return Err(format!("unknown record_kind {kind} at offset 6")),
+    };
+    if stride != expected_stride {
+        return Err(format!(
+            "record_stride {stride} at offset 12 is not {expected_stride} for record_kind {kind}"
+        ));
+    }
+    let records_len = count
+        .checked_mul(stride as usize)
+        .ok_or_else(|| format!("record_count {count} at offset 8 overflows"))?;
+    let blob_len_off = HEADER_LEN
+        .checked_add(records_len)
+        .ok_or_else(|| format!("record_count {count} at offset 8 overflows"))?;
+    if bytes.len() < blob_len_off + 4 {
+        return Err(format!(
+            "record_count {count} at offset 8 runs past the reply"
+        ));
+    }
+    let blob_len = u32_at(bytes, blob_len_off) as usize;
+    let blob_off = blob_len_off + 4;
+    if bytes.len() != blob_off + blob_len {
+        return Err(format!(
+            "strings_len {blob_len} at offset {blob_len_off} does not match the reply length"
+        ));
+    }
+    let blob = &bytes[blob_off..];
+
+    match kind {
+        KIND_ERROR => {
+            if count != 1 {
+                return Err(format!(
+                    "record_count {count} at offset 8: an error reply carries exactly one record"
+                ));
+            }
+            let base = HEADER_LEN;
+            Ok(ReplyView::Error(ErrorView {
+                code: u16_at(bytes, base),
+                detail: string_at(blob, bytes, base + 20)?,
+            }))
+        }
+        KIND_FACE_ROW => {
+            let mut rows = Vec::with_capacity(count);
+            for i in 0..count {
+                let base = HEADER_LEN + i * stride as usize;
+                let mut strings: [String; FACE_SLOTS] = Default::default();
+                for (s, slot) in strings.iter_mut().enumerate() {
+                    *slot = string_at(blob, bytes, base + 8 + s * 8)?;
+                }
+                rows.push(FaceRowView {
+                    role: bytes[base],
+                    slot_count: u32_at(bytes, base + 4),
+                    strings,
+                });
+            }
+            Ok(ReplyView::FaceRows(rows))
+        }
+        _ => {
+            let mut rows = Vec::with_capacity(count);
+            for i in 0..count {
+                let base = HEADER_LEN + i * stride as usize;
+                rows.push(FinderRowView {
+                    role: bytes[base],
+                    risk: bytes[base + 1],
+                    flags: bytes[base + 2],
+                    entry: u32_at(bytes, base + 4),
+                    score_milli: i32_at(bytes, base + 8),
+                    contributions_milli: [
+                        i32_at(bytes, base + 12),
+                        i32_at(bytes, base + 16),
+                        i32_at(bytes, base + 20),
+                        i32_at(bytes, base + 24),
+                        i32_at(bytes, base + 28),
+                    ],
+                    strings: [
+                        string_at(blob, bytes, base + 32)?,
+                        string_at(blob, bytes, base + 40)?,
+                        string_at(blob, bytes, base + 48)?,
+                        string_at(blob, bytes, base + 56)?,
+                        string_at(blob, bytes, base + 64)?,
+                    ],
+                });
+            }
+            Ok(ReplyView::FinderRows(rows))
+        }
+    }
+}

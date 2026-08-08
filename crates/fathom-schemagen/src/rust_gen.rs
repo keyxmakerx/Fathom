@@ -85,6 +85,14 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
     o.push_str("    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\n");
     o.push_str("    pub enum EdgeClass {\n        Containment,\n        Reference,\n    }\n\n");
 
+    o.push_str(
+        "    /// An L0 cardinality bound (62 §6.2). `min` is recorded for L1's \
+         later use;\n    /// only `max` is enforced at write time (11 §7.1). A \
+         `None` max is the\n    /// `n` token — unbounded.\n",
+    );
+    o.push_str("    #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
+    o.push_str("    pub struct EdgeCardBound { pub min: u32, pub max: Option<u32> }\n\n");
+
     // ---- NodeKind ----------------------------------------------------------
     o.push_str(
         "    /// Node kinds, declaration order (62 §2.3 — the deterministic \
@@ -152,6 +160,30 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
         let _ = writeln!(o, "                NodeKind::{} => {},", k.name, k.emits);
     }
     o.push_str("            }\n        }\n");
+    o.push_str(
+        "        /// The kind's declared field keys, declaration order \
+         (62 §4.3). A key\n        /// outside this slice is not a field of \
+         this kind, which is what a\n        /// store checks a write against \
+         (ADR-0008 at the write boundary).\n",
+    );
+    o.push_str(
+        "        pub const fn fields(self) -> &'static [crate::bag::FieldKey] {\n            match self {\n",
+    );
+    for k in &x.kinds {
+        let mut keys = String::new();
+        for (i, f) in k.fields.iter().enumerate() {
+            if i > 0 {
+                keys.push_str(", ");
+            }
+            let _ = write!(
+                keys,
+                "crate::bag::FieldKey({})",
+                x.field_key(&k.name, &f.name)?
+            );
+        }
+        let _ = writeln!(o, "                NodeKind::{} => &[{keys}],", k.name);
+    }
+    o.push_str("            }\n        }\n");
     o.push_str("    }\n\n");
 
     // ---- EdgeKind / DerivedEdgeKind ---------------------------------------
@@ -172,6 +204,7 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
          load and\n    /// after every mutation batch, never serialised, never \
          merged, never\n    /// edited.\n",
     );
+    edge_tables(&mut o, x)?;
 
     // ---- schema enums (files) ---------------------------------------------
     for e in &x.enums {
@@ -356,6 +389,141 @@ fn edge_kind_enum(o: &mut String, name: &str, edges: &[EdgeGen], doc: &str) {
         o.push_str("            }\n        }\n");
     }
     o.push_str("    }\n\n");
+}
+
+/// The static schema tables an L0-enforcing store reads: endpoint kind sets,
+/// both L0 cardinality bounds, the symmetric flag, the root-containment flag
+/// and the declared field keys. Every one of these is a schema fact
+/// (62 §6.2); generating them is what keeps a store from hand-copying one
+/// (ADR-0008).
+fn edge_tables(o: &mut String, x: &Extracted) -> Result<(), ExtractError> {
+    let bound = |b: &(u32, Option<u32>)| -> String {
+        let max = match b.1 {
+            Some(m) => format!("Some({m})"),
+            None => "None".to_owned(),
+        };
+        format!("EdgeCardBound {{ min: {}, max: {max} }}", b.0)
+    };
+    let kind_list = |names: &[String]| -> String {
+        let mut s = String::new();
+        for (i, n) in names.iter().enumerate() {
+            if i > 0 {
+                s.push_str(", ");
+            }
+            let _ = write!(s, "NodeKind::{n}");
+        }
+        s
+    };
+
+    o.push_str("    impl EdgeKind {\n");
+    o.push_str(
+        "        /// The declared `from:` kind set, class names expanded \
+         (62 §6.2).\n        /// Empty exactly when `root_containment()` — the \
+         workspace root is not\n        /// a node, so it is not in the \
+         `NodeKind` vocabulary.\n",
+    );
+    o.push_str(
+        "        pub const fn from_kinds(self) -> &'static [NodeKind] {\n            match self {\n",
+    );
+    for e in &x.edges {
+        let _ = writeln!(
+            o,
+            "                EdgeKind::{} => &[{}],",
+            e.name,
+            kind_list(&e.from_kinds)
+        );
+    }
+    o.push_str("            }\n        }\n");
+    o.push_str("        /// The declared `to:` kind set, class names expanded (62 §6.2).\n");
+    o.push_str(
+        "        pub const fn to_kinds(self) -> &'static [NodeKind] {\n            match self {\n",
+    );
+    for e in &x.edges {
+        let _ = writeln!(
+            o,
+            "                EdgeKind::{} => &[{}],",
+            e.name,
+            kind_list(&e.to_kinds)
+        );
+    }
+    o.push_str("            }\n        }\n");
+    o.push_str(
+        "        /// The `out:` bound at L0 — edges leaving a `from` node \
+         (11 §7.1).\n",
+    );
+    o.push_str(
+        "        pub const fn out_bound_l0(self) -> EdgeCardBound {\n            match self {\n",
+    );
+    for e in &x.edges {
+        let _ = writeln!(
+            o,
+            "                EdgeKind::{} => {},",
+            e.name,
+            bound(&e.out_l0)
+        );
+    }
+    o.push_str("            }\n        }\n");
+    o.push_str("        /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).\n");
+    o.push_str(
+        "        pub const fn in_bound_l0(self) -> EdgeCardBound {\n            match self {\n",
+    );
+    for e in &x.edges {
+        let _ = writeln!(
+            o,
+            "                EdgeKind::{} => {},",
+            e.name,
+            bound(&e.in_l0)
+        );
+    }
+    o.push_str("            }\n        }\n");
+    o.push_str(
+        "        /// `true` means `(a,b)` and `(b,a)` are the same edge: one \
+         stored\n        /// instance, canonical order by `NodeId` (62 §6.2; \
+         11 §7.4).\n",
+    );
+    o.push_str("        pub const fn symmetric(self) -> bool {\n            match self {\n");
+    for e in &x.edges {
+        let _ = writeln!(
+            o,
+            "                EdgeKind::{} => {},",
+            e.name, e.symmetric
+        );
+    }
+    o.push_str("            }\n        }\n");
+    o.push_str(
+        "        /// `from: [root]` — containment by the workspace root \
+         (11 §7.2).\n",
+    );
+    o.push_str("        pub const fn root_containment(self) -> bool {\n            match self {\n");
+    for e in &x.edges {
+        let _ = writeln!(
+            o,
+            "                EdgeKind::{} => {},",
+            e.name, e.root_from
+        );
+    }
+    o.push_str("            }\n        }\n");
+    o.push_str("        /// The edge's declared field keys, declaration order (62 §6.2).\n");
+    o.push_str(
+        "        pub const fn fields(self) -> &'static [crate::bag::FieldKey] {\n            match self {\n",
+    );
+    for e in &x.edges {
+        let mut keys = String::new();
+        for (i, f) in e.fields.iter().enumerate() {
+            if i > 0 {
+                keys.push_str(", ");
+            }
+            let _ = write!(
+                keys,
+                "crate::bag::FieldKey({})",
+                x.field_key(&e.name, &f.name)?
+            );
+        }
+        let _ = writeln!(o, "                EdgeKind::{} => &[{keys}],", e.name);
+    }
+    o.push_str("            }\n        }\n");
+    o.push_str("    }\n\n");
+    Ok(())
 }
 
 /// Pull an enum file's `doc:` for the generated type's comment.
@@ -564,6 +732,42 @@ pub fn accessors(x: &Extracted) -> Result<String, ExtractError> {
         }
         o.push_str("    }\n");
     }
+
+    // ---- the slot-type registry -------------------------------------------
+    // The write-time half of the same fact the accessors read: a store that
+    // erases its slots has to check an incoming value against the schema's
+    // declared type, and hand-copying that table is how the two ends drift
+    // (ADR-0008). Every registry key is covered, node and edge fields alike.
+    let mut slots: Vec<(u32, String)> = Vec::new();
+    for k in &x.kinds {
+        for f in &k.fields {
+            slots.push((x.field_key(&k.name, &f.name)?, slot_ty(x, f)));
+        }
+    }
+    for e in x.edges.iter().chain(&x.derived_edges) {
+        for f in &e.fields {
+            slots.push((x.field_key(&e.name, &f.name)?, slot_ty(x, f)));
+        }
+    }
+    slots.sort_by_key(|(k, _)| *k);
+    o.push_str(
+        "    /// The declared slot type for a wire key: its `TypeId` and the \
+         exact type\n    /// path the read accessors use, for every entry in \
+         the field-key registry,\n    /// node and edge fields alike. `None` \
+         for a key this schema version does\n    /// not declare — a retired \
+         key is never reused (62 §2.3).\n",
+    );
+    o.push_str(
+        "    pub fn slot_type(key: crate::bag::FieldKey) -> Option<(core::any::TypeId, &'static str)> {\n        match key.0 {\n",
+    );
+    for (key, ty) in &slots {
+        let _ = writeln!(
+            o,
+            "            {key} => Some((core::any::TypeId::of::<{ty}>(), \"{ty}\")),"
+        );
+    }
+    o.push_str("            _ => None,\n        }\n    }\n");
+
     o.push_str("}\npub use body::*;\n");
     Ok(o)
 }

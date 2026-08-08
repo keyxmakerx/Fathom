@@ -1,6 +1,6 @@
 # WO-07 — The WASM shell and the artifact gates
 
-> **Status:** OPEN
+> **Status:** DONE
 
 Depends on: nothing in the queue. The finder core (`fathom-corpus`, `fathom-find`) is merged on
 `main` and this work order builds on it as it stands. UI consumption of the module — the artifact
@@ -139,13 +139,13 @@ All verified against the working tree at authoring time (2026-08-02; `cargo test
 ## 4. Deliverables
 
 Exactly these files change or appear — plus this work order's own status line and its
-`00-INDEX.md` row if the index exists by then, which `78` §3 steps 8–9 require in the same PR
+`00-INDEX.md` row, which `78` §3 steps 8–9 require in the same PR
 (step 8 of the plan). No other file, nothing under `schema/`, nothing under `crates/fathom-ir/`.
 
 | File | Change |
 |---|---|
-| `rust-toolchain.toml` | Adds the target line, verbatim (§4.1) |
 | `Cargo.toml` | Adds the member line and the release profile, verbatim (§4.1) |
+| `Cargo.lock` | The hunk cargo generates for the new member; it rides the same commit (`78` §5 item 7's manifest exception) |
 | `crates/fathom-corpus/src/load.rs` | Source-level loading: `Section`, `SourceFile`, `load_corpus_sources` (§4.2) |
 | `crates/fathom-corpus/src/index.rs` | `CorpusIndex::from_sources` (§4.2) |
 | `crates/fathom-corpus/src/lib.rs` | One re-export line (§4.2) |
@@ -170,7 +170,10 @@ invariant 9 wants (the shell's only input path is `OP_INIT`'s bytes). The target
 component of the already-pinned 1.94.1 channel, installed by the same rustup mechanism `ci.yml`
 already relies on — it is toolchain, not a dependency (`78` §2's pin row governs, not §5.2).
 
-`rust-toolchain.toml`, whole file after the edit:
+**`rust-toolchain.toml` is not this work order's to edit, and does not need editing.** `78` §5
+item 7 names it in the list that *"admit no work-order exception — a work order instructing such
+an edit is malformed under §8"*; an earlier draft of this order instructed one, which made it
+unexecutable. The line is already on disk, added outside the queue (`88` §4.1):
 
 ```toml
 # Locked toolchain (71 §3.3 xtask row: "locked toolchain"; 35 §4 reproducibility).
@@ -179,6 +182,9 @@ channel = "1.94.1"
 components = ["rustfmt", "clippy"]
 targets = ["wasm32-unknown-unknown"]
 ```
+
+A session that finds the `targets` line absent stops under §7 item 1 and escalates; it does not
+add it.
 
 `Cargo.toml` — the members list gains one line immediately after `"crates/fathom-schemagen",`
 (alphabetical; correct whether or not WO-02's `fathom-graph` line has landed):
@@ -653,8 +659,9 @@ and its citation edited in the same change.
 Each step ends with `cargo build --workspace` (and from step 4, `cargo test --workspace`) green
 unless marked.
 
-1. Apply two of §4.1's three manifest edits verbatim: the `rust-toolchain.toml` targets line and
-   the `Cargo.toml` `[profile.release]` append. **Not the member line** — it is step 4's, with
+1. Apply one of §4.1's two `Cargo.toml` edits verbatim: the `[profile.release]` append. Confirm
+   `rust-toolchain.toml` already carries `targets = ["wasm32-unknown-unknown"]` — it is not this
+   order's to edit (§4.1); if it is absent, stop under §7 item 1. **Not the member line** — it is step 4's, with
    the crate it names (§4.1's staging note: a member with no directory fails every cargo
    command). Run `cargo build --target wasm32-unknown-unknown -p fathom-find`; rustup installs
    the pinned channel's `rust-std` for the target on first use — if the environment's rustup
@@ -679,7 +686,7 @@ unless marked.
 6. Write `tests/protocol.rs` (§4.6). Green.
 7. Run every gate in §6 in order. All green, or stop under §7 / `78` §4. Quote G6's printed
    measurements and G7's two identical hashes in the PR body.
-8. **Bookkeeping.** Status line → `DONE`; mirror the `00-INDEX.md` row if the index exists by
+8. **Bookkeeping.** Status line → `DONE`; mirror the `00-INDEX.md` row by
    then (its absence today is flagged by `78` §3 step 2's own VERIFY and is not this session's
    to fix). Commit per `78` §3.9, push, open the PR listing every gate's output verbatim. Do
    not merge.

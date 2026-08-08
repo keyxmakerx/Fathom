@@ -85,7 +85,11 @@ fn dump(finder: &Finder, result: &SearchResult) -> String {
 fn golden_queries() {
     let text = include_str!("golden.txt");
     let cases = parse_cases(text);
-    assert!(cases.len() >= 19, "the golden set stays meaningfully sized");
+    assert_eq!(
+        cases.len(),
+        25,
+        "the golden set is exactly 25 cases (WO-06); grow it deliberately and re-pin"
+    );
 
     // Two engines, independently constructed from disk.
     let finder_a = Finder::new(CorpusIndex::load(&corpus_root()).expect("corpus loads"));
@@ -220,4 +224,36 @@ fn diagnostic_query_never_ranks_disruptive_above_readonly() {
             }
         }
     }
+}
+
+/// WO-06 MINOR 2 — 16 §6.4's token branch has no key-length term, so the
+/// four keys that align every token of trace B's query tie on syntax and
+/// are separated by concept, prior and §8.4's ordering key. §13 expected
+/// the exact leaf to lead; the contradiction is filed in 73 §14. Pinned so
+/// any future tie-break arrives as a deliberate diff here, with its
+/// golden-set delta (16 §8.5), never as drift.
+#[test]
+fn trace_b_syntax_tie_is_pinned() {
+    let finder = Finder::new(CorpusIndex::load(&corpus_root()).unwrap());
+    let r = finder.search("show security ike sec assoc");
+    let syn_of = |id: &str| {
+        r.shown
+            .iter()
+            .find(|row| finder.index.entry(row.entry).id == id)
+            .unwrap_or_else(|| panic!("{id} not in the shown list"))
+            .contributions
+            .syntax
+    };
+    let node_all = syn_of("junos-srx/ike.sa.show-node-all");
+    let bare = syn_of("junos-srx/ike.sa.show");
+    let detail = syn_of("junos-srx/ike.sa.show-detail");
+    let index_detail = syn_of("junos-srx/ike.sa.show-index-detail");
+    assert_eq!(node_all.to_bits(), bare.to_bits());
+    assert_eq!(bare.to_bits(), detail.to_bits());
+    assert_eq!(detail.to_bits(), index_detail.to_bits());
+    // w_s 2.0 × g_syn 0.80 × Ŝ 1.000 — the tie's value.
+    assert!(
+        (node_all - 1.600).abs() < 1e-9,
+        "syntax tie moved: {node_all}"
+    );
 }

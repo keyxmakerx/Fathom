@@ -1,6 +1,15 @@
 # 71 — Roadmap: what to build, in what order, and why
 
-> **Status:** Proposed
+> **Status:** Proposed — **superseded as a plan** (see the banner below); retained as an effort model
+
+> **This document's phase scheme no longer decides what ships.** ADR-0031 (Proposed) retires phases
+> as a scoping device after the owner's *"All features must be included in V1"* (`70` §4). The live
+> build order is `76` §7.2's S-slices as refined by `docs/70-ops/79-work-orders/00-INDEX.md`, under
+> `78`. Two parts of this document are **not** superseded and remain in force: §13.1's thirteen
+> permanent product boundaries (*"a permanent decision, not a phase-N limitation"*), and §13.2's
+> reproducible-build row, which `71` itself calls *"the one deferral here with a hard deadline"*.
+> Deliberately not repaired sentence by sentence: the unit of organisation is the thing that
+> changed, and ADR-0006's six ordered edits are to a plan being replaced (`88` §5.10, ADR-0031 §5).
 
 Companion documents: `docs/10-core/16-command-finder.md` (phase 0's machine),
 `docs/60-content/61-command-corpus-spec.md` and `docs/10-core/15-explainer-corpus.md`

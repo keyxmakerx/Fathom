@@ -10,3 +10,8 @@ description = "The IR's type home: scalar/value binding targets (stubs), the fie
 # Workspace-internal only. The no-external-dependencies position (35, workspace
 # Cargo.toml) holds: fathom-id needs nothing but core.
 fathom-id = { path = "../fathom-id" }
+
+[dev-dependencies]
+# The scalar weld test reads schema/schema.yaml's scalars: block back through
+# the subset parser. No cycle: fathom-schema depends on nothing.
+fathom-schema = { path = "../fathom-schema" }

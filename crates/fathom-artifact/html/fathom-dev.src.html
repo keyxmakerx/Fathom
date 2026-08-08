@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'unsafe-inline' 'wasm-unsafe-eval';
+  style-src 'unsafe-inline';
+  img-src data:;
+  font-src data:;
+  connect-src 'none';
+  worker-src blob:;
+  child-src 'none';
+  frame-src 'none';
+  form-action 'none';
+  base-uri 'none';
+  object-src 'none';
+  media-src 'none';
+  manifest-src 'none';
+  require-trusted-types-for 'script';
+  trusted-types fathom-dom fathom-worker;
+">
+<meta name="referrer" content="no-referrer">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fathom — the inventory face · dev artifact</title>
+
+<!-- ==========================================================================
+     THE DEV ARTIFACT'S SHELL SOURCE (WO-08 §4.5).
+
+     One file, zero subresources. design/tokens.css is spliced into the style
+     element below, and the WebAssembly module is spliced in as base64 at the
+     head of the script; the assembler is crates/fathom-artifact, which
+     replaces each of its two tokens exactly once or refuses.
+
+     Check by grep: no dynamic import, no XHR, no WebSocket, no EventSource,
+     no sendBeacon, no script src, and nothing is retrieved over a network
+     (invariant 1). The module is instantiated from a Uint8Array built from
+     the inline base64 — 42 §8.2's mode A, "never fetched".
+
+     Check by grep also: no HTML-string sink anywhere below. Every node is
+     built with createElement and textContent, which is what makes the CSP's
+     require-trusted-types-for directive real rather than decorative. The
+     prototype's HTML-string idiom is deliberately not carried (WO-08 §3.1).
+
+     Every join, count and walk happens in Rust, inside the module. The code
+     below renders the strings a reply carries and computes nothing about the
+     graph (ADR-0019: "Views are pure functions of typed data").
+     ========================================================================== -->
+
+<style>
+@FATHOM_TOKENS_CSS@
+
+/* --------------------------------------------------------------- shell -- */
+html, body { height: 100%; }
+body { overflow-y: auto; }
+.sheet {
+  max-width: var(--sheet); margin: 0 auto; height: 100dvh; min-height: 0;
+  display: flex; flex-direction: column; padding: 0 var(--s4);
+  background: var(--page);
+}
+.mast-rule { flex: none; border-top: var(--rule-mast) solid var(--ink); }
+.masthead {
+  flex: none; display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--s5); padding: var(--s2) 0 var(--s1);
+  border-bottom: var(--rule-hair) solid var(--ink);
+}
+.mast-l { min-width: 0; }
+.masthead h1 {
+  margin: 0; font-size: var(--t-title); line-height: var(--lh-title);
+  letter-spacing: var(--track-mast); text-transform: uppercase; font-weight: 700;
+}
+.sub { font-size: var(--t-micro); line-height: var(--lh-micro); color: var(--muted);
+       letter-spacing: var(--track-label); text-transform: uppercase; }
+.ribbon { font-size: var(--t-micro); line-height: var(--lh-micro); color: var(--muted); }
+.ribbon .m { color: var(--ink); font-family: var(--mono); }
+.imperative { font-size: var(--t-tab); line-height: var(--lh-micro); font-weight: 700;
+              letter-spacing: var(--track-head); text-transform: uppercase; margin-top: var(--s1); }
+.tabs { display: flex; flex-direction: column; align-items: flex-end; gap: 0; flex: none; }
+.tab { font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
+       text-transform: lowercase; letter-spacing: 0; white-space: nowrap; }
+button.tab { background: none; border: 0; padding: 0; cursor: pointer; text-align: right;
+             border-bottom: var(--rule-hair) dotted var(--muted); }
+button.tab:hover { color: var(--ink); }
+
+/* --- risk legend (54 §6). Required chrome, never collapsed, never moves. -- */
+.legend {
+  flex: none; display: flex; flex-wrap: wrap; gap: var(--s4);
+  margin: 0; padding: var(--s1) 0; list-style: none;
+  border-bottom: var(--rule-hair) solid var(--hairline); background: var(--page);
+}
+.legend-item {
+  display: flex; align-items: center; gap: var(--s2);
+  font-size: var(--t-micro); line-height: var(--lh-micro); font-weight: 700;
+  letter-spacing: var(--track-legend); text-transform: uppercase;
+  border-left: var(--rule-accent) solid; padding-left: var(--s2);
+}
+.r-safe    { color: var(--safe);    background: var(--safe-wash);    border-left-color: var(--safe); }
+.r-caution { color: var(--caution); background: var(--caution-wash); border-left-color: var(--caution); }
+.r-danger  { color: var(--danger);  background: var(--danger-wash);  border-left-color: var(--danger); }
+
+/* --- the view band. One registry array drives it. ------------------------- */
+.band { flex: none; display: flex; flex-wrap: wrap; gap: var(--s4);
+        padding: var(--s1) 0 0; border-bottom: var(--rule-hair) solid var(--hairline); }
+.band button {
+  background: none; border: 0; padding: 0 0 var(--s1); cursor: pointer;
+  font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
+  text-transform: lowercase; border-bottom: var(--rule-mast) solid transparent;
+}
+.band button:hover { color: var(--ink); }
+.band button[aria-current="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.band .cnt { color: var(--muted); }
+.band .backing { font-size: var(--t-tab); color: var(--muted); margin-left: auto;
+                 text-transform: lowercase; }
+
+/* =============================================================== ledger == */
+.ledger { flex: 1 1 auto; min-height: 0; position: relative;
+          display: grid; grid-template-columns: 62fr 38fr; column-gap: 0; }
+.sheet[data-width="narrow"] .ledger {
+  grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) fit-content(50%); }
+.col { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.col.meaning { border-left: var(--rule-hair) solid var(--ink); }
+.sheet[data-width="narrow"] .col.meaning {
+  border-left: 0; border-top: var(--rule-hair) solid var(--ink); }
+.colhead {
+  flex: none; display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s3); padding: var(--s1) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline); background: var(--page);
+}
+.colhead h2 { margin: 0; font-size: var(--t-micro); line-height: var(--lh-micro);
+              font-weight: 700; letter-spacing: var(--track-head); text-transform: uppercase; }
+.colhead .folio { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
+                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.colbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.pad { padding: var(--s3); }
+
+/* --- the inspector's faces ------------------------------------------------ */
+.faces { display: flex; gap: var(--s3); }
+.faces button {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font-size: var(--t-tab); line-height: var(--lh-micro);
+  color: var(--muted); text-transform: lowercase;
+}
+.faces button[aria-pressed="true"] { color: var(--ink); font-weight: 700; }
+.faces button:hover { color: var(--ink); }
+
+/* --- mono line, section heading, prose, stamp ----------------------------- */
+.cmd { font-family: var(--mono); font-size: var(--t-mono); word-break: break-word; }
+.sh { font-size: var(--t-micro); line-height: var(--lh-micro); font-weight: 700;
+      letter-spacing: var(--track-head); text-transform: uppercase;
+      color: var(--muted); margin: var(--s4) 0 var(--s1); }
+.sh:first-child { margin-top: 0; }
+.prose { font-size: var(--t-body); line-height: var(--lh-step);
+         max-width: var(--measure); margin: 0; }
+.stamp { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
+         word-break: break-word; }
+
+/* --- two-column hairline table. Horizontal rules only. -------------------- */
+.kv { width: 100%; border-collapse: collapse; font-size: var(--t-small); }
+.kv th, .kv td { text-align: left; vertical-align: top;
+                 padding: var(--s1) var(--s3) var(--s1) 0;
+                 border-bottom: var(--rule-hair) solid var(--hairline); }
+.kv th { width: 34%; font-family: var(--mono); font-size: var(--t-mono);
+         font-weight: 400; color: var(--ink); }
+.kv .mu { color: var(--muted); }
+
+/* --- the 4px accent note. Never a box, never an icon. --------------------- */
+.note { border-left: var(--rule-accent) solid var(--ink); background: var(--surface-2);
+        padding: var(--s2) var(--s3); margin: var(--s3) 0; font-size: var(--t-small); }
+.note b { text-transform: uppercase; letter-spacing: var(--track-label); font-size: var(--t-micro); }
+
+/* --- unposted: the honesty device (58 §5.1). Dotted = pending. ------------ */
+.unposted { border-left: var(--rule-accent) var(--rule-style-pending) var(--muted);
+            background: var(--page); padding: var(--s2) var(--s3); margin: 0 0 var(--s3); }
+.unposted .lab { font-size: var(--t-micro); font-weight: 700; color: var(--muted);
+                 letter-spacing: var(--track-head); text-transform: uppercase; display: block; }
+
+/* --- toggles / strips ----------------------------------------------------- */
+.strip { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: baseline;
+         padding: var(--s2) 0; }
+.strip button, .act {
+  background: var(--page); color: var(--ink);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: 0 var(--s2); cursor: pointer; min-height: var(--row-min);
+  font-size: var(--t-tab); letter-spacing: var(--track-label); text-transform: uppercase;
+}
+.strip button[aria-pressed="true"] { background: var(--surface); border-color: var(--ink); }
+.strip button:hover, .act:hover { background: var(--surface); }
+.strip .lab { font-size: var(--t-micro); color: var(--muted);
+              letter-spacing: var(--track-label); text-transform: uppercase; }
+
+/* --- inventory table ------------------------------------------------------ */
+.inv { width: 100%; border-collapse: collapse; font-size: var(--t-small); }
+.inv th { text-align: left; font-size: var(--t-micro); font-weight: 700;
+          letter-spacing: var(--track-label); text-transform: uppercase; color: var(--muted);
+          padding: var(--s1) var(--s3) var(--s1) 0;
+          border-bottom: var(--rule-hair) solid var(--ink); white-space: nowrap; }
+.inv td { padding: 0; border-bottom: var(--rule-hair) solid var(--hairline);
+          vertical-align: top; }
+.inv td button, .inv td .cell {
+  display: block; width: 100%; text-align: left; background: none; border: 0;
+  padding: var(--s1) var(--s3) var(--s1) 0; cursor: pointer;
+  font-family: var(--mono); font-size: var(--t-mono); color: var(--ink);
+  min-height: var(--row-min); white-space: nowrap; }
+.inv td .cell { cursor: default; }
+.invwrap { overflow-x: auto; }
+/* The opinions column is not a field — it must never scroll out of view. */
+.inv th.opcol, .inv td.opcol {
+  position: sticky; right: 0; background: var(--page);
+  border-left: var(--rule-hair) solid var(--hairline); }
+.inv tr[data-tier="primary"] td { background: var(--surface); }
+/* A LogicalUnit row sits under its owner. Presentation keyed off the kind
+   word the reply carries — never a join computed here (WO-08 §4.6). */
+.inv tr[data-unit="true"] td:first-child button { padding-left: var(--s4); }
+.inv .op { font-family: var(--sans); font-size: var(--t-small); }
+.inv .mu { color: var(--muted); }
+.inv td button:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
+                               outline-offset: var(--focus-offset-inset); }
+
+/* --- footer --------------------------------------------------------------- */
+.foot { flex: none; display: flex; flex-wrap: wrap; gap: var(--s4);
+        justify-content: space-between; align-items: baseline;
+        border-top: var(--rule-hair) solid var(--ink);
+        padding: var(--s1) 0 var(--s2);
+        font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted); }
+.foot .now { font-size: var(--t-micro); font-weight: 700;
+             letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink); }
+.foot .msg { color: var(--ink); font-family: var(--mono); }
+
+/* --- the finder overlay (54 §12). Trap, no aria-modal. -------------------- */
+.scrim { position: absolute; inset: 0; z-index: calc(var(--z-modal) - 1);
+         background: var(--page); opacity: var(--scrim-opacity); }
+.fsheet { position: absolute; z-index: var(--z-modal);
+          top: 0; left: 0; right: 0; height: 60%;
+          display: flex; flex-direction: column; background: var(--page);
+          border: var(--rule-hair) solid var(--ink);
+          border-radius: var(--radius); box-shadow: var(--shadow); }
+.frow { display: flex; align-items: stretch; flex: none;
+        border-bottom: var(--rule-hair) solid var(--hairline); }
+.fkey { display: flex; align-items: center; flex: none;
+        font-family: var(--mono); font-size: var(--t-micro); color: var(--muted);
+        padding: 0 var(--s3); border-right: var(--rule-hair) solid var(--hairline); }
+.fq { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink);
+      font-family: var(--mono); font-size: var(--t-mast); padding: var(--s2) var(--s3); }
+.fq::placeholder { color: var(--muted); }
+.fhits { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--s3); }
+.ffoot { flex: none; display: flex; justify-content: space-between; gap: var(--s4);
+         padding: var(--s1) var(--s3); border-top: var(--rule-hair) solid var(--hairline);
+         font-size: var(--t-tab); color: var(--muted); }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="sheet" id="sheet" data-width="wide">
+  <div class="mast-rule"></div>
+
+  <header class="masthead">
+    <div class="mast-l">
+      <h1 id="mTitle">Inventory</h1>
+      <div class="sub" id="mSub"></div>
+      <div class="ribbon" id="mRibbon"></div>
+      <div class="imperative" id="mImp"></div>
+    </div>
+    <div class="tabs">
+      <span class="tab">no sockets, ever</span>
+      <span class="tab">demo estate · not corpus data</span>
+      <button type="button" class="tab" id="tabTheme">theme · auto</button>
+    </div>
+  </header>
+
+  <!-- 54 §6 placement rule: the legend appears on every view that renders a
+       Risk value, always in the same place, never collapsed. -->
+  <ul class="legend" aria-label="Risk legend">
+    <li class="legend-item r-safe">Read-only — safe on production</li>
+    <li class="legend-item r-caution">Changes config — needs a commit</li>
+    <li class="legend-item r-danger">Disruptive — drops live traffic</li>
+  </ul>
+
+  <nav class="band" id="band" aria-label="Views" data-rove="h"></nav>
+
+  <main class="ledger" id="ledger">
+    <section class="col fact" aria-labelledby="factHead">
+      <div class="colhead">
+        <h2 id="factHead">Fact — what is</h2>
+        <span class="folio" id="factFolio"></span>
+      </div>
+      <div class="colbody" id="factBody" tabindex="-1"></div>
+    </section>
+
+    <section class="col meaning" aria-labelledby="meanHead">
+      <div class="colhead">
+        <div class="faces" role="group" aria-label="Inspector face" id="faceTabs">
+          <h2 id="meanHead" class="vh">Meaning column</h2>
+          <button type="button" data-face="meaning">meaning</button>
+          <button type="button" data-face="equipment">equipment</button>
+        </div>
+      </div>
+      <div class="colbody" id="meanBody" tabindex="-1"></div>
+    </section>
+
+    <div class="scrim" id="scrim" hidden></div>
+    <div class="fsheet" id="fsheet" role="dialog" aria-label="Command finder" hidden>
+      <div class="frow">
+        <span class="fkey" aria-hidden="true">Ctrl K</span>
+        <input class="fq" id="fq" type="text" placeholder="the finder arrives with a later work order"
+               aria-label="Find a command" autocomplete="off" spellcheck="false" disabled>
+      </div>
+      <div class="fhits" id="fhits"></div>
+      <div class="ffoot">
+        <span>esc close</span>
+        <span>no corpus is loaded in this build</span>
+      </div>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <span class="now" id="fNow"></span>
+    <span id="fNav"></span>
+    <span class="msg" id="fMsg"></span>
+    <span>offline artifact · zero subresources</span>
+  </footer>
+</div>
+<span class="vh" role="status" aria-live="polite" id="live"></span>
+
+<script>
+(function () {
+'use strict';
+
+/* -------------------------------------------------------------------------
+   0. THE MODULE, INLINE. 42 §8.2 mode A: base64 -> Uint8Array -> instantiate.
+   Nothing in this file is retrieved from anywhere.
+   ------------------------------------------------------------------------- */
+var FATHOM_WASM_B64 = "@FATHOM_WASM_B64@";
+
+var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14;
+var FACE_HEADER = 0, FACE_INV = 1, FACE_FIELD = 2, FACE_PORT = 3, FACE_IFACE = 4;
+
+var wasm = null;                 /* the instance's exports */
+var DEC = new TextDecoder();     /* one decoder, one decode per reply (41 §3.4) */
+
+function moduleBytes() {
+  var bin = atob(FATHOM_WASM_B64);
+  var out = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+  return out;
+}
+
+/* 41 §3.7's Core.call, in hand-authored JS. One crossing per user intention
+   (ADR-0019). The reply arena is valid only until the next fathom_call, so
+   the bytes are copied and decoded fully before this returns and no view
+   outlives the crossing. */
+function call(op, req) {
+  if (!wasm) return { kind: 'refusal', text: 'the module is not instantiated' };
+  req = req || new Uint8Array(0);
+  var ptr = wasm.fathom_alloc(req.length);
+  if (req.length) new Uint8Array(wasm.memory.buffer, ptr, req.length).set(req);
+  var h = wasm.fathom_call(op, ptr, req.length);
+  if (h === 0n) return { kind: 'empty' };
+  var p = Number(h >> 32n), len = Number(h & 0xFFFFFFFFn);
+  var bytes = new Uint8Array(wasm.memory.buffer, p, len).slice();
+  return decode(bytes);
+}
+
+/* The reader — protocol.rs's decode_reply for kinds 0 and 5 only. Any other
+   magic, version or kind is a visible refusal, never a guess and never an
+   uncaught exception. */
+function refusal(t) { return { kind: 'refusal', text: t }; }
+
+function blobIndex(blob) {
+  /* byte offset -> index into the decoded string, in one pass. */
+  var map = new Int32Array(blob.length + 1), b = 0, s = 0, k, n, c;
+  while (b < blob.length) {
+    c = blob[b];
+    n = c < 0xc0 ? 1 : c < 0xe0 ? 2 : c < 0xf0 ? 3 : 4;
+    for (k = 0; k < n && b + k < blob.length; k++) map[b + k] = s;
+    s += (n === 4 ? 2 : 1);
+    b += n;
+  }
+  map[blob.length] = s;
+  return map;
+}
+
+function decode(bytes) {
+  if (bytes.length === 0) return { kind: 'empty' };
+  if (bytes.length < 16) return refusal('reply is ' + bytes.length + ' bytes: shorter than the header');
+  if (!(bytes[0] === 70 && bytes[1] === 68 && bytes[2] === 76 && bytes[3] === 84))
+    return refusal('bad magic at offset 0');
+  var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  var version = dv.getUint16(4, true);
+  if (version !== 1) return refusal('unknown version ' + version + ' at offset 4');
+  var recKind = dv.getUint16(6, true);
+  var count = dv.getUint32(8, true);
+  var stride = dv.getUint32(12, true);
+  if (recKind !== 0 && recKind !== 5) return refusal('unknown record_kind ' + recKind + ' at offset 6');
+  var want = recKind === 0 ? 28 : 72;
+  if (stride !== want) return refusal('record_stride ' + stride + ' at offset 12 is not ' + want);
+  var blobLenOff = 16 + count * stride;
+  if (bytes.length < blobLenOff + 4) return refusal('record_count ' + count + ' runs past the reply');
+  var blobLen = dv.getUint32(blobLenOff, true);
+  var blobOff = blobLenOff + 4;
+  if (bytes.length !== blobOff + blobLen) return refusal('strings_len ' + blobLen + ' does not match the reply length');
+
+  var blob = bytes.subarray(blobOff);
+  var text = DEC.decode(blob);
+  var map = blobIndex(blob);
+  function str(at) {
+    var off = dv.getUint32(at, true), len = dv.getUint32(at + 4, true);
+    if (len === 0) return '';
+    if (off + len > blob.length) return '';
+    return text.slice(map[off], map[off + len]);
+  }
+
+  if (recKind === 0) {
+    if (count !== 1) return refusal('an error reply carries exactly one record');
+    return { kind: 'error', code: dv.getUint16(16, true), detail: str(36) };
+  }
+
+  var rows = [], i, s, base, slots;
+  for (i = 0; i < count; i++) {
+    base = 16 + i * stride;
+    slots = [];
+    for (s = 0; s < 8; s++) slots.push(str(base + 8 + s * 8));
+    rows.push({ role: bytes[base], slotCount: dv.getUint32(base + 4, true), s: slots });
+  }
+  return { kind: 'face', rows: rows };
+}
+
+/* -------------------------------------------------------------------------
+   1. STATE. The views are renderings of one selection over one graph. S holds
+   only what is rendered — the view, the kind, the selection id, the inspector
+   face and the last replies — and is rebuilt from replies, never written to
+   (41 §3.10).
+   ------------------------------------------------------------------------- */
+var S = {
+  view: 'inventory',
+  invKind: 0,
+  sel: null,
+  face: 'meaning',
+  inv: null,
+  element: null,
+  equipment: null,
+  loaded: false,
+  boot: null,
+  msg: ''
+};
+
+var KINDS = ['Device', 'PhysicalPort', 'Premises'];
+
+var VIEWS = [
+  { id: 'finder',      t: 'Finder',      key: '⌥1',
+    imp: 'A command reference, not a connection — nothing here runs anywhere' },
+  { id: 'walkthrough', t: 'Walkthrough', key: '⌥2',
+    imp: 'The walkthrough writes to the graph — everything else reads' },
+  { id: 'config',      t: 'Config — change set', key: '⌥3',
+    imp: 'Copy-paste only — Fathom never touches a device' },
+  { id: 'findings',    t: 'Findings',    key: '⌥4',
+    imp: 'Continuous lint over the graph — not a report you run' },
+  { id: 'diagram',     t: 'Diagram',     key: '⌥5',
+    imp: 'A design tool, not a source of truth — verify against your own box' },
+  { id: 'inventory',   t: 'Inventory',   key: '⌥6',
+    imp: 'Facts that argue back — the rightmost column is not a field' }
+];
+var UNBUILT = 'unposted — this view arrives with a later work order; ' +
+              'the inventory face (⌥6) is live in this build';
+
+function viewIdx(id) { var i; for (i = 0; i < VIEWS.length; i++) if (VIEWS[i].id === id) return i; return 5; }
+function viewMeta(id) { return VIEWS[viewIdx(id)]; }
+
+/* --- tiny helpers --------------------------------------------------------- */
+var $ = function (id) { return document.getElementById(id); };
+function el(tag, cls, txt) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (txt !== undefined && txt !== null) n.textContent = txt;
+  return n;
+}
+function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+function foot(msg) { S.msg = msg; $('fMsg').textContent = msg; }
+
+function unposted(host, label, body) {
+  var u = el('div', 'unposted');
+  u.appendChild(el('span', 'lab', label));
+  u.appendChild(el('span', null, body));
+  host.appendChild(u);
+}
+
+/* A reply that is not the shape this face asked for is shown, not swallowed. */
+function replyProblem(reply) {
+  if (!reply) return 'no reply';
+  if (reply.kind === 'refusal') return 'the reply was refused: ' + reply.text;
+  if (reply.kind === 'error') return 'the module refused: code ' + reply.code + ' · ' + reply.detail;
+  if (reply.kind !== 'face') return 'unexpected reply kind';
+  return null;
+}
+
+/* -------------------------------------------------------------------------
+   2. THE FACE — the inventory table, the inspector, the equipment page.
+   Every string below arrives in a reply. Nothing here joins, counts or walks.
+   ------------------------------------------------------------------------- */
+function renderInventory(host) {
+  var p = el('div', 'pad');
+  var strip = el('div', 'strip');
+  strip.appendChild(el('span', 'lab', 'kind — a row set is a kind plus a filter'));
+  KINDS.forEach(function (k, i) {
+    var b = el('button', null, k);
+    b.type = 'button';
+    b.setAttribute('data-kind', String(i));
+    b.setAttribute('aria-pressed', String(S.invKind === i));
+    strip.appendChild(b);
+  });
+  strip.appendChild(el('span', 'lab', 'columns generated from schema.yaml · opinions is not a field'));
+  p.appendChild(strip);
+  host.appendChild(p);
+
+  if (!S.loaded) {
+    var np = el('div', 'pad');
+    unposted(np, 'inventory',
+      'no workspace loaded — this dev artifact loads the demo estate with ?fixture=demo-estate');
+    if (S.boot) np.appendChild(el('p', 'prose', S.boot));
+    host.appendChild(np);
+    return;
+  }
+
+  var bad = replyProblem(S.inv);
+  if (bad) { var bp = el('div', 'pad'); unposted(bp, 'inventory', bad); host.appendChild(bp); return; }
+
+  var head = S.inv.rows[0];
+  var cols = head.slotCount - 2;
+  var t = el('table', 'inv');
+  var thead = el('thead'), htr = el('tr'), c;
+  for (c = 0; c < cols; c++) htr.appendChild(el('th', null, head.s[1 + c]));
+  htr.appendChild(el('th', 'opcol', head.s[7]));
+  thead.appendChild(htr);
+  t.appendChild(thead);
+
+  var tb = el('tbody');
+  tb.setAttribute('data-rove', 'v');
+  S.inv.rows.slice(1).forEach(function (r) {
+    var tr = el('tr');
+    if (S.sel === r.s[0]) tr.setAttribute('data-tier', 'primary');
+    for (var ci = 0; ci < cols; ci++) {
+      var td = el('td');
+      var b = el('button', null, r.s[1 + ci]);
+      b.type = 'button';
+      b.setAttribute('data-post', r.s[0]);
+      if (ci === 0) b.setAttribute('data-rove-item', '');
+      td.appendChild(b);
+      tr.appendChild(td);
+    }
+    var tdo = el('td', 'opcol');
+    tdo.appendChild(el('span', 'cell op', r.s[7]));
+    tr.appendChild(tdo);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  var tw = el('div', 'pad invwrap');
+  tw.appendChild(t);
+  host.appendChild(tw);
+
+  note(host, 'Demo estate · not corpus data',
+    'No inventory ships in the corpus. This estate is constructed by checked-in code ' +
+    '(fathom-inventory::demo_estate()), consistent with schema/schema.yaml, and labelled ' +
+    'as a demo everywhere it appears.');
+  note(host, 'The rightmost column is not a field',
+    'It is the per-row finding aggregate (52 §3.7.1). No rule engine is in this build, so ' +
+    'every cell reads —. The column stays: you cannot look at the inventory without seeing ' +
+    'what the rule engine thinks of each row, including that it is not here yet.');
+}
+
+function note(host, lead, body) {
+  var n = el('div', 'note');
+  n.appendChild(el('b', null, lead));
+  n.appendChild(document.createElement('br'));
+  n.appendChild(document.createTextNode(body));
+  host.appendChild(n);
+}
+
+/* --- the inspector's meaning face ----------------------------------------- */
+function renderMeaningFace(host) {
+  if (!S.sel) {
+    var p0 = el('div', 'pad');
+    unposted(p0, 'meaning', 'nothing posted — select a row on the left.');
+    host.appendChild(p0);
+    return;
+  }
+  var bad = replyProblem(S.element);
+  var p = el('div', 'pad');
+  if (bad) { unposted(p, 'meaning', bad); host.appendChild(p); return; }
+
+  var h = S.element.rows[0];
+  p.appendChild(el('div', 'sh', h.s[0]));
+  p.appendChild(el('div', 'cmd', h.s[1]));
+  p.appendChild(el('div', 'stamp', h.s[2]));       /* the id, in full, never truncated */
+  if (h.s[3]) p.appendChild(el('div', 'stamp', h.s[3]));
+
+  p.appendChild(el('div', 'sh', 'Fields — generated from schema.yaml'));
+  p.appendChild(fieldTable(S.element.rows.slice(1)));
+  host.appendChild(p);
+}
+
+function fieldTable(records) {
+  var t = el('table', 'kv'), tb = el('tbody');
+  records.forEach(function (r) {
+    if (r.role !== FACE_FIELD) return;
+    var tr = el('tr');
+    var th = el('th', null, r.s[0]);
+    th.setAttribute('scope', 'row');
+    tr.appendChild(th);
+    tr.appendChild(el('td', null, r.s[1]));
+    tr.appendChild(el('td', 'mu', r.s[2]));
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  return t;
+}
+
+/* --- the inspector's equipment face — the inspector grown (52 §2.3) ------- */
+function renderEquipmentFace(host) {
+  var p = el('div', 'pad');
+  var bad = S.equipment ? replyProblem(S.equipment) : null;
+  if (bad) { unposted(p, 'equipment', bad); host.appendChild(p); return; }
+  if (!S.equipment || S.equipment.rows.length === 0) {
+    unposted(p, 'No equipment selected',
+      'select a device, a port or a premises anywhere on the left and this face becomes ' +
+      'its per-equipment page.');
+    host.appendChild(p);
+    return;
+  }
+
+  var rows = S.equipment.rows;
+  var h = rows[0];
+  p.appendChild(el('div', 'sh', h.s[0]));
+  p.appendChild(el('div', 'cmd', h.s[1]));
+  p.appendChild(el('div', 'stamp', h.s[2]));
+  if (h.s[3]) p.appendChild(el('div', 'stamp', h.s[3]));
+
+  p.appendChild(el('div', 'sh', 'Fields — generated from schema.yaml'));
+  p.appendChild(fieldTable(rows));
+
+  var ports = rows.filter(function (r) { return r.role === FACE_PORT; });
+  p.appendChild(el('div', 'sh', 'Ports — every one, named'));
+  p.appendChild(portTable(ports));
+
+  var ifaces = rows.filter(function (r) { return r.role === FACE_IFACE; });
+  p.appendChild(el('div', 'sh', 'Interfaces — configuration objects'));
+  p.appendChild(ifaceTable(ifaces));
+
+  var fp = el('div');
+  unposted(fp, 'Findings anchored here', 'unposted — no rule engine in this build');
+  p.appendChild(el('div', 'sh', ' '));
+  p.appendChild(fp);
+  host.appendChild(p);
+}
+
+function headRow(cols) {
+  var thead = el('thead'), tr = el('tr');
+  cols.forEach(function (c) { tr.appendChild(el('th', null, c)); });
+  thead.appendChild(tr);
+  return thead;
+}
+
+function portTable(records) {
+  var t = el('table', 'inv');
+  t.appendChild(headRow(['label', 'chassis', 'connector', 'service', 'cables to']));
+  var tb = el('tbody');
+  tb.setAttribute('data-rove', 'v');
+  records.forEach(function (r) {
+    var tr = el('tr');
+    var td0 = el('td');
+    var b0 = el('button', null, r.s[1]);
+    b0.type = 'button';
+    b0.setAttribute('data-post', r.s[0]);
+    b0.setAttribute('data-rove-item', '');
+    td0.appendChild(b0);
+    tr.appendChild(td0);
+    [r.s[2], r.s[3], r.s[4]].forEach(function (v) {
+      var td = el('td');
+      td.appendChild(el('span', 'cell', v));
+      tr.appendChild(td);
+    });
+    var tdc = el('td');
+    if (r.s[6]) {
+      var bf = el('button', null, r.s[5]);
+      bf.type = 'button';
+      bf.setAttribute('data-far', r.s[6]);
+      tdc.appendChild(bf);
+    } else {
+      tdc.appendChild(el('span', 'cell mu', r.s[5]));
+    }
+    tr.appendChild(tdc);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  var w = el('div', 'invwrap');
+  w.appendChild(t);
+  return w;
+}
+
+function ifaceTable(records) {
+  var t = el('table', 'inv');
+  t.appendChild(headRow(['name', 'kind', 'ports']));
+  var tb = el('tbody');
+  tb.setAttribute('data-rove', 'v');
+  records.forEach(function (r) {
+    var tr = el('tr');
+    if (r.s[2] === 'LogicalUnit') tr.setAttribute('data-unit', 'true');
+    var td0 = el('td');
+    var b0 = el('button', null, r.s[1]);
+    b0.type = 'button';
+    b0.setAttribute('data-post', r.s[0]);
+    b0.setAttribute('data-rove-item', '');
+    td0.appendChild(b0);
+    tr.appendChild(td0);
+    [r.s[2], r.s[3]].forEach(function (v) {
+      var td = el('td');
+      td.appendChild(el('span', 'cell', v));
+      tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  var w = el('div', 'invwrap');
+  w.appendChild(t);
+  return w;
+}
+
+/* -------------------------------------------------------------------------
+   3. THE SHELL — furniture that never moves; the registry drives all of it.
+   ------------------------------------------------------------------------- */
+function renderBand() {
+  var b = $('band');
+  clear(b);
+  VIEWS.forEach(function (v) {
+    var btn = el('button');
+    btn.type = 'button';
+    btn.setAttribute('data-view', v.id);
+    btn.setAttribute('data-rove-item', '');
+    btn.setAttribute('aria-current', String(S.view === v.id));
+    btn.appendChild(document.createTextNode(v.id + ' '));
+    btn.appendChild(el('span', 'cnt', v.key));
+    b.appendChild(btn);
+  });
+  var back = el('span', 'backing', S.loaded ? 'demo estate · in the module' : 'no workspace loaded');
+  b.appendChild(back);
+}
+
+function renderShell() {
+  $('mTitle').textContent = viewMeta(S.view).t;
+  $('mSub').textContent = S.loaded ? 'dev artifact · demo estate · not corpus data'
+                                   : 'dev artifact · no workspace loaded';
+  $('mImp').textContent = viewMeta(S.view).imp;
+  clear($('mRibbon'));
+  if (S.sel) {
+    $('mRibbon').appendChild(document.createTextNode('selected: '));
+    $('mRibbon').appendChild(el('span', 'm', S.sel));
+  }
+  renderBand();
+  var i = viewIdx(S.view);
+  $('fNow').textContent = 'View ' + (i + 1) + ' of 6 — ' + VIEWS[i].t;
+  var prev = i > 0 ? VIEWS[i - 1] : null, next = i < 5 ? VIEWS[i + 1] : null;
+  $('fNav').textContent =
+    (prev ? '⌥← ' + prev.id + '   ' : '') + (next ? next.id + ' ⌥→   ' : '') + 'ctrl+K finder';
+  $('fMsg').textContent = S.msg;
+  $('factFolio').textContent = S.loaded ? 'demo estate' : 'no workspace';
+  var ft = $('faceTabs').querySelectorAll('[data-face]');
+  Array.prototype.forEach.call(ft, function (t) {
+    t.setAttribute('aria-pressed', String(S.face === t.getAttribute('data-face')));
+  });
+}
+
+function renderFact() {
+  var host = $('factBody');
+  clear(host);
+  if (S.view === 'inventory') renderInventory(host);
+  else { var p = el('div', 'pad'); unposted(p, S.view, UNBUILT); host.appendChild(p); }
+  roveScan(host);
+  roveScan($('band'));
+}
+
+function renderMeaning() {
+  var host = $('meanBody');
+  clear(host);
+  if (S.face === 'equipment') renderEquipmentFace(host);
+  else renderMeaningFace(host);
+  roveScan(host);
+}
+
+function render() { renderShell(); renderFact(); renderMeaning(); }
+
+function go(view) {
+  /* A view switch never changes the selection — it changes how it is drawn. */
+  S.view = view;
+  render();
+}
+
+/* --- the roving contract (53 §8.3): a list is ONE tab stop. --------------- */
+function roveScan(root) {
+  if (!root) return;
+  var lists = root.hasAttribute && root.hasAttribute('data-rove') ? [root]
+            : root.querySelectorAll('[data-rove]');
+  Array.prototype.forEach.call(lists, function (list) {
+    var items = list.querySelectorAll('[data-rove-item]');
+    Array.prototype.forEach.call(items, function (it, i) {
+      it.setAttribute('tabindex', i === 0 ? '0' : '-1');
+    });
+  });
+}
+document.addEventListener('keydown', function (e) {
+  var t = e.target;
+  if (!t || !t.hasAttribute || !t.hasAttribute('data-rove-item')) return;
+  var list = t.closest('[data-rove]');
+  if (!list) return;
+  var items = Array.prototype.slice.call(list.querySelectorAll('[data-rove-item]'));
+  var i = items.indexOf(t), n = -1;
+  var horiz = list.getAttribute('data-rove') === 'h';
+  if ((horiz && e.key === 'ArrowRight') || (!horiz && e.key === 'ArrowDown')) n = Math.min(i + 1, items.length - 1);
+  else if ((horiz && e.key === 'ArrowLeft') || (!horiz && e.key === 'ArrowUp')) n = Math.max(i - 1, 0);
+  else if (e.key === 'Home') n = 0;
+  else if (e.key === 'End') n = items.length - 1;
+  else return;
+  e.preventDefault();
+  items.forEach(function (it) { it.setAttribute('tabindex', '-1'); });
+  items[n].setAttribute('tabindex', '0');
+  items[n].focus();
+});
+
+/* -------------------------------------------------------------------------
+   4. INTENTIONS — one crossing each.
+   ------------------------------------------------------------------------- */
+function loadKind(i) {
+  S.invKind = i;
+  if (S.loaded) S.inv = call(OP_INV_ROWS, new Uint8Array([i]));
+}
+
+function postElement(id) {
+  S.sel = id;
+  if (!S.loaded) return;
+  S.element = call(OP_ELEMENT, new TextEncoder().encode(id));
+  S.equipment = call(OP_EQUIPMENT, new TextEncoder().encode(id));
+}
+
+function seekAttr(t, attr) {
+  var n = t;
+  while (n && n !== document.body) {
+    if (n.getAttribute && n.hasAttribute(attr)) return n;
+    n = n.parentNode;
+  }
+  return null;
+}
+
+document.addEventListener('click', function (ev) {
+  var n;
+  if ((n = seekAttr(ev.target, 'data-view'))) { go(n.getAttribute('data-view')); return; }
+  if ((n = seekAttr(ev.target, 'data-face'))) {
+    S.face = n.getAttribute('data-face');
+    renderShell(); renderMeaning();
+    return;
+  }
+  if ((n = seekAttr(ev.target, 'data-kind'))) {
+    loadKind(parseInt(n.getAttribute('data-kind'), 10));
+    render();
+    return;
+  }
+  if ((n = seekAttr(ev.target, 'data-far'))) {
+    /* 76 §4.2: one graph hop and one selection construction. */
+    var far = n.getAttribute('data-far');
+    postElement(far);
+    S.face = 'equipment';
+    var name = (S.equipment && S.equipment.kind === 'face' && S.equipment.rows.length)
+             ? S.equipment.rows[0].s[1] : far;
+    foot('followed the cable to ' + name);
+    render();
+    return;
+  }
+  if ((n = seekAttr(ev.target, 'data-post'))) {
+    postElement(n.getAttribute('data-post'));
+    render();
+    return;
+  }
+});
+
+/* --- the finder overlay: registered, empty, honest. ----------------------- */
+var fOpen = false;
+function setFinder(open) {
+  fOpen = open;
+  $('scrim').hidden = !open;
+  $('fsheet').hidden = !open;
+  if (open) {
+    var h = $('fhits');
+    clear(h);
+    unposted(h, 'finder', UNBUILT);
+  }
+}
+
+/* --- keyboard ------------------------------------------------------------- */
+document.addEventListener('keydown', function (e) {
+  /* Ctrl+K from anywhere, including inside a text field. */
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    setFinder(!fOpen);
+    return;
+  }
+  /* Escape unwinds exactly one level (53 §3.7); on an empty state it
+     navigates nowhere. */
+  if (e.key === 'Escape') {
+    if (fOpen) { setFinder(false); return; }
+    if (S.sel) { S.sel = null; S.element = null; S.equipment = null; render(); return; }
+    return;
+  }
+  /* ⌥ owns view management. Bounded, never wrapping (53 §3.1). */
+  if (e.altKey) {
+    var d = e.code && e.code.indexOf('Digit') === 0 ? parseInt(e.code.slice(5), 10) : 0;
+    if (d >= 1 && d <= 6) { e.preventDefault(); go(VIEWS[d - 1].id); return; }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      var i2 = viewIdx(S.view);
+      if (i2 > 0) go(VIEWS[i2 - 1].id); else { foot('at the first view'); renderShell(); }
+      return;
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      var i3 = viewIdx(S.view);
+      if (i3 < 5) go(VIEWS[i3 + 1].id); else { foot('at the last view'); renderShell(); }
+      return;
+    }
+  }
+});
+
+/* --- theme: the tokens' dark derivation (51 §5), cycled auto -> light -> dark */
+var THEMES = ['auto', 'light', 'dark'], themeIdx = 0;
+$('tabTheme').addEventListener('click', function () {
+  themeIdx = (themeIdx + 1) % 3;
+  var m = THEMES[themeIdx];
+  if (m === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', m);
+  this.textContent = 'theme · ' + m;
+});
+
+/* --- responsive: the breakpoint is read from the token file --------------- */
+function measure() {
+  var v = getComputedStyle(document.documentElement).getPropertyValue('--bp-cols').trim();
+  var px = parseInt(v, 10) || 860;
+  $('sheet').setAttribute('data-width', window.innerWidth < px ? 'narrow' : 'wide');
+}
+window.addEventListener('resize', measure);
+
+/* -------------------------------------------------------------------------
+   5. BOOT. The only async step; nothing animates (51 §12).
+   ------------------------------------------------------------------------- */
+function boot() {
+  measure();
+  WebAssembly.instantiate(moduleBytes(), {}).then(function (r) {
+    wasm = r.instance.exports;
+    /* 45 §9.1: fixture loading is one URL parameter, dev-build only. */
+    if (new URLSearchParams(location.search).get('fixture') === 'demo-estate') {
+      var reply = call(OP_ESTATE_DEMO, new Uint8Array(0));
+      if (reply.kind === 'empty') { S.loaded = true; loadKind(S.invKind); }
+      else { S.boot = replyProblem(reply) || 'the demo estate did not load'; }
+    }
+    S.view = 'inventory';
+    render();
+  }).catch(function (err) {
+    S.boot = 'the module did not instantiate: ' + err;
+    S.view = 'inventory';
+    render();
+  });
+  render();
+}
+boot();
+})();
+</script>
+</body>
+</html>

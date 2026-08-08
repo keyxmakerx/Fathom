@@ -133,6 +133,20 @@ pub struct EdgeGen {
     pub produced_by: Option<String>,
     pub doc: Vec<String>,
     pub fields: Vec<FieldGen>,
+    /// The declared `from:` set with class names expanded to their members
+    /// (62 §6.2: class names admitted and expanded at codegen). Empty
+    /// exactly when the set is `[root]`. Derived edges carry an empty set.
+    pub from_kinds: Vec<String>,
+    /// As `from_kinds`, for `to:`.
+    pub to_kinds: Vec<String>,
+    /// `(min, max)` of the L0 out-bound; `None` max is the `n` token.
+    pub out_l0: (u32, Option<u32>),
+    /// As `out_l0`, for `in:`.
+    pub in_l0: (u32, Option<u32>),
+    /// The declared `symmetric:` flag.
+    pub symmetric: bool,
+    /// `true` exactly when `from:` is `[root]`.
+    pub root_from: bool,
 }
 
 /// A named enum file under `schema/enums/` (62 §7).
@@ -294,6 +308,24 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
     }
 
     // ---- edges and derived edges ------------------------------------------
+    // The endpoint vocabulary the `from:`/`to:` sets resolve against: kind
+    // names as declared, plus class names expanded to their members
+    // (62 §6.2). Built from the gated model so the two readings cannot
+    // disagree about what a class contains.
+    let kind_names: BTreeMap<&str, ()> = kinds.iter().map(|k| (k.name.as_str(), ())).collect();
+    let mut class_members: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for c in &tree.classes {
+        for m in &c.members {
+            if !kind_names.contains_key(m.as_str()) {
+                return err(format!(
+                    "class `{}` names member `{m}`, which is not a declared kind",
+                    c.name
+                ));
+            }
+        }
+        class_members.insert(c.name.as_str(), c.members.clone());
+    }
+
     let mut edges = Vec::new();
     for e in seq(&schema_node, "edges")? {
         let name = str_of(e, "edge", "edges row")?;
@@ -308,12 +340,31 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
             }
         };
         let fields = fields_of(e, &name, &mut cx)?;
+        let (from_kinds, root_from) =
+            endpoint_set(e, &name, "from", true, &kind_names, &class_members)?;
+        let (to_kinds, _) = endpoint_set(e, &name, "to", false, &kind_names, &class_members)?;
+        let out_l0 = bound_of(e, &name, "out")?;
+        let in_l0 = bound_of(e, &name, "in")?;
+        let symmetric = match e.get("symmetric").and_then(|v| v.as_bool()) {
+            Some(b) => b,
+            None => {
+                return err(format!(
+                    "edge `{name}` declares no symmetric: flag (62 §6.2)"
+                ))
+            }
+        };
         edges.push(EdgeGen {
             name: name.clone(),
             class: Some(class),
             produced_by: None,
             doc: doc_of(e),
             fields,
+            from_kinds,
+            to_kinds,
+            out_l0,
+            in_l0,
+            symmetric,
+            root_from,
         });
     }
     let mut derived_edges = Vec::new();
@@ -327,6 +378,14 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
             produced_by: Some(produced_by),
             doc: doc_of(e),
             fields,
+            // Derived edges carry no endpoint or bound tables: they live in a
+            // separate arena and no store writes them (62 §11.4).
+            from_kinds: Vec::new(),
+            to_kinds: Vec::new(),
+            out_l0: (0, None),
+            in_l0: (0, None),
+            symmetric: false,
+            root_from: false,
         });
     }
 
@@ -558,6 +617,135 @@ fn parse_map_part(
         return Ok(FieldTy::Enum(i));
     }
     parse_ty(part, owner, field, cx)
+}
+
+/// The workspace-root token in a containment `from:` set. `62`'s grammar has
+/// no root token; `schema.yaml`'s containment section transcribes `11` §7.2's
+/// *root* as this literal and files the form gap. It is admitted here in
+/// `from:` only, alone, and never in `to:`.
+const ROOT_TOKEN: &str = "root";
+
+/// One `from:`/`to:` set, expanded. Returns `(kinds, is_root)`; `is_root` is
+/// true exactly when the declared set is `[root]`, in which case `kinds` is
+/// empty. Refuses rather than generates from a divergent reading: an unknown
+/// name, an empty set, `root` in `to:`, or `root` with company.
+fn endpoint_set(
+    node: &Node,
+    edge: &str,
+    key: &str,
+    allow_root: bool,
+    kind_names: &BTreeMap<&str, ()>,
+    class_members: &BTreeMap<&str, Vec<String>>,
+) -> Result<(Vec<String>, bool), ExtractError> {
+    let Some(list) = node.get(key).and_then(|v| v.as_seq()) else {
+        return err(format!("edge `{edge}`: `{key}:` missing or not a sequence"));
+    };
+    let mut names: Vec<&str> = Vec::new();
+    for n in list {
+        match n.as_str() {
+            Some(s) => names.push(s),
+            None => return err(format!("edge `{edge}`: `{key}:` holds a non-string entry")),
+        }
+    }
+    if names.is_empty() {
+        return err(format!("edge `{edge}`: `{key}:` is empty"));
+    }
+    if names.contains(&ROOT_TOKEN) {
+        if !allow_root {
+            return err(format!(
+                "edge `{edge}`: the `{ROOT_TOKEN}` token is admitted in `from:` only, \
+                 never in `{key}:`"
+            ));
+        }
+        if names.len() != 1 {
+            return err(format!(
+                "edge `{edge}`: `{key}: [{ROOT_TOKEN}]` admits no other member"
+            ));
+        }
+        return Ok((Vec::new(), true));
+    }
+    let mut out: Vec<String> = Vec::new();
+    for n in names {
+        if let Some(members) = class_members.get(n) {
+            out.extend(members.iter().cloned());
+        } else if kind_names.contains_key(n) {
+            out.push(n.to_owned());
+        } else {
+            return err(format!(
+                "edge `{edge}`: `{key}:` names `{n}`, which is neither a declared kind \
+                 nor a declared class"
+            ));
+        }
+    }
+    Ok((out, false))
+}
+
+/// One cardinality bound, at the L0 level (62 §6.2). Accepts a bare integer
+/// `N`, a range `A..B` with `B` an integer or `n`, or the two-level map form
+/// `{ l0: <range>, l1: <range> }` whose `l1` entry is read and discarded here
+/// — the lower/relaxed level is not the store's to enforce (11 §7.1).
+fn bound_of(node: &Node, edge: &str, key: &str) -> Result<(u32, Option<u32>), ExtractError> {
+    let Some(v) = node.get(key) else {
+        return err(format!(
+            "edge `{edge}` declares no `{key}:` bound (62 §6.2)"
+        ));
+    };
+    if let Some(s) = v.as_str() {
+        return parse_range(s, edge, key);
+    }
+    if v.as_map().is_some() {
+        let Some(l0) = v.get("l0").and_then(|x| x.as_str()) else {
+            return err(format!(
+                "edge `{edge}`: `{key}:` is a map without an `l0:` string entry"
+            ));
+        };
+        if v.get("l1").and_then(|x| x.as_str()).is_none() {
+            return err(format!(
+                "edge `{edge}`: `{key}:` two-level bound without an `l1:` string entry"
+            ));
+        }
+        // The l1 range is validated for form and discarded: this work order
+        // generates the L0 tables only.
+        let _ = parse_range(
+            v.get("l1").and_then(|x| x.as_str()).expect("checked"),
+            edge,
+            key,
+        )?;
+        return parse_range(l0, edge, key);
+    }
+    err(format!(
+        "edge `{edge}`: `{key}:` is neither a range string nor a two-level map"
+    ))
+}
+
+fn parse_range(raw: &str, edge: &str, key: &str) -> Result<(u32, Option<u32>), ExtractError> {
+    let t = raw.trim();
+    let bad = |what: &str| -> ExtractError {
+        ExtractError(format!(
+            "edge `{edge}`: `{key}: \"{raw}\"` — {what} (62 §6.2's bound grammar is \
+             `N`, `A..B` or `A..n`)"
+        ))
+    };
+    let int = |s: &str| -> Result<u32, ExtractError> {
+        s.parse::<u32>().map_err(|_| bad("not an integer"))
+    };
+    match t.split_once("..") {
+        None => {
+            let n = int(t)?;
+            Ok((n, Some(n)))
+        }
+        Some((lo, hi)) => {
+            let min = int(lo)?;
+            if hi == "n" {
+                return Ok((min, None));
+            }
+            let max = int(hi)?;
+            if max < min {
+                return Err(bad("upper bound below the lower bound"));
+            }
+            Ok((min, Some(max)))
+        }
+    }
 }
 
 fn is_ident(s: &str) -> bool {

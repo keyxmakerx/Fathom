@@ -1,0 +1,706 @@
+# 70 — Owner answers and standing priorities
+
+> **Status:** Accepted — this document records the owner's words. The decisions they imply are
+> drafted as ADR-0031, ADR-0032 and ADR-0033 and are `Proposed` until the owner ratifies them.
+
+The companion to `77`. Where `77` records the owner's service-model requirements verbatim, this
+records the owner's answers to questions put to them, verbatim, plus the standing priority order
+they stated. It decides nothing. Quoting is exact, including where the phrasing is informal — the
+whole value of a verbatim record is that a later reader can see what was actually said rather than
+what a planning session made of it.
+
+## 0. Contents
+
+| § | | margin tab |
+|---|---|---|
+| 1 | How to use this | *read this first* |
+| 2 | The standing priority order | *the tie-breaker* |
+| 3 | Third-party code — the answer, verbatim | *→ ADR-0032* |
+| 4 | Scope — the answer, verbatim | *→ ADR-0031* |
+| 5 | Motion — the answer, verbatim | *→ ADR-0033* |
+| 6 | The dynamic-correlation goal, verbatim | *the largest unspecified requirement* |
+| 7 | The platforms — the equipment the owner works on | *answers §11.1* |
+| 8 | Hosting, load balancing and stored state | *not the collision it looks like* |
+| 9 | What "off the ground" means | *there is no thin first release* |
+| 10 | The graph and the diagram — two owner observations | *one decided, one a real gap* |
+| 11 | Questions still outstanding | *re-asked in plain language* |
+| 12 | Failure modes |  |
+| 13 | Open decisions |  |
+| 14 | Sources consulted |  |
+| 15 | Disagreements |  |
+
+---
+
+## 1. How to use this
+
+Three of the answers below are decisions and are drafted as ADRs; §6 is a requirement with no
+mechanism behind it anywhere in the corpus and is therefore not an ADR but a named gap. §2 is
+neither — it is a **tie-breaker**, to be applied when two defensible options conflict and no
+document ranks them.
+
+An execution session never reads this document for work. It is planning input (`78` §7).
+
+## 2. The standing priority order
+
+Stated by the owner on 2026-08-06, in answer to a question about where a warning should surface:
+
+> *"the first priority is security, second priority is a combination os usability, so think UiUx
+> design, animations, but also useability from your perspective that it is easy to edit add and
+> understand how it all works. the second part to that second priority is dynamic ability."*
+
+Read as a ranked list:
+
+| Rank | Priority | What it means when it decides a tie |
+|---|---|---|
+| 1 | **Security** | Where a usability gain costs a security guarantee, the guarantee wins. This is consistent with invariants 1–4 and with `71` §13.1's thirteen permanent boundaries, and it is now stated as a general rule rather than inferred from them |
+| 2a | **Usability — for the user** | Interface and interaction quality, including motion (§5) |
+| 2b | **Usability — for the maintainer** | *"easy to edit add and understand how it all works"*. This is a first-class requirement, not a nicety: the corpus is authored by hand and its authoring rate is `72`'s named long pole |
+| 2c | **Dynamic ability** | §6. Ranked by the owner as *"the second part to that second priority"* |
+
+**RECOMMENDATION —** rank 2b is the one most likely to be quietly traded away, because its cost
+lands on a future session rather than on a user. `62`'s grammar, the schema-as-artifact rule
+(ADR-0008) and the corpus's provenance headers are existing expressions of it; new work should be
+held to the same standard.
+
+## 3. Third-party code — the answer, verbatim
+
+The question put: may the project use third-party libraries, or does it stay at zero?
+
+> *"I don't know what dependencies your referring to. however as long as they are bundled and are
+> not a security risk vector I'm for it. i suppose they don't have to be bundled but I'm just
+> concerned the implications here. my recommendations is look at what other enterprise solutions
+> use here, and how might AI miss things and preemptively try to shore up those concerns."*
+
+Three separable instructions:
+
+1. **Third-party code is permitted in principle.** This settles the question five work orders each
+   defer separately (`88` §5.7).
+2. **Conditioned on two things:** bundling (stated as a preference, then softened — *"they don't
+   have to be bundled"*), and not being *"a security risk vector"*. The second is the binding one.
+3. **Two research instructions**, both discharged in ADR-0032: survey enterprise practice, and
+   adversarially anticipate what an automated session would miss.
+
+The owner did not know what the candidate libraries were, and said so. ADR-0032 §2 therefore leads
+with the inventory in plain language before it proposes any policy.
+
+## 4. Scope — the answer, verbatim
+
+The question put: is v1 still the command finder (ADR-0006), or the inventory face the queue
+actually builds?
+
+> *"Again I don't know what you mean? All features must be included in V1, how you wish to plan
+> that out is your discretion."*
+
+Two instructions, and the second matters as much as the first:
+
+1. **There is no reduced first release.** The feature set is the whole product. ADR-0006's
+   scoping — *"v1 = the finder … Nothing about a graph"* — is overruled on merit, which `75` §2
+   and `CLAUDE.md` rule 2 expressly permit.
+2. **Sequencing is delegated to planning.** *"how you wish to plan that out is your discretion."*
+   The build order is therefore a planning artifact, not an owner decision, and `76` §7.2's
+   S-slices and the work-order queue continue to govern it.
+
+**What this answer does not do.** It does not reopen anything in `71` §13.1 — the thirteen
+permanent product boundaries, which are refusals rather than deferrals. Invariant 2's own wording
+makes the distinction: *"This is a permanent product boundary, not a phase-1 limitation."*
+Removing phases removes phase-limitations only. See ADR-0031 §Decision item 4.
+
+## 5. Motion — the answer, verbatim
+
+The question put: the design corpus records *"the product has no animation"*; you have asked for
+animations. Which stands?
+
+> *"oh yea why wouldn't we have animations? it's just we don't want animations there for animation
+> sake, it should have reason, direction, and from a humans stand point easily to have context of
+> why that animation was there."*
+
+This is a **doctrine**, and a more useful one than either "no animation" or "add animation". Read
+as three tests, all of which a motion must pass:
+
+| Test | The owner's word | What it asks |
+|---|---|---|
+| Purpose | *"reason"* | What does this motion tell the user that a static frame does not? |
+| Direction | *"direction"* | Does it show causality — what became what, what came from where? |
+| Legibility | *"easily to have context of why that animation was there"* | Can a person say why it happened, without being taught? |
+
+Drafted as ADR-0033. The corpus's existing position turns out to be narrower than its headline
+(§14, `86` §9.4), so this is largely a reconciliation rather than a reversal.
+
+## 6. The dynamic-correlation goal, verbatim
+
+> *"the second part to that second priority is dynamic ability. I don't know how you'll think this
+> best works but if we have a switch at one location, and a we add 2 other switches, or I add
+> configs of some other switch, the goal is that It is dynamic enough to connect these together if
+> everything matches. I know it doesn't exactly work that way, but trying to get to that goal as
+> much as possible is the hope. then I can click on equipment and paste a config and/or edit fields
+> in planning mode or maintenance mode etc to add IP info and such."*
+
+**This is the largest requirement in the corpus with no mechanism behind it.** It splits in two,
+and the two halves are in very different states.
+
+### 6.1 Half one — automatic correlation across separately-pasted configs
+
+**Declared in scope, never designed.** `03` §4.5 draws the line exactly where the owner wants it,
+and does so as a boundary statement:
+
+> *"Multiple devices pasted, and inferred adjacency where two configs reference each other — a
+> gateway whose `address` matches another device's `external-interface` address is a tunnel edge,
+> and that inference is a fact about two texts, not about a network."*
+
+and, on `show lldp neighbors` output specifically:
+
+> *"**This one is *in scope*, and stating that is the point**: it is text the user gathered, not a
+> network the tool probed. The refused version is Fathom gathering it."*
+
+So no decision has to be won. What exists today:
+
+| Mechanism | Crosses devices? | State |
+|---|---|---|
+| `infer.tunnel.pair` / `infer.tunnel.compat` — peer address in one config matches an interface address in another | Yes | IPsec only; `infer.tunnel.compat` is declared in `schema/schema.yaml`, `infer.tunnel.pair` is prose |
+| `infer.port.cabled-peer` | Yes | Declared in `schema/schema.yaml` |
+| `infer.port.occupies` — an interface name's slot position matched to a physical port | **No — same device only** | Specified in `19` §3.7. Emits a **suggestion, not a graph change** |
+| Re-identification (`11` §10.4, ADR-0010) | **No — scoped by `owner_device`** | Specified. Answers *"is this the same gateway on the same box"*, never *"do these two boxes connect"* |
+| The warp (`19` §6) | Yes, across the path | Specified in full, with six outcomes and a resolver. **Reads asserted edges only — cables and ports a human entered, never configs** |
+
+And what does not exist at all: any correlation on LLDP or CDP neighbour output, on matching
+interface descriptions, on a shared subnet or a common /30, on shared VLAN IDs, on a hostname
+defined in one config and referenced in another, or on LAG peering. `rg -ci lldp corpus/` returns
+nothing; the word appears in four documents, all of them scope or security discussions.
+
+**The shape of the answer is already set, and should be copied rather than reinvented.**
+`19` §3.7's rule is the template: *propose, never assert; refuse when ambiguous; show the evidence.*
+Its reason for refusing to key hardware identity on interface names is the same reason
+cross-device correlation must not silently write edges — doing so *"would … silently move every
+cable"*.
+
+**RECOMMENDATION —** the cheapest high-value start is LLDP/CDP neighbour paste. It is the one
+input that states adjacency directly rather than implying it, the user already has it, and `03`
+§4.5 has already cleared it. It needs a design document before any code, and that document is
+planning work not yet scheduled.
+
+### 6.2 Half two — click equipment, paste a config, edit fields
+
+**Largely specified, partly prototyped, and queued.** The per-equipment page is designed and
+clickable in `design/prototype/fathom-app.html`; WO-08 builds it, deliberately read-only in its
+first slice. Paste-while-looking-at-a-device is specified down to its warning prompt; in-place
+field editing is specified with its keyboard contract.
+
+One collision, and it is with the owner's *word* rather than their intent. `53` refuses modes
+outright — *"No modes. No mode indicator. No mode errors."* — on the grounds that a mode is a
+state the user must remember they are in. The owner's *"planning mode or maintenance mode etc"*
+describes the same capability `75` records as C-07, floored at phase 4 (a floor ADR-0031 removes).
+Whether the capability is delivered as a mode, as a per-record state, or as a filter is a design
+question that `53`'s refusal constrains but does not answer. **Not decided here.** Logged in §9.
+
+## 7. The platforms — the equipment the owner works on
+
+Two statements, 2026-08-06, verbatim:
+
+> *"we need to add Cienna to the list of Juniper, Cisco, and Nokia engines we'll need to include."*
+
+> *"as far as equipment i use, Juniper SRX, MX, EX, Meraki, Cisco Nexxus, and Palo alto are my main
+> stuff we need engines for, idk if that's per Device type or Manufacturer i'll leave to you."*
+
+**This answers §10.1. Juniper is not retired — it is primary.** ADR-0029's six SRX corrections stay
+live, and ADR-0030's choice of PAN-OS as the second platform is vindicated rather than orphaned:
+Palo Alto is on the owner's own list. `88` §5.9's finding is thereby narrowed, not closed — see §12.
+
+### 7.1 "Per device type or manufacturer?" — neither, and the answer is already in the conventions
+
+A **platform** is *"a vendor+family target (`junos-srx`, `panos`, `ios-xe`)"*, and conventions add
+*"never say **vendor** — a vendor has many platforms"*. The unit is neither the box nor the brand:
+it is the **configuration dialect**. That is why `junos-srx`, `junos-mx` and `junos-ex` are three
+platforms and not one — same vendor, same family, but a parser must know which statement set it is
+reading — and why Nexus is its own platform rather than a kind of Cisco.
+
+This matters practically, and it is the reason invariant 5 exists: a **rule** is written once and
+carries a `platforms` predicate, so *"IKE is not permitted inbound on this interface"* is authored
+once and applies wherever it is true. There are no per-vendor engines and there must not be
+(`71` §13.1). The word *"engines"* in the owner's message maps to **platforms**, and what is
+per-platform is narrow: a parser, a statement dictionary, an emitter, and corpus content.
+
+### 7.2 Five of the six are already registered
+
+`schema/platforms.yaml` as it stands after the 2026-08-06 edit:
+
+| Owner's words | Platform id | Registry state |
+|---|---|---|
+| Juniper SRX | `junos-srx` | Registered · the only one with corpus content (98 commands, 37 rules, 42 explainers) |
+| Juniper MX | `junos-mx` | Registered · no corpus, no dictionary |
+| Juniper EX | `junos-ex` | Registered · no corpus, no dictionary |
+| Cisco Nexus | `nx-os` | Registered · no corpus, no dictionary |
+| Palo Alto | `panos` | Registered · no corpus; ADR-0030 makes it the second platform |
+| **Meraki** | — | **Absent. See §7.3** |
+| Nokia | — | Vendor only, no platform |
+| Ciena | — | Vendor only, added 2026-08-06 |
+
+So the registry needed one line for Ciena and no new platform rows for the owner's list. The gap is
+not registration — it is that **only `junos-srx` has any content behind it**. A registered platform
+with no dictionary, no emitter and no corpus is a name, not a capability.
+
+### 7.3 Meraki is the one that needs an answer before anything is registered
+
+Every other platform on the list is configured by text an engineer can select and paste, which is
+the entire on-ramp (`03` §4.5: *"Config paste is the primary on-ramp"*, and invariant 2 makes paste
+the only on-ramp there will ever be). Meraki is Cisco's cloud-managed line, and whether it presents
+a comparable pasteable device configuration is **not something this document will assert** —
+conventions forbid stating a vendor behaviour without a primary source, and no Meraki artifact
+exists in this tree.
+
+**The question is in §11.3.** It is not a small one: if Meraki's configuration is not obtainable as
+text the owner can copy, then Meraki cannot be a platform under invariant 2, and supporting it would
+require either a different input shape (an exported file) or a connection the product will never
+make. That is a boundary question, not a scheduling one.
+
+### 7.4 Versions, known bugs, and command differences
+
+> *"We also need to account for the fact that different versions have known bugs that should be
+> avoided, and different commands too."*
+
+This splits into two requirements that look alike and are in completely different states.
+
+**Half one — version-gated commands and rules. The mechanism exists; the content does not.**
+Every rule and every command entry in `corpus/` already carries a `versions:` predicate.
+`schema/platforms.yaml` gives each platform a `version_scheme`, and `Device.os_version`
+(field key 8) is documented in `schema/schema.yaml` as the field that *"drives every rule versions
+predicate (11 §4.7)"*. The design anticipated this requirement in full.
+
+What the content does is another matter, and the corpus says so about itself. From the header of
+`corpus/rules/ipsec-junos-srx.yaml`, gap G6, verbatim:
+
+> *"`versions: "*"` is used on all 37 rules and that is not a virtue. The owner brief is explicit
+> that version predicates are not optional and that a rule correct on one train and wrong on
+> another is worse than no rule. … `"*"` here means "unverified across trains", and the review
+> that replaces `<named reviewer>` should narrow every one of them."*
+
+So the honest position: **every rule and command in the product currently claims to apply to every
+software version ever shipped, and none of that has been checked.** The owner has now asked for the
+thing the corpus already knew it owed. This is authoring work against an existing mechanism, not a
+schema change, and it is bounded by the same named-reviewer requirement as everything else in
+`corpus/` (invariant 10).
+
+**Half two — known-defect advisories. Not modelled anywhere.** A version predicate and a known-bug
+warning are different assertions. A predicate says *"this command exists on these trains"*; an
+advisory says *"this train is defective in this specific way, avoid it or work around it"*. Nothing
+in the 48 kinds carries the second. A search of `schema/` and `docs/10-model/` for advisory, PSIRT,
+CVE, defect or errata returns nothing relevant.
+
+This is a genuine schema extension, and **the hard part is not the schema — it is the sourcing.**
+Three problems have to be answered before a field is added, and none of them is technical:
+
+| Problem | Why it bites |
+|---|---|
+| **Where does the data come from?** | Vendor defect databases are the authority, and invariant 2 means the product can never fetch one. So the data is hand-authored corpus content, at the authoring rate `72` already names as the long pole |
+| **Who reviews it?** | Invariant 10 requires a named human on every corpus entry. A defect advisory is a higher-stakes claim than a command explainer: telling an engineer a train is safe when it is not is a worse failure than any this product currently risks |
+| **What happens when it goes stale?** | A defect list that is out of date is worse than no defect list, because it is trusted. `56` §1.2 already refuses to let the diagram claim currency for exactly this reason, and the argument applies here with more force |
+
+**RECOMMENDATION —** treat these as two separate pieces of work, in this order. Narrowing the
+existing `versions: "*"` predicates needs no new schema and no new decision, and it is the larger
+correctness win. The advisory kind needs an owner decision on sourcing and staleness first, and it
+should get one before any field is designed. Logged in §13.
+
+### 7.5 The owner's answer on versions — target one release, keep engines independent, defer
+
+> *"Well i mean personally i'd just go with what seems to be the best case for whatever version of
+> that OS. Since the engine will be something that can be added/removed/edited after the fact, as
+> they should all independent, i'd say we'd do that later yea?"*
+
+Three separable things: a **policy** on version targeting, an **architectural assumption** about
+platform independence, and a **deferral request**.
+
+**The policy — author against one named target release per platform.** This is a real decision and
+it is strictly better than what the corpus does today. `versions: "*"` does not mean "works
+everywhere"; the corpus's own gap G6 (quoted in §7.4) says it means *"unverified across trains"*.
+Naming a target release replaces an unverifiable claim with a checkable one, and it is what makes
+the named reviewer of invariant 10 able to review anything at all — a human can put their name to
+*"this is correct on release X, which I ran it on"*. They cannot put their name to *"correct on
+every release ever shipped"*.
+
+**The architectural assumption — platforms are independently addable, removable and editable.**
+Recorded as the owner's expectation. It is **not yet confirmed**, and it is the sort of assumption
+that is cheap to hold and expensive to discover is false. `71` §13.1 permanently refuses *"a plugin
+system that executes third-party code in the application"* while sanctioning the alternative in the
+same breath — *"rule packs and corpus entries are **data**, signed and versioned; that is the
+extension mechanism."* So the owner's expectation is compatible with the product boundary **for
+anything that is data**. Whether a whole platform is data is a different question: a platform
+plausibly also needs a config parser and an emitter, and those are Rust. Under investigation as of
+2026-08-07; the answer belongs here when it lands.
+
+**The deferral — mostly safe, with one part that is not.** Split it:
+
+| | Safe to defer? |
+|---|---|
+| Known-defect advisories (§7.4 half two) | **Yes.** Nothing is modelled, nothing depends on it, and the sourcing question wants an answer before a field is designed. Deferring costs nothing |
+| The `versions:` value on entries authored **from now on** | **No.** Every entry written meanwhile carries `"*"`, and correcting it later is per-entry work by a named human. Deferring does not postpone the cost, it multiplies it by however many entries are written in the interval |
+
+**RECOMMENDATION —** adopt the policy now and defer the work. They are different things. Naming a
+target release per platform is a one-line change to the authoring convention that costs nothing
+today and stops the debt growing; going back over existing entries, and the advisory kind, both wait.
+The distinction matters because the corpus is about to grow from 177 entries toward the six
+platforms §7.2 names, and `"*"` written 500 more times is 500 more corrections.
+
+**Still needed for the policy to be actionable:** the target release per platform, which is a
+`schema/platforms.yaml` field that does not exist. Logged in §13.
+
+### 7.6 The dependency vulnerability check — what was queried, against what, on what date
+
+**This section exists because ADR-0034 cited it before it existed.** The record making it law that a
+security claim is never asserted from memory, and that a lookup must name its source and its date,
+shipped with a forward reference to a section nobody had written. That is the same class of defect
+as the nine dangling references to `73` §14, arriving inside the document written to prevent it, and
+it is recorded here rather than quietly repaired because the failure is the more useful artifact:
+**a rule does not enforce itself, and the author of a rule is not exempt from it.**
+
+The lookup below is the one ADR-0034 §3 refers to. It is reproduced with its date and its sources so
+that a later reader can tell how stale it is without re-deriving it.
+
+**Queried:** 2026-08-08. **Sources:** OSV.dev (Google's open-source vulnerability database) and
+RustSec (the Rust community advisory database) — two independent databases, as ADR-0034 §3 requires
+for a negative result, because a failed query and a clean result are indistinguishable from one.
+
+**Scope:** the fifteen crates `32` §15 pins by exact version, plus their transitive dependencies —
+`argon2`, `chacha20poly1305`, `hkdf`, `sha2`, `blake3`, `x25519-dalek`, `ed25519-dalek`,
+`curve25519-dalek`, `getrandom`, `zeroize`, `secrecy`, `subtle`, `vsss-rs`, `ml-kem`.
+
+**Result: zero known vulnerabilities against any of them, in either database.** Both databases agree,
+which is the point of using two.
+
+**Three limits on that result, which are part of the result:**
+
+| | |
+|---|---|
+| **"No known vulnerability" means nothing has been *reported*** | It is not an audit, not a maturity signal, and not evidence that no flaw exists undiscovered. It is the best available check and it is not a guarantee |
+| **It is true as of the date above, and decays from that moment** | This is precisely why ADR-0034 §4 puts a dependency scan on `78` §6's floor rather than trusting a dated line in a document. A record cannot notice it has gone stale |
+| **It says nothing about how the primitives are *assembled*** | Choosing sound libraries and building a sound scheme from them are different jobs. The workspace file's key hierarchy, its recovery path and what the server can infer are open design questions (`70` §13 item 4, WO-05 §2) and are not answered by this check |
+
+**Recommendation, unchanged from the research: keep `32` §15's list as it stands.** There is no
+security reason to substitute anything, and the alternative AEAD construction considered alongside it
+has no advantage on this evidence. **Nothing in this section authorises a crate to land** — ADR-0032's
+per-crate approval gate and its gate zero in CI both still apply, and ADR-0032 §6 requires gate zero
+to exist *before* the first dependency does. As of this date the workspace still has **zero** external
+dependencies, so nothing has been breached; that is also why the gate is now the last guard rather
+than one of several.
+
+## 8. Hosting, load balancing and stored state
+
+> *"all that in a very secure format with expandability for loadbalancing and docker hosted storage
+> saftely in the future."*
+
+**This is not the collision it appears to be, and the distinction is worth stating precisely because
+it is the one that keeps the security argument intact.**
+
+`71` §13.1's permanent refusal is not "a server". It is two narrower things, quoted exactly:
+
+> *"**A server that can read a workspace.** No server-side lint, no server-side emit, no server-side
+> search."* — and — *"**A hosted multi-tenant SaaS that holds plaintext.** It is the product the
+> security posture exists to not be."*
+
+The qualifiers are load-bearing. A server that stores bytes it cannot read is not refused anywhere —
+it is **already the design**. `33` §1: *"The server stores ciphertext and never holds a key."*
+`33` §12 states the consequence plainly: if the server is compromised the attacker gets *"ciphertext
+and metadata"*, and *"it does not yield a single plaintext byte."* `43` already specifies D2 (single
+node) and D3 (cluster) as deployment shapes.
+
+So the line the owner should hold in their head:
+
+| Wanted | Status |
+|---|---|
+| Docker-hosted storage of workspaces | **Designed for.** The server holds ciphertext; `43` D2/D3 are the shapes |
+| Load balancing across nodes | **Compatible.** A node that cannot read a workspace is stateless with respect to its contents; `41` §5.5 has `fathom-sync` never linking the graph, rules, emit or parse crates, *and the linker enforces it* |
+| Server-side search or querying over the estate | **Never.** Invariant 4. It requires plaintext on the server, which is the thing the whole posture exists to prevent |
+| Fleet-scale storage (Postgres-backed inventory) | **Deferred**, `71` §13.2, trigger: a real workspace over ~2,000 devices with genuine concurrent editing. The *"server-side querying"* half of that row is barred by invariant 4 regardless of the trigger |
+
+**One live consequence.** ADR-0016 decides *"git is the sync **for v1**"*, and `33` (the wire) is
+deferred by it. ADR-0031 retires v1 as a scoping device — so `33` comes back into scope, and with it
+the multi-writer question ADR-0016 deferred on evidence rather than on schedule. That deferral was
+argued on merit and this document does not disturb it; but *"expandability for load balancing"* is a
+requirement that lands squarely on `33`, and somebody has to decide when it is picked up. Logged
+in §12.
+
+## 9. What "off the ground" means
+
+> *"I need most features present otherwise this project won't get off the ground. It needs to be
+> useable and have most features working without bugs."*
+
+Put to the owner as a proposal for a thin first milestone — an openable browser artifact with an
+inventory and a per-equipment page, four of the eight work orders — and **declined**. Recorded
+because it closes a question rather than opens one:
+
+- There is **no thin alpha**. The first thing anyone sees has most features working.
+- *"without bugs"* is a quality bar, not a feature. It ratifies the verification floor (`78` §6)
+  and argues for extending it — which is exactly what ADR-0032 unblocks, since property testing and
+  fuzzing the config parser are both currently blocked on the dependency question.
+- Combined with §4's *"all features must be included in V1"*, the sequencing freedom the owner
+  granted is real but bounded: planning chooses the **order**, not the **cut**.
+
+**The honest consequence, stated rather than buried.** No intermediate release means no measurement
+until most of the product exists, so every estimate stays an extrapolation from specification rather
+than from observed velocity. The project's own figures are `71` §2's **106–158 solo weeks** to the
+full product, which `83` §12.5 refuted as optimistic at **170–240**. Those are the corpus's numbers,
+not new ones. `72` names the corpus authoring rate as the variable that moves them most.
+
+**RECOMMENDATION —** internal checkpoints, not releases. Sequence the queue so the tree is
+demonstrable at intervals even though nothing ships until the bar in this section is met. That
+preserves the owner's decision exactly while converting some of the estimate into measurement. It
+needs no decision and no new document; it is how the queue is already ordered.
+
+## 10. The graph and the diagram — two owner observations
+
+> *"i came across one today that had like 10 links to a bridge device, so we will need to make sure
+> we account for those situations on the graph. Also how do you have the graphics seperated, is it
+> per like location or…? How will they interact with each other?"*
+
+One of these is decided and measured. The other is a real gap, and the question is what exposed it.
+
+### 10.1 The high-degree node — decided, measured, with one hole the example may fall into
+
+`59` is a whole document about this, and it found something worth repeating. The corpus's existing
+ceiling — `44` §4.7.4's *"never more than 2,000 live SVG elements"* — **never fires**. A forty-spoke
+hub renders in 514 elements, 26% of that ceiling, and is already unreadable. `59` §2.1's finding:
+the 2,000-element rule is a PERFORMANCE ceiling, and *"the corpus has never specified the LEGIBILITY
+ceiling, and the legibility ceiling is the one that bites."*
+
+The measurements, from `59` §2.2 — element cost is exactly `155 + 9n` for `n` drawn spokes:
+
+| spokes | fit zoom | what the view drops |
+|---|---|---|
+| 6 | 0.97 | 7 edge labels |
+| 12 | 0.93 | 13 edge labels |
+| 40 | 0.68 | 41 of 42 edge labels, LAG rails, stubs |
+
+`59` §3 decided the answer: **no more than six like-kind siblings are drawn in one group**, counted
+in siblings and never in elements, because §2.3 proved element count cannot choose the threshold —
+an element rule would collapse the second sibling, *"which nobody wants and which destroys the one
+fact a chassis cluster exists to show."*
+
+So a ten-link bridge is handled **if the ten links are like-kind siblings**: six draw, four
+aggregate into an expandable group.
+
+**The hole the owner's example may fall into.** If those ten links go to ten *different* kinds of
+thing — a firewall, three access switches, a router, a couple of servers — then they are not
+like-kind siblings and the rule does not fire. Ten heterogeneous neighbours is the same legibility
+problem with none of the same remedy, and `59` does not cover it. Whether real bridge fan-out is
+homogeneous or mixed is exactly the sort of thing the owner can answer from the device they saw;
+asked in §11.4.
+
+`59` §6.2 also files a defect worth knowing about: at the top of the range the view band stops
+printing *how many* labels it suppressed, which violates `56` §5.5's own rule — *"a diagram tool
+that silently drops labels is a diagram tool that lies about what it drew."* It loses the number
+precisely when scale makes it matter.
+
+### 10.2 How the graphics are separated — the honest answer is that they are not
+
+The owner asked whether the diagram is split per location. It is not, and nothing in the corpus
+splits it any other way either.
+
+`56` §1 describes **one canvas over the whole graph**, with two mechanisms for coping with size, and
+neither of them is partitioning:
+
+- **Layers.** Five, toggled independently (`56` §4). That is separation by *concern* — physical,
+  logical, security and so on — not by place.
+- **Aggregation.** Above `44` §4.7.4's ceiling it *"aggregates to `Site`/`Device` level and requires
+  a drill-down"*, and `56` §1.2 concedes the cost in plain terms: *"An engineer who wants their
+  200-device estate on one screen cannot have it, and the answer is the inventory table."*
+
+So the answer to *"how will they interact with each other"* is that **the question has no answer in
+the corpus, because there is only ever one of them.** There is no per-site diagram, no notion of two
+diagrams, and therefore no story for how one would link to another.
+
+**This is a real gap, and the owner's question is what exposed it.** "One canvas, aggregate when it
+gets big" is a rendering policy, not a navigation model. An engineer working a multi-site estate
+almost certainly wants to open *a site* and see that site, with the links that leave it drawn as
+edges to somewhere else — which is a per-`Site` view with an inter-site relationship, and neither
+exists.
+
+**RECOMMENDATION —** do not decide this on paper. It sits in the owner's own priority rank 2a
+(usability for the user), it is exactly the kind of question they said they would answer, and it is
+far easier to answer against something on screen than in prose. Put it to them when the diagram
+face is real enough to show two sites. Until then it is logged, not settled. `56` §12 owns it.
+
+## 11. Questions still outstanding
+
+Two questions were asked in jargon and could not be answered. Re-asked here in plain language;
+both remain open and both are owner-only.
+
+### 11.1 Do you still work on Juniper SRX firewalls? — **ANSWERED 2026-08-06, see §7**
+
+*(was: "is SRX/IPsec retired, carried, or frozen?")*
+
+Everything Fathom knows today is about one subject: building and troubleshooting site-to-site
+IPsec VPN tunnels on Juniper SRX firewalls. That is all 177 entries — 98 commands, 37 rules,
+42 explainers — written from the owner's own four-side field card. `77` describes a different job:
+Calix and Nokia access gear, CLLI-coded sites, DIA and E-Line and E-LAN with per-location UNI IDs.
+
+The two do not overlap at all. A case-insensitive search of the whole of `corpus/` for `calix`,
+`nokia`, `clli`, `fttx`, `gpon`, `olt`, `ont`, `pon`, `e-line`, `elan`, `dia` and `uni` returns
+**zero matches**; `76` §6.5 puts the transfer at *"effectively zero — call it 0 of 177"*. Meanwhile
+the data model has already moved: `schema/platforms.yaml` registers `calix`, `nokia` and `adtran`
+as vendors, and the schema carries `Tenant`, `Service`, `ServicePath`, `PhysicalPort`, `Cable`,
+`Premises` and `Site`. The knowledge has not followed.
+
+**The question:** is the Juniper firewall work still what you do most weeks, occasionally, or
+hardly at all any more?
+
+What turns on it: two of the eight queued work orders (WO-03 ingest, WO-04 emitters) are written
+end-to-end against Junos syntax; ADR-0029 orders six SRX corrections as a gate; ADR-0030 commits
+2–3 weeks to Palo Alto chosen purely as a second *firewall*. All three were reasoned inside the
+firewall world.
+
+### 11.2 When Fathom finds this problem, what should it point at?
+
+*(was: "may a rule anchor on an edge?")*
+
+The problem is real and the field card calls it the most-missed step: on an SRX, the interface a
+VPN runs over must be given permission to accept incoming IKE packets. If it is not, the firewall
+silently drops the far end and the log says nothing.
+
+The awkwardness is that the fault belongs to neither thing on its own. It is not a property of the
+interface, and not a property of the zone — it is a property of the *pairing*: **this interface,
+inside this zone, does not admit IKE.** Fathom must hang the warning off something, and that choice
+decides what the user sees.
+
+| If the warning attaches to… | The user sees | And the one-click fix… |
+|---|---|---|
+| **the interface** | A warning on `ge-0/0/0.0`, wherever that interface appears | opens IKE on that one interface |
+| **the zone** | A warning on the `untrust` zone | opens IKE on **every interface in that zone** |
+
+**The question:** when Fathom flags this, should the warning sit on the individual interface, or on
+the zone it belongs to?
+
+**A security note the owner should have before answering, given §2 rank 1.** The fix is currently
+written to open IKE on one interface. If the warning moves to the zone and the fix moves with it,
+the fix widens to every interface in that zone — which is the exact regression `87` R03 was written
+to prevent. That argues for the interface, but it is the owner's call and the corpus is genuinely
+split: four documents disagree today and no code catches the disagreement (`88` §4.5).
+
+### 11.3 Is Meraki configured by text you can copy and paste?
+
+Every other platform on the owner's list is configured by text an engineer selects from a terminal
+and pastes. That is not a convenience — invariant 2 makes paste the **only** on-ramp the product
+will ever have, permanently, and `03` §4.5 confirms *"config paste is the primary on-ramp"*.
+
+Meraki is Cisco's cloud-managed line. Whether it presents a comparable pasteable device
+configuration is not asserted anywhere in this tree and is not asserted here; no Meraki artifact
+exists in the repository, and conventions forbid stating a vendor behaviour without a primary
+source.
+
+**The question, in the owner's terms:** when you work on a Meraki device, is there a screen or an
+export that gives you its configuration **as text you can select and copy**? If yes, what does it
+look like — is it a CLI-style listing, a JSON or YAML export, a downloaded backup file?
+
+Why it is not a small question. If the answer is *"no, you configure it in a browser and there is no
+text"*, then Meraki cannot be a platform under invariant 2: the only ways in would be a file export
+(a different input shape, which `17` §… covers for import but which no parser targets today) or an
+API call, which the product will never make. That would be a boundary finding, not a scheduling one,
+and it belongs in `03` alongside the other eighteen boundaries rather than in the queue.
+
+**The cheapest way to settle it:** one real Meraki configuration export, however small, with any
+credentials removed. That is the same S0 fixture pattern `76` §7.3 already asks for.
+
+### 11.4 The bridge with ten links — were they ten of the same thing?
+
+§10.1 turns on this and it is close to a one-word answer. On the device the owner saw: were the ten
+links going to **ten similar things** (ten access switches, ten identical spokes), or to **a mix** —
+a firewall, some switches, a router, a few servers?
+
+If they are alike, `59` §3's six-sibling rule already handles it. If they are mixed, there is no
+rule, one is needed, and it cannot be the same rule.
+
+## 12. Failure modes
+
+| # | Failure | Control |
+|---|---|---|
+| 1 | **The verbatim quotes get "tidied"** into cleaner prose and the record stops being a record | §1's rule: quoting is exact, informality included. Any edit to a quote in this document is a defect |
+| 2 | **§2's priority order is used to win arguments it does not settle** — it breaks ties between defensible options, it does not license overriding a written decision | §2's preamble; `78` §4 still governs anything a work order leaves open |
+| 3 | **§6.1 is read as a specification** and someone builds correlation from it | §6.1 states there is no mechanism. It is a named gap; the design document does not exist |
+| 4 | **The removal of phases (ADR-0031) is read as removing `71` §13.1's refusals** | §4's closing paragraph; ADR-0031 §Decision item 4 restates it |
+| 5 | **§7's two questions go unanswered and the work proceeds on a guess** | Both are listed in `88` §8 and in `CLAUDE.md`'s owner-blocking list |
+
+## 13. Open decisions
+
+1. **Modes, or not modes** (§6.2). `53` refuses modes; the owner named two. Whether C-07 ships as a
+   mode, a per-record state or a filter is a design decision nobody has taken. Planning proposes,
+   `53` owns the answer under ADR-0001's precedence rule.
+2. **Where cross-device correlation is specified** (§6.1) — a new `10-core` document, or a section
+   in `14`. Planning decides; it should precede any code.
+3. **Whether LLDP/CDP paste needs its own corpus format** or reuses the command-output shape.
+   Unowned.
+4. Both questions in §11, which are owner-only, plus §11.3's new one on Meraki.
+5. **When `33` (the wire) is picked up.** ADR-0016 deferred it as *"git is the sync for v1"*;
+   ADR-0031 retires v1 as a scoping device, so the deferral's phrasing no longer holds even though
+   its evidence-based reasoning does. §8's load-balancing requirement lands on `33`. Planning
+   proposes a trigger; the owner decides. This is the clearest single instance of the re-ranking
+   ADR-0031 §5 hands to `73`.
+6. **What `77`'s Calix/Nokia/DIA estate is, relative to §7's list.** §7 names the equipment the
+   owner *configures*; `77` describes a service-provider estate of Calix and Nokia access gear with
+   CLLI-coded sites and DIA/E-Line/E-LAN services. These may be the same job seen from two angles —
+   the gear one configures versus the estate one records — or two jobs. Nobody has asked. It decides
+   whether the access/service layer needs its own platforms and corpus, or only the inventory model
+   it already has. Owner, one sentence.
+7. **The target release per platform** (§7.5) — owner, one value each for `junos-srx`, `junos-mx`,
+   `junos-ex`, `nx-os` and `panos`. There is no field for it in `schema/platforms.yaml` today and
+   `62`'s grammar governs adding one. Cheap now; per-entry later.
+8. **Sourcing and staleness for known-defect advisories** (§7.4 half two) — owner. Where the data
+   comes from, who is named against it, and what the product says when an advisory is old. No field
+   should be designed before this is answered.
+9. **Whether the diagram partitions** (§10.2) — owner, but not yet. Per-`Site` views and how they
+   relate. `56` §12 owns it; the recommendation is to decide it against a running diagram.
+10. **Heterogeneous high-degree nodes** (§10.1) — planning, once §11.4 is answered. `59` §3's rule is
+   like-kind only and may not cover the owner's example.
+11. **Whether a registered platform with no content should be visible in the product.** Five of the
+   six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
+   selecting `junos-ex` today would get an empty product with no explanation. Design decision;
+   `52` and `54` own the surface.
+
+## 14. Sources consulted
+
+| Source | Taken |
+|---|---|
+| The owner, in conversation, 2026-08-06 | Every quotation in §§2–6, verbatim |
+| `docs/00-vision/03-non-goals-and-scope.md` §4.5 (`N-R-5`) | Correlation and LLDP paste declared in scope; the refused adjacent |
+| `docs/10-core/11-ir-schema.md` §10.4, §10.6; ADR-0010 | Re-identification is scoped by `owner_device`; the cross-device limitation row |
+| `docs/10-core/19-service-and-physical-model.md` §§2.1, 3.3, 3.7, 3.9, 6.1–6.6 | *"no parser produces it"*; `infer.port.occupies` as suggestion; the warp, its resolver and its asserted-edges-only rule |
+| `docs/10-core/14-parsers-and-ingest.md` §10.1 | Identity tuples scoped by `owner(Device)` |
+| `docs/50-design/53-interaction-and-keyboard.md` | *"No modes. No mode indicator. No mode errors."* |
+| `docs/50-design/56-diagram-view.md` §6.4 | Cables are created by a UI gesture, one op, one undo step |
+| `docs/70-ops/71-roadmap.md` §13.1, §13.2 | The thirteen permanent boundaries versus the eleven deferrals |
+| `docs/70-ops/75-capability-register.md` C-07 | Planning and overlay modes as recorded intent |
+| `docs/70-ops/76-scope-expansion-analysis.md` §6.5, §7.2, §8 | The 0-of-177 transfer figure; the S-slices; Q10 and Q11 |
+| `docs/70-ops/77-service-model-requirements.md` §§2.1, 3.1, 7 | Calix, Nokia, CLLI, DIA/E-Line/E-LAN, the naming grammar |
+| `docs/80-review/86-critique-design.md` §9.4 (D-35, D-36); `80-reconciliation.md` M34 | The motion decision's actual provenance |
+| `docs/80-review/88-state-review-and-recommendations.md` §§4.4, 4.5, 5.7 | The blockers these answers discharge |
+| `schema/platforms.yaml`; `schema/schema.yaml`; `corpus/` (all three files) | The vendor registry; the 48 kinds; the 177 entries and their platform tags |
+| `rg -ci "calix\|nokia\|clli\|fttx\|gpon\|olt\|ont\|pon\|e-line\|elan\|dia\|uni" corpus/` (run 2026-08-06) | Zero matches |
+| `schema/platforms.yaml` (after the 2026-08-06 edit) | §7.2's registry table: eight vendors, eight platforms |
+| `docs/30-security/33-sync-protocol.md` §1, §12 | *"The server stores ciphertext and never holds a key"*; the compromise outcome quoted in §8 |
+| `docs/40-stack/41-technology-choices.md` §5.5 | `fathom-sync` never links the graph, rules, emit or parse crates, and the linker enforces it |
+| `docs/40-stack/43-deployment-modes.md` §2 | D1–D4; D2 single node and D3 cluster as existing shapes |
+| `docs/70-ops/71-roadmap.md` §13.1, §13.2 | The two refusals quoted in §8, with their qualifiers; the fleet-scale deferral and its ~2,000-device trigger |
+| `docs/90-decisions/adr-0016-git-is-the-sync-for-v1.md` | The deferral §8 and §13 item 5 revisit |
+| `corpus/rules/ipsec-junos-srx.yaml` header, gap G6 | The `versions: "*"` self-indictment quoted in §7.4 |
+| `grep -rniE "psirt\|advisory\|known.bug\|cve\|errata" schema/*.yaml docs/10-model/` (run 2026-08-06) | One irrelevant hit. Known-defect advisories are not modelled |
+| `docs/50-design/59-diagram-aggregation-and-colour.md` §2.1–2.3, §3, §6.2 | The legibility-ceiling finding, the `155 + 9n` measurements, the six-sibling decision, the silent-count defect |
+| `docs/50-design/56-diagram-view.md` §1.1–1.3, §4 | One canvas, five layers, aggregation to `Site`/`Device`; the inventory-table concession quoted in §10.2 |
+
+## 15. Disagreements
+
+1. **Against the framing of the original questions.** Q3 and Q4 were put to the owner in project
+   jargon and were unanswerable as asked; the owner said so twice. That is a defect in the asking,
+   not in the answering. §7 is the repair, and the rule it implies is worth keeping: a question for
+   the owner is phrased in terms of their work and what they would see, never in terms of the data
+   model. Where a security consequence rides on the answer, it is stated before the question, as in
+   §7.2.
+
+2. **Against reading §4 as a schedule.** *"All features must be included in V1"* is a statement
+   about the feature set, not about time. `ADR-0003` remains Accepted and unreversed: it decides
+   nobody funds this and records that under that assumption *"the honest scope is one platform, one
+   domain, forever"*. Those two can both be true — the product ships whole, and it takes as long as
+   one person takes — but the tension is real and is not resolved here. ADR-0031 §Consequences
+   states it as the cost it is.
+
+3. **Against treating §6.1 as small.** It reads like a feature and it is closer to a subsystem: it
+   needs an evidence model, a confidence model, a conflict-resolution rule, a UI for accepting or
+   rejecting a proposal, and a provenance story for every edge it creates. `19` §3.9 already calls
+   hand-entered physical data *"the single largest adoption risk in this layer"*, which is the
+   strongest available argument for doing it — and is also the measure of how much rests on doing
+   it correctly.

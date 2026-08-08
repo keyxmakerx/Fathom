@@ -6,6 +6,13 @@
 > **Reversal cost:** R5 — a published version number and a product description are a promise
 > **Supersedes:** —
 
+> **Reversal proposed, 2026-08-06.** The owner has overruled this record's scoping on merit — *"All
+> features must be included in V1, how you wish to plan that out is your discretion"* (`70` §4,
+> verbatim). ADR-0031 supersedes items 1, 3, 4, 5 and 7; items 2 and 6 are not scoping and survive.
+> No revisit trigger below fired, and `58` §4.4 records that deliberately — this is `75` §2's
+> reopening on merit, which is permitted. **This record stays Accepted and in force until ADR-0031
+> is ratified**; a session reading it today should read ADR-0031 alongside it.
+
 ## Context
 
 "In v1" appears in five other register entries and none of them can be answered until v1 means
