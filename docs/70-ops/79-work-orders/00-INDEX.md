@@ -37,11 +37,11 @@ WO-01/WO-02 are the unblockers everything downstream names; WO-07 precedes the i
 because it retires the ships-to-the-browser risk with no dependency on it. WO-09 sits last because
 it was authored last.
 
-**Next runnable row, as of 2026-08-08: WO-05.** Its two escalations were answered by planning that
-day, its status line is OPEN, and its one dependency (WO-02) is DONE, so `78` §3 step 3's loop —
-*topmost OPEN row whose Depends are all DONE* — selects it over WO-09. WO-04 above it stays
-BLOCKED on WO-09. Answering an escalation does not entitle the answering session to execute the
-order it unblocked (`78` §5 item 10), which is why WO-05 is OPEN and unstarted.
+**WO-05 ran on 2026-08-08 and is DONE.** Both of its escalations had been answered by planning
+earlier the same day; the executing session was a different one (`78` §5 item 10). Its §4.4 pinned
+vector matched the constructed bytes exactly, so trigger 3 did not fire, and nothing new was
+escalated. **The next runnable row is now WO-09** — OPEN, with WO-02 and WO-03 both DONE. WO-04
+above it stays BLOCKED on WO-09.
 
 | # | Work order | File | Status | Depends | Deliverable |
 |---|---|---|---|---|---|
@@ -51,7 +51,7 @@ order it unblocked (`78` §5 item 10), which is why WO-05 is OPEN and unstarted.
 | 4 | WO-07 | `WO-07-the-wasm-shell.md` | DONE | — | `fathom-wasm`: the finder compiled to `wasm32-unknown-unknown` behind `41` §3.7's raw ABI, with import/export/size/determinism audits |
 | 5 | WO-03 | `WO-03-ingest-junos-srx.md` | DONE | WO-01, WO-02 | junos-srx set-form ingest: framer, lexer, shaper, the non-optional redaction gate, the statement dictionary, a typed fragment with its residue ledger |
 | 6 | WO-04 | `WO-04-the-emitters.md` | BLOCKED on WO-09 (authored, OPEN) | WO-01, WO-02 | `fathom-emit`: graph to junos-srx set-statements with per-line provenance; the round-trip gate arms only once WO-03 and the weld order land (its §5 steps 12–13) |
-| 7 | WO-05 | `WO-05-the-workspace-file.md` | OPEN — both escalations answered 2026-08-08 (its §10.6–10.7) | WO-02 | `fathom-canon` and the plaintext workspace face: canonical serialisation, versioned header, byte-identical round trip; sealing stays owner-gated (its §2) |
+| 7 | WO-05 | `WO-05-the-workspace-file.md` | DONE | WO-02 | `fathom-canon` and the plaintext workspace face: canonical serialisation, versioned header, byte-identical round trip; sealing stays owner-gated (its §2) |
 | 8 | WO-08 | `WO-08-the-inventory-face.md` | DONE | WO-01, WO-02, WO-07 | The first product face: browser artifact, inventory table, inspector, per-equipment page with cabled-peer navigation over a pinned demo estate |
 | 9 | WO-09 | `WO-09-the-fragment-to-store-weld.md` | OPEN | WO-02, WO-03 | `fathom-weld`: one ingest fragment applied onto the store as a **new** device — minted ULIDs, containment edges from `owner`, `Origin::Parsed` provenance, `Device.platform` stamped, pending references carried unmaterialised, one batch. Reconciliation escalated, not built |
 

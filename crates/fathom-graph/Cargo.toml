@@ -7,5 +7,6 @@ publish.workspace = true
 description = "The in-memory typed graph store: L0 enforcement at write time, provenance on every write, deterministic iteration, ops in batches (76 §7.2 S3)"
 
 [dependencies]
+fathom-canon = { path = "../fathom-canon" }
 fathom-id = { path = "../fathom-id" }
 fathom-ir = { path = "../fathom-ir" }

@@ -11,6 +11,10 @@
 //!   store.
 //! - `bag` — the handwritten field-bag contract the generated accessors read
 //!   through (62 §17.1's "typed fallible accessors", ADR-0007's mitigation).
+//! - `canon` — the canonical wire form of every bound slot type (WO-05 §4.2),
+//!   over `fathom-canon`'s `Json`. Membership is decided by the `Scalar`
+//!   trait first and by shape second; the generated dispatch in
+//!   `generated::accessors` makes coverage a compile-time fact.
 //! - `generated` — code written by `fathom-schemagen` from the `schema/`
 //!   tree, checked in, and pinned current by that crate's tests
 //!   (`schema.codegen.stale` / `schema.codegen.nondeterministic` as cargo
@@ -19,6 +23,7 @@
 #![forbid(unsafe_code)]
 
 pub mod bag;
+pub mod canon;
 pub mod generated;
 pub mod scalar;
 pub mod value;

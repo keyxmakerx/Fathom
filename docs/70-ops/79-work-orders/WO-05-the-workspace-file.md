@@ -1,8 +1,12 @@
 # WO-05 — The workspace file: canonical serialisation, and the crypto boundary
 
-> **Status:** OPEN — both 2026-08-08 escalations answered by planning on 2026-08-08. §4.2's wire
-> table is re-cut against the `Scalar` trait (rules 3/4/5/7 retired, 13 and 14 added) and §4.4's
-> pinned vector is re-issued without the `fathom:` prefix. Read §10.6 and §10.7 before §4.
+> **Status:** DONE — executed 2026-08-08. All nine acceptance gates green; §4.4's pinned vector
+> matched the constructed bytes exactly, so §7 trigger 3 did not fire. `fathom-canon` and
+> `fathom-workspace` exist; `fathom-ir` carries `canon` and the generated dispatch; `fathom-graph`
+> carries id parsing and the snapshot pair. Sealing remains not started and owner-gated (§2.1).
+> The two 2026-08-08 escalations were answered by planning before execution began; §4.2's wire
+> table is cut against the `Scalar` trait (rules 3/4/5/7 retired, 13 and 14 added) and §4.4's
+> pinned vector carries no `fathom:` prefix. Read §10.6 and §10.7 before §4.
 
 Depends on: WO-02 (the store — `Graph` is the thing serialised, and this work order extends it
 with a snapshot pair). WO-01 is deliberately **not** a dependency, but if it lands first the slot
@@ -1199,3 +1203,16 @@ once. Registered at §10 item 7 so it is not rediscovered a third time.
    enumerate every current member. §3.1's accessor sentence likewise omitted the 56
    bare-primitive slots and the `LearnedRoute.via` `fathom_id::NodeId` slot; it now counts
    them.
+6. **Corrections on execution (2026-08-08), recorded under `78` §8.** (a) §4.1 places
+   `crates/fathom-workspace` in the root members list *"one line after
+   `"crates/fathom-schemagen"`"*. That instruction was written against the six-member list of
+   2026-08-02; the list now holds twelve members in alphabetical order, and `fathom-workspace`
+   sorts after `fathom-wasm`. The line was appended at the end of the list, which is that
+   position. The member set is identical either way, so no decision moves. (b) §4.3 requires
+   `from_snapshot` to surface *"the same violation the write path would name"* while leaving the
+   mechanism to the session. Rather than write a second copy of the ladder, `insert_edge`'s L0
+   sequence was lifted verbatim into a module-private `Graph::check_edge_l0`, which both the write
+   path and the load path now call; `Graph`'s fields, `Node`/`Edge`'s slot maps and `Slot` became
+   `pub(crate)` so `snap.rs` can build a store without a second write API. Every item is
+   module-private (§4: *"Module-private items are the execution session's to name"*), no public
+   name changed, and WO-02's full suite still passes unedited.

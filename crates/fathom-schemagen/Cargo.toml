@@ -7,6 +7,7 @@ publish.workspace = true
 description = "62 §17's generator: reads the gated schema/ tree via fathom-schema and deterministically emits the generated artifacts"
 
 [dependencies]
+fathom-canon = { path = "../fathom-canon" }
 fathom-schema = { path = "../fathom-schema" }
 
 [dev-dependencies]

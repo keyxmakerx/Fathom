@@ -28,7 +28,7 @@ use fathom_ir::bag::FieldKey;
 pub struct BatchId(pub Ulid);
 
 /// One recorded mutation (`33` §5.1).
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Op {
     AddNode {
         node: NodeId,
@@ -56,7 +56,7 @@ pub enum Op {
 /// The undo unit (`53` §7.2). The label is what a footer and an undo
 /// affordance say; it is capped at 60 bytes (`BoundedText<60>`) and is
 /// authored per source, never generated from the op list.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Batch {
     pub id: BatchId,
     pub label: String,

@@ -37,10 +37,10 @@ use crate::prov::{Origin, ProvenanceId, ProvenanceRecord, Timestamp};
 
 /// One stored field. `Unknown` is not representable here: it *is* the absence
 /// of a slot (`11` §5.2).
-struct Slot {
-    presence: StoredPresence,
-    value: Option<Box<dyn Any>>,
-    prov: ProvenanceId,
+pub(crate) struct Slot {
+    pub(crate) presence: StoredPresence,
+    pub(crate) value: Option<Box<dyn Any>>,
+    pub(crate) prov: ProvenanceId,
 }
 
 /// A node. Field slots are private: presence and provenance are read through
@@ -51,7 +51,7 @@ pub struct Node {
     pub existence: ProvenanceId,
     /// `11` §10.5's tombstone. A tombstoned node is not deleted.
     pub absent_since: Option<Timestamp>,
-    fields: BTreeMap<FieldKey, Slot>,
+    pub(crate) fields: BTreeMap<FieldKey, Slot>,
 }
 
 /// An edge. First-class: stable id, kind, typed fields (ADR-0007).
@@ -61,7 +61,7 @@ pub struct Edge {
     pub to: NodeId,
     pub prov: ProvenanceId,
     pub absent_since: Option<Timestamp>,
-    fields: BTreeMap<FieldKey, Slot>,
+    pub(crate) fields: BTreeMap<FieldKey, Slot>,
 }
 
 fn bag_slot(fields: &BTreeMap<FieldKey, Slot>, key: FieldKey) -> Option<&dyn Any> {
@@ -323,18 +323,18 @@ impl fmt::Display for ReadError {
 
 /// The in-memory typed graph.
 pub struct Graph {
-    nodes: BTreeMap<NodeId, Node>,
-    edges: BTreeMap<EdgeId, Edge>,
+    pub(crate) nodes: BTreeMap<NodeId, Node>,
+    pub(crate) edges: BTreeMap<EdgeId, Edge>,
     /// ULID uniqueness across the whole store, and `resolve_ref`'s index: a
     /// bare `fathom_id::NodeId` reference carries a ULID and nothing else.
-    by_ulid: BTreeMap<Ulid, ElementId>,
-    out: BTreeMap<(NodeId, EdgeKind), Vec<EdgeId>>,
-    inn: BTreeMap<(NodeId, EdgeKind), Vec<EdgeId>>,
-    owner_edge: BTreeMap<NodeId, EdgeId>,
-    prov: BTreeMap<ProvenanceId, ProvenanceRecord>,
-    history: BTreeMap<(ElementId, FieldKey), FieldHistory>,
-    log: Vec<Batch>,
-    open: Option<Batch>,
+    pub(crate) by_ulid: BTreeMap<Ulid, ElementId>,
+    pub(crate) out: BTreeMap<(NodeId, EdgeKind), Vec<EdgeId>>,
+    pub(crate) inn: BTreeMap<(NodeId, EdgeKind), Vec<EdgeId>>,
+    pub(crate) owner_edge: BTreeMap<NodeId, EdgeId>,
+    pub(crate) prov: BTreeMap<ProvenanceId, ProvenanceRecord>,
+    pub(crate) history: BTreeMap<(ElementId, FieldKey), FieldHistory>,
+    pub(crate) log: Vec<Batch>,
+    pub(crate) open: Option<Batch>,
 }
 
 impl Default for Graph {
@@ -495,6 +495,50 @@ impl Graph {
         if self.by_ulid.contains_key(&ulid) {
             return Err(WriteError::UlidReused { ulid });
         }
+        let (from, to) = self.check_edge_l0(kind, from, to)?;
+
+        let id = EdgeId { kind, ulid };
+        let prov = self.intern(filled);
+        self.edges.insert(
+            id,
+            Edge {
+                id,
+                from,
+                to,
+                prov,
+                absent_since: None,
+                fields: BTreeMap::new(),
+            },
+        );
+        self.by_ulid.insert(ulid, ElementId::Edge(id));
+        insert_sorted(self.out.entry((from, kind)).or_default(), id);
+        insert_sorted(self.inn.entry((to, kind)).or_default(), id);
+        if kind.class() == EdgeClass::Containment {
+            self.owner_edge.insert(to, id);
+        }
+        self.record(Op::AddEdge {
+            edge: id,
+            from,
+            to,
+            prov,
+        });
+        Ok(id)
+    }
+
+    /// The L0 ladder for an edge that is about to exist, in the fixed order
+    /// that makes a refusal a function of the edge and not of what else is in
+    /// the store. Returns the pair in stored order — normalised for a
+    /// symmetric kind.
+    ///
+    /// Extracted from `insert_edge` unchanged so that `Graph::from_snapshot`
+    /// runs *this* ladder rather than a second copy of it: loading is not
+    /// trusting, and the refusal set on load must be the refusal set on write.
+    pub(crate) fn check_edge_l0(
+        &self,
+        kind: EdgeKind,
+        from: NodeId,
+        to: NodeId,
+    ) -> Result<(NodeId, NodeId), WriteError> {
         if kind.root_containment() {
             return Err(WriteError::RootContainment { edge: kind });
         }
@@ -606,32 +650,7 @@ impl Graph {
             }
         }
 
-        let id = EdgeId { kind, ulid };
-        let prov = self.intern(filled);
-        self.edges.insert(
-            id,
-            Edge {
-                id,
-                from,
-                to,
-                prov,
-                absent_since: None,
-                fields: BTreeMap::new(),
-            },
-        );
-        self.by_ulid.insert(ulid, ElementId::Edge(id));
-        insert_sorted(self.out.entry((from, kind)).or_default(), id);
-        insert_sorted(self.inn.entry((to, kind)).or_default(), id);
-        if kind.class() == EdgeClass::Containment {
-            self.owner_edge.insert(to, id);
-        }
-        self.record(Op::AddEdge {
-            edge: id,
-            from,
-            to,
-            prov,
-        });
-        Ok(id)
+        Ok((from, to))
     }
 
     /// Not tombstoned, and neither endpoint tombstoned.
@@ -1065,14 +1084,14 @@ impl Graph {
 /// Is the key one of the element's kind's declared fields? The kind travels
 /// inside the id, so this needs no store lookup — ADR-0008 at the write
 /// boundary, node and edge fields alike.
-fn declares(element: ElementId, key: FieldKey) -> bool {
+pub(crate) fn declares(element: ElementId, key: FieldKey) -> bool {
     match element {
         ElementId::Node(id) => id.kind.fields().contains(&key),
         ElementId::Edge(id) => id.kind.fields().contains(&key),
     }
 }
 
-fn insert_sorted(v: &mut Vec<EdgeId>, id: EdgeId) {
+pub(crate) fn insert_sorted(v: &mut Vec<EdgeId>, id: EdgeId) {
     if let Err(i) = v.binary_search(&id) {
         v.insert(i, id);
     }
