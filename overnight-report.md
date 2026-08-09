@@ -18,7 +18,7 @@ Written for someone who runs networks, not someone who writes Rust.
 | 4 | What is deliberately still missing |
 | 5 | The checks — the exact numbers |
 | 6 | Three things worth knowing |
-| 7 | What still needs a decision from you |
+| 7 | The two questions you were asked — both now answered |
 | 8 | How to see it yourself |
 
 ---
@@ -90,15 +90,16 @@ kind of secret it was.
 So the picture is not rosier than the tree.
 
 - **One box at a time.** Pasting a second config replaces the first rather than adding to it.
-  Joining separate pastes into one estate is the biggest unbuilt requirement in the project and it
-  is blocked on a decision, not on code (§7).
+  Joining separate pastes into one estate is the biggest unbuilt requirement in the project. Half
+  of what it needed — knowing when two pastes are the same box — landed today (§7); what it still
+  needs is a decision about what you see when Fathom thinks it recognises a box.
 - **Juniper SRX only.** The other five platforms are registered and empty.
 - **No diagram yet.** This is the inventory table and the inspector. The map views we discussed —
   inside a box, rack, floor, building, VLAN, VPN — are designed and unbuilt.
 - **No findings.** The rightmost column of every table still reads `—`, because the rule engine is
   not built. The column stays visible on purpose so its absence is never invisible.
-- **It cannot write anything back yet.** Reading works; emitting is still blocked on the two
-  questions in §7.
+- **It cannot write anything back yet.** Reading works. Emitting now has its answer in principle
+  (§7) and still needs the work order that turns it into text.
 
 ## 5. The checks — the exact numbers
 
@@ -109,7 +110,7 @@ All run at the end of this session on a clean tree:
 | Formatter | clean |
 | Linter (warnings treated as errors) | clean |
 | Tests | **366 passed, 0 failed, 0 skipped, 0 filtered** (up from 354) |
-| Schema checker | exit 0 — the two standing `Site` warnings, unchanged |
+| Schema checker | exit 0 — **0 failures, 0 warnings**; the two standing `Site` warnings are gone (see below) |
 | Cross-reference checker | 8,648 checked, 58 unresolved — the same 58 as before this branch |
 | Browser module audit | imports **still empty**, module 812,467 bytes against a 900,000 ceiling |
 | Egress and safety greps on the page source | all seven patterns still zero |
@@ -140,19 +141,71 @@ blocked on your answers in §7, so rather than sit still this session built the 
 product into your hands. It is recorded here as what it is: useful, verified, and outside the
 queue.
 
-## 7. What still needs a decision from you
+## 7. The two questions you were asked — both now answered
 
-Unchanged from the last report, and now the only thing between here and writing configs back out:
+Both of the questions in the previous version of this section were badly asked, and you said so.
+Recorded here because the corrections are worth more than the answers.
 
-**1. When Fathom emits a tunnel, is that output meant to be pasted onto a box that already has its
-WAN interface — or must it contain every statement needed to bring the tunnel up on a box whose
-config is blank?** This is the `reth0.0` question. Today Fathom refuses to emit anything that names
-an interface the paste never defined, which is safe and makes every partial paste unemittable.
+**1. "Is the emitted tunnel for a box that already has its WAN interface, or a blank box?"**
 
-**2. How does Fathom tell two devices apart?** One sentence. Without it, re-reading a config it has
-already seen makes a second copy of the device instead of updating the first — so a config can be
-added but never refreshed. The same sentence is needed for sites, and it is what the two standing
-schema warnings are.
+You rejected both options:
+
+> *"What? i mean if you have a P2P ELINE or tunnel, vpn, etc, it should stil route as it should. If
+> not all the info is available how it routes then there needs to be like a dotted line or something
+> indicating that or something. I know we had the warp idea for physical?"*
+
+You were right and you were right about the mechanism too. The question assumed only two outcomes —
+emit everything, or emit nothing — and the answer is neither: **represent the path, and mark what
+you don't know about it.**
+
+Two things checked, not remembered:
+
+- **The warp is already real.** `19` §6 is titled *"The path and the warp"*. The schema has
+  `SegmentKind = { Physical, Warp, Boundary }` and `warp_technology = { L2Ptp, Pseudowire, Evpn,
+  Vlan, Other }` — a P2P E-Line, by name, in the data model. `19` §6.3 already separates *"here is
+  what it crosses today"* from *"I looked and there's nothing there"* from *"I haven't looked"*.
+- **Dotted is already the right pen.** The design tokens reserve `dotted` for *"an unanswered
+  question, not a defect"* and `dashed` exclusively for AI-generated content. Your instinct landed
+  on the exact token, and the distinction matters — dotted, never dashed.
+
+**What that settles and what it doesn't.** The picture is settled: unknown interior gets drawn,
+dotted. The *emitter* is a different surface — a block of config text pasted into a live router
+can't carry a dotted line. Your principle translates there as **hand over what's known and name the
+assumption**, rather than refusing the whole tunnel because one interface wasn't in the paste. That
+reading is written down in `70` §16.2 and flagged as a reading, so the work order that builds the
+emitter has to state it rather than inherit it quietly.
+
+**A gap your question found.** The diagram specification (`56`) doesn't mention warps, path segments
+or segment kinds anywhere — the model has them and the document that says how to draw things doesn't
+know they exist. Nothing in the build would ever have caught that. Filed.
+
+**2. "How does Fathom tell two devices apart?"**
+
+> *"I mean that's a very important thing, idk how this is a question?"*
+
+Correct, and the question is withdrawn. It's important, and it was never yours to answer — it's
+derivable from what a config file actually contains, and asking you to specify a schema tuple is the
+same mistake the project already has written down as a defect. **Answered and built the same day:**
+
+| | Tier 1 | Tier 2 |
+|---|---|---|
+| **Device** | hostname + platform | platform + management address (survives a rename) |
+| **Site** | site code | site name |
+
+Hostname is always present in a config and platform comes from whichever vocabulary read it, so
+tier 1 always works. It's the *pair* rather than the hostname alone because a `core-01` SRX and a
+`core-01` Nexus are two boxes. Tier 2 is honestly rare — nothing populates a management address from
+a Junos paste yet — and when neither tier matches, the answer is to **ask you**, never to match on
+something weaker.
+
+**Side effect: the schema checker is now completely clean.** It had two standing warnings for the
+whole life of this project, both caused by exactly this missing rule. 0 failures, 0 warnings, and a
+test that fails if a new one ever appears.
+
+**One thing that's genuinely yours, and it is a UX question:** when you paste a config for a box
+Fathom thinks it already has, what should it show you? A match is a *proposal*, not an automatic
+merge — two branches can both run a `core-01`. Until that's designed, a paste replaces what's held
+and says so.
 
 Two smaller ones, whenever you get to them: whether the IKE warning belongs on the interface or the
 zone, and who the named human reviewer of the vocabulary files is.

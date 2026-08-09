@@ -122,9 +122,11 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   Accepted — see rule 1. Answer `70` §10's open questions — *should the IKE
   warning sit on the interface or the zone?* and *is Meraki configurable by text you can copy?*; the S0
   fixture exports (`76` §7: Calix/Nokia/DIA configs, one service record end-to-end, the site
-  list); the `Site` identity rule, which is **not** blocked on those exports and needs one
-  sentence (`88` §6.13); the four forks in `19` §10; the named expert review of `corpus/` (invariant 10 —
-  every entry still carries `reviewed_by: <named human>`).
+  list); the four forks in `19` §10; the named expert review of `corpus/` (invariant 10 —
+  every entry still carries `reviewed_by: <named human>`). **Two came off this list on 2026-08-09**
+  — `70` §16 records both answers verbatim: incomplete paths are drawn and *marked*, never refused
+  (`19` §6's warp, `51` §9's `dotted` and never `dashed`), and the `Site`/`Device` identity rule,
+  which the owner rightly refused to answer as a question and which is now in `schema/`.
 
 ## Verify before you trust
 
@@ -134,9 +136,11 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
 - `cargo clippy --all-targets -- -D warnings` — clean.
 - `cargo test --workspace --locked` — 366 tests as of 2026-08-09; green is the gate, not the
   number. Zero ignored, zero filtered: no test was weakened to reach it.
-- `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0; the standing baseline
-  is two `schema.identity.unexercised` warnings against `Site`, deliberate and
-  owner-blocked.
+- `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0, **0 failures and 0
+  warnings** since 2026-08-09. The two standing `schema.identity.unexercised` warnings
+  against `Site` are gone because `Site` and `Device` now declare identity tuples
+  (`70` §16.3); `crates/fathom-schema/tests/shipped_tree.rs` pins the empty set, so the
+  next warning of any code fails a test.
 - The executing work order's own acceptance gates, exactly as written.
 
 Interactive artifacts open from disk with zero network; the transcript face in

@@ -24,6 +24,7 @@ what a planning session made of it.
 | 9 | What "off the ground" means | *there is no thin first release* |
 | 10 | The graph and the diagram — owner observations | *three observations, then the structure of the picture* |
 | 11 | Questions still outstanding | *re-asked in plain language* |
+| 16 | Incomplete paths, and telling two devices apart | *two answers, 2026-08-09* |
 | 12 | Failure modes |  |
 | 13 | Open decisions |  |
 | 14 | Sources consulted |  |
@@ -1086,6 +1087,125 @@ designed in than bolted on.
 **The question, in one sentence: are your groups something you would be happy for anyone opening the
 file to read?**
 
+## 16. Incomplete paths, and telling two devices apart — 2026-08-09
+
+Two questions were put to the owner on 2026-08-09. He rejected the framing of both, and was right
+about both. His words are reproduced first because the correction is in the wording.
+
+### 16.1 The question that was asked badly
+
+> *"When Fathom emits a tunnel, is that output meant to be pasted onto a box that already has its
+> WAN interface — or must it contain every statement needed to bring the tunnel up on a box whose
+> config is blank?"*
+
+**The answer, verbatim (2026-08-09):**
+
+> *"What? i mean if you have a P2P ELINE or tunnel, vpn, etc, it should stil route as it should. If
+> not all the info is available how it routes then there needs to be like a dotted line or something
+> indicating that or something. I know we had the warp idea for physical?"*
+
+**What was wrong with the question.** It offered two options and both were wrong, because both
+assumed the only two outcomes are *emit everything* and *emit nothing*. The owner's answer names a
+third that the corpus already specifies and the question did not consider: **represent the path,
+and mark what is not known about it.** A tunnel whose middle is unknown is still a tunnel that
+routes; refusing to draw it, or refusing to emit it, discards a fact the operator has in order to
+avoid stating one they do not.
+
+**He is right that this is already designed, and he named it correctly.** `19` §6 is *"The path and
+the warp"*, and it decides exactly this:
+
+> **DECISION — the warp is stored data (a path segment with `kind: Warp` and two named ports). Its
+> expansion is derived.**
+
+`SegmentKind` is `{ Physical, Warp, Boundary }` (`schema/enums/segment_kind.yaml`), `PathSegment`
+carries `warp_technology: enum { L2Ptp, Pseudowire, Evpn, Vlan, Other }` — which is a P2P E-Line,
+in the schema, by name — and `WarpResolvesVia` is a derived edge produced by
+`infer.service.warp.resolve`. `19` §6.3 already separates the three states the owner's sentence
+distinguishes: *"here is what it crosses today"*, *"I looked and there is nothing there"*, and *"I
+have not looked"* — kept structurally apart rather than collapsed into one error.
+
+**And the treatment he reached for is the one the design system already reserves.** `51` §9:
+
+| Token | Value | Meaning |
+|---|---|---|
+| `--rule-style-proposed` | `dashed` | AI output. **Nothing deterministic in this product is ever drawn with a dashed rule** |
+| `--rule-style-pending` | `dotted` | *"an unanswered question, not a defect"* |
+
+*"There needs to be like a dotted line"* lands on `--rule-style-pending`, whose own comment is a
+paraphrase of what he asked for. **Dotted, not dashed** — the distinction matters and is
+load-bearing, because dashed is reserved product-wide for AI-proposed content and a warp is not a
+proposal.
+
+### 16.2 What this decides, and what it does not
+
+**Decided.** An incompletely-known path is **drawn and recorded**, never refused. Where the
+interior is unknown the segment is a `Warp`, and an unresolved warp renders `dotted`.
+
+**Not decided by this answer, and not to be read into it: what the *emitter* does.** A picture can
+say *"I am not sure about this part"*; a block of config text pasted into a live router cannot.
+`13`/`52`'s emit surface has no dotted line. The owner's principle — *represent what you know, mark
+what you do not* — translates to emit as **emit the statements that are known and name the
+assumption**, rather than refusing the whole tunnel because one interface was never in the paste.
+That is the reading this document takes forward, and it is a reading, so it is flagged rather than
+executed: WO-04 is the order that must state it, and it must be put to the owner as *"here is what
+Fathom would hand you, and here is what it is assuming"* rather than as a yes/no.
+
+**A gap this answer exposed.** `56` (the diagram view) does not mention `PathSegment`, `Warp` or
+`SegmentKind` anywhere — a full-text search returns nothing. The model has warps and the picture
+specification does not know they exist. Found by the owner's question, not by any gate. Filed in
+§13.
+
+### 16.3 Telling two devices apart
+
+**The answer, verbatim (2026-08-09):**
+
+> *"I mean that's a very important thing, idk how this is a question?"*
+
+**He is right, and the question is withdrawn.** It is not a question for the owner: it is important,
+its shape is determined by what a config file actually contains, and asking a network engineer to
+specify a schema tuple is the same defect §15 disagreement 1 already records — *"a question for the
+owner is phrased in terms of their work and what they would see, never in terms of the data model."*
+This one should never have been asked at all, in any phrasing, because the answer is derivable and
+the deriving is the project's job.
+
+**Answered instead, and executed the same day.** `schema/schema.yaml` now declares:
+
+```yaml
+- kind: Device
+  identity:
+    - [ hostname, platform ]              # tier 1
+    - [ platform, management_address ]    # tier 2 — survives a rename
+- kind: Site
+  identity:
+    - [ code ]                            # tier 1
+    - [ name ]                            # tier 2
+```
+
+Three things make this the answer rather than a guess:
+
+1. **`11` §10.4's re-identification algorithm was never missing an answer about the *inside* of a
+   device** — it takes *"capture `C` with `device: D`"* as an input, so it already maps a re-parse
+   onto existing interfaces, zones and gateways. The only thing it lacked was the root: which box a
+   fresh paste belongs to. That is one tuple, not a subsystem.
+2. **Tier 1 is the only pair a config always carries.** `hostname` is `card: 1` and `platform` is
+   stamped from whichever dictionary read the capture. It is the pair rather than the hostname alone
+   because a `core-01` SRX and a `core-01` Nexus are two boxes.
+3. **Tier 2 is honest about being rarely usable.** `management_address` is `0..1` and no junos-srx
+   dictionary entry populates it today. A renamed box with no recorded management address is not
+   re-identifiable from its text, and the answer there is to ask the operator — never to match on
+   something weaker.
+
+**Effect, immediately: the schema checker's standing two-warning baseline is gone.** It was two
+`schema.identity.unexercised` against `Site` for the whole of the tree's life, because the
+`SiteList` import scope claimed tiers 1 and 2 of a kind that declared none. `fathom-schema-check`
+now reports **0 failures, 0 warnings**, and `crates/fathom-schema/tests/shipped_tree.rs` pins the
+empty set so the next warning of any code fails a test.
+
+**Still open, and genuinely a UX question rather than a model one:** what Fathom does when tier 1
+matches and the operator meant a different box — two real branches whose SRXs are both
+`core-01`. A match is a **proposal to a human, not an automatic merge**, and what that proposal
+looks like is `53`/`54` work. Filed in §13.
+
 ## 12. Failure modes
 
 | # | Failure | Control |
@@ -1204,6 +1324,15 @@ file to read?**
     **The question for the owner, in one sentence:** *when Fathom emits a tunnel, is that output
     meant to be pasted onto a box that already has its WAN interface — or must it contain every
     statement needed to bring the tunnel up on a box whose config is blank?*
+
+    **ANSWERED 2026-08-09 — and the question was still wrong.** §16.1 has the answer verbatim. The
+    owner refused both options and named a third: an incompletely-known path is represented and
+    **marked**, never refused. For the diagram that is settled and already specified (`19` §6's warp,
+    `51` §9's `--rule-style-pending: dotted`). For **this** item — the emitter — it is a principle
+    and not yet a mechanism, because a block of config text cannot carry a dotted line. **What
+    remains open is narrower than what was asked:** WO-04 must state how emit *names the assumption*
+    it is making about `reth0.0` in the text it hands over, rather than whether it emits at all. It
+    emits. §16.2 records the reading and flags it as a reading.
 16. **Whether a registered platform with no content should be visible in the product.** Five of the
    six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
    selecting `junos-ex` today would get an empty product with no explanation. Design decision;
@@ -1223,6 +1352,25 @@ file to read?**
    `44` owns size budgets and its gate (`44` §5.5) covers build artifacts, not workspace content.
    An imported image is the only thing in the workspace whose size the product does not choose.
    Unowned.
+19. **`56` does not know warps exist** (§16.2). A full-text search of `docs/50-design/56-diagram-view.md`
+   for `warp`, `PathSegment` and `SegmentKind` returns **nothing**. `19` §6 decides that a service
+   path is a sequence of segments, that a `Warp` stands in for an unmodelled interior, and that its
+   resolution has four distinct states — and the document that owns how the picture is drawn
+   specifies none of them. `51` §9 supplies the treatment (`--rule-style-pending: dotted`, and
+   **never** `dashed`, which is reserved product-wide for AI-proposed content). `56` owns the answer
+   under ADR-0001's precedence rule; planning proposes. **Found by the owner asking a question, not
+   by a gate**, which is worth noting on its own — nothing in the tree compares a model concept
+   against the views that must render it.
+20. **What a re-identification match looks like to the operator** (§16.3). `Device.identity` now
+   declares its tiers, so a second paste of a box already in the workspace is *detectable*. What
+   happens next is a UX question and is deliberately not decided in `schema/`: a tier-1 match is a
+   **proposal to a human, not an automatic merge**, because two real branch sites may both run a
+   `core-01` SRX on the same platform. `53`/`54` own the surface. Until it is designed, `OP_PASTE`
+   replaces the held estate and says so, which is the behaviour that cannot silently merge two boxes.
+21. **`Chassis` still declares `identity: []`** (§16.3). Not blocking and nobody has asked, so it is
+   filed rather than decided — but the two obvious tiers are `[ owner(Device), member_index ]` and
+   `[ owner(Device), serial ]`, and the second is the one that survives a re-slot. It matters the
+   day a chassis cluster is re-parsed.
 19. **The image decoder as a trust surface** (§10.10). `34` has no section on image decoding —
    grepped 2026-08-08, zero hits — so the surface is unanalysed rather than cleared. A question for
    `34`'s owner. **ADR-0034 forbids answering it from memory and §10.10 does not answer it.**

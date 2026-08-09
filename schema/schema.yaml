@@ -127,7 +127,16 @@ kinds:
       - { name: address,     type: Text,       card: "0..1", emit: "—", doc: Free prose. }
       - { name: timezone,    type: TzName,     card: "0..1", emit: O, doc: Feeds NTP/logging emit. }
       - { name: criticality, type: "enum { core, branch, lab, dc }", card: "0..1", emit: "—", doc: "Used by rule severity weighting, not by emit." }
-    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for Site.
+    # Two tiers, most specific first, matching the two `SiteList` claims below.
+    # `code` is the strong key — it is what generated object names are built from
+    # (19 §8), so a workspace that uses naming already keeps it unique. `name` is
+    # card 1 and therefore always usable, which is what makes tier 2 a fallback
+    # rather than a second strong key: two sites may legitimately share a display
+    # name, and re-identification is ordered, so tier 2 is only reached when no
+    # code matched.
+    identity:
+      - [ code ]
+      - [ name ]
 
   - kind: Device
     layer: config
@@ -172,7 +181,31 @@ kinds:
           VERIFY: the derive fn name and the full depends_on (19 §8.3 says it includes the
           traversal to Premises via Site) are not stated as declarations anywhere; the read
           set above is the minimum the prose names and is certainly incomplete.
-    identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for Device.
+    # The root of re-identification. `11` §10.4's algorithm takes a capture that
+    # already names its device — it maps a re-parse onto the objects *inside* a
+    # known box. Which box a fresh paste belongs to was the one question that
+    # algorithm never answered, and without it a second paste of the same SRX
+    # makes a second Device (WO-09's `apply_new_device` says so in its name).
+    #
+    # Tier 1 is the pair a config actually carries. `hostname` is card 1, so a
+    # parsed Device always has it, and `platform` is stamped by whichever
+    # dictionary read the capture — so tier 1 is always usable, which no other
+    # candidate here is. It is deliberately the pair and not `hostname` alone: a
+    # `core-01` SRX and a `core-01` Nexus are two boxes.
+    #
+    # Tier 2 survives a rename, the same role tier 2 plays for `IkeGateway`.
+    # It is usable far less often — `management_address` is `0..1` and no
+    # junos-srx dictionary entry populates it today — and that is the honest
+    # state, not a defect to paper over: a renamed box with no recorded
+    # management address is not re-identifiable from its text, and the answer
+    # there is to ask the operator, never to match on something weaker.
+    #
+    # What this does NOT do: decide the collision UX. Two real boxes may share a
+    # hostname and a platform, and a match is a proposal to a human, not an
+    # automatic merge (`70` §14).
+    identity:
+      - [ hostname, platform ]
+      - [ platform, management_address ]
 
   - kind: Chassis
     layer: config

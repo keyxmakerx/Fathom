@@ -60,9 +60,10 @@ cargo test --workspace --locked
 cargo run --locked -p fathom-schema --bin fathom-schema-check
 ```
 
-The schema check exits 0 with exactly two `schema.identity.unexercised` warnings against `Site`.
-That is the standing baseline, not a failure — it is owner-blocked on an identity rule that has not
-been written.
+The schema check exits 0 with **zero failures and zero warnings**. That is the standing baseline
+since 2026-08-09, and a test pins it: any new warning, of any code, fails
+`crates/fathom-schema/tests/shipped_tree.rs`. If you add one, say why in the PR — do not re-pin it
+quietly.
 
 Two more, not yet gates but run them: `python3 scripts/check-citations.py` (58 unresolved on a clean
 tree — do not increase it), and, once external crates exist, the dependency-vulnerability scan
