@@ -11,16 +11,21 @@ use fathom_corpus::{CorpusIndex, Section, SourceFile};
 use fathom_find::Finder;
 
 use crate::protocol::{
-    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_NOT_INITIALISED, ERR_NO_ELEMENT,
-    ERR_UNKNOWN_OP,
+    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_INGEST_REFUSED, ERR_NOT_INITIALISED,
+    ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
-use crate::{OP_ELEMENT, OP_EQUIPMENT, OP_ESTATE_DEMO, OP_INIT, OP_INV_ROWS, OP_QUERY};
+use crate::{OP_ELEMENT, OP_EQUIPMENT, OP_ESTATE_DEMO, OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY};
 
 pub struct Shell {
     finder: Option<Finder>,
     /// The inventory face's graph (WO-08 §4.4). Absent until
-    /// `OP_ESTATE_DEMO` succeeds; the only workspace this build ever holds.
+    /// `OP_ESTATE_DEMO` or `OP_PASTE` succeeds; the only workspace this build
+    /// ever holds.
     estate: Option<fathom_graph::Graph>,
+    /// The junos-srx statement dictionary, compiled in and built on first
+    /// paste. Held rather than rebuilt because every paste needs the same one
+    /// and building it parses six YAML files and runs the WO-03 §4.7 gates.
+    dict: Option<fathom_ingest::dict::Dictionary>,
 }
 
 impl Shell {
@@ -28,6 +33,7 @@ impl Shell {
         Shell {
             finder: None,
             estate: None,
+            dict: None,
         }
     }
 
@@ -40,6 +46,7 @@ impl Shell {
             },
             OP_QUERY => self.query(req),
             OP_ESTATE_DEMO => self.estate_demo(req),
+            OP_PASTE => self.paste(req),
             OP_INV_ROWS => self.inv_rows(req),
             OP_ELEMENT => self.element(req),
             OP_EQUIPMENT => self.equipment(req),
@@ -61,6 +68,107 @@ impl Shell {
         }
         self.estate = Some(fathom_inventory::demo_estate());
         Vec::new()
+    }
+
+    /// `OP_PASTE`: pasted text in, an estate out.
+    ///
+    /// Frame — a fixed 24-byte prefix, then the paste:
+    ///
+    /// ```text
+    ///   0   8   at_ms   (u64) the host's clock, once, for the whole apply
+    ///   8  16   entropy (u128) the host's CSPRNG, once, the mint's base
+    ///  24   ..  the pasted bytes, verbatim and un-decoded
+    /// ```
+    ///
+    /// Both are the host's because this module has neither and must not
+    /// acquire either — the import section is empty and stays empty
+    /// (`wasmbin::IMPORT_ALLOWLIST`). `fathom_weld::Manifest` is shaped for
+    /// exactly this: invariant 9 puts nondeterminism at the host boundary and
+    /// nowhere else.
+    ///
+    /// The paste is handed on **un-decoded**. `ingest` does its own UTF-8
+    /// check and reports the offset of the first bad byte, which is a better
+    /// answer than this layer's "not UTF-8".
+    ///
+    /// On success the held estate is replaced. A refusal leaves the previous
+    /// estate in place: a paste that Fathom could not read is not a reason to
+    /// throw away the one it could.
+    fn paste(&mut self, req: &[u8]) -> Vec<u8> {
+        const PREFIX: usize = 24;
+        let Some(head) = req.get(..PREFIX) else {
+            return protocol::encode_error(
+                ERR_PASTE_FRAME,
+                &format!(
+                    "OP_PASTE needs a {PREFIX}-byte clock and entropy prefix; the frame is {} bytes",
+                    req.len()
+                ),
+            );
+        };
+        let (at_bytes, entropy_bytes) = head.split_at(8);
+        let mut at = [0u8; 8];
+        at.copy_from_slice(at_bytes);
+        let mut entropy = [0u8; 16];
+        entropy.copy_from_slice(entropy_bytes);
+        let at = fathom_graph::Timestamp(u64::from_le_bytes(at));
+        let entropy = u128::from_le_bytes(entropy);
+        let text = req.get(PREFIX..).unwrap_or_default();
+
+        if self.dict.is_none() {
+            match fathom_ingest::dict::Dictionary::embedded() {
+                Ok(d) => self.dict = Some(d),
+                Err(e) => {
+                    return protocol::encode_error(
+                        ERR_CORPUS_LOAD,
+                        &format!(
+                            "the compiled-in dictionary failed to load: {} line {}: {}",
+                            e.file, e.line, e.message
+                        ),
+                    )
+                }
+            }
+        }
+        let Some(dict) = self.dict.as_ref() else {
+            return protocol::encode_error(ERR_CORPUS_LOAD, "no dictionary");
+        };
+
+        let ingest = match fathom_ingest::ingest(text, dict) {
+            Ok(o) => o,
+            Err(e) => return protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e)),
+        };
+
+        // The user and batch ids: the millisecond plus a fixed discriminator,
+        // the pattern `fathom-inventory`'s demo estate and the weld's own
+        // tests both use. Colliding with a minted element ULID is harmless —
+        // `by_ulid` covers nodes and edges only, and batch ids are checked
+        // against other batch ids, of which a fresh graph has none.
+        let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
+        let (Ok(user), Ok(batch)) = (ids(1), ids(2)) else {
+            return protocol::encode_error(
+                ERR_PASTE_FRAME,
+                &format!(
+                    "the clock reads {} ms, which is past the ULID ceiling",
+                    at.0
+                ),
+            );
+        };
+        let manifest = fathom_weld::Manifest {
+            at,
+            entropy,
+            actor: fathom_graph::Actor::User(fathom_graph::UserId(user)),
+            batch: fathom_graph::BatchId(batch),
+            label: PASTE_LABEL,
+            platform: fathom_ir::scalar::PlatformId(dict.platform().to_owned()),
+        };
+
+        let mut graph = fathom_graph::Graph::new();
+        let weld = match fathom_weld::apply_new_device(&mut graph, &ingest, &manifest) {
+            Ok(w) => w,
+            Err(e) => return protocol::encode_error(ERR_WELD_REFUSED, &format!("{e:?}")),
+        };
+
+        let reply = paste_reply(&graph, &ingest, &weld, dict);
+        self.estate = Some(graph);
+        reply
     }
 
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {
@@ -169,6 +277,149 @@ impl Default for Shell {
     fn default() -> Shell {
         Shell::new()
     }
+}
+
+// --- the paste reply ---------------------------------------------------------
+
+/// The batch's undo label (`53` §7.2, at most 60 bytes).
+const PASTE_LABEL: &str = "Paste junos-srx config";
+
+/// How many residue rows one reply carries. The summary always states the
+/// **total**, so a page that renders both can say how many it is not showing —
+/// `78` §5 forbids the silent cap, not the cap.
+const RESIDUE_ROW_CAP: usize = 500;
+/// The same, for references the capture named and did not contain.
+const UNRESOLVED_ROW_CAP: usize = 200;
+
+fn refusal_text(e: fathom_ingest::IngestRefusal) -> String {
+    match e {
+        fathom_ingest::IngestRefusal::Undecodable { offset } => {
+            format!("the paste is not UTF-8: the first bad byte is at offset {offset}")
+        }
+        fathom_ingest::IngestRefusal::TooLarge { bytes, lines } => format!(
+            "the paste is {bytes} bytes over {lines} lines; the caps are {} and {}",
+            fathom_ingest::MAX_PASTE_BYTES,
+            fathom_ingest::MAX_PASTE_LINES
+        ),
+    }
+}
+
+/// Why one line was not bound, in the words the person who pasted it would
+/// use. Every arm names something they could act on — *"Fathom does not know
+/// this statement yet"* is a different problem from *"the paste is clipped"*,
+/// and lumping them under "unparsed" hides which one it is.
+fn residue_reason(outcome: &fathom_ingest::frame::LineOutcome) -> String {
+    use fathom_ingest::frame::{LineOutcome, ShapeError};
+    match outcome {
+        LineOutcome::Unmapped { known_prefix } => match known_prefix {
+            0 => "not in the dictionary".to_owned(),
+            1 => "not in the dictionary past the first word".to_owned(),
+            n => format!("not in the dictionary past the first {n} words"),
+        },
+        LineOutcome::Unshaped { reason } => match reason {
+            ShapeError::NotVerbInitial => {
+                "does not start with a config verb — a clipped or wrapped line".to_owned()
+            }
+            ShapeError::UnsupportedVerb => "not a `set` statement".to_owned(),
+            ShapeError::UnterminatedQuote => "an unclosed quote".to_owned(),
+            ShapeError::UnterminatedBracket => "an unclosed bracket".to_owned(),
+            ShapeError::UnterminatedContinuation => {
+                "ends in a continuation with nothing after it".to_owned()
+            }
+            ShapeError::KeyUnparsable => {
+                "the name this statement configures could not be read".to_owned()
+            }
+            ShapeError::TooManySegments => "more than 64 words deep".to_owned(),
+        },
+        LineOutcome::Quarantined { label, orig_len } => format!(
+            "held back at the redaction gate: {} ({orig_len} bytes)",
+            label.token()
+        ),
+        // `ingest` builds `residue` from exactly the three arms above, so this
+        // is unreachable through `ingest`. Naming the outcome rather than
+        // asserting keeps a future fourth arm visible instead of silent.
+        other => format!("{other:?}"),
+    }
+}
+
+fn target_text(target: &fathom_ingest::bind::PendingTarget) -> String {
+    use fathom_ingest::bind::PendingTarget;
+    match target {
+        PendingTarget::ByName { kind, name } => format!("{} {}", kind.name(), name.0),
+        PendingTarget::InterfaceUnit { kind, name, unit } => {
+            format!("{} {}.{unit}", kind.name(), name.0)
+        }
+    }
+}
+
+/// The reply one successful paste produces: what was understood, what was not,
+/// and what was named and not found.
+fn paste_reply(
+    graph: &fathom_graph::Graph,
+    ingest: &fathom_ingest::IngestOutput,
+    weld: &fathom_weld::WeldOutput,
+    dict: &fathom_ingest::dict::Dictionary,
+) -> Vec<u8> {
+    let text = ingest.capture.text();
+
+    let residue: Vec<[String; 3]> = ingest
+        .residue
+        .iter()
+        .take(RESIDUE_ROW_CAP)
+        .map(|r| {
+            let line = text
+                .get(r.span.start as usize..r.span.end as usize)
+                .unwrap_or_default();
+            [
+                (r.ordinal.0 + 1).to_string(),
+                line.to_owned(),
+                residue_reason(&r.outcome),
+            ]
+        })
+        .collect();
+
+    let unresolved: Vec<[String; 3]> = weld
+        .unresolved
+        .iter()
+        .take(UNRESOLVED_ROW_CAP)
+        .map(|u| {
+            [
+                target_text(&u.target),
+                u.kind.name().to_owned(),
+                (u.line.0 + 1).to_string(),
+            ]
+        })
+        .collect();
+
+    let page = fathom_inventory::element_page(graph, weld.device);
+    let (device_id, hostname) = match &page {
+        Some(p) => (p.id.as_str(), p.name.as_str()),
+        None => ("", ""),
+    };
+
+    // Edges: the fragment's own, plus the containment edges the weld
+    // materialised. Both are edges in the store and counting only the first
+    // would under-report what was built by roughly the node count.
+    let edges = (weld.edges.len() + weld.containment.len()).to_string();
+    let nodes = weld.nodes.len().to_string();
+    let residue_total = ingest.residue.len().to_string();
+    let secrets = ingest.drops.entries.len().to_string();
+    let unresolved_total = weld.unresolved.len().to_string();
+
+    protocol::encode_paste_reply(&protocol::PasteReply {
+        summary: [
+            &nodes,
+            &edges,
+            &residue_total,
+            &secrets,
+            &unresolved_total,
+            device_id,
+            hostname,
+            dict.platform(),
+        ],
+        residue: &residue,
+        unresolved: &unresolved,
+    })
 }
 
 /// A cursor over the request bytes that refuses every short read.

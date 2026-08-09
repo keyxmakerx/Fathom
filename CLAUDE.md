@@ -33,13 +33,22 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   `fathom-schema`, `fathom-schemagen`, `fathom-ir` with checked-in generated types,
   `fathom-corpus`, `fathom-find`). **As of 2026-08-08 the queue has run: six more crates exist** —
   `fathom-graph` (the typed store), `fathom-ingest` (junos-srx set-form, with the redaction gate),
-  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`. **354 tests, zero external
+  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`. **366 tests, zero external
   dependencies.** **Eight of nine work orders DONE** — WO-01, WO-02, WO-03, WO-05, WO-06, WO-07,
   WO-08 and WO-09 (the fragment-to-store weld, which now exists as `fathom-weld`). **WO-04 is the
   only one open**, BLOCKED on two planning decisions and no code: the source of `IpsecVpn.mode` on
   a re-parse (its §10 item 7(b)) and WO-09 §10 item 2's golden, which references `reth0.0` and
-  `st0.0` without declaring an interface. **Nothing has ever been opened in
-  a browser**: WO-08's sixteen manual rows are honestly recorded NOT RUN.
+  `st0.0` without declaring an interface.
+- **The product has been opened in a browser, and it now has an input.** WO-08's sixteen manual
+  rows are recorded **RUN 2026-08-08 — ALL SIXTEEN PASS** in that order's G10 block, with method
+  and limits. On 2026-08-09 the **on-ramp** landed, outside the queue and at the owner's direction:
+  `OP_PASTE` (`fathom-wasm`) carries pasted text plus the host's clock and entropy into
+  `fathom-ingest` and `fathom-weld` and replaces the held estate, and `fathom-dev.src.html` has a
+  paste sheet that renders what was understood *and every line that was not*. Driven in Chromium
+  against a 26-line SRX config: 15 nodes, 23 edges, 5 residue lines named, 1 pre-shared key
+  destroyed, one network request (the file). Evidence: `docs/80-review/evidence/2026-08-09-*.png`;
+  the plain-English account is `overnight-report.md`. **The module is 812 KB against `44` §5.2's
+  900 KB ceiling** — 88 KB of headroom, and the second platform's dictionary will eat it.
 - **The plan layer is live.** `78` (the execution protocol), `79-work-orders/` (eight
   orders, adversarially verified), and CI (`.github/workflows/ci.yml`) enforcing the
   verification floor on every PR.
@@ -95,6 +104,13 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   completion, the shakedown order) leads; WO-01 (the `Scalar` trait) and WO-02 (the graph
   store) unblock everything downstream. Every order carries its own plan, gates, and
   stop-and-escalate list; `78` governs.
+- **Raised by the on-ramp (2026-08-09), neither queued nor decided:** (a) the module is 812 KB
+  against `44` §5.2's 900 KB ceiling — decide before the second platform's dictionary lands whether
+  the ceiling moves or the dictionary is handed in by the page instead of compiled in
+  (`fathom_ingest::dict::EMBEDDED_DICT_SOURCES`); (b) `OP_PASTE` replaces the held estate, because
+  merging a second paste is `70` §6's unbuilt correlation requirement and this session would not
+  fake it; (c) `set system domain-name` and `set interfaces … description` are residue for want of
+  two dictionary lines — cheap, and nobody has ordered them.
 - **Planning-only, queued in the orders' §10 lists:** the crypto route for the workspace
   file (WO-05 §2 — never execution work), the dictionary reconciliation (WO-04 §10.2),
   the `73` §14 escalation register as it fills (the section now exists; it was cited from nine
@@ -116,7 +132,7 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 354 tests as of 2026-08-08; green is the gate, not the
+- `cargo test --workspace --locked` — 366 tests as of 2026-08-09; green is the gate, not the
   number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0; the standing baseline
   is two `schema.identity.unexercised` warnings against `Site`, deliberate and

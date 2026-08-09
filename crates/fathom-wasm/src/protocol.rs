@@ -49,8 +49,41 @@ pub const FACE_INV: u8 = 1;
 pub const FACE_FIELD: u8 = 2;
 pub const FACE_PORT: u8 = 3;
 pub const FACE_IFACE: u8 = 4;
+
+// --- the paste reply ---------------------------------------------------------
+//
+// Three more roles on the same stride-72 record. No new record kind: the reply
+// is a list of labelled string rows, which is exactly what KIND_FACE_ROW is,
+// and a second skeleton would be a second decoder in the page for no gain.
+//
+// The reply is deliberately shaped around `14`'s governing rule — NOTHING
+// PARSED IS SILENTLY LOST — so the residue is not a footnote in the summary,
+// it is rows. A caller that renders only `FACE_PASTE` shows a number; a caller
+// that renders the residue rows shows the user which of their lines Fathom did
+// not understand, which is the honest half of the answer.
+
+/// The one summary row, always record 0. Slots, all decimal strings except the
+/// last three: nodes · edges · residue lines · secrets redacted · unresolved ·
+/// device display id · hostname · platform.
+pub const FACE_PASTE: u8 = 5;
+/// One line the parser did not bind: line number · the line as stored (post
+/// redaction) · why.
+pub const FACE_RESIDUE: u8 = 6;
+/// One reference the capture named and did not contain: what it named · the
+/// edge kind that wanted it · the line number.
+pub const FACE_UNRESOLVED: u8 = 7;
+
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
+/// The paste frame is shorter than its fixed 24-byte clock+entropy prefix, or
+/// the text after it is not UTF-8. Distinct from `ERR_BAD_FRAME` so the page
+/// can tell a malformed call from a paste the parser refused.
+pub const ERR_PASTE_FRAME: u16 = 7;
+/// `fathom_ingest::ingest` refused the input before parsing it: not UTF-8, or
+/// past `14` §11.4's caps.
+pub const ERR_INGEST_REFUSED: u16 = 8;
+/// The weld refused to apply the fragment. The detail carries the refusal.
+pub const ERR_WELD_REFUSED: u16 = 9;
 
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
@@ -442,6 +475,50 @@ pub fn encode_equipment_reply(page: Option<&fathom_inventory::EquipmentPage>) ->
     }
 
     face_reply(records, count, blob)
+}
+
+/// What one paste produced: the summary row, then the lines that were not
+/// understood, then the references that were named and not found.
+///
+/// Numbers arrive as strings. That is deliberate: every one of them is a count
+/// the page prints and never computes with, and a decimal string cannot be
+/// read as the wrong width by a `DataView`. `summary[2]` is the **total**
+/// residue count, which may exceed `residue.len()` when the caller capped the
+/// rows — the page can then say how many it is not showing rather than
+/// implying it showed them all.
+pub struct PasteReply<'a> {
+    /// nodes · edges · residue lines · secrets redacted · unresolved ·
+    /// device display id · hostname · platform.
+    pub summary: [&'a str; 8],
+    /// line number · the line as stored · why it was not understood.
+    pub residue: &'a [[String; 3]],
+    /// what was named · the edge kind that wanted it · line number.
+    pub unresolved: &'a [[String; 3]],
+}
+
+pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+
+    let rec = face_slots(&mut blob, FACE_PASTE, 8, &reply.summary);
+    write_face_record(&mut records, &rec);
+
+    for (role, rows) in [
+        (FACE_RESIDUE, reply.residue),
+        (FACE_UNRESOLVED, reply.unresolved),
+    ] {
+        for row in rows {
+            let slots = [row[0].as_str(), row[1].as_str(), row[2].as_str()];
+            let rec = face_slots(&mut blob, role, 3, &slots);
+            write_face_record(&mut records, &rec);
+        }
+    }
+
+    face_reply(
+        records,
+        1 + reply.residue.len() + reply.unresolved.len(),
+        blob,
+    )
 }
 
 // --- decoding ----------------------------------------------------------------

@@ -35,6 +35,16 @@ pub const OP_INV_ROWS: u32 = 12;
 pub const OP_ELEMENT: u32 = 13;
 pub const OP_EQUIPMENT: u32 = 14;
 
+/// Paste in, estate out: the on-ramp opcode. Takes `14`'s pasted text, runs
+/// ingest and the weld, and replaces the held estate with what it understood.
+///
+/// The host supplies the clock and the entropy **in the frame**, because the
+/// module has none of either and must not acquire either: `wasmbin`'s import
+/// allowlist is empty and this opcode does not grow it. That is not a
+/// workaround — it is `fathom-weld`'s own `Manifest` contract (invariant 9),
+/// which exists precisely so the weld cannot read a clock.
+pub const OP_PASTE: u32 = 15;
+
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
     static REQ: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };

@@ -14,4 +14,8 @@ crate-type = ["cdylib", "rlib"]
 fathom-corpus = { path = "../fathom-corpus" }
 fathom-find = { path = "../fathom-find" }
 fathom-graph = { path = "../fathom-graph" }
+fathom-id = { path = "../fathom-id" }
+fathom-ingest = { path = "../fathom-ingest" }
 fathom-inventory = { path = "../fathom-inventory" }
+fathom-ir = { path = "../fathom-ir" }
+fathom-weld = { path = "../fathom-weld" }

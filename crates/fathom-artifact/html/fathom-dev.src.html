@@ -246,6 +246,47 @@ button.tab:hover { color: var(--ink); }
 .ffoot { flex: none; display: flex; justify-content: space-between; gap: var(--s4);
          padding: var(--s1) var(--s3); border-top: var(--rule-hair) solid var(--hairline);
          font-size: var(--t-tab); color: var(--muted); }
+
+/* --- the paste sheet. The finder's furniture, one input, no new idiom. ---- */
+.psheet { position: absolute; z-index: var(--z-modal);
+          top: 0; left: 0; right: 0; bottom: 0;
+          display: flex; flex-direction: column; background: var(--page);
+          border: var(--rule-hair) solid var(--ink);
+          border-radius: var(--radius); box-shadow: var(--shadow); }
+.phead { flex: none; padding: var(--s2) var(--s3);
+         border-bottom: var(--rule-hair) solid var(--hairline); }
+.phead .lead { font-size: var(--t-micro); line-height: var(--lh-micro); font-weight: 700;
+               letter-spacing: var(--track-head); text-transform: uppercase; }
+.phead .prose { margin: var(--s1) 0 0; }
+.pta { flex: 1 1 auto; min-height: 0; width: 100%; resize: none;
+       border: 0; background: none; color: var(--ink);
+       font-family: var(--mono); font-size: var(--t-mono); line-height: var(--lh-step);
+       padding: var(--s3); }
+.pta::placeholder { color: var(--muted); }
+.pfoot { flex: none; display: flex; align-items: center; gap: var(--s4);
+         padding: var(--s1) var(--s3); border-top: var(--rule-hair) solid var(--hairline);
+         font-size: var(--t-tab); color: var(--muted); }
+.pfoot button { background: none; cursor: pointer;
+                border: var(--rule-hair) solid var(--ink);
+                padding: var(--s1) var(--s3); color: var(--ink);
+                font-size: var(--t-tab); text-transform: lowercase; }
+.pfoot button:hover { background: var(--surface); }
+.pfoot .spacer { margin-left: auto; }
+
+/* --- what one paste produced. Counts, then the lines it did not read. ----- */
+.tally { display: flex; flex-wrap: wrap; gap: var(--s4); margin: 0;
+         padding: var(--s2) 0; list-style: none;
+         border-bottom: var(--rule-hair) solid var(--hairline); }
+.tally li { display: flex; flex-direction: column; gap: 0; }
+.tally .n { font-family: var(--mono); font-size: var(--t-mast); color: var(--ink); }
+.tally .k { font-size: var(--t-micro); line-height: var(--lh-micro); color: var(--muted);
+            letter-spacing: var(--track-label); text-transform: uppercase; }
+.resid td.ln { font-family: var(--mono); color: var(--muted); text-align: right;
+               vertical-align: top; }
+.resid td { vertical-align: top; }
+.resid td .src { font-family: var(--mono); white-space: pre; }
+.resid td .why { font-family: var(--sans); font-size: var(--t-small); color: var(--muted);
+                 padding: 0 var(--s3) var(--s1) 0; white-space: normal; }
 [hidden] { display: none !important; }
 </style>
 </head>
@@ -262,7 +303,8 @@ button.tab:hover { color: var(--ink); }
     </div>
     <div class="tabs">
       <span class="tab">no sockets, ever</span>
-      <span class="tab">demo estate · not corpus data</span>
+      <span class="tab" id="tabSource">demo estate · not corpus data</span>
+      <button type="button" class="tab" id="tabPaste">paste a config</button>
       <button type="button" class="tab" id="tabTheme">theme · auto</button>
     </div>
   </header>
@@ -310,6 +352,23 @@ button.tab:hover { color: var(--ink); }
         <span>no corpus is loaded in this build</span>
       </div>
     </div>
+
+    <!-- The on-ramp. Copy-paste is the only input Fathom will ever have
+         (invariant 2), so this is not a convenience: it is the input. -->
+    <div class="psheet" id="psheet" role="dialog" aria-label="Paste a config" hidden>
+      <div class="phead">
+        <div class="lead">Paste a config — Juniper SRX, set form</div>
+        <p class="prose" id="pHint"></p>
+      </div>
+      <textarea class="pta" id="pta" aria-label="Configuration text" spellcheck="false"
+                autocomplete="off" autocapitalize="off" autocorrect="off"
+                placeholder="show configuration | display set"></textarea>
+      <div class="pfoot">
+        <span>esc close</span>
+        <span class="spacer"></span>
+        <button type="button" id="pRun">read this config</button>
+      </div>
+    </div>
   </main>
 
   <footer class="foot">
@@ -331,8 +390,9 @@ button.tab:hover { color: var(--ink); }
    ------------------------------------------------------------------------- */
 var FATHOM_WASM_B64 = "@FATHOM_WASM_B64@";
 
-var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14;
+var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, OP_PASTE = 15;
 var FACE_HEADER = 0, FACE_INV = 1, FACE_FIELD = 2, FACE_PORT = 3, FACE_IFACE = 4;
+var FACE_PASTE = 5, FACE_RESIDUE = 6, FACE_UNRESOLVED = 7;
 
 var wasm = null;                 /* the instance's exports */
 var DEC = new TextDecoder();     /* one decoder, one decode per reply (41 §3.4) */
@@ -439,9 +499,25 @@ var S = {
   element: null,
   equipment: null,
   loaded: false,
+  /* '' until something is loaded, then 'demo' or 'paste'. Two estates can
+     never be on screen at once, and every label reads off this one word so
+     they cannot disagree about which one is. */
+  source: '',
+  /* The last OP_PASTE reply, kept so the residue stays visible after the
+     sheet closes: the lines Fathom did not read are the answer, not a
+     transient toast. */
+  paste: null,
   boot: null,
   msg: ''
 };
+
+/* The estate's provenance, in the words the masthead, the band and the folio
+   all use. One function, so they cannot drift. */
+function sourceWords() {
+  if (S.source === 'paste') return 'pasted config · junos-srx';
+  if (S.source === 'demo') return 'demo estate · not corpus data';
+  return 'no workspace loaded';
+}
 
 var KINDS = ['Device', 'PhysicalPort', 'Premises'];
 
@@ -474,6 +550,8 @@ function el(tag, cls, txt) {
   return n;
 }
 function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+/* "1 secret", "0 secrets". The count arrives as a string and stays one. */
+function plural(n, one, many) { return n + ' ' + (n === '1' ? one : many); }
 function foot(msg) { S.msg = msg; $('fMsg').textContent = msg; }
 
 function unposted(host, label, body) {
@@ -514,11 +592,14 @@ function renderInventory(host) {
   if (!S.loaded) {
     var np = el('div', 'pad');
     unposted(np, 'inventory',
-      'no workspace loaded — this dev artifact loads the demo estate with ?fixture=demo-estate');
+      'no workspace loaded — paste a config (top right), or load the demo estate ' +
+      'with ?fixture=demo-estate');
     if (S.boot) np.appendChild(el('p', 'prose', S.boot));
     host.appendChild(np);
     return;
   }
+
+  if (S.source === 'paste') renderTally(host);
 
   var bad = replyProblem(S.inv);
   if (bad) { var bp = el('div', 'pad'); unposted(bp, 'inventory', bad); host.appendChild(bp); return; }
@@ -556,14 +637,120 @@ function renderInventory(host) {
   tw.appendChild(t);
   host.appendChild(tw);
 
-  note(host, 'Demo estate · not corpus data',
-    'No inventory ships in the corpus. This estate is constructed by checked-in code ' +
-    '(fathom-inventory::demo_estate()), consistent with schema/schema.yaml, and labelled ' +
-    'as a demo everywhere it appears.');
+  if (S.source === 'paste') renderResidue(host);
+
+  if (S.source === 'demo') {
+    note(host, 'Demo estate · not corpus data',
+      'No inventory ships in the corpus. This estate is constructed by checked-in code ' +
+      '(fathom-inventory::demo_estate()), consistent with schema/schema.yaml, and labelled ' +
+      'as a demo everywhere it appears.');
+  }
   note(host, 'The rightmost column is not a field',
     'It is the per-row finding aggregate (52 §3.7.1). No rule engine is in this build, so ' +
     'every cell reads —. The column stays: you cannot look at the inventory without seeing ' +
     'what the rule engine thinks of each row, including that it is not here yet.');
+}
+
+/* --- what one paste produced ---------------------------------------------
+   Every number below is a string the module sent. Nothing here counts
+   anything (ADR-0019): the page cannot disagree with the graph because it
+   never forms an opinion about it.
+   ------------------------------------------------------------------------- */
+function pasteRows(role) {
+  if (!S.paste || S.paste.kind !== 'face') return [];
+  return S.paste.rows.filter(function (r) { return r.role === role; });
+}
+function pasteSummary() {
+  var head = pasteRows(FACE_PASTE)[0];
+  return head || null;
+}
+
+function renderTally(host) {
+  var h = pasteSummary();
+  if (!h) return;
+  var p = el('div', 'pad');
+  var ul = el('ul', 'tally');
+  [[h.s[0], 'things understood'],
+   [h.s[1], 'connections'],
+   [h.s[2], 'lines not read'],
+   [h.s[3], 'secrets removed'],
+   [h.s[4], 'names not found']].forEach(function (pair) {
+    var li = el('li');
+    li.appendChild(el('span', 'n', pair[0]));
+    li.appendChild(el('span', 'k', pair[1]));
+    ul.appendChild(li);
+  });
+  p.appendChild(ul);
+  host.appendChild(p);
+}
+
+function renderResidue(host) {
+  var h = pasteSummary();
+  if (!h) return;
+  var rows = pasteRows(FACE_RESIDUE);
+  var total = h.s[2];
+  var p = el('div', 'pad');
+
+  p.appendChild(el('div', 'sh', 'Lines Fathom did not read — ' + total));
+  if (rows.length === 0) {
+    p.appendChild(el('p', 'prose', 'Every line was read.'));
+  } else {
+    /* The cap is stated, never silent (78 §5). */
+    if (String(rows.length) !== total) {
+      p.appendChild(el('p', 'prose',
+        'Showing the first ' + rows.length + ' of ' + total + '.'));
+    }
+    /* Two columns, not three. The line is monospaced and must not wrap — a
+       config statement broken across lines is a different statement — so a
+       third column would be the first thing pushed off the right edge, and
+       the reason is the half the reader came for. It goes under the line. */
+    var t = el('table', 'inv resid');
+    t.appendChild(headRow(['line', 'what you pasted, and why it was not read']));
+    var tb = el('tbody');
+    rows.forEach(function (r) {
+      var tr = el('tr');
+      var tdn = el('td', 'ln');
+      tdn.appendChild(el('span', 'cell', r.s[0]));
+      tr.appendChild(tdn);
+      var tds = el('td');
+      tds.appendChild(el('span', 'cell src', r.s[1]));
+      tds.appendChild(el('div', 'why', r.s[2]));
+      tr.appendChild(tds);
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    var w = el('div', 'invwrap');
+    w.appendChild(t);
+    p.appendChild(w);
+  }
+
+  var un = pasteRows(FACE_UNRESOLVED);
+  if (un.length) {
+    p.appendChild(el('div', 'sh', 'Named but not in this paste — ' + h.s[4]));
+    var t2 = el('table', 'inv resid');
+    t2.appendChild(headRow(['name', 'wanted by', 'line']));
+    var tb2 = el('tbody');
+    un.forEach(function (r) {
+      var tr = el('tr');
+      [r.s[0], r.s[1], r.s[2]].forEach(function (v) {
+        var td = el('td');
+        td.appendChild(el('span', 'cell', v));
+        tr.appendChild(td);
+      });
+      tb2.appendChild(tr);
+    });
+    t2.appendChild(tb2);
+    var w2 = el('div', 'invwrap');
+    w2.appendChild(t2);
+    p.appendChild(w2);
+  }
+
+  host.appendChild(p);
+  note(p, 'Nothing parsed is silently lost',
+    'Every line above is one Fathom could not turn into a fact. It is listed rather ' +
+    'than dropped, because a config you cannot see the gaps in is worse than no config. ' +
+    'Secrets are the exception and they are the opposite case: they are destroyed at the ' +
+    'gate, before anything is stored, and only their kind is kept.');
 }
 
 function note(host, lead, body) {
@@ -739,14 +926,14 @@ function renderBand() {
     btn.appendChild(el('span', 'cnt', v.key));
     b.appendChild(btn);
   });
-  var back = el('span', 'backing', S.loaded ? 'demo estate · in the module' : 'no workspace loaded');
+  var back = el('span', 'backing', S.loaded ? sourceWords() + ' · in the module' : sourceWords());
   b.appendChild(back);
 }
 
 function renderShell() {
   $('mTitle').textContent = viewMeta(S.view).t;
-  $('mSub').textContent = S.loaded ? 'dev artifact · demo estate · not corpus data'
-                                   : 'dev artifact · no workspace loaded';
+  $('mSub').textContent = 'dev artifact · ' + sourceWords();
+  $('tabSource').textContent = sourceWords();
   $('mImp').textContent = viewMeta(S.view).imp;
   clear($('mRibbon'));
   if (S.sel) {
@@ -760,7 +947,7 @@ function renderShell() {
   $('fNav').textContent =
     (prev ? '⌥← ' + prev.id + '   ' : '') + (next ? next.id + ' ⌥→   ' : '') + 'ctrl+K finder';
   $('fMsg').textContent = S.msg;
-  $('factFolio').textContent = S.loaded ? 'demo estate' : 'no workspace';
+  $('factFolio').textContent = S.loaded ? sourceWords() : 'no workspace';
   var ft = $('faceTabs').querySelectorAll('[data-face]');
   Array.prototype.forEach.call(ft, function (t) {
     t.setAttribute('aria-pressed', String(S.face === t.getAttribute('data-face')));
@@ -882,7 +1069,7 @@ document.addEventListener('click', function (ev) {
 var fOpen = false;
 function setFinder(open) {
   fOpen = open;
-  $('scrim').hidden = !open;
+  $('scrim').hidden = !(open || pOpen);
   $('fsheet').hidden = !open;
   if (open) {
     var h = $('fhits');
@@ -890,6 +1077,85 @@ function setFinder(open) {
     unposted(h, 'finder', UNBUILT);
   }
 }
+
+/* -------------------------------------------------------------------------
+   4b. THE ON-RAMP. Copy-paste is the only input this product will ever have
+   (invariant 2). One crossing: the text, plus the two things the module is
+   not allowed to know.
+
+   The clock and the entropy come from the host and travel in the frame. That
+   is not a shortcut around a missing capability — the module's import section
+   is empty and must stay empty, and fathom-weld's Manifest is shaped for
+   exactly this so that everything below the host boundary stays deterministic
+   (invariant 9).
+   ------------------------------------------------------------------------- */
+var pOpen = false;
+
+function setPaste(open) {
+  pOpen = open;
+  $('scrim').hidden = !(open || fOpen);
+  $('psheet').hidden = !open;
+  if (open) {
+    $('pHint').textContent =
+      'Nothing leaves this page. The text is read in the module, secrets are ' +
+      'destroyed before anything is stored, and every line that cannot be read ' +
+      'is listed back to you rather than dropped.';
+    $('pta').focus();
+  }
+}
+
+/* 16 bytes from the platform CSPRNG. There is no fallback: Math.random is not
+   entropy, and a build that quietly used it would be indistinguishable from
+   one that did not. If the browser has no crypto, the paste is refused. */
+function hostEntropy() {
+  var c = window.crypto || window.msCrypto;
+  if (!c || !c.getRandomValues) return null;
+  var b = new Uint8Array(16);
+  c.getRandomValues(b);
+  return b;
+}
+
+function runPaste() {
+  var text = $('pta').value;
+  if (!wasm) { foot('the module is not instantiated'); renderShell(); return; }
+  if (!text.trim()) { foot('nothing pasted'); renderShell(); return; }
+  var ent = hostEntropy();
+  if (!ent) {
+    foot('this browser exposes no cryptographic randomness — the paste is refused');
+    renderShell();
+    return;
+  }
+
+  var body = new TextEncoder().encode(text);
+  var req = new Uint8Array(24 + body.length);
+  new DataView(req.buffer).setBigUint64(0, BigInt(Date.now()), true);
+  req.set(ent, 8);
+  req.set(body, 24);
+
+  var reply = call(OP_PASTE, req);
+  var bad = replyProblem(reply);
+  if (bad) { S.paste = reply; foot(bad); renderShell(); return; }
+
+  S.paste = reply;
+  S.source = 'paste';
+  S.loaded = true;
+  S.sel = null;
+  S.element = null;
+  S.equipment = null;
+  S.invKind = 0;
+  loadKind(0);
+  var h = pasteSummary();
+  foot(h ? ('read ' + (h.s[6] || 'the config') + ' — ' + h.s[0] + ' understood, ' +
+            plural(h.s[2], 'line', 'lines') + ' not read, ' +
+            plural(h.s[3], 'secret', 'secrets') + ' removed')
+         : 'read the config');
+  setPaste(false);
+  S.view = 'inventory';
+  render();
+}
+
+$('tabPaste').addEventListener('click', function () { setPaste(!pOpen); });
+$('pRun').addEventListener('click', runPaste);
 
 /* --- keyboard ------------------------------------------------------------- */
 document.addEventListener('keydown', function (e) {
@@ -902,6 +1168,7 @@ document.addEventListener('keydown', function (e) {
   /* Escape unwinds exactly one level (53 §3.7); on an empty state it
      navigates nowhere. */
   if (e.key === 'Escape') {
+    if (pOpen) { setPaste(false); return; }
     if (fOpen) { setFinder(false); return; }
     if (S.sel) { S.sel = null; S.element = null; S.equipment = null; render(); return; }
     return;
@@ -953,7 +1220,7 @@ function boot() {
     /* 45 §9.1: fixture loading is one URL parameter, dev-build only. */
     if (new URLSearchParams(location.search).get('fixture') === 'demo-estate') {
       var reply = call(OP_ESTATE_DEMO, new Uint8Array(0));
-      if (reply.kind === 'empty') { S.loaded = true; loadKind(S.invKind); }
+      if (reply.kind === 'empty') { S.loaded = true; S.source = 'demo'; loadKind(S.invKind); }
       else { S.boot = replyProblem(reply) || 'the demo estate did not load'; }
     }
     S.view = 'inventory';
