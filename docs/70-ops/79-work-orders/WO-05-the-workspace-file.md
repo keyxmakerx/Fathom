@@ -1,7 +1,12 @@
 # WO-05 — The workspace file: canonical serialisation, and the crypto boundary
 
-> **Status:** BLOCKED on §4.2's wire table and §4.4's pinned vector, both diverged from the merged
-> tree — see §10.6 and §10.7
+> **Status:** DONE — executed 2026-08-08. All nine acceptance gates green; §4.4's pinned vector
+> matched the constructed bytes exactly, so §7 trigger 3 did not fire. `fathom-canon` and
+> `fathom-workspace` exist; `fathom-ir` carries `canon` and the generated dispatch; `fathom-graph`
+> carries id parsing and the snapshot pair. Sealing remains not started and owner-gated (§2.1).
+> The two 2026-08-08 escalations were answered by planning before execution began; §4.2's wire
+> table is cut against the `Scalar` trait (rules 3/4/5/7 retired, 13 and 14 added) and §4.4's
+> pinned vector carries no `fathom:` prefix. Read §10.6 and §10.7 before §4.
 
 Depends on: WO-02 (the store — `Graph` is the thing serialised, and this work order extends it
 with a snapshot pair). WO-01 is deliberately **not** a dependency, but if it lands first the slot
@@ -187,7 +192,13 @@ is handled by `78` §8's correction test or `78` §4 — nothing else.
   encoding, always uppercase"*), `decode(&str) -> Result<Self, DecodeError>`, and
   `from_parts(timestamp_ms, random)` as the only constructor (invariant 9). Bare
   `NodeId(pub Ulid)` / `EdgeId(pub Ulid)` newtypes exist (the field-embedded reference type).
-- **`crates/fathom-ir`.** Stub scalar types in `scalar.rs` (newtypes over integers, `String`,
+- **`crates/fathom-ir`.** **Superseded 2026-08-08 for `scalar.rs` only:** WO-01 landed and the
+  stubs are now 35 real types implementing `fathom_ir::scalar::Scalar`, plus `SecretPlaceholder`
+  as the one registered exemption. §4.2 rule 13 is cut against that trait, so an executing session
+  re-verifying this bullet should read §10.6 first and expect the trait, not the shapes below.
+  The rest of this bullet — `value.rs`, the generated files, the counts — was re-verified
+  unchanged in the same pass (§10.6, *What did not diverge*). As authored: stub scalar types in
+  `scalar.rs` (newtypes over integers, `String`,
   `core::net` types; structs `IpPrefix`, `InterfaceAddress`, `IpRange`, `PortRange`,
   `RouteDistinguisher`, `RouteTarget`, `Date`, `LatLon`; unit `SecretPlaceholder`); stub
   structured values in `value.rs` (`Mtu`, `PeerSpec`, `AttrValue`, `PostalAddress`, unit stubs
@@ -334,33 +345,101 @@ pub trait CanonKey: Sized + Ord {
 ```
 
 **DECISION — the wire family table.** These rules are format, not implementation; the execution
-session implements them and may not vary them. `CanonicalValue` is implemented by hand in
-`canon.rs` for every slot type the generated dispatch (below) names — the dispatch is generated
-from the registry, so a missing impl is a compile error, which makes coverage mechanical.
-Family membership is **structural**, decided by the type's shape in `scalar.rs` / `value.rs`,
-not by its name: a field-less unit struct is rule 8; a multi-field struct is rule 6 unless
-rules 5 or 7 name it; a hand-written enum is rule 9; a newtype over an integer is rule 2 and
-over `String` is rule 3. Where a parenthetical below carries no `…` it enumerates today's
-members in full (verified against `accessors.rs` and the two source files, 2026-08-02); a
-registry type whose *shape* matches no family is §7 trigger 4 — a name absent from an
-open-ended parenthetical is not.
+session implements them and may not vary them. `CanonicalValue` is implemented in `canon.rs` for
+every slot type the generated dispatch (below) names — the dispatch is generated from the
+registry, so a missing impl is a compile error, which makes coverage mechanical.
+
+**Re-cut 2026-08-08 by §10.6's answer.** Membership is decided **by trait first, shape second**.
+A type implementing `fathom_ir::scalar::Scalar` is rule 13 whatever its shape, and rule 13's wire
+form *is* that trait's `canonical()`. Only types outside the trait are classified structurally,
+and only within `value.rs`: a field-less unit struct is rule 8; a multi-field struct is rule 6; a
+hand-written enum is rule 9. `SecretPlaceholder` — `scalar.rs`'s one registered `Scalar`
+exemption — is rule 14 and nothing else. Rules 3, 4, 5 and 7 are **retired**: every type they
+named implements `Scalar`, so rule 13 subsumes them, and their numbers are left vacant rather
+than reused so every existing citation of a rule number keeps its meaning. Where a parenthetical
+below carries no `…` it enumerates today's members in full (verified against `accessors.rs`,
+`scalar.rs` and `value.rs`, 2026-08-08); a registry type that implements no `Scalar` and whose
+*shape* matches no family is §7 trigger 4 — a name absent from an open-ended parenthetical is not.
 
 | # | Slot type family | Wire form | Parse rule |
 |---|---|---|---|
 | 1 | `bool` | `true` / `false` | exact |
-| 2 | Plain integers (`62` §3's primitive row: `u8`–`u64`, `i32`, `i64`) and every newtype over one (`L4Port`, `VlanId`, `Asn`, `Seconds`, `Kilobytes`, `DhGroup`, `IpProtocol`, `IkeVersion`, `Bandwidth`, `OspfAreaId`, `scalar::Timestamp`, …) | `Int` | range-checked into the target width, `Shape` on non-int; a `u64` above `i64::MAX` refuses `IntOutOfRange` **at write time** — never wrapped, never stringified |
-| 3 | Newtypes over `String` (`Identifier`, `Text`, `Fqdn`, `EncryptionAlgorithm`, `IntegrityAlgorithm`, `AuthMethod`, `InterfaceName`, `OsVersion`, `Clli`, `TzName`, `PlatformId`, `InferenceRuleId`, …) | `Str`, the string verbatim | exact; no normalisation, no folding (the stub docs: validated, never normalised) |
-| 4 | `core::net`-carrying scalars (`Ip4Addr`, `Ip6Addr`, `IpAddr`) | `Str` via std `Display` | std `FromStr`, then **re-render equality**: if `Display(parsed) != input`, refuse `NonCanonicalSpelling`. Determinism rests on the pinned toolchain (1.94.1): `Display` is a pure function of the value |
-| 5 | `IpPrefix`, `InterfaceAddress` | `Str` `"<addr>/<len>"`, addr per rule 4, `len` decimal shortest-form | split on the last `/`, both halves per their rules, re-render equality. The stored value is transcribed as-is — host-bit validation is `Scalar::validate`'s (WO-01), not the wire's |
-| 6 | Multi-field structs (`IpRange`, `PortRange`, `RouteDistinguisher`, `RouteTarget`, `Date`, `LatLon`, `Mtu`, `PostalAddress`, `NameConformance`, `QualifiedNextHop`, `NodePriority`, `EndpointCardinality` — all twelve; `IpPrefix` / `InterfaceAddress` are rule 5, `MacAddress` rule 7) | `Obj`, keys = the declared snake_case field idents, values per rules; `Option` fields **omitted when `None`** — omission is the one spelling of absence, `Null` never appears | every present key known, every non-`Option` key present, else `Shape` |
-| 7 | `MacAddress` | `Str`, six lower-case hex byte pairs, colon-separated (`"aa:bb:cc:dd:ee:ff"`) | exactly 17 bytes, strict; refuse upper case (`NonCanonicalSpelling`) |
-| 8 | Unit stubs — every field-less struct in `scalar.rs` / `value.rs`: `SecretPlaceholder`, `IkeId`, `Dpd`, `OspfArea`, `PolicyScope`, `AddressValue`, `L4Spec`, `NatScope`, `NatAction`, `VpnMonitor`, `PortPosition`, `Transceiver`, `SplitRatio`, `AttributeDecl`, `FieldPath`, `Resolution` (all sixteen) | `Obj` empty, `{}` | exact. `SecretPlaceholder` carries nothing by construction — a secret's place, never a value (invariant 3 has no wire form to leak) |
+| 2 | **Bare** primitive integers — `62` §3's primitive row (`u8`–`u64`, `i32`, `i64`). Only `u8`, `u16` and `u32` are bound by any slot today; `accessors.rs` carries no bare `u64`, `i64` or `i32` slot (grep, 2026-08-08). Every *newtype* over an integer is rule 13 | `Int` | range-checked into the target width, `Shape` on non-int; a `u64` above `i64::MAX` refuses `IntOutOfRange` **at write time** — never wrapped, never stringified. The impl exists ahead of the first `u64` slot on purpose: the guard lands before the binding, not after |
+| 3 | *(retired 2026-08-08 — every member implements `Scalar`; see rule 13)* | | |
+| 4 | *(retired 2026-08-08 — see rule 13)* | | |
+| 5 | *(retired 2026-08-08 — see rule 13)* | | |
+| 6 | Multi-field structs in `value.rs` (`Mtu`, `PostalAddress`, `NameConformance`, `QualifiedNextHop`, `NodePriority`, `EndpointCardinality` — all six; the six that were `scalar.rs`'s are rule 13) | `Obj`, keys = the declared snake_case field idents, values per rules; `Option` fields **omitted when `None`** — omission is the one spelling of absence, `Null` never appears | every present key known, every non-`Option` key present, else `Shape` |
+| 7 | *(retired 2026-08-08 — see rule 13)* | | |
+| 8 | Unit stubs — every field-less struct in `value.rs`: `IkeId`, `Dpd`, `OspfArea`, `PolicyScope`, `AddressValue`, `L4Spec`, `NatScope`, `NatAction`, `VpnMonitor`, `PortPosition`, `Transceiver`, `SplitRatio`, `AttributeDecl`, `FieldPath`, `Resolution` (all fifteen) | `Obj` empty, `{}` | exact. A type with no fields has nothing to lose on the wire; the moment one grows a field it leaves this rule, which is what §10.6 caught |
 | 9 | Hand-written enums in `value.rs` (`PeerSpec`, `AttrValue`, `NextHop`, `SyslogHost` — all four at slot level; `AttrType` is `AttrValue`'s tag, welded to it by an exhaustive match, and has no independent wire form) | payload-carrying variant → one-key `Obj` `{"<variant snake ident>": <payload per rules>}`; payload-free variant → bare `Str` `"<variant snake ident>"`; a multi-field payload → `Obj` of its fields per rule 6 | exactly one spelling exists per variant; unknown key/string refuses `UnknownVariant` |
 | 10 | Generated schema enums (`Family`, `HostProtocol`, `CableEnd`, …) | `Str` of `token()` — for `Unknown(t)`, the carried token verbatim | `from_token` (total: undeclared tokens land in `Unknown`, which is what makes a new schema token a survivable read — `62` §16.2 via the generated doc comment). Impls are **generated**, §below |
 | 11 | `fathom_id::NodeId`, `fathom_id::EdgeId` (one direct slot — `LearnedRoute.via` — plus bare references inside values) | `Str`, `Ulid::encode` (26 chars, upper case) | `Ulid::decode`, refuse on error (`Shape`); then **re-render equality**: if `encode(parsed) != input`, refuse `NonCanonicalSpelling` — `Ulid::decode` is deliberately Crockford-lenient (case-insensitive, I/L→1, O→0: `fathom-id`'s doc comment and its `ulid_crockford_aliases_decode` test), and one spelling per value is the law |
 | 12 | `Vec<T>` | `Arr`, declaration order preserved (order is data) | element-wise |
 |   | `BTreeSet<T>` | `Arr` in ascending `T: Ord` order | refuse a non-strictly-ascending sequence: `NonCanonicalOrder` — otherwise re-emission would silently reorder and break byte-identity |
 |   | `BTreeMap<K: CanonKey, V>` | `Obj` keyed by `to_key` | keys via `from_key`; duplicate keys are impossible at the `Json` level (parser refuses) |
+| 13 | **Every `fathom_ir::scalar::Scalar` implementor — all 35** (`scalar.rs`'s own section comment: *"The 35 `Scalar` implementations, in WO-01 §4.2 part A's row order"*). Newtypes, `core::net` carriers, multi-field structs and hand-written enums alike: the trait decides, not the shape | `Str` of `Scalar::canonical()` | `Scalar::parse`, then **re-render equality** — `canonical(parsed) != input` refuses `NonCanonicalSpelling`. A `parse` refusal refuses `NonCanonicalSpelling` too: in both cases the fact is that the byte string is not the canonical spelling of any value of that type. Plus the **write-side injectivity check** below |
+| 14 | `SecretPlaceholder` — the one registered `Scalar` exemption (`scalar.rs`: *"It therefore implements no [`Scalar`] — the one registered exemption"*), bound at one slot, `IkePolicy.pre_shared_key` (field key 155, `accessors.rs`) | `Obj` with key `label` always present and key `hint` present iff `hint()` is `Some`: `{"label":"psk"}` / `{"hint":"vault: net/psk/site-b","label":"psk"}`. The five `label` tokens are fixed by this document as `psk`, `cert-key`, `snmp-community`, `tacacs-key`, `password` | `label` through that fixed table (unknown token → `UnknownVariant { token }`); `hint` through `SecretHint::new`, which re-enforces the 120-byte cap on read, over-length refusing `Shape { expected: "a hint of at most 120 bytes" }`; value rebuilt with `SecretPlaceholder::new` / `with_hint`, so there is still no path from arbitrary text to a secret |
+
+**DECISION — rule 13 delegates the wire to `Scalar::canonical()`, and checks injectivity on write.**
+WO-01 built, for all 35 scalars, exactly the thing a canonical wire needs: one injective text form
+per value, with `parse` as its inverse, and `tests/scalar_contract.rs` already pinning the L1c
+round trip. A second spelling authored here would give the product two canonical forms of the same
+value — one for diffing, equality and emit, one for the file — which is `35` §5.1 C8's *"one
+implementation per job"* broken inside a single crate. Rule 13 therefore has no independent
+content: the wire is `canonical()`, and every future reshape of a scalar's *representation* is
+invisible to the format so long as the trait still holds.
+
+Its one addition is a **write-side check, required, not optional**: `to_canon` renders
+`canonical()`, re-parses it, and refuses `NonCanonicalSpelling` unless the re-parse equals the
+original value. This is not belt-and-braces. WO-01 §9 row 1 records that the laws are quantified
+over parse-reachable values and that a hand-built value can sit outside them, and `scalar.rs` shows
+what that costs on a wire: `EncryptionAlgorithm::canonical()` returns **the empty string** for any
+value outside `ENC_TABLE`'s eight tokens, and `Fqdn::parse` case-folds, so `Fqdn("EXAMPLE.COM")`
+canonicalises to text that reads back as a different value. Without the check those write as `""`
+and as `"EXAMPLE.COM"` and fail on read — the file is written successfully and cannot be loaded.
+**Refusing at write is the correct direction**: it fails loudly at the moment the estate is saved,
+rather than quietly producing a file whose owner discovers the loss when they try to open it.
+
+**DECISION — `SecretPlaceholder` carries its label and its hint onto the plain wire.** Rule 8's
+`{}` is not implementable here and never was: `SecretPlaceholder`'s only constructors take a
+label, so `from_canon` given `{}` would have to **invent** one. Four things that costs, in order of
+severity. (a) `placeholder()` renders `'<' + label.token() + '>'`, so a `TacacsKey` placeholder
+reloaded under an invented default emits `<PSK>` into a TACACS field — wrong configuration text
+handed to an operator to paste into a device. (b) That breaks invariant 9 across a save/load
+boundary: same workspace, different emitted bytes. (c) The hint is the operator's own record of
+*where the real secret lives*; destroying it on first save is silent data loss in the one part of
+the system that exists because credentials are handled carefully. (d) §4.5's own law
+`from_canon(to_canon(v)?)? == v` cannot hold, so the rule is not implementable as written.
+
+**The security half, stated rather than assumed.** Invariant 3 is not engaged: it bars *device
+credentials* from being written, and this type holds none by construction — `scalar.rs` states the
+guarantee as *"There is no `SecretPlaceholder::from_value`"*, both fields are private, and rule 14
+reconstructs only through `new` / `with_hint`, so the read path cannot manufacture one either. The
+`label` is a category, not a secret, and it is already rendered verbatim into emitted config as
+`<PSK>`. The `hint` is user-typed free text, documented as *"A pointer to where the human keeps
+the secret, never a value"* and capped at 120 bytes — but nothing in the type *enforces* that a
+user did not type a secret into it. Writing it to the plain face therefore exposes it exactly as
+much as the plain face exposes every other field, which is completely, by declaration, and is what
+line 2 of the file says in capitals. The alternative — carrying `label` and dropping `hint` — is
+strictly worse: it is silent loss of the field most likely to matter to the person recovering an
+estate, and it breaks the round-trip law just as `{}` does. **Not decided here:** whether the
+ingest gate or the plain face should attempt to detect a secret typed into a hint. That is a
+heuristic with no mechanism anywhere in the corpus, and inventing one inside a wire table is how
+a false negative gets a reassuring name.
+
+**The `label` tokens are this document's, deliberately not `SecretLabel::token()`.** `token()` is
+the *emit* rendering — the text inside the angle brackets — and four of its five values carry a
+live `VERIFY` in `scalar.rs` (*"the four tokens beyond `<PSK>` are stated nowhere read; confirm
+before an emitter renders them into config"*). Welding a stored file format to a string that is
+expected to change would mean every existing file becomes unreadable the day that VERIFY resolves.
+The five wire tokens above are fixed here, pinned by a test that asserts them literally, and a
+change to `token()` must not move them.
+
+**No row is needed for `EncFamily`, `EncMode`, `SecretLabel` or `SecretHint`** — §10.6 names them
+as newly reachable. None is a registry slot type (grep of `accessors.rs`, 2026-08-08: zero
+occurrences of each). `EncFamily` and `EncMode` disappear entirely inside rule 13's token;
+`SecretLabel` and `SecretHint` appear only inside rule 14's two keys. They reach the wire only
+through a type that has a rule, which is the correct amount of format for an interior type.
 
 **Generated code (changes to `fathom-schemagen`).** Three additions, all emitted into the
 existing checked-in generated files, matching their style (`#[rustfmt::skip] mod body`,
@@ -421,7 +500,7 @@ impl ElementId { pub fn parse(s: &str) -> Result<ElementId, IdParseError>; }
 and a test pins it). The ULID segment goes through `Ulid::decode` **and then re-render
 equality**: `Ulid::decode` alone accepts Crockford aliases (case-insensitive, I/L→1, O→0 —
 `fathom-id`'s doc comment; its `ulid_crockford_aliases_decode` test exercises them), so a
-decode-only `parse` would accept `fathom:device:0o000…` and silently normalise a hand-edited
+decode-only `parse` would accept `device:0o000…` and silently normalise a hand-edited
 file; if `encode(decoded)` differs from the input segment, `parse` refuses `NonCanonicalUlid`.
 The law is two-directional: `parse(x.to_string()) == Ok(x)` for every kind, and
 `parse(s)?.to_string() == s` for every accepted `s`.
@@ -630,8 +709,15 @@ fathom-plain 1
 THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.
 schema 0.1
 
-{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"fathom:device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"fathom:device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}
+{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}
 ```
+
+**Re-issued 2026-08-08 by §10.7's answer**, correcting both node-id renderings from
+`fathom:device:<ulid>` to `device:<ulid>` — the form `fathom-graph`'s `Display` actually emits and
+the only form `.context/conventions.md` § *Identifiers* and ADR-0005 action 1 permit. The
+correction is scoped to those two strings and to §4.5's two refusal inputs; **every other byte of
+this vector remains this document's unexecuted claim, and §7 trigger 3 still governs it in full**.
+If the constructed bytes differ anywhere else, that is a fresh escalation, not a licence to edit.
 
 The vector is embedded in the test as a string constant typed from this document — **never** a
 regenerated golden file (`78` §5 item 5). If the constructed bytes differ from it, the session
@@ -646,8 +732,8 @@ stated in §4 and §5):
 | File | Tests |
 |---|---|
 | `crates/fathom-canon/tests/canonical.rs` | `emitter_vectors_survive_the_move`; `parse_emit_identity_on_accepted_vectors`; `whitespace_refused`; `unsorted_or_duplicate_keys_refused`; `nonminimal_escape_refused`; `raw_control_refused`; `nonshortest_int_refused`; `int_overflow_refused` (`"99999999999999999999"` refuses `IntOutOfRange`); `float_refused`; `trailing_bytes_refused`; `missing_final_newline_refused`; `depth_cap_refused` |
-| `crates/fathom-ir/tests/canon_laws.rs` | `schema_version_is_the_trees`; `exemplar_round_trips_per_family` (one exemplar per §4.2 table row, law: `from_canon(to_canon(v)?)? == v`); `ip_noncanonical_spelling_refused` (`"010.0.0.1"`, `"0:0:0:0:0:0:0:1"`); `id_noncanonical_spelling_refused` (rule 11: an `O`-aliased and a lower-case ULID spelling both refuse `NonCanonicalSpelling`); `u64_above_i64_max_refused`; `set_members_out_of_order_refused`; `map_keys_round_trip` (`Identifier`- and `Family`-keyed); `enum_tokens_round_trip_including_unknown`; `dispatch_names_every_registry_key` (all 299: `slot_to_canon` with a wrong-typed value returns `WrongType`, proving an arm exists per key) |
-| `crates/fathom-graph/tests/ids.rs` | `display_parse_round_trips_every_kind` (all 48 + 81, fixed ULID); `node_and_edge_kind_kebabs_are_disjoint`; `parse_refuses_unknown_kind_bad_ulid_and_wrong_shape`; `parse_refuses_noncanonical_ulid_spelling` (`"fathom:device:0000000000000000000000000I"` and `"fathom:device:o0000000000000000000000001"` both refuse `NonCanonicalUlid`) |
+| `crates/fathom-ir/tests/canon_laws.rs` | `schema_version_is_the_trees`; `exemplar_round_trips_per_family` (one exemplar per live §4.2 table row — 1, 2, 6, 8, 9, 10, 11, 12, 14 — **and, for rule 13, one per `Scalar` implementor, all 35**, since rule 13's whole content is that the trait decides; law: `from_canon(to_canon(v)?)? == v`); `ip_noncanonical_spelling_refused` (both inputs kept: `"010.0.0.1"`, which `Ip4Addr::parse` refuses through std's leading-zero rule, and `"0:0:0:0:0:0:0:1"`, which parses and re-renders as `"::1"` — under rule 13 both surface as `NonCanonicalSpelling`); `id_noncanonical_spelling_refused` (rule 11: an `O`-aliased and a lower-case ULID spelling both refuse `NonCanonicalSpelling`); `u64_above_i64_max_refused` (rule 2, exercised against `CanonicalValue for u64` **directly** — no slot binds a bare `u64` today, so there is no slot to route it through, and the guard is tested ahead of the first binding); `non_parse_reachable_scalar_refused_at_write` (rule 13's write-side injectivity check: a hand-built `EncryptionAlgorithm` outside `ENC_TABLE`, whose `canonical()` is `""`, and a hand-built `Fqdn("EXAMPLE.COM")` both refuse `NonCanonicalSpelling` from `to_canon`); `secret_placeholder_round_trips_label_and_hint` (rule 14, both arms: `new(SecretLabel::TacacsKey)` and `with_hint`, law `from_canon(to_canon(v)?)? == v`, plus an assertion that the five wire tokens are literally `psk` / `cert-key` / `snmp-community` / `tacacs-key` / `password` so a change to `SecretLabel::token()` cannot move them); `secret_placeholder_hint_cap_reenforced_on_read` (a 121-byte `hint` in the JSON refuses `Shape`); `set_members_out_of_order_refused`; `map_keys_round_trip` (`Identifier`- and `Family`-keyed; `CanonKey for Identifier` goes through the same `Scalar` pair as rule 13, so an `Identifier`'s key spelling and value spelling cannot diverge); `enum_tokens_round_trip_including_unknown`; `dispatch_names_every_registry_key` (all 299: `slot_to_canon` with a wrong-typed value returns `WrongType`, proving an arm exists per key) |
+| `crates/fathom-graph/tests/ids.rs` | `display_parse_round_trips_every_kind` (all 48 + 81, fixed ULID); `node_and_edge_kind_kebabs_are_disjoint`; `parse_refuses_unknown_kind_bad_ulid_and_wrong_shape`; `parse_refuses_noncanonical_ulid_spelling` (`"device:0000000000000000000000000I"` and `"device:o0000000000000000000000001"` both refuse `NonCanonicalUlid` — re-issued 2026-08-08 by §10.7; the earlier `fathom:`-prefixed inputs would have refused for the wrong reason, `Shape`, and proved nothing about the ULID segment) |
 | `crates/fathom-graph/tests/snapshot.rs` | `worked_example_snapshot_round_trips` (WO-02 §4.3's side-1 graph, both laws of §4.3); `empty_graph_snapshot_round_trips`; `open_batch_refused`; `dangling_provenance_refused`; `endpoint_kind_still_refused_on_load` (a hand-built snapshot with a `ZoneMember` edge to a `Device` refuses `L0(EndpointKind …)`); `symmetric_not_normalised_refused`; `unknown_presence_in_fields_refused`; `tombstones_history_and_log_survive` |
 | `crates/fathom-workspace/tests/plain_face.rs` | `minimal_estate_matches_the_pinned_vector`; `worked_example_round_trips_byte_identical` (write → read → write, `assert_eq!` on bytes); `empty_graph_round_trips_byte_identical`; `banner_is_line_two_verbatim` (splits output on LF, asserts line 2 `== PLAIN_WARNING`); `face_version_2_refused_by_name`; `schema_version_mismatch_refused_by_name`; `missing_banner_refused`; `sealed_magic_refused_as_not_plain` (input beginning `46 54 48 4D 1F 52 45 43`); `trailing_bytes_refused`; `noncanonical_ulid_in_body_refused` (the pinned vector with one body ULID's leading `0` respelled `O` — same value, second spelling — refuses `Id(NonCanonicalUlid)`); `masquerading_names_refused` (`"site-b.fathom"`, `"x.frec"`, `"y.fathom.fplain"` refused; `"site-b.fplain"` accepted) |
 
@@ -667,10 +753,13 @@ otherwise. No reordering, no merging (`78` §3.6).
 2. **The parser.** `parse_canonical` with `ParseError` / `ParseReason` as specified; the
    `canonical.rs` test file, all twelve tests.
 3. **`fathom-ir` canon module.** The manifest line, `canon.rs` (`CanonError`,
-   `CanonicalValue`, `CanonKey`), and hand impls for every type in `scalar.rs` and `value.rs`
-   plus the rule-1/2/11/12 impls (`bool`, plain integers, `fathom_id` ids, collections).
-   Compilation of the dispatch in step 4 is the completeness check; this step's impls follow
-   §4.2's table exactly.
+   `CanonicalValue`, `CanonKey`), and impls for every type in `scalar.rs` and `value.rs` plus the
+   rule-1/2/11/12 impls (`bool`, bare integers, `fathom_id` ids, collections). Rule 13's 35 impls
+   are uniform by construction — a shared private helper pair over `T: Scalar`, or a local macro,
+   is the session's choice; a blanket `impl<T: Scalar> CanonicalValue for T` is **not** available,
+   because coherence rejects it against the rule-1/2/11/12 impls. Rule 14 and `value.rs`'s
+   rules 6/8/9 are hand-written. Compilation of the dispatch in step 4 is the completeness check;
+   this step's impls follow §4.2's table exactly.
 4. **Codegen.** Extend `fathom-schemagen` per §4.2: `SCHEMA_VERSION`, generated enum impls,
    `slot_to_canon` / `slot_from_canon`. Run `cargo run -p fathom-schemagen`; commit the
    regenerated `ir_types.rs` and `accessors.rs` (never hand-edited — `78` §5.6); verify
@@ -726,10 +815,12 @@ escalate (procedure per `78` §4) when:
    always"*).
 3. The pinned vector in §4.4 does not match the constructed bytes, or any gate goes red for a
    cause whose fix this document does not state. Quote both sides; do not reconcile them.
-4. A slot type at execution time does not match §4.2's wire table — a shape changed under
-   WO-01's landing, a new `BTreeMap` key type appears beyond `Identifier` / `Family`, a
-   registry type whose *shape* matches no family under §4.2's structural rule. The wire table
-   is format; only planning changes format.
+4. A slot type at execution time does not match §4.2's wire table — a registry slot type that
+   implements no `Scalar` and matches none of rules 1, 2, 6, 8, 9, 10, 11, 12 or 14; a type that
+   has *left* the `Scalar` trait since 2026-08-08; a new `BTreeMap` key type beyond `Identifier` /
+   `Family`; a second `Scalar` exemption beside `SecretPlaceholder`. The wire table is format;
+   only planning changes format. This trigger fired once already and was answered — §10.6 —
+   which is why rule 13 delegates to the trait rather than to a shape.
 5. `SCHEMA_VERSION` at execution time is not `"0.1"`, or the face needs any version behaviour
    other than exact-match refusal (a migration, a preserve mode, a tolerance). §10.2 owns that
    policy.
@@ -776,12 +867,14 @@ escalate (procedure per `78` §4) when:
 | 1 | **The obedient improviser adds "just a checksum"** — a plaintext digest field that reads as integrity and is not | Trigger 1 names it; PR review against §4.4's key list (`batches`/`edges`/`history`/`nodes`/`provenance`, nothing else) |
 | 2 | A second canonical-JSON implementation appears (copy instead of move) and the two drift | Step 1 moves the code and G3 proves schemagen's bytes did not change; C8 (`35` §5.1) is the standing rule |
 | 3 | A parser quietly accepts a second spelling (whitespace, `\u0041` for `"A"`, unsorted keys, a Crockford-aliased or lower-case ULID) and byte-identity silently becomes normalisation | `parse_emit_identity_on_accepted_vectors` plus the ten refusal tests; re-render equality on every ULID (rules 4/5/7/11, §4.3, §4.4) with its own refusal tests; the law is stated as the parser's definition, not a property of luck |
-| 4 | Wire forms drift when WO-01 replaces the stubs | Trigger 4: the table is format; `exemplar_round_trips_per_family` pins today's shapes, and a red run under new shapes is an escalation, not a patch |
+| 4 | Wire forms drift when a scalar's representation changes | Largely closed by §10.6's re-cut: rule 13 delegates the wire to `Scalar::canonical()`, so a representation change is invisible to the format while the trait holds. What remains: a type *leaving* the trait, or a new non-`Scalar` registry type. Trigger 4 still governs both; `exemplar_round_trips_per_family` covers all 35 implementors, so a departure fails to compile rather than drifting |
 | 5 | `from_snapshot` trusts the file — L0 violations, dangling provenance or denormalised symmetric edges load silently | §4.3's check list, each with a named test (`endpoint_kind_still_refused_on_load`, `dangling_provenance_refused`, `symmetric_not_normalised_refused`) |
 | 6 | The pinned vector is "fixed" to match buggy output (golden laundering) | The vector lives in this document, not in a regenerable file; trigger 3 forbids reconciling; `78` §5 item 5 |
 | 7 | The plain face masquerades — a `.fathom` name, a stripped banner, a header someone "tidied" | `check_plain_name`, byte-exact banner check on read **and** write, and the three G7 labelling tests |
-| 8 | A `u64` slot above `i64::MAX` wraps into JSON and corrupts silently | Rule 2 refuses at write (`IntOutOfRange`); `u64_above_i64_max_refused` |
+| 8 | A `u64` slot above `i64::MAX` wraps into JSON and corrupts silently | Rule 2 refuses at write (`IntOutOfRange`); `u64_above_i64_max_refused`. No slot binds a bare `u64` today, so the guard and its test are written **before** the binding that would need them, not after |
 | 9 | Serialising with a batch open captures half an intention | `OpenBatch` refusal, `open_batch_refused` |
+| 11 | A hand-built value outside its scalar's parse-reachable set writes to a file that then cannot be read (`EncryptionAlgorithm` outside `ENC_TABLE` canonicalises to `""`; a case-unfolded `Fqdn` reads back as a different value) | Rule 13's write-side injectivity check refuses at save, not at load; `non_parse_reachable_scalar_refused_at_write`. The failure is loud and at the moment the user acted |
+| 12 | A `SecretPlaceholder` loses its label or hint on a round trip — an emitted `<PSK>` where the field is a TACACS key, and the operator's only note of where the real secret lives, gone silently | Rule 14 carries both; `secret_placeholder_round_trips_label_and_hint`, `secret_placeholder_hint_cap_reenforced_on_read`. Rule 8's `{}` — which would have done exactly this — was retired for this reason (§10.6) |
 | 10 | The snapshot iterates a `HashMap` somewhere and byte-identity flakes per process | The snapshot orders are stated per vector in §4.3; `fathom-graph` remains `HashMap`-free (WO-02 §9.2's review rule extends to `snap.rs`); the byte-identity tests fail on any per-process order |
 
 ## 10. Open decisions
@@ -807,6 +900,18 @@ Deliberately not decided here; owner or planning session only (`78` §7):
    the shared substrate either way.
 5. **Whether `Snapshot` grows the sync op envelope** (`33` §5.1's `OpId`/HLC/actor) when sync
    work begins — already registered as open by WO-02 §10.5.
+6. **Whether `CanonError` should carry `ScalarParseError`'s typed reason.** §4.2 rule 13 collapses
+   a scalar-parse failure into `NonCanonicalSpelling`, which tells someone hand-editing a
+   `.fplain` that a string is wrong but not why — *"IpPrefix: host bits set"* would be more use
+   than *"non-canonical spelling"*. Adding a variant is a public name §4 does not list, so it is
+   format work, not the executing session's. Registered by §10.6's answer, 2026-08-08.
+7. **The product name in this crate's file magic and extension.** ADR-0005 action 2: *"The name
+   may not appear in any identifier, file magic, MIME type, ID prefix or on-disk key"*; §4.4 pins
+   `PLAIN_MAGIC = "fathom-plain"` and `PLAIN_EXTENSION = "fplain"`. Not blocking — action 2 fires
+   *"Before anything is published"* and the same clause is outstanding against `17` §2.1's
+   `.fathom`, the `fathom-workspace` crate name and the repository — but it belongs on the
+   rename's list rather than being rediscovered per work order. Registered by §10.7's answer,
+   2026-08-08.
 
 ### 10.6 ESCALATED 2026-08-08 — §4.2's wire table has no family for seven registry slot types, WO-01 having reshaped them
 
@@ -888,6 +993,66 @@ and whether rule 9's scope extends from `value.rs` to hand-written enums in `sca
 round-trips it, and what a redaction marker may put on a plaintext wire is a security question, not
 a shape question. §4.5's `exemplar_round_trips_per_family` row count moves with the answer.
 
+**ANSWER (2026-08-08, planning). Not the narrow patch — the table is re-cut against the trait.**
+The escalation offers the smallest decision: add rows for seven types and extend rule 9's scope
+from `value.rs` to `scalar.rs`. That was declined, on the evidence the escalation itself gathered.
+Seven types moved between families in one work order, and the escalation's own list of what did
+*not* diverge shows why: every one of the seven still round-trips through `Scalar::parse` and
+`Scalar::canonical()`, because that is what WO-01 built. **The shapes moved; the canonical text did
+not.** A table cut against shapes will keep tripping trigger 4 every time a representation is
+refined, and each trip costs a stopped work order.
+
+So §4.2 now decides membership **by trait first, shape second**:
+
+| | |
+|---|---|
+| **New rule 13** | Every `fathom_ir::scalar::Scalar` implementor — all 35 — wires as `Str` of `canonical()`, parsed by `Scalar::parse` with re-render equality, **plus a required write-side injectivity check** |
+| **New rule 14** | `SecretPlaceholder`, the one registered `Scalar` exemption, gets the one hand-authored wire form: `{"label":…}` with `"hint"` present iff set |
+| **Rules 3, 4, 5, 7** | Retired — every type they named implements `Scalar`. Numbers left vacant, never reused, so existing citations keep their meaning |
+| **Rule 2** | Narrows to **bare** primitive integers; every integer newtype is rule 13. `accessors.rs` binds no bare `u64` / `i64` / `i32` slot (grep, 2026-08-08), so `u64_above_i64_max_refused` is retargeted at `CanonicalValue for u64` directly and the guard now lands ahead of the first binding rather than behind it |
+| **Rule 6** | Narrows from twelve to the six `value.rs` structs; `IpRange`, `PortRange`, `RouteDistinguisher`, `RouteTarget`, `Date`, `LatLon` are rule 13 |
+| **Rule 8** | Narrows from sixteen to fifteen, all in `value.rs` (`SecretPlaceholder` leaves for rule 14). Verified: `value.rs` holds exactly fifteen field-less structs |
+| **Rule 9** | **Scope not extended.** The escalation's explicit question — does rule 9 reach `scalar.rs`? — is answered *no*: the four `scalar.rs` enums are `Scalar` implementors and take rule 13. Rule 9 stays the four `value.rs` enums |
+| **`EncFamily`, `EncMode`, `SecretLabel`, `SecretHint`** | No row. None is a registry slot type (zero occurrences each in `accessors.rs`, 2026-08-08); they reach the wire only inside rules 13 and 14 |
+
+**The three things this answer decides that the narrow patch would not have.**
+
+1. **The write-side injectivity check** (§4.2, rule 13's DECISION paragraph). WO-01 §9 row 1
+   records that the laws hold over parse-reachable values only, and `scalar.rs` shows the cost on
+   a wire: `EncryptionAlgorithm::canonical()` returns `""` for any value outside `ENC_TABLE`, and
+   `Fqdn::parse` case-folds. Without the check, `write_plain` succeeds and `read_plain` fails on
+   the same bytes — a file the user believes they saved. The check moves that failure to the save.
+2. **`SecretPlaceholder` carries `label` and `hint`.** Rule 8's `{}` is not implementable —
+   the type's only constructors take a label, so `from_canon` would have to invent one. The cost
+   of inventing: `placeholder()` renders `'<' + label.token() + '>'`, so a reloaded `TacacsKey`
+   placeholder emits `<PSK>` into a TACACS field, which is wrong configuration text handed to an
+   operator to paste into a device; invariant 9's byte-identical-emit guarantee breaks across a
+   save/load boundary; and the hint — the operator's own note of where the real secret lives — is
+   destroyed silently. The slot is real and singular: `IkePolicy.pre_shared_key`, field key 155.
+   The security half is argued in §4.2 rather than asserted: invariant 3 is not engaged (the type
+   holds no credential by construction, and the read path reconstructs only through `new` /
+   `with_hint`), the label is a category already emitted as `<PSK>`, and the hint is user text
+   whose exposure on this face is total *by declaration* — which is what line 2 says in capitals.
+3. **The `label` wire tokens are pinned here, not taken from `SecretLabel::token()`.** `token()`
+   is the emit rendering and four of its five values carry a live `VERIFY` in `scalar.rs`. A
+   stored format welded to a string expected to change would make every existing file unreadable
+   the day that VERIFY resolves.
+
+**Deliberately not decided.** Whether the ingest gate or the plain face should try to *detect* a
+secret typed into a hint. There is no such mechanism anywhere in the corpus, it is a heuristic, and
+inventing one inside a wire table is how a false negative acquires a reassuring name. Also not
+decided: whether `CanonError` should grow a variant carrying `ScalarParseError`'s typed reason
+instead of collapsing scalar-parse failures into `NonCanonicalSpelling`. It would read better for
+someone hand-editing a `.fplain`, and it costs a public name §4 does not list; §7 trigger 7 is
+left untripped and the diagnostic question is registered at §10 item 6.
+
+**What this means for execution.** §4.2, §4.5's `canon_laws.rs` row, §5 step 3, §7 trigger 4 and
+§9 rows 4, 8, 11 and 12 have been edited in place — there is one specification, not a table plus a
+correction (`.context/conventions.md` § *Precedence*). Read §4.2 as it now stands. §3.1's
+`fathom-ir` bullet carries a superseded-marker for `scalar.rs` and is otherwise re-verified.
+
+**This escalation is resolved.** It does not by itself make WO-05 executable — see §10.7.
+
 ### 10.7 ESCALATED 2026-08-08 — §4.4's pinned vector renders ids with a `fathom:` prefix the tree, the conventions and ADR-0005 all refuse
 
 **Step reached.** The same `78` §3 step 5 pass; nothing executed.
@@ -907,7 +1072,7 @@ ADR-0005)"*; §4.3 says *"`parse` inverts `Display` exactly"*; §4.4 says *"comp
 `Display` form"*. §2's Binding sources cites `.context/conventions.md` § *Identifiers* for
 *"Node IDs: `<kind-lower>:<ulid>`"* and *"(ADR-0005: no product name in any identifier)"*.
 
-**What was found.** `crates/fathom-graph/src/id.rs:74`:
+**What was found.** `crates/fathom-graph/src/id.rs:75`:
 
 ```rust
 impl fmt::Display for NodeId {
@@ -920,7 +1085,7 @@ impl fmt::Display for NodeId {
 ```
 
 which renders `device:00000000000000000000000001`. WO-02's own test pins it —
-`id.rs:104` `ike_gateway_renders_kebab` asserts `assert!(!rendered.contains("fathom"))` under the
+`id.rs:107` `ike_gateway_renders_kebab` asserts `assert!(!rendered.contains("fathom"))` under the
 comment *"ADR-0005 action 1: the product name is in no identifier."*
 
 So `write_plain` on §4.4's stated construction cannot produce §4.4's stated bytes, and the two id
@@ -935,6 +1100,44 @@ work."* §7 trigger 3 says the same.
 **The smallest decision that unblocks.** Re-issue §4.4's pinned line 5 and §4.5's two
 `parse_refuses_noncanonical_ulid_spelling` inputs against the rendering the tree emits — or, if the
 `fathom:` segment is intended, reopen ADR-0005, which is owner work (`78` §5 item 4).
+
+**ANSWER (2026-08-08, planning). Re-issue against the tree. ADR-0005 is not reopened.**
+There is no fork here worth the owner's time. ADR-0005 is Accepted, its action 1 is *"Now, before
+`fathom-id`'s first commit: decouple the identifier namespace from the product name … node IDs
+change to `<kind-lower>:<ulid>`"*, it has been executed into `.context/conventions.md`
+§ *Identifiers*, into `fathom-graph`'s `Display` (`id.rs:75`, with the ADR cited in the doc
+comment) and into a test that asserts the absence literally (`id.rs:107`,
+`assert!(!rendered.contains("fathom"))`). Three independent sites agree and one document — this
+one — disagreed with itself in four places while quoting the correct rule in three others. That is
+a transcription defect, not a design question, and reopening a decision on merit (`75` §2) needs a
+merit argument that nobody has made.
+
+**The corrected vector.** §4.4's line 5 now reads with `device:00000000000000000000000001` at both
+occurrences, and §4.5's two refusal inputs are `"device:0000000000000000000000000I"` and
+`"device:o0000000000000000000000001"` — both still 26 characters after the colon, both still
+decoding under `Ulid::decode`'s Crockford aliases (`I`→1, `o`→0) to the same value as
+`00000000000000000000000001`, and both therefore still refusing `NonCanonicalUlid` on re-render
+equality, which is what that test exists to prove. Under the old inputs they would have refused
+`Shape` on the unknown kind segment and proved nothing about the ULID at all. §4.3's prose example
+is corrected in the same pass.
+
+**The correction is scoped, and trigger 3 still stands.** Only the id renderings were wrong and
+only they were changed. Every other byte of the pinned vector is still this document's claim about
+code that has never been run, and §4.4's own rule — *"the session does not adjust either side to
+match: it escalates"* — applies to the rest of it unchanged. A mismatch elsewhere is a new
+escalation. That is why the re-issue is marked inline at §4.4 rather than silently applied.
+
+**A separate finding, raised here because it was found here, and deliberately not decided.**
+ADR-0005's action 2 also states *"The name may not appear in any identifier, file magic, MIME type,
+ID prefix or on-disk key"*, and §4.4 pins `PLAIN_MAGIC = "fathom-plain"` and
+`PLAIN_EXTENSION = "fplain"` — a file magic and an on-disk name carrying the product name. This is
+**not** treated as blocking, for a reason on the ADR's own face: action 2 fires *"Before anything
+is published"*, nothing is published, and the same clause is outstanding against `17` §2.1's
+`.fathom` container, the `fathom-workspace` crate name and the repository itself. The plain face's
+magic is not a new violation; it joins the rename's scope, where the whole clause is settled at
+once. Registered at §10 item 7 so it is not rediscovered a third time.
+
+**This escalation is resolved.**
 
 ## 11. Sources consulted
 
@@ -1000,3 +1203,16 @@ work."* §7 trigger 3 says the same.
    enumerate every current member. §3.1's accessor sentence likewise omitted the 56
    bare-primitive slots and the `LearnedRoute.via` `fathom_id::NodeId` slot; it now counts
    them.
+6. **Corrections on execution (2026-08-08), recorded under `78` §8.** (a) §4.1 places
+   `crates/fathom-workspace` in the root members list *"one line after
+   `"crates/fathom-schemagen"`"*. That instruction was written against the six-member list of
+   2026-08-02; the list now holds twelve members in alphabetical order, and `fathom-workspace`
+   sorts after `fathom-wasm`. The line was appended at the end of the list, which is that
+   position. The member set is identical either way, so no decision moves. (b) §4.3 requires
+   `from_snapshot` to surface *"the same violation the write path would name"* while leaving the
+   mechanism to the session. Rather than write a second copy of the ladder, `insert_edge`'s L0
+   sequence was lifted verbatim into a module-private `Graph::check_edge_l0`, which both the write
+   path and the load path now call; `Graph`'s fields, `Node`/`Edge`'s slot maps and `Slot` became
+   `pub(crate)` so `snap.rs` can build a store without a second write API. Every item is
+   module-private (§4: *"Module-private items are the execution session's to name"*), no public
+   name changed, and WO-02's full suite still passes unedited.

@@ -1755,10 +1755,19 @@ throughout.
 
 ## 14. Escalations from execution sessions
 
-> **Status:** Live. Five rows. Three came from WO-06's execution on 2026-08-08: E-01 is answered in
+> **Status:** Live. Seven rows. Three came from WO-06's execution on 2026-08-08: E-01 is answered in
 > place, and the two `16` spec gaps are open, and open for **planning** rather than for the owner.
-> Two came from WO-05's on 2026-08-08 — both are format questions the work order itself classes as
-> planning-only, and both stopped that session before its first plan step.
+> Two came from WO-05's on 2026-08-08 — both format questions the work order itself classes as
+> planning-only, and both stopped that session before its first plan step. **Both were answered in
+> place later the same day** and WO-05 is OPEN again; the answering session did not execute the
+> order it unblocked (`78` §5 item 10). **One came from WO-09's on 2026-08-08**, at its first plan
+> step, and it is a third format question against the same file the two WO-05 rows are about —
+> `fathom-workspace`'s canonical face is now the tree's most escalated surface, which is itself
+> worth planning's attention. **That row was answered the same day (`17` §15.6) and a seventh
+> arrived on 2026-08-08 from WO-09's second run**, at plan step 9: the junos-srx dictionary and the
+> schema disagree about `InterfaceLike.name`'s type, which no gate in the tree compares. Four of
+> seven rows answered, three open — the two `16` spec gaps and the type disagreement, all for
+> planning.
 >
 > The two spec-gap rows carry `2026-08-02` — the date WO-06 §4.5 pre-authored them, not the date
 > they were filed. §4.5 requires them verbatim, so the executing session was right not to restamp
@@ -1806,6 +1815,21 @@ and is not duplicated here, so there is one place to maintain and one place to r
 | 2026-08-02 | WO-06 | `16` §13 expects trace B's exact leaf to outrank its `detail` form on syntax, but §6.4 ties equal-cover keys and §6.2's `Ŝ_prefix` cannot fire for that query; R09's canonicality change also post-dates the trace — rewrite §13's trace to the implemented arithmetic, or spec a key-length tie-break in §6.4 under §8.5's golden-delta discipline | detail in WO-06 § Open decisions |
 | 2026-08-08 | WO-05 | WO-01 reshaped seven registry slot types (`EncryptionAlgorithm`, `IntegrityAlgorithm`, `AuthMethod`, `IkeVersion`, `RouteDistinguisher`, `RouteTarget`, `SecretPlaceholder`) into shapes no row of §4.2's wire table admits, and rule 8 would now silently drop `SecretPlaceholder`'s label — re-cut the table over the post-WO-01 `scalar.rs`, deciding `SecretPlaceholder`'s plaintext wire form explicitly | detail in WO-05 § Open decisions (§10.6) |
 | 2026-08-08 | WO-05 | §4.4's pinned vector and §4.5's two ULID-refusal inputs render ids as `fathom:device:<ulid>`, which `Display` in `fathom-graph/src/id.rs`, `.context/conventions.md` § *Identifiers* and ADR-0005 all refuse — re-issue the vector against the rendering the tree emits, or reopen ADR-0005 | detail in WO-05 § Open decisions (§10.7) |
+| 2026-08-08 | WO-09 | `Origin` is serialised as a bare JSON string by `fathom-workspace`'s canonical plaintext face (writer `lib.rs:329`, reader `lib.rs:617`), so the payload-bearing `Origin::Parsed { capture, span }` the order requires cannot be written or read — decide `Parsed`'s wire form against WO-05 §4.4's byte-identical round trip, and add `crates/fathom-workspace/src/lib.rs` to WO-09 §4's Deliverables table | detail in WO-09 § Open decisions (§10.8) — **ANSWERED 2026-08-08**: `17` §15.6 |
+| 2026-08-08 | WO-09 | `corpus/dict/junos-srx/interfaces.yaml:13` binds `InterfaceLike.name` as `scalar: Identifier` while `schema/schema.yaml` declares it `InterfaceName` on all four interface kinds, so the first call to put ingest and the store together refuses the shipped fixture with `SlotType { key: 55 }` — decide whether the schema moves, the dictionary and `BoundValue` move, or the weld converts, and whether a dictionary-load gate compares a `scalar:` against the declared type at all | detail in WO-09 § Open decisions (§10.9) — **ANSWERED 2026-08-08**: option (b) + (d) |
+| 2026-08-08 | WO-09 | Ten of the shipped fixture's thirteen fragment nodes carry `owner: None`, and none of the three that carry one is owned by `nodes[0]`, so the applied `Device` has degree zero across all 81 edge kinds and §4.6's *"the `IpsecVpn` closure is reachable from the device by `out`/`inn`"* cannot hold — decide where a top-level object's containment parent is set (the weld defaults it, the binder sets it, the dictionary declares it, or the assertion is withdrawn and `11` §7.2's forest stays an unchecked L1/L2 obligation) | detail in WO-09 § Open decisions (§10.10) |
+
+**Answered — both WO-05 rows, 2026-08-08, planning.** The detail is in WO-05 §10.6 and §10.7,
+where the rows already point; repeating it here would be the duplication §14.2 exists to avoid.
+In one line each. **The wire table:** re-cut against the `Scalar` trait rather than patched
+type-by-type — a type implementing `fathom_ir::scalar::Scalar` wires as `Str` of its
+`canonical()` (new rule 13, all 35), rules 3/4/5/7 retire into it, and `SecretPlaceholder`, the
+one registered exemption, gets its own rule 14 carrying **both** its label and its hint, because
+`{}` would have emitted `<PSK>` into a TACACS field after a save and load, and destroyed the
+operator's note of where the real secret lives. **The pinned vector:** re-issued as
+`device:<ulid>`, ADR-0005 **not** reopened — three sites in the tree already agree and only WO-05
+disagreed with itself. WO-05's status line and its queue row are OPEN; executing it is a later
+session's (`78` §5 item 10).
 
 **Answered — E-01, 2026-08-08, planning.** Option A of the four §10.5 enumerates. `78` §4 step 3
 specifies both the section title and the four columns; WO-06 §4.5 transcribes them and this section
@@ -1826,8 +1850,10 @@ what planning predicted, not what building hit.
 
 1. **How escalations are triaged.** `78` §12 leaves open *"whether `73` §14 escalations are triaged
    into D-numbered register entries or answered in place"*, and `88` §6.11 proposes an answer — that
-   they be answered as ADRs. E-01 above is answered **in place**, which is not a ruling on that
-   question; it is the smallest thing that unblocks a stopped order. `78` §4 step 3's *"do not touch
+   they be answered as ADRs. The three answered rows above are answered **in place**, which is not
+   a ruling on that question; it is the smallest thing that unblocks a stopped order — and in the
+   WO-05 cases the answer edits the work order's own §4, so an ADR would have been a third copy of
+   a format the order already owns (§ *Precedence*). `78` §4 step 3's *"do not touch
    `73`'s register; D-numbers are planning work"* still holds.
 2. **Who answers.** `78` §7's test decides per row.
 3. **Whether an escalation row needs a citable identifier.** `78` §4 step 3's four columns have

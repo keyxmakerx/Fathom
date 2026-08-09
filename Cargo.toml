@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/fathom-artifact",
+    "crates/fathom-canon",
     "crates/fathom-corpus",
     "crates/fathom-emit",
     "crates/fathom-find",
@@ -13,6 +14,8 @@ members = [
     "crates/fathom-schema",
     "crates/fathom-schemagen",
     "crates/fathom-wasm",
+    "crates/fathom-weld",
+    "crates/fathom-workspace",
 ]
 
 [workspace.package]

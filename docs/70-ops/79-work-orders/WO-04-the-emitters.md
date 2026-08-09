@@ -1,8 +1,12 @@
 # WO-04 — `fathom-emit`: graph to junos-srx commands with provenance
 
-> **Status:** BLOCKED on the fragment-to-store weld order, which does not exist (G8, the round-trip
-> gate, cannot arm; all other gates green). WO-03 was the other half of this block and completed
-> 2026-08-08 — corrected here under `78` §8 as a factual correction, not a re-scope.
+> **Status:** BLOCKED on **one** planning decision, not two. **§10 item 7(b) is answered
+> (2026-08-09)** — `mode` is not a Junos statement at all (verified against Juniper's CLI reference
+> for `[edit security ipsec vpn]`, which has no `mode` and defines `bind-interface` as the interface
+> *"to which the route-based VPN is bound"*), so it is derived at weld time from the presence of a
+> `BindsInterface` edge, with `Confidence::Derived`. Still open: **WO-09 §10 item 2** — §4.9's golden
+> references `reth0.0` and `st0.0` and declares no interface, so both edges stay `Pending` under
+> `14` §7.3.
 
 The reverse face of ingest — from graph state to copy-pasteable configuration lines, each line
 carrying the provenance that produced it. This is the notepad's engine: `53` §6's copy machinery
@@ -15,7 +19,7 @@ DONE before this work order is taken. §6 G8, the flagship round-trip, additiona
 **WO-03** (junos-srx ingest — on disk, BLOCKED on WO-01/WO-02 at revision time) **and** the
 fragment-to-store weld work order WO-03 §4.8 defers (*"constructing the store's provenance
 records, minting node ULIDs (`fathom-id` from caller-supplied parts only), and reconciliation
-are the weld WO's work"*) — a work order that does not exist yet. G8 gates nothing else in this
+are the weld WO's work"*) — **WO-09, authored 2026-08-08 and OPEN**. G8 gates nothing else in this
 document; §5 steps 12–13 state the machine-followable rule for finishing every other gate first,
 and §10 item 7 holds the round-trip preconditions planning must resolve before step 13 can run.
 
@@ -921,14 +925,22 @@ the escalation inbox under `78` §4 step 2.
    second platform.
 6. **Where `Risk` lives long-term.** Defined in `fathom-emit` this slice; the rule engine takes
    risk *"from the emitter"* (`12` §10.5), so a shared home may be wanted when `12` is built.
-7. **The round-trip preconditions (G8).** Two facts, both verified against the documents on
-   disk, keep step 13 unrunnable until planning acts; step 12 (c) checks this item for the
-   record of their resolution and nothing else.
-   (a) *No text-to-store entry point exists or is specified anywhere.* WO-03 delivers
+7. **The round-trip preconditions (G8).** **Three** facts, each verified against the documents on
+   disk, kept step 13 unrunnable; **(a) is now closed and (b) and (c) still keep it unrunnable
+   until planning acts.** Step 12 (c) checks this item for the record of their resolution and
+   nothing else. (Item (c) was added 2026-08-08 by WO-09's authoring, which is where it first
+   became checkable.)
+   (a) **CLOSED 2026-08-08.** *No text-to-store entry point exists or is specified anywhere.*
+   Specified, then built: WO-09 §4.5's `apply_new_device(&mut Graph, &IngestOutput, &Manifest)
+   -> Result<WeldOutput, WeldError>` is the entry point step 12 (b) asks for, WO-09's status line
+   reads `DONE`, and the function is on disk at `crates/fathom-weld/src/apply.rs:100`. Step 12 (b)
+   is therefore met, and the first of this item's two questions — the weld entry point — has its
+   resolved decision. The paragraph below records the state that made this item necessary. WO-03
+   delivers
    `ingest(paste: &[u8], dict: &dict::Dictionary) -> Result<IngestOutput, IngestRefusal>`
    producing a fragment; the fragment-to-store weld — provenance records, ULID minting,
-   reconciliation — *"are the weld WO's work"* (WO-03 §4.8), and that work order is unwritten.
-   Planning must author it before step 13 has anything to call.
+   reconciliation — *"are the weld WO's work"* (WO-03 §4.8), and that work order was unwritten
+   until 2026-08-08.
    (b) *Nothing sets `IpsecVpn.mode` in a re-parsed graph.* The schema declares `mode`
    `card: "1"`, `emit: R`; §4.6 reads it `need`-first and emits no statement for it; WO-03's
    dictionary entry 30 binds only the `BindsInterface` edge, and no entry binds `mode`. So
@@ -937,7 +949,94 @@ the escalation inbox under `78` §4 step 2.
    resolutions — a weld-time or dictionary-level rule deriving `RouteBased` from a
    `bind-interface` statement, or a new `mode`-bearing statement row — belong to WO-03, the
    weld WO or planning, never to this crate: an emitter-side inference would invent a value
-   the user never chose (§4.4).
+   the user never chose (§4.4). WO-09 §10 item 5 adds one input without deciding it: the deduction
+   *`BindsInterface` Set ⇒ `RouteBased`* holds inside the schema — `schema/enums/vpn_mode.yaml`
+   declares exactly two variants and `BindsInterface`'s own doc says the edge is forbidden when
+   `PolicyBased` — so the open question is the **mechanism**, not the fact.
+   (c) *§4.9's golden references two interfaces it never declares.* The 21 lines contain
+   `external-interface reth0.0` and `bind-interface st0.0` and no `set interfaces` statement at
+   all. Under `14` §7.3 an unresolved reference in a `Fragment`-scope capture is *"recorded, not
+   materialised"*, so after `parse(golden)` neither the `ExternalInterface` nor the
+   `BindsInterface` edge exists and the second emit cannot reproduce those two lines. Resolving it
+   means editing §4.9's byte-exact block (a Disagreements-bearing change to this document), giving
+   `Pending` edges a store representation, or deciding referent materialisation against `14` §7.3.
+   WO-09 §10 item 2 holds the analysis. Planning. **The weld that now exists confirms this from
+   code rather than from doctrine:** `crates/fathom-weld/src/apply.rs:221` — *"Pending references:
+   carried out, not written (`14` §7.3)"* — returns them as `Unresolved`, and writes no edge.
+
+   **ANSWERED 2026-08-09, and the question was malformed. `mode` is not a Junos statement.**
+
+   **Looked up rather than recalled, per ADR-0034. Source, queried 2026-08-09:** Juniper's own CLI
+   reference for the `vpn` statement under `[edit security ipsec]` —
+   <https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/security-edit-vpn.html>.
+   The statements it lists under `vpn vpn-name` are `bind-interface`, `copy-outer-dscp`,
+   `distribution-profile`, `df-bit`, `establish-tunnels`, `ike`, `manual`, `multi-sa`,
+   `traffic-selector`, `match-direction`, `passive-mode-tunneling`, `tunnel-mtu` and `vpn-monitor`.
+   **There is no `mode` statement, and nothing that toggles route-based against policy-based.**
+
+   **So the premise of this item — and of my own earlier refusal — was wrong.** The question was
+   phrased as *"where does `mode` come from on a re-parse"*, which presumes the config states it
+   somewhere and the parser is failing to pick it up. It does not. Route-based versus policy-based is
+   **not a configured value in Junos at all**: it is implied by whether `bind-interface` is present.
+   The same source defines `bind-interface` as *"the tunnel interface to which the **route-based**
+   virtual private network (VPN) is bound"* — the vendor's own wording ties the statement to the
+   mode.
+
+   Second source, same date —
+   <https://www.juniper.net/documentation/us/en/software/junos/vpn-ipsec/topics/task/security-comparison-policy-based-vpn-route-based-vpn.html>:
+   for route-based, *"when the security device does a route lookup … it finds a route through a
+   secure tunnel (st0) interface"*, whereas a policy-based VPN names the tunnel inside the security
+   policy itself. Two independent pages, one mechanism.
+
+   **What this means for the model.** `IpsecVpn.mode` is a **derived** field on any parsed graph and
+   always will be, because there is no statement to parse. That is not a parser gap and no dictionary
+   entry can fix it. `Confidence::Derived` — *"follows necessarily from asserted facts"* — is exactly
+   the label, and the machinery exists. **The weld derives `mode` from the presence of a
+   `BindsInterface` edge**, in the same pass that materialises containment.
+
+   **What my 2026-08-08 refusal got right, and what it got wrong.** Right: refusing to assert a
+   vendor fact from memory. Wrong: the thing I could not establish was *"are there exactly two
+   modes"*, and that turns out not to be the load-bearing question — an enum arm cannot carry an
+   unrecognised token when the config never carries a token at all. The `Unknown` arm on `VpnMode`
+   exists because `62` §7 rule 2 gives every generated enum one, not because a third Junos mode is
+   anticipated. **Fifteen minutes of looking dissolved a question I had recorded as unresolvable.**
+
+   **Two facts worth carrying, both from the sources above, neither acted on here.** Policy-based
+   VPNs are IKEv1 only (*"the support for policy-based VPNs is available with IKEv1 only"*), and the
+   IPsec VPN overview lists policy-based IPsec VPN as unsupported when running the `iked` process.
+   The derivation is therefore safest on exactly the modern trains the corpus targets. Both belong in
+   the junos-srx platform content with a named reviewer, not in this order.
+
+   **`78` §5 item 10 binds whoever answers this**: this session does not execute WO-04.
+
+   ---
+
+   **The 2026-08-08 refusal, left in place because it is the more useful record.**
+
+   The deduction looks obvious and I nearly made it. `IpsecVpn.mode` is `RouteBased | PolicyBased`
+   plus the generated unknown arm (`crates/fathom-ir/src/generated/ir_types.rs:2167`), and
+   `11` §6.7 says `BindsInterface` is *"required when mode == RouteBased and forbidden when
+   PolicyBased"*. If that biconditional holds, then a VPN that binds an interface **is** route-based,
+   `mode` is derivable at weld time, and `Confidence::Derived` — *"follows necessarily from asserted
+   facts"* — is exactly the right label for it. The mechanism exists; nothing needs inventing.
+
+   **Two things stop it being a planning call, and both are the kind that get waved through.**
+
+   1. **The schema declares only half of it.** `schema/schema.yaml`'s constraint is
+      `mode == RouteBased implies edge(BindsInterface) is Set` — one direction. The
+      forbidden-when-PolicyBased half exists in `11`'s prose and **is not expressible**: `62` §12.3's
+      grammar has no negation, and the schema's own doc comment flags it as *"defects to file"*. So
+      the deduction rests on a constraint the tree documents but cannot enforce.
+   2. **It rests on a vendor claim I have not sourced.** That the two named modes are the only real
+      ones on Junos — that the unknown arm will never carry a third — is a statement about Juniper's
+      behaviour, and **ADR-0034 forbids asserting one from memory.** No primary source for it exists
+      anywhere in this tree.
+
+   Under that law *"I could not establish this"* outranks a confident guess, so this is recorded as
+   unestablished rather than answered. **What unblocks it:** a primary Juniper source confirming the
+   mode set, and a decision on whether a deduction may rest on a constraint the grammar cannot
+   express. Both are small; neither is guessable. The deduction is very probably right, and *very
+   probably right* is precisely the standard ADR-0034 exists to refuse.
 
 ## 11. Sources consulted
 
@@ -1051,3 +1150,86 @@ the escalation inbox under `78` §4 step 2.
     order with status `DONE` — and (c) — §10 item 7 recording resolved decisions — both still
     fail, so the step-12 terminal state is unchanged. `00-INDEX.md`'s own banner names the weld
     order as the one in the critical path that does not exist yet.
+11. **Correction (`78` §8) — the weld order now exists and has itself stopped; the status line's
+    "still OPEN" was stale.** A session took this order on 2026-08-08 to establish whether WO-09's
+    landing had armed G8, and re-ran §5 step 12's three preconditions against the documents on
+    disk. Old → new, with the proving paths:
+    - (b), old: *"authored 2026-08-08 as WO-09 and still OPEN"*. New: WO-09's status line reads
+      *"BLOCKED on the canonical wire form for `Origin::Parsed` in `fathom-workspace`'s plaintext
+      serialisation, and the authorisation to edit that crate (§10 item 8)"*
+      (`docs/70-ops/79-work-orders/WO-09-the-fragment-to-store-weld.md`), and `00-INDEX.md` row 9
+      mirrors it. `crates/` holds no `fathom-weld`, and `apply_new_device` appears in no `.rs` or
+      `.toml` file in the tree. (b) fails on `DONE`, not merely on the code.
+    - (c), unchanged and restated because the status line did not say it: §10 item 7's **second**
+      open question — the source of `IpsecVpn.mode` in a re-parsed graph — has no resolved decision
+      recorded in that item or in any planning document it names. WO-09 §10 item 5 supplies one
+      input (the deduction *`BindsInterface` Set ⇒ `RouteBased`* holds inside the schema) and
+      explicitly declines to decide the mechanism. (c) fails.
+    - The third precondition (WO-09 §10 item 2 — §4.9's golden names `reth0.0` and `st0.0` and
+      declares no interface) is likewise unresolved.
+    Neither correction changes a decision this work order makes: step 12's terminal state is the
+    same under the old text and the new. No round-trip test was written, and §4.10's
+    `tests/round_trip.rs` does not exist — writing it against a weld entry point that is not built
+    would be `78` §5 item 5's gate laundering with extra steps.
+
+    **The gate run behind the status line**, 2026-08-08, from the repository root, verbatim results:
+    G1 `cargo fmt --all --check` — no output, exit 0. G2 `cargo clippy --all-targets --locked --
+    -D warnings` — exit 0, no warnings. G3 `cargo test --locked -p fathom-emit` — every §4.10 test
+    except `round_trip` present and `ok`: 4 unit + 13 `blockers` + 3 `coverage` + 3 `determinism` +
+    2 `report` + 3 `secret` + 7 `worked_example`, 0 failed, 0 ignored, 0 filtered. G4
+    `cargo test --workspace --locked` — 329 passed, 0 failed, 0 ignored, 0 filtered across every
+    suite (the workspace has grown past the 80 §3 records and the 282 of the WO-08 era; green is
+    the gate, not the count — `78` §12 item 3). G5
+    `git diff --exit-code -- schema/ crates/fathom-ir crates/fathom-schema crates/fathom-schemagen`
+    — no output, exit 0. G6 `cargo run --locked -q -p fathom-schema --bin fathom-schema-check` —
+    exit 0, `48 kinds · 89 edges · 61 scalars · 10 enums · 14 files parsed`,
+    `0 failure(s), 2 warning(s)`, both warnings `schema.identity.unexercised` on `Site`: the pinned
+    baseline, unchanged. G7 the `HashMap|HashSet|SystemTime|Instant|random` grep over
+    `crates/fathom-emit/src` and `crates/fathom-emit/tests` — no matches, exit 1. G8 — not run;
+    unrunnable, per this item. G9 `grep -c "GAPS_" crates/fathom-emit/src/junos.rs` — `14`, exit 0.
+
+12. **Correction (`78` §8) — step 12 (b) now holds; the block has moved off code entirely.** This
+    order was taken again on 2026-08-08, after WO-09 reached `DONE`, to establish whether G8 could
+    arm. §5 step 12's three preconditions were re-run against the documents on disk, in the stated
+    order. Old → new, with the proving paths:
+    - (a) unchanged and holding: `docs/70-ops/79-work-orders/WO-03-ingest-junos-srx.md`'s status
+      line reads `DONE`.
+    - (b), old: *"fails — no weld order is DONE; no `fathom-weld` crate and no `apply_new_device`
+      exist in the tree"*. **New: it holds.** WO-09's status line reads `DONE — 2026-08-08`
+      (`docs/70-ops/79-work-orders/WO-09-the-fragment-to-store-weld.md`), `00-INDEX.md` row 9
+      mirrors it, and its §4.5 entry point is on disk: `crates/fathom-weld/src/apply.rs:100`,
+      `pub fn apply_new_device`. §10 item 7(a) is closed above.
+    - (c), unchanged and still failing. Item 7's **second** question — the source of
+      `IpsecVpn.mode` in a re-parsed graph — has no resolved decision in that item, in WO-09 §10
+      item 5 (which supplies one input and declines the mechanism), or in any planning document
+      either names. `00-PROGRAM-PLAN.md` §18 still lists *"`IpsecVpn.mode` resolution | Planning
+      decision, then execution"* as an order that does not exist. Re-proved from the corpus rather
+      than from the prose: no entry in `corpus/dict/junos-srx/` binds `IpsecVpn.mode` —
+      `security-ike.yaml:55` binds `IkePolicy.mode`, a different kind and a different field, and
+      nothing else mentions `mode` at all.
+    - The third precondition (WO-09 §10 item 2, mirrored as item 7(c) above) is likewise
+      unresolved, and is now provable from code: the weld carries `Pending` references out as
+      `Unresolved` and writes no edge (`crates/fathom-weld/src/apply.rs:221`).
+    **Nothing new was escalated, because nothing new was found**: both remaining questions were
+    already filed by planning in this order's §10 item 7 and in WO-09 §10 items 2 and 5, and
+    `78` §5 item 10's converse applies — an execution session may not decide them, and re-filing an
+    open row would only duplicate the register (`73` §14.2). No round-trip test was written;
+    §4.10's `tests/round_trip.rs` still does not exist, because writing it against a graph whose
+    `mode` is `Unknown` and whose two interface edges do not exist would either fail or be narrowed
+    to pass, and the second is `78` §5 item 5's gate laundering.
+
+    **The gate run behind this status line**, 2026-08-08, from the repository root, on the
+    post-WO-09 tree, verbatim results: G1 `cargo fmt --all --check` — no output, exit 0. G2
+    `cargo clippy --all-targets --locked -- -D warnings` — exit 0, no warnings. G3
+    `cargo test --locked -p fathom-emit` — every §4.10 test except `round_trip` present and `ok`:
+    4 unit + 13 `blockers` + 3 `coverage` + 3 `determinism` + 2 `report` + 3 `secret` +
+    7 `worked_example`, 0 failed, 0 ignored, 0 filtered. G4 `cargo test --workspace --locked` —
+    **354 passed, 0 failed, 0 ignored, 0 filtered** across every suite (green is the gate, not the
+    count — `78` §12 item 3). G5
+    `git diff --exit-code -- schema/ crates/fathom-ir crates/fathom-schema crates/fathom-schemagen`
+    — no output, exit 0. G6 `cargo run --locked -q -p fathom-schema --bin fathom-schema-check` —
+    exit 0, `48 kinds · 89 edges · 61 scalars · 10 enums · 14 files parsed`,
+    `0 failure(s), 2 warning(s)`, both `schema.identity.unexercised` on `Site`: the pinned baseline,
+    unchanged. G7 the `HashMap|HashSet|SystemTime|Instant|random` grep over `crates/fathom-emit/src`
+    and `crates/fathom-emit/tests` — no matches, exit 1. G8 — not run; unrunnable, per this item.
+    G9 `grep -c "GAPS_" crates/fathom-emit/src/junos.rs` — `14`, exit 0.

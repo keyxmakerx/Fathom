@@ -881,8 +881,8 @@ gets redone if S0's answer is the third row.
 
 | # | Question | Why it blocks | Where it bites |
 |---|---|---|---|
-| **Q1** | **What is a "network", and how many devices are in one?** Are they routing domains inside one estate, or separate customer/market estates? | Every sizing answer in this document and the whole of X1 swing on it. `44` §7.1's breakage table is denominated in devices, and R3 is stated in networks. Nobody has multiplied them | §4.3, X1, S1, S8 |
-| **Q2** | **Do cables cross network boundaries?** | If yes, one-network-per-workspace is dead on arrival — `11`'s edges are `NodeId → NodeId` inside one graph, and no edge can span two sealed containers under different keys | X1 option (a), R2 |
+| **Q1** | ~~**What is a "network", and how many devices are in one?** Are they routing domains inside one estate, or separate customer/market estates?~~ **ANSWERED BY THE OWNER 2026-08-08 — `70` §10.9.** *"networks that span multiple buildings and such"*: a network crosses places, so it is **not a container**. It is a **bag** — a named set over nodes in one estate. **One workspace is one estate** | Was: every sizing answer and the whole of X1. The sizing question survives the answer and changes shape — it is now *how many devices in one estate*, not *in one network* | §4.3, X1, S1, S8 |
+| **Q2** | **Do cables cross network boundaries?** — **DISSOLVED, not answered, 2026-08-08.** Q1's answer removes the premise: if a network is not a container there is no boundary to cross. Kept in place rather than struck, because a later reader who reintroduces a container reintroduces this problem with it (`70` §10.9) | If yes, one-network-per-workspace is dead on arrival — `11`'s edges are `NodeId → NodeId` inside one graph, and no edge can span two sealed containers under different keys | X1 option (a), R2 |
 | **Q3** | **Is `N-R-2` amended, clarified, or held?** (§3.3 routes A / B / C) | It is the fork. An implicit reversal leaves `03` §4.2, `03` §11, `01`, `02` §12.3, `52` §3.7 and `31` all asserting the opposite of what the product does | §3, X2 |
 | **Q4** | **Does the existing estate already live in a source of truth that can be exported?** | `03` §9.1 already puts a NetBox/Nautobot importer in scope and `02` §5.1 calls it *"a small piece of work with a large payoff"*. If ports, cables and addresses exist somewhere exportable, an importer is dramatically cheaper than modelling them, and it sidesteps most of X2 | §3.3, S4, S5 |
 | **Q5** | **Does R1 need to show ports that are not configured** — empty cages, dark fibre, spare positions? | If yes, Fathom needs a physical-port inventory it does not have, and `Chassis.slots` does not provide one. If no, R1 lands at 1.5–3 weeks | §4.1, S4 |
@@ -895,6 +895,16 @@ gets redone if S0's answer is the third row.
 | **Q12** | **Does the owner have Calix and Nokia hardware, and will they be the named public reviewer under `74` §9.4?** | This is the fact that most changes the corpus estimate, and it is the dependency ADR-0030 records as unsolved for PAN-OS | §6.4 |
 
 **Q1, Q2 and Q10 gate S0's inputs. The rest can be answered while S0 runs.**
+
+> **Update, 2026-08-08.** All three of S0's gating questions are now discharged: **Q10** by `70` §7
+> (Juniper is primary, not retired), **Q1** by `70` §10.9 (a network is a bag; one workspace is one
+> estate), and **Q2** by dissolution rather than by answer. **What still gates S0 is not a question
+> but an artifact** — `76` §7's fixture exports, which remain owner-only and outstanding.
+>
+> **Two things this update deliberately does not do.** It does not re-derive §4.3's or X1's sizing:
+> those figures were denominated per *network* and the unit has changed, and re-deriving them is
+> planning work nobody has scheduled. And it does not touch Q3–Q9 or Q11–Q12, which are untouched by
+> the owner's answer.
 
 ---
 

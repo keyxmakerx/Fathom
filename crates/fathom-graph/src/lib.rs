@@ -12,8 +12,10 @@
 //! root-containment flags, the declared field keys and their slot types.
 //! Nothing here hand-copies a line of `schema/` (ADR-0008).
 //!
-//! Deliberately outside this crate: serialisation, rendering, rules, undo
-//! application, re-identification, inference, defaults, and any parser.
+//! Deliberately outside this crate: rendering, rules, undo application,
+//! re-identification, inference, defaults, and any parser. The `snap` module
+//! is the store as plain data (WO-05 §4.3) — it converts values at the
+//! boundary and re-enforces L0 on the way back in; it writes no bytes.
 
 #![forbid(unsafe_code)]
 
@@ -22,9 +24,16 @@ pub mod graph;
 pub mod id;
 pub mod op;
 pub mod prov;
+pub mod snap;
 
 pub use field::{FieldHistory, FieldInfo, HistoryEntry, StoredPresence};
 pub use graph::{Edge, End, Graph, Node, ReadError, WriteError};
-pub use id::{EdgeId, ElementId, NodeId};
+pub use id::{EdgeId, ElementId, IdParseError, NodeId};
 pub use op::{Batch, BatchId, Op};
-pub use prov::{Actor, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId};
+pub use prov::{
+    Actor, CaptureId, CaptureSpan, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp,
+    UserId,
+};
+pub use snap::{
+    EdgeSnap, FieldSnap, HistoryEntrySnap, HistorySnap, NodeSnap, Snapshot, SnapshotError,
+};

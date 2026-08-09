@@ -33,9 +33,12 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   `fathom-schema`, `fathom-schemagen`, `fathom-ir` with checked-in generated types,
   `fathom-corpus`, `fathom-find`). **As of 2026-08-08 the queue has run: six more crates exist** —
   `fathom-graph` (the typed store), `fathom-ingest` (junos-srx set-form, with the redaction gate),
-  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`. **282 tests, zero external
-  dependencies.** Four of eight work orders DONE (WO-06, WO-01, WO-02, WO-07 — then WO-03, WO-08);
-  WO-04 is BLOCKED on the weld and WO-05 on two filed escalations. **Nothing has ever been opened in
+  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`. **354 tests, zero external
+  dependencies.** **Eight of nine work orders DONE** — WO-01, WO-02, WO-03, WO-05, WO-06, WO-07,
+  WO-08 and WO-09 (the fragment-to-store weld, which now exists as `fathom-weld`). **WO-04 is the
+  only one open**, BLOCKED on two planning decisions and no code: the source of `IpsecVpn.mode` on
+  a re-parse (its §10 item 7(b)) and WO-09 §10 item 2's golden, which references `reth0.0` and
+  `st0.0` without declaring an interface. **Nothing has ever been opened in
   a browser**: WO-08's sixteen manual rows are honestly recorded NOT RUN.
 - **The plan layer is live.** `78` (the execution protocol), `79-work-orders/` (eight
   orders, adversarially verified), and CI (`.github/workflows/ci.yml`) enforcing the
@@ -84,7 +87,7 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 - **The long-term plan is `docs/70-ops/79-work-orders/00-PROGRAM-PLAN.md`** (Proposed): eleven
   stages from today to shippable, the work orders that do not exist yet, and **every owner decision
-  the build waits on in one tier-ordered list of 34** — the first five unblock more than the other
+  the build waits on in one tier-ordered list of 35** — the first five unblock more than the other
   twenty-nine combined, and three of those are single-line file edits. Its §20 proposes the standing
   authorisation the owner asked for. The queue below stays the operational truth; on disagreement
   the queue wins.
@@ -113,7 +116,7 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 282 tests as of 2026-08-08; green is the gate, not the
+- `cargo test --workspace --locked` — 354 tests as of 2026-08-08; green is the gate, not the
   number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0; the standing baseline
   is two `schema.identity.unexercised` warnings against `Site`, deliberate and

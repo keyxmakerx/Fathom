@@ -275,7 +275,7 @@ gate, the statement dictionary, the typed fragment with its residue ledger), **W
 
 | Proposed name | One line |
 |---|---|
-| *The fragment-to-store weld* | The missing order `88` §5.3 names: provenance records, ULID minting, reconciliation — without it WO-03 produces a fragment nothing can load and WO-04's G8 can never arm (WO-03 §4.8; WO-04 §10 item 7(a)) |
+| *The fragment-to-store weld* | **Authored 2026-08-08 as WO-09**, and now a queue row rather than a proposal: provenance records, ULID minting, the containment materialisation (WO-03 §4.8; WO-04 §10 item 7(a)). Reconciliation is **not** in it — `Device` declares `identity: []` and no identity-tuple evaluator exists (WO-09 §10 item 1), so a re-parse order is still to be authored |
 | *`IpsecVpn.mode` resolution* | Whatever makes `mode` `Set` on a re-parsed graph — a weld-time or dictionary-level derivation, or a new statement row; WO-04 §10 item 7(b) rules out an emitter-side inference because it *"would invent a value the user never chose"* |
 | *The dictionary reconciliation* | Whether and when WO-04 §4.6's crate-const emit tables migrate into `corpus/dict/junos-srx/` — one shared table per `14` §6.4, or two co-verified halves — decided **before a second platform duplicates the knowledge** (WO-04 §10 item 2; WO-03 §10 item 7) |
 | *The paste surface* | The paste-while-looking-at-a-device flow and its warning prompt, and the reverse explanation — the user-facing half of `76` §7.2's S6 |
@@ -288,7 +288,7 @@ retired until it runs on a real config the project did not write.**
 
 **Exit condition:**
 
-1. WO-04's **G8**, the round-trip gate, green. It is the proof Fathom can read a config and write it back, and it is unrunnable until the weld order and the `mode` resolution both land.
+1. WO-04's **G8**, the round-trip gate, green. It is the proof Fathom can read a config and write it back, and it is unrunnable until **three** things land: the weld order (WO-09), the `mode` resolution, and a fix for the golden's undeclared interface references — WO-04 §4.9 cites `reth0.0` and `st0.0` while declaring no interface, so under `14` §7.3 both stay `Pending` and neither edge exists in the re-parsed graph (WO-09 §10 item 2).
 2. WO-03's redaction gate demonstrably non-optional — a fixture containing a secret refuses.
 3. The residue ledger reports a rate on a real config, and that number is written down. It is the honest measure of R-RESIDUE and it does not exist yet.
 4. Every emitted line carries provenance (invariant 6), checked by gate rather than by review.
@@ -464,8 +464,8 @@ vindicates that choice — Palo Alto is on the owner's own list.
 | *Platform bring-up: `junos-mx`, `junos-ex`, `nx-os`* | The same four pieces each. The Juniper pair should be cheapest — same vendor, same family, different statement set — and that expectation is itself the schema test |
 | *Platform bring-up: Meraki* | Conditional on §16 row 13. If the answer is *"no pasteable text"* this is not a work order at all but a boundary finding for `03` (`70` §7.3) |
 | *Version-predicate narrowing* | Replace `versions: "*"` on all 37 rules and every command entry with real trains. `70` §7.4 quotes the corpus indicting itself: *"`versions: "*"` is used on all 37 rules and that is not a virtue … `"*"` here means 'unverified across trains'."* **No schema change and no new decision** — this is authoring work against a mechanism that already exists, and `70` §7.4 calls it *"the larger correctness win"* |
-| *The known-defect advisory kind* | A genuine schema extension, and `70` §7.4 says the hard part is not the schema but the sourcing. **Gated on §16 row 14** — *"No field should be designed before this is answered"* (`70` §13 item 7) |
-| *Platform visibility* | What a user selecting a registered platform with no content actually sees. `70` §13 item 10: *"A user selecting `junos-ex` today would get an empty product with no explanation."* `52` and `54` own the surface |
+| *The known-defect advisory kind* | A genuine schema extension, and `70` §7.4 says the hard part is not the schema but the sourcing. **Gated on §16 row 14** — *"No field should be designed before this is answered"* (`70` §13 item 8) |
+| *Platform visibility* | What a user selecting a registered platform with no content actually sees. `70` §13 item 14: *"A user selecting `junos-ex` today would get an empty product with no explanation."* `52` and `54` own the surface |
 
 **Owner-blocked on:** §16 rows 12 (the named reviewer — this stage is almost entirely corpus
 content and invariant 10 binds all of it), 13 (Meraki), 14 (advisory sourcing and staleness) and 25
@@ -601,7 +601,7 @@ not so they are answered today.
 | 2 | **Change `.context/conventions.md`'s ID form** to drop the product name (ADR-0005's action 1, never executed) | `88` §4.2 | WO-02 — the queue's main unblocker — plus WO-05 and WO-08. One line |
 | 3 | **Add the wasm target line to `rust-toolchain.toml`**, outside the queue | `88` §4.1 | WO-07, and through it WO-08. One line. Nobody can execute WO-07 as written today |
 | 4 | **Paste ADR-0002's invariant texts into `conventions.md`** — or at minimum invariant 3, *"the one that is false as written"* | `88` §4.3, §8 Q5 | Every session's first read. WO-03 builds against invariant 3 |
-| 5 | **The crypto route:** adopt `32` §15.1's crate set as the repository's first external dependencies, or something else. Travels with `46` §9 Q1's username-in-KDF fork and `32` §16's vector tree | WO-05 §10 item 1; `70` §13 item 4 | All of Stage H. *"Until answered, WO-06-and-later work orders that presuppose sealing are unwritable"* |
+| 5 | **The crypto route:** adopt `32` §15.1's crate set as the repository's first external dependencies, or something else. Travels with `46` §9 Q1's username-in-KDF fork and `32` §16's vector tree | WO-05 §10 item 1 (`70` §13 has no row for it — the crypto route is a work-order open decision, not an owner-answer one) | All of Stage H. *"Until answered, WO-06-and-later work orders that presuppose sealing are unwritable"* |
 
 ### Tier 2 — each blocks a named stage
 
@@ -620,7 +620,7 @@ not so they are answered today.
 | # | The decision | Stated at | Unblocks |
 |---|---|---|---|
 | 13 | **Is Meraki configured by text you can select and copy?** If no, Meraki cannot be a platform under invariant 2 and this is a boundary finding for `03`, not a scheduling one | `70` §11.3 | Stage I |
-| 14 | **Sourcing and staleness for known-defect advisories:** where the data comes from, who is named against it, what the product says when an advisory is old | `70` §13 item 7 | Stage I. *"No field should be designed before this is answered"* |
+| 14 | **Sourcing and staleness for known-defect advisories:** where the data comes from, who is named against it, what the product says when an advisory is old | `70` §13 item 8 | Stage I. *"No field should be designed before this is answered"* |
 | 15 | **When is `33` (the wire) picked up?** ADR-0016 deferred it as *"git is the sync for v1"*; ADR-0031 retires v1 as a scoping device, and `70` §8's load-balancing requirement lands squarely on `33` | `70` §13 item 5 | Stage H |
 | 16 | **F1 — are subscriber endpoints modelled, and at what depth?** The node-count question | `19` §10 F1 | Stage J |
 | 17 | **F2 — what is `{ST}`**, a state code or a site type? (Same as `76` §8 Q7) | `19` §10 F2; `76` §8 Q7 | Stage J. Blocks the first generated name |
@@ -639,7 +639,9 @@ not so they are answered today.
 | # | The decision | Stated at | Unblocks |
 |---|---|---|---|
 | 27 | **Does the diagram partition per `Site`, and how do two sites relate?** `70` §10.2's recommendation is explicit: **do not decide this on paper** | `70` §13 item 8; `56` §12 | Stage G, asked at Stage G |
-| 28 | **The bridge with ten links — were they ten of the same thing, or a mix?** Close to a one-word answer. If mixed, `59` §3's like-kind rule does not fire and a new rule is needed | `70` §11.4 | Stage G |
+| ~~28~~ | ~~**The bridge with ten links — were they ten of the same thing, or a mix?**~~ **ANSWERED 2026-08-08 — neither.** Two nodes joined by ten **standalone** links: one neighbour, ten parallel edges. Both offered answers assumed many neighbours. `59` §3's levels count nodes and none counts edges, so nothing fires; `59` §3.13 records the finding and `59` §3.14 proposes a sixth level. **The mixed-neighbour case was never the owner's example and is still open** — `70` §13 item 10 | `70` §10.1, §11.4 | Stage G |
+| 28a | **Is `59` §3.14's sixth aggregation level adopted** — parallel edges between one pair of nodes collapse to one drawn edge with a visible count, keyed on the channel budget? Three sub-forks travel with it: the threshold, the three-rail gap (a `56` §5.3 token nobody has measured), and whether a `Cable` is drawn at all | `59` §9; `70` §13 item 11 | Stage G. `56` owns the diagram and therefore owns the answer |
+| 28b | **`group` and `tag` — schema questions before design questions.** The owner named both. `GroupId` occurs once in the tree with no definition, no `schema/` entry and a keybinding that collides with `53`; `tag` does not exist at all; and node position is not in `schema/` either, so `move` is unbuilt too | `70` §10.3; `70` §13 items 12–13 | Stage G, and the schema work precedes it |
 | 29 | **The e2e harness fork:** an owner exception for the harness crates, a first-party WebDriver client, or the manual checklist as the standing gate | WO-08 §10 item 1 | Stage K. Until answered, WO-08's G10 is the gate every UI order inherits |
 | 30 | **The UI language:** adopt ADR-0019's TypeScript toolchain (an owner exception on dependencies), or amend the ADR to match the hand-authored JS the tree has | WO-08 §10 item 2 | Stage K |
 | 31 | **Does the CLI ship?** `88` §4.4 records that without one the determinism claim has no testing surface | `73` §4.5 (D13) | Stage K |
@@ -727,7 +729,7 @@ authored by this document.
 | C | `xtask assemble` | Execution |
 | C | The finder view | Execution |
 | C | The virtualised renderer | Execution |
-| D | The fragment-to-store weld | Execution, **and it is on nobody's list today** (`88` §5.3) |
+| D | The fragment-to-store weld | Execution — **authored 2026-08-08 as WO-09**, closing `88` §5.3. Reconciliation is not in it (WO-09 §10 item 1) |
 | D | `IpsecVpn.mode` resolution | Planning decision, then execution |
 | D | The dictionary reconciliation | Planning decision (WO-04 §10 item 2), then execution |
 | D | The paste surface | Execution |
@@ -824,8 +826,8 @@ The owner's request, verbatim: *"maybe we make one and that way i can just keep 
 you run with all of this and only get back to me if you need decisions i can answer like ux,
 animations, what about this, etc etc."*
 
-That is a reasonable ask and this plan is most of the answer — §16's thirty-four rows are precisely
-the set of things that need them. What follows is the rule for everything else.
+That is a reasonable ask and this plan is most of the answer — §16's rows are precisely
+the set of things that need them — thirty-five open as of 2026-08-08, one struck (row 28). What follows is the rule for everything else.
 
 ### 20.1 The three buckets
 
@@ -854,7 +856,7 @@ wrong is either unrecoverable or invisible until it is expensive.
 
 ### 20.3 What this does not do
 
-It does not reduce §16. Those thirty-four rows still need answering — the authorisation governs the
+It does not reduce §16. Those rows still need answering — the authorisation governs the
 space *between* them, which is most of the work. And it does not licence proceeding through a
 `78` §5 stop-and-escalate condition: an execution session's escalation rules are stricter than this
 section and are unaffected by it.

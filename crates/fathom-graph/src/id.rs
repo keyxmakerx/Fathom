@@ -95,6 +95,109 @@ impl fmt::Display for ElementId {
     }
 }
 
+/// Why a rendered id did not read back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IdParseError {
+    /// Not `<kebab>:<26 characters>`.
+    Shape,
+    UnknownKind {
+        kebab: String,
+    },
+    Ulid(fathom_id::DecodeError),
+    /// Decodes, but re-encodes differently — a second spelling.
+    NonCanonicalUlid,
+}
+
+/// The ULID segment, checked for the one spelling it is allowed to have.
+///
+/// `Ulid::decode` is deliberately Crockford-lenient — case-insensitive, with
+/// `I`/`L` aliasing 1 and `O` aliasing 0 (`fathom-id`'s own doc comment, and
+/// its `ulid_crockford_aliases_decode` test). A decode-only `parse` would
+/// therefore accept `device:0o000…` and silently normalise a hand-edited
+/// file, which is the one thing a canonical form exists to stop.
+fn parse_ulid(segment: &str) -> Result<Ulid, IdParseError> {
+    let decoded = Ulid::decode(segment).map_err(IdParseError::Ulid)?;
+    if decoded.encode() != segment {
+        return Err(IdParseError::NonCanonicalUlid);
+    }
+    Ok(decoded)
+}
+
+/// Split a rendered id into its kebab kind segment and its ULID segment.
+fn split(s: &str) -> Result<(&str, &str), IdParseError> {
+    let (kind, ulid) = s.split_once(':').ok_or(IdParseError::Shape)?;
+    if kind.is_empty() || ulid.len() != 26 {
+        return Err(IdParseError::Shape);
+    }
+    Ok((kind, ulid))
+}
+
+fn node_kind(kebab_name: &str) -> Option<NodeKind> {
+    NodeKind::ALL
+        .into_iter()
+        .find(|k| kebab(k.name()) == kebab_name)
+}
+
+fn edge_kind(kebab_name: &str) -> Option<EdgeKind> {
+    EdgeKind::ALL
+        .into_iter()
+        .find(|k| kebab(k.name()) == kebab_name)
+}
+
+impl NodeId {
+    /// The exact inverse of [`fmt::Display`]:
+    /// `parse(x.to_string()) == Ok(x)` for every kind, and
+    /// `parse(s)?.to_string() == s` for every accepted `s`.
+    pub fn parse(s: &str) -> Result<NodeId, IdParseError> {
+        let (kebab_name, ulid_text) = split(s)?;
+        let kind = node_kind(kebab_name).ok_or_else(|| IdParseError::UnknownKind {
+            kebab: kebab_name.to_owned(),
+        })?;
+        Ok(NodeId {
+            kind,
+            ulid: parse_ulid(ulid_text)?,
+        })
+    }
+}
+
+impl EdgeId {
+    /// The exact inverse of [`fmt::Display`].
+    pub fn parse(s: &str) -> Result<EdgeId, IdParseError> {
+        let (kebab_name, ulid_text) = split(s)?;
+        let kind = edge_kind(kebab_name).ok_or_else(|| IdParseError::UnknownKind {
+            kebab: kebab_name.to_owned(),
+        })?;
+        Ok(EdgeId {
+            kind,
+            ulid: parse_ulid(ulid_text)?,
+        })
+    }
+}
+
+impl ElementId {
+    /// The exact inverse of [`fmt::Display`]. Node and edge kind names are
+    /// disjoint sets (pinned by `node_and_edge_kind_kebabs_are_disjoint`),
+    /// which is what makes one rendered id namespace parseable.
+    pub fn parse(s: &str) -> Result<ElementId, IdParseError> {
+        let (kebab_name, ulid_text) = split(s)?;
+        if let Some(kind) = node_kind(kebab_name) {
+            return Ok(ElementId::Node(NodeId {
+                kind,
+                ulid: parse_ulid(ulid_text)?,
+            }));
+        }
+        if let Some(kind) = edge_kind(kebab_name) {
+            return Ok(ElementId::Edge(EdgeId {
+                kind,
+                ulid: parse_ulid(ulid_text)?,
+            }));
+        }
+        Err(IdParseError::UnknownKind {
+            kebab: kebab_name.to_owned(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

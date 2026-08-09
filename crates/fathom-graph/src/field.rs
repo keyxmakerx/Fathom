@@ -71,6 +71,23 @@ impl FieldHistory {
         self.truncated
     }
 
+    /// Install a history verbatim, without pruning. The retention rule ran
+    /// when the entries were written; a load re-applying it would silently
+    /// drop records and miscount `truncated`. History is the record, not
+    /// replayable instructions (WO-05 §4.3).
+    pub(crate) fn install(
+        entries: Vec<HistoryEntry>,
+        origins: Vec<u8>,
+        truncated: u32,
+    ) -> FieldHistory {
+        debug_assert_eq!(entries.len(), origins.len(), "index-aligned");
+        FieldHistory {
+            entries,
+            origins,
+            truncated,
+        }
+    }
+
     pub(crate) fn push(&mut self, entry: HistoryEntry, origin: Origin) {
         self.entries.push(entry);
         self.origins.push(origin.discriminant());

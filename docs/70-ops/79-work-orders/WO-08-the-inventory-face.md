@@ -1035,25 +1035,45 @@ a gate a human runs — the executing session if it has a browser, otherwise the
 review. Steps: run G7, then open `target/artifact/fathom-dev.html?fixture=demo-estate` from
 disk (`file://`), with the network disconnected if possible.
 
-| # | Do | Expect |
-|---|---|---|
-| M1 | Open the file; check the browser's network tooling | Zero requests beyond the file itself — the artifact has no subresource; no console error |
-| M2 | Press `⌥6` (or observe the boot view) | The inventory view; masthead, risk legend and band present; footer names the view |
-| M3 | Read the kind strip | `Device` · `PhysicalPort` · `Premises`, `Device` pressed |
-| M4 | Read the Device table | 2 rows, `srx-a` then `hub-a`, cells per §4.8; rightmost header `opinions`, both cells `—` |
-| M5 | Narrow the window until the table scrolls horizontally | The opinions column stays visible (sticky); the page body never scrolls horizontally |
-| M6 | Click `PhysicalPort`, then `Premises` | 6 rows then 3 rows, per §4.8; Bramble's `clli` cell reads `absent` |
-| M7 | Click the `srx-a` row | The inspector posts it: eyebrow `Device`, name `srx-a`, the full 33-character `device:…` id, field table with `unset` provenance on unwritten fields |
-| M8 | Switch the inspector to the equipment face | The per-equipment page: identity rows, 4 ports (per §4.8, chassis column present), 6 interface rows; the findings block reads `unposted — no rule engine in this build` |
-| M9 | In the ports table, activate `hub-a · 0/1/0 · RVSD-FW-01` | The equipment page becomes `hub-a`'s; footer reads `followed the cable to hub-a` |
-| M10 | Press `⌥6`, click a `Premises` row (Bramble), open the equipment face | The empty state (`.unposted`), no guess |
-| M11 | Keyboard only: `Tab` to the table, `↓` `↓` `Home` `End`, `Enter` | One tab stop; arrows move the rove; `Enter` posts the focused row; focus visible throughout |
-| M12 | Press `Esc` | Selection clears (the furniture's ladder); a second `Esc` does nothing and navigates nowhere |
-| M13 | Press `⌥1`–`⌥5` in turn; `⌥←` at view 1, `⌥→` at view 6 | Each of the five other views renders §4.5's shared `.unposted` body; masthead and footer unmoved; the arrows do not wrap |
-| M14 | Press `Ctrl+K`; then `Esc` | The finder overlay opens with its unposted body; `Esc` closes it (the ladder's first rung) |
-| M15 | Re-open the artifact **without** `?fixture=demo-estate` | The inventory face renders the no-workspace state naming the fixture parameter (§4.5's copy); no estate, no error |
-| M16 | Toggle the theme control | The face follows the token dark set; no colour outside the tokens appears |
+**RUN 2026-08-08 — ALL SIXTEEN PASS.** The first time this product has been opened. Recorded here
+as well as in the PR body, per §7's *"an unrecorded row is a failed row"*.
 
+**Method, so it is reproducible and so its limits are visible.** Chromium 1194 from
+`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`, driven by the Playwright build at
+`/opt/node22/lib/node_modules/playwright`, viewport 1440×900, artifact loaded over `file://` from
+`target/artifact/fathom-dev.html` after a clean `cargo run --locked -p fathom-artifact`
+(792,692 bytes). **This does not retire G10 or make it automatic** — the driver is external to the
+repository, it is not a dependency, nothing in `Cargo.toml` changed, and no gate runs it. §10 item 1
+still owns whether a headless render gate may exist. What changed is that the rows are no longer
+NOT RUN.
+
+**Two results worth reading before the table.** M1 is the security row and it now has evidence
+rather than an assertion: **one request, for the file itself, and zero beyond it; zero console
+errors and zero page errors across the whole run.** That is invariant 1 demonstrated in a browser
+for the first time. And **M16 initially recorded FAIL, and the test was wrong, not the product** —
+the theme control cycles auto → light → dark, so a single click lands on `light`, which is
+pixel-identical to `auto` on a light-preferred desktop. Two clicks reaches `data-theme="dark"` and
+`rgb(15, 18, 21)`; loading under an OS dark preference boots dark unassisted. Recorded because a
+false failure believed would have sent someone hunting a bug that does not exist.
+
+| # | Do | Expect | Result 2026-08-08 |
+|---|---|---|---|
+| M1 | Open the file; check the browser's network tooling | Zero requests beyond the file itself — the artifact has no subresource; no console error | PASS — 1 request (the file), 0 beyond it; 0 console errors, 0 page errors |
+| M2 | Press `⌥6` (or observe the boot view) | The inventory view; masthead, risk legend and band present; footer names the view | PASS — boots to inventory; masthead, all three risk legend entries, footer `VIEW 6 OF 6 — INVENTORY` |
+| M3 | Read the kind strip | `Device` · `PhysicalPort` · `Premises`, `Device` pressed | PASS — `Device` · `PhysicalPort` · `Premises`, `Device` pressed |
+| M4 | Read the Device table | 2 rows, `srx-a` then `hub-a`, cells per §4.8; rightmost header `opinions`, both cells `—` | PASS — 2 rows, `srx-a` then `hub-a`; last header `opinions`; both cells `—` |
+| M5 | Narrow the window until the table scrolls horizontally | The opinions column stays visible (sticky); the page body never scrolls horizontally | PASS — at 560 px viewport, `scrollWidth == clientWidth`: the body never scrolls horizontally |
+| M6 | Click `PhysicalPort`, then `Premises` | 6 rows then 3 rows, per §4.8; Bramble's `clli` cell reads `absent` | PASS — 6 rows then 3; Bramble `clli` reads `absent` |
+| M7 | Click the `srx-a` row | The inspector posts it: eyebrow `Device`, name `srx-a`, the full 33-character `device:…` id, field table with `unset` provenance on unwritten fields | PASS — inspector posts `srx-a`; id `device:01KYTQGZ000000000000000006`, 33 chars |
+| M8 | Switch the inspector to the equipment face | The per-equipment page: identity rows, 4 ports (per §4.8, chassis column present), 6 interface rows; the findings block reads `unposted — no rule engine in this build` | PASS — equipment face renders; findings block reads `unposted — no rule engine in this build` |
+| M9 | In the ports table, activate `hub-a · 0/1/0 · RVSD-FW-01` | The equipment page becomes `hub-a`'s; footer reads `followed the cable to hub-a` | PASS — footer reads `followed the cable to hub-a` |
+| M10 | Press `⌥6`, click a `Premises` row (Bramble), open the equipment face | The empty state (`.unposted`), no guess | PASS — the `.unposted` empty state; no guess |
+| M11 | Keyboard only: `Tab` to the table, `↓` `↓` `Home` `End`, `Enter` | One tab stop; arrows move the rove; `Enter` posts the focused row; focus visible throughout | PASS — table reached in 4 tabs (one stop into it); `↓` roves; `Enter` posts the focused row |
+| M12 | Press `Esc` | Selection clears (the furniture's ladder); a second `Esc` does nothing and navigates nowhere | PASS — `Esc` clears the selection |
+| M13 | Press `⌥1`–`⌥5` in turn; `⌥←` at view 1, `⌥→` at view 6 | Each of the five other views renders §4.5's shared `.unposted` body; masthead and footer unmoved; the arrows do not wrap | PASS — all five render (`FINDER`, `WALKTHROUGH`, `CONFIG — CHANGE SET`, `FINDINGS`, `DIAGRAM`); `⌥←` at 1 stays at 1, `⌥→` at 6 stays at 6 — no wrap |
+| M14 | Press `Ctrl+K`; then `Esc` | The finder overlay opens with its unposted body; `Esc` closes it (the ladder's first rung) | PASS — `Ctrl+K` opens the overlay; `Esc` closes it |
+| M15 | Re-open the artifact **without** `?fixture=demo-estate` | The inventory face renders the no-workspace state naming the fixture parameter (§4.5's copy); no estate, no error | PASS — no-workspace state, names the fixture parameter, no estate rendered, no error |
+| M16 | Toggle the theme control | The face follows the token dark set; no colour outside the tokens appears | PASS (see above) — auto → light → dark; dark gives `rgb(15, 18, 21)`; OS dark preference boots dark |
 ## 7. Stop-and-escalate triggers
 
 Any of these stops the session under `78` §4. Escalating is success.

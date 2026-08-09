@@ -72,6 +72,7 @@ fn stamp(g: &Graph, prov: fathom_graph::ProvenanceId) -> String {
     };
     let origin = match rec.origin {
         fathom_graph::Origin::Hand => "hand",
+        fathom_graph::Origin::Parsed { .. } => "parsed",
     };
     format!("{origin} · {}", ymd(rec.asserted_at.0))
 }

@@ -65,6 +65,21 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
     );
     o.push_str("#[rustfmt::skip]\nmod body {\n");
 
+    // ---- the schema version ------------------------------------------------
+    // `schema.yaml`'s declared version, carried into code rather than
+    // hand-written anywhere (ADR-0008). The workspace face's header line 3.
+    o.push_str(
+        "    /// `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1).\n\
+         \x20   /// Written into every plaintext face header and checked exactly on\n\
+         \x20   /// read (17 §2.2: know you cannot read a file before doing anything\n\
+         \x20   /// else with it).\n",
+    );
+    let _ = writeln!(
+        o,
+        "    pub const SCHEMA_VERSION: &str = \"{}\";\n",
+        x.version
+    );
+
     // ---- closed vocabularies ----------------------------------------------
     o.push_str(
         "    /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit \
@@ -260,6 +275,9 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
             &doc,
         )?;
     }
+
+    // ---- canonical wire forms for the generated enums ---------------------
+    canon_enum_impls(&mut o, x);
 
     // ---- per-kind and per-edge field enums --------------------------------
     for k in &x.kinds {
@@ -619,6 +637,75 @@ fn named_enum_with_declared(
     Ok(())
 }
 
+/// WO-05 §4.2 rule 10: a schema enum wires as the `Str` of its neutral token,
+/// and `from_token` is total — so an undeclared token survives a read inside
+/// the generated `Unknown` arm, which is what makes a new schema token a minor
+/// bump an old build can still read (62 §16.2). Generated rather than
+/// hand-written because the token table is a schema fact (ADR-0008).
+///
+/// `CanonKey` is emitted for exactly the enums the registry uses as
+/// `BTreeMap` key types — today that is `Family` and nothing else.
+fn canon_enum_impls(o: &mut String, x: &Extracted) {
+    let mut map_keys: BTreeSet<String> = BTreeSet::new();
+    let kind_fields = x.kinds.iter().flat_map(|k| k.fields.iter());
+    let edge_fields = x
+        .edges
+        .iter()
+        .chain(&x.derived_edges)
+        .flat_map(|e| e.fields.iter());
+    for f in kind_fields.chain(edge_fields) {
+        if let FieldTy::Map(k, _) = &f.ty {
+            if let Some(name) = enum_name(x, k) {
+                map_keys.insert(name);
+            }
+        }
+    }
+
+    let names = x
+        .enums
+        .iter()
+        .map(|e| e.rust_name.clone())
+        .chain(x.inline_enums.iter().map(|e| e.rust_name.clone()));
+    for name in names {
+        let _ = writeln!(
+            o,
+            "    impl crate::canon::CanonicalValue for {name} {{\n\
+             \x20       fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {{\n\
+             \x20           Ok(fathom_canon::Json::Str(self.token().to_owned()))\n\
+             \x20       }}\n\
+             \x20       fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {{\n\
+             \x20           match j {{\n\
+             \x20               fathom_canon::Json::Str(t) => Ok({name}::from_token(t)),\n\
+             \x20               _ => Err(crate::canon::CanonError::Shape {{ expected: \"a schema enum token\" }}),\n\
+             \x20           }}\n\
+             \x20       }}\n\
+             \x20   }}\n"
+        );
+        if map_keys.contains(&name) {
+            let _ = writeln!(
+                o,
+                "    impl crate::canon::CanonKey for {name} {{\n\
+                 \x20       fn to_key(&self) -> Result<String, crate::canon::CanonError> {{\n\
+                 \x20           Ok(self.token().to_owned())\n\
+                 \x20       }}\n\
+                 \x20       fn from_key(k: &str) -> Result<Self, crate::canon::CanonError> {{\n\
+                 \x20           Ok({name}::from_token(k))\n\
+                 \x20       }}\n\
+                 \x20   }}\n"
+            );
+        }
+    }
+}
+
+/// The generated enum name a field type denotes, if it denotes one.
+fn enum_name(x: &Extracted, ty: &FieldTy) -> Option<String> {
+    match ty {
+        FieldTy::Enum(i) => Some(x.enums[*i].rust_name.clone()),
+        FieldTy::Inline(i) => Some(x.inline_enums[*i].rust_name.clone()),
+        _ => None,
+    }
+}
+
 fn field_enum(
     o: &mut String,
     x: &Extracted,
@@ -767,6 +854,44 @@ pub fn accessors(x: &Extracted) -> Result<String, ExtractError> {
         );
     }
     o.push_str("            _ => None,\n        }\n    }\n");
+
+    // ---- the canonical-wire dispatch --------------------------------------
+    // The same registry, the same arms: a slot type with no `CanonicalValue`
+    // impl fails to compile here, which is what makes coverage of WO-05
+    // §4.2's wire table mechanical rather than reviewed.
+    o.push_str(
+        "    /// Serialise a slot value. Refuses an unknown key, a wrong \
+         runtime type\n    /// (the same `TypeId` check as `slot_type`), or a \
+         value error per the\n    /// canonical wire table.\n",
+    );
+    o.push_str(
+        "    pub fn slot_to_canon(key: crate::bag::FieldKey, value: &dyn core::any::Any) -> Result<fathom_canon::Json, crate::canon::CanonError> {\n        match key.0 {\n",
+    );
+    for (key, ty) in &slots {
+        let _ = writeln!(
+            o,
+            "            {key} => crate::canon::slot_to::<{ty}>({key}, \"{ty}\", value),"
+        );
+    }
+    o.push_str(
+        "            _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),\n        }\n    }\n",
+    );
+    o.push_str(
+        "    /// Parse a slot value into the declared type, boxed for the \
+         store.\n",
+    );
+    o.push_str(
+        "    pub fn slot_from_canon(key: crate::bag::FieldKey, j: &fathom_canon::Json) -> Result<Box<dyn core::any::Any>, crate::canon::CanonError> {\n        match key.0 {\n",
+    );
+    for (key, ty) in &slots {
+        let _ = writeln!(
+            o,
+            "            {key} => crate::canon::slot_from::<{ty}>(j),"
+        );
+    }
+    o.push_str(
+        "            _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),\n        }\n    }\n",
+    );
 
     o.push_str("}\npub use body::*;\n");
     Ok(o)

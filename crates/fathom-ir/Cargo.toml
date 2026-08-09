@@ -9,6 +9,7 @@ description = "The IR's type home: scalar/value binding targets (stubs), the fie
 [dependencies]
 # Workspace-internal only. The no-external-dependencies position (35, workspace
 # Cargo.toml) holds: fathom-id needs nothing but core.
+fathom-canon = { path = "../fathom-canon" }
 fathom-id = { path = "../fathom-id" }
 
 [dev-dependencies]

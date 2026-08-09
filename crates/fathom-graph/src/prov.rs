@@ -1,12 +1,12 @@
 //! Provenance: what every write carries (`11` §8.2), cut to what exists at
 //! this stage of the build.
 //!
-//! `11` §8.2's five further origins (`Parsed`, `Inferred`, `Imported`,
-//! `Defaulted`, `Migrated`) and `Hand`'s `step` payload each name a type owned
-//! by a subsystem that does not exist yet — `CaptureId`, `InferenceRuleId`,
-//! `ImportFormat`, `MigrationId`, `WalkthroughStepId`. They arrive with those
-//! subsystems; adding a variant here is additive. `Actor` likewise ships
-//! `User` only.
+//! `11` §8.2's four remaining origins (`Inferred`, `Imported`, `Defaulted`,
+//! `Migrated`) and `Hand`'s `step` payload each name a type owned by a
+//! subsystem that does not exist yet — `InferenceRuleId`, `ImportFormat`,
+//! `MigrationId`, `WalkthroughStepId`. They arrive with those subsystems;
+//! adding a variant here is additive, which is how `Parsed` arrived (WO-09
+//! §4.2). `Actor` likewise ships `User` only.
 //!
 //! Timestamps and ULIDs are always caller-supplied: invariant 9 and
 //! `fathom-id`'s own rule — *"There is deliberately no `new()` that reads a
@@ -43,11 +43,34 @@ pub enum Confidence {
     Heuristic,
 }
 
+/// A capture blob's id (`11` §8.4). The blob itself lives in the workspace's
+/// capture section, which does not exist yet; this WO mints the id and hands
+/// it back so the caller can pair the two (WO-09 §10 item 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CaptureId(pub Ulid);
+
+/// A half-open byte range into a **redacted** capture (`14` §9.5). Same shape
+/// as `fathom_ingest::frame::ByteSpan`, deliberately a distinct type: this
+/// crate does not depend on the parser (WO-09 §12 item 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CaptureSpan {
+    pub start: u32,
+    pub end: u32,
+}
+
 /// How the value got into the graph. A hand-constructed graph carries
-/// `Hand` and nothing else at this stage.
+/// `Hand`; a graph welded from a paste carries `Parsed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
     Hand,
+    /// A parser read it out of a redacted capture (`11` §8.2). `stanza`,
+    /// `parser` and `parser_version` are deferred with the subsystems that
+    /// own them — there is no capture store and no corpus version in the
+    /// tree (WO-09 §3, §10 items 3–4).
+    Parsed {
+        capture: CaptureId,
+        span: CaptureSpan,
+    },
 }
 
 impl Origin {
@@ -56,6 +79,7 @@ impl Origin {
     pub(crate) fn discriminant(self) -> u8 {
         match self {
             Origin::Hand => 0,
+            Origin::Parsed { .. } => 1,
         }
     }
 }

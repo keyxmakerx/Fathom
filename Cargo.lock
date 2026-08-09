@@ -7,6 +7,10 @@ name = "fathom-artifact"
 version = "0.1.0"
 
 [[package]]
+name = "fathom-canon"
+version = "0.1.0"
+
+[[package]]
 name = "fathom-corpus"
 version = "0.1.0"
 dependencies = [
@@ -36,6 +40,7 @@ dependencies = [
 name = "fathom-graph"
 version = "0.1.0"
 dependencies = [
+ "fathom-canon",
  "fathom-id",
  "fathom-ir",
 ]
@@ -65,6 +70,7 @@ dependencies = [
 name = "fathom-ir"
 version = "0.1.0"
 dependencies = [
+ "fathom-canon",
  "fathom-id",
  "fathom-schema",
 ]
@@ -77,6 +83,7 @@ version = "0.1.0"
 name = "fathom-schemagen"
 version = "0.1.0"
 dependencies = [
+ "fathom-canon",
  "fathom-ir",
  "fathom-schema",
 ]
@@ -89,4 +96,25 @@ dependencies = [
  "fathom-find",
  "fathom-graph",
  "fathom-inventory",
+]
+
+[[package]]
+name = "fathom-weld"
+version = "0.1.0"
+dependencies = [
+ "fathom-graph",
+ "fathom-id",
+ "fathom-ingest",
+ "fathom-ir",
+ "fathom-schema",
+]
+
+[[package]]
+name = "fathom-workspace"
+version = "0.1.0"
+dependencies = [
+ "fathom-canon",
+ "fathom-graph",
+ "fathom-id",
+ "fathom-ir",
 ]
