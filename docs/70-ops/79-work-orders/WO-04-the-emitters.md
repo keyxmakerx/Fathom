@@ -1038,6 +1038,60 @@ the escalation inbox under `78` §4 step 2.
    express. Both are small; neither is guessable. The deduction is very probably right, and *very
    probably right* is precisely the standard ADR-0034 exists to refuse.
 
+### 10.8 THE PIPELINE WAS RUN END TO END, 2026-08-09 — and it names its own blockers
+
+Rather than reason further about what G8 needs, the three crates were composed and run against the
+real fixture. This had never been done: `fathom-ingest` → `fathom-weld` → `fathom-emit`, on
+`crates/fathom-ingest/tests/fixtures/junos-srx-s0-synthetic.txt`, through the real
+`Dictionary::load`. **The scratch harness was reverted afterward** — a temporary dev-dependency, a
+temporary test file, `Cargo.lock`, all restored; `git status` clean, floor re-run at 354 passed / 0
+failed. Nothing below is a shipped artifact. It is a measurement.
+
+**What happened, verbatim from the run:**
+
+```
+INGEST  nodes=13 edges=7 pending=2 residue=8
+WELD    ok: nodes=13 edges=19 unresolved=2
+EMIT    ok: 19 line(s), 2 block(s)
+        blockers=2 conflicts=0 gaps=1 subs=1
+RENDER  REFUSED: Blockers { count: 2 }
+```
+
+**The pipeline works.** A real junos-srx capture becomes a typed graph — thirteen nodes, and the
+weld materialises twelve containment edges on top of ingest's seven references. The emitter then
+walks it, produces nineteen lines in two blocks, and **refuses to render them.** That refusal is the
+design working: `render_config` will not hand a user text while the report carries a blocker.
+
+**The two blockers are precisely the two questions this order and WO-09 have been circling.**
+
+| Blocker | Field / edge | Which open question |
+|---|---|---|
+| `MissingRequiredEdge { edge: ExternalInterface }` on the `IkeGateway` | — | WO-09 §10 item 2 — the `reth0.0` presupposition |
+| `RequiredUnknown` on `IpsecVpn` field **181** | `IpsecVpn.mode` (`schema/field-keys.yaml:226`) | **§10 item 7(b), answered 2026-08-09** |
+
+**One of the two is already closed.** Field 181 is `IpsecVpn.mode`, and §10 item 7(b)'s answer
+derives it at weld time from the presence of a `BindsInterface` edge. The weld does not yet do that
+— which is why the blocker still fires — but the decision exists and the mechanism exists. **This is
+buildable work, not an open question.**
+
+**The other is the one real question left**, and the run sharpens it. Both unresolved records carry
+the target's name in full: `InterfaceUnit { kind: RethInterface, name: Identifier("reth0"), unit: 0 }`.
+**So `reth0.0` is not lost** — an earlier planning note in `70` §13 item 15 said an unresolved
+reference *"loses the name from the store entirely"*, and that is **wrong**: the name survives in
+`WeldOutput.unresolved`. What is true is narrower: the **graph** has no edge, so the emitter's
+`MissingRequiredEdge` check fires. Whether the emitter should be able to read the presupposition
+from the weld's unresolved list, rather than requiring a materialised edge, is a live option that
+none of WO-09 §10 item 2's three candidates considered.
+
+**And a second unresolved reference nobody had mentioned:** `ZoneMember` from the `Zone` to the same
+`reth0.0`. The `reth0.0` question is therefore not one line in the golden — it is the shape of every
+reference to a pre-existing interface, and it appears twice in a 42-line fixture.
+
+**Also measured:** one gap entry, `IpsecVpn` field 178 (`df_bit`), tracking *"no corpus-grounded
+junos statement recorded yet"* — the ledger doing exactly what it promises, naming an omission
+rather than hiding it. And one substitution, the `<PSK>` placeholder. Eight residue lines, which are
+the statements the dictionary does not yet map.
+
 ## 11. Sources consulted
 
 | Source | Taken |
