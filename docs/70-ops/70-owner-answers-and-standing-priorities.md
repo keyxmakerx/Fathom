@@ -1160,7 +1160,17 @@ file to read?**
     sides had disagreed since the day both were written with no gate able to see it** (WO-09 §10
     item 9). The fix is one line; the gate is what stops the next one. It belongs to whoever owns
     dictionary loading and wants a work order, not a drive-by.
-15. **Whether a registered platform with no content should be visible in the product.** Five of the
+15. **What the emitted artifact IS — a standalone configuration, or a fragment?** (WO-09 §10 item 2,
+    analysed 2026-08-09.) `fathom-emit` writes `external-interface reth0.0` and never writes the
+    statement that creates `reth0.0` — it emits six `security` statement families and no
+    `set interfaces` at all. So **its own output cannot be read back in isolation**, and the
+    round-trip gate cannot pass however the fixture is arranged. Either emit widens to declare what
+    it references, or the round-trip property is re-stated to re-parse against the originating graph.
+    **This is a product question, not a test question**, and it is the one the owner would recognise:
+    *when Fathom hands you lines to paste, are they a complete config or a change set for a box that
+    already exists?* Everything the owner has said points at **change set** — which makes the second
+    shape right and the gate's wording wrong. Owner confirms; `13` and WO-04 then execute.
+16. **Whether a registered platform with no content should be visible in the product.** Five of the
    six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
    selecting `junos-ex` today would get an empty product with no explanation. Design decision;
    `52` and `54` own the surface.
