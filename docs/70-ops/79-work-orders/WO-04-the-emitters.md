@@ -1,16 +1,12 @@
 # WO-04 — `fathom-emit`: graph to junos-srx commands with provenance
 
-> **Status:** BLOCKED on two planning decisions, neither of them code and neither of them a
-> dependency any more: **§10 item 7(b)** — the source of `IpsecVpn.mode` in a re-parsed graph,
-> **examined 2026-08-08 and deliberately left unestablished under ADR-0034** (see the note in §10) —
-> and **WO-09 §10 item 2** — §4.9's golden references `reth0.0` and `st0.0` and declares no
-> interface, so both edges stay `Pending` under `14` §7.3. §5 step 12 was re-run on 2026-08-08 after WO-09
-> reached DONE: precondition (a) holds, **(b) now holds** (WO-09 is DONE and
-> `crates/fathom-weld/src/apply.rs:100` is `pub fn apply_new_device`), (c) fails — item 7's first
-> question (the weld entry point) is resolved, its second (the `mode` source) is not, and no
-> planning document records a decision for it. **G8, the round-trip gate, therefore still cannot
-> arm; every other gate is green** — G1–G7 and G9 re-run 2026-08-08 on the post-WO-09 tree, results
-> transcribed in §12 item 12. Corrections under `78` §8, none a re-scope: §12 items 10, 11 and 12.
+> **Status:** BLOCKED on **one** planning decision, not two. **§10 item 7(b) is answered
+> (2026-08-09)** — `mode` is not a Junos statement at all (verified against Juniper's CLI reference
+> for `[edit security ipsec vpn]`, which has no `mode` and defines `bind-interface` as the interface
+> *"to which the route-based VPN is bound"*), so it is derived at weld time from the presence of a
+> `BindsInterface` edge, with `Confidence::Derived`. Still open: **WO-09 §10 item 2** — §4.9's golden
+> references `reth0.0` and `st0.0` and declares no interface, so both edges stay `Pending` under
+> `14` §7.3.
 
 The reverse face of ingest — from graph state to copy-pasteable configuration lines, each line
 carrying the provenance that produced it. This is the notepad's engine: `53` §6's copy machinery
@@ -968,7 +964,54 @@ the escalation inbox under `78` §4 step 2.
    code rather than from doctrine:** `crates/fathom-weld/src/apply.rs:221` — *"Pending references:
    carried out, not written (`14` §7.3)"* — returns them as `Unresolved`, and writes no edge.
 
-   **PLANNING STOPPED HERE, 2026-08-08, and did not decide — under ADR-0034.**
+   **ANSWERED 2026-08-09, and the question was malformed. `mode` is not a Junos statement.**
+
+   **Looked up rather than recalled, per ADR-0034. Source, queried 2026-08-09:** Juniper's own CLI
+   reference for the `vpn` statement under `[edit security ipsec]` —
+   <https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/security-edit-vpn.html>.
+   The statements it lists under `vpn vpn-name` are `bind-interface`, `copy-outer-dscp`,
+   `distribution-profile`, `df-bit`, `establish-tunnels`, `ike`, `manual`, `multi-sa`,
+   `traffic-selector`, `match-direction`, `passive-mode-tunneling`, `tunnel-mtu` and `vpn-monitor`.
+   **There is no `mode` statement, and nothing that toggles route-based against policy-based.**
+
+   **So the premise of this item — and of my own earlier refusal — was wrong.** The question was
+   phrased as *"where does `mode` come from on a re-parse"*, which presumes the config states it
+   somewhere and the parser is failing to pick it up. It does not. Route-based versus policy-based is
+   **not a configured value in Junos at all**: it is implied by whether `bind-interface` is present.
+   The same source defines `bind-interface` as *"the tunnel interface to which the **route-based**
+   virtual private network (VPN) is bound"* — the vendor's own wording ties the statement to the
+   mode.
+
+   Second source, same date —
+   <https://www.juniper.net/documentation/us/en/software/junos/vpn-ipsec/topics/task/security-comparison-policy-based-vpn-route-based-vpn.html>:
+   for route-based, *"when the security device does a route lookup … it finds a route through a
+   secure tunnel (st0) interface"*, whereas a policy-based VPN names the tunnel inside the security
+   policy itself. Two independent pages, one mechanism.
+
+   **What this means for the model.** `IpsecVpn.mode` is a **derived** field on any parsed graph and
+   always will be, because there is no statement to parse. That is not a parser gap and no dictionary
+   entry can fix it. `Confidence::Derived` — *"follows necessarily from asserted facts"* — is exactly
+   the label, and the machinery exists. **The weld derives `mode` from the presence of a
+   `BindsInterface` edge**, in the same pass that materialises containment.
+
+   **What my 2026-08-08 refusal got right, and what it got wrong.** Right: refusing to assert a
+   vendor fact from memory. Wrong: the thing I could not establish was *"are there exactly two
+   modes"*, and that turns out not to be the load-bearing question — an enum arm cannot carry an
+   unrecognised token when the config never carries a token at all. The `Unknown` arm on `VpnMode`
+   exists because `62` §7 rule 2 gives every generated enum one, not because a third Junos mode is
+   anticipated. **Fifteen minutes of looking dissolved a question I had recorded as unresolvable.**
+
+   **Two facts worth carrying, both from the sources above, neither acted on here.** Policy-based
+   VPNs are IKEv1 only (*"the support for policy-based VPNs is available with IKEv1 only"*), and the
+   IPsec VPN overview lists policy-based IPsec VPN as unsupported when running the `iked` process.
+   The derivation is therefore safest on exactly the modern trains the corpus targets. Both belong in
+   the junos-srx platform content with a named reviewer, not in this order.
+
+   **`78` §5 item 10 binds whoever answers this**: this session does not execute WO-04.
+
+   ---
+
+   **The 2026-08-08 refusal, left in place because it is the more useful record.**
 
    The deduction looks obvious and I nearly made it. `IpsecVpn.mode` is `RouteBased | PolicyBased`
    plus the generated unknown arm (`crates/fathom-ir/src/generated/ir_types.rs:2167`), and
