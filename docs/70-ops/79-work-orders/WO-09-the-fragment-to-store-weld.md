@@ -831,6 +831,51 @@ escalation inbox under `78` §4 step 2.
    written.** The other three were a type that could not compile, a disagreement between the
    dictionary and the schema, and devices that contained nothing. This one is a question nobody had
    asked: *what is the thing we emit?* It was unanswerable until something tried to read it back.
+
+   **RESEARCHED 2026-08-09. The two shapes above are both wrong, and the corpus already excludes
+   each of them.** Fourteen claims held under adversarial refutation; one was refuted, and it was
+   the *"change set"* lean stated above.
+
+   - **Not a change set.** `18`:370 — *"a statement whose text is unchanged produces nothing. That
+     is what distinguishes a change set from a full config."* `config_diff` takes `emit(A)` and
+     `emit(B)` as **inputs**, so emit's output is upstream of a change set by construction. WO-04
+     §8 non-goal 2 disowns them: *"doc `18`'s territory, later."*
+   - **Not a standalone configuration**, unless the unit is `Device`. `11`:1588 attaches *"(whole
+     config)"* to `Device` and to none of the other four emit units.
+   - **It is a scoped assertion set** — complete for what it builds, referencing a device context it
+     does not carry. `13`:63: *"every design choice below assumes the output may be applied in part,
+     out of order, or a week later."* `14`:1029 treats a reference the paste did not restate as
+     **expected and resolvable**, not as an error.
+
+   **So the remaining question is narrower than this item states it.** Must a `Full` emit of a
+   non-`Device` unit be **closed under its own references**? `st0.0` is settled — `80` R47 is
+   **DECIDED** and requires the plumbing block, so the emitter must declare the tunnel interface it
+   creates. **`reth0.0` is the entire open question**, and no scope short of `Device` contains it,
+   because none of the five plumbing pieces creates a WAN interface; piece #3 only places an
+   existing one in a zone. Owner question filed at `70` §13 item 15.
+
+   **PROPOSED G8′, if the fragment reading is confirmed.** Not one of this item's three candidates —
+   a fourth, using the mechanism `14` §7.3 already specifies:
+
+   > Let `g` be the originating store, `u` the emit unit root, `a = emit(g, u)`. Let **`P(a)`** be
+   > the *presupposition set* — every node the emitter resolved a name from but emitted no declaring
+   > statement for. Seed a fresh store `s₀` with **`P(a)` and nothing else**. Compute
+   > `g₂ = weld(s₀, parse(render(a)))` using `14` §7.3's *"resolved in existing graph"* row, then
+   > `b = emit(g₂, u′)`. **Assert `render(b) == render(a)`**, plus WO-04 §6's existing report clause
+   > verbatim, **and additionally `P(b) == P(a)`** — the artifact presupposes exactly what it did.
+
+   **Two anti-cheats a work order must state, because both failures would look like a pass.** Seeding
+   from a copy of `g` passes trivially and proves nothing — hence *"`P(a)` and nothing else"*. And
+   `P(a)` must come from the **emitter's own ledger**, never hand-listed in the test, or the gate
+   degrades into a fixture tuned until it goes green.
+
+   **The cost is real and it is not sunk.** `fathom-weld` implements `14` §7.3's *"resolved in
+   fragment"* row only — `apply.rs` resolves edge targets within the fragment, and `lib.rs` says
+   *"first application only. Nothing here reconciles a re-parse."* G8′ needs the existing-graph row
+   built. **That is the same primitive `70` §6 names as the largest requirement in the corpus with
+   nothing behind it** — automatic correlation across separately-pasted configs. The round-trip gate
+   and the owner's dynamic-ability goal want the identical mechanism, which is the strongest argument
+   for building it that either has produced.
 3. **The capture store.** `11` §8.4's `Capture { id, taken_at, device, scope, platform, command,
    text, digest }` does not exist. This WO mints a `CaptureId` and returns it so the caller can pair
    it with `IngestOutput.capture`, but nothing stores the pair, so a `ProvenanceId` today points at

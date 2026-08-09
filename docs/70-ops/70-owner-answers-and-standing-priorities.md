@@ -1168,8 +1168,42 @@ file to read?**
     it references, or the round-trip property is re-stated to re-parse against the originating graph.
     **This is a product question, not a test question**, and it is the one the owner would recognise:
     *when Fathom hands you lines to paste, are they a complete config or a change set for a box that
-    already exists?* Everything the owner has said points at **change set** — which makes the second
-    shape right and the gate's wording wrong. Owner confirms; `13` and WO-04 then execute.
+    already exists?*
+
+    **CORRECTED 2026-08-09. I framed this as config-or-change-set and both halves are wrong.**
+    Researched across five lenses with every claim handed to a separate pass to refute: fourteen
+    held, one was refuted, and the refuted one was mine.
+
+    **It is not a change set**, decided in four independent places. `18`:370 — *"a statement whose
+    text is unchanged produces nothing. That is what distinguishes a change set from a full
+    config."* `config_diff` takes `emit(A)` and `emit(B)` as **inputs**, so emit's output is
+    upstream of a change set and can never be one. `52` makes `Full` and `ChangeSet` two **modes of
+    the config view**, `Full` the default. And WO-04 §8 non-goal 2 disowns change sets outright —
+    *"doc `18`'s territory, later."*
+
+    **It is not a standalone configuration either, unless the emit unit is `Device`.** `11`:1588 —
+    *"for `junos-srx` the units are `Device` (whole config), `IpsecVpn` (a tunnel and everything it
+    needs), `SecurityPolicy`, `Interface`, and `Tunnel`"*. **The parenthetical is attached to
+    `Device` alone**, and the sentence had four further chances to attach it elsewhere.
+
+    **What it actually is: a scoped assertion set** — complete for what it builds, referencing a
+    device context it does not carry. `13`:63 states the working assumption the whole corpus shares
+    without ever calling it a decision: *"output is text a human pastes… every design choice below
+    assumes the output may be applied in part, out of order, or a week later."* And `14`:1029 treats
+    *"fragment references a node the paste did not restate"* as **common, expected and resolvable**,
+    not as an error.
+
+    **So the question narrows to one thing, and it is a real one.** Must a `Full` emit of a
+    non-`Device` unit be **closed under its own references**? `st0.0` is already settled in Fathom's
+    favour — `80-reconciliation.md` R47 is **DECIDED** and requires the plumbing block, so the
+    emitter must eventually declare the tunnel interface it creates. **`reth0.0` is the whole of the
+    open question**, and no scope short of the whole device will ever contain it, because none of
+    the five plumbing pieces creates a WAN interface — piece #3 only places an existing one in a
+    zone.
+
+    **The question for the owner, in one sentence:** *when Fathom emits a tunnel, is that output
+    meant to be pasted onto a box that already has its WAN interface — or must it contain every
+    statement needed to bring the tunnel up on a box whose config is blank?*
 16. **Whether a registered platform with no content should be visible in the product.** Five of the
    six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
    selecting `junos-ex` today would get an empty product with no explanation. Design decision;
