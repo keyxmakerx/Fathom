@@ -266,16 +266,63 @@ membership, which is `ip -d link show`, `bridge vlan show` and — where OVS is 
    Linux has to `display set` for this purpose. §4 was right that no such command exists for the
    *whole host*; for *this slice* something close does.
 
+### L3 is in scope too — owner, 2026-08-10 — and it fits better than L2 did
+
+Asked whether the smallest slice should be the L2 path, the owner answered: *"Well no we'd want L3
+in the linux engine as well please."* Scope decision, taken, and it is a better one than the
+recommendation it replaces — a map that shows how a VM is *cabled* but not how it is *routed*
+answers half of any real question.
+
+Checked against `schema/schema.yaml` on 2026-08-10 rather than assumed. **The L3 half fits better
+than the L2 half**, which was not the expectation:
+
+| The thing on a Linux host | Where it goes today | |
+|---|---|---|
+| `ip addr` — addresses on an interface | `Address` under `LogicalUnit` | ✅ |
+| a declared static route | **`StaticRoute`** — destination, preference, metric, and a `next_hop` that is already `Address` / `Interface` / `Discard` / `Reject` / **`NextTable`** | ✅ `Discard` and `Reject` are `blackhole` and `unreachable`; `NextTable` is `ip route … table N` |
+| multiple routing tables, a VRF, a netns | **`RoutingInstance`**, whose `isolation` enum already carries `routing_table_only`, `forwarding` and `non_forwarding` | ✅ built for exactly this shape |
+| FRR / BIRD running BGP or OSPF | **`RoutingProtocol`** — `{ ospf, ospf_v3, bgp, isis, rip, ldp }`, with `router_id`, `local_as`, `areas`, `reference_bandwidth` | ✅ FRR's `frr.conf` maps straight on |
+| a BGP neighbour, an OSPF adjacency | **`ProtocolAdjacency`** — `peer_address`, `peer_as`, `local_address`, `area`, `cost`, `network_type`, `import_policy`, `export_policy`, `route_reflector_client` | ✅ unusually complete |
+| a route the kernel holds that nobody declared | **`LearnedRoute`** — `destination`, `via` (a `LogicalUnit` **or** a `RoutingProtocol`), `basis`. Every field is `emit: "—"`: it is never written back out | ⚠️ see below |
+| `ip rule` — the *selector* half of policy routing | **nothing.** `NextTable` carries the target; nothing carries *from / to / fwmark / iif → table N* | ❌ one new kind |
+| `net.ipv4.ip_forward` | `RoutingInstance.isolation: forwarding` exists as a variant; whether a host-wide sysctl belongs there or on `SystemSettings` is undecided | ⚠️ a decision, not a gap |
+| masquerade / DNAT | `NatRule` and `NatRuleSet` exist — but `NatAction`, `NatScope`, `L4Spec`, `PolicyScope` and `AddressValue` are **empty stub structs** (`fathom-ir/src/value.rs:185-206`, each doc-commented *"Shape stated nowhere read"*) | ❌ blocked, **and blocked for Junos too** |
+
+**Two things worth pulling out of that table.**
+
+**`LearnedRoute` already draws §4's configuration-versus-runtime line at the kind level**, which is
+better than this document previously implied: a declared route and an undeclared one are *different
+kinds*, and the undeclared one is never emitted. But its `basis` field is an `InferenceRuleId` —
+*"which heuristic produced it"* — so the kind as written means **inferred**, not **observed**. A
+route read off `ip route` was not inferred by Fathom; the kernel stated it. That is one enum's worth
+of work, not a redesign, and naming it is the point: without it, every observed route would have to
+claim an inference rule produced it, which would be a lie in the provenance record.
+
+**The stub value types are the real blocker, and they are not a Linux problem.** Five types that
+`SecurityPolicy`, `AddressObject`, `NatRule` and `NatRuleSet` all depend on are empty structs whose
+own doc comments say the shape is stated nowhere. **So today a policy cannot record its ports, an
+address object cannot hold its prefix, and a NAT rule cannot record what it does — on any
+platform.** Nothing has ever bound them, because no dictionary entry has ever driven
+`SecurityPolicy`, `AddressObject`, `NatRule`, `StaticRoute` or `RoutingInstance` for junos-srx
+either. Filling them in is shared work that unblocks the firewall and NAT half of *every* platform,
+Junos first. It is the largest single piece of modelling debt in the tree.
+
+**Revised scope, then:** the Linux engine is **L2 and L3** — NICs, bonds, VLAN sub-interfaces,
+bridges, veths, addresses, routes, routing tables and the routing daemons. That is one parser shape
+for link/route text, one for FRR's IOS-shaped config, three or four new kinds, and the stub types.
+Firewall and NAT ride on the stub-type work whenever it happens; Docker, containers and SELinux
+stay out until §6's second owner question is answered.
+
 ### What this changes
 
 **Not the security answer.** §5 stands unaltered: an engine is a contribution compiled in, never a
 runtime plug-in, for reasons that have nothing to do with which slice of Linux it parses.
 
-**The scoping question in §6 gets a candidate answer.** *"What does a Linux engine mean"* is still
-the owner's to settle, but there is now a defensible smallest one: **the L2 path — NICs, bonds,
-VLAN sub-interfaces, bridges, veths — and nothing else.** It is one new parser shape, one or two new
-kinds, three commands, and it closes the blind spot in the middle of the map. Firewall, routing,
-Docker and SELinux are separate, later, and individually justifiable.
+**The scoping question in §6 is answered by the owner, above: L2 and L3.** Not the smallest slice
+this document first proposed — he rejected that, correctly, because a map that shows how a VM is
+cabled but not how it is routed answers half of any real question. Docker, containers and SELinux
+remain out until §6's second owner question is settled; firewall and NAT are gated on the stub value
+types, which are Junos's problem first.
 
 **One consequence to state plainly**, because it is the strongest argument here and it is not
 obvious: this slice is worth more than a fifth vendor. A fifth switch platform adds boxes to a map
