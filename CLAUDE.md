@@ -33,12 +33,12 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   `fathom-schema`, `fathom-schemagen`, `fathom-ir` with checked-in generated types,
   `fathom-corpus`, `fathom-find`). **As of 2026-08-08 the queue has run: six more crates exist** —
   `fathom-graph` (the typed store), `fathom-ingest` (junos-srx set-form, with the redaction gate),
-  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`. **366 tests, zero external
+  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`. **382 tests, zero external
   dependencies.** **Eight of nine work orders DONE** — WO-01, WO-02, WO-03, WO-05, WO-06, WO-07,
   WO-08 and WO-09 (the fragment-to-store weld, which now exists as `fathom-weld`). **WO-04 is the
-  only one open**, BLOCKED on two planning decisions and no code: the source of `IpsecVpn.mode` on
-  a re-parse (its §10 item 7(b)) and WO-09 §10 item 2's golden, which references `reth0.0` and
-  `st0.0` without declaring an interface.
+  only one open, and as of 2026-08-09 it is OPEN rather than BLOCKED** — both its blockers are
+  answered (`IpsecVpn.mode` by looking Junos up; the `reth0.0` golden by the owner, `70` §16.1).
+  What remains is code.
 - **The product has been opened in a browser, and it now has an input.** WO-08's sixteen manual
   rows are recorded **RUN 2026-08-08 — ALL SIXTEEN PASS** in that order's G10 block, with method
   and limits. On 2026-08-09 the **on-ramp** landed, outside the queue and at the owner's direction:
@@ -47,8 +47,10 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   paste sheet that renders what was understood *and every line that was not*. Driven in Chromium
   against a 26-line SRX config: 15 nodes, 23 edges, 5 residue lines named, 1 pre-shared key
   destroyed, one network request (the file). Evidence: `docs/80-review/evidence/2026-08-09-*.png`;
-  the plain-English account is `overnight-report.md`. **The module is 812 KB against `44` §5.2's
-  900 KB ceiling** — 88 KB of headroom, and the second platform's dictionary will eat it.
+  the plain-English account is `overnight-report.md`. **The module is 820,967 bytes against `44` §5.2's
+  900,000-byte ceiling** — 79,033 bytes of headroom, and persistence alone was *measured* at
+  +239,964. See `79-work-orders/00-ROUTE-TO-WORKABLE.md` §2 stage 1: the ceiling is an
+  architecture question, not a number to raise.
 - **The plan layer is live.** `78` (the execution protocol), `79-work-orders/` (eight
   orders, adversarially verified), and CI (`.github/workflows/ci.yml`) enforcing the
   verification floor on every PR.
@@ -94,12 +96,16 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Next actions
 
-- **The long-term plan is `docs/70-ops/79-work-orders/00-PROGRAM-PLAN.md`** (Proposed): eleven
-  stages from today to shippable, the work orders that do not exist yet, and **every owner decision
-  the build waits on in one tier-ordered list of 35** — the first five unblock more than the other
-  twenty-nine combined, and three of those are single-line file edits. Its §20 proposes the standing
-  authorisation the owner asked for. The queue below stays the operational truth; on disagreement
-  the queue wins.
+- **Read `docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` first** (Proposed, 2026-08-10). It is
+  the measured route: where the product actually is (**1 of 6 views live; 3 inventory kinds against
+  the 9 a paste builds; zero lines of rule engine; zero lines of diagram; 42 Junos statements**),
+  nine stages in dependency order, and §4's split between what genuinely needs the owner and what
+  merely says it does. Written from six independent surveys each adversarially verified, so its
+  numbers are measurements rather than estimates. **It disagrees with the program plan in three
+  named places** (§5) — notably that persistence is hours-behind-a-decision, not unblocked days.
+- **`00-PROGRAM-PLAN.md`** (Proposed) remains the long-term shape: eleven stages, the unwritten work
+  orders, and the tier-ordered owner list. Its tier 1 is **overstated by 4×** — four of its five
+  are already on disk. The queue below stays the operational truth; on disagreement the queue wins.
 - **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — WO-06 (finder
   completion, the shakedown order) leads; WO-01 (the `Scalar` trait) and WO-02 (the graph
   store) unblock everything downstream. Every order carries its own plan, gates, and
@@ -134,7 +140,7 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 366 tests as of 2026-08-09; green is the gate, not the
+- `cargo test --workspace --locked` — 382 tests as of 2026-08-10; green is the gate, not the
   number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0, **0 failures and 0
   warnings** since 2026-08-09. The two standing `schema.identity.unexercised` warnings

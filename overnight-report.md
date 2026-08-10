@@ -20,6 +20,7 @@ Written for someone who runs networks, not someone who writes Rust.
 | 6 | Three things worth knowing |
 | 7 | The two questions you were asked — both now answered |
 | 8 | How to see it yourself |
+| 9 | **The plan, and one bug I found and fixed** |
 
 ---
 
@@ -242,3 +243,112 @@ The browser used was Chromium, driven from outside the repository. **That driver
 Fathom and no check runs it** — the browser results in this report are a human-equivalent run, not
 an automated gate. Whether an automated one may exist is still an open question in the project's
 own records.
+
+
+---
+
+## 9. The plan, and one bug I found and fixed
+
+You asked whether I have all my questions and whether I am good to plan and continue. **Yes to
+both** — and before planning I had thirteen agents audit the whole project, each one's findings
+handed to a second agent whose only job was to prove it wrong. That turned up something I need to
+tell you about first.
+
+### A bug that was silently eating your work
+
+**If you pasted the wrong thing, Fathom deleted what you had and did not tell you.**
+
+Concretely: paste a good SRX config, get your device. Then paste anything Fathom cannot read — a
+Cisco config, or a Juniper config in its *normal* form — and your device is replaced by an empty
+one. No error. The tally cheerfully reads "0 names not found".
+
+The second case is the one that matters, because it is not an unusual mistake. Typing
+`show configuration` instead of `show configuration | display set` gives you the curly-brace form,
+and that is what most people type first. So the most likely wrong paste in the world was answered
+by throwing away the operator's work.
+
+**Fixed, and pinned by six tests.** Now:
+
+> *"none of these 12 lines is a `set` statement, and 10 of them open or close a brace — this looks
+> like `show configuration` in its normal form. Fathom reads the flattened form: run
+> `show configuration | display set` and paste that instead. Nothing was changed; what you had is
+> still loaded."*
+
+A config from another vendor gets a different sentence and is **not** told to try `| display set`,
+because that would not help it. And the paste box stays open with your text in it, so you can fix
+it. Proved in the browser; screenshot at `docs/80-review/evidence/2026-08-10-wrong-form-refused.png`.
+
+I am flagging this prominently because it is the kind of defect that matters most in a tool you
+would trust with an estate: not a missing feature, a **quiet wrong answer**.
+
+### Where the product honestly is
+
+Measured, not estimated. Every number below was checked twice by agents told to disagree with each
+other:
+
+| | |
+|---|---|
+| Screens working | **1 of 6** — the other five are placeholders |
+| Kinds of thing you can click | **3** — and a pasted config builds **9**, so the zones, gateway and VPN it correctly understood are invisible |
+| Rule engine ("facts that argue back") | **not one line of code** |
+| Diagram | **not one line of code** |
+| Save your work | **not connected** — the file format works and passes its tests, but nothing in the browser calls it |
+| Junos statements understood | **42** — a whole IPsec tunnel, and essentially nothing else |
+| Room left in the file | **79,033 bytes** of a 900,000 limit the build enforces |
+
+That last row is the one that reorders everything. **Wiring up Save was measured at +239,964
+bytes** — three times the room left. Every previous plan in this project, including my own, called
+Save "cheap and unblocked". It is cheap; it is not unblocked.
+
+### The route, in order
+
+1. **Decide the size budget.** Not "raise the limit" — decide *what stops being baked into the
+   program and starts being loaded alongside it*. This is the only thing on the list you need to
+   weigh in on, and I have put it to you as a question below.
+2. **Stop losing work quietly.** Mostly done today. One item left: when two lines of a config
+   contradict each other, Fathom currently drops one without saying so, while the page claims
+   nothing is ever silently lost.
+3. **Turn the finder on.** *The search engine already works and nobody noticed.* An agent drove it
+   and got 27, 31 and 27 answers for "ipsec", "show security ike" and "vpn" — over a search box the
+   page has disabled with the words "arrives with a later work order". Days of work for a whole
+   screen.
+4. **Show you what you pasted.** Adding the missing kinds so zones, gateways and VPNs are clickable
+   instead of invisible. Days. **Best value per hour in the whole project.**
+5. **Keep the work** — Save. Hours of code, behind decision 1.
+6. **Facts that argue back.** Weeks for the engine, months for the content. The audit corrected
+   itself here: it first thought six rules were ready to fire, then proved only two were.
+7. **Two pastes become one estate.** Weeks. Half of it landed yesterday.
+8. **The diagram.** Months.
+9. **Writing configs back out, and a second platform.** Months each.
+
+### Why the diagram is not first
+
+It is the most impressive thing and you named it first, so I want to be straight about rejecting
+that order. Three reasons, all checked: the diagram spec has **no entry** for the IKE and IPsec
+objects a pasted SRX actually produces; the JavaScript study in the repo skips the two hardest parts
+of the layout algorithm rather than implementing them; and there is **no field in the data model for
+where a box sits**, which the spec itself says is a rewrite to retrofit. Starting there is three
+months to a picture of one box you cannot move.
+
+### One question for you, and a shorter list than you had
+
+**The question:** the whole product is one file you open from your disk. To hold everything it needs
+— saving, more vendors, the rule engine, the diagram — that file gets **bigger** (a few megabytes,
+still one file, still opens the same way), **or** some of the knowledge moves out into a second file
+that loads alongside it. **Which do you prefer?** My recommendation is *one bigger file* — it keeps
+"double-click and it works", which is the whole point — but it is your call because it is about how
+you use it.
+
+**And a correction to your list.** Several things this project has been recording as *waiting on
+you* are not, and one of them was never going to arrive: the plan asks you for real Calix, Nokia and
+DIA configs and calls them *"the input every other estimate is missing"* — and you have already told
+me you cannot send configs. That row was blocking two stages on something that will never come. It
+is now a job for me: build the fixtures from public vendor documentation. Several others turned out
+to be schema questions dressed up as questions for you, and I have taken them off.
+
+What genuinely remains yours is short: the file-size question above; whether Meraki is configured by
+text you can copy; whether your groups and tags should travel inside the saved file (a privacy
+question, and it was on *no* list at all); where the missing-IKE-permission warning belongs; and one
+that is not a decision but a signature — **262 entries in the knowledge base carry a placeholder
+where a reviewer's name should go, and you are the expert.** Not a blocker to raise now, but it is
+the thing standing between the corpus and shipping.
