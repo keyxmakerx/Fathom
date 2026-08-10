@@ -150,3 +150,105 @@ fn ordinary_noise_is_left_alone() {
         out.capture.text()
     );
 }
+
+// --- the key=value class (found 2026-08-10, second pass) ---------------------
+//
+// The four content detectors are whole-token tests over a tokenizer whose only
+// separators are space, tab, quote and brackets (`lex.rs`'s table contains no
+// `=` and no `:`). That is right for Junos, which writes `… ascii-text $9$abc`
+// with a space, and wrong for almost everything else — so on any `key=value`
+// format the secret was never a token of its own and NOTHING FIRED.
+//
+// Every case below was demonstrated leaking verbatim with `drops = 0` against
+// the shipped code before the fix. None of them is Linux-only: `key-string` is
+// a live secret form on Arista, Omada and Sodola, and a clipped quote is what a
+// wrapped terminal paste produces on any platform.
+
+/// The whole class, in one table. Each canary must be gone and each line must
+/// be reported as a drop — not silently dropped, not silently kept.
+#[test]
+fn key_value_secrets_are_gated() {
+    let cases: [(&str, &str, &str); 6] = [
+        (
+            "a NetworkManager keyfile PSK",
+            "psk=correcthorsebatteryZZ1\n",
+            "correcthorsebatteryZZ1",
+        ),
+        (
+            "a NetworkManager 802.1X password",
+            "password=Sup3rSecretZZ2\n",
+            "Sup3rSecretZZ2",
+        ),
+        (
+            "an /etc/shadow line, colon-delimited",
+            "root:$6$saltsalt$hashhashhashhashZZ3:19000:0:99999:7:::\n",
+            "hashhashhashhashZZ3",
+        ),
+        (
+            "docker compose config, which interpolates .env",
+            "    DB_PASSWORD: hunter2secretZZ4\n",
+            "hunter2secretZZ4",
+        ),
+        (
+            "key-string, a live form on Arista, Omada and Sodola",
+            "key-string MySharedKeyValueZZ5\n",
+            "MySharedKeyValueZZ5",
+        ),
+        (
+            "a clipped terminal paste with an unterminated quote",
+            "set security ike policy P pre-shared-key ascii-text \"unterminatedZZ6\n",
+            "unterminatedZZ6",
+        ),
+    ];
+
+    for (what, text, canary) in cases {
+        let out = run(text);
+        assert!(
+            !everything(&out).contains(canary),
+            "{what}: `{canary}` survived in {}",
+            out.capture.text()
+        );
+        assert!(
+            !out.drops.entries.is_empty(),
+            "{what}: destroyed but not reported"
+        );
+    }
+}
+
+/// A compound settings key names a secret by containing one — `DB_PASSWORD`,
+/// `admin_password`, `TlsDnsApiKey`. `14` §9.4's list is exact-match, which is
+/// right for a Junos path segment and wrong for a settings key.
+#[test]
+fn a_compound_key_name_still_names_a_secret() {
+    for key in ["DB_PASSWORD", "admin_password", "ipsec-pre-shared-key"] {
+        let out = run(&format!("{key}=valueThatMustNotSurviveZZ\n"));
+        assert!(
+            !everything(&out).contains("valueThatMustNotSurviveZZ"),
+            "`{key}=` did not read as a secret: {}",
+            out.capture.text()
+        );
+    }
+}
+
+/// The aggression must not reach the bound-statement path, where redaction is
+/// driven by the dictionary and precision is the whole point. An ordinary
+/// address, which contains a `:` in its v6 form and a `/`, must still bind.
+#[test]
+fn the_widened_net_does_not_catch_ordinary_config() {
+    let out = run(concat!(
+        "set system host-name srx-branch-01\n",
+        "set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30\n",
+        "set interfaces ge-0/0/0 description \"WAN to ISP\"\n",
+    ));
+    assert!(
+        out.drops.entries.is_empty(),
+        "ordinary config was redacted: {:?}",
+        out.drops.entries
+    );
+    assert!(out.residue.is_empty(), "{:?}", out.residue);
+    assert!(
+        out.capture.text().contains("203.0.113.2/30"),
+        "the address survived: {}",
+        out.capture.text()
+    );
+}

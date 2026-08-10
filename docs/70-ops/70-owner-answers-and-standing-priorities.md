@@ -327,6 +327,35 @@ anything that is data**. Whether a whole platform is data is a different questio
 plausibly also needs a config parser and an emitter, and those are Rust. Under investigation as of
 2026-08-07; the answer belongs here when it lands.
 
+> **ANSWERED 2026-08-10 — `65` is the answer, and the assumption was false in one direction and
+> too pessimistic in the other.** Re-asked by the owner in his own words — *"if someone created a
+> Linux engine it would just be plug and play and add all the features of that right?"* — and
+> investigated four ways with every finding adversarially verified.
+>
+> **The paragraph above guessed the split wrongly.** It supposed the boundary ran between *data*
+> and *"a parser and an emitter, and those are Rust"*. The real boundary runs one layer lower.
+> **Adding a node kind — a new *thing* for the model to hold — needs zero hand-written Rust**,
+> measured twice by two investigators who each added a container-network kind and ran the real
+> toolchain: ~41 lines of YAML, one `fathom-schemagen` run, a clean `cargo check --workspace`, and
+> four one-line bumps to pinned counts. ADR-0008 delivers exactly what it promised, and everything
+> downstream of the parser was confirmed platform-blind in the built code, not merely in the spec.
+>
+> **What is Rust is narrower and harder than "a parser and an emitter": it is the *shape* of the
+> text.** The vocabulary of a platform is data; the grammar is not. Junos MX, EX and PAN-OS
+> set-form are largely data — after the dictionary loader is un-hardcoded, which it is not. Anything
+> whose text has a different shape is a new front end, priced by `14` §5.5 at 3–10 days and 200–600
+> lines, which the one built shaper's 430 production lines calibrates well.
+>
+> **And "plug and play" in the sense of dropping a file beside the app stays permanently refused.**
+> `71` §13.1's refusal is not a preference: a runtime-loaded engine sees the paste **before** the
+> redaction gate — necessarily, because parsing is what tells the gate which token is the secret —
+> and every control ADR-0032 relies on is a *build-time* control. It would convert invariant 3 from
+> *"the unredacted text never reaches the encryptor, provable by reading first-party code"* into
+> *"we redact well against an adversary we never compiled."* Someone adding a Linux engine is a
+> **contributor whose code we read and compile**, not a user installing a plug-in, and `65` §5
+> gives the four conditions that make a contributed engine safe — three of which are broken today
+> with only one first-party engine.
+
 **The deferral — mostly safe, with one part that is not.** Split it:
 
 | | Safe to defer? |

@@ -154,6 +154,17 @@ pub(crate) fn shape(capture: &str, framed: &frame::Framed) -> Shaped {
         }
         if let Some(Some(err)) = framed.frame_errors.get(idx) {
             outcomes.push(Outcome::new(LineOutcome::Unshaped { reason: *err }));
+            // Refused, and still gated. This arm and the two below wrote
+            // `Unshaped` into the ledger and then dropped the line, so no
+            // detector ever saw it — the same defect as the `Noise` arm above,
+            // in three more places. An unterminated quote is a CLIPPED OR
+            // WRAPPED TERMINAL PASTE, one of the likeliest pastes there is, and
+            // a pre-shared key on such a line survived verbatim with drops = 0.
+            noise.push(UnshapedLine {
+                line: line.ordinal,
+                span,
+                tokens: lex_line(capture, line),
+            });
             continue;
         }
 
@@ -178,6 +189,19 @@ pub(crate) fn shape(capture: &str, framed: &frame::Framed) -> Shaped {
         }
         if let Some(err) = lex_error {
             outcomes.push(Outcome::new(LineOutcome::Unshaped { reason: err }));
+            // `tokens` holds whatever was scanned before the error; the gate
+            // takes it as-is. Half a line examined beats a whole line
+            // unexamined, and `lex_line` re-scans best-effort in case the
+            // failure happened on the first piece.
+            noise.push(UnshapedLine {
+                line: line.ordinal,
+                span,
+                tokens: if tokens.is_empty() {
+                    lex_line(capture, line)
+                } else {
+                    tokens
+                },
+            });
             continue;
         }
 
@@ -228,6 +252,14 @@ pub(crate) fn shape(capture: &str, framed: &frame::Framed) -> Shaped {
             outcomes.push(Outcome::new(LineOutcome::Unshaped {
                 reason: ShapeError::TooManySegments,
             }));
+            // The third bypass. A line refused for depth is still a line whose
+            // tokens may carry a credential, and `14` §11.6's cap is a
+            // resource guard, not a judgement that the content is harmless.
+            noise.push(UnshapedLine {
+                line: line.ordinal,
+                span,
+                tokens,
+            });
             continue;
         }
 

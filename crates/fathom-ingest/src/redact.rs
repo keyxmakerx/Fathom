@@ -449,16 +449,36 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
         // a secret, so at index 0 and 1 there is nothing for it to read. The
         // other three are pure functions of the token's own text and never
         // needed the offset at all.
-        if crypt_prefix(text) {
-            detectors |= DetectorSet::CRYPT_PREFIX;
+        // The content detectors run over the token AND over its pieces split
+        // on `=`, `:` and `,` — see `pieces`. A whole-token test is a Junos
+        // assumption: Junos writes `… ascii-text $9$abc`, with a space, so the
+        // secret is its own token. Almost nothing else does.
+        for piece in pieces(text) {
+            if crypt_prefix(piece) {
+                detectors |= DetectorSet::CRYPT_PREFIX;
+            }
+            if long_hex(piece) {
+                detectors |= DetectorSet::LONG_HEX;
+            }
+            if base64ish(piece) {
+                detectors |= DetectorSet::BASE64;
+            }
         }
-        if long_hex(text) {
-            detectors |= DetectorSet::LONG_HEX;
+        // `key=value` and `key: value`, where the key is a secret word. This is
+        // the shape of NetworkManager keyfiles, WireGuard configs, systemd
+        // units, `docker compose config` output and `/etc/shadow` — none of
+        // which the leaf-name walk below can see, because on those the leaf
+        // name is not a preceding *token*, it is the left half of one.
+        if let Some((lhs, _)) = text.split_once(['=', ':']) {
+            if key_names_a_secret(lhs.trim()) {
+                detectors |= DetectorSet::LEAF_NAME;
+            }
         }
-        if base64ish(text) {
-            detectors |= DetectorSet::BASE64;
-        }
-        if at >= 2 && raw_walk(&texts, at) {
+        // `at >= 1`, not `>= 2`. `raw_walk` looks back at most two tokens, so
+        // one preceding token is enough for it to have something to read — and
+        // at `>= 2` the shape `key-string <secret>` was missed outright, which
+        // is a live secret form on Arista, Omada and Sodola.
+        if at >= 1 && raw_walk(&texts, at) {
             detectors |= DetectorSet::LEAF_NAME;
         }
     }
@@ -479,6 +499,43 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
 
 /// §4.6's two-position leaf-name walk over raw tokens: no capture positions
 /// are known, so every preceding token counts as a position.
+/// A token, plus its pieces split on the separators the lexer does not treat
+/// as separators: `=`, `:` and `,`.
+///
+/// `lex.rs`'s table separates on space, tab, quote and brackets and nothing
+/// else, which is correct for Junos set-form and wrong for the rest of the
+/// world. Without this, a whole-token detector never sees the secret in
+/// `psk=hunter2`, `PrivateKey=<base64>`, `root:$6$…:19000:…` or
+/// `DB_PASSWORD: hunter2` — all four were demonstrated leaking, verbatim, with
+/// `drops = 0`, against the shipped code on 2026-08-10.
+///
+/// The whole token is yielded first so nothing that fired before can stop
+/// firing: this only ever adds detections.
+/// Does this `key=`/`key:` left-hand side name a secret?
+///
+/// `is_secret_word` is an exact match against `14` §9.4's list, which is right
+/// for a Junos path segment — those are exactly `pre-shared-key`, `secret`,
+/// `community`. It is wrong for a settings key, where the secret word is a
+/// *component* of a compound name: `DB_PASSWORD`, `admin_password`,
+/// `TlsDnsApiKey`. So each `_`, `-` and `.` separated part is tested too.
+///
+/// **Only on the safety-net path.** `14` §9.7 puts the unshaped sweep at
+/// maximum aggression on purpose, and a false positive there quarantines a
+/// line Fathom had already failed to understand — it costs a residue line's
+/// text, not a fact. The bound-statement path keeps the exact match, because
+/// there redaction is driven by the dictionary and precision is the point.
+fn key_names_a_secret(lhs: &str) -> bool {
+    if dict::is_secret_word(lhs) {
+        return true;
+    }
+    lhs.split(['_', '-', '.'])
+        .any(|part| !part.is_empty() && dict::is_secret_word(part))
+}
+
+fn pieces(text: &str) -> impl Iterator<Item = &str> + '_ {
+    std::iter::once(text).chain(text.split(['=', ':', ',']).filter(|p| !p.is_empty()))
+}
+
 fn raw_walk(texts: &[String], at: usize) -> bool {
     texts
         .iter()
