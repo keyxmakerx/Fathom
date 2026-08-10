@@ -178,6 +178,7 @@ pub(crate) fn gate(
     outcomes: &mut [Outcome],
     stmts: &[Stmt],
     unshaped: &[UnshapedLine],
+    noise: &[UnshapedLine],
     matches: &[Match],
     dict: &Dictionary,
 ) -> Gated {
@@ -192,6 +193,12 @@ pub(crate) fn gate(
         gate_statement(capture, tree, dict, stmt, m, &mut edits, &mut already);
     }
     for line in unshaped {
+        gate_unshaped(capture, dict, line, &mut edits);
+    }
+    // Noise lines, at the same aggression. `14` §9.7's sweep applies to any
+    // line that produced no statement, and a prompt-prefixed line is exactly
+    // that — see `shape.rs`'s `LineClass::Noise` arm for what this closes.
+    for line in noise {
         gate_unshaped(capture, dict, line, &mut edits);
     }
 
@@ -426,9 +433,22 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
             detectors |= DetectorSet::PEM_ARMOUR;
             label = RedactLabel::CertKey;
         }
-        if at < 2 {
-            continue;
-        }
+        // The content detectors run from token 0. They used to start at token
+        // 2, and the cost was a whole class of paste: a **bare private key**.
+        //
+        //   -----BEGIN RSA PRIVATE KEY-----
+        //   MIIEowIBAAKCAQEA…                <- one token, at index 0
+        //   -----END RSA PRIVATE KEY-----
+        //
+        // The armour line was caught and quarantined; the key underneath was
+        // one token on its own line, never reached index 2, and survived into
+        // the capture in full. Demonstrated against the shipped code.
+        //
+        // `raw_walk` still needs its offset and keeps it below — it reads the
+        // tokens *before* `at` to decide whether a leaf name marks this one as
+        // a secret, so at index 0 and 1 there is nothing for it to read. The
+        // other three are pure functions of the token's own text and never
+        // needed the offset at all.
         if crypt_prefix(text) {
             detectors |= DetectorSet::CRYPT_PREFIX;
         }
@@ -438,7 +458,7 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
         if base64ish(text) {
             detectors |= DetectorSet::BASE64;
         }
-        if raw_walk(&texts, at) {
+        if at >= 2 && raw_walk(&texts, at) {
             detectors |= DetectorSet::LEAF_NAME;
         }
     }
@@ -549,7 +569,25 @@ fn pre_redacted(text: &str) -> bool {
         return true;
     }
     let distinct: BTreeSet<char> = text.chars().collect();
-    if distinct.len() <= 2 {
+    // The two-distinct-character rule recognises a mask an operator typed
+    // themselves — `xxxxxxxxxxxx`, `************`. It carries a length floor
+    // because without one it also recognises **`1111`**, which is not a mask,
+    // it is a bad password. Before 2026-08-10 that value was kept in the
+    // capture *verbatim* and reported back as `already_redacted` — Fathom told
+    // the operator their secret was safe because they had redacted it, having
+    // in fact stored it.
+    //
+    // The asymmetry decides the floor and is worth stating: destroying a real
+    // mask costs nothing, because a mask carries no information. Keeping a real
+    // password is a breach of invariant 3. So a short low-variety value is
+    // treated as a secret and destroyed, and only a long one is trusted as a
+    // mask.
+    //
+    // `14` §9.6 states the rule without the floor. This narrows it, in the safe
+    // direction, and the narrowing is filed as a proposed amendment rather than
+    // taken silently — see `70` §13.
+    const MASK_MIN_CHARS: usize = 8;
+    if distinct.len() <= 2 && text.chars().count() >= MASK_MIN_CHARS {
         return true;
     }
     if text == "<PSK>" {

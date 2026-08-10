@@ -1427,7 +1427,25 @@ and the remaining decision is `44`'s number, which is planning's under ADR-0001'
    filed rather than decided — but the two obvious tiers are `[ owner(Device), member_index ]` and
    `[ owner(Device), serial ]`, and the second is the one that survives a re-slot. It matters the
    day a chassis cluster is re-parsed.
-22. **Routing is not a vocabulary addition, and two things stand in front of it.** Established
+22. **`14` §9.6's pre-redaction rule needs a length floor, and one was added ahead of the
+    amendment.** Filed 2026-08-10. §9.6 says a value *"consists of ≤ 2 distinct characters"* is a
+    mask the operator typed, and is therefore bound and not counted as a drop. Taken literally that
+    includes **`1111`**, which is not a mask — and the shipped gate kept it in the capture verbatim
+    *and* reported it back as `already_redacted`. Stored, and described to the operator as safe.
+
+    `crates/fathom-ingest/src/redact.rs` now requires eight characters before trusting the
+    two-distinct-character form. The asymmetry is the argument: **destroying a real mask costs
+    nothing, because a mask carries no information; keeping a real password breaches invariant 3.**
+    The angle-bracket form is unambiguous at any length and keeps no floor.
+
+    This is a narrowing of a specified rule made by a build session, which `78` §5 would normally
+    forbid — it is recorded here rather than taken silently, and the direction is the safe one.
+    **Planning owns the amendment to `14` §9.6.** Two sibling leaks were fixed in the same pass and
+    are not spec changes, only defects: noise lines never reached the gate at all (a prompt-prefixed
+    paste, which is what copying from a terminal produces, kept its secrets), and the unshaped
+    sweep's content detectors started at token 2, so a bare private-key body on its own line was
+    never examined. `crates/fathom-ingest/tests/noise_gate.rs` pins all three.
+23. **Routing is not a vocabulary addition, and two things stand in front of it.** Established
     2026-08-10 while adding the three cheap entries that removed `domain-name` and `description`
     from a real config's residue. `set routing-options static route <prefix> next-hop <x>` is the
     most common statement Fathom still cannot read, and it needs **both** of the following before a
