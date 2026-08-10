@@ -201,6 +201,89 @@ Demonstrated against the shipped `ingest()`, `drops = 0`, secret verbatim in the
 
 ---
 
+## 7. The use case the owner actually meant, and why it changes the answer
+
+Added 2026-08-10, after the owner read §4 and corrected the framing. His words:
+
+> *"if a linux engine happened it would let someone essentially do this map that we are doing but
+> for linux and internals therein. Which would help alot if you had virtual nics and such and needed
+> to map vlan access via that."*
+
+**This is a different slice of Linux from the one §4 costed, and it is by some distance the
+best-fitting one.** §4 answered *"can Fathom model a Linux host"* and correctly found that the
+expensive parts — containers, namespaces, Docker networks, LSM policy — have nothing to sit in.
+The owner is not asking for those. He is asking for **the L2 path from the physical port to the
+workload**, and that is the part the model was already built for.
+
+### Why the question is a good one
+
+A hypervisor or container host is **the one hop in an estate that nothing on the network can see.**
+The switch sees a trunk port. The VM sees an access port on VLAN 30. Everything that connects those
+two facts — the bond, the VLAN sub-interface, the bridge, the veth, the bridge's VLAN filter —
+lives inside the host, is configured by a different team more often than not, and appears in no
+device config anywhere. *"The VLAN is trunked to the host, so why can't the VM reach its gateway?"*
+is answered entirely by facts that exist only in there.
+
+`52` §1 already says the views are renderings of one graph. **A map with a blind spot in the
+middle is not a map of a smaller estate — it is a map that is wrong about reachability**, and
+reachability is what the diagram exists to show.
+
+It is also not a new requirement. `70` §10.4 records the owner's own specification of the physical
+view: *"physical is per single piece of equipment and how its setup internally."* **A Linux host's
+internals is that view, for a server instead of a switch.** Same view, different box.
+
+### What already fits, checked against `schema/schema.yaml` on 2026-08-10
+
+| The thing on a Linux host | Where it goes today | |
+|---|---|---|
+| `eth0`, `enp1s0f0` — a physical NIC | `Interface` | ✅ |
+| `bond0` / `team0` | **`AggregateInterface`**, which already carries `lacp_mode`, `lacp_periodic`, `minimum_links` | ✅ a Linux bond, field for field |
+| `eth0.30` — a VLAN sub-interface | **`LogicalUnit`**, which already carries `vlan_id` | ✅ this is exactly Junos's `unit` |
+| the VLAN itself | `Vlan`, with `vlan_id` | ✅ |
+| addresses on any of it | `Address` under `LogicalUnit` | ✅ |
+| a **veth pair** | **`Cable`**, whose `media` enum already contains **`virtual`** | ✅ and nobody put it there for this |
+| the switch port the NIC plugs into | `PhysicalPort` + `Cable` | ✅ already the modelled hop |
+| `br0` — a Linux/OVS bridge | **nothing clean.** The nearest is `RoutingInstance` with `isolation: l2_bridge`, which exists as a variant and is a stretch — a bridge is an L2 forwarding domain, not a routing instance | ⚠️ one new kind, or a decision to reuse |
+| the VM or container at the end | **nothing.** `19` §3 has no workload, and `ExternalPeer` means something else | ❌ one new kind, or an explicit modelling horizon |
+
+**Five of eight fit as-is, one is arguable, two are missing.** Set against §4's *"docker networks:
+nothing fits; containers: nothing"*, that is a different project. And per §2, a missing kind is
+~41 lines of YAML and a regeneration, with **zero hand-written Rust**.
+
+### And the capture is three commands, not twelve
+
+§4's six-to-twelve pastes covered the whole host. This slice needs the link topology and the VLAN
+membership, which is `ip -d link show`, `bridge vlan show` and — where OVS is in play —
+`ovs-vsctl show`. Two further points that matter more than the count:
+
+1. **This is the part of Linux that is least runtime state.** §4's central warning is that
+   `iptables-save` and `nft list ruleset` are the kernel's live state wearing configuration's
+   clothes. Link topology and VLAN membership are not that: a veth is where somebody put it, a
+   bridge member is a declared relationship. The configuration-versus-observed distinction still has
+   to be recorded — `ip link` reads the kernel — but it is a far weaker hazard here than in the
+   firewall, and it is the same hazard `19` §3.9 already accepts for hand-entered physical plant.
+2. **`ip -d link show` is one command that covers the whole topology**, which is the closest thing
+   Linux has to `display set` for this purpose. §4 was right that no such command exists for the
+   *whole host*; for *this slice* something close does.
+
+### What this changes
+
+**Not the security answer.** §5 stands unaltered: an engine is a contribution compiled in, never a
+runtime plug-in, for reasons that have nothing to do with which slice of Linux it parses.
+
+**The scoping question in §6 gets a candidate answer.** *"What does a Linux engine mean"* is still
+the owner's to settle, but there is now a defensible smallest one: **the L2 path — NICs, bonds,
+VLAN sub-interfaces, bridges, veths — and nothing else.** It is one new parser shape, one or two new
+kinds, three commands, and it closes the blind spot in the middle of the map. Firewall, routing,
+Docker and SELinux are separate, later, and individually justifiable.
+
+**One consequence to state plainly**, because it is the strongest argument here and it is not
+obvious: this slice is worth more than a fifth vendor. A fifth switch platform adds boxes to a map
+that already draws boxes. **This one makes the existing map correct** where today it silently stops
+at the server's edge.
+
+---
+
 ## Failure modes
 
 1. **§2 is quoted without §3.** "Zero hand-written Rust to add a kind" is true and is the best news
