@@ -179,7 +179,15 @@ fn face_error_replies_are_typed() {
     );
 
     let mut shell = loaded();
-    assert_eq!(error(&shell.handle(OP_INV_ROWS, &[3])).code, ERR_BAD_FRAME);
+    // One past the last declared kind, derived rather than written: this line
+    // said `[3]` until 2026-08-10, when the strip grew from three kinds to nine
+    // and byte 3 became `Interface`. A literal here does not fail when the enum
+    // grows — it silently stops testing the refusal and starts testing a kind.
+    let past_the_end = u8::try_from(InvKind::ALL.len()).expect("fewer than 256 kinds");
+    assert_eq!(
+        error(&shell.handle(OP_INV_ROWS, &[past_the_end])).code,
+        ERR_BAD_FRAME
+    );
     assert_eq!(error(&shell.handle(OP_INV_ROWS, &[])).code, ERR_BAD_FRAME);
     assert_eq!(
         error(&shell.handle(OP_ESTATE_DEMO, b"x")).code,

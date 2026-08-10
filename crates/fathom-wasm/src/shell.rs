@@ -188,16 +188,26 @@ impl Shell {
     }
 
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {
+        // The kind byte indexes `InvKind::ALL` — it is not a hand-written table.
+        // It was one until 2026-08-10, and when the strip grew from three kinds
+        // to nine the table did not, so six row sets existed in the crate and
+        // were unreachable through the only door the browser has. Indexing the
+        // declaration order makes that class of drift unrepresentable, and
+        // `ALL`'s order is therefore the wire order: **a kind is appended, never
+        // inserted**, or every existing byte means something new.
         let kind = match req {
-            [0] => fathom_inventory::InvKind::Device,
-            [1] => fathom_inventory::InvKind::PhysicalPort,
-            [2] => fathom_inventory::InvKind::Premises,
-            [b] => {
-                return protocol::encode_error(
-                    ERR_BAD_FRAME,
-                    &format!("kind byte {b} is not 0, 1 or 2"),
-                )
-            }
+            [b] => match fathom_inventory::InvKind::ALL.get(usize::from(*b)) {
+                Some(k) => *k,
+                None => {
+                    return protocol::encode_error(
+                        ERR_BAD_FRAME,
+                        &format!(
+                            "kind byte {b} is not in 0..{}",
+                            fathom_inventory::InvKind::ALL.len()
+                        ),
+                    )
+                }
+            },
             other => {
                 return protocol::encode_error(
                     ERR_BAD_FRAME,

@@ -12,9 +12,11 @@
 //! page. Native parity is necessary and not sufficient, and saying so is
 //! cheaper than discovering it.
 
+use fathom_inventory::InvKind;
 use fathom_wasm::protocol::{
-    decode_reply, ErrorView, FaceRowView, ReplyView, ERR_INGEST_REFUSED, ERR_NOTHING_UNDERSTOOD,
-    ERR_PASTE_FRAME, FACE_PASTE, FACE_RESIDUE, FACE_UNRESOLVED,
+    decode_reply, ErrorView, FaceRowView, ReplyView, ERR_BAD_FRAME, ERR_INGEST_REFUSED,
+    ERR_NOTHING_UNDERSTOOD, ERR_PASTE_FRAME, FACE_HEADER, FACE_PASTE, FACE_RESIDUE,
+    FACE_UNRESOLVED,
 };
 use fathom_wasm::shell::Shell;
 use fathom_wasm::{OP_INV_ROWS, OP_PASTE};
@@ -306,8 +308,18 @@ interfaces {
 }
 ";
 
+/// The wire byte for a kind: its index in `InvKind::ALL`, which is what the
+/// module indexes. Derived so a growing strip cannot silently repoint a test.
+fn kind_byte(kind: InvKind) -> u8 {
+    InvKind::ALL
+        .iter()
+        .position(|k| *k == kind)
+        .and_then(|i| u8::try_from(i).ok())
+        .expect("a declared kind")
+}
+
 fn devices(shell: &mut Shell) -> Vec<[String; 8]> {
-    face(&shell.handle(OP_INV_ROWS, &[0]))
+    face(&shell.handle(OP_INV_ROWS, &[kind_byte(InvKind::Device)]))
         .into_iter()
         .skip(1)
         .map(|r| r.strings)
@@ -423,4 +435,82 @@ fn an_empty_paste_is_refused_without_pretending_to_know_why() {
     let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, "\n\n   \n")));
     assert_eq!(e.code, ERR_NOTHING_UNDERSTOOD);
     assert!(e.detail.contains("empty"), "{}", e.detail);
+}
+
+/// Stage 4 of `00-ROUTE-TO-WORKABLE.md`, pinned. Before 2026-08-10 a pasted
+/// config built nine kinds of object and the inventory offered three row sets,
+/// none of which any of them appeared in — so an operator who pasted a working
+/// tunnel saw one device and no way to reach the zones, the gateway or the VPN
+/// that Fathom had understood perfectly.
+///
+/// This asserts by *content*, not by count: each kind must show the name that
+/// was in the pasted text. A row rendering as `ikegateway:01KZ…` passes a count
+/// assertion and fails the operator, which is exactly the defect this replaces.
+#[test]
+fn the_objects_a_config_builds_are_reachable_and_named() {
+    let (mut shell, _) = pasted();
+
+    // Looked up by label, never written as a literal byte: the byte is
+    // `InvKind::ALL`'s index, and a literal here silently starts testing a
+    // different kind the moment the strip grows. It did, within the hour.
+    let want: [(InvKind, &str, &str); 7] = [
+        (InvKind::Interface, "ge-0/0/0", "the WAN interface"),
+        (InvKind::TunnelInterface, "st0", "the tunnel interface"),
+        (InvKind::Zone, "trust", "a security zone"),
+        (InvKind::IkeGateway, "gw-hq", "the IKE gateway"),
+        (InvKind::IpsecVpn, "hq-vpn", "the IPsec VPN"),
+        (InvKind::IkeProposal, "ike-prop", "the IKE proposal"),
+        (InvKind::IpsecProposal, "ipsec-prop", "the IPsec proposal"),
+    ];
+
+    for (kind, name, what) in want {
+        let byte = kind_byte(kind);
+        let rows = face(&shell.handle(OP_INV_ROWS, &[byte]));
+        assert!(rows.len() > 1, "{what} has no rows at kind byte {byte}");
+
+        let cells: Vec<String> = rows
+            .iter()
+            .skip(1)
+            .flat_map(|r| r.strings.iter().cloned())
+            .collect();
+        assert!(
+            cells.iter().any(|c| c == name),
+            "{what} does not show `{name}` — it renders as {cells:?}"
+        );
+        // Every row must carry the hostname of the box it came from, or the
+        // table is a list of names with no estate behind it.
+        assert!(
+            cells.iter().any(|c| c == "srx-branch-01"),
+            "{what} does not name its device: {cells:?}"
+        );
+    }
+}
+
+/// The header a kind advertises and the rows it returns must agree on width,
+/// on the real pasted estate — the demo estate cannot check this for these
+/// kinds because it contains none of them.
+#[test]
+fn every_pasted_kind_has_a_consistent_header() {
+    let (mut shell, _) = pasted();
+    for byte in 0..u8::try_from(InvKind::ALL.len()).expect("fewer than 256 kinds") {
+        let rows = face(&shell.handle(OP_INV_ROWS, &[byte]));
+        let head = &rows[0];
+        assert_eq!(head.role, FACE_HEADER, "kind {byte}");
+        // slot_count is `columns + 2` — the kind label and the opinions header.
+        let cols = head.slot_count as usize - 2;
+        assert!(cols > 0, "kind {byte} advertises no columns");
+        for r in rows.iter().skip(1) {
+            assert_eq!(r.slot_count, head.slot_count, "kind {byte} row width");
+        }
+    }
+}
+
+/// The kind byte is a wire value. Nine kinds exist; the tenth must still be a
+/// typed refusal rather than a panic or a silently empty table.
+#[test]
+fn an_unknown_kind_byte_is_still_refused() {
+    let (mut shell, _) = pasted();
+    let past_the_end = u8::try_from(InvKind::ALL.len()).expect("fewer than 256 kinds");
+    let e = error(&shell.handle(OP_INV_ROWS, &[past_the_end]));
+    assert_eq!(e.code, ERR_BAD_FRAME);
 }

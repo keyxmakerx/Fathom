@@ -180,14 +180,54 @@ fn premises_rows_count_devices_via_atpremises() {
     );
 }
 
+/// The kinds the *demo* estate contains. It is a hand-built estate of sites,
+/// devices, ports and premises; the six kinds added on 2026-08-10 are what a
+/// **pasted config** builds, and the demo has none of them. Their rows are
+/// asserted where that data exists — `crates/fathom-wasm/tests/paste.rs`.
+const DEMO_KINDS: [InvKind; 3] = [InvKind::Device, InvKind::PhysicalPort, InvKind::Premises];
+
 #[test]
 fn opinions_cells_are_all_em_dash() {
     let g = demo_estate();
+    let mut seen = 0usize;
     for kind in InvKind::ALL {
         let rs = rows(&g, kind);
-        assert!(!rs.is_empty(), "{} has rows", kind.label());
+        // The guard against a vacuous test, narrowed to the kinds this estate
+        // actually has rather than deleted: a projection that silently returned
+        // nothing would otherwise pass this test by having nothing to check.
+        if DEMO_KINDS.contains(&kind) {
+            assert!(
+                !rs.is_empty(),
+                "{} has rows in the demo estate",
+                kind.label()
+            );
+        }
+        seen += rs.len();
         for r in rs {
             assert_eq!(r.opinions, "—", "{}", kind.label());
+        }
+    }
+    assert!(seen > 0, "the demo estate projected no rows at all");
+}
+
+/// Every kind must answer `columns` and `rows` without panicking, and the two
+/// must agree on width — including on an estate that contains none of that
+/// kind, where a header with the wrong column count is invisible until somebody
+/// pastes the config that fills it.
+#[test]
+fn every_kind_projects_a_consistent_width() {
+    let g = demo_estate();
+    for kind in InvKind::ALL {
+        let cols = columns(kind).len();
+        assert!(cols > 0, "{} declares no columns", kind.label());
+        for r in rows(&g, kind) {
+            assert_eq!(
+                r.cells.len(),
+                cols,
+                "{} row has {} cells against {cols} columns",
+                kind.label(),
+                r.cells.len()
+            );
         }
     }
 }

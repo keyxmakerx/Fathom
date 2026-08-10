@@ -24,7 +24,7 @@ what a planning session made of it.
 | 9 | What "off the ground" means | *there is no thin first release* |
 | 10 | The graph and the diagram — owner observations | *three observations, then the structure of the picture* |
 | 11 | Questions still outstanding | *re-asked in plain language* |
-| 16 | Incomplete paths, and telling two devices apart | *two answers, 2026-08-09* |
+| 16 | Incomplete paths, devices, and engines as separate files | *three answers, 2026-08-09/10* |
 | 12 | Failure modes |  |
 | 13 | Open decisions |  |
 | 14 | Sources consulted |  |
@@ -1205,6 +1205,62 @@ empty set so the next warning of any code fails a test.
 matches and the operator meant a different box — two real branches whose SRXs are both
 `core-01`. A match is a **proposal to a human, not an automatic merge**, and what that proposal
 looks like is `53`/`54` work. Filed in §13.
+
+### 16.4 Engines as separate files — 2026-08-10
+
+Asked which way the artifact should grow past `44` §5.2's ceiling — one bigger file, or a program
+plus a knowledge file — the owner answered with a third shape:
+
+> *"oh I was thinking engines would be their own thing (s) like each their own fine? in an engine
+> folder. does that fix this?"*
+
+**It is a better shape than either option offered, and the honest answer to *"does that fix this"*
+is: it fixes the half that grows without limit, and it does not fix the half that is actually
+large today.** Both halves were measured rather than estimated, on 2026-08-10.
+
+**Measurement 1 — the vocabulary is not what is big.** Linking `fathom-ingest` and `fathom-weld`
+into the module took it from 560,405 to 812,467 bytes: **252,062 bytes to teach Fathom to read
+Juniper.** The Juniper vocabulary itself — all six `corpus/dict/junos-srx/*.yaml` plus
+`schema/field-keys.yaml` — is **29,670 bytes**, under 12% of that. The other 88% is the machinery
+that reads it: framer, lexer, shaper, redaction gate, binder, weld.
+
+So moving engines to their own files saves roughly **30 KB per vendor, not 150 KB**. Worth doing —
+vocabulary is the thing that grows forever, statement by statement, and it is exactly the thing that
+should not be recompiled to add a line — but it is not the answer to the ceiling on its own.
+
+**Measurement 2 — and this is the good news the measurement produced.** The expensive part, the
+parser, is **shared across a whole vendor family**. Checked against Juniper's own documentation on
+2026-08-10 rather than recalled (ADR-0034 §5): EX, M, MX, PTX, SRX and T Series *"all use the same
+user interfaces and configuration mode commands in the Junos OS"*, and `show | display set` produces
+the same flattened form on all of them. Juniper's own caveat travels with it and is not smoothed
+away: *"CLI commands and options can vary by platform and software release."*
+
+**Consequence for `70` §7's platform list, stated plainly: junos-mx and junos-ex are nearly free.**
+They are the same parser and largely the same vocabulary as junos-srx — a set of extra statements
+and a version predicate, not a new engine. The expensive engines are the genuinely different
+vendors: PAN-OS, NX-OS and Meraki, each of which needs its own parser at something like today's
+252 KB. Three of the six platforms cost almost nothing; three cost a parser each.
+
+**Recommendation, and it is a recommendation rather than a decision.**
+
+1. **Vocabulary in its own files, per engine, as the owner describes.** It is the unbounded half, it
+   is corpus data rather than code, and `Dictionary::from_sources` already runs every gate on
+   whatever it is handed — so a vocabulary file is checked input, not trusted input. The mechanism
+   also already exists on the other side: the command corpus arrives as host-supplied `SourceFile`s
+   at `OP_INIT` and only the dictionary does not use it.
+2. **Parsers stay inside the one module.** There are realistically four of them (Junos, PAN-OS,
+   NX-OS, Meraki), so the cost is *bounded* rather than unbounded, and — the load-bearing reason —
+   **an engine file that contains code is a different security posture from one that contains
+   data.** That is `38`'s territory to price, not a thing to adopt as a side effect of a size
+   problem.
+3. **The ceiling still has to move once, to a bounded number.** Four parsers plus persistence
+   (measured +239,964) plus a rule evaluator plus a layout engine do not fit in 900,000 bytes
+   wherever the vocabulary lives. Moving it once, with the four bounded costs named, is a different
+   act from raising it whenever something does not fit.
+
+**What this leaves the owner:** nothing, unless he disagrees with the recommendation. The
+one-file-versus-two-files question he was asked is answered — one file, with vocabulary alongside —
+and the remaining decision is `44`'s number, which is planning's under ADR-0001's precedence rule.
 
 ## 12. Failure modes
 

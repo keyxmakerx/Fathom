@@ -527,7 +527,19 @@ function sourceWords() {
   return 'no workspace loaded';
 }
 
-var KINDS = ['Device', 'PhysicalPort', 'Premises'];
+/* The kind strip. The byte sent to OP_INV_ROWS is this array's index, which is
+   fathom_inventory::InvKind::ALL's declaration order — so a kind is APPENDED
+   here, never inserted, or every existing byte means something new.
+
+   The first three are what a hand-built estate has; the last six are what a
+   pasted config builds. Until 2026-08-10 only the first three existed, so a
+   config Fathom had read correctly showed its device and hid its zones, its
+   gateway and its VPN. The module refuses a byte past the end by code, so a
+   drift between this list and the enum is a visible refusal rather than a
+   wrong table. */
+var KINDS = ['Device', 'PhysicalPort', 'Premises',
+             'Interface', 'TunnelInterface', 'Zone',
+             'IkeGateway', 'IpsecVpn', 'IkeProposal', 'IpsecProposal'];
 
 var VIEWS = [
   { id: 'finder',      t: 'Finder',      key: '⌥1',

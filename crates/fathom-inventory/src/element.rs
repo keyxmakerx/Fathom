@@ -85,6 +85,28 @@ pub(crate) fn display_name(g: &Graph, id: NodeId) -> String {
             }
         }
         NodeKind::Chassis => format!("chassis {}", value_cell(g, id, key("Chassis.member_index"))),
+
+        // The security objects a pasted junos-srx config actually builds. Added
+        // 2026-08-10: before it, every one of these fell through to the arm
+        // below and rendered as a raw ULID, so a config Fathom had understood
+        // *perfectly* showed the operator `ikegateway:01KZ…` where `gw-hq` was
+        // the whole point. `name` is `card: "1"` on all seven, so none of these
+        // can be `—` on a node the parser built.
+        NodeKind::Zone => value_cell(g, id, key("Zone.name")),
+        NodeKind::IkeProposal => value_cell(g, id, key("IkeProposal.name")),
+        NodeKind::IkePolicy => value_cell(g, id, key("IkePolicy.name")),
+        NodeKind::IkeGateway => value_cell(g, id, key("IkeGateway.name")),
+        NodeKind::IpsecProposal => value_cell(g, id, key("IpsecProposal.name")),
+        NodeKind::IpsecPolicy => value_cell(g, id, key("IpsecPolicy.name")),
+        NodeKind::IpsecVpn => value_cell(g, id, key("IpsecVpn.name")),
+        // `Address` has no name; its value *is* its name, and it is the thing
+        // an operator reads (`10.255.0.1/30`).
+        NodeKind::Address => value_cell(g, id, key("Address.value")),
+
+        // Deliberately last and deliberately a ULID: a kind with no arm is a
+        // kind nobody has decided how to name, and showing its id says so
+        // rather than inventing a label. Adding a kind here is cheap; guessing
+        // is what produced the defect above.
         _ => id.to_string(),
     }
 }
