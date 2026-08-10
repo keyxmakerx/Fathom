@@ -1371,6 +1371,33 @@ looks like is `53`/`54` work. Filed in §13.
    filed rather than decided — but the two obvious tiers are `[ owner(Device), member_index ]` and
    `[ owner(Device), serial ]`, and the second is the one that survives a re-slot. It matters the
    day a chassis cluster is re-parsed.
+22. **Routing is not a vocabulary addition, and two things stand in front of it.** Established
+    2026-08-10 while adding the three cheap entries that removed `domain-name` and `description`
+    from a real config's residue. `set routing-options static route <prefix> next-hop <x>` is the
+    most common statement Fathom still cannot read, and it needs **both** of the following before a
+    single dictionary line can be written:
+
+    **(a) A field value that is a reference to another node.** `StaticRoute.next_hop` is typed
+    `NextHop`, which `schema/schema.yaml`:70 registers as `structured: true,
+    contains_reference: true` — the registered `contains_reference` exception (`11` §6.5), carrying
+    a `NodeId` to a `LogicalUnit` for the `next-hop st0.0` form. `fathom-ingest`'s `BoundValue` has
+    **no variant that can hold a node reference**, and its deferred-reference machinery
+    (`PendingTarget`) serves **edges only**. So the binder cannot express this value at all today.
+    An IP-address next hop (`NextHop::Address`) needs none of that and could land first, which is
+    worth knowing: the statement splits into an easy half and a hard half.
+
+    **(b) What the default routing instance is called.** `11` §6.5 states *"The default instance is
+    modelled explicitly, not as None"*, and `RoutingInstance` requires both `name` (`card: 1`) and
+    `isolation` (`card: 1`). A `set routing-options …` statement names no instance, so binding one
+    means minting the default instance — and its **name is a decision nobody has taken**. It is
+    load-bearing forever: every routing statement on every platform hangs off it, and two platforms
+    disagreeing about the name would silently produce two default instances per device. Planning,
+    not the owner, and not an execution session (`78` §5).
+
+    Filed rather than attempted. The two `security policies` lines in the same residue are a
+    separate and larger body of work — `SecurityPolicy`, `PolicySet`, `AddressObject`,
+    `AddressSet`, `Application` and `ApplicationSet` all exist in `schema/` with no dictionary
+    behind any of them.
 19. **The image decoder as a trust surface** (§10.10). `34` has no section on image decoding —
    grepped 2026-08-08, zero hits — so the surface is unanalysed rather than cleared. A question for
    `34`'s owner. **ADR-0034 forbids answering it from memory and §10.10 does not answer it.**
