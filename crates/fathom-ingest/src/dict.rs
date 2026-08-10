@@ -232,6 +232,12 @@ pub(crate) enum ValueTy {
     EstablishTunnels,
     IpsecVpnDfBit,
     AddressFamily,
+    /// `11` §4.3's one free-string scalar. Its `parse` cannot fail, which
+    /// makes it the only value type here that never produces a
+    /// `Diag::ValueUnparsed` — a description binds or the statement did not
+    /// match at all.
+    Text,
+    Fqdn,
 }
 
 impl ValueTy {
@@ -239,6 +245,8 @@ impl ValueTy {
         Some(match name {
             "Identifier" => ValueTy::Identifier,
             "InterfaceName" => ValueTy::InterfaceName,
+            "Text" => ValueTy::Text,
+            "Fqdn" => ValueTy::Fqdn,
             "AuthMethod" => ValueTy::AuthMethod,
             "DhGroup" => ValueTy::DhGroup,
             "IntegrityAlgorithm" => ValueTy::IntegrityAlgorithm,
@@ -1469,7 +1477,10 @@ mod tests {
     fn shipped_dictionary_compiles() {
         let d = dict();
         assert_eq!(d.platform(), "junos-srx");
-        assert_eq!(d.entry_count(), 39);
+        // 39 through WO-03; +3 on 2026-08-10 — `system domain-name` and
+        // `description` at both the interface and the unit level, the three
+        // statements a 26-line branch config produced as residue.
+        assert_eq!(d.entry_count(), 42);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside

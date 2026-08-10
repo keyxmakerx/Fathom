@@ -73,11 +73,21 @@ security zones, a static route, one security policy, and one pre-shared key.
 | 25 | `set security policies … match source-address any` | not in the dictionary past the first word |
 | 26 | `set security policies … then permit` | not in the dictionary past the first word |
 
-None of those five is a bug. They are the honest shape of the vocabulary Fathom has today: it knows
-interfaces, zones, IKE and IPsec, and it does not yet know routing, policies, descriptions or
-domain names. **The point is that it says so, per line, instead of quietly ignoring them.** Two of
-them — `description` and `domain-name` — are one-line additions to the vocabulary file whenever
-somebody wants them; the routing and policy statements are real bodies of work.
+None of those five is a bug. They are the honest shape of the vocabulary Fathom has today.
+
+**Two of the five are now fixed — and I was wrong about how cheap they were.** I said `description`
+and `domain-name` were one-line additions to the vocabulary file. They were not: the parser's table
+of value types had no entry for free text or for a domain name, so each needed a value type, a
+parse arm and a store arm as well as the vocabulary line. That is still small — about twenty lines
+of code and three vocabulary entries — but it is not one line, and the difference matters because it
+is the true cost of *every* statement that binds a kind of value Fathom has not met before.
+
+They are in as of 2026-08-10, verified against Juniper's own CLI reference on that date rather than
+from memory. `description` turned out to be valid at **two** hierarchy levels — on the port and on
+the unit — which are facts about different objects, so it is two entries, not one, and there is a
+test that fails if a unit's description ever gets recorded against its port. **The same config now
+reads 3 unread lines instead of 5.** The routing and policy statements that remain are real bodies
+of work.
 
 **The pre-shared key.** The config contains
 `set security ike policy ike-pol pre-shared-key ascii-text "SuperSecret123"`. After the paste, the
@@ -109,17 +119,18 @@ All run at the end of this session on a clean tree:
 |---|---|
 | Formatter | clean |
 | Linter (warnings treated as errors) | clean |
-| Tests | **366 passed, 0 failed, 0 skipped, 0 filtered** (up from 354) |
+| Tests | **372 passed, 0 failed, 0 skipped, 0 filtered** (up from 354) |
 | Schema checker | exit 0 — **0 failures, 0 warnings**; the two standing `Site` warnings are gone (see below) |
 | Cross-reference checker | 8,648 checked, 58 unresolved — the same 58 as before this branch |
-| Browser module audit | imports **still empty**, module 812,467 bytes against a 900,000 ceiling |
+| Browser module audit | imports **still empty**, module ~820 KB against a 900,000-byte ceiling |
 | Egress and safety greps on the page source | all seven patterns still zero |
 | Network requests during the browser run | **one — the file itself. Nothing else.** |
 
-The twelve new tests are: three that prove the compiled-in Juniper vocabulary is byte-for-byte the
-one on disk, and nine that drive the paste path through the same code the browser calls — including
-the secret-never-comes-back test, the every-line-is-accounted-for test, and a determinism test that
-proves the same paste with the same clock produces the same bytes twice.
+The eighteen new tests are: three that prove the compiled-in Juniper vocabulary is byte-for-byte the
+one on disk; nine that drive the paste path through the same code the browser calls — including the
+secret-never-comes-back test, the every-line-is-accounted-for test, and a determinism test that
+proves the same paste with the same clock produces the same bytes twice; and six on the new
+vocabulary entries, each of which pins one way they could have been quietly wrong.
 
 ## 6. Three things worth knowing
 

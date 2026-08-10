@@ -72,5 +72,7 @@ pub(crate) fn write_field(
         BoundValue::AddressFamily(v) => graph.set_field(element, key, v.clone(), record),
         BoundValue::FamilySet(v) => graph.set_field(element, key, v.clone(), record),
         BoundValue::HostServiceSet(v) => graph.set_field(element, key, v.clone(), record),
+        BoundValue::Text(v) => graph.set_field(element, key, v.clone(), record),
+        BoundValue::Fqdn(v) => graph.set_field(element, key, v.clone(), record),
     }
 }

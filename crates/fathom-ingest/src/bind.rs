@@ -124,6 +124,11 @@ pub enum BoundValue {
     AddressFamily(AddressFamily),
     FamilySet(BTreeSet<Family>),
     HostServiceSet(BTreeSet<HostService>),
+    /// Free text — an interface or unit `description`. The lexer has already
+    /// stripped the quotes and resolved the escapes, so what lands here is the
+    /// operator's sentence and not its Junos spelling.
+    Text(scalar::Text),
+    Fqdn(scalar::Fqdn),
 }
 
 // ---------------------------------------------------------------------------
@@ -569,6 +574,8 @@ fn scalar_value(dict: &Dictionary, ty: ValueTy, raw: &str) -> Result<BoundValue,
     Ok(match ty {
         ValueTy::Identifier => BoundValue::Identifier(parse(mapped)?),
         ValueTy::InterfaceName => BoundValue::InterfaceName(parse(mapped)?),
+        ValueTy::Text => BoundValue::Text(parse(mapped)?),
+        ValueTy::Fqdn => BoundValue::Fqdn(parse(mapped)?),
         ValueTy::AuthMethod => BoundValue::AuthMethod(parse(mapped)?),
         ValueTy::DhGroup => BoundValue::DhGroup(parse(mapped)?),
         ValueTy::IntegrityAlgorithm => BoundValue::IntegrityAlgorithm(parse(mapped)?),

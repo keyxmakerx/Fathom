@@ -18,6 +18,20 @@ entries:
     versions: "*"
     reviewed_by: <named human>
 
+  # Verified against Juniper's CLI reference on 2026-08-10 rather than recalled
+  # (ADR-0034 §5). "domain-name (System)" — Syntax: `domain-name domain-name ;`
+  # Hierarchy Level: `[edit system]`. Options: "Name of the domain… The length
+  # of the domain name cannot exceed 255 characters." Introduced before Junos
+  # OS 7.4, so `versions: "*"` is the correct predicate and not a shrug.
+  # https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/domain-name-edit-system.html
+  - id: junos-srx/system.domain-name
+    path: [system, domain-name, "$d"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device, fields: [ { field: domain_name, from: "$d", scalar: Fqdn } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
   - id: junos-srx/system.root-authentication.encrypted-password
     path: [system, root-authentication, encrypted-password, "$v"]
     secret: { label: password }
