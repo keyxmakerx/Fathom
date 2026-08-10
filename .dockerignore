@@ -1,0 +1,32 @@
+# Without this, `docker build` sends the whole working tree as build context —
+# including target/, which is 4.8 GB on a warm checkout. The build would appear
+# to hang before it had compiled a line.
+#
+# Everything the artifact needs is here: the crates, schema/, corpus/, design/
+# tokens, Cargo.toml and Cargo.lock. Nothing below is an input to it.
+
+# Build output. The container builds its own from source; a host-built target/
+# would also be for the wrong libc.
+target/
+out/
+
+# Version control and CI.
+.git/
+.github/
+.gitignore
+
+# Documentation and review material — thousands of files, none of them compiled.
+# `corpus/` is NOT here: it holds the statement dictionary the parser embeds.
+docs/
+*.md
+!README.md
+
+# Editor and OS noise.
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Anything a previous run left behind.
+*.log
+scratch/

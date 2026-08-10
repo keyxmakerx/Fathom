@@ -1,0 +1,77 @@
+# Fathom, served locally. `docker compose up -d`, then http://127.0.0.1:8080
+#
+# Defaults are the cautious ones. Every loosening you might want is present as a
+# commented line with the consequence written next to it, so widening exposure is
+# a thing you decide rather than a thing you inherit.
+
+services:
+  fathom:
+    build:
+      context: .
+      target: serve
+    image: fathom:local
+
+    # BOUND TO LOOPBACK ON PURPOSE. `8080:8080` would publish on every interface
+    # the host has — and on most Docker installs that punches through the host
+    # firewall, because Docker writes its own iptables rules ahead of yours.
+    # To reach it from elsewhere, put it behind a reverse proxy that terminates
+    # TLS (see docker/README.md) rather than changing this line.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    # ---- container hardening ------------------------------------------------
+    # The image is the unprivileged nginx (uid 101). It serves one static file
+    # and writes nothing, so it needs no root, no capabilities and no writable
+    # filesystem.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # nginx wants somewhere to put its pid and its scratch. tmpfs, not a volume:
+    # nothing here should survive the container, and nothing here is worth
+    # keeping.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=16m
+      - /var/run:rw,noexec,nosuid,nodev,size=1m
+
+    # A static file server that cannot be made to work hard. These are low
+    # because nothing here is expensive; if you hit them, something is wrong
+    # rather than busy.
+    mem_limit: 128m
+    pids_limit: 64
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    # Fathom never makes an outbound connection — not from the page, which has
+    # `connect-src 'none'`, and not from the server, which only answers. The
+    # container therefore needs no egress at all.
+    #
+    # `internal: true` on the network below would enforce that at the Docker
+    # level. It is left commented because on several Docker versions an internal
+    # network and a published port do not coexist, and a compose file that fails
+    # to come up is worse than one that documents the intent. If you want it
+    # enforced, run the proxy in the same compose project and drop `ports:`
+    # entirely.
+    networks:
+      - fathom
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+networks:
+  fathom:
+    driver: bridge
+    # internal: true
