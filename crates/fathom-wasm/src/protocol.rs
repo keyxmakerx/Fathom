@@ -84,6 +84,14 @@ pub const ERR_PASTE_FRAME: u16 = 7;
 pub const ERR_INGEST_REFUSED: u16 = 8;
 /// The weld refused to apply the fragment. The detail carries the refusal.
 pub const ERR_WELD_REFUSED: u16 = 9;
+/// The paste parsed without error and **bound nothing**: not one line became a
+/// fact. Almost always the wrong text — a config from another vendor, or Junos
+/// in its curly-brace form rather than `| display set`.
+///
+/// It is a distinct code because it is not a failure of the paste so much as a
+/// failure of the *choice* of paste, and the page's remedy is different: tell
+/// the operator what Fathom expected and keep what they already had.
+pub const ERR_NOTHING_UNDERSTOOD: u16 = 10;
 
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;

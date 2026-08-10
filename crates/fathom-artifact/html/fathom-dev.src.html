@@ -258,6 +258,10 @@ button.tab:hover { color: var(--ink); }
 .phead .lead { font-size: var(--t-micro); line-height: var(--lh-micro); font-weight: 700;
                letter-spacing: var(--track-head); text-transform: uppercase; }
 .phead .prose { margin: var(--s1) 0 0; }
+/* A refusal, where the text that caused it still is. The caution channel is
+   51 §9's, unmodified — this is not a new colour. */
+.perr { color: var(--caution); border-left: var(--rule-accent) solid var(--caution);
+        background: var(--caution-wash); padding: var(--s1) var(--s3); }
 .pta { flex: 1 1 auto; min-height: 0; width: 100%; resize: none;
        border: 0; background: none; color: var(--ink);
        font-family: var(--mono); font-size: var(--t-mono); line-height: var(--lh-step);
@@ -359,6 +363,7 @@ button.tab:hover { color: var(--ink); }
       <div class="phead">
         <div class="lead">Paste a config — Juniper SRX, set form</div>
         <p class="prose" id="pHint"></p>
+        <p class="prose perr" id="pErr" hidden role="alert"></p>
       </div>
       <textarea class="pta" id="pta" aria-label="Configuration text" spellcheck="false"
                 autocomplete="off" autocapitalize="off" autocorrect="off"
@@ -503,10 +508,13 @@ var S = {
      never be on screen at once, and every label reads off this one word so
      they cannot disagree about which one is. */
   source: '',
-  /* The last OP_PASTE reply, kept so the residue stays visible after the
-     sheet closes: the lines Fathom did not read are the answer, not a
-     transient toast. */
+  /* The last SUCCESSFUL OP_PASTE reply, kept so the residue stays visible
+     after the sheet closes: the lines Fathom did not read are the answer, not
+     a transient toast. A failed paste never touches this — see runPaste. */
   paste: null,
+  /* The last refusal, shown in the paste sheet where the text that caused it
+     still is. Cleared by the next success. */
+  pasteError: null,
   boot: null,
   msg: ''
 };
@@ -1100,8 +1108,22 @@ function setPaste(open) {
       'Nothing leaves this page. The text is read in the module, secrets are ' +
       'destroyed before anything is stored, and every line that cannot be read ' +
       'is listed back to you rather than dropped.';
+    renderPasteError();
     $('pta').focus();
   }
+}
+
+/* The module's refusal details for this opcode are written to be read by the
+   person holding the config, so the detail is shown as-is. `replyProblem`'s
+   "code N ·" prefix is for a developer reading a face that got the wrong shape
+   of reply; it is noise here, and it is only used for the shapes that have no
+   human-written detail. */
+function renderPasteError() {
+  var n = $('pErr'), r = S.pasteError, msg = null;
+  if (r && r.kind === 'error') msg = r.detail;
+  else if (r) msg = replyProblem(r);
+  n.textContent = msg || '';
+  n.hidden = !msg;
 }
 
 /* 16 bytes from the platform CSPRNG. There is no fallback: Math.random is not
@@ -1134,8 +1156,20 @@ function runPaste() {
 
   var reply = call(OP_PASTE, req);
   var bad = replyProblem(reply);
-  if (bad) { S.paste = reply; foot(bad); renderShell(); return; }
+  if (bad) {
+    /* A refused paste changes NOTHING. S.paste keeps the last successful
+       result — overwriting it with an error blanks the tally and the residue
+       table while leaving the rows they describe, which reads as if the estate
+       on screen came from the paste that just failed. The sheet stays open,
+       because the text that needs fixing is in it. */
+    S.pasteError = reply;
+    foot('the paste was not read — nothing changed');
+    renderPasteError();
+    renderShell();
+    return;
+  }
 
+  S.pasteError = null;
   S.paste = reply;
   S.source = 'paste';
   S.loaded = true;

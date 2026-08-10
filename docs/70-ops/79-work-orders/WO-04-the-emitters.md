@@ -1,12 +1,23 @@
 # WO-04 — `fathom-emit`: graph to junos-srx commands with provenance
 
-> **Status:** BLOCKED on **one** planning decision, not two. **§10 item 7(b) is answered
-> (2026-08-09)** — `mode` is not a Junos statement at all (verified against Juniper's CLI reference
-> for `[edit security ipsec vpn]`, which has no `mode` and defines `bind-interface` as the interface
-> *"to which the route-based VPN is bound"*), so it is derived at weld time from the presence of a
-> `BindsInterface` edge, with `Confidence::Derived`. Still open: **WO-09 §10 item 2** — §4.9's golden
-> references `reth0.0` and `st0.0` and declares no interface, so both edges stay `Pending` under
-> `14` §7.3.
+> **Status:** **OPEN.** Both blockers are answered; what is left is code.
+>
+> **§10 item 7(b), answered 2026-08-09** — `mode` is not a Junos statement at all (verified against
+> Juniper's CLI reference for `[edit security ipsec vpn]`, which has no `mode` and defines
+> `bind-interface` as the interface *"to which the route-based VPN is bound"*), so it is derived at
+> weld time from the presence of a `BindsInterface` edge, with `Confidence::Derived`. **A gap the
+> answer leaves and this order must close:** `mode` is `card: "1"`, and the schema declares the
+> route-based side only — the policy-based case still needs defining before an emit can be complete.
+>
+> **WO-09 §10 item 2, answered by the owner 2026-08-09** (`70` §16.1, verbatim; §16.2 for what it
+> does and does not settle). §4.9's golden references `reth0.0` and declares no interface, and the
+> answer is that an incompletely-known path is **emitted and marked**, never refused: *"if not all
+> the info is available how it routes then there needs to be like a dotted line or something
+> indicating that."* A block of config text cannot carry a dotted line, so the emit-surface
+> translation is **hand over the statements that are known and name the assumption** — and stating
+> precisely how the output names it is this order's first act, before step 13's gate can be
+> restated. `70` §16.2 flags that translation as a reading rather than a decision, so if it does not
+> survive contact with the code, escalate under `78` §4 rather than rewriting the answer.
 
 The reverse face of ingest — from graph state to copy-pasteable configuration lines, each line
 carrying the provenance that produced it. This is the notepad's engine: `53` §6's copy machinery
@@ -816,7 +827,7 @@ are exact; anything else is a red gate and §7 applies.
 | G3 | `cargo test -p fathom-emit` | Every §4.10 test listed (except `round_trip` before step 13), all `ok`, 0 failed |
 | G4 | `cargo test --workspace` | Every suite `ok`, zero failures; no pre-existing test deleted, loosened or ignored (`78` §5.5). Green is the gate, not a count (`78` §12 item 3) |
 | G5 | `git diff --exit-code -- schema/ crates/fathom-ir crates/fathom-schema crates/fathom-schemagen` | No output, exit 0 — this WO touches none of them |
-| G6 | `cargo run -q -p fathom-schema --bin fathom-schema-check` | Exit 0; `48 kinds · 89 edges · 61 scalars · 10 enums · 14 files parsed`; `0 failure(s), 2 warning(s)` — the pinned baseline, unchanged |
+| G6 | `cargo run -q -p fathom-schema --bin fathom-schema-check` | Exit 0; `48 kinds · 89 edges · 61 scalars · 10 enums · 14 files parsed`; **`0 failure(s), 0 warning(s)`** — the pinned baseline, unchanged. **Re-pinned 2026-08-10 from `2 warning(s)`:** the two were `schema.identity.unexercised` against `Site`, and they are gone because `Site` and `Device` now declare identity tuples (`70` §16.3). This is a *narrowing* of the gate, not a loosening — `crates/fathom-schema/tests/shipped_tree.rs` pins the empty set, so any new warning fails a test as well as this gate |
 | G7 | `grep -rn "HashMap\|HashSet\|SystemTime\|Instant\|random" crates/fathom-emit/src crates/fathom-emit/tests` | No matches, exit 1 (invariant 9; §4.8) |
 | G8 | **The flagship round-trip** (step 13; runnable only when step 12's three preconditions hold): `cargo test -p fathom-emit --test round_trip` | `e1_second_emit_loses_nothing_further` `ok`. The criterion is `13` §11.1 E1's fixed point — parse the §4.9 golden, re-emit, byte-equal rendering (*"the first emit may lose things; the second must lose nothing further."*) — with the agreement clause stated to what the ledgers can carry: substitutions agree on token, line index and label, with `hint: None` on the second (parse constructs placeholders hintless — WO-03 §4.8; `11` §4.5); the second report's gap set is empty, a strict subset of the first's, whose one entry (`GW-B.dpd`) names a field the golden text cannot carry. §12 item 6 files the narrowing against E1's literal wording. Graph equality is deliberately **not** the criterion (§12 item 3) |
 | G9 | `grep -c "GAPS_" crates/fathom-emit/src/junos.rs` | A non-zero count — the gap tables exist; their content is pinned by G3's coverage tests |
@@ -849,7 +860,10 @@ escalate when:
 7. Anything seems to need a `Phase`/`LineForm`/retract machinery, a wrapping renderer, a
    clipboard, an explain resolver, a `fex` or predicate evaluator, a dictionary file, or a hash
    implementation — all deliberately absent (§8, §10).
-8. Any change to the schema checker's two-warning baseline (G6), for any reason.
+8. Any change to the schema checker's **zero-warning** baseline (G6), for any reason. (Was
+   *"two-warning"* until 2026-08-10; the baseline moved because the warnings were fixed, and this
+   trigger moved with it. A trigger pinned to a stale fact stops the next session on a change that
+   already happened, which is the failure this line exists to prevent, inverted.)
 
 ## 8. Non-goals
 

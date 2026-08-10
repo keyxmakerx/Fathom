@@ -14,9 +14,19 @@
 //! **First application only.** Nothing here reconciles a re-parse, resolves a
 //! reference against the existing store, or decides what a second paste of the
 //! same box means: `11` §10.4's re-identification has no implementation
-//! anywhere and `schema/schema.yaml` declares `identity: []` for `Device`
-//! (WO-09 §8 item 1, §10 item 1). Applying two captures of one box produces
-//! two `Device` nodes, and `apply_new_device`'s name says so.
+//! anywhere (WO-09 §8 item 1, §10 item 1). Applying two captures of one box
+//! produces two `Device` nodes, and `apply_new_device`'s name says so.
+//!
+//! **What changed on 2026-08-09, and what did not.** This comment used to add
+//! *"and `schema/schema.yaml` declares `identity: []` for `Device`"* as a second
+//! reason. That is no longer true — `Device` declares `[hostname, platform]`
+//! then `[platform, management_address]`, and `Site` declares its two
+//! (`70` §16.3). The behaviour here is unchanged and correct: **a declared
+//! identity tuple is not an implementation of one.** Nothing in the tree
+//! evaluates a tuple against a node's values, so this crate still cannot
+//! recognise a box it has seen. The line is corrected rather than deleted
+//! because a stale reason in a doc comment is how a future reader concludes the
+//! work is blocked when it is merely unwritten.
 //!
 //! **Pure** (invariant 9): no clock, no entropy source, no environment read,
 //! no I/O, and no hash-ordered collection — `BTreeMap`/`BTreeSet` and sorted

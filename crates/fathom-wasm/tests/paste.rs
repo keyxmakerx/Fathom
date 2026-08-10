@@ -13,8 +13,8 @@
 //! cheaper than discovering it.
 
 use fathom_wasm::protocol::{
-    decode_reply, ErrorView, FaceRowView, ReplyView, ERR_INGEST_REFUSED, ERR_PASTE_FRAME,
-    FACE_PASTE, FACE_RESIDUE, FACE_UNRESOLVED,
+    decode_reply, ErrorView, FaceRowView, ReplyView, ERR_INGEST_REFUSED, ERR_NOTHING_UNDERSTOOD,
+    ERR_PASTE_FRAME, FACE_PASTE, FACE_RESIDUE, FACE_UNRESOLVED,
 };
 use fathom_wasm::shell::Shell;
 use fathom_wasm::{OP_INV_ROWS, OP_PASTE};
@@ -266,4 +266,161 @@ fn a_refused_paste_leaves_the_previous_estate_alone() {
         "the estate survived a refused paste"
     );
     let _ = rows;
+}
+
+// --- the estate-destruction defect (found 2026-08-10) ------------------------
+//
+// From the day `OP_PASTE` landed until this fix, a paste that understood
+// *nothing* still replaced the estate. The binder seeds a `Device` root before
+// it reads a statement, so `plan::validate`'s device-rooted check passed, the
+// weld succeeded, and `self.estate = Some(graph)` fired — leaving the operator
+// looking at an empty device where their real one had been, with no error and
+// a cheerful "0 names not found".
+//
+// The two inputs below are not adversarial. They are the two most likely wrong
+// pastes in the world: a config from a different vendor, and Junos in the form
+// `show configuration` prints when you forget `| display set`.
+
+const GOOD: &str = "\
+set system host-name srx-good
+set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30
+";
+
+const CISCO: &str = "\
+hostname core-rtr-01
+!
+interface GigabitEthernet0/0
+ ip address 192.0.2.1 255.255.255.0
+!
+end
+";
+
+const CURLY_JUNOS: &str = "\
+system {
+    host-name srx-curly;
+}
+interfaces {
+    ge-0/0/0 {
+        unit 0;
+    }
+}
+";
+
+fn devices(shell: &mut Shell) -> Vec<[String; 8]> {
+    face(&shell.handle(OP_INV_ROWS, &[0]))
+        .into_iter()
+        .skip(1)
+        .map(|r| r.strings)
+        .collect()
+}
+
+fn loaded_with_good() -> Shell {
+    let mut shell = Shell::new();
+    let rows = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, GOOD)));
+    assert_eq!(summary(&rows).strings[6], "srx-good");
+    shell
+}
+
+#[test]
+fn a_paste_that_binds_nothing_is_refused() {
+    for (what, text) in [
+        ("a Cisco config", CISCO),
+        ("curly-brace Junos", CURLY_JUNOS),
+    ] {
+        let mut shell = Shell::new();
+        let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, text)));
+        assert_eq!(
+            e.code, ERR_NOTHING_UNDERSTOOD,
+            "{what} should be refused by its own code"
+        );
+    }
+}
+
+/// The whole point: the refusal exists to protect what is already loaded.
+#[test]
+fn a_paste_that_binds_nothing_leaves_the_estate_alone() {
+    for (what, text) in [
+        ("a Cisco config", CISCO),
+        ("curly-brace Junos", CURLY_JUNOS),
+    ] {
+        let mut shell = loaded_with_good();
+        let before = devices(&mut shell);
+        assert_eq!(before.len(), 1, "one device before");
+
+        let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, text)));
+        assert_eq!(e.code, ERR_NOTHING_UNDERSTOOD);
+
+        let after = devices(&mut shell);
+        assert_eq!(after, before, "{what} destroyed the estate");
+        assert_eq!(
+            after[0][1], "srx-good",
+            "{what} replaced the hostname with an empty device"
+        );
+    }
+}
+
+/// The refusal must be actionable. A Juniper engineer who pasted the wrong form
+/// needs to be told which form to use, not that something went wrong.
+#[test]
+fn curly_brace_junos_is_named_and_the_fix_is_given() {
+    let mut shell = Shell::new();
+    let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, CURLY_JUNOS)));
+    assert!(
+        e.detail.contains("display set"),
+        "the remedy must be in the message: {}",
+        e.detail
+    );
+    assert!(
+        e.detail.contains("still loaded") || e.detail.contains("Nothing was changed"),
+        "the message must say the estate survived: {}",
+        e.detail
+    );
+}
+
+/// A different vendor gets a different sentence — Fathom says what it knows
+/// rather than pretending the Junos advice applies.
+#[test]
+fn another_vendors_config_says_so() {
+    let mut shell = Shell::new();
+    let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, CISCO)));
+    assert!(
+        e.detail.contains("Juniper SRX today"),
+        "the message should name what Fathom does know: {}",
+        e.detail
+    );
+    assert!(
+        !e.detail.contains("display set"),
+        "a Cisco config is not fixed by `| display set`: {}",
+        e.detail
+    );
+}
+
+/// The refusal is exact, not a heuristic: **one** bound line is enough to be an
+/// estate. This is the assertion that stops the fix from becoming the worse bug
+/// the audit warned about — a guess that rejects a legitimate paste.
+#[test]
+fn one_understood_line_is_enough() {
+    let mut shell = Shell::new();
+    let rows = face(&shell.handle(
+        OP_PASTE,
+        &frame(
+            TS,
+            ENTROPY,
+            "set system host-name lonely\nthis line is not Junos at all\n! nor is this\n",
+        ),
+    ));
+    assert_eq!(summary(&rows).strings[6], "lonely");
+    assert_eq!(
+        count(&rows, 2),
+        2,
+        "the two unreadable lines are still named"
+    );
+}
+
+#[test]
+fn an_empty_paste_is_refused_without_pretending_to_know_why() {
+    let mut shell = Shell::new();
+    let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, "\n\n   \n")));
+    assert_eq!(e.code, ERR_NOTHING_UNDERSTOOD);
+    assert!(e.detail.contains("empty"), "{}", e.detail);
 }

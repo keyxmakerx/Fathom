@@ -11,8 +11,8 @@ use fathom_corpus::{CorpusIndex, Section, SourceFile};
 use fathom_find::Finder;
 
 use crate::protocol::{
-    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_INGEST_REFUSED, ERR_NOT_INITIALISED,
-    ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
+    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_INGEST_REFUSED, ERR_NOTHING_UNDERSTOOD,
+    ERR_NOT_INITIALISED, ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
 use crate::{OP_ELEMENT, OP_EQUIPMENT, OP_ESTATE_DEMO, OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY};
 
@@ -135,6 +135,22 @@ impl Shell {
             Ok(o) => o,
             Err(e) => return protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e)),
         };
+
+        // A paste that bound nothing is not an estate, and applying it anyway
+        // is the worst thing this module can do: the binder seeds a `Device`
+        // root before it reads a single statement, so a Cisco config — or Junos
+        // in its curly-brace form, which is what `show configuration` prints
+        // without `| display set` — validates, welds, and **replaces the
+        // operator's real estate with an empty device**. Silently. That was
+        // live from the day `OP_PASTE` landed until 2026-08-10.
+        //
+        // The refusal criterion is exact, not a heuristic: zero lines with
+        // outcome `Bound`. Only the *wording* below guesses, and guessing at
+        // wording costs nothing. A heuristic that refused a legitimate paste
+        // would be worse than the bug.
+        if bound_lines(&ingest) == 0 {
+            return protocol::encode_error(ERR_NOTHING_UNDERSTOOD, &nothing_understood(&ingest));
+        }
 
         // The user and batch ids: the millisecond plus a fixed discriminator,
         // the pattern `fathom-inventory`'s demo estate and the weld's own
@@ -290,6 +306,89 @@ const PASTE_LABEL: &str = "Paste junos-srx config";
 const RESIDUE_ROW_CAP: usize = 500;
 /// The same, for references the capture named and did not contain.
 const UNRESOLVED_ROW_CAP: usize = 200;
+
+/// How many lines became facts. The exact criterion behind the refusal above:
+/// `LineOutcome::Bound` is the parser's own word for "this line is now in the
+/// graph", so counting it asks the parser rather than inferring from node
+/// counts — which would be wrong, the binder having already seeded a `Device`.
+fn bound_lines(ingest: &fathom_ingest::IngestOutput) -> usize {
+    ingest
+        .ledger
+        .lines
+        .iter()
+        .filter(|e| matches!(e.outcome, fathom_ingest::frame::LineOutcome::Bound { .. }))
+        .count()
+}
+
+/// The message for a paste that bound nothing. Names the most likely cause it
+/// can actually evidence, and never claims more than it checked.
+fn nothing_understood(ingest: &fathom_ingest::IngestOutput) -> String {
+    use fathom_ingest::frame::{LineOutcome, ShapeError};
+    let text = ingest.capture.text();
+    let lines: Vec<&str> = ingest
+        .residue
+        .iter()
+        .map(|r| {
+            text.get(r.span.start as usize..r.span.end as usize)
+                .unwrap_or_default()
+                .trim()
+        })
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    if lines.is_empty() {
+        return "there is nothing here to read — the paste is empty, or every line is blank"
+            .to_owned();
+    }
+
+    let not_verb_initial = ingest
+        .residue
+        .iter()
+        .filter(|r| {
+            matches!(
+                r.outcome,
+                LineOutcome::Unshaped {
+                    reason: ShapeError::NotVerbInitial
+                }
+            )
+        })
+        .count();
+
+    // Curly-brace Junos: what `show configuration` prints without
+    // `| display set`. Evidenced rather than assumed — braces AND
+    // semicolon-terminated statements, which together no `set`-form capture has.
+    let braces = lines
+        .iter()
+        .filter(|l| l.ends_with('{') || **l == "}")
+        .count();
+    let semis = lines.iter().filter(|l| l.ends_with(';')).count();
+    if braces > 0 && semis > 0 {
+        return format!(
+            "none of these {} lines is a `set` statement, and {braces} of them open or close a \
+             brace — this looks like `show configuration` in its normal form. Fathom reads the \
+             flattened form: run `show configuration | display set` and paste that instead. \
+             Nothing was changed; what you had is still loaded.",
+            lines.len()
+        );
+    }
+
+    if not_verb_initial > 0 {
+        return format!(
+            "none of these {} lines starts with a Junos configuration verb, so nothing here \
+             could be read as a Juniper `set` statement — the first line reads `{}`. If this is \
+             a different vendor, Fathom only knows Juniper SRX today. Nothing was changed; what \
+             you had is still loaded.",
+            lines.len(),
+            lines.first().copied().unwrap_or_default()
+        );
+    }
+
+    format!(
+        "these {} lines are Junos statements Fathom does not know yet, so none of them became a \
+         fact. Nothing was changed; what you had is still loaded.",
+        lines.len()
+    )
+}
 
 fn refusal_text(e: fathom_ingest::IngestRefusal) -> String {
     match e {
