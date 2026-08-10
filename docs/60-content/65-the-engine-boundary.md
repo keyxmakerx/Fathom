@@ -31,6 +31,7 @@
 | 4 | The Linux-specific answer | *not one format* |
 | 5 | The security answer | *the sharp one* |
 | 6 | What we should actually do | |
+| 7 | The slice the owner meant — L2, L3, Docker, Kubernetes | *scope, decided* |
 | | Failure modes | |
 | | Open decisions | |
 
@@ -312,6 +313,88 @@ bridges, veths, addresses, routes, routing tables and the routing daemons. That 
 for link/route text, one for FRR's IOS-shaped config, three or four new kinds, and the stub types.
 Firewall and NAT ride on the stub-type work whenever it happens; Docker, containers and SELinux
 stay out until §6's second owner question is answered.
+
+### Docker, Kubernetes and routing — owner, 2026-08-10
+
+*"make sure docker, kubernetes, routing is accounted for."* All three in scope. Routing was already
+in with L3; Docker and Kubernetes are the addition, and Kubernetes is new to this document entirely.
+Accounted for here means: what it is, where it goes, and what is honestly missing — not an estimate,
+which needs the scoping decision in §6 first.
+
+**Kubernetes turns out to be the *easiest* of the three, for one reason nobody expected.**
+
+#### What fits
+
+| The thing | Where it goes | |
+|---|---|---|
+| a Kubernetes **node** | `Device` | ✅ a node is a Linux host; everything in the L2/L3 tables above applies to it unchanged |
+| a **VXLAN / IPIP / WireGuard overlay** — Docker overlay networks, and Calico/Flannel/Cilium tunnels | **`Tunnel`**, which already *"spans sites and is contained by the workspace root"* and carries `overlay_prefix` | ✅ a real fit, and the only kind in the schema that is deliberately not owned by a device |
+| **Calico BGP peering, MetalLB, BGP-to-the-host** | `RoutingProtocol` + `ProtocolAdjacency` | ✅ the same fit as FRR; this is the routing tie-in |
+| pod CIDR, service CIDR, node CIDR | `Address` / `IpPrefix` on the right owner | ✅ |
+| per-node routes to other nodes' pod CIDRs | `StaticRoute`, or `LearnedRoute` where BGP put them there | ✅ |
+| a **NetworkPolicy** | `SecurityPolicy` + `PolicySet` in shape | ⚠️ blocked on the stub value types, same as every firewall |
+| a container's veth | `Cable { media: virtual }` | ✅ |
+| a published port `-p 8080:80`, a NodePort | `NatRule` — it is DNAT | ⚠️ blocked on the stub value types |
+
+#### What does not fit, and one trap
+
+- **A container or a pod.** No workload kind exists. **One new kind serves both** — a pod is a
+  container group with an address, and Docker's container and Kubernetes' pod differ in ways the
+  network map does not care about.
+- **A Docker network / a Kubernetes pod network.** Not a `Vlan` — that kind requires a `vlan_id`,
+  card 1, and a bridge network has none. Not a `RoutingInstance`. **New kind**, and it is the same
+  kind for both.
+- **A cluster.** And this is the structural one: **a Kubernetes cluster is not a device.** Fathom's
+  containment is `Site → Device → everything`, and a pod network spans nodes by definition. Either a
+  cluster becomes a grouping alongside `Site`, or it becomes a kind whose members are referenced
+  rather than contained. That is an ADR, it is the largest modelling question Kubernetes raises, and
+  it should not be settled by whoever writes the parser.
+- **Ingress.** Nothing fits, and it is L7. Probably out of scope; say so rather than model it badly.
+- **The trap: do NOT reuse `Service` / `ServiceEndpoint` for a Kubernetes Service.** They are
+  carrier-Ethernet kinds — `cid` is *"the carrier identifier"*, `reach` is `external | internal`,
+  and `ServiceEndpoint.role` is `uni | nni | enni | demarc`. The name matches and nothing else does.
+  A ClusterIP is a virtual address with backend endpoints; a `Service` here is a thing you sell to a
+  customer. Reusing it would look clever in review and be wrong in every field.
+
+#### The reason Kubernetes is the easiest one
+
+**Every Kubernetes object carries `spec` and `status` — what was declared, and what is observed —
+as separate, named halves of the same document.** §4 named the configuration-versus-runtime problem
+as the thing Linux forces on line one and Junos never forced at all; `LearnedRoute` (above) shows
+the model already half-draws that line. **Kubernetes draws it for us, in the source text, for every
+object.** No other platform on the list does. It means a Kubernetes engine can populate the declared
+side from `spec` and the observed side from `status` without a single judgement call, which is
+exactly the part that would otherwise be guesswork.
+
+Two more properties in the same direction: **the capture is genuinely declarative** —
+`kubectl get <kind> -o yaml` is the config, not a rendering of it — and it is **family C**, the
+nested-document family OPNsense already needs, so the parser work is shared rather than additional.
+Docker is the same: `docker compose config` is YAML and `docker network inspect` is JSON.
+
+**And the honest counterweight:** `kube-proxy`'s iptables or IPVS rules, and every rule Docker
+installs, are *derived* — the kernel's rendering of a Service or a published port. They must land on
+the observed side or not at all. A NetworkPolicy read as though somebody typed those iptables rules
+would be a fabrication, and it is the single most likely way to get this wrong.
+
+#### The secret surface, which is worse than Linux's
+
+Named now because §5's rule is that the gate leads. Kubernetes and Docker text carries: **kubeconfig
+client certificates and tokens**; **ServiceAccount tokens**; `kubectl get secret -o yaml`, whose
+values are **base64, which is an encoding and not encryption** — and base64 with no `-----BEGIN`
+banner is precisely the shape `65`/`64` already flag as invisible to a banner-anchored detector;
+**image-pull secrets** (`.dockerconfigjson`, a base64 JSON blob containing a registry password);
+Helm values; and `docker compose config`, which **interpolates `.env` and therefore prints
+credentials that are not in any file you pasted** — already demonstrated leaking through the gate
+and fixed on 2026-08-10. The `--no-interpolate` form is the safe one and the UI should say so.
+
+#### Where that leaves the engine
+
+The Linux engine is **L2, L3, Docker and Kubernetes**. Concretely that is: the link/route text shape,
+FRR's IOS-shaped config, and family C for YAML and JSON; five or six new kinds — a workload, a
+container network, a bridge, an `ip rule` selector, and a cluster-or-not decision; the stub value
+types, which gate firewall and NAT on every platform; and an observed-versus-declared basis on
+`LearnedRoute`. **The scoping decision in §6 is now answered in breadth and not in depth** — the
+owner has said what is in; how much of each is in is still the question that produces an estimate.
 
 ### What this changes
 
