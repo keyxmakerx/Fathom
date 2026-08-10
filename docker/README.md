@@ -99,6 +99,41 @@ location / {
 add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
 ```
 
+### Cosmos Cloud — checked, and nothing needs disabling
+
+Cosmos injects headers, and it has a per-route **Disable Header Hardening**
+switch that looks like it might be required. **It is not.** Leave it off, and
+leave the route's CORS Origin field empty.
+
+The reason is that Cosmos's injected CSP is exactly one directive —
+`Content-Security-Policy: frame-ancestors 'self'` (`src/utils/middleware.go:160`).
+It sets no `script-src`, so it cannot intersect away `'wasm-unsafe-eval'` and
+cannot break the module. Trap 1 above is the thing that would have bitten, and
+Cosmos does not trip it.
+
+What Cosmos does to the headers this container sends, on default settings:
+
+| Header | What happens |
+|---|---|
+| `Content-Security-Policy: frame-ancestors 'none'` | Deleted, replaced with Cosmos's `'self'`. Marginally weaker; the `X-Frame-Options: DENY` below survives and still blocks framing |
+| `X-Content-Type-Options` | Deleted, then re-set to the same `nosniff` |
+| `Strict-Transport-Security` | Not sent by this container. Cosmos sets it when serving HTTPS |
+| COOP, COEP, CORP, `Permissions-Policy`, `Referrer-Policy`, `Cache-Control` | Untouched |
+| `Access-Control-Allow-Origin` | Cosmos **adds** one, set to your own Cosmos hostname (not `*`), with credentials. Same-origin, so it grants nothing — trap 2 is not violated |
+
+Turning header hardening **on** is what strips and re-sets those; turning it
+**off** would also stop Cosmos deleting `Access-Control-Allow-Origin` headers
+from upstreams and stop it setting `nosniff` and HSTS. Off is the worse
+posture, and Fathom does not need it.
+
+Verified by reading the source, not from memory (ADR-0034): `azukaar/Cosmos-Server`
+at commit `2470b36`, dated 2026-08-02 — `src/utils/middleware.go:151-186`
+(`SetSecurityHeaders`, `CORSHeader`), `src/proxy/routeTo.go:242-249` (the six
+`resp.Header.Del` calls, guarded by `DisableHeaderHardening`),
+`src/proxy/routerGen.go:193-237` (`originCORS` defaulting to the configured
+hostname). Checked 2026-08-10. **Not tested against a running Cosmos instance** —
+this is a source reading, and the first deployment is still the test.
+
 **Authentication.** The app holds no data and the server sees no config, so
 there is nothing on the server to protect. Put basic auth or SSO at the proxy if
 you want to control *who can reach the tool*, not because the tool is storing
