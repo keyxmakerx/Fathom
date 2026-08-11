@@ -33,7 +33,7 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   `fathom-schema`, `fathom-schemagen`, `fathom-ir` with checked-in generated types,
   `fathom-corpus`, `fathom-find`). **As of 2026-08-08 the queue has run: six more crates exist** —
   `fathom-graph` (the typed store), `fathom-ingest` (junos-srx set-form, with the redaction gate),
-  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`. **382 tests, zero external
+  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`. **396 tests, zero external
   dependencies.** **Eight of nine work orders DONE** — WO-01, WO-02, WO-03, WO-05, WO-06, WO-07,
   WO-08 and WO-09 (the fragment-to-store weld, which now exists as `fathom-weld`). **WO-04 is the
   only one open, and as of 2026-08-09 it is OPEN rather than BLOCKED** — both its blockers are
@@ -47,9 +47,9 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   paste sheet that renders what was understood *and every line that was not*. Driven in Chromium
   against a 26-line SRX config: 15 nodes, 23 edges, 5 residue lines named, 1 pre-shared key
   destroyed, one network request (the file). Evidence: `docs/80-review/evidence/2026-08-09-*.png`;
-  the plain-English account is `overnight-report.md`. **The module is 820,967 bytes against `44` §5.2's
-  900,000-byte ceiling** — 79,033 bytes of headroom, and persistence alone was *measured* at
-  +239,964. See `79-work-orders/00-ROUTE-TO-WORKABLE.md` §2 stage 1: the ceiling is an
+  the plain-English account is `overnight-report.md`. **The module is 827,029 bytes against `44` §5.2's
+  900,000-byte ceiling** (re-measured 2026-08-11) — 72,971 bytes of headroom, and persistence alone
+  was *measured* at +239,964. See `79-work-orders/00-ROUTE-TO-WORKABLE.md` §2 stage 1: the ceiling is an
   architecture question, not a number to raise.
 - **The plan layer is live.** `78` (the execution protocol), `79-work-orders/` (eight
   orders, adversarially verified), and CI (`.github/workflows/ci.yml`) enforcing the
@@ -140,7 +140,7 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 382 tests as of 2026-08-10; green is the gate, not the
+- `cargo test --workspace --locked` — 396 tests as of 2026-08-11; green is the gate, not the
   number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0, **0 failures and 0
   warnings** since 2026-08-09. The two standing `schema.identity.unexercised` warnings
