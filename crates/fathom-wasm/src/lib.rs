@@ -45,6 +45,50 @@ pub const OP_EQUIPMENT: u32 = 14;
 /// which exists precisely so the weld cannot read a clock.
 pub const OP_PASTE: u32 = 15;
 
+/// Add one piece of equipment by hand: no config, no paste, no parser.
+///
+/// This is the **second door into the estate**, and the first one that does not
+/// destroy what is already there. Every write before it — `OP_ESTATE_DEMO` and
+/// `OP_PASTE` alike — installs a fresh `Graph` over whatever was held. This one
+/// mutates in place, and creates an estate only when none exists, so a person
+/// can start from an empty page and build.
+///
+/// It carries the same 24-byte host clock-and-entropy prefix `OP_PASTE` does,
+/// for the same reason: the module has no clock and no RNG and must acquire
+/// neither (`wasmbin::IMPORT_ALLOWLIST` is empty and stays empty). Hand entry
+/// is not a special case of that rule; it is the same rule.
+///
+/// The provenance it writes is `Origin::Hand` — the first variant of the enum,
+/// present since the beginning and until now produced nowhere a user could
+/// reach. What a hand-entered field is *worth* is therefore recorded honestly
+/// and is legible everywhere a parsed one is.
+pub const OP_EQUIP_ADD: u32 = 16;
+
+/// Correct one field of one element.
+///
+/// `52` §3.7 gives the inventory the contract *"Lets you change | Field values,
+/// in place, in the cell"*, and until this opcode nothing could change a stored
+/// value at all: a hostname that parsed but was wrong was permanent.
+///
+/// It is a **supersession, not an erasure**. `Graph::set_field_boxed` archives
+/// the replaced slot and the store fills `supersedes` from the value that was
+/// there, so a correction is recorded as one assertion replacing another and
+/// both remain in the history. That is what lets an estate answer *"who said
+/// this, and what did it say before"* rather than only *"what does it say"*.
+pub const OP_FIELD_SET: u32 = 17;
+
+/// Remove an element — a device added in error, a box that was decommissioned.
+///
+/// `Graph::tombstone` is the only removal this store has, and it is not a
+/// delete: the element stays, marked absent from a moment, and its subtree goes
+/// with it. So removing a device takes its chassis, which is right — a chassis
+/// with no device is not a fact anyone asserted.
+///
+/// Nothing is ever hard-deleted, because an estate of record that can forget
+/// silently is not a record. What this gives the operator is *"this is no longer
+/// true"*, which is a different and more honest claim than *"this never was"*.
+pub const OP_ELEMENT_REMOVE: u32 = 18;
+
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
     static REQ: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };

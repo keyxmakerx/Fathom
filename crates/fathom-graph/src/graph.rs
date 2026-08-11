@@ -768,6 +768,59 @@ impl Graph {
         Ok(())
     }
 
+    /// The same assertion, from a value whose type is only known at runtime.
+    ///
+    /// `set_field` is generic over `T`, so its type check is
+    /// `TypeId::of::<T>()` — a compile-time question. **A byte protocol has no
+    /// compile-time type**, so nothing arriving over the wasm boundary could
+    /// ever call it; hand-authored values from the page had no way into the
+    /// store at all. That is the one primitive hand authoring was missing.
+    ///
+    /// The check is not weakened, only moved: `(*value).type_id()` asks the
+    /// boxed value what it actually is, and it is compared against the same
+    /// `slot_type(key)` the schema declares. A wrong box is `WrongType`, exactly
+    /// as a wrong `T` is. The body below is `set_field`'s, and the two must stay
+    /// that way — a divergence would mean hand-entered values were recorded
+    /// differently from parsed ones, which `Origin` is supposed to be the only
+    /// difference between.
+    ///
+    /// `Graph::from_snapshot` already installs erased values this way
+    /// (`snap.rs`), but it builds the crate-private `Slot` directly and so is
+    /// unreachable from outside. This is that capability, made public and
+    /// type-checked.
+    pub fn set_field_boxed(
+        &mut self,
+        element: ElementId,
+        key: FieldKey,
+        value: Box<dyn Any>,
+        prov: ProvenanceRecord,
+    ) -> Result<(), WriteError> {
+        let (filled, declared) = self.check_field_write(element, key, &prov)?;
+        match slot_type(key) {
+            Some((want, _)) if want == (*value).type_id() => {}
+            _ => {
+                return Err(WriteError::WrongType { key, declared });
+            }
+        }
+        let id = self.intern(filled);
+        self.archive_replaced(element, key);
+        self.slot_map_mut(element).insert(
+            key,
+            Slot {
+                presence: StoredPresence::Set,
+                value: Some(value),
+                prov: id,
+            },
+        );
+        self.record(Op::SetField {
+            element,
+            key,
+            presence: StoredPresence::Set,
+            prov: id,
+        });
+        Ok(())
+    }
+
     /// Assert that the field has no value. Only a closed-world observation or
     /// an explicit human assertion may say this (`11` §8.5); the parser never
     /// asserts absence, because `14` §7.4 pins its capture scope to

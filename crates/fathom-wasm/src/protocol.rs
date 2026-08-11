@@ -93,6 +93,27 @@ pub const ERR_WELD_REFUSED: u16 = 9;
 /// the operator what Fathom expected and keep what they already had.
 pub const ERR_NOTHING_UNDERSTOOD: u16 = 10;
 
+/// A hand-entered value is not what the schema declares that field to be — a
+/// misspelt role, an out-of-range member index, a hostname that is not an
+/// identifier.
+///
+/// Distinct from `ERR_BAD_FRAME` because it is not a protocol fault: the frame
+/// was well-formed and the person simply typed something the field cannot hold.
+/// The page's remedy differs accordingly — keep the form open, keep what they
+/// typed, and say which field and why.
+pub const ERR_FIELD_VALUE: u16 = 11;
+
+/// The hand-entry frame itself is malformed: too short for its prefix, a field
+/// count that overruns the buffer, a key that names nothing in `schema/`. A
+/// page defect rather than an operator one.
+pub const ERR_EQUIP_FRAME: u16 = 12;
+
+/// The store refused a hand-authored write — a cardinality bound, a reused
+/// provenance id, a containment rule. Carries the store's own words: these are
+/// the errors that mean Fathom's model disagrees with what was asked for, and
+/// paraphrasing them would lose the only diagnosis available.
+pub const ERR_EQUIP_STORE: u16 = 13;
+
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
 
@@ -416,11 +437,22 @@ fn write_element(
     );
     write_face_record(records, &rec);
     for f in &page.fields {
+        // Slot 3 is the field's wire key and slot 4 is whether it can be typed
+        // in. Both travel WITH the row rather than being looked up on the page,
+        // because a name-to-key table in JavaScript is how a form ends up
+        // writing one field into another's slot.
+        let key = f.key.0.to_string();
         let rec = face_slots(
             blob,
             FACE_FIELD,
-            3,
-            &[f.name, f.value.as_str(), f.provenance.as_str()],
+            5,
+            &[
+                f.name,
+                f.value.as_str(),
+                f.provenance.as_str(),
+                key.as_str(),
+                if f.editable { "1" } else { "" },
+            ],
         );
         write_face_record(records, &rec);
     }

@@ -42,7 +42,7 @@ Stated as measurements rather than impressions, each verified twice:
 | Persistence wired in | **no.** `fathom-workspace` is 767 lines with 11 passing tests and is a dependency of nothing |
 | Cryptography | **zero bytes.** Nothing in the ten invariants forbids the plaintext local save that already works |
 | Junos statements understood | **42** — enough for a route-based IPsec tunnel end to end, and essentially nothing else |
-| Module size | **820,967 bytes against a 900,000-byte ceiling that fails the merge** |
+| Module size | **827,029 bytes against a 900,000-byte ceiling that fails the merge (re-measured 2026-08-11)** |
 
 The honest summary is that this is a real thing that works, at roughly **8% of its own
 specification**, standing on a byte budget that is already 91% spent.
@@ -122,7 +122,7 @@ object with no arm renders as a ULID.
 
 The hard half is done and green: a verifier independently ran ingest → weld → `write_plain` →
 `read_plain` → `write_plain` on the SRX fixture, byte-identical. **But linking it measured
-+239,964 bytes against 79,033 of headroom.** This is *not* the cheap unblocked slice every prior
++239,964 bytes against 72,971 of headroom.** This is *not* the cheap unblocked slice every prior
 plan in this tree calls it; it is hours of work behind the byte decision, and doing it first would
 mean the first thing built is the thing that breaches the ceiling.
 
@@ -234,11 +234,79 @@ field is not in `schema/`. It is three months to a picture of one box that canno
   routing-instance name, `DhGroup`/`EncryptionAlgorithm` as schema enums** — four hard engineering
   decisions currently unowned. **None should ever reach him.**
 
+## 4b. The stage this route omitted: hand authoring
+
+**Added 2026-08-11, from a six-way survey each finding of which was adversarially verified.** The
+owner asked how he adds a device without pasting a config — *"drag a device then I can in its
+inventory set the device type model and other info"*. The honest answer is that this route document,
+`00-INDEX.md` and `00-PROGRAM-PLAN.md` between them contain **zero** occurrences of `drag`,
+`hand author`, `create a node`, `stencil` or `quick-create`. The capability was never priced.
+
+It should have been, because it is agreed at the founding-document level and because half of it is
+the cheapest real feature left in the tree.
+
+**What is agreed.** Hand entry is one of the three provenance origins in the owner's own brief;
+`Origin::Hand` is the *first* variant of the enum (`fathom-graph/src/prov.rs:64`). `52` §3.6 line 432
+states the diagram's job as *"add a device, draw a link, draw a tunnel, drag for layout"*. `75` §10
+carries it as capability **C-08**, from the owner verbatim, status *Intent recorded* — and §10.4's
+heading is already the finding: *"What is missing is the affordance, not the machinery."*
+
+**What is measured.** Three numbers, each from running code rather than reading it:
+
+| | |
+|---|---|
+| The store's mutation API | **Complete.** `insert_node`, `insert_edge`, `set_field`, `clear_field`, `tombstone`, batches — all public. A probe built a Device with a hostname and a model through it, with no config text anywhere. |
+| The one missing primitive | **~28 lines.** `set_field<T: Any>` compares `TypeId::of::<T>()` against the schema, so a *byte* protocol can never call it. `Graph::from_snapshot` already installs erased values by building the `pub(crate)` `Slot` directly. A `set_field_boxed` beside `set_field` closes it; written as a probe, it works. |
+| The wasm cost of the create-and-edit slice | **+5,677 bytes** against 72,971 of headroom. |
+
+**The architecture decision inside it, which must be recorded before anyone starts.** There are two
+routes from typed text to a stored value, and one of them fails the merge:
+
+- **Route A — reuse the generated 299-arm `slot_from_canon` table.** Every field of every kind
+  becomes writable with no new dispatch. **Measured at +107,857 bytes: the module goes to 934,886 and
+  breaches the ceiling by 34,886.** It is the obvious answer and it is refused.
+- **Route B — a narrow `TypeId` dispatcher** over only the scalars a Device/Chassis/Interface form
+  needs, each parsed with `Scalar::parse`. **+5,677 bytes.** It is the mirror image of the
+  `render_set` table that already exists in `fathom-inventory/src/render.rs:148-281`, and the two
+  belong side by side so they cannot drift apart.
+
+**Where it belongs.** On this document's own ordering principle (§3, *cheap-and-load-bearing first,
+then visible*): immediately after stage 4 and **before** stage 5. It costs 5,677 bytes; persistence
+costs 239,964.
+
+**What the slice is not.** Three separations worth keeping straight, because the owner's sentence
+contains all three and they differ by orders of magnitude:
+
+1. **Create and edit** — the above. Days.
+2. **Drag on a canvas** — needs the diagram view, which does not exist in the product *or* in the
+   prototype (`design/prototype/fathom-app.html:2001` states its own constraint: *"computed layout,
+   never hand-placed coordinates"*). Stage 8, months. Note also that **there is nowhere in `schema/`
+   to store where a box sits**; `56` §3.5's `LayoutHint` is prose in a design doc, and it may
+   deliberately belong outside the typed graph as a view preference. Undecided, and a dragged box
+   cannot survive a reload until it is.
+3. **Emit a config from it** — the emitter is already provenance-blind: `fathom-emit`'s flagship test
+   builds its whole graph by hand with `Origin::Hand`, touches no parser, and matches a 21-line
+   golden byte-for-byte. But its only `EmitScope` variant is `IpsecVpn`; a Device returns
+   `NotAnIpsecVpn`, and **no crate in the workspace depends on `fathom-emit` at all**. `11` §9.2
+   already specifies the `Device` emit unit as *"whole config"*. That is WO-04 §10 item 5, unwritten.
+
+**One thing genuinely needs the owner**, and it is small: `Device` has twelve fields and **`model` is
+not one of them** — `model` lives on `Chassis` (`schema.yaml:219`), which every Device owns by
+declaration (`HasChassis`, `out: "1..n"`). So "drag a device and set its model" is two nodes and an
+edge. Does the gesture create the Chassis silently, or ask? `fathom_weld::containment_edge` already
+computes the edge kind with nothing hand-written, so this is one line in a work order, not code.
+
+Related and cheap: `Device.role` is the closest thing to "device type" and has five variants —
+`firewall`, `router`, `switch`, `load_balancer`, `other`. No access point, no server. Adding a
+variant is a minor bump. Adding a whole field was measured end to end: **two lines in `schema/`, one
+generator run, three one-line test-constant edits, zero production Rust** — and the generator
+*refuses* if the field-key registry entry is forgotten.
+
 ## 5. Disagreements with the program plan
 
 1. **Persistence is not unblocked days of work.** `00-PROGRAM-PLAN.md` and the persistence audit
    both treat it so. It is hours of code behind a byte decision, measured at +239,964 bytes against
-   79,033 of headroom.
+   72,971 of headroom.
 2. **The program plan's tier 1 is overstated by 4×.** Its headline says *"the first five unblock
    more than the other twenty-nine combined"*; four of the five are already on disk.
 3. **"Every owner decision the build waits on" includes several the build does not wait on.** §4
@@ -247,7 +315,7 @@ field is not in `schema/`. It is three months to a picture of one box that canno
 
 ## Failure modes
 
-1. **The ceiling is decided as a number and bleeds.** 79,033 bytes of headroom against measured
+1. **The ceiling is decided as a number and bleeds.** 72,971 bytes of headroom against measured
    costs of 239,964 (persistence), 279,764 (the command corpus as source) and ~150 KB+ (a second
    platform dictionary at today's ~457 bytes/entry), plus an unmeasured evaluator and an unmeasured
    layout crate.
@@ -274,6 +342,6 @@ field is not in `schema/`. It is three months to a picture of one box that canno
 |---|---|
 | Six read-only surveys of the tree (artifact, persistence, diagram, blockers, dictionary, findings), 2026-08-10 | Every measurement in §1 and every size estimate in §2 |
 | Six adversarial verifications of those surveys | Every correction marked as such — the rule-readiness cut from six to two, the JS-study caveat, the persistence byte cost |
-| `cargo test -p fathom-wasm --test artifact_gates` (run 2026-08-10) | 820,967 bytes against the 900,000 ceiling |
+| `cargo test -p fathom-wasm --test artifact_gates` (run 2026-08-11) | 827,029 bytes against the 900,000 ceiling |
 | Direct reproduction of the estate-destruction defect, then its fix | §1's closing paragraph |
 | `docs/70-ops/70-*.md` §16, `docs/70-ops/79-work-orders/00-PROGRAM-PLAN.md` §16 | The owner-decision split in §4 |

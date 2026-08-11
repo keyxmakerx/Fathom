@@ -276,6 +276,44 @@ button.tab:hover { color: var(--ink); }
                 font-size: var(--t-tab); text-transform: lowercase; }
 .pfoot button:hover { background: var(--surface); }
 .pfoot .spacer { margin-left: auto; }
+/* The equipment form. A scrolling column of labelled inputs, sized like the
+   textarea it sits where. */
+.eform { flex: 1 1 auto; min-height: 0; overflow-y: auto;
+         padding: var(--s2) var(--s3); display: flex; flex-direction: column;
+         gap: var(--s2); }
+.efield { display: flex; flex-direction: column; gap: var(--s1); }
+.efield label { font-size: var(--t-micro); line-height: var(--lh-micro);
+                color: var(--muted); }
+/* The one thing a form must never do here is imply a field is optional when
+   the schema declares it required, so the marker is on the label and not a
+   colour. */
+.efield .req { color: var(--ink); }
+.efield input, .efield select { font: inherit; font-size: var(--t-body);
+        color: var(--ink); background: var(--bg); border: 1px solid var(--rule);
+        border-radius: var(--radius); padding: var(--s1) var(--s2); width: 100%; }
+.efield input:focus, .efield select:focus { outline: 2px solid var(--ink);
+        outline-offset: -1px; }
+.efield .note { font-size: var(--t-micro); line-height: var(--lh-micro);
+                color: var(--muted); }
+/* The inspector's in-place field editor. Deliberately almost invisible until
+   focused: the inspector is read far more often than it is edited, and a table
+   of boxes reads as a form rather than as a record. */
+.fedit { font: inherit; font-size: inherit; color: var(--ink); width: 100%;
+         background: none; border: 1px solid transparent;
+         border-radius: var(--radius); padding: 0 var(--s1); }
+.fedit:hover { border-color: var(--rule); }
+.fedit:focus { outline: 2px solid var(--ink); outline-offset: -1px;
+               background: var(--bg); }
+/* Removal is not styled as a danger button. Nothing here is destroyed -- the
+   store tombstones and keeps the history -- and a red button would claim a
+   finality the model does not have. */
+.rmbtn { margin-top: var(--s3); font: inherit; font-size: var(--t-micro);
+         color: var(--muted); background: none; cursor: pointer;
+         border: 1px solid var(--rule); border-radius: var(--radius);
+         padding: var(--s1) var(--s2); }
+.rmbtn:hover { color: var(--ink); background: var(--surface); }
+.note { font-size: var(--t-micro); line-height: var(--lh-micro);
+        color: var(--muted); margin-top: var(--s2); }
 
 /* --- what one paste produced. Counts, then the lines it did not read. ----- */
 .tally { display: flex; flex-wrap: wrap; gap: var(--s4); margin: 0;
@@ -309,6 +347,7 @@ button.tab:hover { color: var(--ink); }
       <span class="tab">no sockets, ever</span>
       <span class="tab" id="tabSource">demo estate · not corpus data</span>
       <button type="button" class="tab" id="tabPaste">paste a config</button>
+      <button type="button" class="tab" id="tabEquip">add equipment</button>
       <button type="button" class="tab" id="tabTheme">theme · auto</button>
     </div>
   </header>
@@ -374,6 +413,24 @@ button.tab:hover { color: var(--ink); }
         <button type="button" id="pRun">read this config</button>
       </div>
     </div>
+
+    <!-- The SECOND door. Paste is the primary on-ramp and stays so, but a
+         device you have not pasted a config for is still a device you own, and
+         until now there was no way to say so. Unlike the paste sheet this one
+         ADDS: what is already held survives. -->
+    <div class="psheet" id="esheet" role="dialog" aria-label="Add equipment" hidden>
+      <div class="phead">
+        <div class="lead">Add equipment — no config needed</div>
+        <p class="prose" id="eHint"></p>
+        <p class="prose perr" id="eErr" hidden role="alert"></p>
+      </div>
+      <div class="eform" id="eform"></div>
+      <div class="pfoot">
+        <span>esc close</span>
+        <span class="spacer"></span>
+        <button type="button" id="eRun">add it</button>
+      </div>
+    </div>
   </main>
 
   <footer class="foot">
@@ -396,6 +453,44 @@ button.tab:hover { color: var(--ink); }
 var FATHOM_WASM_B64 = "@FATHOM_WASM_B64@";
 
 var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, OP_PASTE = 15;
+var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18;
+
+/* The equipment form's fields, and the ONLY place this page names a field key.
+   Each entry is [wire key, label, kind, required, note].
+
+   The keys come from schema/field-keys.yaml and are append-only there, so a
+   number here never changes meaning. They are spelled out rather than fetched
+   because the module answers with values, not with a form description -- a
+   generated form is the right long-term answer and is a bigger change than
+   this. When it lands, this array is what it replaces.
+
+   `model` and `serial` are CHASSIS fields, not device ones: a chassis cluster
+   is one device with two boxes, so the model belongs to the box. The module
+   routes each key to whichever kind declares it and creates the chassis behind
+   the form, which is why they can sit in one list here.
+
+   These numbers are pinned by crates/fathom-artifact/tests/artifact.rs against
+   the generated tables, so a schema change that moves a key fails the build
+   rather than silently writing the wrong field. `Chassis.model` was written
+   here as 300 from memory and is 19; the pin is why that class of mistake now
+   costs a red test rather than a silently mis-stored value. */
+var EQUIP_FIELDS = [
+  [6,  'hostname',           'text', true,  'The name the box calls itself.'],
+  [7,  'platform',           'plat', true,  'Which config language it speaks.'],
+  [9,  'role',               'role', false, ''],
+  [19, 'model',              'text', false, 'SRX345, MX204, C9300-48P.'],
+  [20, 'serial',             'text', false, 'Inventory only. Never leaves this page.'],
+  [8,  'os version',         'text', false, '21.4R3-S5.'],
+  [11, 'management address', 'text', false, 'Recorded, never connected to (invariant 2).']
+];
+
+/* The platforms schema/platforms.yaml registers. A closed list, because
+   `platform` is a foreign key into that file and a free-text box would let
+   someone type a platform Fathom has no dictionary for and then wonder why
+   nothing parses. */
+var PLATFORMS = ['junos-srx', 'junos-mx', 'junos-ex', 'panos', 'ios-xe', 'nx-os',
+                 'eos', 'fortios', 'opnsense', 'omada-sw'];
+var ROLES = ['firewall', 'router', 'switch', 'load_balancer', 'other'];
 var FACE_HEADER = 0, FACE_INV = 1, FACE_FIELD = 2, FACE_PORT = 3, FACE_IFACE = 4;
 var FACE_PASTE = 5, FACE_RESIDUE = 6, FACE_UNRESOLVED = 7;
 
@@ -504,9 +599,16 @@ var S = {
   element: null,
   equipment: null,
   loaded: false,
-  /* '' until something is loaded, then 'demo' or 'paste'. Two estates can
-     never be on screen at once, and every label reads off this one word so
-     they cannot disagree about which one is. */
+  /* '' until something is loaded, then 'demo', 'paste' or 'hand'. Two estates
+     can never be on screen at once, and every label reads off this one word so
+     they cannot disagree about which one is.
+
+     'hand' is not quite the same claim as the other two. A hand-added device
+     joins whatever is already held rather than replacing it, so an estate that
+     began as a paste and was then added to is BOTH — and this single word
+     cannot say so. It reports the most recent door. The honest answer per node
+     is its own provenance, which the inspector shows and which is where anyone
+     asking "where did this come from" should be sent. */
   source: '',
   /* The last SUCCESSFUL OP_PASTE reply, kept so the residue stays visible
      after the sheet closes: the lines Fathom did not read are the answer, not
@@ -515,6 +617,9 @@ var S = {
   /* The last refusal, shown in the paste sheet where the text that caused it
      still is. Cleared by the next success. */
   pasteError: null,
+  /* The last refused hand-add, shown in the equipment sheet where the values
+     that caused it are still typed in. Cleared by the next success. */
+  equipError: null,
   boot: null,
   msg: ''
 };
@@ -524,6 +629,10 @@ var S = {
 function sourceWords() {
   if (S.source === 'paste') return 'pasted config · junos-srx';
   if (S.source === 'demo') return 'demo estate · not corpus data';
+  /* Deliberately "includes", not "is". Adding by hand does not replace what is
+     held, so this estate may well contain pasted devices too, and a word that
+     claimed otherwise would be the masthead lying about provenance. */
+  if (S.source === 'hand') return 'includes hand-entered equipment';
   return 'no workspace loaded';
 }
 
@@ -539,7 +648,16 @@ function sourceWords() {
    wrong table. */
 var KINDS = ['Device', 'PhysicalPort', 'Premises',
              'Interface', 'TunnelInterface', 'Zone',
-             'IkeGateway', 'IpsecVpn', 'IkeProposal', 'IpsecProposal'];
+             'IkeGateway', 'IpsecVpn', 'IkeProposal', 'IpsecProposal',
+             /* Appended 2026-08-11. OSPF and BGP have been in `schema/` since the
+                beginning with no row to appear in. Nothing builds them yet -- no
+                dictionary entry is under `protocols` -- so both are empty today,
+                deliberately: the face exists before the parser work, not after. */
+             'RoutingProtocol', 'ProtocolAdjacency',
+             /* Appended 2026-08-11 with the equipment form: `model` and `serial`
+                are Chassis fields, so without this button a hand-entered model
+                is stored and invisible. */
+             'Chassis'];
 
 var VIEWS = [
   { id: 'finder',      t: 'Finder',      key: '⌥1',
@@ -801,6 +919,17 @@ function renderMeaningFace(host) {
 
   p.appendChild(el('div', 'sh', 'Fields — generated from schema.yaml'));
   p.appendChild(fieldTable(S.element.rows.slice(1)));
+
+  /* Type a value and press Enter. Said in words because an input that commits
+     on Enter and NOT on blur is the safer behaviour and the less obvious one. */
+  p.appendChild(el('div', 'note', 'Type in a field and press Enter to change it. ' +
+                                  'Leaving the box does not save.'));
+
+  var rm = el('button', null, 'remove this element');
+  rm.type = 'button';
+  rm.setAttribute('data-remove', '1');
+  rm.className = 'rmbtn';
+  p.appendChild(rm);
   host.appendChild(p);
 }
 
@@ -812,12 +941,95 @@ function fieldTable(records) {
     var th = el('th', null, r.s[0]);
     th.setAttribute('scope', 'row');
     tr.appendChild(th);
-    tr.appendChild(el('td', null, r.s[1]));
+
+    /* Slot 3 is the field's wire key and slot 4 says whether its type can be
+       typed in. Both come from the module with the row, so this page holds no
+       name-to-key table of its own — which is what stops a form writing one
+       field into another's slot. A field whose type the store cannot yet take
+       from text renders read-only rather than as an input that always fails. */
+    var key = r.s[3], editable = r.s[4] === '1' && S.sel;
+    if (editable) {
+      var cell = el('td');
+      var inp = el('input');
+      inp.type = 'text';
+      inp.value = r.s[1] === '—' ? '' : r.s[1];
+      inp.autocomplete = 'off';
+      inp.spellcheck = false;
+      inp.setAttribute('aria-label', r.s[0]);
+      inp.setAttribute('data-key', key);
+      inp.className = 'fedit';
+      cell.appendChild(inp);
+      tr.appendChild(cell);
+    } else {
+      tr.appendChild(el('td', null, r.s[1]));
+    }
+
     tr.appendChild(el('td', 'mu', r.s[2]));
     tb.appendChild(tr);
   });
   t.appendChild(tb);
   return t;
+}
+
+/* Commit an edited field. Enter commits; blur does not.
+
+   Committing on blur is the friendlier-looking choice and is wrong here: it
+   makes tabbing through a table to READ it write every cell you passed, each
+   one a new assertion in the record with your name on it. An estate of record
+   should never gain a claim because someone moved the focus. */
+function commitField(input) {
+  if (!wasm || !S.sel) return;
+  var key = parseInt(input.getAttribute('data-key'), 10);
+  var value = input.value.trim();
+  if (!value) { foot('a blank is not a value — clear is not built yet'); renderShell(); return; }
+
+  var ent = hostEntropy();
+  if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return; }
+
+  var idBytes = new TextEncoder().encode(S.sel);
+  var valBytes = new TextEncoder().encode(value);
+  var req = new Uint8Array(30 + idBytes.length + valBytes.length);
+  var dv = new DataView(req.buffer);
+  dv.setBigUint64(0, BigInt(Date.now()), true);
+  req.set(ent, 8);
+  dv.setUint32(24, key, true);
+  dv.setUint16(28, idBytes.length, true);
+  req.set(idBytes, 30);
+  req.set(valBytes, 30 + idBytes.length);
+
+  var reply = call(OP_FIELD_SET, req);
+  var bad = replyProblem(reply);
+  if (bad) { foot(bad); renderShell(); return; }
+  foot('changed');
+  postElement(S.sel);
+  loadKind(S.invKind);
+  render();
+}
+
+/* Remove the selected element. Not a delete: the store tombstones, so the node
+   stays in the record marked absent from this moment, and its subtree goes with
+   it — removing a device takes its chassis, because a chassis with no device is
+   not a fact anyone asserted. */
+function removeSelected() {
+  if (!wasm || !S.sel) return;
+  var ent = hostEntropy();
+  if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return; }
+  var idBytes = new TextEncoder().encode(S.sel);
+  var req = new Uint8Array(24 + idBytes.length);
+  new DataView(req.buffer).setBigUint64(0, BigInt(Date.now()), true);
+  req.set(ent, 8);
+  req.set(idBytes, 24);
+
+  var reply = call(OP_ELEMENT_REMOVE, req);
+  var bad = replyProblem(reply);
+  if (bad) { foot(bad); renderShell(); return; }
+  var gone = S.sel;
+  S.sel = null;
+  S.element = null;
+  S.equipment = null;
+  loadKind(S.invKind);
+  foot('removed ' + gone);
+  render();
 }
 
 /* --- the inspector's equipment face — the inspector grown (52 §2.3) ------- */
@@ -1083,13 +1295,24 @@ document.addEventListener('click', function (ev) {
     render();
     return;
   }
+  if (seekAttr(ev.target, 'data-remove')) { removeSelected(); return; }
+});
+
+/* Enter commits an edited field. On the same delegate as everything else so a
+   table rebuilt by a render carries no listeners of its own to leak. */
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter') return;
+  var t = e.target;
+  if (!t || !t.classList || !t.classList.contains('fedit')) return;
+  e.preventDefault();
+  commitField(t);
 });
 
 /* --- the finder overlay: registered, empty, honest. ----------------------- */
 var fOpen = false;
 function setFinder(open) {
   fOpen = open;
-  $('scrim').hidden = !(open || pOpen);
+  $('scrim').hidden = !(open || pOpen || eOpen);
   $('fsheet').hidden = !open;
   if (open) {
     var h = $('fhits');
@@ -1113,7 +1336,7 @@ var pOpen = false;
 
 function setPaste(open) {
   pOpen = open;
-  $('scrim').hidden = !(open || fOpen);
+  $('scrim').hidden = !(open || fOpen || eOpen);
   $('psheet').hidden = !open;
   if (open) {
     $('pHint').textContent =
@@ -1203,6 +1426,156 @@ function runPaste() {
 $('tabPaste').addEventListener('click', function () { setPaste(!pOpen); });
 $('pRun').addEventListener('click', runPaste);
 
+/* --- the second door: add equipment by hand ------------------------------- */
+
+var eOpen = false;
+
+function setEquip(open) {
+  eOpen = open;
+  $('scrim').hidden = !(open || fOpen || pOpen);
+  $('esheet').hidden = !open;
+  if (!open) return;
+  $('eHint').textContent =
+    'For a box you own but have no config for. Everything you type is stored ' +
+    'as yours — marked hand-entered, so you can always tell it apart from what ' +
+    'a config said. Nothing here is sent anywhere, and nothing you have already ' +
+    'added is replaced.';
+  buildEquipForm();
+  var first = $('ef6');
+  if (first) first.focus();
+}
+
+/* Built from EQUIP_FIELDS rather than written into the markup, so the form and
+   the frame cannot disagree about which fields exist. `el()` throughout: this
+   file may contain no markup-from-string sink at all, and an artifact test
+   greps for every one of them by name — a form is exactly where building
+   markup out of a string would otherwise be reached for. */
+function buildEquipForm() {
+  var host = $('eform');
+  clear(host);
+  for (var i = 0; i < EQUIP_FIELDS.length; i++) {
+    var f = EQUIP_FIELDS[i];
+    var wrap = el('div', 'efield');
+    var id = 'ef' + f[0];
+
+    var lab = el('label', null, f[1]);
+    lab.setAttribute('for', id);
+    if (f[3]) {
+      var req = el('span', 'req', ' — required');
+      lab.appendChild(req);
+    }
+    wrap.appendChild(lab);
+
+    var input;
+    if (f[2] === 'plat' || f[2] === 'role') {
+      var opts = f[2] === 'plat' ? PLATFORMS : ROLES;
+      input = el('select');
+      /* A blank first option only where the field is optional. On a required
+         field an empty choice is a trap: it looks like a valid answer and is
+         refused on submit. */
+      if (!f[3]) input.appendChild(el('option', null, ''));
+      for (var j = 0; j < opts.length; j++) {
+        var o = el('option', null, opts[j]);
+        o.value = opts[j];
+        input.appendChild(o);
+      }
+    } else {
+      input = el('input');
+      input.type = 'text';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+    }
+    input.id = id;
+    wrap.appendChild(input);
+
+    if (f[4]) wrap.appendChild(el('div', 'note', f[4]));
+    host.appendChild(wrap);
+  }
+}
+
+function runEquip() {
+  if (!wasm) { foot('the module is not instantiated'); renderShell(); return; }
+  var ent = hostEntropy();
+  if (!ent) {
+    foot('this browser exposes no cryptographic randomness — the add is refused');
+    renderShell();
+    return;
+  }
+
+  /* Collect only the fields that were filled. A blank box is "I did not say",
+     not "there is none" — the module refuses an empty value rather than
+     recording an absence nobody asserted, so sending one would be a guaranteed
+     refusal for a field the user simply skipped. */
+  var sent = [];
+  for (var i = 0; i < EQUIP_FIELDS.length; i++) {
+    var f = EQUIP_FIELDS[i];
+    var node = $('ef' + f[0]);
+    if (!node) continue;
+    var v = node.value.trim();
+    if (v) sent.push([f[0], v]);
+  }
+  if (!sent.length) { foot('nothing filled in'); renderShell(); return; }
+
+  var enc = new TextEncoder();
+  var parts = [], total = 0;
+  for (var k = 0; k < sent.length; k++) {
+    var body = enc.encode(sent[k][1]);
+    parts.push([sent[k][0], body]);
+    total += 4 + body.length;
+  }
+
+  var req = new Uint8Array(24 + 1 + total);
+  var dv = new DataView(req.buffer);
+  dv.setBigUint64(0, BigInt(Date.now()), true);
+  req.set(ent, 8);
+  req[24] = parts.length;
+  var at = 25;
+  for (var m = 0; m < parts.length; m++) {
+    dv.setUint16(at, parts[m][0], true);
+    dv.setUint16(at + 2, parts[m][1].length, true);
+    req.set(parts[m][1], at + 4);
+    at += 4 + parts[m][1].length;
+  }
+
+  var reply = call(OP_EQUIP_ADD, req);
+  var bad = replyProblem(reply);
+  if (bad) {
+    /* The sheet stays open with everything still typed in it. A form that
+       clears itself on refusal makes the person retype seven fields to fix one
+       character. */
+    S.equipError = reply;
+    foot('not added — nothing changed');
+    renderEquipError();
+    renderShell();
+    return;
+  }
+
+  S.equipError = null;
+  S.source = 'hand';
+  S.loaded = true;
+  S.sel = null;
+  S.element = null;
+  S.equipment = null;
+  S.invKind = 0;
+  loadKind(0);
+  var name = $('ef6') ? $('ef6').value.trim() : '';
+  foot(name ? ('added ' + name) : 'added the device');
+  setEquip(false);
+  S.view = 'inventory';
+  render();
+}
+
+function renderEquipError() {
+  var box = $('eErr');
+  if (!box) return;
+  if (!S.equipError) { box.hidden = true; box.textContent = ''; return; }
+  box.textContent = replyProblem(S.equipError) || 'the add was refused';
+  box.hidden = false;
+}
+
+$('tabEquip').addEventListener('click', function () { setEquip(!eOpen); });
+$('eRun').addEventListener('click', runEquip);
+
 /* --- keyboard ------------------------------------------------------------- */
 document.addEventListener('keydown', function (e) {
   /* Ctrl+K from anywhere, including inside a text field. */
@@ -1214,6 +1587,7 @@ document.addEventListener('keydown', function (e) {
   /* Escape unwinds exactly one level (53 §3.7); on an empty state it
      navigates nowhere. */
   if (e.key === 'Escape') {
+    if (eOpen) { setEquip(false); return; }
     if (pOpen) { setPaste(false); return; }
     if (fOpen) { setFinder(false); return; }
     if (S.sel) { S.sel = null; S.element = null; S.equipment = null; render(); return; }

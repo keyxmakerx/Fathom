@@ -104,10 +104,18 @@ fn element_and_equipment_replies_mirror_the_crate() {
 
             for (rec, f) in records[1..].iter().zip(page.fields.iter()) {
                 assert_eq!(rec.role, FACE_FIELD);
-                assert_eq!(rec.slot_count, 3);
+                // Five since 2026-08-11. Slots 3 and 4 -- the field's wire key
+                // and whether its type can be typed in -- were added so the page
+                // can offer an editor without keeping a name-to-key table of its
+                // own. A table like that in JavaScript is how a form ends up
+                // writing one field into another's slot, and it would be
+                // unpinned by anything.
+                assert_eq!(rec.slot_count, 5);
                 assert_eq!(rec.strings[0], f.name);
                 assert_eq!(rec.strings[1], f.value);
                 assert_eq!(rec.strings[2], f.provenance);
+                assert_eq!(rec.strings[3], f.key.0.to_string());
+                assert_eq!(rec.strings[4], if f.editable { "1" } else { "" });
             }
         }
     }

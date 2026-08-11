@@ -19,6 +19,15 @@ pub struct FieldRow {
     pub name: &'static str,
     pub value: String,
     pub provenance: String,
+    /// The schema's wire key for this field, carried so a UI can offer to edit
+    /// the row without holding a name-to-key table of its own. A hand table on
+    /// the page is exactly how a form ends up writing the model into the serial;
+    /// this makes the key travel with the row it belongs to.
+    pub key: fathom_ir::bag::FieldKey,
+    /// Whether a person can type this field's type today
+    /// (`crate::is_authorable`). The page hides the editor where this is false,
+    /// so it never offers an input whose every value will be refused.
+    pub editable: bool,
 }
 
 pub struct ElementPage {
@@ -49,6 +58,8 @@ pub fn element_page(g: &Graph, id: NodeId) -> Option<ElementPage> {
                     name: field_name(*k),
                     value,
                     provenance,
+                    key: *k,
+                    editable: crate::is_authorable(*k),
                 }
             })
             .collect(),

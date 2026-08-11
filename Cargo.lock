@@ -5,6 +5,9 @@ version = 4
 [[package]]
 name = "fathom-artifact"
 version = "0.1.0"
+dependencies = [
+ "fathom-ir",
+]
 
 [[package]]
 name = "fathom-canon"
