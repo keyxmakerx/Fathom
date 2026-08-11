@@ -139,10 +139,143 @@ there is nothing on the server to protect. Put basic auth or SSO at the proxy if
 you want to control *who can reach the tool*, not because the tool is storing
 anything.
 
+## Deploying under Cosmos Cloud (bind-mount, no custom image)
+
+Cosmos runs images; it does not build them. There is no `build:` in its
+container schema, so `docker-compose.yml` above cannot be handed to it. The
+practical route is to skip the custom runtime image entirely — the `serve` stage
+is stock `nginx-unprivileged` plus two files — and bind-mount both from appdata:
+
+```bash
+mkdir -p /mnt/user/appdata/fathom/{html,conf}
+
+# Build the artifact anywhere that has Docker; the serving box needs no Rust.
+docker build --target artifact -o /tmp/fathom-out .
+
+install -m 644 /tmp/fathom-out/fathom.html /mnt/user/appdata/fathom/html/index.html
+install -m 644 docker/nginx.conf           /mnt/user/appdata/fathom/conf/default.conf
+chmod 755 /mnt/user/appdata/fathom /mnt/user/appdata/fathom/{html,conf}
+
+sha256sum /mnt/user/appdata/fathom/html/index.html   # write this down; see below
+```
+
+`index.html` should be about **1.1 MiB**. Anything in the kilobytes is a failed
+or truncated build. Create both directories *before* the first deploy: if they
+are missing, Cosmos creates them `0750` owned by `101:101`, which is the opposite
+of leaving them world-readable and is why the "just rely on the other-read bit"
+advice only works when you got there first.
+
+Then point Cosmos at `nginxinc/nginx-unprivileged:alpine` with the html directory
+mounted read-only at `/usr/share/nginx/html`, the conf file read-only at
+`/etc/nginx/conf.d/default.conf`, `user: 101:101`, `cap_drop: ALL`,
+`no-new-privileges`, no published ports, and a Cosmos route to
+`http://fathom:8080`.
+
+### What the build actually needs from the network
+
+**Not crates.io.** The workspace has zero third-party dependencies, so no crate
+is ever fetched. What it does need is `static.rust-lang.org`: `rust-toolchain.toml`
+declares the `wasm32-unknown-unknown` target, and rustup downloads that standard
+library on the first cargo call. On a locked-down box, allowlisting crates.io and
+not `static.rust-lang.org` fails the build *at the first instruction*, with an
+error that names a host the plan never mentioned.
+
+Worth saying plainly: **a crates.io request during this build is a supply-chain
+event, not background noise.** Stop and find out why.
+
+The compile is roughly 22 seconds cold on four cores. It is not a long build;
+there is no third-party code to compile. The image pulls dominate.
+
+### The four things Cosmos drops without saying so
+
+`read_only`, `pids_limit`, `tmpfs` and `logging` have no equivalent in the Cosmos
+container schema and are dropped silently.
+
+None of them is the first line of defence — the first line is that this server
+has no handler an attacker can reach. What they cost is depth, and two of them
+compound: with `read_only` gone *and* the `noexec` tmpfs gone, `/tmp` becomes a
+writable, executable scratch directory inside the container. That matters only
+after someone already has code execution, but it converts a one-shot compromise
+into a persistent one.
+
+`mem_limit` **is** supported — as a units string (`"128m"`, not an integer of
+bytes), and an unparseable value aborts the whole service creation. Use the field
+rather than `docker update`; the field survives a redeploy and `docker update`
+does not. Only `pids_limit` genuinely needs the out-of-band
+`docker update --pids-limit 64 fathom`, and write down that it must be re-applied
+after every compose deploy. `docker update` has no `--read-only` flag, so that one
+cannot be recovered that way at all.
+
+### The regression nobody lists
+
+The one worth actually caring about is not `read_only`. It is that **the served
+artifact moves from an immutable image layer to a host-writable file in appdata.**
+
+For Fathom, the integrity of the page *is* the security property. Someone pastes
+a firewall config into it; a swapped page with a modified CSP could exfiltrate
+that config while every other control here still passes. So: keep the hash you
+recorded above, re-verify it after every update, keep `html/` off SMB and out of
+any appdata path another container mounts read-write. If that discipline will not
+hold, keep the baked image — its value was never that nginx was custom, it was
+that the artifact was content-addressed by the image digest.
+
+### Three things that will bite
+
+1. **`http://fathom:8080` does not resolve by default.** Cosmos dials the target
+   from inside its own container using Docker's embedded DNS, so Cosmos must be a
+   member of the same network. Add `"cosmos-network-name": "auto"` to the
+   service's labels and Cosmos creates a network and joins itself to it.
+   Otherwise every request to the route fails DNS and you get a 502.
+2. **Verify the bind mounts really landed read-only.**
+   `docker inspect -f '{{json .HostConfig.Mounts}}' fathom` must show
+   `"ReadOnly":true` on both. It is the compensating control for losing
+   `read_only`, and its absence is completely silent. Related: opening the
+   container's Volumes tab in the Cosmos UI and clicking save converts both
+   mounts to read-write and recreates the container, with no warning. Change
+   mounts by editing the compose, never in that tab.
+3. **Mounting a single file that does not exist yet** makes Docker create a
+   *directory* at that path. The container then fails with "not a directory", and
+   the sting is that your fix — copying the file in — lands it *inside* the stray
+   directory, so the next attempt fails identically. Install the file first, or
+   mount the whole `conf/` directory over `/etc/nginx/conf.d` and sidestep it.
+
+After deploying, one command tells you whether this config is the one answering:
+
+```
+curl -sI https://<host>/ | grep -i x-frame-options
+```
+
+Empty means a different server block is serving the page, and every header in
+this file is silently absent.
+
+### Cosmos and the CSP — nothing needs disabling
+
+See the Cosmos section under *Behind a reverse proxy* above. The short version:
+Cosmos injects only `frame-ancestors`, which cannot affect inline script or wasm,
+so leave header hardening **on**. Two consequences worth knowing:
+
+- Cosmos strips this file's `Content-Security-Policy` header and substitutes its
+  own, so **the CSP line in nginx.conf is inert behind Cosmos**. The framing
+  posture weakens from `'none'` to `'self'`; `X-Frame-Options: DENY` survives and
+  preserves the intent.
+- Leave **SmartShield off** for this route. If a client trips its budget mid-response
+  it emits a 503 header after bytes are already on the wire, which truncates a
+  1.2 MB single-file response.
+
+**Authentication stops being optional here.** The README's advice above assumes
+loopback. The moment this is a public hostname, put auth on the Cosmos route.
+
 ## What has not been tested
 
-**These files have not been built or run.** They were written on a machine with
-no Docker daemon, so the Rust build, the nginx config syntax and the compose
-schema are all unverified by execution. The first `docker compose up` is the
-test. If the nginx config has a typo the container will fail to start and say
-which line.
+**`docker-compose.yml` and the `Dockerfile` have not been built or run** on a
+machine with a working Docker daemon in this project's history. The first
+`docker compose up` is the test.
+
+**`docker/nginx.conf` has been executed** against a real
+`nginxinc/nginx-unprivileged:alpine` container: `nginx -t` is clean with zero
+warnings, a sibling container on a user-defined network fetched
+`http://fathom:8080/` and got 200 with the full header set, and both the
+IPv6-listen failure and the `gzip_types` warning were reproduced before being
+fixed. What has *not* been tested is any of it against a running Cosmos instance
+— the Cosmos findings above are a reading of its source at commit `2470b36`
+(2026-08-02), checked 2026-08-11.
