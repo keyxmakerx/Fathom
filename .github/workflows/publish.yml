@@ -115,8 +115,17 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
+            # `latest` -- the one to use unless you have a reason not to.
             type=raw,value=latest,enable={{is_default_branch}}
+            # `main` -- the branch name. Present because reaching for the branch
+            # name is the obvious guess, and a tag that does not exist fails as
+            # `denied` on GHCR rather than `not found`, which reads like a
+            # permissions problem and sends you to the wrong place entirely.
+            type=ref,event=branch
+            # `v1.2.3` -- on a git tag push.
             type=ref,event=tag
+            # `sha-<full commit>` -- always. Pin to this, or to the digest, for
+            # anything you want to be able to reproduce.
             type=sha,format=long
           labels: |
             org.opencontainers.image.title=Fathom

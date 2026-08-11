@@ -142,8 +142,21 @@ anything.
 ## The published image
 
 `.github/workflows/publish.yml` builds the `serve` stage on every push to `main`
-and pushes it to **`ghcr.io/keyxmakerx/fathom`**. Tags: `latest` on the default
-branch, `sha-<commit>` on every build, and the version on a `v*` git tag.
+and pushes it to **`ghcr.io/keyxmakerx/fathom`**.
+
+| Tag | When |
+|---|---|
+| `latest` | every push to `main` — use this one |
+| `main` | every push to `main`, same image |
+| `sha-<full commit>` | every build — pin to this to reproduce one |
+| `v1.2.3` | on a `v*` git tag push |
+
+**A tag that does not exist fails as `denied`, not `not found`.** GHCR does not
+distinguish a missing tag from one you are not allowed to see, so the error for a
+typo'd tag is indistinguishable from an authentication problem and will send you
+looking at credentials. If a pull is denied, check in this order: does the
+workflow exist on `main` and has it actually run; does that exact tag appear in
+the package; and only then, is the package private.
 
 ```
 docker pull ghcr.io/keyxmakerx/fathom:latest
