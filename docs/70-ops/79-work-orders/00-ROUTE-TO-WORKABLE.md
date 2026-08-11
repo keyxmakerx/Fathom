@@ -42,7 +42,7 @@ Stated as measurements rather than impressions, each verified twice:
 | Persistence wired in | **no.** `fathom-workspace` is 767 lines with 11 passing tests and is a dependency of nothing |
 | Cryptography | **zero bytes.** Nothing in the ten invariants forbids the plaintext local save that already works |
 | Junos statements understood | **42** — enough for a route-based IPsec tunnel end to end, and essentially nothing else |
-| Module size | **827,029 bytes against a 900,000-byte ceiling that fails the merge (re-measured 2026-08-11)** |
+| Module size | **852,918 bytes against a 900,000-byte ceiling that fails the merge (re-measured 2026-08-11, after the hand-authoring commits)** |
 
 The honest summary is that this is a real thing that works, at roughly **8% of its own
 specification**, standing on a byte budget that is already 91% spent.
@@ -118,17 +118,115 @@ object with no arm renders as a ULID.
 ### Stage 5 — Keep the work
 
 **Owner-visible:** a Save that survives closing the tab.
-**Depends on:** stage 1's ceiling decision — **hard**. **Size:** hours of code behind a decision.
+**Depends on:** one owner act — approving the two crypto crates (ADR-0032, §5). **No longer depends
+on stage 1's ceiling decision.** **Size:** days, page-side.
 
-The hard half is done and green: a verifier independently ran ingest → weld → `write_plain` →
-`read_plain` → `write_plain` on the SRX fixture, byte-identical. **But linking it measured
-+239,964 bytes against 72,971 of headroom.** This is *not* the cheap unblocked slice every prior
-plan in this tree calls it; it is hours of work behind the byte decision, and doing it first would
-mean the first thing built is the thing that breaches the ceiling.
+> **REWRITTEN 2026-08-11, after a six-way survey each finding of which was adversarially verified.**
+> The paragraph this replaces was not wrong about its number and was wrong about the feature. It
+> priced **saving the expanded model**, which is the one shape of persistence that does not fit. See
+> §5b below for the route that does, why it is also the better one, and what it still needs.
+
+The snapshot route is real, green, and too big. A verifier independently ran ingest → weld →
+`write_plain` → `read_plain` → `write_plain` on the SRX fixture, byte-identical; `fathom-workspace`
+is 767 lines with zero external dependencies and 11 passing tests. **Linking it re-measured at
++235,926 bytes** (852,918 → 1,088,844), which fails `artifact_gates.rs`'s ceiling assertion in CI.
+Splitting it does not rescue it: **save alone is already 45,976 bytes over the ceiling.**
+
+Three further facts, each measured, that settle the shape rather than the size:
+
+- **None of that 239 KB is cryptography.** `fathom-workspace/src/lib.rs:16` says so in terms —
+  *"There is no cryptography here, and no integrity field, on purpose"*. The cost is the snapshot
+  machinery: `Graph::from_snapshot` alone is 110,256 bytes, 47% of the whole round trip.
+- **The decided crypto stack is cheap and fits today.** Argon2id v1.3 + ChaCha20-Poly1305 (`32` D1,
+  D3) measured at **+36,590 bytes** against 47,082 of headroom, and adds **no wasm import** — the
+  host hands in salt and nonce exactly as `OP_PASTE` already hands in clock and entropy.
+- **The snapshot format is the more fragile one.** `lib.rs:182` refuses outright on any
+  `SCHEMA_VERSION` difference, with no migration. A file saved today stops opening the next time the
+  schema moves.
 
 Two things ride along at zero wasm cost: the unsaved-change count plus `beforeunload` that `43` §3.8
 already specifies and which greps to zero in the page, and a test round-tripping an `Origin::Parsed`
 graph — a wire form no test in the repository touches.
+
+### Stage 5b — Save the journal, not the model
+
+**The route. +263 bytes of module, and it is also the better design.**
+
+Save **what the operator did** — the redacted config text they pasted, each piece of equipment they
+added, each field they corrected, each thing they removed — and replay it on open. Do not save the
+expanded model those acts produced.
+
+Every op it needs already exists and is already linked: `OP_PASTE`, `OP_EQUIP_ADD`, `OP_FIELD_SET`,
+`OP_ELEMENT_REMOVE`. The page composes those frames today and throws them away. Replay is
+byte-identical because the module is deterministic given the host's clock and entropy, which the
+frames already carry by design (invariant 9 is what makes this work, not what it fights).
+
+| | Snapshot | Journal |
+|---|---|---|
+| Module cost | +235,926 — over the ceiling by 188,844 | **+263** |
+| File size, same estate | 33,840 bytes | **2,406 bytes** |
+| A schema change | file stops opening (`lib.rs:182`, no migration) | re-derives |
+| Real-time collaboration | *"state written beside the op log"* — `75` §2.4's named failure | **it is an op log** |
+
+**Measured end to end, as one build rather than by adding deltas: the redacted-capture opcode plus
+Argon2id plus ChaCha20-Poly1305 lands at 889,723 bytes against the 900,000 ceiling** — 10,277 to
+spare, import section still empty. So the ceiling decision (`§2` stage 1, Route D) is **not**
+required for this feature. Keep that decision for the dictionary and corpus question, which does
+need it.
+
+`75` §2.4 is worth reading directly here, because the cheap route and the future-proof route turn
+out to be the same one: *"The op log is what a future CRDT converges; state written beside it
+instead of through it is state that multi-writer collaboration can never carry."*
+
+#### The gate that makes this safe, and the four honest costs
+
+**INVARIANT 3 IS A HARD GATE ON THIS ROUTE.** A journal of the **raw** paste would send
+pre-shared-key text to the encryptor and into the operator's sync folder. The journal must carry
+`IngestOutput.capture` — the text the redaction gate produces — and never the raw paste. This was
+tested rather than argued: replaying the redacted capture yields the same 13 nodes, and of 99
+differing lines between the two snapshots **all 99 are byte-span offsets and none is semantic**
+(the offsets shift because the redacted text is 3 bytes shorter, and they are correct as shifted,
+because they point into the text that is actually stored). Re-ingesting redacted text is idempotent.
+The work order carries this as a gate with a canary test, or the cheapest route becomes the one that
+leaks a pre-shared key into Dropbox.
+
+1. **Replay time grows with the journal.** 3.4 ms for three ops. A multi-year journal needs periodic
+   compaction to a checkpoint — the same thing a CRDT would do.
+2. **Source-span highlighting points into the redacted text**, so it shifts a few bytes from the
+   original paste. That is the honest behaviour, and it should be stated in the UI rather than fixed.
+3. **An old journal replayed through a NEWER dictionary binds statements it previously could not**,
+   producing a *richer* estate and shifting minted ids. Mostly a feature; must be surfaced, never
+   silent. It needs its own test.
+4. **`showSaveFilePicker` is Chromium-only.** Measured in a real browser, from a `file://` page:
+   Chrome/Edge open the native dialog, write to a chosen folder, persist the handle in IndexedDB and
+   re-save after a refresh with **no** re-prompt — so `file://` *is* a secure context and the widely
+   repeated claim that the picker throws there is false for Chromium. Firefox and Safari have no
+   user-chosen place at all (caniuse *native-filesystem-api*, MDN *showSaveFilePicker*, both checked
+   2026-08-11): every save mints a new numbered file in Downloads and the page cannot tell whether it
+   happened. That is vendor policy, not a gap that closes by waiting.
+
+#### What is refused, and why
+
+- **Browser storage — `localStorage`, `IndexedDB` for data — is banned by a decision of record** and
+  enforced by a canary that requires the origin's storage to be *empty*, not merely free of
+  plaintext. It is the obvious "just stop the bleeding" move and it is forbidden.
+- **Plaintext first, encryption later** buys days, not weeks — encryption is +36,590 bytes and
+  already fits — and it costs a window in which the operator's topology, addressing and hostnames sit
+  unencrypted in a sync folder. Against `70`'s stated priority order, security first. Refused.
+- **WebCrypto in the page** is not the shortcut it looks like: `32` D3 already rejected AES-GCM via
+  `crypto.subtle` precisely because it means moving plaintext into the JS heap. The decided stack
+  stays in the module.
+
+#### The one thing that needs the owner
+
+ADR-0032 §5: per-crate approval is **an owner act and may not be delegated to a planning session**,
+and a work order naming a crate without a matching approval record is malformed under `78` §8. The
+crypto stack needs the project's first two external dependencies. **Gate zero in `ci.yml` — the
+three-line check that fails when `Cargo.lock` gains an unapproved package — must land before they
+do**, per ADR-0032 §6, and it still does not exist.
+
+So the sequence is: gate zero, then the owner's approval of the two crates, then the work order.
+Everything else in 5b is unblocked.
 
 **Biggest risk:** a file saved today becomes unreadable when `SCHEMA_VERSION` changes; `read_plain`
 refuses on any difference and no migration exists. Say so in the UI or it is a trap.
@@ -315,7 +413,7 @@ generator run, three one-line test-constant edits, zero production Rust** — an
 
 ## Failure modes
 
-1. **The ceiling is decided as a number and bleeds.** 72,971 bytes of headroom against measured
+1. **The ceiling is decided as a number and bleeds.** 47,082 bytes of headroom against measured
    costs of 239,964 (persistence), 279,764 (the command corpus as source) and ~150 KB+ (a second
    platform dictionary at today's ~457 bytes/entry), plus an unmeasured evaluator and an unmeasured
    layout crate.
