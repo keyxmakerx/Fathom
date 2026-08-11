@@ -86,6 +86,13 @@ pub fn assemble(workspace_root: &Path) -> Result<Vec<u8>, String> {
         .current_dir(workspace_root)
         .args([
             "build",
+            // --locked because this is a NESTED cargo invocation, and an
+            // unlocked child would quietly repair the lockfile that the locked
+            // parent exists to catch (ADR-0032 §4; the Dockerfile's build stage
+            // claims this holds for every invocation, and until now it did not).
+            // Costs nothing today -- the workspace has no registry dependency to
+            // resolve -- and is the gate the moment the first vendored crate lands.
+            "--locked",
             "--release",
             "--target",
             "wasm32-unknown-unknown",
