@@ -34,6 +34,14 @@ pub enum InvKind {
     IpsecVpn,
     IkeProposal,
     IpsecProposal,
+    // Added 2026-08-11 at the owner's request: OSPF and BGP. Both kinds have
+    // been in `schema/` since the beginning and neither had a row, so a routing
+    // protocol Fathom understood had nowhere to appear. Nothing produces them
+    // yet -- no dictionary entry is under `protocols` -- so these two are empty
+    // today by construction, and that is the point: the parser work lands into a
+    // face that already exists rather than into one nobody remembers to add.
+    RoutingProtocol,
+    ProtocolAdjacency,
     // Added 2026-08-11 with hand authoring. A `Chassis` is where `model` and
     // `serial` live -- a chassis cluster is one Device with two boxes -- so
     // without this row the equipment form could STORE a model and no view could
@@ -55,11 +63,13 @@ impl InvKind {
             InvKind::IpsecVpn => "IpsecVpn",
             InvKind::IkeProposal => "IkeProposal",
             InvKind::IpsecProposal => "IpsecProposal",
+            InvKind::RoutingProtocol => "RoutingProtocol",
+            InvKind::ProtocolAdjacency => "ProtocolAdjacency",
             InvKind::Chassis => "Chassis",
         }
     }
 
-    pub const ALL: [InvKind; 11] = [
+    pub const ALL: [InvKind; 13] = [
         InvKind::Device,
         InvKind::PhysicalPort,
         InvKind::Premises,
@@ -70,6 +80,8 @@ impl InvKind {
         InvKind::IpsecVpn,
         InvKind::IkeProposal,
         InvKind::IpsecProposal,
+        InvKind::RoutingProtocol,
+        InvKind::ProtocolAdjacency,
         InvKind::Chassis,
     ];
 
@@ -85,6 +97,8 @@ impl InvKind {
             InvKind::IpsecVpn => NodeKind::IpsecVpn,
             InvKind::IkeProposal => NodeKind::IkeProposal,
             InvKind::IpsecProposal => NodeKind::IpsecProposal,
+            InvKind::RoutingProtocol => NodeKind::RoutingProtocol,
+            InvKind::ProtocolAdjacency => NodeKind::ProtocolAdjacency,
             InvKind::Chassis => NodeKind::Chassis,
         }
     }
@@ -124,6 +138,27 @@ const PREMISES_COLUMNS: &[&str] = &["label", "clli", "form", "street", "devices"
 /// Every one a field `schema/schema.yaml` declares on `Chassis`, plus the
 /// owning device, which is the traversal that makes the row locatable.
 const CHASSIS_COLUMNS: &[&str] = &["model", "serial", "member_index", "slots", "device"];
+/// OSPF and BGP, `56` §4.8. `protocol` first because it is what tells the two
+/// apart, then the one identifying number each uses -- `local_as` for BGP,
+/// `router_id` for OSPF -- so one table serves both without a per-protocol view.
+const ROUTING_PROTOCOL_COLUMNS: &[&str] = &[
+    "protocol",
+    "router_id",
+    "local_as",
+    "reference_bandwidth",
+    "device",
+];
+/// One neighbour. `peer_address` and `peer_as` are the BGP half, `area` and
+/// `cost` the OSPF half; a row fills whichever its protocol uses and leaves the
+/// other empty, which is `56` §4.8's table made legible in one place.
+const PROTOCOL_ADJACENCY_COLUMNS: &[&str] = &[
+    "peer_address",
+    "peer_as",
+    "area",
+    "cost",
+    "network_type",
+    "device",
+];
 
 // The six pasted-config kinds. Every column below is a field `schema/schema.yaml`
 // declares on that kind — no column is computed here except the named traversals
@@ -160,6 +195,8 @@ pub fn columns(kind: InvKind) -> &'static [&'static str] {
         InvKind::IpsecVpn => IPSEC_VPN_COLUMNS,
         InvKind::IkeProposal => IKE_PROPOSAL_COLUMNS,
         InvKind::IpsecProposal => IPSEC_PROPOSAL_COLUMNS,
+        InvKind::RoutingProtocol => ROUTING_PROTOCOL_COLUMNS,
+        InvKind::ProtocolAdjacency => PROTOCOL_ADJACENCY_COLUMNS,
         InvKind::Chassis => CHASSIS_COLUMNS,
     }
 }
@@ -260,6 +297,21 @@ fn cells(g: &Graph, kind: InvKind, id: NodeId) -> Vec<String> {
             value_cell(g, id, key("IpsecProposal.protocol")),
             value_cell(g, id, key("IpsecProposal.encryption_algorithm")),
             value_cell(g, id, key("IpsecProposal.authentication_algorithm")),
+        ],
+        InvKind::RoutingProtocol => vec![
+            value_cell(g, id, key("RoutingProtocol.protocol")),
+            value_cell(g, id, key("RoutingProtocol.router_id")),
+            value_cell(g, id, key("RoutingProtocol.local_as")),
+            value_cell(g, id, key("RoutingProtocol.reference_bandwidth")),
+            owning_device(g, id),
+        ],
+        InvKind::ProtocolAdjacency => vec![
+            value_cell(g, id, key("ProtocolAdjacency.peer_address")),
+            value_cell(g, id, key("ProtocolAdjacency.peer_as")),
+            value_cell(g, id, key("ProtocolAdjacency.area")),
+            value_cell(g, id, key("ProtocolAdjacency.cost")),
+            value_cell(g, id, key("ProtocolAdjacency.network_type")),
+            owning_device(g, id),
         ],
         InvKind::Chassis => vec![
             value_cell(g, id, key("Chassis.model")),

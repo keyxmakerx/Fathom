@@ -432,6 +432,8 @@ layer. `LayerMask` is a 5-bit set; the 31 non-empty combinations are the fixture
 | `Vlan` | — | **band across the devices that carry it** | — | — | — |
 | `RoutingInstance` | — | — | **box** containing its units | — | — |
 | `StaticRoute` | — | — | arrow from the RI box to the next-hop unit | — | — |
+| `RoutingProtocol` | — | — | **badge on the RI box**, one per instance: `ospf a0` · `bgp 65001` | — | — |
+| `ProtocolAdjacency` | — | — | **line between the two units that peer**, labelled by protocol — see §4.8 | — | — |
 | `Zone` | — | — | — | **bracket** around its member units | — |
 | `PolicySet` | — | — | — | edge between two zone brackets | — |
 | `SecurityPolicy` | — | — | — | count on the `PolicySet` edge | — |
@@ -631,6 +633,57 @@ Candidates that have been proposed and refused, with the reason:
 
 **The rule that generalises:** a layer is a *set of graph elements*. An attribute of elements is a
 treatment, not a layer.
+
+### 4.8 OSPF and BGP — routing protocols on the L3 layer
+
+**Added 2026-08-11, at the owner's request** (*"can you add ospf and BGP to the drawing layers
+somehow? is that a reasonable ask?"*). It was reasonable, and the answer was mostly already here:
+`schema/schema.yaml` declares `RoutingProtocol` (a `{ ospf, ospf_v3, bgp, isis, rip, ldp }` enum,
+`router_id`, `local_as`, `areas`, `reference_bandwidth`) and `ProtocolAdjacency` (`peer_address`,
+`peer_as`, `area`, `cost`, `network_type`, `import_policy`, `export_policy`,
+`route_reflector_client`, `passive`). **What was missing was this document.** §4.1 calls itself the
+layer model *kind by kind* and had no row for either — so the two kinds that carry every routing
+protocol in the schema were absent from the table the diagram will be built from. That is a hole in
+the spec, not a decision, and it is filled above.
+
+**They belong to L3 and to no other layer.** A routing adjacency is not a cable and not a tunnel: it
+is an agreement between two L3 addresses about which routes to believe. On the physical layer it
+does not exist; on the overlay layer it would compete with the conduit for the same visual channel
+and mean something different.
+
+**`RoutingProtocol` is a badge, not a box.** A protocol instance has no position of its own — it is
+a property of the `RoutingInstance` that owns it. Drawing it as a box would put an object on the
+canvas that an engineer cannot point at on a rack, and would double the node count of a
+default-instance-only estate for nothing. The badge carries the protocol and its one identifying
+number: the area for OSPF, the AS for BGP.
+
+**`ProtocolAdjacency` is a line between units, and its two ends are found differently by protocol.**
+This is the substantive modelling point and it is why one row could not have covered both:
+
+| | OSPF | BGP |
+|---|---|---|
+| What the adjacency is between | Two interfaces on a shared segment | Two addresses, which may be many hops apart |
+| How the far end is found | `area` plus the segment — the `Link` edge already drawn at the physical layer | `peer_address`, resolved against every `Address` in the estate |
+| When the far end is not in the estate | The neighbour is off-estate; draw to an `ExternalPeer` | The same, and much commoner: an upstream's `peer_as` is normally somebody else's router |
+| What the line follows | The physical path, so it may be drawn **along** the `Link` | Nothing physical; it is a logical line and must be drawn as one |
+
+So a BGP session to a transit provider is a line to an `ExternalPeer` box at rank 0, and an OSPF
+adjacency across a LAN is a line that shadows a cable. Both are `ProtocolAdjacency`; only the
+resolution differs.
+
+**Incomplete adjacencies are drawn and marked, never hidden** — `70` §16.1's rule, and this is
+exactly the case it was written for. A `peer_address` that resolves to no `Address` in the estate is
+still an adjacency the operator configured; it is drawn `dotted` (`51` §9, and never `dashed`, which
+is reserved for proposed elements) to the edge of the canvas with the peer address as its label.
+Refusing to draw it would hide the most interesting thing on the diagram: the session whose other
+end you have not captured yet.
+
+**What is not built.** Nothing above is code. The diagram view does not exist, and neither does any
+dictionary entry that would produce a `RoutingProtocol` from a pasted config — the junos-srx
+dictionary has 42 entries and not one is under `protocols` or `routing-options` except the static
+route. So an estate today contains no routing protocols at all, from any door. Making the two kinds
+visible in the inventory is the cheap half and is done; parsing them and drawing them are two
+separate later pieces of work, in that order.
 
 ---
 
