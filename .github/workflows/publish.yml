@@ -1,0 +1,183 @@
+# Build the container image and push it to GHCR, so a server can pull it rather
+# than build it. Cosmos Cloud (and Unraid's Docker UI, and plain `docker run`)
+# can only run images, not build them -- there is no `build:` in the Cosmos
+# container schema -- so without this there is nothing for them to pull.
+#
+# WHAT SHIPS: the `serve` stage of the root Dockerfile. Unprivileged nginx plus
+# exactly one file, the assembled Fathom artifact, at
+# /usr/share/nginx/html/index.html.
+#
+# ---------------------------------------------------------------------------
+# WHY THE GATES RUN HERE TOO, DUPLICATING ci.yml
+# ---------------------------------------------------------------------------
+# ci.yml runs the verification floor, but it is a separate workflow, so nothing
+# stops a push to main from publishing an image while ci.yml is still running or
+# has already failed. `needs:` does not reach across workflow files. Rather than
+# wire up a workflow_run dependency -- which is easy to get subtly wrong and
+# fails open -- the floor runs inline, before the image is built. It costs about
+# a minute, on merges only, and it buys a property worth stating plainly:
+# NO IMAGE IS EVER PUBLISHED THAT DID NOT PASS THE FLOOR.
+#
+# ---------------------------------------------------------------------------
+# WHY EVERY ACTION IS PINNED TO A COMMIT SHA
+# ---------------------------------------------------------------------------
+# A tag like @v7 is a moving pointer that the action's owner can repoint at any
+# commit, including after a repository compromise. This workflow holds a token
+# that can write packages, so a repointed tag would be a direct path to
+# publishing a modified Fathom. The SHAs below were resolved with
+# `git ls-remote --tags` on 2026-08-11 and each is a lightweight tag, so the SHA
+# is the commit itself and not a tag object. The version in the trailing comment
+# is documentation; the SHA is the pin. Every input used below was confirmed to
+# exist in that commit's action.yml rather than assumed from memory (ADR-0034).
+#
+# ci.yml still pins actions/checkout by tag. That is an inconsistency worth
+# closing, but it is a separate change to a separate gate and is not made here.
+#
+# ---------------------------------------------------------------------------
+# WHAT IS DELIBERATELY ABSENT
+# ---------------------------------------------------------------------------
+# No GitHub Actions build cache (`cache-from: type=gha`). The cache is writable
+# by any workflow run on the repository, which makes it a place to plant a layer
+# that ends up inside a published image. The build it would accelerate is about
+# twenty seconds of Rust -- the workspace has no third-party code to compile --
+# so the trade is a supply-chain surface for almost no time.
+#
+# linux/amd64 only. Unraid is amd64, and an arm64 image would need a cross
+# toolchain for the wasm and native builds -- real work, for a platform nobody
+# has asked for. Say so rather than quietly emitting a single-arch image that
+# looks multi-arch.
+name: publish
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+# Least privilege, and each one is load-bearing:
+#   contents:     read the tree.
+#   packages:     push to GHCR. This is the one that matters.
+#   id-token:     mint the OIDC token the provenance attestation is signed with.
+#   attestations: write the attestation back to the repository.
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  # Hardcoded lowercase on purpose. The repository is `keyxmakerx/Fathom` with a
+  # capital F, and GHCR rejects uppercase in an image name. metadata-action
+  # happens to lowercase it for you (sanitizeImageName, meta.ts) but
+  # attest-build-provenance does not, so one spelling used everywhere is safer
+  # than relying on one action's normalisation and not the other's.
+  IMAGE: ghcr.io/keyxmakerx/fathom
+
+concurrency:
+  # A second merge should supersede the first rather than race it to `latest`.
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # ---- the verification floor, before anything is built or pushed ----
+      - name: Install the pinned toolchain (reads rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy, warnings are errors
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+      - name: Schema gates
+        run: cargo run --locked -p fathom-schema --bin fathom-schema-check
+
+      # ---- build and push ----
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=Fathom
+            org.opencontainers.image.description=A security-first, client-side network tool. Parses pasted configs in your browser; never connects to a device.
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          target: serve
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+
+      # Signed, verifiable evidence of which commit and which workflow produced
+      # this exact digest. For Fathom this is not decoration: the whole security
+      # story is "the page you are running is the page we built", and an operator
+      # who pulls by digest can now check that claim rather than take it.
+      #   gh attestation verify oci://ghcr.io/keyxmakerx/fathom:latest \
+      #     --repo keyxmakerx/Fathom
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      # The two numbers an operator actually needs, written where they can find
+      # them: the image digest to pull by, and the hash of the served page so a
+      # bind-mount deployment can be compared against what CI built.
+      - name: Record what shipped
+        run: |
+          set -euo pipefail
+          REF="${IMAGE}@${{ steps.build.outputs.digest }}"
+          PAGE_SHA=$(docker run --rm --entrypoint sha256sum "$REF" \
+            /usr/share/nginx/html/index.html | cut -d' ' -f1)
+          PAGE_BYTES=$(docker run --rm --entrypoint stat "$REF" \
+            -c %s /usr/share/nginx/html/index.html)
+          {
+            echo "### Published"
+            echo
+            echo '```'
+            echo "image   ${IMAGE}"
+            echo "digest  ${{ steps.build.outputs.digest }}"
+            echo "commit  ${GITHUB_SHA}"
+            echo '```'
+            echo
+            echo "**Served page** — \`/usr/share/nginx/html/index.html\`"
+            echo
+            echo '```'
+            echo "sha256  ${PAGE_SHA}"
+            echo "bytes   ${PAGE_BYTES}"
+            echo '```'
+            echo
+            echo "Pull by digest, not by tag:"
+            echo
+            echo '```'
+            echo "docker pull ${REF}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
