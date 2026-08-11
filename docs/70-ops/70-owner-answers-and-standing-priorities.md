@@ -24,6 +24,7 @@ what a planning session made of it.
 | 9 | What "off the ground" means | *there is no thin first release* |
 | 10 | The graph and the diagram — owner observations | *three observations, then the structure of the picture* |
 | 11 | Questions still outstanding | *re-asked in plain language* |
+| 16 | Incomplete paths, devices, and engines as separate files | *three answers, 2026-08-09/10* |
 | 12 | Failure modes |  |
 | 13 | Open decisions |  |
 | 14 | Sources consulted |  |
@@ -325,6 +326,35 @@ extension mechanism."* So the owner's expectation is compatible with the product
 anything that is data**. Whether a whole platform is data is a different question: a platform
 plausibly also needs a config parser and an emitter, and those are Rust. Under investigation as of
 2026-08-07; the answer belongs here when it lands.
+
+> **ANSWERED 2026-08-10 — `65` is the answer, and the assumption was false in one direction and
+> too pessimistic in the other.** Re-asked by the owner in his own words — *"if someone created a
+> Linux engine it would just be plug and play and add all the features of that right?"* — and
+> investigated four ways with every finding adversarially verified.
+>
+> **The paragraph above guessed the split wrongly.** It supposed the boundary ran between *data*
+> and *"a parser and an emitter, and those are Rust"*. The real boundary runs one layer lower.
+> **Adding a node kind — a new *thing* for the model to hold — needs zero hand-written Rust**,
+> measured twice by two investigators who each added a container-network kind and ran the real
+> toolchain: ~41 lines of YAML, one `fathom-schemagen` run, a clean `cargo check --workspace`, and
+> four one-line bumps to pinned counts. ADR-0008 delivers exactly what it promised, and everything
+> downstream of the parser was confirmed platform-blind in the built code, not merely in the spec.
+>
+> **What is Rust is narrower and harder than "a parser and an emitter": it is the *shape* of the
+> text.** The vocabulary of a platform is data; the grammar is not. Junos MX, EX and PAN-OS
+> set-form are largely data — after the dictionary loader is un-hardcoded, which it is not. Anything
+> whose text has a different shape is a new front end, priced by `14` §5.5 at 3–10 days and 200–600
+> lines, which the one built shaper's 430 production lines calibrates well.
+>
+> **And "plug and play" in the sense of dropping a file beside the app stays permanently refused.**
+> `71` §13.1's refusal is not a preference: a runtime-loaded engine sees the paste **before** the
+> redaction gate — necessarily, because parsing is what tells the gate which token is the secret —
+> and every control ADR-0032 relies on is a *build-time* control. It would convert invariant 3 from
+> *"the unredacted text never reaches the encryptor, provable by reading first-party code"* into
+> *"we redact well against an adversary we never compiled."* Someone adding a Linux engine is a
+> **contributor whose code we read and compile**, not a user installing a plug-in, and `65` §5
+> gives the four conditions that make a contributed engine safe — three of which are broken today
+> with only one first-party engine.
 
 **The deferral — mostly safe, with one part that is not.** Split it:
 
@@ -1086,6 +1116,181 @@ designed in than bolted on.
 **The question, in one sentence: are your groups something you would be happy for anyone opening the
 file to read?**
 
+## 16. Incomplete paths, and telling two devices apart — 2026-08-09
+
+Two questions were put to the owner on 2026-08-09. He rejected the framing of both, and was right
+about both. His words are reproduced first because the correction is in the wording.
+
+### 16.1 The question that was asked badly
+
+> *"When Fathom emits a tunnel, is that output meant to be pasted onto a box that already has its
+> WAN interface — or must it contain every statement needed to bring the tunnel up on a box whose
+> config is blank?"*
+
+**The answer, verbatim (2026-08-09):**
+
+> *"What? i mean if you have a P2P ELINE or tunnel, vpn, etc, it should stil route as it should. If
+> not all the info is available how it routes then there needs to be like a dotted line or something
+> indicating that or something. I know we had the warp idea for physical?"*
+
+**What was wrong with the question.** It offered two options and both were wrong, because both
+assumed the only two outcomes are *emit everything* and *emit nothing*. The owner's answer names a
+third that the corpus already specifies and the question did not consider: **represent the path,
+and mark what is not known about it.** A tunnel whose middle is unknown is still a tunnel that
+routes; refusing to draw it, or refusing to emit it, discards a fact the operator has in order to
+avoid stating one they do not.
+
+**He is right that this is already designed, and he named it correctly.** `19` §6 is *"The path and
+the warp"*, and it decides exactly this:
+
+> **DECISION — the warp is stored data (a path segment with `kind: Warp` and two named ports). Its
+> expansion is derived.**
+
+`SegmentKind` is `{ Physical, Warp, Boundary }` (`schema/enums/segment_kind.yaml`), `PathSegment`
+carries `warp_technology: enum { L2Ptp, Pseudowire, Evpn, Vlan, Other }` — which is a P2P E-Line,
+in the schema, by name — and `WarpResolvesVia` is a derived edge produced by
+`infer.service.warp.resolve`. `19` §6.3 already separates the three states the owner's sentence
+distinguishes: *"here is what it crosses today"*, *"I looked and there is nothing there"*, and *"I
+have not looked"* — kept structurally apart rather than collapsed into one error.
+
+**And the treatment he reached for is the one the design system already reserves.** `51` §9:
+
+| Token | Value | Meaning |
+|---|---|---|
+| `--rule-style-proposed` | `dashed` | AI output. **Nothing deterministic in this product is ever drawn with a dashed rule** |
+| `--rule-style-pending` | `dotted` | *"an unanswered question, not a defect"* |
+
+*"There needs to be like a dotted line"* lands on `--rule-style-pending`, whose own comment is a
+paraphrase of what he asked for. **Dotted, not dashed** — the distinction matters and is
+load-bearing, because dashed is reserved product-wide for AI-proposed content and a warp is not a
+proposal.
+
+### 16.2 What this decides, and what it does not
+
+**Decided.** An incompletely-known path is **drawn and recorded**, never refused. Where the
+interior is unknown the segment is a `Warp`, and an unresolved warp renders `dotted`.
+
+**Not decided by this answer, and not to be read into it: what the *emitter* does.** A picture can
+say *"I am not sure about this part"*; a block of config text pasted into a live router cannot.
+`13`/`52`'s emit surface has no dotted line. The owner's principle — *represent what you know, mark
+what you do not* — translates to emit as **emit the statements that are known and name the
+assumption**, rather than refusing the whole tunnel because one interface was never in the paste.
+That is the reading this document takes forward, and it is a reading, so it is flagged rather than
+executed: WO-04 is the order that must state it, and it must be put to the owner as *"here is what
+Fathom would hand you, and here is what it is assuming"* rather than as a yes/no.
+
+**A gap this answer exposed.** `56` (the diagram view) does not mention `PathSegment`, `Warp` or
+`SegmentKind` anywhere — a full-text search returns nothing. The model has warps and the picture
+specification does not know they exist. Found by the owner's question, not by any gate. Filed in
+§13.
+
+### 16.3 Telling two devices apart
+
+**The answer, verbatim (2026-08-09):**
+
+> *"I mean that's a very important thing, idk how this is a question?"*
+
+**He is right, and the question is withdrawn.** It is not a question for the owner: it is important,
+its shape is determined by what a config file actually contains, and asking a network engineer to
+specify a schema tuple is the same defect §15 disagreement 1 already records — *"a question for the
+owner is phrased in terms of their work and what they would see, never in terms of the data model."*
+This one should never have been asked at all, in any phrasing, because the answer is derivable and
+the deriving is the project's job.
+
+**Answered instead, and executed the same day.** `schema/schema.yaml` now declares:
+
+```yaml
+- kind: Device
+  identity:
+    - [ hostname, platform ]              # tier 1
+    - [ platform, management_address ]    # tier 2 — survives a rename
+- kind: Site
+  identity:
+    - [ code ]                            # tier 1
+    - [ name ]                            # tier 2
+```
+
+Three things make this the answer rather than a guess:
+
+1. **`11` §10.4's re-identification algorithm was never missing an answer about the *inside* of a
+   device** — it takes *"capture `C` with `device: D`"* as an input, so it already maps a re-parse
+   onto existing interfaces, zones and gateways. The only thing it lacked was the root: which box a
+   fresh paste belongs to. That is one tuple, not a subsystem.
+2. **Tier 1 is the only pair a config always carries.** `hostname` is `card: 1` and `platform` is
+   stamped from whichever dictionary read the capture. It is the pair rather than the hostname alone
+   because a `core-01` SRX and a `core-01` Nexus are two boxes.
+3. **Tier 2 is honest about being rarely usable.** `management_address` is `0..1` and no junos-srx
+   dictionary entry populates it today. A renamed box with no recorded management address is not
+   re-identifiable from its text, and the answer there is to ask the operator — never to match on
+   something weaker.
+
+**Effect, immediately: the schema checker's standing two-warning baseline is gone.** It was two
+`schema.identity.unexercised` against `Site` for the whole of the tree's life, because the
+`SiteList` import scope claimed tiers 1 and 2 of a kind that declared none. `fathom-schema-check`
+now reports **0 failures, 0 warnings**, and `crates/fathom-schema/tests/shipped_tree.rs` pins the
+empty set so the next warning of any code fails a test.
+
+**Still open, and genuinely a UX question rather than a model one:** what Fathom does when tier 1
+matches and the operator meant a different box — two real branches whose SRXs are both
+`core-01`. A match is a **proposal to a human, not an automatic merge**, and what that proposal
+looks like is `53`/`54` work. Filed in §13.
+
+### 16.4 Engines as separate files — 2026-08-10
+
+Asked which way the artifact should grow past `44` §5.2's ceiling — one bigger file, or a program
+plus a knowledge file — the owner answered with a third shape:
+
+> *"oh I was thinking engines would be their own thing (s) like each their own fine? in an engine
+> folder. does that fix this?"*
+
+**It is a better shape than either option offered, and the honest answer to *"does that fix this"*
+is: it fixes the half that grows without limit, and it does not fix the half that is actually
+large today.** Both halves were measured rather than estimated, on 2026-08-10.
+
+**Measurement 1 — the vocabulary is not what is big.** Linking `fathom-ingest` and `fathom-weld`
+into the module took it from 560,405 to 812,467 bytes: **252,062 bytes to teach Fathom to read
+Juniper.** The Juniper vocabulary itself — all six `corpus/dict/junos-srx/*.yaml` plus
+`schema/field-keys.yaml` — is **29,670 bytes**, under 12% of that. The other 88% is the machinery
+that reads it: framer, lexer, shaper, redaction gate, binder, weld.
+
+So moving engines to their own files saves roughly **30 KB per vendor, not 150 KB**. Worth doing —
+vocabulary is the thing that grows forever, statement by statement, and it is exactly the thing that
+should not be recompiled to add a line — but it is not the answer to the ceiling on its own.
+
+**Measurement 2 — and this is the good news the measurement produced.** The expensive part, the
+parser, is **shared across a whole vendor family**. Checked against Juniper's own documentation on
+2026-08-10 rather than recalled (ADR-0034 §5): EX, M, MX, PTX, SRX and T Series *"all use the same
+user interfaces and configuration mode commands in the Junos OS"*, and `show | display set` produces
+the same flattened form on all of them. Juniper's own caveat travels with it and is not smoothed
+away: *"CLI commands and options can vary by platform and software release."*
+
+**Consequence for `70` §7's platform list, stated plainly: junos-mx and junos-ex are nearly free.**
+They are the same parser and largely the same vocabulary as junos-srx — a set of extra statements
+and a version predicate, not a new engine. The expensive engines are the genuinely different
+vendors: PAN-OS, NX-OS and Meraki, each of which needs its own parser at something like today's
+252 KB. Three of the six platforms cost almost nothing; three cost a parser each.
+
+**Recommendation, and it is a recommendation rather than a decision.**
+
+1. **Vocabulary in its own files, per engine, as the owner describes.** It is the unbounded half, it
+   is corpus data rather than code, and `Dictionary::from_sources` already runs every gate on
+   whatever it is handed — so a vocabulary file is checked input, not trusted input. The mechanism
+   also already exists on the other side: the command corpus arrives as host-supplied `SourceFile`s
+   at `OP_INIT` and only the dictionary does not use it.
+2. **Parsers stay inside the one module.** There are realistically four of them (Junos, PAN-OS,
+   NX-OS, Meraki), so the cost is *bounded* rather than unbounded, and — the load-bearing reason —
+   **an engine file that contains code is a different security posture from one that contains
+   data.** That is `38`'s territory to price, not a thing to adopt as a side effect of a size
+   problem.
+3. **The ceiling still has to move once, to a bounded number.** Four parsers plus persistence
+   (measured +239,964) plus a rule evaluator plus a layout engine do not fit in 900,000 bytes
+   wherever the vocabulary lives. Moving it once, with the four bounded costs named, is a different
+   act from raising it whenever something does not fit.
+
+**What this leaves the owner:** nothing, unless he disagrees with the recommendation. The
+one-file-versus-two-files question he was asked is answered — one file, with vocabulary alongside —
+and the remaining decision is `44`'s number, which is planning's under ADR-0001's precedence rule.
+
 ## 12. Failure modes
 
 | # | Failure | Control |
@@ -1160,7 +1365,60 @@ file to read?**
     sides had disagreed since the day both were written with no gate able to see it** (WO-09 §10
     item 9). The fix is one line; the gate is what stops the next one. It belongs to whoever owns
     dictionary loading and wants a work order, not a drive-by.
-15. **Whether a registered platform with no content should be visible in the product.** Five of the
+15. **What the emitted artifact IS — a standalone configuration, or a fragment?** (WO-09 §10 item 2,
+    analysed 2026-08-09.) `fathom-emit` writes `external-interface reth0.0` and never writes the
+    statement that creates `reth0.0` — it emits six `security` statement families and no
+    `set interfaces` at all. So **its own output cannot be read back in isolation**, and the
+    round-trip gate cannot pass however the fixture is arranged. Either emit widens to declare what
+    it references, or the round-trip property is re-stated to re-parse against the originating graph.
+    **This is a product question, not a test question**, and it is the one the owner would recognise:
+    *when Fathom hands you lines to paste, are they a complete config or a change set for a box that
+    already exists?*
+
+    **CORRECTED 2026-08-09. I framed this as config-or-change-set and both halves are wrong.**
+    Researched across five lenses with every claim handed to a separate pass to refute: fourteen
+    held, one was refuted, and the refuted one was mine.
+
+    **It is not a change set**, decided in four independent places. `18`:370 — *"a statement whose
+    text is unchanged produces nothing. That is what distinguishes a change set from a full
+    config."* `config_diff` takes `emit(A)` and `emit(B)` as **inputs**, so emit's output is
+    upstream of a change set and can never be one. `52` makes `Full` and `ChangeSet` two **modes of
+    the config view**, `Full` the default. And WO-04 §8 non-goal 2 disowns change sets outright —
+    *"doc `18`'s territory, later."*
+
+    **It is not a standalone configuration either, unless the emit unit is `Device`.** `11`:1588 —
+    *"for `junos-srx` the units are `Device` (whole config), `IpsecVpn` (a tunnel and everything it
+    needs), `SecurityPolicy`, `Interface`, and `Tunnel`"*. **The parenthetical is attached to
+    `Device` alone**, and the sentence had four further chances to attach it elsewhere.
+
+    **What it actually is: a scoped assertion set** — complete for what it builds, referencing a
+    device context it does not carry. `13`:63 states the working assumption the whole corpus shares
+    without ever calling it a decision: *"output is text a human pastes… every design choice below
+    assumes the output may be applied in part, out of order, or a week later."* And `14`:1029 treats
+    *"fragment references a node the paste did not restate"* as **common, expected and resolvable**,
+    not as an error.
+
+    **So the question narrows to one thing, and it is a real one.** Must a `Full` emit of a
+    non-`Device` unit be **closed under its own references**? `st0.0` is already settled in Fathom's
+    favour — `80-reconciliation.md` R47 is **DECIDED** and requires the plumbing block, so the
+    emitter must eventually declare the tunnel interface it creates. **`reth0.0` is the whole of the
+    open question**, and no scope short of the whole device will ever contain it, because none of
+    the five plumbing pieces creates a WAN interface — piece #3 only places an existing one in a
+    zone.
+
+    **The question for the owner, in one sentence:** *when Fathom emits a tunnel, is that output
+    meant to be pasted onto a box that already has its WAN interface — or must it contain every
+    statement needed to bring the tunnel up on a box whose config is blank?*
+
+    **ANSWERED 2026-08-09 — and the question was still wrong.** §16.1 has the answer verbatim. The
+    owner refused both options and named a third: an incompletely-known path is represented and
+    **marked**, never refused. For the diagram that is settled and already specified (`19` §6's warp,
+    `51` §9's `--rule-style-pending: dotted`). For **this** item — the emitter — it is a principle
+    and not yet a mechanism, because a block of config text cannot carry a dotted line. **What
+    remains open is narrower than what was asked:** WO-04 must state how emit *names the assumption*
+    it is making about `reth0.0` in the text it hands over, rather than whether it emits at all. It
+    emits. §16.2 records the reading and flags it as a reading.
+16. **Whether a registered platform with no content should be visible in the product.** Five of the
    six platforms in §7.2 are registered names with no dictionary, no emitter and no corpus. A user
    selecting `junos-ex` today would get an empty product with no explanation. Design decision;
    `52` and `54` own the surface.
@@ -1179,6 +1437,70 @@ file to read?**
    `44` owns size budgets and its gate (`44` §5.5) covers build artifacts, not workspace content.
    An imported image is the only thing in the workspace whose size the product does not choose.
    Unowned.
+19. **`56` does not know warps exist** (§16.2). A full-text search of `docs/50-design/56-diagram-view.md`
+   for `warp`, `PathSegment` and `SegmentKind` returns **nothing**. `19` §6 decides that a service
+   path is a sequence of segments, that a `Warp` stands in for an unmodelled interior, and that its
+   resolution has four distinct states — and the document that owns how the picture is drawn
+   specifies none of them. `51` §9 supplies the treatment (`--rule-style-pending: dotted`, and
+   **never** `dashed`, which is reserved product-wide for AI-proposed content). `56` owns the answer
+   under ADR-0001's precedence rule; planning proposes. **Found by the owner asking a question, not
+   by a gate**, which is worth noting on its own — nothing in the tree compares a model concept
+   against the views that must render it.
+20. **What a re-identification match looks like to the operator** (§16.3). `Device.identity` now
+   declares its tiers, so a second paste of a box already in the workspace is *detectable*. What
+   happens next is a UX question and is deliberately not decided in `schema/`: a tier-1 match is a
+   **proposal to a human, not an automatic merge**, because two real branch sites may both run a
+   `core-01` SRX on the same platform. `53`/`54` own the surface. Until it is designed, `OP_PASTE`
+   replaces the held estate and says so, which is the behaviour that cannot silently merge two boxes.
+21. **`Chassis` still declares `identity: []`** (§16.3). Not blocking and nobody has asked, so it is
+   filed rather than decided — but the two obvious tiers are `[ owner(Device), member_index ]` and
+   `[ owner(Device), serial ]`, and the second is the one that survives a re-slot. It matters the
+   day a chassis cluster is re-parsed.
+22. **`14` §9.6's pre-redaction rule needs a length floor, and one was added ahead of the
+    amendment.** Filed 2026-08-10. §9.6 says a value *"consists of ≤ 2 distinct characters"* is a
+    mask the operator typed, and is therefore bound and not counted as a drop. Taken literally that
+    includes **`1111`**, which is not a mask — and the shipped gate kept it in the capture verbatim
+    *and* reported it back as `already_redacted`. Stored, and described to the operator as safe.
+
+    `crates/fathom-ingest/src/redact.rs` now requires eight characters before trusting the
+    two-distinct-character form. The asymmetry is the argument: **destroying a real mask costs
+    nothing, because a mask carries no information; keeping a real password breaches invariant 3.**
+    The angle-bracket form is unambiguous at any length and keeps no floor.
+
+    This is a narrowing of a specified rule made by a build session, which `78` §5 would normally
+    forbid — it is recorded here rather than taken silently, and the direction is the safe one.
+    **Planning owns the amendment to `14` §9.6.** Two sibling leaks were fixed in the same pass and
+    are not spec changes, only defects: noise lines never reached the gate at all (a prompt-prefixed
+    paste, which is what copying from a terminal produces, kept its secrets), and the unshaped
+    sweep's content detectors started at token 2, so a bare private-key body on its own line was
+    never examined. `crates/fathom-ingest/tests/noise_gate.rs` pins all three.
+23. **Routing is not a vocabulary addition, and two things stand in front of it.** Established
+    2026-08-10 while adding the three cheap entries that removed `domain-name` and `description`
+    from a real config's residue. `set routing-options static route <prefix> next-hop <x>` is the
+    most common statement Fathom still cannot read, and it needs **both** of the following before a
+    single dictionary line can be written:
+
+    **(a) A field value that is a reference to another node.** `StaticRoute.next_hop` is typed
+    `NextHop`, which `schema/schema.yaml`:70 registers as `structured: true,
+    contains_reference: true` — the registered `contains_reference` exception (`11` §6.5), carrying
+    a `NodeId` to a `LogicalUnit` for the `next-hop st0.0` form. `fathom-ingest`'s `BoundValue` has
+    **no variant that can hold a node reference**, and its deferred-reference machinery
+    (`PendingTarget`) serves **edges only**. So the binder cannot express this value at all today.
+    An IP-address next hop (`NextHop::Address`) needs none of that and could land first, which is
+    worth knowing: the statement splits into an easy half and a hard half.
+
+    **(b) What the default routing instance is called.** `11` §6.5 states *"The default instance is
+    modelled explicitly, not as None"*, and `RoutingInstance` requires both `name` (`card: 1`) and
+    `isolation` (`card: 1`). A `set routing-options …` statement names no instance, so binding one
+    means minting the default instance — and its **name is a decision nobody has taken**. It is
+    load-bearing forever: every routing statement on every platform hangs off it, and two platforms
+    disagreeing about the name would silently produce two default instances per device. Planning,
+    not the owner, and not an execution session (`78` §5).
+
+    Filed rather than attempted. The two `security policies` lines in the same residue are a
+    separate and larger body of work — `SecurityPolicy`, `PolicySet`, `AddressObject`,
+    `AddressSet`, `Application` and `ApplicationSet` all exist in `schema/` with no dictionary
+    behind any of them.
 19. **The image decoder as a trust surface** (§10.10). `34` has no section on image decoding —
    grepped 2026-08-08, zero hits — so the surface is unanalysed rather than cleared. A question for
    `34`'s owner. **ADR-0034 forbids answering it from memory and §10.10 does not answer it.**

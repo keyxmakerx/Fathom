@@ -62,6 +62,7 @@ pub fn ingest(paste: &[u8], dict: &dict::Dictionary) -> Result<IngestOutput, Ing
         &mut outcomes,
         &shaped.stmts,
         &shaped.unshaped,
+        &shaped.noise,
         &matches,
         dict,
     );

@@ -18,6 +18,22 @@ pub enum InvKind {
     Device,
     PhysicalPort,
     Premises,
+    // Added 2026-08-10. The first three are the estate a *hand-built* workspace
+    // has; these six are what a **pasted config** actually produces, and until
+    // now not one of them had a row to appear in — so an operator who pasted a
+    // working VPN saw a single device and no way to reach the zones, the
+    // gateway or the tunnel Fathom had correctly understood.
+    //
+    // Order is the order an engineer builds a tunnel in — interface, zone, then
+    // outward through IKE to IPsec — not schema declaration order, because this
+    // is a strip of buttons a human reads left to right.
+    Interface,
+    TunnelInterface,
+    Zone,
+    IkeGateway,
+    IpsecVpn,
+    IkeProposal,
+    IpsecProposal,
 }
 
 impl InvKind {
@@ -26,16 +42,41 @@ impl InvKind {
             InvKind::Device => "Device",
             InvKind::PhysicalPort => "PhysicalPort",
             InvKind::Premises => "Premises",
+            InvKind::Interface => "Interface",
+            InvKind::TunnelInterface => "TunnelInterface",
+            InvKind::Zone => "Zone",
+            InvKind::IkeGateway => "IkeGateway",
+            InvKind::IpsecVpn => "IpsecVpn",
+            InvKind::IkeProposal => "IkeProposal",
+            InvKind::IpsecProposal => "IpsecProposal",
         }
     }
 
-    pub const ALL: [InvKind; 3] = [InvKind::Device, InvKind::PhysicalPort, InvKind::Premises];
+    pub const ALL: [InvKind; 10] = [
+        InvKind::Device,
+        InvKind::PhysicalPort,
+        InvKind::Premises,
+        InvKind::Interface,
+        InvKind::TunnelInterface,
+        InvKind::Zone,
+        InvKind::IkeGateway,
+        InvKind::IpsecVpn,
+        InvKind::IkeProposal,
+        InvKind::IpsecProposal,
+    ];
 
     fn node_kind(self) -> NodeKind {
         match self {
             InvKind::Device => NodeKind::Device,
             InvKind::PhysicalPort => NodeKind::PhysicalPort,
             InvKind::Premises => NodeKind::Premises,
+            InvKind::Interface => NodeKind::Interface,
+            InvKind::TunnelInterface => NodeKind::TunnelInterface,
+            InvKind::Zone => NodeKind::Zone,
+            InvKind::IkeGateway => NodeKind::IkeGateway,
+            InvKind::IpsecVpn => NodeKind::IpsecVpn,
+            InvKind::IkeProposal => NodeKind::IkeProposal,
+            InvKind::IpsecProposal => NodeKind::IpsecProposal,
         }
     }
 }
@@ -72,11 +113,41 @@ const PORT_COLUMNS: &[&str] = &[
 ];
 const PREMISES_COLUMNS: &[&str] = &["label", "clli", "form", "street", "devices"];
 
+// The six pasted-config kinds. Every column below is a field `schema/schema.yaml`
+// declares on that kind — no column is computed here except the named traversals
+// at the foot of this file, which is `52` §3.7's rule: a row set is a kind plus a
+// filter, and a cell is a field or a stated walk.
+const INTERFACE_COLUMNS: &[&str] = &["name", "device", "description", "units"];
+// `st0` on an SRX. Its own row set rather than a row in `Interface`, because a
+// row set is a kind plus a filter (`52` §3.7) and these are different kinds --
+// and because for the job this product does first, the tunnel interface is the
+// one an engineer looks for.
+const TUNNEL_COLUMNS: &[&str] = &["name", "device", "technology", "description", "units"];
+const ZONE_COLUMNS: &[&str] = &["name", "device", "interfaces"];
+const IKE_GATEWAY_COLUMNS: &[&str] = &["name", "device", "peer", "version", "external interface"];
+const IPSEC_VPN_COLUMNS: &[&str] = &["name", "device", "mode", "bound to", "establish"];
+const IKE_PROPOSAL_COLUMNS: &[&str] = &[
+    "name",
+    "device",
+    "authentication",
+    "dh group",
+    "encryption",
+    "integrity",
+];
+const IPSEC_PROPOSAL_COLUMNS: &[&str] = &["name", "device", "protocol", "encryption", "integrity"];
+
 pub fn columns(kind: InvKind) -> &'static [&'static str] {
     match kind {
         InvKind::Device => DEVICE_COLUMNS,
         InvKind::PhysicalPort => PORT_COLUMNS,
         InvKind::Premises => PREMISES_COLUMNS,
+        InvKind::Interface => INTERFACE_COLUMNS,
+        InvKind::TunnelInterface => TUNNEL_COLUMNS,
+        InvKind::Zone => ZONE_COLUMNS,
+        InvKind::IkeGateway => IKE_GATEWAY_COLUMNS,
+        InvKind::IpsecVpn => IPSEC_VPN_COLUMNS,
+        InvKind::IkeProposal => IKE_PROPOSAL_COLUMNS,
+        InvKind::IpsecProposal => IPSEC_PROPOSAL_COLUMNS,
     }
 }
 
@@ -118,7 +189,98 @@ fn cells(g: &Graph, kind: InvKind, id: NodeId) -> Vec<String> {
             value_cell(g, id, key("Premises.street")),
             premises_device_count(g, id).to_string(),
         ],
+        InvKind::Interface => vec![
+            value_cell(g, id, key("Interface.name")),
+            owning_device(g, id),
+            value_cell(g, id, key("Interface.description")),
+            unit_names(g, id),
+        ],
+        InvKind::TunnelInterface => vec![
+            value_cell(g, id, key("TunnelInterface.name")),
+            owning_device(g, id),
+            value_cell(g, id, key("TunnelInterface.technology")),
+            value_cell(g, id, key("TunnelInterface.description")),
+            unit_names(g, id),
+        ],
+        InvKind::Zone => vec![
+            value_cell(g, id, key("Zone.name")),
+            owning_device(g, id),
+            edge_targets(g, id, EdgeKind::ZoneMember),
+        ],
+        InvKind::IkeGateway => vec![
+            value_cell(g, id, key("IkeGateway.name")),
+            owning_device(g, id),
+            value_cell(g, id, key("IkeGateway.peer")),
+            value_cell(g, id, key("IkeGateway.version")),
+            edge_targets(g, id, EdgeKind::ExternalInterface),
+        ],
+        InvKind::IpsecVpn => vec![
+            value_cell(g, id, key("IpsecVpn.name")),
+            owning_device(g, id),
+            value_cell(g, id, key("IpsecVpn.mode")),
+            edge_targets(g, id, EdgeKind::BindsInterface),
+            value_cell(g, id, key("IpsecVpn.establish_tunnels")),
+        ],
+        InvKind::IkeProposal => vec![
+            value_cell(g, id, key("IkeProposal.name")),
+            owning_device(g, id),
+            value_cell(g, id, key("IkeProposal.authentication_method")),
+            value_cell(g, id, key("IkeProposal.dh_group")),
+            value_cell(g, id, key("IkeProposal.encryption_algorithm")),
+            value_cell(g, id, key("IkeProposal.authentication_algorithm")),
+        ],
+        InvKind::IpsecProposal => vec![
+            value_cell(g, id, key("IpsecProposal.name")),
+            owning_device(g, id),
+            value_cell(g, id, key("IpsecProposal.protocol")),
+            value_cell(g, id, key("IpsecProposal.encryption_algorithm")),
+            value_cell(g, id, key("IpsecProposal.authentication_algorithm")),
+        ],
     }
+}
+
+/// The hostname of the `Device` that contains this node, found by walking
+/// containment upward rather than by assuming a depth: a `Zone` is owned by a
+/// `Device` directly, an `Interface` likewise, but nothing here should encode
+/// that — the schema decides, and the schema changes.
+///
+/// Bounded: `11` §7.2's containment is a forest, so the walk terminates, and the
+/// bound is stated rather than trusted.
+fn owning_device(g: &Graph, id: NodeId) -> String {
+    let mut at = id;
+    for _ in 0..16 {
+        match g.owner(at) {
+            Some(owner) if owner.kind == NodeKind::Device => {
+                return value_cell(g, owner, key("Device.hostname"))
+            }
+            Some(owner) => at = owner,
+            None => break,
+        }
+    }
+    UNKNOWN.to_owned()
+}
+
+/// The display names of everything this node points at over one edge kind,
+/// comma-separated, in edge order. `—` when there are none, which is a real
+/// answer: a zone with no interfaces is a zone somebody has not finished.
+fn edge_targets(g: &Graph, id: NodeId, kind: EdgeKind) -> String {
+    let names: Vec<String> = g
+        .out(id, kind)
+        .map(|e| crate::element::display_name(g, e.to))
+        .collect();
+    if names.is_empty() {
+        UNKNOWN.to_owned()
+    } else {
+        names.join(", ")
+    }
+}
+
+/// An interface's units, by the name an engineer would say — `ge-0/0/0.0`, not
+/// `0`. `display_name` already renders a `LogicalUnit` joined to its owner
+/// (`11` §4.6: rendered, never stored joined), so this reuses it rather than
+/// re-deriving the join here and risking a second, different answer.
+fn unit_names(g: &Graph, id: NodeId) -> String {
+    edge_targets(g, id, EdgeKind::HasUnit)
 }
 
 /// Traversal: `owner` Site -> `AtPremises` -> Premises `label`. `—` when the

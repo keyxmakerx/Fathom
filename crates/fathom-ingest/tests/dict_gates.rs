@@ -34,10 +34,17 @@ fn dictionary_loads() {
     assert_eq!(dict().platform(), "junos-srx");
 }
 
-/// Exactly WO-03 §4.7's table.
+/// WO-03 §4.7's table of 39, plus every entry added since. The count is pinned
+/// rather than computed so that growing the vocabulary is always a deliberate
+/// diff — the number moving is the whole signal.
+///
+/// +3 on 2026-08-10: `system domain-name`, and `description` at both the
+/// interface and the unit level. Each was verified against Juniper's own CLI
+/// reference on that date rather than recalled, with the URL in the dictionary
+/// file beside the entry (ADR-0034 §5).
 #[test]
-fn entry_count_is_39() {
-    assert_eq!(dict().entry_count(), 39);
+fn entry_count_is_42() {
+    assert_eq!(dict().entry_count(), 42);
 }
 
 /// `14` §6.5: no entry's path is a strict prefix of another's unless the

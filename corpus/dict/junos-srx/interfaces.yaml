@@ -15,3 +15,37 @@ entries:
         - { as: n2, kind: Address, owner: n1, key: "$a", fields: [ { field: value, from: "$a", scalar: InterfaceAddress }, { field: family, const_enum: AddressFamily.inet } ] }
     versions: "*"
     reviewed_by: <named human>
+
+  # Verified against Juniper's CLI reference on 2026-08-10 rather than recalled
+  # (ADR-0034 §5). "description (Interfaces)" — Syntax: `description text ;`
+  # Hierarchy Level: `[edit interfaces interface-name ]`,
+  # `[edit interfaces interface-name unit logical-unit-number ]`,
+  # `[edit logical-systems logical-system-name interfaces …]`.
+  # https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/description-edit-interfaces.html
+  #
+  # TWO entries because Junos accepts it at two levels and they are different
+  # facts: one describes the port, one describes the unit. Binding both to the
+  # interface would silently move a unit's description up a level, which is the
+  # class of quiet wrongness `14`'s refuse-to-guess rule exists to prevent. The
+  # logical-systems level is deliberately not carried — WO-03 §4.1 defers
+  # logical systems entirely, so such a line stays visible as residue rather
+  # than being bound to the wrong device.
+  #
+  # The lexer strips the quotes and resolves the escapes before this binds, so
+  # `description "WAN to ISP"` stores `WAN to ISP` (`14` §5.1).
+  - id: junos-srx/interfaces.description
+    path: [interfaces, "$if", description, "$d"]
+    binds:
+      nodes:
+        - { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: InterfaceName }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/interfaces.unit.description
+    path: [interfaces, "$if", unit, "$u", description, "$d"]
+    binds:
+      nodes:
+        - { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: InterfaceName } ] }
+        - { as: n1, kind: LogicalUnit, owner: n0, key: "$u", fields: [ { field: index, from: "$u", scalar: u32 }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>

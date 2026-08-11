@@ -67,7 +67,64 @@ pub enum DictGate {
     TokenMapUnknown,
 }
 
+/// The dictionary's six source files, compiled in, in the order `load` reads
+/// them off disk (`read_dir` then `sort`, so: alphabetical by file name).
+///
+/// This exists for one caller: the WebAssembly build, which has no filesystem
+/// and cannot call `load`. It is deliberately a literal list rather than a
+/// directory walk — a macro cannot walk a directory, and a list that silently
+/// missed a file would produce a dictionary that parses less than the on-disk
+/// one while claiming to be it. `tests/embedded.rs` closes that hole: it reads
+/// the directory and fails if this list and the directory disagree by one file
+/// or by one byte.
+pub const EMBEDDED_DICT_SOURCES: &[(&str, &str)] = &[
+    (
+        "interfaces.yaml",
+        include_str!("../../../corpus/dict/junos-srx/interfaces.yaml"),
+    ),
+    (
+        "security-ike.yaml",
+        include_str!("../../../corpus/dict/junos-srx/security-ike.yaml"),
+    ),
+    (
+        "security-ipsec.yaml",
+        include_str!("../../../corpus/dict/junos-srx/security-ipsec.yaml"),
+    ),
+    (
+        "security-zones.yaml",
+        include_str!("../../../corpus/dict/junos-srx/security-zones.yaml"),
+    ),
+    (
+        "system.yaml",
+        include_str!("../../../corpus/dict/junos-srx/system.yaml"),
+    ),
+    (
+        "token-maps.yaml",
+        include_str!("../../../corpus/dict/junos-srx/token-maps.yaml"),
+    ),
+];
+
+/// `schema/field-keys.yaml`, compiled in for the same reason. The registry is
+/// append-only (`62` §2.3), so embedding it is embedding an assignment that
+/// never changes for an existing field.
+pub const EMBEDDED_FIELD_KEYS: &str = include_str!("../../../schema/field-keys.yaml");
+
 impl Dictionary {
+    /// `load`, without a filesystem: the same six files and the same field-key
+    /// registry, compiled into the binary.
+    ///
+    /// Every gate `load` runs, this runs — it is the same `from_sources` call
+    /// with the same inputs. The only thing it does not do is read the schema
+    /// tree, because the one thing it needs from that tree is the field-key
+    /// table and that file is embedded whole.
+    pub fn embedded() -> Result<Dictionary, DictError> {
+        let sources: Vec<(String, String)> = EMBEDDED_DICT_SOURCES
+            .iter()
+            .map(|(name, text)| ((*name).to_owned(), (*text).to_owned()))
+            .collect();
+        Dictionary::from_sources(&sources, embedded_field_keys()?)
+    }
+
     /// Loads `corpus/dict/junos-srx/` and the schema tree beneath `root`, then
     /// runs every gate of WO-03 §4.7. A gate failure is a load failure: a
     /// dictionary that does not pass is never half-loaded.
@@ -175,6 +232,12 @@ pub(crate) enum ValueTy {
     EstablishTunnels,
     IpsecVpnDfBit,
     AddressFamily,
+    /// `11` §4.3's one free-string scalar. Its `parse` cannot fail, which
+    /// makes it the only value type here that never produces a
+    /// `Diag::ValueUnparsed` — a description binds or the statement did not
+    /// match at all.
+    Text,
+    Fqdn,
 }
 
 impl ValueTy {
@@ -182,6 +245,8 @@ impl ValueTy {
         Some(match name {
             "Identifier" => ValueTy::Identifier,
             "InterfaceName" => ValueTy::InterfaceName,
+            "Text" => ValueTy::Text,
+            "Fqdn" => ValueTy::Fqdn,
             "AuthMethod" => ValueTy::AuthMethod,
             "DhGroup" => ValueTy::DhGroup,
             "IntegrityAlgorithm" => ValueTy::IntegrityAlgorithm,
@@ -483,6 +548,33 @@ fn label_from_token(token: &str) -> Option<RedactLabel> {
     ]
     .into_iter()
     .find(|l| l.token() == token)
+}
+
+/// `EMBEDDED_FIELD_KEYS`, parsed into the map `from_sources` wants.
+///
+/// The same reading `SchemaTree::load` performs — literally the same function,
+/// `fathom_schema::model::field_key_entries`, so the two paths cannot drift.
+/// A negative or over-wide key is refused rather than wrapped: the registry is
+/// a `u32` on the wire (`11` §14.1) and a value that does not fit it is a
+/// defect in the file, not something to round.
+fn embedded_field_keys() -> Result<BTreeMap<String, u32>, DictError> {
+    let node = fathom_schema::subset::parse(EMBEDDED_FIELD_KEYS).map_err(|e| DictError {
+        file: "schema/field-keys.yaml".to_owned(),
+        line: e.line,
+        gate: DictGate::Parse,
+        message: e.message,
+    })?;
+    let mut keys = BTreeMap::new();
+    for (name, key, line) in fathom_schema::model::field_key_entries(&node) {
+        let key = u32::try_from(key).map_err(|_| DictError {
+            file: "schema/field-keys.yaml".to_owned(),
+            line,
+            gate: DictGate::Parse,
+            message: format!("field key `{name}` is {key}, which is not a u32"),
+        })?;
+        keys.insert(name, key);
+    }
+    Ok(keys)
 }
 
 impl Dictionary {
@@ -1385,7 +1477,10 @@ mod tests {
     fn shipped_dictionary_compiles() {
         let d = dict();
         assert_eq!(d.platform(), "junos-srx");
-        assert_eq!(d.entry_count(), 39);
+        // 39 through WO-03; +3 on 2026-08-10 — `system domain-name` and
+        // `description` at both the interface and the unit level, the three
+        // statements a 26-line branch config produced as residue.
+        assert_eq!(d.entry_count(), 42);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside

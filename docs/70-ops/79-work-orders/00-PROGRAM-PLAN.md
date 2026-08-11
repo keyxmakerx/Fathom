@@ -247,10 +247,10 @@ only; sealing stays owner-gated by its own §2).
 | *The finder view* | The finder wired into the artifact — the `OP_INIT` boot sequence and where the corpus blob is packed (WO-07 §10 items 4 and 6; WO-08 §8 item 11, §10 item 8) |
 | *The virtualised renderer* | The windowed inventory and the elision rule WO-08 §4.6 defers, landing with the first estate large enough to make `44` §4.7.4's claim testable (WO-08 §8 item 8, §10 item 6) |
 
-**Owner-blocked on:** §16 row 2 (the ID form — WO-08's inventory row type carries it) and row 7
-(the `Site` identity rule, `88` §8 Q7 / §6.13 — two schema warnings and duplicate-free re-import
-both wait on one sentence). Row 29 (the e2e harness fork) is not blocking here: WO-08's G10 manual
-checklist is the standing gate until it is answered.
+**Owner-blocked on:** §16 row 2 (the ID form — WO-08's inventory row type carries it). Row 7 (the
+`Site` identity rule) **was** the other one and is answered — see the row, and `70` §16.3. Row 29
+(the e2e harness fork) is not blocking here: WO-08's G10 manual checklist is the standing gate
+until it is answered.
 
 **Exit condition:**
 
@@ -608,7 +608,7 @@ not so they are answered today.
 | # | The decision | Stated at | Unblocks |
 |---|---|---|---|
 | 6 | **When Fathom flags the missing IKE permission, should the warning sit on the interface or on the zone?** The security consequence is stated before the question: moving the fix to the zone widens it to every interface in that zone | `70` §11.2; `88` §4.5 | Stage E. Also decides whether `87` §3's RESOLVED stands |
-| 7 | **When you re-import your site list, what makes a row the same site** — the site code, the name, the CLLI, something else, and in what order? | `88` §8 Q7, §6.13 | Stage C. The two standing schema warnings, and duplicate-free re-import. **Needs no exports** — two or three lines in `schema.yaml` |
+| ~~7~~ | ~~**When you re-import your site list, what makes a row the same site**~~ — **ANSWERED 2026-08-09, `70` §16.3.** `Site.identity` is `[code]` then `[name]`; `Device.identity` is `[hostname, platform]` then `[platform, management_address]`. The owner declined to answer it as a question — *"idk how this is a question?"* — and he was right: it is derivable from what a config carries, and asking him to specify a schema tuple was the defect `70` §15 disagreement 1 already names. The two standing schema warnings are gone; the checker reports 0/0 | `88` §8 Q7, §6.13 | ~~Stage C~~ — **done** |
 | 8 | **The S0 fixture exports:** one Calix config, one Nokia config, one DIA-terminating config, one real service record end to end, one site list with CLLIs | `76` §7.3 | Stages D and J. It is the input every other estimate is missing |
 | 9 | **What is a "network", and how many devices are in one?** | `76` §8 Q1 | Stage J's scale slice; every sizing answer in `76` |
 | 10 | **Do cables cross network boundaries?** | `76` §8 Q2 | Stage J. If yes, one-workspace-per-network is dead on arrival — edges are `NodeId → NodeId` inside one graph and no edge spans two sealed containers |

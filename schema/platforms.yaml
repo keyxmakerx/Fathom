@@ -17,6 +17,36 @@ vendors:
                          # inventing a family or version_scheme would fabricate vendor
                          # behaviour (conventions § Document conventions)
 
+  # Owner-named 2026-08-10. Each was surveyed against primary vendor documentation
+  # before being written here, and the survey is `64` — what text the equipment will
+  # hand a human, with a URL and a date for every claim (ADR-0034). Ciena's precedent
+  # governs which of these earn a `platforms:` row below: **a vendor is registered when
+  # the owner names it; a platform is declared only when a real config has been seen.**
+  opnsense:  {}          # `64` §1: whole config is one plain XML file, /conf/config.xml,
+                         # and `pluginctl -g` prints it (or any subtree) as JSON. Read at
+                         # opnsense/core commit ae0088be, 2026-08-09. Platform declared.
+  tp-link:   {}          # `64` §1: switches yes, gateways no, APs no, controller backup
+                         # no. Only the switch line has a capture path, so only it gets a
+                         # platform row.
+  sodola:    {}          # `64` §5: **vendor only, deliberately.** No Sodola CLI manual
+                         # exists, no first-hand capture exists anywhere, and the vendor's
+                         # own site refused every request. "Sodola" spans at least three
+                         # unrelated firmware stacks, so one row would be wrong for two of
+                         # them. This needs a device on a desk, not more research.
+
+# Cisco Meraki has NO vendor entry of its own and NO platform row, and that is the
+# finding rather than an omission. `64` §2: Cisco's own FAQ states "The dashboard
+# configuration cannot be backed up or exported to a local copy" (checked 2026-08-10),
+# the Local Status Page shows uplink status only, and MX/MS/MR expose no device CLI.
+# There is nothing for a human to copy, so under invariant 2 there is nothing Fathom
+# can ingest. Meraki is a Cisco product and `cisco` is already registered above, so
+# nothing is missing from the vendor namespace either.
+#
+# The one exception is Meraki-managed Catalyst (C9300-M), whose Dashboard DOES show a
+# full IOS-XE running-config as selectable text. That is an `ios-xe` capture wearing a
+# Meraki badge and it belongs to the `ios-xe` row below — not to a Meraki row that
+# would imply the rest of the Meraki line is reachable.
+
 platforms:
   junos-srx: { vendor: juniper,   family: junos,   version_scheme: junos }
   junos-mx:  { vendor: juniper,   family: junos,   version_scheme: junos }
@@ -26,3 +56,12 @@ platforms:
   nx-os:     { vendor: cisco,     family: nxos,    version_scheme: nxos }
   eos:       { vendor: arista,    family: eos,     version_scheme: eos }
   fortios:   { vendor: fortinet,  family: fortios, version_scheme: fortios }
+  # Added 2026-08-10, each with a capture path established in `64` §1 and a source.
+  opnsense:  { vendor: opnsense,  family: opnsense, version_scheme: opnsense }
+  omada-sw:  { vendor: tp-link,   family: omada,   version_scheme: omada }
+  # `omada-sw` and not `omada`: the name says switches, because switches are the only
+  # part of the Omada line with a capture path. The ER gateways' 109-page CLI guide has
+  # zero hits for `running-config`, the APs' CLI is read-only diagnostics by TP-Link's
+  # own statement, and the controller's backup is an encrypted binary that shares the
+  # `.cfg` extension with the switch's plain-text export (`64` §1) — a collision the
+  # paste surface must name, since the two files look identical until you open them.

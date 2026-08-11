@@ -83,6 +83,29 @@ pub struct FieldKeys {
     pub entries: Vec<(String, i64, usize)>,
 }
 
+/// The field-key table read out of a parsed `schema/field-keys.yaml`.
+///
+/// Shape: a single top-level map of dotted name -> integer, or the same nested
+/// under a `fields:` or `keys:` block. A value that is not an integer is
+/// skipped rather than refused — this reads the table, it does not gate it;
+/// `gates.rs` does that.
+///
+/// Public because there are two readers of that file and they must not read it
+/// differently: `SchemaTree::load` here, off disk, and `Dictionary::embedded`
+/// in `fathom-ingest`, off a compiled-in string in a build with no filesystem.
+pub fn field_key_entries(node: &Node) -> Vec<(String, i64, usize)> {
+    node.get("fields")
+        .and_then(|v| v.as_map())
+        .or_else(|| node.get("keys").and_then(|v| v.as_map()))
+        .or_else(|| node.as_map())
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| v.as_int().map(|i| (k.clone(), i, v.line)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[derive(Debug)]
 pub struct SchemaTree {
     pub root: PathBuf,
@@ -215,23 +238,9 @@ impl SchemaTree {
         let keys_path = root.join("field-keys.yaml");
         if keys_path.is_file() {
             if let Some(node) = tree.parse_file(&keys_path)? {
-                // Shape: a single top-level map of dotted name -> integer, or
-                // the same nested under a `keys:` block.
-                let map = node
-                    .get("fields")
-                    .and_then(|v| v.as_map())
-                    .or_else(|| node.get("keys").and_then(|v| v.as_map()))
-                    .or_else(|| node.as_map());
-                let entries = map
-                    .map(|m| {
-                        m.iter()
-                            .filter_map(|(k, v)| v.as_int().map(|i| (k.clone(), i, v.line)))
-                            .collect()
-                    })
-                    .unwrap_or_default();
                 tree.field_keys = Some(FieldKeys {
                     path: keys_path,
-                    entries,
+                    entries: field_key_entries(&node),
                 });
             }
         }

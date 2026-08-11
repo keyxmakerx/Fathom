@@ -1,12 +1,23 @@
 # WO-04 — `fathom-emit`: graph to junos-srx commands with provenance
 
-> **Status:** BLOCKED on **one** planning decision, not two. **§10 item 7(b) is answered
-> (2026-08-09)** — `mode` is not a Junos statement at all (verified against Juniper's CLI reference
-> for `[edit security ipsec vpn]`, which has no `mode` and defines `bind-interface` as the interface
-> *"to which the route-based VPN is bound"*), so it is derived at weld time from the presence of a
-> `BindsInterface` edge, with `Confidence::Derived`. Still open: **WO-09 §10 item 2** — §4.9's golden
-> references `reth0.0` and `st0.0` and declares no interface, so both edges stay `Pending` under
-> `14` §7.3.
+> **Status:** **OPEN.** Both blockers are answered; what is left is code.
+>
+> **§10 item 7(b), answered 2026-08-09** — `mode` is not a Junos statement at all (verified against
+> Juniper's CLI reference for `[edit security ipsec vpn]`, which has no `mode` and defines
+> `bind-interface` as the interface *"to which the route-based VPN is bound"*), so it is derived at
+> weld time from the presence of a `BindsInterface` edge, with `Confidence::Derived`. **A gap the
+> answer leaves and this order must close:** `mode` is `card: "1"`, and the schema declares the
+> route-based side only — the policy-based case still needs defining before an emit can be complete.
+>
+> **WO-09 §10 item 2, answered by the owner 2026-08-09** (`70` §16.1, verbatim; §16.2 for what it
+> does and does not settle). §4.9's golden references `reth0.0` and declares no interface, and the
+> answer is that an incompletely-known path is **emitted and marked**, never refused: *"if not all
+> the info is available how it routes then there needs to be like a dotted line or something
+> indicating that."* A block of config text cannot carry a dotted line, so the emit-surface
+> translation is **hand over the statements that are known and name the assumption** — and stating
+> precisely how the output names it is this order's first act, before step 13's gate can be
+> restated. `70` §16.2 flags that translation as a reading rather than a decision, so if it does not
+> survive contact with the code, escalate under `78` §4 rather than rewriting the answer.
 
 The reverse face of ingest — from graph state to copy-pasteable configuration lines, each line
 carrying the provenance that produced it. This is the notepad's engine: `53` §6's copy machinery
@@ -816,7 +827,7 @@ are exact; anything else is a red gate and §7 applies.
 | G3 | `cargo test -p fathom-emit` | Every §4.10 test listed (except `round_trip` before step 13), all `ok`, 0 failed |
 | G4 | `cargo test --workspace` | Every suite `ok`, zero failures; no pre-existing test deleted, loosened or ignored (`78` §5.5). Green is the gate, not a count (`78` §12 item 3) |
 | G5 | `git diff --exit-code -- schema/ crates/fathom-ir crates/fathom-schema crates/fathom-schemagen` | No output, exit 0 — this WO touches none of them |
-| G6 | `cargo run -q -p fathom-schema --bin fathom-schema-check` | Exit 0; `48 kinds · 89 edges · 61 scalars · 10 enums · 14 files parsed`; `0 failure(s), 2 warning(s)` — the pinned baseline, unchanged |
+| G6 | `cargo run -q -p fathom-schema --bin fathom-schema-check` | Exit 0; `48 kinds · 89 edges · 61 scalars · 10 enums · 14 files parsed`; **`0 failure(s), 0 warning(s)`** — the pinned baseline, unchanged. **Re-pinned 2026-08-10 from `2 warning(s)`:** the two were `schema.identity.unexercised` against `Site`, and they are gone because `Site` and `Device` now declare identity tuples (`70` §16.3). This is a *narrowing* of the gate, not a loosening — `crates/fathom-schema/tests/shipped_tree.rs` pins the empty set, so any new warning fails a test as well as this gate |
 | G7 | `grep -rn "HashMap\|HashSet\|SystemTime\|Instant\|random" crates/fathom-emit/src crates/fathom-emit/tests` | No matches, exit 1 (invariant 9; §4.8) |
 | G8 | **The flagship round-trip** (step 13; runnable only when step 12's three preconditions hold): `cargo test -p fathom-emit --test round_trip` | `e1_second_emit_loses_nothing_further` `ok`. The criterion is `13` §11.1 E1's fixed point — parse the §4.9 golden, re-emit, byte-equal rendering (*"the first emit may lose things; the second must lose nothing further."*) — with the agreement clause stated to what the ledgers can carry: substitutions agree on token, line index and label, with `hint: None` on the second (parse constructs placeholders hintless — WO-03 §4.8; `11` §4.5); the second report's gap set is empty, a strict subset of the first's, whose one entry (`GW-B.dpd`) names a field the golden text cannot carry. §12 item 6 files the narrowing against E1's literal wording. Graph equality is deliberately **not** the criterion (§12 item 3) |
 | G9 | `grep -c "GAPS_" crates/fathom-emit/src/junos.rs` | A non-zero count — the gap tables exist; their content is pinned by G3's coverage tests |
@@ -849,7 +860,10 @@ escalate when:
 7. Anything seems to need a `Phase`/`LineForm`/retract machinery, a wrapping renderer, a
    clipboard, an explain resolver, a `fex` or predicate evaluator, a dictionary file, or a hash
    implementation — all deliberately absent (§8, §10).
-8. Any change to the schema checker's two-warning baseline (G6), for any reason.
+8. Any change to the schema checker's **zero-warning** baseline (G6), for any reason. (Was
+   *"two-warning"* until 2026-08-10; the baseline moved because the warnings were fixed, and this
+   trigger moved with it. A trigger pinned to a stale fact stops the next session on a change that
+   already happened, which is the failure this line exists to prevent, inverted.)
 
 ## 8. Non-goals
 
@@ -1037,6 +1051,60 @@ the escalation inbox under `78` §4 step 2.
    mode set, and a decision on whether a deduction may rest on a constraint the grammar cannot
    express. Both are small; neither is guessable. The deduction is very probably right, and *very
    probably right* is precisely the standard ADR-0034 exists to refuse.
+
+### 10.8 THE PIPELINE WAS RUN END TO END, 2026-08-09 — and it names its own blockers
+
+Rather than reason further about what G8 needs, the three crates were composed and run against the
+real fixture. This had never been done: `fathom-ingest` → `fathom-weld` → `fathom-emit`, on
+`crates/fathom-ingest/tests/fixtures/junos-srx-s0-synthetic.txt`, through the real
+`Dictionary::load`. **The scratch harness was reverted afterward** — a temporary dev-dependency, a
+temporary test file, `Cargo.lock`, all restored; `git status` clean, floor re-run at 354 passed / 0
+failed. Nothing below is a shipped artifact. It is a measurement.
+
+**What happened, verbatim from the run:**
+
+```
+INGEST  nodes=13 edges=7 pending=2 residue=8
+WELD    ok: nodes=13 edges=19 unresolved=2
+EMIT    ok: 19 line(s), 2 block(s)
+        blockers=2 conflicts=0 gaps=1 subs=1
+RENDER  REFUSED: Blockers { count: 2 }
+```
+
+**The pipeline works.** A real junos-srx capture becomes a typed graph — thirteen nodes, and the
+weld materialises twelve containment edges on top of ingest's seven references. The emitter then
+walks it, produces nineteen lines in two blocks, and **refuses to render them.** That refusal is the
+design working: `render_config` will not hand a user text while the report carries a blocker.
+
+**The two blockers are precisely the two questions this order and WO-09 have been circling.**
+
+| Blocker | Field / edge | Which open question |
+|---|---|---|
+| `MissingRequiredEdge { edge: ExternalInterface }` on the `IkeGateway` | — | WO-09 §10 item 2 — the `reth0.0` presupposition |
+| `RequiredUnknown` on `IpsecVpn` field **181** | `IpsecVpn.mode` (`schema/field-keys.yaml:226`) | **§10 item 7(b), answered 2026-08-09** |
+
+**One of the two is already closed.** Field 181 is `IpsecVpn.mode`, and §10 item 7(b)'s answer
+derives it at weld time from the presence of a `BindsInterface` edge. The weld does not yet do that
+— which is why the blocker still fires — but the decision exists and the mechanism exists. **This is
+buildable work, not an open question.**
+
+**The other is the one real question left**, and the run sharpens it. Both unresolved records carry
+the target's name in full: `InterfaceUnit { kind: RethInterface, name: Identifier("reth0"), unit: 0 }`.
+**So `reth0.0` is not lost** — an earlier planning note in `70` §13 item 15 said an unresolved
+reference *"loses the name from the store entirely"*, and that is **wrong**: the name survives in
+`WeldOutput.unresolved`. What is true is narrower: the **graph** has no edge, so the emitter's
+`MissingRequiredEdge` check fires. Whether the emitter should be able to read the presupposition
+from the weld's unresolved list, rather than requiring a materialised edge, is a live option that
+none of WO-09 §10 item 2's three candidates considered.
+
+**And a second unresolved reference nobody had mentioned:** `ZoneMember` from the `Zone` to the same
+`reth0.0`. The `reth0.0` question is therefore not one line in the golden — it is the shape of every
+reference to a pre-existing interface, and it appears twice in a 42-line fixture.
+
+**Also measured:** one gap entry, `IpsecVpn` field 178 (`df_bit`), tracking *"no corpus-grounded
+junos statement recorded yet"* — the ledger doing exactly what it promises, naming an omission
+rather than hiding it. And one substitution, the `<PSK>` placeholder. Eight residue lines, which are
+the statements the dictionary does not yet map.
 
 ## 11. Sources consulted
 

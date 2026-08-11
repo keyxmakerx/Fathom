@@ -1,6 +1,6 @@
 //! The shipped tree is the first conformance fixture: it must load, parse,
-//! and pass every implemented failure gate. The two known warnings are pinned
-//! exactly — a new warning is a change somebody must look at, not noise.
+//! and pass every implemented failure gate. The warning set is pinned exactly —
+//! a new warning is a change somebody must look at, not noise.
 
 use fathom_schema::{check, Severity};
 use std::path::PathBuf;
@@ -32,11 +32,17 @@ fn shipped_tree_known_warnings_are_pinned() {
         .filter(|f| f.severity == Severity::Warning)
         .map(|f| f.code.as_str())
         .collect();
-    // The SiteList scope claims tiers of Site, which declares no identity
-    // tuple (no source stated one). Real, filed, and deliberately visible.
+    // Empty since 2026-08-09. It was two `schema.identity.unexercised` for the
+    // whole of this tree's life: the `SiteList` scope claimed tiers 1 and 2 of
+    // `Site`, which declared no identity tuple because no source had stated one.
+    // `Site` and `Device` now declare theirs, so the mismatch is gone rather
+    // than suppressed — the gate is unchanged and it simply has nothing to say.
+    //
+    // An empty vector is a real assertion here and not a vacuous one: the next
+    // warning of any code fails this test, which is the point.
     assert_eq!(
         warnings,
-        vec!["schema.identity.unexercised", "schema.identity.unexercised"],
+        Vec::<&str>::new(),
         "warning set changed — look before re-pinning"
     );
 }

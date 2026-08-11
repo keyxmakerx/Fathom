@@ -174,9 +174,12 @@ the first run:
 | `cargo run -p fathom-schema --bin fathom-schema-check` | Exit 0, `0 failure(s)` |
 | The work order's own acceptance gates | Exactly the output the work order states |
 
-The schema checker's standing baseline is two warnings, both `schema.identity.unexercised`
-against `Site` — deliberate, owner-blocked (`CLAUDE.md`). Any change to the warning set that the
-work order does not predict is a red gate. CI (`.github/workflows/ci.yml`, the `gates` job)
+The schema checker's standing baseline is **no warnings at all**, since 2026-08-09. It was two
+`schema.identity.unexercised` against `Site` for the whole of the tree's life before that; `Site`
+and `Device` now declare identity tuples and the mismatch is gone rather than suppressed
+(`70` §16.3). Any change to the warning set that the work order does not predict is a red gate —
+which is now a sharper instrument than it was, because the baseline it is measured against is
+empty and `crates/fathom-schema/tests/shipped_tree.rs` pins it there. CI (`.github/workflows/ci.yml`, the `gates` job)
 enforces the first four rows mechanically on every PR and every push to `main`, so for those
 four a session's model tier never decides whether the gates ran. The fifth row has no CI
 backstop and cannot have one — acceptance gates vary per work order. It runs locally only, and

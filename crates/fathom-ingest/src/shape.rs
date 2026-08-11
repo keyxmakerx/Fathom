@@ -95,6 +95,11 @@ pub(crate) struct Shaped {
     pub(crate) outcomes: Vec<Outcome>,
     pub(crate) stmts: Vec<Stmt>,
     pub(crate) unshaped: Vec<UnshapedLine>,
+    /// Noise lines, lexed, for the gate only. Their `LineOutcome` is `Noise`
+    /// and stays `Noise`; they are here so no line reaches the end of ingest
+    /// without a detector having looked at it (`14` §9.1's gate is the whole
+    /// point, and a line it never sees is a line it never gated).
+    pub(crate) noise: Vec<UnshapedLine>,
 }
 
 pub(crate) fn shape(capture: &str, framed: &frame::Framed) -> Shaped {
@@ -107,6 +112,7 @@ pub(crate) fn shape(capture: &str, framed: &frame::Framed) -> Shaped {
     let mut outcomes: Vec<Outcome> = Vec::new();
     let mut stmts: Vec<Stmt> = Vec::new();
     let mut unshaped: Vec<UnshapedLine> = Vec::new();
+    let mut noise: Vec<UnshapedLine> = Vec::new();
 
     for (idx, line) in framed.lines.iter().enumerate() {
         let span = ByteSpan {
@@ -120,12 +126,45 @@ pub(crate) fn shape(capture: &str, framed: &frame::Framed) -> Shaped {
             }
             LineClass::Noise(class) => {
                 outcomes.push(Outcome::new(LineOutcome::Noise { class: *class }));
+                // A noise line is not a statement, and until 2026-08-10 that
+                // meant no detector ever looked at it — `gate` sweeps `stmts`
+                // and `unshaped`, and a noise line was in neither. So
+                //
+                //   admin@srx-a> set security ike policy P pre-shared-key ascii-text S
+                //
+                // classified as `NoiseClass::Prompt` and kept the key in the
+                // capture, in plaintext, with `drops = 0`. **A prompt prefix is
+                // what copying out of a terminal session produces by default**,
+                // which makes this the likeliest paste in the world rather than
+                // a contrived one. Demonstrated against the shipped code before
+                // it was fixed; `tests/noise_gate.rs` is the standing proof.
+                //
+                // The line's OUTCOME stays `Noise` — it really is noise and the
+                // ledger should say so. What changes is that its tokens are now
+                // handed to the gate, which quarantines the line if any detector
+                // fires and leaves it untouched otherwise (`14` §9.7).
+                noise.push(UnshapedLine {
+                    line: line.ordinal,
+                    span,
+                    tokens: lex_line(capture, line),
+                });
                 continue;
             }
             LineClass::Statement => {}
         }
         if let Some(Some(err)) = framed.frame_errors.get(idx) {
             outcomes.push(Outcome::new(LineOutcome::Unshaped { reason: *err }));
+            // Refused, and still gated. This arm and the two below wrote
+            // `Unshaped` into the ledger and then dropped the line, so no
+            // detector ever saw it — the same defect as the `Noise` arm above,
+            // in three more places. An unterminated quote is a CLIPPED OR
+            // WRAPPED TERMINAL PASTE, one of the likeliest pastes there is, and
+            // a pre-shared key on such a line survived verbatim with drops = 0.
+            noise.push(UnshapedLine {
+                line: line.ordinal,
+                span,
+                tokens: lex_line(capture, line),
+            });
             continue;
         }
 
@@ -150,6 +189,19 @@ pub(crate) fn shape(capture: &str, framed: &frame::Framed) -> Shaped {
         }
         if let Some(err) = lex_error {
             outcomes.push(Outcome::new(LineOutcome::Unshaped { reason: err }));
+            // `tokens` holds whatever was scanned before the error; the gate
+            // takes it as-is. Half a line examined beats a whole line
+            // unexamined, and `lex_line` re-scans best-effort in case the
+            // failure happened on the first piece.
+            noise.push(UnshapedLine {
+                line: line.ordinal,
+                span,
+                tokens: if tokens.is_empty() {
+                    lex_line(capture, line)
+                } else {
+                    tokens
+                },
+            });
             continue;
         }
 
@@ -200,6 +252,14 @@ pub(crate) fn shape(capture: &str, framed: &frame::Framed) -> Shaped {
             outcomes.push(Outcome::new(LineOutcome::Unshaped {
                 reason: ShapeError::TooManySegments,
             }));
+            // The third bypass. A line refused for depth is still a line whose
+            // tokens may carry a credential, and `14` §11.6's cap is a
+            // resource guard, not a judgement that the content is harmless.
+            noise.push(UnshapedLine {
+                line: line.ordinal,
+                span,
+                tokens,
+            });
             continue;
         }
 
@@ -230,7 +290,28 @@ pub(crate) fn shape(capture: &str, framed: &frame::Framed) -> Shaped {
         outcomes,
         stmts,
         unshaped,
+        noise,
     }
+}
+
+/// Lex a line best-effort, for the gate. A lex error yields whatever tokens
+/// were scanned before it rather than nothing: this feeds a detector sweep, and
+/// half a line examined beats a whole line unexamined. The statement path
+/// deliberately does NOT do this — there, a lex error is a refusal, because a
+/// half-lexed statement would bind wrong facts.
+fn lex_line(capture: &str, line: &frame::LogicalLine) -> Vec<Token> {
+    let mut tokens: Vec<Token> = Vec::new();
+    let last = line.pieces.len().saturating_sub(1);
+    for (piece_idx, piece) in line.pieces.iter().enumerate() {
+        let mut piece = *piece;
+        if piece_idx < last {
+            piece.end = piece.end.saturating_sub(1);
+        }
+        if lex::scan(capture, piece, &JUNOS_SET, &mut tokens).is_err() {
+            break;
+        }
+    }
+    tokens
 }
 
 /// A bracket list `[ a b ]` expands the statement into one path per list

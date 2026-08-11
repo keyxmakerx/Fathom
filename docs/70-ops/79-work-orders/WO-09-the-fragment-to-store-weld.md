@@ -782,6 +782,100 @@ escalation inbox under `78` §4 step 2.
    store representation (`11` §3.4's edge classes are `Containment` and `Reference` only, so this
    is a schema question); or make referent materialisation a decided rule, against `14` §7.3's
    *"recorded, not materialised"*. Planning, with `14` §7.3 and WO-04 §4.9 side by side.
+
+   **ANALYSIS 2026-08-09 (planning). The golden is not defective — it is representative, and that
+   makes this a finding about the emitter's output rather than about a fixture.**
+
+   Four facts, each checked rather than reasoned:
+
+   1. **`fathom-emit` emits six statement families and no others.** Grepping its emitted literals
+      returns exactly `set security ike proposal`, `set security ike policy`, `set security ike
+      gateway`, `set security ipsec proposal`, `set security ipsec policy`, `set security ipsec vpn`.
+      **There is no `set interfaces` anywhere in the crate.** It reads `Interface`, `RethInterface`
+      and `TunnelInterface` only to resolve a *name* to render into `external-interface` and
+      `bind-interface`.
+   2. **The interface name is not stored anywhere else.** `ExternalInterface` is `class: reference`,
+      `IkeGateway → LogicalUnit`, `out: "1"`. There is no scalar field carrying `reth0.0`; the text
+      exists in the graph **only** as a resolved edge target. A reference that does not resolve loses
+      the name from the store entirely — it survives only in the ingest's `Unresolved` list, which
+      the store does not hold.
+   3. **Therefore the emitter's own output is not self-parseable.** It writes
+      `external-interface reth0.0` and never writes the statement that creates `reth0.0`. Feed its
+      output back through ingest in isolation and that reference dangles, exactly as the golden's
+      does — because **the golden has precisely the shape the emitter produces.**
+   4. **So extending the golden (candidate 1) does not work, and would look like it did.** Adding
+      `set interfaces` lines makes the *first* parse resolve, but those lines are not in the
+      emitter's vocabulary, so emit drops them and the rendered output no longer equals the input.
+      The gate would go red for a new reason, and a session under pressure could then be tempted to
+      compare against a subset — which is the cheat this gate exists to prevent.
+
+   **What this actually is.** `13` §11.1 E1 says *"the first emit may lose things; the second must
+   lose nothing further."* The fixed point is `emit(parse(emit(parse(x))))` equalling
+   `emit(parse(x))`. It does not hold here, and the reason is structural: **the emitted artifact is a
+   fragment that presupposes context it does not carry.** That is arguably correct behaviour — Fathom
+   emits a change set to paste onto a box that already has `reth0.0`, not a whole configuration — but
+   if it is correct, then *"re-parse my own output in isolation"* is the wrong test, and G8 as written
+   cannot pass however the fixture is arranged.
+
+   **The decision is therefore not which candidate to pick. It is what the emitter's output IS**, and
+   it belongs to `13` (which owns the round-trip property) and WO-04 (which owns emit scope) sitting
+   together. Two shapes, stated without a lean:
+
+   - **The output is a standalone configuration.** Then emit must widen to declare what it
+     references, and WO-04's scope grows — a `Disagreements`-bearing change to a DONE-adjacent order.
+   - **The output is a fragment.** Then E1's fixed point must be re-stated to re-parse the output
+     **against the originating graph** rather than against nothing, and G8's criterion is rewritten
+     rather than its fixture adjusted.
+
+   **This is the fourth blocker the weld has surfaced and the first that is not a defect in something
+   written.** The other three were a type that could not compile, a disagreement between the
+   dictionary and the schema, and devices that contained nothing. This one is a question nobody had
+   asked: *what is the thing we emit?* It was unanswerable until something tried to read it back.
+
+   **RESEARCHED 2026-08-09. The two shapes above are both wrong, and the corpus already excludes
+   each of them.** Fourteen claims held under adversarial refutation; one was refuted, and it was
+   the *"change set"* lean stated above.
+
+   - **Not a change set.** `18`:370 — *"a statement whose text is unchanged produces nothing. That
+     is what distinguishes a change set from a full config."* `config_diff` takes `emit(A)` and
+     `emit(B)` as **inputs**, so emit's output is upstream of a change set by construction. WO-04
+     §8 non-goal 2 disowns them: *"doc `18`'s territory, later."*
+   - **Not a standalone configuration**, unless the unit is `Device`. `11`:1588 attaches *"(whole
+     config)"* to `Device` and to none of the other four emit units.
+   - **It is a scoped assertion set** — complete for what it builds, referencing a device context it
+     does not carry. `13`:63: *"every design choice below assumes the output may be applied in part,
+     out of order, or a week later."* `14`:1029 treats a reference the paste did not restate as
+     **expected and resolvable**, not as an error.
+
+   **So the remaining question is narrower than this item states it.** Must a `Full` emit of a
+   non-`Device` unit be **closed under its own references**? `st0.0` is settled — `80` R47 is
+   **DECIDED** and requires the plumbing block, so the emitter must declare the tunnel interface it
+   creates. **`reth0.0` is the entire open question**, and no scope short of `Device` contains it,
+   because none of the five plumbing pieces creates a WAN interface; piece #3 only places an
+   existing one in a zone. Owner question filed at `70` §13 item 15.
+
+   **PROPOSED G8′, if the fragment reading is confirmed.** Not one of this item's three candidates —
+   a fourth, using the mechanism `14` §7.3 already specifies:
+
+   > Let `g` be the originating store, `u` the emit unit root, `a = emit(g, u)`. Let **`P(a)`** be
+   > the *presupposition set* — every node the emitter resolved a name from but emitted no declaring
+   > statement for. Seed a fresh store `s₀` with **`P(a)` and nothing else**. Compute
+   > `g₂ = weld(s₀, parse(render(a)))` using `14` §7.3's *"resolved in existing graph"* row, then
+   > `b = emit(g₂, u′)`. **Assert `render(b) == render(a)`**, plus WO-04 §6's existing report clause
+   > verbatim, **and additionally `P(b) == P(a)`** — the artifact presupposes exactly what it did.
+
+   **Two anti-cheats a work order must state, because both failures would look like a pass.** Seeding
+   from a copy of `g` passes trivially and proves nothing — hence *"`P(a)` and nothing else"*. And
+   `P(a)` must come from the **emitter's own ledger**, never hand-listed in the test, or the gate
+   degrades into a fixture tuned until it goes green.
+
+   **The cost is real and it is not sunk.** `fathom-weld` implements `14` §7.3's *"resolved in
+   fragment"* row only — `apply.rs` resolves edge targets within the fragment, and `lib.rs` says
+   *"first application only. Nothing here reconciles a re-parse."* G8′ needs the existing-graph row
+   built. **That is the same primitive `70` §6 names as the largest requirement in the corpus with
+   nothing behind it** — automatic correlation across separately-pasted configs. The round-trip gate
+   and the owner's dynamic-ability goal want the identical mechanism, which is the strongest argument
+   for building it that either has produced.
 3. **The capture store.** `11` §8.4's `Capture { id, taken_at, device, scope, platform, command,
    text, digest }` does not exist. This WO mints a `CaptureId` and returns it so the caller can pair
    it with `IngestOutput.capture`, but nothing stores the pair, so a `ProvenanceId` today points at

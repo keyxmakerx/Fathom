@@ -253,9 +253,38 @@ fn render_set<B: FieldBag + ?Sized>(bag: &B, k: FieldKey) -> String {
             .map(name_conformance)
             .unwrap_or_default();
     }
+    // `IkeGateway.peer` — the far end of a tunnel, which is the single most
+    // load-bearing value on the page for the job this product exists to do.
+    // Added 2026-08-10: it rendered as an empty cell for as long as an
+    // `IkeGateway` had been reachable, because it fell to the arm below.
+    if tid == TypeId::of::<value::PeerSpec>() {
+        return typed::<value::PeerSpec, _>(bag, k)
+            .map(|p| match p {
+                value::PeerSpec::Address(a) => a.canonical(),
+                // `IkeId` is a unit struct — `11` §6.7's shape is stated
+                // nowhere the corpus reads, so there is nothing to render but
+                // the fact that the peer is dynamic. Saying so beats blank.
+                value::PeerSpec::Dynamic(_) => "dynamic".to_owned(),
+            })
+            .unwrap_or_default();
+    }
 
-    String::new()
+    // A slot type with no arm above. This USED to be unreachable — the comment
+    // on this function said so, and it was true over the demo estate. A pasted
+    // config reaches it, and the failure mode is the worst kind: a real value,
+    // present and provenanced, rendered as an empty cell that reads exactly
+    // like a field nobody filled in.
+    //
+    // So it names itself instead. `UNRENDERED` is deliberately ugly: it is a
+    // defect marker, it should be seen, and the fix is one arm above.
+    UNRENDERED.to_owned()
 }
+
+/// What a value renders as when its slot type has no arm in the table above.
+/// Never a blank, never an em dash — both of those are already the *answers* to
+/// different questions (`—` is Unknown, `absent` is asserted-Absent), and a
+/// missing renderer is neither.
+pub(crate) const UNRENDERED: &str = "(no renderer)";
 
 /// Every `Set` member in declaration order, joined `, ` — a member-wise rule
 /// because the structured value types carry no `canonical()` yet (WO-08 §3.2).
