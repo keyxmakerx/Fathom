@@ -139,12 +139,125 @@ there is nothing on the server to protect. Put basic auth or SSO at the proxy if
 you want to control *who can reach the tool*, not because the tool is storing
 anything.
 
-## Deploying under Cosmos Cloud (bind-mount, no custom image)
+## The published image
 
-Cosmos runs images; it does not build them. There is no `build:` in its
-container schema, so `docker-compose.yml` above cannot be handed to it. The
-practical route is to skip the custom runtime image entirely — the `serve` stage
-is stock `nginx-unprivileged` plus two files — and bind-mount both from appdata:
+`.github/workflows/publish.yml` builds the `serve` stage on every push to `main`
+and pushes it to **`ghcr.io/keyxmakerx/fathom`**.
+
+| Tag | When |
+|---|---|
+| `latest` | every push to `main` — use this one |
+| `main` | every push to `main`, same image |
+| `sha-<full commit>` | every build — pin to this to reproduce one |
+| `v1.2.3` | on a `v*` git tag push |
+
+**A tag that does not exist fails as `denied`, not `not found`.** GHCR does not
+distinguish a missing tag from one you are not allowed to see, so the error for a
+typo'd tag is indistinguishable from an authentication problem and will send you
+looking at credentials. If a pull is denied, check in this order: does the
+workflow exist on `main` and has it actually run; does that exact tag appear in
+the package; and only then, is the package private.
+
+```
+docker pull ghcr.io/keyxmakerx/fathom:latest
+docker run --rm -p 127.0.0.1:8080:8080 ghcr.io/keyxmakerx/fathom:latest
+```
+
+**Pull by digest for anything you care about**, not by tag — a tag is a moving
+pointer, a digest is the image. Each run prints the digest, the commit and the
+SHA-256 of the served page into its GitHub Actions job summary.
+
+Every published image carries a signed provenance attestation binding it to the
+commit and workflow that produced it. For Fathom this is not decoration: the
+entire security story is *the page you are running is the page we built*, and
+this is how that stops being something you take on trust.
+
+```
+gh attestation verify oci://ghcr.io/keyxmakerx/fathom:latest --repo keyxmakerx/Fathom
+```
+
+The image is `linux/amd64` only. No arm64 — it would need a cross toolchain for
+both the wasm and native builds, and nobody has asked for it.
+
+Two things about the workflow worth knowing. It runs the **full verification
+floor inline before building**, duplicating `ci.yml`, because `needs:` does not
+reach across workflow files and a failing `ci.yml` would not otherwise stop a
+publish. And it uses **no GitHub Actions build cache** — that cache is writable
+by any run on the repository, which is a place to plant a layer that ends up
+inside a published image, and it would save about twenty seconds.
+
+**After the first publish, check the package's visibility.** A GHCR package is
+not automatically public. If it is private, either make it public in the
+package's settings, or give Cosmos a registry credential (a PAT with
+`read:packages`) — otherwise the pull fails with an authentication error that
+reads like the image does not exist.
+
+## Deploying under Cosmos Cloud
+
+Cosmos runs images; it does not build them. There is no `build:` field in its
+container schema, so `docker-compose.yml` above cannot be handed to it — point it
+at `ghcr.io/keyxmakerx/fathom:latest` instead.
+
+Set `cosmos-auto-update` to **false**. Updates should come from a merge you made,
+not from a nightly pull.
+
+### Do you even need this container?
+
+Cosmos has a `STATIC` route mode that serves a directory itself with Go's file
+server (`src/proxy/routeTo.go:375`), so in principle you could skip the container
+and point a route at a directory holding `index.html`.
+
+**Don't.** You would lose gzip — Go's file server does not compress, and this is
+a 1.1 MB mostly-base64 file — and you would lose every security header in
+`nginx.conf` except the four Cosmos sets itself, which does not include
+`X-Frame-Options`, `Referrer-Policy`, COOP/COEP/CORP, `Permissions-Policy` or
+`Cache-Control`. The nginx container is 23 MB doing exactly one job, and that job
+is the deployment's whole hardening story.
+
+### Three things that will bite
+
+1. **`http://fathom:8080` does not resolve by default.** Cosmos dials the target
+   from inside its own container using Docker's embedded DNS, so Cosmos must be
+   a member of the same network. Add `"cosmos-network-name": "auto"` to the
+   service's labels and Cosmos creates a network and joins itself to it.
+   Otherwise every request to the route fails DNS and you get a 502.
+2. **Four hardening fields are dropped silently.** `read_only`, `pids_limit`,
+   `tmpfs` and `logging` have no equivalent in the Cosmos container schema. None
+   of them is the first line of defence — the first line is that this server has
+   no handler an attacker can reach — but two of them compound: without
+   `read_only` *and* without the `noexec` tmpfs, `/tmp` becomes a writable,
+   executable scratch directory inside the container. That matters only after
+   someone already has code execution, but it turns a one-shot compromise into a
+   persistent one. `mem_limit` **is** supported, as a units string (`"128m"`, not
+   an integer of bytes; an unparseable value aborts the whole service creation),
+   so use the field rather than `docker update` — the field survives a redeploy
+   and `docker update` does not. Only `pids_limit` genuinely needs
+   `docker update --pids-limit 64 fathom`, re-applied after every deploy.
+   `docker update` has no `--read-only` flag, so that one cannot be recovered
+   that way at all.
+3. **Leave SmartShield off for this route.** If a client trips its budget
+   mid-response it emits a 503 header after bytes are already on the wire, which
+   truncates the 1.2 MB single-file response.
+
+Cosmos also strips this container's `Content-Security-Policy` header and
+substitutes its own, so **the CSP line in `nginx.conf` is inert behind Cosmos**.
+The framing posture weakens from `'none'` to `'self'`; `X-Frame-Options: DENY`
+survives and preserves the intent.
+
+**Authentication stops being optional here.** The advice above assumes loopback.
+The moment this is a public hostname, put auth on the Cosmos route.
+
+## Alternative: bind-mount, no custom image
+
+If you would rather not pull an image at all, the `serve` stage is only stock
+`nginx-unprivileged` plus two files, so you can bind-mount both from appdata.
+
+**This trades away the property the published image exists to provide**: the
+served page moves from an immutable, content-addressed image layer to a
+host-writable file. For a tool where someone pastes a firewall config into the
+page, a swapped page with a modified CSP could exfiltrate that config while every
+other control here still passes. If you go this way, record the hash and check
+it.
 
 ```bash
 mkdir -p /mnt/user/appdata/fathom/{html,conf}
@@ -186,84 +299,36 @@ event, not background noise.** Stop and find out why.
 The compile is roughly 22 seconds cold on four cores. It is not a long build;
 there is no third-party code to compile. The image pulls dominate.
 
-### The four things Cosmos drops without saying so
+### Two more traps, specific to bind-mounting
 
-`read_only`, `pids_limit`, `tmpfs` and `logging` have no equivalent in the Cosmos
-container schema and are dropped silently.
+The Cosmos traps listed above still apply. These two are additional, and both
+fail quietly:
 
-None of them is the first line of defence — the first line is that this server
-has no handler an attacker can reach. What they cost is depth, and two of them
-compound: with `read_only` gone *and* the `noexec` tmpfs gone, `/tmp` becomes a
-writable, executable scratch directory inside the container. That matters only
-after someone already has code execution, but it converts a one-shot compromise
-into a persistent one.
-
-`mem_limit` **is** supported — as a units string (`"128m"`, not an integer of
-bytes), and an unparseable value aborts the whole service creation. Use the field
-rather than `docker update`; the field survives a redeploy and `docker update`
-does not. Only `pids_limit` genuinely needs the out-of-band
-`docker update --pids-limit 64 fathom`, and write down that it must be re-applied
-after every compose deploy. `docker update` has no `--read-only` flag, so that one
-cannot be recovered that way at all.
-
-### The regression nobody lists
-
-The one worth actually caring about is not `read_only`. It is that **the served
-artifact moves from an immutable image layer to a host-writable file in appdata.**
-
-For Fathom, the integrity of the page *is* the security property. Someone pastes
-a firewall config into it; a swapped page with a modified CSP could exfiltrate
-that config while every other control here still passes. So: keep the hash you
-recorded above, re-verify it after every update, keep `html/` off SMB and out of
-any appdata path another container mounts read-write. If that discipline will not
-hold, keep the baked image — its value was never that nginx was custom, it was
-that the artifact was content-addressed by the image digest.
-
-### Three things that will bite
-
-1. **`http://fathom:8080` does not resolve by default.** Cosmos dials the target
-   from inside its own container using Docker's embedded DNS, so Cosmos must be a
-   member of the same network. Add `"cosmos-network-name": "auto"` to the
-   service's labels and Cosmos creates a network and joins itself to it.
-   Otherwise every request to the route fails DNS and you get a 502.
-2. **Verify the bind mounts really landed read-only.**
+1. **Verify the mounts really landed read-only.**
    `docker inspect -f '{{json .HostConfig.Mounts}}' fathom` must show
-   `"ReadOnly":true` on both. It is the compensating control for losing
-   `read_only`, and its absence is completely silent. Related: opening the
+   `"ReadOnly":true` on both. Read-only mounts are the *only* compensating
+   control you have left once `read_only` is gone, and their absence is
+   completely silent — the app works perfectly either way. Related: opening the
    container's Volumes tab in the Cosmos UI and clicking save converts both
    mounts to read-write and recreates the container, with no warning. Change
    mounts by editing the compose, never in that tab.
-3. **Mounting a single file that does not exist yet** makes Docker create a
+2. **Mounting a single file that does not exist yet** makes Docker create a
    *directory* at that path. The container then fails with "not a directory", and
    the sting is that your fix — copying the file in — lands it *inside* the stray
    directory, so the next attempt fails identically. Install the file first, or
    mount the whole `conf/` directory over `/etc/nginx/conf.d` and sidestep it.
 
-After deploying, one command tells you whether this config is the one answering:
+And one that fails quietly in the other direction: if `nginx.conf` lands anywhere
+other than `/etc/nginx/conf.d/default.conf`, the image's own default config is
+still there. The `default_server` on this file's `listen` line is there to win
+that fight, but check anyway — one command tells you which block answered:
 
 ```
 curl -sI https://<host>/ | grep -i x-frame-options
 ```
 
 Empty means a different server block is serving the page, and every header in
-this file is silently absent.
-
-### Cosmos and the CSP — nothing needs disabling
-
-See the Cosmos section under *Behind a reverse proxy* above. The short version:
-Cosmos injects only `frame-ancestors`, which cannot affect inline script or wasm,
-so leave header hardening **on**. Two consequences worth knowing:
-
-- Cosmos strips this file's `Content-Security-Policy` header and substitutes its
-  own, so **the CSP line in nginx.conf is inert behind Cosmos**. The framing
-  posture weakens from `'none'` to `'self'`; `X-Frame-Options: DENY` survives and
-  preserves the intent.
-- Leave **SmartShield off** for this route. If a client trips its budget mid-response
-  it emits a 503 header after bytes are already on the wire, which truncates a
-  1.2 MB single-file response.
-
-**Authentication stops being optional here.** The README's advice above assumes
-loopback. The moment this is a public hostname, put auth on the Cosmos route.
+`nginx.conf` is silently absent.
 
 ## What has not been tested
 
