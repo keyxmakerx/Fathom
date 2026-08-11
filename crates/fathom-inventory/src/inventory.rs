@@ -34,6 +34,12 @@ pub enum InvKind {
     IpsecVpn,
     IkeProposal,
     IpsecProposal,
+    // Added 2026-08-11 with hand authoring. A `Chassis` is where `model` and
+    // `serial` live -- a chassis cluster is one Device with two boxes -- so
+    // without this row the equipment form could STORE a model and no view could
+    // SHOW it. APPENDED, never inserted: the wire byte OP_INV_ROWS takes is this
+    // array's index, so inserting would silently repoint every existing byte.
+    Chassis,
 }
 
 impl InvKind {
@@ -49,10 +55,11 @@ impl InvKind {
             InvKind::IpsecVpn => "IpsecVpn",
             InvKind::IkeProposal => "IkeProposal",
             InvKind::IpsecProposal => "IpsecProposal",
+            InvKind::Chassis => "Chassis",
         }
     }
 
-    pub const ALL: [InvKind; 10] = [
+    pub const ALL: [InvKind; 11] = [
         InvKind::Device,
         InvKind::PhysicalPort,
         InvKind::Premises,
@@ -63,6 +70,7 @@ impl InvKind {
         InvKind::IpsecVpn,
         InvKind::IkeProposal,
         InvKind::IpsecProposal,
+        InvKind::Chassis,
     ];
 
     fn node_kind(self) -> NodeKind {
@@ -77,6 +85,7 @@ impl InvKind {
             InvKind::IpsecVpn => NodeKind::IpsecVpn,
             InvKind::IkeProposal => NodeKind::IkeProposal,
             InvKind::IpsecProposal => NodeKind::IpsecProposal,
+            InvKind::Chassis => NodeKind::Chassis,
         }
     }
 }
@@ -112,6 +121,9 @@ const PORT_COLUMNS: &[&str] = &[
     "cables to",
 ];
 const PREMISES_COLUMNS: &[&str] = &["label", "clli", "form", "street", "devices"];
+/// Every one a field `schema/schema.yaml` declares on `Chassis`, plus the
+/// owning device, which is the traversal that makes the row locatable.
+const CHASSIS_COLUMNS: &[&str] = &["model", "serial", "member_index", "slots", "device"];
 
 // The six pasted-config kinds. Every column below is a field `schema/schema.yaml`
 // declares on that kind — no column is computed here except the named traversals
@@ -148,6 +160,7 @@ pub fn columns(kind: InvKind) -> &'static [&'static str] {
         InvKind::IpsecVpn => IPSEC_VPN_COLUMNS,
         InvKind::IkeProposal => IKE_PROPOSAL_COLUMNS,
         InvKind::IpsecProposal => IPSEC_PROPOSAL_COLUMNS,
+        InvKind::Chassis => CHASSIS_COLUMNS,
     }
 }
 
@@ -235,6 +248,13 @@ fn cells(g: &Graph, kind: InvKind, id: NodeId) -> Vec<String> {
             value_cell(g, id, key("IpsecProposal.protocol")),
             value_cell(g, id, key("IpsecProposal.encryption_algorithm")),
             value_cell(g, id, key("IpsecProposal.authentication_algorithm")),
+        ],
+        InvKind::Chassis => vec![
+            value_cell(g, id, key("Chassis.model")),
+            value_cell(g, id, key("Chassis.serial")),
+            value_cell(g, id, key("Chassis.member_index")),
+            value_cell(g, id, key("Chassis.slots")),
+            owning_device(g, id),
         ],
     }
 }

@@ -14,12 +14,14 @@
 
 #![forbid(unsafe_code)]
 
+mod author;
 mod demo;
 mod element;
 mod equipment;
 mod inventory;
 mod render;
 
+pub use author::{is_authorable, parse_into_slot, AuthorError};
 pub use demo::demo_estate;
 pub use element::{element_page, parse_display_id, ElementPage, FieldRow};
 pub use equipment::{equipment_page, CabledPeer, EquipmentPage, IfaceRow, PortRow};

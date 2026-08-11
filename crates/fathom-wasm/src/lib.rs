@@ -45,6 +45,25 @@ pub const OP_EQUIPMENT: u32 = 14;
 /// which exists precisely so the weld cannot read a clock.
 pub const OP_PASTE: u32 = 15;
 
+/// Add one piece of equipment by hand: no config, no paste, no parser.
+///
+/// This is the **second door into the estate**, and the first one that does not
+/// destroy what is already there. Every write before it — `OP_ESTATE_DEMO` and
+/// `OP_PASTE` alike — installs a fresh `Graph` over whatever was held. This one
+/// mutates in place, and creates an estate only when none exists, so a person
+/// can start from an empty page and build.
+///
+/// It carries the same 24-byte host clock-and-entropy prefix `OP_PASTE` does,
+/// for the same reason: the module has no clock and no RNG and must acquire
+/// neither (`wasmbin::IMPORT_ALLOWLIST` is empty and stays empty). Hand entry
+/// is not a special case of that rule; it is the same rule.
+///
+/// The provenance it writes is `Origin::Hand` — the first variant of the enum,
+/// present since the beginning and until now produced nowhere a user could
+/// reach. What a hand-entered field is *worth* is therefore recorded honestly
+/// and is legible everywhere a parsed one is.
+pub const OP_EQUIP_ADD: u32 = 16;
+
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
     static REQ: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };

@@ -11,10 +11,14 @@ use fathom_corpus::{CorpusIndex, Section, SourceFile};
 use fathom_find::Finder;
 
 use crate::protocol::{
-    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_INGEST_REFUSED, ERR_NOTHING_UNDERSTOOD,
-    ERR_NOT_INITIALISED, ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
+    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_EQUIP_FRAME, ERR_EQUIP_STORE,
+    ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED,
+    ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
-use crate::{OP_ELEMENT, OP_EQUIPMENT, OP_ESTATE_DEMO, OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY};
+use crate::{
+    OP_ELEMENT, OP_EQUIPMENT, OP_EQUIP_ADD, OP_ESTATE_DEMO, OP_INIT, OP_INV_ROWS, OP_PASTE,
+    OP_QUERY,
+};
 
 pub struct Shell {
     finder: Option<Finder>,
@@ -47,6 +51,7 @@ impl Shell {
             OP_QUERY => self.query(req),
             OP_ESTATE_DEMO => self.estate_demo(req),
             OP_PASTE => self.paste(req),
+            OP_EQUIP_ADD => self.equip_add(req),
             OP_INV_ROWS => self.inv_rows(req),
             OP_ELEMENT => self.element(req),
             OP_EQUIPMENT => self.equipment(req),
@@ -187,6 +192,216 @@ impl Shell {
         reply
     }
 
+    /// `OP_EQUIP_ADD`: one piece of equipment, entered by hand.
+    ///
+    /// Frame — the same 24-byte prefix `OP_PASTE` uses, then a field list:
+    ///
+    /// ```text
+    ///   0   8   at_ms   (u64) the host's clock
+    ///   8  16   entropy (u128) the host's CSPRNG
+    ///  24   1   count   (u8) how many fields follow
+    ///  25  ..   count x [u16 field_key][u16 byte_len][utf8 value]
+    /// ```
+    ///
+    /// # What it builds, and why it is more than one node
+    ///
+    /// `Device` has twelve fields and **`model` is not among them** — model and
+    /// serial live on `Chassis`, because a chassis cluster is one `Device` with
+    /// two `Chassis` and the model belongs to the box, not to the logical
+    /// device. That is right, and it is also invisible to the person typing
+    /// "SRX345" into a form. So this opcode creates the `Chassis` silently, with
+    /// `member_index` 0 unless one is supplied, and routes each field to
+    /// whichever kind declares it.
+    ///
+    /// The routing is **derived, never hand-written**: a key is looked up in
+    /// `DeviceField::ALL` and then `ChassisField::ALL`, both generated from
+    /// `schema/`. A field that moves between kinds in a later schema version
+    /// moves here with no edit. The containment edge is likewise computed by
+    /// `fathom_weld::containment_edge`, not named.
+    ///
+    /// # What it does not do
+    ///
+    /// No `Site`. `11` §7.2's containment rule is an upper bound at write time,
+    /// so a `Device` with no `HasDevice` in-edge is valid — the weld already
+    /// relies on this for every paste. Inventing a site nobody asked for would
+    /// put a fact in the estate that no human asserted.
+    ///
+    /// No reconciliation. Adding the same box twice makes two devices, exactly
+    /// as pasting the same config twice does (`11` §10.4 has no implementation
+    /// anywhere). That is a known hole, not a behaviour of this opcode.
+    fn equip_add(&mut self, req: &[u8]) -> Vec<u8> {
+        use fathom_graph::{Actor, BatchId, ElementId, Timestamp, UserId};
+        use fathom_ir::generated::ir_types::{ChassisField, DeviceField, NodeKind};
+
+        const PREFIX: usize = 24;
+        let Some(head) = req.get(..PREFIX) else {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                &format!(
+                    "OP_EQUIP_ADD needs a {PREFIX}-byte clock and entropy prefix; the frame is {} bytes",
+                    req.len()
+                ),
+            );
+        };
+        let (at_bytes, entropy_bytes) = head.split_at(8);
+        let mut at_raw = [0u8; 8];
+        at_raw.copy_from_slice(at_bytes);
+        let mut ent_raw = [0u8; 16];
+        ent_raw.copy_from_slice(entropy_bytes);
+        let at = Timestamp(u64::from_le_bytes(at_raw));
+        let entropy = u128::from_le_bytes(ent_raw);
+
+        let fields = match parse_field_list(req.get(PREFIX..).unwrap_or_default()) {
+            Ok(f) => f,
+            Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &e),
+        };
+
+        // Both `Device` identity tuples need `platform`, and the schema declares
+        // hostname and platform `card: "1"`. A device missing either can never
+        // be re-identified or merged with a later paste of the same box, so it
+        // is refused at the door rather than stored as an orphan nobody can
+        // reconcile. Nothing else is demanded.
+        for (key, name) in [
+            (DeviceField::Hostname.key(), "hostname"),
+            (DeviceField::Platform.key(), "platform"),
+        ] {
+            if !fields.iter().any(|(k, _)| *k == key) {
+                return protocol::encode_error(
+                    ERR_EQUIP_FRAME,
+                    &format!("a device needs a {name}: the schema declares it required, and both identity tuples use platform"),
+                );
+            }
+        }
+
+        // Route every field to the kind that declares it, from the generated
+        // tables. An unroutable key is a page defect and says so.
+        let mut on_device: Vec<(fathom_ir::bag::FieldKey, String)> = Vec::new();
+        let mut on_chassis: Vec<(fathom_ir::bag::FieldKey, String)> = Vec::new();
+        for (key, text) in fields {
+            if DeviceField::ALL.iter().any(|f| f.key() == key) {
+                on_device.push((key, text));
+            } else if ChassisField::ALL.iter().any(|f| f.key() == key) {
+                on_chassis.push((key, text));
+            } else {
+                return protocol::encode_error(
+                    ERR_EQUIP_FRAME,
+                    &format!(
+                        "field key {} is declared by neither Device nor Chassis",
+                        key.0
+                    ),
+                );
+            }
+        }
+
+        // `Chassis.member_index` is `card: "1"`. Supplying it is not something a
+        // person adding a standalone box should have to know about, so it is
+        // defaulted here and overridden if the form sent one.
+        if !on_chassis
+            .iter()
+            .any(|(k, _)| *k == ChassisField::MemberIndex.key())
+        {
+            on_chassis.push((ChassisField::MemberIndex.key(), "0".to_owned()));
+        }
+
+        // Parse everything BEFORE touching the store. A refusal must leave the
+        // estate exactly as it was; a half-written device the user then has to
+        // find and delete is worse than a rejected form.
+        let mut device_values = Vec::with_capacity(on_device.len());
+        for (key, text) in &on_device {
+            match fathom_inventory::parse_into_slot(*key, text) {
+                Ok(v) => device_values.push((*key, v)),
+                Err(e) => return protocol::encode_error(ERR_FIELD_VALUE, &author_text(e, text)),
+            }
+        }
+        let mut chassis_values = Vec::with_capacity(on_chassis.len());
+        for (key, text) in &on_chassis {
+            match fathom_inventory::parse_into_slot(*key, text) {
+                Ok(v) => chassis_values.push((*key, v)),
+                Err(e) => return protocol::encode_error(ERR_FIELD_VALUE, &author_text(e, text)),
+            }
+        }
+
+        let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
+        let (Ok(user), Ok(batch)) = (ids(1), ids(2)) else {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                &format!(
+                    "the clock reads {} ms, which is past the ULID ceiling",
+                    at.0
+                ),
+            );
+        };
+        let actor = Actor::User(UserId(user));
+        let mut mint = match fathom_weld::Mint::new(at, entropy) {
+            Ok(m) => m,
+            Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
+        };
+
+        // The estate is CREATED when absent and MUTATED when present. This is
+        // the first opcode that does not replace it, and that is the whole point
+        // of the door: you can start from nothing, and adding a second device
+        // must not delete the first.
+        let graph = self.estate.get_or_insert_with(fathom_graph::Graph::new);
+
+        if let Err(e) = graph.begin_batch(BatchId(batch), EQUIP_LABEL) {
+            return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
+        }
+
+        let build = || -> Result<(fathom_graph::NodeId, usize), String> {
+            let mut written = 0usize;
+            let device = graph
+                .insert_node(
+                    NodeKind::Device,
+                    mint.next().map_err(|e| format!("{e:?}"))?,
+                    hand_record(&mut mint, at, actor)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+            let chassis = graph
+                .insert_node(
+                    NodeKind::Chassis,
+                    mint.next().map_err(|e| format!("{e:?}"))?,
+                    hand_record(&mut mint, at, actor)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+            let edge = fathom_weld::containment_edge(NodeKind::Device, NodeKind::Chassis)
+                .ok_or_else(|| {
+                    "the schema declares no containment edge Device -> Chassis".to_owned()
+                })?;
+            graph
+                .insert_edge(
+                    edge,
+                    mint.next().map_err(|e| format!("{e:?}"))?,
+                    device,
+                    chassis,
+                    hand_record(&mut mint, at, actor)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+
+            for (element, values) in [
+                (ElementId::Node(device), device_values),
+                (ElementId::Node(chassis), chassis_values),
+            ] {
+                for (key, value) in values {
+                    graph
+                        .set_field_boxed(element, key, value, hand_record(&mut mint, at, actor)?)
+                        .map_err(|e| format!("{e:?}"))?;
+                    written += 1;
+                }
+            }
+            Ok((device, written))
+        };
+
+        let built = build();
+        // The batch closes either way. Leaving one open would refuse every
+        // later write with `BatchOpen`, turning one bad form into a dead page.
+        let closed = graph.end_batch();
+        match (built, closed) {
+            (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &e),
+            (Ok(_), Err(e)) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+            (Ok((device, written)), Ok(_)) => equip_reply(device, written),
+        }
+    }
+
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {
         // The kind byte indexes `InvKind::ALL` — it is not a hand-written table.
         // It was one until 2026-08-10, and when the strip grew from three kinds
@@ -309,6 +524,10 @@ impl Default for Shell {
 
 /// The batch's undo label (`53` §7.2, at most 60 bytes).
 const PASTE_LABEL: &str = "Paste junos-srx config";
+
+/// The undo label one hand-added device carries (`53` §7.2). Names the gesture,
+/// not the opcode: it is what the person will read in a list of things to undo.
+const EQUIP_LABEL: &str = "Add equipment by hand";
 
 /// How many residue rows one reply carries. The summary always states the
 /// **total**, so a page that renders both can say how many it is not showing —
@@ -528,6 +747,123 @@ fn paste_reply(
         ],
         residue: &residue,
         unresolved: &unresolved,
+    })
+}
+
+/// One hand-authoring assertion's provenance: `Origin::Hand`, the host's clock,
+/// and `Confidence::Asserted`.
+///
+/// `Asserted` is right and is worth being explicit about. The three values mean
+/// *how directly the thing was observed* (`11` §8.3), not *how much we trust
+/// the source*. A person typing what is in front of them has observed it as
+/// directly as anything can be observed — more directly than a parser inferring
+/// a tunnel from six statements, which is also `Asserted`. Grading hand entry
+/// lower would be confusing confidence with authority.
+///
+/// A fresh id per record, never shared: `Graph::check_prov` fills `supersedes`
+/// from the slot's current provenance, so a reused id lands as
+/// `ProvenanceIdReused` the moment two assertions touch one slot.
+fn hand_record(
+    mint: &mut fathom_weld::Mint,
+    at: fathom_graph::Timestamp,
+    actor: fathom_graph::Actor,
+) -> Result<fathom_graph::ProvenanceRecord, String> {
+    Ok(fathom_graph::ProvenanceRecord {
+        id: fathom_graph::ProvenanceId(mint.next().map_err(|e| format!("{e:?}"))?),
+        origin: fathom_graph::Origin::Hand,
+        asserted_at: at,
+        asserted_by: actor,
+        confidence: fathom_graph::Confidence::Asserted,
+        supersedes: None,
+    })
+}
+
+/// `[u8 count]` then `count` x `[u16 key][u16 len][utf8]`.
+///
+/// Every read is bounds-checked and every failure names the field index, so a
+/// malformed frame points at which one rather than at the frame as a whole.
+fn parse_field_list(bytes: &[u8]) -> Result<Vec<(fathom_ir::bag::FieldKey, String)>, String> {
+    let Some((count, mut rest)) = bytes.split_first() else {
+        return Err("the field list is missing its count byte".to_owned());
+    };
+    let count = usize::from(*count);
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        let Some(head) = rest.get(..4) else {
+            return Err(format!(
+                "field {i} of {count} is truncated: {} bytes left, 4 needed for its header",
+                rest.len()
+            ));
+        };
+        let key = u16::from_le_bytes([*head.first().unwrap_or(&0), *head.get(1).unwrap_or(&0)]);
+        let len = usize::from(u16::from_le_bytes([
+            *head.get(2).unwrap_or(&0),
+            *head.get(3).unwrap_or(&0),
+        ]));
+        let Some(value) = rest.get(4..4 + len) else {
+            return Err(format!(
+                "field {i} of {count} claims {len} bytes and only {} remain",
+                rest.len().saturating_sub(4)
+            ));
+        };
+        let text = core::str::from_utf8(value).map_err(|e| {
+            format!(
+                "field {i} of {count} is not UTF-8 at byte {}",
+                e.valid_up_to()
+            )
+        })?;
+        out.push((fathom_ir::bag::FieldKey(u32::from(key)), text.to_owned()));
+        rest = rest.get(4 + len..).unwrap_or_default();
+    }
+    if !rest.is_empty() {
+        return Err(format!(
+            "the field list declares {count} fields and {} trailing bytes remain",
+            rest.len()
+        ));
+    }
+    Ok(out)
+}
+
+/// A refused hand-entered value, in the words of the person who typed it.
+/// Quotes what they wrote back, because a form that says only "invalid" makes
+/// them guess which of four boxes it meant.
+fn author_text(e: fathom_inventory::AuthorError, text: &str) -> String {
+    match e {
+        fathom_inventory::AuthorError::Parse(p) => {
+            match p.kind {
+                fathom_ir::scalar::ScalarParseErrorKind::Syntax { expected } => {
+                    format!("{:?} is not a {}: expected {expected}", text, p.scalar)
+                }
+                fathom_ir::scalar::ScalarParseErrorKind::Range { what } => {
+                    format!("{:?} is out of range for {}: {what}", text, p.scalar)
+                }
+                fathom_ir::scalar::ScalarParseErrorKind::Charset { offset } => format!(
+                    "{:?} has a character {} does not allow, at byte {offset}",
+                    text, p.scalar
+                ),
+                fathom_ir::scalar::ScalarParseErrorKind::HostBits => {
+                    format!("{text:?} sets host bits: a prefix must name a network, not an address in it")
+                }
+            }
+        }
+        fathom_inventory::AuthorError::UnsupportedType { key, declared } => format!(
+            "field {} is declared {declared}, which cannot be typed in yet",
+            key.0
+        ),
+        fathom_inventory::AuthorError::UnknownKey(key) => {
+            format!("field key {} is not in the schema", key.0)
+        }
+    }
+}
+
+/// What one hand-added piece of equipment produced: the display id to select,
+/// and how many fields were stored.
+fn equip_reply(device: fathom_graph::NodeId, written: usize) -> Vec<u8> {
+    let id = device.to_string();
+    protocol::encode_paste_reply(&protocol::PasteReply {
+        summary: [&id, &written.to_string(), "", "", "", &id, "", ""],
+        residue: &[],
+        unresolved: &[],
     })
 }
 
