@@ -295,6 +295,25 @@ button.tab:hover { color: var(--ink); }
         outline-offset: -1px; }
 .efield .note { font-size: var(--t-micro); line-height: var(--lh-micro);
                 color: var(--muted); }
+/* The inspector's in-place field editor. Deliberately almost invisible until
+   focused: the inspector is read far more often than it is edited, and a table
+   of boxes reads as a form rather than as a record. */
+.fedit { font: inherit; font-size: inherit; color: var(--ink); width: 100%;
+         background: none; border: 1px solid transparent;
+         border-radius: var(--radius); padding: 0 var(--s1); }
+.fedit:hover { border-color: var(--rule); }
+.fedit:focus { outline: 2px solid var(--ink); outline-offset: -1px;
+               background: var(--bg); }
+/* Removal is not styled as a danger button. Nothing here is destroyed -- the
+   store tombstones and keeps the history -- and a red button would claim a
+   finality the model does not have. */
+.rmbtn { margin-top: var(--s3); font: inherit; font-size: var(--t-micro);
+         color: var(--muted); background: none; cursor: pointer;
+         border: 1px solid var(--rule); border-radius: var(--radius);
+         padding: var(--s1) var(--s2); }
+.rmbtn:hover { color: var(--ink); background: var(--surface); }
+.note { font-size: var(--t-micro); line-height: var(--lh-micro);
+        color: var(--muted); margin-top: var(--s2); }
 
 /* --- what one paste produced. Counts, then the lines it did not read. ----- */
 .tally { display: flex; flex-wrap: wrap; gap: var(--s4); margin: 0;
@@ -434,7 +453,7 @@ button.tab:hover { color: var(--ink); }
 var FATHOM_WASM_B64 = "@FATHOM_WASM_B64@";
 
 var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, OP_PASTE = 15;
-var OP_EQUIP_ADD = 16;
+var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18;
 
 /* The equipment form's fields, and the ONLY place this page names a field key.
    Each entry is [wire key, label, kind, required, note].
@@ -895,6 +914,17 @@ function renderMeaningFace(host) {
 
   p.appendChild(el('div', 'sh', 'Fields — generated from schema.yaml'));
   p.appendChild(fieldTable(S.element.rows.slice(1)));
+
+  /* Type a value and press Enter. Said in words because an input that commits
+     on Enter and NOT on blur is the safer behaviour and the less obvious one. */
+  p.appendChild(el('div', 'note', 'Type in a field and press Enter to change it. ' +
+                                  'Leaving the box does not save.'));
+
+  var rm = el('button', null, 'remove this element');
+  rm.type = 'button';
+  rm.setAttribute('data-remove', '1');
+  rm.className = 'rmbtn';
+  p.appendChild(rm);
   host.appendChild(p);
 }
 
@@ -906,12 +936,95 @@ function fieldTable(records) {
     var th = el('th', null, r.s[0]);
     th.setAttribute('scope', 'row');
     tr.appendChild(th);
-    tr.appendChild(el('td', null, r.s[1]));
+
+    /* Slot 3 is the field's wire key and slot 4 says whether its type can be
+       typed in. Both come from the module with the row, so this page holds no
+       name-to-key table of its own — which is what stops a form writing one
+       field into another's slot. A field whose type the store cannot yet take
+       from text renders read-only rather than as an input that always fails. */
+    var key = r.s[3], editable = r.s[4] === '1' && S.sel;
+    if (editable) {
+      var cell = el('td');
+      var inp = el('input');
+      inp.type = 'text';
+      inp.value = r.s[1] === '—' ? '' : r.s[1];
+      inp.autocomplete = 'off';
+      inp.spellcheck = false;
+      inp.setAttribute('aria-label', r.s[0]);
+      inp.setAttribute('data-key', key);
+      inp.className = 'fedit';
+      cell.appendChild(inp);
+      tr.appendChild(cell);
+    } else {
+      tr.appendChild(el('td', null, r.s[1]));
+    }
+
     tr.appendChild(el('td', 'mu', r.s[2]));
     tb.appendChild(tr);
   });
   t.appendChild(tb);
   return t;
+}
+
+/* Commit an edited field. Enter commits; blur does not.
+
+   Committing on blur is the friendlier-looking choice and is wrong here: it
+   makes tabbing through a table to READ it write every cell you passed, each
+   one a new assertion in the record with your name on it. An estate of record
+   should never gain a claim because someone moved the focus. */
+function commitField(input) {
+  if (!wasm || !S.sel) return;
+  var key = parseInt(input.getAttribute('data-key'), 10);
+  var value = input.value.trim();
+  if (!value) { foot('a blank is not a value — clear is not built yet'); renderShell(); return; }
+
+  var ent = hostEntropy();
+  if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return; }
+
+  var idBytes = new TextEncoder().encode(S.sel);
+  var valBytes = new TextEncoder().encode(value);
+  var req = new Uint8Array(30 + idBytes.length + valBytes.length);
+  var dv = new DataView(req.buffer);
+  dv.setBigUint64(0, BigInt(Date.now()), true);
+  req.set(ent, 8);
+  dv.setUint32(24, key, true);
+  dv.setUint16(28, idBytes.length, true);
+  req.set(idBytes, 30);
+  req.set(valBytes, 30 + idBytes.length);
+
+  var reply = call(OP_FIELD_SET, req);
+  var bad = replyProblem(reply);
+  if (bad) { foot(bad); renderShell(); return; }
+  foot('changed');
+  postElement(S.sel);
+  loadKind(S.invKind);
+  render();
+}
+
+/* Remove the selected element. Not a delete: the store tombstones, so the node
+   stays in the record marked absent from this moment, and its subtree goes with
+   it — removing a device takes its chassis, because a chassis with no device is
+   not a fact anyone asserted. */
+function removeSelected() {
+  if (!wasm || !S.sel) return;
+  var ent = hostEntropy();
+  if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return; }
+  var idBytes = new TextEncoder().encode(S.sel);
+  var req = new Uint8Array(24 + idBytes.length);
+  new DataView(req.buffer).setBigUint64(0, BigInt(Date.now()), true);
+  req.set(ent, 8);
+  req.set(idBytes, 24);
+
+  var reply = call(OP_ELEMENT_REMOVE, req);
+  var bad = replyProblem(reply);
+  if (bad) { foot(bad); renderShell(); return; }
+  var gone = S.sel;
+  S.sel = null;
+  S.element = null;
+  S.equipment = null;
+  loadKind(S.invKind);
+  foot('removed ' + gone);
+  render();
 }
 
 /* --- the inspector's equipment face — the inspector grown (52 §2.3) ------- */
@@ -1177,6 +1290,17 @@ document.addEventListener('click', function (ev) {
     render();
     return;
   }
+  if (seekAttr(ev.target, 'data-remove')) { removeSelected(); return; }
+});
+
+/* Enter commits an edited field. On the same delegate as everything else so a
+   table rebuilt by a render carries no listeners of its own to leak. */
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter') return;
+  var t = e.target;
+  if (!t || !t.classList || !t.classList.contains('fedit')) return;
+  e.preventDefault();
+  commitField(t);
 });
 
 /* --- the finder overlay: registered, empty, honest. ----------------------- */

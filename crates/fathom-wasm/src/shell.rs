@@ -16,8 +16,8 @@ use crate::protocol::{
     ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
 use crate::{
-    OP_ELEMENT, OP_EQUIPMENT, OP_EQUIP_ADD, OP_ESTATE_DEMO, OP_INIT, OP_INV_ROWS, OP_PASTE,
-    OP_QUERY,
+    OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_ESTATE_DEMO, OP_FIELD_SET,
+    OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY,
 };
 
 pub struct Shell {
@@ -52,6 +52,8 @@ impl Shell {
             OP_ESTATE_DEMO => self.estate_demo(req),
             OP_PASTE => self.paste(req),
             OP_EQUIP_ADD => self.equip_add(req),
+            OP_FIELD_SET => self.field_set(req),
+            OP_ELEMENT_REMOVE => self.element_remove(req),
             OP_INV_ROWS => self.inv_rows(req),
             OP_ELEMENT => self.element(req),
             OP_EQUIPMENT => self.equipment(req),
@@ -402,6 +404,179 @@ impl Shell {
         }
     }
 
+    /// `OP_FIELD_SET`: correct one field of one element.
+    ///
+    /// Frame — the usual prefix, then the key, then two lengths' worth of text:
+    ///
+    /// ```text
+    ///   0   8   at_ms   (u64)
+    ///   8  16   entropy (u128)
+    ///  24   4   field key (u32)
+    ///  28   2   display-id byte length (u16)
+    ///  30  ..   the display id, utf8
+    ///   ..  ..  the new value, utf8, to the end of the frame
+    /// ```
+    ///
+    /// The value is parsed **before** the batch opens, so a refusal cannot leave
+    /// a batch open or a slot half-written.
+    fn field_set(&mut self, req: &[u8]) -> Vec<u8> {
+        use fathom_graph::{Actor, BatchId, ElementId, Timestamp, UserId};
+
+        const PREFIX: usize = 30;
+        let Some(head) = req.get(..PREFIX) else {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                &format!(
+                    "OP_FIELD_SET needs a {PREFIX}-byte header; the frame is {} bytes",
+                    req.len()
+                ),
+            );
+        };
+        let at = Timestamp(u64::from_le_bytes(le8(head, 0)));
+        let entropy = u128::from_le_bytes(le16(head, 8));
+        let key = fathom_ir::bag::FieldKey(u32::from_le_bytes(le4(head, 24)));
+        let id_len = usize::from(u16::from_le_bytes([
+            *head.get(28).unwrap_or(&0),
+            *head.get(29).unwrap_or(&0),
+        ]));
+
+        let Some(id_bytes) = req.get(PREFIX..PREFIX + id_len) else {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                &format!("the display id claims {id_len} bytes and the frame has fewer"),
+            );
+        };
+        let (Ok(display), Ok(value)) = (
+            core::str::from_utf8(id_bytes),
+            core::str::from_utf8(req.get(PREFIX + id_len..).unwrap_or_default()),
+        ) else {
+            return protocol::encode_error(
+                ERR_BAD_UTF8,
+                "the display id or the value is not UTF-8",
+            );
+        };
+
+        // Parse first. A refused value must not open a batch.
+        let parsed = match fathom_inventory::parse_into_slot(key, value) {
+            Ok(v) => v,
+            Err(e) => return protocol::encode_error(ERR_FIELD_VALUE, &author_text(e, value)),
+        };
+
+        let element = match self.resolve(display) {
+            Ok(e) => e,
+            Err(reply) => return reply,
+        };
+
+        // The batch and provenance ids come off the MINT, not from the clock
+        // plus a fixed discriminator the way `OP_PASTE` derives its two. That
+        // pattern is safe there because a paste builds one batch from a fresh
+        // graph; it is not safe here. Two corrections inside the same
+        // millisecond — one keystroke apart, which is ordinary — would mint the
+        // same BatchId and the same ProvenanceId, and the store refuses both as
+        // reused. The mint walks a counter from the host's entropy, so the
+        // second edit in a millisecond gets its own ids.
+        let mut mint = match fathom_weld::Mint::new(at, entropy) {
+            Ok(m) => m,
+            Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
+        };
+        let (Ok(user), Ok(batch), Ok(prov)) = (
+            fathom_id::Ulid::from_parts(at.0, 1),
+            mint.next(),
+            mint.next(),
+        ) else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
+        };
+
+        let Some(graph) = self.estate.as_mut() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        if let Err(e) = graph.begin_batch(BatchId(batch), EDIT_LABEL) {
+            return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
+        }
+        let record = fathom_graph::ProvenanceRecord {
+            id: fathom_graph::ProvenanceId(prov),
+            origin: fathom_graph::Origin::Hand,
+            asserted_at: at,
+            asserted_by: Actor::User(UserId(user)),
+            confidence: fathom_graph::Confidence::Asserted,
+            supersedes: None,
+        };
+        let wrote = graph.set_field_boxed(element, key, parsed, record);
+        let closed = graph.end_batch();
+        match (wrote, closed) {
+            (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+            (Ok(()), Err(e)) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+            (Ok(()), Ok(_)) => {
+                let id = match element {
+                    ElementId::Node(n) => n.to_string(),
+                    ElementId::Edge(_) => display.to_owned(),
+                };
+                equip_reply_text(&id, "1")
+            }
+        }
+    }
+
+    /// `OP_ELEMENT_REMOVE`: tombstone an element and its subtree.
+    ///
+    /// Frame: the 24-byte prefix, then the display id to the end.
+    fn element_remove(&mut self, req: &[u8]) -> Vec<u8> {
+        use fathom_graph::{BatchId, Timestamp};
+
+        const PREFIX: usize = 24;
+        let Some(head) = req.get(..PREFIX) else {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                &format!(
+                    "OP_ELEMENT_REMOVE needs a {PREFIX}-byte header; the frame is {} bytes",
+                    req.len()
+                ),
+            );
+        };
+        let at = Timestamp(u64::from_le_bytes(le8(head, 0)));
+        let entropy = u128::from_le_bytes(le16(head, 8));
+        let Ok(display) = core::str::from_utf8(req.get(PREFIX..).unwrap_or_default()) else {
+            return protocol::encode_error(ERR_BAD_UTF8, "the display id is not UTF-8");
+        };
+
+        let element = match self.resolve(display) {
+            Ok(e) => e,
+            Err(reply) => return reply,
+        };
+        // Off the mint for the same reason `field_set` does: two removals in one
+        // millisecond must not collide on a BatchId.
+        let batch = match fathom_weld::Mint::new(at, entropy).and_then(|mut m| m.next()) {
+            Ok(b) => b,
+            Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
+        };
+        let Some(graph) = self.estate.as_mut() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        if let Err(e) = graph.begin_batch(BatchId(batch), REMOVE_LABEL) {
+            return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
+        }
+        let removed = graph.tombstone(element, at);
+        let closed = graph.end_batch();
+        match (removed, closed) {
+            (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+            (Ok(()), Err(e)) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+            (Ok(()), Ok(_)) => equip_reply_text(display, "0"),
+        }
+    }
+
+    /// A display id to the element it names, or the refusal to hand back.
+    /// Separate from `node_request` because that one hands back the graph too,
+    /// which holds an immutable borrow these two writers cannot take.
+    fn resolve(&self, display: &str) -> Result<fathom_graph::ElementId, Vec<u8>> {
+        let Some(estate) = self.estate.as_ref() else {
+            return Err(protocol::encode_error(
+                ERR_NOT_INITIALISED,
+                "no estate loaded",
+            ));
+        };
+        fathom_inventory::parse_display_id(estate, display)
+            .ok_or_else(|| protocol::encode_error(ERR_NO_ELEMENT, display))
+    }
+
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {
         // The kind byte indexes `InvKind::ALL` — it is not a hand-written table.
         // It was one until 2026-08-10, and when the strip grew from three kinds
@@ -528,6 +703,11 @@ const PASTE_LABEL: &str = "Paste junos-srx config";
 /// The undo label one hand-added device carries (`53` §7.2). Names the gesture,
 /// not the opcode: it is what the person will read in a list of things to undo.
 const EQUIP_LABEL: &str = "Add equipment by hand";
+
+/// The undo labels for the two edit gestures (`53` §7.2). Named for what the
+/// person did, not for the opcode.
+const EDIT_LABEL: &str = "Correct a field";
+const REMOVE_LABEL: &str = "Remove equipment";
 
 /// How many residue rows one reply carries. The summary always states the
 /// **total**, so a page that renders both can say how many it is not showing —
@@ -859,12 +1039,43 @@ fn author_text(e: fathom_inventory::AuthorError, text: &str) -> String {
 /// What one hand-added piece of equipment produced: the display id to select,
 /// and how many fields were stored.
 fn equip_reply(device: fathom_graph::NodeId, written: usize) -> Vec<u8> {
-    let id = device.to_string();
+    equip_reply_text(&device.to_string(), &written.to_string())
+}
+
+/// The same reply from strings, so the edit and remove opcodes answer in the
+/// shape the page already knows how to read.
+fn equip_reply_text(id: &str, written: &str) -> Vec<u8> {
     protocol::encode_paste_reply(&protocol::PasteReply {
-        summary: [&id, &written.to_string(), "", "", "", &id, "", ""],
+        summary: [id, written, "", "", "", id, "", ""],
         residue: &[],
         unresolved: &[],
     })
+}
+
+/// Fixed-width little-endian reads that never index out of bounds. The three
+/// widths the frames above use.
+fn le4(b: &[u8], at: usize) -> [u8; 4] {
+    let mut o = [0u8; 4];
+    for (i, slot) in o.iter_mut().enumerate() {
+        *slot = *b.get(at + i).unwrap_or(&0);
+    }
+    o
+}
+
+fn le8(b: &[u8], at: usize) -> [u8; 8] {
+    let mut o = [0u8; 8];
+    for (i, slot) in o.iter_mut().enumerate() {
+        *slot = *b.get(at + i).unwrap_or(&0);
+    }
+    o
+}
+
+fn le16(b: &[u8], at: usize) -> [u8; 16] {
+    let mut o = [0u8; 16];
+    for (i, slot) in o.iter_mut().enumerate() {
+        *slot = *b.get(at + i).unwrap_or(&0);
+    }
+    o
 }
 
 /// A cursor over the request bytes that refuses every short read.

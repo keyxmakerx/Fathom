@@ -166,6 +166,18 @@ pub fn columns(kind: InvKind) -> &'static [&'static str] {
 
 pub fn rows(g: &Graph, kind: InvKind) -> Vec<Row> {
     g.nodes_of_kind(kind.node_kind())
+        // Tombstoned nodes are NOT rows. `nodes_of_kind` yields every node the
+        // store has ever held, because the store never hard-deletes -- an
+        // element removed is marked absent from a moment and kept, which is what
+        // makes an estate a record rather than a snapshot.
+        //
+        // The inventory is a view of what is true NOW, so it must filter. Until
+        // 2026-08-11 nothing removed anything, so nothing here noticed; the
+        // first removal opcode made a removed device go on listing itself, which
+        // is the worst kind of wrong for a tool whose claim is that you can
+        // trust what it shows. Provenance and history are how you ask what USED
+        // to be true, and both still hold the node.
+        .filter(|n| n.absent_since.is_none())
         .map(|n| Row {
             id: n.id.to_string(),
             cells: cells(g, kind, n.id),

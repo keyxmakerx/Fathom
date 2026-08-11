@@ -124,3 +124,94 @@ fn an_unsupported_type_is_reported_as_unsupported() {
         "expected UnsupportedType so the page can hide the input, got {err:?}"
     );
 }
+
+/// **No derived field may be hand-editable.**
+///
+/// `Device.name_conformance` is computed from hostname and platform; typing a
+/// value into it would be asserting something the model derives, and the next
+/// derivation would silently disagree with the person who typed it.
+///
+/// Today that field is unreachable only BY ACCIDENT: its scalar type is not in
+/// `parse_into_slot`'s narrow table, so it refuses as `UnsupportedType`. Nothing
+/// says it must stay that way, and the table is designed to be widened one line
+/// at a time — so the accident would end quietly, in the direction of a form
+/// that lets you overwrite a computed value.
+///
+/// Derived-ness is not exposed to Rust: the generator emits it for edges and not
+/// for fields, so no code can ask. This test asks `schema/schema.yaml` directly
+/// and turns the accident into a gate. If a later change makes a derived field
+/// authorable, this goes red and the right fix is a real guard, not a
+/// deletion of this test.
+#[test]
+fn no_derived_field_is_hand_editable() {
+    use fathom_ir::bag::FieldKey;
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("the workspace root is two above this crate");
+    let schema = std::fs::read_to_string(root.join("schema/schema.yaml")).expect("schema.yaml");
+    let registry =
+        std::fs::read_to_string(root.join("schema/field-keys.yaml")).expect("field-keys.yaml");
+
+    // `  - kind: Device` opens a kind; `{ name: x, ... derived: ...}` marks one.
+    let mut kind = String::new();
+    let mut derived: Vec<String> = Vec::new();
+    for line in schema.lines() {
+        if let Some(rest) = line.trim().strip_prefix("- kind:") {
+            kind = rest.trim().to_owned();
+        }
+        if line.contains("derived:") && line.contains("fn:") {
+            // The `derived:` line sits under its field's `name:` line, which is
+            // the nearest preceding one -- so remember the last name seen.
+            continue;
+        }
+        if let Some(at) = line.find("name:") {
+            if line.contains("derived:") {
+                let name: String = line[at + 5..]
+                    .trim_start()
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !kind.is_empty() && !name.is_empty() {
+                    derived.push(format!("{kind}.{name}"));
+                }
+            }
+        }
+    }
+    // The registry's own header names the four derived fields; use them as the
+    // floor so a parse that finds nothing cannot pass vacuously.
+    for known in [
+        "Device.name_conformance",
+        "PhysicalPort.occupied",
+        "PathSegment.resolution",
+        "PathSegment.corroboration",
+    ] {
+        if !derived.iter().any(|d| d == known) {
+            derived.push(known.to_owned());
+        }
+    }
+    assert!(
+        derived.len() >= 4,
+        "expected at least the four known derived fields, found {derived:?}"
+    );
+
+    for path in &derived {
+        let Some(line) = registry
+            .lines()
+            .find(|l| l.trim().starts_with(&format!("{path}:")))
+        else {
+            continue; // not every derived field carries a wire key
+        };
+        let key: u32 = line
+            .rsplit(':')
+            .next()
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or_else(|| panic!("could not read a key from {line:?}"));
+        assert!(
+            !fathom_inventory::is_authorable(FieldKey(key)),
+            "{path} is DERIVED and must never be hand-editable, but parse_into_slot accepts its \
+             type. Add a real derived-field guard rather than removing this test."
+        );
+    }
+}

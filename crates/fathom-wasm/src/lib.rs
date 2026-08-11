@@ -64,6 +64,31 @@ pub const OP_PASTE: u32 = 15;
 /// and is legible everywhere a parsed one is.
 pub const OP_EQUIP_ADD: u32 = 16;
 
+/// Correct one field of one element.
+///
+/// `52` §3.7 gives the inventory the contract *"Lets you change | Field values,
+/// in place, in the cell"*, and until this opcode nothing could change a stored
+/// value at all: a hostname that parsed but was wrong was permanent.
+///
+/// It is a **supersession, not an erasure**. `Graph::set_field_boxed` archives
+/// the replaced slot and the store fills `supersedes` from the value that was
+/// there, so a correction is recorded as one assertion replacing another and
+/// both remain in the history. That is what lets an estate answer *"who said
+/// this, and what did it say before"* rather than only *"what does it say"*.
+pub const OP_FIELD_SET: u32 = 17;
+
+/// Remove an element — a device added in error, a box that was decommissioned.
+///
+/// `Graph::tombstone` is the only removal this store has, and it is not a
+/// delete: the element stays, marked absent from a moment, and its subtree goes
+/// with it. So removing a device takes its chassis, which is right — a chassis
+/// with no device is not a fact anyone asserted.
+///
+/// Nothing is ever hard-deleted, because an estate of record that can forget
+/// silently is not a record. What this gives the operator is *"this is no longer
+/// true"*, which is a different and more honest claim than *"this never was"*.
+pub const OP_ELEMENT_REMOVE: u32 = 18;
+
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
     static REQ: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };

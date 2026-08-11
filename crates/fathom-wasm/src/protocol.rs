@@ -437,11 +437,22 @@ fn write_element(
     );
     write_face_record(records, &rec);
     for f in &page.fields {
+        // Slot 3 is the field's wire key and slot 4 is whether it can be typed
+        // in. Both travel WITH the row rather than being looked up on the page,
+        // because a name-to-key table in JavaScript is how a form ends up
+        // writing one field into another's slot.
+        let key = f.key.0.to_string();
         let rec = face_slots(
             blob,
             FACE_FIELD,
-            3,
-            &[f.name, f.value.as_str(), f.provenance.as_str()],
+            5,
+            &[
+                f.name,
+                f.value.as_str(),
+                f.provenance.as_str(),
+                key.as_str(),
+                if f.editable { "1" } else { "" },
+            ],
         );
         write_face_record(records, &rec);
     }

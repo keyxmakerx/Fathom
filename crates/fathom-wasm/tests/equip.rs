@@ -248,3 +248,209 @@ fn the_same_frame_builds_the_same_estate_twice() {
     };
     assert_eq!(build(), build(), "two identical frames diverged");
 }
+
+// --- correcting and removing -------------------------------------------------
+
+use fathom_wasm::{OP_ELEMENT_REMOVE, OP_FIELD_SET};
+
+/// `[u64 at][u128 entropy][u32 key][u16 id_len][id][value]`
+fn edit_frame(at_ms: u64, entropy: u128, key: u32, id: &str, value: &str) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(&at_ms.to_le_bytes());
+    v.extend_from_slice(&entropy.to_le_bytes());
+    v.extend_from_slice(&key.to_le_bytes());
+    v.extend_from_slice(&(id.len() as u16).to_le_bytes());
+    v.extend_from_slice(id.as_bytes());
+    v.extend_from_slice(value.as_bytes());
+    v
+}
+
+fn remove_frame(at_ms: u64, entropy: u128, id: &str) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(&at_ms.to_le_bytes());
+    v.extend_from_slice(&entropy.to_le_bytes());
+    v.extend_from_slice(id.as_bytes());
+    v
+}
+
+/// The display id of the one device in the estate.
+fn only_device_id(shell: &mut Shell) -> String {
+    let reply = shell.handle(OP_INV_ROWS, &[DEVICE_KIND_BYTE]);
+    match decode_reply(&reply) {
+        Ok(ReplyView::FaceRows(rows)) => rows
+            .iter()
+            .find(|r| r.role == FACE_INV)
+            .map(|r| r.strings[0].clone())
+            .expect("one device row"),
+        other => panic!("expected a face table, got {other:?}"),
+    }
+}
+
+fn add_one(shell: &mut Shell, at: u64, name: &str) {
+    let reply = shell.handle(
+        OP_EQUIP_ADD,
+        &frame(
+            at,
+            0x2026_0811_0000_0000_0000_0000_0000_0001,
+            &[
+                (DeviceField::Hostname.key().0, name),
+                (DeviceField::Platform.key().0, "junos-srx"),
+            ],
+        ),
+    );
+    assert_eq!(is_error(&reply), None, "setup add refused: {reply:?}");
+}
+
+/// A hostname that parsed but was wrong must be correctable. Before
+/// `OP_FIELD_SET` nothing in the product could change a stored value at all.
+#[test]
+fn a_stored_field_can_be_corrected() {
+    let mut shell = Shell::new();
+    add_one(&mut shell, 1_700_000_000_000, "srx-typo-01");
+    let id = only_device_id(&mut shell);
+
+    let reply = shell.handle(
+        OP_FIELD_SET,
+        &edit_frame(
+            1_700_000_000_001,
+            9,
+            DeviceField::Hostname.key().0,
+            &id,
+            "srx-hq-01",
+        ),
+    );
+    assert_eq!(
+        is_error(&reply),
+        None,
+        "the correction was refused: {reply:?}"
+    );
+    assert_eq!(
+        rows_for(&mut shell, DEVICE_KIND_BYTE),
+        1,
+        "correcting a field must not add or remove a device"
+    );
+}
+
+/// Two corrections inside one millisecond is ordinary -- one keystroke apart.
+/// Deriving the batch and provenance ids from the clock alone made the second
+/// collide with the first and be refused as reused, which is why they come off
+/// the mint instead.
+#[test]
+fn two_corrections_in_the_same_millisecond_both_land() {
+    let mut shell = Shell::new();
+    add_one(&mut shell, 1_700_000_000_000, "srx-a");
+    let id = only_device_id(&mut shell);
+
+    for (n, value) in [(1u128, "srx-first"), (2, "srx-second")] {
+        let reply = shell.handle(
+            OP_FIELD_SET,
+            &edit_frame(
+                1_700_000_000_777,
+                n,
+                DeviceField::Hostname.key().0,
+                &id,
+                value,
+            ),
+        );
+        assert_eq!(
+            is_error(&reply),
+            None,
+            "correction {n} in the same millisecond was refused: {reply:?}"
+        );
+    }
+}
+
+/// A correction that does not parse changes nothing.
+#[test]
+fn a_bad_correction_leaves_the_old_value() {
+    let mut shell = Shell::new();
+    add_one(&mut shell, 1_700_000_000_000, "srx-hq-01");
+    let id = only_device_id(&mut shell);
+
+    let reply = shell.handle(
+        OP_FIELD_SET,
+        &edit_frame(
+            1_700_000_000_001,
+            9,
+            DeviceField::Role.key().0,
+            &id,
+            "frewall",
+        ),
+    );
+    assert_eq!(is_error(&reply), Some(ERR_FIELD_VALUE));
+    assert_eq!(rows_for(&mut shell, DEVICE_KIND_BYTE), 1);
+}
+
+/// A display id nobody has is refused rather than silently doing nothing.
+#[test]
+fn correcting_an_unknown_element_is_refused() {
+    let mut shell = Shell::new();
+    add_one(&mut shell, 1_700_000_000_000, "srx-hq-01");
+    let reply = shell.handle(
+        OP_FIELD_SET,
+        &edit_frame(
+            1_700_000_000_001,
+            9,
+            DeviceField::Hostname.key().0,
+            "device:0000000000000000000000",
+            "srx-hq-02",
+        ),
+    );
+    assert!(is_error(&reply).is_some(), "an unknown id must be refused");
+}
+
+/// Removing a device removes it from the inventory. `Graph::tombstone` cascades
+/// to the subtree, so the chassis goes with it -- a chassis with no device is
+/// not a fact anyone asserted.
+#[test]
+fn a_device_can_be_removed_and_its_chassis_goes_with_it() {
+    let mut shell = Shell::new();
+    add_one(&mut shell, 1_700_000_000_000, "srx-hq-01");
+    add_one(&mut shell, 1_700_000_000_001, "mx-core-02");
+    assert_eq!(rows_for(&mut shell, DEVICE_KIND_BYTE), 2);
+
+    let reply = shell.handle(OP_INV_ROWS, &[DEVICE_KIND_BYTE]);
+    let id = match decode_reply(&reply) {
+        Ok(ReplyView::FaceRows(rows)) => rows
+            .iter()
+            .find(|r| r.role == FACE_INV)
+            .map(|r| r.strings[0].clone())
+            .expect("a device row"),
+        other => panic!("{other:?}"),
+    };
+
+    let gone = shell.handle(OP_ELEMENT_REMOVE, &remove_frame(1_700_000_000_002, 5, &id));
+    assert_eq!(is_error(&gone), None, "the removal was refused: {gone:?}");
+    assert_eq!(
+        rows_for(&mut shell, DEVICE_KIND_BYTE),
+        1,
+        "the removed device must leave the inventory and the other must stay"
+    );
+    // CHASSIS_KIND_BYTE is InvKind::ALL's last index; one device remains, so one
+    // chassis must remain.
+    let chassis = fathom_inventory::InvKind::ALL.len() as u8 - 1;
+    assert_eq!(
+        rows_for(&mut shell, chassis),
+        1,
+        "the removed device's chassis must go with it"
+    );
+}
+
+/// Removing the same element twice is refused rather than silently accepted --
+/// the second call is asking for something that is already true, and answering
+/// "done" to it would hide a page defect.
+#[test]
+fn removing_twice_is_refused() {
+    let mut shell = Shell::new();
+    add_one(&mut shell, 1_700_000_000_000, "srx-hq-01");
+    let id = only_device_id(&mut shell);
+    assert_eq!(
+        is_error(&shell.handle(OP_ELEMENT_REMOVE, &remove_frame(1_700_000_000_001, 5, &id))),
+        None
+    );
+    assert!(
+        is_error(&shell.handle(OP_ELEMENT_REMOVE, &remove_frame(1_700_000_000_002, 6, &id)))
+            .is_some(),
+        "a second removal must be refused"
+    );
+}
