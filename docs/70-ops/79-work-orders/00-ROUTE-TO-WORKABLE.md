@@ -238,22 +238,45 @@ actually costs here, because it is less than it sounds:
 security-first tool to install a third-party extension that grants disk access, in order to use the
 tool, inverts the product's entire posture.
 
-#### 4.10 Server-hosted storage does not solve this, and is a different decision
+#### 4.10 The file is a bridge — the destination is a database on the owner's own server
 
-Also raised by the owner in the same breath. It is a legitimate future route — `70` §8 and `43`
-D2/D3 already establish that a server may hold **ciphertext it cannot read**, which is what keeps it
-compatible with invariant 4 — but it must not be reached for as the Firefox fix:
+**CORRECTED 2026-08-11 by the owner, and the correction is right.** This section previously argued
+that server-hosted storage *"does not solve this and is a different decision"*. His answer:
 
-- It does not give him *"a folder of my choosing"*. It **replaces** that with somebody's server, and
-  the thing he asked for was the folder.
-- It is strictly more work than the download fallback, not less, and it introduces the first
-  server-side component this product has ever had.
-- Invariant 1 still forbids the **page** from opening a connection, so the transport would have to
-  be a deliberate, separately-argued exception — and `38` prices every future exception, with none
-  approved.
+> *"No it having the database be local to the server will fix it, then there is no local client
+> solution… eventually when I have a private server on the corps network and hardware that is
+> secured we won't need this local database solution. This part is temporary only."*
 
-**Sequence, therefore: journal → encrypt → download-or-picker. Server-hosted sync is a later and
-separate decision, and nothing about Firefox forces it.**
+If the estate lives in a database on his server, the browser stores nothing, no file is written, no
+picker is needed, and **§4.9's whole Chromium-versus-Firefox problem ceases to exist**. The earlier
+analysis judged the server route against *"does it give him a folder of his choosing"* — a
+requirement he had stated an hour before — and missed that the folder was a means, not the end. See
+`70` §17 for the full record.
+
+**What this changes about the plan: essentially nothing, and that is the point.** §5b saves the
+operator's **ops**, and an op log is exactly what a client sends to a server — small, ordered,
+append-only, self-describing. The 2.4 KB file today becomes the request body tomorrow, and the file
+becomes one *transport* rather than the design. The snapshot route would not have survived this
+correction at all: a serialised graph blob is a client-side storage format and nothing else.
+
+**One change of emphasis:** do not over-invest in the file. It must work, be encrypted and be
+openable. It does **not** need versioning, compaction, merge, or a sync-conflict story — those are
+the server's problems and the server is coming. (This retires cost #1 above as a near-term concern.)
+
+**Two things this forces, both owner decisions, neither an execution matter:**
+
+1. **Invariant 1 must be reopened on merit.** *"It never connects to anything"* and *"the page reads
+   its estate from a server"* cannot both hold. `75` §2 records the owner's own instruction that sunk
+   cost never argues for keeping a decision, and `38` exists to price exactly this — but it is an ADR,
+   never a quiet implementation detail. **Invariant 2 is untouched**: Fathom still never logs into a
+   device, and a server for the operator's own records does not weaken that at all.
+2. **Can the server read the estate?** *"Database"* implies yes; `43` D2/D3 and `70` §8 currently say
+   the server holds **ciphertext it cannot read**. Those are different products — one can query,
+   index and serve many users; the other is an opaque blob store that survives its own compromise.
+   `70` §17.3 tabulates the trade. This is the most consequential open question in the project.
+
+**Sequence, therefore, unchanged: journal → encrypt → save. What changes is that the save is
+explicitly a bridge, and the server is the destination rather than an alternative.**
 
 #### What is refused, and why
 
