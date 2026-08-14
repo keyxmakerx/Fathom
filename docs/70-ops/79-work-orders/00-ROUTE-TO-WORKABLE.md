@@ -197,13 +197,63 @@ leaks a pre-shared key into Dropbox.
 3. **An old journal replayed through a NEWER dictionary binds statements it previously could not**,
    producing a *richer* estate and shifting minted ids. Mostly a feature; must be surfaced, never
    silent. It needs its own test.
-4. **`showSaveFilePicker` is Chromium-only.** Measured in a real browser, from a `file://` page:
-   Chrome/Edge open the native dialog, write to a chosen folder, persist the handle in IndexedDB and
-   re-save after a refresh with **no** re-prompt — so `file://` *is* a secure context and the widely
-   repeated claim that the picker throws there is false for Chromium. Firefox and Safari have no
-   user-chosen place at all (caniuse *native-filesystem-api*, MDN *showSaveFilePicker*, both checked
-   2026-08-11): every save mints a new numbered file in Downloads and the page cannot tell whether it
-   happened. That is vendor policy, not a gap that closes by waiting.
+4. **`showSaveFilePicker` is Chromium-only, and that is permanent.** Measured in a real browser,
+   from a `file://` page: Chrome/Edge open the native dialog, write to a chosen folder, persist the
+   handle in IndexedDB and re-save after a refresh with **no** re-prompt — so `file://` *is* a secure
+   context and the widely repeated claim that the picker throws there is false for Chromium.
+   **Mozilla's standards position records the local-disk pickers as *harmful*, so this is a decision
+   rather than a backlog item** (MDN *showSaveFilePicker* — *"Limited availability… not Baseline
+   because it does not work in some of the most widely-used browsers"*; Mozilla standards positions;
+   both checked 2026-08-11).
+
+   **The owner uses Firefox, so this is the deployment reality and not a footnote.** §4.9 below is
+   the Firefox route, and it is workable rather than a degradation to apologise for.
+
+#### 4.9 The Firefox route — one extra click, not a different product
+
+**Added 2026-08-11. The owner asked directly: *"what is the solution for Firefox users like me? Or
+is this basically chrome only until we move to database hosted?"* The answer is no on both counts.**
+
+**Opening never needed the picker.** `<input type="file">` is universal and has been for twenty
+years. So *reading* a workspace works identically in every browser, on every platform, including
+mobile. Only the write side differs at all.
+
+**Writing on Firefox is `<a download>` plus one Firefox setting.** With **Settings → General →
+Downloads → "Always ask you where to save files"** turned on (`browser.download.useDownloadDir` =
+`false`), Firefox opens a native save dialog for every download — so the operator picks the folder,
+including a synced one, on each save. Without it, every save lands silently in the Downloads folder
+and numbers itself `fathom(1).fathom`, which is the bad experience people describe.
+
+That is one dialog per save, against Chromium's zero. It is worth being exact about how much that
+actually costs here, because it is less than it sounds:
+
+- **Save is explicit, never automatic.** There is no autosave to fight; the dialog appears when the
+  operator asks to save, which is the moment they already expect one.
+- **The journal is ~2.4 KB.** Writing is instant, so the dialog is the whole cost.
+- **The one real loss is silent overwrite.** Firefox will ask to replace rather than replacing
+  quietly, and the page cannot confirm the save happened. So the unsaved-change indicator must be
+  driven by *"you asked to save"*, not by *"the write succeeded"*, and it must say so honestly.
+
+**Firefox extensions that add the API are refused.** They exist. Asking the operator of a
+security-first tool to install a third-party extension that grants disk access, in order to use the
+tool, inverts the product's entire posture.
+
+#### 4.10 Server-hosted storage does not solve this, and is a different decision
+
+Also raised by the owner in the same breath. It is a legitimate future route — `70` §8 and `43`
+D2/D3 already establish that a server may hold **ciphertext it cannot read**, which is what keeps it
+compatible with invariant 4 — but it must not be reached for as the Firefox fix:
+
+- It does not give him *"a folder of my choosing"*. It **replaces** that with somebody's server, and
+  the thing he asked for was the folder.
+- It is strictly more work than the download fallback, not less, and it introduces the first
+  server-side component this product has ever had.
+- Invariant 1 still forbids the **page** from opening a connection, so the transport would have to
+  be a deliberate, separately-argued exception — and `38` prices every future exception, with none
+  approved.
+
+**Sequence, therefore: journal → encrypt → download-or-picker. Server-hosted sync is a later and
+separate decision, and nothing about Firefox forces it.**
 
 #### What is refused, and why
 
