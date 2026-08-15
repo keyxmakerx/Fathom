@@ -74,5 +74,16 @@ pub(crate) fn write_field(
         BoundValue::HostServiceSet(v) => graph.set_field(element, key, v.clone(), record),
         BoundValue::Text(v) => graph.set_field(element, key, v.clone(), record),
         BoundValue::Fqdn(v) => graph.set_field(element, key, v.clone(), record),
+        // Added 2026-08-15 with the branch-coverage widening. The match is
+        // exhaustive on purpose: a new `BoundValue` variant that ingest can
+        // produce and the weld cannot store would be a value parsed, accepted
+        // and then dropped between the two crates, which is exactly the silent
+        // loss `14`'s preamble forbids. Compilation fails here instead.
+        BoundValue::Bool(v) => graph.set_field(element, key, *v, record),
+        BoundValue::VlanId(v) => graph.set_field(element, key, *v, record),
+        BoundValue::TzName(v) => graph.set_field(element, key, v.clone(), record),
+        BoundValue::IpAddr(v) => graph.set_field(element, key, *v, record),
+        BoundValue::U16(v) => graph.set_field(element, key, *v, record),
+        BoundValue::HostProtocolSet(v) => graph.set_field(element, key, v.clone(), record),
     }
 }

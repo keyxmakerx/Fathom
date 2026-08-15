@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{
-    AddressFamily, EdgeKind, EstablishTunnels, Family, HostService, IkePolicyMode,
+    AddressFamily, EdgeKind, EstablishTunnels, Family, HostProtocol, HostService, IkePolicyMode,
     IpsecProposalProtocol, IpsecVpnDfBit, NodeKind,
 };
 use fathom_ir::scalar::{self, Scalar};
@@ -129,6 +129,14 @@ pub enum BoundValue {
     /// operator's sentence and not its Junos spelling.
     Text(scalar::Text),
     Fqdn(scalar::Fqdn),
+    // ---- added 2026-08-15 by the branch-coverage widening.
+    /// A flag statement's truth value (`ValueSpec::ConstBool`).
+    Bool(bool),
+    VlanId(scalar::VlanId),
+    TzName(scalar::TzName),
+    IpAddr(scalar::IpAddr),
+    U16(u16),
+    HostProtocolSet(BTreeSet<HostProtocol>),
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +401,38 @@ fn bind_statement(
     }
 
     let node = local.first().copied().unwrap_or(FragNodeId(0));
+
+    // A statement that said MORE than the entry modelled is residue, even
+    // though the entry's own nodes and edges bound.
+    //
+    // `set security ike gateway GW-B dead-peer-detection always-send interval
+    // 10 threshold 3` matches the four-segment bare-stanza entry: the gateway
+    // genuinely exists and binding its name loses nothing, but `always-send
+    // interval 10 threshold 3` went nowhere. Reporting that line `Bound` would
+    // break `14`'s one governing rule — NOTHING PARSED IS SILENTLY LOST — by
+    // taking it off the residue list the operator reads.
+    //
+    // The rule is stated over `consumed` vs the statement's own depth rather
+    // than over `partial`, because the same loss is reachable through a
+    // non-partial entry whenever a real config carries a sub-statement the
+    // entry's path stops short of. Adding the bare stanzas (2026-08-15) made
+    // it common; it was always possible.
+    //
+    // The gate is unaffected either way: `redact::gate_statement` already
+    // scans `m.consumed..segs.len()` as argument tokens, so a credential in
+    // the unmodelled tail is caught whichever outcome the line carries.
+    if m.consumed < stmt.path.len() {
+        merge(
+            outcomes,
+            slot,
+            LineOutcome::Unmapped {
+                known_prefix: cap_u8(m.known_prefix.max(m.consumed)),
+            },
+            diags,
+        );
+        return;
+    }
+
     merge(
         outcomes,
         slot,
@@ -481,6 +521,9 @@ fn merge_assertion(
             (BoundValue::HostServiceSet(have), BoundValue::HostServiceSet(add)) => {
                 have.extend(add.iter().cloned());
             }
+            (BoundValue::HostProtocolSet(have), BoundValue::HostProtocolSet(add)) => {
+                have.extend(add.iter().cloned());
+            }
             (have, add) if have == add => {}
             _ => diags.push(Diag::ValueUnparsed { key }),
         }
@@ -544,6 +587,7 @@ fn bound_value(
         ValueSpec::Secret { .. } => redact::placeholder_of(spec)
             .map(BoundValue::Secret)
             .ok_or(()),
+        ValueSpec::ConstBool { value } => Ok(BoundValue::Bool(*value)),
         ValueSpec::ConstEnum { ty, token } => scalar_value(dict, *ty, token),
         ValueSpec::AppendConst { ty, token } => set_value(*ty, token),
         ValueSpec::AppendFrom { ty, from } => {
@@ -614,6 +658,10 @@ fn scalar_value(dict: &Dictionary, ty: ValueTy, raw: &str) -> Result<BoundValue,
                 matches!(v, AddressFamily::Unknown(_))
             })?)
         }
+        ValueTy::VlanId => BoundValue::VlanId(parse(mapped)?),
+        ValueTy::TzName => BoundValue::TzName(parse(mapped)?),
+        ValueTy::IpAddress => BoundValue::IpAddr(parse(mapped)?),
+        ValueTy::U16 => BoundValue::U16(mapped.parse::<u16>().map_err(|_| ())?),
     })
 }
 
@@ -631,6 +679,12 @@ fn set_value(ty: SetEnumTy, raw: &str) -> Result<BoundValue, ()> {
                 matches!(v, HostService::Unknown(_))
             })?;
             BoundValue::HostServiceSet(BTreeSet::from([v]))
+        }
+        SetEnumTy::HostProtocol => {
+            let v = known(HostProtocol::from_token(&neutral), |v| {
+                matches!(v, HostProtocol::Unknown(_))
+            })?;
+            BoundValue::HostProtocolSet(BTreeSet::from([v]))
         }
     })
 }

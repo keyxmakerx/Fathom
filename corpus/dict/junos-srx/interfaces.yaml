@@ -49,3 +49,79 @@ entries:
         - { as: n1, kind: LogicalUnit, owner: n0, key: "$u", fields: [ { field: index, from: "$u", scalar: u32 }, { field: description, from: "$d", scalar: Text } ] }
     versions: "*"
     reviewed_by: <named human>
+
+  # ---- added 2026-08-15 by the branch-coverage widening ----
+  #
+  # `disable` — verified against Juniper's CLI reference on 2026-08-15
+  # (ADR-0034). "disable (Interfaces)" — Syntax: `disable;` Hierarchy Level:
+  # `[edit interfaces interface-name]`,
+  # `[edit interfaces interface-name unit logical-unit-number]`, …
+  # https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/disable-edit-interfaces.html
+  #
+  # The IR stores the POSITIVE (`admin_up`) and Junos writes the NEGATIVE, so
+  # the entry asserts `false`. This is the inversion the schema's own field
+  # doc predicts — "Junos emits the negative (disable); the emitter owns that
+  # inversion" — carried on the read path too, where it belongs: the parser
+  # must not hand the store a value spelled the vendor's way.
+  #
+  # TWO entries, port and unit, for the same reason `description` has two.
+  - id: junos-srx/interfaces.disable
+    path: [interfaces, "$if", disable]
+    binds:
+      nodes:
+        - { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: InterfaceName }, { field: admin_up, const_bool: false } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/interfaces.unit.disable
+    path: [interfaces, "$if", unit, "$u", disable]
+    binds:
+      nodes:
+        - { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: InterfaceName } ] }
+        - { as: n1, kind: LogicalUnit, owner: n0, key: "$u", fields: [ { field: index, from: "$u", scalar: u32 }, { field: admin_up, const_bool: false } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `vlan-id` on a logical interface — verified against Juniper's CLI
+  # reference on 2026-08-15 (ADR-0034). "vlan-id (VLAN ID to Be Bound to a
+  # Logical Interface)" — Syntax: `vlan-id (all | none | number);` Hierarchy
+  # Level for ELS platforms includes `[edit interfaces interface-name unit
+  # number]`.
+  # https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/vlan-id-edit-interfaces.html
+  #
+  # `all` and `none` do not bind: `LogicalUnit.vlan_id` is a `VlanId`
+  # (1..=4094) and neither token is one. They produce a `ValueUnparsed`
+  # diagnostic — the unit still binds, the tag does not.
+  - id: junos-srx/interfaces.unit.vlan-id
+    path: [interfaces, "$if", unit, "$u", vlan-id, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: InterfaceName } ] }
+        - { as: n1, kind: LogicalUnit, owner: n0, key: "$u", fields: [ { field: index, from: "$u", scalar: u32 }, { field: vlan_id, from: "$v", scalar: VlanId } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `family ethernet-switching vlan members <vlan>` — the statement that puts
+  # a branch access port in a VLAN, and the reason a branch config's LAN was
+  # invisible. Read on 2026-08-15 from Juniper's Guided Setup, *Configure
+  # Secure Local Branch Connectivity*, which uses it verbatim:
+  # `set interfaces ge-0/0/1 unit 0 family ethernet-switching vlan members guests`
+  # https://www.juniper.net/documentation/us/en/software/guided-setup/branch-srx-gs/topics/topic-map/step-1-p2-secure_local.html
+  #
+  # Two facts on one line and both are kept: the unit runs the
+  # ethernet-switching family, and it is a member of a named Vlan. The
+  # membership is the `VlanMember` edge (LogicalUnit -> Vlan), resolved by
+  # name within the fragment and Pending otherwise. The edge's `mode`
+  # (access/trunk) is NOT set — Junos states it elsewhere
+  # (`interface-mode`/`port-mode`), and guessing it from this line would be
+  # exactly the quiet wrongness `14`'s refuse-to-guess rule exists to prevent.
+  - id: junos-srx/interfaces.unit.family-ethernet-switching.vlan-members
+    path: [interfaces, "$if", unit, "$u", family, ethernet-switching, vlan, members, "$vlan"]
+    binds:
+      nodes:
+        - { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: InterfaceName } ] }
+        - { as: n1, kind: LogicalUnit, owner: n0, key: "$u", fields: [ { field: index, from: "$u", scalar: u32 }, { field: families, append_enum: Family.ethernet_switching } ] }
+      edges:
+        - { kind: VlanMember, from: n1, to: { by_name: { kind: Vlan, from: "$vlan" } } }
+    versions: "*"
+    reviewed_by: <named human>

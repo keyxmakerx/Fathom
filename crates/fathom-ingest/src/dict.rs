@@ -67,8 +67,9 @@ pub enum DictGate {
     TokenMapUnknown,
 }
 
-/// The dictionary's six source files, compiled in, in the order `load` reads
-/// them off disk (`read_dir` then `sort`, so: alphabetical by file name).
+/// The dictionary's eight source files, compiled in, in the order `load`
+/// reads them off disk (`read_dir` then `sort`, so: alphabetical by file
+/// name).
 ///
 /// This exists for one caller: the WebAssembly build, which has no filesystem
 /// and cannot call `load`. It is deliberately a literal list rather than a
@@ -81,6 +82,10 @@ pub const EMBEDDED_DICT_SOURCES: &[(&str, &str)] = &[
     (
         "interfaces.yaml",
         include_str!("../../../corpus/dict/junos-srx/interfaces.yaml"),
+    ),
+    (
+        "security-flow.yaml",
+        include_str!("../../../corpus/dict/junos-srx/security-flow.yaml"),
     ),
     (
         "security-ike.yaml",
@@ -102,6 +107,10 @@ pub const EMBEDDED_DICT_SOURCES: &[(&str, &str)] = &[
         "token-maps.yaml",
         include_str!("../../../corpus/dict/junos-srx/token-maps.yaml"),
     ),
+    (
+        "vlans.yaml",
+        include_str!("../../../corpus/dict/junos-srx/vlans.yaml"),
+    ),
 ];
 
 /// `schema/field-keys.yaml`, compiled in for the same reason. The registry is
@@ -110,8 +119,8 @@ pub const EMBEDDED_DICT_SOURCES: &[(&str, &str)] = &[
 pub const EMBEDDED_FIELD_KEYS: &str = include_str!("../../../schema/field-keys.yaml");
 
 impl Dictionary {
-    /// `load`, without a filesystem: the same six files and the same field-key
-    /// registry, compiled into the binary.
+    /// `load`, without a filesystem: the same eight files and the same
+    /// field-key registry, compiled into the binary.
     ///
     /// Every gate `load` runs, this runs — it is the same `from_sources` call
     /// with the same inputs. The only thing it does not do is read the schema
@@ -238,6 +247,20 @@ pub(crate) enum ValueTy {
     /// match at all.
     Text,
     Fqdn,
+    // ---- added 2026-08-15 by the branch-coverage widening. Each one exists
+    // ---- because a *measured* section of a documented SRX branch config
+    // ---- needed it, not because the catalogue looked incomplete.
+    /// `vlans <name> vlan-id N` and `interfaces … unit N vlan-id V`.
+    VlanId,
+    /// `system time-zone` — `SystemSettings.time_zone`.
+    TzName,
+    /// `system ntp server <address>` — `NtpServer.address`. Either family;
+    /// the scalar is `IpAddr`, not `Ip4Addr`, because Junos accepts both.
+    IpAddress,
+    /// `security flow tcp-mss … mss N` — the four `SecurityFlowSettings`
+    /// clamp fields are `u16` in the schema, and a value over 65535 is a
+    /// typo to diagnose rather than a number to truncate.
+    U16,
 }
 
 impl ValueTy {
@@ -263,6 +286,10 @@ impl ValueTy {
             "EstablishTunnels" => ValueTy::EstablishTunnels,
             "IpsecVpnDfBit" => ValueTy::IpsecVpnDfBit,
             "AddressFamily" => ValueTy::AddressFamily,
+            "VlanId" => ValueTy::VlanId,
+            "TzName" => ValueTy::TzName,
+            "IpAddr" => ValueTy::IpAddress,
+            "u16" => ValueTy::U16,
             _ => return None,
         })
     }
@@ -277,11 +304,17 @@ impl ValueTy {
     }
 }
 
-/// The two `set{…}` enum fields this slice appends into (§4.8).
+/// The `set{…}` enum fields this slice appends into (§4.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SetEnumTy {
     Family,
     HostService,
+    /// `host-inbound-traffic protocols ospf|bgp|bfd|all`. The twin of
+    /// `HostService` on both `Zone` and the `ZoneMember` edge; its absence
+    /// was why `set security zones security-zone trust host-inbound-traffic
+    /// protocols all` was residue while the `system-services` line beside it
+    /// bound (measured 2026-08-15).
+    HostProtocol,
 }
 
 impl SetEnumTy {
@@ -289,6 +322,7 @@ impl SetEnumTy {
         match name {
             "Family" => Some(SetEnumTy::Family),
             "HostService" => Some(SetEnumTy::HostService),
+            "HostProtocol" => Some(SetEnumTy::HostProtocol),
             _ => None,
         }
     }
@@ -316,6 +350,15 @@ pub(crate) enum ValueSpec {
     /// label and never reads the redacted argument's text.
     Secret {
         label: SecretLabel,
+    },
+    /// A flag statement's truth value, carried by the entry rather than by
+    /// the line: `set interfaces ge-0/0/4 disable` has no argument, and what
+    /// it asserts is `admin_up = false`. The polarity lives in the corpus
+    /// because it is a vendor fact — Junos spells the negative and the IR
+    /// stores the positive (`Interface.admin_up`'s schema doc) — and a
+    /// hard-coded `true` here would make `disable` unmodellable.
+    ConstBool {
+        value: bool,
     },
 }
 
@@ -1161,6 +1204,23 @@ fn load_field(
             value: ValueSpec::Secret { label },
         });
     }
+    // `const_bool` is read with `as_bool`, never with a string compare: a
+    // `const_bool: "false"` typo must fail the load rather than bind `true`
+    // because a non-empty string looked truthy.
+    if let Some(node) = spec.get("const_bool") {
+        let value = node.as_bool().ok_or_else(|| {
+            err(
+                file,
+                line,
+                DictGate::TypeUnknown,
+                format!("`{id}`: `const_bool` is not `true` or `false`"),
+            )
+        })?;
+        return Ok(FieldSpec {
+            field,
+            value: ValueSpec::ConstBool { value },
+        });
+    }
     if let Some(text) = spec.get("const_enum").and_then(|n| n.as_str()) {
         let (ty, token) = split_enum_token(file, id, line, text)?;
         let ty = ValueTy::from_name(&ty).ok_or_else(|| {
@@ -1480,7 +1540,13 @@ mod tests {
         // 39 through WO-03; +3 on 2026-08-10 — `system domain-name` and
         // `description` at both the interface and the unit level, the three
         // statements a 26-line branch config produced as residue.
-        assert_eq!(d.entry_count(), 42);
+        //
+        // +27 on 2026-08-15, chosen by measurement rather than by taste:
+        // `tests/branch_coverage.rs` binds a documented SRX branch
+        // configuration and reports the miss rate by section, and these are
+        // the sections that miss the most and are reachable without shaping a
+        // stub value type. See docs/60-content/66-junos-coverage-measurement.md.
+        assert_eq!(d.entry_count(), 69);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside

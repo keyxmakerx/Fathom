@@ -1,0 +1,123 @@
+admin@branch-srx> show configuration | display set
+set system host-name branch-srx
+set system domain-name example.com
+set system time-zone America/New_York
+set system root-authentication encrypted-password "$6$EXAMPLEnotArealHash00000"
+set system name-server 192.0.2.53
+set system login user opsadmin class super-user
+set system login user opsadmin authentication encrypted-password "$6$EXAMPLEnotArealHash11111"
+set system services ssh root-login allow
+set system services dhcp-local-server group GUEST-POOL interface irb.20
+set system services dhcp-local-server group CONTRACTORS-POOL interface irb.30
+set system ntp server 192.0.2.30
+set system syslog host 192.0.2.20 any notice
+set snmp community EXAMPLE-READ-ONLY-COMMUNITY authorization read-only
+set snmp trap-group branch-traps targets 192.0.2.20
+set interfaces ge-0/0/0 description "WAN to ISP"
+set interfaces ge-0/0/0 unit 0 family inet dhcp
+set interfaces ge-0/0/1 unit 0 family ethernet-switching vlan members guests
+set interfaces ge-0/0/2 unit 0 family ethernet-switching vlan members vlan-trust
+set interfaces ge-0/0/3 unit 0 family ethernet-switching vlan members contractors
+set interfaces ge-0/0/4 disable
+set interfaces ge-0/0/5 mtu 9192
+set interfaces ge-0/0/5 link-mode full-duplex
+set interfaces ge-0/0/6 unit 0 vlan-id 100
+set interfaces irb description "Integrated routing and bridging"
+set interfaces irb unit 20 description "Guests gateway"
+set interfaces irb unit 20 family inet address 192.168.20.1/24
+set interfaces irb unit 30 description "Contractors gateway"
+set interfaces irb unit 30 family inet address 192.168.30.1/24
+set interfaces lo0 unit 0 family inet address 10.255.255.1/32
+set interfaces st0 unit 0 description "Tunnel to HQ"
+set interfaces st0 unit 0 family inet address 10.0.0.1/24
+set vlans guests vlan-id 20
+set vlans guests l3-interface irb.20
+set vlans guests description "Guest wireless"
+set vlans contractors vlan-id 30
+set vlans contractors l3-interface irb.30
+set vlans vlan-trust vlan-id 3
+set vlans vlan-trust l3-interface irb.0
+set routing-options static route 172.16.200.0/24 next-hop st0.0
+set routing-options static route 0.0.0.0/0 next-hop 172.16.1.1
+set routing-options static route 198.51.100.0/24 discard
+set access address-assignment pool GUEST-POOL family inet network 192.168.20.0/24
+set access address-assignment pool GUEST-POOL family inet range GUEST-POOL---IP-RANGE low 192.168.20.10
+set access address-assignment pool GUEST-POOL family inet range GUEST-POOL---IP-RANGE high 192.168.20.100
+set access address-assignment pool GUEST-POOL family inet dhcp-attributes router 192.168.20.1
+set access address-assignment pool GUEST-POOL family inet dhcp-attributes name-server 8.8.8.8
+set access address-assignment pool GUEST-POOL family inet dhcp-attributes domain-name srx-branch.com
+set access address-assignment pool CONTRACTORS-POOL family inet network 192.168.30.0/24
+set access address-assignment pool CONTRACTORS-POOL family inet range CONTRACTORS-POOL-IP-RANGE low 192.168.30.10
+set access address-assignment pool CONTRACTORS-POOL family inet range CONTRACTORS-POOL-IP-RANGE high 192.168.30.100
+set access address-assignment pool CONTRACTORS-POOL family inet dhcp-attributes router 192.168.30.1
+set access address-assignment pool CONTRACTORS-POOL family inet dhcp-attributes name-server 8.8.8.8
+set access address-assignment pool CONTRACTORS-POOL family inet dhcp-attributes domain-name srx-branch.com
+set security address-book global address branch-lan 192.168.2.0/24
+set security address-book global address hq-lan 172.16.200.0/24
+set security address-book global address guest-net 192.168.20.0/24
+set security address-book global address-set site-nets address branch-lan
+set security address-book global address-set site-nets address hq-lan
+set security address-book global address-set site-nets description "Both ends of the tunnel"
+set applications application ssh-alt protocol tcp
+set applications application ssh-alt destination-port 2222
+set applications application ssh-alt inactivity-timeout 1800
+set security flow tcp-mss ipsec-vpn mss 1350
+set security flow tcp-mss all-tcp mss 1400
+set security zones security-zone trust interfaces irb.0
+set security zones security-zone trust host-inbound-traffic system-services all
+set security zones security-zone trust host-inbound-traffic protocols all
+set security zones security-zone untrust interfaces ge-0/0/0.0 host-inbound-traffic system-services ike
+set security zones security-zone untrust interfaces ge-0/0/0.0 host-inbound-traffic system-services dhcp
+set security zones security-zone untrust screen untrust-screen
+set security zones security-zone untrust tcp-rst
+set security zones security-zone untrust description "Internet facing"
+set security zones security-zone guests interfaces irb.20
+set security zones security-zone guests host-inbound-traffic system-services dhcp
+set security zones security-zone guests host-inbound-traffic system-services ping
+set security zones security-zone contractors interfaces irb.30
+set security zones security-zone contractors host-inbound-traffic system-services dhcp
+set security zones security-zone contractors host-inbound-traffic system-services ping
+set security zones security-zone vpn interfaces st0.0
+set security zones security-zone vpn host-inbound-traffic system-services ping
+set security zones security-zone vpn description "Site-to-site tunnel zone"
+set security zones security-zone vpn application-tracking
+set security policies from-zone trust to-zone untrust policy trust-to-untrust match source-address any
+set security policies from-zone trust to-zone untrust policy trust-to-untrust match destination-address any
+set security policies from-zone trust to-zone untrust policy trust-to-untrust match application any
+set security policies from-zone trust to-zone untrust policy trust-to-untrust then permit
+set security policies from-zone guests to-zone untrust policy guests-to-untrust match source-address any
+set security policies from-zone guests to-zone untrust policy guests-to-untrust match destination-address any
+set security policies from-zone guests to-zone untrust policy guests-to-untrust match application junos-http
+set security policies from-zone guests to-zone untrust policy guests-to-untrust match application junos-https
+set security policies from-zone guests to-zone untrust policy guests-to-untrust match application junos-dns-udp
+set security policies from-zone guests to-zone untrust policy guests-to-untrust match application junos-ping
+set security policies from-zone guests to-zone untrust policy guests-to-untrust then permit
+set security policies from-zone trust to-zone contractors policy trust-to-contractors match source-address any
+set security policies from-zone trust to-zone contractors policy trust-to-contractors match destination-address any
+set security policies from-zone trust to-zone contractors policy trust-to-contractors match application junos-http
+set security policies from-zone trust to-zone contractors policy trust-to-contractors match application junos-https
+set security policies from-zone trust to-zone contractors policy trust-to-contractors match application junos-ping
+set security policies from-zone trust to-zone contractors policy trust-to-contractors then permit
+set security policies from-zone trust to-zone vpn policy trust-to-vpn match source-address any
+set security policies from-zone trust to-zone vpn policy trust-to-vpn match destination-address any
+set security policies from-zone trust to-zone vpn policy trust-to-vpn match application any
+set security policies from-zone trust to-zone vpn policy trust-to-vpn then permit
+set security nat source rule-set guests-to-untrust from zone guests
+set security nat source rule-set guests-to-untrust to zone untrust
+set security nat source rule-set guests-to-untrust rule guest-nat-rule match source-address 0.0.0.0/0
+set security nat source rule-set guests-to-untrust rule guest-nat-rule then source-nat interface
+set security ike proposal standard authentication-method pre-shared-keys
+set security ike policy ike-pol mode aggressive
+set security ike policy ike-pol proposals standard
+set security ike policy ike-pol pre-shared-key ascii-text "$9$EXAMPLEnotARealKey01234"
+set security ike gateway ike-gw ike-policy ike-pol
+set security ike gateway ike-gw address 172.16.1.1
+set security ike gateway ike-gw local-identity hostname branch
+set security ike gateway ike-gw remote-identity hostname hq
+set security ike gateway ike-gw external-interface ge-0/0/0
+set security ipsec proposal standard
+set security ipsec policy ipsec-pol proposals standard
+set security ipsec vpn to_hq bind-interface st0.0
+set security ipsec vpn to_hq ike gateway ike-gw
+set security ipsec vpn to_hq ike ipsec-policy ipsec-pol
+set security ipsec vpn to_hq establish-tunnels immediately

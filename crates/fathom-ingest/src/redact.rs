@@ -383,6 +383,27 @@ fn gate_statement(
             detectors |= DetectorSet::BASE64;
         }
         let leaf_hit = match entry {
+            // A token PAST the end of what the entry consumed is a token the
+            // entry says nothing about, so the entry's own path cannot be the
+            // authority on whether it follows a secret word. Walk the raw
+            // line there instead.
+            //
+            // This is a defect fix, not a widening convenience. The hole is
+            // already reachable through the shipped `security-zone … interfaces
+            // <unit>` partial entry: `set security zones security-zone Z
+            // interfaces ge-0/0/0.0 <anything> secret VALUE` matched that entry,
+            // so the walk ran over a six-segment path that ends at `interfaces`
+            // and never saw the word `secret` on the actual line. Adding
+            // bare-stanza entries (2026-08-15) multiplies the reachable paths,
+            // which is what made the hole worth closing rather than merely
+            // worth noting.
+            //
+            // `secret_exempt` is deliberately NOT consulted on this branch: an
+            // exemption is a statement about the shape the entry models, and
+            // these tokens are outside it. The field card's own
+            // `perfect-forward-secrecy keys group14` capture sits inside its
+            // entry's path, so it still takes the exempt branch below.
+            Some(e) if at >= e.path.len() => raw_walk(&segs, at),
             Some(e) => {
                 // The suppression the field card's own `perfect-forward-secrecy
                 // keys group14` line forces (§12 item 2).

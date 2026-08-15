@@ -1,0 +1,62 @@
+# corpus/dict/junos-srx/vlans.yaml — added 2026-08-15.
+#
+# `vlans` was 0 of 7 lines in the branch-coverage measurement
+# (`docs/60-content/66-junos-coverage-measurement.md`) — the whole section was
+# residue, on a branch SRX where VLANs are how the LAN is built.
+#
+# Statement forms read off Juniper's CLI reference on **2026-08-15**
+# (ADR-0034 — the source AND the date):
+#
+#   vlan-id (all | none | number);
+#   Hierarchy Level (ELS platforms): [edit vlans vlan-name],
+#                                    [edit interfaces interface-name unit number], …
+#   https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/vlan-id-edit-vlans-qfx-series.html
+#
+#   l3-interface vlan.logical-interface-number;
+#   Hierarchy Level: [edit vlans vlan-name]
+#   https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/l3-interface-edit-vlans-qfx-series.html
+#
+# The worked branch example that uses all three
+# (`set vlans guests vlan-id 20` / `set vlans guests l3-interface irb.20`) is
+# Juniper's own Guided Setup, *Configure Secure Local Branch Connectivity*,
+# read the same day:
+#   https://www.juniper.net/documentation/us/en/software/guided-setup/branch-srx-gs/topics/topic-map/step-1-p2-secure_local.html
+#
+# `vlan-id all` and `vlan-id none` are NOT carried. `Vlan.vlan_id` is typed
+# `VlanId` (1..=4094), those two tokens are not vlan ids, and there is no
+# schema field for "every vlan" — so such a line produces a `ValueUnparsed`
+# diagnostic and stays visible rather than binding a number nobody wrote.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+entries:
+  - id: junos-srx/vlans.vlan-id
+    path: [vlans, "$v", vlan-id, "$id"]
+    binds:
+      nodes:
+        - { as: n0, kind: Vlan, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier }, { field: vlan_id, from: "$id", scalar: VlanId } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/vlans.description
+    path: [vlans, "$v", description, "$d"]
+    binds:
+      nodes:
+        - { as: n0, kind: Vlan, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `l3-interface irb.20` names a LOGICAL UNIT, not an interface — Juniper's
+  # own syntax line is `vlan.logical-interface-number`. So the target is
+  # `interface_unit`, which splits at the last `.` and resolves the unit
+  # within the fragment; on a paste that has the vlan but not the irb unit the
+  # edge goes Pending, which is `14` §7.3's stated outcome and not an error.
+  - id: junos-srx/vlans.l3-interface
+    path: [vlans, "$v", l3-interface, "$unit"]
+    binds:
+      nodes:
+        - { as: n0, kind: Vlan, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier } ] }
+      edges:
+        - { kind: L3Interface, from: n0, to: { interface_unit: "$unit" } }
+    versions: "*"
+    reviewed_by: <named human>
