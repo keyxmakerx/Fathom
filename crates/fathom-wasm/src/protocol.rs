@@ -240,11 +240,19 @@ pub fn pack_corpus(files: &[SourceFile]) -> Vec<u8> {
     out
 }
 
-fn section_byte(section: fathom_corpus::Section) -> u8 {
+/// The wire tag for a corpus section. Public so a decoder can invert the
+/// encoder instead of carrying a second copy of the mapping — the artifact
+/// tests read the frame back out of the assembled page and need to name the
+/// sections it carries.
+pub fn section_byte(section: fathom_corpus::Section) -> u8 {
     match section {
         fathom_corpus::Section::Commands => 0,
         fathom_corpus::Section::Explainers => 1,
         fathom_corpus::Section::Rules => 2,
+        // 3, appended, because 0..=2 are already on the wire in every frame
+        // built to date and renumbering them would be a silent reinterpretation
+        // rather than a rejection.
+        fathom_corpus::Section::Concepts => 3,
     }
 }
 

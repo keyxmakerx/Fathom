@@ -21,7 +21,7 @@ pub mod normalize;
 pub use gates::{Finding, Severity};
 pub use index::CorpusIndex;
 pub use load::LoadError;
-pub use load::{load_corpus_sources, Section, SourceFile};
+pub use load::{load_corpus_sources, Section, SourceFile, SECTION_DIRS};
 pub use model::{Corpus, Entry, Risk};
 
 #[cfg(test)]

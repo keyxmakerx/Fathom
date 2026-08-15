@@ -227,4 +227,13 @@ pub struct Corpus {
     pub explainers: Vec<ExplainerEntry>,
     pub rules: Vec<RuleLite>,
     pub declared_concepts: DeclaredConcepts,
+    /// `corpus/concepts/*.yaml` as `(name, text)`, in load order — the seed
+    /// concept graph, held as text until `build_concept_table` has lexicons to
+    /// normalise its surfaces with.
+    ///
+    /// Text rather than a parsed tree because this crate used to get the graph
+    /// from `include_str!("seed_concepts.yaml")`, which put 8 782 bytes of YAML
+    /// in the WebAssembly data section against `44` §5.2's ceiling. It travels
+    /// over `OP_INIT` with the rest of the corpus now.
+    pub concept_sources: Vec<(String, String)>,
 }

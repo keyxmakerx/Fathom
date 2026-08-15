@@ -1416,10 +1416,14 @@ fn parse_init_frame(req: &[u8]) -> Result<Vec<SourceFile>, (u16, String)> {
             0 => Section::Commands,
             1 => Section::Explainers,
             2 => Section::Rules,
+            3 => Section::Concepts,
             other => {
                 return Err((
                     ERR_BAD_FRAME,
-                    format!("section byte {other} at byte {} is not 0, 1 or 2", c.at - 1),
+                    format!(
+                        "section byte {other} at byte {} is not 0, 1, 2 or 3",
+                        c.at - 1
+                    ),
                 ))
             }
         };
@@ -1457,5 +1461,6 @@ fn section_prefix(section: Section) -> &'static str {
         Section::Commands => "commands/",
         Section::Explainers => "explainers/",
         Section::Rules => "rules/",
+        Section::Concepts => "concepts/",
     }
 }

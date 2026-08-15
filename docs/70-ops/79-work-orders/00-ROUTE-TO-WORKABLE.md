@@ -539,10 +539,12 @@ generator run, three one-line test-constant edits, zero production Rust** — an
    **in**, and `OP_DIAGRAM` costs **60,096 bytes** by removal (`47` §6.4).
    **Three corrections from `47-byte-census.md` (2026-08-15), each measured at this commit.** The
    data-handoff lever this document's stage 1 turns on was worth **38,460 bytes in total** — every
-   embedded YAML byte in the module, measured by removal — and **the dictionary move has now spent
-   most of it.** Exactly one `include_str!` of YAML is left in the whole workspace
-   (`fathom-corpus/src/seed_concepts.yaml`, **8,781 bytes**), so **stage 1's data lever is now an
-   8 KB one**, not a 38 KB one and never a 200 KB one (`47` Disagreements 3). **44,825 bytes, 5.06 % of the module, are two
+   embedded YAML byte in the module, measured by removal — and **it is now spent in full.** The
+   dictionary and `schema/field-keys.yaml` went over `OP_DICT`; the last `include_str!` of YAML in
+   the workspace, the seed concept graph, went over `OP_INIT` on 2026-08-15 for a measured **7,616
+   bytes** (`47` §7.2). **Stage 1's data lever is now worth nothing further** — not 38 KB, not the
+   8 KB this paragraph used to claim, and never the 200 KB it is sometimes planned as
+   (`47` Disagreements 3). **44,825 bytes, 5.06 % of the module, are two
    lines of float handling in the YAML subset parser** (`fathom-schema/src/subset.rs:545` and
    `value.rs:82`) in a product whose IR structurally excludes floats — more than three times the
    headroom, for a change that needs one small schema-grammar decision and no design decision

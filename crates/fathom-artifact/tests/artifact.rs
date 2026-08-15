@@ -288,6 +288,206 @@ fn the_page_carries_the_dictionary_that_is_on_disk() {
     );
 }
 
+// --- the seed concept graph the page hands in --------------------------------
+//
+// Until 2026-08-15 `corpus/concepts/seed.yaml` was
+// `include_str!("seed_concepts.yaml")` inside `fathom-corpus`, and the compiler
+// guaranteed two things for free: the module's copy WAS the repository's copy,
+// and a module could not be built without one at all. Moving it onto the
+// `OP_INIT` wire (7 643 bytes of module, against `44` §5.2's 900 000-byte
+// ceiling) spends both guarantees, so both are bought back explicitly:
+//
+//   * `build_concept_table` refuses an empty concept set outright, which is
+//     the "cannot be built without one" half. `fathom_artifact::corpus::verify`
+//     runs the packed frame through `OP_INIT` at assembly time, so that refusal
+//     surfaces as a failed `cargo run -p fathom-artifact` rather than as a
+//     quietly worse finder in someone's browser.
+//   * the two tests below are the "is the repository's copy" half — the bytes,
+//     and then the behaviour, mirroring exactly what the dictionary's pair of
+//     tests does one section above.
+
+/// `fathom_wasm::protocol::pack_corpus`'s frame, read back:
+/// `(section, name, source)` per file. Written out rather than reused because a
+/// decoder sharing code with its encoder cannot catch a wrong encoder.
+fn unpack_corpus(bytes: &[u8]) -> Vec<(u8, String, String)> {
+    let u32_at = |at: usize| -> u32 {
+        let mut v = [0u8; 4];
+        for (i, slot) in v.iter_mut().enumerate() {
+            *slot = *bytes.get(at + i).unwrap_or(&0);
+        }
+        u32::from_le_bytes(v)
+    };
+    let text_at = |at: usize, len: usize| -> String {
+        String::from_utf8(bytes.get(at..at + len).unwrap_or_default().to_vec())
+            .unwrap_or_else(|e| panic!("a frame field is not UTF-8: {e}"))
+    };
+
+    let count = u32_at(0) as usize;
+    let mut at = 4usize;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let section = *bytes.get(at).expect("a section byte");
+        at += 1;
+        let name_len = u32_at(at) as usize;
+        at += 4;
+        let name = text_at(at, name_len);
+        at += name_len;
+        let src_len = u32_at(at) as usize;
+        at += 4;
+        let source = text_at(at, src_len);
+        at += src_len;
+        out.push((section, name, source));
+    }
+    assert_eq!(at, bytes.len(), "the frame has trailing bytes");
+    out
+}
+
+/// The `OP_INIT` base64 the page carries, lifted out of the assembled file by
+/// the same variable name the shell source declares.
+fn corpus_frame_in(artifact: &str) -> Vec<(u8, String, String)> {
+    let marker = "var FATHOM_CORPUS_B64 = \"";
+    let start = artifact
+        .find(marker)
+        .expect("the page declares FATHOM_CORPUS_B64")
+        + marker.len();
+    let end = start
+        + artifact
+            .get(start..)
+            .and_then(|s| s.find('"'))
+            .expect("the literal is closed");
+    unpack_corpus(&unbase64(
+        artifact.get(start..end).expect("the literal's body"),
+    ))
+}
+
+/// `Section::Concepts` on the wire. Named as a literal rather than imported so
+/// that a renumbering of the section bytes — which would silently reinterpret
+/// every frame ever built — fails here instead of agreeing with itself.
+const WIRE_SECTION_CONCEPTS: u8 = 3;
+
+/// A file added to, removed from or edited in `corpus/concepts/`, and the page
+/// shipping the old graph. `include_str!` made this impossible; an assembler
+/// does not, so it is checked — against the FINAL ARTIFACT, because what ships
+/// is what is checked.
+#[test]
+fn the_page_carries_the_seed_concept_graph_that_is_on_disk() {
+    let root = workspace_root();
+    let text = String::from_utf8(assemble(&root).expect("the artifact assembles"))
+        .expect("the artifact is UTF-8");
+    let files = corpus_frame_in(&text);
+
+    let dir = root
+        .join(fathom_artifact::corpus::CORPUS_DIR)
+        .join("concepts");
+    let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+        .expect("corpus/concepts/ is checked in")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().map(|x| x == "yaml").unwrap_or(false))
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    on_disk.sort();
+    assert!(
+        !on_disk.is_empty(),
+        "corpus/concepts/ holds no .yaml: the page would boot a finder with no \
+         seed concept graph, and 16 §12's breadth resolution would silently stop \
+         resolving"
+    );
+
+    let carried: Vec<String> = files
+        .iter()
+        .filter(|(section, _, _)| *section == WIRE_SECTION_CONCEPTS)
+        .map(|(_, name, _)| name.clone())
+        .collect();
+    assert_eq!(
+        carried, on_disk,
+        "the page's concept sources and corpus/concepts/ disagree. A file was \
+         added, removed or renamed and the artifact was not rebuilt, or the \
+         assembler's enumeration drifted from load_corpus's."
+    );
+
+    for (_, name, source) in files
+        .iter()
+        .filter(|(section, _, _)| *section == WIRE_SECTION_CONCEPTS)
+    {
+        let disk =
+            std::fs::read_to_string(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(&disk, source, "{name} differs from the copy in the page");
+    }
+}
+
+/// Bytes being equal does not prove behaviour is equal. The frame the page
+/// carries is loaded into a `CorpusIndex` and its concept table compared with
+/// the one built by reading the directory — ids, kinds, labels, relations,
+/// surfaces and the quantised icf. This is the half of `include_str!`'s
+/// guarantee that says the graph the browser reasons over is the graph in the
+/// repository, not merely the same bytes in a different order.
+#[test]
+fn the_concept_graph_in_the_page_builds_what_the_disk_builds() {
+    let root = workspace_root();
+    let text = String::from_utf8(assemble(&root).expect("the artifact assembles"))
+        .expect("the artifact is UTF-8");
+
+    // The page's frame carries bare names; the shell prefixes each with its
+    // section directory when it parses one, so the same reconstruction happens
+    // here rather than comparing against a name the browser never sees.
+    let files: Vec<fathom_corpus::SourceFile> = corpus_frame_in(&text)
+        .into_iter()
+        .map(|(section, name, source)| {
+            let (section, dir) = fathom_corpus::SECTION_DIRS
+                .iter()
+                .find(|(s, _)| fathom_wasm::protocol::section_byte(*s) == section)
+                .copied()
+                .unwrap_or_else(|| panic!("section byte {section} is not a section"));
+            fathom_corpus::SourceFile {
+                section,
+                name: format!("{dir}/{name}"),
+                source,
+            }
+        })
+        .collect();
+
+    let from_page =
+        fathom_corpus::CorpusIndex::from_sources(&files).expect("the page's corpus loads");
+    let from_disk = fathom_corpus::CorpusIndex::load(&root.join("corpus"))
+        .expect("the checked-in corpus loads");
+
+    let dump = |idx: &fathom_corpus::CorpusIndex| -> String {
+        let mut s = String::new();
+        for c in &idx.concepts.concepts {
+            s.push_str(&format!(
+                "{} {:?} {} seed={} icf={} carriers={} narrower={:?} broader={:?} \
+                 related={:?} opposite={:?}\n",
+                c.id,
+                c.kind,
+                c.label,
+                c.seed,
+                c.icf_milli,
+                c.entry_count,
+                c.narrower,
+                c.broader,
+                c.related,
+                c.opposite
+            ));
+            for surf in &c.surfaces {
+                s.push_str(&format!("  {} {}\n", surf.text, surf.conf_milli));
+            }
+        }
+        s
+    };
+
+    let page = dump(&from_page);
+    assert!(
+        page.contains("concept:state.operational"),
+        "the seed graph reached the index: without it this test would pass on \
+         two equally empty concept tables"
+    );
+    assert_eq!(
+        page,
+        dump(&from_disk),
+        "the concept graph the page ships and the one on disk differ"
+    );
+}
+
 /// Bytes being equal does not prove behaviour is equal: the handed-in path
 /// never reads the schema tree. So the frame the page carries is built into a
 /// dictionary and compared against the one `Dictionary::load` builds off disk.

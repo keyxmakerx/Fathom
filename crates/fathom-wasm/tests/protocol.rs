@@ -31,11 +31,7 @@ fn corpus_root() -> PathBuf {
 fn bare_sources() -> Vec<SourceFile> {
     let root = corpus_root();
     let mut out = Vec::new();
-    for (section, dir) in [
-        (Section::Commands, "commands"),
-        (Section::Explainers, "explainers"),
-        (Section::Rules, "rules"),
-    ] {
+    for (section, dir) in fathom_corpus::SECTION_DIRS {
         let mut paths: Vec<PathBuf> = std::fs::read_dir(root.join(dir))
             .expect("corpus subdirectory must exist")
             .map(|e| e.expect("readable dir entry").path())
@@ -299,12 +295,17 @@ fn init_frame_refusals() {
         "a truncated frame is refused"
     );
 
+    // 4 rather than 3: `Section::Concepts` took 3 when the seed concept graph
+    // moved out of the module and onto the wire, so the first unassigned byte
+    // moved with it. The probe is "one past the last valid section", and it has
+    // to keep meaning that — a probe pinned at a literal 3 would have gone on
+    // passing while testing a byte that is now perfectly legal.
     let mut bad_section = pack_corpus(&sources[..1]);
-    bad_section[4] = 3;
+    bad_section[4] = 4;
     assert_eq!(
         error_code(&shell.handle(OP_INIT, &bad_section)),
         ERR_BAD_FRAME,
-        "a section byte outside 0–2 is refused"
+        "a section byte outside 0–3 is refused"
     );
 
     let duplicated = vec![sources[0].clone(), sources[0].clone()];

@@ -89,9 +89,11 @@ Three changes landed between `adbb590` and `adbd9a2`, and their net effect is **
 
 Two consequences worth stating plainly, because both invert a claim that was true a week ago:
 
-1. **The dictionary lever is spent.** Exactly one `include_str!` of YAML remains in the workspace —
-   `crates/fathom-corpus/src/seed_concepts.yaml`, 8 781 bytes. Stage 1's data-handoff decision is now
-   worth **8 KB**, not 38 KB and never the 200 KB it is sometimes planned as.
+1. **The embedded-YAML lever is spent — entirely, as of 2026-08-15.** The dictionary and
+   `schema/field-keys.yaml` went first; the seed concept graph, the last `include_str!` of YAML in
+   the workspace, followed it onto the `OP_INIT` frame for a measured **−7 616** (§7.2). Stage 1's
+   data-handoff decision is now worth **nothing further**: it has been taken in full, and it was
+   never the 200 KB it is sometimes planned as.
 2. **The bytes the dictionary bought back have already been spent, roughly twice over.** The move
    returned 26 915 and the diagram took 60 096.
 
@@ -195,10 +197,11 @@ data.
 
 The two sections moved in opposite directions and the shape of the module changed with them: data
 fell by a fifth as the dictionary left, and code rose by 8.4 % as the diagram arrived. **Code is now
-86.23 % of the module.** Every remaining data-side saving in the tree is now 8 781 bytes
-(`seed_concepts.yaml`) plus the 12 588 bytes of float lookup tables that §5.1 already counts — so
-**there is no meaningful data lever left, and every future one is a code lever.** That is a change of
-regime, not a change of number: the levers that worked in the first half of August do not work again.
+86.23 % of the module.** The 8 781 bytes of `seed_concepts.yaml` named here as the last data-side
+saving were taken on 2026-08-15 (§7.2), leaving only the 12 588 bytes of float lookup tables that
+§5.1 already counts — so **there is no data lever left at all, and every future one is a code
+lever.** That is a change of regime, not a change of number: the levers that worked in the first half
+of August do not work again.
 
 ### 3.3 Where the growth went, and the fact that should decide the gate
 
@@ -518,7 +521,7 @@ Two segments, 143 544 bytes of initialiser payload (99.98 %; the rest is offsets
 | `corpus/dict/junos-srx/*.yaml` (6 files) | 19 183 | **19 184** | `fathom-ingest/src/dict.rs:80` `EMBEDDED_DICT_SOURCES` |
 | — same, plus the `&[(&str,&str)]` table itself | | **19 384** | " |
 | `schema/field-keys.yaml` | 10 487 | **10 494** | `fathom-ingest/src/dict.rs:110` |
-| `crates/fathom-corpus/src/seed_concepts.yaml` | 8 781 | **8 782** | `fathom-corpus/src/concepts.rs:18` |
+| `crates/fathom-corpus/src/seed_concepts.yaml` | 8 781 | **8 782** | was `fathom-corpus/src/concepts.rs:18`; moved to `OP_INIT` 2026-08-15, returning 7 616 — see below |
 | **Total embedded YAML** | **38 451** | **38 460** | 26.8 % of the data section |
 
 **Embedded text costs exactly its own size, to within nine bytes across three files.** That is worth
@@ -536,9 +539,32 @@ which.
 left. Predicted from this table: 19 184 + 10 494 = **29 678 of data**. The 3 590-byte difference is
 the data the diagram brought in over the same interval, which this table could not have known about.
 
-**What is left.** After the move, **one `include_str!` of YAML remains in the entire workspace** —
-`crates/fathom-corpus/src/seed_concepts.yaml`, 8 781 bytes, priced above at 8 782 by removal. The
-38 460-byte data lever is down to 8 782, and there is no third file.
+**What is left — nothing. The embedded-YAML lever is fully spent as of 2026-08-15.** After the
+dictionary move, one `include_str!` of YAML remained in the entire workspace:
+`crates/fathom-corpus/src/seed_concepts.yaml`, 8 781 bytes, priced above at 8 782 by removal. It has
+now taken the same route. The file is `corpus/concepts/seed.yaml` and it reaches the module as a
+fourth section of the `OP_INIT` corpus frame — the graph was always corpus content, and the file's
+own header had said so since it was written (*"replaced wholesale by `corpus/concepts/` when that
+tree is authored"*).
+
+Measured on the tip at `d96cf95`, by the same build the ceiling is enforced against:
+
+| | Module | Headroom under 900 000 |
+|---|---:|---:|
+| `d96cf95` | 862 368 | 37 632 |
+| Seed concept graph moved to `OP_INIT` | **854 752** | **45 248** |
+| | **−7 616** | **+7 616** |
+
+**7 616, not 8 782, and the 1 166-byte difference is worth naming** rather than rounding away: the
+text is gone in full, but moving it costs code that was not there before — a fourth `Section`
+variant and its wire byte, a per-file parse loop where a single `include_str!` had been one constant,
+and the refusal that replaces what the compiler used to guarantee. This is the general shape of every
+remaining lever and §7.2's row should be read with it in mind: **the removal price of embedded text is
+an upper bound on what moving it returns, not the return itself.**
+
+There is no fourth file. `grep -rn 'include_str!' --include=*.rs crates/` now finds only test
+fixtures, which do not link into the module. **§11's regime change is complete: from here every lever
+is a code lever.**
 
 ### 7.3 The other 105 107 bytes
 
@@ -1145,9 +1171,10 @@ measured it. Neither is restated as this document's own.
 
 3. **With `00-ROUTE-TO-WORKABLE.md` §2 stage 1, on where the data-handoff decision leads.** The
    stage treats "what stops being compiled in and starts being handed in" as *the* ceiling decision.
-   Measured, it was worth **38 460 bytes** in total (§7.2), and **most of it has now been taken** —
-   the dictionary move banked 26 915 and one 8 781-byte `include_str!` is all that is left. Stage 1's
-   data lever is now worth 8 KB. The decision that actually moves the ceiling is §11.4's: **is one
+   Measured, it was worth **38 460 bytes** in total (§7.2), and **all of it has now been taken** —
+   the dictionary move banked 26 915 and the seed concept graph banked a further 7 616 on
+   2026-08-15. Stage 1's data lever is worth **nothing further**; there is no embedded YAML left to
+   hand in. The decision that actually moves the ceiling is §11.4's: **is one
    module the right shape for this product?** The two are different questions and only one of them
    is on stage 1.
 

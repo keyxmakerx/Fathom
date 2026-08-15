@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use fathom_corpus::{CorpusIndex, Section, SourceFile};
+use fathom_corpus::{CorpusIndex, Section, SourceFile, SECTION_DIRS};
 
 fn corpus_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -12,16 +12,12 @@ fn corpus_root() -> PathBuf {
         .join("corpus")
 }
 
-/// The three subdirectories, listed exactly as `yaml_files` lists them:
+/// Every corpus subdirectory, listed exactly as `yaml_files` lists them:
 /// `*.yaml` only, sorted, with `path.display().to_string()` as the name.
 fn source_files() -> Vec<SourceFile> {
     let root = corpus_root();
     let mut out = Vec::new();
-    for (section, dir) in [
-        (Section::Commands, "commands"),
-        (Section::Explainers, "explainers"),
-        (Section::Rules, "rules"),
-    ] {
+    for (section, dir) in SECTION_DIRS {
         let mut paths: Vec<PathBuf> = std::fs::read_dir(root.join(dir))
             .expect("corpus subdirectory must exist")
             .map(|e| e.expect("readable dir entry").path())
@@ -88,6 +84,75 @@ fn duplicate_source_names_refused() {
         err.message.starts_with("duplicate source"),
         "message names the defect: {}",
         err.message
+    );
+}
+
+// --- the seed concept graph arrives with the corpus ---------------------------
+//
+// Until 2026-08-15 the graph was `include_str!("seed_concepts.yaml")` inside
+// this crate, so a build without it was impossible. It travels over `OP_INIT`
+// now (7 643 bytes of WebAssembly module returned, against `44` §5.2's ceiling),
+// which means a host CAN now hand in a corpus with no concepts at all. These two
+// tests are what replaces the compiler.
+
+/// A corpus handed in without `corpus/concepts/` must be REFUSED, not loaded
+/// into a finder with an impoverished concept graph.
+///
+/// The silent version is the dangerous one and it is why this is an error and
+/// not a warning: 16 §12's breadth resolution and §7.3's object gate both read
+/// the seed relations, so an index built without them answers every query
+/// slightly worse and reports nothing wrong. Same reasoning as
+/// `ERR_NO_DICTIONARY`, which took this route first.
+#[test]
+fn a_corpus_without_concepts_is_refused() {
+    let files: Vec<SourceFile> = source_files()
+        .into_iter()
+        .filter(|f| f.section != Section::Concepts)
+        .collect();
+    assert!(
+        !files.is_empty(),
+        "the commands, explainers and rules are still there: this test must fail \
+         for the missing concepts and nothing else"
+    );
+    match CorpusIndex::from_sources(&files) {
+        Ok(_) => panic!("a corpus with no concept sources must be refused"),
+        Err(e) => assert!(
+            e.message.contains("concept"),
+            "the refusal names the missing thing: {}",
+            e.message
+        ),
+    }
+}
+
+/// The seed graph actually reaches the index, and reaches it from the corpus
+/// tree. Without this, `a_corpus_without_concepts_is_refused` could be satisfied
+/// by a loader that refuses everything.
+#[test]
+fn the_seed_graph_comes_from_the_corpus_tree() {
+    let idx = CorpusIndex::from_sources(&source_files()).expect("the corpus loads");
+    let seeded: Vec<&str> = idx
+        .concepts
+        .concepts
+        .iter()
+        .filter(|c| c.seed)
+        .map(|c| c.id.as_str())
+        .collect();
+    assert!(
+        seeded.contains(&"concept:state.operational"),
+        "the seed concepts are in the table; got {seeded:?}"
+    );
+    let up = idx
+        .concepts
+        .concepts
+        .iter()
+        .find(|c| c.id == "concept:state.operational")
+        .expect("the concept is present");
+    assert!(
+        !up.narrower.is_empty() && up.opposite.is_some(),
+        "the seed RELATIONS travelled too, not merely the ids: narrower={:?} \
+         opposite={:?}",
+        up.narrower,
+        up.opposite
     );
 }
 

@@ -32,11 +32,18 @@ fn err(file: &str, line: usize, message: impl Into<String>) -> LoadError {
 }
 
 /// Which corpus subdirectory a source belongs to. Order is the load order.
+///
+/// `Concepts` is declared last on purpose. The derived `Ord` is what
+/// `load_corpus_sources` sorts by, and it is also the wire order the assembler
+/// packs in, so promoting the new variant above an existing one would reorder
+/// every frame Fathom has ever built for no gain — a silent determinism change
+/// (invariant 9) in a commit that is supposed to move bytes and nothing else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Section {
     Commands,
     Explainers,
     Rules,
+    Concepts,
 }
 
 /// One corpus bundle as text. `name` is used verbatim as `LoadError::file`;
@@ -48,15 +55,24 @@ pub struct SourceFile {
     pub source: String,
 }
 
-/// Load the three seed bundles from a corpus root
-/// (`commands/`, `explainers/`, `rules/`, each holding `*.yaml` bundles).
+/// The corpus subdirectories, in load order. One list, named once, because four
+/// places have to agree on it: this loader, the artifact assembler, and two test
+/// helpers. Until `concepts/` was added they agreed by four separately
+/// hand-written copies of the same array — which is a shape that fails by
+/// shipping a page missing one whole section while every test that reads the
+/// directory itself still passes.
+pub const SECTION_DIRS: [(Section, &str); 4] = [
+    (Section::Commands, "commands"),
+    (Section::Explainers, "explainers"),
+    (Section::Rules, "rules"),
+    (Section::Concepts, "concepts"),
+];
+
+/// Load the seed bundles from a corpus root
+/// (`commands/`, `explainers/`, `rules/`, `concepts/`, each holding `*.yaml`).
 pub fn load_corpus(root: &Path) -> Result<Corpus, LoadError> {
     let mut files = Vec::new();
-    for (section, dir) in [
-        (Section::Commands, "commands"),
-        (Section::Explainers, "explainers"),
-        (Section::Rules, "rules"),
-    ] {
+    for (section, dir) in SECTION_DIRS {
         for path in yaml_files(&root.join(dir))? {
             let name = path.display().to_string();
             let source =
@@ -91,6 +107,7 @@ pub fn load_corpus_sources(files: &[SourceFile]) -> Result<Corpus, LoadError> {
     let mut declared = DeclaredConcepts::default();
     let mut explainers = Vec::new();
     let mut rules = Vec::new();
+    let mut concept_sources = Vec::new();
     for f in ordered {
         match f.section {
             Section::Commands => {
@@ -103,6 +120,12 @@ pub fn load_corpus_sources(files: &[SourceFile]) -> Result<Corpus, LoadError> {
                 explainers.append(&mut load_explainer_bundle(&f.source, &f.name)?);
             }
             Section::Rules => rules.append(&mut load_rule_bundle(&f.source, &f.name)?),
+            // Carried as text, not parsed here. `build_concept_table` needs the
+            // lexicons to normalise a surface phrase, and the lexicons are
+            // built from the entries — which are not loaded yet at this point.
+            // Parsing twice to avoid holding a string would cost more than the
+            // string.
+            Section::Concepts => concept_sources.push((f.name.clone(), f.source.clone())),
         }
     }
     Ok(Corpus {
@@ -111,6 +134,7 @@ pub fn load_corpus_sources(files: &[SourceFile]) -> Result<Corpus, LoadError> {
         explainers,
         rules,
         declared_concepts: declared,
+        concept_sources,
     })
 }
 
