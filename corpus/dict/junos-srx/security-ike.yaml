@@ -1,7 +1,36 @@
-# corpus/dict/junos-srx/security-ike.yaml — WO-03 §4.7 entries 8-21.
+# corpus/dict/junos-srx/security-ike.yaml — WO-03 §4.7 entries 8-21, plus the
+# three bare-stanza entries added 2026-08-15. See security-ipsec.yaml's header
+# for why they exist and why each carries `partial: true`.
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
 entries:
+  - id: junos-srx/security.ike.proposal
+    path: [security, ike, proposal, "$p"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: IkeProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.policy
+    path: [security, ike, policy, "$pol"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: IkePolicy, key: "$pol", fields: [ { field: name, from: "$pol", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ike.gateway
+    path: [security, ike, gateway, "$gw"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: IkeGateway, key: "$gw", fields: [ { field: name, from: "$gw", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
   - id: junos-srx/security.ike.proposal.authentication-method
     path: [security, ike, proposal, "$p", authentication-method, "$v"]
     binds:

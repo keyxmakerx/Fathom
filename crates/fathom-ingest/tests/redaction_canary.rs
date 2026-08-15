@@ -149,3 +149,135 @@ fn redacted_key_never_binds() {
         }
     ));
 }
+
+/// The hole a partial dictionary entry opened in the leaf-name detector,
+/// pinned so it cannot reopen.
+///
+/// When a statement matched an entry, the leaf-name walk ran over the ENTRY's
+/// path. For a `partial: true` entry that stops short of the line, the tail of
+/// the line was outside that path — so a secret word appearing only in the
+/// tail was invisible to the detector, and the credential after it survived
+/// with the entry's own detectors saying nothing about it.
+///
+/// The shipped `security zones security-zone <z> interfaces <unit>` entry is
+/// six segments and `partial`, so the line below matches it, and the walk saw
+/// a path ending in `interfaces` rather than the word `secret` one token
+/// before the value. The fix unions the raw-line walk in for tokens past the
+/// end of the matched entry's path.
+///
+/// The statement is not valid Junos and is not meant to be: the point is that
+/// the gate must not depend on the dictionary having modelled the stanza. The
+/// whole class of unmodelled sub-statement is what `14` §9.4's safety net is
+/// for, and a dictionary match must not switch it off.
+#[test]
+fn a_secret_word_in_an_unmodelled_tail_is_still_caught() {
+    let line = b"set security zones security-zone Z interfaces ge-0/0/0.0 \
+                 vendor-extension secret FATHOMCANARY-TAIL-99999\n";
+    let out = ingest(line, &dict()).expect("within the caps");
+    let serialised = format!("{out:?}");
+    assert!(
+        !serialised.contains(CANARY),
+        "a credential in an unmodelled tail survived the gate: {serialised}"
+    );
+    assert!(
+        !out.drops.entries.is_empty(),
+        "the gate recorded no drop for the tail credential"
+    );
+    assert!(
+        out.drops
+            .entries
+            .iter()
+            .any(|e| e.detectors.0 & DetectorSet::LEAF_NAME != 0),
+        "the leaf-name detector is what should have caught it, got {:?}",
+        out.drops.entries
+    );
+}
+
+/// The second half of the same defect, and a straight invariant-3 regression
+/// if it reopens: the BASE64 detector was switched off by a dictionary match.
+///
+/// `gate_statement` had TWO detectors judging a trailing token by the matched
+/// ENTRY instead of by the STATEMENT. The leaf-name walk (the test above) was
+/// one. The other read `entry.is_none() && base64ish(text)`, so teaching the
+/// dictionary ANY prefix of a statement disarmed base64 for the whole line —
+/// including the tokens the entry never described.
+///
+/// The line below is documented Junos. `authentication { … simple-password
+/// key ; … }` sits at exactly `[edit protocols ospf area area-id interface
+/// interface-name ]`:
+/// https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/authentication-edit-protocols-ospf.html
+/// read 2026-08-15. It is inside the subtree the OSPF entries teach, so the
+/// six-segment `… area $a interface $if` entry matches and `authentication`
+/// and the key are trailing tokens.
+///
+/// WHY THIS TEST CAN CATCH IT, WHICH THE ONE IT SITS BESIDE COULD NOT. The
+/// leaf-name regression test uses `shared-secret` precisely BECAUSE that word
+/// is in `SECRET_WORD_LIST` — which is what makes it blind here.
+/// `simple-password` is NOT in that list: `is_secret_word` is whole-string
+/// equality after case and underscore folding, `password` is a member and
+/// `simple-password` is not. So the leaf-name walk says clean over both
+/// `simple-password` and `authentication`, no `secret:` entry catalogues the
+/// path, and the ONLY detector that can destroy this value is base64. Revert
+/// the `described_by_entry` line in `redact.rs` and this test fails while
+/// every other redaction test still passes.
+///
+/// Measured both ways before it was written: destroyed at baseline `adbb590`
+/// (nothing under `protocols` matched, so `entry` was `None` and base64 was
+/// armed), stored verbatim once the OSPF entries landed. The widening is what
+/// armed the hole; the widening is what has to close it.
+#[test]
+fn a_base64ish_secret_past_a_matched_entrys_path_is_still_destroyed() {
+    // 34 characters, all in base64's alphabet: over `base64ish`'s 24-character
+    // floor without padding, so the detector's own shape rule is met.
+    let secret = "FATHOMCANARYOSPFsimplepw0123456789";
+    assert!(secret.len() >= 24, "the probe must clear the base64 floor");
+    let line = format!(
+        "set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 \
+         authentication simple-password {secret}\n"
+    );
+    let out = ingest(line.as_bytes(), &dict()).expect("within the caps");
+    let serialised = format!("{out:?}");
+    assert!(
+        !serialised.contains(CANARY),
+        "an OSPF plaintext password survived the gate: {serialised}"
+    );
+    assert!(
+        out.drops
+            .entries
+            .iter()
+            .any(|e| e.detectors.0 & DetectorSet::BASE64 != 0),
+        "the base64 detector is the only one that can catch this, got {:?}",
+        out.drops.entries
+    );
+}
+
+/// The same defect stated as a rule rather than as one line: for every
+/// statement the dictionary matches only a PREFIX of, a long opaque argument
+/// in the tail is destroyed.
+///
+/// Three shapes, each under a different matched entry, so the guard is not
+/// pinned to OSPF. None of these are statements Fathom models; that is the
+/// point — `14` §9.4's safety net exists for the stanza nobody catalogued, and
+/// a dictionary match may not switch it off.
+#[test]
+fn base64ish_tails_are_destroyed_under_every_matched_entry() {
+    let probes = [
+        // under the OSPF area/interface entry
+        "set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 \
+         vendor-extension opaque FATHOMCANARYaaaaaaaaaaaaaaaaaaaa",
+        // under the BGP group/neighbor entry
+        "set protocols bgp group G neighbor 203.0.113.1 \
+         vendor-extension opaque FATHOMCANARYbbbbbbbbbbbbbbbbbbbb",
+        // under the shipped security-zone interfaces partial entry
+        "set security zones security-zone Z interfaces ge-0/0/0.0 \
+         vendor-extension opaque FATHOMCANARYcccccccccccccccccccc",
+    ];
+    for probe in probes {
+        let out = ingest(format!("{probe}\n").as_bytes(), &dict()).expect("within the caps");
+        let serialised = format!("{out:?}");
+        assert!(
+            !serialised.contains(CANARY),
+            "a long opaque tail argument survived: {probe}"
+        );
+    }
+}

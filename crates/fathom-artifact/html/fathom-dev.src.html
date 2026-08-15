@@ -932,9 +932,11 @@ var KINDS = ['Device', 'PhysicalPort', 'Premises',
              'Interface', 'TunnelInterface', 'Zone',
              'IkeGateway', 'IpsecVpn', 'IkeProposal', 'IpsecProposal',
              /* Appended 2026-08-11. OSPF and BGP have been in `schema/` since the
-                beginning with no row to appear in. Nothing builds them yet -- no
-                dictionary entry is under `protocols` -- so both are empty today,
-                deliberately: the face exists before the parser work, not after. */
+                beginning with no row to appear in. The face was added before the
+                parser work on purpose; on 2026-08-15 the parser work landed, so
+                these two are no longer empty -- `corpus/dict/junos-srx/
+                protocols-ospf.yaml` and `protocols-bgp.yaml` build them from
+                `set protocols ospf ...` and `set protocols bgp ...`. */
              'RoutingProtocol', 'ProtocolAdjacency',
              /* Appended 2026-08-11 with the equipment form: `model` and `serial`
                 are Chassis fields, so without this button a hand-entered model
