@@ -6,6 +6,15 @@ license.workspace = true
 publish.workspace = true
 description = "Assembles the dev browser artifact: shell source + design/tokens.css + base64 fathom-wasm, spliced deterministically (42 §2.1's concatenation in a fixed order)"
 
+# The corpus is handed to the module at boot over `OP_INIT` rather than compiled
+# into it, so the assembler packs the frame with the module's own reference
+# encoder (`fathom_wasm::protocol::pack_corpus`) and runs it through the module's
+# own `OP_INIT` before splicing it. Path dependencies on workspace crates; no
+# third-party code (ADR-0032).
+[dependencies]
+fathom-corpus = { path = "../fathom-corpus" }
+fathom-wasm = { path = "../fathom-wasm" }
+
 # The page carries a small table of field-key numbers for the equipment form
 # (`EQUIP_FIELDS`). `tests/artifact.rs` pins those numbers against the generated
 # tables so a schema change cannot silently point the form at a different field.

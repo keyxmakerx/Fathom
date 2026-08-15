@@ -6,7 +6,9 @@ version = 4
 name = "fathom-artifact"
 version = "0.1.0"
 dependencies = [
+ "fathom-corpus",
  "fathom-ir",
+ "fathom-wasm",
 ]
 
 [[package]]
