@@ -373,16 +373,28 @@ pub fn layers_of_edge(kind: EdgeKind) -> LayerMask {
 /// WITH FEWER ELEMENTS."* A layer toggle hides more than the operator asked for
 /// whenever an edge loses an endpoint, and these counts are how the picture
 /// admits it.
+///
+/// **These count OBJECTS AND EDGES, NOT SHAPES**, and that distinction is the
+/// whole reason the fields were renamed on 2026-08-15. Before aggregation a box
+/// was an object and the two were the same number; after it, one hidden box can
+/// carry thirteen addresses, and a band reading *"1 objects hidden by the mask"*
+/// is the silent-count rule failing in the sentence that exists to enforce it.
+/// The shapes are `Diagram::nodes.len()`, which the caller already has; what it
+/// cannot recover afterwards is what went away, so that is what is reported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Filter {
     pub mask: LayerMask,
-    /// Boxes the mask removed.
-    pub hidden_nodes: u32,
-    /// Lines removed — by their own layer set **or** by losing an endpoint.
-    pub hidden_links: u32,
+    /// Graph objects the mask removed — summed over the removed boxes' `count`,
+    /// so a collapsed group of thirteen reports thirteen.
+    pub hidden_objects: u32,
+    /// Graph edges removed — by their own layer set **or** by losing an
+    /// endpoint — summed over the removed lines' `members`.
+    pub hidden_edges: u32,
     /// Boxes still drawn that `56` §4.1 has no row for. Not an error and not a
     /// hidden thing: the number of shapes in the picture whose presence at this
-    /// layer nothing has decided.
+    /// layer nothing has decided. **Shapes, deliberately** — the reader is being
+    /// told which drawn things are unclassified, and a collapsed group is one
+    /// drawn thing whatever it stands for.
     pub untabled_nodes: u32,
 }
 
@@ -399,6 +411,14 @@ pub fn filter(d: &Diagram, mask: LayerMask) -> (Diagram, Filter) {
     let mut kept: Vec<&str> = Vec::new();
     let mut nodes = Vec::with_capacity(d.nodes.len());
     let mut untabled_nodes = 0u32;
+    // Accumulated on the way OUT rather than differenced at the end: after
+    // aggregation `nodes.len()` and the number of objects are different
+    // quantities, so `d.nodes.len() - nodes.len()` answers a question nobody
+    // asked. Summing each removed box's own `count` answers the one the band
+    // prints. Same for the links, whose `members` is the edge count a merged
+    // stroke stands for.
+    let mut hidden_objects = 0u32;
+    let mut hidden_edges = 0u32;
     for n in &d.nodes {
         // The round trip through the kind's own name is exact: `Node::kind` is
         // `NodeKind::name()`'s `&'static str` and `from_name` is its inverse.
@@ -414,6 +434,8 @@ pub fn filter(d: &Diagram, mask: LayerMask) -> (Diagram, Filter) {
             }
             kept.push(n.id.as_str());
             nodes.push(n.clone());
+        } else {
+            hidden_objects += n.count as u32;
         }
     }
     kept.sort_unstable();
@@ -430,13 +452,15 @@ pub fn filter(d: &Diagram, mask: LayerMask) -> (Diagram, Filter) {
         // asserting relationships between things it is not showing.
         if own.intersects(mask) && drawn(&l.from) && drawn(&l.to) {
             links.push(l.clone());
+        } else {
+            hidden_edges += l.members as u32;
         }
     }
 
     let f = Filter {
         mask,
-        hidden_nodes: (d.nodes.len() - nodes.len()) as u32,
-        hidden_links: (d.links.len() - links.len()) as u32,
+        hidden_objects,
+        hidden_edges,
         untabled_nodes,
     };
     (

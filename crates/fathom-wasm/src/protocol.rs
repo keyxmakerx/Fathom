@@ -85,10 +85,30 @@ pub const FACE_UNRESOLVED: u8 = 7;
 /// operator's export file.** Invariant 3 is the whole reason this row exists.
 pub const FACE_CAPTURE: u8 = 8;
 
-/// One diagram box: display id · kind · label · x · y · w · h.
+/// One diagram box: display id · kind · label · x · y · w · h · **aggregation**.
+///
+/// Slot 7 is three space-separated fields — `<count> <interior> <group key>`,
+/// the last possibly empty:
+///
+/// | field | meaning |
+/// |---|---|
+/// | `count` | how many graph nodes the box stands for. `1` is a plain box, and only then is slot 0 an element id the page may post to [`crate::OP_ELEMENT`] |
+/// | `interior` | edges with both ends inside this box, drawn nowhere |
+/// | `group key` | the aggregation group it belongs to, or empty |
+///
+/// Three facts in one slot because [`FACE_SLOTS`] is eight and this record
+/// already used seven: widening the face record would change the stride of
+/// every face in the protocol, and one space-separated triple is a much smaller
+/// thing to explain than that. Group keys contain no spaces
+/// (`agg:<kind>:<ulid>#<offset>`), so the split is unambiguous.
+///
+/// The count is not optional decoration. `59` §3.6: a collapse that does not
+/// say how many it hid is *"a lie with fewer elements"*, so the number crosses
+/// the boundary with the box rather than being something the page could choose
+/// not to ask for.
 pub const FACE_BOX: u8 = 9;
 /// One routed line: from id · to id · edge kind · "1" when containment ·
-/// the points as `x,y x,y ...`.
+/// the points as `x,y x,y ...` · how many graph edges it stands for.
 pub const FACE_LINE: u8 = 10;
 /// The drawing's extent: width · height. One row, always first.
 ///
@@ -606,8 +626,8 @@ pub fn encode_diagram(
         Some(f) => {
             let (m, hn, hl, un) = (
                 f.mask.bits().to_string(),
-                f.hidden_nodes.to_string(),
-                f.hidden_links.to_string(),
+                f.hidden_objects.to_string(),
+                f.hidden_edges.to_string(),
                 f.untabled_nodes.to_string(),
             );
             face_slots(
@@ -634,10 +654,11 @@ pub fn encode_diagram(
             n.w.to_string(),
             n.h.to_string(),
         );
+        let agg = format!("{} {} {}", n.count, n.interior, n.group);
         let rec = face_slots(
             &mut blob,
             FACE_BOX,
-            7,
+            8,
             &[
                 n.id.as_str(),
                 n.kind,
@@ -646,6 +667,7 @@ pub fn encode_diagram(
                 y.as_str(),
                 bw.as_str(),
                 bh.as_str(),
+                agg.as_str(),
             ],
         );
         write_face_record(&mut records, &rec);
@@ -661,16 +683,18 @@ pub fn encode_diagram(
             pts.push(',');
             pts.push_str(&y.to_string());
         }
+        let members = l.members.to_string();
         let rec = face_slots(
             &mut blob,
             FACE_LINE,
-            5,
+            6,
             &[
                 l.from.as_str(),
                 l.to.as_str(),
                 l.kind,
                 if l.containment { "1" } else { "" },
                 pts.as_str(),
+                members.as_str(),
             ],
         );
         write_face_record(&mut records, &rec);

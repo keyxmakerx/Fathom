@@ -172,8 +172,16 @@ fn the_empty_mask_draws_nothing_and_keeps_the_canvas() {
     let (d, f) = layers::filter(&union, LayerMask::NONE);
     assert!(d.nodes.is_empty() && d.links.is_empty());
     assert_eq!((d.width, d.height), (union.width, union.height));
-    assert_eq!(f.hidden_nodes as usize, union.nodes.len());
-    assert_eq!(f.hidden_links as usize, union.links.len());
+    // Objects and edges, not shapes: with nothing drawn, everything the picture
+    // stood for is hidden, so the counts are the SUMS and not the vector
+    // lengths. On an un-aggregated layout the two coincide, and this asserts
+    // the sum so that the day they diverge the test is still asking the right
+    // question. `the_empty_mask_reports_objects_and_not_boxes` is the case
+    // where they genuinely differ.
+    let objects: usize = union.nodes.iter().map(|n| n.count).sum();
+    let edges: usize = union.links.iter().map(|l| l.members).sum();
+    assert_eq!(f.hidden_objects as usize, objects);
+    assert_eq!(f.hidden_edges as usize, edges);
 }
 
 /// No line may join a box that is not drawn. A line into empty space is a

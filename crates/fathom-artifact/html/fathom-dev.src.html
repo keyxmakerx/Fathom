@@ -435,6 +435,14 @@ button.tab:hover { color: var(--ink); }
 .dbox text { font-family: inherit; }
 .dkind { font-size: var(--t-micro); fill: var(--muted); }
 .dname { font-size: var(--t-body); fill: var(--ink); }
+/* The collapsed group needs NO rule of its own: `59` §3.5's mark is the form it
+   replaces, drawn three times, so the stack's rear outlines are `.dbox rect`
+   exactly like the front one. That is the point of the mark, and a second rule
+   here would be the beginning of a fourth channel.
+   The count text is `--ink` and not `--muted`: it is the one label in the
+   picture that may not be demoted (§3.6, X9), so it must not be drawn in the
+   de-emphasis tone that means "trust this less". */
+.dcount { font-size: var(--t-micro); fill: var(--ink); }
 .dline { stroke-width: 1; }
 /* Containment is structure and is drawn quieter than a reference edge. NOT
    dashed -- `51` §9 reserves dashed for proposed elements. */
@@ -827,6 +835,28 @@ var S = {
      op against the graph. It is deliberately not journalled and not exported:
      which layers you were looking at is not a fact about the network. */
   layers: LAYERS_ALL,
+  /* THE DIAGRAM'S AGGREGATION STATE, and the same argument one step further.
+     `open` is the groups the reader has expanded, as [key, window offset]
+     pairs, IN ACTIVATION ORDER; `whole` is 59 §3.7's `every one drawn` control.
+
+     Activation order is not decoration. `53` §3.7 says Escape unwinds exactly
+     ONE level, so the ladder needs to know which disclosure was opened last;
+     an object keyed by group would not carry that, and neither would a sorted
+     set. The request sent to the module is sorted separately (see
+     diagramRequest), so what is on the wire never depends on click order.
+
+     It lives here and nowhere else. It is not an estate fact -- nothing about
+     the network changes when a group is opened -- so it is not in the graph,
+     not in schema/, and deliberately NOT in the journal below: an exported
+     workspace that replayed someone else's scroll position would be recording
+     a view preference as though it were work. It dies with the tab, which is
+     the correct lifetime for "these are the six I am looking at".
+
+     Scoped to aggregation only. `56` §3.5 asks the same question for PINS and
+     nobody has answered it; a pin is a human assertion with its own provenance
+     and cannot be recomputed, so it does not follow from this. */
+  open: [],
+  whole: false,
   sel: null,
   face: 'meaning',
   inv: null,
@@ -1497,6 +1527,99 @@ function layerStrip(strip) {
   return lab;
 }
 
+/* --- aggregation: the reader's side of 59 --------------------------------- */
+
+/* The view preference the module is asked to draw under: `*` for `59` §3.7's
+   un-aggregated control, otherwise one line per opened group. The module holds
+   none of it -- see S.open.
+
+   SORTED on the wire, and not in S.open. Two readers who opened the same groups
+   in a different order must send the same bytes and get the same picture back:
+   invariant 9 does not stop at the boundary if the page can perturb the input.
+   The activation order S.open keeps is for Escape, which is a page question. */
+function diagramRequest() {
+  if (S.whole) return '*';
+  var out = S.open.map(function (o) { return o[0] + '#' + o[1]; });
+  out.sort();
+  return out.join('\n');
+}
+
+/* The whole request: the layer mask in byte 0, the view preference after it. */
+function diagramBytes() {
+  var text = new TextEncoder().encode(diagramRequest());
+  var req = new Uint8Array(text.length + 1);
+  req[0] = S.layers;
+  req.set(text, 1);
+  return req;
+}
+
+function openIndex(key) {
+  for (var i = 0; i < S.open.length; i++) if (S.open[i][0] === key) return i;
+  return -1;
+}
+
+/* Activating a group control. `group` is `<key>#<offset>`: the offset is what
+   the residual asks for, which is how the two residuals of an opened group walk
+   the run FORWARD and BACKWARD six at a time (59 §3.7). */
+function diagramOpen(group) {
+  var cut = group.indexOf('#');
+  var key = cut < 0 ? group : group.slice(0, cut);
+  var at = cut < 0 ? 0 : parseInt(group.slice(cut + 1), 10) || 0;
+  var i = openIndex(key);
+  if (i >= 0) S.open.splice(i, 1);
+  /* Push to the END: re-activating a group makes it the most recent
+     disclosure, which is what the Escape ladder unwinds first. */
+  S.open.push([key, at]);
+  render();
+  refocusGroup(key);
+}
+
+function diagramCollapse(key) {
+  var i = openIndex(key);
+  if (i < 0) return false;
+  S.open.splice(i, 1);
+  render();
+  refocusGroup(key);
+  return true;
+}
+
+/* `59` §3.8: "Focus survives the rebuild." Expanding re-runs layout and
+   rebuilds the tree, and a keyboard user thrown back to <body> has lost their
+   place in a picture that just changed shape under them. The first box in
+   document order carrying the group key is where they were: on opening it is
+   the first member or residual revealed, on collapsing it is the aggregate. */
+function refocusGroup(key) {
+  /* `data-key`, NOT `data-group`. Every box belonging to the run carries the
+     bare group key; only a box standing for MORE THAN ONE carries data-group,
+     because only that box is a disclosure control. Querying data-group finds
+     nothing the moment a run is opened wide enough that no collapsed box is
+     left -- a run of exactly WINDOW+1 opened at 0 draws six members and one
+     one-member residual, all of them plain -- and focus lands on <body>, which
+     is precisely what `59` §3.8's "Focus survives the rebuild" row forbids:
+     focus "is re-homed onto the group's own affordance, not thrown to <body>".
+     Driven at seven units, which is the first run length above the threshold
+     and therefore not an exotic case. */
+  var rows = DG.out ? DG.out.querySelectorAll('[data-drow][data-key]') : [];
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].getAttribute('data-key') === key) { dgRove(rows[i]); rows[i].focus(); return; }
+  }
+}
+
+/* A plain name loses its tail; a RANGE loses the middle of each end.
+   `10.255.0.1/30–10.255.39.1/30` clipped the ordinary way reads
+   `10.255.0.1/30–10.255.39…`, which says where the range starts and not where
+   it stops -- half a range that looks like a whole one. `59` §6.9 files the
+   related defect (a range string that silently lies) and the reason is the
+   same: the two ends are what a range IS, so both survive. The untruncated
+   text is in the box's title either way. */
+function clipTo(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function fitName(s, collapsed) {
+  if (s.length <= 24) return s;
+  var cut = collapsed ? s.indexOf('–') : -1;
+  if (cut > 0) return clipTo(s.slice(0, cut), 11) + '–' + clipTo(s.slice(cut + 1), 11);
+  return s.slice(0, 23) + '…';
+}
+
 /* The mask in words. `56` §5.2 G10 is the release valve — anything the picture
    cannot say, the band says in three lowercase words. */
 function layerWords() {
@@ -1877,14 +2000,24 @@ function dgExpand(row, open) {
        had to say anyway. */
     lr.appendChild(el('span', 'dorel', c.out ? 'to' : 'from'));
     lr.appendChild(el('span', 'doname', far ? far.label : c.far));
-    lr.appendChild(el('span', 'dokind docnt', c.kind));
+    /* `59` failure mode 18: a merged stroke that does not say how many links it
+       stands for reads as one link. The count is said HERE, on the row a
+       keyboard reaches, because the stroke itself lives inside an aria-hidden
+       subtree where only a mouse could have found it. */
+    lr.appendChild(el('span', 'dokind docnt',
+      c.n > 1 ? c.kind + ' × ' + c.n : c.kind));
     at.parentNode.insertBefore(lr, at.nextSibling);
     at = lr;
   });
   dgRove(row);
 }
 
-function dgOutline(boxes, noSetKinds) {
+/* `agg` is passed in because the group state belongs to the row, not to the
+   shape: `55` §4.5.2 says focus never enters the <svg>, and the <svg> is
+   `aria-hidden`, so a disclosure declared on a shape is declared to nobody. The
+   row is the only place a screen reader can be told that this one line stands
+   for thirteen objects and what activating it will do. */
+function dgOutline(boxes, noSetKinds, agg) {
   var tree = el('div', 'dout');
   var head = el('div', 'sh', 'Outline — every drawn object');
   head.id = 'doutHead';
@@ -1901,23 +2034,47 @@ function dgOutline(boxes, noSetKinds) {
   list.setAttribute('data-rove', 'v');
   boxes.forEach(function (b, i) {
     var id = b.s[0];
+    var ag = (agg && agg[i]) || { n: 1, collapsed: false, key: '', grp: '' };
     var n = (DG.conn && DG.conn[id]) ? DG.conn[id].length : 0;
     var row = el('div', 'dorow');
+    row.id = ag.id || ('dorow' + i);
     row.setAttribute('role', 'treeitem');
     row.setAttribute('aria-level', '1');
     row.setAttribute('aria-setsize', String(boxes.length));
     row.setAttribute('aria-posinset', String(i + 1));
-    row.setAttribute('aria-expanded', 'false');
-    row.setAttribute('aria-selected', String(S.sel === id));
     row.setAttribute('tabindex', '-1');
     row.setAttribute('data-rove-item', '');
     row.setAttribute('data-drow', id);
     row.setAttribute('data-did', id);
+    if (ag.key) row.setAttribute('data-key', ag.key);
+
+    if (ag.collapsed) {
+      /* THE GROUP IS THIS ROW'S DISCLOSURE, and it takes `aria-expanded` from
+         the link children, which a collapsed group does not offer: there is no
+         single element whose edges these are, and a row cannot honestly own two
+         disclosures at once. Activating shows the members as sibling rows,
+         which is what a tree disclosure IS. `59` X4 requires the name to carry
+         a CARDINAL and a NAMED RANGE and to say what activating will do, and
+         `ag.name` is that sentence, built where the group tallies are known. */
+      row.setAttribute('data-group', ag.grp);
+      row.setAttribute('aria-expanded', ag.partial ? 'true' : 'false');
+      if (ag.controls) row.setAttribute('aria-controls', ag.controls);
+      row.setAttribute('aria-label', ag.name);
+    } else {
+      row.setAttribute('aria-expanded', 'false');
+      row.setAttribute('aria-selected', String(S.sel === id));
+    }
+
     /* The name in full. `56` §2.4 truncates in the PICTURE and says where the
        whole of it lives: "the full text is in the Outline row and in the
        inspector". This is that row. */
     row.appendChild(el('span', 'doname', b.s[2]));
     row.appendChild(el('span', 'dokind', b.s[1]));
+    /* A collapsed box stands for many objects and the row must SHOW so, not
+       only announce it. `59` §3.6 makes the cardinal the one label that may
+       never be dropped, and a row reading `LogicalUnit st0.0–st0.12 · 3 links`
+       with no count is the picture's own stack silently unsaid. */
+    if (ag.collapsed) row.appendChild(el('span', 'docnt', ag.n + ' collapsed'));
     row.appendChild(el('span', 'docnt', plural(String(n), 'link', 'links')));
     if (noSetKinds.indexOf(b.s[1]) >= 0) {
       row.setAttribute('data-noset', '1');
@@ -1973,7 +2130,10 @@ function renderDiagram(host) {
     host.appendChild(p0);
     return;
   }
-  var reply = call(OP_DIAGRAM, new Uint8Array([S.layers]));
+  /* The mask is byte 0 and the view preference follows it: aggregation made the
+     request a two-part thing, and the surface's strip is built below rather than
+     here, so only the wire form is taken from the aggregation side. */
+  var reply = call(OP_DIAGRAM, diagramBytes());
   var bad = replyProblem(reply);
   if (bad) {
     var pe = el('div', 'pad');
@@ -1994,8 +2154,13 @@ function renderDiagram(host) {
      rather than what it believes it sent. A picture and its toggles that can
      disagree will, and the disagreement is invisible. */
   var maskBack = canvasRow ? canvasRow.s[2] : '';
-  var hidBoxes = canvasRow ? (canvasRow.s[3] || '0') : '0';
-  var hidLines = canvasRow ? (canvasRow.s[4] || '0') : '0';
+  /* Slots 3 and 4 are OBJECTS and EDGES, not shapes — `layers::Filter` sums
+     each removed box's `count` and each removed line's `members`, so a mask that
+     takes away one thirteen-member group reports thirteen. The names carry it
+     because reading them as box counts is exactly the mistake that shipped a
+     band saying "1 objects hidden by the mask". */
+  var hidObjects = canvasRow ? (canvasRow.s[3] || '0') : '0';
+  var hidEdges = canvasRow ? (canvasRow.s[4] || '0') : '0';
   var untabled = canvasRow ? (canvasRow.s[5] || '0') : '0';
 
   var view = el('div', 'dview');
@@ -2003,8 +2168,26 @@ function renderDiagram(host) {
   DG.view = view;
   var strip = el('div', 'dstrip');
   var maskLabel = layerStrip(strip);
+  /* `59` §3.7 keeps the un-aggregated form as a control in the PRODUCT, not
+     only in the study: "an engineer who does not believe the count is entitled
+     to see the forty."
+
+     IN THE STRIP, not appended to the fact column. As a sibling block under the
+     view it was one more `flex: none` competing with the picture for the
+     column's height -- the exact shape of the surface rebuild's defect 1 -- and
+     it cost the last visible Outline row at 1400x400: `touching 1` before the
+     two branches were merged, `touching 0` after. Measured, not reasoned.
+     Not in the zoom group either: that group is taken away at narrow widths
+     because it drives a canvas that is collapsed there, and this control
+     changes WHAT IS DRAWN, which matters at every width. */
+  var whole = el('button', null,
+    S.whole ? 'collapse repeated objects' : 'draw every one');
+  whole.type = 'button';
+  whole.setAttribute('data-whole', '1');
+  whole.setAttribute('aria-pressed', String(!!S.whole));
+  strip.appendChild(whole);
   view.appendChild(strip);
-  maskLabel.textContent = 'layer · ' + layerWords() + ' · ' + hidBoxes + ' hidden' +
+  maskLabel.textContent = 'layer · ' + layerWords() + ' · ' + hidObjects + ' hidden' +
     (maskBack === String(S.layers) ? '' : ' · MASK MISMATCH ' + maskBack);
 
   if (!boxes.length) {
@@ -2027,9 +2210,9 @@ function renderDiagram(host) {
      and it computes nothing about the graph: the module already emitted every
      link in a total order, and grouping preserves it. */
   DG.conn = {};
-  function bucket(id, far, kind, out) {
+  function bucket(id, far, kind, out, n) {
     if (!DG.conn[id]) DG.conn[id] = [];
-    DG.conn[id].push({ far: far, kind: kind, out: out });
+    DG.conn[id].push({ far: far, kind: kind, out: out, n: n || 1 });
   }
 
   /* Which drawn kinds the inventory has no row set for. Reading the kind words
@@ -2112,8 +2295,14 @@ function renderDiagram(host) {
     var l = lines[li];
     var pts = l.s[4];
     if (!pts) continue;
-    bucket(l.s[0], l.s[1], l.s[2], true);
-    bucket(l.s[1], l.s[0], l.s[2], false);
+    /* Slot 5 is how many links this one stroke stands for once aggregation has
+       merged them. It travels to the Outline row rather than to an SVG <title>:
+       both are true (`59` failure mode 18 says a merged line must say how many;
+       `55` §1.4 says a mouse-hover-only affordance inside an aria-hidden subtree
+       is not a way of saying it), and only the Outline satisfies both. */
+    var lmem = parseInt(l.s[5], 10) || 1;
+    bucket(l.s[0], l.s[1], l.s[2], true, lmem);
+    bucket(l.s[1], l.s[0], l.s[2], false, lmem);
     var d = '', parts = pts.split(' ');
     for (var pi = 0; pi < parts.length; pi++) {
       var xy = parts[pi].split(',');
@@ -2132,30 +2321,180 @@ function renderDiagram(host) {
     }));
   }
 
+  /* Slot 7 is `<count> <interior> <group key>`, the last possibly empty. Read
+     for every box BEFORE any is drawn, because a group's ARIA state is a fact
+     about the whole group -- how many of its members are shown against how
+     many exist -- and no single box knows it. `59` §3.8's partial state
+     ("6 of 40 shown") is exactly that fact. */
+  var agg = [], stood = 0, swallowed = 0, tally = {};
+  for (var ai = 0; ai < boxes.length; ai++) {
+    var parts = (boxes[ai].s[7] || '1 0 ').split(' ');
+    var a = {
+      n: parseInt(parts[0], 10) || 1,
+      inside: parseInt(parts[1], 10) || 0,
+      grp: parts[2] || '',
+      /* An OUTLINE ROW id, not a shape id. `aria-controls` must name nodes the
+         accessible tree can reach, and the shapes live inside `aria-hidden`
+         SVG. Same index, so row i and box i are the same object throughout. */
+      id: 'dorow' + ai
+    };
+    a.key = a.grp.indexOf('#') < 0 ? a.grp : a.grp.slice(0, a.grp.indexOf('#'));
+    a.collapsed = a.n > 1;
+    agg.push(a);
+    stood += a.n;
+    swallowed += a.inside;
+    if (a.key) {
+      var t2 = tally[a.key] || (tally[a.key] = { shown: 0, hidden: 0, ids: [] });
+      if (a.collapsed) t2.hidden += a.n;
+      else { t2.shown += 1; t2.ids.push(a.id); }
+    }
+  }
+
+  /* Reconcile the open set against what the module actually drew. A group key
+     is DERIVED from its run's first member (see agg's header), so it can stop
+     existing: paste a second config, add a device that splits a run, and the
+     key names nothing. A stale key draws nothing and is harmless in the
+     request -- but it would still be a rung on the Escape ladder, so a press
+     would be swallowed by a group that is not on screen, which reads as
+     "Escape did nothing" and is the class of defect this rebuild is about. */
+  S.open = S.open.filter(function (o) { return !!tally[o[0]]; });
+
   for (var bi = 0; bi < boxes.length; bi++) {
-    var b = boxes[bi];
+    var b = boxes[bi], ag = agg[bi];
     var bx = parseInt(b.s[3], 10), by = parseInt(b.s[4], 10);
     var bw = parseInt(b.s[5], 10), bh = parseInt(b.s[6], 10);
-    var g = sEl('g', { class: 'dbox' + (S.sel === b.s[0] ? ' dsel' : '') });
-    /* Not `data-post`: that attribute is the document-level delegate's, and it
-       ends in render(), which would destroy this scene. Diagram selection has
-       its own path -- see dgSelect. */
-    g.setAttribute('data-dpost', b.s[0]);
-    g.appendChild(sEl('rect', {
-      x: bx, y: by, width: bw, height: bh, rx: 0,
-      'vector-effect': 'non-scaling-stroke'
-    }));
-    var kind = sEl('text', { x: bx + 10, y: by + 17, class: 'dkind' });
+    var grpTally = ag.key ? tally[ag.key] : null;
+    /* A group is PARTIALLY EXPANDED when some of its members are drawn and
+       some are still inside a residual. `59` §3.8 decides this state and the
+       first attempt reported it as undecided:
+
+         "At `6 of 40 shown` the correct attribute is aria-expanded="true", and
+          the accessible name must say *partially expanded* rather than
+          *collapsed*. ... This is a naming bug, not an attribute bug."
+
+       WHERE THAT STATE IS DECLARED IS THE PART THE REBUILD GOT WRONG, and the
+       merge is where it showed: the rebuild put `role="button"`, `tabindex="0"`,
+       `aria-label`, `aria-expanded` and `aria-controls` on the SVG `<g>`, and
+       THE SVG IS `aria-hidden="true"`. Every one of those attributes is
+       announced by nothing. Worse, a focusable element inside an aria-hidden
+       subtree is a defect in its own right -- the node takes focus that assistive
+       technology cannot follow. Reading the attributes back with getAttribute
+       says they are there, which is how it passed its own review; the accessible
+       tree is the thing to ask, and the accessible tree cannot see any of it.
+
+       `55` §4.5.2 already decided the right home in terms: *"keyboard focus in
+       the diagram view never enters the <svg>. It moves through a real DOM tree
+       -- the Outline ... The SVG mirrors the Outline's focus; it does not hold
+       it."* So the disclosure IS the Outline row, computed here (this loop is
+       where the group tallies are known) and applied in dgOutline. The shape
+       keeps its data attributes so a MOUSE can still click it. */
+    var partial = !!(grpTally && grpTally.shown > 0 && grpTally.hidden > 0);
+    var total = grpTally ? grpTally.shown + grpTally.hidden : ag.n;
+    /* An opened run has TWO residuals and they move the window in opposite
+       directions. Each carries the offset it would jump to; the one whose
+       offset is below where the window is now steps BACKWARD, and telling that
+       reader "the next 6" names the wrong six. One template said "next" for
+       both, which is the surviving half of the leading-residual defect: its
+       behaviour was fixed and its sentence was not. */
+    var ahead = true;
+    if (ag.collapsed && ag.key) {
+      var oi = openIndex(ag.key);
+      var cut = ag.grp.indexOf('#');
+      if (oi >= 0 && cut > 0) ahead = (parseInt(ag.grp.slice(cut + 1), 10) || 0) >= S.open[oi][1];
+    }
+    var name;
+    if (ag.collapsed && partial) {
+      name = b.s[1] + ' ' + b.s[2] + ', partially expanded: ' + grpTally.shown +
+             ' of ' + total + ' shown, ' + ag.n + ' still collapsed here. ' +
+             'Activate to show the ' + (ahead ? 'next ' : 'previous ') +
+             Math.min(ag.n, 6) + '.';
+    } else if (ag.collapsed) {
+      /* 59 X4: a collapsed affordance's accessible name carries a CARDINAL and
+         a NAMED RANGE, and says what activating it will do. The screen-reader
+         user learns the same two facts the sighted one does. */
+      name = b.s[1] + ' ' + b.s[2] + ', ' + ag.n + ' collapsed. Activate to ' +
+             'expand ' + Math.min(ag.n, 6) + ' of them.';
+    } else {
+      name = b.s[1] + ' ' + b.s[2];
+    }
+    /* Carried to the Outline, which is the tree assistive technology actually
+       reads. `54` §8/§13/§17's disclosure contract and `59` §3.8's "Role and
+       state" row both want aria-controls naming the expanded content; when the
+       group is collapsed that content is not in the tree at all, and pointing at
+       ids that do not exist is worse than saying nothing, so the ids travel only
+       when there is something to point at. */
+    ag.name = name;
+    ag.partial = partial;
+    ag.controls = partial ? grpTally.ids.join(' ') : '';
+
+    var g = sEl('g', {
+      class: 'dbox' + (S.sel === b.s[0] ? ' dsel' : '') + (ag.collapsed ? ' dagg' : '')
+    });
+    /* A collapsed box is NOT a selection -- there is no single element to
+       inspect -- so it carries data-group and no data-post, and a box that
+       stands for one node carries data-post and never a group key. The two
+       attributes are mutually exclusive on purpose: the click delegate has an
+       arm for each, and a box that carried both would depend on their order.
+       That is DEFECT 1's second half.
+
+       `data-dpost`, not `data-post`: the latter is the document-level delegate's
+       and it ends in render(), which would destroy this scene and lose the pan
+       and zoom with it. Diagram selection has its own path -- see dgSelect. */
+    if (ag.collapsed) g.setAttribute('data-group', ag.grp);
+    else g.setAttribute('data-dpost', b.s[0]);
+    if (ag.key) g.setAttribute('data-key', ag.key);
+
+    /* 59 §3.5's mark: THE FORM IT REPLACES, DRAWN THREE TIMES, 4px apart on the
+       lattice. A stack. Not two rails (56 §5.2 G4 already owns two: LAG/reth
+       members and the tunnel conduit), not a dash or a dot (G2 is spent
+       product-wide on AI-proposed and pending), not a fill or a hue (55 §7.3
+       and 59 §4.1). Stroked geometry plus mono text, so it survives forced
+       colours, greyscale and monochrome print by construction. */
+    if (ag.collapsed) {
+      /* `vector-effect` on EVERY rect, the two behind included. `56` §5.3: a
+         stroke that scales with the transform is a hairline that thickens as
+         you zoom in and vanishes as you zoom out, and the stack's whole job is
+         to be legible at the zoom where a group is worth collapsing. The two
+         behind were the only strokes in the picture without it. */
+      g.appendChild(sEl('rect', { x: bx + 8, y: by + 8, width: bw, height: bh, rx: 0,
+        'vector-effect': 'non-scaling-stroke' }));
+      g.appendChild(sEl('rect', { x: bx + 4, y: by + 4, width: bw, height: bh, rx: 0,
+        'vector-effect': 'non-scaling-stroke' }));
+    }
+    g.appendChild(sEl('rect', { x: bx, y: by, width: bw, height: bh, rx: 0,
+      'vector-effect': 'non-scaling-stroke' }));
+    /* THE COUNT IS THE ONE LABEL IN THE PICTURE THAT MAY NOT BE DEMOTED
+       (59 §3.6, X9). It is drawn with the box, always, never truncated and
+       never routed through anything that could drop it -- A2's counts vanished
+       below zoom 0.6 and what was left is exactly the bare stack the governing
+       rule forbids. So on a collapsed box the count takes the LEFT position,
+       which is the last part of a box to be clipped by a scrolled canvas, and
+       the kind word yields to the right: the noun is also in the accessible
+       name, the Outline row and the inspector, and the cardinal is not.
+       Together they are §3.6's "what" and "how many", and the RANGE is the line
+       below, so no reading of this box is ever a bare `+40`. */
+    var kind = sEl('text', ag.collapsed
+      ? { x: bx + bw - 10, y: by + 17, class: 'dkind', 'text-anchor': 'end' }
+      : { x: bx + 10, y: by + 17, class: 'dkind' });
     kind.textContent = b.s[1];
     g.appendChild(kind);
-    var name = sEl('text', { x: bx + 10, y: by + 34, class: 'dname' });
+    if (ag.collapsed) {
+      var cnt = sEl('text', { x: bx + 10, y: by + 17, class: 'dcount' });
+      cnt.textContent = ag.n + ' collapsed';
+      g.appendChild(cnt);
+    }
+    var name2 = sEl('text', { x: bx + 10, y: by + 34, class: 'dname' });
     /* Truncate in the renderer, never in the model: the full name is in the
        Outline row and in the inspector, so nothing is lost by clipping the
-       picture (`56` §2.4). */
-    name.textContent = b.s[2].length > 24 ? b.s[2].slice(0, 23) + '…' : b.s[2];
-    g.appendChild(name);
+       picture (`56` §2.4). A RANGE loses the middle of each end rather than its
+       tail -- see fitName; the two ends are what a range is. */
+    name2.textContent = fitName(b.s[2], ag.collapsed);
+    g.appendChild(name2);
     DG.scene.appendChild(g);
-    DG.boxes[b.s[0]] = { x: bx, y: by, w: bw, h: bh, g: g, kind: b.s[1], label: b.s[2] };
+    DG.boxes[b.s[0]] = {
+      x: bx, y: by, w: bw, h: bh, g: g,
+      kind: b.s[1], label: b.s[2], n: ag.n, collapsed: ag.collapsed
+    };
   }
 
   DG.ring = sEl('rect', {
@@ -2166,24 +2505,74 @@ function renderDiagram(host) {
 
   DG.canvas.appendChild(DG.svg);
   split.appendChild(DG.canvas);
-  DG.out = dgOutline(boxes, noSetKinds);
+  DG.out = dgOutline(boxes, noSetKinds, agg);
   split.appendChild(DG.out);
   view.appendChild(split);
 
-  /* The notes live INSIDE the Outline column rather than under the surface.
+  /* 56 §5.2 G10, the release valve: anything the picture cannot say, the band
+     says. What it must never do is lose the number as scale rises -- 59 §6.2
+     files exactly that defect in the study's base, where `41 edge labels off`
+     degraded to `edge labels off` at the point the count started to matter.
+
+     The notes live INSIDE the Outline column rather than under the surface.
      Under it they were two more `flex: none` blocks competing with the picture
-     for the column's height, which is the shape of defect 1; inside the Outline
-     they scroll with the rows that explain them. */
+     for the column's height, which is the shape of the surface's defect 1;
+     inside the Outline they scroll with the rows that explain them.
+
+     `hidObjects` and `hidEdges` are OBJECTS AND EDGES, not shapes -- see
+     `layers::Filter`. With aggregation on, a mask that removes one box can
+     remove thirteen addresses with it, and the first draft of this sentence
+     printed the box count under the word "objects": `1 objects hidden`. That is
+     the silent-count rule failing inside the sentence written to enforce it,
+     which is why the count is now summed in the core rather than differenced
+     here. */
+  /* THE OBJECT COUNT, not the number of boxes saved. The band said
+     `stood - boxes.length` while every collapsed box said how many objects it
+     stands for, so two boxes reading `13 collapsed` summed to a band reading
+     `24`, and a reader who adds them up gets a third number. `59` §3.9's
+     measured band form ("40 tunnels collapsed" for a fan of forty in one box)
+     is the object count, so that is the arithmetic both places use now. */
+  var collapsed = 0;
+  for (var ci = 0; ci < agg.length; ci++) if (agg[ci].collapsed) collapsed += agg[ci].n;
   note(DG.out, 'This is a rendering, not a record',
-    boxes.length + ' objects, ' + lines.length + ' links. Layers: ' + layerWords() +
-    ' — ' + hidBoxes + ' objects and ' + hidLines + ' links hidden by the mask. ' +
-    'Toggling a layer never moves a box: one layout is computed over all five ' +
-    'and the mask filters what is drawn (56 §3.6). Positions come from the ' +
-    'model, not from dragging: there is no hand placement, because a position ' +
-    'is graph data (56 §3.5) and the op that would store one does not exist ' +
-    'yet. Aggregation and staleness are not in this build either. Pan, zoom and ' +
-    'whether the picture is open at a narrow width are the only things this ' +
-    'page remembers about the surface.');
+    boxes.length + ' boxes standing for ' + stood + ' objects' +
+    (collapsed > 0 ? ' · ' + collapsed + ' collapsed' : '') + ' · ' +
+    lines.length + ' lines' +
+    (swallowed > 0 ? ' · ' + swallowed + ' links are between objects inside one ' +
+     'collapsed box and are drawn nowhere' : '') +
+    '. Layers: ' + layerWords() + ' — ' + hidObjects + ' objects and ' + hidEdges +
+    ' links hidden by the mask. Toggling a layer never moves a box: one layout ' +
+    'is computed over all five and the mask filters what is drawn (56 §3.6). ' +
+    'Positions come from the model, not from dragging: there is no hand ' +
+    'placement, because a position is graph data (56 §3.5) and the op that ' +
+    'would store one does not exist yet. Staleness is not in this build. Pan, ' +
+    'zoom, which groups are open and whether the picture is open at a narrow ' +
+    'width are the only things this page remembers about the surface.');
+
+  /* `59` §3.7 asks an expanded group to state its own state IN THE PICTURE —
+     "in a reserved band on the owning device: `st0 · 6 of 40 shown`" — and §3.9
+     measures the form. Until this line the partial state existed only in the
+     residual's accessible name, so the screen-reader user was told how much of
+     a group was on screen and the sighted user was not. That is the usual
+     accessibility gap running backwards, and it is worth naming as such.
+
+     The band is the honest placement rather than the specified one: §3.7 puts
+     it on the owning device's row, which needs a device band this build does
+     not draw. A line that says the true thing in the wrong place beats a
+     reserved band that is not there. */
+  var partials = [];
+  for (var pk in tally) {
+    if (!Object.prototype.hasOwnProperty.call(tally, pk)) continue;
+    var t3 = tally[pk];
+    if (t3.shown > 0 && t3.hidden > 0) {
+      partials.push(t3.shown + ' of ' + (t3.shown + t3.hidden) + ' shown, ' +
+        t3.hidden + ' still collapsed');
+    }
+  }
+  partials.sort();
+  if (partials.length) {
+    note(DG.out, 'Partly expanded', partials.join(' · ') + '.');
+  }
 
   /* What this build cannot draw, said rather than implied. 56 §4.1 gives most
      of these kinds a treatment -- a bracket, a band, a port stub, a badge, a
@@ -2259,6 +2648,14 @@ document.addEventListener('click', function (ev) {
     return;
   }
   if ((n = seekAttr(ev.target, 'data-dexpand'))) { dgToggleOpen(n); return; }
+  /* BEFORE the data-drow arm: a collapsed group's Outline row carries both, and
+     a click on it must open the group rather than try to select an element id
+     that names a group and not a thing. The keyboard path has the same
+     precedence, in the keydown handler. */
+  if ((n = seekAttr(ev.target, 'data-group'))) {
+    diagramOpen(n.getAttribute('data-group'));
+    return;
+  }
   if ((n = seekAttr(ev.target, 'data-dpost'))) { dgSelect(n.getAttribute('data-dpost')); return; }
   if ((n = seekAttr(ev.target, 'data-dlink'))) { dgFollow(n); return; }
   if ((n = seekAttr(ev.target, 'data-drow'))) { dgSelect(n.getAttribute('data-drow')); return; }
@@ -2332,6 +2729,28 @@ document.addEventListener('keydown', function (e) {
   var link = seekAttr(t, 'data-dlink'), row = seekAttr(t, 'data-drow');
   if (!link && !row) return;
   if (!DG.out.contains(link || row)) return;
+
+  /* A GROUP ROW'S DISCLOSURE IS THE GROUP. There is no single element behind a
+     collapsed box to select and no edge set that is honestly its own, so the
+     three keys `53` §3.2 gives a treeitem all point at the one thing this row
+     can do: reveal what it stands for. `59` §3.8 requires the affordance to be
+     reachable and to keep focus across the rebuild, and diagramOpen re-homes it
+     through refocusGroup. */
+  var grp = !link && row ? row.getAttribute('data-group') : null;
+  if (grp) {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar' ||
+        e.key === 'ArrowRight') {
+      e.preventDefault();
+      diagramOpen(grp);
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      diagramCollapse(row.getAttribute('data-key') || grp);
+      return;
+    }
+    return;
+  }
 
   if (e.key === 'Enter') {
     e.preventDefault();
@@ -2611,7 +3030,37 @@ document.addEventListener('click', function (ev) {
     render();
     return;
   }
+  /* A collapsed group carries data-group and NEVER data-post, and a box that
+     stands for one node carries data-post and never a group key -- the module
+     guarantees it, `tests/agg.rs` pins it, and the two arms are therefore
+     independent of the order they sit in here. */
+  if ((n = seekAttr(ev.target, 'data-group'))) {
+    diagramOpen(n.getAttribute('data-group'));
+    return;
+  }
+  if (seekAttr(ev.target, 'data-whole')) {
+    S.whole = !S.whole;
+    /* Either direction resets what is open. Going to `every one drawn` there is
+       nothing left to expand, and an open set that survived would sit on the
+       Escape ladder with nothing drawn to collapse. */
+    S.open = [];
+    foot(S.whole ? 'drawing every one' : 'collapsing repeated objects');
+    render();
+    return;
+  }
   if (seekAttr(ev.target, 'data-remove')) { removeSelected(); return; }
+});
+
+/* Enter and Space on a collapsed group expand it. `59` §3.8: "Enter and Space
+   expand." Escape is NOT here -- it is one rung of the document-level ladder
+   further down, because a key scoped to the focused element is the model that
+   document rejects. */
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  var n = seekAttr(e.target, 'data-group');
+  if (!n) return;
+  e.preventDefault();
+  diagramOpen(n.getAttribute('data-group'));
 });
 
 /* Enter commits an edited field. On the same delegate as everything else so a
@@ -3099,11 +3548,36 @@ document.addEventListener('keydown', function (e) {
     return;
   }
   /* Escape unwinds exactly one level (53 §3.7); on an empty state it
-     navigates nowhere. */
+     navigates nowhere.
+
+     ONE DOCUMENT-LEVEL HANDLER WITH A STATED PRIORITY LADDER, and never a
+     handler bound to the focused element. `59` §3.8 rejects the scoped model in
+     terms and names the alternative:
+
+       "A3 and A4 bind Escape to the group element, so it only collapses the
+        group that has focus ... A2 is right and should be copied: one
+        document-level handler with a stated priority ladder ... That satisfies
+        §2.2's one-key rule by ORDERING rather than by scoping, which is what a
+        constant key needs."
+
+     The previous attempt gated on `e.target` having data-group and cited §3.8
+     as the authority for doing so, which is that row read backwards; driven,
+     Escape from <body> left an expanded group open.
+
+     The expanded-group rung sits where `53` §3.7 puts a disclosure: below the
+     overlays (its rung 2) and ABOVE the selection rungs (6 and 7), because §3.7
+     lists "an expanded explainer" and "an expanded proposal card" at 4 and 5.
+     Most-recently-opened first, because "exactly one level" means the level the
+     reader last added -- which is why S.open is a list in activation order and
+     not a set. */
   if (e.key === 'Escape') {
     if (eOpen) { setEquip(false); return; }
     if (pOpen) { setPaste(false); return; }
     if (fOpen) { setFinder(false); return; }
+    if (S.view === 'diagram' && S.open.length) {
+      diagramCollapse(S.open[S.open.length - 1][0]);
+      return;
+    }
     if (S.sel) {
       /* `55` §5.6: Esc "moves focus to the container's own heading, so a user
          is never stranded". render() rebuilds the fact column, which destroys

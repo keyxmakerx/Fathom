@@ -580,13 +580,25 @@ impl Shell {
             .ok_or_else(|| protocol::encode_error(ERR_NO_ELEMENT, display))
     }
 
-    /// `OP_DIAGRAM`: the whole estate, laid out. Zero request bytes, or one
-    /// carrying `56` §4's 5-bit `LayerMask`.
+    /// `OP_DIAGRAM`: the whole estate, laid out.
+    ///
+    /// The request is zero bytes, or one byte carrying `56` §4's 5-bit
+    /// `LayerMask`, **or that byte followed by the aggregation view
+    /// preference** in `fathom_layout::agg::View::parse`'s one-line-per-group
+    /// form. Byte 0 is always the mask when there is one, so every caller
+    /// written before aggregation existed still means what it meant.
     ///
     /// A read, like the other face opcodes: it computes positions and returns
     /// them, and holds nothing. Re-asking after any change is how the page
     /// refreshes, which is correct because the layout is a pure function of the
     /// graph and so cannot drift from it.
+    ///
+    /// **The shell stores no part of the view preference, deliberately.**
+    /// Expansion is not an estate fact, so it travels with the request rather
+    /// than accumulating here — which keeps this opcode a pure function of
+    /// (estate, request) and therefore keeps invariant 9 checkable on it. See
+    /// `fathom_layout::agg`'s header for the argument, and for why it does not
+    /// answer the same question for pins.
     ///
     /// **Zero bytes is not the same request as `0b11111`.** With no mask the
     /// reply is the union scene with no layer projection applied at all — what
@@ -601,10 +613,10 @@ impl Shell {
     /// `fathom_layout::lay_out` takes no mask, which is how that is enforced
     /// rather than merely intended.
     fn diagram(&mut self, req: &[u8]) -> Vec<u8> {
-        let mask = match req {
-            [] => None,
-            [bits] => match fathom_layout::layers::LayerMask::from_bits(*bits) {
-                Some(m) => Some(m),
+        let (mask, rest) = match req.split_first() {
+            None => (None, &[][..]),
+            Some((bits, rest)) => match fathom_layout::layers::LayerMask::from_bits(*bits) {
+                Some(m) => (Some(m), rest),
                 None => {
                     return protocol::encode_error(
                         ERR_BAD_FRAME,
@@ -615,20 +627,22 @@ impl Shell {
                     )
                 }
             },
-            other => {
-                return protocol::encode_error(
-                    ERR_BAD_FRAME,
-                    &format!(
-                        "OP_DIAGRAM takes no request or one mask byte; got {} bytes",
-                        other.len()
-                    ),
-                )
-            }
+        };
+        let Ok(text) = core::str::from_utf8(rest) else {
+            return protocol::encode_error(
+                ERR_BAD_FRAME,
+                "OP_DIAGRAM's view preference must be UTF-8",
+            );
         };
         let Some(estate) = self.estate.as_ref() else {
             return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
         };
-        let union = fathom_layout::lay_out(estate);
+        // No bytes past the mask is the **folded** picture. `59` §3.1 is a
+        // DECISION and the collapse is the default drawing, so the default
+        // request has to be the one that gets it; a caller wanting every node
+        // drawn asks for it with `*`, which is `59` §3.7's retained control and
+        // not a compatibility shim.
+        let union = fathom_layout::lay_out_with(estate, &fathom_layout::agg::View::parse(text));
         match mask {
             None => protocol::encode_diagram(&union, None),
             Some(m) => {

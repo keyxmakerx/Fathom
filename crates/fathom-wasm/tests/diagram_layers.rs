@@ -178,11 +178,44 @@ fn a_bit_above_the_five_is_refused() {
         assert_eq!(e.code, ERR_BAD_FRAME, "{bad:#010b}");
         assert!(e.detail.contains("layer mask"), "{}", e.detail);
     }
-    let e = error(&shell.handle(OP_DIAGRAM, &[1, 2]));
-    assert_eq!(e.code, ERR_BAD_FRAME);
-
     let e = error(&Shell::new().handle(OP_DIAGRAM, &[0b0001_1111]));
     assert_eq!(e.code, ERR_NOT_INITIALISED, "a mask is not an estate");
+}
+
+/// **The request grew a tail and this is what it now means.** Until aggregation
+/// landed, anything past the mask byte was refused with `ERR_BAD_FRAME`; the
+/// bytes after the mask are now `59` §3.7's view preference, and the refusal
+/// that replaces the old one is for a tail that is not text at all.
+///
+/// The mask stays in byte 0, so every caller written before this still means
+/// exactly what it meant — which is the reason it went behind the mask rather
+/// than in front of it.
+#[test]
+fn the_bytes_after_the_mask_are_the_view_preference() {
+    let mut shell = loaded();
+
+    // 0x80 is a continuation byte with no lead byte: never valid UTF-8.
+    let e = error(&shell.handle(OP_DIAGRAM, &[0b0001_1111, 0x80]));
+    assert_eq!(e.code, ERR_BAD_FRAME);
+    assert!(e.detail.contains("UTF-8"), "{}", e.detail);
+
+    // **X2 at the wire.** No run in the demo estate reaches `59` §3.1's six, so
+    // the folded picture and `*`'s un-aggregated one are the same picture —
+    // *"below the threshold the aggregated and un-aggregated pictures are the
+    // same picture … there is no regression to weigh against the gain"*. That a
+    // fan above six really does collapse is measured in `tests/diagram_agg.rs`,
+    // on an estate that has one.
+    let folded = picture(&mut shell, &[0b0001_1111]);
+    let whole = picture(&mut shell, &[0b0001_1111, b'*']);
+    assert_eq!(
+        whole.boxes.len(),
+        folded.boxes.len(),
+        "nothing in the demo estate reaches the threshold"
+    );
+
+    // A key naming no group changes nothing, rather than blanking the picture.
+    let nonsense = picture(&mut shell, &[0b0001_1111, b'z']);
+    assert_eq!(nonsense.boxes.len(), folded.boxes.len());
 }
 
 /// Invariant 9 at the wire: the same mask twice is the same bytes.

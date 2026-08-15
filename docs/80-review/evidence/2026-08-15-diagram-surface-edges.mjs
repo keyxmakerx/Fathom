@@ -248,10 +248,28 @@ check('320 px: Tab leaves the surface again — no trap (55 §5.7)',
   walk.indexOf('BODY') > 0, walk.length + ' stops walked: ' + walk.join(' '));
 
 // --- 400% page zoom, which is what 320 CSS px IS (55 §6.3) --------------------
-// 1400 device px at 400% is 350 CSS px, so this is the same case reached the
-// way a user reaches it rather than by resizing a window.
+//
+// CORRECTED 2026-08-15, and the correction is the point. This block used to set
+// `document.body.style.zoom = '4'` on a 1400x900 context and assert it "IS the
+// 320 CSS px case". IT IS NOT. The CSS `zoom` property scales the element's
+// layout, and `window.innerWidth` stays 1400 — so the sheet's width rules never
+// fire, `[data-width]` stays `wide`, and the block was measuring the wide layout
+// under a magnifying glass. That is the overclaim this file's own DEFECT 3 was
+// about, arriving in the evidence rather than in the product.
+//
+// A browser at 400% on a 1400x900 physical display gives a 350x225 CSS viewport,
+// so that is what is set. Reached by the numbers rather than by the name:
+// 1400/4 = 350, 900/4 = 225.
+//
+// WHAT THIS NOW MEASURES, AND WHAT IT FINDS. At 350x225 the fact column has zero
+// height and no Outline row is on screen. That failure is PRE-EXISTING and
+// SHELL-WIDE — it reproduces in all five views on the parent commit, before any
+// diagram work — so it is asserted here as a known state rather than as a pass,
+// and it is filed in `73` §14 as an escalation. Asserting `touching >= 1` here
+// would be re-telling the same lie in the other direction: claiming a product
+// behaviour that is not there.
 await page.setViewportSize({ width: 1400, height: 900 });
-const zoomed = await browser.newContext({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1 });
+const zoomed = await browser.newContext({ viewport: { width: 350, height: 225 }, deviceScaleFactor: 4 });
 const zp = await zoomed.newPage();
 const zerrors = [];
 zp.on('pageerror', e => zerrors.push(String(e)));
@@ -261,23 +279,39 @@ await zp.click('#tabPaste');
 await zp.fill('#pta', CONFIG);
 await zp.click('#pRun');
 await zp.click('[data-view="diagram"]');
-await zp.waitForSelector('.dcanvas svg');
-await zp.evaluate(() => { document.body.style.zoom = '4'; });
+// `attached`, not `visible`: at this width `55` §6.3's substitution collapses
+// the canvas by design, so waiting for a VISIBLE svg waits forever. That the
+// wait had to change is itself the finding — the old block never reached this
+// layout at all.
+await zp.waitForSelector('.dcanvas svg', { state: 'attached' });
 await zp.waitForTimeout(250);
 const z = await zp.evaluate(() => {
   const col = document.getElementById('factBody').getBoundingClientRect();
   const rows = Array.from(document.querySelectorAll('[data-drow]'));
   const se = document.scrollingElement;
   return { rows: rows.length,
+           boxes: document.querySelectorAll('.dbox').length,
+           innerWidth: window.innerWidth,
+           width: document.querySelector('.sheet').getAttribute('data-width'),
+           colH: Math.round(col.height),
            touching: rows.filter(n => { const b = n.getBoundingClientRect();
              return b.height > 0 && b.bottom > col.top && b.top < col.bottom; }).length,
            outlineH: Math.round(document.querySelector('.dout').getBoundingClientRect().height),
            bodyHScroll: se.scrollWidth > se.clientWidth + 1 };
 });
-check('400% page zoom: the Outline is on screen with rows in it',
-  z.outlineH > 0 && z.touching >= 1, JSON.stringify(z));
+check('400% page zoom: the viewport really is narrow, not a magnified wide one',
+  z.innerWidth <= 350 && z.width === 'narrow', JSON.stringify(z));
+check('400% page zoom: every drawn box still has an Outline row',
+  z.rows === z.boxes && z.rows > 0, JSON.stringify(z));
 check('400% page zoom: no sideways body scroll (WCAG 1.4.10)', !z.bodyHScroll);
 check('400% page zoom: no page errors', zerrors.length === 0, zerrors.join(' | '));
+// The known bad state, pinned so that FIXING it fails this line and forces the
+// escalation to be closed rather than quietly outlived.
+check('400% page zoom: the fact column has no height — PRE-EXISTING, `73` §14',
+  z.colH === 0 && z.touching === 0,
+  'colH ' + z.colH + ', rows touching ' + z.touching +
+  ' — if this now passes rows on screen, the shell bug is fixed: close the ' +
+  'escalation in `73` §14 and turn this into a positive assertion');
 await zoomed.close();
 
 // --- the estate changes under the view ----------------------------------------
