@@ -388,25 +388,48 @@ fn the_read_is_deterministic() {
     assert_eq!(format!("{a:?}"), format!("{b:?}"));
 }
 
-/// The compiled-in copy is the copy on disk — the same drift `tests/embedded.rs`
-/// guards for junos-srx, which the WebAssembly build depends on entirely.
+/// The handed-in dictionary reads what the on-disk one reads.
+///
+/// This test was written against a compiled-in copy, which no longer exists:
+/// on the merge with the tip (2026-08-15) the dictionary stopped being
+/// `include_str!`'d and started arriving over `OP_DICT` from the page, and this
+/// dictionary followed it rather than being the one exception. So the thing
+/// under test changed with it — not *"are the embedded bytes the disk's bytes"*,
+/// which the compiler used to guarantee and the artifact assembler now guards
+/// (`fathom-artifact`'s `tests/artifact.rs`), but *"does the route the browser
+/// actually takes read the same"*. `dictionary_from_host` never opens the schema
+/// tree, so equal bytes are not by themselves equal behaviour.
 #[test]
-fn the_embedded_opnsense_dictionary_is_the_one_on_disk() {
-    for (name, text) in fathom_ingest::dict::EMBEDDED_DICT_SOURCES_OPNSENSE {
-        let disk = std::fs::read_to_string(
-            repo_root()
-                .join("corpus")
-                .join("dict")
-                .join("opnsense")
-                .join(name),
-        )
-        .unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(&disk, text, "{name} differs from the compiled-in copy");
-    }
+fn the_handed_in_opnsense_dictionary_reads_what_the_disk_reads() {
+    let dir = repo_root().join("corpus").join("dict").join("opnsense");
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("the dictionary directory is checked in")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().map(|x| x == "yaml").unwrap_or(false))
+        .collect();
+    paths.sort();
+    let sources: Vec<(String, String)> = paths
+        .iter()
+        .map(|p| {
+            (
+                p.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{}: {e}", p.display())),
+            )
+        })
+        .collect();
+    let keys = std::fs::read_to_string(repo_root().join("schema").join("field-keys.yaml"))
+        .expect("schema/field-keys.yaml is checked in");
+
+    let hosted =
+        fathom_ingest::hosted::dictionary_from_host(&sources, "schema/field-keys.yaml", &keys)
+            .expect("the handed-in dictionary loads");
     let disk = dict();
-    let embedded = Dictionary::embedded_opnsense().expect("the compiled-in dictionary loads");
-    assert_eq!(embedded.entry_count(), disk.entry_count());
+
+    assert_eq!(hosted.platform(), "opnsense");
+    assert_eq!(hosted.entry_count(), disk.entry_count());
     let a = ingest_csv(&fixture(), &disk).expect("within the caps");
-    let b = ingest_csv(&fixture(), &embedded).expect("within the caps");
+    let b = ingest_csv(&fixture(), &hosted).expect("within the caps");
     assert_eq!(format!("{a:?}"), format!("{b:?}"));
 }

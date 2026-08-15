@@ -370,3 +370,7 @@ fields:
   # WarpResolvesVia
   WarpResolvesVia.candidate: 298
   WarpResolvesVia.ordinal: 299
+  # LayoutPin (ADR-0035) — where a person put a box. Appended at the tail with the next two
+  # integers, which is the only way a key is ever assigned.
+  LayoutPin.x: 300
+  LayoutPin.y: 301

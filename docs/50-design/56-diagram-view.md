@@ -335,10 +335,37 @@ a diagram you can drag is worth more than a diagram that arranges itself well an
 
 ### 3.5 Manual positions — how they are stored and how they survive
 
+> **AMENDED 2026-08-15 by ADR-0035, and half of this section is now built.** What changed: this
+> section's governing sentence — *"positions are graph data, not view state"* — was **ratified**
+> and given a spelling in `62`'s grammar, which it never had. The `LayoutHint` struct below is
+> **design prose and was never the shipped shape**; what ships is a `LayoutPin` node contained by
+> the element it places, carrying two `i32` fields on the 4 px grid, reached by the containment edge
+> `HasLayoutPin` from the `Placeable` class. ADR-0035 §4 gives the reasoning, including why a
+> `scene_position` field on each of forty-eight kinds was rejected (a field key is per
+> `(kind).field`, so generic code would need a forty-eight-arm table to ask *"does this have a
+> position"*).
+>
+> What ships of the four `Pin` variants: **`Pin::At` only.** `Free` is the absence of a pin;
+> `InLayer` and `Grouped` are unbuilt, and so is `pinned_under`. The schema takes all three
+> additively. The three properties table below is honoured in full for `Pin::At`. **`Ctrl+Z` is
+> unbuilt** — the product has no undo stack for anything yet — but the batch labels are written and
+> a placement is literally *"an op like any other"*, so this section's claim about undo costs that
+> work nothing.
+>
+> One rule this section leaves implicit and ADR-0035 makes explicit: **a box standing for more than
+> one node cannot be placed.** `59`'s aggregation did not exist when this was written; a collapsed
+> group has no single element whose position a pin could be, so a pin is consulted only for a cell
+> holding exactly one node, and dragging a collapsed group pans instead.
+
 Positions are **graph data**, not view state. `52` §10 already places them in the workspace; `11`
 §10.6 already guarantees they survive a rename because they are keyed by `NodeId`.
 
 ```rust
+/// DESIGN PROSE, not the shipped type. See the amendment above and ADR-0035 §4:
+/// what exists in `schema/` is a `LayoutPin` node with `x: i32` and `y: i32`,
+/// contained by the element it places. The shape below is kept because its
+/// FOUR PIN MODES are still the specification and three of them are unbuilt.
+///
 /// Attached to any node that can be drawn. Absent means "lay me out".
 /// Provenance is Origin::Hand — a position is a human assertion, and 11 §8.7
 /// deliberately does not age human assertions.
@@ -1668,3 +1695,17 @@ from it is an ungated export path.
 attributes, and §9.4 asks for `img-src 'self' blob:`. The first is a rendering necessity with no
 security surface. The second is a real widening of the policy for a convenience format, and `34`
 is entitled to refuse it.
+
+**4. What was built for §3.2 phase 5 sorts by BARYCENTRE, not by the median this table names**
+(added 2026-08-15, by the session that built `crates/fathom-layout/src/order.rs`). Everything else
+in phases 4 and 5 is as specified: one dummy per crossed rank, a fixed eight sweeps, four down and
+four up, every tie broken on `NodeId`. The rule itself is Sugiyama's original and the design
+prototype's, not Eades and Wormald's. The reason is not a preference: both were built, both ran
+from the same start with the crossing count deciding between them, and the two-rule module measured
+**909,779 bytes against `44` §5.2's 900,000-byte ceiling**. One rule had to go and the barycentre
+is the one the working prototype uses. Two honest qualifications, both recorded in that file:
+9,779 bytes was measured before an unrelated 11,197-byte saving was found in the same file, so the
+median is probably affordable now; and the cost of the median's own sort was never isolated. This
+is a note rather than a proposed edit to the table because the right resolution is a measurement
+nobody has taken yet, and because the ceiling itself is the open question in
+`70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` §2 stage 1.

@@ -22,15 +22,23 @@ fn admitting(owner: NodeKind, child: NodeKind) -> Vec<EdgeKind> {
         .collect()
 }
 
-/// G5. All 48 × 48 = 2,304 pairs: no pair is carried by two containment edge
+/// G5. All 49 × 49 = 2,401 pairs: no pair is carried by two containment edge
 /// kinds, and `containment_edge` returns exactly what an independent scan of
 /// the same tables returns.
 ///
-/// The pair count this pins is 46, not WO-09 §3's 51: the five
+/// The pair count this pins is 94, and it is 46 + 48.
+///
+/// **46** is the original set, and it is not WO-09 §3's 51: the five
 /// root-containment kinds (`HasTunnel`, `HasPremises`, `HasCable`,
 /// `HasTenant`, `HasServiceType`) declare `from: [root]`, and the workspace
 /// root is not a node kind, so `from_kinds()` is empty for each and no
 /// (NodeKind, NodeKind) pair names them. 51 − 5 = 46.
+///
+/// **48** is `HasLayoutPin` (ADR-0035), whose `from:` is the `Placeable` class —
+/// every kind but `LayoutPin` itself. One edge kind, forty-eight pairs, all with
+/// the same child. That is what makes a position storable on anything the
+/// diagram draws without forty-eight edge declarations, and the count moving by
+/// exactly the kind count is the arithmetic to check if it ever moves again.
 #[test]
 fn every_kind_pair_has_at_most_one_containment_edge() {
     let mut resolved = 0usize;
@@ -57,15 +65,18 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             }
         }
     }
-    assert_eq!(resolved, 46, "the containment pair set moved");
+    assert_eq!(resolved, 94, "the containment pair set moved");
 
-    // The 41 containment kinds are all still containment kinds, and every
+    // The 42 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
+    // `LayoutPin` is not among the orphans: it is contained by whatever it
+    // places, which is what makes `Graph::tombstone` take a pin away with the
+    // box it was pinning (ADR-0035).
     let containment = EdgeKind::ALL
         .into_iter()
         .filter(|k| k.class() == EdgeClass::Containment)
         .count();
-    assert_eq!(containment, 41);
+    assert_eq!(containment, 42);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {
@@ -188,4 +199,83 @@ fn the_dictionary_pairs_resolve() {
     // The negative half: a pair the schema declares no containment for.
     assert_eq!(containment_edge(NodeKind::Zone, NodeKind::Device), None);
     assert_eq!(containment_edge(NodeKind::Device, NodeKind::Site), None);
+}
+
+/// The gap the hand-maintained list above left open, closed by derivation.
+///
+/// `the_dictionary_pairs_resolve` is a list a human keeps in step with the
+/// dictionary, and on 2026-08-15 a human did not: a new `system ntp server`
+/// entry owned `NtpServer` off `Device`, when `HasNtpServer` runs
+/// `SystemSettings -> NtpServer`. It compiled, it loaded, every unit test
+/// passed, and it failed in the browser on the first real paste with
+/// `NoContainmentEdge { owner: Device, child: NtpServer }`.
+///
+/// This test does not maintain a list. It runs the shipped dictionary over a
+/// documented branch configuration and asserts that every (owner kind, child
+/// kind) pair the resulting fragment actually contains resolves to a
+/// containment edge. A new dictionary entry with the wrong owner now fails at
+/// `cargo test`, which is where it should have failed the first time.
+///
+/// The fixture is the coverage fixture, deliberately: it is the widest paste
+/// in the repo, so it exercises the most owner pairs. Reaching across crates
+/// for it is cheaper than keeping a second copy in step with the first.
+#[test]
+fn every_owner_pair_the_shipped_dictionary_produces_resolves() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the crate lives two levels under the repo root")
+        .to_path_buf();
+    let dict = fathom_ingest::dict::Dictionary::load(&root).expect("the shipped dictionary loads");
+    let paste = std::fs::read(
+        root.join("crates/fathom-ingest/tests/fixtures/junos-srx-branch-documented.txt"),
+    )
+    .expect("the branch fixture is on disk");
+    let out = fathom_ingest::ingest(&paste, &dict).expect("within the caps");
+
+    let mut pairs: Vec<(NodeKind, NodeKind)> = Vec::new();
+    for node in &out.fragment.nodes {
+        let Some(owner) = node.owner else { continue };
+        let owner_kind = out
+            .fragment
+            .nodes
+            .get(owner.0 as usize)
+            .expect("an owner index inside the fragment")
+            .kind;
+        let pair = (owner_kind, node.kind);
+        if !pairs.contains(&pair) {
+            pairs.push(pair);
+        }
+    }
+    for (owner, child) in &pairs {
+        assert!(
+            containment_edge(*owner, *child).is_some(),
+            "the dictionary produces ({}, {}) and no containment edge carries it",
+            owner.name(),
+            child.name()
+        );
+    }
+
+    // The set is pinned as well as checked. Six is small because most of what
+    // a paste builds is a TOP-LEVEL object — a Zone, an IkeGateway, a Vlan —
+    // which the fragment leaves with `owner: None` for the weld to attach to
+    // the device. Only genuine nesting appears here. Pinning it means a
+    // widening that adds a nested kind has to say so in this diff.
+    let mut named: Vec<String> = pairs
+        .iter()
+        .map(|(o, c)| format!("{}->{}", o.name(), c.name()))
+        .collect();
+    named.sort();
+    assert_eq!(
+        named,
+        vec![
+            "Device->SecurityFlowSettings",
+            "Device->SystemSettings",
+            "Interface->LogicalUnit",
+            "LogicalUnit->Address",
+            "SystemSettings->NtpServer",
+            "TunnelInterface->LogicalUnit",
+        ],
+        "the nested-kind set the shipped dictionary produces moved"
+    );
 }

@@ -1,0 +1,69 @@
+# corpus/dict/junos-srx/security-flow.yaml — added 2026-08-15.
+#
+# `SecurityFlowSettings` exists, in the schema's own words, "because
+# mtu.mss-clamp.absent needs somewhere to look" — and nothing had ever put a
+# value in it. On a branch SRX with a tunnel, `set security flow tcp-mss
+# ipsec-vpn mss 1350` is the fix for the single most common site-to-site
+# complaint (large packets over the tunnel fail), so a tool that cannot see it
+# cannot report on it.
+#
+# Statement form read off Juniper's CLI reference on **2026-08-15**
+# (ADR-0034 — the source AND the date):
+#
+#   tcp-mss {
+#     all-tcp  { mss value; }
+#     gre-in   { mss value; }
+#     gre-out  { mss value; }
+#     ipsec-vpn { mss value; }
+#   }
+#   Hierarchy Level: [edit security flow]
+#   https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/security-edit-tcp-mss.html
+#
+# All four are carried even though the measured branch configuration uses only
+# two: the schema declares all four fields, and shipping two would make the
+# omission of the other two look like a decision when it would only be an
+# accident of which fixture was to hand.
+#
+# The `Device` node in each entry is the implicit node 0 the binder always
+# creates (`bind::Fragment`'s doc) — declaring it here is how the
+# `SecurityFlowSettings` node gets its containment owner, since
+# `HasFlowSettings` runs Device -> SecurityFlowSettings.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+entries:
+  - id: junos-srx/security.flow.tcp-mss.all-tcp
+    path: [security, flow, tcp-mss, all-tcp, mss, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SecurityFlowSettings, owner: n0, fields: [ { field: tcp_mss_all_tcp, from: "$v", scalar: u16 } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.flow.tcp-mss.ipsec-vpn
+    path: [security, flow, tcp-mss, ipsec-vpn, mss, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SecurityFlowSettings, owner: n0, fields: [ { field: tcp_mss_ipsec_vpn, from: "$v", scalar: u16 } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.flow.tcp-mss.gre-in
+    path: [security, flow, tcp-mss, gre-in, mss, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SecurityFlowSettings, owner: n0, fields: [ { field: tcp_mss_gre_in, from: "$v", scalar: u16 } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.flow.tcp-mss.gre-out
+    path: [security, flow, tcp-mss, gre-out, mss, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SecurityFlowSettings, owner: n0, fields: [ { field: tcp_mss_gre_out, from: "$v", scalar: u16 } ] }
+    versions: "*"
+    reviewed_by: <named human>

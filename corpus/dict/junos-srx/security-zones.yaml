@@ -1,9 +1,134 @@
-# corpus/dict/junos-srx/security-zones.yaml — WO-03 §4.7 entries 36-37.
-# The first entry's path is a strict prefix of the second's, so it carries
-# `partial: true` (`14` §6.5's shadowing gate).
+# corpus/dict/junos-srx/security-zones.yaml — WO-03 §4.7 entries 36-37, plus
+# the zone-level statements added 2026-08-15 after the branch-coverage
+# measurement found `security zones` binding 6 of 18 lines in a documented
+# branch configuration (`docs/60-content/66-junos-coverage-measurement.md`).
+#
+# Every statement below is read off Juniper's CLI reference page
+# "security-zone" on **2026-08-15** (ADR-0034 — the source AND the date):
+#
+#   security-zone zone-name {
+#     address-book { … }
+#     advance-policy-based-routing;
+#     application-tracking;
+#     description text;
+#     enable-reverse-reroute;
+#     host-inbound-traffic {
+#       protocols protocol-name { except; }
+#       system-services service-name { except; }
+#     }
+#     interfaces interface-name {
+#       host-inbound-traffic { protocols …; system-services …; }
+#     }
+#     screen screen-name;
+#     source-identity-log;
+#     tcp-rst;
+#     unidirectional-session-refreshing;
+#     white-list white-list name;
+#   }
+#
+#   Hierarchy Level: [edit security zones]
+#   https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/security-edit-security-zone.html
+#
+# The `host-inbound-traffic` hierarchy is confirmed independently on the same
+# date by its own page, which lists all four levels it may appear at —
+# including the zone level and the per-interface level, which is why there are
+# two entries for each of `system-services` and `protocols` rather than one:
+#   https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/security-edit-host-inbound-traffic.html
+#
+# NOT carried, deliberately: `advance-policy-based-routing`,
+# `enable-reverse-reroute`, `source-identity-log`,
+# `unidirectional-session-refreshing`, `white-list` and the per-service
+# `except` sub-statement. The schema has no field for any of them, and
+# inventing one would be an ADR-0008 violation; they stay visible as residue
+# instead.
+#
+# The last two were MISSING from the block above and from this list until
+# 2026-08-15, when the page was re-read: the syntax block was presented as read
+# off the page and was two statements short, which made the "not carried" list
+# short by the same two. Both are recent additions to Junos —
+# `unidirectional-session-refreshing` in 20.4R1, `white-list` in 23.4R1, per the
+# page's own Release Information — which is exactly the kind of drift a
+# transcribed syntax block hides. Transcribe the whole stanza or cite it; do not
+# do half of each.
+#
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
 entries:
+  # The bare stanza. `14` §7.1 states the rule this implements: *"the second
+  # creates the node with no fields"* — `set security zones security-zone vpn`
+  # on its own is a zone that exists and has nothing else said about it, and
+  # without this entry it was `Unmapped` residue. `partial: true` because
+  # every other entry in this file extends its path (`14` §6.5).
+  - id: junos-srx/security.zones.security-zone
+    path: [security, zones, security-zone, "$z"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.zones.security-zone.description
+    path: [security, zones, security-zone, "$z", description, "$d"]
+    binds:
+      nodes:
+        - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `screen screen-name` is a *reference* to a screen profile the IR does not
+  # model, which is why `Zone.screen` is typed `Identifier` and not an edge
+  # ("Reference to a screen profile, unmodelled for now" — the kind's own
+  # schema doc). Storing the name keeps the fact rather than losing it.
+  - id: junos-srx/security.zones.security-zone.screen
+    path: [security, zones, security-zone, "$z", screen, "$s"]
+    binds:
+      nodes:
+        - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier }, { field: screen, from: "$s", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # Two flag statements: present means true, and Junos has no `tcp-rst false`
+  # form — the negative is `delete`, which this slice does not parse. So the
+  # entry asserts `true` and the absence of the statement asserts nothing,
+  # which is `Presence::Unset` and not `Set(false)`.
+  - id: junos-srx/security.zones.security-zone.tcp-rst
+    path: [security, zones, security-zone, "$z", tcp-rst]
+    binds:
+      nodes:
+        - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier }, { field: tcp_rst, const_bool: true } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.zones.security-zone.application-tracking
+    path: [security, zones, security-zone, "$z", application-tracking]
+    binds:
+      nodes:
+        - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier }, { field: application_tracking, const_bool: true } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # Zone-wide host-inbound traffic. The per-interface form below binds the
+  # ZoneMember EDGE instead, and the two are different facts: `11` §7.5 is
+  # explicit that the rule `zone.host-inbound.ike-missing` fires against the
+  # edge. Merging them here would make a zone-wide `system-services all` look
+  # like a per-interface grant on every member.
+  - id: junos-srx/security.zones.security-zone.host-inbound-services
+    path: [security, zones, security-zone, "$z", host-inbound-traffic, system-services, "$svc"]
+    binds:
+      nodes:
+        - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier }, { field: host_inbound_system_services, append_enum: HostService, from: "$svc" } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.zones.security-zone.host-inbound-protocols
+    path: [security, zones, security-zone, "$z", host-inbound-traffic, protocols, "$proto"]
+    binds:
+      nodes:
+        - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier }, { field: host_inbound_protocols, append_enum: HostProtocol, from: "$proto" } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
   - id: junos-srx/security.zones.security-zone.interfaces
     path: [security, zones, security-zone, "$z", interfaces, "$unit"]
     partial: true
@@ -22,5 +147,18 @@ entries:
         - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier } ] }
       edges:
         - { kind: ZoneMember, from: n0, to: { interface_unit: "$unit" }, fields: [ { field: host_inbound_system_services, append_enum: HostService, from: "$svc" } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # The twin of the entry above. It shipped without one, so a per-interface
+  # `protocols bfd` was residue while the `system-services ike` line beside it
+  # bound — an asymmetry with no reason behind it.
+  - id: junos-srx/security.zones.security-zone.interfaces.host-inbound-protocols
+    path: [security, zones, security-zone, "$z", interfaces, "$unit", host-inbound-traffic, protocols, "$proto"]
+    binds:
+      nodes:
+        - { as: n0, kind: Zone, key: "$z", fields: [ { field: name, from: "$z", scalar: Identifier } ] }
+      edges:
+        - { kind: ZoneMember, from: n0, to: { interface_unit: "$unit" }, fields: [ { field: host_inbound_protocols, append_enum: HostProtocol, from: "$proto" } ] }
     versions: "*"
     reviewed_by: <named human>

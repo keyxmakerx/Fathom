@@ -11,8 +11,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{
-    AddressFamily, EdgeKind, EstablishTunnels, Family, HostService, IkePolicyMode,
-    IpsecProposalProtocol, IpsecVpnDfBit, NodeKind, PolicyAction,
+    AddressFamily, EdgeKind, EstablishTunnels, Family, HostProtocol, HostService, IkePolicyMode,
+    IpsecProposalProtocol, IpsecVpnDfBit, NodeKind, PolicyAction, ProtocolAdjacencyNetworkType,
+    RoutingProtocolProtocol,
 };
 use fathom_ir::scalar::{self, Scalar};
 use fathom_ir::value::PeerSpec;
@@ -129,9 +130,29 @@ pub enum BoundValue {
     /// operator's sentence and not its Junos spelling.
     Text(scalar::Text),
     Fqdn(scalar::Fqdn),
-    /// Added 2026-08-15 — see `ValueTy::Bool` for why no dictionary could
-    /// reach a `bool` field until a CSV column needed one.
+    // ---- added 2026-08-15 by the branch-coverage widening.
+    /// A flag statement's truth value (`ValueSpec::ConstBool`). Both slices of
+    /// 2026-08-15 needed it; it is the first bool the binder has produced.
     Bool(bool),
+    VlanId(scalar::VlanId),
+    TzName(scalar::TzName),
+    /// Reached from the branch-coverage widening (`NtpServer.address`) and from
+    /// the routing slice alike -- one variant, because there is one scalar.
+    IpAddr(scalar::IpAddr),
+    U16(u16),
+    HostProtocolSet(BTreeSet<HostProtocol>),
+    // --- the routing slice (2026-08-15) --------------------------------------
+    // One variant per slot type `RoutingProtocol`, `ProtocolAdjacency` and
+    // `RoutingInstance.router_id` declare.
+    Ip4Addr(scalar::Ip4Addr),
+    Asn(scalar::Asn),
+    OspfAreaId(scalar::OspfAreaId),
+    Bandwidth(scalar::Bandwidth),
+    RoutingProtocolProtocol(RoutingProtocolProtocol),
+    ProtocolAdjacencyNetworkType(ProtocolAdjacencyNetworkType),
+    /// Added 2026-08-15 by the OPNsense slice: a firewall rule's verdict.
+    /// `SecurityPolicy.action` is the only slot of this type, and the CSV's
+    /// `action` column is the only thing that reaches it today.
     PolicyAction(PolicyAction),
 }
 
@@ -397,6 +418,38 @@ fn bind_statement(
     }
 
     let node = local.first().copied().unwrap_or(FragNodeId(0));
+
+    // A statement that said MORE than the entry modelled is residue, even
+    // though the entry's own nodes and edges bound.
+    //
+    // `set security ike gateway GW-B dead-peer-detection always-send interval
+    // 10 threshold 3` matches the four-segment bare-stanza entry: the gateway
+    // genuinely exists and binding its name loses nothing, but `always-send
+    // interval 10 threshold 3` went nowhere. Reporting that line `Bound` would
+    // break `14`'s one governing rule — NOTHING PARSED IS SILENTLY LOST — by
+    // taking it off the residue list the operator reads.
+    //
+    // The rule is stated over `consumed` vs the statement's own depth rather
+    // than over `partial`, because the same loss is reachable through a
+    // non-partial entry whenever a real config carries a sub-statement the
+    // entry's path stops short of. Adding the bare stanzas (2026-08-15) made
+    // it common; it was always possible.
+    //
+    // The gate is unaffected either way: `redact::gate_statement` already
+    // scans `m.consumed..segs.len()` as argument tokens, so a credential in
+    // the unmodelled tail is caught whichever outcome the line carries.
+    if m.consumed < stmt.path.len() {
+        merge(
+            outcomes,
+            slot,
+            LineOutcome::Unmapped {
+                known_prefix: cap_u8(m.known_prefix.max(m.consumed)),
+            },
+            diags,
+        );
+        return;
+    }
+
     merge(
         outcomes,
         slot,
@@ -485,6 +538,9 @@ fn merge_assertion(
             (BoundValue::HostServiceSet(have), BoundValue::HostServiceSet(add)) => {
                 have.extend(add.iter().cloned());
             }
+            (BoundValue::HostProtocolSet(have), BoundValue::HostProtocolSet(add)) => {
+                have.extend(add.iter().cloned());
+            }
             (have, add) if have == add => {}
             _ => diags.push(Diag::ValueUnparsed { key }),
         }
@@ -548,6 +604,9 @@ fn bound_value(
         ValueSpec::Secret { .. } => redact::placeholder_of(spec)
             .map(BoundValue::Secret)
             .ok_or(()),
+        // A flag statement has no argument, so there is nothing to capture,
+        // nothing to redact and nothing that can fail to parse.
+        ValueSpec::ConstBool { value } => Ok(BoundValue::Bool(*value)),
         ValueSpec::ConstEnum { ty, token } => scalar_value(dict, *ty, token),
         ValueSpec::AppendConst { ty, token } => set_value(*ty, token),
         ValueSpec::AppendFrom { ty, from } => {
@@ -618,6 +677,29 @@ fn scalar_value(dict: &Dictionary, ty: ValueTy, raw: &str) -> Result<BoundValue,
                 matches!(v, AddressFamily::Unknown(_))
             })?)
         }
+        ValueTy::VlanId => BoundValue::VlanId(parse(mapped)?),
+        ValueTy::TzName => BoundValue::TzName(parse(mapped)?),
+        ValueTy::U16 => BoundValue::U16(mapped.parse::<u16>().map_err(|_| ())?),
+        ValueTy::Ip4Addr => BoundValue::Ip4Addr(parse(mapped)?),
+        ValueTy::IpAddr => BoundValue::IpAddr(parse(mapped)?),
+        ValueTy::Asn => BoundValue::Asn(parse(mapped)?),
+        ValueTy::OspfAreaId => BoundValue::OspfAreaId(parse(mapped)?),
+        ValueTy::Bandwidth => BoundValue::Bandwidth(parse(mapped)?),
+        // Junos `ospf3` reaches here already mapped to `ospf_v3`; an
+        // unmapped protocol word (`isis`, or a typo) is refused rather than
+        // stored, the same rule as every other enum in this function.
+        ValueTy::RoutingProtocolProtocol => BoundValue::RoutingProtocolProtocol(known(
+            RoutingProtocolProtocol::from_token(&neutral),
+            |v| matches!(v, RoutingProtocolProtocol::Unknown(_)),
+        )?),
+        // `p2mp-over-lan` is a real Junos interface-type with no schema
+        // counterpart: it lands in `Unknown` and is therefore refused, which
+        // leaves the field empty and the line diagnosed instead of storing a
+        // network type the schema never declared.
+        ValueTy::ProtocolAdjacencyNetworkType => BoundValue::ProtocolAdjacencyNetworkType(known(
+            ProtocolAdjacencyNetworkType::from_token(&neutral),
+            |v| matches!(v, ProtocolAdjacencyNetworkType::Unknown(_)),
+        )?),
         // A closed spelling list, on purpose. Anything else fails to a
         // `ValueUnparsed` diagnostic the ledger shows, because the alternative
         // — defaulting — would silently claim a firewall rule is disabled
@@ -649,6 +731,12 @@ fn set_value(ty: SetEnumTy, raw: &str) -> Result<BoundValue, ()> {
                 matches!(v, HostService::Unknown(_))
             })?;
             BoundValue::HostServiceSet(BTreeSet::from([v]))
+        }
+        SetEnumTy::HostProtocol => {
+            let v = known(HostProtocol::from_token(&neutral), |v| {
+                matches!(v, HostProtocol::Unknown(_))
+            })?;
+            BoundValue::HostProtocolSet(BTreeSet::from([v]))
         }
     })
 }

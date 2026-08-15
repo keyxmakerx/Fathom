@@ -1998,8 +1998,14 @@ RENDER.findings = function (host) {
 };
 
 /* ---------------------------------------------------------------------------
-   11. DIAGRAM — computed layout, never hand-placed coordinates. The
-   aggregation is a transform on the model, run before layout (59 §3.1); the
+   11. DIAGRAM — computed layout, and since ADR-0035 (2026-08-15) a hand
+   position is an OVERRIDE on top of it, stored as graph data and drawn with a
+   corner tick so the picture says which boxes carry one. THIS PROTOTYPE STILL
+   HAS NO HAND PLACEMENT and its coordinates are all computed; the sentence
+   that used to read "never hand-placed coordinates" was a constraint on the
+   whole product and is now a description of this file only. The shipped
+   product is `crates/fathom-artifact/html/fathom-dev.src.html`.
+   The aggregation is a transform on the model, run before layout (59 §3.1); the
    warp is the same transform on a different axis (77 §5.3). Monochrome:
    ink, muted, hairline, surface, page — no colour (59 §4).
    --------------------------------------------------------------------------- */

@@ -110,10 +110,13 @@ fn fixture_outcome_classes() {
     // The backslash continuation is one logical line, and dead-peer-detection
     // is deliberately not bindable in this slice (§4.7).
     assert_eq!(at(15), LineOutcome::Unmapped { known_prefix: 4 });
-    // `security idp` is understood as far as `security`; routing-options not
-    // at all (`14` §8.3's own worked pair).
+    // `security idp` is understood as far as `security`; the static route as
+    // far as `routing-options` (`14` §8.3's own worked pair — the second half
+    // read 0 until 2026-08-15, when `routing-options router-id` made
+    // `routing-options` a segment the dictionary knows. The line is still
+    // unmapped: nothing here reaches `static`.)
     assert_eq!(at(31), LineOutcome::Unmapped { known_prefix: 1 });
-    assert_eq!(at(32), LineOutcome::Unmapped { known_prefix: 0 });
+    assert_eq!(at(32), LineOutcome::Unmapped { known_prefix: 1 });
     // Secret-only entries catalogue without modelling: residue, with a drop.
     assert_eq!(at(33), LineOutcome::Unmapped { known_prefix: 3 });
     assert_eq!(at(34), LineOutcome::Unmapped { known_prefix: 3 });

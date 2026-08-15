@@ -86,7 +86,7 @@ fn from_to_sets_nonempty_unless_root() {
 fn slot_type_covers_every_registry_key() {
     assert_eq!(
         FIELD_KEYS.len(),
-        299,
+        301,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

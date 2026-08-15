@@ -53,6 +53,7 @@ table. Reproduced exactly; additions since are marked.
 | The browser platform and the CSP per mode | `30-security/34` |
 | Deployment shapes and their lettering | `40-stack/43` |
 | Size, memory and latency budgets | `40-stack/44` |
+| The measured composition of the release WASM module, and the instrument that measures it | `40-stack/47` (added 2026-08-15; it measures and recommends, `44` decides — a byte figure in `47` that contradicts `44` is a correction `44` has not yet taken, not a second budget) |
 | The IR, node kinds, identity tuples, re-identification | `10-core/11` |
 | The rule engine, `fex`, suppression shape | `10-core/12` |
 | The subagent catalogue, tool grants, gates | `20-ai/22` |

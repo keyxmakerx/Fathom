@@ -29,6 +29,7 @@ pub mod bind;
 pub mod csv;
 pub mod dict;
 pub mod frame;
+pub mod hosted;
 pub mod lex;
 pub mod redact;
 pub mod shape;

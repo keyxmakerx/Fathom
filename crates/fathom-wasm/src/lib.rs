@@ -13,6 +13,7 @@
 //! allows is the narrowest working form; there is no `unsafe` block to allow.
 #![deny(unsafe_code)]
 
+pub mod dictframe;
 pub mod protocol;
 pub mod shell;
 pub mod wasmbin;
@@ -30,6 +31,14 @@ pub const OP_QUERY: u32 = 4;
 /// The inventory face's four opcodes (WO-08 §4.4). 41 §3.7's table holds
 /// 1–10; these take the next free numbers. A new call is a new opcode, never
 /// a changed one — 2, 3 and 5–10 stay refused by number.
+///
+/// **11 is reserved but not implemented by the shipping module.** The demo
+/// estate it loaded was a development fixture costing 35,095 bytes of `44`
+/// §5.2's ceiling, and it now builds only under the `demo-estate` feature,
+/// which only test targets enable. The number stays declared here — and stays
+/// unusable by anything else — because 41 §3.7's table is append-only: an
+/// opcode that once meant "load the demo estate" may never come to mean
+/// something else. Without the feature, a call to 11 returns `ERR_UNKNOWN_OP`.
 pub const OP_ESTATE_DEMO: u32 = 11;
 pub const OP_INV_ROWS: u32 = 12;
 pub const OP_ELEMENT: u32 = 13;
@@ -88,6 +97,52 @@ pub const OP_FIELD_SET: u32 = 17;
 /// silently is not a record. What this gives the operator is *"this is no longer
 /// true"*, which is a different and more honest claim than *"this never was"*.
 pub const OP_ELEMENT_REMOVE: u32 = 18;
+
+/// The diagram: every live node as a positioned box, every live edge as a
+/// routed line.
+///
+/// Layout runs HERE and not in the page — `41` §750, because it must be
+/// deterministic (invariant 9), because the CLI's SVG export shares it, and
+/// because `23` §6.5 already classes diagram layout as a deterministic
+/// non-model task. The page receives coordinates and draws them; it computes no
+/// geometry.
+pub const OP_DIAGRAM: u32 = 19;
+
+/// Hand the statement dictionary in.
+///
+/// The dictionary used to be `include_str!`'d into this module — 29 670 bytes
+/// of YAML in the data section, against `44` §5.2's 900 000-byte ceiling, with
+/// every further platform costing its own. It is corpus data, and corpus data
+/// already has a door: `OP_INIT` has carried commands, explainers and rules in
+/// from the page since WO-07. This is that door, used a second time, and
+/// `crate::dictframe` documents the frame.
+///
+/// **20, not 19.** 19 is `OP_DIAGRAM`'s, taken concurrently in another branch.
+/// An opcode is stable forever and a collision is worse than a gap
+/// (41 §3.7: *"a new call is a new opcode, never a changed one"*), so this
+/// takes the next free number rather than the next one up.
+pub const OP_DICT: u32 = 20;
+
+/// Put a box somewhere, or put it back under computed layout.
+///
+/// The owner asked for this three times — *"drag a device"*, *"add into
+/// inventory by just drag and drop"*, *"didn't we agree we were gonna have a
+/// drag and drop system?"* — and each time the answer was that there was nowhere
+/// in `schema/` to store where a box sits. ADR-0035 is that decision made: **a
+/// hand-placed position is graph data**, a `LayoutPin` contained by the element,
+/// with `Origin::Hand` provenance like every other thing a person asserted.
+///
+/// It is therefore an op like any other, and that is the whole point. A position
+/// kept beside the op log — in `localStorage`, in a view preference, in
+/// side-state — would not survive an export, would not reach a colleague, and is
+/// exactly the *"state written beside the op log"* that `75` §2.4 forbids because
+/// it forecloses real-time collaboration. A position kept **in** the log is one
+/// more op a CRDT converges.
+///
+/// It carries the same 24-byte host clock-and-entropy prefix every writing
+/// opcode does, for the same reason: the module has no clock and no RNG and must
+/// acquire neither (`wasmbin::IMPORT_ALLOWLIST` is empty and stays empty).
+pub const OP_PLACE: u32 = 21;
 
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());

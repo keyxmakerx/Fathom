@@ -13,22 +13,25 @@ use fathom_find::Finder;
 use crate::protocol::{
     self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_EQUIP_FRAME, ERR_EQUIP_STORE,
     ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED,
-    ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
+    ERR_NO_DICTIONARY, ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
+#[cfg(feature = "demo-estate")]
+use crate::OP_ESTATE_DEMO;
 use crate::{
-    OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_ESTATE_DEMO, OP_FIELD_SET,
-    OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY,
+    OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_FIELD_SET,
+    OP_INIT, OP_INV_ROWS, OP_PASTE, OP_PLACE, OP_QUERY,
 };
 
 pub struct Shell {
     finder: Option<Finder>,
-    /// The inventory face's graph (WO-08 §4.4). Absent until
-    /// `OP_ESTATE_DEMO` or `OP_PASTE` succeeds; the only workspace this build
-    /// ever holds.
+    /// The inventory face's graph (WO-08 §4.4). Absent until `OP_PASTE` or
+    /// `OP_EQUIP_ADD` succeeds; the only workspace this build ever holds.
+    /// `OP_ESTATE_DEMO` was a third door and is gone from the shipping module
+    /// with the fixture it loaded — see `estate_demo`.
     estate: Option<fathom_graph::Graph>,
-    /// The junos-srx statement dictionary, compiled in and built on first
-    /// paste. Held rather than rebuilt because every paste needs the same one
-    /// and building it parses six YAML files and runs the WO-03 §4.7 gates.
+    /// The junos-srx statement dictionary, handed in by the host over
+    /// `OP_DICT` and held for the module's lifetime. Absent until that call
+    /// succeeds, which is why `OP_PASTE` can refuse with `ERR_NO_DICTIONARY`.
     dict: Option<fathom_ingest::dict::Dictionary>,
     /// The OPNsense firewall-rules dictionary, on the same terms. A second
     /// slot rather than a replacement: a paste chooses one, and the one it did
@@ -54,11 +57,35 @@ impl Shell {
                 Err((code, detail)) => protocol::encode_error(code, &detail),
             },
             OP_QUERY => self.query(req),
+            // Called ONCE PER PLATFORM, and the frame decides which slot it
+            // fills — the dictionary's own `platform:` line, not the call
+            // order and not a new frame field. `from_sources` already refuses
+            // a file set whose platforms disagree, so by the time a dictionary
+            // exists it has exactly one platform and asking it is free.
+            //
+            // The rejected alternative was a platform byte in the frame: it
+            // would let a page label a dictionary something the YAML does not
+            // say, and then a paste would be read by one platform's grammar
+            // and provenanced as another's. Nothing downstream could notice.
+            OP_DICT => match crate::dictframe::load(req) {
+                Ok(d) => {
+                    if d.platform() == "opnsense" {
+                        self.csv_dict = Some(d);
+                    } else {
+                        self.dict = Some(d);
+                    }
+                    Vec::new()
+                }
+                Err((code, detail)) => protocol::encode_error(code, &detail),
+            },
+            #[cfg(feature = "demo-estate")]
             OP_ESTATE_DEMO => self.estate_demo(req),
             OP_PASTE => self.paste(req),
             OP_EQUIP_ADD => self.equip_add(req),
             OP_FIELD_SET => self.field_set(req),
             OP_ELEMENT_REMOVE => self.element_remove(req),
+            OP_PLACE => self.place(req),
+            OP_DIAGRAM => self.diagram(req),
             OP_INV_ROWS => self.inv_rows(req),
             OP_ELEMENT => self.element(req),
             OP_EQUIPMENT => self.equipment(req),
@@ -71,6 +98,16 @@ impl Shell {
 
     /// No request bytes. Re-init is permitted, mirroring `OP_INIT`: the held
     /// estate is replaced.
+    ///
+    /// **Not in the shipping module.** The fixture it loads costs 35,272 bytes
+    /// of `44` §5.2's ceiling and the product has had real inputs since the
+    /// on-ramp landed, so `fathom-inventory`'s `demo-estate` feature is off in
+    /// every build except a test build (see that crate's Cargo.toml). With the
+    /// feature off, opcode 11 falls through to the `_` arm and is refused by
+    /// number with `ERR_UNKNOWN_OP` — a typed refusal the page renders, not a
+    /// trap and not a silent no-op. The opcode NUMBER stays reserved forever
+    /// either way: 41 §3.7's table is append-only, so 11 is never reused.
+    #[cfg(feature = "demo-estate")]
     fn estate_demo(&mut self, req: &[u8]) -> Vec<u8> {
         if !req.is_empty() {
             return protocol::encode_error(
@@ -131,32 +168,33 @@ impl Shell {
         // sniff would occasionally read a Junos paste as a table, and the cost
         // of that is the operator's estate replaced by nonsense.
         let table = fathom_ingest::csv::looks_like_rules_csv(text);
-        let slot = if table {
-            &mut self.csv_dict
+
+        // No fallback, by design. Until 2026-08-15 this built a compiled-in
+        // dictionary here; the bytes moved to the page (`crate::dictframe`) and
+        // what is left is a typed refusal. It is stated rather than tolerated
+        // because the tolerant version — carry on with an empty dictionary —
+        // binds nothing, and the operator is then told their config is
+        // unrecognised when in fact the page never finished booting.
+        //
+        // Two slots, one per grammar, and the refusals are worded apart: a page
+        // that booted the set-form dictionary and forgot the table one is a
+        // different defect from a page that booted neither, and "no dictionary"
+        // would send whoever reads it to the wrong place.
+        let held = if table {
+            self.csv_dict.as_ref()
         } else {
-            &mut self.dict
+            self.dict.as_ref()
         };
-        if slot.is_none() {
-            let built = if table {
-                fathom_ingest::dict::Dictionary::embedded_opnsense()
-            } else {
-                fathom_ingest::dict::Dictionary::embedded()
-            };
-            match built {
-                Ok(d) => *slot = Some(d),
-                Err(e) => {
-                    return protocol::encode_error(
-                        ERR_CORPUS_LOAD,
-                        &format!(
-                            "the compiled-in dictionary failed to load: {} line {}: {}",
-                            e.file, e.line, e.message
-                        ),
-                    )
-                }
-            }
-        }
-        let Some(dict) = slot.as_ref() else {
-            return protocol::encode_error(ERR_CORPUS_LOAD, "no dictionary");
+        let Some(dict) = held else {
+            return protocol::encode_error(
+                ERR_NO_DICTIONARY,
+                if table {
+                    "no table dictionary is loaded: OP_DICT must hand in a rules-CSV \
+                     dictionary before a rules export can be read"
+                } else {
+                    "no statement dictionary is loaded: OP_DICT must succeed before OP_PASTE"
+                },
+            );
         };
 
         let read = if table {
@@ -589,6 +627,161 @@ impl Shell {
         }
     }
 
+    /// `OP_PLACE`: put a box somewhere, or put it back under computed layout.
+    ///
+    /// Frame — the usual 24-byte prefix, then a mode byte, then the point, then
+    /// the display id to the end:
+    ///
+    /// ```text
+    ///   0   8   at_ms   (u64)
+    ///   8  16   entropy (u128)
+    ///  24   1   mode    (u8) 0 = free (drop the pin), 1 = place at (x, y)
+    ///  25   4   x       (i32, little-endian)
+    ///  29   4   y       (i32, little-endian)
+    ///  33  ..   the display id, utf8, to the end of the frame
+    /// ```
+    ///
+    /// # Three properties this opcode has and the page must not reimplement
+    ///
+    /// **Snapping happens here.** `56` §3.5 puts pins on a 4 px grid, and the
+    /// grid is `fathom_layout::snap` so every host agrees about where a gesture
+    /// landed (invariant 9).
+    ///
+    /// **Moving a placed box is a supersession, not a second pin.** The existing
+    /// pin's `x` and `y` are set again, and `Graph::set_field_boxed` archives the
+    /// replaced slots, so the estate can answer *"where was this before, and who
+    /// moved it"*. Creating a second pin would break `HasLayoutPin`'s `out:
+    /// "0..1"` and lose the history in the same move.
+    ///
+    /// **Mode 0 on an unpinned element succeeds and does nothing.** "Put it back
+    /// under computed layout" is a statement about the end state, and an
+    /// operator who presses it twice has not made an error. It is the same
+    /// reasoning `OP_ELEMENT_REMOVE` does not get to use — a second removal is a
+    /// second claim about a thing that exists, where a second unpin is a claim
+    /// about a thing that does not.
+    ///
+    /// Every id comes off the `Mint`, not from the clock plus a discriminator.
+    /// Dragging is a *stream* of gestures: two placements one millisecond apart
+    /// are ordinary, and the clock-plus-discriminator pattern would mint the same
+    /// `BatchId` twice and the store would refuse the second. `field_set` records
+    /// the same lesson.
+    fn place(&mut self, req: &[u8]) -> Vec<u8> {
+        use fathom_graph::{Actor, BatchId, ElementId, Timestamp, UserId};
+        use fathom_ir::generated::ir_types::{EdgeKind, LayoutPinField, NodeKind};
+
+        const PREFIX: usize = 33;
+        let Some(head) = req.get(..PREFIX) else {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                &format!(
+                    "OP_PLACE needs a {PREFIX}-byte header; the frame is {} bytes",
+                    req.len()
+                ),
+            );
+        };
+        let at = Timestamp(u64::from_le_bytes(le8(head, 0)));
+        let entropy = u128::from_le_bytes(le16(head, 8));
+        let mode = *head.get(24).unwrap_or(&0);
+        let x = fathom_layout::snap(i32::from_le_bytes(le4(head, 25)));
+        let y = fathom_layout::snap(i32::from_le_bytes(le4(head, 29)));
+        let Ok(display) = core::str::from_utf8(req.get(PREFIX..).unwrap_or_default()) else {
+            return protocol::encode_error(ERR_BAD_UTF8, "the display id is not UTF-8");
+        };
+
+        // A NODE, not an element. An edge is a line between two boxes and a line
+        // has no position of its own — it is routed from its ends. Refusing here
+        // rather than storing a pin the schema forbids (`HasLayoutPin` runs from
+        // `Placeable`, which is kinds) keeps the refusal legible.
+        let subject = match self.resolve(display) {
+            Ok(ElementId::Node(n)) => n,
+            Ok(ElementId::Edge(_)) => {
+                return protocol::encode_error(
+                    ERR_NO_ELEMENT,
+                    &format!("{display} is a link, and a link is drawn from its ends, not placed"),
+                )
+            }
+            Err(reply) => return reply,
+        };
+
+        let mut mint = match fathom_weld::Mint::new(at, entropy) {
+            Ok(m) => m,
+            Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
+        };
+        let (Ok(user), Ok(batch)) = (fathom_id::Ulid::from_parts(at.0, 1), mint.next()) else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
+        };
+        let actor = Actor::User(UserId(user));
+
+        let existing = self
+            .estate
+            .as_ref()
+            .and_then(|g| fathom_layout::pin_node(g, subject));
+        let Some(graph) = self.estate.as_mut() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        let label = if mode == 0 { FREE_LABEL } else { PLACE_LABEL };
+        if let Err(e) = graph.begin_batch(BatchId(batch), label) {
+            return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
+        }
+
+        let mut write = || -> Result<(), String> {
+            if mode == 0 {
+                // Tombstone, never delete: `11` §10.5 again. The record keeps
+                // "this box was placed here and then released", which is a
+                // different and more honest claim than "it was never placed".
+                if let Some(pin) = existing {
+                    graph
+                        .tombstone(ElementId::Node(pin), at)
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+                return Ok(());
+            }
+            let pin = match existing {
+                Some(p) => p,
+                None => {
+                    let p = graph
+                        .insert_node(
+                            NodeKind::LayoutPin,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    graph
+                        .insert_edge(
+                            EdgeKind::HasLayoutPin,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            subject,
+                            p,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    p
+                }
+            };
+            for (key, value) in [(LayoutPinField::X.key(), x), (LayoutPinField::Y.key(), y)] {
+                graph
+                    .set_field(
+                        ElementId::Node(pin),
+                        key,
+                        value,
+                        hand_record(&mut mint, at, actor)?,
+                    )
+                    .map_err(|e| format!("{e:?}"))?;
+            }
+            Ok(())
+        };
+
+        let wrote = write();
+        // The batch closes either way — an open batch refuses every later write
+        // with `BatchOpen`, which turns one refused drag into a dead page.
+        let closed = graph.end_batch();
+        match (wrote, closed) {
+            (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &e),
+            (Ok(()), Err(e)) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+            (Ok(()), Ok(_)) => equip_reply_text(display, if mode == 0 { "0" } else { "1" }),
+        }
+    }
+
     /// A display id to the element it names, or the refusal to hand back.
     /// Separate from `node_request` because that one hands back the graph too,
     /// which holds an immutable borrow these two writers cannot take.
@@ -601,6 +794,78 @@ impl Shell {
         };
         fathom_inventory::parse_display_id(estate, display)
             .ok_or_else(|| protocol::encode_error(ERR_NO_ELEMENT, display))
+    }
+
+    /// `OP_DIAGRAM`: the whole estate, laid out.
+    ///
+    /// The request is zero bytes, or one byte carrying `56` §4's 5-bit
+    /// `LayerMask`, **or that byte followed by the aggregation view
+    /// preference** in `fathom_layout::agg::View::parse`'s one-line-per-group
+    /// form. Byte 0 is always the mask when there is one, so every caller
+    /// written before aggregation existed still means what it meant.
+    ///
+    /// A read, like the other face opcodes: it computes positions and returns
+    /// them, and holds nothing. Re-asking after any change is how the page
+    /// refreshes, which is correct because the layout is a pure function of the
+    /// graph and so cannot drift from it.
+    ///
+    /// **The shell stores no part of the view preference, deliberately.**
+    /// Expansion is not an estate fact, so it travels with the request rather
+    /// than accumulating here — which keeps this opcode a pure function of
+    /// (estate, request) and therefore keeps invariant 9 checkable on it. See
+    /// `fathom_layout::agg`'s header for the argument, and for why it does not
+    /// answer the same question for pins.
+    ///
+    /// **Zero bytes is not the same request as `0b11111`.** With no mask the
+    /// reply is the union scene with no layer projection applied at all — what
+    /// every caller before layers existed meant, unchanged. With all five bits
+    /// set it is the union scene projected through §4.1, which draws two kinds
+    /// fewer: `AddressObject` and `Application` are `— (inspector only)` in that
+    /// table. Collapsing the two would make an old caller silently lose
+    /// elements to a feature it never asked for.
+    ///
+    /// The mask is applied AFTER layout, never as an input to it, so a toggle
+    /// cannot move a box (`56` §3.6, and §11 row 6 for what happens if it can).
+    /// `fathom_layout::lay_out` takes no mask, which is how that is enforced
+    /// rather than merely intended.
+    fn diagram(&mut self, req: &[u8]) -> Vec<u8> {
+        let (mask, rest) = match req.split_first() {
+            None => (None, &[][..]),
+            Some((bits, rest)) => match fathom_layout::layers::LayerMask::from_bits(*bits) {
+                Some(m) => (Some(m), rest),
+                None => {
+                    return protocol::encode_error(
+                        ERR_BAD_FRAME,
+                        &format!(
+                            "layer mask {bits:#010b} sets a bit above the {} layers 56 §4 declares",
+                            fathom_layout::layers::LayerMask::WIDTH
+                        ),
+                    )
+                }
+            },
+        };
+        let Ok(text) = core::str::from_utf8(rest) else {
+            return protocol::encode_error(
+                ERR_BAD_FRAME,
+                "OP_DIAGRAM's view preference must be UTF-8",
+            );
+        };
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        // No bytes past the mask is the **folded** picture. `59` §3.1 is a
+        // DECISION and the collapse is the default drawing, so the default
+        // request has to be the one that gets it; a caller wanting every node
+        // drawn asks for it with `*`, which is `59` §3.7's retained control and
+        // not a compatibility shim.
+        let union = fathom_layout::lay_out_with(estate, &fathom_layout::agg::View::parse(text));
+        match mask {
+            None => protocol::encode_diagram(&union, None),
+            Some(m) => {
+                let (drawn, filter) = fathom_layout::layers::filter(&union, m);
+                protocol::encode_diagram(&drawn, Some(&filter))
+            }
+        }
     }
 
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {
@@ -734,6 +999,11 @@ const EQUIP_LABEL: &str = "Add equipment by hand";
 /// person did, not for the opcode.
 const EDIT_LABEL: &str = "Correct a field";
 const REMOVE_LABEL: &str = "Remove equipment";
+
+/// The two placement gestures (`53` §7.2). Named for what the person did, which
+/// is what an undo list has to read as — "Place a box" and not "OP_PLACE mode 1".
+const PLACE_LABEL: &str = "Place a box on the diagram";
+const FREE_LABEL: &str = "Let the layout place it again";
 
 /// How many residue rows one reply carries. The summary always states the
 /// **total**, so a page that renders both can say how many it is not showing —
@@ -973,6 +1243,7 @@ fn paste_reply(
         ],
         residue: &residue,
         unresolved: &unresolved,
+        capture: text,
     })
 }
 
@@ -1095,6 +1366,7 @@ fn equip_reply_text(id: &str, written: &str) -> Vec<u8> {
         summary: [id, written, "", "", "", id, "", ""],
         residue: &[],
         unresolved: &[],
+        capture: "",
     })
 }
 
@@ -1125,13 +1397,26 @@ fn le16(b: &[u8], at: usize) -> [u8; 16] {
 }
 
 /// A cursor over the request bytes that refuses every short read.
-struct Cursor<'a> {
+///
+/// `pub(crate)` so `dictframe` can decode `OP_DICT`'s frame with the same
+/// reader `OP_INIT`'s uses. Two frames of identical shape read by two cursors
+/// is how one of them ends up with an off-by-one nobody notices.
+pub(crate) struct Cursor<'a> {
     bytes: &'a [u8],
     at: usize,
 }
 
 impl<'a> Cursor<'a> {
-    fn u8(&mut self) -> Result<u8, (u16, String)> {
+    pub(crate) fn new(bytes: &'a [u8]) -> Cursor<'a> {
+        Cursor { bytes, at: 0 }
+    }
+
+    /// How far the cursor has read — the trailing-bytes check both frames make.
+    pub(crate) fn at(&self) -> usize {
+        self.at
+    }
+
+    pub(crate) fn u8(&mut self) -> Result<u8, (u16, String)> {
         if self.at >= self.bytes.len() {
             return Err((
                 ERR_BAD_FRAME,
@@ -1143,7 +1428,7 @@ impl<'a> Cursor<'a> {
         Ok(b)
     }
 
-    fn u32(&mut self) -> Result<u32, (u16, String)> {
+    pub(crate) fn u32(&mut self) -> Result<u32, (u16, String)> {
         if self.at + 4 > self.bytes.len() {
             return Err((
                 ERR_BAD_FRAME,
@@ -1160,7 +1445,7 @@ impl<'a> Cursor<'a> {
         Ok(v)
     }
 
-    fn text(&mut self, len: u32) -> Result<String, (u16, String)> {
+    pub(crate) fn text(&mut self, len: u32) -> Result<String, (u16, String)> {
         let len = len as usize;
         let end = self.at.checked_add(len).ok_or_else(|| {
             (
@@ -1189,7 +1474,7 @@ impl<'a> Cursor<'a> {
 /// with its section directory so a load error reads the way `load_corpus`'s
 /// does.
 fn parse_init_frame(req: &[u8]) -> Result<Vec<SourceFile>, (u16, String)> {
-    let mut c = Cursor { bytes: req, at: 0 };
+    let mut c = Cursor::new(req);
     let file_count = c.u32()?;
     let mut files: Vec<SourceFile> = Vec::new();
     for _ in 0..file_count {
