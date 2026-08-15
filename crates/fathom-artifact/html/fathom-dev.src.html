@@ -476,8 +476,22 @@ button.tab:hover { color: var(--ink); }
    ------------------------------------------------------------------------- */
 var FATHOM_WASM_B64 = "@FATHOM_WASM_B64@";
 
+/* THE STATEMENT DICTIONARY, INLINE, as a packed OP_DICT frame.
+
+   It used to be compiled into the module. Measured 2026-08-15, taking it out
+   shrank the release module by 26,915 bytes against 44 §5.2's 900,000-byte
+   ceiling that fails the merge -- and every further platform's dictionary would
+   have cost its own against that same ceiling. Here the ceiling is the whole
+   artifact's 4.5 MB, which has room.
+
+   It is base64 rather than a JS string because a YAML file has quotes,
+   backslashes and newlines, and base64's alphabet cannot end a string literal
+   or a script element. There is no escaping to get wrong. */
+var FATHOM_DICT_B64 = "@FATHOM_DICT_B64@";
+
 var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, OP_PASTE = 15;
-var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18, OP_DIAGRAM = 19;
+var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18;
+var OP_DIAGRAM = 19, OP_DICT = 20;
 
 /* The equipment form's fields, and the ONLY place this page names a field key.
    Each entry is [wire key, label, kind, required, note].
@@ -541,8 +555,11 @@ var wasm = null;                 /* the instance's exports */
 var wasmModule = null;
 var DEC = new TextDecoder();     /* one decoder, one decode per reply (41 §3.4) */
 
-function moduleBytes() {
-  var bin = atob(FATHOM_WASM_B64);
+/* The two inline base64 payloads decode through one function: the module and
+   the dictionary frame. Two copies of this loop is how one of them ends up
+   without the & 0xff. */
+function b64bytes(b64) {
+  var bin = atob(b64);
   var out = new Uint8Array(bin.length);
   for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
   return out;
@@ -2101,7 +2118,7 @@ window.addEventListener('resize', measure);
    ------------------------------------------------------------------------- */
 function boot() {
   measure();
-  WebAssembly.instantiate(moduleBytes(), {}).then(function (r) {
+  WebAssembly.instantiate(b64bytes(FATHOM_WASM_B64), {}).then(function (r) {
     /* Keep the COMPILED module, not just the instance. Opening a workspace needs
        a module with no estate in it, and a fresh instance is the honest way to
        get one -- there is no reset opcode, and adding one would be a second way
@@ -2110,6 +2127,17 @@ function boot() {
        have to become async. */
     wasmModule = r.module;
     wasm = r.instance.exports;
+
+    /* The dictionary, handed in before anything can be pasted. It is a boot
+       step and not a lazy one: a paste that arrives first is refused with
+       ERR_NO_DICTIONARY (14), and the operator would be told their config was
+       unreadable when in fact the page had not finished starting. Doing it here
+       means that refusal is a bug report, never something a user can hit. */
+    var dictReply = call(OP_DICT, b64bytes(FATHOM_DICT_B64));
+    if (dictReply.kind !== 'empty') {
+      S.boot = replyProblem(dictReply) || 'the statement dictionary did not load';
+    }
+
     /* 45 §9.1: fixture loading is one URL parameter, dev-build only. */
     if (new URLSearchParams(location.search).get('fixture') === 'demo-estate') {
       var reply = call(OP_ESTATE_DEMO, new Uint8Array(0));

@@ -146,6 +146,22 @@ pub const ERR_EQUIP_FRAME: u16 = 12;
 /// paraphrasing them would lose the only diagnosis available.
 pub const ERR_EQUIP_STORE: u16 = 13;
 
+/// A paste arrived before the dictionary did.
+///
+/// A real state since 2026-08-15, when the statement dictionary stopped being
+/// compiled into the module and started arriving over `OP_DICT`. Before that
+/// the module could always fall back on `include_str!`; now there is nothing to
+/// fall back on, and the two wrong answers are a panic and a silent empty
+/// parse. The second is worse: an empty dictionary matches no statement, so
+/// every line becomes residue and the page would report a perfectly well-formed
+/// config as *"none of these lines is one Fathom knows"*, blaming the operator
+/// for a boot the page failed to complete.
+///
+/// Distinct from `ERR_NOT_INITIALISED`, which already means two other things
+/// (no corpus for `OP_QUERY`, no estate for the face opcodes). The remedy here
+/// is the page's and only the page's: call `OP_DICT` first.
+pub const ERR_NO_DICTIONARY: u16 = 14;
+
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
 
