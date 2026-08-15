@@ -180,15 +180,27 @@ fn the_dense_band_is_not_one_stroke() {
         band.len()
     );
 
-    // Every pair in this band conflicts, so the honest channel count is the line
-    // count. Anything fewer means two of them are sharing a stroke.
+    // CORRECTED ON INTEGRATION, 2026-08-15. This asserted `channels == lines`,
+    // on the premise that every pair in this band conflicts. That premise held
+    // only while order within a rank was by `NodeId` — arbitrary, and arbitrary
+    // happened to overlap everything. Crossing reduction (`order`) landed in the
+    // same round and reorders ranks by barycentre, so some runs in this band are
+    // now genuinely disjoint and greedy colouring correctly gives them one
+    // channel. Reuse is not a defect: `no_two_runs_coincide`'s own comment says
+    // "Not 'every line gets its own channel' — that would be wasteful", and
+    // `disjoint_runs_share_a_channel` asserts the reuse must happen.
+    //
+    // So the equality contradicted this file's stated design and passed by
+    // accident. What is asserted instead is the property that is actually true
+    // and actually load-bearing — no two strokes on one channel overlap — run
+    // on the dense fixture, which the property test did not previously cover,
+    // plus the claim in this test's own name.
+    no_two_runs_coincide(&d, "the dense estate");
     let xs: BTreeSet<i32> = band.iter().map(|r| r.x).collect();
-    assert_eq!(
-        xs.len(),
-        band.len(),
-        "band at x={wall} drew {} lines on {} channels",
-        band.len(),
-        xs.len()
+    assert!(
+        xs.len() > 1,
+        "band at x={wall} drew {} lines as one stroke",
+        band.len()
     );
 
     // The naive router's one answer, named: `mid = (start.x + end.x) / 2`, which
