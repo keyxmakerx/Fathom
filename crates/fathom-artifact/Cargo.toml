@@ -6,11 +6,15 @@ license.workspace = true
 publish.workspace = true
 description = "Assembles the dev browser artifact: shell source + design/tokens.css + base64 fathom-wasm, spliced deterministically (42 §2.1's concatenation in a fixed order)"
 
-# The assembler packs the OP_DICT frame with the module's own reference encoder
-# (`fathom_wasm::dictframe::pack_dict`), so the page cannot be encoding against a
-# different reading of the bytes than the module decodes with. A path dependency
-# on a workspace crate; no third-party code (ADR-0032).
+# Two frames are packed here rather than in the page, and both for the same
+# reason: the assembler uses the module's own reference encoders
+# (`fathom_wasm::dictframe::pack_dict` for OP_DICT, `fathom_wasm::protocol::pack_corpus`
+# for OP_INIT) so the page cannot be encoding against a different reading of the
+# bytes than the module decodes with. The corpus frame is additionally run
+# through the module's own OP_INIT before splicing. Path dependencies on
+# workspace crates; no third-party code (ADR-0032).
 [dependencies]
+fathom-corpus = { path = "../fathom-corpus" }
 fathom-wasm = { path = "../fathom-wasm" }
 
 # The page carries a small table of field-key numbers for the equipment form

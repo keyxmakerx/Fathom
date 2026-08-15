@@ -10,7 +10,8 @@
 //! order, each record's string fields appended to the blob in field order, no
 //! de-duplication (invariant 9).
 
-use fathom_corpus::{Risk, SourceFile};
+use fathom_corpus::model::Entry;
+use fathom_corpus::{CorpusIndex, Risk, SourceFile};
 use fathom_find::{Finder, Ranked, SearchResult, CONFIDENT_MILLI};
 
 pub const REPLY_MAGIC: [u8; 4] = *b"FDLT";
@@ -18,10 +19,44 @@ pub const REPLY_VERSION: u16 = 1;
 pub const KIND_ERROR: u16 = 0;
 pub const KIND_FINDER_ROW: u16 = 3;
 pub const ERROR_STRIDE: u32 = 28;
-pub const FINDER_ROW_STRIDE: u32 = 72;
+/// Stride 88, not 72: seven string refs rather than five. Both additions exist
+/// so the page can render a row without composing one.
+///
+/// **s5, the verification stamp.** ADR-0027 §3 makes it required chrome on
+/// every finder row rather than metadata in a file — *"the product's only
+/// unforgeable differentiator currently lives in a YAML field"*. It travels
+/// with the row for the same reason the field key travels with an inventory
+/// field (`encode_element_reply`): platform and version train are per-entry
+/// facts, and a page that spelled `junos-srx` into its own chrome would keep
+/// saying it on the day a second platform's corpus loads.
+///
+/// **s6, the risk caption.** ADR-0011: *"the caption is the default rendering
+/// of the band and may be overridden per corpus entry where the default is
+/// untrue"*. One entry in the seed corpus already overrides it
+/// (`CHANGES STATE — NOT REVERSIBLE BY COMMIT`), so a page holding the three
+/// default captions in an array would render that row's caption wrongly today,
+/// not merely one day. The risk *byte* still chooses the colour channel — the
+/// three inks are closed and are not sent.
+pub const FINDER_ROW_STRIDE: u32 = 88;
 pub const ROLE_SUMMARY: u8 = 0;
 pub const ROLE_SHOWN: u8 = 1;
 pub const ROLE_BELOW: u8 = 2;
+
+/// How many string slots one finder record carries.
+const FINDER_SLOTS: usize = 7;
+
+/// Row flag bit 2 (value 4): ADR-0027 §2's label — the entry behind this row
+/// has **not been run on a box**, so it carries no `verified_on` (61 §3.1).
+///
+/// It is not invariant 10's bit. A missing named reviewer is a different fact
+/// about a different act, it is reported separately in the corpus review line,
+/// and conflating the two is what let this flag clear itself on an action the
+/// project has already scheduled — see `is_unverified`.
+///
+/// A **bit**, not a string the page pattern-matches: the row's register is a
+/// typed fact, and deriving it by inspecting the stamp text is how a rendering
+/// quietly starts disagreeing with the corpus.
+pub const ROW_UNVERIFIED: u8 = 4;
 pub const ERR_UNKNOWN_OP: u16 = 1;
 pub const ERR_NOT_INITIALISED: u16 = 2;
 pub const ERR_CORPUS_LOAD: u16 = 3;
@@ -270,7 +305,7 @@ fn milli(v: f64) -> i32 {
     (v * 1000.0).round() as i32
 }
 
-/// One FinderRow record before it becomes 72 bytes.
+/// One FinderRow record before it becomes 88 bytes.
 struct Record {
     role: u8,
     risk: u8,
@@ -278,7 +313,7 @@ struct Record {
     entry: u32,
     score_milli: i32,
     contributions_milli: [i32; 5],
-    strings: [(u32, u32); 5],
+    strings: [(u32, u32); FINDER_SLOTS],
 }
 
 fn write_finder_record(out: &mut Vec<u8>, r: &Record) {
@@ -297,15 +332,146 @@ fn write_finder_record(out: &mut Vec<u8>, r: &Record) {
     }
 }
 
-fn row_flags(r: &Ranked, has_next_if_bad: bool) -> u8 {
+fn row_flags(r: &Ranked, e: &Entry) -> u8 {
     let mut f = 0u8;
     if r.score_milli < CONFIDENT_MILLI {
         f |= 1;
     }
-    if has_next_if_bad {
+    if !e.next_if_bad.is_empty() {
         f |= 2;
     }
+    if is_unverified(e) {
+        f |= ROW_UNVERIFIED;
+    }
     f
+}
+
+/// ADR-0027 §2's test, and nothing else's: an entry **that has not been run on
+/// a box** renders as unverified.
+///
+/// It keys on `verified_on` and NOT on `reviewed_by`, and the difference is the
+/// entire point of the label. 61 §3.1: *"Absent ⇒ the entry renders an
+/// `unverified` margin tab."* 52 §3.2 says the same — *"or renders unverified
+/// when `verified_against` is null"*.
+///
+/// THE BUG THIS REPLACED, because it is worth naming. Until 2026-08-15 this
+/// keyed on `reviewed_by`, justified in a comment that said `61` §3 has no
+/// `verified_on` field. §3.1 declares it on line 218; what was actually true
+/// was narrower — `fathom_corpus`'s loader did not *parse* it — and ADR-0008
+/// licenses adding the field to the loader, not redefining a safety label to
+/// mean something the label's own ADR does not say. The consequence was
+/// concrete: the named expert review of `corpus/` is already queued (CLAUDE.md's
+/// owner-blocking list), and the day it lands `reviewed_by` becomes a real name
+/// on all 98 entries with zero of them ever run on hardware — at which point
+/// every stamp would have flipped to "reviewed", the ROW_UNVERIFIED bit would
+/// have cleared, the dotted pending rule would have gone solid, and the corpus
+/// line would have read "every one reviewed by a named human". A safety label
+/// that disarms itself on a scheduled action is worse than no label.
+///
+/// Invariant 10's separate fact is not dropped — see `has_named_reviewer` and
+/// `review_line`. It is reported as itself.
+fn is_unverified(e: &Entry) -> bool {
+    e.verified_on.is_none()
+}
+
+/// Invariant 10's test, and the same one `fathom_corpus::gates` applies: a
+/// `reviewed_by` that opens with `<` is the `<named human>` placeholder rather
+/// than a person. Empty counts too — an absent reviewer is not a reviewed
+/// entry, and the two must not render differently.
+///
+/// Deliberately NOT folded into `is_unverified`. Two facts, two states, four
+/// combinations, and the corpus will pass through at least two of them: today
+/// every entry is both unreviewed and unrun, and the next thing to change is
+/// the reviewer.
+fn has_named_reviewer(e: &Entry) -> bool {
+    let r = e.reviewed_by.trim();
+    !r.is_empty() && !r.starts_with('<')
+}
+
+/// ADR-0027 §3's stamp, composed from what the corpus actually holds and from
+/// nothing else.
+///
+/// The ADR's worked form is `junos-srx 21.4R3 · verified 2026-05-12 · K. Okafor`
+/// — three facts: platform-and-train, a date, a name. All three are now
+/// reachable, but the DATE needs care, and this is the one place the shipped
+/// string deviates from the ADR's:
+///
+/// `61` §3.1 declares `verified_on` as `{ platform, version }` — a box, with no
+/// date in it. The only date §3.1 declares is `reviewed_on`, and that is when
+/// somebody read the entry, not when somebody ran it. Printing it straight after
+/// the word `verified` would assert a bench date the corpus does not carry, so
+/// the date is labelled by what it actually is. The rejected alternative was
+/// inventing `verified_on.date` to match the ADR's string exactly, which is the
+/// ADR-0008 breach the previous version of this function wrongly claimed it was
+/// avoiding by keying the whole label on `reviewed_by` instead.
+///
+/// The verified form takes its platform and train from `verified_on` — the box
+/// that was actually used — and never from the entry's own `platform`/`versions`,
+/// which say what the entry is *for*. That distinction is why the unverified
+/// form prints no train at all: there is no verified train, and a version number
+/// sitting in the slot that means "the box we ran it on" is the exact confusion
+/// this stamp exists to prevent. An entry's applicable trains are `16` §19.5's
+/// "not on your train" caveat and belong to the row, not to its provenance line.
+fn verification_stamp(e: &Entry) -> String {
+    match &e.verified_on {
+        Some(v) => format!(
+            "{} {} · verified · reviewed {} by {}",
+            v.platform, v.version, e.reviewed_on, e.reviewed_by
+        ),
+        // Both missing facts are named. An entry with a real reviewer and no
+        // bench run must not read the same as one with neither, or the corpus
+        // cannot show its own progress.
+        None if has_named_reviewer(e) => format!(
+            "{} · unverified — not run on a box · reviewed {} by {}",
+            e.platform, e.reviewed_on, e.reviewed_by
+        ),
+        None => format!(
+            "{} · unverified — not run on a box, no named reviewer (invariant 10)",
+            e.platform
+        ),
+    }
+}
+
+/// The corpus-wide review line, carried on the summary record of every query
+/// reply so the finder cannot render results without rendering this.
+///
+/// It is counted here rather than stated in the page, because a page holding
+/// the number `98` would still be holding it on the day someone runs an entry.
+///
+/// TWO COUNTS, NOT ONE, and this is the structural half of the ADR-0027 fix.
+/// The line before this reported a single number keyed on `reviewed_by` and
+/// went silent when it hit zero — so the queued expert review would have taken
+/// the alarm down while the hardware count stayed at 98. Reporting both means
+/// completing the review changes the sentence, honestly, and does not end it.
+/// The line only goes quiet when both are zero, which is the state ADR-0027 §2
+/// actually describes.
+pub fn review_line(index: &CorpusIndex) -> String {
+    let entries = &index.corpus.entries;
+    let total = entries.len();
+    let unverified = entries.iter().filter(|e| is_unverified(e)).count();
+    let unreviewed = entries.iter().filter(|e| !has_named_reviewer(e)).count();
+    if unverified == 0 && unreviewed == 0 {
+        return format!(
+            "{total} command entries · every one run on a box and reviewed by a named human"
+        );
+    }
+    // Built by appending rather than by collecting into a Vec and joining:
+    // byte-identical output, and measured 2026-08-15 the join form costs 107
+    // more wasm bytes (890,366 vs 890,259) against 44 §5.2's 900,000 ceiling.
+    // A small number, kept because it is free — the two forms are the same
+    // length to read — and because the ceiling is the binding constraint here.
+    let mut line = format!("{total} command entries");
+    if unverified > 0 {
+        line.push_str(&format!(
+            " · {unverified} unverified, never run on a box (ADR-0027)"
+        ));
+    }
+    if unreviewed > 0 {
+        line.push_str(&format!(
+            " · {unreviewed} with no named reviewer (invariant 10)"
+        ));
+    }
+    line
 }
 
 fn summary_flags(result: &SearchResult) -> u8 {
@@ -355,6 +521,13 @@ pub fn encode_query_reply(finder: &Finder, result: &SearchResult) -> Vec<u8> {
             None => String::new(),
             Some(rev) => rev.leftover.join(" "),
         }),
+        // Slot 5 on the summary is the corpus's own review state. It rides the
+        // reply every query already makes rather than a second opcode, so there
+        // is no ordering in which the page can have rows on screen and not have
+        // this line.
+        blob.push(&review_line(idx)),
+        // s6 is the risk caption on a result row and is meaningless here.
+        (0, 0),
     ];
     write_finder_record(
         &mut records,
@@ -379,6 +552,8 @@ pub fn encode_query_reply(finder: &Finder, result: &SearchResult) -> Vec<u8> {
                 blob.push(&e.answers),
                 blob.push(&e.read_field),
                 blob.push(next_if_bad),
+                blob.push(&verification_stamp(e)),
+                blob.push(e.risk_caption_override.as_deref().unwrap_or(e.risk.label())),
             ];
             let c = &r.contributions;
             write_finder_record(
@@ -386,7 +561,7 @@ pub fn encode_query_reply(finder: &Finder, result: &SearchResult) -> Vec<u8> {
                 &Record {
                     role,
                     risk: risk_byte(e.risk),
-                    flags: row_flags(r, !e.next_if_bad.is_empty()),
+                    flags: row_flags(r, e),
                     entry: r.entry,
                     score_milli: r.score_milli,
                     contributions_milli: [
@@ -747,7 +922,7 @@ pub struct FinderRowView {
     pub entry: u32,
     pub score_milli: i32,
     pub contributions_milli: [i32; 5],
-    pub strings: [String; 5],
+    pub strings: [String; FINDER_SLOTS],
 }
 
 #[derive(Debug, Clone)]
@@ -888,6 +1063,10 @@ pub fn decode_reply(bytes: &[u8]) -> Result<ReplyView, String> {
             let mut rows = Vec::with_capacity(count);
             for i in 0..count {
                 let base = HEADER_LEN + i * stride as usize;
+                let mut strings: [String; FINDER_SLOTS] = Default::default();
+                for (s, slot) in strings.iter_mut().enumerate() {
+                    *slot = string_at(blob, bytes, base + 32 + s * 8)?;
+                }
                 rows.push(FinderRowView {
                     role: bytes[base],
                     risk: bytes[base + 1],
@@ -901,13 +1080,7 @@ pub fn decode_reply(bytes: &[u8]) -> Result<ReplyView, String> {
                         i32_at(bytes, base + 24),
                         i32_at(bytes, base + 28),
                     ],
-                    strings: [
-                        string_at(blob, bytes, base + 32)?,
-                        string_at(blob, bytes, base + 40)?,
-                        string_at(blob, bytes, base + 48)?,
-                        string_at(blob, bytes, base + 56)?,
-                        string_at(blob, bytes, base + 64)?,
-                    ],
+                    strings,
                 });
             }
             Ok(ReplyView::FinderRows(rows))

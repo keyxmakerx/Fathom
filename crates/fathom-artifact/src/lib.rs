@@ -19,6 +19,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod corpus;
+
 use std::path::Path;
 
 pub mod dictionary;
@@ -31,6 +33,9 @@ pub const TOKENS_SOURCE: &str = "design/tokens.css";
 pub const ARTIFACT_OUT: &str = "target/artifact/fathom-dev.html";
 pub const TOKEN_TOKENS_CSS: &str = "@FATHOM_TOKENS_CSS@";
 pub const TOKEN_WASM_B64: &str = "@FATHOM_WASM_B64@";
+/// The packed `OP_INIT` frame, base64. See `corpus.rs` for why the frame is
+/// built by the module's own encoder rather than assembled in the page.
+pub const TOKEN_CORPUS_B64: &str = "@FATHOM_CORPUS_B64@";
 /// The `OP_DICT` frame, base64. The dictionary stopped being compiled into the
 /// module on 2026-08-15 and travels here instead; `dictionary` has the why.
 pub const TOKEN_DICT_B64: &str = "@FATHOM_DICT_B64@";
@@ -119,6 +124,14 @@ pub fn assemble(workspace_root: &Path) -> Result<Vec<u8>, String> {
 
     let spliced = splice(&source, TOKEN_TOKENS_CSS, &tokens)?;
     let spliced = splice(&spliced, TOKEN_WASM_B64, &base64(&module))?;
+    // The corpus is packed and verified before it is spliced: a corpus the
+    // module cannot load fails the build here rather than shipping a finder
+    // that is empty and cannot say why.
+    let spliced = splice(
+        &spliced,
+        TOKEN_CORPUS_B64,
+        &base64(&corpus::frame(workspace_root)?),
+    )?;
     let spliced = splice(
         &spliced,
         TOKEN_DICT_B64,

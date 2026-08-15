@@ -247,6 +247,76 @@ button.tab:hover { color: var(--ink); }
          padding: var(--s1) var(--s3); border-top: var(--rule-hair) solid var(--hairline);
          font-size: var(--t-tab); color: var(--muted); }
 
+/* --- the result row (16 §17.1). The card's answer block, literally. -------
+   The 4px accent bar and the wash are the risk channel and nothing else uses
+   them (conventions). The rest of the row is neutral ink: finding severity,
+   status and diff are all forbidden these three colours, and the row has to
+   keep working when it carries all four kinds of information at once. */
+.hits { list-style: none; margin: 0; padding: 0; }
+/* The 3px ink rule is carried by EVERY row, transparent until the row is the
+   current one. Selection must not move anything: a border that appears only on
+   the selected row would shift the whole column sideways once per arrow press.
+
+   NOT 16 §19.4, which this rule previously cited and does not satisfy. §19.4
+   asks for "25 rows maximum, virtualised, fixed row heights per row type" as a
+   PERFORMANCE requirement (§10) before a design one. This list has neither: a
+   row's height follows its wrapped `answers` text, and every hit is in the DOM.
+   Measured 2026-08-15 in Chromium 141.0.7390.37, 40 dispatched input events
+   over a 30-row result set (OP_QUERY plus the full repaint): median 0.8 ms,
+   worst 1.5 ms, against 44 B5's frame budget. Nothing bites today; the honest
+   record is that two named requirements are absent, not met. */
+.hit { padding: 0 0 var(--s3); margin: 0 0 var(--s3);
+       border-bottom: var(--rule-hair) solid var(--hairline);
+       border-left: var(--rule-mast) solid transparent; }
+.hit:last-child { border-bottom: 0; margin-bottom: 0; }
+.hit .riskband { border-left: var(--rule-accent) solid; padding: var(--s1) var(--s3); }
+.hit .riskband .cmd { display: block; font-family: var(--mono); font-size: var(--t-mono);
+                      color: var(--ink); word-break: break-word; }
+.hit .riskband .cap { display: block; font-size: var(--t-micro);
+                      line-height: var(--lh-micro); font-weight: 700;
+                      letter-spacing: var(--track-legend); text-transform: uppercase; }
+.hit .ans { font-size: var(--t-body); line-height: var(--lh-step);
+            max-width: var(--measure); margin: var(--s1) 0 0; padding-left: var(--s3); }
+.hit dl { margin: var(--s1) 0 0; padding-left: var(--s3);
+          display: grid; grid-template-columns: max-content 1fr;
+          column-gap: var(--s3); row-gap: 0; font-size: var(--t-small); }
+.hit dt { color: var(--muted); font-size: var(--t-micro);
+          letter-spacing: var(--track-label); text-transform: uppercase;
+          line-height: var(--lh-step); }
+.hit dd { margin: 0; line-height: var(--lh-step); }
+.hit dd.m { font-family: var(--mono); font-size: var(--t-mono); word-break: break-word; }
+/* The selected row is marked in ink and ground, never in a colour: the three
+   colours are spoken for, and a fourth accent here would read as a fourth risk
+   band. Ink is the same mark the view band uses for "you are here". */
+.hit[aria-selected="true"] { background: var(--surface-2); border-left-color: var(--ink); }
+.hit .score { float: right; font-family: var(--mono); font-size: var(--t-micro);
+              color: var(--muted); font-variant-numeric: var(--num-tabular); }
+
+/* --- ADR-0027's verification stamp. Required chrome on every row. ---------
+   Dotted is this file's existing word for "pending" (58 §5.1's honesty device,
+   already used by .unposted). An entry nobody has run is pending verification,
+   so it takes the same treatment rather than a new one — and emphatically not
+   a colour, because the only colours with meaning here mean risk. */
+.stampline { font-family: var(--mono); font-size: var(--t-micro);
+             line-height: var(--lh-micro); color: var(--muted);
+             margin-top: var(--s1); padding-left: var(--s2);
+             border-left: var(--rule-accent) var(--rule-style-deterministic) var(--hairline); }
+.stampline[data-unverified="true"] {
+             border-left-style: var(--rule-style-pending); border-left-color: var(--muted); }
+/* The corpus-level line. Never dismissible, never collapsed: it is the whole
+   answer to "should you trust what is on this screen". */
+.freview { font-size: var(--t-micro); line-height: var(--lh-micro); color: var(--muted);
+           letter-spacing: var(--track-label); padding: var(--s2) var(--s3);
+           border-bottom: var(--rule-hair) var(--rule-style-pending) var(--muted); }
+.fmiss { font-size: var(--t-body); line-height: var(--lh-step); margin: 0 0 var(--s3);
+         max-width: var(--measure); }
+/* The full-canvas form (52 §3.2.2): the same component, the same code, one
+   container wider. */
+.fvq { width: 100%; border: 0; border-bottom: var(--rule-hair) solid var(--ink);
+       background: none; color: var(--ink); font-family: var(--mono);
+       font-size: var(--t-mast); padding: var(--s2) 0; }
+.fvq::placeholder { color: var(--muted); }
+
 /* --- the paste sheet. The finder's furniture, one input, no new idiom. ---- */
 .psheet { position: absolute; z-index: var(--z-modal);
           top: 0; left: 0; right: 0; bottom: 0;
@@ -276,6 +346,30 @@ button.tab:hover { color: var(--ink); }
                 font-size: var(--t-tab); text-transform: lowercase; }
 .pfoot button:hover { background: var(--surface); }
 .pfoot .spacer { margin-left: auto; }
+
+/* --- 53 §6.2's clipboard fallbacks ---------------------------------------
+   Layer 4's panel sits at the BOTTOM half rather than replacing the view: what
+   the user was looking at is very often what they were copying, and taking it
+   away to tell them the copy failed would cost them the thing they would
+   otherwise retype from. It carries the same border and ground as the sheets so
+   it reads as the same class of object, and no colour: a refused clipboard is
+   not a risk band. */
+.cfall { position: absolute; z-index: var(--z-modal);
+         left: 0; right: 0; bottom: 0; top: 40%;
+         display: flex; flex-direction: column; background: var(--page);
+         border: var(--rule-hair) solid var(--ink);
+         border-radius: var(--radius); box-shadow: var(--shadow); }
+.cfall .prose { flex: none; padding: var(--s2) var(--s3);
+                border-bottom: var(--rule-hair) solid var(--hairline); }
+.cfta { flex: 1 1 auto; min-height: 0; width: 100%; resize: none;
+        border: 0; background: none; color: var(--ink);
+        font-family: var(--mono); font-size: var(--t-mono);
+        line-height: var(--lh-step); padding: var(--s3); }
+/* Layer 3's scratch textarea. Off the page rather than display:none, hidden or
+   clipped to a pixel: selection is the entire mechanism here and an element the
+   browser is not laying out has nothing to select. Full-sized, and parked one
+   viewport to the left. */
+.cfscratch { position: fixed; top: 0; left: -100vw; width: 50vw; height: 20vh; }
 /* The equipment form. A scrolling column of labelled inputs, sized like the
    textarea it sits where. */
 .eform { flex: 1 1 auto; min-height: 0; overflow-y: auto;
@@ -582,16 +676,23 @@ svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
     </section>
 
     <div class="scrim" id="scrim" hidden></div>
+    <!-- The finder overlay (52 §3.2.1). The corpus arrives at boot over
+         OP_INIT, so the input is enabled by the boot step and not by the
+         markup: a page that offers a search box before the index loads is a
+         page that answers "nothing found" when it means "nothing loaded". -->
     <div class="fsheet" id="fsheet" role="dialog" aria-label="Command finder" hidden>
       <div class="frow">
         <span class="fkey" aria-hidden="true">Ctrl K</span>
-        <input class="fq" id="fq" type="text" placeholder="the finder arrives with a later work order"
-               aria-label="Find a command" autocomplete="off" spellcheck="false" disabled>
+        <input class="fq" id="fq" type="text" placeholder="loading the corpus…"
+               aria-label="Find a command" autocomplete="off" spellcheck="false" disabled
+               role="combobox" aria-expanded="false" aria-controls="fhits"
+               aria-autocomplete="list">
       </div>
-      <div class="fhits" id="fhits"></div>
+      <div class="freview" id="fReview"></div>
+      <div class="fhits" id="fhits" role="listbox" aria-label="Results"></div>
       <div class="ffoot">
-        <span>esc close</span>
-        <span>no corpus is loaded in this build</span>
+        <span id="fFootKeys">esc close</span>
+        <span id="fFootCount"></span>
       </div>
     </div>
 
@@ -630,6 +731,28 @@ svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
         <button type="button" id="eRun">add it</button>
       </div>
     </div>
+
+    <!-- 53 §6.2 LAYER 4 — the last resort, and the reason it exists.
+         "Render the payload in a focused, pre-selected read-only block with
+         `press ⌘C` in the footer. Never a silent failure."
+
+         Layers 2 and 3 can both refuse: the async clipboard API needs a
+         permission the user may have denied, and execCommand needs a live user
+         activation which a rejected promise has already outlived. Neither
+         failure may end with the text gone. The command the user asked for is
+         one they are about to paste into a change window; making them retype it
+         from a row that has since closed is the failure §6.2 is written
+         against. This block needs no permission and no activation. -->
+    <div class="cfall" id="cfall" role="group" aria-label="Copy this by hand" hidden>
+      <p class="prose" id="cfWhy"></p>
+      <textarea class="cfta" id="cfta" readonly spellcheck="false"
+                aria-label="The text to copy"></textarea>
+      <div class="pfoot">
+        <span>press ⌘C / Ctrl+C — the block above is selected</span>
+        <span class="spacer"></span>
+        <button type="button" id="cfDone">done</button>
+      </div>
+    </div>
   </main>
 
   <footer class="foot">
@@ -651,7 +774,20 @@ svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
    ------------------------------------------------------------------------- */
 var FATHOM_WASM_B64 = "@FATHOM_WASM_B64@";
 
-/* THE STATEMENT DICTIONARY, INLINE, as a packed OP_DICT frame.
+/* THE CORPUS, INLINE AND ALREADY FRAMED. Not YAML: this is the packed OP_INIT
+   frame, built at assembly time by the module's own reference encoder
+   (fathom_wasm::protocol::pack_corpus) and run through the module's own OP_INIT
+   before it was spliced. crates/fathom-artifact/src/corpus.rs holds the
+   reasoning; the short version is that a second framing encoder written in
+   JavaScript would agree with the first until a length prefix moved, and would
+   then load the corpus with the wrong file boundaries rather than refuse.
+
+   So this page's entire contribution to OP_INIT is atob. It writes no lengths,
+   no section bytes and no ordering. */
+var FATHOM_CORPUS_B64 = "@FATHOM_CORPUS_B64@";
+
+/* THE STATEMENT DICTIONARY, INLINE, as a packed OP_DICT frame. Same posture as
+   the corpus frame above, for the same reason.
 
    It used to be compiled into the module. Measured 2026-08-15, taking it out
    shrank the release module by 26,915 bytes against 44 §5.2's 900,000-byte
@@ -664,6 +800,7 @@ var FATHOM_WASM_B64 = "@FATHOM_WASM_B64@";
    or a script element. There is no escaping to get wrong. */
 var FATHOM_DICT_B64 = "@FATHOM_DICT_B64@";
 
+var OP_INIT = 1, OP_QUERY = 4;
 var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, OP_PASTE = 15;
 var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18;
 var OP_DIAGRAM = 19, OP_DICT = 20;
@@ -726,13 +863,28 @@ var LAYERS = [
 ];
 var LAYERS_ALL = 31;
 
+/* The finder record's roles and its one flag this page reads. The flag is
+   ADR-0027's: NOBODY HAS RUN THIS ENTRY ON A BOX, which is the absence of
+   61 §3.1's `verified_on` and is not the same claim as "no named reviewer"
+   (invariant 10). The two are reported separately in the corpus review line
+   below the input, because they will not be fixed at the same time.
+
+   It is a bit rather than a word matched out of the stamp text, so the styling
+   and the sentence cannot come apart. */
+var ROLE_SUMMARY = 0, ROLE_SHOWN = 1, ROLE_BELOW = 2;
+var ROW_UNVERIFIED = 4;
+/* Risk byte -> the colour channel, in the enum's order. The three inks are
+   closed by the conventions and are never sent; the CAPTION is sent, because
+   ADR-0011 lets an entry override it and one entry in the seed corpus does. */
+var RISK_CLASS = ['r-safe', 'r-caution', 'r-danger'];
+
 var wasm = null;                 /* the instance's exports */
 var wasmModule = null;
 var DEC = new TextDecoder();     /* one decoder, one decode per reply (41 §3.4) */
 
-/* The two inline base64 payloads decode through one function: the module and
-   the dictionary frame. Two copies of this loop is how one of them ends up
-   without the & 0xff. */
+/* The three inline base64 payloads decode through one function: the module, the
+   corpus frame and the dictionary frame. Two copies of this loop is how one of
+   them ends up without the & 0xff. */
 function b64bytes(b64) {
   var bin = atob(b64);
   var out = new Uint8Array(bin.length);
@@ -786,8 +938,9 @@ function decode(bytes) {
   var recKind = dv.getUint16(6, true);
   var count = dv.getUint32(8, true);
   var stride = dv.getUint32(12, true);
-  if (recKind !== 0 && recKind !== 5) return refusal('unknown record_kind ' + recKind + ' at offset 6');
-  var want = recKind === 0 ? 28 : 72;
+  if (recKind !== 0 && recKind !== 3 && recKind !== 5)
+    return refusal('unknown record_kind ' + recKind + ' at offset 6');
+  var want = recKind === 0 ? 28 : recKind === 3 ? 88 : 72;
   if (stride !== want) return refusal('record_stride ' + stride + ' at offset 12 is not ' + want);
   var blobLenOff = 16 + count * stride;
   if (bytes.length < blobLenOff + 4) return refusal('record_count ' + count + ' runs past the reply');
@@ -810,7 +963,32 @@ function decode(bytes) {
     return { kind: 'error', code: dv.getUint16(16, true), detail: str(36) };
   }
 
-  var rows = [], i, s, base, slots;
+  var i, s, base, slots;
+
+  /* Kind 3 — the finder row (protocol.rs, stride 88). Seven string slots after
+     a fixed 32-byte head. The score and the five contributions are read as
+     signed milli exactly as they were written; nothing here rescales them and
+     nothing here reorders the rows, because the ranking is the module's and a
+     second opinion about it in the page would be a second ranking. */
+  if (recKind === 3) {
+    var hits = [];
+    for (i = 0; i < count; i++) {
+      base = 16 + i * stride;
+      slots = [];
+      for (s = 0; s < 7; s++) slots.push(str(base + 32 + s * 8));
+      hits.push({
+        role: bytes[base],
+        risk: bytes[base + 1],
+        flags: bytes[base + 2],
+        entry: dv.getUint32(base + 4, true),
+        scoreMilli: dv.getInt32(base + 8, true),
+        s: slots
+      });
+    }
+    return { kind: 'finder', rows: hits };
+  }
+
+  var rows = [];
   for (i = 0; i < count; i++) {
     base = 16 + i * stride;
     slots = [];
@@ -884,6 +1062,17 @@ var S = {
   /* The last refused hand-add, shown in the equipment sheet where the values
      that caused it are still typed in. Cleared by the next success. */
   equipError: null,
+  /* --- the finder ---------------------------------------------------------
+     The corpus is a SECOND backing store, independent of the estate: the
+     finder is the one surface whose primary object is corpus and not graph
+     (52 §3.2), so it answers with no workspace open and keeps answering when
+     a paste replaces one. `corpus` is '' until boot decides, then 'loaded' or
+     the refusal text. */
+  corpus: '',
+  query: '',
+  hits: null,   /* the last OP_QUERY reply, verbatim */
+  hi: 0,        /* which result row is highlighted; focus never leaves the input */
+  review: '',   /* the corpus's own review line, off the summary record */
   /* THE JOURNAL. Every op the operator performed, in order, each with the clock
      and entropy that produced it -- which is what makes replay give byte-
      identical ids rather than merely equivalent ones.
@@ -958,7 +1147,7 @@ var VIEWS = [
     imp: 'Facts that argue back — the rightmost column is not a field' }
 ];
 var UNBUILT = 'unposted — this view arrives with a later work order; ' +
-              'the inventory face (⌥6) is live in this build';
+              'the finder (⌥1) and the inventory face (⌥6) are live in this build';
 
 function viewIdx(id) { var i; for (i = 0; i < VIEWS.length; i++) if (VIEWS[i].id === id) return i; return 5; }
 function viewMeta(id) { return VIEWS[viewIdx(id)]; }
@@ -1192,6 +1381,193 @@ function note(host, lead, body) {
   n.appendChild(document.createElement('br'));
   n.appendChild(document.createTextNode(body));
   host.appendChild(n);
+}
+
+/* =========================================================================
+   2b. THE FINDER — view 1 of 6, and the one surface that reads corpus rather
+   than graph (52 §3.2).
+
+   The ranking, the cutoff, the near-miss set and every string below are the
+   module's. This code chooses a colour channel from a byte and lays out rows;
+   it does not score, sort, filter or truncate, because a page that re-sorted
+   would be a second ranking and invariant 9's determinism claim covers only
+   the module's.
+
+   ON SHIPPING UNVERIFIED CONTENT — the design question this work turned on.
+   No entry in the corpus has ever been run on a box (the bundle's own header
+   says so), and all 98 carry `reviewed_by: <named human>`, a placeholder.
+   Making them visible in a browser is the moment those two breaches stop being
+   YAML comments and start being something a user could act on. The decision is
+   not this session's to make and did not need to be: ADR-0027 §2 already
+   settled it —
+
+     "An entry that has not been run ships with verified_against: null and
+      renders as unverified in the UI, in the margin-tab register, on every
+      result. It is not withheld — withholding is worse — it is labelled."
+
+   So the corpus is NOT gated. It is labelled, in TWO places that cannot be
+   turned off: a per-row stamp (ADR-0027 §3's required chrome) and a
+   corpus-level line above the results — both present in the overlay and in the
+   full-canvas form. Both read strings the module sent; neither is composed
+   here, so neither can drift from the corpus.
+   crates/fathom-artifact/tests/finder_chrome.rs fails the build if a row can
+   reach this page without its stamp.
+
+   A third place was claimed for this — the footer — and it never existed; the
+   footer carries hit counts (`footCount`), which is what a finder footer is
+   for, and 53 §6.5 spends that segment on the copy confirmation. The claim is
+   withdrawn rather than built: two places that are always on both forms is the
+   requirement, and a third that displaces a working count is not an
+   improvement.
+   ========================================================================= */
+
+/* A finder reply that is not the shape this surface asked for is shown, not
+   swallowed — the same contract `replyProblem` has for face replies. */
+function finderProblem(reply) {
+  if (!reply) return 'no reply';
+  if (reply.kind === 'refusal') return 'the reply was refused: ' + reply.text;
+  if (reply.kind === 'error') return 'the module refused: code ' + reply.code + ' · ' + reply.detail;
+  if (reply.kind !== 'finder') return 'unexpected reply kind';
+  return null;
+}
+
+function hitRows(role) {
+  if (!S.hits || S.hits.kind !== 'finder') return [];
+  return S.hits.rows.filter(function (r) { return r.role === role; });
+}
+/* The rows the keyboard walks: above the cutoff first, then the near misses,
+   which is the order they are drawn in. */
+function walkable() { return hitRows(ROLE_SHOWN).concat(hitRows(ROLE_BELOW)); }
+
+/* Milli -> the two-decimal score the miss state prints (16 §19.5). This is a
+   number FORMATTED, not a number computed: the quantisation to integer milli
+   already happened in the module (protocol.rs `milli`), and the page divides
+   by a thousand to print it the way the spec's worked example does. */
+function scoreText(milli) { return (milli / 1000).toFixed(2); }
+
+function renderHit(r, idx, prefix, selected) {
+  var li = el('li', 'hit');
+  li.id = prefix + idx;
+  li.setAttribute('role', 'option');
+  li.setAttribute('aria-selected', String(selected));
+  li.setAttribute('data-hit', String(idx));
+
+  var band = el('div', 'riskband ' + (RISK_CLASS[r.risk] || 'r-safe'));
+  if (r.role === ROLE_BELOW) band.appendChild(el('span', 'score', scoreText(r.scoreMilli)));
+  band.appendChild(el('span', 'cmd', r.s[0]));
+  /* The caption is text, not colour alone (16 §19.3): READ-ONLY — SAFE ON
+     PRODUCTION is announced, which is the reason the card prints the words
+     next to every bar. */
+  band.appendChild(el('span', 'cap', r.s[6]));
+  li.appendChild(band);
+
+  li.appendChild(el('p', 'ans', r.s[2]));
+
+  var dl = el('dl');
+  dl.appendChild(el('dt', null, 'read'));
+  dl.appendChild(el('dd', null, r.s[3]));
+  if (r.flags & 2) {
+    dl.appendChild(el('dt', null, 'if bad'));
+    dl.appendChild(el('dd', 'm', r.s[4]));
+  }
+  dl.appendChild(el('dt', null, 'entry'));
+  dl.appendChild(el('dd', 'm', r.s[1]));
+  li.appendChild(dl);
+
+  /* ADR-0027 §3. Every row, always, in the margin-tab register. */
+  var stamp = el('div', 'stampline', r.s[5]);
+  if (r.flags & ROW_UNVERIFIED) stamp.setAttribute('data-unverified', 'true');
+  li.appendChild(stamp);
+  return li;
+}
+
+/* One results list. Called for the overlay and for the full-canvas form with
+   different hosts and id prefixes — 52 §3.2.2: "Both forms are the same code,
+   the same index, the same ranking, the same keymap." */
+function renderHits(host, prefix) {
+  clear(host);
+  if (S.corpus !== 'loaded') {
+    unposted(host, 'finder', S.corpus || 'the corpus has not been handed to the module yet');
+    return;
+  }
+  if (!S.query) {
+    host.appendChild(el('p', 'fmiss',
+      'Type what you are trying to find out — "is phase 2 up", "ipsec", or the command ' +
+      'itself. Nothing is sent anywhere; the whole corpus is in this file.'));
+    return;
+  }
+  var bad = finderProblem(S.hits);
+  if (bad) { unposted(host, 'finder', bad); return; }
+
+  var shown = hitRows(ROLE_SHOWN), below = hitRows(ROLE_BELOW);
+  var all = walkable();
+  if (!all.length) {
+    host.appendChild(el('p', 'fmiss', 'nothing above the cutoff for "' + S.query + '"'));
+    return;
+  }
+
+  var ul = el('ul', 'hits'), n = 0;
+  /* An empty list is not appended. A `<ul role="listbox">` with no options in
+     it is announced as an empty list of results sitting under a sentence that
+     just said there are none — two contradicting answers to the same question,
+     one of them silent. */
+  if (!shown.length) {
+    host.appendChild(el('p', 'fmiss', 'nothing above the cutoff for "' + S.query + '"'));
+  } else {
+    shown.forEach(function (r) { ul.appendChild(renderHit(r, n, prefix, n === S.hi)); n++; });
+    host.appendChild(ul);
+  }
+
+  if (below.length) {
+    /* 16 §19.5: near misses are shown WITH their scores, because a user who
+       can see that the system nearly matched can adjust, and a user shown
+       nothing cannot. */
+    host.appendChild(el('div', 'sh', 'below the cutoff — shown with scores'));
+    var ul2 = el('ul', 'hits');
+    below.forEach(function (r) { ul2.appendChild(renderHit(r, n, prefix, n === S.hi)); n++; });
+    host.appendChild(ul2);
+  }
+}
+
+/* The full-canvas form (52 §3.2.2). Same rows, one container wider, its own
+   input — because for a large fraction of sessions the finder is not a thing
+   you invoke on the way to something else, it is the session. */
+function renderFinderView(host) {
+  var p = el('div', 'pad');
+  var inp = el('input');
+  inp.type = 'text';
+  inp.id = 'fqv';
+  inp.className = 'fvq';
+  inp.value = S.query;
+  inp.autocomplete = 'off';
+  inp.spellcheck = false;
+  inp.disabled = S.corpus !== 'loaded';
+  inp.placeholder = S.corpus === 'loaded' ? 'find a command' : 'loading the corpus…';
+  inp.setAttribute('aria-label', 'Find a command');
+  inp.setAttribute('role', 'combobox');
+  inp.setAttribute('aria-expanded', String(S.corpus === 'loaded'));
+  inp.setAttribute('aria-controls', 'fvhits');
+  inp.setAttribute('aria-autocomplete', 'list');
+  p.appendChild(inp);
+  p.appendChild(el('div', 'freview', S.review || reviewFallback()));
+  var hits = el('div', 'hits-host');
+  hits.id = 'fvhits';
+  hits.setAttribute('role', 'listbox');
+  hits.setAttribute('aria-label', 'Results');
+  p.appendChild(hits);
+  host.appendChild(p);
+  renderHits(hits, 'fvhit');
+}
+
+/* Until a query has been run there is no summary record to read the corpus's
+   review state off, and this line must not be missing in the meantime — an
+   empty finder is exactly when someone decides whether to trust it. The words
+   are deliberately weaker than the module's: they claim only what this page
+   can know without asking. */
+function reviewFallback() {
+  return S.corpus === 'loaded'
+    ? 'the corpus is loaded · run a search to see how much of it has been reviewed'
+    : 'no corpus loaded';
 }
 
 /* --- the inspector's meaning face ----------------------------------------- */
@@ -1478,7 +1854,13 @@ function renderShell() {
   $('fNav').textContent =
     (prev ? '⌥← ' + prev.id + '   ' : '') + (next ? next.id + ' ⌥→   ' : '') + 'ctrl+K finder';
   $('fMsg').textContent = S.msg;
-  $('factFolio').textContent = S.loaded ? sourceWords() : 'no workspace';
+  /* The finder's folio names the CORPUS, not the workspace: it is the one view
+     whose primary object is corpus rather than graph (52 §3.2), and it answers
+     with no workspace open. Saying "no workspace" over a working finder would
+     be the folio contradicting the results underneath it. */
+  $('factFolio').textContent = S.view === 'finder'
+    ? (S.corpus === 'loaded' ? 'corpus · not a workspace' : 'no corpus')
+    : (S.loaded ? sourceWords() : 'no workspace');
   var ft = $('faceTabs').querySelectorAll('[data-face]');
   Array.prototype.forEach.call(ft, function (t) {
     t.setAttribute('aria-pressed', String(S.face === t.getAttribute('data-face')));
@@ -1490,6 +1872,7 @@ function renderFact() {
   clear(host);
   if (S.view === 'diagram') renderDiagram(host);
   else if (S.view === 'inventory') renderInventory(host);
+  else if (S.view === 'finder') renderFinderView(host);
   else { var p = el('div', 'pad'); unposted(p, S.view, UNBUILT); host.appendChild(p); }
   roveScan(host);
   roveScan($('band'));
@@ -2984,6 +3367,226 @@ function postElement(id) {
   S.equipment = call(OP_EQUIPMENT, new TextEncoder().encode(id));
 }
 
+/* --- the finder's one crossing ------------------------------------------ */
+
+/* Every keystroke is one OP_QUERY. No debounce: 44 B5 budgets a whole frame
+   for keystroke-to-painted-results, the index is already in memory, and a
+   debounce would be latency added on purpose to hide latency that is not
+   there. If the budget is ever missed the fix is measurement, not a timer. */
+function runQuery(q) {
+  S.query = q;
+  S.hi = 0;
+  if (S.corpus !== 'loaded') return;
+  if (!q) { S.hits = null; return; }
+  S.hits = call(OP_QUERY, new TextEncoder().encode(q));
+  /* The corpus's review state rides record 0 of every reply, so it refreshes
+     with the results and can never be a stale claim about a different corpus. */
+  if (S.hits && S.hits.kind === 'finder' && S.hits.rows.length) {
+    S.review = S.hits.rows[0].s[5];
+  }
+}
+
+/* Repaint the results wherever they are on screen — the overlay, the
+   full-canvas view, or both at once — without touching either input, because
+   rebuilding the input the user is typing into takes their caret with it. */
+function paintHits() {
+  var a = $('fhits'); if (a) renderHits(a, 'fhit');
+  var b = $('fvhits'); if (b) renderHits(b, 'fvhit');
+  var line = S.review || reviewFallback();
+  var r1 = $('fReview'); if (r1) r1.textContent = line;
+  var host = $('fvhits');
+  if (host && host.parentNode) {
+    var r2 = host.parentNode.querySelector('.freview');
+    if (r2) r2.textContent = line;
+  }
+  var count = $('fFootCount');
+  if (count) count.textContent = footCount();
+  syncActive('fq', 'fhit');
+  syncActive('fqv', 'fvhit');
+}
+
+/* aria-activedescendant, not focus (16 §19.3): focus stays in the input at all
+   times and the arrow keys move the pointer to the selected option. */
+function syncActive(inputId, prefix) {
+  var inp = $(inputId);
+  if (!inp) return;
+  var rows = walkable();
+  if (rows.length && S.query) inp.setAttribute('aria-activedescendant', prefix + S.hi);
+  else inp.removeAttribute('aria-activedescendant');
+}
+
+/* Clearing the query is ONE function because 52 §3.2.2 requires the two forms
+   to share the keymap, and two copies of these four lines is exactly how the
+   overlay grew a behaviour the full canvas did not have. Both inputs are reset
+   whether or not both are on screen: they can be, and an input left holding
+   text the state no longer has is the next version of the same defect. */
+function clearQuery() {
+  runQuery('');
+  var a = $('fq'); if (a) a.value = '';
+  var b = $('fqv'); if (b) b.value = '';
+  paintHits();
+}
+
+function footCount() {
+  if (S.corpus !== 'loaded') return 'no corpus';
+  if (!S.query) return 'esc close · ctrl+K anywhere';
+  var shown = hitRows(ROLE_SHOWN).length, below = hitRows(ROLE_BELOW).length;
+  return shown + ' above the cutoff · ' + below + ' near misses';
+}
+
+/* Move the highlight. Wraps at neither end — 16 §19.2: wrapping loses the
+   user's place. */
+function moveHi(delta) {
+  var n = walkable().length;
+  if (!n) return;
+  var next = S.hi + delta;
+  if (next < 0) next = 0;
+  if (next > n - 1) next = n - 1;
+  S.hi = next;
+  paintHits();
+  var host = $(fOpen ? 'fhits' : 'fvhits');
+  var row = host && host.querySelector('[data-hit="' + S.hi + '"]');
+  if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' });
+}
+
+/* 53 §6.2's ladder, three of its four layers.
+
+   LAYER 2 (explicit): navigator.clipboard.writeText, called synchronously
+   inside the gesture handler. The primary path and the one that must never
+   break.
+
+   LAYER 3 (fallback): a hidden textarea, select(), execCommand('copy').
+   Deprecated; §6.2 keeps it because it is still universally implemented.
+
+   LAYER 4 (last resort): the payload rendered in a focused, pre-selected
+   read-only block. "Never a silent failure."
+
+   Layer 1 (interception — rewriting a native ⌘C's clipboardData) is NOT here
+   and is not reachable from this surface: it fires on a text selection the user
+   made themselves, and every copy this build performs comes from a keystroke on
+   a row that is not selected text. It lands when the config view does.
+
+   WHAT THIS REPLACED. The comment here used to say "There is no fallback",
+   reasoned that a silent failure would have the user paste their previous
+   clipboard into a change window, and then implement exactly the outcome it
+   described minus the silence: the footer said the browser refused and the
+   command text was gone. Announcing the loss is better than hiding it and is
+   not what §6.2 asks for — layers 3 and 4 exist so the PAYLOAD survives, not so
+   the failure is narrated. */
+function copyText(text, said) {
+  var c = navigator.clipboard;
+  if (!c || !c.writeText) { copyRefused(text, 'this browser exposes no clipboard'); return; }
+  c.writeText(text).then(function () {
+    foot(said);
+    renderShell();
+  }).catch(function (e) {
+    copyRefused(text, 'the browser refused the clipboard: ' + e);
+  });
+}
+
+/* Layers 3 then 4. `why` is layer 2's refusal, carried through: whichever layer
+   ends up carrying the copy, the user is told the primary path failed, because
+   a page that silently degrades is a page whose clipboard behaviour nobody can
+   report a bug about. */
+function copyRefused(text, why) {
+  if (execCopy(text)) { foot('copied · ' + why + ' · used the deprecated path'); renderShell(); return; }
+  showCopyBlock(text, why);
+}
+
+/* Layer 3. The scratch element is created, used and removed inside this call:
+   a permanent hidden textarea holding the last thing copied is a copy of the
+   payload sitting in the DOM for no reason, and the payloads here are commands
+   about somebody's production estate. */
+function execCopy(text) {
+  if (!document.execCommand) return false;
+  var ta = el('textarea', 'cfscratch');
+  ta.value = text;
+  ta.setAttribute('readonly', 'readonly');
+  document.body.appendChild(ta);
+  var ok = false;
+  try {
+    ta.select();
+    ok = document.execCommand('copy') === true;
+  } catch (err) {
+    ok = false;
+  }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+/* Layer 4. 53 §6.5's footer line for this case is verbatim -- "copy blocked by
+   the browser · press ⌘C on the selected block" -- and §6.5 says it does NOT
+   clear after 1.6 s. Nothing in this build clears the footer on a timer at all,
+   so that holds by construction rather than by a special case; if a timer is
+   ever added, this line is the one it must skip. */
+function showCopyBlock(text, why) {
+  $('cfWhy').textContent = why + '. Nothing was lost — the text is below.';
+  var ta = $('cfta');
+  ta.value = text;
+  $('cfall').hidden = false;
+  ta.focus();
+  ta.select();
+  foot('copy blocked by the browser · press ⌘C on the selected block');
+  renderShell();
+}
+
+function hideCopyBlock() {
+  var host = $('cfall');
+  if (host.hidden) return false;
+  host.hidden = true;
+  /* The payload does not stay in the DOM after the panel closes. */
+  $('cfta').value = '';
+  return true;
+}
+$('cfDone').addEventListener('click', function () { hideCopyBlock(); });
+
+/* 53 §3.5's three Enters on a finder result, all three bound:
+
+     Enter   Copy the rendered command, close
+     ⇧Enter  Copy un-interpolated (`<vpn-name>`)
+     ⌥Enter  Copy the whole answer block
+
+   ⇧Enter WAS BOUND ALL ALONG and nobody had written it down. `e.key` is
+   'Enter' for Shift+Enter as much as for Enter, so it fell into the plain
+   branch, while the comment here claimed the binding had been deliberately
+   refused on the grounds that two keys doing the same thing is worse than a
+   missing one. That reasoning had a real point buried in it — this build has no
+   workspace interpolation, so the rendered command and the un-interpolated one
+   are the same string today — but the conclusion was wrong twice over: the key
+   was bound, and the day interpolation lands, `mode === 'cmd'` starts passing
+   the interpolated command while this branch must keep passing the raw one.
+   Splitting them now is what makes that a one-line change instead of a silent
+   regression, and the footer says which of the two it did so the sameness is
+   visible rather than assumed. */
+function actOnHit(mode) {
+  var rows = walkable();
+  var r = rows[S.hi];
+  if (!r) { foot('no result is highlighted'); renderShell(); return; }
+  if (mode === 'cmd') {
+    copyText(r.s[0], 'copied: ' + r.s[0]);
+    setFinder(false);
+    return;
+  }
+  if (mode === 'raw') {
+    /* r.s[0] IS the un-interpolated command: the module sends the entry's own
+       `cmd` with its {{slots}} rendered as placeholders and there is nothing in
+       this build that would substitute a value into it. When there is, this
+       stays pointed at the raw form and 'cmd' moves. */
+    copyText(r.s[0], 'copied un-interpolated: ' + r.s[0]);
+    setFinder(false);
+    return;
+  }
+  /* The answer block, in the order 16 §17.1 draws it, with the stamp last
+     because a command pasted into a ticket must carry the fact that nobody
+     has run it. */
+  var block = [r.s[0], r.s[6], r.s[2], 'read: ' + r.s[3]];
+  if (r.flags & 2) block.push('if bad: ' + r.s[4]);
+  block.push(r.s[1]);
+  block.push(r.s[5]);
+  copyText(block.join('\n'), 'copied the answer block');
+  setFinder(false);
+}
+
 function seekAttr(t, attr) {
   var n = t;
   while (n && n !== document.body) {
@@ -3075,18 +3678,103 @@ document.addEventListener('keydown', function (e) {
   commitField(t);
 });
 
-/* --- the finder overlay: registered, empty, honest. ----------------------- */
+/* --- the finder overlay (52 §3.2.1) --------------------------------------
+   It does nothing to the page underneath: no dim, no blur, no fade (44 §4.2 —
+   "a 150 ms fade is 150 ms of latency"). The scrim element is the shell's
+   existing one and is shared with the two sheets.
+
+   Focus is stored on open and returned on close, stored rather than inferred
+   (53 §5.1): inferring it means guessing, and the guess is wrong exactly when
+   the user came from a text field, which is the case Ctrl+K exists for. */
 var fOpen = false;
-function setFinder(open) {
+var fReturn = null;
+/* 16 §19.2's double-Esc: the second within 400 ms clears the query rather than
+   closing, so a mistyped query is one key from empty without losing the panel.
+   Implemented as "Esc on a non-empty query clears it; Esc on an empty one
+   closes", which is the same behaviour without a timer that can fire between a
+   user's two presses and do the wrong one. */
+function setFinder(open, keepFocus) {
   fOpen = open;
-  $('scrim').hidden = !(open || pOpen || eOpen);
+  /* The finder draws NO scrim. 52 §3.2.1 is explicit — it "renders over the
+     sheet with the sheet still legible behind it: no backdrop fade, no dimming
+     layer" — and the reason is functional rather than aesthetic: the thing you
+     are searching for is very often the thing on the screen behind the panel.
+     The two sheets keep theirs; they replace the view rather than sit over it. */
+  $('scrim').hidden = !(pOpen || eOpen);
   $('fsheet').hidden = !open;
+  var inp = $('fq');
   if (open) {
-    var h = $('fhits');
-    clear(h);
-    unposted(h, 'finder', UNBUILT);
+    fReturn = document.activeElement;
+    inp.disabled = S.corpus !== 'loaded';
+    inp.setAttribute('aria-expanded', String(S.corpus === 'loaded'));
+    inp.placeholder = S.corpus === 'loaded'
+      ? 'find a command — try ipsec' : 'the corpus did not load';
+    inp.value = S.query;
+    $('fFootKeys').textContent =
+      'esc close · ↑↓ move · enter copy · ⌥enter copy the whole block';
+    paintHits();
+    if (!inp.disabled) { inp.focus(); inp.select(); }
+    return;
   }
+  /* Focus goes back where it was — unless the close was itself a click
+     somewhere, in which case the click has already put focus where the user
+     asked for it and dragging it back would undo their gesture. */
+  if (!keepFocus && fReturn && fReturn.focus && document.contains(fReturn)) fReturn.focus();
+  fReturn = null;
 }
+
+/* One input event, one crossing, one repaint. Both inputs share this path so
+   the two forms cannot disagree about what was typed. */
+function onQueryInput(ev) {
+  var t = ev.target;
+  if (!t || (t.id !== 'fq' && t.id !== 'fqv')) return;
+  runQuery(t.value);
+  var other = $(t.id === 'fq' ? 'fqv' : 'fq');
+  if (other && other.value !== S.query) other.value = S.query;
+  paintHits();
+}
+document.addEventListener('input', onQueryInput);
+
+/* The finder's own keymap (16 §19.2), bound on the inputs rather than the
+   document so ↓ still scrolls a table when focus is in one. */
+document.addEventListener('keydown', function (e) {
+  var t = e.target;
+  if (!t || (t.id !== 'fq' && t.id !== 'fqv')) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); moveHi(1); return; }
+  if (e.key === 'ArrowUp') { e.preventDefault(); moveHi(-1); return; }
+  if (e.key === 'Home') { e.preventDefault(); S.hi = 0; paintHits(); return; }
+  if (e.key === 'End') {
+    e.preventDefault();
+    S.hi = Math.max(0, walkable().length - 1);
+    paintHits();
+    return;
+  }
+  /* ⌥ wins over ⇧ when both are held: the answer block contains the command,
+     so the wider copy is the safer reading of an ambiguous press. */
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    actOnHit(e.altKey ? 'block' : (e.shiftKey ? 'raw' : 'cmd'));
+    return;
+  }
+});
+
+/* Clicking a row highlights it; the keyboard is the primary path and the
+   pointer must reach the same state rather than a parallel one. */
+document.addEventListener('click', function (ev) {
+  var n = seekAttr(ev.target, 'data-hit');
+  if (n) {
+    S.hi = parseInt(n.getAttribute('data-hit'), 10);
+    paintHits();
+    return;
+  }
+  /* 53 §5.6: a click outside closes the overlay AND lands. The overlay is not
+     modal — there is no scrim to swallow the click — so this must not
+     preventDefault: clicking a row in the table behind the panel should select
+     that row, not merely dismiss the panel and make you click again. */
+  if (fOpen && ev.target && ev.target.closest && !ev.target.closest('#fsheet')) {
+    setFinder(false, true);
+  }
+});
 
 /* -------------------------------------------------------------------------
    4b. THE ON-RAMP. Copy-paste is the only input this product will ever have
@@ -3103,7 +3791,7 @@ var pOpen = false;
 
 function setPaste(open) {
   pOpen = open;
-  $('scrim').hidden = !(open || fOpen || eOpen);
+  $('scrim').hidden = !(open || eOpen);   /* fOpen draws no scrim — setFinder */
   $('psheet').hidden = !open;
   if (open) {
     $('pHint').textContent =
@@ -3221,7 +3909,7 @@ var eOpen = false;
 
 function setEquip(open) {
   eOpen = open;
-  $('scrim').hidden = !(open || fOpen || pOpen);
+  $('scrim').hidden = !(open || pOpen);   /* fOpen draws no scrim — setFinder */
   $('esheet').hidden = !open;
   if (!open) return;
   $('eHint').textContent =
@@ -3543,10 +4231,21 @@ $('importFile').addEventListener('change', function (ev) {
 
 /* --- keyboard ------------------------------------------------------------- */
 document.addEventListener('keydown', function (e) {
-  /* Ctrl+K from anywhere, including inside a text field. */
+  /* Ctrl+K from anywhere, including inside a text field.
+
+     It never closes. 53 §5.1: pressing it inside the finder "selects the query
+     text rather than reopening" — the gesture means "search", and a second
+     press meaning "stop searching" is how a user loses a query by reaching for
+     the key that made it. Esc closes. */
   if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
     e.preventDefault();
-    setFinder(!fOpen);
+    if (fOpen) { var f = $('fq'); if (f) { f.focus(); f.select(); } return; }
+    /* Pre-seed from the page selection (53 §5.1): selecting NO_PROPOSAL_CHOSEN
+       in a residue row and pressing Ctrl+K should search for it. */
+    var sel = window.getSelection ? String(window.getSelection()) : '';
+    sel = sel.trim();
+    if (sel && sel.length <= 120 && S.corpus === 'loaded') { runQuery(sel); }
+    setFinder(true);
     return;
   }
   /* Escape unwinds exactly one level (53 §3.7); on an empty state it
@@ -3573,9 +4272,35 @@ document.addEventListener('keydown', function (e) {
      reader last added -- which is why S.open is a list in activation order and
      not a set. */
   if (e.key === 'Escape') {
+    /* 53 §6.2's layer-4 block is the top rung: it is the last thing that
+       opened, and §3.7 unwinds most-recently-opened first. Dismissing it is
+       also the only way to discard the payload, which is why it is a rung and
+       not a click-only affordance. */
+    if (hideCopyBlock()) return;
     if (eOpen) { setEquip(false); return; }
     if (pOpen) { setPaste(false); return; }
-    if (fOpen) { setFinder(false); return; }
+    /* THE FINDER'S RUNG, and it belongs to the finder rather than to the
+       overlay. 52 §3.2.2: "Both forms are the same code, the same index, the
+       same ranking, the same keymap." This branch was gated on `fOpen` alone,
+       so Esc in the ⌥1 full-canvas form fell straight through to the
+       element-deselect rung and left the query sitting there — the overlay
+       cleared, the canvas did not, which is precisely the drift §3.2.2 forbids.
+
+       53 §5.6's "Esc twice within 400 ms | First clears the query, second
+       closes" is implemented without the timer: Esc on a non-empty query clears
+       it, Esc on an empty one closes. Same behaviour, no window that can fire
+       between a user's two presses and do the wrong one.
+
+       The full canvas has nothing to close — it IS the view — so its ladder is
+       the same one with the last rung absent, and an Esc on an empty query
+       carries on down to the selection rungs. That is the container difference
+       §3.2.2 allows ("The only difference is the container and the column
+       count"), not a keymap difference. */
+    if (fOpen || (S.view === 'finder' && S.query)) {
+      if (S.query) { clearQuery(); return; }
+      setFinder(false);
+      return;
+    }
     if (S.view === 'diagram' && S.open.length) {
       diagramCollapse(S.open[S.open.length - 1][0]);
       return;
@@ -3648,11 +4373,26 @@ function boot() {
     wasmModule = r.module;
     wasm = r.instance.exports;
 
+    /* THE CORPUS, HANDED IN. One crossing, once, before anything is drawn.
+       The frame was packed and verified at assembly time, so a refusal here is
+       a real defect rather than a bad corpus — and it is recorded on S.corpus
+       and shown in the finder rather than logged, because a search box that
+       answers "nothing found" when it means "nothing loaded" is the single
+       worst thing this surface can do. */
+    var init = call(OP_INIT, b64bytes(FATHOM_CORPUS_B64));
+    if (init.kind === 'empty') S.corpus = 'loaded';
+    else S.corpus = finderProblem(init) || 'the corpus did not load';
+
     /* The dictionary, handed in before anything can be pasted. It is a boot
        step and not a lazy one: a paste that arrives first is refused with
        ERR_NO_DICTIONARY (14), and the operator would be told their config was
        unreadable when in fact the page had not finished starting. Doing it here
-       means that refusal is a bug report, never something a user can hit. */
+       means that refusal is a bug report, never something a user can hit.
+
+       Spliced in the same order the assembler splices them (lib.rs assemble()):
+       corpus frame, then dictionary frame. Two frames, two independent failures,
+       neither of which can mask the other -- a dead corpus leaves the paste path
+       working and a dead dictionary leaves the finder working. */
     var dictReply = call(OP_DICT, b64bytes(FATHOM_DICT_B64));
     if (dictReply.kind !== 'empty') {
       S.boot = replyProblem(dictReply) || 'the statement dictionary did not load';
