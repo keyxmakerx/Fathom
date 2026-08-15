@@ -16,9 +16,12 @@
 //! It is **not** `56`'s finished design, and nothing here should be mistaken for
 //! it. Absent, in that document's terms: the five toggled layers (§4), the
 //! aggregation stacks (§1.3), Sugiyama's crossing-reduction pass (§3.2 phase 5),
-//! orthogonal channel allocation (§3.2 phase 8), pins and `LayoutHint` (§3.5),
-//! and the reth's two-layer treatment (§4.2). Each is real work and each sits on
-//! top of this rather than replacing it.
+//! pins and `LayoutHint` (§3.5), and the reth's two-layer treatment (§4.2). Each
+//! is real work and each sits on top of this rather than replacing it.
+//!
+//! Phase 8 — orthogonal routing with a channel set per band — **is** here, in
+//! [`route`], because without it every line between two ranks ran through one
+//! midpoint and a dense estate drew as one thick stroke.
 //!
 //! # Determinism
 //!
@@ -43,8 +46,10 @@
     clippy::indexing_slicing
 )]
 
+mod route;
+
 use fathom_graph::{Graph, NodeId};
-use fathom_ir::generated::ir_types::{EdgeClass, EdgeKind, NodeKind};
+use fathom_ir::generated::ir_types::NodeKind;
 
 /// Box geometry, in abstract units. The page multiplies by whatever it needs;
 /// these are chosen so a label of ~24 characters fits at the page's mono size.
@@ -144,7 +149,7 @@ pub fn lay_out(g: &Graph) -> Diagram {
         widest_rank = widest_rank.max(row);
     }
 
-    let links = route(g, &nodes, &live);
+    let links = route::route(g, &nodes, &live);
 
     let ranks = ranked.last().map(|(r, _)| *r + 1).unwrap_or(0) as i32;
     Diagram {
@@ -187,65 +192,6 @@ fn label_of(g: &Graph, id: NodeId) -> String {
     }
 }
 
-/// Route every effective edge between two drawn nodes.
-///
-/// Three-segment orthogonal: out of the right face, across a channel halfway
-/// between the ranks, into the left face. Where the two nodes share a rank the
-/// path is a straight line, which is honest about the fact that this slice has
-/// no channel allocation — `56` §3.2 phase 8's interval-graph colouring is not
-/// here, so a dense estate will show overlapping lines rather than pretending.
-fn route(g: &Graph, nodes: &[Node], live: &[NodeId]) -> Vec<Link> {
-    let mut links = Vec::new();
-    for from in live {
-        for kind in EdgeKind::ALL {
-            if kind.root_containment() {
-                continue;
-            }
-            for e in g.out(*from, kind) {
-                if e.absent_since.is_some() {
-                    continue;
-                }
-                let (Some(a), Some(b)) = (find(nodes, *from), find(nodes, e.to)) else {
-                    continue;
-                };
-                links.push(Link {
-                    from: a.id.clone(),
-                    to: b.id.clone(),
-                    kind: kind.name(),
-                    containment: kind.class() == EdgeClass::Containment,
-                    points: path(a, b),
-                });
-            }
-        }
-    }
-    // A total order that does not depend on iteration: the picture is the same
-    // every time it is drawn, including the order lines are painted in.
-    links.sort_by(|x, y| {
-        (x.from.as_str(), x.to.as_str(), x.kind).cmp(&(y.from.as_str(), y.to.as_str(), y.kind))
-    });
-    links
-}
-
-fn find(nodes: &[Node], id: NodeId) -> Option<&Node> {
-    let want = id.to_string();
-    nodes.iter().find(|n| n.id == want)
-}
-
-fn path(a: &Node, b: &Node) -> Vec<(i32, i32)> {
-    let (ay, by) = (a.y + a.h / 2, b.y + b.h / 2);
-    if a.x == b.x {
-        // Same rank: the two boxes are stacked, so there is no facing pair to
-        // join. Detour out the right face, down the channel beside the rank, and
-        // back in — a straight line between them would be DIAGONAL, which this
-        // routing does not do and which the orthogonality test catches.
-        let ch = a.x + a.w + RANK_GAP / 2;
-        return vec![(a.x + a.w, ay), (ch, ay), (ch, by), (b.x + b.w, by)];
-    }
-    let (start, end) = if a.x < b.x {
-        ((a.x + a.w, ay), (b.x, by))
-    } else {
-        ((a.x, ay), (b.x + b.w, by))
-    };
-    let mid = (start.0 + end.0) / 2;
-    vec![start, (mid, start.1), (mid, end.1), end]
-}
+// Routing lives in `route.rs` — `56` §3.2 phase 8 is an algorithm with a
+// specification of its own, and it is long enough that leaving it here would
+// bury the placement this file is about.
