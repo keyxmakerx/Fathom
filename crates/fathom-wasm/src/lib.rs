@@ -13,6 +13,7 @@
 //! allows is the narrowest working form; there is no `unsafe` block to allow.
 #![deny(unsafe_code)]
 
+pub mod dictframe;
 pub mod protocol;
 pub mod shell;
 pub mod wasmbin;
@@ -88,6 +89,31 @@ pub const OP_FIELD_SET: u32 = 17;
 /// silently is not a record. What this gives the operator is *"this is no longer
 /// true"*, which is a different and more honest claim than *"this never was"*.
 pub const OP_ELEMENT_REMOVE: u32 = 18;
+
+/// The diagram: every live node as a positioned box, every live edge as a
+/// routed line.
+///
+/// Layout runs HERE and not in the page — `41` §750, because it must be
+/// deterministic (invariant 9), because the CLI's SVG export shares it, and
+/// because `23` §6.5 already classes diagram layout as a deterministic
+/// non-model task. The page receives coordinates and draws them; it computes no
+/// geometry.
+pub const OP_DIAGRAM: u32 = 19;
+
+/// Hand the statement dictionary in.
+///
+/// The dictionary used to be `include_str!`'d into this module — 29 670 bytes
+/// of YAML in the data section, against `44` §5.2's 900 000-byte ceiling, with
+/// every further platform costing its own. It is corpus data, and corpus data
+/// already has a door: `OP_INIT` has carried commands, explainers and rules in
+/// from the page since WO-07. This is that door, used a second time, and
+/// `crate::dictframe` documents the frame.
+///
+/// **20, not 19.** 19 is `OP_DIAGRAM`'s, taken concurrently in another branch.
+/// An opcode is stable forever and a collision is worse than a gap
+/// (41 §3.7: *"a new call is a new opcode, never a changed one"*), so this
+/// takes the next free number rather than the next one up.
+pub const OP_DICT: u32 = 20;
 
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());

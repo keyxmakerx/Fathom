@@ -1668,3 +1668,17 @@ from it is an ungated export path.
 attributes, and §9.4 asks for `img-src 'self' blob:`. The first is a rendering necessity with no
 security surface. The second is a real widening of the policy for a convenience format, and `34`
 is entitled to refuse it.
+
+**4. What was built for §3.2 phase 5 sorts by BARYCENTRE, not by the median this table names**
+(added 2026-08-15, by the session that built `crates/fathom-layout/src/order.rs`). Everything else
+in phases 4 and 5 is as specified: one dummy per crossed rank, a fixed eight sweeps, four down and
+four up, every tie broken on `NodeId`. The rule itself is Sugiyama's original and the design
+prototype's, not Eades and Wormald's. The reason is not a preference: both were built, both ran
+from the same start with the crossing count deciding between them, and the two-rule module measured
+**909,779 bytes against `44` §5.2's 900,000-byte ceiling**. One rule had to go and the barycentre
+is the one the working prototype uses. Two honest qualifications, both recorded in that file:
+9,779 bytes was measured before an unrelated 11,197-byte saving was found in the same file, so the
+median is probably affordable now; and the cost of the median's own sort was never isolated. This
+is a note rather than a proposed edit to the table because the right resolution is a measurement
+nobody has taken yet, and because the ceiling itself is the open question in
+`70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` §2 stage 1.

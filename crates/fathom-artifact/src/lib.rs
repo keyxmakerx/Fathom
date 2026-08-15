@@ -23,6 +23,8 @@ pub mod corpus;
 
 use std::path::Path;
 
+pub mod dictionary;
+
 /// Workspace-relative paths and the three splice tokens. The names carry
 /// `dev` on purpose: this is 45 §9.1's dev build, not `fathom-<ver>.html`
 /// (43 §3.5) — versioned assembly is WO-08 §10 item 7.
@@ -34,6 +36,9 @@ pub const TOKEN_WASM_B64: &str = "@FATHOM_WASM_B64@";
 /// The packed `OP_INIT` frame, base64. See `corpus.rs` for why the frame is
 /// built by the module's own encoder rather than assembled in the page.
 pub const TOKEN_CORPUS_B64: &str = "@FATHOM_CORPUS_B64@";
+/// The `OP_DICT` frame, base64. The dictionary stopped being compiled into the
+/// module on 2026-08-15 and travels here instead; `dictionary` has the why.
+pub const TOKEN_DICT_B64: &str = "@FATHOM_DICT_B64@";
 
 /// Where the nested build puts the module. Its own target dir, so it never
 /// contends with `artifact_gates`'s (WO-07 §4.6).
@@ -126,6 +131,11 @@ pub fn assemble(workspace_root: &Path) -> Result<Vec<u8>, String> {
         &spliced,
         TOKEN_CORPUS_B64,
         &base64(&corpus::frame(workspace_root)?),
+    )?;
+    let spliced = splice(
+        &spliced,
+        TOKEN_DICT_B64,
+        &base64(&dictionary::frame(workspace_root)?),
     )?;
     Ok(spliced.into_bytes())
 }
