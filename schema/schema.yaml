@@ -108,6 +108,69 @@ classes:
   - class: PortHost
     members: [Chassis, PassiveNode]
     doc: The two owners of PhysicalPort. 19 §3.3, carried per 19 §7.4 row 5.
+  # ADR-0035. Every kind the diagram can draw as a box — which today is every declared kind,
+  # because `fathom-layout` draws every live node and `56` §4.1's projection table leaves 23
+  # kinds untabled and therefore drawn at every layer. The list is written out rather than
+  # implied: a class is data, and a set that means "all of them" must still be able to stop
+  # meaning that. LayoutPin itself is excluded — a pin is not drawn, so a pin cannot be placed,
+  # and admitting it would make HasLayoutPin a self-referential containment chain.
+  # `crates/fathom-schema/tests/shipped_tree.rs` fails if this list and `kinds:` drift apart,
+  # so a kind added later cannot silently become unplaceable.
+  # A block sequence, not the one-line flow form the three classes above use: 62 §2.3's YAML
+  # subset refuses a flow collection that does not close on its own line, and forty-eight
+  # names do not fit one.
+  - class: Placeable
+    members:
+      - Site
+      - Device
+      - Chassis
+      - RedundancyGroup
+      - ExternalPeer
+      - Interface
+      - AggregateInterface
+      - RethInterface
+      - TunnelInterface
+      - LogicalUnit
+      - Address
+      - Vlan
+      - RoutingInstance
+      - StaticRoute
+      - LearnedRoute
+      - RoutingProtocol
+      - ProtocolAdjacency
+      - Zone
+      - PolicySet
+      - SecurityPolicy
+      - AddressObject
+      - AddressSet
+      - Application
+      - ApplicationSet
+      - NatRuleSet
+      - NatRule
+      - IkeProposal
+      - IkePolicy
+      - IkeGateway
+      - IpsecProposal
+      - IpsecPolicy
+      - IpsecVpn
+      - TrafficSelector
+      - Tunnel
+      - SecurityFlowSettings
+      - SystemSettings
+      - NtpServer
+      - SyslogTarget
+      - PhysicalPort
+      - Cable
+      - PassiveNode
+      - Premises
+      - Tenant
+      - Service
+      - ServiceType
+      - ServiceEndpoint
+      - ServicePath
+      - PathSegment
+    doc: |
+      Anything a person can put somewhere on the diagram. ADR-0035.
 
 kinds:
   # Identity tuples are transcribed only where 11 §10.3 or 19 states them. Kinds for which no
@@ -1044,6 +1107,45 @@ kinds:
       # 19 §6.2 declares this tier anyway; 19's content is transcribed and the collision is a
       # defect to file per 62 §1.
       - [ owner(ServicePath), edge(EntersAt), edge(ExitsAt) ]
+
+  # ======================= the picture — ADR-0035 =======================
+  - kind: LayoutPin
+    layer: config
+    emits: false
+    doc: |
+      Where a person put a box. `56` §3.5's LayoutHint, spelled in 62's grammar: one pin
+      node contained by the element it places, carrying absolute scene coordinates on the
+      4 px grid, with Origin::Hand provenance like every other thing a human asserted
+      (ADR-0035).
+
+      **It is an OVERRIDE, never the source of position.** `56` §3.5 keeps layout computed;
+      an element with no live pin is placed by `fathom-layout` and an element with one sits
+      where the person put it AND IS DRAWN AS PLACED. A picture that mixed the two silently
+      would be lying about which is which.
+
+      **It is not drawn.** `fathom_layout::agg::live_nodes` excludes this kind, so a pin is
+      never a box, never a rank, and never a line. That exclusion is the one place the
+      exception lives; every other consumer sees an ordinary contained node.
+
+      LAYER, AND THE GAP IT NAMES: `62` §4.2's vocabulary is closed at
+      config | physical | service, and a pin belongs to none of the three — it is a fact
+      about the drawing, not about the network. `config` is transcribed as the conservative
+      reading because `emits: false` already closes the emit consumer and the pin is never
+      produced by a capture, so `19` §9.1's re-identification filter can never reach one.
+      A fourth value is a 62 amendment and this is not the record that makes it; the gap is
+      filed in ADR-0035 §8.
+    fields:
+      # i32 and not u16: the scene has a margin and a person dragging leftward past it should
+      # get a negative coordinate rather than a clamp they cannot see the reason for. Integers
+      # and never floats — invariant 9 forbids anything whose bit pattern could differ across
+      # targets, and `fathom-layout` already states that rule for every coordinate it emits.
+      - { name: x, type: i32, card: "1", emit: "—", doc: "Absolute scene x, on the 4 px grid (56 §3.5)." }
+      - { name: y, type: i32, card: "1", emit: "—", doc: "Absolute scene y, on the 4 px grid (56 §3.5)." }
+    # No identity tuple, and this one is a decision rather than a gap: a pin is identified by
+    # what contains it and by nothing else. Two pins on one element is the state HasLayoutPin's
+    # `out: "0..1"` forbids, and a pin has no natural key of its own — inventing one
+    # (`owner + x`) would make moving a box change its identity.
+    identity: []
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -2045,6 +2147,24 @@ edges:
     fields: []
     emit_dict: null
     doc: 19 §5.2, §6.7 — constrain, never freeze; honoured by resolve_warp.
+
+  # ---- the picture, ADR-0035 ----
+  - edge: HasLayoutPin
+    class: containment
+    from: [Placeable]
+    to: [LayoutPin]
+    out: "0..1"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0035. CONTAINMENT and not a reference, for one reason that decides it: `Graph::tombstone`
+      takes the subtree, so removing a device takes its pin with it. A pin for a box that is gone
+      is not a fact anybody asserted — the same argument `OP_ELEMENT_REMOVE` already makes about
+      a chassis. `out: "0..1"` is what makes "two positions for one box" unrepresentable rather
+      than merely unwritten.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

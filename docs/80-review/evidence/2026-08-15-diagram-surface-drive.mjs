@@ -127,10 +127,29 @@ check('a hairline is still 1px at ' + zAfter.toFixed(2) + 'x',
   await page.$eval('.dbox rect', r => getComputedStyle(r).strokeWidth) === '1px');
 
 // ---- PAN ---------------------------------------------------------------------
+// FROM THE BACKGROUND, and this line changed with ADR-0035. A press on a BOX is
+// now a placement gesture, not a pan, so a pan test that starts on whatever
+// happens to be under the canvas centre is testing whichever of the two the
+// zoom left there. The empty point is computed rather than guessed: walk a grid
+// over the canvas and take the first spot `elementFromPoint` says is the canvas
+// itself. If the picture ever fills the canvas completely this returns null and
+// the check fails loudly instead of silently panning from a box.
+const empty = await page.evaluate(() => {
+  const c = document.querySelector('.dcanvas');
+  const r = c.getBoundingClientRect();
+  for (let y = r.top + 8; y < r.bottom - 8; y += 12) {
+    for (let x = r.left + 8; x < r.right - 8; x += 12) {
+      const at = document.elementFromPoint(x, y);
+      if (at === c || (at && at.tagName === 'svg')) return { x, y };
+    }
+  }
+  return null;
+});
+check('the canvas has background to pan from', empty !== null, JSON.stringify(empty));
 const panBefore = await readTransform();
-await page.mouse.move(cbb.x + cbb.width / 2, cbb.y + cbb.height / 2);
+await page.mouse.move(empty.x, empty.y);
 await page.mouse.down();
-await page.mouse.move(cbb.x + cbb.width / 2 - 140, cbb.y + cbb.height / 2 - 60, { steps: 8 });
+await page.mouse.move(empty.x - 140, empty.y - 60, { steps: 8 });
 await page.mouse.up();
 const panAfter = await readTransform();
 const parse = t => t.match(/translate\(([-\d.]+) ([-\d.]+)\) scale\(([\d.]+)\)/).slice(1).map(Number);

@@ -470,6 +470,11 @@ button.tab:hover { color: var(--ink); }
 .dstrip .lab { font-size: var(--t-micro); color: var(--muted);
                letter-spacing: var(--track-label); text-transform: uppercase; }
 .dzoomctl { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+/* The placement group (ADR-0035). Same shape as the zoom group because it is
+   the same class of thing — a small band of controls acting on the surface —
+   and giving it a second visual idiom would say the two are different in a way
+   they are not. */
+.dplacectl { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
 .dzoom { font-family: var(--mono); font-size: var(--t-mono); color: var(--ink);
          font-variant-numeric: var(--num-tabular); }
 
@@ -597,6 +602,26 @@ button.tab:hover { color: var(--ink); }
    picture that may not be demoted (§3.6, X9), so it must not be drawn in the
    de-emphasis tone that means "trust this less". */
 .dcount { font-size: var(--t-micro); fill: var(--ink); }
+/* THE PLACED MARK (ADR-0035), and the channel argument for it, because
+   `56` §5.2 says in terms that nothing may be added to the picture's channel
+   budget without taking something away.
+
+   Every channel that table gives a NODE is spent: G1 boundary tone is
+   freshness, G2 boundary dash is AI-proposed (`51` §9 product-wide, and dotted
+   is pending, so both line styles are gone), G3 boundary weight is selection,
+   G8 the second label line is age in words. So the mark takes none of them: it
+   is a separate stroked glyph at the box's own corner plus a word, which is the
+   same move `59` §3.5 made for the aggregation stack after checking the same
+   table — a new node channel, argued rather than assumed.
+
+   Two forms on purpose, because they degrade in different directions. The TICK
+   is geometry, so it survives forced colours, greyscale, monochrome print and
+   every level of detail; the WORD is unambiguous and survives being described
+   to somebody over a phone. The Outline row carries it in text as well, which
+   is the only one of the three an assistive technology can reach — the <svg> is
+   aria-hidden. */
+.dpin { fill: none; stroke: var(--ink); stroke-width: 2; }
+.dplaced { font-size: var(--t-micro); fill: var(--ink); }
 .dline { stroke-width: 1; }
 /* Containment is structure and is drawn quieter than a reference edge. NOT
    dashed -- `51` §9 reserves dashed for proposed elements. */
@@ -622,6 +647,12 @@ button.tab:hover { color: var(--ink); }
    that makes it matter. */
 svg[data-lod="1"] .dkind { display: none; }
 svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
+/* The placed WORD follows the name's rung, not the kind's: it is a claim about
+   how this box's position got there, which is worth more than the kind noun and
+   is dropped only when nothing is readable at all. The TICK is never dropped —
+   it is 2 px of stroke that costs nothing to draw and is the whole of what a
+   zoomed-out reader can still see. */
+svg[data-lod="0"] .dplaced { display: none; }
 
 /* --- the Outline. `55` §4.5.2: not an alternative, THE interface. --------- */
 .dout { min-width: 0; min-height: 0; overflow-y: auto;
@@ -863,7 +894,7 @@ var FATHOM_DICT_B64 = "@FATHOM_DICT_B64@";
 var OP_INIT = 1, OP_QUERY = 4;
 var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, OP_PASTE = 15;
 var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18;
-var OP_DIAGRAM = 19, OP_DICT = 20;
+var OP_DIAGRAM = 19, OP_DICT = 20, OP_PLACE = 21;
 
 /* The equipment form's fields, and the ONLY place this page names a field key.
    Each entry is [wire key, label, kind, required, note].
@@ -2130,7 +2161,11 @@ var DG = {
      this is false: refitting under someone who has just zoomed in on one tunnel
      is the tool taking the wheel back. */
   touched: false,
-  grab: null,                /* the live drag, or null */
+  grab: null,                /* the live PAN drag, or null */
+  box: null,                 /* the live BOX drag (ADR-0035), or null */
+  /* Set by a placement, consumed by the next renderDiagram: "the picture's
+     shape changed because I changed it, so do not refit". See opPlace. */
+  hold: false,
   eatClick: false            /* a drag that moved must not also select */
 };
 var dgOpen = false;
@@ -2390,6 +2425,110 @@ function dgClear() {
   say('selection cleared');
 }
 
+/* --- placing a box (ADR-0035) ---------------------------------------------
+
+   A hand-placed position is GRAPH DATA. It goes through the module, into the
+   store, with `Origin::Hand` provenance, and into the journal — which is what
+   makes it survive an export, an import and a colleague. It is emphatically not
+   held here: a position kept in the page would be `75` §2.4's "state written
+   beside the op log", the one shape of new state that document forbids because
+   it forecloses real-time collaboration.
+
+   One keyboard step. 20 scene units — five times `56` §5.3's 4 px grid, so it
+   still lands on the grid, and far enough that one press visibly moves the box
+   at 1×. A 4 px step would be correct and useless: at fit zoom on any real
+   estate it is a sub-pixel move, and a control whose effect you cannot see is a
+   control you will press until something breaks. */
+var DG_NUDGE = 20;
+
+/* The one place a placement reaches the module. `mode` 0 releases the box back
+   to computed layout and ignores the point; 1 places it.
+
+   The clock and the entropy come from the HOST, in the frame, because the
+   module has neither and must acquire neither — its import section is empty and
+   stays empty. Every other writing op on this page does the same. */
+function opPlace(id, mode, x, y) {
+  if (!wasm || !id) return false;
+  var ent = hostEntropy();
+  if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return false; }
+  var idBytes = new TextEncoder().encode(id);
+  var req = new Uint8Array(33 + idBytes.length);
+  var dv = new DataView(req.buffer);
+  var at = Date.now();
+  dv.setBigUint64(0, BigInt(at), true);
+  req.set(ent, 8);
+  req[24] = mode;
+  dv.setInt32(25, x, true);
+  dv.setInt32(29, y, true);
+  req.set(idBytes, 33);
+
+  var reply = call(OP_PLACE, req);
+  var bad = replyProblem(reply);
+  if (bad) { foot(bad); renderShell(); return false; }
+  S.journal.push({ op: 'place', at: at, ent: b64(ent), id: id, mode: mode, x: x, y: y });
+  /* Re-render, and HOLD the view. The picture's extent can grow when a box is
+     dragged past the grid the rank walk produced, which changes the signature
+     `renderDiagram` refits on — and refitting under somebody who has just moved
+     one box rescales the whole picture out from under them. `DG.hold` says "the
+     shape changed because I changed it", which is exactly the case where a
+     refit is wrong. */
+  DG.hold = true;
+  render();
+  return true;
+}
+
+/* What the four nudge buttons and `Alt`+arrow both call.
+
+   The box's CURRENT position is the base whether it came from a pin or from the
+   layout, which is what makes the first nudge of an unplaced box mean "start
+   from where it is" rather than "jump to the origin". */
+function dgNudge(dx, dy) {
+  var b = DG.boxes && S.sel && DG.boxes[S.sel];
+  if (!b) { foot('select a box first — nudging needs something to move'); renderShell(); return; }
+  if (b.collapsed) {
+    foot('that box stands for ' + b.n + ' objects, and a group has no single ' +
+         'position — open it and place one of its members');
+    renderShell();
+    return;
+  }
+  var id = S.sel;
+  if (!opPlace(id, 1, b.x + dx * DG_NUDGE, b.y + dy * DG_NUDGE)) return;
+  foot('moved ' + b.kind + ' ' + b.label);
+  say(b.kind + ' ' + b.label + ' moved, and it is now placed by hand');
+  dgRefocusRow(id);
+}
+
+/* Back under computed layout, in one action. `56` §3.5: "Unpinning is explicit
+   and reversible." */
+function dgFreePlacement() {
+  var b = DG.boxes && S.sel && DG.boxes[S.sel];
+  if (!b) { foot('select a box first'); renderShell(); return; }
+  if (!b.placed) {
+    /* Not an error and not silence. The end state the button promises is
+       already true, and saying so is what stops somebody pressing it again
+       looking for a response. */
+    foot(b.kind + ' ' + b.label + ' is already placed by the layout');
+    renderShell();
+    return;
+  }
+  var id = S.sel;
+  if (!opPlace(id, 0, 0, 0)) return;
+  foot(b.kind + ' ' + b.label + ' is back under computed layout');
+  say(b.kind + ' ' + b.label + ' released, and the layout places it again');
+  dgRefocusRow(id);
+}
+
+/* A placement rebuilds the Outline, so the row the user was standing on is a
+   different element afterwards. Put focus back on the new one, or every nudge
+   would drop focus to <body> — `53` §13 failure 7, arrived at from a new
+   direction. */
+function dgRefocusRow(id) {
+  var row = DG.out && DG.out.querySelector('[data-drow="' + cssEsc(id) + '"]');
+  if (!row) return;
+  dgRove(row);
+  row.focus();
+}
+
 /* --- the Outline ----------------------------------------------------------
 
    `55` §4.5.2: "keyboard focus in the diagram view never enters the <svg>. It
@@ -2537,6 +2676,13 @@ function dgOutline(boxes, noSetKinds, agg) {
        never be dropped, and a row reading `LogicalUnit st0.0–st0.12 · 3 links`
        with no count is the picture's own stack silently unsaid. */
     if (ag.collapsed) row.appendChild(el('span', 'docnt', ag.n + ' collapsed'));
+    /* The placed fact, in words, on the tree assistive technology actually
+       reads. The tick and the word in the picture are inside an `aria-hidden`
+       <svg>, so on their own they announce this to nobody — which is the exact
+       failure `docs/80-review/evidence/2026-08-15-diagram-aggregation-ax.mjs`
+       exists to catch. `56` §3.5's override is a fact about the box, so it
+       belongs on the box's row. */
+    if (ag.placed) row.appendChild(el('span', 'docnt', 'placed by hand'));
     row.appendChild(el('span', 'docnt', plural(String(n), 'link', 'links')));
     if (noSetKinds.indexOf(b.s[1]) >= 0) {
       row.setAttribute('data-noset', '1');
@@ -2707,9 +2853,55 @@ function renderDiagram(host) {
   DG.readout = el('span', 'dzoom', '1.00×');
   zc.appendChild(DG.readout);
   strip.appendChild(zc);
+
+  /* --- placing a box, for a keyboard (ADR-0035) -----------------------------
+
+     A drag is a pointer gesture and half the contract cannot perform one, so
+     the placement has to be reachable another way. These are that way, and they
+     are ORDINARY BUTTONS in an ordinary DOM group, which is deliberate on two
+     counts.
+
+     First, `55` §4.5.2: focus never enters the <svg>, so a control declared on
+     a shape is declared to nobody. Second, and this is the harder one, `53` is
+     the sole owner of the keymap under ADR-0024 and this page binds nothing.
+     The same question came up for continuous zoom and the answer taken there
+     was to ship buttons and decline to invent `+` and `-`; the same answer is
+     taken here rather than a different one. `Alt`+arrow is bound below as an
+     ACCELERATOR over these controls — never as the only way to reach them —
+     and ADR-0035 §9 files it for `53` to ratify or move.
+
+     They act on the SELECTION rather than appearing per row, because a row that
+     carried five buttons would be five more tab stops per box in a list that is
+     already the whole interface, and because "the thing I am working on" is
+     what a selection means.
+
+     Rendered unconditionally, not only when something is selected: `dgSelect`
+     deliberately does not rebuild this strip (rebuilding it would drop the pan,
+     the zoom and the focused row), so a group that appeared on selection would
+     be a group that never appeared. With nothing selected they say so. */
+  var pc = el('div', 'dplacectl');
+  pc.setAttribute('role', 'group');
+  pc.setAttribute('aria-label', 'place the selected box');
+  pc.appendChild(el('span', 'lab', 'place'));
+  [['left', -1, 0], ['right', 1, 0], ['up', 0, -1], ['down', 0, 1]].forEach(function (n) {
+    var b = el('button', null, n[0]);
+    b.type = 'button';
+    b.setAttribute('data-dnudge', n[1] + ' ' + n[2]);
+    pc.appendChild(b);
+  });
+  /* THE UNDO, and it is one action and it is next to the thing it undoes.
+     `56` §3.5 requires unpinning to be explicit and reversible; this is the
+     explicit half. It reads as what it does rather than as "unpin", because
+     "pin" is this build's word and not the operator's. */
+  var bFree = el('button', null, 'let the layout place it');
+  bFree.type = 'button';
+  bFree.setAttribute('data-dfree', '1');
+  pc.appendChild(bFree);
+  strip.appendChild(pc);
+
   strip.appendChild(el('span', 'lab dhint',
-    'an element in any active layer is drawn · drag to pan · wheel to zoom · ' +
-    'z fits · arrows walk the outline'));
+    'an element in any active layer is drawn · drag a box to move it · ' +
+    'drag the background to pan · wheel to zoom · z fits · arrows walk the outline'));
 
   /* --- the summary line. `55` §6.3: at 320 px the canvas collapses to this and
      the Outline takes the width. Present at every width, shown at one. */
@@ -2788,13 +2980,20 @@ function renderDiagram(host) {
      about the whole group -- how many of its members are shown against how
      many exist -- and no single box knows it. `59` §3.8's partial state
      ("6 of 40 shown") is exactly that fact. */
-  var agg = [], stood = 0, swallowed = 0, tally = {};
+  var agg = [], stood = 0, swallowed = 0, tally = {}, placedCount = 0;
   for (var ai = 0; ai < boxes.length; ai++) {
-    var parts = (boxes[ai].s[7] || '1 0 ').split(' ');
+    /* `<count> <interior> <placed> <group key>`. The placed flag was inserted
+       BEFORE the group key when ADR-0035 landed, not appended after it: the key
+       is the only token here that may be empty, so a fourth token after it
+       would be indistinguishable from no token at all on an ungrouped box.
+       `crates/fathom-wasm/tests/diagram_agg.rs` pins the same four positions
+       from the other side of the boundary. */
+    var parts = (boxes[ai].s[7] || '1 0 0 ').split(' ');
     var a = {
       n: parseInt(parts[0], 10) || 1,
       inside: parseInt(parts[1], 10) || 0,
-      grp: parts[2] || '',
+      placed: parts[2] === '1',
+      grp: parts[3] || '',
       /* An OUTLINE ROW id, not a shape id. `aria-controls` must name nodes the
          accessible tree can reach, and the shapes live inside `aria-hidden`
          SVG. Same index, so row i and box i are the same object throughout. */
@@ -2805,6 +3004,7 @@ function renderDiagram(host) {
     agg.push(a);
     stood += a.n;
     swallowed += a.inside;
+    if (a.placed) placedCount++;
     if (a.key) {
       var t2 = tally[a.key] || (tally[a.key] = { shown: 0, hidden: 0, ids: [] });
       if (a.collapsed) t2.hidden += a.n;
@@ -2945,6 +3145,35 @@ function renderDiagram(host) {
       cnt.textContent = ag.n + ' collapsed';
       g.appendChild(cnt);
     }
+    /* THE PLACED MARK. `56` §3.5 keeps layout computed and makes a hand
+       position an OVERRIDE, so the picture has to say which boxes carry one —
+       "a diagram that silently mixes computed and asserted positions is lying
+       about which is which". This is the picture's half of saying it; the
+       Outline row and the band carry the other two.
+
+       An L at the top-left corner, outside the box by 4 px (`--s1`, the grid
+       every coordinate is a multiple of). Outside rather than inside because
+       the inside of a box is already three labels deep on a collapsed one and
+       two on a plain one, and a mark that has to compete for room is a mark
+       that will be dropped. `non-scaling-stroke` for the same reason every
+       other stroke here carries it: at zoom 3 an unmarked stroke is a slab.
+
+       A box that stands for many nodes can never be placed — `fathom-layout`
+       only reads a pin when the cell holds exactly one node — so this mark and
+       the aggregation stack cannot appear on the same box, and the two node
+       marks never have to share a corner. */
+    if (ag.placed) {
+      g.appendChild(sEl('path', {
+        d: 'M' + (bx - 4) + ' ' + (by + 6) + ' L' + (bx - 4) + ' ' + (by - 4) +
+           ' L' + (bx + 6) + ' ' + (by - 4),
+        class: 'dpin',
+        'vector-effect': 'non-scaling-stroke'
+      }));
+      var pl = sEl('text', { x: bx + bw - 10, y: by + 34, class: 'dplaced',
+        'text-anchor': 'end' });
+      pl.textContent = 'placed';
+      g.appendChild(pl);
+    }
     var name2 = sEl('text', { x: bx + 10, y: by + 34, class: 'dname' });
     /* Truncate in the renderer, never in the model: the full name is in the
        Outline row and in the inspector, so nothing is lost by clipping the
@@ -2955,7 +3184,8 @@ function renderDiagram(host) {
     DG.scene.appendChild(g);
     DG.boxes[b.s[0]] = {
       x: bx, y: by, w: bw, h: bh, g: g,
-      kind: b.s[1], label: b.s[2], n: ag.n, collapsed: ag.collapsed
+      kind: b.s[1], label: b.s[2], n: ag.n, collapsed: ag.collapsed,
+      placed: ag.placed
     };
   }
 
@@ -3005,9 +3235,16 @@ function renderDiagram(host) {
     '. Layers: ' + layerWords() + ' — ' + hidObjects + ' objects and ' + hidEdges +
     ' links hidden by the mask. Toggling a layer never moves a box: one layout ' +
     'is computed over all five and the mask filters what is drawn (56 §3.6). ' +
-    'Positions come from the model, not from dragging: there is no hand ' +
-    'placement, because a position is graph data (56 §3.5) and the op that ' +
-    'would store one does not exist yet. Staleness is not in this build. Pan, ' +
+    'Positions are computed by the model, and ' +
+    (placedCount === 0
+      ? 'none of these boxes has been moved by hand. Drag one, or use the place ' +
+        'controls above, and it stays where you put it — through an export and ' +
+        'an import, because a position is graph data (ADR-0035) and not a view ' +
+        'preference. '
+      : plural(String(placedCount), 'box carries', 'boxes carry') + ' a hand ' +
+        'position that overrides the computed one — each marked in the picture ' +
+        'with a corner tick and the word placed, and on its Outline row. ') +
+    'Staleness is not in this build. Pan, ' +
     'zoom, which groups are open and whether the picture is open at a narrow ' +
     'width are the only things this page remembers about the surface.');
 
@@ -3069,8 +3306,9 @@ function renderDiagram(host) {
      where the user was standing. Refit only when the picture itself changed
      shape, which is what the signature detects. */
   var sig = DG.w + 'x' + DG.h + ':' + boxes.length;
-  if (sig !== DG.sig) { DG.sig = sig; dgFit(false); }
-  else { dgApply(); dgLod(); dgReadout(); }
+  DG.placed = placedCount;
+  if (sig !== DG.sig && !DG.hold) { DG.sig = sig; dgFit(false); }
+  else { DG.sig = sig; DG.hold = false; dgApply(); dgLod(); dgReadout(); }
 
   /* The other half of the round trip: a row selected in the inventory is still
      selected here, so the box is marked and brought into view. The tree's one
@@ -3110,6 +3348,12 @@ document.addEventListener('click', function (ev) {
     return;
   }
   if ((n = seekAttr(ev.target, 'data-dexpand'))) { dgToggleOpen(n); return; }
+  if ((n = seekAttr(ev.target, 'data-dnudge'))) {
+    var step = n.getAttribute('data-dnudge').split(' ');
+    dgNudge(parseInt(step[0], 10) || 0, parseInt(step[1], 10) || 0);
+    return;
+  }
+  if ((n = seekAttr(ev.target, 'data-dfree'))) { dgFreePlacement(); return; }
   /* BEFORE the data-drow arm: a collapsed group's Outline row carries both, and
      a click on it must open the group rather than try to select an element id
      that names a group and not a thing. The keyboard path has the same
@@ -3214,6 +3458,34 @@ document.addEventListener('keydown', function (e) {
     return;
   }
 
+  /* `Alt`+arrow — the accelerator over the strip's four place buttons
+     (ADR-0035). It is an accelerator and never the only path: everything it
+     does is one Tab and one Enter away in a real button group, which is what
+     keeps this from being a mouse-free capability hidden behind a chord.
+
+     `Alt` and not a bare arrow, because bare arrows are the roving contract
+     (`53` §8.3) and `←`/`→` are the tree's expand and collapse; taking either
+     would break navigation to add a move. `53` §4.4 names `Alt`+arrow as
+     unclaimed by macOS and the major Linux desktops and as this keymap's
+     namespace for shell and structure, which is the nearest thing to a home
+     this gesture has — but `53` owns the keymap under ADR-0024 and this page
+     does not get to settle it, so ADR-0035 §9 files it for `53` to ratify or
+     move. The buttons are what the contract rests on either way. */
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !link && row) {
+    var step = e.key === 'ArrowLeft' ? [-1, 0] : e.key === 'ArrowRight' ? [1, 0]
+             : e.key === 'ArrowUp' ? [0, -1] : e.key === 'ArrowDown' ? [0, 1] : null;
+    if (step) {
+      e.preventDefault();
+      /* Nudging acts on the SELECTION, and the row under the cursor may not be
+         it — walking the Outline moves focus without selecting. Select first,
+         so `Alt`+arrow always moves the box you are standing on. */
+      var here = row.getAttribute('data-drow');
+      if (S.sel !== here) dgSelect(here);
+      dgNudge(step[0], step[1]);
+      return;
+    }
+  }
+
   if (e.key === 'Enter') {
     e.preventDefault();
     if (link) dgFollow(link); else dgSelect(row.getAttribute('data-drow'));
@@ -3281,13 +3553,30 @@ document.addEventListener('wheel', function (e) {
   dgZoomAt(e.clientX - r.left, e.clientY - r.top, Math.pow(0.9988, dy), false, r);
 }, { passive: false });
 
-/* Drag to pan. */
+/* Drag a box to move it, drag the background to pan (ADR-0035).
+
+   The two gestures start the same way and are told apart by what is under the
+   pointer: a shape carrying `data-dpost` is a box standing for exactly ONE
+   element, and only such a box can hold a position. A collapsed group carries
+   `data-group` instead and falls through to the pan, which is right — a group
+   has no single element whose position it could be, and refusing the drag
+   quietly by panning instead is better than moving forty boxes at once. */
 document.addEventListener('pointerdown', function (e) {
   if (!DG.canvas || !DG.canvas.contains(e.target)) return;
   if (e.button !== 0) return;
   /* One-finger touch belongs to the PAGE (53 §11.4). Scene pinch and two-finger
      pan are that section's other half and are not built. */
   if (e.pointerType === 'touch') return;
+
+  var shape = seekAttr(e.target, 'data-dpost');
+  var id = shape && shape.getAttribute('data-dpost');
+  var b = id && DG.boxes && DG.boxes[id];
+  if (b && !b.collapsed) {
+    DG.box = { id: id, pid: e.pointerId, x: e.clientX, y: e.clientY,
+               bx: b.x, by: b.y, g: b.g, moved: false };
+    return;
+  }
+
   DG.grab = { id: e.pointerId, x: e.clientX, y: e.clientY,
               tx: DG.tx, ty: DG.ty, moved: false,
               /* Read once, here, so the pan path stays one attribute write with
@@ -3302,6 +3591,30 @@ document.addEventListener('pointerdown', function (e) {
      the first move past the slop threshold instead -- which is the only moment
      it is needed, because its job is to keep a drag alive after the cursor
      leaves the canvas. */
+});
+
+/* THE BOX DRAG'S MOVE PATH. One attribute write, on one element, per frame —
+   the same budget `44` §4.7.1 sets for the pan, met the same way: a `transform`
+   on the box's own <g> rather than five rewritten x/y attributes on the rects
+   and texts inside it. The transform is provisional and is thrown away on
+   release; what is stored is the coordinate, computed once, in scene units. */
+document.addEventListener('pointermove', function (e) {
+  if (!DG.box || e.pointerId !== DG.box.pid) return;
+  var bdx = e.clientX - DG.box.x, bdy = e.clientY - DG.box.y;
+  /* The same 3 px of slop the pan uses, and for the same reason: a click that
+     trembles must still select rather than becoming a one-pixel placement
+     nobody asked for. */
+  if (!DG.box.moved && bdx * bdx + bdy * bdy < 9) return;
+  if (!DG.box.moved && DG.canvas) {
+    try { DG.canvas.setPointerCapture(e.pointerId); } catch (err) { /* uncaptured */ }
+  }
+  DG.box.moved = true;
+  /* Divided by the zoom, because the pointer moves in CSS pixels and the scene
+     is in user units: `screen = scene * k + t`. Without this a drag at 0.3x
+     moves the box three times as far as the cursor, which reads as the box
+     escaping the pointer. */
+  DG.box.g.setAttribute('transform',
+    'translate(' + (bdx / DG.k) + ' ' + (bdy / DG.k) + ')');
 });
 
 document.addEventListener('pointermove', function (e) {
@@ -3328,6 +3641,58 @@ document.addEventListener('pointermove', function (e) {
   dgHold(DG.grab.r);
   dgApply();
 });
+
+/* The box drag's end: the provisional transform becomes a stored fact, or
+   nothing happened.
+
+   The pointer's total travel is converted to scene units ONCE, here, and the
+   module snaps the result to `56` §3.5's 4 px grid — snapping on this side
+   would put a rounding rule where nothing checks it, and two hosts that rounded
+   differently would store two positions for one gesture (invariant 9). */
+function dgBoxRelease(e) {
+  if (!DG.box || e.pointerId !== DG.box.pid) return;
+  var drag = DG.box;
+  DG.box = null;
+  if (DG.canvas) {
+    try {
+      if (DG.canvas.hasPointerCapture && DG.canvas.hasPointerCapture(e.pointerId)) {
+        DG.canvas.releasePointerCapture(e.pointerId);
+      }
+    } catch (err) { /* it was never captured */ }
+  }
+  if (!drag.moved) return;
+  /* A drag that moved must not also select what it started on — the same rule
+     the pan already carries, needed here for the same reason. */
+  DG.eatClick = true;
+  var x = Math.round(drag.bx + (e.clientX - drag.x) / DG.k);
+  var y = Math.round(drag.by + (e.clientY - drag.y) / DG.k);
+  var b = DG.boxes && DG.boxes[drag.id];
+  var what = b ? b.kind + ' ' + b.label : drag.id;
+  if (!opPlace(drag.id, 1, x, y)) {
+    /* The op was refused, so the box did not move. Put the shape back where the
+       model says it is rather than leaving it under a transform that now means
+       nothing — a refusal the picture does not undo is a picture that disagrees
+       with the record. */
+    drag.g.removeAttribute('transform');
+    return;
+  }
+  /* A PLACED BOX BECOMES THE SELECTION, and this is the one place the surface's
+     "a drag that moved must not also select" rule is deliberately not applied.
+     That rule exists for the PAN, where the thing under the pointer at the end
+     of the gesture is an accident. Here it is the opposite: the box you just
+     moved is unambiguously the thing you are working on, and the four place
+     buttons and Alt+arrow all act on the selection — so leaving nothing selected
+     after a drag means the mouse and the keyboard paths cannot be used one after
+     the other, which was true until this line existed and was measured in
+     Chromium: nudge after drag moved nothing and answered "select a box first".
+     Run AFTER opPlace, because opPlace rebuilds the scene and dgSelect paints
+     the one that is now on screen. */
+  dgSelect(drag.id);
+  foot('placed ' + what);
+  say(what + ' placed by hand');
+}
+document.addEventListener('pointerup', dgBoxRelease);
+document.addEventListener('pointercancel', dgBoxRelease);
 
 function dgRelease(e) {
   if (!DG.grab || e.pointerId !== DG.grab.id) return;
@@ -4349,6 +4714,21 @@ function importJournal(text) {
       new DataView(req.buffer).setBigUint64(0, BigInt(o.at), true);
       req.set(ent, 8); req.set(rb, 24);
       reply = call(OP_ELEMENT_REMOVE, req);
+    } else if (o.op === 'place') {
+      /* ADR-0035. A placement replays through the same opcode that made it,
+         with its own clock and entropy, exactly as every other op here does —
+         which is what makes a dragged box come back where it was put rather
+         than merely somewhere plausible. */
+      var pb = enc.encode(o.id);
+      req = new Uint8Array(33 + pb.length);
+      dv = new DataView(req.buffer);
+      dv.setBigUint64(0, BigInt(o.at), true);
+      req.set(ent, 8);
+      req[24] = o.mode;
+      dv.setInt32(25, o.x, true);
+      dv.setInt32(29, o.y, true);
+      req.set(pb, 33);
+      reply = call(OP_PLACE, req);
     } else {
       foot('step ' + (i + 1) + ' is a kind of change this build does not know (' + o.op + ')');
       renderShell();

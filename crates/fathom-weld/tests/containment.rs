@@ -22,15 +22,23 @@ fn admitting(owner: NodeKind, child: NodeKind) -> Vec<EdgeKind> {
         .collect()
 }
 
-/// G5. All 48 × 48 = 2,304 pairs: no pair is carried by two containment edge
+/// G5. All 49 × 49 = 2,401 pairs: no pair is carried by two containment edge
 /// kinds, and `containment_edge` returns exactly what an independent scan of
 /// the same tables returns.
 ///
-/// The pair count this pins is 46, not WO-09 §3's 51: the five
+/// The pair count this pins is 94, and it is 46 + 48.
+///
+/// **46** is the original set, and it is not WO-09 §3's 51: the five
 /// root-containment kinds (`HasTunnel`, `HasPremises`, `HasCable`,
 /// `HasTenant`, `HasServiceType`) declare `from: [root]`, and the workspace
 /// root is not a node kind, so `from_kinds()` is empty for each and no
 /// (NodeKind, NodeKind) pair names them. 51 − 5 = 46.
+///
+/// **48** is `HasLayoutPin` (ADR-0035), whose `from:` is the `Placeable` class —
+/// every kind but `LayoutPin` itself. One edge kind, forty-eight pairs, all with
+/// the same child. That is what makes a position storable on anything the
+/// diagram draws without forty-eight edge declarations, and the count moving by
+/// exactly the kind count is the arithmetic to check if it ever moves again.
 #[test]
 fn every_kind_pair_has_at_most_one_containment_edge() {
     let mut resolved = 0usize;
@@ -57,15 +65,18 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             }
         }
     }
-    assert_eq!(resolved, 46, "the containment pair set moved");
+    assert_eq!(resolved, 94, "the containment pair set moved");
 
-    // The 41 containment kinds are all still containment kinds, and every
+    // The 42 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
+    // `LayoutPin` is not among the orphans: it is contained by whatever it
+    // places, which is what makes `Graph::tombstone` take a pin away with the
+    // box it was pinning (ADR-0035).
     let containment = EdgeKind::ALL
         .into_iter()
         .filter(|k| k.class() == EdgeClass::Containment)
         .count();
-    assert_eq!(containment, 41);
+    assert_eq!(containment, 42);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {

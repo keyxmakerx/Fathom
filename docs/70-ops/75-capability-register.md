@@ -192,7 +192,7 @@ with `71`'s phase boundaries. The column exists so that nothing here reads as ne
 | **C-06a** | Teaching-off as a **copy payload** — the bare command, not the command plus its context | Intent recorded | **Already in phase 0**, on two keys | None found. `53` §6.3 already specifies both payloads and `71` §3.5 renders the legend | §8 |
 | **C-06b** | Teaching-off as a **product-wide posture**, plus an authored operational procedure for a planned change | Intent recorded | Not before phase 3 for the procedure; the posture is not gated by the graph at all | No third program type exists (`52` §6.2 versus `18` §4.2); `15` §6.3 forbids a fourth `Depth` **by name**; `54` §8.7 rule 4 refuses the pointer affordance the owner asked for | §8 |
 | **C-07** | Freeform annotation layer, plus planning overlay modes with customisable colour categories | Intent recorded | Not before phase 4 — both halves land on the diagram | `59` §4.1's **DECISION — no colour** stands, with its own written gate (`59` §4.7) and its own pre-written reversal shape; the reserved risk trio bounds any palette (`51` §1 R1, §3.3) | §9 |
-| **C-08** | Typed stencils — quick-create for hand-origin nodes: `Device` with `role: router`, `switch`, … | Intent recorded | Not before phase 1; on the canvas not before phase 4 | None structural found — `Device.role` is a declared schema field and `Origin::Hand` is a first-class origin. The design language refuses the pictorial *form*, not the capability | §10 |
+| **C-08** | Typed stencils — quick-create for hand-origin nodes: `Device` with `role: router`, `switch`, … | **Partly decided** (2026-08-15, §10.7) | Not before phase 1; the canvas half needed a place to store a position and now has one | None structural found — `Device.role` is a declared schema field and `Origin::Hand` is a first-class origin. The design language refuses the pictorial *form*, not the capability. **ADR-0035 closes the "and then where does it sit" hole**: a hand-placed position is graph data (`LayoutPin`), so a stencil dropped on the canvas can stay where it is dropped | §10, §10.7 |
 | **C-09** | The pocket — a named working set that scopes canvas, inventory and findings to itself | Intent recorded | Not before phase 2; on the canvas not before phase 4 | `52` §5.7 makes selection deliberately un-persisted and un-synced. A pocket is what selection is not, so it cannot ride selection's type and needs its own record answer | §11 |
 
 **Read the C-04 row before reading anything else.** The owner deferred it for security reasons and
@@ -1758,6 +1758,32 @@ Two open edges, neither invented here:
 
 **Not before phase 1** — hand-origin creation needs the graph, and ADR-0006's phase 0 is *"Nothing
 about a graph"*. **On the canvas, not before phase 4.** Floors, not assignments.
+
+### 10.7 Status change, 2026-08-15 — the canvas half's blocker is gone
+
+**ADR-0035 is Accepted, and this entry moves from *Intent recorded* to *Partly decided*.**
+
+The register's job is to record intent without deciding (`CLAUDE.md` rule 6), and this note is a
+status change rather than a decision made here: the decision is ADR-0035's, and its subject is
+narrower than this entry.
+
+**What the ADR settles for C-08.** *"On the canvas"* was the half of this capability with a real
+structural hole under it — a stencil dropped on the diagram has to land **somewhere**, and until
+2026-08-15 there was nowhere in `schema/` to record where. That is closed: a hand-placed position is
+graph data, stored as a `LayoutPin` node contained by the element it places, with `Origin::Hand`
+provenance, written by `OP_PLACE` and journalled like any other op. Dragging a box on the canvas and
+having it stay put — through an export and an import — ships and is driven in Chromium
+(`docs/80-review/evidence/2026-08-15-hand-placement-drive.mjs`).
+
+**What it does not settle**, and these stay open exactly as §10.6 lists them: which kinds get
+stencils, what a stencil-created node contains, whether `role`'s enum grows (§14 Q39), and the
+findings-volume framing. Creating a node from the canvas is still creation-from-a-view and still
+raises §10.5's objection. **What changed is that "and then where does it sit" is answered**; what a
+stencil *is* remains the owner's.
+
+The phase floor is also now moot in the way ADR-0031 made every phase floor moot: phases are
+retired, all features ship. *"On the canvas, not before phase 4"* should be read as a dependency —
+it needs the diagram — and the diagram exists.
 
 ---
 

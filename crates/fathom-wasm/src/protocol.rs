@@ -848,7 +848,21 @@ pub fn encode_diagram(
             n.w.to_string(),
             n.h.to_string(),
         );
-        let agg = format!("{} {} {}", n.count, n.interior, n.group);
+        // `<count> <interior> <placed> <group>`, the group possibly empty and
+        // therefore last. The placed flag rides in this slot rather than in a
+        // ninth of its own for one reason and it is measured: the module has
+        // 3,903 bytes of headroom against `44` §5.2's ceiling, a ninth slot is a
+        // ninth `face_slots` argument and another blob offset per box, and the
+        // group is the only token here that can be empty — so a fourth token
+        // inserted *before* it is unambiguous where one appended after it would
+        // not be. The page reads `parts[2]` as the flag and `parts[3]` as the key.
+        let agg = format!(
+            "{} {} {} {}",
+            n.count,
+            n.interior,
+            u8::from(n.placed),
+            n.group
+        );
         let rec = face_slots(
             &mut blob,
             FACE_BOX,

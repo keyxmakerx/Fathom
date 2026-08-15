@@ -115,6 +115,27 @@ pub const OP_DIAGRAM: u32 = 19;
 /// takes the next free number rather than the next one up.
 pub const OP_DICT: u32 = 20;
 
+/// Put a box somewhere, or put it back under computed layout.
+///
+/// The owner asked for this three times — *"drag a device"*, *"add into
+/// inventory by just drag and drop"*, *"didn't we agree we were gonna have a
+/// drag and drop system?"* — and each time the answer was that there was nowhere
+/// in `schema/` to store where a box sits. ADR-0035 is that decision made: **a
+/// hand-placed position is graph data**, a `LayoutPin` contained by the element,
+/// with `Origin::Hand` provenance like every other thing a person asserted.
+///
+/// It is therefore an op like any other, and that is the whole point. A position
+/// kept beside the op log — in `localStorage`, in a view preference, in
+/// side-state — would not survive an export, would not reach a colleague, and is
+/// exactly the *"state written beside the op log"* that `75` §2.4 forbids because
+/// it forecloses real-time collaboration. A position kept **in** the log is one
+/// more op a CRDT converges.
+///
+/// It carries the same 24-byte host clock-and-entropy prefix every writing
+/// opcode does, for the same reason: the module has no clock and no RNG and must
+/// acquire neither (`wasmbin::IMPORT_ALLOWLIST` is empty and stays empty).
+pub const OP_PLACE: u32 = 21;
+
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
     static REQ: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
