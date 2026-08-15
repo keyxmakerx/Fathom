@@ -270,10 +270,13 @@ the server's problems and the server is coming. (This retires cost #1 above as a
    cost never argues for keeping a decision, and `38` exists to price exactly this — but it is an ADR,
    never a quiet implementation detail. **Invariant 2 is untouched**: Fathom still never logs into a
    device, and a server for the operator's own records does not weaken that at all.
-2. **Can the server read the estate?** *"Database"* implies yes; `43` D2/D3 and `70` §8 currently say
-   the server holds **ciphertext it cannot read**. Those are different products — one can query,
-   index and serve many users; the other is an opaque blob store that survives its own compromise.
-   `70` §17.3 tabulates the trade. This is the most consequential open question in the project.
+2. ~~**Can the server read the estate?**~~ **CORRECTED 2026-08-15: this was not an open question and
+   the dichotomy was false.** The owner answered it himself in `70` §8 on 2026-08-10 — *"Server-side
+   search or querying over the estate: **Never.**"* — and `41` §5.5 enforces it in the linker.
+   Multiuser accounts, 2FA, SMTP reset, sharing and an administrative panel **all work on a server
+   that cannot read an estate**; only cross-estate search, admin content-reading and server-side
+   reporting need plaintext. `70` §17.5 is the corrected analysis and carries the narrower question
+   that genuinely remains.
 
 **Sequence, therefore, unchanged: journal → encrypt → save. What changes is that the save is
 explicitly a bridge, and the server is the destination rather than an alternative.**
