@@ -314,13 +314,123 @@ button.tab:hover { color: var(--ink); }
 .rmbtn:hover { color: var(--ink); background: var(--surface); }
 .note { font-size: var(--t-micro); line-height: var(--lh-micro);
         color: var(--muted); margin-top: var(--s2); }
-/* The diagram. Scrolls in its own box: a wide estate must never make the page
-   scroll sideways. */
-.dwrap { overflow: auto; max-width: 100%; padding: var(--s3); }
+/* --- the diagram surface --------------------------------------------------
+
+   The canvas is a VIEWPORT, not a picture that grows to fit the estate. The
+   scene is placed by one transform on one <g>, which is `44` §4.7.1's pan path:
+   one attribute write per frame however many elements are drawn. `56` §11
+   failure mode 3 names the alternative -- re-projecting every element per frame
+   -- and names the wrong conclusion people draw from it, "we need Canvas".
+
+   Focus never enters the <svg>. `55` §4.5.2 decides that outright: the Outline
+   beside the canvas is a real DOM tree, it is where focus and selection live
+   for everybody including pointer users, and the picture MIRRORS it rather than
+   holding it. That is why nothing below sets `tabindex` on a shape.
+   ------------------------------------------------------------------------- */
+.dview { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.dstrip { flex: none; display: flex; flex-wrap: wrap; align-items: center;
+          gap: var(--s2); padding: var(--s2) var(--s3);
+          border-bottom: var(--rule-hair) solid var(--hairline); }
+.dstrip button, .dsum button {
+          background: var(--page); color: var(--ink);
+          border: var(--rule-hair) solid var(--hairline);
+          padding: 0 var(--s2); cursor: pointer; min-height: var(--row-min);
+          font-size: var(--t-tab); letter-spacing: var(--track-label);
+          text-transform: lowercase; }
+.dstrip button[aria-pressed="true"] { background: var(--surface); border-color: var(--ink); }
+.dstrip button:hover, .dsum button:hover { background: var(--surface); }
+.dstrip .lab { font-size: var(--t-micro); color: var(--muted);
+               letter-spacing: var(--track-label); text-transform: uppercase; }
+.dzoomctl { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.dzoom { font-family: var(--mono); font-size: var(--t-mono); color: var(--ink);
+         font-variant-numeric: var(--num-tabular); }
+
+/* THE FLOOR, AND THE WHOLE OF DEFECT 1.
+   The split used to be `flex: 1 1 auto; min-height: 0` over grid tracks whose
+   minimum was also 0 (`minmax(0, 1fr)`), so when the strip and the band wanted
+   more room than the fact column had, the only elastic thing in the box -- the
+   picture, and then the Outline under it -- was squeezed to nothing. Measured
+   at 320x800: canvas 288x0, Outline 288x4, zero rows on screen, and a focused
+   row sitting entirely outside its own scroll container, which is WCAG 2.4.11.
+
+   A floor turns that into a SCROLL instead of a collapse: `.colbody` above is
+   `overflow-y: auto`, so once the surface will not fit, the column scrolls and
+   every row is still reachable. It guards the wide layout too -- a short
+   window, 400% text zoom or one more control in the strip reproduces exactly
+   the same squeeze at 1400 px, and nothing about the old rule was specific to
+   the breakpoint. */
+/* 18rem for the Outline, not 16. `55` §4.5.2 makes it the interface rather than
+   a sidebar, and at 16rem a row carrying a mono name, a CamelCase kind, a link
+   count and the no-row-set marker wrapped to three lines. Canvas width is the
+   cheaper thing to spend: the picture pans and zooms, the rows do not. */
+.dsplit { flex: 1 1 auto; min-height: 14rem;
+          display: grid; grid-template-columns: minmax(0, 1fr) 18rem; }
+/* `pan-x pan-y` leaves one-finger touch to the PAGE, which is 53 §11.4's rule:
+   "fighting the page scroll on a phone is always the wrong choice". Two-finger
+   pan and pinch of the SCENE are that section's other half and are not built. */
+.dcanvas { position: relative; overflow: hidden; min-width: 0; min-height: 0;
+           background: var(--page); cursor: grab; touch-action: pan-x pan-y; }
+.dcanvas[data-grab="1"] { cursor: grabbing; }
+.dcanvas svg { display: block; width: 100%; height: 100%; }
+.dband { flex: none; padding: var(--s1) var(--s3);
+         border-top: var(--rule-hair) solid var(--hairline);
+         font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
+         text-transform: lowercase; }
+
+/* The summary line `55` §6.3 puts in the canvas's place at 320 px. It is in the
+   DOM at every width and shown at one, so the narrow layout is a REARRANGEMENT
+   of one rendering rather than a second rendering path -- which is §6.3's own
+   argument for why this view survives: "both cases are exercised by the same
+   code path". */
+.dsum { display: none; align-items: center; flex-wrap: wrap; gap: var(--s2);
+        padding: var(--s2) var(--s3);
+        border-bottom: var(--rule-hair) solid var(--hairline);
+        font-size: var(--t-tab); color: var(--muted); }
+
+/* --- 320 px, which `55` §6.3 decides for THIS view by name -----------------
+   "At 320 px the diagram view shows the Outline full-width and collapses the
+   canvas to a summary line with a control to expand it into a pan-and-zoom
+   surface. The Outline is not a fallback here -- it is the same interface
+   everyone uses."
+
+   So the surface stops being a fixed-height box and becomes ordinary flow
+   inside the fact column, which already scrolls. That is what makes the
+   Outline's rows survive: a list in flow cannot be squeezed to zero, and the
+   user agent's own focus scrolling keeps the focused row inside the column
+   (WCAG 2.4.11 / `55` §5.6). The rejected alternative was to keep the grid and
+   swap the track sizes -- Outline 1fr, canvas 13rem -- which reads as the same
+   fix and is not: two elastic tracks in a box that is 146 px tall at 320x800
+   still leaves one of them at zero. */
+.sheet[data-width="narrow"] .dview { display: block; height: auto; }
+.sheet[data-width="narrow"] .dsplit { display: block; min-height: 0; }
+.sheet[data-width="narrow"] .dout { overflow: visible; border-left: 0;
+        border-top: var(--rule-hair) solid var(--hairline); }
+.sheet[data-width="narrow"] .dsum { display: flex; }
+.sheet[data-width="narrow"] .dview[data-open="0"] .dcanvas { display: none; }
+/* A zoom control for a surface that is not on screen is furniture, and at this
+   width furniture is what pushed the content off the bottom. */
+.sheet[data-width="narrow"] .dview[data-open="0"] .dzoomctl { display: none; }
+/* 12rem, not more. At 320x800 the fact column is 146 CSS px tall, so a taller
+   canvas is a picture the user has to scroll inside a column they are already
+   scrolling; at 12rem the expanded surface is 192 px and most of it is on
+   screen at once, and at 390x844 (267 px of column) all of it is. The picture
+   at this size is a shape, not a diagram -- the Outline under it is the
+   interface (`55` §6.3), and this is the overview it belongs to. */
+.sheet[data-width="narrow"] .dview[data-open="1"] .dcanvas { height: 12rem; }
+/* Hints, not state. Every one of them is said again in the notes under the
+   Outline, and at 320 px they cost more than they carry. */
+.sheet[data-width="narrow"] .dhint { display: none; }
+/* Measured: at 320x800 the fact column is 146 CSS px tall and the chrome above
+   the rows was taking 126 of it -- strip 65, summary line 33, Outline heading
+   28 -- which is why nothing was on screen without a scroll. Every rule below
+   takes vertical AIR and nothing else: the button targets keep `--row-min`,
+   which is WCAG 2.5.8's 24 px, and the type sizes are untouched. */
+.sheet[data-width="narrow"] .dstrip { padding-top: 0; padding-bottom: 0; }
+.sheet[data-width="narrow"] .dsum { padding-top: var(--s1); padding-bottom: var(--s1); }
+.sheet[data-width="narrow"] .dout .sh { padding-top: var(--s1); margin-bottom: 0; }
+
 .dbox rect { fill: var(--page); stroke: var(--hairline); stroke-width: 1; }
 .dbox:hover rect { stroke: var(--ink); }
-.dbox:focus { outline: none; }
-.dbox:focus rect { stroke: var(--ink); stroke-width: 2; }
 .dbox.dsel rect { stroke: var(--ink); stroke-width: 2; fill: var(--surface); }
 .dbox text { font-family: inherit; }
 .dkind { font-size: var(--t-micro); fill: var(--muted); }
@@ -330,6 +440,63 @@ button.tab:hover { color: var(--ink); }
    dashed -- `51` §9 reserves dashed for proposed elements. */
 .dcontain { stroke: var(--hairline); }
 .dref { stroke: var(--ink); }
+/* The focus ring the Outline projects into the picture (`56` §6.2). Painted by
+   us from the box's own coordinates, which is what lets it be exactly 2 CSS px
+   at every zoom -- see `vector-effect` on the element itself. */
+.dring { fill: none; stroke: var(--focus-colour); stroke-width: var(--focus-width); }
+/* Level of detail (`56` §5.3, `44` §4.7.2). Labels scale with the scene and get
+   no compensating transform, so at 0.6 the 10px kind line is 6px and at 0.35 the
+   13px name is 4.5px. Drawing text nobody can read is how a diagram becomes a
+   texture.
+
+   §5.3's two rungs are "edge labels off below 0.6" and "node labels off below
+   0.35". This slice draws no edge label at all -- the layout emits none -- so
+   the 0.6 rung is spent on the smallest label the picture does have, the 10px
+   kind line, and the 0.35 rung is the node name exactly as written. That is a
+   reading of the rule rather than the rule, and it is recorded as one.
+
+   What is dropped is COUNTED in the band, never silently -- `56` §5.5, and
+   `59` §6.2 files the base's habit of losing the count at exactly the scale
+   that makes it matter. */
+svg[data-lod="1"] .dkind { display: none; }
+svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
+
+/* --- the Outline. `55` §4.5.2: not an alternative, THE interface. --------- */
+.dout { min-width: 0; min-height: 0; overflow-y: auto;
+        border-left: var(--rule-hair) solid var(--hairline); }
+.dout .sh { padding: var(--s2) var(--s3) 0; margin: 0 0 var(--s1); }
+.dorow, .dolink { display: flex; align-items: baseline; gap: var(--s2);
+                  padding: var(--s1) var(--s3); cursor: pointer;
+                  min-height: var(--row-min);
+                  border-bottom: var(--rule-hair) solid var(--hairline);
+                  /* `55` §5.4: a focused row scrolled flush against the edge of
+                     its container is obscured by its own border. */
+                  scroll-margin-block: var(--s2); }
+.dorow:hover, .dolink:hover { background: var(--surface-2); }
+/* Selection is the page's existing table idiom -- `--surface` ground, as
+   `tr[data-tier="primary"]` -- plus weight on the name. Weight is the channel
+   `56` §5.2 G3 spends on selection in the picture, so the two surfaces say the
+   same thing the same way. */
+.dorow[aria-selected="true"] { background: var(--surface); }
+.dorow[aria-selected="true"] .doname { font-weight: 700; }
+.doname { font-family: var(--mono); font-size: var(--t-mono); color: var(--ink);
+          overflow-wrap: anywhere; }
+/* A kind and an edge kind are IDENTIFIERS out of schema.yaml, so they are set in
+   mono and left in their own case -- the inventory's columns already treat the
+   same words that way. Uppercasing them, which the band's label register would
+   otherwise call for, turns `TunnelInterface` into `TUNNELINTERFACE` and
+   `HasIkeGateway` into `HASIKEGATEWAY`, destroying the word boundaries that are
+   the only thing making a CamelCase name readable at 10px. */
+.dokind { font-family: var(--mono); font-size: var(--t-micro); color: var(--muted); }
+.docnt { margin-left: auto; font-size: var(--t-micro); color: var(--muted);
+         white-space: nowrap; }
+/* The refusal, made visible on the row it applies to. See dgSelect. */
+.doset { font-size: var(--t-micro); color: var(--muted); white-space: nowrap;
+         border-left: var(--rule-accent) var(--rule-style-pending) var(--muted);
+         padding-left: var(--s2); }
+.dorel { font-size: var(--t-micro); color: var(--muted); text-transform: lowercase; }
+.dolink { padding-left: var(--s5); }
+.dout .note { margin: var(--s3); }
 
 /* --- what one paste produced. Counts, then the lines it did not read. ----- */
 .tally { display: flex; flex-wrap: wrap; gap: var(--s4); margin: 0;
@@ -776,6 +943,11 @@ function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
 /* "1 secret", "0 secrets". The count arrives as a string and stays one. */
 function plural(n, one, many) { return n + ' ' + (n === '1' ? one : many); }
 function foot(msg) { S.msg = msg; $('fMsg').textContent = msg; }
+/* The polite live region. It has existed in the markup since WO-08 and nothing
+   wrote to it; the diagram is the first surface where a state change is not
+   also a visible change of the thing you are standing on -- the scene pans, the
+   zoom moves -- so it is the first that has to say so. */
+function say(msg) { $('live').textContent = msg; }
 
 function unposted(host, label, body) {
   var u = el('div', 'unposted');
@@ -838,9 +1010,10 @@ function renderInventory(host) {
 
   var tb = el('tbody');
   tb.setAttribute('data-rove', 'v');
+  var selRow = null;
   S.inv.rows.slice(1).forEach(function (r) {
     var tr = el('tr');
-    if (S.sel === r.s[0]) tr.setAttribute('data-tier', 'primary');
+    if (S.sel === r.s[0]) { tr.setAttribute('data-tier', 'primary'); selRow = tr; }
     for (var ci = 0; ci < cols; ci++) {
       var td = el('td');
       var b = el('button', null, r.s[1 + ci]);
@@ -859,6 +1032,11 @@ function renderInventory(host) {
   var tw = el('div', 'pad invwrap');
   tw.appendChild(t);
   host.appendChild(tw);
+  /* The return leg of the round trip. Something picked in the diagram is marked
+     here, and a mark 400 rows below the fold is not a mark. `block: 'nearest'`
+     so an already-visible row does not jump; nothing scrolls when nothing is
+     selected. */
+  if (selRow && selRow.scrollIntoView) selRow.scrollIntoView({ block: 'nearest' });
 
   if (S.source === 'paste') renderResidue(host);
 
@@ -1283,6 +1461,7 @@ function renderFact() {
   else { var p = el('div', 'pad'); unposted(p, S.view, UNBUILT); host.appendChild(p); }
   roveScan(host);
   roveScan($('band'));
+  if (S.view === 'diagram') dgAfterFact();
 }
 
 /* --- the diagram ---------------------------------------------------------- */
@@ -1294,11 +1473,11 @@ function sEl(tag, attrs) {
   return n;
 }
 
-/* The five layer toggles. Drawn BEFORE anything that can return early, because
-   a mask with every layer off draws no boxes, and a control strip that
-   disappeared with the picture would leave the operator no way back. */
-function layerStrip(host) {
-  var strip = el('div', 'strip');
+/* The five layer toggles. Appended into the surface's own control strip, and
+   BEFORE anything that can return early, because a mask with every layer off
+   draws no boxes and a control strip that disappeared with the picture would
+   leave the operator no way back. */
+function layerStrip(strip) {
   /* The STATE leads, before the buttons, and the explanation trails. The strip
      wraps on a narrow column, and what must never end up orphaned on the second
      line is which layers are on -- a filter you cannot read is a filter that
@@ -1312,10 +1491,9 @@ function layerStrip(host) {
     b.setAttribute('aria-pressed', String((S.layers & L[0]) !== 0));
     strip.appendChild(b);
   });
-  strip.appendChild(el('span', 'lab', 'an element in any active layer is drawn'));
-  var p = el('div', 'pad');
-  p.appendChild(strip);
-  host.appendChild(p);
+  /* No trailing hint here: the strip's hints are appended once, after the zoom
+     controls, so the explanations sit together at the end rather than one of
+     them landing in the middle of the buttons. */
   return lab;
 }
 
@@ -1327,6 +1505,450 @@ function layerWords() {
   var on = [];
   LAYERS.forEach(function (L) { if (S.layers & L[0]) on.push(L[1]); });
   return on.join(' · ');
+}
+
+/* The pan/zoom transform and the live nodes of the mounted scene.
+
+   `56` §0 permits exactly this and nothing more: "The only view-local state in
+   the entire diagram is the pan/zoom transform and the layer mask, and both are
+   session state." Every other fact on this screen arrived in a reply. There is
+   no shape.label, no edge.style, no node position held here -- a position that
+   lived in the page would be the picture becoming the data structure, which is
+   the one thing that document forbids in capitals at the top.
+
+   `dgOpen` is a THIRD view-local value and it is declared here rather than
+   smuggled in: `55` §6.3 requires "a control to expand [the summary line] into
+   a pan-and-zoom surface" at 320 px, and a control has a state. The rejected
+   alternative was to re-read it off the DOM each time, which is the same state
+   kept somewhere nobody can find it. It is not journalled and not exported --
+   whether you had the picture open is not a fact about the network.
+
+   `screen = scene * k + t`, in CSS pixels, because the <svg> carries no viewBox
+   and one user unit is therefore one pixel. That is what makes
+   `vector-effect="non-scaling-stroke"` mean literally 1 and 2 CSS px, which is
+   what `56` §6.2 needs in order to claim a 2 CSS px focus ring at every zoom. */
+var DG = {
+  k: 1, tx: 0, ty: 0,
+  w: 0, h: 0,                /* the scene's extent, as FACE_CANVAS reported it */
+  sig: '',                   /* extent + object count: a change means refit */
+  view: null, canvas: null, svg: null, scene: null, ring: null, out: null,
+  readout: null, band: null, sum: null,
+  boxes: null,               /* id -> { x, y, w, h, g, kind, label } */
+  conn: null,                /* id -> [ { far, kind, out } ] */
+  drawn: 0, drawnLinks: 0,
+  focus: null,
+  /* The kind of the current selection when the inventory has no row set for it.
+     Held so the band keeps saying so for as long as that selection stands --
+     see dgSelect. */
+  declined: null,
+  /* True once the user has panned or zoomed by hand. A resize refits only while
+     this is false: refitting under someone who has just zoomed in on one tunnel
+     is the tool taking the wheel back. */
+  touched: false,
+  grab: null,                /* the live drag, or null */
+  eatClick: false            /* a drag that moved must not also select */
+};
+var dgOpen = false;
+
+/* Bounds. The floor sits BELOW `56` §5.3's bottom level-of-detail threshold of
+   0.35, or the ladder's last rung would be unreachable and the thresholds would
+   be decoration. The ceiling is 4, which is the upper figure `56` §6.2 names
+   when it argues the focus ring is 2 CSS px "whether the scene is at 0.3x or
+   4x". Neither number is a measurement and neither is claimed to be.
+
+   DG_KEEP is how much of the scene a pan must leave on the canvas. Without it a
+   drag pushes the picture off the edge and keeps going, and the only way back
+   is `z` -- which the user has to know about. 48 px is two rows of `--s5`; it
+   is a judgement, not a measurement, and it only has to be big enough to grab. */
+var DG_MIN = 0.2, DG_MAX = 4, DG_PAD = 24, DG_KEEP = 48;
+
+function dgClamp(k) { return Math.max(DG_MIN, Math.min(DG_MAX, k)); }
+function dgZoomWords() { return DG.k.toFixed(2) + '×'; }
+
+/* Keep something on screen. Takes the canvas rect from its caller rather than
+   reading one: every caller already has it, and a getBoundingClientRect inside
+   the pan path would be a forced layout on a frame that `44` §4.7.1 budgets at
+   one attribute write. */
+function dgHold(r) {
+  var w = DG.w * DG.k, h = DG.h * DG.k;
+  DG.tx = Math.min(Math.max(DG.tx, DG_KEEP - w), r.width - DG_KEEP);
+  DG.ty = Math.min(Math.max(DG.ty, DG_KEEP - h), r.height - DG_KEEP);
+}
+
+/* THE PAN PATH. One attribute write, on one element, per frame.
+   `44` §4.7.1 budgets exactly this and `56` §10 gates it as a counter
+   (`svg_attrs_written_per_pan_frame`, ceiling 1). A zoom frame writes the
+   readout too, because a zoom whose number does not move is a broken control;
+   a pan frame writes nothing but this. */
+function dgApply() {
+  if (!DG.scene) return;
+  DG.scene.setAttribute('transform',
+    'translate(' + DG.tx + ' ' + DG.ty + ') scale(' + DG.k + ')');
+}
+
+/* Level of detail, and the band that counts what it dropped. Only written when
+   the band actually changes, so a wheel that stays inside one rung costs
+   nothing. */
+function dgLod() {
+  if (!DG.svg) return;
+  var lod = DG.k < 0.35 ? '0' : DG.k < 0.6 ? '1' : '2';
+  if (DG.svg.getAttribute('data-lod') === lod) return;
+  DG.svg.setAttribute('data-lod', lod);
+  dgBand();
+}
+
+function dgReadout() {
+  if (DG.readout) DG.readout.textContent = dgZoomWords();
+  dgBand();
+}
+
+/* G10, `56` §5.2 -- the release valve. Anything the picture cannot say, the
+   band says in lowercase words, and every suppression carries a CARDINAL:
+   `56` §5.5 requires the count and `59` §6.2 files losing it as a defect in the
+   base, because the count vanishes exactly when scale makes it matter. */
+function dgBand() {
+  if (!DG.band) return;
+  clear(DG.band);
+  var lod = DG.svg ? DG.svg.getAttribute('data-lod') : '2';
+  /* Two attribute reads, no layout read: this runs on every zoom frame that
+     changes the band, and a clientHeight here would be a forced layout inside
+     the gesture. */
+  var shut = DG.view && DG.view.getAttribute('data-open') === '0' &&
+             $('sheet').getAttribute('data-width') === 'narrow';
+  var bits = [plural(String(DG.drawn), 'object', 'objects'),
+              plural(String(DG.drawnLinks), 'link', 'links')];
+  /* A zoom reading for a picture that is not on screen is a number about
+     nothing. At this width the canvas is a summary line (`55` §6.3) and the
+     band says so instead. */
+  bits.push(shut ? 'picture collapsed at this width' : 'zoom ' + dgZoomWords());
+  if (!shut && lod === '1') bits.push(plural(String(DG.drawn), 'kind label off', 'kind labels off'));
+  if (!shut && lod === '0') bits.push(plural(String(DG.drawn * 2), 'label off', 'labels off'));
+  /* The refusal, restated for as long as it applies. A decline the user only
+     hears once is a decline they will read as a bug the second time. */
+  if (DG.declined) {
+    bits.push(DG.declined + ' has no row set in the inventory — the kind strip is unchanged');
+  }
+  DG.band.appendChild(document.createTextNode(bits.join(' · ')));
+}
+
+/* Fit to content. `59` calls this measurement "fit zoom" throughout and reports
+   it beside every element count, so it is the same quantity and it is named the
+   same way. Bound to `z` by `53` §3.4 and to the strip's button, because the
+   governing rule is that every action has a pointer affordance too. */
+function dgFit(announce) {
+  if (!DG.canvas || !DG.w || !DG.h) return;
+  var r = DG.canvas.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  DG.k = dgClamp(Math.min((r.width - 2 * DG_PAD) / DG.w,
+                          (r.height - 2 * DG_PAD) / DG.h));
+  DG.tx = (r.width - DG.w * DG.k) / 2;
+  DG.ty = (r.height - DG.h * DG.k) / 2;
+  DG.touched = false;
+  dgApply(); dgLod(); dgReadout();
+  if (announce) say('fit to view, zoom ' + dgZoomWords());
+}
+
+/* Zoom about a point, never about the origin. The scene point under the cursor
+   is held still: solve `px = sx*k + tx` for tx at the new k, with sx read off
+   the old one. Zooming about the origin is the single most common way a zoom
+   control feels broken -- the thing you are looking at leaves the screen. */
+function dgZoomAt(px, py, factor, announce, r) {
+  var k2 = dgClamp(DG.k * factor);
+  if (k2 === DG.k) return;
+  var sx = (px - DG.tx) / DG.k, sy = (py - DG.ty) / DG.k;
+  DG.k = k2;
+  DG.tx = px - sx * k2;
+  DG.ty = py - sy * k2;
+  DG.touched = true;
+  dgHold(r || DG.canvas.getBoundingClientRect());
+  dgApply(); dgLod(); dgReadout();
+  if (announce) say('zoom ' + dgZoomWords());
+}
+
+function dgZoomCentre(factor) {
+  if (!DG.canvas) return;
+  var r = DG.canvas.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  dgZoomAt(r.width / 2, r.height / 2, factor, true, r);
+}
+
+/* `56` §6.2, verbatim in intent: "If the focused element is outside the
+   viewport, the scene pans to it -- instantly, no easing, with the element
+   placed at 25% from the leading edge rather than centred, so its neighbours
+   are visible." Instantly is not a stylistic choice here: the product has no
+   animation at all (`51` §12, ADR-0033), and the artifact test greps this file
+   for the three CSS properties that would give it one. */
+function dgReveal(id) {
+  var b = DG.boxes && DG.boxes[id];
+  if (!b || !DG.canvas) return;
+  var r = DG.canvas.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  var x0 = b.x * DG.k + DG.tx, y0 = b.y * DG.k + DG.ty;
+  var x1 = x0 + b.w * DG.k, y1 = y0 + b.h * DG.k;
+  var moved = false;
+  if (x0 < DG_PAD || x1 > r.width - DG_PAD) {
+    DG.tx = 0.25 * r.width - b.x * DG.k; moved = true;
+  }
+  if (y0 < DG_PAD || y1 > r.height - DG_PAD) {
+    DG.ty = 0.25 * r.height - b.y * DG.k; moved = true;
+  }
+  /* A reveal is a pan the user asked for by walking the Outline, so it counts
+     as having touched the scene. Without this a window resize silently refits
+     and throws away wherever the arrow keys had got to. */
+  if (moved) { DG.touched = true; dgApply(); }
+}
+
+/* One ring element, reused, appended last so it paints over everything
+   (`56` §6.2). It is drawn by us from the box's own coordinates rather than by
+   the user agent around a shape, which is the third of the five jobs
+   `55` §4.5.2 lists for keeping focus out of the <svg>. */
+function dgRing(id) {
+  if (!DG.ring) return;
+  var b = DG.boxes && DG.boxes[id];
+  DG.focus = b ? id : null;
+  if (!b) { DG.ring.setAttribute('visibility', 'hidden'); return; }
+  DG.ring.setAttribute('x', String(b.x - 4));       /* --s1 */
+  DG.ring.setAttribute('y', String(b.y - 4));
+  DG.ring.setAttribute('width', String(b.w + 8));
+  DG.ring.setAttribute('height', String(b.h + 8));
+  DG.ring.setAttribute('visibility', 'visible');
+}
+
+/* Selection, painted on both surfaces. Classes only -- the scene is never
+   rebuilt to change a selection, because rebuilding it would drop the pan, the
+   zoom and the focused Outline row, and losing focus to <body> is `53` §13
+   failure 7. */
+function dgPaint() {
+  var id;
+  if (DG.boxes) {
+    for (id in DG.boxes) {
+      if (!Object.prototype.hasOwnProperty.call(DG.boxes, id)) continue;
+      var g = DG.boxes[id].g;
+      g.setAttribute('class', 'dbox' + (S.sel === id ? ' dsel' : ''));
+    }
+  }
+  if (DG.out) {
+    var rows = DG.out.querySelectorAll('[data-drow]');
+    Array.prototype.forEach.call(rows, function (row) {
+      row.setAttribute('aria-selected', String(row.getAttribute('data-drow') === S.sel));
+    });
+  }
+}
+
+/* Select from inside the diagram, WITHOUT going through render().
+
+   render() clears the fact column and rebuilds it, which for this view means
+   destroying the scene and the tree the user is standing in. The inspector and
+   the masthead are separate hosts, so they can be redrawn on their own; the
+   picture only needs its classes changed. */
+function dgSelect(id) {
+  postElement(id);
+  /* The inventory strip filters by kind, so a box selected here should leave
+     the strip pointing at a set that CONTAINS it -- otherwise switching to the
+     inventory shows a highlighted row that is not there.
+
+     AND SOMETIMES IT CANNOT, WHICH IS SAID RATHER THAN SWALLOWED. The diagram
+     draws every kind the layout emits; `KINDS` is `fathom_inventory::InvKind`,
+     which has thirteen. `LogicalUnit` and `Address` are drawn today and are in
+     neither list-in-common, so `indexOf` returns -1 -- and the previous build
+     took that branch in silence, leaving the strip on an unrelated kind with
+     nothing marked, which is verbatim the failure this comment used to claim to
+     prevent. Growing `InvKind` is the real fix and it is Rust; declining
+     VISIBLY is what a page can do honestly. The decline is stated in three
+     places: the row carries it before you click, the footer says it when you
+     do, and the band keeps saying it while the selection stands. */
+  var b = DG.boxes && DG.boxes[id];
+  DG.declined = null;
+  if (b) {
+    var ki = KINDS.indexOf(b.kind);
+    if (ki >= 0) { if (ki !== S.invKind) loadKind(ki); }
+    else DG.declined = b.kind;
+  }
+  renderShell();
+  renderMeaning();
+  dgPaint();
+  dgRing(id);
+  dgReveal(id);
+  dgBand();
+  /* `55` §5.6: entering with Tab lands on the previously-focused child. A box
+     picked with the mouse IS that child, so the tree's one tab stop moves onto
+     its row. The tab stop moves; focus does not -- a click in the picture that
+     yanked focus into the tree would scroll the column out from under the
+     pointer. */
+  var row = DG.out && DG.out.querySelector('[data-drow="' + cssEsc(id) + '"]');
+  if (row) dgRove(row);
+  var what = b ? b.kind + ' ' + b.label : id;
+  if (DG.declined) {
+    foot(what + ' selected — ' + DG.declined + ' has no row set in the inventory, ' +
+         'so the kind strip is unchanged');
+    say(what + ' selected. ' + DG.declined + ' has no row set in the inventory, ' +
+        'so the kind strip is unchanged.');
+  } else {
+    say(what + ' selected');
+  }
+}
+
+/* `56` §6.1's table, last row: "Click empty canvas | Clear". It was not built
+   and was not disclosed. Selection is page state, so this goes through the two
+   hosts that render it and never through render(), for the same reason
+   dgSelect does not. */
+function dgClear() {
+  if (!S.sel) return;
+  S.sel = null; S.element = null; S.equipment = null;
+  DG.declined = null;
+  renderShell();
+  renderMeaning();
+  dgPaint();
+  dgRing(null);
+  dgBand();
+  foot('selection cleared');
+  say('selection cleared');
+}
+
+/* --- the Outline ----------------------------------------------------------
+
+   `55` §4.5.2: "keyboard focus in the diagram view never enters the <svg>. It
+   moves through a real DOM tree -- the Outline -- built from the same layout
+   output that draws the picture. The SVG mirrors the Outline's focus; it does
+   not hold it."
+
+   What is here: one row per drawn box, in the module's own order, each row
+   expandable to the links that touch it, and moving between them moves the
+   ring and pans the picture. Following a link row selects the far element,
+   which is what "follow an edge" means with a keyboard.
+
+   What is NOT here, said plainly rather than approximated: `55` §4.5.3's
+   `OutlineRow` carries a generated `spoken` sentence, a layer mask and an age
+   band, and all three are core-generated by the same layout call -- "in the
+   core, not the UI, because the CLI needs it and because invariant 9 requires
+   it to be byte-identical across builds". None of the three is in the reply
+   this page receives, so none of them is invented here. A row therefore speaks
+   its kind and its name and nothing it cannot know. `55` §4.5.8's bijection
+   test is the other half and is a CI test that does not exist yet: every drawn
+   box has a row, but a drawn LINE has a row only under the box it touches, and
+   the edge rows are not counted as drawn elements.
+   ------------------------------------------------------------------------- */
+
+/* The tabindex fix-up after rows appear or disappear. roveScan gives item 0 the
+   only tab stop, which is right on a fresh list and wrong when the user is
+   standing on row 9 and just expanded it. */
+function dgRove(keep) {
+  if (!DG.out) return;
+  roveScan(DG.out);
+  if (!keep) return;
+  var items = DG.out.querySelectorAll('[data-rove-item]');
+  Array.prototype.forEach.call(items, function (it) {
+    it.setAttribute('tabindex', it === keep ? '0' : '-1');
+  });
+}
+
+/* The tree is FLAT in the DOM: a connection row is a sibling of the object row
+   it belongs to, carrying `aria-level="2"`. ARIA's level/setsize/posinset trio
+   exists precisely so a tree need not be nested, and here it earns its keep
+   twice -- the rows stay one flex row each, and the shared roving-list listener
+   walks them in exactly the order they are read on screen without knowing that
+   any of this is a tree. */
+function dgExpand(row, open) {
+  if (!DG.out) return;
+  var id = row.getAttribute('data-drow');
+  if ((row.getAttribute('aria-expanded') === 'true') === open) return;
+  row.setAttribute('aria-expanded', String(open));
+
+  var kids = DG.out.querySelectorAll('[data-dparent="' + cssEsc(id) + '"]');
+  Array.prototype.forEach.call(kids, function (k) { k.parentNode.removeChild(k); });
+  if (!open) { dgRove(row); return; }
+
+  var conns = (DG.conn && DG.conn[id]) || [];
+  var at = row;
+  conns.forEach(function (c, i) {
+    var far = DG.boxes[c.far];
+    var lr = el('div', 'dolink');
+    lr.setAttribute('role', 'treeitem');
+    lr.setAttribute('aria-level', '2');
+    lr.setAttribute('aria-setsize', String(conns.length));
+    lr.setAttribute('aria-posinset', String(i + 1));
+    lr.setAttribute('tabindex', '-1');
+    lr.setAttribute('data-rove-item', '');
+    lr.setAttribute('data-dparent', id);
+    lr.setAttribute('data-dlink', c.far);
+    lr.setAttribute('data-did', c.far);
+    /* Words, not arrow glyphs. `54` §22 encloses the product's glyph set and no
+       arrow is in it, and "to" and "from" are what a screen reader would have
+       had to say anyway. */
+    lr.appendChild(el('span', 'dorel', c.out ? 'to' : 'from'));
+    lr.appendChild(el('span', 'doname', far ? far.label : c.far));
+    lr.appendChild(el('span', 'dokind docnt', c.kind));
+    at.parentNode.insertBefore(lr, at.nextSibling);
+    at = lr;
+  });
+  dgRove(row);
+}
+
+function dgOutline(boxes, noSetKinds) {
+  var tree = el('div', 'dout');
+  var head = el('div', 'sh', 'Outline — every drawn object');
+  head.id = 'doutHead';
+  /* Focusable but not tabbable: `55` §5.6 requires Esc to move focus to the
+     container's own heading, "so a user is never stranded". Without a target
+     for that move, clearing a selection destroys the focused row and focus
+     lands on <body> -- `53` §13 failure 7. */
+  head.setAttribute('tabindex', '-1');
+  tree.appendChild(head);
+
+  var list = el('div');
+  list.setAttribute('role', 'tree');
+  list.setAttribute('aria-labelledby', 'doutHead');
+  list.setAttribute('data-rove', 'v');
+  boxes.forEach(function (b, i) {
+    var id = b.s[0];
+    var n = (DG.conn && DG.conn[id]) ? DG.conn[id].length : 0;
+    var row = el('div', 'dorow');
+    row.setAttribute('role', 'treeitem');
+    row.setAttribute('aria-level', '1');
+    row.setAttribute('aria-setsize', String(boxes.length));
+    row.setAttribute('aria-posinset', String(i + 1));
+    row.setAttribute('aria-expanded', 'false');
+    row.setAttribute('aria-selected', String(S.sel === id));
+    row.setAttribute('tabindex', '-1');
+    row.setAttribute('data-rove-item', '');
+    row.setAttribute('data-drow', id);
+    row.setAttribute('data-did', id);
+    /* The name in full. `56` §2.4 truncates in the PICTURE and says where the
+       whole of it lives: "the full text is in the Outline row and in the
+       inspector". This is that row. */
+    row.appendChild(el('span', 'doname', b.s[2]));
+    row.appendChild(el('span', 'dokind', b.s[1]));
+    row.appendChild(el('span', 'docnt', plural(String(n), 'link', 'links')));
+    if (noSetKinds.indexOf(b.s[1]) >= 0) {
+      row.setAttribute('data-noset', '1');
+      row.appendChild(el('span', 'doset', 'no row set'));
+    }
+    list.appendChild(row);
+  });
+  tree.appendChild(list);
+  return tree;
+}
+
+/* Run after renderFact's own roveScan, which gives the first row of every list
+   the tab stop. That is right for a fresh list and wrong here: a row chosen in
+   the inventory should still be the row Tab lands on after switching views. */
+function dgAfterFact() {
+  if (!DG.out || !S.sel || !DG.boxes || !DG.boxes[S.sel]) return;
+  var row = DG.out.querySelector('[data-drow="' + cssEsc(S.sel) + '"]');
+  if (row) dgRove(row);
+}
+
+/* `53` §2.3's focus rule, which is the one predicate that gates single-key
+   dispatch: "a single-letter binding fires if and only if the event target is
+   not a text-entry context", and it is conservative in the safe direction --
+   when in doubt the keystroke is text. */
+function dgIsText(t) {
+  if (!t || !t.tagName) return false;
+  if (t.isContentEditable) return true;
+  var tag = t.tagName;
+  if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (tag === 'INPUT') return true;
+  return false;
 }
 
 /* The page DRAWS; it does not lay out. Every coordinate here came from
@@ -1341,13 +1963,16 @@ function layerWords() {
    defect that prevents: a picture that rearranges under a toggle, after which
    "users stop using layer toggles within a week." */
 function renderDiagram(host) {
+  DG.view = DG.canvas = DG.svg = DG.scene = DG.ring = DG.out = null;
+  DG.readout = DG.band = DG.sum = null;
+  DG.boxes = null; DG.conn = null; DG.focus = null;
+
   if (!S.loaded) {
     var p0 = el('div', 'pad');
     unposted(p0, 'diagram', 'paste a config or add equipment, and it will be drawn here.');
     host.appendChild(p0);
     return;
   }
-  var maskLabel = layerStrip(host);
   var reply = call(OP_DIAGRAM, new Uint8Array([S.layers]));
   var bad = replyProblem(reply);
   if (bad) {
@@ -1357,10 +1982,10 @@ function renderDiagram(host) {
     return;
   }
 
-  var canvas = null, boxes = [], lines = [];
+  var canvasRow = null, boxes = [], lines = [];
   for (var i = 0; i < reply.rows.length; i++) {
     var r = reply.rows[i];
-    if (r.role === FACE_CANVAS) canvas = r;
+    if (r.role === FACE_CANVAS) canvasRow = r;
     else if (r.role === FACE_BOX) boxes.push(r);
     else if (r.role === FACE_LINE) lines.push(r);
   }
@@ -1368,10 +1993,17 @@ function renderDiagram(host) {
   /* The module reports the mask it actually applied, and the page prints THAT
      rather than what it believes it sent. A picture and its toggles that can
      disagree will, and the disagreement is invisible. */
-  var maskBack = canvas ? canvas.s[2] : '';
-  var hidBoxes = canvas ? (canvas.s[3] || '0') : '0';
-  var hidLines = canvas ? (canvas.s[4] || '0') : '0';
-  var untabled = canvas ? (canvas.s[5] || '0') : '0';
+  var maskBack = canvasRow ? canvasRow.s[2] : '';
+  var hidBoxes = canvasRow ? (canvasRow.s[3] || '0') : '0';
+  var hidLines = canvasRow ? (canvasRow.s[4] || '0') : '0';
+  var untabled = canvasRow ? (canvasRow.s[5] || '0') : '0';
+
+  var view = el('div', 'dview');
+  view.setAttribute('data-open', dgOpen ? '1' : '0');
+  DG.view = view;
+  var strip = el('div', 'dstrip');
+  var maskLabel = layerStrip(strip);
+  view.appendChild(strip);
   maskLabel.textContent = 'layer · ' + layerWords() + ' · ' + hidBoxes + ' hidden' +
     (maskBack === String(S.layers) ? '' : ' · MASK MISMATCH ' + maskBack);
 
@@ -1380,19 +2012,97 @@ function renderDiagram(host) {
     unposted(pn, 'diagram', S.layers === 0
       ? 'every layer is off, so nothing is drawn. Turn one on above.'
       : 'nothing to draw yet.');
-    host.appendChild(pn);
+    view.appendChild(pn);
+    host.appendChild(view);
     return;
   }
 
-  var w = parseInt(canvas ? canvas.s[0] : '0', 10) || 0;
-  var h = parseInt(canvas ? canvas.s[1] : '0', 10) || 0;
-  var wrap = el('div', 'dwrap');
-  var svg = sEl('svg', {
-    viewBox: '0 0 ' + w + ' ' + h,
-    width: w, height: h,
-    role: 'img',
-    'aria-label': 'Diagram of the estate: ' + boxes.length + ' objects. Layers: ' + layerWords()
+  DG.w = parseInt(canvasRow ? canvasRow.s[0] : '0', 10) || 0;
+  DG.h = parseInt(canvasRow ? canvasRow.s[1] : '0', 10) || 0;
+  DG.drawn = boxes.length;
+  DG.drawnLinks = lines.length;
+  DG.boxes = {};
+  /* The links each box touches, grouped. This is the same class of work as
+     `pasteRows` -- sorting rows the module sent into the buckets a face needs --
+     and it computes nothing about the graph: the module already emitted every
+     link in a total order, and grouping preserves it. */
+  DG.conn = {};
+  function bucket(id, far, kind, out) {
+    if (!DG.conn[id]) DG.conn[id] = [];
+    DG.conn[id].push({ far: far, kind: kind, out: out });
+  }
+
+  /* Which drawn kinds the inventory has no row set for. Reading the kind words
+     the module already sent and checking them against this page's own strip
+     order -- no opinion about the graph, same class as the grouping above. */
+  var noSetKinds = [], noSetCount = 0;
+  boxes.forEach(function (b) {
+    if (KINDS.indexOf(b.s[1]) >= 0) return;
+    noSetCount++;
+    if (noSetKinds.indexOf(b.s[1]) < 0) noSetKinds.push(b.s[1]);
   });
+
+  /* --- the strip's second half: fit, zoom, and the number the surface turns on
+     Wrapped in one element so the narrow rule can take the whole group away
+     while the canvas it drives is collapsed. */
+  var zc = el('div', 'dzoomctl');
+  var bFit = el('button', null, 'fit');
+  bFit.type = 'button';
+  bFit.setAttribute('data-dfit', '1');
+  zc.appendChild(bFit);
+  var bOut = el('button', null, 'zoom out');
+  bOut.type = 'button';
+  bOut.setAttribute('data-dzoom', '0.8');
+  zc.appendChild(bOut);
+  var bIn = el('button', null, 'zoom in');
+  bIn.type = 'button';
+  bIn.setAttribute('data-dzoom', '1.25');
+  zc.appendChild(bIn);
+  zc.appendChild(el('span', 'lab', 'zoom'));
+  DG.readout = el('span', 'dzoom', '1.00×');
+  zc.appendChild(DG.readout);
+  strip.appendChild(zc);
+  strip.appendChild(el('span', 'lab dhint',
+    'an element in any active layer is drawn · drag to pan · wheel to zoom · ' +
+    'z fits · arrows walk the outline'));
+
+  /* --- the summary line. `55` §6.3: at 320 px the canvas collapses to this and
+     the Outline takes the width. Present at every width, shown at one. */
+  DG.sum = el('div', 'dsum');
+  /* The control leads and the summary follows, and both fit one line at 320 px.
+     They did not when this line also carried a `PICTURE` label and a sentence
+     explaining the 1.4.10 exception: measured, that was 117 px of a 146 px
+     column -- the whole Outline's worth of room spent saying why the Outline
+     was not on screen. The explanation is in the notes under the rows, which is
+     where somebody who wants it will be. */
+  var bExp = el('button', null, dgOpen ? 'hide the picture' : 'show the picture');
+  bExp.type = 'button';
+  bExp.setAttribute('data-dexpand', '1');
+  bExp.setAttribute('aria-expanded', String(dgOpen));
+  DG.sum.appendChild(bExp);
+  DG.sum.appendChild(el('span', null,
+    plural(String(boxes.length), 'object', 'objects') + ' · ' +
+    plural(String(lines.length), 'link', 'links')));
+  view.appendChild(DG.sum);
+
+  var split = el('div', 'dsplit');
+  DG.canvas = el('div', 'dcanvas');
+
+  /* No viewBox: one user unit is one CSS pixel, which is what makes
+     `non-scaling-stroke` below mean exactly 1 px and the focus ring exactly
+     2 px, at every zoom (`56` §5.3, §6.2).
+
+     aria-hidden, and no role="img": `55` §4.5.1 refuses `role="img"` on a
+     manipulation surface -- "labelling it as an image and stopping is telling a
+     class of users that a whole feature is a picture" -- and §10's item 6
+     records the intent taken here, that the picture is skipped because the
+     Outline carries every fact it carries.
+     VERIFY (`55` §10, open): whether an aria-hidden <svg> is genuinely skipped
+     by the three screen readers named there. Not established here, and not
+     claimed. */
+  DG.svg = sEl('svg', { 'aria-hidden': 'true', 'data-lod': '2' });
+  DG.scene = sEl('g', { class: 'dscene' });
+  DG.svg.appendChild(DG.scene);
 
   /* Lines first, so boxes sit on top of them. Containment is drawn quieter than
      a reference: "this port is on that device" is structure, "this tunnel binds
@@ -1402,73 +2112,394 @@ function renderDiagram(host) {
     var l = lines[li];
     var pts = l.s[4];
     if (!pts) continue;
+    bucket(l.s[0], l.s[1], l.s[2], true);
+    bucket(l.s[1], l.s[0], l.s[2], false);
     var d = '', parts = pts.split(' ');
     for (var pi = 0; pi < parts.length; pi++) {
       var xy = parts[pi].split(',');
       d += (pi === 0 ? 'M' : 'L') + xy[0] + ' ' + xy[1] + ' ';
     }
-    var path = sEl('path', {
+    /* No <title> on the path either. M32 deleted the per-shape one because a
+       hover tooltip inside an aria-hidden subtree is mouse-hover-only -- the
+       precise failure `55` §1.4 lists as impossible -- and that reasoning
+       applies to a line verbatim. `56` §5.7's canonical edge emission carries
+       none. The edge kind is on the Outline's link row instead. */
+    DG.scene.appendChild(sEl('path', {
       d: d,
       fill: 'none',
+      'vector-effect': 'non-scaling-stroke',
       class: l.s[3] === '1' ? 'dline dcontain' : 'dline dref'
-    });
-    var t = sEl('title');
-    t.textContent = l.s[2];
-    path.appendChild(t);
-    svg.appendChild(path);
+    }));
   }
 
   for (var bi = 0; bi < boxes.length; bi++) {
     var b = boxes[bi];
     var bx = parseInt(b.s[3], 10), by = parseInt(b.s[4], 10);
     var bw = parseInt(b.s[5], 10), bh = parseInt(b.s[6], 10);
-    var g = sEl('g', {
-      class: 'dbox' + (S.sel === b.s[0] ? ' dsel' : ''),
-      tabindex: '0',
-      role: 'button',
-      'aria-label': b.s[1] + ' ' + b.s[2]
-    });
-    g.setAttribute('data-post', b.s[0]);
-    g.appendChild(sEl('rect', { x: bx, y: by, width: bw, height: bh, rx: 0 }));
+    var g = sEl('g', { class: 'dbox' + (S.sel === b.s[0] ? ' dsel' : '') });
+    /* Not `data-post`: that attribute is the document-level delegate's, and it
+       ends in render(), which would destroy this scene. Diagram selection has
+       its own path -- see dgSelect. */
+    g.setAttribute('data-dpost', b.s[0]);
+    g.appendChild(sEl('rect', {
+      x: bx, y: by, width: bw, height: bh, rx: 0,
+      'vector-effect': 'non-scaling-stroke'
+    }));
     var kind = sEl('text', { x: bx + 10, y: by + 17, class: 'dkind' });
     kind.textContent = b.s[1];
     g.appendChild(kind);
     var name = sEl('text', { x: bx + 10, y: by + 34, class: 'dname' });
     /* Truncate in the renderer, never in the model: the full name is in the
-       inspector and in the title, so nothing is lost by clipping the picture. */
+       Outline row and in the inspector, so nothing is lost by clipping the
+       picture (`56` §2.4). */
     name.textContent = b.s[2].length > 24 ? b.s[2].slice(0, 23) + '…' : b.s[2];
     g.appendChild(name);
-    var bt = sEl('title');
-    bt.textContent = b.s[1] + ' — ' + b.s[2];
-    g.appendChild(bt);
-    svg.appendChild(g);
+    DG.scene.appendChild(g);
+    DG.boxes[b.s[0]] = { x: bx, y: by, w: bw, h: bh, g: g, kind: b.s[1], label: b.s[2] };
   }
 
-  wrap.appendChild(svg);
-  host.appendChild(wrap);
+  DG.ring = sEl('rect', {
+    class: 'dring', x: 0, y: 0, width: 0, height: 0,
+    visibility: 'hidden', 'vector-effect': 'non-scaling-stroke'
+  });
+  DG.scene.appendChild(DG.ring);
 
-  var note = el('div', 'note pad');
-  note.textContent = boxes.length + ' objects, ' + lines.length + ' links. Layers: ' +
-    layerWords() + ' — ' + hidBoxes + ' objects and ' + hidLines +
-    ' links hidden by the mask. Toggling a layer never moves a box: one layout ' +
-    'is computed over all five and the mask filters what is drawn (56 §3.6). ' +
-    'Computed layout — positions come from the model, not from dragging. ' +
-    'Grouping and hand-placement are not in this build.';
-  host.appendChild(note);
+  DG.canvas.appendChild(DG.svg);
+  split.appendChild(DG.canvas);
+  DG.out = dgOutline(boxes, noSetKinds);
+  split.appendChild(DG.out);
+  view.appendChild(split);
+
+  /* The notes live INSIDE the Outline column rather than under the surface.
+     Under it they were two more `flex: none` blocks competing with the picture
+     for the column's height, which is the shape of defect 1; inside the Outline
+     they scroll with the rows that explain them. */
+  note(DG.out, 'This is a rendering, not a record',
+    boxes.length + ' objects, ' + lines.length + ' links. Layers: ' + layerWords() +
+    ' — ' + hidBoxes + ' objects and ' + hidLines + ' links hidden by the mask. ' +
+    'Toggling a layer never moves a box: one layout is computed over all five ' +
+    'and the mask filters what is drawn (56 §3.6). Positions come from the ' +
+    'model, not from dragging: there is no hand placement, because a position ' +
+    'is graph data (56 §3.5) and the op that would store one does not exist ' +
+    'yet. Aggregation and staleness are not in this build either. Pan, zoom and ' +
+    'whether the picture is open at a narrow width are the only things this ' +
+    'page remembers about the surface.');
 
   /* What this build cannot draw, said rather than implied. 56 §4.1 gives most
      of these kinds a treatment -- a bracket, a band, a port stub, a badge, a
      conduit -- and this build draws one form, a box. Faking a bracket with a
      box would claim 56 §4.4's tier 1 for a zone that may be scattered. */
-  var gap = el('div', 'note pad');
-  gap.textContent = 'Layer membership is honoured; the treatments are not. ' +
+  note(DG.out, 'Layer membership is honoured; the treatments are not',
     'In 56 §4.1 zones are brackets, VLANs are bands, tunnels are conduits, ' +
     'chassis are sub-rows, ports are stubs and routing protocols are badges — ' +
     'each is drawn here as the box it is.' +
     (untabled === '0' ? '' : ' ' + untabled + ' of the objects above have no row in ' +
-     'that table at all, so they are drawn at every layer rather than guessed at.');
-  host.appendChild(gap);
+     'that table at all, so they are drawn at every layer rather than guessed at.'));
+
+  /* The gap between what is drawn and what the inventory can show, stated
+     where it is discovered rather than in a commit message. */
+  if (noSetCount) {
+    note(DG.out, 'Selecting these leaves the kind strip alone',
+      noSetCount + ' of the ' + boxes.length + ' objects drawn are kinds the ' +
+      'inventory has no row set for — ' + noSetKinds.join(', ') + '. The diagram ' +
+      'draws every kind the layout emits and the kind strip is ' +
+      'fathom_inventory::InvKind, which declares thirteen; the two are not the ' +
+      'same list. Picking one of these is honoured in the ribbon, the inspector ' +
+      'and the picture, and the strip is left where it was rather than pointed ' +
+      'at an unrelated kind with nothing marked. Growing InvKind is the fix and ' +
+      'it is a change to the module, not to this page.');
+  }
+
+  DG.band = el('div', 'dband');
+  view.appendChild(DG.band);
+  host.appendChild(view);
+
+  /* Keep the transform across a rebuild -- a view switch must not throw away
+     where the user was standing. Refit only when the picture itself changed
+     shape, which is what the signature detects. */
+  var sig = DG.w + 'x' + DG.h + ':' + boxes.length;
+  if (sig !== DG.sig) { DG.sig = sig; dgFit(false); }
+  else { dgApply(); dgLod(); dgReadout(); }
+
+  /* The other half of the round trip: a row selected in the inventory is still
+     selected here, so the box is marked and brought into view. The tree's one
+     tab stop is moved onto it by dgAfterFact, which has to run after
+     renderFact's roveScan rather than before it. */
+  /* The decline is a property of the SELECTION, not of the click that made it.
+     An element can arrive selected from somewhere other than dgSelect -- the
+     inspector's "follow the cable" button reaches kinds the strip has no button
+     for -- so it is recomputed here as well, or the band would go quiet about a
+     selection it still cannot reach. */
+  DG.declined = (S.sel && DG.boxes[S.sel] && KINDS.indexOf(DG.boxes[S.sel].kind) < 0)
+    ? DG.boxes[S.sel].kind : null;
+
+  dgPaint();
+  if (S.sel && DG.boxes[S.sel]) { dgRing(S.sel); dgReveal(S.sel); }
+  dgBand();
 }
+
+/* Ids are `kind:ulid` -- Crockford base32 and one colon, so nothing in them is
+   a selector metacharacter. The escape is here anyway because an attribute
+   selector built from data is a place where that assumption goes stale
+   silently, and CSS.escape is not available everywhere. */
+function cssEsc(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+
+/* --- the surface's own listeners -------------------------------------------
+   All delegated from `document`, registered once, so a scene rebuilt by a
+   render carries no listeners of its own to leak -- the same discipline the
+   rest of this file uses. Each one returns immediately when the diagram is not
+   mounted.
+   ------------------------------------------------------------------------- */
+
+document.addEventListener('click', function (ev) {
+  var n;
+  if ((n = seekAttr(ev.target, 'data-dfit'))) { dgFit(true); return; }
+  if ((n = seekAttr(ev.target, 'data-dzoom'))) {
+    dgZoomCentre(parseFloat(n.getAttribute('data-dzoom')));
+    return;
+  }
+  if ((n = seekAttr(ev.target, 'data-dexpand'))) { dgToggleOpen(n); return; }
+  if ((n = seekAttr(ev.target, 'data-dpost'))) { dgSelect(n.getAttribute('data-dpost')); return; }
+  if ((n = seekAttr(ev.target, 'data-dlink'))) { dgFollow(n); return; }
+  if ((n = seekAttr(ev.target, 'data-drow'))) { dgSelect(n.getAttribute('data-drow')); return; }
+  /* `56` §6.1: "Click empty canvas | Clear". Last, so a click that landed on a
+     shape has already been handled above. */
+  if (DG.canvas && DG.canvas.contains(ev.target)) { dgClear(); return; }
+});
+
+/* `55` §6.3's control. One attribute on one element -- the surface is NOT
+   rebuilt, so expanding the picture does not throw away the pan, the zoom, the
+   selection or the focused row. The fit is deferred one frame because the
+   canvas is display:none until the attribute lands, and a canvas with no box
+   has nothing to fit to. */
+function dgToggleOpen(btn) {
+  dgOpen = !dgOpen;
+  if (DG.view) DG.view.setAttribute('data-open', dgOpen ? '1' : '0');
+  btn.setAttribute('aria-expanded', String(dgOpen));
+  btn.textContent = dgOpen ? 'hide the picture' : 'show the picture';
+  dgBand();
+  if (!dgOpen) { say('the picture is collapsed to a summary line'); return; }
+  window.requestAnimationFrame(function () {
+    /* Always fit on open, never restore. The transform that is being carried
+       was computed against a canvas that was either a different size or not on
+       screen at all, and restoring it is how expanding the picture at 320 px
+       showed four of ten boxes -- measured, before this line existed. A pan
+       made while the picture is OPEN still survives a resize; what does not
+       survive is collapsing it, which is the user putting the viewport away. */
+    dgFit(false);
+    if (S.sel && DG.boxes && DG.boxes[S.sel]) dgReveal(S.sel);
+    /* Bring the thing the button promised into the column's visible box. At
+       320 px the surface is ordinary flow inside a 146 px scroller, so the
+       canvas opens BELOW the strip and the summary line -- without this, "show
+       the picture" shows you two more rows of zoom buttons and the picture
+       stays off the bottom of the column. */
+    if (DG.canvas && DG.canvas.scrollIntoView) DG.canvas.scrollIntoView({ block: 'start' });
+    say('the picture is open, zoom ' + dgZoomWords());
+  });
+}
+
+/* Following an edge: select the far element and stand on its own row, so the
+   next arrow key continues from where you arrived rather than from where you
+   were. `53` §3.2 gives `→` on a leaf "moves into its expansion", and a
+   connection row's expansion is the element at its far end. */
+function dgFollow(linkRow) {
+  var far = linkRow.getAttribute('data-dlink');
+  dgSelect(far);
+  var row = DG.out && DG.out.querySelector('[data-drow="' + cssEsc(far) + '"]');
+  if (row) { dgRove(row); row.focus(); }
+}
+
+/* The picture mirrors the Outline's focus. One listener covers arrow keys, Tab
+   and a pointer press alike, because all three end in a focus event. */
+document.addEventListener('focusin', function (ev) {
+  if (!DG.out) return;
+  var n = seekAttr(ev.target, 'data-did');
+  if (!n || !DG.out.contains(n)) return;
+  var id = n.getAttribute('data-did');
+  dgRing(id);
+  dgReveal(id);
+});
+
+/* Tree keys. `↑ ↓ Home End` are already the page's roving contract (53 §8.3)
+   and are handled by the shared list listener, untouched. What is added here is
+   what a TREE adds over a list, and every one of them is a binding `53` §3.2
+   and §3.5 already carry -- no key is invented, because `53` is the sole owner
+   of the keymap under ADR-0024 and this file binds nothing. */
+document.addEventListener('keydown', function (e) {
+  if (!DG.out) return;
+  var t = e.target;
+  if (!t || !t.getAttribute) return;
+  var link = seekAttr(t, 'data-dlink'), row = seekAttr(t, 'data-drow');
+  if (!link && !row) return;
+  if (!DG.out.contains(link || row)) return;
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (link) dgFollow(link); else dgSelect(row.getAttribute('data-drow'));
+    return;
+  }
+  if (e.key === ' ' || e.key === 'Spacebar') {
+    /* `53` §3.2: "Space | Expand/collapse without acting." */
+    if (link) return;
+    e.preventDefault();
+    dgExpand(row, row.getAttribute('aria-expanded') !== 'true');
+    return;
+  }
+  if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    if (link) { dgFollow(link); return; }
+    if (row.getAttribute('aria-expanded') === 'true') {
+      var first = DG.out.querySelector(
+        '[data-dparent="' + cssEsc(row.getAttribute('data-drow')) + '"]');
+      if (first) { dgRove(first); first.focus(); }
+    } else dgExpand(row, true);
+    return;
+  }
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    if (link) {
+      var parent = DG.out.querySelector(
+        '[data-drow="' + cssEsc(link.getAttribute('data-dparent')) + '"]');
+      if (parent) { dgExpand(parent, false); dgRove(parent); parent.focus(); }
+      return;
+    }
+    dgExpand(row, false);
+  }
+});
+
+/* `z` — zoom to fit. `53` §3.4 binds it to the diagram and nothing else here
+   binds a letter.
+
+   No key zooms IN or OUT, deliberately. `76` §10 carries the open item in as
+   many words -- "What binds continuous zoom? `53` §3.4 binds only `z`" -- and
+   `56` §13.9 leaves it undecided. Inventing `+` and `-` here would settle an
+   open question in a page, which is not this session's to settle. The two strip
+   buttons are reachable by Tab and fire on Enter or Space, so a keyboard-only
+   user can zoom without one. */
+document.addEventListener('keydown', function (e) {
+  if (S.view !== 'diagram' || !DG.canvas) return;
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (dgIsText(e.target)) return;
+  if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); dgFit(true); }
+});
+
+/* Wheel to zoom, about the cursor. Registered non-passively because it must
+   preventDefault to stop the page scrolling underneath, and delegated to the
+   document with a containment test rather than bound to a canvas that is
+   rebuilt on every view switch. */
+document.addEventListener('wheel', function (e) {
+  if (!DG.canvas || !DG.canvas.contains(e.target)) return;
+  /* Ctrl+wheel is the browser's own page zoom, and page zoom is WCAG 1.4.4.
+     Taking it would be a worse trade than having no scene zoom at all. */
+  if (e.ctrlKey || e.metaKey) return;
+  e.preventDefault();
+  /* deltaMode is 0 pixels, 1 lines, 2 pages. The two multipliers are chosen so
+     one notch feels the same in each mode; they are not measurements. */
+  var dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+  var r = DG.canvas.getBoundingClientRect();
+  dgZoomAt(e.clientX - r.left, e.clientY - r.top, Math.pow(0.9988, dy), false, r);
+}, { passive: false });
+
+/* Drag to pan. */
+document.addEventListener('pointerdown', function (e) {
+  if (!DG.canvas || !DG.canvas.contains(e.target)) return;
+  if (e.button !== 0) return;
+  /* One-finger touch belongs to the PAGE (53 §11.4). Scene pinch and two-finger
+     pan are that section's other half and are not built. */
+  if (e.pointerType === 'touch') return;
+  DG.grab = { id: e.pointerId, x: e.clientX, y: e.clientY,
+              tx: DG.tx, ty: DG.ty, moved: false,
+              /* Read once, here, so the pan path stays one attribute write with
+                 no forced layout in it. */
+              r: DG.canvas.getBoundingClientRect() };
+  DG.canvas.setAttribute('data-grab', '1');
+  /* Capture is NOT taken here, and the reason is a bug this cost an hour:
+     while an element holds pointer capture the user agent retargets the whole
+     sequence to it, `click` included. Capturing on pointerdown therefore made
+     every click on a box arrive at the canvas <div> instead of the shape, and
+     nothing in the picture could be selected with a mouse. Capture is taken on
+     the first move past the slop threshold instead -- which is the only moment
+     it is needed, because its job is to keep a drag alive after the cursor
+     leaves the canvas. */
+});
+
+document.addEventListener('pointermove', function (e) {
+  if (!DG.grab || e.pointerId !== DG.grab.id) return;
+  var dx = e.clientX - DG.grab.x, dy = e.clientY - DG.grab.y;
+  /* 3 px of slop, so a click that trembles still selects. Below it nothing is
+     written at all. */
+  if (!DG.grab.moved && dx * dx + dy * dy < 9) return;
+  if (!DG.grab.moved && DG.canvas) {
+    /* Capture, taken at the first real movement. Its job is to keep the drag
+       alive once the cursor leaves the canvas -- a pan that stops dead at the
+       edge is broken at exactly the moment it is most useful.
+
+       It throws when the pointer id is not live, which a synthetic event or a
+       pointer the user agent has already released will produce, and an
+       exception here would strand the surface mid-drag. The pan still works
+       uncaptured; it just stops at the edge. */
+    try { DG.canvas.setPointerCapture(e.pointerId); } catch (err) { /* uncaptured */ }
+  }
+  DG.grab.moved = true;
+  DG.touched = true;
+  DG.tx = DG.grab.tx + dx;
+  DG.ty = DG.grab.ty + dy;
+  dgHold(DG.grab.r);
+  dgApply();
+});
+
+function dgRelease(e) {
+  if (!DG.grab || e.pointerId !== DG.grab.id) return;
+  DG.eatClick = DG.grab.moved;
+  DG.grab = null;
+  if (DG.canvas) {
+    DG.canvas.removeAttribute('data-grab');
+    try {
+      if (DG.canvas.hasPointerCapture && DG.canvas.hasPointerCapture(e.pointerId)) {
+        DG.canvas.releasePointerCapture(e.pointerId);
+      }
+    } catch (err) { /* it was never captured */ }
+  }
+}
+document.addEventListener('pointerup', dgRelease);
+document.addEventListener('pointercancel', dgRelease);
+
+/* A drag that moved must not also select what it started on, and must not clear
+   the selection either -- the empty-canvas rule above would otherwise fire at
+   the end of every pan that ended on background. Capture phase, so this runs
+   before the delegates. */
+document.addEventListener('click', function (e) {
+  if (!DG.eatClick) return;
+  DG.eatClick = false;
+  if (DG.canvas && DG.canvas.contains(e.target)) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+}, true);
+
+/* The fit is a function of the viewport, so it stops being a fit the moment the
+   viewport changes. It is recomputed only while the user has not moved the
+   scene themselves -- see DG.touched.
+
+   Deferred to the next frame, and not because of smoothness: the shell's own
+   resize handler is what flips the sheet between one column and two, and it is
+   registered after this one. Measuring the canvas synchronously here reads the
+   width it had before the breakpoint moved, and the picture ends up fitted to a
+   viewport that no longer exists. One frame later the layout has settled. */
+var dgResizePending = false;
+window.addEventListener('resize', function () {
+  if (dgResizePending) return;
+  dgResizePending = true;
+  window.requestAnimationFrame(function () {
+    dgResizePending = false;
+    if (S.view !== 'diagram' || !DG.canvas || DG.grab) return;
+    if (DG.touched) dgReadout(); else dgFit(false);
+    /* Unconditionally, because crossing the breakpoint changes what the band
+       has to say and dgFit returns early when the canvas has no box -- which is
+       exactly the case a crossing into `narrow` produces. */
+    dgBand();
+  });
+});
 
 function renderMeaning() {
   var host = $('meanBody');
@@ -2073,7 +3104,20 @@ document.addEventListener('keydown', function (e) {
     if (eOpen) { setEquip(false); return; }
     if (pOpen) { setPaste(false); return; }
     if (fOpen) { setFinder(false); return; }
-    if (S.sel) { S.sel = null; S.element = null; S.equipment = null; render(); return; }
+    if (S.sel) {
+      /* `55` §5.6: Esc "moves focus to the container's own heading, so a user
+         is never stranded". render() rebuilds the fact column, which destroys
+         whichever Outline row the user was standing on -- and a focused element
+         removed from the DOM sends focus to <body>, which is `53` §13's
+         failure 7. The heading is the only surface in this view that survives
+         the rebuild, so it is where focus goes. */
+      var inTree = DG.out && document.activeElement && DG.out.contains(document.activeElement);
+      S.sel = null; S.element = null; S.equipment = null;
+      DG.declined = null;
+      render();
+      if (inTree) { var hd = $('doutHead'); if (hd) hd.focus(); }
+      return;
+    }
     return;
   }
   /* ⌥ owns view management. Bounded, never wrapping (53 §3.1). */
