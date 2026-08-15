@@ -1,0 +1,103 @@
+# corpus/dict/junos-srx/protocols-ospf.yaml — the OSPF slice (2026-08-15).
+# Reasoning, rejected alternatives and what is deliberately absent:
+# README-routing.md, beside this file. It is a .md and not comments because
+# EMBEDDED_DICT_SOURCES compiles these bytes into the wasm module verbatim.
+# Every form below was READ, not recalled, on 2026-08-15 (ADR-0034); the URL
+# sits with the entry. `reviewed_by: <named human>` is the placeholder used
+# throughout corpus/ — invariant 10 needs a named human to replace it.
+platform: junos-srx
+reviewed_by: <named human>
+
+token_maps:
+  # Junos spells OSPFv3 `ospf3`, the schema `ospf_v3`. Source: area (Protocols
+  # OSPF), whose Hierarchy Level is `[edit protocols ( ospf | ospf3 )]`.
+  # https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/area-edit-protocols-ospf.html
+  RoutingProtocolProtocol:
+    ospf3: ospf_v3
+  # Junos: `interface-type (nbma | p2mp | p2mp-over-lan | p2p)`. Schema:
+  # `enum { broadcast, point_to_point, non_broadcast, p2mp }`. `p2mp` is the
+  # same word both sides; `p2mp-over-lan` has no schema value and is left to be
+  # refused; `broadcast` is Junos's default and has no token at all.
+  # https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/interface-type-edit-protocols-ospf.html
+  ProtocolAdjacencyNetworkType:
+    p2p: point_to_point
+    nbma: non_broadcast
+
+entries:
+  # area (Protocols OSPF): `area area-id { interface interface-name { … } }` at
+  # `[edit protocols ( ospf | ospf3 )]`. interface (Protocols OSPF) at
+  # `[edit protocols (ospf | ospf3) area area-id ]`. Read 2026-08-15.
+  # https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/area-edit-protocols-ospf.html
+  # https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/interface-edit-protocols-ospf.html
+  # `partial: true`, the unkeyed RoutingInstance and why every entry re-binds
+  # `area`: README-routing.md §2 and §3.
+  - id: junos-srx/protocols.ospf.area.interface
+    path: [protocols, "$proto", area, "$area", interface, "$if"]
+    partial: true
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - { as: rp, kind: RoutingProtocol, owner: ri, key: "$proto", fields: [ { field: protocol, from: "$proto", scalar: RoutingProtocolProtocol } ] }
+        - { as: adj, kind: ProtocolAdjacency, owner: rp, key: "$if", fields: [ { field: area, from: "$area", scalar: OspfAreaId } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # interface (Protocols OSPF)'s syntax block: `metric metric ;`. Junos range is
+  # 1 through 65,535, so every legal value fits the schema's u32; anything else
+  # is diagnosed, never stored. Read 2026-08-15.
+  # https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/interface-edit-protocols-ospf.html
+  - id: junos-srx/protocols.ospf.area.interface.metric
+    path: [protocols, "$proto", area, "$area", interface, "$if", metric, "$m"]
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - { as: rp, kind: RoutingProtocol, owner: ri, key: "$proto", fields: [ { field: protocol, from: "$proto", scalar: RoutingProtocolProtocol } ] }
+        - { as: adj, kind: ProtocolAdjacency, owner: rp, key: "$if", fields: [ { field: area, from: "$area", scalar: OspfAreaId }, { field: cost, from: "$m", scalar: u32 } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # interface-type (Protocols OSPF): `interface-type (nbma | p2mp |
+  # p2mp-over-lan | p2p)` at `[edit protocols (ospf | ospf3) area area-id
+  # interface interface-name ]`. Read 2026-08-15.
+  # https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/interface-type-edit-protocols-ospf.html
+  - id: junos-srx/protocols.ospf.area.interface.interface-type
+    path: [protocols, "$proto", area, "$area", interface, "$if", interface-type, "$t"]
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - { as: rp, kind: RoutingProtocol, owner: ri, key: "$proto", fields: [ { field: protocol, from: "$proto", scalar: RoutingProtocolProtocol } ] }
+        - { as: adj, kind: ProtocolAdjacency, owner: rp, key: "$if", fields: [ { field: area, from: "$area", scalar: OspfAreaId }, { field: network_type, from: "$t", scalar: ProtocolAdjacencyNetworkType } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # passive (Protocols OSPF), at `[edit protocols (ospf | ospf3) area area-id
+  # interface interface-name ]`. Read 2026-08-15. A flag statement: its whole
+  # content is its own presence, so `const_bool` states the value — there is no
+  # argument to capture. A line carrying the documented
+  # `passive { traffic-engineering … }` subtree still binds passive true here
+  # and leaves the rest as visible trailing tokens.
+  # https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/passive-edit-protocols-ospf.html
+  - id: junos-srx/protocols.ospf.area.interface.passive
+    path: [protocols, "$proto", area, "$area", interface, "$if", passive]
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - { as: rp, kind: RoutingProtocol, owner: ri, key: "$proto", fields: [ { field: protocol, from: "$proto", scalar: RoutingProtocolProtocol } ] }
+        - { as: adj, kind: ProtocolAdjacency, owner: rp, key: "$if", fields: [ { field: area, from: "$area", scalar: OspfAreaId }, { field: passive, const_bool: true } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # reference-bandwidth (Protocols OSPF): `reference-bandwidth
+  # reference-bandwidth ;` at `[edit protocols ( ospf | ospf3 )]`. Options:
+  # "Reference bandwidth, in bits per second. Range: 9600 through
+  # 100,000,000,000,000 bits." The schema's Bandwidth is bits per second as a
+  # u64 — the documented unit exactly, so nothing converts. Read 2026-08-15.
+  # https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/reference-bandwidth-edit-protocols-ospf.html
+  - id: junos-srx/protocols.ospf.reference-bandwidth
+    path: [protocols, "$proto", reference-bandwidth, "$bw"]
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - { as: rp, kind: RoutingProtocol, owner: ri, key: "$proto", fields: [ { field: protocol, from: "$proto", scalar: RoutingProtocolProtocol }, { field: reference_bandwidth, from: "$bw", scalar: Bandwidth } ] }
+    versions: "*"
+    reviewed_by: <named human>

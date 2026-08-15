@@ -1,0 +1,86 @@
+# corpus/dict/junos-srx/protocols-bgp.yaml — the BGP slice (2026-08-15).
+# Reasoning, and the table of what is deliberately NOT modelled here (the
+# group-level `peer-as` above all): README-routing.md §5, beside this file.
+# Every form below was READ, not recalled, on 2026-08-15 (ADR-0034); the URL
+# sits with the entry. The `$proto` capture and the unkeyed RoutingInstance are
+# explained in README-routing.md §1 and §2.
+platform: junos-srx
+
+entries:
+  # neighbor (Protocols BGP): `neighbor address { … }` at `[edit protocols bgp
+  # group group-name ]`. group (Protocols BGP): `group group-name { … }` at
+  # `[edit protocols bgp]`. Read 2026-08-15.
+  # https://www.juniper.net/documentation/us/en/software/junos/bgp/topics/ref/statement/neighbor-edit-protocols-bgp.html
+  # https://www.juniper.net/documentation/us/en/software/junos/bgp/topics/ref/statement/group-edit-protocols-bgp.html
+  # Keyed by the neighbour address, not the group: the address identifies a
+  # peer, and the schema has nowhere to put a group (README-routing.md §5).
+  - id: junos-srx/protocols.bgp.group.neighbor
+    path: [protocols, "$proto", group, "$g", neighbor, "$n"]
+    partial: true
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - { as: rp, kind: RoutingProtocol, owner: ri, key: "$proto", fields: [ { field: protocol, from: "$proto", scalar: RoutingProtocolProtocol } ] }
+        - { as: adj, kind: ProtocolAdjacency, owner: rp, key: "$n", fields: [ { field: peer_address, from: "$n", scalar: IpAddr } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # peer-as (Protocols BGP): `peer-as autonomous-system ;`. Hierarchy includes
+  # `[edit protocols bgp group group-name neighbor address ]` — the NEIGHBOUR
+  # level, which is the one bound here; the group level is documented too and is
+  # deliberately not bound (README-routing.md §5). The same page documents
+  # plain-number range 1 through 4,294,967,295 and the AS-dot form from Junos OS
+  # 9.2; `Asn::parse` accepts both, so no token map and no lost form.
+  # Read 2026-08-15.
+  # https://www.juniper.net/documentation/us/en/software/junos/bgp/topics/ref/statement/peer-as-edit-protocols-bgp.html
+  - id: junos-srx/protocols.bgp.group.neighbor.peer-as
+    path: [protocols, "$proto", group, "$g", neighbor, "$n", peer-as, "$as"]
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - { as: rp, kind: RoutingProtocol, owner: ri, key: "$proto", fields: [ { field: protocol, from: "$proto", scalar: RoutingProtocolProtocol } ] }
+        - { as: adj, kind: ProtocolAdjacency, owner: rp, key: "$n", fields: [ { field: peer_address, from: "$n", scalar: IpAddr }, { field: peer_as, from: "$as", scalar: Asn } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # local-as (Protocols BGP): `local-as autonomous-system <loops number >
+  # <private | alias> <no-prepend-global-as>;`. Hierarchy includes
+  # `[edit protocols bgp]` — the protocol-instance level, which is what
+  # `RoutingProtocol.local_as` is. The trailing modifiers are not modelled; a
+  # line carrying them binds the AS and leaves them as visible trailing tokens.
+  # Read 2026-08-15.
+  # https://www.juniper.net/documentation/us/en/software/junos/bgp/topics/ref/statement/local-as-edit-protocols-bgp.html
+  - id: junos-srx/protocols.bgp.local-as
+    path: [protocols, "$proto", local-as, "$as"]
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - { as: rp, kind: RoutingProtocol, owner: ri, key: "$proto", fields: [ { field: protocol, from: "$proto", scalar: RoutingProtocolProtocol }, { field: local_as, from: "$as", scalar: Asn } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `authentication-key key ;` appears in the group stanza's syntax block and in
+  # the neighbour stanza's: BGP's TCP-MD5 key, a device credential that must
+  # never reach the store (invariant 3). Read 2026-08-15.
+  # https://www.juniper.net/documentation/us/en/software/junos/bgp/topics/ref/statement/group-edit-protocols-bgp.html
+  # https://www.juniper.net/documentation/us/en/software/junos/bgp/topics/ref/statement/neighbor-edit-protocols-bgp.html
+  #
+  # These two model nothing — no `binds:`, so the line is residue. They exist
+  # because `14` §9.1's fourth structural property is that the set of `secret:`
+  # entries IS the redaction catalogue: a stanza Fathom does not model still has
+  # to be catalogued or its credential rests on the safety-net walk alone.
+  # `system.yaml` carries seven of exactly this shape. `password` is the nearest
+  # existing RedactLabel; there is no `md5` one and adding it is schema surface
+  # (`SecretLabel` lives in schema/), which an execution session does not
+  # decide. The label names the marker; the destruction is the same either way.
+  - id: junos-srx/protocols.bgp.group.authentication-key
+    path: [protocols, "$proto", group, "$g", authentication-key, "$v"]
+    secret: { label: password }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/protocols.bgp.group.neighbor.authentication-key
+    path: [protocols, "$proto", group, "$g", neighbor, "$n", authentication-key, "$v"]
+    secret: { label: password }
+    versions: "*"
+    reviewed_by: <named human>

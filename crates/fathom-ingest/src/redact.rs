@@ -383,11 +383,32 @@ fn gate_statement(
             detectors |= DetectorSet::BASE64;
         }
         let leaf_hit = match entry {
-            Some(e) => {
+            Some(e) if at < e.path.len() => {
                 // The suppression the field card's own `perfect-forward-secrecy
                 // keys group14` line forces (§12 item 2).
                 !e.secret_exempt && dict::leaf_name_walk(&e.path, at)
             }
+            // A token PAST the end of the entry's path is a token the entry
+            // never described, so the entry's path is the wrong thing to judge
+            // it by: `leaf_name_walk(&e.path, at)` with `at` beyond the path
+            // silently walks back from the entry's LAST segment instead of
+            // from the token's own neighbour, and answers about a different
+            // statement. Found 2026-08-15 while adding the BGP entries, which
+            // are the first to make it reachable: `set protocols bgp group G
+            // neighbor 203.0.113.1 authentication-key <key>` matches the
+            // six-segment `… neighbor $n` entry, leaving `authentication-key`
+            // and the key itself as trailing tokens. Judged by the entry's
+            // path the walk looks back over `neighbor` and `group` and says
+            // clean; judged by the statement it looks back over
+            // `authentication-key` and destroys the key. Before this slice the
+            // same line matched nothing at all and took the `None` arm below,
+            // so the defect was latent, not live — teaching the dictionary
+            // about `protocols bgp` is what would have armed it.
+            //
+            // `secret_exempt` deliberately does not apply here: an exemption is
+            // granted by review for one statement form, and this token is not
+            // in that form.
+            Some(_) => raw_walk(&segs, at),
             None => raw_walk(&segs, at),
         };
         if leaf_hit {

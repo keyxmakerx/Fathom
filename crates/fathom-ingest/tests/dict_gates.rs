@@ -42,9 +42,15 @@ fn dictionary_loads() {
 /// interface and the unit level. Each was verified against Juniper's own CLI
 /// reference on that date rather than recalled, with the URL in the dictionary
 /// file beside the entry (ADR-0034 §5).
+///
+/// +11 on 2026-08-15: the routing slice — `protocols-ospf.yaml` (5),
+/// `protocols-bgp.yaml` (5, of which two are `secret:`-only catalogue entries
+/// for the BGP TCP-MD5 key and bind nothing) and `routing-options.yaml` (1).
+/// Every form read off Juniper's own documentation on that date, URL and
+/// quoted syntax beside the entry.
 #[test]
-fn entry_count_is_42() {
-    assert_eq!(dict().entry_count(), 42);
+fn entry_count_is_53() {
+    assert_eq!(dict().entry_count(), 53);
 }
 
 /// `14` §6.5: no entry's path is a strict prefix of another's unless the

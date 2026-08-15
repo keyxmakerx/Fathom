@@ -12,7 +12,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{
     AddressFamily, EdgeKind, EstablishTunnels, Family, HostService, IkePolicyMode,
-    IpsecProposalProtocol, IpsecVpnDfBit, NodeKind,
+    IpsecProposalProtocol, IpsecVpnDfBit, NodeKind, ProtocolAdjacencyNetworkType,
+    RoutingProtocolProtocol,
 };
 use fathom_ir::scalar::{self, Scalar};
 use fathom_ir::value::PeerSpec;
@@ -129,6 +130,18 @@ pub enum BoundValue {
     /// operator's sentence and not its Junos spelling.
     Text(scalar::Text),
     Fqdn(scalar::Fqdn),
+    // --- the routing slice (2026-08-15) --------------------------------------
+    // One variant per slot type `RoutingProtocol`, `ProtocolAdjacency` and
+    // `RoutingInstance.router_id` declare. `Bool` is the first bool the binder
+    // has ever produced; it is what a Junos flag statement asserts.
+    Ip4Addr(scalar::Ip4Addr),
+    IpAddr(scalar::IpAddr),
+    Asn(scalar::Asn),
+    OspfAreaId(scalar::OspfAreaId),
+    Bandwidth(scalar::Bandwidth),
+    RoutingProtocolProtocol(RoutingProtocolProtocol),
+    ProtocolAdjacencyNetworkType(ProtocolAdjacencyNetworkType),
+    Bool(bool),
 }
 
 // ---------------------------------------------------------------------------
@@ -545,6 +558,9 @@ fn bound_value(
             .map(BoundValue::Secret)
             .ok_or(()),
         ValueSpec::ConstEnum { ty, token } => scalar_value(dict, *ty, token),
+        // A flag statement has no argument, so there is nothing to capture,
+        // nothing to redact and nothing that can fail to parse.
+        ValueSpec::ConstBool { value } => Ok(BoundValue::Bool(*value)),
         ValueSpec::AppendConst { ty, token } => set_value(*ty, token),
         ValueSpec::AppendFrom { ty, from } => {
             let (text, redacted) = capture(entry, stmt, tree, from).ok_or(())?;
@@ -614,6 +630,26 @@ fn scalar_value(dict: &Dictionary, ty: ValueTy, raw: &str) -> Result<BoundValue,
                 matches!(v, AddressFamily::Unknown(_))
             })?)
         }
+        ValueTy::Ip4Addr => BoundValue::Ip4Addr(parse(mapped)?),
+        ValueTy::IpAddr => BoundValue::IpAddr(parse(mapped)?),
+        ValueTy::Asn => BoundValue::Asn(parse(mapped)?),
+        ValueTy::OspfAreaId => BoundValue::OspfAreaId(parse(mapped)?),
+        ValueTy::Bandwidth => BoundValue::Bandwidth(parse(mapped)?),
+        // Junos `ospf3` reaches here already mapped to `ospf_v3`; an
+        // unmapped protocol word (`isis`, or a typo) is refused rather than
+        // stored, the same rule as every other enum in this function.
+        ValueTy::RoutingProtocolProtocol => BoundValue::RoutingProtocolProtocol(known(
+            RoutingProtocolProtocol::from_token(&neutral),
+            |v| matches!(v, RoutingProtocolProtocol::Unknown(_)),
+        )?),
+        // `p2mp-over-lan` is a real Junos interface-type with no schema
+        // counterpart: it lands in `Unknown` and is therefore refused, which
+        // leaves the field empty and the line diagnosed instead of storing a
+        // network type the schema never declared.
+        ValueTy::ProtocolAdjacencyNetworkType => BoundValue::ProtocolAdjacencyNetworkType(known(
+            ProtocolAdjacencyNetworkType::from_token(&neutral),
+            |v| matches!(v, ProtocolAdjacencyNetworkType::Unknown(_)),
+        )?),
     })
 }
 

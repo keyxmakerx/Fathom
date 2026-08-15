@@ -4,9 +4,12 @@
 //! Two functions and no state. `validate` is §4.5 step 1: everything the weld
 //! can refuse it refuses **before** the batch opens, because `fathom-graph`
 //! cannot roll a batch back (§4.5's atomicity DECISION). `write_field` is the
-//! dispatch over `BoundValue`'s 22 variants — an exhaustive `match`, so a new
+//! dispatch over `BoundValue`'s 32 variants — an exhaustive `match`, so a new
 //! variant upstream is a compile error here, which is the point (§9 failure
-//! mode 6).
+//! mode 6). (The count read 22 until 2026-08-15 and had been wrong since
+//! `Text` and `Fqdn` landed: a hand-maintained number in a doc comment goes
+//! stale silently, which is why the exhaustive `match` and not the number is
+//! the control.)
 //!
 //! No write escapes this module without a provenance record: `write_field`
 //! takes one by value and hands it straight to the store.
@@ -74,5 +77,15 @@ pub(crate) fn write_field(
         BoundValue::HostServiceSet(v) => graph.set_field(element, key, v.clone(), record),
         BoundValue::Text(v) => graph.set_field(element, key, v.clone(), record),
         BoundValue::Fqdn(v) => graph.set_field(element, key, v.clone(), record),
+        BoundValue::Ip4Addr(v) => graph.set_field(element, key, *v, record),
+        BoundValue::IpAddr(v) => graph.set_field(element, key, *v, record),
+        BoundValue::Asn(v) => graph.set_field(element, key, *v, record),
+        BoundValue::OspfAreaId(v) => graph.set_field(element, key, *v, record),
+        BoundValue::Bandwidth(v) => graph.set_field(element, key, *v, record),
+        BoundValue::RoutingProtocolProtocol(v) => graph.set_field(element, key, v.clone(), record),
+        BoundValue::ProtocolAdjacencyNetworkType(v) => {
+            graph.set_field(element, key, v.clone(), record)
+        }
+        BoundValue::Bool(v) => graph.set_field(element, key, *v, record),
     }
 }

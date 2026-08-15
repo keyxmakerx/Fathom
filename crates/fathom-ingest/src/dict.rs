@@ -67,8 +67,8 @@ pub enum DictGate {
     TokenMapUnknown,
 }
 
-/// The dictionary's six source files, compiled in, in the order `load` reads
-/// them off disk (`read_dir` then `sort`, so: alphabetical by file name).
+/// The dictionary's source files, compiled in, in the order `load` reads them
+/// off disk (`read_dir` then `sort`, so: alphabetical by file name).
 ///
 /// This exists for one caller: the WebAssembly build, which has no filesystem
 /// and cannot call `load`. It is deliberately a literal list rather than a
@@ -81,6 +81,18 @@ pub const EMBEDDED_DICT_SOURCES: &[(&str, &str)] = &[
     (
         "interfaces.yaml",
         include_str!("../../../corpus/dict/junos-srx/interfaces.yaml"),
+    ),
+    (
+        "protocols-bgp.yaml",
+        include_str!("../../../corpus/dict/junos-srx/protocols-bgp.yaml"),
+    ),
+    (
+        "protocols-ospf.yaml",
+        include_str!("../../../corpus/dict/junos-srx/protocols-ospf.yaml"),
+    ),
+    (
+        "routing-options.yaml",
+        include_str!("../../../corpus/dict/junos-srx/routing-options.yaml"),
     ),
     (
         "security-ike.yaml",
@@ -238,6 +250,20 @@ pub(crate) enum ValueTy {
     /// match at all.
     Text,
     Fqdn,
+    // --- the routing slice (2026-08-15) --------------------------------------
+    // `RoutingProtocol` and `ProtocolAdjacency` had inventory rows and a place
+    // in the diagram's layer model with nothing behind them, because no
+    // dictionary entry could name their field types. These seven are exactly
+    // the slot types `schema/schema.yaml` declares on those two kinds plus the
+    // `RoutingInstance.router_id` that carries a Junos `routing-options
+    // router-id`; nothing here is speculative surface.
+    Ip4Addr,
+    IpAddr,
+    Asn,
+    OspfAreaId,
+    Bandwidth,
+    RoutingProtocolProtocol,
+    ProtocolAdjacencyNetworkType,
 }
 
 impl ValueTy {
@@ -263,6 +289,13 @@ impl ValueTy {
             "EstablishTunnels" => ValueTy::EstablishTunnels,
             "IpsecVpnDfBit" => ValueTy::IpsecVpnDfBit,
             "AddressFamily" => ValueTy::AddressFamily,
+            "Ip4Addr" => ValueTy::Ip4Addr,
+            "IpAddr" => ValueTy::IpAddr,
+            "Asn" => ValueTy::Asn,
+            "OspfAreaId" => ValueTy::OspfAreaId,
+            "Bandwidth" => ValueTy::Bandwidth,
+            "RoutingProtocolProtocol" => ValueTy::RoutingProtocolProtocol,
+            "ProtocolAdjacencyNetworkType" => ValueTy::ProtocolAdjacencyNetworkType,
             _ => return None,
         })
     }
@@ -272,6 +305,13 @@ impl ValueTy {
         match self {
             ValueTy::DhGroup => Some("DhGroup"),
             ValueTy::IntegrityAlgorithm => Some("IntegrityAlgorithm"),
+            // Junos spells OSPFv3 `ospf3` and the schema spells it `ospf_v3`;
+            // Junos spells the OSPF network type `p2p`/`nbma` and the schema
+            // spells them `point_to_point`/`non_broadcast`. Both are vendor
+            // spellings, which is what a token map is for — the alternative is
+            // a second enum in the IR that means the same thing.
+            ValueTy::RoutingProtocolProtocol => Some("RoutingProtocolProtocol"),
+            ValueTy::ProtocolAdjacencyNetworkType => Some("ProtocolAdjacencyNetworkType"),
             _ => None,
         }
     }
@@ -311,6 +351,16 @@ pub(crate) enum ValueSpec {
     AppendConst {
         ty: SetEnumTy,
         token: String,
+    },
+    /// A Junos *flag* statement — `passive;`, `disable;` — whose whole content
+    /// is its own presence. There is no argument to capture, so the value
+    /// cannot come `from:` anywhere: the entry states it, and the entry's path
+    /// is what makes the statement true. Written as a full `bool` rather than
+    /// a presence marker because the schema slot is `bool` and a future
+    /// `passive false` (Junos `delete`, or a vendor that spells the negative)
+    /// has somewhere to land without a second construct.
+    ConstBool {
+        value: bool,
     },
     /// `14` §9.1: the binder constructs the placeholder from the entry's
     /// label and never reads the redacted argument's text.
@@ -1161,6 +1211,12 @@ fn load_field(
             value: ValueSpec::Secret { label },
         });
     }
+    if let Some(value) = spec.get("const_bool").and_then(|n| n.as_bool()) {
+        return Ok(FieldSpec {
+            field,
+            value: ValueSpec::ConstBool { value },
+        });
+    }
     if let Some(text) = spec.get("const_enum").and_then(|n| n.as_str()) {
         let (ty, token) = split_enum_token(file, id, line, text)?;
         let ty = ValueTy::from_name(&ty).ok_or_else(|| {
@@ -1480,7 +1536,10 @@ mod tests {
         // 39 through WO-03; +3 on 2026-08-10 — `system domain-name` and
         // `description` at both the interface and the unit level, the three
         // statements a 26-line branch config produced as residue.
-        assert_eq!(d.entry_count(), 42);
+        // +11 on 2026-08-15 — the routing slice: five OSPF, five BGP (three
+        // that bind and two `secret:`-only catalogue entries for the BGP
+        // TCP-MD5 key) and `routing-options router-id`.
+        assert_eq!(d.entry_count(), 53);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside
@@ -1553,11 +1612,20 @@ mod tests {
                 known_prefix: 1
             }
         );
+        // `routing-options` became a known segment on 2026-08-15, when
+        // `routing-options router-id` landed. The static route is still
+        // unmapped — nothing in the dictionary reaches `static` — but the
+        // reported prefix is now 1 rather than 0, which is the point of the
+        // number: it tells the reader how far Fathom followed before it lost
+        // the path, and it followed one segment further than it used to.
         assert_eq!(
             d.lookup(&["routing-options", "static", "route", "10.2.0.0/16"])
-                .0
-                .known_prefix,
-            0
+                .0,
+            Match {
+                entry: None,
+                consumed: 0,
+                known_prefix: 1
+            }
         );
     }
 
