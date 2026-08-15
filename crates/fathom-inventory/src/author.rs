@@ -108,6 +108,36 @@ pub fn parse_into_slot(key: FieldKey, text: &str) -> Result<Box<dyn Any>, Author
         return Ok(Box::new(v));
     }
 
+    // ADR-0035's two inline placement enums, refusing the unknown arm for the
+    // same reason `DeviceRole` does: a person typing "frnt" wants to be told.
+    if tid == TypeId::of::<ir_types::MountedInFace>() {
+        let v = ir_types::MountedInFace::from_token(text);
+        if matches!(v, ir_types::MountedInFace::Unknown(_)) {
+            return Err(AuthorError::Parse(ScalarParseError {
+                scalar: "MountedInFace",
+                kind: ScalarParseErrorKind::Syntax {
+                    expected: "front or rear",
+                },
+            }));
+        }
+        return Ok(Box::new(v));
+    }
+    if tid == TypeId::of::<ir_types::RackUnitNumbering>() {
+        let v = ir_types::RackUnitNumbering::from_token(text);
+        if matches!(v, ir_types::RackUnitNumbering::Unknown(_)) {
+            return Err(AuthorError::Parse(ScalarParseError {
+                scalar: "RackUnitNumbering",
+                kind: ScalarParseErrorKind::Syntax {
+                    // Named in full rather than as "the two values", because
+                    // ADR-0035 makes this field required with no default and
+                    // the error is where most people will first meet it.
+                    expected: "ascending (U1 at the floor) or descending (U1 at the top)",
+                },
+            }));
+        }
+        return Ok(Box::new(v));
+    }
+
     // Small integers. Parsed with the standard library rather than a scalar,
     // because the schema declares them as bare `u8`/`u16` and `slot_type`
     // reports those primitive `TypeId`s directly.

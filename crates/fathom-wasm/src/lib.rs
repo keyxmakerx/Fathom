@@ -89,6 +89,36 @@ pub const OP_FIELD_SET: u32 = 17;
 /// true"*, which is a different and more honest claim than *"this never was"*.
 pub const OP_ELEMENT_REMOVE: u32 = 18;
 
+/// Put one chassis in one rack, at one unit (ADR-0035).
+///
+/// **This is the only input a rack elevation can have today, and that is a
+/// fact about the world rather than a gap in the dictionary.** No Junos
+/// statement — none this project has established on any platform — says which
+/// rack a box stands in or at what height. So physical placement is asserted
+/// by a person or it does not exist, which makes this opcode a sibling of
+/// `OP_EQUIP_ADD` rather than anything downstream of `OP_PASTE`, and makes
+/// `Origin::Hand` the only provenance it can write.
+///
+/// The rack is found-or-created by label, which is not a shortcut: `Rack`'s
+/// tier-1 identity tuple is `[owner(Premises), label]`, so matching an existing
+/// rack by its label is the schema's own declared identity being used for what
+/// identity is for. An engineer says "node0 is in R12 at U5"; they do not
+/// create a frame and then fill it.
+pub const OP_RACK_PLACE: u32 = 19;
+
+/// Read one rack's elevation — the frame, its capacity, and every box in it.
+///
+/// Returns numbers, not geometry. The page turns `position_u` into a `y`,
+/// because that is one multiply and page bytes are artifact bytes while this
+/// module is measured against `44` §5.2's ceiling.
+pub const OP_RACK_ELEVATION: u32 = 20;
+
+// There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
+// label, a capacity and a count of what is in it -- so it is an `InvKind` and
+// `OP_INV_ROWS` already lists it. A bespoke opcode would have been a second
+// way to ask the same question, and it measured 1,663 bytes of module for the
+// privilege.
+
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
     static REQ: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };

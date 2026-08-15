@@ -22,15 +22,21 @@ fn admitting(owner: NodeKind, child: NodeKind) -> Vec<EdgeKind> {
         .collect()
 }
 
-/// G5. All 48 × 48 = 2,304 pairs: no pair is carried by two containment edge
+/// G5. All 49 × 49 = 2,401 pairs: no pair is carried by two containment edge
 /// kinds, and `containment_edge` returns exactly what an independent scan of
 /// the same tables returns.
 ///
-/// The pair count this pins is 46, not WO-09 §3's 51: the five
+/// The pair count this pins is 47, not WO-09 §3's 51: the five
 /// root-containment kinds (`HasTunnel`, `HasPremises`, `HasCable`,
 /// `HasTenant`, `HasServiceType`) declare `from: [root]`, and the workspace
 /// root is not a node kind, so `from_kinds()` is empty for each and no
-/// (NodeKind, NodeKind) pair names them. 51 − 5 = 46.
+/// (NodeKind, NodeKind) pair names them. 52 − 5 = 47.
+///
+/// ADR-0035 moved this by exactly one: `HasRack` (`Premises -> Rack`) is the
+/// 52nd containment kind and the 47th resolvable pair. `MountedIn` is NOT
+/// here and must never be — it is a `reference`, because `Chassis` already
+/// has a containment parent (`Device`) and this test's own `<= 1` property is
+/// what would have caught the mistake of making a rack contain a box.
 #[test]
 fn every_kind_pair_has_at_most_one_containment_edge() {
     let mut resolved = 0usize;
@@ -57,15 +63,15 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             }
         }
     }
-    assert_eq!(resolved, 46, "the containment pair set moved");
+    assert_eq!(resolved, 47, "the containment pair set moved");
 
-    // The 41 containment kinds are all still containment kinds, and every
+    // The 42 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
     let containment = EdgeKind::ALL
         .into_iter()
         .filter(|k| k.class() == EdgeClass::Containment)
         .count();
-    assert_eq!(containment, 41);
+    assert_eq!(containment, 42);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {

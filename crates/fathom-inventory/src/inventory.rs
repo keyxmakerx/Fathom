@@ -48,6 +48,12 @@ pub enum InvKind {
     // SHOW it. APPENDED, never inserted: the wire byte OP_INV_ROWS takes is this
     // array's index, so inserting would silently repoint every existing byte.
     Chassis,
+    // Added 2026-08-15 with ADR-0035's physical placement. A rack IS inventory
+    // -- a thing the estate holds, with a label and a capacity -- so it gets a
+    // row here rather than a bespoke opcode of its own. That choice also pays:
+    // reusing `rows()` costs four lines, where a dedicated list opcode cost a
+    // handler, a Vec<Row> built by hand and its own reply.
+    Rack,
 }
 
 impl InvKind {
@@ -66,10 +72,11 @@ impl InvKind {
             InvKind::RoutingProtocol => "RoutingProtocol",
             InvKind::ProtocolAdjacency => "ProtocolAdjacency",
             InvKind::Chassis => "Chassis",
+            InvKind::Rack => "Rack",
         }
     }
 
-    pub const ALL: [InvKind; 13] = [
+    pub const ALL: [InvKind; 14] = [
         InvKind::Device,
         InvKind::PhysicalPort,
         InvKind::Premises,
@@ -83,6 +90,7 @@ impl InvKind {
         InvKind::RoutingProtocol,
         InvKind::ProtocolAdjacency,
         InvKind::Chassis,
+        InvKind::Rack,
     ];
 
     fn node_kind(self) -> NodeKind {
@@ -100,6 +108,7 @@ impl InvKind {
             InvKind::RoutingProtocol => NodeKind::RoutingProtocol,
             InvKind::ProtocolAdjacency => NodeKind::ProtocolAdjacency,
             InvKind::Chassis => NodeKind::Chassis,
+            InvKind::Rack => NodeKind::Rack,
         }
     }
 }
@@ -138,6 +147,10 @@ const PREMISES_COLUMNS: &[&str] = &["label", "clli", "form", "street", "devices"
 /// Every one a field `schema/schema.yaml` declares on `Chassis`, plus the
 /// owning device, which is the traversal that makes the row locatable.
 const CHASSIS_COLUMNS: &[&str] = &["model", "serial", "member_index", "slots", "device"];
+// `numbering` is a column rather than a footnote because ADR-0035 makes it
+// required with no default: a reader who cannot see which end is U1 cannot
+// check the elevation against the frame in front of them.
+const RACK_COLUMNS: &[&str] = &["label", "height_u", "numbering", "mounted"];
 /// OSPF and BGP, `56` §4.8. `protocol` first because it is what tells the two
 /// apart, then the one identifying number each uses -- `local_as` for BGP,
 /// `router_id` for OSPF -- so one table serves both without a per-protocol view.
@@ -198,6 +211,7 @@ pub fn columns(kind: InvKind) -> &'static [&'static str] {
         InvKind::RoutingProtocol => ROUTING_PROTOCOL_COLUMNS,
         InvKind::ProtocolAdjacency => PROTOCOL_ADJACENCY_COLUMNS,
         InvKind::Chassis => CHASSIS_COLUMNS,
+        InvKind::Rack => RACK_COLUMNS,
     }
 }
 
@@ -319,6 +333,15 @@ fn cells(g: &Graph, kind: InvKind, id: NodeId) -> Vec<String> {
             value_cell(g, id, key("Chassis.member_index")),
             value_cell(g, id, key("Chassis.slots")),
             owning_device(g, id),
+        ],
+        InvKind::Rack => vec![
+            value_cell(g, id, key("Rack.label")),
+            value_cell(g, id, key("Rack.height_u")),
+            value_cell(g, id, key("Rack.unit_numbering")),
+            // How many boxes are in it. A count, not a join: the elevation is
+            // where the boxes are named, and a row that tried to list them
+            // would be unreadable for a full 42U frame.
+            g.inn(id, EdgeKind::MountedIn).count().to_string(),
         ],
     }
 }

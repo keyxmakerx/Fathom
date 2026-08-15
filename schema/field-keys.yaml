@@ -370,3 +370,12 @@ fields:
   # WarpResolvesVia
   WarpResolvesVia.candidate: 298
   WarpResolvesVia.ordinal: 299
+  # Rack (ADR-0035)
+  Rack.label: 300
+  Rack.height_u: 301
+  Rack.unit_numbering: 302
+  Rack.notes: 303
+  # MountedIn (ADR-0035)
+  MountedIn.position_u: 304
+  MountedIn.height_u: 305
+  MountedIn.face: 306

@@ -4,8 +4,14 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.1"    # One minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's "3.2" is
-                    # explicitly illustrative; this is the first shipped content of the tree).
+  version: "0.2"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+                    # "3.2" is explicitly illustrative). 0.2 adds physical placement
+                    # (ADR-0035), priced against 62 §16.2's table item by item: one new node
+                    # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
+                    # seven new fields all optional-or-on-a-new-declarer (minor), zero
+                    # removals, zero retypes, zero reordered tuples, no containment
+                    # restructured — MountedIn is a reference, so no existing kind's owner
+                    # changes. Whole change = MINOR.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -1045,6 +1051,66 @@ kinds:
       # defect to file per 62 §1.
       - [ owner(ServicePath), edge(EntersAt), edge(ExitsAt) ]
 
+  # ======================= physical placement — 19 §3.10, ADR-0035 =======================
+  # Appended, never inserted (62 §2.3): declaration order is diff order and generated
+  # enum order, so a new kind goes at the tail of the block.
+  - kind: Rack
+    layer: physical
+    emits: false
+    doc: |
+      A frame or cabinet of 19-inch mounting positions (ADR-0035). 19 §3.10 predicted this
+      kind and priced it -- "Chassis --MountedIn--> Rack later is a new kind plus a reference
+      edge = minor" -- and this is that edit, paid.
+
+      Contained by Premises, exactly as PassiveNode is and for the same reason (19 §3.6): a
+      rack has no operational identity, it is only somewhere. It is deliberately NOT a Site
+      (an operational grouping, layer: config) and NOT a nested Premises (which has a street
+      address, a CLLI and coordinates; a rack has none of those, and 70 §10.8's own cost 3
+      records that nesting Premises still would not put devices in racks).
+
+      NOTHING PARSES A RACK. No Junos statement -- no vendor statement known to this project --
+      says which rack a box is in or at what height. Every Rack and every MountedIn is
+      Origin::Hand, and that is a property of the world, not a gap in the ingest dictionary.
+    fields:
+      - { name: label, type: Text, card: "1", emit: "—", doc: "The name stencilled on the frame: R12, AISLE-3-04. No hostname -- nothing addresses a rack." }
+      - name: height_u
+        type: u8
+        card: "1"
+        emit: "—"
+        constraints:
+          range: { min: 1, max: 100, platforms: [] }
+        doc: |
+          Capacity in rack units. One rack unit is 1.75 in / 44.45 mm under EIA-310 and
+          IEC 60297 (en.wikipedia.org/wiki/Rack_unit and /wiki/19-inch_rack, both read
+          2026-08-15). There is NO standard height: 42U is the industry-standard cabinet and
+          42U-48U is the common range, but arbitrary heights are real and are allowed
+          (netbox.readthedocs.io/en/stable/models/dcim/rack/, read 2026-08-15). So this is a
+          required field with no default rather than a constant. The range is a sanity bound
+          on a typo, not a claim about what racks exist.
+      - name: unit_numbering
+        type: "enum { ascending, descending }"
+        card: "1"
+        emit: "—"
+        doc: |
+          Which end of the frame is U1. REQUIRED, WITH NO DEFAULT, AND THAT IS THE POINT.
+
+          ADR-0034 forbids answering this from memory, and the lookup came back split rather
+          than clean. Wikipedia's rack-unit page defines the unit and is SILENT on direction
+          (read 2026-08-15). NetBox issue netbox-community/netbox#191 records a real estate
+          whose Knurr racks number "U01 at top of rack and U41 at rack bottom", against
+          NetBox's opposite default (read 2026-08-15). NetBox ships the disagreement as a
+          field: "a toggle is provided to indicate whether rack units are in ascending (from
+          the ground up) or descending order" (netbox.readthedocs.io, read 2026-08-15).
+
+          Three sources, no universal convention, so none is assumed. `ascending` means U1 is
+          at the FLOOR, which is the more common convention but is not the default here --
+          an elevation drawn with the wrong direction is upside down and every position in it
+          is wrong while looking entirely plausible, which is precisely the silent-wrongness
+          56 §0 exists to prevent. A rack whose direction nobody stated is not drawn.
+      - { name: notes, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ owner(Premises), label ]    # tier 1 -- a physical coordinate, PassiveNode's precedent exactly
+
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
   # require reverse adjacency, and ADR-0007's reverse index already guarantees it (11 §14.3).
@@ -2045,6 +2111,77 @@ edges:
     fields: []
     emit_dict: null
     doc: 19 §5.2, §6.7 — constrain, never freeze; honoured by resolve_warp.
+
+  # ======================= physical placement — ADR-0035 =======================
+  - edge: HasRack
+    class: containment
+    from: [Premises]
+    to: [Rack]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0035. A rack hangs off the place it stands in, exactly as HasPassiveNode hangs a
+      splitter off one (19 §3.6). in: "1" keeps containment a forest and makes
+      owner(Premises) usable as Rack's identity term.
+  - edge: MountedIn
+    class: reference
+    from: [Chassis]
+    to: [Rack]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - name: position_u
+        type: u8
+        card: "1"
+        emit: "—"
+        constraints:
+          range: { min: 1, max: 100, platforms: [] }
+        doc: |
+          The LOWEST-NUMBERED unit this chassis occupies -- NetBox's rule, taken deliberately
+          rather than invented: "this field indicates the base rack unit in which the device
+          is mounted", and a multi-U device occupies its lowest-numbered unit
+          (netbox.readthedocs.io/en/stable/models/dcim/device/, read 2026-08-15).
+
+          "Lowest-numbered" is not "nearest the floor": under descending numbering the
+          lowest-numbered unit is the TOP of the occupied run. The rule is stated on the
+          numbers so it means one thing under both directions of Rack.unit_numbering.
+      - name: height_u
+        type: u8
+        card: "0..1"
+        emit: "—"
+        constraints:
+          range: { min: 1, max: 100, platforms: [] }
+        doc: |
+          How many contiguous units the chassis fills. Optional: somebody who knows a box is
+          at U12 but has not counted its height has said something true and useful, and
+          refusing it would lose the fact. Absent renders as 1U and is MARKED as unstated --
+          it is never silently assumed (19 §6's warp, 70 §16: incomplete is drawn and marked,
+          never refused).
+      - { name: face, type: "enum { front, rear }", card: "0..1", emit: "—", doc: "Which side the chassis is mounted on. \"If installed in a rack, this field denotes the primary face on which the device is mounted\" (netbox.readthedocs.io/en/stable/models/dcim/device/, read 2026-08-15). Optional for the same reason height_u is." }
+    emit_dict: null
+    doc: |
+      ADR-0035. Physical placement of one box in one frame.
+
+      A REFERENCE EDGE, AND IT HAS TO BE. Chassis already has a containment parent (Device,
+      via HasChassis) and containment is a forest, so a rack cannot contain a chassis without
+      taking it away from its device. 70 §10.8's cost 3 posed the fork as "either HasDevice
+      widens or a rack is a Site" and both limbs are wrong, because THE THING IN THE RACK IS
+      NOT THE DEVICE, IT IS THE CHASSIS: a Junos chassis cluster is one Device with two
+      Chassis, and putting node0 and node1 in separate racks is the normal reason to have a
+      cluster at all. A containment edge from a rack to a device cannot express that; this
+      can, and it needs no widening of anything.
+
+      The placement fields sit on the EDGE rather than on Chassis because "at U12, front" is
+      a fact about the mounting, not about the box: a chassis on a shelf has no U, and moving
+      one between racks should touch one relation rather than three fields on a node. Edges
+      are first-class and carry typed fields (ADR-0007); Link, Terminates and Occupies already
+      do.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

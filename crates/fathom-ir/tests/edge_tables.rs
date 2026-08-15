@@ -84,9 +84,13 @@ fn from_to_sets_nonempty_unless_root() {
 
 #[test]
 fn slot_type_covers_every_registry_key() {
+    // 299 -> 306 on 2026-08-15: ADR-0035's seven placement keys. See the twin
+    // assertion in `canon_laws.rs` — both pin the same registry from opposite
+    // sides (canon dispatch and slot typing), so both move together or one of
+    // the two tables has silently lost a key.
     assert_eq!(
         FIELD_KEYS.len(),
-        299,
+        306,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

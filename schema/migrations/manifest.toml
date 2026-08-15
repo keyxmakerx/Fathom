@@ -8,5 +8,5 @@
 # release; an aspirationally populated chain today would be exactly
 # the invented claim the house rules forbid.
 
-schema_version = "0.1"
+schema_version = "0.2"
 migrations = []

@@ -50,7 +50,13 @@ fn ulid(n: u128) -> fathom_id::Ulid {
 fn schema_version_is_the_trees() {
     // Generated from `schema/schema.yaml`'s `schema.version`, never
     // hand-written (ADR-0008). The plaintext face's header line 3 carries it.
-    assert_eq!(SCHEMA_VERSION, "0.1");
+    //
+    // 0.1 -> 0.2 on 2026-08-15: physical placement (ADR-0035) — the `Rack`
+    // kind, `HasRack`, `MountedIn`. Priced a MINOR bump against 62 §16.2 in
+    // `schema.yaml`'s own version comment. This assertion exists so a schema
+    // version can never move without someone typing the new number, which is
+    // the whole point of pinning it; updating it is the deliberate act.
+    assert_eq!(SCHEMA_VERSION, "0.2");
 }
 
 #[test]
@@ -468,7 +474,13 @@ fn enum_tokens_round_trip_including_unknown() {
 
 #[test]
 fn dispatch_names_every_registry_key() {
-    assert_eq!(FIELD_KEYS.len(), 299, "the registry grew or shrank");
+    // 299 -> 306 on 2026-08-15: ADR-0035's seven placement keys (Rack.label,
+    // .height_u, .unit_numbering, .notes; MountedIn.position_u, .height_u,
+    // .face). The registry is append-only and a key is never reused, so this
+    // number only ever grows — a SHRINK here is a retired key being recycled,
+    // which silently reinterprets stored bytes, and that is the defect this
+    // guards.
+    assert_eq!(FIELD_KEYS.len(), 306, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.
