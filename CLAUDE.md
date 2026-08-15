@@ -29,12 +29,22 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   scalars); `crates/fathom-schema` parses and checks it; `cargo test` pins zero failures.
 - **Design: decided and demonstrated.** `design/prototype/fathom-app.html` is the whole
   product as one interactive file — the fidelity bar for anything built.
+- **Three of six views are live, as of 2026-08-15.** Inventory, diagram and finder. The diagram
+  draws with crossing reduction, orthogonal channel routing, five toggled layers and `59`'s
+  aggregation; the finder searches all 98 command entries from Ctrl+K. Walkthrough, config and
+  findings are still placeholders — and **config is placeholder by decision, not by omission**: see
+  the refusal below.
+- **A pasted SRX branch config binds 47.5% of its lines**, up from 23.8% on 2026-08-14. 29 of 122
+  before, 58 after, measured per section in `docs/60-content/66-junos-coverage-measurement.md`.
+  `set protocols ospf` and `set protocols bgp` now build `RoutingProtocol` and `ProtocolAdjacency`
+  — the rows the owner asked for by name. Everything else is still named on the residue list rather
+  than dropped.
 - **Code: the schema toolchain and the finder core are complete** (`fathom-id`,
   `fathom-schema`, `fathom-schemagen`, `fathom-ir` with checked-in generated types,
   `fathom-corpus`, `fathom-find`). **As of 2026-08-08 the queue has run: six more crates exist** —
   `fathom-graph` (the typed store), `fathom-ingest` (junos-srx set-form, with the redaction gate),
-  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`. **420 tests, zero external
-  dependencies.** **Eight of nine work orders DONE** — WO-01, WO-02, WO-03, WO-05, WO-06, WO-07,
+  `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`, plus `fathom-layout`.
+  **554 tests, zero external dependencies.** **Eight of nine work orders DONE** — WO-01, WO-02, WO-03, WO-05, WO-06, WO-07,
   WO-08 and WO-09 (the fragment-to-store weld, which now exists as `fathom-weld`). **WO-04 is the
   only one open, and as of 2026-08-09 it is OPEN rather than BLOCKED** — both its blockers are
   answered (`IpsecVpn.mode` by looking Junos up; the `reth0.0` golden by the owner, `70` §16.1).
@@ -47,9 +57,11 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   paste sheet that renders what was understood *and every line that was not*. Driven in Chromium
   against a 26-line SRX config: 15 nodes, 23 edges, 5 residue lines named, 1 pre-shared key
   destroyed, one network request (the file). Evidence: `docs/80-review/evidence/2026-08-09-*.png`;
-  the plain-English account is `overnight-report.md`. **The module is 886,321 bytes against `44` §5.2's
-  900,000-byte ceiling — 13,679 bytes of headroom** (measured 2026-08-15 at `adbd9a2`; the diagram cost
-  60,096 and the dictionary move gave 26,915 back). **Do not quote a module size without re-running
+  the plain-English account is `overnight-report.md`. **The module is 894,557 bytes against `44` §5.2's
+  900,000-byte ceiling — 5,443 bytes of headroom** (measured 2026-08-15 at `dc34fe5`, after the finder
+  and the widened dictionary landed; the diagram cost 60,096 and the dictionary move gave 26,915 back).
+  **That headroom is now small enough that the ceiling is the binding constraint on every remaining
+  feature, and the next one to arrive will not fit.** **Do not quote a module size without re-running
   `scripts/byte-census.sh`** — it has moved three times in four days and three different totals are in
   circulation. **The often-cited "+239,964 for persistence" prices the wrong feature**: it is the
   cost of saving the expanded model, none of it is cryptography, and the journal route measures
@@ -86,28 +98,38 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Rules that bind every session
 
-0. **ADR-0034 (2026-08-08) is law and it binds this session:** a security claim is **never**
+0. **A SAFETY GATE IS TESTED AGAINST WHAT A DEVICE ACCEPTS, NEVER AGAINST WHAT THE DETECTOR
+   NEEDS.** Added 2026-08-15 after a live credential leak survived four reviews. The redaction
+   gate's safety net requires 24 characters; a Junos OSPF `simple-password` is documented at 1 to 8.
+   The canary written to guard that exact path used a 28-character probe — chosen *because* the
+   detector needs 24, and it said so in its own comment — so it passed on a value no Junos box would
+   have taken while the path stayed open for every value that could really appear. The test was
+   honest about its construction and asked the wrong question. Before writing a redaction test, look
+   the statement's real bounds up (ADR-0034 applies: name the source and the date), and drive it
+   through the shipped artifact reading the **exported journal**, which is the file an operator
+   keeps. `docs/80-review/evidence/2026-08-15-credential-gate-through-the-export.mjs` is the pattern.
+1. **ADR-0034 (2026-08-08) is law and it binds this session:** a security claim is **never**
    answered from memory. Look it up, name the source *and the date*, two independent databases for
    a clean result, and *"I could not establish this"* outranks a confident guess. Carried in
    `.context/conventions.md` § *Currency*. The ADR broke this rule in its own text on day one and
    `70` §7.6 records how — read that before assuming you are exempt.
-1. Read `.context/conventions.md` before writing anything — the ten invariants and the
+2. Read `.context/conventions.md` before writing anything — the ten invariants and the
    vocabulary are binding, and the risk enum (three values, reserved colours) is never
    extended or reused. **Re-read it if you last read it before 2026-08-08:** ADR-0002 was
    executed into it and five invariants changed text, including invariant 3, which now reads
    *"stores no device credential"* and carries the ingest-gate redaction that *"never accepts
    a credential"* wrongly implied did not exist. Precedence and the residual scale are new
    sections; `docs/00-vision/01-ownership.md` is the register they point at.
-2. `docs/90-decisions/` ADRs are binding once Accepted — but reopenable **on merit**:
+3. `docs/90-decisions/` ADRs are binding once Accepted — but reopenable **on merit**:
    the owner has instructed that sunk cost never argues for keeping a decision (`75` §2).
    Real-time collaboration must never be foreclosed by new state (`75` §2.4). Reopening
    is owner/planning work, never an execution session's (`78` §5).
-3. A field that is not in `schema/` does not exist (ADR-0008). Extend the schema via
+4. A field that is not in `schema/` does not exist (ADR-0008). Extend the schema via
    `62`'s grammar; `cargo test` must stay green.
-4. House style for documents: status line, contents table, numbered sections, Failure
+5. House style for documents: status line, contents table, numbered sections, Failure
    modes / Open decisions / Sources consulted / Disagreements. Never invent a number or a
    citation; mark the unproven with `<!-- VERIFY: ... -->`.
-5. The capability register (`75`) records intent without deciding. Adding to it is cheap;
+6. The capability register (`75`) records intent without deciding. Adding to it is cheap;
    deciding in it is a defect.
 
 ## Next actions
@@ -156,7 +178,7 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 515 tests as of 2026-08-15; green is the gate, not the
+- `cargo test --workspace --locked` — 554 tests as of 2026-08-15; green is the gate, not the
   number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0, **0 failures and 0
   warnings** since 2026-08-09. The two standing `schema.identity.unexercised` warnings
