@@ -1536,22 +1536,78 @@ pub(crate) fn leaf_name_walk(path: &[PathSeg], at: usize) -> bool {
     false
 }
 
+fn fold_word(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c == '_' {
+                '-'
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect()
+}
+
+/// Leaf names that CONTAIN a secret word and do not name a secret.
+///
+/// A keychain statement carries the NAME of a key chain, which is an ordinary
+/// identifier an operator needs to keep — destroying it loses the link between
+/// the protocol and its keys while protecting nothing, because the key material
+/// lives under `[edit security authentication-key-chains]` where its own `key`
+/// segment catches it. This list is the price of component matching and it is
+/// deliberately short: every member is a statement whose argument was checked
+/// against Juniper's documentation and found to be a name.
+///
+/// Checked 2026-08-15:
+/// - `authentication-key-chain` / `key-chain` — the chain's name.
+///   <https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/authentication-key-chain-edit-protocols-bgp.html>
+const SECRET_WORD_EXEMPT: [&str; 3] = ["key-chain", "authentication-key-chain", "keychain"];
+
 /// The secret-word test: case-folded, hyphens and underscores equal
-/// (`14` §9.4).
+/// (`14` §9.4), **and matched by COMPONENT as well as whole string**.
+///
+/// THE COMPONENT HALF IS A DEFECT FIX, 2026-08-15, AND IT IS THE SECOND ATTEMPT
+/// AT THIS BUG. Junos leaf names are compound, and whole-string equality misses
+/// every one of them:
+///
+/// | statement | leaf | in the list? |
+/// |---|---|---|
+/// | `protocols isis interface … hello-authentication-key` | `hello-authentication-key` | no — `authentication-key` is |
+/// | `snmp v3 … authentication-password` | `authentication-password` | no — `password` is |
+/// | `snmp v3 … privacy-password` | `privacy-password` | no |
+/// | `access profile … chap-secret` | `chap-secret` | no — `secret` is |
+/// | `access profile … pap-password` | `pap-password` | no |
+/// | `ppp-options chap default-chap-secret` | `default-chap-secret` | no |
+///
+/// All six were driven through the shipped artifact at lengths the device
+/// documents as legal, and all six came back **verbatim in the exported
+/// journal** — the file an operator keeps — on the same screen as the product's
+/// own sentence saying secrets are destroyed before anything is stored.
+///
+/// The first attempt, three days earlier, added the single word
+/// `simple-password` to the list. That closed one instance and left the class
+/// open, which is the more useful lesson: a hand-maintained list of whole words
+/// cannot describe a vendor's compound naming, and every new statement form the
+/// dictionary learns is another chance for the list to be one word short.
+///
+/// The correct rule was already in this tree, in `redact.rs`'s
+/// `key_names_a_secret`, reachable only from the `key=value` sweep for
+/// non-Junos text. It is the same test; it was wired to one path and not the
+/// other.
 pub(crate) fn is_secret_word(text: &str) -> bool {
-    let fold = |s: &str| {
-        s.chars()
-            .map(|c| {
-                if c == '_' {
-                    '-'
-                } else {
-                    c.to_ascii_lowercase()
-                }
-            })
-            .collect::<String>()
-    };
-    let needle = fold(text);
-    SECRET_WORD_LIST.iter().any(|w| fold(w) == needle)
+    let needle = fold_word(text);
+    if SECRET_WORD_EXEMPT.iter().any(|w| fold_word(w) == needle) {
+        return false;
+    }
+    if SECRET_WORD_LIST.iter().any(|w| fold_word(w) == needle) {
+        return true;
+    }
+    // Component match. `14` §9.7 fixes the direction of error as destruction,
+    // so a compound whose ANY part names a secret is treated as naming one.
+    needle
+        .split(['-', '.'])
+        .filter(|p| !p.is_empty())
+        .any(|part| SECRET_WORD_LIST.iter().any(|w| fold_word(w) == part))
 }
 
 fn build_trie(entries: &[Entry]) -> Result<Vec<DictNode>, DictError> {

@@ -351,3 +351,113 @@ fn base64ish_tails_are_destroyed_under_every_matched_entry() {
         );
     }
 }
+
+/// **EVERY COMPOUND JUNOS SECRET LEAF NAME, AT A LENGTH THE DEVICE ACCEPTS.**
+///
+/// The class, not an instance. Three days before this test, the gate's word list
+/// was patched with the single word `simple-password` and the class stayed open;
+/// six statements below then came back VERBATIM in the exported journal when the
+/// shipped artifact was driven in Chromium — the file an operator keeps, on the
+/// same screen as the product's own sentence saying secrets are destroyed before
+/// anything is stored.
+///
+/// Junos leaf names are compound. `hello-authentication-key` is not
+/// `authentication-key`; `chap-secret` is not `secret`. Whole-string equality
+/// misses all of them, and `base64ish`'s 24-character floor cannot help because
+/// every value here is 8 to 11 characters, which is what these statements hold.
+///
+/// EVERY FORM AND EVERY LENGTH BELOW WAS READ OFF JUNIPER'S DOCUMENTATION on
+/// 2026-08-15 — rule 0 in CLAUDE.md: a safety gate is tested against what a
+/// device accepts, never against what the detector needs.
+///
+/// The two controls at the end must keep passing: they are the forms the two
+/// previous fixes closed, and a regression in either would mean this fix traded
+/// one hole for another.
+#[test]
+fn every_compound_secret_leaf_name_is_destroyed() {
+    // (label, statement head, a value of a legal length)
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "IS-IS hello-authentication-key",
+            "set protocols isis interface ge-0/0/2.0 level 2 hello-authentication-key",
+            "IsisHel1",
+        ),
+        (
+            "SNMPv3 authentication-password",
+            "set snmp v3 usm local-engine user u1 authentication-sha authentication-password",
+            "Snmpv3Auth1",
+        ),
+        (
+            "SNMPv3 privacy-password",
+            "set snmp v3 usm local-engine user u1 privacy-aes128 privacy-password",
+            "Snmpv3Priv1",
+        ),
+        (
+            "access profile chap-secret",
+            "set access profile p1 client c1 chap-secret",
+            "ChapSec123",
+        ),
+        (
+            "access profile pap-password",
+            "set access profile p1 client c1 pap-password",
+            "PapPass123",
+        ),
+        (
+            "ppp-options default-chap-secret",
+            "set interfaces ge-0/0/0 unit 0 ppp-options chap default-chap-secret",
+            "DefChap123",
+        ),
+        // --- the controls: previously closed holes that must stay closed -----
+        (
+            "CONTROL: ike pre-shared-key",
+            "set security ike policy p1 pre-shared-key ascii-text",
+            "Psk12345",
+        ),
+        (
+            "CONTROL: ospf simple-password",
+            "set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 authentication simple-password",
+            "Fath0m8x",
+        ),
+    ];
+
+    let mut leaked: Vec<&str> = Vec::new();
+    for (label, head, secret) in cases {
+        assert!(
+            secret.len() < 24,
+            "{label}: a probe at or above the base64 floor would pass for the \
+             wrong reason — the point is that these values are SHORT"
+        );
+        let line = format!("{head} {secret}\n");
+        let out = ingest(line.as_bytes(), &dict()).expect("within the caps");
+        if format!("{out:?}").contains(secret) {
+            leaked.push(label);
+        }
+    }
+    assert!(
+        leaked.is_empty(),
+        "these credentials survived the gate and would reach the operator's \
+         exported journal: {leaked:?}"
+    );
+}
+
+/// A key chain's NAME is not a key, and component matching must not eat it.
+///
+/// The cost of matching by component is that `authentication-key-chain` contains
+/// `key`. The argument there is an ordinary identifier the operator needs —
+/// destroying it severs the protocol from its keys while protecting nothing,
+/// because the material itself lives under
+/// `[edit security authentication-key-chains ... key ...]` where the `key`
+/// segment catches it on its own. Checked against Juniper's statement page,
+/// 2026-08-15; the exemption list in `dict.rs` carries the URL.
+#[test]
+fn a_key_chain_name_survives_component_matching() {
+    let line = "set protocols bgp group G authentication-key-chain core-chain-1\n";
+    let out = ingest(line.as_bytes(), &dict()).expect("within the caps");
+    let serialised = format!("{out:?}");
+    assert!(
+        serialised.contains("core-chain-1"),
+        "the key chain's NAME was destroyed; component matching over-reached \
+         and the operator lost the link between the protocol and its keys: \
+         {serialised}"
+    );
+}
