@@ -4,25 +4,27 @@
 > `protocols-bgp.yaml` and `routing-options.yaml`. Owner of nothing; it explains
 > entries the three YAML files own.
 
-## Why this is a `.md` and not comments in the YAML
+## Why this is a `.md` and not comments in the YAML — and why that reason expired
 
-`fathom_ingest::dict::EMBEDDED_DICT_SOURCES` compiles every dictionary file into
-the WebAssembly module with `include_str!`, verbatim and uncompressed. **A byte
-of comment in a dictionary file is a byte in the shipped module.** Measured on
-2026-08-15 while writing this slice: the three files' citations and reasoning
-came to 15,648 bytes of the module against a 900,000-byte ceiling — more than
-the slice's Rust code (9,314) and its actual entry data (5,240) put together.
+**The reason this file was split off no longer holds, and saying so is the
+point.** It was written against a tree where
+`fathom_ingest::dict::EMBEDDED_DICT_SOURCES` compiled every dictionary file into
+the module with `include_str!`, so a byte of comment in a dictionary file was a
+byte of the 900,000-byte ceiling: measured 2026-08-15, the three files' citations
+and reasoning came to 15,648 bytes, more than the slice's Rust (9,314) and its
+entry data (5,240) put together.
 
-So the record splits. The **citation** stays in the YAML beside the entry it
-justifies, because ADR-0034 requires the source and the date to travel with the
-claim and because an entry whose provenance is one file away is an entry whose
-provenance gets lost. The **reasoning** — why this shape and not another, what
-was rejected, what is deliberately absent — lives here, where it costs the
-module nothing.
+`adbd9a2` moved the dictionary out of the module and into the page over
+`OP_DICT`. **YAML comments now cost artifact bytes, not ceiling bytes**, and the
+artifact's ceiling is 4.5 MB rather than 900 KB. The split this section argues
+for is no longer paid for by anything.
 
-If the dictionary ever stops being compiled in and is handed to the module at
-boot instead (`CLAUDE.md`'s open question (a) from 2026-08-09), this split stops
-being necessary and the two halves can be rejoined.
+It is kept anyway, for a reason that has nothing to do with bytes: the
+**citation** belongs in the YAML beside the entry it justifies, because ADR-0034
+requires the source and the date to travel with the claim, and the **reasoning**
+— why this shape and not another, what was rejected, what is deliberately absent
+— is document-shaped and does not read as a comment block. That is a judgement,
+not a measurement, and it is now the only argument this section has.
 
 ## Contents
 
@@ -51,6 +53,59 @@ construct in the dictionary grammar to make the fragment key distinct. That
 costs a grammar extension *and* still needs the whole `ValueTy` /`BoundValue` /
 parse-arm / weld-arm chain for the enum, so it is strictly more work for the
 same result.
+
+### 1.1 …but the capture has to be CONSTRAINED, and the first version was not
+
+An unconstrained `$proto` claims every protocol word in that position, and Junos
+reuses statement SHAPES across protocols that share nothing else.
+
+`[protocols, $proto, group, $g, neighbor, $n]` was written for BGP. Junos RIP has
+the identical shape — `neighbor neighbor-name { … }` at
+`[edit protocols rip group group-name ]` — and the page's Options read
+*"neighbor-name —Name of an **interface** over which a routing device
+communicates to its neighbors"*
+(<https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/neighbor-edit-protocols-rip.html>,
+read 2026-08-15). `rip` is a member of the schema's `RoutingProtocol.protocol`
+enum, so it bound.
+
+**One legal RIP line therefore put a `rip` protocol row and a completely
+fieldless `ProtocolAdjacency` into the estate of record** — the interface name is
+correctly refused as an `IpAddr`, so nothing landed on it. A peer that does not
+exist, in the register this product asks to be trusted. Driven in Chromium and
+watched. Two smaller cases, same mechanism: `set protocols ospf local-as 65001`
+bound `local_as` and `set protocols bgp reference-bandwidth 100` bound
+`reference_bandwidth`, and neither is legal Junos.
+
+The fix is `where:`, a token list per capture, added to the dictionary grammar
+2026-08-15:
+
+```yaml
+    path: [protocols, "$proto", group, "$g", neighbor, "$n"]
+    where: { proto: [bgp] }
+```
+
+It is gated on both halves — a `where:` naming a capture the path does not hold
+is `CaptureArity`, an empty token list is `Parse` — and it is applied at the trie
+TERMINAL rather than during the walk, because the trie folds every capture at a
+node onto one child and there is nothing per-entry to gate on until an entry is
+in hand.
+
+**A statement that fails a `where:` matches no entry, which means strictly MORE
+redaction, never less**: the gate then treats every token from the divergence
+point on as an argument, arms the base64 detector and runs the raw secret-word
+walk over the physical line. That property is not free, and getting it wrong is
+how narrowing a capture could have opened a credential path — see the second
+clamp on `known_prefix` in `dict.rs::lookup`, which exists because the first
+version of this fix left `known_prefix` at full trie depth and
+`set protocols rip group G neighbor ge-0/0/9.0 authentication-key <key>` was
+stored verbatim as a result. Its own regression test caught it.
+
+**Why not a path literal after all?** Because `where:` keeps `key: "$proto"` and
+`from: "$proto"` working, and those are what keep `ospf` and `ospf3` on separate
+nodes and what carry the protocol word through the `ospf3 → ospf_v3` token map.
+A literal path recovers both only with one entry per protocol word plus a
+`const_enum` on each: ten OSPF entries where there are five, and a second place
+for the token map to be forgotten.
 
 ## 2. Why there is a `RoutingInstance` node nothing asked for
 
@@ -104,8 +159,11 @@ Juniper's own description says it is used by both protocols. Binding it to a
 
 The consequence is that `RoutingProtocol.router_id` has no Junos source and
 would render as an empty cell forever. That is handled in `fathom-inventory` by
-reading the owning `RoutingInstance` — `52` §3.7's "a cell is a field or a
-stated walk" — so the value is stored where the vendor puts it and read where an
+reading the owning `RoutingInstance` — a *stated walk*, which is this inventory
+module's own convention and **not** something `52` §3.7 licenses (an earlier
+draft quoted §3.7 for a sentence it does not contain; re-read 2026-08-15, and
+what it does say is that columns are "chosen from the schema") — so the value is
+stored where the vendor puts it and read where an
 engineer looks for it.
 
 ## 5. What is deliberately not modelled, and what it would take

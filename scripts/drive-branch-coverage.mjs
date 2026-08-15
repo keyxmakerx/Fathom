@@ -63,7 +63,12 @@ const m = foot.match(/read branch-srx — (\d+) understood, (\d+) lines not read
 check('the page reports a paste tally', !!m, m ? m[0] : 'no tally line');
 if (m) {
   check('64 lines not read (122 statements - 58 bound)', m[2] === '64', 'got ' + m[2]);
-  check('secrets destroyed', Number(m[3]) >= 5, 'got ' + m[3]);
+  // EQUALITY, not `>= 5`. The inequality passed while the document and the
+  // build report both quoted the footer as "6 secrets removed" and the page,
+  // the committed screenshot and every rerun said 7. Nothing caught it,
+  // because nothing was asked to. A tally this document calls re-runnable has
+  // to be pinned to a number, and a number that moves has to fail here.
+  check('7 secrets destroyed', m[3] === '7', 'got ' + m[3]);
 }
 
 // No credential text survives anywhere in the rendered page.
@@ -129,7 +134,8 @@ for (const line of [
   'set security policies from-zone trust to-zone vpn policy trust-to-vpn then permit',
   'set security nat source rule-set guests-to-untrust from zone guests',
   'set routing-options static route 0.0.0.0/0 next-hop 172.16.1.1',
-  'set interfaces ge-0/0/5 mtu 9192',
+  'set interfaces ge-0/0/5 mtu 1500',
+  'set interfaces ge-0/0/5 ether-options link-mode full-duplex',
 ]) {
   check('still listed as residue (correctly): ' + line, residue.includes(line));
 }

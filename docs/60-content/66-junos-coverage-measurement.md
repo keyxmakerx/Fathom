@@ -1,8 +1,19 @@
 # 66 — How much of a real SRX config does Fathom read? The measured answer
 
-> **Status:** Measured, 2026-08-15. Not a plan, not an estimate: every number below is the
-> output of `cargo test -p fathom-ingest --test branch_coverage -- --nocapture`, which anyone
-> can re-run, and of `ls -l` on the release module.
+> **Status:** Measured, 2026-08-15; **corrected and re-measured on the integration tree the same
+> day** (§6 rewritten, §5.1/§5.2/§5.3/§9/§11 corrected, the sources table annotated). Not a plan,
+> not an estimate: every number below is the output of
+> `cargo test -p fathom-ingest --test branch_coverage -- --nocapture`, which anyone can re-run,
+> of `node scripts/drive-branch-coverage.mjs` against the built artifact, and of `ls -l` on the
+> release module.
+>
+> **Five numbers in the first draft of this document were wrong and are corrected in place, each
+> with a note saying what it was.** The page footer (6 → **7** secrets removed, contradicted by
+> this document's own committed screenshot); the `contains_reference` count (three of five →
+> **two**, which had `NatAction` in the wrong bucket and was about to be pushed into three other
+> documents); §9's blocked-line total (27 → **26**); §5.1's kind C (20 → **19**, with the 64th
+> line given its own row); and every figure in §6, which was measured on a tree where the
+> dictionary was still compiled into the module.
 >
 > **Why it exists.** The corpus counted the dictionary's *entries* — "42 Junos statements"
 > (`docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md`) — and an entry count says nothing
@@ -38,7 +49,7 @@
 | | statements | bound | bind rate |
 |---|---|---|---|
 | **Before** — 42 dictionary entries | 122 | 29 | **23.8%** |
-| **After** — 69 dictionary entries | 122 | 58 | **47.5%** |
+| **After** — 81 dictionary entries (69 from this widening + 12 from the routing slice reconciled with it) | 122 | 58 | **47.5%** |
 
 Both figures are over the same file, `crates/fathom-ingest/tests/fixtures/junos-srx-branch-documented.txt`,
 and both are pinned by an assertion in `crates/fathom-ingest/tests/branch_coverage.rs` so that
@@ -48,7 +59,7 @@ The real page agrees. Driven in Chromium against
 `target/artifact/fathom-dev.html`, the paste sheet's own footer reads:
 
 ```
-read branch-srx — 39 understood, 64 lines not read, 6 secrets removed
+read branch-srx — 39 understood, 64 lines not read, 7 secrets removed
 ```
 
 122 − 58 = 64. The page and the test are counting the same thing, from opposite ends.
@@ -173,8 +184,14 @@ dictionary problem.
 | kind | lines | what it actually is |
 |---|---|---|
 | **B — a stub value type stands in the way** | 37 | the field exists in the schema and its type is an empty struct |
-| **C — no kind models the thing at all** | 20 | DHCP pools, system services, SNMP, local users |
+| **C — no kind models the thing at all** | 19 | DHCP pools (12), system services (3), SNMP (2), local users (2) |
 | **A — reachable dictionary work** | 7 | small, specific, listed in §5.3 |
+| **— fits none of the three** | 1 | `system root-authentication encrypted-password`, quarantined by the gate before any of this applies |
+
+The four rows sum to 64. C was given as 20 in the first draft while the sections named for it sum
+to 19; the unaccounted line is the redacted root-authentication line, which is not blocked by a
+stub type, a missing kind or a missing dictionary entry. It is now its own row rather than
+rounded into C.
 
 ### 5.2 Kind B, and the sentence that reframes it
 
@@ -182,8 +199,18 @@ The corpus has been describing this as *"five empty stub structs"* — `NatActio
 `L4Spec`, `PolicyScope`, `AddressValue` (`65` §4 and §7, `00-ROUTE-TO-WORKABLE.md` §7). That is true
 and it is not the whole truth, and the difference decides how much work the fix is.
 
-Three of those five — `PolicyScope`, `NatScope` and `NextHop` — are declared
-`contains_reference: true` in `schema/schema.yaml`. **They hold `NodeId`s.** And `fathom-ingest`
+**Two** of those five — `PolicyScope` (`schema/schema.yaml` line 78) and `NatScope` (line 82) —
+are declared `contains_reference: true`. The other three hold no reference: `AddressValue`
+(line 80), `L4Spec` (line 81) and `NatAction` (line 84).
+
+<!-- An earlier draft of this section said "three of those five — `PolicyScope`, `NatScope` and
+     `NextHop`". `NextHop` does carry `contains_reference: true` (line 70), but it is not one of
+     the five: it was folded into the count of a set it does not belong to, and `NatAction` was
+     silently sorted into the blocked bucket as a result. Corrected 2026-08-15 by reading the file.
+     The reframing below survives the correction; only the arithmetic and `NatAction`'s
+     classification were wrong. -->
+
+`PolicyScope` and `NatScope` **hold `NodeId`s.** And `fathom-ingest`
 cannot mint a `NodeId`: `fathom-id` deliberately has no constructor that reads a clock or an RNG
 (invariant 9), so a fragment addresses its nodes by dense index and identity is the store weld's
 work. Filling in `PolicyScope`'s four variants would therefore **not** be enough to bind a
@@ -201,7 +228,7 @@ config — is at zero and stays there in this change. Binding a `PolicySet` whil
 `from-zone trust to-zone vpn` on the floor would have raised the number and broken `14`'s one
 governing rule, `NOTHING PARSED IS SILENTLY LOST`. The number is not worth that.
 
-`AddressValue` and `L4Spec` hold no references and are genuinely just unshaped; `11` §6.6 states
+`AddressValue`, `L4Spec` and `NatAction` hold no references and are genuinely just unshaped; `11` §6.6 states
 both shapes (`Prefix / Range / Dns / Wildcard`, and `{ protocol, source_ports,
 destination_ports }`). Shaping them is real work — a canonical serialisation and a total order
 each, plus the wire format — but it is *ordinary* work, unlike the reference problem. See §9.
@@ -219,8 +246,8 @@ Seven lines, and each is left out for a stated reason rather than for want of ti
 
 | line | why not |
 |---|---|
-| `set interfaces ge-0/0/5 mtu 9192` | `@interface_like` resolves to one of four kinds and the loader requires the field to exist on **all four**. `TunnelInterface` has no `mtu` and no `speed`. Every workaround either mis-kinds `st0` as an `Interface` or weakens the `FieldUnknown` gate. It needs a narrower kind-resolver spec, which is a design decision, not a dictionary line. |
-| `set interfaces ge-0/0/5 link-mode full-duplex` | `Interface.duplex` is an inline `enum { full, half, auto }` with no binder value type, and the same `@interface_like` problem. |
+| `set interfaces ge-0/0/5 mtu 1500` | `@interface_like` resolves to one of four kinds and the loader requires the field to exist on **all four**. `TunnelInterface` has no `mtu` and no `speed`. Every workaround either mis-kinds `st0` as an `Interface` or weakens the `FieldUnknown` gate. It needs a narrower kind-resolver spec, which is a design decision, not a dictionary line. |
+| `set interfaces ge-0/0/5 ether-options link-mode full-duplex` | `Interface.duplex` is an inline `enum { full, half, auto }` with no binder value type, and the same `@interface_like` problem. A dictionary entry for it would carry the path `[interfaces, $if, ether-options, link-mode, $v]` — **five segments, not four**. |
 | `set interfaces ge-0/0/0 unit 0 family inet dhcp` | Binding it would set `families += inet` and lose `dhcp`. There is no schema field for "this unit is a DHCP client". A half-bind here is exactly the silent loss the residue list exists to prevent. |
 | `set system name-server 192.0.2.53` | `SystemSettings.name_servers` is `IpAddr` at card `0..n`. The binder can accumulate a `set{enum}` but has no list-of-scalar accumulator. Small, real, and better done deliberately than as a footnote to this change. |
 | `set routing-options static route …` (×3) | See §5.4. |
@@ -242,50 +269,73 @@ second one belongs to the owner.
 
 ## 6. The bytes
 
-Measured, never estimated: the release module built before and after with
+Measured, never estimated, with
 `cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm`.
+
+**This section was rewritten on the integration tree and its original figures are
+kept below, because the ground moved under all of them.** The original measurement
+was taken at `adbb590`, where the dictionary was `include_str!`ed into the module
+and every citation comment cost ceiling bytes. `adbd9a2` moved the dictionary into
+the page over `OP_DICT`. **YAML no longer costs module bytes at all.**
+
+### 6.1 What the integrated tree measures
 
 | | bytes | headroom under the 900,000 ceiling |
 |---|---|---|
-| before (HEAD, 42 entries) | 852,918 | 47,082 |
-| after (69 entries) | 888,200 | **11,800** |
-| delta | **+35,282** | |
+| `adbd9a2`, the tip | 886,321 | 13,679 |
+| this widening alone, on the tip | 899,315 | 685 |
+| the routing slice alone, on the tip | 895,539 | 4,461 |
+| both, merged naively | **920,437** | **−20,437 — over** |
+| both, after the two fixes in §6.2 | **890,438** | **9,562** |
 
-<!-- VERIFY: 852,918 is this worktree's baseline, measured 2026-08-15 at commit adbb590. The
-     task brief quoted 870,977 from a sibling branch; the two trees differ and this document
-     reports the one it measured. -->
+Each row is a release build of its own tree, not arithmetic.
 
+**Neither half breaks the ceiling alone; together they cost 11,904 bytes more than
+the sum of their parts.** That super-additivity is the finding, and it is what made
+the ceiling look like a scheduling problem when it was a code problem.
 
-**This fits, and it is tight, and the tightness needs saying out loud.** 11,800 bytes is 1.3%
-of the ceiling. On this tree, a second parallel change of similar size would breach it.
+### 6.2 Where the 29,999 bytes went, and why they were not a feature
 
-The delta splits into two very different halves:
+Diffed function-for-function with the byte-census instrument.
 
-| | bytes | how it was obtained |
+| | bytes | what it was |
 |---|---|---|
-| dictionary YAML text | **+22,236** | `wc -c corpus/dict/junos-srx/*.yaml`, 19,183 → 41,419. `include_str!`ed into the module verbatim — **comments included** |
-| compiled code | **+13,046** | the remainder: new `BoundValue` variants, the `HostProtocol` set, six new `set_field` monomorphisations, `const_bool`, the three §7 fixes |
+| two `sort` calls in the `where:` loader | **−10,016** | `Vec<String>::sort` and `Vec<(usize, Vec<String>)>::sort_by_key` each monomorphise the whole of `core::slice::sort` for their element type — for lists holding one or two items. Nothing observable depended on either order |
+| `write_field` through the generic door | **−19,706** | `fathom_weld::plan::write_field` called `Graph::set_field`, which is generic over the payload, once per `BoundValue` variant. 46 copies, 26,217 bytes, and each new value type was minting another ~550. `Graph::set_field_boxed` already existed and moves the same type check from compile time to run time; all 36 arms now build a `Box<dyn Any>` and one call site writes it |
 
-**The first half is temporary and the integrator should know it.** On this worktree the
-dictionary is still compiled into the module through
-`fathom_ingest::dict::EMBEDDED_DICT_SOURCES`, so every citation comment costs ceiling bytes. On
-the tree where the dictionary is handed in at boot over `OP_DICT` and `Dictionary::embedded()`
-no longer exists, those 22,236 bytes move from the module to the artifact, and this change costs
-about **13.0 KB of ceiling, not 35.3 KB** — leaving roughly **34,000** bytes of headroom rather
-than 11,800.
+The second is not a saving on these two features. It is a saving on **every** value
+type in the store, and it makes the next one cost its parser and nothing else.
 
-The artifact went from **1,215,578 to 1,262,622 bytes**. The after-figure is measured
-(`cargo run --locked -p fathom-artifact`); the before-figure is arithmetic rather than a second
-build, and the arithmetic is exact because the shell source and `design/tokens.css` did not
-change. The artifact is those two plus the base64 of the module; base64 of 852,918 bytes is
-1,137,224 characters and of 888,200 bytes is 1,184,268, and 1,262,622 − 1,184,268 = 78,354 is
-the unchanged remainder, which is also what the before-figure's subtraction gives.
+### 6.3 The YAML, which is now somebody else's ceiling
 
-The comments are not padding and were not trimmed to buy headroom. They are the ADR-0034
-evidence — the URL, the read date, and the verbatim syntax that came back — and trimming them to
-save bytes would trade a permanent record for a temporary saving on a tree that is about to stop
-paying it. Per-entry cost including comments is **824 bytes** (22,236 / 27); a prior measurement
-of ~457 bytes per entry was of entries carrying less citation.
+`wc -c corpus/dict/junos-srx/*.yaml` went 19,183 → 41,419 for this widening
+(**+22,236**, comments included) and further with the routing slice's three files.
+At `adbb590` that was 22,236 bytes of a 900,000-byte ceiling. On the tip it is
+22,236 bytes of the artifact, whose ceiling is 4.5 MB. The artifact measures
+**1,457,703 bytes** on the integrated tree.
+
+The comments were not trimmed to buy headroom, and after the move there is nothing
+to buy: they are the ADR-0034 evidence — the URL, the read date, and the verbatim
+syntax that came back.
+
+### 6.4 The original figures, kept
+
+Superseded by §6.1, and recorded because §11 disagreement 3 was argued from them:
+
+| | bytes | headroom |
+|---|---|---|
+| before (`adbb590`, 42 entries) | 852,918 | 47,082 |
+| after (69 entries), dictionary compiled in | 888,200 | 11,800 |
+| delta | +35,282 | |
+
+Of that delta, **+22,236 was dictionary YAML** and **+13,046 compiled code**. The
+document predicted that on the `OP_DICT` tree "this change costs about 13.0 KB of
+ceiling, not 35.3 KB — leaving roughly 34,000 bytes of headroom rather than
+11,800." Measured on that tree: **12,994** against a predicted 13,046, and the
+headroom is 685 rather than 34,000 — because the prediction was made against
+`adbb590`'s 852,918 and the tip is 886,321, having spent 60,096 of it on the
+diagram in between. The per-change arithmetic held; the base it was subtracted
+from did not.
 
 ## 7. Three defects the widening exposed
 
@@ -386,18 +436,20 @@ Escalated, not decided here (`78` §5).
 1. **What is the default `RoutingInstance` called?** Blocks `routing-options static route` and
    every future platform's default instance. §5.4.
 2. **How does a fragment express a pending reference in a *field value*?** This, not the empty
-   structs, is what blocks `security policies`, `security nat` and `next-hop <interface>` — 27 of
-   the 64 remaining misses. §5.2.
-3. **Shall `AddressValue` and `L4Spec` be shaped from `11` §6.6?** Both shapes are stated; both
+   structs, is what blocks `security policies` (21), `security nat` (4) and
+   `next-hop st0.0` (1) — **26** of the 64 remaining misses. §5.2.
+3. **Shall `AddressValue`, `L4Spec` and `NatAction` be shaped from `11` §6.6?** Both shapes are stated; both
    are reference-free; together they unblock `address-book` (partly — see 4) and `applications`.
 4. **Where does an address book's *name* live?** `AddressObject`/`AddressSet` have no field for
    it and `InAddressBook` models `attach zone`, not the book. §5.2.
 5. **Does `@interface_like` need a narrower form** so `mtu`, `speed` and `duplex` can bind
    without either mis-kinding `st0` or weakening the `FieldUnknown` gate? §5.3.
-6. **The byte ceiling.** 11,800 bytes of headroom on this tree, ≈34,000 once the dictionary
-   moves out of the module. `00-ROUTE-TO-WORKABLE.md` §2 stage 1 already says the ceiling is an
-   architecture question rather than a number to raise; this is the first change that makes it
-   an *immediate* one.
+6. **The byte ceiling.** **9,562 bytes of headroom** on the integrated tree (§6.1). The
+   original estimate of ≈34,000 "once the dictionary moves out of the module" was wrong, not
+   because the arithmetic was wrong but because the base moved: the diagram spent 60,096 bytes
+   in the same window. `00-ROUTE-TO-WORKABLE.md` §2 stage 1 already says the ceiling is an
+   architecture question rather than a number to raise, and §6.2 is the first evidence that it
+   is answerable as one: 29,999 bytes came back from two changes that removed no feature.
 
 ## 10. Sources consulted
 
@@ -438,8 +490,8 @@ verbatim into the dictionary file beside the entry that uses it, so the record s
 | `l3-interface (VLAN)` | `l3-interface-edit-vlans-qfx-series.html` | `vlans <name> l3-interface` |
 | `vlan-id (logical interface)` | `vlan-id-edit-interfaces.html` | `interfaces … unit N vlan-id` |
 | `disable (Interfaces)` | `disable-edit-interfaces.html` | `admin_up = false`, both levels |
-| `mtu (Interfaces)` | `mtu-edit-interfaces.html` | §5.3's `@interface_like` finding |
-| `link-mode` | `link-mode-edit-interfaces.html` | §5.3 |
+| `mtu (Multilink and Link Services Logical Interface)` | `mtu-edit-interfaces.html` | §5.3's `@interface_like` finding — see the note below on the value |
+| `link-mode` | `link-mode-edit-interfaces-qfx-series.html` | §5.3 — see the note below on the hierarchy |
 | `time-zone` | `time-zone-edit-system.html` | `SystemSettings.time_zone` |
 | `name-server (System Services)` | `name-server-edit-system.html` | §5.3's `0..n` finding |
 | `server (NTP)` | `server-edit-system-ntp.html` | `NtpServer.address` |
@@ -449,6 +501,38 @@ verbatim into the dictionary file beside the entry that uses it, so the record s
 | `syslog` | `syslog-edit-system.html` | the fixture's syslog line |
 | `community (SNMP)` | `community-edit-snmp.html` | the fixture's SNMP lines |
 | `trap-group (SNMP)` | `trap-group-edit-snmp.html` | the fixture's SNMP lines |
+
+**Two corrections to this table, made 2026-08-15 by re-opening the pages, and both changed the
+fixture.** Recording them rather than quietly editing the rows, because §2's governing claim is
+that no statement form here is invented and these are the two places that claim was thinnest.
+
+1. **`link-mode` is under `ether-options`.** The current CLI-reference page reads
+   `Syntax link-mode mode ;` / `Hierarchy Level [edit interfaces interface-name ether-options ]`.
+   Both URLs previously cited for it — `.../cli-reference/.../link-mode-edit-interfaces.html` and
+   `.../en_US/junos/.../link-mode-edit-interfaces.html` — **redirect to the same document**,
+   `link-mode-edit-interfaces-qfx-series.html`, so what was recorded as two independent sources was
+   one page read twice. The effective URL is now cited. The fixture's
+   `set interfaces ge-0/0/5 link-mode full-duplex` was one segment short and is corrected.
+
+   **The form was not invented, and the record should say so precisely.** Juniper's archived
+   Junos 13.2 page for the same statement
+   (<https://www.juniper.net/documentation/en_US/junos13.2/topics/reference/configuration-statement/link-mode-edit-interfaces.html>,
+   read 2026-08-15) gives `Hierarchy Level [edit interfaces interface-name ], [edit interfaces
+   interface-name ether-options], [edit interfaces ge-pim/0/0 switch-options switch-port
+   port-number ]` — the bare-interface level is there, and the `ge-pim` level is the J Series
+   branch form. So the bare spelling was documented once and is not current. ADR-0034's currency
+   rule decides which one a fixture claiming to be read "on 2026-08-15" may carry: the current one.
+
+2. **The `mtu` page does not support a jumbo value.** Its hierarchy does include
+   `[edit interfaces interface-name ]`, so the form was right, but the page is titled
+   *"mtu (Multilink and Link Services Logical Interface)"* and its Options read
+   *"Range: 0 through 5012 bytes"*. The fixture's `mtu 9192` was outside what the cited page
+   supports and is now `mtu 1500`. **I could not establish a Juniper page documenting a jumbo MTU
+   at `[edit interfaces <name>]` for SRX**, and rather than cite one that does not say it, the
+   value was brought inside the range the cited page states.
+
+Neither correction moves the measurement: both lines are misses before and after, and the pinned
+figure is still **58 / 122**, re-run after the edit.
 
 **In-repo, opened rather than recalled:** `schema/schema.yaml` (kinds, edges, scalars),
 `schema/field-keys.yaml`, `crates/fathom-ir/src/value.rs`,
@@ -461,19 +545,37 @@ verbatim into the dictionary file beside the entry that uses it, so the record s
 **1. "Five empty stub structs" is the wrong diagnosis, and it has been repeated in three
 places.** `65` §4, `65` §7 and `00-ROUTE-TO-WORKABLE.md` §7 all name `NatAction`, `NatScope`,
 `L4Spec`, `PolicyScope` and `AddressValue` as *"empty stub structs"* blocking firewall and NAT.
-Filling those five in would unblock two of them. Three carry `contains_reference: true`, and the
-blocker there is architectural: a fragment cannot mint a `NodeId`, and there is no
-`PendingEdge` equivalent for a field value. Proposed replacement wording, for whoever owns those
-documents: *"two unshaped value types, and a missing pending-reference path for field values."*
+Filling those five in would unblock **three** of them. **Two** carry `contains_reference: true`
+— `PolicyScope` and `NatScope` — and the blocker there is architectural: a fragment cannot mint a
+`NodeId`, and there is no `PendingEdge` equivalent for a field value. Proposed replacement
+wording, for whoever owns those documents: *"three unshaped value types, and a missing
+pending-reference path for the two that carry references."*
+
+<!-- This paragraph and its proposed wording were themselves wrong in the first draft — "three
+     carry contains_reference", "two unshaped value types" — which would have pushed the miscount
+     into `65` §4, `65` §7 and `00-ROUTE-TO-WORKABLE.md` §7 rather than out of them. The counts
+     above are read off `schema/schema.yaml`, lines 70, 78, 80, 81, 82 and 84. -->
 
 **2. `00-ROUTE-TO-WORKABLE.md`'s "42 Junos statements" reads as a coverage figure and is not
-one.** It is an entry count. The entry count rose 64% (42 → 69) and the coverage figure rose 100%
+one.** It is an entry count. The entry count rose 64% (42 → 69, and 81 once the routing slice is
+reconciled in) and the coverage figure rose 100%
 (23.8% → 47.5%); the two are not proportional and will diverge further as the cheap sections are
 used up. Wherever a coverage claim is meant, this document is the owner of the number.
 
-**3. The byte ceiling is now a scheduling constraint, not just an architecture question.** With
-11,800 bytes of headroom on this tree, two independent contributors cannot both land a
-medium-sized change. That is a fact about the next week, not about the next release.
+**3. The byte ceiling is a scheduling constraint AND an architecture question, and the second
+answer is cheaper than the first.** The original form of this disagreement said that with 11,800
+bytes of headroom "two independent contributors cannot both land a medium-sized change". That
+prediction came true almost immediately and word for word: these two dictionary widenings,
+merged, measured 920,437 — **20,437 over the ceiling** (§6.1).
+
+It was still the wrong conclusion. The two changes did not have to be scheduled apart; they had
+to stop paying for the same machinery twice. Routing `write_field` through `Graph::set_field_boxed`
+returned 19,706 bytes and deleting two `sort` calls returned 10,016, with no feature removed and
+no test weakened. **29,999 bytes — more than twice the tip's entire headroom — from two changes
+that nobody had to be scheduled around.**
+
+The revised claim: headroom this tight is a signal to look for a monomorphisation the module is
+paying for repeatedly, before it is a signal to serialise the queue.
 
 **4. "The gate is proved by canaries" was true of the fixture, not of the class.** §7.2 is a
 credential leak that reached the capture verbatim with an empty drop manifest, on the tree as it

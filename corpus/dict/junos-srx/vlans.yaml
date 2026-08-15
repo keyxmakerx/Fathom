@@ -12,8 +12,13 @@
 #                                    [edit interfaces interface-name unit number], …
 #   https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/vlan-id-edit-vlans-qfx-series.html
 #
-#   l3-interface vlan.logical-interface-number;
-#   Hierarchy Level: [edit vlans vlan-name]
+#   l3-interface (vlan logical-interface-number | irb logical-interface-number );
+#   Hierarchy Level: [edit vlans vlan-name ],
+#                    [edit interfaces ge-chassis/slot/port unit N family ethernet-switching]
+#   -- quoted in full on 2026-08-15. An earlier draft truncated this to
+#   `l3-interface vlan.logical-interface-number;`, dropping the `irb` half,
+#   which is the half this entry and the fixture actually use (`irb.20`). The
+#   truncation removed the part of the quote that supported the entry.
 #   https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/l3-interface-edit-vlans-qfx-series.html
 #
 # The worked branch example that uses all three

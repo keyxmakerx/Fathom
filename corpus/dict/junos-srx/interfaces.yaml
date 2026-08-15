@@ -82,16 +82,30 @@ entries:
     versions: "*"
     reviewed_by: <named human>
 
-  # `vlan-id` on a logical interface — verified against Juniper's CLI
-  # reference on 2026-08-15 (ADR-0034). "vlan-id (VLAN ID to Be Bound to a
-  # Logical Interface)" — Syntax: `vlan-id (all | none | number);` Hierarchy
-  # Level for ELS platforms includes `[edit interfaces interface-name unit
-  # number]`.
+  # vlan-id (VLAN ID to Be Bound to a Logical Interface). Re-read on the page
+  # cited here, 2026-08-15, and quoted from it:
+  #   Syntax           vlan-id number | unmatched ;
+  #   Hierarchy Level  [edit interfaces interface-name unit logical-unit-number ],
+  #                    [edit logical-systems … interfaces … unit … ]
   # https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/vlan-id-edit-interfaces.html
   #
-  # `all` and `none` do not bind: `LogicalUnit.vlan_id` is a `VlanId`
-  # (1..=4094) and neither token is one. They produce a `ValueUnparsed`
-  # diagnostic — the unit still binds, the tag does not.
+  # An earlier draft of this comment quoted `vlan-id (all | none | number);`
+  # and "Hierarchy Level for ELS platforms" beside this URL. Neither is on this
+  # page — both come from `vlan-id-edit-vlans-qfx-series.html`, the VLANS-level
+  # statement of the same name, which `vlans.yaml` cites. Title and URL from one
+  # page, syntax and hierarchy from another: a maintainer checking the recorded
+  # evidence at the recorded URL would not have found the quoted words.
+  #
+  # The special token at THIS hierarchy is `unmatched`, not `all` or `none`.
+  # None of the three bind: `LogicalUnit.vlan_id` is a `VlanId` (1..=4094) and
+  # no word is one, so each produces a `ValueUnparsed` diagnostic — the unit
+  # still binds, the tag does not. Behaviour is unchanged by this correction;
+  # only the record is.
+  #
+  # The page's Options also give the number ranges (1 through 1023 for some
+  # PICs, 1 through 4094 for others, 0 reserved for priority tagging). The
+  # schema's `VlanId` is the wider of the two, which is the safe direction: a
+  # value legal on the device is never refused for want of knowing the PIC.
   - id: junos-srx/interfaces.unit.vlan-id
     path: [interfaces, "$if", unit, "$u", vlan-id, "$v"]
     binds:

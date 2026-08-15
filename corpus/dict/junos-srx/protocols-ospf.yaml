@@ -43,10 +43,28 @@ entries:
     versions: "*"
     reviewed_by: <named human>
 
-  # interface (Protocols OSPF)'s syntax block: `metric metric ;`. Junos range is
-  # 1 through 65,535, so every legal value fits the schema's u32; anything else
-  # is diagnosed, never stored. Read 2026-08-15.
+  # interface (Protocols OSPF)'s syntax block: `metric metric ;`, read
+  # 2026-08-15. The statement's own page gives the range:
+  #   "metric —Cost of the route. Range: 1 through 65,535"
+  # https://www.juniper.net/documentation/en_US/junos12.3/topics/reference/configuration-statement/metric-edit-protocols-ospf.html
   # https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/interface-edit-protocols-ospf.html
+  #
+  # SO EVERY LEGAL VALUE FITS THE SCHEMA'S u32, AND FATHOM DOES NOT CHECK THE
+  # OTHER DIRECTION. `set … metric 70000` binds `cost = 70000` silently. An
+  # earlier draft of this comment claimed "anything else is diagnosed, never
+  # stored", which was false as written -- the vendor fact was right and the
+  # claim about Fathom's behaviour was not. Driven and confirmed before the
+  # sentence was removed.
+  #
+  # NOT FIXED HERE, DELIBERATELY, and the reasoning matters more than the line.
+  # The schema declares this slot `u32` (ADR-0008: the schema is what a field
+  # IS), so a dictionary-level range check would be the corpus asserting a
+  # constraint the type system does not carry, in the one place that cannot
+  # explain itself to the user. An out-of-range OSPF cost is not a parse
+  # failure -- it is a config the device would reject, which is a FINDING, and
+  # invariant 5 says findings are data in one rule engine, not checks scattered
+  # through parsers. The rule engine is unbuilt. Recorded as the right home
+  # rather than pre-empted by the wrong one.
   - id: junos-srx/protocols.ospf.area.interface.metric
     path: [protocols, "$proto", area, "$area", interface, "$if", metric, "$m"]
     where: { proto: [ospf, ospf3] }

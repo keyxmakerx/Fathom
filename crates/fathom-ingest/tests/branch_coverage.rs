@@ -43,6 +43,29 @@
 //! statement *form* is invented; invariant 10 and ADR-0034 forbid it, and a
 //! measurement taken against invented syntax would measure nothing.
 //!
+//! THAT CLAIM WAS AUDITED ON 2026-08-15 AND TWO LINES DID NOT HOLD, both on
+//! `ge-0/0/5`, both corrected here rather than defended:
+//!
+//! * `link-mode` was written at `[edit interfaces <name>]`. The current CLI
+//!   reference gives `Hierarchy Level [edit interfaces interface-name
+//!   ether-options ]`, and both URLs this fixture cited for it redirect to the
+//!   same page, so what was recorded as two independent sources was one page
+//!   read twice. It is `… ether-options link-mode full-duplex` now. The bare
+//!   form is not fabricated — Juniper's archived Junos 13.2 page lists
+//!   `[edit interfaces interface-name ]` among three levels — but it is not
+//!   current, and a fixture claiming to be read today carries today's form.
+//! * `mtu 9192` was outside the range the cited page states ("Range: 0 through
+//!   5012 bytes", on a page titled "mtu (Multilink and Link Services Logical
+//!   Interface)"). The hierarchy was right, the value was not. It is `mtu 1500`
+//!   now; a Juniper page documenting a jumbo MTU at that hierarchy for SRX
+//!   could not be established, and no citation was invented to cover it.
+//!
+//! Neither line moves the number — both are misses before and after — and the
+//! pinned figure below was re-run after the edit. The damage a wrong form does
+//! here is to the denominator's trustworthiness, which is the whole artefact.
+//! `docs/60-content/66-junos-coverage-measurement.md` §10 carries the full
+//! record with the quotations.
+//!
 //! # What is counted
 //!
 //! The denominator is the lines the framer classified as **statements** —

@@ -975,15 +975,19 @@ fn load_entry(
             // determinism in what is emitted, and the YAML's own order is
             // already deterministic. Against 13 679 bytes of headroom, tidiness
             // at 6 KB is not tidiness.
-            allowed.dedup_by(|a, b| a == b);
-            let mut i = 0;
-            while i < allowed.len() {
-                if allowed[..i].contains(&allowed[i]) {
-                    allowed.remove(i);
+            // `retain` with a seen-set, rather than indexing: the crate denies
+            // `clippy::indexing_slicing`, and a dedup that can panic on a
+            // corpus file is a worse trade than one extra small allocation on
+            // a list of one or two tokens. Still no sort -- see above.
+            let mut seen: Vec<String> = Vec::with_capacity(allowed.len());
+            allowed.retain(|t| {
+                if seen.iter().any(|s| s == t) {
+                    false
                 } else {
-                    i += 1;
+                    seen.push(t.clone());
+                    true
                 }
-            }
+            });
             constraints.push((at, allowed));
         }
     }
