@@ -1769,6 +1769,15 @@ throughout.
 > seven rows answered, three open — the two `16` spec gaps and the type disagreement, all for
 > planning.
 >
+> **An eighth row arrived 2026-08-15 and it did not come from a work order.** The diagram
+> integration is owner-directed work outside the queue, so its Work order column reads *(none)*
+> rather than borrowing a WO number it has no claim on. The row is here because this is the tree's
+> inbox and the finding is real — a shell-wide zero-height fact column at 400% browser zoom, in all
+> five views, predating the work that found it. Whether §14 should admit non-work-order rows at all
+> is a live question for planning; filing it and saying so beats either faking a WO number or
+> letting a measured product-wide accessibility failure live only in a test comment. §14.4's
+> triage question (`78` §12) now has a second dimension: who may file, not only who triages.
+>
 > The two spec-gap rows carry `2026-08-02` — the date WO-06 §4.5 pre-authored them, not the date
 > they were filed. §4.5 requires them verbatim, so the executing session was right not to restamp
 > them. **The defect is in pre-authoring a dated row at all:** `78` §4 step 3's date is *when a
@@ -1818,6 +1827,7 @@ and is not duplicated here, so there is one place to maintain and one place to r
 | 2026-08-08 | WO-09 | `Origin` is serialised as a bare JSON string by `fathom-workspace`'s canonical plaintext face (writer `lib.rs:329`, reader `lib.rs:617`), so the payload-bearing `Origin::Parsed { capture, span }` the order requires cannot be written or read — decide `Parsed`'s wire form against WO-05 §4.4's byte-identical round trip, and add `crates/fathom-workspace/src/lib.rs` to WO-09 §4's Deliverables table | detail in WO-09 § Open decisions (§10.8) — **ANSWERED 2026-08-08**: `17` §15.6 |
 | 2026-08-08 | WO-09 | `corpus/dict/junos-srx/interfaces.yaml:13` binds `InterfaceLike.name` as `scalar: Identifier` while `schema/schema.yaml` declares it `InterfaceName` on all four interface kinds, so the first call to put ingest and the store together refuses the shipped fixture with `SlotType { key: 55 }` — decide whether the schema moves, the dictionary and `BoundValue` move, or the weld converts, and whether a dictionary-load gate compares a `scalar:` against the declared type at all | detail in WO-09 § Open decisions (§10.9) — **ANSWERED 2026-08-08**: option (b) + (d) |
 | 2026-08-08 | WO-09 | Ten of the shipped fixture's thirteen fragment nodes carry `owner: None`, and none of the three that carry one is owned by `nodes[0]`, so the applied `Device` has degree zero across all 81 edge kinds and §4.6's *"the `IpsecVpn` closure is reachable from the device by `out`/`inn`"* cannot hold — decide where a top-level object's containment parent is set (the weld defaults it, the binder sets it, the dictionary declares it, or the assertion is withdrawn and `11` §7.2's forest stays an unchecked L1/L2 obligation) | detail in WO-09 § Open decisions (§10.10) |
+| 2026-08-15 | *(none — diagram integration, outside the queue)* | At a 350×225 CSS viewport — a browser at 400% zoom on a 1400×900 display, which `55` §6.3 treats as the same case as 320 px — the shell gives `#factBody` **zero height in all five views**, so no row of any view is on screen. Pre-existing and shell-wide, reproduced on the parent commit before any diagram work, so it is not the diagram's to fix: decide whether the shell's height chain is corrected, or `55` §6.3's 400% obligation is restated against a floor the shell can meet | pinned as a failing-when-fixed assertion in `docs/80-review/evidence/2026-08-15-diagram-surface-edges.mjs` (*"the fact column has no height — PRE-EXISTING"*), with the measurement in its comment |
 
 **Answered — both WO-05 rows, 2026-08-08, planning.** The detail is in WO-05 §10.6 and §10.7,
 where the rows already point; repeating it here would be the duplication §14.2 exists to avoid.

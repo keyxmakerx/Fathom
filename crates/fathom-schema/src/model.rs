@@ -91,7 +91,7 @@ pub struct FieldKeys {
 /// `gates.rs` does that.
 ///
 /// Public because there are two readers of that file and they must not read it
-/// differently: `SchemaTree::load` here, off disk, and `Dictionary::embedded`
+/// differently: `SchemaTree::load` here, off disk, and `hosted::dictionary_from_host`
 /// in `fathom-ingest`, off a compiled-in string in a build with no filesystem.
 pub fn field_key_entries(node: &Node) -> Vec<(String, i64, usize)> {
     node.get("fields")
