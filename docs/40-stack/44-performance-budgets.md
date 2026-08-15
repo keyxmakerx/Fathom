@@ -661,6 +661,25 @@ is a ceiling nobody checks.
 > size gate is armed** — it decides B17, B18, the artifact shape, and whether D1 is viable at
 > all. Until it runs, every figure below is a budget, not a measurement.
 
+> **MEASURED, 2026-08-15 (`47-byte-census.md`).** The spike this section waits on has now run, and
+> the table below did not survive it. At commit `adbb590` the module is **852 918 bytes** — over the
+> 700 KB target by 152 918, under the 900 000 ceiling by 47 082 — **with three of the seven rows below
+> at zero** (rule engine, crypto, CBOR). Per row: graph over by 17 KB with no CRDT written; parsers +
+> dictionary over by 19 KB; finder over by **123 KB**, because the corpus index was never a row;
+> `core::fmt`/misc over by 13 KB. Two of the module's three largest blocks have no row at all —
+> the IR's generated layer (88 605) and, above everything, **`alloc::collections::btree` plus
+> `core::slice::sort` at 218 215 bytes, 25.6 % of the module**, which is what invariant 9's
+> BTree-only rule costs once it is monomorphised over ~50 key/value pairs. **35 % of the module
+> (301 531 bytes) belongs to no component at all** and is shared between two or more features, so
+> per-component gating as specified below is not merely unbuilt — it is unachievable. `47` §11
+> lever 5 proposes the replacement; this document owns whether to take it.
+>
+> The gate that exists is one total assertion, `size <= 900_000`, at
+> `crates/fathom-wasm/tests/artifact_gates.rs:97`. **There is no `xtask`, no `twiggy`, and no
+> `perf/size-baselines.toml`** — §5.5 describes a mechanism that has never existed. `twiggy` may not
+> be added (ADR-0032, `78` §5.2); `scripts/byte-census.sh` is the first-party instrument that
+> replaces it, and every figure in this block is reproducible from it.
+
 `41` §3.10 originated this split; this document adopts it, adds the gate, and adds two rows it
 did not have:
 
@@ -696,7 +715,7 @@ Two rows `41` §3.10 does not carry, added here because they will surprise someb
 | HTML shell + template | 6 KB | 6 KB | `35` §3.5's slot template, no logic |
 | CSS, hand-written, minified by `lightningcss` | 24 KB | 24 KB | ~700 lines. Three colours, no framework |
 | JS — UI + boundary, minified by `oxc` | 120 KB | 120 KB | `41` §4.4's render layer plus views |
-| WASM core | 700 KB | **933 KB** | base64 ×4/3 |
+| WASM core | ~~700 KB~~ **852 918 B** | ~~933 KB~~ **1 137 224 B** | base64 ×4/3. **Measured 2026-08-15** at commit `adbb590` (`47` §1.1); the 700 KB was a budget and it was wrong by 22 % |
 | Finder index | 1,050 KB | **1,400 KB** | `16` §9.4 |
 | First-party rule pack (`.fpack`, tar+zstd) | 260 KB | **347 KB** | budget, not measurement <!-- VERIFY: build the v1 pack and measure. `63`'s worked rules suggest ~600 B compiled + ~1.2 KB of prose per rule; at 150 rules that is ~270 KB before zstd, so 260 KB compressed is plausible and unverified. --> |
 | Explainer corpus, v1, zstd | 320 KB | **427 KB** | `15` §—'s own figure |
@@ -704,6 +723,7 @@ Two rows `41` §3.10 does not carry, added here because they will surprise someb
 | **Total** | | **≈ 3.38 MB** | |
 | **Target** | | **≤ 3.5 MB** | |
 | **Hard ceiling (B17)** | | **≤ 4.5 MB** | fails the merge |
+| **Actually built, 2026-08-15** | | **1 215 578 B** | `cargo run -p fathom-artifact` → `target/artifact/fathom-dev.html`. WASM base64 is 1 137 224 of it; **the whole HTML shell, CSS and JS together are 78 354 bytes** against 150 KB budgeted above. The index, rule pack, explainer corpus and font are not in the file yet — the artifact ceiling is **27 % spent while the WASM sub-budget is 95 % spent**, and `47` §11 lever 5 argues that mismatch is the real finding here |
 
 ### 5.4 DECISION — ship the mono faces, do not ship the sans
 

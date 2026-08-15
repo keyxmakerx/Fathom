@@ -42,7 +42,7 @@ Stated as measurements rather than impressions, each verified twice:
 | Persistence wired in | **no.** `fathom-workspace` is 767 lines with 11 passing tests and is a dependency of nothing |
 | Cryptography | **zero bytes.** Nothing in the ten invariants forbids the plaintext local save that already works |
 | Junos statements understood | **42** — enough for a route-based IPsec tunnel end to end, and essentially nothing else |
-| Module size | **827,029 bytes against a 900,000-byte ceiling that fails the merge (re-measured 2026-08-11)** |
+| Module size | **852,918 bytes against a 900,000-byte ceiling that fails the merge — 47,082 of headroom (re-measured 2026-08-15 at commit `adbb590`, `47-byte-census.md` §1.1; was 827,029 on 2026-08-11)**. A parallel tree carrying `fathom-layout` and the handed-in dictionary measures 870,977 / 29,023; quote neither without re-running `scripts/byte-census.sh` |
 
 The honest summary is that this is a real thing that works, at roughly **8% of its own
 specification**, standing on a byte budget that is already 91% spent.
@@ -125,6 +125,17 @@ The hard half is done and green: a verifier independently ran ingest → weld �
 +239,964 bytes against 72,971 of headroom.** This is *not* the cheap unblocked slice every prior
 plan in this tree calls it; it is hours of work behind the byte decision, and doing it first would
 mean the first thing built is the thing that breaches the ceiling.
+
+**Confirmed and decomposed, 2026-08-15 (`47-byte-census.md` §9.1).** Re-measured independently at
+**+235,890** — the recorded figure holds to within 1.7 %. What it did not say: **the two halves are
+not alike.** `write_plain` alone is **+93,036**; `read_plain` alone is **+172,081**; they share only
+29,227. Load is 65 % of the cost because `snapshot_from_json` → the generated 299-arm
+`slot_from_canon` instantiates a typed parse for every field of every kind whether the file contains
+one or not — the same table this document's stage 6 already refuses as route A. **That makes stage 5
+and stage 6 the same architectural question, not two**, and `47` §11 lever 3 states it as a fork:
+where does a saved workspace get re-typed? A narrow loader sharing stage 6's route-B dispatcher is
+the candidate, and it would also give the migration story this stage's "biggest risk" says is
+missing.
 
 Two things ride along at zero wasm cost: the unsaved-change count plus `beforeunload` that `43` §3.8
 already specifies and which greps to zero in the page, and a test round-tripping an `Origin::Parsed`
@@ -306,7 +317,8 @@ generator run, three one-line test-constant edits, zero production Rust** — an
 
 1. **Persistence is not unblocked days of work.** `00-PROGRAM-PLAN.md` and the persistence audit
    both treat it so. It is hours of code behind a byte decision, measured at +239,964 bytes against
-   72,971 of headroom.
+   72,971 of headroom — **re-measured 2026-08-15 at +235,890 against 47,082** (`47-byte-census.md`
+   §9.1), which confirms the figure and sharpens the disagreement rather than softening it.
 2. **The program plan's tier 1 is overstated by 4×.** Its headline says *"the first five unblock
    more than the other twenty-nine combined"*; four of the five are already on disk.
 3. **"Every owner decision the build waits on" includes several the build does not wait on.** §4
@@ -315,10 +327,17 @@ generator run, three one-line test-constant edits, zero production Rust** — an
 
 ## Failure modes
 
-1. **The ceiling is decided as a number and bleeds.** 72,971 bytes of headroom against measured
-   costs of 239,964 (persistence), 279,764 (the command corpus as source) and ~150 KB+ (a second
-   platform dictionary at today's ~457 bytes/entry), plus an unmeasured evaluator and an unmeasured
-   layout crate.
+1. **The ceiling is decided as a number and bleeds.** 47,082 bytes of headroom (2026-08-15) against
+   measured costs of 239,964 (persistence), 279,764 (the command corpus as source) and ~150 KB+ (a
+   second platform dictionary at today's ~457 bytes/entry), plus an unmeasured evaluator and an
+   unmeasured layout crate.
+   **Two corrections from `47-byte-census.md` (2026-08-15).** The data-handoff lever this document's
+   stage 1 turns on is worth **38,460 bytes in total** — every embedded YAML byte in the module,
+   measured by removal — so it is real and it is an order of magnitude short of persistence; it must
+   not be planned as if it might close that gap (`47` Disagreements 3). And **44,690 bytes, 5.24 % of
+   the module, are two lines of float handling in the YAML subset parser** (`fathom-schema/src/subset.rs:545`
+   and `value.rs:82`) in a product whose IR structurally excludes floats. That is more than the whole
+   crypto stack costs and it needs no decision from anyone (`47` §11 lever 1).
 2. **Stage 6 consumes a quarter and ships no findings**, because it was scoped as *"wire up fex"*
    when the work is schema authoring plus expert review.
 3. **The record layer keeps generating phantom blockers.** Five of six audits found stale records a
