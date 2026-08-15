@@ -289,7 +289,7 @@ button.tab:hover { color: var(--ink); }
    colour. */
 .efield .req { color: var(--ink); }
 .efield input, .efield select { font: inherit; font-size: var(--t-body);
-        color: var(--ink); background: var(--bg); border: 1px solid var(--rule);
+        color: var(--ink); background: var(--page); border: 1px solid var(--hairline);
         border-radius: var(--radius); padding: var(--s1) var(--s2); width: 100%; }
 .efield input:focus, .efield select:focus { outline: 2px solid var(--ink);
         outline-offset: -1px; }
@@ -301,19 +301,35 @@ button.tab:hover { color: var(--ink); }
 .fedit { font: inherit; font-size: inherit; color: var(--ink); width: 100%;
          background: none; border: 1px solid transparent;
          border-radius: var(--radius); padding: 0 var(--s1); }
-.fedit:hover { border-color: var(--rule); }
+.fedit:hover { border-color: var(--hairline); }
 .fedit:focus { outline: 2px solid var(--ink); outline-offset: -1px;
-               background: var(--bg); }
+               background: var(--page); }
 /* Removal is not styled as a danger button. Nothing here is destroyed -- the
    store tombstones and keeps the history -- and a red button would claim a
    finality the model does not have. */
 .rmbtn { margin-top: var(--s3); font: inherit; font-size: var(--t-micro);
          color: var(--muted); background: none; cursor: pointer;
-         border: 1px solid var(--rule); border-radius: var(--radius);
+         border: 1px solid var(--hairline); border-radius: var(--radius);
          padding: var(--s1) var(--s2); }
 .rmbtn:hover { color: var(--ink); background: var(--surface); }
 .note { font-size: var(--t-micro); line-height: var(--lh-micro);
         color: var(--muted); margin-top: var(--s2); }
+/* The diagram. Scrolls in its own box: a wide estate must never make the page
+   scroll sideways. */
+.dwrap { overflow: auto; max-width: 100%; padding: var(--s3); }
+.dbox rect { fill: var(--page); stroke: var(--hairline); stroke-width: 1; }
+.dbox:hover rect { stroke: var(--ink); }
+.dbox:focus { outline: none; }
+.dbox:focus rect { stroke: var(--ink); stroke-width: 2; }
+.dbox.dsel rect { stroke: var(--ink); stroke-width: 2; fill: var(--surface); }
+.dbox text { font-family: inherit; }
+.dkind { font-size: var(--t-micro); fill: var(--muted); }
+.dname { font-size: var(--t-body); fill: var(--ink); }
+.dline { stroke-width: 1; }
+/* Containment is structure and is drawn quieter than a reference edge. NOT
+   dashed -- `51` §9 reserves dashed for proposed elements. */
+.dcontain { stroke: var(--hairline); }
+.dref { stroke: var(--ink); }
 
 /* --- what one paste produced. Counts, then the lines it did not read. ----- */
 .tally { display: flex; flex-wrap: wrap; gap: var(--s4); margin: 0;
@@ -348,6 +364,14 @@ button.tab:hover { color: var(--ink); }
       <span class="tab" id="tabSource">demo estate · not corpus data</span>
       <button type="button" class="tab" id="tabPaste">paste a config</button>
       <button type="button" class="tab" id="tabEquip">add equipment</button>
+      <button type="button" class="tab" id="tabExport">export</button>
+      <button type="button" class="tab" id="tabImport">import</button>
+      <!-- The file input is the universal half of open/save: it works in every
+           browser, unlike the folder picker, which is Chromium-only. Hidden
+           because a bare file input cannot be styled and the tab above drives
+           it. -->
+      <input type="file" id="importFile" class="vh" accept=".json,application/json"
+             aria-label="Open a Fathom workspace">
       <button type="button" class="tab" id="tabTheme">theme · auto</button>
     </div>
   </header>
@@ -452,8 +476,22 @@ button.tab:hover { color: var(--ink); }
    ------------------------------------------------------------------------- */
 var FATHOM_WASM_B64 = "@FATHOM_WASM_B64@";
 
+/* THE STATEMENT DICTIONARY, INLINE, as a packed OP_DICT frame.
+
+   It used to be compiled into the module. Measured 2026-08-15, taking it out
+   shrank the release module by 26,915 bytes against 44 §5.2's 900,000-byte
+   ceiling that fails the merge -- and every further platform's dictionary would
+   have cost its own against that same ceiling. Here the ceiling is the whole
+   artifact's 4.5 MB, which has room.
+
+   It is base64 rather than a JS string because a YAML file has quotes,
+   backslashes and newlines, and base64's alphabet cannot end a string literal
+   or a script element. There is no escaping to get wrong. */
+var FATHOM_DICT_B64 = "@FATHOM_DICT_B64@";
+
 var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, OP_PASTE = 15;
 var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18;
+var OP_DIAGRAM = 19, OP_DICT = 20;
 
 /* The equipment form's fields, and the ONLY place this page names a field key.
    Each entry is [wire key, label, kind, required, note].
@@ -492,13 +530,36 @@ var PLATFORMS = ['junos-srx', 'junos-mx', 'junos-ex', 'panos', 'ios-xe', 'nx-os'
                  'eos', 'fortios', 'opnsense', 'omada-sw'];
 var ROLES = ['firewall', 'router', 'switch', 'load_balancer', 'other'];
 var FACE_HEADER = 0, FACE_INV = 1, FACE_FIELD = 2, FACE_PORT = 3, FACE_IFACE = 4;
-var FACE_PASTE = 5, FACE_RESIDUE = 6, FACE_UNRESOLVED = 7;
+var FACE_PASTE = 5, FACE_RESIDUE = 6, FACE_UNRESOLVED = 7, FACE_CAPTURE = 8;
+var FACE_BOX = 9, FACE_LINE = 10, FACE_CANVAS = 11;
+
+/* 56 §4's five layers, toggled independently. The bit order is the module's
+   declaration order (fathom_layout::layers::Layer::ALL) and a layer is
+   appended, never inserted -- a stored or transmitted mask must mean the same
+   thing tomorrow.
+
+   The page sends ONE BYTE and receives a picture. It does not know the
+   projection table and must not: 56 §4.1 says which kinds belong to which
+   layer, that answer is the model's, and a second copy here would be a second
+   answer that drifts. What the page owns is which toggles are pressed. */
+var LAYERS = [
+  [1,  'physical'],
+  [2,  'l2'],
+  [4,  'l3'],
+  [8,  'security'],
+  [16, 'overlay']
+];
+var LAYERS_ALL = 31;
 
 var wasm = null;                 /* the instance's exports */
+var wasmModule = null;
 var DEC = new TextDecoder();     /* one decoder, one decode per reply (41 §3.4) */
 
-function moduleBytes() {
-  var bin = atob(FATHOM_WASM_B64);
+/* The two inline base64 payloads decode through one function: the module and
+   the dictionary frame. Two copies of this loop is how one of them ends up
+   without the & 0xff. */
+function b64bytes(b64) {
+  var bin = atob(b64);
   var out = new Uint8Array(bin.length);
   for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
   return out;
@@ -593,6 +654,12 @@ function decode(bytes) {
 var S = {
   view: 'inventory',
   invKind: 0,
+  /* 56 §4's LayerMask, all five on. SESSION state, never graph data -- 56 §0's
+     governing rule allows the diagram exactly two view-local values, the
+     pan/zoom transform and this one, and everything else must terminate in an
+     op against the graph. It is deliberately not journalled and not exported:
+     which layers you were looking at is not a fact about the network. */
+  layers: LAYERS_ALL,
   sel: null,
   face: 'meaning',
   inv: null,
@@ -620,6 +687,23 @@ var S = {
   /* The last refused hand-add, shown in the equipment sheet where the values
      that caused it are still typed in. Cleared by the next success. */
   equipError: null,
+  /* THE JOURNAL. Every op the operator performed, in order, each with the clock
+     and entropy that produced it -- which is what makes replay give byte-
+     identical ids rather than merely equivalent ones.
+
+     This is the saved workspace. NOT the expanded model: saving the model was
+     measured at +235,926 wasm bytes and breaks the size ceiling, while this
+     costs nothing because the page already composes every frame below and, until
+     now, threw them away. It is also 14x smaller on disk, it survives a schema
+     change (the ops re-derive; a serialised graph does not), and it is an op log,
+     which `75` §2.4 names as the only shape multi-writer collaboration can ever
+     carry.
+
+     A PASTE ENTRY HOLDS THE REDACTED TEXT, NEVER THE RAW PASTE. The module hands
+     it back in the FACE_CAPTURE row for exactly this reason: journalling what
+     the operator actually typed would write their pre-shared keys into the
+     export file. Invariant 3. */
+  journal: [],
   boot: null,
   msg: ''
 };
@@ -633,6 +717,7 @@ function sourceWords() {
      held, so this estate may well contain pasted devices too, and a word that
      claimed otherwise would be the masthead lying about provenance. */
   if (S.source === 'hand') return 'includes hand-entered equipment';
+  if (S.source === 'imported') return 'opened from a workspace file';
   return 'no workspace loaded';
 }
 
@@ -990,7 +1075,8 @@ function commitField(input) {
   var valBytes = new TextEncoder().encode(value);
   var req = new Uint8Array(30 + idBytes.length + valBytes.length);
   var dv = new DataView(req.buffer);
-  dv.setBigUint64(0, BigInt(Date.now()), true);
+  var at = Date.now();
+  dv.setBigUint64(0, BigInt(at), true);
   req.set(ent, 8);
   dv.setUint32(24, key, true);
   dv.setUint16(28, idBytes.length, true);
@@ -1000,6 +1086,7 @@ function commitField(input) {
   var reply = call(OP_FIELD_SET, req);
   var bad = replyProblem(reply);
   if (bad) { foot(bad); renderShell(); return; }
+  S.journal.push({ op: 'field', at: at, ent: b64(ent), id: S.sel, key: key, value: value });
   foot('changed');
   postElement(S.sel);
   loadKind(S.invKind);
@@ -1016,13 +1103,15 @@ function removeSelected() {
   if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return; }
   var idBytes = new TextEncoder().encode(S.sel);
   var req = new Uint8Array(24 + idBytes.length);
-  new DataView(req.buffer).setBigUint64(0, BigInt(Date.now()), true);
+  var at = Date.now();
+  new DataView(req.buffer).setBigUint64(0, BigInt(at), true);
   req.set(ent, 8);
   req.set(idBytes, 24);
 
   var reply = call(OP_ELEMENT_REMOVE, req);
   var bad = replyProblem(reply);
   if (bad) { foot(bad); renderShell(); return; }
+  S.journal.push({ op: 'remove', at: at, ent: b64(ent), id: S.sel });
   var gone = S.sel;
   S.sel = null;
   S.element = null;
@@ -1189,10 +1278,196 @@ function renderShell() {
 function renderFact() {
   var host = $('factBody');
   clear(host);
-  if (S.view === 'inventory') renderInventory(host);
+  if (S.view === 'diagram') renderDiagram(host);
+  else if (S.view === 'inventory') renderInventory(host);
   else { var p = el('div', 'pad'); unposted(p, S.view, UNBUILT); host.appendChild(p); }
   roveScan(host);
   roveScan($('band'));
+}
+
+/* --- the diagram ---------------------------------------------------------- */
+
+var SVGNS = 'http://www.w3.org/2000/svg';
+function sEl(tag, attrs) {
+  var n = document.createElementNS(SVGNS, tag), k;
+  for (k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) n.setAttribute(k, attrs[k]);
+  return n;
+}
+
+/* The five layer toggles. Drawn BEFORE anything that can return early, because
+   a mask with every layer off draws no boxes, and a control strip that
+   disappeared with the picture would leave the operator no way back. */
+function layerStrip(host) {
+  var strip = el('div', 'strip');
+  /* The STATE leads, before the buttons, and the explanation trails. The strip
+     wraps on a narrow column, and what must never end up orphaned on the second
+     line is which layers are on -- a filter you cannot read is a filter that
+     gets blamed on the parser. */
+  var lab = el('span', 'lab', 'layer · ' + layerWords());
+  strip.appendChild(lab);
+  LAYERS.forEach(function (L) {
+    var b = el('button', null, L[1]);
+    b.type = 'button';
+    b.setAttribute('data-layer', String(L[0]));
+    b.setAttribute('aria-pressed', String((S.layers & L[0]) !== 0));
+    strip.appendChild(b);
+  });
+  strip.appendChild(el('span', 'lab', 'an element in any active layer is drawn'));
+  var p = el('div', 'pad');
+  p.appendChild(strip);
+  host.appendChild(p);
+  return lab;
+}
+
+/* The mask in words. `56` §5.2 G10 is the release valve — anything the picture
+   cannot say, the band says in three lowercase words. */
+function layerWords() {
+  if (S.layers === LAYERS_ALL) return 'all five';
+  if (S.layers === 0) return 'none';
+  var on = [];
+  LAYERS.forEach(function (L) { if (S.layers & L[0]) on.push(L[1]); });
+  return on.join(' · ');
+}
+
+/* The page DRAWS; it does not lay out. Every coordinate here came from
+   fathom-layout in the module (`41` §750: layout runs in the core, because it
+   must be deterministic and because the CLI's SVG export shares it). If a box
+   moves, the graph changed — not the renderer.
+
+   And a LAYER TOGGLE IS NOT A CHANGE. 56 §3.6: one layout, computed over the
+   union of all layers, filtered for drawing. The module returns the union's
+   canvas whatever the mask, so the viewBox below is identical across every
+   toggle and every surviving box keeps its coordinates. 56 §11 row 6 is the
+   defect that prevents: a picture that rearranges under a toggle, after which
+   "users stop using layer toggles within a week." */
+function renderDiagram(host) {
+  if (!S.loaded) {
+    var p0 = el('div', 'pad');
+    unposted(p0, 'diagram', 'paste a config or add equipment, and it will be drawn here.');
+    host.appendChild(p0);
+    return;
+  }
+  var maskLabel = layerStrip(host);
+  var reply = call(OP_DIAGRAM, new Uint8Array([S.layers]));
+  var bad = replyProblem(reply);
+  if (bad) {
+    var pe = el('div', 'pad');
+    unposted(pe, 'diagram', bad);
+    host.appendChild(pe);
+    return;
+  }
+
+  var canvas = null, boxes = [], lines = [];
+  for (var i = 0; i < reply.rows.length; i++) {
+    var r = reply.rows[i];
+    if (r.role === FACE_CANVAS) canvas = r;
+    else if (r.role === FACE_BOX) boxes.push(r);
+    else if (r.role === FACE_LINE) lines.push(r);
+  }
+
+  /* The module reports the mask it actually applied, and the page prints THAT
+     rather than what it believes it sent. A picture and its toggles that can
+     disagree will, and the disagreement is invisible. */
+  var maskBack = canvas ? canvas.s[2] : '';
+  var hidBoxes = canvas ? (canvas.s[3] || '0') : '0';
+  var hidLines = canvas ? (canvas.s[4] || '0') : '0';
+  var untabled = canvas ? (canvas.s[5] || '0') : '0';
+  maskLabel.textContent = 'layer · ' + layerWords() + ' · ' + hidBoxes + ' hidden' +
+    (maskBack === String(S.layers) ? '' : ' · MASK MISMATCH ' + maskBack);
+
+  if (!boxes.length) {
+    var pn = el('div', 'pad');
+    unposted(pn, 'diagram', S.layers === 0
+      ? 'every layer is off, so nothing is drawn. Turn one on above.'
+      : 'nothing to draw yet.');
+    host.appendChild(pn);
+    return;
+  }
+
+  var w = parseInt(canvas ? canvas.s[0] : '0', 10) || 0;
+  var h = parseInt(canvas ? canvas.s[1] : '0', 10) || 0;
+  var wrap = el('div', 'dwrap');
+  var svg = sEl('svg', {
+    viewBox: '0 0 ' + w + ' ' + h,
+    width: w, height: h,
+    role: 'img',
+    'aria-label': 'Diagram of the estate: ' + boxes.length + ' objects. Layers: ' + layerWords()
+  });
+
+  /* Lines first, so boxes sit on top of them. Containment is drawn quieter than
+     a reference: "this port is on that device" is structure, "this tunnel binds
+     that interface" is a fact about the network. `51` §9 reserves `dashed` for
+     PROPOSED elements, so containment is thin-and-muted, never dashed. */
+  for (var li = 0; li < lines.length; li++) {
+    var l = lines[li];
+    var pts = l.s[4];
+    if (!pts) continue;
+    var d = '', parts = pts.split(' ');
+    for (var pi = 0; pi < parts.length; pi++) {
+      var xy = parts[pi].split(',');
+      d += (pi === 0 ? 'M' : 'L') + xy[0] + ' ' + xy[1] + ' ';
+    }
+    var path = sEl('path', {
+      d: d,
+      fill: 'none',
+      class: l.s[3] === '1' ? 'dline dcontain' : 'dline dref'
+    });
+    var t = sEl('title');
+    t.textContent = l.s[2];
+    path.appendChild(t);
+    svg.appendChild(path);
+  }
+
+  for (var bi = 0; bi < boxes.length; bi++) {
+    var b = boxes[bi];
+    var bx = parseInt(b.s[3], 10), by = parseInt(b.s[4], 10);
+    var bw = parseInt(b.s[5], 10), bh = parseInt(b.s[6], 10);
+    var g = sEl('g', {
+      class: 'dbox' + (S.sel === b.s[0] ? ' dsel' : ''),
+      tabindex: '0',
+      role: 'button',
+      'aria-label': b.s[1] + ' ' + b.s[2]
+    });
+    g.setAttribute('data-post', b.s[0]);
+    g.appendChild(sEl('rect', { x: bx, y: by, width: bw, height: bh, rx: 0 }));
+    var kind = sEl('text', { x: bx + 10, y: by + 17, class: 'dkind' });
+    kind.textContent = b.s[1];
+    g.appendChild(kind);
+    var name = sEl('text', { x: bx + 10, y: by + 34, class: 'dname' });
+    /* Truncate in the renderer, never in the model: the full name is in the
+       inspector and in the title, so nothing is lost by clipping the picture. */
+    name.textContent = b.s[2].length > 24 ? b.s[2].slice(0, 23) + '…' : b.s[2];
+    g.appendChild(name);
+    var bt = sEl('title');
+    bt.textContent = b.s[1] + ' — ' + b.s[2];
+    g.appendChild(bt);
+    svg.appendChild(g);
+  }
+
+  wrap.appendChild(svg);
+  host.appendChild(wrap);
+
+  var note = el('div', 'note pad');
+  note.textContent = boxes.length + ' objects, ' + lines.length + ' links. Layers: ' +
+    layerWords() + ' — ' + hidBoxes + ' objects and ' + hidLines +
+    ' links hidden by the mask. Toggling a layer never moves a box: one layout ' +
+    'is computed over all five and the mask filters what is drawn (56 §3.6). ' +
+    'Computed layout — positions come from the model, not from dragging. ' +
+    'Grouping and hand-placement are not in this build.';
+  host.appendChild(note);
+
+  /* What this build cannot draw, said rather than implied. 56 §4.1 gives most
+     of these kinds a treatment -- a bracket, a band, a port stub, a badge, a
+     conduit -- and this build draws one form, a box. Faking a bracket with a
+     box would claim 56 §4.4's tier 1 for a zone that may be scattered. */
+  var gap = el('div', 'note pad');
+  gap.textContent = 'Layer membership is honoured; the treatments are not. ' +
+    'In 56 §4.1 zones are brackets, VLANs are bands, tunnels are conduits, ' +
+    'chassis are sub-rows, ports are stubs and routing protocols are badges — ' +
+    'each is drawn here as the box it is.' +
+    (untabled === '0' ? '' : ' ' + untabled + ' of the objects above have no row in ' +
+     'that table at all, so they are drawn at every layer rather than guessed at.');
+  host.appendChild(gap);
 }
 
 function renderMeaning() {
@@ -1276,6 +1551,16 @@ document.addEventListener('click', function (ev) {
   }
   if ((n = seekAttr(ev.target, 'data-kind'))) {
     loadKind(parseInt(n.getAttribute('data-kind'), 10));
+    render();
+    return;
+  }
+  /* A layer toggle changes one bit of session state and redraws. It runs no op
+     against the graph and journals nothing -- 56 §0: which layers are on is not
+     a fact about the network, and a toggle that wrote to the workspace would be
+     the picture becoming the data structure. */
+  if ((n = seekAttr(ev.target, 'data-layer'))) {
+    S.layers ^= parseInt(n.getAttribute('data-layer'), 10);
+    foot('layers · ' + layerWords());
     render();
     return;
   }
@@ -1385,7 +1670,8 @@ function runPaste() {
 
   var body = new TextEncoder().encode(text);
   var req = new Uint8Array(24 + body.length);
-  new DataView(req.buffer).setBigUint64(0, BigInt(Date.now()), true);
+  var at = Date.now();
+  new DataView(req.buffer).setBigUint64(0, BigInt(at), true);
   req.set(ent, 8);
   req.set(body, 24);
 
@@ -1402,6 +1688,21 @@ function runPaste() {
     renderPasteError();
     renderShell();
     return;
+  }
+
+  /* Journal the REDACTED capture, never `text` -- which is the raw thing the
+     operator pasted and may hold a pre-shared key. See S.journal. */
+  var cap = null;
+  for (var ci = 0; ci < reply.rows.length; ci++) {
+    if (reply.rows[ci].role === FACE_CAPTURE) { cap = reply.rows[ci].s[0]; break; }
+  }
+  if (cap === null) {
+    /* Refuse rather than fall back to `text`. A module too old to send the
+       capture row is a module whose paste this page must not journal, because
+       the only thing it could journal instead is the unredacted paste. */
+    foot('this module does not return the redacted capture — the paste was read but is not saveable');
+  } else {
+    S.journal.push({ op: 'paste', at: at, ent: b64(ent), text: cap });
   }
 
   S.pasteError = null;
@@ -1421,6 +1722,12 @@ function runPaste() {
   setPaste(false);
   S.view = 'inventory';
   render();
+}
+
+/* A module with no estate held. See boot(). */
+function wasmReset() {
+  if (!wasmModule) return;
+  wasm = new WebAssembly.Instance(wasmModule, {}).exports;
 }
 
 $('tabPaste').addEventListener('click', function () { setPaste(!pOpen); });
@@ -1526,15 +1833,21 @@ function runEquip() {
 
   var req = new Uint8Array(24 + 1 + total);
   var dv = new DataView(req.buffer);
-  dv.setBigUint64(0, BigInt(Date.now()), true);
+  var at = Date.now();
+  dv.setBigUint64(0, BigInt(at), true);
   req.set(ent, 8);
   req[24] = parts.length;
-  var at = 25;
+  /* `off`, not `at`. `at` is the clock a few lines above, and `var` is
+     function-scoped, so a second `var at` here is the SAME binding -- the frame
+     was built correctly but the journal then recorded the byte cursor as the
+     timestamp, and replay minted different ids from it. Caught by the round-trip
+     test, which is the only thing that could have caught it. */
+  var off = 25;
   for (var m = 0; m < parts.length; m++) {
-    dv.setUint16(at, parts[m][0], true);
-    dv.setUint16(at + 2, parts[m][1].length, true);
-    req.set(parts[m][1], at + 4);
-    at += 4 + parts[m][1].length;
+    dv.setUint16(off, parts[m][0], true);
+    dv.setUint16(off + 2, parts[m][1].length, true);
+    req.set(parts[m][1], off + 4);
+    off += 4 + parts[m][1].length;
   }
 
   var reply = call(OP_EQUIP_ADD, req);
@@ -1550,6 +1863,7 @@ function runEquip() {
     return;
   }
 
+  S.journal.push({ op: 'equip', at: at, ent: b64(ent), fields: sent });
   S.equipError = null;
   S.source = 'hand';
   S.loaded = true;
@@ -1575,6 +1889,175 @@ function renderEquipError() {
 
 $('tabEquip').addEventListener('click', function () { setEquip(!eOpen); });
 $('eRun').addEventListener('click', runEquip);
+
+/* --- export and import ---------------------------------------------------- */
+
+/* Entropy is 16 bytes and must round-trip exactly, so it travels base64 rather
+   than as an array of numbers -- shorter, and it cannot be silently mangled by
+   a JSON number. */
+function b64(bytes) {
+  var s = '';
+  for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+function unb64(text) {
+  var raw = atob(text), out = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+var EXPORT_MAGIC = 'fathom-journal';
+var EXPORT_VERSION = 1;
+
+/* What a workspace file IS: the ops, in order, each with the clock and entropy
+   that produced it. Replaying them rebuilds the estate exactly, including the
+   ids, because the module is deterministic given those two inputs.
+
+   The banner is not decoration. This file is not encrypted yet, and a file that
+   does not say so is a file somebody will treat as if it were. */
+function exportJournal() {
+  if (!S.journal.length) { foot('nothing to export yet'); renderShell(); return; }
+  var doc = {
+    magic: EXPORT_MAGIC,
+    version: EXPORT_VERSION,
+    warning: 'NOT ENCRYPTED. This file describes a network: hostnames, addresses, ' +
+             'interfaces, zones and tunnels. Device passwords and pre-shared keys are ' +
+             'NOT in it — Fathom destroys those when a config is pasted, before anything ' +
+             'is stored. Treat it as you would a network diagram.',
+    ops: S.journal
+  };
+  var text = JSON.stringify(doc, null, 2);
+  var blob = new Blob([text], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = el('a');
+  a.href = url;
+  a.download = 'fathom-workspace.fathom-journal.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  /* Revoke on the next turn of the loop: revoking synchronously can race the
+     download on some browsers. */
+  setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  foot('exported ' + plural(S.journal.length, 'step', 'steps'));
+  renderShell();
+}
+
+/* Replay. Each op goes back through the SAME opcode that made it, with its
+   original clock and entropy, so the rebuilt estate is byte-identical rather
+   than merely equivalent.
+
+   Replay REPLACES what is held: importing is opening a workspace, not merging
+   two. Merging is `70` §6's correlation requirement and nothing implements it;
+   pretending otherwise here would silently invent facts. */
+function importJournal(text) {
+  var doc;
+  try { doc = JSON.parse(text); }
+  catch (e) { foot('that file is not a Fathom workspace — it is not JSON'); renderShell(); return; }
+  if (!doc || doc.magic !== EXPORT_MAGIC) {
+    foot('that file is not a Fathom workspace');
+    renderShell();
+    return;
+  }
+  if (doc.version !== EXPORT_VERSION) {
+    foot('that workspace was written by a different version of Fathom (' + doc.version + ')');
+    renderShell();
+    return;
+  }
+  var ops = doc.ops || [];
+  if (!ops.length) { foot('that workspace is empty'); renderShell(); return; }
+
+  /* Start from nothing. The first op is normally a paste, which replaces the
+     estate anyway; starting clean makes an import that begins with a hand-added
+     device behave the same way. */
+  wasmReset();
+
+  var enc = new TextEncoder();
+  for (var i = 0; i < ops.length; i++) {
+    var o = ops[i], ent = unb64(o.ent), reply, req, dv;
+    if (o.op === 'paste') {
+      var body = enc.encode(o.text);
+      req = new Uint8Array(24 + body.length);
+      new DataView(req.buffer).setBigUint64(0, BigInt(o.at), true);
+      req.set(ent, 8); req.set(body, 24);
+      reply = call(OP_PASTE, req);
+    } else if (o.op === 'equip') {
+      var parts = [], total = 0;
+      for (var k = 0; k < o.fields.length; k++) {
+        var fb = enc.encode(o.fields[k][1]);
+        parts.push([o.fields[k][0], fb]);
+        total += 4 + fb.length;
+      }
+      req = new Uint8Array(24 + 1 + total);
+      dv = new DataView(req.buffer);
+      dv.setBigUint64(0, BigInt(o.at), true);
+      req.set(ent, 8);
+      req[24] = parts.length;
+      var at2 = 25;
+      for (var m = 0; m < parts.length; m++) {
+        dv.setUint16(at2, parts[m][0], true);
+        dv.setUint16(at2 + 2, parts[m][1].length, true);
+        req.set(parts[m][1], at2 + 4);
+        at2 += 4 + parts[m][1].length;
+      }
+      reply = call(OP_EQUIP_ADD, req);
+    } else if (o.op === 'field') {
+      var ib = enc.encode(o.id), vb = enc.encode(o.value);
+      req = new Uint8Array(30 + ib.length + vb.length);
+      dv = new DataView(req.buffer);
+      dv.setBigUint64(0, BigInt(o.at), true);
+      req.set(ent, 8);
+      dv.setUint32(24, o.key, true);
+      dv.setUint16(28, ib.length, true);
+      req.set(ib, 30); req.set(vb, 30 + ib.length);
+      reply = call(OP_FIELD_SET, req);
+    } else if (o.op === 'remove') {
+      var rb = enc.encode(o.id);
+      req = new Uint8Array(24 + rb.length);
+      new DataView(req.buffer).setBigUint64(0, BigInt(o.at), true);
+      req.set(ent, 8); req.set(rb, 24);
+      reply = call(OP_ELEMENT_REMOVE, req);
+    } else {
+      foot('step ' + (i + 1) + ' is a kind of change this build does not know (' + o.op + ')');
+      renderShell();
+      return;
+    }
+    var bad = replyProblem(reply);
+    if (bad) {
+      /* Stop at the first refusal and say which step. Continuing would build a
+         workspace that is neither the saved one nor an empty one, and the
+         operator would have no way to tell which. */
+      foot('step ' + (i + 1) + ' of ' + ops.length + ' was refused: ' + bad);
+      renderShell();
+      return;
+    }
+  }
+
+  S.journal = ops;
+  S.paste = null;
+  S.pasteError = null;
+  S.equipError = null;
+  S.sel = null; S.element = null; S.equipment = null;
+  S.source = 'imported';
+  S.loaded = true;
+  S.invKind = 0;
+  loadKind(0);
+  foot('opened a workspace — ' + plural(ops.length, 'step', 'steps') + ' replayed');
+  S.view = 'inventory';
+  render();
+}
+
+$('tabExport').addEventListener('click', exportJournal);
+$('tabImport').addEventListener('click', function () { $('importFile').click(); });
+$('importFile').addEventListener('change', function (ev) {
+  var f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  var r = new FileReader();
+  r.onload = function () { importJournal(String(r.result)); };
+  r.onerror = function () { foot('could not read that file'); renderShell(); };
+  r.readAsText(f);
+  /* Clear it, so choosing the same file twice fires `change` twice. */
+  ev.target.value = '';
+});
 
 /* --- keyboard ------------------------------------------------------------- */
 document.addEventListener('keydown', function (e) {
@@ -1635,8 +2118,26 @@ window.addEventListener('resize', measure);
    ------------------------------------------------------------------------- */
 function boot() {
   measure();
-  WebAssembly.instantiate(moduleBytes(), {}).then(function (r) {
+  WebAssembly.instantiate(b64bytes(FATHOM_WASM_B64), {}).then(function (r) {
+    /* Keep the COMPILED module, not just the instance. Opening a workspace needs
+       a module with no estate in it, and a fresh instance is the honest way to
+       get one -- there is no reset opcode, and adding one would be a second way
+       to reach a state the constructor already reaches. `new Instance` is
+       synchronous over an already-compiled module, so the replay loop does not
+       have to become async. */
+    wasmModule = r.module;
     wasm = r.instance.exports;
+
+    /* The dictionary, handed in before anything can be pasted. It is a boot
+       step and not a lazy one: a paste that arrives first is refused with
+       ERR_NO_DICTIONARY (14), and the operator would be told their config was
+       unreadable when in fact the page had not finished starting. Doing it here
+       means that refusal is a bug report, never something a user can hit. */
+    var dictReply = call(OP_DICT, b64bytes(FATHOM_DICT_B64));
+    if (dictReply.kind !== 'empty') {
+      S.boot = replyProblem(dictReply) || 'the statement dictionary did not load';
+    }
+
     /* 45 §9.1: fixture loading is one URL parameter, dev-build only. */
     if (new URLSearchParams(location.search).get('fixture') === 'demo-estate') {
       var reply = call(OP_ESTATE_DEMO, new Uint8Array(0));

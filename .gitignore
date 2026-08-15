@@ -1,1 +1,10 @@
 /target
+
+# Scratch git worktrees created by tooling for parallel agent runs. These are
+# full checkouts of this repository -- 30 MB at the time of writing, and the
+# working copies of work that is still in progress. Committing them would put a
+# copy of the tree inside the tree.
+#
+# Scoped to `worktrees/` rather than all of `.claude/`, so that if project
+# configuration ever lives beside them it is still tracked.
+.claude/worktrees/

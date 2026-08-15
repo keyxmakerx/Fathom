@@ -13,11 +13,11 @@ use fathom_find::Finder;
 use crate::protocol::{
     self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_EQUIP_FRAME, ERR_EQUIP_STORE,
     ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED,
-    ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
+    ERR_NO_DICTIONARY, ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
 use crate::{
-    OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_ESTATE_DEMO, OP_FIELD_SET,
-    OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY,
+    OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_ESTATE_DEMO,
+    OP_FIELD_SET, OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY,
 };
 
 pub struct Shell {
@@ -26,9 +26,9 @@ pub struct Shell {
     /// `OP_ESTATE_DEMO` or `OP_PASTE` succeeds; the only workspace this build
     /// ever holds.
     estate: Option<fathom_graph::Graph>,
-    /// The junos-srx statement dictionary, compiled in and built on first
-    /// paste. Held rather than rebuilt because every paste needs the same one
-    /// and building it parses six YAML files and runs the WO-03 §4.7 gates.
+    /// The junos-srx statement dictionary, handed in by the host over
+    /// `OP_DICT` and held for the module's lifetime. Absent until that call
+    /// succeeds, which is why `OP_PASTE` can refuse with `ERR_NO_DICTIONARY`.
     dict: Option<fathom_ingest::dict::Dictionary>,
 }
 
@@ -49,11 +49,19 @@ impl Shell {
                 Err((code, detail)) => protocol::encode_error(code, &detail),
             },
             OP_QUERY => self.query(req),
+            OP_DICT => match crate::dictframe::load(req) {
+                Ok(d) => {
+                    self.dict = Some(d);
+                    Vec::new()
+                }
+                Err((code, detail)) => protocol::encode_error(code, &detail),
+            },
             OP_ESTATE_DEMO => self.estate_demo(req),
             OP_PASTE => self.paste(req),
             OP_EQUIP_ADD => self.equip_add(req),
             OP_FIELD_SET => self.field_set(req),
             OP_ELEMENT_REMOVE => self.element_remove(req),
+            OP_DIAGRAM => self.diagram(req),
             OP_INV_ROWS => self.inv_rows(req),
             OP_ELEMENT => self.element(req),
             OP_EQUIPMENT => self.equipment(req),
@@ -120,22 +128,17 @@ impl Shell {
         let entropy = u128::from_le_bytes(entropy);
         let text = req.get(PREFIX..).unwrap_or_default();
 
-        if self.dict.is_none() {
-            match fathom_ingest::dict::Dictionary::embedded() {
-                Ok(d) => self.dict = Some(d),
-                Err(e) => {
-                    return protocol::encode_error(
-                        ERR_CORPUS_LOAD,
-                        &format!(
-                            "the compiled-in dictionary failed to load: {} line {}: {}",
-                            e.file, e.line, e.message
-                        ),
-                    )
-                }
-            }
-        }
+        // No fallback, by design. Until 2026-08-15 this built a compiled-in
+        // dictionary here; the bytes moved to the page (`crate::dictframe`) and
+        // what is left is a typed refusal. It is stated rather than tolerated
+        // because the tolerant version — carry on with an empty dictionary —
+        // binds nothing, and the operator is then told their config is
+        // unrecognised when in fact the page never finished booting.
         let Some(dict) = self.dict.as_ref() else {
-            return protocol::encode_error(ERR_CORPUS_LOAD, "no dictionary");
+            return protocol::encode_error(
+                ERR_NO_DICTIONARY,
+                "no statement dictionary is loaded: OP_DICT must succeed before OP_PASTE",
+            );
         };
 
         let ingest = match fathom_ingest::ingest(text, dict) {
@@ -577,6 +580,64 @@ impl Shell {
             .ok_or_else(|| protocol::encode_error(ERR_NO_ELEMENT, display))
     }
 
+    /// `OP_DIAGRAM`: the whole estate, laid out. Zero request bytes, or one
+    /// carrying `56` §4's 5-bit `LayerMask`.
+    ///
+    /// A read, like the other face opcodes: it computes positions and returns
+    /// them, and holds nothing. Re-asking after any change is how the page
+    /// refreshes, which is correct because the layout is a pure function of the
+    /// graph and so cannot drift from it.
+    ///
+    /// **Zero bytes is not the same request as `0b11111`.** With no mask the
+    /// reply is the union scene with no layer projection applied at all — what
+    /// every caller before layers existed meant, unchanged. With all five bits
+    /// set it is the union scene projected through §4.1, which draws two kinds
+    /// fewer: `AddressObject` and `Application` are `— (inspector only)` in that
+    /// table. Collapsing the two would make an old caller silently lose
+    /// elements to a feature it never asked for.
+    ///
+    /// The mask is applied AFTER layout, never as an input to it, so a toggle
+    /// cannot move a box (`56` §3.6, and §11 row 6 for what happens if it can).
+    /// `fathom_layout::lay_out` takes no mask, which is how that is enforced
+    /// rather than merely intended.
+    fn diagram(&mut self, req: &[u8]) -> Vec<u8> {
+        let mask = match req {
+            [] => None,
+            [bits] => match fathom_layout::layers::LayerMask::from_bits(*bits) {
+                Some(m) => Some(m),
+                None => {
+                    return protocol::encode_error(
+                        ERR_BAD_FRAME,
+                        &format!(
+                            "layer mask {bits:#010b} sets a bit above the {} layers 56 §4 declares",
+                            fathom_layout::layers::LayerMask::WIDTH
+                        ),
+                    )
+                }
+            },
+            other => {
+                return protocol::encode_error(
+                    ERR_BAD_FRAME,
+                    &format!(
+                        "OP_DIAGRAM takes no request or one mask byte; got {} bytes",
+                        other.len()
+                    ),
+                )
+            }
+        };
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        let union = fathom_layout::lay_out(estate);
+        match mask {
+            None => protocol::encode_diagram(&union, None),
+            Some(m) => {
+                let (drawn, filter) = fathom_layout::layers::filter(&union, m);
+                protocol::encode_diagram(&drawn, Some(&filter))
+            }
+        }
+    }
+
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {
         // The kind byte indexes `InvKind::ALL` — it is not a hand-written table.
         // It was one until 2026-08-10, and when the strip grew from three kinds
@@ -927,6 +988,7 @@ fn paste_reply(
         ],
         residue: &residue,
         unresolved: &unresolved,
+        capture: text,
     })
 }
 
@@ -1049,6 +1111,7 @@ fn equip_reply_text(id: &str, written: &str) -> Vec<u8> {
         summary: [id, written, "", "", "", id, "", ""],
         residue: &[],
         unresolved: &[],
+        capture: "",
     })
 }
 
@@ -1079,13 +1142,26 @@ fn le16(b: &[u8], at: usize) -> [u8; 16] {
 }
 
 /// A cursor over the request bytes that refuses every short read.
-struct Cursor<'a> {
+///
+/// `pub(crate)` so `dictframe` can decode `OP_DICT`'s frame with the same
+/// reader `OP_INIT`'s uses. Two frames of identical shape read by two cursors
+/// is how one of them ends up with an off-by-one nobody notices.
+pub(crate) struct Cursor<'a> {
     bytes: &'a [u8],
     at: usize,
 }
 
 impl<'a> Cursor<'a> {
-    fn u8(&mut self) -> Result<u8, (u16, String)> {
+    pub(crate) fn new(bytes: &'a [u8]) -> Cursor<'a> {
+        Cursor { bytes, at: 0 }
+    }
+
+    /// How far the cursor has read — the trailing-bytes check both frames make.
+    pub(crate) fn at(&self) -> usize {
+        self.at
+    }
+
+    pub(crate) fn u8(&mut self) -> Result<u8, (u16, String)> {
         if self.at >= self.bytes.len() {
             return Err((
                 ERR_BAD_FRAME,
@@ -1097,7 +1173,7 @@ impl<'a> Cursor<'a> {
         Ok(b)
     }
 
-    fn u32(&mut self) -> Result<u32, (u16, String)> {
+    pub(crate) fn u32(&mut self) -> Result<u32, (u16, String)> {
         if self.at + 4 > self.bytes.len() {
             return Err((
                 ERR_BAD_FRAME,
@@ -1114,7 +1190,7 @@ impl<'a> Cursor<'a> {
         Ok(v)
     }
 
-    fn text(&mut self, len: u32) -> Result<String, (u16, String)> {
+    pub(crate) fn text(&mut self, len: u32) -> Result<String, (u16, String)> {
         let len = len as usize;
         let end = self.at.checked_add(len).ok_or_else(|| {
             (
@@ -1143,7 +1219,7 @@ impl<'a> Cursor<'a> {
 /// with its section directory so a load error reads the way `load_corpus`'s
 /// does.
 fn parse_init_frame(req: &[u8]) -> Result<Vec<SourceFile>, (u16, String)> {
-    let mut c = Cursor { bytes: req, at: 0 };
+    let mut c = Cursor::new(req);
     let file_count = c.u32()?;
     let mut files: Vec<SourceFile> = Vec::new();
     for _ in 0..file_count {
