@@ -52,50 +52,69 @@ pub(crate) fn write_field(
     record: fathom_graph::ProvenanceRecord,
 ) -> Result<(), WriteError> {
     let key = assertion.key;
-    match &assertion.value {
-        BoundValue::Identifier(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::InterfaceName(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::AuthMethod(v) => graph.set_field(element, key, *v, record),
-        BoundValue::DhGroup(v) => graph.set_field(element, key, *v, record),
-        BoundValue::IntegrityAlgorithm(v) => graph.set_field(element, key, *v, record),
-        BoundValue::EncryptionAlgorithm(v) => graph.set_field(element, key, *v, record),
-        BoundValue::Seconds(v) => graph.set_field(element, key, *v, record),
-        BoundValue::Kilobytes(v) => graph.set_field(element, key, *v, record),
-        BoundValue::IkeVersion(v) => graph.set_field(element, key, *v, record),
-        BoundValue::IpPrefix(v) => graph.set_field(element, key, *v, record),
-        BoundValue::InterfaceAddress(v) => graph.set_field(element, key, *v, record),
-        BoundValue::Secret(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::Peer(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::U8(v) => graph.set_field(element, key, *v, record),
-        BoundValue::U32(v) => graph.set_field(element, key, *v, record),
-        BoundValue::IkePolicyMode(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::IpsecProposalProtocol(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::EstablishTunnels(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::DfBit(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::AddressFamily(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::FamilySet(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::HostServiceSet(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::Text(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::Fqdn(v) => graph.set_field(element, key, v.clone(), record),
-        // Added 2026-08-15 with the branch-coverage widening and the routing
-        // slice, reconciled into one arm list. The match is
-        // exhaustive on purpose: a new `BoundValue` variant that ingest can
-        // produce and the weld cannot store would be a value parsed, accepted
-        // and then dropped between the two crates, which is exactly the silent
-        // loss `14`'s preamble forbids. Compilation fails here instead.
-        BoundValue::Bool(v) => graph.set_field(element, key, *v, record),
-        BoundValue::VlanId(v) => graph.set_field(element, key, *v, record),
-        BoundValue::TzName(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::IpAddr(v) => graph.set_field(element, key, *v, record),
-        BoundValue::U16(v) => graph.set_field(element, key, *v, record),
-        BoundValue::HostProtocolSet(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::Ip4Addr(v) => graph.set_field(element, key, *v, record),
-        BoundValue::Asn(v) => graph.set_field(element, key, *v, record),
-        BoundValue::OspfAreaId(v) => graph.set_field(element, key, *v, record),
-        BoundValue::Bandwidth(v) => graph.set_field(element, key, *v, record),
-        BoundValue::RoutingProtocolProtocol(v) => graph.set_field(element, key, v.clone(), record),
-        BoundValue::ProtocolAdjacencyNetworkType(v) => {
-            graph.set_field(element, key, v.clone(), record)
-        }
-    }
+    // ONE call, through the boxed door, rather than one `set_field::<T>` per
+    // variant.
+    //
+    // WHY, AND IT IS BYTES. `Graph::set_field` is generic over the payload, so
+    // every arm below used to monomorphise the whole of it -- the slot lookup,
+    // the intern, the archive, the B-tree insert and the journal record. The
+    // byte census measured 46 copies costing 26 217 bytes of a module with
+    // 13 679 to spare, and each of this round's ten new value types was
+    // minting another ~550. Routed through `set_field_boxed` the copies
+    // collapse to one and a new value type costs its own parser and nothing
+    // else. Measured on this tree: 910 421 -> the figure in the commit
+    // message, with both dictionary widenings still whole.
+    //
+    // THE TYPE CHECK IS NOT WEAKENED, ONLY MOVED, which is `set_field_boxed`'s
+    // own stated contract: `set_field` compares `TypeId::of::<T>()` against
+    // `slot_type(key)` at compile time, `set_field_boxed` compares
+    // `(*value).type_id()` against the same `slot_type(key)` at run time, and
+    // a wrong box is the same `WriteError::WrongType` a wrong `T` was. The
+    // page's hand-authoring path has gone through that door since it landed.
+    // The `Box` is not new work either: `set_field` boxed the value anyway on
+    // the line that stored it.
+    //
+    // The match stays EXHAUSTIVE on purpose. A new `BoundValue` variant that
+    // ingest can produce and the weld cannot store would be a value parsed,
+    // accepted and then dropped between two crates -- the silent loss `14`'s
+    // preamble forbids. Compilation fails here instead.
+    let value: Box<dyn core::any::Any> = match &assertion.value {
+        BoundValue::Identifier(v) => Box::new(v.clone()),
+        BoundValue::InterfaceName(v) => Box::new(v.clone()),
+        BoundValue::AuthMethod(v) => Box::new(*v),
+        BoundValue::DhGroup(v) => Box::new(*v),
+        BoundValue::IntegrityAlgorithm(v) => Box::new(*v),
+        BoundValue::EncryptionAlgorithm(v) => Box::new(*v),
+        BoundValue::Seconds(v) => Box::new(*v),
+        BoundValue::Kilobytes(v) => Box::new(*v),
+        BoundValue::IkeVersion(v) => Box::new(*v),
+        BoundValue::IpPrefix(v) => Box::new(*v),
+        BoundValue::InterfaceAddress(v) => Box::new(*v),
+        BoundValue::Secret(v) => Box::new(v.clone()),
+        BoundValue::Peer(v) => Box::new(v.clone()),
+        BoundValue::U8(v) => Box::new(*v),
+        BoundValue::U32(v) => Box::new(*v),
+        BoundValue::IkePolicyMode(v) => Box::new(v.clone()),
+        BoundValue::IpsecProposalProtocol(v) => Box::new(v.clone()),
+        BoundValue::EstablishTunnels(v) => Box::new(v.clone()),
+        BoundValue::DfBit(v) => Box::new(v.clone()),
+        BoundValue::AddressFamily(v) => Box::new(v.clone()),
+        BoundValue::FamilySet(v) => Box::new(v.clone()),
+        BoundValue::HostServiceSet(v) => Box::new(v.clone()),
+        BoundValue::Text(v) => Box::new(v.clone()),
+        BoundValue::Fqdn(v) => Box::new(v.clone()),
+        BoundValue::Bool(v) => Box::new(*v),
+        BoundValue::VlanId(v) => Box::new(*v),
+        BoundValue::TzName(v) => Box::new(v.clone()),
+        BoundValue::IpAddr(v) => Box::new(*v),
+        BoundValue::U16(v) => Box::new(*v),
+        BoundValue::HostProtocolSet(v) => Box::new(v.clone()),
+        BoundValue::Ip4Addr(v) => Box::new(*v),
+        BoundValue::Asn(v) => Box::new(*v),
+        BoundValue::OspfAreaId(v) => Box::new(*v),
+        BoundValue::Bandwidth(v) => Box::new(*v),
+        BoundValue::RoutingProtocolProtocol(v) => Box::new(v.clone()),
+        BoundValue::ProtocolAdjacencyNetworkType(v) => Box::new(v.clone()),
+    };
+    graph.set_field_boxed(element, key, value, record)
 }

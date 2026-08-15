@@ -18,6 +18,8 @@ use fathom_wasm::protocol::{decode_reply, FaceRowView, ReplyView, FACE_HEADER, F
 use fathom_wasm::shell::Shell;
 use fathom_wasm::{OP_INV_ROWS, OP_PASTE};
 
+mod common;
+
 /// 2026-08-08T00:00:00Z. A stored value, like every timestamp in this tree.
 const TS: u64 = 1_786_147_200_000;
 const ENTROPY: u128 = 0x0000_0000_0000_0000_2026;
@@ -58,7 +60,10 @@ fn face(reply: &[u8]) -> Vec<FaceRowView> {
 }
 
 fn pasted() -> Shell {
-    let mut shell = Shell::new();
+    // `booted_shell`, not `Shell::new`: since 2026-08-15 the dictionary is
+    // handed in by the page over `OP_DICT` rather than compiled into the
+    // module, and a shell that has not been given one refuses to paste at all.
+    let mut shell = common::booted_shell();
     let reply = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
     let rows = face(&reply);
     assert_eq!(

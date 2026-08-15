@@ -960,11 +960,32 @@ fn load_entry(
                     format!("`{id}`: `where.{name}` is empty, so the entry can never match"),
                 ));
             }
-            allowed.sort();
-            allowed.dedup();
+            // Deduplicated by a quadratic scan, and NEITHER this list nor the
+            // constraint list is sorted. Both were, for two lines, and the two
+            // lines cost 5 963 BYTES OF MODULE -- measured, by diffing the byte
+            // census function-for-function against a build without them.
+            // `Vec<String>::sort` and `Vec<(usize, Vec<String>)>::sort_by_key`
+            // each monomorphise the whole of `core::slice::sort` (drift,
+            // quicksort, stable_partition, smallsort) for their element type,
+            // and they were doing it for lists that hold one or two items.
+            //
+            // Nothing observable depends on either order: `constraints_hold`
+            // is an `all()` over an `any()` and the divergence point is a
+            // `min()`, all three order-independent. Invariant 9 asks for
+            // determinism in what is emitted, and the YAML's own order is
+            // already deterministic. Against 13 679 bytes of headroom, tidiness
+            // at 6 KB is not tidiness.
+            allowed.dedup_by(|a, b| a == b);
+            let mut i = 0;
+            while i < allowed.len() {
+                if allowed[..i].contains(&allowed[i]) {
+                    allowed.remove(i);
+                } else {
+                    i += 1;
+                }
+            }
             constraints.push((at, allowed));
         }
-        constraints.sort_by_key(|(at, _)| *at);
     }
 
     let mut nodes: Vec<NodeSpec> = Vec::new();
