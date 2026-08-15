@@ -91,6 +91,34 @@ fn release_wasm_builds_audits_and_fits() {
         "no export of any other kind"
     );
 
+    // --- fixture audit (2026-08-15) -----------------------------------------
+    //
+    // The demo estate is a development fixture and is worth 35,272 bytes — 4%
+    // of the ceiling — so it builds only under `fathom-inventory`'s off-by-
+    // default `demo-estate` feature. What keeps it out of THIS build is Cargo's
+    // resolver-2 rule that dev-dependency features are not unified into builds
+    // that are not building dev-dependencies. That is a resolver behaviour, and
+    // the whole 35 KB rests on it, so it is asserted here rather than believed:
+    // one `default-features`, one stray feature edge, or a resolver change puts
+    // the fixture back silently, with the size gate none the wiser while there
+    // is headroom to absorb it.
+    //
+    // The probes are the fixture's own string literals, and they were chosen by
+    // NEGATIVE CONTROL, not by inspection: both were confirmed present in a
+    // `--features demo-estate` build and absent from this one before this
+    // assertion was written. `Cedar Row` was tried as a third and dropped
+    // because it is in neither — a probe that cannot fail is not a guard. This
+    // is rule 0's discipline (a gate is tested against what it must catch)
+    // applied to a byte gate rather than a redaction gate.
+    for probe in ["Riverside CO", "demo estate — WO-08"] {
+        assert!(
+            !wasm.windows(probe.len()).any(|w| w == probe.as_bytes()),
+            "the demo estate is linked into the shipping module: found {probe:?}. \
+             Something enabled fathom-inventory's `demo-estate` feature in the \
+             module's normal dependency graph; it belongs to test targets only."
+        );
+    }
+
     // --- size gate (44 §5.2's hard ceiling, KB read as 1 000 bytes) ----------
     let size = wasm.len();
     assert!(

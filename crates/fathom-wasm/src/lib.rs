@@ -30,6 +30,14 @@ pub const OP_QUERY: u32 = 4;
 /// The inventory face's four opcodes (WO-08 §4.4). 41 §3.7's table holds
 /// 1–10; these take the next free numbers. A new call is a new opcode, never
 /// a changed one — 2, 3 and 5–10 stay refused by number.
+///
+/// **11 is reserved but not implemented by the shipping module.** The demo
+/// estate it loaded was a development fixture costing 35,095 bytes of `44`
+/// §5.2's ceiling, and it now builds only under the `demo-estate` feature,
+/// which only test targets enable. The number stays declared here — and stays
+/// unusable by anything else — because 41 §3.7's table is append-only: an
+/// opcode that once meant "load the demo estate" may never come to mean
+/// something else. Without the feature, a call to 11 returns `ERR_UNKNOWN_OP`.
 pub const OP_ESTATE_DEMO: u32 = 11;
 pub const OP_INV_ROWS: u32 = 12;
 pub const OP_ELEMENT: u32 = 13;

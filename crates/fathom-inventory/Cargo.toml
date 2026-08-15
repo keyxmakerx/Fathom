@@ -10,3 +10,37 @@ description = "The inventory face's projections: row sets, the element page, the
 fathom-id = { path = "../fathom-id" }
 fathom-ir = { path = "../fathom-ir" }
 fathom-graph = { path = "../fathom-graph" }
+
+# The demo estate is a development fixture (`45` §9.1's `?fixture=demo-estate`),
+# not product code, and it was costing 35,272 bytes of the WASM module —
+# measured 2026-08-15: 852,918 bytes before this change, 817,646 after, which is
+# 3.9% of `44` §5.2's 900,000-byte ceiling spent so a developer need not paste a
+# config.
+# The product has had a real input since the on-ramp landed: paste, hand entry
+# and correction all work, so the fixture no longer buys anything a person
+# cannot get in two seconds.
+#
+# The feature is OFF by default, deliberately. Default-on with
+# `default-features = false` on the `fathom-wasm` side would have been one line
+# shorter and was rejected: it makes the shipped configuration the exceptional
+# one, so a single forgotten `default-features = false` anywhere in the module's
+# dependency graph puts 35 KB back silently. Off by default means the default IS
+# the shipped module and enabling the fixture is a deliberate act with a name.
+[features]
+demo-estate = []
+
+# A package depending on itself. This is the only way Cargo lets a package turn
+# one of its own features on for its own test targets, and it is load-bearing
+# here: `tests/projection.rs` and `src/demo.rs`'s three unit tests are built on
+# `demo_estate()`, so the fixture must leave the MODULE without leaving the
+# WORKSPACE. Verified 2026-08-15 to enable the feature for both the integration
+# test target and the lib's own `#[cfg(test)]` module (5 lib + 11 projection
+# tests, unchanged).
+#
+# It stays out of the shipping module because `resolver = "2"` (workspace
+# Cargo.toml) does not unify dev-dependency features into builds that are not
+# building dev-dependencies — and because that resolver behaviour is not merely
+# believed but ASSERTED: `fathom-wasm/tests/artifact_gates.rs` reads the built
+# module and fails if the fixture's own strings are in it.
+[dev-dependencies]
+fathom-inventory = { path = ".", features = ["demo-estate"] }
