@@ -514,3 +514,79 @@ fn an_unknown_kind_byte_is_still_refused() {
     let e = error(&shell.handle(OP_INV_ROWS, &[past_the_end]));
     assert_eq!(e.code, ERR_BAD_FRAME);
 }
+
+// --- the journal capture (2026-08-15) ----------------------------------------
+
+/// **Invariant 3, at the one boundary where the export file is decided.**
+///
+/// The page holds the RAW text the operator pasted. If it journalled that, the
+/// pre-shared key would go into the export file and into whatever folder the
+/// operator syncs it to. So the module hands back the text as the redaction gate
+/// left it, and this test is the reason that row exists.
+#[test]
+fn the_capture_row_carries_redacted_text_not_the_secret() {
+    let mut shell = Shell::new();
+    let reply = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
+    let rows = match decode_reply(&reply) {
+        Ok(ReplyView::FaceRows(r)) => r,
+        other => panic!("a paste answers with a face table, got {other:?}"),
+    };
+    let capture = rows
+        .iter()
+        .find(|r| r.role == fathom_wasm::protocol::FACE_CAPTURE)
+        .map(|r| r.strings[0].clone())
+        .expect("the paste reply carries the redacted capture");
+
+    assert!(
+        !capture.is_empty(),
+        "the capture row must carry the whole paste"
+    );
+    assert!(
+        !capture.contains("SuperSecret123"),
+        "THE PRE-SHARED KEY SURVIVED INTO THE CAPTURE. Journalling this would \
+         write it to the operator's export file. The capture must be the text \
+         the redaction gate produced, never the raw paste."
+    );
+    assert!(
+        capture.contains("set security ike gateway gw-hq address 198.51.100.10"),
+        "the capture must still carry the lines that are not secret, or replay \
+         would rebuild a smaller estate than the paste did"
+    );
+}
+
+/// Replaying the capture must rebuild the same estate. This is the property the
+/// whole journal route rests on: if the redacted text parses to something
+/// different, an exported workspace is not the workspace that was exported.
+#[test]
+fn replaying_the_capture_rebuilds_the_same_estate() {
+    let capture = {
+        let mut shell = Shell::new();
+        let reply = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
+        match decode_reply(&reply) {
+            Ok(ReplyView::FaceRows(r)) => r
+                .iter()
+                .find(|x| x.role == fathom_wasm::protocol::FACE_CAPTURE)
+                .map(|x| x.strings[0].clone())
+                .expect("capture row"),
+            other => panic!("{other:?}"),
+        }
+    };
+
+    // Same clock, same entropy: the mint is a pure function of both, so the
+    // minted ids must match too.
+    let original = {
+        let mut s = Shell::new();
+        s.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
+        s.handle(OP_INV_ROWS, &[0])
+    };
+    let replayed = {
+        let mut s = Shell::new();
+        s.handle(OP_PASTE, &frame(TS, ENTROPY, &capture));
+        s.handle(OP_INV_ROWS, &[0])
+    };
+    assert_eq!(
+        original, replayed,
+        "replaying the redacted capture produced a different estate than the \
+         original paste did"
+    );
+}

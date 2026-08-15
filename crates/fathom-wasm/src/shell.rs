@@ -927,6 +927,7 @@ fn paste_reply(
         ],
         residue: &residue,
         unresolved: &unresolved,
+        capture: text,
     })
 }
 
@@ -1049,6 +1050,7 @@ fn equip_reply_text(id: &str, written: &str) -> Vec<u8> {
         summary: [id, written, "", "", "", id, "", ""],
         residue: &[],
         unresolved: &[],
+        capture: "",
     })
 }
 

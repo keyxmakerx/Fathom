@@ -72,6 +72,18 @@ pub const FACE_RESIDUE: u8 = 6;
 /// One reference the capture named and did not contain: what it named · the
 /// edge kind that wanted it · the line number.
 pub const FACE_UNRESOLVED: u8 = 7;
+/// The paste as the REDACTION GATE left it — one row, slot 0, the whole text.
+///
+/// This exists so the page can journal a paste without journalling the secret
+/// that was in it. The page holds only the raw text the operator pasted; the
+/// redacted text exists only inside the module, because `RedactedCapture`'s
+/// field is private and its one constructor is `pub(crate)` and is called from
+/// exactly one place, the end of `ingest()`. So there is no way to obtain
+/// redacted text except by running the gate, which is the point.
+///
+/// **A journal built from the raw paste would put a pre-shared key in the
+/// operator's export file.** Invariant 3 is the whole reason this row exists.
+pub const FACE_CAPTURE: u8 = 8;
 
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
@@ -534,6 +546,9 @@ pub struct PasteReply<'a> {
     pub residue: &'a [[String; 3]],
     /// what was named · the edge kind that wanted it · line number.
     pub unresolved: &'a [[String; 3]],
+    /// The post-redaction text, for the page's journal. Empty for replies that
+    /// are not a paste.
+    pub capture: &'a str,
 }
 
 pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
@@ -554,9 +569,16 @@ pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
         }
     }
 
+    let mut extra = 0;
+    if !reply.capture.is_empty() {
+        let rec = face_slots(&mut blob, FACE_CAPTURE, 1, &[reply.capture]);
+        write_face_record(&mut records, &rec);
+        extra = 1;
+    }
+
     face_reply(
         records,
-        1 + reply.residue.len() + reply.unresolved.len(),
+        1 + reply.residue.len() + reply.unresolved.len() + extra,
         blob,
     )
 }
