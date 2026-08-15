@@ -58,6 +58,40 @@ body { overflow-y: auto; }
   display: flex; flex-direction: column; padding: 0 var(--s4);
   background: var(--page);
 }
+/* --------------------------------------------------- the diagram's width --
+   THE PICTURE GETS THE WINDOW. Three caps stacked to leave the canvas 424 CSS
+   px wide on any monitor: the sheet at 1180 (`--sheet`), the ledger's 62/38
+   split, and the Outline's fixed 18rem. Each is right for the view it was
+   written for and wrong here.
+
+   `--sheet: 1180px` is `2 × 72ch` of mono — the measure that keeps a line of
+   TEXT readable, and the correct cap for the inventory, the finder and the
+   three placeholder views. A diagram has no line length; capping it trades
+   nothing for legibility and costs a factor of three in scale. So the cap is
+   lifted on this view alone, and the other five keep their measure.
+
+   The ledger's split is re-cut for this view and is STABLE — 74/26 whether or
+   not anything is selected. The first attempt collapsed the meaning column
+   while nothing was picked and gave it back on selection, which is worth
+   recording as a rejected alternative because it looked obviously right and was
+   obviously wrong the moment it was driven: **selecting a box resized the
+   picture under the reader.** `56` §11 row 6 predicts what that costs — it is
+   the same failure the layer toggles are forbidden from causing, arriving by a
+   side door, and it broke three checks in the surface suite at once (zoom
+   in read as zoom out, a click on empty canvas landed on a box, the ring
+   pointed at the wrong place). One fixed split; nothing moves on selection.
+   ------------------------------------------------------------------------ */
+.sheet[data-viewing="diagram"] { max-width: min(2200px, 96vw); }
+.sheet[data-viewing="diagram"] .ledger { grid-template-columns: 80fr 20fr; }
+/* Wider viewport, wider Outline — but the picture takes the growth. Below
+   1400 the Outline keeps the 18rem it was tuned at. */
+/* The Outline keeps the 18rem it was tuned at and does NOT grow with the
+   window: every pixel past that belongs to the picture, which is the thing that
+   was starved. Above 1800 it takes 20rem so long names stop wrapping. */
+@media (min-width: 1800px) {
+  .sheet[data-viewing="diagram"] .dsplit { grid-template-columns: minmax(0, 1fr) 20rem; }
+}
+
 .mast-rule { flex: none; border-top: var(--rule-mast) solid var(--ink); }
 .masthead {
   flex: none; display: flex; align-items: flex-start; justify-content: space-between;
@@ -511,6 +545,32 @@ button.tab:hover { color: var(--ink); }
    at this size is a shape, not a diagram -- the Outline under it is the
    interface (`55` §6.3), and this is the overview it belongs to. */
 .sheet[data-width="narrow"] .dview[data-open="1"] .dcanvas { height: 12rem; }
+
+/* ON A PHONE THE PICTURE GETS THE PHONE.
+   The rule above is 12rem because the fact column is 146 CSS px tall at
+   320x800, and inside 146 px a taller canvas is a picture you scroll inside a
+   column you are already scrolling. That reasoning is sound and the premise is
+   the actual defect: the SHELL gives the fact column 146 of 800 px, in every
+   view, and `73` §14 carries it as a shell-wide escalation.
+
+   Fixing the shell everywhere is the right repair and it is not this change.
+   What this does is stop the diagram view from being a victim of it: on a
+   narrow screen the view is already `display: block; height: auto` — it flows
+   and the BODY scrolls — so the canvas can be measured against the VIEWPORT
+   rather than against a column that has no height to give. 55dvh leaves room
+   for the strip above and the first Outline rows below, so opening the picture
+   still shows you that the list continues.
+
+   Kept behind the same disclosure: `55` §6.3 makes the Outline the interface at
+   this width and the picture the thing you ask for. This changes how big it is
+   when you ask, not whether you have to. */
+.sheet[data-width="narrow"] .dview[data-open="1"] .dcanvas {
+  height: 55dvh; min-height: 12rem;
+}
+/* The Outline is what a thumb scrolls at this width, so its rows get the touch
+   target `53` §13 takes at AAA rather than the desk-sized one. */
+.sheet[data-width="narrow"] .dorow,
+.sheet[data-width="narrow"] .dolink { min-height: 44px; align-items: center; }
 /* Hints, not state. Every one of them is said again in the notes under the
    Outline, and at 320 px they cost more than they carry. */
 .sheet[data-width="narrow"] .dhint { display: none; }
@@ -1838,6 +1898,23 @@ function renderBand() {
 }
 
 function renderShell() {
+  /* THE SHELL TELLS THE CSS WHICH VIEW IS ON, AND WHETHER ANYTHING IS PICKED.
+     Both are needed by the diagram's width rules and neither was available:
+     `--sheet` caps the whole app at 1180px and `.ledger` then gives the picture
+     62% of it, of which the Outline takes a fixed 18rem — so the canvas was
+     424 CSS px WIDE ON EVERY MONITOR, and a 59-object estate auto-fitted to
+     0.34x with 118 labels off. Measured, not estimated.
+
+     `--sheet` is 1180 because it is `2 × 72ch` of mono — a measure for READING
+     TEXT, and correct for the other five views. A diagram is not text and does
+     not have a comfortable line length. */
+  /* `data-viewing`, NOT `data-view`. The view TABS already carry `data-view`,
+     and reusing the name on the container made `[data-view="inventory"]` match
+     two elements — the tab and the sheet — so a click on that selector landed
+     on the sheet and switched nothing. It broke selection carry-over from the
+     inventory to the diagram and the removal round trip, in a change that only
+     touched CSS widths. An attribute is a selector, and a selector is an API. */
+  $('sheet').setAttribute('data-viewing', S.view);
   $('mTitle').textContent = viewMeta(S.view).t;
   $('mSub').textContent = 'dev artifact · ' + sourceWords();
   $('tabSource').textContent = sourceWords();
