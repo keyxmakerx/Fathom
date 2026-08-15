@@ -46,7 +46,16 @@ fn assembled_artifact_pins_x08() {
         "img-src data:;",
         "font-src data:;",
         "connect-src 'none';",
-        "worker-src blob:;",
+        // 'none', not `blob:`. `43` §3.7 and `34` §2.9 both specify `blob:`
+        // for a parse worker, and `43` calls it "load-bearing rather than
+        // speculative". IT IS SPECULATIVE IN THIS ARTIFACT: nothing here
+        // constructs a Worker, and an unused permissive directive inside an
+        // otherwise `default-src 'none'` policy is a question a reviewer will
+        // ask and the artifact cannot answer. Tightened 2026-08-15 with the
+        // deviation recorded in both documents; the trigger to restore it is
+        // the first line of code that creates a Worker, and this pin is what
+        // makes that restoration deliberate rather than quiet.
+        "worker-src 'none';",
         "child-src 'none';",
         "frame-src 'none';",
         "form-action 'none';",

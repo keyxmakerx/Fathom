@@ -8,7 +8,7 @@
   img-src data:;
   font-src data:;
   connect-src 'none';
-  worker-src blob:;
+  worker-src 'none';
   child-src 'none';
   frame-src 'none';
   form-action 'none';
@@ -3765,6 +3765,16 @@ document.addEventListener('click', function (ev) {
   if (n) {
     S.hi = parseInt(n.getAttribute('data-hit'), 10);
     paintHits();
+    /* PUT FOCUS BACK IN THE QUERY BOX. The finder's keymap is bound to the two
+       inputs — `16` §19.2 is explicit that arrows move `aria-activedescendant`
+       and never DOM focus — so a click that moved focus onto the row silently
+       disarmed Enter, the arrows and Escape all at once. Driven: click a
+       result, press Enter, nothing happens. That reads as a dead product
+       rather than a missing affordance, and it is the single most likely thing
+       a presenter does. Returning focus is the fix that keeps ONE keyboard
+       model rather than growing a second one on the rows. */
+    var inp = $(fOpen ? 'fq' : 'fqv');
+    if (inp && document.activeElement !== inp) inp.focus();
     return;
   }
   /* 53 §5.6: a click outside closes the overlay AND lands. The overlay is not
@@ -3794,13 +3804,48 @@ function setPaste(open) {
   $('scrim').hidden = !(open || eOpen);   /* fOpen draws no scrim — setFinder */
   $('psheet').hidden = !open;
   if (open) {
-    $('pHint').textContent =
-      'Nothing leaves this page. The text is read in the module, secrets are ' +
-      'destroyed before anything is stored, and every line that cannot be read ' +
-      'is listed back to you rather than dropped.';
+    /* THE REPLACEMENT IS SAID OUT LOUD WHEN THERE IS SOMETHING TO REPLACE.
+       Reading a config replaces the estate now held — merging two configs is
+       `70` §6's correlation requirement and it is not built, so a second paste
+       drops the first device entirely. That was true before this sentence and
+       the page did not say it: an operator documenting both ends of a tunnel
+       pasted the far end and watched the near end vanish with no dialog, no
+       warning and no notice afterwards, six inches under a banner reading
+       "NOTHING PARSED IS SILENTLY LOST". The behaviour is a stated limit; what
+       was wrong was the silence. */
+    $('pHint').textContent = S.loaded
+      ? 'Reading a config REPLACES the estate now held — ' + heldSummary() +
+        ' will be dropped. Fathom cannot yet merge two configs into one estate, ' +
+        'so export first if you want to keep this one. Nothing leaves this page: ' +
+        'the text is read in the module, secrets are destroyed before anything ' +
+        'is stored, and every line that cannot be read is listed back to you.'
+      : 'Nothing leaves this page. The text is read in the module, secrets are ' +
+        'destroyed before anything is stored, and every line that cannot be read ' +
+        'is listed back to you rather than dropped.';
+    $('pRun').textContent = S.loaded ? 'replace what is loaded' : 'read it';
     renderPasteError();
     $('pta').focus();
   }
+}
+
+/* What the reader is about to lose, NAMED rather than counted. A device by its
+   hostname is what an operator recognises; "59 objects" is not.
+
+   Asked of the module directly rather than read off S.inv, because S.inv holds
+   whichever kind the inventory is currently showing and this sentence must say
+   the same thing whatever tab the reader was last on. KINDS[0] is Device. */
+function heldSummary() {
+  if (!S.loaded || !wasm) return 'the estate now loaded';
+  var reply = call(OP_INV_ROWS, new Uint8Array([0]));
+  if (!reply || reply.kind !== 'face' || reply.rows.length < 2) {
+    return 'the estate now loaded';
+  }
+  var rows = reply.rows.slice(1), names = [];
+  for (var i = 0; i < rows.length && names.length < 3; i++) {
+    if (rows[i].s[1]) names.push(rows[i].s[1]);
+  }
+  if (!names.length) return 'the estate now loaded';
+  return names.join(', ') + (rows.length > names.length ? ' and others' : '');
 }
 
 /* The module's refusal details for this opcode are written to be read by the
@@ -3889,15 +3934,45 @@ function runPaste() {
             plural(h.s[2], 'line', 'lines') + ' not read, ' +
             plural(h.s[3], 'secret', 'secrets') + ' removed')
          : 'read the config');
+  /* THE RAW CONFIG DOES NOT STAY IN THE BOX. `setPaste(false)` hides the sheet
+     without emptying it, so the next click on "paste a config" put the
+     operator's unredacted pre-shared keys back on screen — and on a projector,
+     back on the wall. Nothing was stored and nothing left the page; the text
+     was simply still there. The module has already taken what it needs and
+     what it kept is redacted, so there is nothing this value is still for. */
+  $('pta').value = '';
   setPaste(false);
   S.view = 'inventory';
   render();
 }
 
 /* A module with no estate held. See boot(). */
+/* A FRESH INSTANCE IS A FRESH MODULE, AND A FRESH MODULE KNOWS NOTHING.
+   The corpus and the dictionary are handed in at boot over OP_INIT and OP_DICT
+   and live in the instance's memory, so replacing the instance to get an empty
+   estate ALSO throws both of them away. Before this, importing a workspace left
+   a session where the finder answered nothing and the next paste was refused
+   with ERR_NO_DICTIONARY (14) — the exact code whose own comment at boot says
+   hitting it "is a bug report, never something a user can hit". It was two
+   clicks away, and it failed quietly: the screen kept showing the old estate
+   while both doors were shut.
+
+   So the frames are re-handed here, in the same order the assembler splices
+   them, and a failure is recorded rather than swallowed. Returns false when the
+   instance came back unusable, so the caller can refuse the import instead of
+   replaying ops into a module that cannot read them. */
 function wasmReset() {
-  if (!wasmModule) return;
+  if (!wasmModule) return false;
   wasm = new WebAssembly.Instance(wasmModule, {}).exports;
+  var init = call(OP_INIT, b64bytes(FATHOM_CORPUS_B64));
+  S.corpus = init.kind === 'empty' ? 'loaded'
+    : (finderProblem(init) || 'the corpus did not load');
+  var dictReply = call(OP_DICT, b64bytes(FATHOM_DICT_B64));
+  if (dictReply.kind !== 'empty') {
+    S.boot = replyProblem(dictReply) || 'the statement dictionary did not load';
+    return false;
+  }
+  return true;
 }
 
 $('tabPaste').addEventListener('click', function () { setPaste(!pOpen); });
@@ -4138,8 +4213,19 @@ function importJournal(text) {
 
   /* Start from nothing. The first op is normally a paste, which replaces the
      estate anyway; starting clean makes an import that begins with a hand-added
-     device behave the same way. */
-  wasmReset();
+     device behave the same way.
+
+     REFUSE RATHER THAN REPLAY INTO A DEAF MODULE. wasmReset re-hands the corpus
+     and the dictionary to the new instance; if either is rejected, every paste
+     op below would come back ERR_NO_DICTIONARY and the import would half-apply
+     in silence. Saying so and keeping what is loaded is the same posture the
+     wrong-vendor paste already takes. */
+  if (!wasmReset()) {
+    foot('the module could not be restarted, so nothing was opened — ' +
+         'what you had is still loaded');
+    renderShell();
+    return;
+  }
 
   var enc = new TextEncoder();
   for (var i = 0; i < ops.length; i++) {
