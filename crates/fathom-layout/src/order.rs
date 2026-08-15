@@ -149,54 +149,62 @@ pub fn order(ranks: &[u32], edges: &[(u32, u32)]) -> Order {
     }
 }
 
-/// Order the drawn nodes of an estate.
+/// Order the drawn **boxes** of an estate.
 ///
-/// `live` is every drawn node in `NodeId` order and `ranked` is the same set in
-/// `(rank, NodeId)` order — both of which `lay_out` has already built.
+/// `cells` is what [`crate::agg::fold`] produced, already in `(rank, …)` order,
+/// and `at` maps every live node to the index of the box it is drawn in, sorted
+/// by `NodeId`. Un-aggregated, every box is one node and `at` is the identity
+/// on `lay_out`'s old `live` list — which is why this reads as
+/// *"the ranked node list"* wherever a comment still says so.
 ///
 /// The edge walk is `lay_out`'s own: every effective edge of every non-root
-/// containment kind, tombstones skipped, in `(node, kind, edge)` order. It is
-/// walked twice per layout — once here and once by the router — rather than
-/// shared, because the two want different things: this one wants indices into
-/// the ranked list, the router wants placed boxes.
+/// containment kind, tombstones skipped, in `(node, kind, edge)` order — with
+/// each end mapped through `at`, so an edge whose end was folded into a group
+/// is an edge onto the group. **The walk order is the un-aggregated one
+/// exactly**, and it has to be: phase 4 numbers its dummies in the order the
+/// edges arrive, phase 5's ties break on vertex number, so a different walk
+/// would move rows in a picture nobody asked to change. It is walked twice per
+/// layout — once here and once by the router — rather than shared, because the
+/// two want different things: this one wants box indices, the router wants
+/// placed boxes.
 ///
-/// The `NodeId` → index lookup goes through a binary search of `live` rather
-/// than a `BTreeMap<NodeId, u32>`, which is what this was written with and
-/// reads better. The map costs **11,197 bytes of wasm** — measured 2026-08-15
-/// by building the module both ways — against `44` §5.2's 900,000-byte ceiling,
+/// The `NodeId` → box lookup goes through a binary search of `at` rather than a
+/// `BTreeMap<NodeId, u32>`, which is what this was written with and reads
+/// better. The map costs **11,197 bytes of wasm** — measured 2026-08-15 by
+/// building the module both ways — against `44` §5.2's 900,000-byte ceiling,
 /// which had 29,056 bytes left in it. Nearly two-fifths of a feature's budget
-/// for a lookup an already-sorted slice does is not a trade worth making.
-/// `live` is sorted because `lay_out` builds it by walking `NodeKind::ALL` and
-/// `Graph::nodes_of_kind` is a range scan; `tests/order.rs` pins that, because
-/// if it ever stopped being true this would silently drop edges rather than
-/// fail.
-pub(crate) fn rows_for_graph(g: &Graph, live: &[NodeId], ranked: &[(u32, NodeId)]) -> Order {
-    let mut to_ranked: Vec<u32> = vec![0; live.len()];
-    for (j, (_, id)) in ranked.iter().enumerate() {
-        if let Ok(i) = live.binary_search(id) {
-            if let Some(slot) = to_ranked.get_mut(i) {
-                *slot = j as u32;
-            }
-        }
-    }
-    let ranks: Vec<u32> = ranked.iter().map(|(r, _)| *r).collect();
+/// for a lookup an already-sorted slice does is not a trade worth making. `at`
+/// is sorted by construction, and the walk that builds it is in `NodeId` order
+/// because `lay_out` walks `NodeKind::ALL` and `Graph::nodes_of_kind` is a
+/// range scan; `tests/order.rs` pins that, because if it ever stopped being
+/// true this would silently drop edges rather than fail.
+pub(crate) fn rows_for_cells(
+    g: &Graph,
+    cells: &[crate::agg::Cell],
+    at: &[(NodeId, usize)],
+) -> Order {
+    let box_of = |n: NodeId| -> Option<u32> {
+        let i = at.binary_search_by_key(&n, |(k, _)| *k).ok()?;
+        at.get(i).map(|(_, b)| *b as u32)
+    };
+    let ranks: Vec<u32> = cells.iter().map(|c| c.rank).collect();
 
     let mut edges: Vec<(u32, u32)> = Vec::new();
-    for (from, (_, id)) in ranked.iter().enumerate() {
-        for kind in EdgeKind::ALL {
-            if kind.root_containment() {
-                continue;
-            }
-            for e in g.out(*id, kind) {
-                if e.absent_since.is_some() {
+    for (from, cell) in cells.iter().enumerate() {
+        for id in &cell.members {
+            for kind in EdgeKind::ALL {
+                if kind.root_containment() {
                     continue;
                 }
-                // A tombstoned target is not in `live` and the search fails,
-                // which drops the edge — the same answer the router reaches by
-                // failing to find a box for it.
-                if let Ok(i) = live.binary_search(&e.to) {
-                    if let Some(to) = to_ranked.get(i) {
-                        edges.push((from as u32, *to));
+                for e in g.out(*id, kind) {
+                    if e.absent_since.is_some() {
+                        continue;
+                    }
+                    // A tombstoned target is not in `at` and the search fails,
+                    // which drops the edge — the same answer the router reaches
+                    // by failing to find a box for it.
+                    if let Some(to) = box_of(e.to) {
+                        edges.push((from as u32, to));
                     }
                 }
             }

@@ -93,6 +93,9 @@ struct Pending<'a> {
     span: Option<(i32, i32)>,
     /// The channel index inside the band. Meaningless while `span` is `None`.
     slot: usize,
+    /// How many graph edges this one line stands for. Above 1 only after a
+    /// node collapse merged coincident strokes — see [`route`].
+    members: usize,
 }
 
 fn centre(n: &Node) -> i32 {
@@ -119,6 +122,7 @@ fn resolve<'a>(a: &'a Node, b: &'a Node, id: EdgeId, kind: EdgeKind) -> Pending<
             Some((ay.min(by), ay.max(by)))
         },
         slot: 0,
+        members: 1,
     }
 }
 
@@ -196,15 +200,45 @@ fn shape(e: &Pending<'_>, x: i32) -> Vec<(i32, i32)> {
     vec![start, (x, start.1), (x, end.1), end]
 }
 
-fn find(nodes: &[Node], id: NodeId) -> Option<&Node> {
-    let want = id.to_string();
-    nodes.iter().find(|n| n.id == want)
-}
-
-/// Route every effective edge between two drawn nodes.
-pub(crate) fn route(g: &Graph, nodes: &[Node], live: &[NodeId]) -> Vec<Link> {
+/// Route every effective edge between two drawn boxes.
+///
+/// `at` maps every live node to the box it is drawn in, so an edge whose end
+/// was folded into a collapsed group terminates on the group. Returns the lines
+/// and, parallel to `nodes`, how many edges each box swallowed whole.
+///
+/// # What merges, and the one thing that deliberately does not
+///
+/// **Lines onto a collapsed group merge.** After a node collapse, forty edges
+/// that went to forty different boxes go to one, and they are then not forty
+/// lines — they are one line drawn forty times, coincident, which is the exact
+/// defect this file's own header says it exists to remove. They become one line
+/// carrying the cardinal (`Link::members`), which is `59` failure mode 16's
+/// fix: *"ten lines land on a stack that draws one stub."*
+///
+/// **Parallel edges between two plain boxes do not merge.** Ten standalone
+/// `Link`s between one pair of devices stay ten lines, each with its own
+/// channel. That is `59` §3.14 — a **PROPOSED** sixth aggregation level, with
+/// its own mark (three rails), its own terminals and its own grouping key, and
+/// §3.14.2's rule that *"any channel that differs splits the group"*. Merging
+/// them here would ship that proposal early, in a form that asserts a bundle
+/// the estate may not have (failure mode 15), and it would change `lay_out`'s
+/// output in a way nobody asked for. The condition is therefore *"at least one
+/// end is a group"*, and it is the only reason this function knows about
+/// aggregation at all.
+pub(crate) fn route(g: &Graph, nodes: &[Node], at: &[(NodeId, usize)]) -> (Vec<Link>, Vec<u32>) {
+    let box_of = |n: NodeId| -> Option<usize> {
+        let i = at.binary_search_by_key(&n, |(k, _)| *k).ok()?;
+        at.get(i).map(|(_, b)| *b)
+    };
+    let mut interior: Vec<u32> = vec![0; nodes.len()];
     let mut pending: Vec<Pending<'_>> = Vec::new();
-    for from in live {
+    // The already-merged group lines, as `(from box, to box, kind, index into
+    // pending)`. A linear scan of this and not a sorted key set: it holds one
+    // entry per *distinct* line touching a collapsed box, which aggregation
+    // keeps small by construction — that is what aggregation is — and a second
+    // `sort_unstable` instantiation measures about 5 KB of wasm (`order.rs`).
+    let mut merged: Vec<(usize, usize, EdgeKind, usize)> = Vec::new();
+    for (from, _) in at {
         for kind in EdgeKind::ALL {
             if kind.root_containment() {
                 continue;
@@ -213,9 +247,34 @@ pub(crate) fn route(g: &Graph, nodes: &[Node], live: &[NodeId]) -> Vec<Link> {
                 if e.absent_since.is_some() {
                     continue;
                 }
-                let (Some(a), Some(b)) = (find(nodes, *from), find(nodes, e.to)) else {
+                let (Some(ai), Some(bi)) = (box_of(*from), box_of(e.to)) else {
                     continue;
                 };
+                if ai == bi {
+                    // Both ends inside one collapsed box. There is no line to
+                    // draw between a box and itself — but something WAS hidden,
+                    // and `Node::count` counts nodes, not relationships, so it
+                    // is counted here and the page says so.
+                    if let Some(slot) = interior.get_mut(ai) {
+                        *slot += 1;
+                    }
+                    continue;
+                }
+                let (Some(a), Some(b)) = (nodes.get(ai), nodes.get(bi)) else {
+                    continue;
+                };
+                if a.count > 1 || b.count > 1 {
+                    if let Some((_, _, _, p)) = merged
+                        .iter()
+                        .find(|(x, y, k, _)| *x == ai && *y == bi && *k == kind)
+                    {
+                        if let Some(line) = pending.get_mut(*p) {
+                            line.members += 1;
+                        }
+                        continue;
+                    }
+                    merged.push((ai, bi, kind, pending.len()));
+                }
                 pending.push(resolve(a, b, e.id, kind));
             }
         }
@@ -244,6 +303,7 @@ pub(crate) fn route(g: &Graph, nodes: &[Node], live: &[NodeId]) -> Vec<Link> {
                 to: e.b.id.clone(),
                 kind: e.kind,
                 containment: e.containment,
+                members: e.members,
                 points: shape(e, channel_x(e.wall, e.slot, count)),
             });
         }
@@ -256,5 +316,5 @@ pub(crate) fn route(g: &Graph, nodes: &[Node], live: &[NodeId]) -> Vec<Link> {
     links.sort_by(|x, y| {
         (x.from.as_str(), x.to.as_str(), x.kind).cmp(&(y.from.as_str(), y.to.as_str(), y.kind))
     });
-    links
+    (links, interior)
 }

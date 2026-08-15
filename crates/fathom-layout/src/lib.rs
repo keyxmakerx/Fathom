@@ -61,12 +61,12 @@
     clippy::indexing_slicing
 )]
 
+pub mod agg;
 pub mod layers;
 pub mod order;
 mod route;
 
 use fathom_graph::{Graph, NodeId};
-use fathom_ir::generated::ir_types::NodeKind;
 
 /// Box geometry, in abstract units. The page multiplies by whatever it needs;
 /// these are chosen so a label of ~24 characters fits at the page's mono size.
@@ -93,6 +93,30 @@ pub struct Node {
     pub y: i32,
     pub w: i32,
     pub h: i32,
+    /// How many graph nodes this box stands for. `1` is a plain box; anything
+    /// higher is [`agg`]'s collapsed group and **the count must be drawn**
+    /// (`59` §3.6, the silent count: *"a collapse that does not name what it
+    /// hid and how many there were is a lie with fewer elements"*).
+    ///
+    /// `count == 1` is also what makes [`Node::id`] postable: a box standing
+    /// for one node carries that node's own display id and a box standing for
+    /// many carries a group key, and the two are never confused.
+    pub count: usize,
+    /// The aggregation group this box belongs to, or empty. See
+    /// [`agg::Cell::group`] for the two forms and what each is for.
+    pub group: String,
+    /// Edges with **both** ends inside this box, which are therefore drawn
+    /// nowhere.
+    ///
+    /// Zero on a plain box, and normally zero on a collapsed one — two nodes
+    /// joined by an edge usually get different signatures and split into
+    /// different runs (see [`agg::Cell`]). A chain or a ring among like
+    /// siblings does not, and then a collapse hides a *relationship* rather
+    /// than a node. The box's own [`Node::count`] cannot say that, because it
+    /// counts nodes, so this counts the lines and the page prints it. `59`'s
+    /// governing rule is about what a collapse hid, not only about how many
+    /// boxes it replaced.
+    pub interior: u32,
 }
 
 /// One drawn edge, already routed. The page draws the points and does not
@@ -106,6 +130,14 @@ pub struct Link {
     /// "this port is on that device" is structure and "this tunnel binds that
     /// interface" is a fact about the network.
     pub containment: bool,
+    /// How many graph edges this one line stands for. `1` is a plain line.
+    ///
+    /// Higher only when an end was folded into a collapsed group, at which
+    /// point forty edges become forty *coincident* strokes — the same defect
+    /// `route` exists to remove, arriving from the other direction. `59`
+    /// failure mode 16 is the picture that does not merge them: *"ten lines
+    /// land on a stack that draws one stub."*
+    pub members: usize,
     /// An orthogonal polyline, `(x, y)` in order. Always at least two points.
     pub points: Vec<(i32, i32)>,
 }
@@ -124,48 +156,64 @@ pub struct Diagram {
 /// the inventory does. History is reached through provenance, not by drawing
 /// things that are gone.
 pub fn lay_out(g: &Graph) -> Diagram {
-    let live: Vec<NodeId> = NodeKind::ALL
-        .into_iter()
-        .flat_map(|k| g.nodes_of_kind(k))
-        .filter(|n| n.absent_since.is_none())
-        .map(|n| n.id)
-        .collect();
-    if live.is_empty() {
-        return Diagram::default();
-    }
+    // Every node drawn as itself, which is what this function has always meant
+    // and what `59` §3.7 keeps in the product as the `every one drawn` control
+    // rather than only in the study: *"an engineer who does not believe the
+    // count is entitled to see the forty."*
+    lay_out_with(g, &agg::View::whole())
+}
 
+/// Lay the estate out under a view preference — which like-kind groups are
+/// folded, and which of those the reader has opened.
+///
+/// One code path below [`agg::fold`], because the un-aggregated picture is the
+/// aggregated one with every group of one: `fold` returns boxes, and ordering,
+/// placement and routing all work on boxes without caring whether a box is one
+/// node or forty. `59` failure mode 4 prices the second path.
+pub fn lay_out_with(g: &Graph, view: &agg::View) -> Diagram {
     // Rank = depth in the containment forest. Derived from the schema's edge
     // classes rather than a hand-written table of kinds, so a schema change
     // moves the picture with no edit here.
-    let mut ranked: Vec<(u32, NodeId)> = live.iter().map(|id| (depth(g, *id), *id)).collect();
-    // ULID order within a rank. `sort` is stable and the key is total, so this
-    // is a pure function of content.
-    ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    // `at` maps every live node to the box it is drawn in, in `NodeId` order. A
+    // member of a collapsed group maps to the group's box, and that mapping is
+    // the whole of what aggregation does to ordering and routing. A sorted
+    // `Vec` rather than a `BTreeMap`: `order.rs` measured that map at 11,197
+    // bytes of wasm.
+    let (cells, at) = agg::fold(g, view);
+    if cells.is_empty() {
+        return Diagram::default();
+    }
 
-    // Order within a rank: `56` §3.2 phases 4 and 5, not `NodeId` order, which
+    // Order within a rank: `56` §3.2 phases 4 and 5, not the input order, which
     // is deterministic and arbitrary and made lines cross for no reason.
-    let ordered = order::rows_for_graph(g, &live, &ranked);
+    let ordered = order::rows_for_cells(g, &cells, &at);
 
-    let mut nodes: Vec<Node> = Vec::with_capacity(ranked.len());
+    let mut nodes: Vec<Node> = Vec::with_capacity(cells.len());
     let mut widest_rank: i32 = 0;
-    for ((rank, id), row) in ranked.iter().zip(ordered.rows.iter()) {
-        let x = MARGIN + (*rank as i32) * (BOX_W + RANK_GAP);
+    for (cell, row) in cells.iter().zip(ordered.rows.iter()) {
+        let x = MARGIN + (cell.rank as i32) * (BOX_W + RANK_GAP);
         let y = MARGIN + (*row as i32) * (BOX_H + SIB_GAP);
         nodes.push(Node {
-            id: id.to_string(),
-            kind: id.kind.name(),
-            label: label_of(g, *id),
+            id: cell.key.clone(),
+            kind: cell.kind,
+            label: cell.label.clone(),
             x,
             y,
             w: BOX_W,
             h: BOX_H,
+            count: cell.count(),
+            group: cell.group.clone(),
+            interior: 0,
         });
         widest_rank = widest_rank.max(*row as i32 + 1);
     }
 
-    let links = route::route(g, &nodes, &live);
+    let (links, interior) = route::route(g, &nodes, &at);
+    for (n, hidden) in nodes.iter_mut().zip(interior.iter()) {
+        n.interior = *hidden;
+    }
 
-    let ranks = ranked.last().map(|(r, _)| *r + 1).unwrap_or(0) as i32;
+    let ranks = cells.last().map(|c| c.rank + 1).unwrap_or(0) as i32;
     Diagram {
         width: MARGIN * 2 + ranks * BOX_W + (ranks.saturating_sub(1)) * RANK_GAP,
         height: MARGIN * 2 + widest_rank * BOX_H + (widest_rank.saturating_sub(1)) * SIB_GAP,
@@ -184,7 +232,7 @@ pub fn lay_out(g: &Graph) -> Diagram {
 /// Bounded so a containment cycle — which the store's rules should make
 /// impossible, and which this must not hang on if they ever do not — terminates
 /// instead of looping.
-fn depth(g: &Graph, id: NodeId) -> u32 {
+pub(crate) fn depth(g: &Graph, id: NodeId) -> u32 {
     let mut d = 0;
     let mut at = id;
     while d < 64 {
@@ -199,7 +247,7 @@ fn depth(g: &Graph, id: NodeId) -> u32 {
     d
 }
 
-fn label_of(g: &Graph, id: NodeId) -> String {
+pub(crate) fn label_of(g: &Graph, id: NodeId) -> String {
     match fathom_inventory::element_page(g, id) {
         Some(p) if !p.name.is_empty() => p.name,
         _ => id.to_string(),
