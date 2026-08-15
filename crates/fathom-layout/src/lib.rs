@@ -105,6 +105,17 @@ pub struct Node {
     /// The aggregation group this box belongs to, or empty. See
     /// [`agg::Cell::group`] for the two forms and what each is for.
     pub group: String,
+    /// True when [`Node::x`] and [`Node::y`] came from a person rather than from
+    /// this crate — a live `LayoutPin` on the one node this box stands for
+    /// (ADR-0035).
+    ///
+    /// **The page must draw the difference.** `56` §3.5 keeps layout computed and
+    /// makes a hand position an *override*; a picture that mixed asserted and
+    /// computed positions without saying which is which would be lying about the
+    /// most load-bearing thing a diagram claims. This flag is how the page can
+    /// tell, and it is on the box rather than inferred from the graph because the
+    /// page never sees the graph.
+    pub placed: bool,
     /// Edges with **both** ends inside this box, which are therefore drawn
     /// nowhere.
     ///
@@ -193,6 +204,23 @@ pub fn lay_out_with(g: &Graph, view: &agg::View) -> Diagram {
     for (cell, row) in cells.iter().zip(ordered.rows.iter()) {
         let x = MARGIN + (cell.rank as i32) * (BOX_W + RANK_GAP);
         let y = MARGIN + (*row as i32) * (BOX_H + SIB_GAP);
+        // THE OVERRIDE, and it is the only place one is applied (ADR-0035).
+        // Everything above ran exactly as it did before pins existed — the rank
+        // walk, the crossing reduction, the row assignment — so an estate with no
+        // pins lays out byte-identically to one from a build that had never heard
+        // of them. A pin moves one box and changes nothing else, which is `56`
+        // §3.5's second property ("I moved one box and the whole picture
+        // rearranged") obtained by construction rather than by care.
+        //
+        // Only a box standing for ONE node can carry a position: `pin_of` is
+        // asked for `cell.members` of length 1. A collapsed group stands for
+        // forty nodes and there is no single element whose position it could be
+        // — the same rule that makes `Cell::key` postable only at count 1.
+        let pinned = match cell.members.as_slice() {
+            [only] if cell.count() == 1 => pin_of(g, *only),
+            _ => None,
+        };
+        let (x, y) = pinned.unwrap_or((x, y));
         nodes.push(Node {
             id: cell.key.clone(),
             kind: cell.kind,
@@ -203,23 +231,134 @@ pub fn lay_out_with(g: &Graph, view: &agg::View) -> Diagram {
             h: BOX_H,
             count: cell.count(),
             group: cell.group.clone(),
+            placed: pinned.is_some(),
             interior: 0,
         });
         widest_rank = widest_rank.max(*row as i32 + 1);
     }
 
-    let (links, interior) = route::route(g, &nodes, &at);
+    let (mut links, interior) = route::route(g, &nodes, &at);
     for (n, hidden) in nodes.iter_mut().zip(interior.iter()) {
         n.interior = *hidden;
     }
 
+    // The canvas is the extent of what is drawn, and a placed box can be dragged
+    // outside the grid the rank walk would have produced. Taking the max over
+    // every box's far corner rather than computing the grid's own extent is what
+    // stops a dragged box from being clipped by a viewBox that does not know it
+    // moved. With no pins the two agree exactly, because the grid IS the extent
+    // of the grid — `tests/layout.rs` pins that.
+    //
+    // **BOTH DIRECTIONS.** The first version took only `max`, so a box dragged
+    // to a negative coordinate sat outside `width`/`height`, the viewBox never
+    // covered it, and `z` — which fits to exactly these numbers — could not
+    // bring it back. The placement survived the export and the import intact and
+    // the picture could not draw it: a stored fact the product had made
+    // unreachable, which is worse than the clamp the schema comment rejected,
+    // because a clamp is at least visible. Reachable in one ordinary leftward
+    // drag from a rank-0 box, which sits at x = MARGIN = 24.
+    //
+    // The fix is a translation, not a clamp. Everything shifts by whatever the
+    // leftmost/topmost box needs, so the picture keeps its shape exactly and
+    // only the origin moves. Relative positions — which are the whole content of
+    // a diagram — are untouched, and the stored pin keeps its own coordinates:
+    // this is a rendering transform, not a rewrite of the record.
     let ranks = cells.last().map(|c| c.rank + 1).unwrap_or(0) as i32;
+    let mut min_x = 0i32;
+    let mut min_y = 0i32;
+    for n in &nodes {
+        min_x = min_x.min(n.x);
+        min_y = min_y.min(n.y);
+    }
+    // Only when something is GENUINELY negative. An earlier draft compared
+    // against `n.x - MARGIN`, which made a box legitimately at x = 0 look
+    // negative and shifted the whole picture by 24 on every layout — so a
+    // placement at 0 was drawn at 24 and the drawn coordinate stopped equalling
+    // the stored one for everybody, not just for the case being fixed. Caught by
+    // `a_position_lands_on_the_four_pixel_grid`, which is what that test is for.
+    if min_x < 0 || min_y < 0 {
+        let dx = if min_x < 0 { MARGIN - min_x } else { 0 };
+        let dy = if min_y < 0 { MARGIN - min_y } else { 0 };
+        for n in &mut nodes {
+            n.x += dx;
+            n.y += dy;
+        }
+        for l in &mut links {
+            for p in &mut l.points {
+                p.0 += dx;
+                p.1 += dy;
+            }
+        }
+    }
+    let mut width = MARGIN * 2 + ranks * BOX_W + (ranks.saturating_sub(1)) * RANK_GAP;
+    let mut height = MARGIN * 2 + widest_rank * BOX_H + (widest_rank.saturating_sub(1)) * SIB_GAP;
+    for n in &nodes {
+        width = width.max(n.x + n.w + MARGIN);
+        height = height.max(n.y + n.h + MARGIN);
+    }
     Diagram {
-        width: MARGIN * 2 + ranks * BOX_W + (ranks.saturating_sub(1)) * RANK_GAP,
-        height: MARGIN * 2 + widest_rank * BOX_H + (widest_rank.saturating_sub(1)) * SIB_GAP,
+        width,
+        height,
         nodes,
         links,
     }
+}
+
+/// Where a person put this node, if anybody did (ADR-0035).
+///
+/// A live `LayoutPin` contained by `id`, read through `HasLayoutPin`. `out` is
+/// `0..1` in the schema, so at most one edge exists; the first live one is taken
+/// and the loop stops, which is a total function even if a future writer
+/// violated the bound.
+///
+/// Both coordinates are required — the schema declares each `card: "1"` — and a
+/// pin missing one is treated as no pin at all rather than as a half-position.
+/// Falling back to the computed coordinate for the missing axis would draw the
+/// box somewhere nobody chose and mark it as chosen.
+pub fn pin_of(g: &Graph, id: NodeId) -> Option<(i32, i32)> {
+    use fathom_ir::bag::typed;
+    use fathom_ir::generated::ir_types::LayoutPinField;
+
+    let pin = g.node(pin_node(g, id)?)?;
+    let (Ok(x), Ok(y)) = (
+        typed::<i32, _>(pin, LayoutPinField::X.key()),
+        typed::<i32, _>(pin, LayoutPinField::Y.key()),
+    ) else {
+        return None;
+    };
+    Some((*x, *y))
+}
+
+/// The live `LayoutPin` contained by `id`, if there is one.
+///
+/// The one place in the workspace that knows how a pin is attached. The writer
+/// (`fathom_wasm`'s `OP_PLACE`) asks this before deciding whether to create a pin
+/// or move the one that is there, so "a pin is a `LayoutPin` on the far end of a
+/// live `HasLayoutPin`" is stated once and cannot drift between reader and
+/// writer.
+///
+/// `HasLayoutPin` is `out: "0..1"`, so at most one such edge exists. The loop
+/// takes the first live one and stops rather than asserting the bound: a total
+/// function here is worth more than a panic that proves the store enforced its
+/// own cardinality.
+pub fn pin_node(g: &Graph, id: NodeId) -> Option<NodeId> {
+    use fathom_ir::generated::ir_types::EdgeKind;
+
+    g.out(id, EdgeKind::HasLayoutPin)
+        .find(|e| e.absent_since.is_none())
+        .map(|e| e.to)
+        .filter(|to| g.node(*to).is_some_and(|n| n.absent_since.is_none()))
+}
+
+/// `56` §3.5's 4 px grid, applied in the core so every build agrees.
+///
+/// Rounds to the nearest multiple of 4, halves away from zero being irrelevant
+/// because `div_euclid` is exact on integers and the same on every target
+/// (invariant 9). Snapping in the page instead would put a rounding rule on the
+/// one side of the boundary where nothing is checked, and two hosts that rounded
+/// differently would store two different positions for the same gesture.
+pub fn snap(v: i32) -> i32 {
+    (v.saturating_add(2)).div_euclid(4).saturating_mul(4)
 }
 
 /// How many containment edges lie between this node and a root.

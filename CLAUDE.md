@@ -34,6 +34,17 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   aggregation; the finder searches all 98 command entries from Ctrl+K. Walkthrough, config and
   findings are still placeholders — and **config is placeholder by decision, not by omission**: see
   the refusal below.
+- **You can drag a box, and it stays where you put it — ADR-0035, 2026-08-15.** The owner asked
+  three times and was refused three times for want of somewhere in `schema/` to store a position.
+  That decision is made: **a hand-placed position is graph data.** `LayoutPin` (kind 49), contained
+  by the element it places via `HasLayoutPin` from the new `Placeable` class, written by `OP_PLACE`
+  (21), journalled, and surviving an export and an import. Layout stays **computed** and a pin is an
+  **override** that the picture marks — a corner tick, the word `placed`, `placed by hand` on the
+  Outline row, and a count in the note. A collapsed group cannot be placed. Keyboard: four `place`
+  buttons in the strip, plus `Alt`+arrow as an accelerator (filed in ADR-0035 §9 for `53`, which
+  owns the keymap). **Measured at +985 module bytes** against `00-ROUTE-TO-WORKABLE.md` §4's
+  estimate of *"stage 8, months"* — the months were the diagram. Driven in Chromium through a real
+  reload: `docs/80-review/evidence/2026-08-15-hand-placement-drive.mjs`, 25/25.
 - **A pasted SRX branch config binds 47.5% of its lines**, up from 23.8% on 2026-08-14. 29 of 122
   before, 58 after, measured per section in `docs/60-content/66-junos-coverage-measurement.md`.
   `set protocols ospf` and `set protocols bgp` now build `RoutingProtocol` and `ProtocolAdjacency`

@@ -47,12 +47,17 @@ fn hub(units: usize) -> String {
 }
 
 /// One drawn box, as the page reads it: the display id, the label, and slot 7's
-/// `<count> <interior> <group key>`.
+/// `<count> <interior> <placed> <group key>`.
+///
+/// `placed` joined the slot with ADR-0035 and sits BEFORE the group key, not
+/// after it: the key is the only token here that can be empty, so a token
+/// appended after it would be unreadable on an ungrouped box.
 struct Box {
     id: String,
     label: String,
     count: usize,
     interior: u32,
+    placed: bool,
     group: String,
 }
 
@@ -68,7 +73,7 @@ fn draw(shell: &mut Shell, request: &str) -> Vec<Box> {
         .filter(|r| r.role == FACE_BOX)
         .map(|r| {
             assert_eq!(r.slot_count, 8, "a box row carries eight slots");
-            let mut parts = r.strings[7].splitn(3, ' ');
+            let mut parts = r.strings[7].splitn(4, ' ');
             Box {
                 id: r.strings[0].clone(),
                 label: r.strings[2].clone(),
@@ -78,6 +83,7 @@ fn draw(shell: &mut Shell, request: &str) -> Vec<Box> {
                     .parse()
                     .expect("a decimal count"),
                 interior: parts.next().unwrap_or("0").parse().expect("a decimal"),
+                placed: parts.next().unwrap_or("0") == "1",
                 group: parts.next().unwrap_or("").to_owned(),
             }
         })
@@ -149,7 +155,7 @@ fn a_one_member_residual_posts_an_element_id_the_module_accepts() {
     }
 }
 
-/// Slot 7's three fields, and the rule the page's `.split(' ')` depends on: a
+/// Slot 7's four fields, and the rule the page's `.split(' ')` depends on: a
 /// group key never contains a space.
 #[test]
 fn slot_seven_carries_the_count_the_interior_and_the_group() {
@@ -170,6 +176,10 @@ fn slot_seven_carries_the_count_the_interior_and_the_group() {
             assert!(b.label.contains('–'), "and prints a named range");
         }
         assert_eq!(b.interior, 0, "no fan edge is hidden inside a box here");
+        assert!(
+            !b.placed,
+            "nothing in this fixture was placed by hand, so every box is computed"
+        );
     }
 }
 

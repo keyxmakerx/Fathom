@@ -468,7 +468,7 @@ fn enum_tokens_round_trip_including_unknown() {
 
 #[test]
 fn dispatch_names_every_registry_key() {
-    assert_eq!(FIELD_KEYS.len(), 299, "the registry grew or shrank");
+    assert_eq!(FIELD_KEYS.len(), 301, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

@@ -194,12 +194,34 @@ mod body {
         /// endpoint. A segment names its two ports and never the cable: re-patch a cable and
         /// every path through it follows automatically.
         PathSegment,
+        /// Where a person put a box. `56` §3.5's LayoutHint, spelled in 62's grammar: one pin
+        /// node contained by the element it places, carrying absolute scene coordinates on the
+        /// 4 px grid, with Origin::Hand provenance like every other thing a human asserted
+        /// (ADR-0035).
+        ///
+        /// **It is an OVERRIDE, never the source of position.** `56` §3.5 keeps layout computed;
+        /// an element with no live pin is placed by `fathom-layout` and an element with one sits
+        /// where the person put it AND IS DRAWN AS PLACED. A picture that mixed the two silently
+        /// would be lying about which is which.
+        ///
+        /// **It is not drawn.** `fathom_layout::agg::live_nodes` excludes this kind, so a pin is
+        /// never a box, never a rank, and never a line. That exclusion is the one place the
+        /// exception lives; every other consumer sees an ordinary contained node.
+        ///
+        /// LAYER, AND THE GAP IT NAMES: `62` §4.2's vocabulary is closed at
+        /// config | physical | service, and a pin belongs to none of the three — it is a fact
+        /// about the drawing, not about the network. `config` is transcribed as the conservative
+        /// reading because `emits: false` already closes the emit consumer and the pin is never
+        /// produced by a capture, so `19` §9.1's re-identification filter can never reach one.
+        /// A fourth value is a 62 amendment and this is not the record that makes it; the gap is
+        /// filed in ADR-0035 §8.
+        LayoutPin,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 48;
+        pub const COUNT: usize = 49;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 48] = [
+        pub const ALL: [NodeKind; 49] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -248,6 +270,7 @@ mod body {
             NodeKind::ServiceEndpoint,
             NodeKind::ServicePath,
             NodeKind::PathSegment,
+            NodeKind::LayoutPin,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -302,6 +325,7 @@ mod body {
                 NodeKind::ServiceEndpoint => "ServiceEndpoint",
                 NodeKind::ServicePath => "ServicePath",
                 NodeKind::PathSegment => "PathSegment",
+                NodeKind::LayoutPin => "LayoutPin",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -354,6 +378,7 @@ mod body {
                 "ServiceEndpoint" => Some(NodeKind::ServiceEndpoint),
                 "ServicePath" => Some(NodeKind::ServicePath),
                 "PathSegment" => Some(NodeKind::PathSegment),
+                "LayoutPin" => Some(NodeKind::LayoutPin),
                 _ => None,
             }
         }
@@ -408,6 +433,7 @@ mod body {
                 NodeKind::ServiceEndpoint => Layer::Service,
                 NodeKind::ServicePath => Layer::Service,
                 NodeKind::PathSegment => Layer::Service,
+                NodeKind::LayoutPin => Layer::Config,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -462,6 +488,7 @@ mod body {
                 NodeKind::ServiceEndpoint => false,
                 NodeKind::ServicePath => false,
                 NodeKind::PathSegment => false,
+                NodeKind::LayoutPin => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -517,6 +544,7 @@ mod body {
                 NodeKind::ServiceEndpoint => &[crate::bag::FieldKey(261), crate::bag::FieldKey(262), crate::bag::FieldKey(263), crate::bag::FieldKey(264), crate::bag::FieldKey(265), crate::bag::FieldKey(266), crate::bag::FieldKey(267)],
                 NodeKind::ServicePath => &[crate::bag::FieldKey(268), crate::bag::FieldKey(269), crate::bag::FieldKey(270), crate::bag::FieldKey(271), crate::bag::FieldKey(272)],
                 NodeKind::PathSegment => &[crate::bag::FieldKey(273), crate::bag::FieldKey(274), crate::bag::FieldKey(275), crate::bag::FieldKey(276), crate::bag::FieldKey(277), crate::bag::FieldKey(278), crate::bag::FieldKey(279), crate::bag::FieldKey(280)],
+                NodeKind::LayoutPin => &[crate::bag::FieldKey(300), crate::bag::FieldKey(301)],
             }
         }
     }
@@ -721,12 +749,18 @@ mod body {
         ExitsAt,
         /// 19 §5.2, §6.7 — constrain, never freeze; honoured by resolve_warp.
         MustTraverse,
+        /// ADR-0035. CONTAINMENT and not a reference, for one reason that decides it: `Graph::tombstone`
+        /// takes the subtree, so removing a device takes its pin with it. A pin for a box that is gone
+        /// is not a fact anybody asserted — the same argument `OP_ELEMENT_REMOVE` already makes about
+        /// a chassis. `out: "0..1"` is what makes "two positions for one box" unrepresentable rather
+        /// than merely unwritten.
+        HasLayoutPin,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 81;
+        pub const COUNT: usize = 82;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 81] = [
+        pub const ALL: [EdgeKind; 82] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -808,6 +842,7 @@ mod body {
             EdgeKind::EntersAt,
             EdgeKind::ExitsAt,
             EdgeKind::MustTraverse,
+            EdgeKind::HasLayoutPin,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -895,6 +930,7 @@ mod body {
                 EdgeKind::EntersAt => "EntersAt",
                 EdgeKind::ExitsAt => "ExitsAt",
                 EdgeKind::MustTraverse => "MustTraverse",
+                EdgeKind::HasLayoutPin => "HasLayoutPin",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -980,6 +1016,7 @@ mod body {
                 "EntersAt" => Some(EdgeKind::EntersAt),
                 "ExitsAt" => Some(EdgeKind::ExitsAt),
                 "MustTraverse" => Some(EdgeKind::MustTraverse),
+                "HasLayoutPin" => Some(EdgeKind::HasLayoutPin),
                 _ => None,
             }
         }
@@ -1067,6 +1104,7 @@ mod body {
                 EdgeKind::EntersAt => EdgeClass::Reference,
                 EdgeKind::ExitsAt => EdgeClass::Reference,
                 EdgeKind::MustTraverse => EdgeClass::Reference,
+                EdgeKind::HasLayoutPin => EdgeClass::Containment,
             }
         }
     }
@@ -1244,6 +1282,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1330,6 +1369,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PhysicalPort, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit],
                 EdgeKind::ExitsAt => &[NodeKind::PhysicalPort, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit],
                 EdgeKind::MustTraverse => &[NodeKind::Device, NodeKind::PassiveNode],
+                EdgeKind::HasLayoutPin => &[NodeKind::LayoutPin],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -1416,6 +1456,7 @@ mod body {
                 EdgeKind::EntersAt => EdgeCardBound { min: 0, max: None },
                 EdgeKind::ExitsAt => EdgeCardBound { min: 0, max: None },
                 EdgeKind::MustTraverse => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasLayoutPin => EdgeCardBound { min: 0, max: Some(1) },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -1502,6 +1543,7 @@ mod body {
                 EdgeKind::EntersAt => EdgeCardBound { min: 0, max: None },
                 EdgeKind::ExitsAt => EdgeCardBound { min: 0, max: None },
                 EdgeKind::MustTraverse => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasLayoutPin => EdgeCardBound { min: 1, max: Some(1) },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -1589,6 +1631,7 @@ mod body {
                 EdgeKind::EntersAt => false,
                 EdgeKind::ExitsAt => false,
                 EdgeKind::MustTraverse => false,
+                EdgeKind::HasLayoutPin => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -1675,6 +1718,7 @@ mod body {
                 EdgeKind::EntersAt => false,
                 EdgeKind::ExitsAt => false,
                 EdgeKind::MustTraverse => false,
+                EdgeKind::HasLayoutPin => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -1761,6 +1805,7 @@ mod body {
                 EdgeKind::EntersAt => &[],
                 EdgeKind::ExitsAt => &[],
                 EdgeKind::MustTraverse => &[],
+                EdgeKind::HasLayoutPin => &[],
             }
         }
     }
@@ -6495,6 +6540,38 @@ mod body {
         }
     }
 
+    /// Fields of kind `LayoutPin`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum LayoutPinField {
+        X,
+        Y,
+    }
+
+    impl LayoutPinField {
+        pub const COUNT: usize = 2;
+        /// Every field, declaration order.
+        pub const ALL: [LayoutPinField; 2] = [
+            LayoutPinField::X,
+            LayoutPinField::Y,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                LayoutPinField::X => "x",
+                LayoutPinField::Y => "y",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                LayoutPinField::X => crate::bag::FieldKey(300),
+                LayoutPinField::Y => crate::bag::FieldKey(301),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -6862,7 +6939,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 299] = [
+    pub const FIELD_KEYS: [(&str, u32); 301] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -7162,6 +7239,8 @@ mod body {
         ("Cabled.via_passive", 297),
         ("WarpResolvesVia.candidate", 298),
         ("WarpResolvesVia.ordinal", 299),
+        ("LayoutPin.x", 300),
+        ("LayoutPin.y", 301),
     ];
 
     /// 62 §18.1 `schema.scalar.unbound`, compile-time half: every `impl:`

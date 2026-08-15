@@ -331,6 +331,20 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     something could hold one, and hiding it on the strength of a
         //     scope sentence would be the invisible failure again.
         | NodeKind::LearnedRoute => UNTABLED,
+
+        // --- not an element of the network at all -------------------------
+        // A `LayoutPin` says where a person put a box (ADR-0035). It is not a
+        // thing on the network, so it is drawn at no layer — and it never
+        // reaches this function anyway, because `agg::live_nodes` drops the
+        // kind before a cell is built. Both guards are kept: the exclusion
+        // upstream is the mechanism, and this arm is what stops a future caller
+        // that forgets it from drawing pins as boxes at every layer, which is
+        // what `UNTABLED` would have done.
+        NodeKind::LayoutPin => Projection {
+            layers: LayerMask(0),
+            tabled: true,
+            treatment: "not drawn — a position, not an element (ADR-0035)",
+        },
     }
 }
 
