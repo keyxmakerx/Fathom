@@ -190,11 +190,21 @@ frames already carry by design (invariant 9 is what makes this work, not what it
 | A schema change | file stops opening (`lib.rs:182`, no migration) | re-derives |
 | Real-time collaboration | *"state written beside the op log"* — `75` §2.4's named failure | **it is an op log** |
 
+> **CORRECTED 2026-08-15 — READ THIS BEFORE THE PARAGRAPH BELOW.** The 889,723 figure was measured
+> against a module of **852,918**. The tip is **894,376** (`47` §1): the diagram, aggregation, the
+> finder and the widened dictionary all landed in between. The same `+36,805` now lands near
+> **931,000**, which is **~31,000 OVER the ceiling, not 10,277 under**. The sign is flipped, and the
+> conclusion drawn from it — *"the ceiling decision is not required for this feature"* — **is
+> reversed: encryption now requires that decision.** The paragraph is kept rather than rewritten
+> because the comparison it makes between the two persistence routes is still correct and still the
+> reason the journal route was chosen; only the headroom arithmetic is stale. Re-measure as one build
+> (`47` §9.2) before acting on any number in it.
+
 **Measured end to end, as one build rather than by adding deltas: the redacted-capture opcode plus
 Argon2id plus ChaCha20-Poly1305 lands at 889,723 bytes against the 900,000 ceiling** — 10,277 to
 spare, import section still empty. So the ceiling decision (`§2` stage 1, Route D) is **not**
 required for this feature. Keep that decision for the dictionary and corpus question, which does
-need it.
+need it. *(Both sentences are superseded by the correction above.)*
 
 `75` §2.4 is worth reading directly here, because the cheap route and the future-proof route turn
 out to be the same one: *"The op log is what a future CRDT converges; state written beside it

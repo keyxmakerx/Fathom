@@ -111,8 +111,48 @@ impl DetectorSet {
     pub const LEAF_NAME: u8 = 32;
 }
 
-/// 14 §9.4's secret-word list, verbatim, case-folded, hyphens = underscores.
-pub const SECRET_WORD_LIST: [&str; 24] = [
+/// 14 §9.4's secret-word list, case-folded, hyphens = underscores.
+///
+/// **`simple-password` is an addition to §9.4's list, made 2026-08-15, and it is
+/// a defect fix rather than a convenience.** The list was transcribed verbatim
+/// until the OSPF entries landed and made the gap reachable.
+///
+/// Junos spells OSPF's plain-text authentication
+///
+/// ```text
+/// set protocols ospf area A interface I authentication simple-password <key>
+/// ```
+///
+/// and `simple-password` is not `password`: `is_secret_word` is whole-string
+/// equality after folding, so the two never match. With no entry declaring a
+/// `secret:` at that path, the ONLY thing standing between that key and the
+/// store was `base64ish`, the length-and-alphabet safety net.
+///
+/// **`base64ish` requires 24 characters. Juniper documents this key as 1 to 8.**
+/// Two independent pages, both read 2026-08-15:
+///
+/// - <https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/topic-map/configuring-ospf-authentication.html>
+///   — *"The simple key can be from 1 through 8 characters and can include ASCII
+///   strings."* and *"Simple authentication uses a plain-text password that is
+///   included in the transmitted packet."*
+/// - <https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/authentication-edit-protocols-ospf.html>
+///   — names `simple-password`, `md5`, `multi-active-md5` and `keychain` as the
+///   four forms, and states the MD5 bound separately (*"The MD5 key values can
+///   be from 1 through 16 characters long"*), which the `md5` and `key` members
+///   below already cover.
+///
+/// So the safety net could not catch a legal value of this statement — not
+/// "rarely", but never, the maximum being a third of the minimum. The canary
+/// that was supposed to guard this path used a 28-character value, which no
+/// Junos device would have accepted, so it passed while the path was open for
+/// every value that could really appear.
+///
+/// Found by pasting a plausible key into the shipped artifact in Chromium and
+/// reading it back out of the EXPORTED JOURNAL — the file an operator keeps.
+///
+/// A length heuristic is the wrong instrument for a short secret. The right one
+/// is the name, which is what this list is for.
+pub const SECRET_WORD_LIST: [&str; 25] = [
     "key",
     "keys",
     "key-string",
@@ -120,6 +160,7 @@ pub const SECRET_WORD_LIST: [&str; 24] = [
     "shared-secret",
     "password",
     "passwd",
+    "simple-password",
     "plain-text-password",
     "encrypted-password",
     "psk",

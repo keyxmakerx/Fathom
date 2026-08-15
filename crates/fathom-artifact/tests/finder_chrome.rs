@@ -288,11 +288,36 @@ fn a_bench_run_clears_the_unverified_label() {
                 r.strings[1],
                 r.strings[5]
             );
-            // ADR-0027 §3's three facts, from `verified_on` and not from the
-            // entry's own platform/versions: the box, the date, the name.
+            // ADR-0027 §3's facts come from `verified_on`, not from the entry's
+            // own platform/versions: the box and the train are named here.
             assert!(
-                r.strings[5].starts_with("junos-srx 21.4R3 · verified · reviewed 2026-07-28 by "),
+                r.strings[5].starts_with("junos-srx 21.4R3 · verified on a box"),
                 "{}: stamp reads {:?}",
+                r.strings[1],
+                r.strings[5]
+            );
+            // AND THE ROW SAYS WHAT THE CORPUS LINE SAYS. This fixture is run on
+            // a box with `reviewed_by` still a placeholder — the ordering
+            // ADR-0027 §5 contemplates, conformance lab before expert review —
+            // so the row must sound invariant 10 exactly as the summary does.
+            //
+            // The assertion this replaces pinned
+            //     `… · verified · reviewed 2026-07-28 by <named human>`
+            // which is the placeholder rendered as though it were a person,
+            // introduced by the word `verified` and a date. The canary was
+            // holding the defect in place rather than catching it, which is the
+            // worst thing a canary can do: it makes the wrong behaviour load
+            // bearing.
+            assert!(
+                r.strings[5].contains("NO NAMED REVIEWER (invariant 10)"),
+                "{}: run on a box, reviewer still a placeholder, and the stamp \
+                 does not say so: {:?}",
+                r.strings[1],
+                r.strings[5]
+            );
+            assert!(
+                !r.strings[5].contains('<'),
+                "{}: an invariant-10 placeholder reached a rendered stamp: {:?}",
                 r.strings[1],
                 r.strings[5]
             );

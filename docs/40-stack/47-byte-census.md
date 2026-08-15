@@ -714,13 +714,31 @@ method §9.1 used for `fathom-workspace`:
 |---|---:|---:|
 | Baseline at the tip | 886 321 | — |
 | **`fathom-emit` linked and reached** | **980 159** | **+93 838** |
-| The same, with §11's two free levers also taken | **900 156** | **+13 835 net** |
+| The whole shipped branch, measured twice from clean target dirs | **996 989** | **+110 668** |
+| With §11's two free levers also taken — *this session's call shape* | 900 156 | +13 835 net |
+| With §11's two free levers also taken — *an adversary's call shape* | 898 905 | +12 584 net |
 
-**The config view does not fit, by roughly seven times the remaining headroom.** And the second row
-is the one that settles it: **with the float machinery removed and the demo estate removed — every
-free byte this census found, spent — the module with an emitter in it is 900 156, which is 156 bytes
-over the ceiling.** Not close enough to argue about, and not far enough to be comfortable: it is a
-feature that misses by the width of a comment.
+**The config view does not fit, by seven to eight times the remaining headroom.** The +93 838 and
+the +110 668 are solid: the second was measured twice from independent clean target dirs, and
+confirmed by ablating the `OP_EMIT` arm at that commit and landing on 886 321 exactly, which proves
+nothing else in the branch costs a wasm byte.
+
+**THE LAST TWO ROWS ARE THE SAME BUILD AND THEY DISAGREE BY 1 251 BYTES, AND THE CORRECTION MATTERS
+MORE THAN THE NUMBER.** An earlier draft of this section reported only the first of them and drew a
+conclusion from its precision: *"900 156, which is 156 bytes over the ceiling … a feature that misses
+by the width of a comment."* A reviewer rebuilt it with an equally legitimate call shape and measured
+898 905 — **1 095 bytes under**. The sign reverses. That sentence was written into `44` and into
+CLAUDE.md as settled fact before anyone checked it twice, and it has been withdrawn from both.
+
+The lesson is a rule for this document rather than an embarrassment: **a lever-spent figure within
+about 2 000 bytes of the ceiling is not a verdict, because inlining decisions at that margin are
+worth more than the margin.** Measure the feature, not the coin flip.
+
+**The refusal survives the correction intact, and does not need the precision.** It rests on two
+things that are not close: the feature costs 93 838 bytes at the very least against 13 679 available,
+and taking it would require spending every free lever this census found — the whole 80 007 — on one
+view, leaving nothing for encryption, which the owner ranks first. A feature that consumes the entire
+remaining budget is refused whether it ends 156 bytes over or 1 095 under.
 
 **This is the first time a specified feature has been priced out of this product**, and the fact is
 worth more than the number. Every previous byte conversation was about a feature that had not been
@@ -895,9 +913,12 @@ the measurements rather than to intuition:
   Saving costs 263 more. The two together are what turn this from a tool that forgets everything into
   a tool that keeps an operator's estate safely, which is the product's whole reason to exist.
 - **The config view is dynamic ability, and it is third.** It is also the most expensive thing on the
-  list, and it is the one that cannot be made to fit by any amount of tidying. **With every free byte
-  already spent — floats out, demo out — the module with an emitter in it measures 900 156 bytes,
-  which is 156 over the limit** (§9.3). Not close enough to argue about.
+  list, and it is the one that cannot be made to fit by any amount of tidying. It costs **at least
+  93 838 bytes** against 13 679 available, and the whole shipped branch measures **+110 668**. Even
+  with every free byte this census found already spent — floats out, demo out — it lands within about
+  a thousand bytes of the ceiling on either side depending on how the compiler chooses to inline
+  (§9.3), which is to say it consumes **the entire remaining budget of the product** to deliver one
+  of six views, and leaves encryption nothing.
 
 **This is the first time this project has had to refuse a feature on size**, and that deserves to be
 said plainly rather than buried in a table. `fathom-emit` is written, it is tested, and it works. It

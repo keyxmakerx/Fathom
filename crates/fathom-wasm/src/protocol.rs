@@ -414,9 +414,28 @@ fn has_named_reviewer(e: &Entry) -> bool {
 /// "not on your train" caveat and belong to the row, not to its provenance line.
 fn verification_stamp(e: &Entry) -> String {
     match &e.verified_on {
-        Some(v) => format!(
+        // FOUR ARMS, NOT THREE. The two facts are independent — a bench run and
+        // a named reviewer — so there are four states and the stamp must name
+        // all four. The three-arm version asserted `reviewed … by {reviewed_by}`
+        // on any verified entry without ever asking whether `reviewed_by` was a
+        // person, so an entry run on a box before the expert review renders
+        //
+        //     junos-srx 21.4R3 · verified · reviewed 2026-07-28 by <named human>
+        //
+        // — invariant 10's literal placeholder printed as though it were a
+        // human, in a line that opens with the word `verified`. Unreachable in
+        // the shipped corpus, which has zero bench runs, and reachable the day
+        // ADR-0027 §1's conformance lab lands before the review, an ordering
+        // ADR-0027 §5 explicitly contemplates by tracking the placeholder as its
+        // own blocker. The two `None` arms already made this distinction; this
+        // one did not, which is the whole defect.
+        Some(v) if has_named_reviewer(e) => format!(
             "{} {} · verified · reviewed {} by {}",
             v.platform, v.version, e.reviewed_on, e.reviewed_by
+        ),
+        Some(v) => format!(
+            "{} {} · verified on a box · NO NAMED REVIEWER (invariant 10)",
+            v.platform, v.version
         ),
         // Both missing facts are named. An entry with a real reviewer and no
         // bench run must not read the same as one with neither, or the corpus

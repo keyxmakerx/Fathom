@@ -251,6 +251,76 @@ fn a_base64ish_secret_past_a_matched_entrys_path_is_still_destroyed() {
     );
 }
 
+/// **A LEGAL OSPF simple-password — eight characters — is destroyed.**
+///
+/// The canary above is honest about its own construction and wrong about the
+/// world. It reaches for a 34-character probe *because* `base64ish` needs 24,
+/// and it says in as many words that base64 is "the only detector that can
+/// catch this". Both statements are true of the code. Neither asks the question
+/// that decides whether the gate works: **is a 34-character value one this
+/// statement can hold?**
+///
+/// It is not. Juniper, two independent pages, both read 2026-08-15:
+///
+/// - <https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/topic-map/configuring-ospf-authentication.html>
+///   — *"The simple key can be from 1 through 8 characters and can include
+///   ASCII strings."*
+/// - <https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/ref/statement/authentication-edit-protocols-ospf.html>
+///   — the four authentication forms, with the MD5 bound stated separately at
+///   1 to 16 characters.
+///
+/// So the maximum a real device accepts is a third of the minimum the detector
+/// needs, and the test above passes on a value **no Junos box would take**. The
+/// hole it was written to close was still open for every value that could
+/// actually appear, and it was closed by putting `simple-password` in
+/// `SECRET_WORD_LIST` — the name, not the length, being the right instrument
+/// for a short secret.
+///
+/// Found by pasting a plausible key into the shipped artifact in Chromium and
+/// reading it back out of the EXPORTED JOURNAL, which is the file an operator
+/// would have kept. A Rust test asserts on a function; that asserted on the
+/// product.
+///
+/// This one uses eight characters, so it cannot be satisfied by base64 and it
+/// fails the moment `simple-password` leaves the list.
+#[test]
+fn an_eight_character_ospf_password_is_destroyed_because_of_its_name() {
+    let secret = "Fath0m8x";
+    assert_eq!(
+        secret.len(),
+        8,
+        "the probe must be a length Junos actually accepts"
+    );
+    assert!(
+        !crate_base64_floor_would_catch(secret),
+        "if base64 can catch this the test proves nothing about the name"
+    );
+    let line = format!(
+        "set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 \
+         authentication simple-password {secret}\n"
+    );
+    let out = ingest(line.as_bytes(), &dict()).expect("within the caps");
+    let serialised = format!("{out:?}");
+    assert!(
+        !serialised.contains(secret),
+        "a LEGAL OSPF plaintext password survived the gate: {serialised}"
+    );
+    assert!(
+        out.drops
+            .entries
+            .iter()
+            .any(|e| e.detectors.0 & DetectorSet::LEAF_NAME != 0),
+        "the leaf-name walk is what must catch a short secret, got {:?}",
+        out.drops.entries
+    );
+}
+
+/// `base64ish` is private, so this restates its floor rather than reaching in.
+/// Only the floor matters here: the assertion is that the probe is BELOW it.
+fn crate_base64_floor_would_catch(text: &str) -> bool {
+    text.trim_end_matches('=').chars().count() >= 24
+}
+
 /// The same defect stated as a rule rather than as one line: for every
 /// statement the dictionary matches only a PREFIX of, a long opaque argument
 /// in the tail is destroyed.

@@ -60,9 +60,12 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   crate, by removal — with `scripts/byte-census.sh` to reproduce it. Three findings bind planning:
   **243,522 bytes (27.5%) are shared B-tree/sort machinery no feature owns and no budget row can
   see**; **35% of the module belongs to no feature at all**; and **linking `fathom-emit` costs
-  +93,838, so the config view does not fit** — it still misses by 156 bytes after every free byte in
-  the project is spent. That refusal is the first in this project's history and `47` §11 reasons about
-  it. Two free levers remain, both measured twice: float handling (44,825) and the demo estate
+  +93,838 at minimum and +110,668 as shipped, so the config view does not fit** — it would spend the
+  project's entire remaining budget on one of six views and leave encryption nothing. That refusal is
+  the first in this project's history and `47` §11 reasons about it. (An earlier line here said the
+  feature "misses by 156 bytes" after every lever is spent; a second measurement of the same build
+  landed 1,095 bytes **under**, the difference being inlining. Withdrawn — `47` §9.3 carries the
+  correction and the rule: a lever-spent figure within ~2,000 bytes of the ceiling is not a verdict.) Two free levers remain, both measured twice: float handling (44,825) and the demo estate
   (35,178), 80,007 together and no third.
 - **The plan layer is live.** `78` (the execution protocol), `79-work-orders/` (eight
   orders, adversarially verified), and CI (`.github/workflows/ci.yml`) enforcing the

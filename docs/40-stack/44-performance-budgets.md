@@ -700,10 +700,17 @@ is a ceiling nobody checks.
 >
 > **The first feature refused on bytes.** Linking `fathom-emit` and reaching it from one opcode costs
 > **+93 838** (886 321 → 980 159), measured 2026-08-15. The config view therefore does not fit, by
-> roughly seven times the headroom. It does not fit even after spending every free byte the census
-> found: floats out *and* the demo estate out *and* the emitter in measures **900 156**, which is
-> 156 bytes over the ceiling. That is the first time a specified feature has been priced out, and
-> `47` §11 says what to do about it.
+> roughly seven times the headroom; the whole shipped branch measures **+110 668**, twice, from
+> independent clean target dirs. It does not fit even after spending every free byte the census
+> found: floats out *and* the demo estate out *and* the emitter in lands within about a thousand
+> bytes of the ceiling **on either side** — 900 156 measured one way, 898 905 measured another, the
+> difference being inlining alone. **A lever-spent figure that close is not a verdict**, and an
+> earlier draft of this block published the first number as though it were one, saying the feature
+> missed "by 156 bytes". Withdrawn 2026-08-15; `47` §9.3 records the correction and the rule it
+> produced. The refusal stands on what is not close: 93 838 bytes at minimum against 13 679
+> available, and a feature that would spend the project's entire remaining budget on one of six
+> views and leave encryption nothing. That is the first time a specified feature has been priced
+> out, and `47` §11 says what to do about it.
 >
 > The gate that exists is one total assertion, `size <= 900_000`, at
 > `crates/fathom-wasm/tests/artifact_gates.rs`. **There is no `xtask`, no `twiggy`, and no
