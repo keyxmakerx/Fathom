@@ -434,3 +434,67 @@ fn display_id_round_trips() {
         "a truncated ULID is refused"
     );
 }
+
+/// **NO KIND WITH A BOUND NAME MAY RENDER AS A ULID.**
+///
+/// The class, pinned, after this defect shipped twice. On 2026-08-10 seven
+/// security kinds showed `ikegateway:01KZ…` for a config Fathom had understood
+/// perfectly; they were given arms. On 2026-08-15 the routing and VLAN kinds
+/// arrived with their names bound in the graph and no arm, and three ULID blobs
+/// sat on the canvas where an operator's VLANs should have been — found by an
+/// adversarial pass driving the shipped artifact, not by any test here.
+///
+/// The rule this asserts is not "every kind has an arm". A kind that CAN have
+/// many instances and whose naming nobody has decided is honestly a ULID —
+/// `display_name`'s fall-through says so and that is deliberate. The rule is
+/// narrower and is the one that was actually broken: **if the graph holds a
+/// name for a node, the name is what the operator sees.**
+#[test]
+fn a_bound_name_is_never_rendered_as_a_ulid() {
+    let g = demo_estate();
+    let mut offenders: Vec<String> = Vec::new();
+
+    for kind in InvKind::ALL {
+        for row in rows(&g, kind) {
+            let id = node(&g, &row.id);
+            let page = element_page(&g, id).expect("a live node has a page");
+            // The Display form is `<kind-lower>:<ulid>`; a name equal to it is
+            // the fall-through arm firing.
+            if page.name != id.to_string() {
+                continue;
+            }
+            // It fell through. That is only acceptable if the node really has
+            // no name to show — i.e. no field whose value is set and whose name
+            // ends in `name`, `hostname`, `label`, `value` or `address`.
+            let nameable = page.fields.iter().any(|f| {
+                let n = f.name;
+                (n.ends_with("name")
+                    || n.ends_with("hostname")
+                    || n.ends_with("label")
+                    || n.ends_with("value")
+                    || n.ends_with("address"))
+                    && f.value != "—"
+                    && f.value != "absent"
+                    && !f.value.is_empty()
+            });
+            if nameable {
+                let named: Vec<&str> = page
+                    .fields
+                    .iter()
+                    .filter(|f| f.value != "—" && !f.value.is_empty())
+                    .map(|f| f.name)
+                    .collect();
+                offenders.push(format!(
+                    "{} renders as its own id while holding {named:?}",
+                    id.kind.name()
+                ));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "a kind whose name IS in the graph is showing the operator a ULID \
+         instead — the 2026-08-10 defect, returning: {offenders:#?}"
+    );
+}

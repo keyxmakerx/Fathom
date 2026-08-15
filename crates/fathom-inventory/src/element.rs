@@ -12,6 +12,22 @@ use fathom_ir::generated::ir_types::{EdgeKind, NodeKind};
 
 use crate::render::{field_cell, field_name, key, value_cell, UNKNOWN};
 
+/// A field's rendered value **only if it is actually set**.
+///
+/// `value_cell` answers with `render::UNKNOWN` — an em dash — for an unset
+/// field, which is right for a table cell and wrong for composing a name: it is
+/// never the empty string, so `is_empty()` is always false and a name built by
+/// checking it produces `peer —`. That shipped for one build. This is the test
+/// the composing arms in `display_name` actually want.
+fn bound(g: &Graph, id: NodeId, k: fathom_ir::bag::FieldKey) -> Option<String> {
+    let v = value_cell(g, id, k);
+    if v.is_empty() || v == UNKNOWN || v == "absent" {
+        None
+    } else {
+        Some(v)
+    }
+}
+
 /// One field row of the inspector table (54 §18): name, rendered value,
 /// and the provenance cell ("hand · 2026-07-31" | "unset" |
 /// "absent — asserted · hand · 2026-07-31").
@@ -113,6 +129,58 @@ pub(crate) fn display_name(g: &Graph, id: NodeId) -> String {
         // `Address` has no name; its value *is* its name, and it is the thing
         // an operator reads (`10.255.0.1/30`).
         NodeKind::Address => value_cell(g, id, key("Address.value")),
+
+        // Added 2026-08-15, and it is the SECOND time this defect has been
+        // fixed. The comment below records the first: seven security kinds
+        // showed `ikegateway:01KZ…` for a config Fathom had understood
+        // perfectly. The routing and VLAN kinds landed on 2026-08-15 with
+        // names bound in the graph and no arm here, so three ULID blobs sat on
+        // the canvas where an operator's VLANs should have been. The lesson is
+        // not "remember to add an arm" — it is that a kind whose name IS bound
+        // and is not shown looks identical to one nobody has named.
+        NodeKind::Vlan => value_cell(g, id, key("Vlan.name")),
+        NodeKind::NtpServer => value_cell(g, id, key("NtpServer.address")),
+        // A device has one unnamed default instance and any number of named
+        // ones, so the unbound case is common and is NOT an error. `—` alone
+        // identifies nothing and a ULID is noise; saying it is the unnamed one
+        // is the only reading that is both true and useful. Junos's own name
+        // for it is not written here, because the parser has not read one.
+        NodeKind::RoutingInstance => bound(g, id, key("RoutingInstance.name"))
+            .unwrap_or_else(|| "routing instance (unnamed)".to_owned()),
+
+        // These two have no name field at all in `schema/`, so what identifies
+        // them is what they ARE: a protocol, and the peer or area it speaks to.
+        // Composed from bound fields rather than invented, and falling back to
+        // the id when nothing is bound, which is the honest empty state.
+        //
+        // `value_cell` returns `render::UNKNOWN` — an em dash — for a field that
+        // is not set, NOT an empty string, so `is_empty()` is never true and the
+        // first draft of this arm produced `peer —` on every OSPF adjacency.
+        // `bound` is the test that was meant.
+        NodeKind::RoutingProtocol => match bound(g, id, key("RoutingProtocol.protocol")) {
+            Some(p) => p,
+            None => id.to_string(),
+        },
+        NodeKind::ProtocolAdjacency => {
+            match (
+                bound(g, id, key("ProtocolAdjacency.peer_address")),
+                bound(g, id, key("ProtocolAdjacency.area")),
+            ) {
+                (Some(peer), _) => format!("peer {peer}"),
+                (None, Some(area)) => format!("area {area}"),
+                _ => id.to_string(),
+            }
+        }
+
+        // SINGLETONS, WHERE THE KIND IS THE NAME. A device holds exactly one of
+        // each of these and `schema/` gives neither a name field, so there is
+        // nothing to disambiguate and nothing to invent — "system settings" IS
+        // which one it is. That is a different case from the fall-through
+        // below, which exists for kinds that CAN have many and whose naming
+        // nobody has decided; showing a ULID there says so honestly, and
+        // showing one here would just be unreadable.
+        NodeKind::SystemSettings => "system settings".to_owned(),
+        NodeKind::SecurityFlowSettings => "security flow settings".to_owned(),
 
         // Deliberately last and deliberately a ULID: a kind with no arm is a
         // kind nobody has decided how to name, and showing its id says so

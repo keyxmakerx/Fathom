@@ -162,8 +162,15 @@ const PROTOCOL_ADJACENCY_COLUMNS: &[&str] = &[
 
 // The six pasted-config kinds. Every column below is a field `schema/schema.yaml`
 // declares on that kind — no column is computed here except the named traversals
-// at the foot of this file, which is `52` §3.7's rule: a row set is a kind plus a
-// filter, and a cell is a field or a stated walk.
+// at the foot of this file.
+//
+// `52` §3.7 is the source for the row-set half and is quoted for it: "The row
+// set — a kind plus a filter." It is NOT the source for the cell half. The
+// phrase "a cell is a field or a stated walk" appeared here as a §3.7 quotation
+// and §3.7 does not contain it; re-read 2026-08-15. What §3.7 does say points
+// the other way: "Columns are kind-dependent and chosen from the schema", and
+// "Lets you change | Field values, in place, in the cell." The cell rule below
+// is this file's own convention, and it is written as one.
 const INTERFACE_COLUMNS: &[&str] = &["name", "device", "description", "units"];
 // `st0` on an SRX. Its own row set rather than a row in `Interface`, because a
 // row set is a kind plus a filter (`52` §3.7) and these are different kinds --
@@ -300,7 +307,7 @@ fn cells(g: &Graph, kind: InvKind, id: NodeId) -> Vec<String> {
         ],
         InvKind::RoutingProtocol => vec![
             value_cell(g, id, key("RoutingProtocol.protocol")),
-            value_cell(g, id, key("RoutingProtocol.router_id")),
+            routing_protocol_router_id(g, id),
             value_cell(g, id, key("RoutingProtocol.local_as")),
             value_cell(g, id, key("RoutingProtocol.reference_bandwidth")),
             owning_device(g, id),
@@ -320,6 +327,50 @@ fn cells(g: &Graph, kind: InvKind, id: NodeId) -> Vec<String> {
             value_cell(g, id, key("Chassis.slots")),
             owning_device(g, id),
         ],
+    }
+}
+
+/// The router id for a `RoutingProtocol` row: its own field where something
+/// set it, otherwise the owning `RoutingInstance`'s.
+///
+/// THIS CELL IS NOT A STORED FIELD OF THE ROW'S OWN NODE, and `52` §3.7 does
+/// not licence it. An earlier version of this comment quoted §3.7 as "a cell is
+/// a field or a stated walk"; that sentence is not in §3.7, which instead says
+/// columns are "chosen from the schema" and that the view "lets you change
+/// field values, in place, in the cell". Read 2026-08-15. So this walk is a
+/// deviation from the view's stated contract, recorded as one rather than
+/// dressed as a citation — and it has a consequence the owner will meet when
+/// inventory editing lands: an editable cell that is not the row's own field
+/// has nowhere to write. `73` §14 is where that belongs when it is decided.
+///
+/// `schema/schema.yaml` declares `router_id` on both kinds, and
+/// on Junos only one of them is reachable: there is no `set protocols ospf
+/// router-id` and no `set protocols bgp router-id` — the statement is `set
+/// routing-options router-id`, which is the routing instance, and Juniper's own
+/// description of it says it is used by BGP and OSPF alike (read 2026-08-15,
+/// https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/router-id-edit-routing-options.html).
+///
+/// Without this walk the column would be empty on every Junos paste forever,
+/// which is the failure mode the `UNRENDERED` marker in `render.rs` was added
+/// to stop: a real, present, provenanced value that reads on screen exactly
+/// like a field nobody filled in. The rejected alternative was to bind
+/// `routing-options router-id` onto `RoutingProtocol.router_id` in the
+/// dictionary — that puts an instance-wide fact on a protocol and, worse,
+/// would have to mint a `RoutingProtocol` without knowing its card-1
+/// `protocol`. Storing it correctly and reading it here is the honest split.
+///
+/// The protocol's own field still wins where a platform does set it, so this
+/// is a fallback and not an override.
+fn routing_protocol_router_id(g: &Graph, id: NodeId) -> String {
+    let own = value_cell(g, id, key("RoutingProtocol.router_id"));
+    if !own.is_empty() && own != UNKNOWN {
+        return own;
+    }
+    match g.owner(id) {
+        Some(owner) if owner.kind == NodeKind::RoutingInstance => {
+            value_cell(g, owner, key("RoutingInstance.router_id"))
+        }
+        _ => own,
     }
 }
 

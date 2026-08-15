@@ -661,6 +661,63 @@ is a ceiling nobody checks.
 > size gate is armed** — it decides B17, B18, the artifact shape, and whether D1 is viable at
 > all. Until it runs, every figure below is a budget, not a measurement.
 
+> **MEASURED, 2026-08-15 (`47-byte-census.md`).** The spike this section waits on has now run, and
+> the table below did not survive it. **All overages here are in bytes.** The 700 KB target and the
+> 900 000 ceiling are both read as KB = 1 000 — the convention the gate itself uses — and the rows
+> below are the same arithmetic, so nothing in this block mixes KB with KiB.
+>
+> At commit `adbd9a2` the module is **886 321 bytes** — over the 700 KB target by 186 321, under the
+> 900 000 ceiling by **13 679**. Per row, by instantiation site: graph over by **29 564** with no CRDT
+> written; parsers + dictionary over by **3 652** (the dictionary left the module on 2026-08-15 and
+> nearly rescued this row); finder over by **127 788**, because the corpus index was never a row;
+> `core::fmt`/misc over by **16 441**. **Two of the seven rows are at zero** — rule engine and crypto,
+> neither built. A third, CBOR, is **867 bytes, not zero**: the project chose canonical JSON, so that
+> row describes a decision that changed rather than work outstanding.
+>
+> **The largest block in the module has no row and no owner.** `alloc::collections::btree` plus
+> `core::slice::sort` is **243 522 bytes, 27.5 % of the module**, in 1 218 functions. That is not any
+> one rule's price: it is what deterministic ordered collections cost in Rust when the same B-tree
+> and the same sort are instantiated afresh for every distinct key/value type — roughly fifty of them
+> across the graph, the ledger, the index and the layout. The discipline that produces it is real and
+> is not being argued with here; it was chosen in `41` §2.1, whose language matrix rates Rust
+> *"**good**: `BTreeMap`, no floats in the schema, explicit sort, `#[deny]` lints"* against invariant 9
+> (determinism where it is observable). **Invariant 9 itself states no rule about collections** — it
+> is about byte-identical emitted output — and no document in this tree states a "BTree-only rule".
+> The cost is a consequence of an implementation choice made in service of an invariant, which is a
+> thing that can be re-engineered; it is not the invariant, which cannot.
+>
+> The IR is the next unrowed block: **89 241 bytes** by instantiation site, of which the generated
+> accessor/type layer is **71 425**. The generated layer was suspected of dominating the module and
+> **it does not** — at 8.4 % it is the sixth-largest identifiable block, behind btree and sort. It is
+> the largest *multiplier*, not the largest block: reaching one 299-arm generated function costs
+> 103 049 bytes (`47` §8.2). Also unrowed: the diagram (**39 803**), the inventory face (**45 202**),
+> the wasm shell (**33 958**), the weld (**8 877**), IDs (**7 681**).
+>
+> **35 % of the module (301 531 bytes, measured at `adbb590`) belongs to no component at all** and is
+> shared between two or more features, so per-component gating as specified below is not merely
+> unbuilt — it is unachievable. `47` §11.5 proposes the replacement; this document owns whether
+> to take it.
+>
+> **The first feature refused on bytes.** Linking `fathom-emit` and reaching it from one opcode costs
+> **+93 838** (886 321 → 980 159), measured 2026-08-15. The config view therefore does not fit, by
+> roughly seven times the headroom; the whole shipped branch measures **+110 668**, twice, from
+> independent clean target dirs. It does not fit even after spending every free byte the census
+> found: floats out *and* the demo estate out *and* the emitter in lands within about a thousand
+> bytes of the ceiling **on either side** — 900 156 measured one way, 898 905 measured another, the
+> difference being inlining alone. **A lever-spent figure that close is not a verdict**, and an
+> earlier draft of this block published the first number as though it were one, saying the feature
+> missed "by 156 bytes". Withdrawn 2026-08-15; `47` §9.3 records the correction and the rule it
+> produced. The refusal stands on what is not close: 93 838 bytes at minimum against 13 679
+> available, and a feature that would spend the project's entire remaining budget on one of six
+> views and leave encryption nothing. That is the first time a specified feature has been priced
+> out, and `47` §11 says what to do about it.
+>
+> The gate that exists is one total assertion, `size <= 900_000`, at
+> `crates/fathom-wasm/tests/artifact_gates.rs`. **There is no `xtask`, no `twiggy`, and no
+> `perf/size-baselines.toml`** — §5.5 describes a mechanism that has never existed. `twiggy` may not
+> be added (ADR-0032, `78` §5.2); `scripts/byte-census.sh` is the first-party instrument that
+> replaces it, and every figure in this block is reproducible from it.
+
 `41` §3.10 originated this split; this document adopts it, adds the gate, and adds two rows it
 did not have:
 
@@ -696,7 +753,9 @@ Two rows `41` §3.10 does not carry, added here because they will surprise someb
 | HTML shell + template | 6 KB | 6 KB | `35` §3.5's slot template, no logic |
 | CSS, hand-written, minified by `lightningcss` | 24 KB | 24 KB | ~700 lines. Three colours, no framework |
 | JS — UI + boundary, minified by `oxc` | 120 KB | 120 KB | `41` §4.4's render layer plus views |
-| WASM core | 700 KB | **933 KB** | base64 ×4/3 |
+| *the three rows above, **as actually built*** | | **177 950 B** | **Measured 2026-08-15** (`47` §3.3). These three are budgeted at 150 KB together and the built page is **over by 27 950**, unminified and with the diagram and aggregation in it. Nothing gates this number, which is why it went over unremarked |
+| WASM core | ~~700 KB~~ **886 321 B** | ~~933 KB~~ **1 181 764 B** | base64 ×4/3. **Measured 2026-08-15** at commit `adbd9a2` (`47` §1.1); the 700 KB was a budget and it was wrong by 27 % |
+| Statement dictionary, handed in over `OP_DICT` | — | **39 808 B** | New 2026-08-15. 29 670 bytes of YAML that used to be inside the module; it left the WASM sub-budget and arrived here, where there was no row for it |
 | Finder index | 1,050 KB | **1,400 KB** | `16` §9.4 |
 | First-party rule pack (`.fpack`, tar+zstd) | 260 KB | **347 KB** | budget, not measurement <!-- VERIFY: build the v1 pack and measure. `63`'s worked rules suggest ~600 B compiled + ~1.2 KB of prose per rule; at 150 rules that is ~270 KB before zstd, so 260 KB compressed is plausible and unverified. --> |
 | Explainer corpus, v1, zstd | 320 KB | **427 KB** | `15` §—'s own figure |
@@ -704,6 +763,7 @@ Two rows `41` §3.10 does not carry, added here because they will surprise someb
 | **Total** | | **≈ 3.38 MB** | |
 | **Target** | | **≤ 3.5 MB** | |
 | **Hard ceiling (B17)** | | **≤ 4.5 MB** | fails the merge |
+| **Actually built, 2026-08-15** | | **1 399 960 B** | `cargo run --locked -p fathom-artifact` → `target/artifact/fathom-dev.html` at commit `adbd9a2`. Composition, measured: WASM base64 **1 181 764**, dictionary frame **39 808**, page **177 950** — 1 399 522 *characters*, against 1 399 960 *bytes* on disk, the 438-byte difference being multi-byte UTF-8 in the page's own text. The index, rule pack, explainer corpus and font are not in the file yet — the artifact ceiling is **31 % spent while the WASM sub-budget is 98.5 % spent**, and `47` §11 argues that mismatch is the real finding here |
 
 ### 5.4 DECISION — ship the mono faces, do not ship the sans
 

@@ -11,6 +11,7 @@ members = [
     "crates/fathom-ingest",
     "crates/fathom-inventory",
     "crates/fathom-ir",
+    "crates/fathom-layout",
     "crates/fathom-schema",
     "crates/fathom-schemagen",
     "crates/fathom-wasm",

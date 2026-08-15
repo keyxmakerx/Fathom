@@ -32,6 +32,62 @@ entries:
     versions: "*"
     reviewed_by: <named human>
 
+  # ---- added 2026-08-15 by the branch-coverage widening ----
+  #
+  # `time-zone` — verified against Juniper's CLI reference on 2026-08-15
+  # (ADR-0034). "time-zone" — Syntax: `time-zone (GMT hour-offset |
+  # time-zone);` Hierarchy Level: `[edit system]`. Default: UTC. The option
+  # list is the tzdb continent/city set (`America/New_York`, `Europe/London`,
+  # …), which is what `TzName` validates.
+  # https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/time-zone-edit-system.html
+  #
+  # `GMT <hour-offset>` is NOT carried: it is two tokens where the tzdb form
+  # is one, `TzName` is a tzdb identifier and not an offset, and there is no
+  # schema field for an offset. Such a line stays residue.
+  #
+  # The `Device` node is the implicit node 0; declaring it gives
+  # `SystemSettings` its containment owner (`HasSystemSettings`).
+  - id: junos-srx/system.time-zone
+    path: [system, time-zone, "$tz"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SystemSettings, owner: n0, fields: [ { field: time_zone, from: "$tz", scalar: TzName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `ntp server` — verified against Juniper's CLI reference on 2026-08-15
+  # (ADR-0034). "server (NTP)" — Hierarchy Level: `[edit system ntp]`.
+  # https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/server-edit-system-ntp.html
+  #
+  # The schema comment on this kind is the reason it is worth the entry:
+  # "In the schema because clock skew kills certificates."
+  #
+  # Junos also accepts a hostname here; `NtpServer.address` is typed `IpAddr`
+  # and nothing in the IR holds an NTP server's name, so a hostname produces a
+  # `ValueUnparsed` diagnostic rather than a silently dropped server. The
+  # `prefer` and `version` sub-statements are separate lines and are not
+  # carried yet.
+  #
+  # THREE nodes, not two: `HasNtpServer` runs SystemSettings -> NtpServer, not
+  # Device -> NtpServer. Owning the server directly off the Device compiled,
+  # loaded, and passed every unit test, and then failed in the browser with
+  # `NoContainmentEdge { owner: Device, child: NtpServer }` on the first real
+  # paste. `crates/fathom-weld/tests/containment.rs` now derives the pairs from
+  # the dictionary itself so the next one fails at `cargo test` instead.
+  # The unkeyed SystemSettings node coalesces with the one `system time-zone`
+  # creates: same kind, same owner, same empty key, so `Builder::upsert`
+  # returns the same node.
+  - id: junos-srx/system.ntp.server
+    path: [system, ntp, server, "$ip"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: SystemSettings, owner: n0 }
+        - { as: n2, kind: NtpServer, owner: n1, key: "$ip", fields: [ { field: address, from: "$ip", scalar: IpAddr } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
   - id: junos-srx/system.root-authentication.encrypted-password
     path: [system, root-authentication, encrypted-password, "$v"]
     secret: { label: password }

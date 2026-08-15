@@ -6,7 +6,10 @@ version = 4
 name = "fathom-artifact"
 version = "0.1.0"
 dependencies = [
+ "fathom-corpus",
+ "fathom-ingest",
  "fathom-ir",
+ "fathom-wasm",
 ]
 
 [[package]]
@@ -79,6 +82,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fathom-layout"
+version = "0.1.0"
+dependencies = [
+ "fathom-graph",
+ "fathom-id",
+ "fathom-ingest",
+ "fathom-inventory",
+ "fathom-ir",
+ "fathom-weld",
+]
+
+[[package]]
 name = "fathom-schema"
 version = "0.1.0"
 
@@ -102,6 +117,7 @@ dependencies = [
  "fathom-ingest",
  "fathom-inventory",
  "fathom-ir",
+ "fathom-layout",
  "fathom-weld",
 ]
 

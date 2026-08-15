@@ -189,3 +189,82 @@ fn the_dictionary_pairs_resolve() {
     assert_eq!(containment_edge(NodeKind::Zone, NodeKind::Device), None);
     assert_eq!(containment_edge(NodeKind::Device, NodeKind::Site), None);
 }
+
+/// The gap the hand-maintained list above left open, closed by derivation.
+///
+/// `the_dictionary_pairs_resolve` is a list a human keeps in step with the
+/// dictionary, and on 2026-08-15 a human did not: a new `system ntp server`
+/// entry owned `NtpServer` off `Device`, when `HasNtpServer` runs
+/// `SystemSettings -> NtpServer`. It compiled, it loaded, every unit test
+/// passed, and it failed in the browser on the first real paste with
+/// `NoContainmentEdge { owner: Device, child: NtpServer }`.
+///
+/// This test does not maintain a list. It runs the shipped dictionary over a
+/// documented branch configuration and asserts that every (owner kind, child
+/// kind) pair the resulting fragment actually contains resolves to a
+/// containment edge. A new dictionary entry with the wrong owner now fails at
+/// `cargo test`, which is where it should have failed the first time.
+///
+/// The fixture is the coverage fixture, deliberately: it is the widest paste
+/// in the repo, so it exercises the most owner pairs. Reaching across crates
+/// for it is cheaper than keeping a second copy in step with the first.
+#[test]
+fn every_owner_pair_the_shipped_dictionary_produces_resolves() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the crate lives two levels under the repo root")
+        .to_path_buf();
+    let dict = fathom_ingest::dict::Dictionary::load(&root).expect("the shipped dictionary loads");
+    let paste = std::fs::read(
+        root.join("crates/fathom-ingest/tests/fixtures/junos-srx-branch-documented.txt"),
+    )
+    .expect("the branch fixture is on disk");
+    let out = fathom_ingest::ingest(&paste, &dict).expect("within the caps");
+
+    let mut pairs: Vec<(NodeKind, NodeKind)> = Vec::new();
+    for node in &out.fragment.nodes {
+        let Some(owner) = node.owner else { continue };
+        let owner_kind = out
+            .fragment
+            .nodes
+            .get(owner.0 as usize)
+            .expect("an owner index inside the fragment")
+            .kind;
+        let pair = (owner_kind, node.kind);
+        if !pairs.contains(&pair) {
+            pairs.push(pair);
+        }
+    }
+    for (owner, child) in &pairs {
+        assert!(
+            containment_edge(*owner, *child).is_some(),
+            "the dictionary produces ({}, {}) and no containment edge carries it",
+            owner.name(),
+            child.name()
+        );
+    }
+
+    // The set is pinned as well as checked. Six is small because most of what
+    // a paste builds is a TOP-LEVEL object — a Zone, an IkeGateway, a Vlan —
+    // which the fragment leaves with `owner: None` for the weld to attach to
+    // the device. Only genuine nesting appears here. Pinning it means a
+    // widening that adds a nested kind has to say so in this diff.
+    let mut named: Vec<String> = pairs
+        .iter()
+        .map(|(o, c)| format!("{}->{}", o.name(), c.name()))
+        .collect();
+    named.sort();
+    assert_eq!(
+        named,
+        vec![
+            "Device->SecurityFlowSettings",
+            "Device->SystemSettings",
+            "Interface->LogicalUnit",
+            "LogicalUnit->Address",
+            "SystemSettings->NtpServer",
+            "TunnelInterface->LogicalUnit",
+        ],
+        "the nested-kind set the shipped dictionary produces moved"
+    );
+}
