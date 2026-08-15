@@ -16,8 +16,8 @@ use crate::protocol::{
     ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
 use crate::{
-    OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_ESTATE_DEMO, OP_FIELD_SET,
-    OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY,
+    OP_DIAGRAM, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_ESTATE_DEMO,
+    OP_FIELD_SET, OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY,
 };
 
 pub struct Shell {
@@ -54,6 +54,7 @@ impl Shell {
             OP_EQUIP_ADD => self.equip_add(req),
             OP_FIELD_SET => self.field_set(req),
             OP_ELEMENT_REMOVE => self.element_remove(req),
+            OP_DIAGRAM => self.diagram(req),
             OP_INV_ROWS => self.inv_rows(req),
             OP_ELEMENT => self.element(req),
             OP_EQUIPMENT => self.equipment(req),
@@ -575,6 +576,25 @@ impl Shell {
         };
         fathom_inventory::parse_display_id(estate, display)
             .ok_or_else(|| protocol::encode_error(ERR_NO_ELEMENT, display))
+    }
+
+    /// `OP_DIAGRAM`: the whole estate, laid out. No request bytes.
+    ///
+    /// A read, like the other face opcodes: it computes positions and returns
+    /// them, and holds nothing. Re-asking after any change is how the page
+    /// refreshes, which is correct because the layout is a pure function of the
+    /// graph and so cannot drift from it.
+    fn diagram(&mut self, req: &[u8]) -> Vec<u8> {
+        if !req.is_empty() {
+            return protocol::encode_error(
+                ERR_BAD_FRAME,
+                &format!("OP_DIAGRAM takes no request; got {} bytes", req.len()),
+            );
+        }
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        protocol::encode_diagram(&fathom_layout::lay_out(estate))
     }
 
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {

@@ -1,0 +1,17 @@
+[package]
+name = "fathom-layout"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Deterministic diagram layout: a typed graph in, boxes and routed lines out. Runs in the core, never the UI (41 §750)"
+
+[dependencies]
+fathom-graph = { path = "../fathom-graph" }
+fathom-inventory = { path = "../fathom-inventory" }
+fathom-ir = { path = "../fathom-ir" }
+
+[dev-dependencies]
+fathom-ingest = { path = "../fathom-ingest" }
+fathom-weld = { path = "../fathom-weld" }
+fathom-id = { path = "../fathom-id" }

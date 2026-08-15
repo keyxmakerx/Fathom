@@ -79,6 +79,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fathom-layout"
+version = "0.1.0"
+dependencies = [
+ "fathom-graph",
+ "fathom-id",
+ "fathom-ingest",
+ "fathom-inventory",
+ "fathom-ir",
+ "fathom-weld",
+]
+
+[[package]]
 name = "fathom-schema"
 version = "0.1.0"
 
@@ -102,6 +114,7 @@ dependencies = [
  "fathom-ingest",
  "fathom-inventory",
  "fathom-ir",
+ "fathom-layout",
  "fathom-weld",
 ]
 

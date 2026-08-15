@@ -203,3 +203,66 @@ fn the_equipment_form_offers_only_declared_platforms() {
         );
     }
 }
+
+/// **Every design token the shell references must exist in `design/tokens.css`.**
+///
+/// A `var(--typo)` is not an error in CSS — it is an invalid value, so the
+/// property silently falls back to its initial. That is how `.dbox rect { fill:
+/// var(--bg) }` rendered every diagram box solid black on a white page: SVG's
+/// initial fill is black, `--bg` never existed (the token is `--page`), and
+/// nothing anywhere said so. The same typo had already been sitting in the
+/// equipment form's inputs for days, where a transparent background happened to
+/// look correct.
+///
+/// So the check is mechanical: collect every `var(--x)` the shell uses and
+/// require a matching declaration in the token file.
+#[test]
+fn every_design_token_the_shell_uses_is_declared() {
+    let shell = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+    let tokens = std::fs::read_to_string(workspace_root().join("design/tokens.css"))
+        .expect("design/tokens.css is checked in");
+
+    let mut used: Vec<&str> = Vec::new();
+    let mut rest = shell.as_str();
+    while let Some(at) = rest.find("var(--") {
+        rest = &rest[at + 4..];
+        if let Some(end) = rest.find(')') {
+            let name = &rest[..end];
+            // A fallback -- var(--a, b) -- names its token before the comma.
+            let name = name.split(',').next().unwrap_or(name).trim();
+            if !used.contains(&name) {
+                used.push(name);
+            }
+        }
+    }
+    assert!(!used.is_empty(), "the shell uses no tokens at all?");
+
+    let mut missing: Vec<&str> = used
+        .into_iter()
+        .filter(|n| !tokens.contains(&format!("{n}:")))
+        .collect();
+    missing.sort_unstable();
+    assert!(
+        missing.is_empty(),
+        "the shell references {} token(s) that design/tokens.css does not declare: {missing:?}. \
+         A missing token is not an error in CSS -- the property silently takes its initial value, \
+         which is how a diagram box ends up solid black.",
+        missing.len()
+    );
+
+    // What this does NOT catch, said plainly so nobody trusts it further than it
+    // goes: a token that EXISTS but means something else. `--rule-hair` is `1px`,
+    // a width, and `stroke: var(--rule-hair)` is just as invalid as a missing
+    // token while passing the check above. That one was found by looking at the
+    // rendered page, which remains the only way to find it.
+    for (prop, token) in [("stroke:", "--rule-hair"), ("fill:", "--rule-hair")] {
+        for line in shell.lines() {
+            let l = line.trim();
+            assert!(
+                !(l.contains(prop) && l.contains(token)),
+                "`{prop} var({token})` is a length where a colour is wanted: {l}"
+            );
+        }
+    }
+}

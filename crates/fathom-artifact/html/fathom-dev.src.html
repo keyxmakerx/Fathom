@@ -289,7 +289,7 @@ button.tab:hover { color: var(--ink); }
    colour. */
 .efield .req { color: var(--ink); }
 .efield input, .efield select { font: inherit; font-size: var(--t-body);
-        color: var(--ink); background: var(--bg); border: 1px solid var(--rule);
+        color: var(--ink); background: var(--page); border: 1px solid var(--hairline);
         border-radius: var(--radius); padding: var(--s1) var(--s2); width: 100%; }
 .efield input:focus, .efield select:focus { outline: 2px solid var(--ink);
         outline-offset: -1px; }
@@ -301,19 +301,35 @@ button.tab:hover { color: var(--ink); }
 .fedit { font: inherit; font-size: inherit; color: var(--ink); width: 100%;
          background: none; border: 1px solid transparent;
          border-radius: var(--radius); padding: 0 var(--s1); }
-.fedit:hover { border-color: var(--rule); }
+.fedit:hover { border-color: var(--hairline); }
 .fedit:focus { outline: 2px solid var(--ink); outline-offset: -1px;
-               background: var(--bg); }
+               background: var(--page); }
 /* Removal is not styled as a danger button. Nothing here is destroyed -- the
    store tombstones and keeps the history -- and a red button would claim a
    finality the model does not have. */
 .rmbtn { margin-top: var(--s3); font: inherit; font-size: var(--t-micro);
          color: var(--muted); background: none; cursor: pointer;
-         border: 1px solid var(--rule); border-radius: var(--radius);
+         border: 1px solid var(--hairline); border-radius: var(--radius);
          padding: var(--s1) var(--s2); }
 .rmbtn:hover { color: var(--ink); background: var(--surface); }
 .note { font-size: var(--t-micro); line-height: var(--lh-micro);
         color: var(--muted); margin-top: var(--s2); }
+/* The diagram. Scrolls in its own box: a wide estate must never make the page
+   scroll sideways. */
+.dwrap { overflow: auto; max-width: 100%; padding: var(--s3); }
+.dbox rect { fill: var(--page); stroke: var(--hairline); stroke-width: 1; }
+.dbox:hover rect { stroke: var(--ink); }
+.dbox:focus { outline: none; }
+.dbox:focus rect { stroke: var(--ink); stroke-width: 2; }
+.dbox.dsel rect { stroke: var(--ink); stroke-width: 2; fill: var(--surface); }
+.dbox text { font-family: inherit; }
+.dkind { font-size: var(--t-micro); fill: var(--muted); }
+.dname { font-size: var(--t-body); fill: var(--ink); }
+.dline { stroke-width: 1; }
+/* Containment is structure and is drawn quieter than a reference edge. NOT
+   dashed -- `51` §9 reserves dashed for proposed elements. */
+.dcontain { stroke: var(--hairline); }
+.dref { stroke: var(--ink); }
 
 /* --- what one paste produced. Counts, then the lines it did not read. ----- */
 .tally { display: flex; flex-wrap: wrap; gap: var(--s4); margin: 0;
@@ -461,7 +477,7 @@ button.tab:hover { color: var(--ink); }
 var FATHOM_WASM_B64 = "@FATHOM_WASM_B64@";
 
 var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, OP_PASTE = 15;
-var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18;
+var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18, OP_DIAGRAM = 19;
 
 /* The equipment form's fields, and the ONLY place this page names a field key.
    Each entry is [wire key, label, kind, required, note].
@@ -501,6 +517,7 @@ var PLATFORMS = ['junos-srx', 'junos-mx', 'junos-ex', 'panos', 'ios-xe', 'nx-os'
 var ROLES = ['firewall', 'router', 'switch', 'load_balancer', 'other'];
 var FACE_HEADER = 0, FACE_INV = 1, FACE_FIELD = 2, FACE_PORT = 3, FACE_IFACE = 4;
 var FACE_PASTE = 5, FACE_RESIDUE = 6, FACE_UNRESOLVED = 7, FACE_CAPTURE = 8;
+var FACE_BOX = 9, FACE_LINE = 10, FACE_CANVAS = 11;
 
 var wasm = null;                 /* the instance's exports */
 var wasmModule = null;
@@ -1220,10 +1237,124 @@ function renderShell() {
 function renderFact() {
   var host = $('factBody');
   clear(host);
-  if (S.view === 'inventory') renderInventory(host);
+  if (S.view === 'diagram') renderDiagram(host);
+  else if (S.view === 'inventory') renderInventory(host);
   else { var p = el('div', 'pad'); unposted(p, S.view, UNBUILT); host.appendChild(p); }
   roveScan(host);
   roveScan($('band'));
+}
+
+/* --- the diagram ---------------------------------------------------------- */
+
+var SVGNS = 'http://www.w3.org/2000/svg';
+function sEl(tag, attrs) {
+  var n = document.createElementNS(SVGNS, tag), k;
+  for (k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) n.setAttribute(k, attrs[k]);
+  return n;
+}
+
+/* The page DRAWS; it does not lay out. Every coordinate here came from
+   fathom-layout in the module (`41` §750: layout runs in the core, because it
+   must be deterministic and because the CLI's SVG export shares it). If a box
+   moves, the graph changed — not the renderer. */
+function renderDiagram(host) {
+  if (!S.loaded) {
+    var p0 = el('div', 'pad');
+    unposted(p0, 'diagram', 'paste a config or add equipment, and it will be drawn here.');
+    host.appendChild(p0);
+    return;
+  }
+  var reply = call(OP_DIAGRAM, new Uint8Array(0));
+  var bad = replyProblem(reply);
+  if (bad) {
+    var pe = el('div', 'pad');
+    unposted(pe, 'diagram', bad);
+    host.appendChild(pe);
+    return;
+  }
+
+  var canvas = null, boxes = [], lines = [];
+  for (var i = 0; i < reply.rows.length; i++) {
+    var r = reply.rows[i];
+    if (r.role === FACE_CANVAS) canvas = r;
+    else if (r.role === FACE_BOX) boxes.push(r);
+    else if (r.role === FACE_LINE) lines.push(r);
+  }
+  if (!boxes.length) {
+    var pn = el('div', 'pad');
+    unposted(pn, 'diagram', 'nothing to draw yet.');
+    host.appendChild(pn);
+    return;
+  }
+
+  var w = parseInt(canvas ? canvas.s[0] : '0', 10) || 0;
+  var h = parseInt(canvas ? canvas.s[1] : '0', 10) || 0;
+  var wrap = el('div', 'dwrap');
+  var svg = sEl('svg', {
+    viewBox: '0 0 ' + w + ' ' + h,
+    width: w, height: h,
+    role: 'img',
+    'aria-label': 'Diagram of the estate: ' + boxes.length + ' objects'
+  });
+
+  /* Lines first, so boxes sit on top of them. Containment is drawn quieter than
+     a reference: "this port is on that device" is structure, "this tunnel binds
+     that interface" is a fact about the network. `51` §9 reserves `dashed` for
+     PROPOSED elements, so containment is thin-and-muted, never dashed. */
+  for (var li = 0; li < lines.length; li++) {
+    var l = lines[li];
+    var pts = l.s[4];
+    if (!pts) continue;
+    var d = '', parts = pts.split(' ');
+    for (var pi = 0; pi < parts.length; pi++) {
+      var xy = parts[pi].split(',');
+      d += (pi === 0 ? 'M' : 'L') + xy[0] + ' ' + xy[1] + ' ';
+    }
+    var path = sEl('path', {
+      d: d,
+      fill: 'none',
+      class: l.s[3] === '1' ? 'dline dcontain' : 'dline dref'
+    });
+    var t = sEl('title');
+    t.textContent = l.s[2];
+    path.appendChild(t);
+    svg.appendChild(path);
+  }
+
+  for (var bi = 0; bi < boxes.length; bi++) {
+    var b = boxes[bi];
+    var bx = parseInt(b.s[3], 10), by = parseInt(b.s[4], 10);
+    var bw = parseInt(b.s[5], 10), bh = parseInt(b.s[6], 10);
+    var g = sEl('g', {
+      class: 'dbox' + (S.sel === b.s[0] ? ' dsel' : ''),
+      tabindex: '0',
+      role: 'button',
+      'aria-label': b.s[1] + ' ' + b.s[2]
+    });
+    g.setAttribute('data-post', b.s[0]);
+    g.appendChild(sEl('rect', { x: bx, y: by, width: bw, height: bh, rx: 0 }));
+    var kind = sEl('text', { x: bx + 10, y: by + 17, class: 'dkind' });
+    kind.textContent = b.s[1];
+    g.appendChild(kind);
+    var name = sEl('text', { x: bx + 10, y: by + 34, class: 'dname' });
+    /* Truncate in the renderer, never in the model: the full name is in the
+       inspector and in the title, so nothing is lost by clipping the picture. */
+    name.textContent = b.s[2].length > 24 ? b.s[2].slice(0, 23) + '…' : b.s[2];
+    g.appendChild(name);
+    var bt = sEl('title');
+    bt.textContent = b.s[1] + ' — ' + b.s[2];
+    g.appendChild(bt);
+    svg.appendChild(g);
+  }
+
+  wrap.appendChild(svg);
+  host.appendChild(wrap);
+
+  var note = el('div', 'note pad');
+  note.textContent = boxes.length + ' objects, ' + lines.length +
+    ' links. Computed layout — positions come from the model, not from dragging. ' +
+    'Layers, grouping and hand-placement are not in this build.';
+  host.appendChild(note);
 }
 
 function renderMeaning() {

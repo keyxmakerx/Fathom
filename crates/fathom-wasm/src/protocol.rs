@@ -85,6 +85,14 @@ pub const FACE_UNRESOLVED: u8 = 7;
 /// operator's export file.** Invariant 3 is the whole reason this row exists.
 pub const FACE_CAPTURE: u8 = 8;
 
+/// One diagram box: display id · kind · label · x · y · w · h.
+pub const FACE_BOX: u8 = 9;
+/// One routed line: from id · to id · edge kind · "1" when containment ·
+/// the points as `x,y x,y ...`.
+pub const FACE_LINE: u8 = 10;
+/// The drawing's extent: width · height. One row, always first.
+pub const FACE_CANVAS: u8 = 11;
+
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
 /// The paste frame is shorter than its fixed 24-byte clock+entropy prefix, or
@@ -549,6 +557,68 @@ pub struct PasteReply<'a> {
     /// The post-redaction text, for the page's journal. Empty for replies that
     /// are not a paste.
     pub capture: &'a str,
+}
+
+/// The diagram, as face rows. Numbers travel as decimal strings for the same
+/// reason every other face row does: one decoder in the page, not two.
+pub fn encode_diagram(d: &fathom_layout::Diagram) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+
+    let (w, h) = (d.width.to_string(), d.height.to_string());
+    let rec = face_slots(&mut blob, FACE_CANVAS, 2, &[w.as_str(), h.as_str()]);
+    write_face_record(&mut records, &rec);
+
+    for n in &d.nodes {
+        let (x, y, bw, bh) = (
+            n.x.to_string(),
+            n.y.to_string(),
+            n.w.to_string(),
+            n.h.to_string(),
+        );
+        let rec = face_slots(
+            &mut blob,
+            FACE_BOX,
+            7,
+            &[
+                n.id.as_str(),
+                n.kind,
+                n.label.as_str(),
+                x.as_str(),
+                y.as_str(),
+                bw.as_str(),
+                bh.as_str(),
+            ],
+        );
+        write_face_record(&mut records, &rec);
+    }
+
+    for l in &d.links {
+        let mut pts = String::new();
+        for (i, (x, y)) in l.points.iter().enumerate() {
+            if i > 0 {
+                pts.push(' ');
+            }
+            pts.push_str(&x.to_string());
+            pts.push(',');
+            pts.push_str(&y.to_string());
+        }
+        let rec = face_slots(
+            &mut blob,
+            FACE_LINE,
+            5,
+            &[
+                l.from.as_str(),
+                l.to.as_str(),
+                l.kind,
+                if l.containment { "1" } else { "" },
+                pts.as_str(),
+            ],
+        );
+        write_face_record(&mut records, &rec);
+    }
+
+    face_reply(records, 1 + d.nodes.len() + d.links.len(), blob)
 }
 
 pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {

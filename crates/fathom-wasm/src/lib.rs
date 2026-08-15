@@ -89,6 +89,16 @@ pub const OP_FIELD_SET: u32 = 17;
 /// true"*, which is a different and more honest claim than *"this never was"*.
 pub const OP_ELEMENT_REMOVE: u32 = 18;
 
+/// The diagram: every live node as a positioned box, every live edge as a
+/// routed line.
+///
+/// Layout runs HERE and not in the page — `41` §750, because it must be
+/// deterministic (invariant 9), because the CLI's SVG export shares it, and
+/// because `23` §6.5 already classes diagram layout as a deterministic
+/// non-model task. The page receives coordinates and draws them; it computes no
+/// geometry.
+pub const OP_DIAGRAM: u32 = 19;
+
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
     static REQ: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
