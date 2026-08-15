@@ -22,6 +22,8 @@
 #     screen screen-name;
 #     source-identity-log;
 #     tcp-rst;
+#     unidirectional-session-refreshing;
+#     white-list white-list name;
 #   }
 #
 #   Hierarchy Level: [edit security zones]
@@ -34,9 +36,20 @@
 #   https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/security-edit-host-inbound-traffic.html
 #
 # NOT carried, deliberately: `advance-policy-based-routing`,
-# `enable-reverse-reroute`, `source-identity-log` and the per-service `except`
-# sub-statement. The schema has no field for any of them, and inventing one
-# would be an ADR-0008 violation; they stay visible as residue instead.
+# `enable-reverse-reroute`, `source-identity-log`,
+# `unidirectional-session-refreshing`, `white-list` and the per-service
+# `except` sub-statement. The schema has no field for any of them, and
+# inventing one would be an ADR-0008 violation; they stay visible as residue
+# instead.
+#
+# The last two were MISSING from the block above and from this list until
+# 2026-08-15, when the page was re-read: the syntax block was presented as read
+# off the page and was two statements short, which made the "not carried" list
+# short by the same two. Both are recent additions to Junos —
+# `unidirectional-session-refreshing` in 20.4R1, `white-list` in 23.4R1, per the
+# page's own Release Information — which is exactly the kind of drift a
+# transcribed syntax block hides. Transcribe the whole stanza or cite it; do not
+# do half of each.
 #
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
