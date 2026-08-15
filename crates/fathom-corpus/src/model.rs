@@ -114,6 +114,32 @@ pub struct Explain {
     pub teaching: String,
 }
 
+/// 61 §3.1's `verified_on` — `{ platform, version }`, *"the box the author
+/// actually ran this on"*.
+///
+/// Its ABSENCE is the thing that matters, and it is why this type exists at
+/// all. 61 §3.1: *"Absent ⇒ the entry renders an `unverified` margin tab. This
+/// is the field that keeps the corpus honest and it is deliberately not
+/// required, because requiring it would produce fabricated values."* ADR-0027
+/// §2 says the same in the UI's words.
+///
+/// It is a different claim from `reviewed_by`. A named human read the entry;
+/// this says somebody put it into a box and watched what came back. The corpus
+/// today has neither, but the two will not arrive together — the named expert
+/// review is queued and the conformance lab is not — so the loader must be able
+/// to tell them apart. Before 2026-08-15 it could not: the field was simply not
+/// parsed, and the module keyed ADR-0027's label on `reviewed_by` instead.
+///
+/// The platform is carried separately from the entry's own `platform` on
+/// purpose: `Entry::platform` says what the entry is *for*, this says what it
+/// was *run on*, and `derive_for` (61 §3.2) exists precisely to make sibling
+/// entries for other platforms with **no inherited `verified_on`**.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedOn {
+    pub platform: String,
+    pub version: String,
+}
+
 /// One command entry, 61 §3.
 #[derive(Debug, Clone)]
 pub struct Entry {
@@ -147,6 +173,14 @@ pub struct Entry {
     pub related_rules: Vec<String>,
     pub explain: Explain,
     pub reviewed_by: String,
+    /// 61 §3.1, required: *"ISO. Lint warns past 24 months."* Loaded because
+    /// ADR-0027 §3's stamp is three facts and this is the only date `61` §3
+    /// declares — see `fathom_wasm::protocol::verification_stamp` for why it is
+    /// printed as a review date and never as a verification date.
+    pub reviewed_on: String,
+    /// 61 §3.1, optional. `None` ⇒ nobody has run this on a box ⇒ ADR-0027 §2's
+    /// **unverified**. This is the field the label keys on.
+    pub verified_on: Option<VerifiedOn>,
     pub versions: String,
 }
 

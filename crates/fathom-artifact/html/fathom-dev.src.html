@@ -254,9 +254,17 @@ button.tab:hover { color: var(--ink); }
    keep working when it carries all four kinds of information at once. */
 .hits { list-style: none; margin: 0; padding: 0; }
 /* The 3px ink rule is carried by EVERY row, transparent until the row is the
-   current one. Selection must not move anything: 16 §19.4 fixes row heights so
-   keystrokes do not reflow the list, and a border that appears on selection
-   would shift the whole column sideways once per arrow press. */
+   current one. Selection must not move anything: a border that appears only on
+   the selected row would shift the whole column sideways once per arrow press.
+
+   NOT 16 §19.4, which this rule previously cited and does not satisfy. §19.4
+   asks for "25 rows maximum, virtualised, fixed row heights per row type" as a
+   PERFORMANCE requirement (§10) before a design one. This list has neither: a
+   row's height follows its wrapped `answers` text, and every hit is in the DOM.
+   Measured 2026-08-15 in Chromium 141.0.7390.37, 40 dispatched input events
+   over a 30-row result set (OP_QUERY plus the full repaint): median 0.8 ms,
+   worst 1.5 ms, against 44 B5's frame budget. Nothing bites today; the honest
+   record is that two named requirements are absent, not met. */
 .hit { padding: 0 0 var(--s3); margin: 0 0 var(--s3);
        border-bottom: var(--rule-hair) solid var(--hairline);
        border-left: var(--rule-mast) solid transparent; }
@@ -338,6 +346,30 @@ button.tab:hover { color: var(--ink); }
                 font-size: var(--t-tab); text-transform: lowercase; }
 .pfoot button:hover { background: var(--surface); }
 .pfoot .spacer { margin-left: auto; }
+
+/* --- 53 §6.2's clipboard fallbacks ---------------------------------------
+   Layer 4's panel sits at the BOTTOM half rather than replacing the view: what
+   the user was looking at is very often what they were copying, and taking it
+   away to tell them the copy failed would cost them the thing they would
+   otherwise retype from. It carries the same border and ground as the sheets so
+   it reads as the same class of object, and no colour: a refused clipboard is
+   not a risk band. */
+.cfall { position: absolute; z-index: var(--z-modal);
+         left: 0; right: 0; bottom: 0; top: 40%;
+         display: flex; flex-direction: column; background: var(--page);
+         border: var(--rule-hair) solid var(--ink);
+         border-radius: var(--radius); box-shadow: var(--shadow); }
+.cfall .prose { flex: none; padding: var(--s2) var(--s3);
+                border-bottom: var(--rule-hair) solid var(--hairline); }
+.cfta { flex: 1 1 auto; min-height: 0; width: 100%; resize: none;
+        border: 0; background: none; color: var(--ink);
+        font-family: var(--mono); font-size: var(--t-mono);
+        line-height: var(--lh-step); padding: var(--s3); }
+/* Layer 3's scratch textarea. Off the page rather than display:none, hidden or
+   clipped to a pixel: selection is the entire mechanism here and an element the
+   browser is not laying out has nothing to select. Full-sized, and parked one
+   viewport to the left. */
+.cfscratch { position: fixed; top: 0; left: -100vw; width: 50vw; height: 20vh; }
 /* The equipment form. A scrolling column of labelled inputs, sized like the
    textarea it sits where. */
 .eform { flex: 1 1 auto; min-height: 0; overflow-y: auto;
@@ -699,6 +731,28 @@ svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
         <button type="button" id="eRun">add it</button>
       </div>
     </div>
+
+    <!-- 53 §6.2 LAYER 4 — the last resort, and the reason it exists.
+         "Render the payload in a focused, pre-selected read-only block with
+         `press ⌘C` in the footer. Never a silent failure."
+
+         Layers 2 and 3 can both refuse: the async clipboard API needs a
+         permission the user may have denied, and execCommand needs a live user
+         activation which a rejected promise has already outlived. Neither
+         failure may end with the text gone. The command the user asked for is
+         one they are about to paste into a change window; making them retype it
+         from a row that has since closed is the failure §6.2 is written
+         against. This block needs no permission and no activation. -->
+    <div class="cfall" id="cfall" role="group" aria-label="Copy this by hand" hidden>
+      <p class="prose" id="cfWhy"></p>
+      <textarea class="cfta" id="cfta" readonly spellcheck="false"
+                aria-label="The text to copy"></textarea>
+      <div class="pfoot">
+        <span>press ⌘C / Ctrl+C — the block above is selected</span>
+        <span class="spacer"></span>
+        <button type="button" id="cfDone">done</button>
+      </div>
+    </div>
   </main>
 
   <footer class="foot">
@@ -810,10 +864,13 @@ var LAYERS = [
 var LAYERS_ALL = 31;
 
 /* The finder record's roles and its one flag this page reads. The flag is
-   ADR-0027's: the row's entry has no named reviewer, so nothing about it has
-   been checked by a human against a box (invariant 10). It is a bit rather
-   than a word matched out of the stamp text, so the styling and the sentence
-   cannot come apart. */
+   ADR-0027's: NOBODY HAS RUN THIS ENTRY ON A BOX, which is the absence of
+   61 §3.1's `verified_on` and is not the same claim as "no named reviewer"
+   (invariant 10). The two are reported separately in the corpus review line
+   below the input, because they will not be fixed at the same time.
+
+   It is a bit rather than a word matched out of the stamp text, so the styling
+   and the sentence cannot come apart. */
 var ROLE_SUMMARY = 0, ROLE_SHOWN = 1, ROLE_BELOW = 2;
 var ROW_UNVERIFIED = 4;
 /* Risk byte -> the colour channel, in the enum's order. The three inks are
@@ -1334,23 +1391,32 @@ function note(host, lead, body) {
    would be a second ranking and invariant 9's determinism claim covers only
    the module's.
 
-   ON SHIPPING UNREVIEWED CONTENT — the design question this work turned on.
-   All 98 command entries carry `reviewed_by: <named human>`, a placeholder.
-   Making them visible in a browser is the moment invariant 10's breach stops
-   being a YAML comment and starts being something a user could act on. The
-   decision is not this session's to make and did not need to be: ADR-0027 §2
-   already settled it —
+   ON SHIPPING UNVERIFIED CONTENT — the design question this work turned on.
+   No entry in the corpus has ever been run on a box (the bundle's own header
+   says so), and all 98 carry `reviewed_by: <named human>`, a placeholder.
+   Making them visible in a browser is the moment those two breaches stop being
+   YAML comments and start being something a user could act on. The decision is
+   not this session's to make and did not need to be: ADR-0027 §2 already
+   settled it —
 
      "An entry that has not been run ships with verified_against: null and
       renders as unverified in the UI, in the margin-tab register, on every
       result. It is not withheld — withholding is worse — it is labelled."
 
-   So the corpus is NOT gated. It is labelled, in three places that cannot be
-   turned off: a per-row stamp (ADR-0027 §3's required chrome), a corpus-level
-   count above the results, and the same count in the footer. All three read
-   strings the module sent; none is composed here, so none can drift from the
-   corpus. crates/fathom-artifact/tests/finder_chrome.rs fails the build if a
-   row can reach this page without its stamp.
+   So the corpus is NOT gated. It is labelled, in TWO places that cannot be
+   turned off: a per-row stamp (ADR-0027 §3's required chrome) and a
+   corpus-level line above the results — both present in the overlay and in the
+   full-canvas form. Both read strings the module sent; neither is composed
+   here, so neither can drift from the corpus.
+   crates/fathom-artifact/tests/finder_chrome.rs fails the build if a row can
+   reach this page without its stamp.
+
+   A third place was claimed for this — the footer — and it never existed; the
+   footer carries hit counts (`footCount`), which is what a finder footer is
+   for, and 53 §6.5 spends that segment on the copy confirmation. The claim is
+   withdrawn rather than built: two places that are always on both forms is the
+   requirement, and a third that displaces a working count is not an
+   improvement.
    ========================================================================= */
 
 /* A finder reply that is not the shape this surface asked for is shown, not
@@ -1439,11 +1505,16 @@ function renderHits(host, prefix) {
   }
 
   var ul = el('ul', 'hits'), n = 0;
+  /* An empty list is not appended. A `<ul role="listbox">` with no options in
+     it is announced as an empty list of results sitting under a sentence that
+     just said there are none — two contradicting answers to the same question,
+     one of them silent. */
   if (!shown.length) {
     host.appendChild(el('p', 'fmiss', 'nothing above the cutoff for "' + S.query + '"'));
+  } else {
+    shown.forEach(function (r) { ul.appendChild(renderHit(r, n, prefix, n === S.hi)); n++; });
+    host.appendChild(ul);
   }
-  shown.forEach(function (r) { ul.appendChild(renderHit(r, n, prefix, n === S.hi)); n++; });
-  host.appendChild(ul);
 
   if (below.length) {
     /* 16 §19.5: near misses are shown WITH their scores, because a user who
@@ -3342,6 +3413,18 @@ function syncActive(inputId, prefix) {
   else inp.removeAttribute('aria-activedescendant');
 }
 
+/* Clearing the query is ONE function because 52 §3.2.2 requires the two forms
+   to share the keymap, and two copies of these four lines is exactly how the
+   overlay grew a behaviour the full canvas did not have. Both inputs are reset
+   whether or not both are on screen: they can be, and an input left holding
+   text the state no longer has is the next version of the same defect. */
+function clearQuery() {
+  runQuery('');
+  var a = $('fq'); if (a) a.value = '';
+  var b = $('fqv'); if (b) b.value = '';
+  paintHits();
+}
+
 function footCount() {
   if (S.corpus !== 'loaded') return 'no corpus';
   if (!S.query) return 'esc close · ctrl+K anywhere';
@@ -3364,39 +3447,130 @@ function moveHi(delta) {
   if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' });
 }
 
-/* 53 §6.2 tier 2 — an explicit gesture, so the write is called synchronously
-   inside the handler. There is no fallback: a page that quietly failed to copy
-   and said nothing would have the user paste the previous clipboard into a
-   change window. If the browser refuses, the footer says the browser refused. */
+/* 53 §6.2's ladder, three of its four layers.
+
+   LAYER 2 (explicit): navigator.clipboard.writeText, called synchronously
+   inside the gesture handler. The primary path and the one that must never
+   break.
+
+   LAYER 3 (fallback): a hidden textarea, select(), execCommand('copy').
+   Deprecated; §6.2 keeps it because it is still universally implemented.
+
+   LAYER 4 (last resort): the payload rendered in a focused, pre-selected
+   read-only block. "Never a silent failure."
+
+   Layer 1 (interception — rewriting a native ⌘C's clipboardData) is NOT here
+   and is not reachable from this surface: it fires on a text selection the user
+   made themselves, and every copy this build performs comes from a keystroke on
+   a row that is not selected text. It lands when the config view does.
+
+   WHAT THIS REPLACED. The comment here used to say "There is no fallback",
+   reasoned that a silent failure would have the user paste their previous
+   clipboard into a change window, and then implement exactly the outcome it
+   described minus the silence: the footer said the browser refused and the
+   command text was gone. Announcing the loss is better than hiding it and is
+   not what §6.2 asks for — layers 3 and 4 exist so the PAYLOAD survives, not so
+   the failure is narrated. */
 function copyText(text, said) {
   var c = navigator.clipboard;
-  if (!c || !c.writeText) {
-    foot('this browser exposes no clipboard — nothing was copied');
-    renderShell();
-    return;
-  }
+  if (!c || !c.writeText) { copyRefused(text, 'this browser exposes no clipboard'); return; }
   c.writeText(text).then(function () {
     foot(said);
     renderShell();
   }).catch(function (e) {
-    foot('the browser refused the clipboard: ' + e);
-    renderShell();
+    copyRefused(text, 'the browser refused the clipboard: ' + e);
   });
 }
 
-/* Enter copies the command and closes (16 §19.2). ⌥Enter copies the whole
-   answer block — the paste-into-a-change-ticket form.
+/* Layers 3 then 4. `why` is layer 2's refusal, carried through: whichever layer
+   ends up carrying the copy, the user is told the primary path failed, because
+   a page that silently degrades is a page whose clipboard behaviour nobody can
+   report a bug about. */
+function copyRefused(text, why) {
+  if (execCopy(text)) { foot('copied · ' + why + ' · used the deprecated path'); renderShell(); return; }
+  showCopyBlock(text, why);
+}
 
-   ⇧Enter is deliberately NOT bound. §19.2 gives it "copy with placeholders
-   un-interpolated", and this build has no workspace interpolation at all, so
-   every command already renders with its placeholders showing. Binding it
-   would mean two keys that do the same thing and one of them lying about it. */
-function actOnHit(alt) {
+/* Layer 3. The scratch element is created, used and removed inside this call:
+   a permanent hidden textarea holding the last thing copied is a copy of the
+   payload sitting in the DOM for no reason, and the payloads here are commands
+   about somebody's production estate. */
+function execCopy(text) {
+  if (!document.execCommand) return false;
+  var ta = el('textarea', 'cfscratch');
+  ta.value = text;
+  ta.setAttribute('readonly', 'readonly');
+  document.body.appendChild(ta);
+  var ok = false;
+  try {
+    ta.select();
+    ok = document.execCommand('copy') === true;
+  } catch (err) {
+    ok = false;
+  }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+/* Layer 4. 53 §6.5's footer line for this case is verbatim -- "copy blocked by
+   the browser · press ⌘C on the selected block" -- and §6.5 says it does NOT
+   clear after 1.6 s. Nothing in this build clears the footer on a timer at all,
+   so that holds by construction rather than by a special case; if a timer is
+   ever added, this line is the one it must skip. */
+function showCopyBlock(text, why) {
+  $('cfWhy').textContent = why + '. Nothing was lost — the text is below.';
+  var ta = $('cfta');
+  ta.value = text;
+  $('cfall').hidden = false;
+  ta.focus();
+  ta.select();
+  foot('copy blocked by the browser · press ⌘C on the selected block');
+  renderShell();
+}
+
+function hideCopyBlock() {
+  var host = $('cfall');
+  if (host.hidden) return false;
+  host.hidden = true;
+  /* The payload does not stay in the DOM after the panel closes. */
+  $('cfta').value = '';
+  return true;
+}
+$('cfDone').addEventListener('click', function () { hideCopyBlock(); });
+
+/* 53 §3.5's three Enters on a finder result, all three bound:
+
+     Enter   Copy the rendered command, close
+     ⇧Enter  Copy un-interpolated (`<vpn-name>`)
+     ⌥Enter  Copy the whole answer block
+
+   ⇧Enter WAS BOUND ALL ALONG and nobody had written it down. `e.key` is
+   'Enter' for Shift+Enter as much as for Enter, so it fell into the plain
+   branch, while the comment here claimed the binding had been deliberately
+   refused on the grounds that two keys doing the same thing is worse than a
+   missing one. That reasoning had a real point buried in it — this build has no
+   workspace interpolation, so the rendered command and the un-interpolated one
+   are the same string today — but the conclusion was wrong twice over: the key
+   was bound, and the day interpolation lands, `mode === 'cmd'` starts passing
+   the interpolated command while this branch must keep passing the raw one.
+   Splitting them now is what makes that a one-line change instead of a silent
+   regression, and the footer says which of the two it did so the sameness is
+   visible rather than assumed. */
+function actOnHit(mode) {
   var rows = walkable();
   var r = rows[S.hi];
   if (!r) { foot('no result is highlighted'); renderShell(); return; }
-  if (!alt) {
+  if (mode === 'cmd') {
     copyText(r.s[0], 'copied: ' + r.s[0]);
+    setFinder(false);
+    return;
+  }
+  if (mode === 'raw') {
+    /* r.s[0] IS the un-interpolated command: the module sends the entry's own
+       `cmd` with its {{slots}} rendered as placeholders and there is nothing in
+       this build that would substitute a value into it. When there is, this
+       stays pointed at the raw form and 'cmd' moves. */
+    copyText(r.s[0], 'copied un-interpolated: ' + r.s[0]);
     setFinder(false);
     return;
   }
@@ -3573,7 +3747,13 @@ document.addEventListener('keydown', function (e) {
     paintHits();
     return;
   }
-  if (e.key === 'Enter') { e.preventDefault(); actOnHit(e.altKey); return; }
+  /* ⌥ wins over ⇧ when both are held: the answer block contains the command,
+     so the wider copy is the safer reading of an ambiguous press. */
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    actOnHit(e.altKey ? 'block' : (e.shiftKey ? 'raw' : 'cmd'));
+    return;
+  }
 });
 
 /* Clicking a row highlights it; the keyboard is the primary path and the
@@ -4090,17 +4270,32 @@ document.addEventListener('keydown', function (e) {
      reader last added -- which is why S.open is a list in activation order and
      not a set. */
   if (e.key === 'Escape') {
+    /* 53 §6.2's layer-4 block is the top rung: it is the last thing that
+       opened, and §3.7 unwinds most-recently-opened first. Dismissing it is
+       also the only way to discard the payload, which is why it is a rung and
+       not a click-only affordance. */
+    if (hideCopyBlock()) return;
     if (eOpen) { setEquip(false); return; }
     if (pOpen) { setPaste(false); return; }
-    if (fOpen) {
-      /* 16 §19.2's double-Esc, without the timer: a non-empty query is cleared
-         first, so the panel survives a typo. */
-      if (S.query) {
-        runQuery('');
-        var q = $('fq'); if (q) q.value = '';
-        paintHits();
-        return;
-      }
+    /* THE FINDER'S RUNG, and it belongs to the finder rather than to the
+       overlay. 52 §3.2.2: "Both forms are the same code, the same index, the
+       same ranking, the same keymap." This branch was gated on `fOpen` alone,
+       so Esc in the ⌥1 full-canvas form fell straight through to the
+       element-deselect rung and left the query sitting there — the overlay
+       cleared, the canvas did not, which is precisely the drift §3.2.2 forbids.
+
+       53 §5.6's "Esc twice within 400 ms | First clears the query, second
+       closes" is implemented without the timer: Esc on a non-empty query clears
+       it, Esc on an empty one closes. Same behaviour, no window that can fire
+       between a user's two presses and do the wrong one.
+
+       The full canvas has nothing to close — it IS the view — so its ladder is
+       the same one with the last rung absent, and an Esc on an empty query
+       carries on down to the selection rungs. That is the container difference
+       §3.2.2 allows ("The only difference is the container and the column
+       count"), not a keymap difference. */
+    if (fOpen || (S.view === 'finder' && S.query)) {
+      if (S.query) { clearQuery(); return; }
       setFinder(false);
       return;
     }

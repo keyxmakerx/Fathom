@@ -308,9 +308,36 @@ fn load_entry(n: &Node, file: &str) -> Result<Entry, LoadError> {
         related_rules: str_seq(n, "related_rules"),
         explain,
         reviewed_by: req_str(n, "reviewed_by", file)?,
+        reviewed_on: req_str(n, "reviewed_on", file)?,
+        verified_on: load_verified_on(n, file)?,
         versions: opt_str(n, "versions").unwrap_or_else(|| "*".to_owned()),
         id,
     })
+}
+
+/// 61 §3.1's `verified_on: { platform, version }`, optional.
+///
+/// A present-but-malformed table is REFUSED, never quietly read as absent.
+/// Absence is the honest default and it is what ADR-0027 §2 renders as
+/// `unverified`; degrading a typo into it would turn a broken entry into one
+/// that looks correct, and degrading it the other way — accepting a table that
+/// does not name a box — would claim a bench run from nothing. Both directions
+/// are silent, so neither is allowed.
+fn load_verified_on(n: &Node, file: &str) -> Result<Option<VerifiedOn>, LoadError> {
+    let Some(v) = n.get("verified_on") else {
+        return Ok(None);
+    };
+    if v.as_map().is_none() {
+        return Err(err(
+            file,
+            v.line,
+            "`verified_on` must be a `{ platform, version }` table (61 §3.1)",
+        ));
+    }
+    Ok(Some(VerifiedOn {
+        platform: req_str(v, "platform", file)?,
+        version: req_str(v, "version", file)?,
+    }))
 }
 
 // --- explainer bundle --------------------------------------------------------

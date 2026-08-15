@@ -45,11 +45,17 @@ pub const ROLE_BELOW: u8 = 2;
 /// How many string slots one finder record carries.
 const FINDER_SLOTS: usize = 7;
 
-/// Row flag bit 2 (value 4): the entry behind this row carries no named
-/// reviewer, so nothing about it has been checked by a human against a box
-/// (invariant 10). A **bit**, not a string the page pattern-matches: the row's
-/// register is a typed fact, and deriving it by inspecting the stamp text is
-/// how a rendering quietly starts disagreeing with the corpus.
+/// Row flag bit 2 (value 4): ADR-0027 §2's label — the entry behind this row
+/// has **not been run on a box**, so it carries no `verified_on` (61 §3.1).
+///
+/// It is not invariant 10's bit. A missing named reviewer is a different fact
+/// about a different act, it is reported separately in the corpus review line,
+/// and conflating the two is what let this flag clear itself on an action the
+/// project has already scheduled — see `is_unverified`.
+///
+/// A **bit**, not a string the page pattern-matches: the row's register is a
+/// typed fact, and deriving it by inspecting the stamp text is how a rendering
+/// quietly starts disagreeing with the corpus.
 pub const ROW_UNVERIFIED: u8 = 4;
 pub const ERR_UNKNOWN_OP: u16 = 1;
 pub const ERR_NOT_INITIALISED: u16 = 2;
@@ -340,39 +346,89 @@ fn row_flags(r: &Ranked, e: &Entry) -> u8 {
     f
 }
 
+/// ADR-0027 §2's test, and nothing else's: an entry **that has not been run on
+/// a box** renders as unverified.
+///
+/// It keys on `verified_on` and NOT on `reviewed_by`, and the difference is the
+/// entire point of the label. 61 §3.1: *"Absent ⇒ the entry renders an
+/// `unverified` margin tab."* 52 §3.2 says the same — *"or renders unverified
+/// when `verified_against` is null"*.
+///
+/// THE BUG THIS REPLACED, because it is worth naming. Until 2026-08-15 this
+/// keyed on `reviewed_by`, justified in a comment that said `61` §3 has no
+/// `verified_on` field. §3.1 declares it on line 218; what was actually true
+/// was narrower — `fathom_corpus`'s loader did not *parse* it — and ADR-0008
+/// licenses adding the field to the loader, not redefining a safety label to
+/// mean something the label's own ADR does not say. The consequence was
+/// concrete: the named expert review of `corpus/` is already queued (CLAUDE.md's
+/// owner-blocking list), and the day it lands `reviewed_by` becomes a real name
+/// on all 98 entries with zero of them ever run on hardware — at which point
+/// every stamp would have flipped to "reviewed", the ROW_UNVERIFIED bit would
+/// have cleared, the dotted pending rule would have gone solid, and the corpus
+/// line would have read "every one reviewed by a named human". A safety label
+/// that disarms itself on a scheduled action is worse than no label.
+///
+/// Invariant 10's separate fact is not dropped — see `has_named_reviewer` and
+/// `review_line`. It is reported as itself.
+fn is_unverified(e: &Entry) -> bool {
+    e.verified_on.is_none()
+}
+
 /// Invariant 10's test, and the same one `fathom_corpus::gates` applies: a
 /// `reviewed_by` that opens with `<` is the `<named human>` placeholder rather
 /// than a person. Empty counts too — an absent reviewer is not a reviewed
 /// entry, and the two must not render differently.
-fn is_unverified(e: &Entry) -> bool {
-    e.reviewed_by.trim().is_empty() || e.reviewed_by.starts_with('<')
+///
+/// Deliberately NOT folded into `is_unverified`. Two facts, two states, four
+/// combinations, and the corpus will pass through at least two of them: today
+/// every entry is both unreviewed and unrun, and the next thing to change is
+/// the reviewer.
+fn has_named_reviewer(e: &Entry) -> bool {
+    let r = e.reviewed_by.trim();
+    !r.is_empty() && !r.starts_with('<')
 }
 
 /// ADR-0027 §3's stamp, composed from what the corpus actually holds and from
 /// nothing else.
 ///
 /// The ADR's worked form is `junos-srx 21.4R3 · verified 2026-05-12 · K. Okafor`
-/// — three facts: platform-and-train, a date, a name. This corpus can supply
-/// two of them: `platform` and `versions`. **There is no `verified_on` field in
-/// `61` §3 and none is invented here** (ADR-0008: a field that is not declared
-/// does not exist), so the stamp claims a review and never a bench run, and the
-/// unverified form says which of the two is missing rather than going quiet.
+/// — three facts: platform-and-train, a date, a name. All three are now
+/// reachable, but the DATE needs care, and this is the one place the shipped
+/// string deviates from the ADR's:
 ///
-/// `versions: "*"` — every train — is dropped rather than printed. A stamp
-/// reading `junos-srx *` looks like a version and is the absence of one.
+/// `61` §3.1 declares `verified_on` as `{ platform, version }` — a box, with no
+/// date in it. The only date §3.1 declares is `reviewed_on`, and that is when
+/// somebody read the entry, not when somebody ran it. Printing it straight after
+/// the word `verified` would assert a bench date the corpus does not carry, so
+/// the date is labelled by what it actually is. The rejected alternative was
+/// inventing `verified_on.date` to match the ADR's string exactly, which is the
+/// ADR-0008 breach the previous version of this function wrongly claimed it was
+/// avoiding by keying the whole label on `reviewed_by` instead.
+///
+/// The verified form takes its platform and train from `verified_on` — the box
+/// that was actually used — and never from the entry's own `platform`/`versions`,
+/// which say what the entry is *for*. That distinction is why the unverified
+/// form prints no train at all: there is no verified train, and a version number
+/// sitting in the slot that means "the box we ran it on" is the exact confusion
+/// this stamp exists to prevent. An entry's applicable trains are `16` §19.5's
+/// "not on your train" caveat and belong to the row, not to its provenance line.
 fn verification_stamp(e: &Entry) -> String {
-    let train = if e.versions == "*" || e.versions.is_empty() {
-        String::new()
-    } else {
-        format!(" {}", e.versions)
-    };
-    if is_unverified(e) {
-        format!(
-            "{}{train} · unverified — no named reviewer, not run on a box",
+    match &e.verified_on {
+        Some(v) => format!(
+            "{} {} · verified · reviewed {} by {}",
+            v.platform, v.version, e.reviewed_on, e.reviewed_by
+        ),
+        // Both missing facts are named. An entry with a real reviewer and no
+        // bench run must not read the same as one with neither, or the corpus
+        // cannot show its own progress.
+        None if has_named_reviewer(e) => format!(
+            "{} · unverified — not run on a box · reviewed {} by {}",
+            e.platform, e.reviewed_on, e.reviewed_by
+        ),
+        None => format!(
+            "{} · unverified — not run on a box, no named reviewer (invariant 10)",
             e.platform
-        )
-    } else {
-        format!("{}{train} · reviewed by {}", e.platform, e.reviewed_by)
+        ),
     }
 }
 
@@ -380,27 +436,42 @@ fn verification_stamp(e: &Entry) -> String {
 /// reply so the finder cannot render results without rendering this.
 ///
 /// It is counted here rather than stated in the page, because a page holding
-/// the number `98` would still be holding it on the day someone reviews an
-/// entry. When the count reaches zero the line says so and stops being an
-/// alarm, which is the behaviour that makes it safe to leave in the chrome
-/// permanently.
+/// the number `98` would still be holding it on the day someone runs an entry.
+///
+/// TWO COUNTS, NOT ONE, and this is the structural half of the ADR-0027 fix.
+/// The line before this reported a single number keyed on `reviewed_by` and
+/// went silent when it hit zero — so the queued expert review would have taken
+/// the alarm down while the hardware count stayed at 98. Reporting both means
+/// completing the review changes the sentence, honestly, and does not end it.
+/// The line only goes quiet when both are zero, which is the state ADR-0027 §2
+/// actually describes.
 pub fn review_line(index: &CorpusIndex) -> String {
-    let total = index.corpus.entries.len();
-    let unverified = index
-        .corpus
-        .entries
-        .iter()
-        .filter(|e| is_unverified(e))
-        .count();
-    if unverified == 0 {
-        format!("{total} command entries · every one reviewed by a named human")
-    } else {
-        format!(
-            "{unverified} of {total} command entries are unverified — \
-             nothing here has been run on a box, and `reviewed_by` is still a placeholder \
-             (invariant 10)"
-        )
+    let entries = &index.corpus.entries;
+    let total = entries.len();
+    let unverified = entries.iter().filter(|e| is_unverified(e)).count();
+    let unreviewed = entries.iter().filter(|e| !has_named_reviewer(e)).count();
+    if unverified == 0 && unreviewed == 0 {
+        return format!(
+            "{total} command entries · every one run on a box and reviewed by a named human"
+        );
     }
+    // Built by appending rather than by collecting into a Vec and joining:
+    // byte-identical output, and measured 2026-08-15 the join form costs 107
+    // more wasm bytes (890,366 vs 890,259) against 44 §5.2's 900,000 ceiling.
+    // A small number, kept because it is free — the two forms are the same
+    // length to read — and because the ceiling is the binding constraint here.
+    let mut line = format!("{total} command entries");
+    if unverified > 0 {
+        line.push_str(&format!(
+            " · {unverified} unverified, never run on a box (ADR-0027)"
+        ));
+    }
+    if unreviewed > 0 {
+        line.push_str(&format!(
+            " · {unreviewed} with no named reviewer (invariant 10)"
+        ));
+    }
+    line
 }
 
 fn summary_flags(result: &SearchResult) -> u8 {
