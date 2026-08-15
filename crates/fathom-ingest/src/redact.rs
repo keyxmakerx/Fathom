@@ -385,10 +385,10 @@ fn gate_statement(
         let leaf_hit = match entry {
             // A token PAST the end of what the entry consumed is a token the
             // entry says nothing about, so the entry's own path cannot be the
-            // authority on whether it follows a secret word. Walk the raw
-            // line there instead.
+            // only authority on whether it follows a secret word. The raw line
+            // is also consulted there.
             //
-            // This is a defect fix, not a widening convenience. The hole is
+            // This is a defect fix, not a widening convenience. The hole was
             // already reachable through the shipped `security-zone … interfaces
             // <unit>` partial entry: `set security zones security-zone Z
             // interfaces ge-0/0/0.0 <anything> secret VALUE` matched that entry,
@@ -398,12 +398,22 @@ fn gate_statement(
             // which is what made the hole worth closing rather than merely
             // worth noting.
             //
-            // `secret_exempt` is deliberately NOT consulted on this branch: an
-            // exemption is a statement about the shape the entry models, and
-            // these tokens are outside it. The field card's own
-            // `perfect-forward-secrecy keys group14` capture sits inside its
-            // entry's path, so it still takes the exempt branch below.
-            Some(e) if at >= e.path.len() => raw_walk(&segs, at),
+            // The two walks are UNIONED, never swapped, so this branch is
+            // strictly stronger than what it replaced. They see different
+            // windows and each has a blind spot the other covers: the entry
+            // walk skips captures and so reaches two LITERALS back in the path,
+            // while the raw walk sees the two physical segments before the
+            // token, one of which is usually the preceding capture's value and
+            // therefore a wasted slot. `14` §9.7 states the direction of error
+            // for this gate as destruction, so: hit if either hits.
+            //
+            // `secret_exempt` suppresses only its own half. An exemption is a
+            // claim about the shape the entry models — the field card's
+            // `perfect-forward-secrecy keys group14` — and it cannot speak for
+            // tokens outside that shape, so it may not veto the raw walk.
+            Some(e) if at >= e.path.len() => {
+                raw_walk(&segs, at) || (!e.secret_exempt && dict::leaf_name_walk(&e.path, at))
+            }
             Some(e) => {
                 // The suppression the field card's own `perfect-forward-secrecy
                 // keys group14` line forces (§12 item 2).

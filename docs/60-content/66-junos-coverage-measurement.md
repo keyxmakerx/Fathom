@@ -25,7 +25,7 @@
 | 4 | What was widened, and why those sections | *the measurement chose them* |
 | 5 | What is still missed, in three kinds | *the important half* |
 | 6 | The bytes | *the tightest constraint in the project* |
-| 7 | Two defects the widening exposed | *both fixed, both now tested* |
+| 7 | Three defects the widening exposed | *all fixed, all now tested* |
 | 8 | Failure modes of this measurement | |
 | 9 | Open decisions | *escalated, not decided here* |
 | 10 | Sources consulted | |
@@ -248,15 +248,15 @@ Measured, never estimated: the release module built before and after with
 | | bytes | headroom under the 900,000 ceiling |
 |---|---|---|
 | before (HEAD, 42 entries) | 852,918 | 47,082 |
-| after (69 entries) | 888,163 | **11,837** |
-| delta | **+35,245** | |
+| after (69 entries) | 888,200 | **11,800** |
+| delta | **+35,282** | |
 
 <!-- VERIFY: 852,918 is this worktree's baseline, measured 2026-08-15 at commit adbb590. The
      task brief quoted 870,977 from a sibling branch; the two trees differ and this document
      reports the one it measured. -->
 
 
-**This fits, and it is tight, and the tightness needs saying out loud.** 11,837 bytes is 1.3%
+**This fits, and it is tight, and the tightness needs saying out loud.** 11,800 bytes is 1.3%
 of the ceiling. On this tree, a second parallel change of similar size would breach it.
 
 The delta splits into two very different halves:
@@ -264,21 +264,22 @@ The delta splits into two very different halves:
 | | bytes | how it was obtained |
 |---|---|---|
 | dictionary YAML text | **+22,236** | `wc -c corpus/dict/junos-srx/*.yaml`, 19,183 → 41,419. `include_str!`ed into the module verbatim — **comments included** |
-| compiled code | **+13,009** | the remainder: new `BoundValue` variants, the `HostProtocol` set, six new `set_field` monomorphisations, `const_bool`, the two §7 fixes |
+| compiled code | **+13,046** | the remainder: new `BoundValue` variants, the `HostProtocol` set, six new `set_field` monomorphisations, `const_bool`, the three §7 fixes |
 
 **The first half is temporary and the integrator should know it.** On this worktree the
 dictionary is still compiled into the module through
 `fathom_ingest::dict::EMBEDDED_DICT_SOURCES`, so every citation comment costs ceiling bytes. On
 the tree where the dictionary is handed in at boot over `OP_DICT` and `Dictionary::embedded()`
 no longer exists, those 22,236 bytes move from the module to the artifact, and this change costs
-about **13.0 KB of ceiling, not 35.2 KB** — leaving roughly 34,000 bytes of headroom rather than
-11,837.
+about **13.0 KB of ceiling, not 35.3 KB** — leaving roughly **34,000** bytes of headroom rather
+than 11,800.
 
-The artifact went from **1,215,578 to 1,262,574 bytes**. The after-figure is measured
+The artifact went from **1,215,578 to 1,262,622 bytes**. The after-figure is measured
 (`cargo run --locked -p fathom-artifact`); the before-figure is arithmetic rather than a second
 build, and the arithmetic is exact because the shell source and `design/tokens.css` did not
-change: the artifact is those two plus the base64 of the module, base64 of 852,918 bytes is
-1,137,224 characters, and 1,262,574 − 1,184,220 = 78,354 is the unchanged remainder.
+change. The artifact is those two plus the base64 of the module; base64 of 852,918 bytes is
+1,137,224 characters and of 888,200 bytes is 1,184,268, and 1,262,622 − 1,184,268 = 78,354 is
+the unchanged remainder, which is also what the before-figure's subtraction gives.
 
 The comments are not padding and were not trimmed to buy headroom. They are the ADR-0034
 evidence — the URL, the read date, and the verbatim syntax that came back — and trimming them to
@@ -286,7 +287,7 @@ save bytes would trade a permanent record for a temporary saving on a tree that 
 paying it. Per-entry cost including comments is **824 bytes** (22,236 / 27); a prior measurement
 of ~457 bytes per entry was of entries carrying less citation.
 
-## 7. Two defects the widening exposed
+## 7. Three defects the widening exposed
 
 ### 7.1 A partial match reported `Bound` while the line's tail went nowhere
 
@@ -307,13 +308,40 @@ already scans `m.consumed..segs.len()` as argument tokens.
 **Cost: two lines of apparent coverage.** 60 would have been the flattering number; 58 is the
 true one.
 
-The same investigation found a related hole in the gate and closed it. When a statement matched
-an entry, the leaf-name secret detector walked the **entry's** path, so a secret word appearing
-only in the unmodelled tail of the line was invisible to it — reachable today through the
-shipped `security-zone … interfaces <unit>` partial entry, and much more reachable once bare
-stanzas exist. Tokens past the end of the matched entry's path now walk the raw line instead.
+### 7.2 A credential in an unmodelled tail survived the gate — invariant 3, pre-existing
 
-### 7.2 `NoContainmentEdge { owner: Device, child: NtpServer }` — found in the browser
+The same investigation found a hole in the redaction gate, and it is the most serious thing in
+this change.
+
+When a statement matched a dictionary entry, the leaf-name secret detector walked the **entry's**
+path rather than the line. For a `partial: true` entry that stops short of the line, the tail of
+the line is outside that path — so a secret word appearing only in the tail was invisible to the
+detector.
+
+Demonstrated, by reverting the fix and re-running:
+
+```
+in:   set security zones security-zone Z interfaces ge-0/0/0.0 vendor-extension secret FATHOMCANARY-TAIL-99999
+out:  capture: "set security zones security-zone Z interfaces ge-0/0/0.0 vendor-extension secret FATHOMCANARY-TAIL-99999"
+      drops:   DropManifest { entries: [], already_redacted: [] }
+```
+
+The credential survives verbatim into the capture — the thing the workspace encryptor is handed —
+and the drop manifest says nothing happened. **This is reachable on the tree as it shipped**, not
+only after this change: the `security-zone <z> interfaces <unit>` entry has been `partial` since
+WO-03, and any vendor sub-statement Fathom does not model under a matched partial entry lands in
+the same position. Adding bare stanzas multiplies the reachable paths, which is how it was found.
+
+Tokens past the end of the matched entry's path now walk the raw line **as well as** the entry
+path — a union, so the branch is strictly stronger than what it replaced, in the direction
+`14` §9.7 states for this gate. `secret_exempt` suppresses only its own half: an exemption is a
+claim about the shape the entry models and cannot speak for tokens outside it.
+
+Pinned by `a_secret_word_in_an_unmodelled_tail_is_still_caught` in
+`crates/fathom-ingest/tests/redaction_canary.rs`, which was watched to fail before the fix and
+pass after it.
+
+### 7.3 `NoContainmentEdge { owner: Device, child: NtpServer }` — found in the browser
 
 The first `system ntp server` entry owned `NtpServer` off `Device`. `HasNtpServer` runs
 `SystemSettings -> NtpServer`. It compiled, the dictionary loaded, every test in the workspace
@@ -366,7 +394,7 @@ Escalated, not decided here (`78` §5).
    it and `InAddressBook` models `attach zone`, not the book. §5.2.
 5. **Does `@interface_like` need a narrower form** so `mtu`, `speed` and `duplex` can bind
    without either mis-kinding `st0` or weakening the `FieldUnknown` gate? §5.3.
-6. **The byte ceiling.** 11,837 bytes of headroom on this tree, ≈33,400 once the dictionary
+6. **The byte ceiling.** 11,800 bytes of headroom on this tree, ≈34,000 once the dictionary
    moves out of the module. `00-ROUTE-TO-WORKABLE.md` §2 stage 1 already says the ceiling is an
    architecture question rather than a number to raise; this is the first change that makes it
    an *immediate* one.
@@ -444,5 +472,12 @@ one.** It is an entry count. The entry count rose 64% (42 → 69) and the covera
 used up. Wherever a coverage claim is meant, this document is the owner of the number.
 
 **3. The byte ceiling is now a scheduling constraint, not just an architecture question.** With
-11,837 bytes of headroom on this tree, two independent contributors cannot both land a
+11,800 bytes of headroom on this tree, two independent contributors cannot both land a
 medium-sized change. That is a fact about the next week, not about the next release.
+
+**4. "The gate is proved by canaries" was true of the fixture, not of the class.** §7.2 is a
+credential leak that reached the capture verbatim with an empty drop manifest, on the tree as it
+shipped, and every canary test passed throughout — because the canaries live on statement forms
+the dictionary models, and the hole was in the forms it does not. The pattern to take from it:
+**a gate whose behaviour depends on whether the parser recognised the line must be tested on
+lines the parser does not recognise.**

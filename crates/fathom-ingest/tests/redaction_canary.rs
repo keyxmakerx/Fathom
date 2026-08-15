@@ -149,3 +149,46 @@ fn redacted_key_never_binds() {
         }
     ));
 }
+
+/// The hole a partial dictionary entry opened in the leaf-name detector,
+/// pinned so it cannot reopen.
+///
+/// When a statement matched an entry, the leaf-name walk ran over the ENTRY's
+/// path. For a `partial: true` entry that stops short of the line, the tail of
+/// the line was outside that path — so a secret word appearing only in the
+/// tail was invisible to the detector, and the credential after it survived
+/// with the entry's own detectors saying nothing about it.
+///
+/// The shipped `security zones security-zone <z> interfaces <unit>` entry is
+/// six segments and `partial`, so the line below matches it, and the walk saw
+/// a path ending in `interfaces` rather than the word `secret` one token
+/// before the value. The fix unions the raw-line walk in for tokens past the
+/// end of the matched entry's path.
+///
+/// The statement is not valid Junos and is not meant to be: the point is that
+/// the gate must not depend on the dictionary having modelled the stanza. The
+/// whole class of unmodelled sub-statement is what `14` §9.4's safety net is
+/// for, and a dictionary match must not switch it off.
+#[test]
+fn a_secret_word_in_an_unmodelled_tail_is_still_caught() {
+    let line = b"set security zones security-zone Z interfaces ge-0/0/0.0 \
+                 vendor-extension secret FATHOMCANARY-TAIL-99999\n";
+    let out = ingest(line, &dict()).expect("within the caps");
+    let serialised = format!("{out:?}");
+    assert!(
+        !serialised.contains(CANARY),
+        "a credential in an unmodelled tail survived the gate: {serialised}"
+    );
+    assert!(
+        !out.drops.entries.is_empty(),
+        "the gate recorded no drop for the tail credential"
+    );
+    assert!(
+        out.drops
+            .entries
+            .iter()
+            .any(|e| e.detectors.0 & DetectorSet::LEAF_NAME != 0),
+        "the leaf-name detector is what should have caught it, got {:?}",
+        out.drops.entries
+    );
+}
