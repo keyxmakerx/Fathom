@@ -31,6 +31,10 @@ use fathom_ir::scalar::PlatformId;
 use fathom_wasm::protocol::{decode_reply, ReplyView};
 use fathom_wasm::shell::Shell;
 use fathom_wasm::{OP_ELEMENT, OP_EQUIPMENT, OP_INV_ROWS, OP_PASTE};
+
+/// The dictionary is handed in over `OP_DICT` since 2026-08-15. See
+/// `common/mod.rs`.
+mod common;
 use fathom_weld::{apply_new_device, Manifest};
 
 /// The string the shipped fixture plants in every secret-bearing position.
@@ -98,7 +102,7 @@ fn every_display_id(graph: &Graph) -> Vec<String> {
 }
 
 fn pasted_shell() -> Shell {
-    let mut shell = Shell::new();
+    let mut shell = common::booted_shell();
     let reply = shell.handle(OP_PASTE, &frame(&fixture_bytes()));
     match decode_reply(&reply).expect("a well-formed reply") {
         ReplyView::FaceRows(_) => {}
@@ -128,7 +132,7 @@ fn everything_the_page_can_see() -> Vec<String> {
 
     // The paste reply itself — the summary, every residue line, every
     // unresolved reference.
-    collect(&Shell::new().handle(OP_PASTE, &frame(&fixture_bytes())));
+    collect(&common::booted_shell().handle(OP_PASTE, &frame(&fixture_bytes())));
 
     // Every inventory table.
     for kind in 0u8..3 {

@@ -112,7 +112,7 @@ carry `Accepted`.
 | `44-performance-budgets.md` | Size, memory and latency budgets, and the work-counter gate |
 | `45-testing-strategy.md` | Golden fixtures, property tests, conformance, the CI gate set |
 | `46-workspace-persistence-and-identity.md` | **Post-redefinition.** The save path per browser engine (verified from primary sources); the demo posture; username as typed HKDF context; the SSO bridges |
-| `47-byte-census.md` | **Measured 2026-08-15.** Where the release module's bytes actually go — by section, by crate, by removal — and the five priced levers. Reproduce with `scripts/byte-census.sh` |
+| `47-byte-census.md` | **Measured 2026-08-15.** Where the release module's 886,321 bytes actually go — by section, by crate, by removal — the 13,679 that are left, and the first feature this project has had to refuse on size. Reproduce with `scripts/byte-census.sh` |
 
 ### `50-design/`
 | | |

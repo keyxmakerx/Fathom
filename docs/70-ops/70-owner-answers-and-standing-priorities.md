@@ -1562,6 +1562,150 @@ and the remaining decision is `44`'s number, which is planning's under ADR-0001'
 | `docs/50-design/59-diagram-aggregation-and-colour.md` §2.1–2.3, §3, §6.2 | The legibility-ceiling finding, the `155 + 9n` measurements, the six-sibling decision, the silent-count defect |
 | `docs/50-design/56-diagram-view.md` §1.1–1.3, §4 | One canvas, five layers, aggregation to `Site`/`Device`; the inventory-table concession quoted in §10.2 |
 
+## 17. The local file is a bridge, not the destination — 2026-08-11
+
+### 17.1 What the owner said, verbatim
+
+> *"No it having the database be local to the server will fix it, then there is no local client
+> solution. We should be building it in mind that eventually when I have a private server on the
+> corps network and hardware that is secured we won't need this local database solution. This part
+> is temporary only."*
+
+Said in correction of an analysis that treated server-hosted storage as *"a different decision that
+does not fix Firefox"*. **The correction is right and the analysis was wrong.** If the estate lives
+in a database on his own server, the browser stores nothing, no file is written, no picker is
+needed, and the Chromium-versus-Firefox split this document spent a section on **does not exist**.
+It was framed as an alternative to the file; it is the destination the file is a bridge to.
+
+### 17.2 What this changes about what to build now
+
+Almost nothing — and that is the finding worth recording, because it is not luck.
+
+The route already chosen (`00-ROUTE-TO-WORKABLE.md` §5b) saves **the operator's ops**, not the
+expanded model. An op log is precisely what a client sends to a server: it is small, ordered,
+append-only, and carries its own provenance. So the work does not become throwaway when the server
+arrives — the same journal that is a 2.4 KB file today is the request body tomorrow, and the local
+file becomes one *transport* for it rather than the design.
+
+Had the snapshot route been taken instead, this correction would have invalidated it: a serialised
+graph blob is a client-side storage format and nothing else.
+
+**So: no change of plan, and one change of emphasis.** Do not over-invest in the file. It needs to
+work, be encrypted, and be openable; it does not need versioning, compaction, merge, or a
+sync-conflict story, because those are the server's problems and the server is coming.
+
+### 17.3 The two things this now forces, and they are the owner's
+
+**1. Invariant 1 has to be reopened, on merit.** *"It never connects to anything"* is invariant 1,
+and a page that reads its estate from a server connects to something. This is not an objection —
+`75` §2 records the owner's own instruction that **sunk cost never argues for keeping a decision**,
+and `38-the-egress-question.md` exists precisely to price exceptions. But it is a founding invariant
+and the change is an ADR, not an implementation detail. **Nothing here proposes to make that change
+quietly.**
+
+Worth being exact about what does and does not move: the *device* invariant is untouched. Invariant
+2 — never touch a device, copy-paste is the only input — is the one that makes this product what it
+is, and a server for the operator's own records does not weaken it at all. Fathom would still never
+log into a router. What changes is where the operator's notes live.
+
+**2. Whether the server can READ the estate.** This is the question that actually decides the
+architecture, and the word *"database"* answers it in one direction without meaning to:
+
+| | Server holds ciphertext it cannot read | Server holds a real database |
+|---|---|---|
+| Matches | `43` D2/D3 and `70` §8, already decided | The plain meaning of *"database"* |
+| Server can query, index, report | **No** — it is an opaque blob store | Yes |
+| Multi-user, per-user views, audit | Very hard | Natural |
+| If the server is compromised | The estate is safe | The estate is taken |
+| Key management | The operator holds a key and can lose it | None |
+
+The owner's stated trust model — *"a private server on the corps network and hardware that is
+secured"* — is a normal and defensible posture for an estate of record, and it points at the second
+column. But the first column is what is currently written down, so the two must be reconciled
+deliberately rather than by drift.
+
+> **CORRECTED 2026-08-15 — §17.5 supersedes this table's framing.** The two columns were put as a
+> dichotomy, and they are not one. Worse, the question had already been answered *by the owner
+> himself* in §8 of this document on 2026-08-10, and §17.3 did not cite it. Read §17.5 before acting
+> on anything above.
+
+### 17.4 What was wrong in the analysis this corrects
+
+Recorded so the error is not repeated: server-hosted storage was assessed against *"does it give him
+a folder of his choosing"* — the requirement he had stated an hour earlier — and judged not to. He
+was not asking for the folder for its own sake; he was asking for his work not to vanish. The folder
+was a means. **A requirement stated once should not be treated as a fixed point when the person who
+stated it is describing where they are actually going.**
+
+### 17.5 Multiuser does not require a server that can read the estate — 2026-08-15
+
+The owner stated the enterprise target verbatim:
+
+> *"right now this is a single person tool, eventually when it is on the server it should have
+> multiuser support, security hardening with that in mind from a programming, backend docker, and
+> front end things like 2 factor perspective. need to add things like smtp for the ability of people
+> to reset passwords, though keeping in mind 2 factor requirements. administrative control panel,
+> etc. all that made for an enterprise environment."*
+
+**The analysis in §17.3 read that as settling the readable-database question. It does not, and the
+question was not open.** §8 of this document — *the owner's own answer, 2026-08-10* — already says:
+
+> | Server-side search or querying over the estate | **Never.** Invariant 4. It requires plaintext on
+> the server, which is the thing the whole posture exists to prevent |
+
+and, in the same section: *"A server that stores bytes it cannot read is not refused anywhere — it is
+**already the design**."* `71` §13.1 carries it as a permanent product boundary — *"A server that can
+read a workspace. No server-side lint, no server-side emit, no server-side search"* — and `41` §5.5
+makes it a **linker-enforced** decision: `fathom-sync` may not depend on the graph, rules, emit or
+parse crates, and CI fails on the edge.
+
+`41` §5.5 also predicted precisely how the decision would be lost, which is worth quoting because it
+describes what nearly happened here:
+
+> *"every feature request the service will receive — 'server-side search', 'validate before
+> accepting', 'let the server tell me which devices changed' — is a request to link the graph into
+> the service. The day it links, the service needs plaintext, and the zero-knowledge property is
+> gone."*
+
+**The false dichotomy.** §17.3 offered *"blind blob store"* against *"real database"* as though
+multiuser forced the second. It does not. The whole of the owner's stated list works on a server that
+cannot read an estate:
+
+| What he asked for | Needs plaintext on the server? |
+|---|---|
+| Multiuser accounts | **No** |
+| Two-factor authentication | **No** — a user credential, not estate content |
+| SMTP password reset | **No** (but see the key-loss trap below) |
+| Administrative control panel | **No**, for managing *users*, roles, sessions, invitations, audit |
+| Sharing an estate between named people | **No** — the workspace key is wrapped per recipient |
+| Server-side search across everyone's estates | **Yes** |
+| An admin reading estate *content* | **Yes** |
+| Server-generated reports over the whole database | **Yes** |
+
+The first six are the enterprise product. The last three are the ones that cost the security
+architecture, and they are the only ones §8 refuses. **This is a much smaller decision than §17.3
+made it, and it is the one to put to the owner:** not *"can the server read the estate"* but *"do you
+need search and reporting across other people's estates, or only shared access to them?"*
+
+**Why the blind design is worth this much care.** `31` §5.1's top three threats are server
+compromise, insider operator, and hosting provider. All three currently carry residual `bounded`
+**because** the server holds no key and no plaintext — *"Service memory contains no key even under a
+full hypervisor read."* Making the server readable does not degrade one control; it converts the
+three highest-ranked threats in the model from bounded to total. For a product whose data is a map of
+a network *including its firewall policy*, on a corporate network where the realistic attacker is
+already inside, that is the wrong direction to move by default.
+
+**The one genuinely hard problem, and it is solvable.** If the workspace key derives from the user's
+password, then a password reset destroys the data — the classic zero-knowledge trap the owner half
+anticipated when he wrote *"keeping in mind 2 factor requirements"*. The answer is standard and
+well-proven in exactly this shape by password managers: the workspace key is random and
+**wrapped**, once per authorised user, so a password change re-wraps rather than re-encrypts, and
+recovery is a printed recovery key or an organisation-held escrow key that the owner decides the
+policy for. That escrow decision is real and is his; it is not a reason to abandon the posture.
+
+**What this does not change.** Invariant 2 stands untouched under every option: Fathom never logs
+into a device. Nothing in the enterprise direction weakens it, and `71` §13.1 should keep saying so.
+
 ## 15. Disagreements
 
 1. **Against the framing of the original questions.** Q3 and Q4 were put to the owner in project

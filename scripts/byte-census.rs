@@ -363,6 +363,18 @@ fn crate_of_component(part: &str) -> Option<String> {
     None
 }
 
+/// Crate names recoverable from a LEGACY-mangled symbol, which encodes no
+/// generic arguments and so cannot be parsed the way `v0_crates` parses a v0
+/// one. Only `<T as Trait>::method` impl blocks out of the sysroot rlibs reach
+/// here; v0 symbols never consult this list.
+///
+/// WHY IT MUST BE KEPT UP TO DATE. A workspace crate missing from this list is
+/// reported as `«impl block, crate unattributed»` rather than attributed to the
+/// wrong crate — the right failure direction, but it silently shrinks a crate's
+/// row in §4.1 and inflates the unattributed tail. `fathom_layout` was missing
+/// on 2026-08-15, the day it became a dependency of `fathom-wasm`; the census
+/// records this as Failure mode 4. **Add a crate here when you add it to the
+/// workspace.**
 const KNOWN_CRATES: &[&str] = &[
     "fathom_wasm",
     "fathom_ir",
@@ -373,6 +385,7 @@ const KNOWN_CRATES: &[&str] = &[
     "fathom_find",
     "fathom_corpus",
     "fathom_emit",
+    "fathom_layout",
     "fathom_id",
     "fathom_canon",
     "fathom_schema",

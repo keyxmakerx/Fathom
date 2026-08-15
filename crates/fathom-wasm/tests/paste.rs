@@ -21,6 +21,10 @@ use fathom_wasm::protocol::{
 use fathom_wasm::shell::Shell;
 use fathom_wasm::{OP_INV_ROWS, OP_PASTE};
 
+/// The dictionary is handed in over `OP_DICT` since 2026-08-15, so every shell
+/// below is booted rather than merely new. See `common/mod.rs`.
+mod common;
+
 /// 2026-08-08T00:00:00Z. A stored value, like every timestamp in this tree.
 const TS: u64 = 1_786_147_200_000;
 const ENTROPY: u128 = 0x0000_0000_0000_0000_2026;
@@ -75,7 +79,7 @@ fn error(reply: &[u8]) -> ErrorView {
 }
 
 fn pasted() -> (Shell, Vec<FaceRowView>) {
-    let mut shell = Shell::new();
+    let mut shell = common::booted_shell();
     let reply = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
     let rows = face(&reply);
     (shell, rows)
@@ -218,14 +222,14 @@ fn the_inventory_face_renders_the_pasted_estate() {
 /// inputs, so the same frame must produce the same bytes.
 #[test]
 fn the_same_frame_gives_the_same_bytes() {
-    let mut a = Shell::new();
-    let mut b = Shell::new();
+    let mut a = common::booted_shell();
+    let mut b = common::booted_shell();
     let f = frame(TS, ENTROPY, PASTE);
     assert_eq!(a.handle(OP_PASTE, &f), b.handle(OP_PASTE, &f));
 
     // And a different clock changes it, which is what proves the first
     // assertion is about determinism rather than about a constant.
-    let mut c = Shell::new();
+    let mut c = common::booted_shell();
     assert_ne!(
         a.handle(OP_PASTE, &f),
         c.handle(OP_PASTE, &frame(TS + 1, ENTROPY, PASTE))
@@ -234,7 +238,7 @@ fn the_same_frame_gives_the_same_bytes() {
 
 #[test]
 fn a_short_frame_is_refused_by_code() {
-    let mut shell = Shell::new();
+    let mut shell = common::booted_shell();
     let e = error(&shell.handle(OP_PASTE, &[0u8; 23]));
     assert_eq!(e.code, ERR_PASTE_FRAME);
     assert!(e.detail.contains("24"), "{}", e.detail);
@@ -242,7 +246,7 @@ fn a_short_frame_is_refused_by_code() {
 
 #[test]
 fn a_paste_that_is_not_utf8_is_refused_by_code() {
-    let mut shell = Shell::new();
+    let mut shell = common::booted_shell();
     let mut f = frame(TS, ENTROPY, "");
     f.push(0xff);
     let e = error(&shell.handle(OP_PASTE, &f));
@@ -327,7 +331,7 @@ fn devices(shell: &mut Shell) -> Vec<[String; 8]> {
 }
 
 fn loaded_with_good() -> Shell {
-    let mut shell = Shell::new();
+    let mut shell = common::booted_shell();
     let rows = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, GOOD)));
     assert_eq!(summary(&rows).strings[6], "srx-good");
     shell
@@ -339,7 +343,7 @@ fn a_paste_that_binds_nothing_is_refused() {
         ("a Cisco config", CISCO),
         ("curly-brace Junos", CURLY_JUNOS),
     ] {
-        let mut shell = Shell::new();
+        let mut shell = common::booted_shell();
         let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, text)));
         assert_eq!(
             e.code, ERR_NOTHING_UNDERSTOOD,
@@ -375,7 +379,7 @@ fn a_paste_that_binds_nothing_leaves_the_estate_alone() {
 /// needs to be told which form to use, not that something went wrong.
 #[test]
 fn curly_brace_junos_is_named_and_the_fix_is_given() {
-    let mut shell = Shell::new();
+    let mut shell = common::booted_shell();
     let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, CURLY_JUNOS)));
     assert!(
         e.detail.contains("display set"),
@@ -393,7 +397,7 @@ fn curly_brace_junos_is_named_and_the_fix_is_given() {
 /// rather than pretending the Junos advice applies.
 #[test]
 fn another_vendors_config_says_so() {
-    let mut shell = Shell::new();
+    let mut shell = common::booted_shell();
     let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, CISCO)));
     assert!(
         e.detail.contains("Juniper SRX today"),
@@ -412,7 +416,7 @@ fn another_vendors_config_says_so() {
 /// the audit warned about — a guess that rejects a legitimate paste.
 #[test]
 fn one_understood_line_is_enough() {
-    let mut shell = Shell::new();
+    let mut shell = common::booted_shell();
     let rows = face(&shell.handle(
         OP_PASTE,
         &frame(
@@ -431,7 +435,7 @@ fn one_understood_line_is_enough() {
 
 #[test]
 fn an_empty_paste_is_refused_without_pretending_to_know_why() {
-    let mut shell = Shell::new();
+    let mut shell = common::booted_shell();
     let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, "\n\n   \n")));
     assert_eq!(e.code, ERR_NOTHING_UNDERSTOOD);
     assert!(e.detail.contains("empty"), "{}", e.detail);
@@ -513,4 +517,80 @@ fn an_unknown_kind_byte_is_still_refused() {
     let past_the_end = u8::try_from(InvKind::ALL.len()).expect("fewer than 256 kinds");
     let e = error(&shell.handle(OP_INV_ROWS, &[past_the_end]));
     assert_eq!(e.code, ERR_BAD_FRAME);
+}
+
+// --- the journal capture (2026-08-15) ----------------------------------------
+
+/// **Invariant 3, at the one boundary where the export file is decided.**
+///
+/// The page holds the RAW text the operator pasted. If it journalled that, the
+/// pre-shared key would go into the export file and into whatever folder the
+/// operator syncs it to. So the module hands back the text as the redaction gate
+/// left it, and this test is the reason that row exists.
+#[test]
+fn the_capture_row_carries_redacted_text_not_the_secret() {
+    let mut shell = common::booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
+    let rows = match decode_reply(&reply) {
+        Ok(ReplyView::FaceRows(r)) => r,
+        other => panic!("a paste answers with a face table, got {other:?}"),
+    };
+    let capture = rows
+        .iter()
+        .find(|r| r.role == fathom_wasm::protocol::FACE_CAPTURE)
+        .map(|r| r.strings[0].clone())
+        .expect("the paste reply carries the redacted capture");
+
+    assert!(
+        !capture.is_empty(),
+        "the capture row must carry the whole paste"
+    );
+    assert!(
+        !capture.contains("SuperSecret123"),
+        "THE PRE-SHARED KEY SURVIVED INTO THE CAPTURE. Journalling this would \
+         write it to the operator's export file. The capture must be the text \
+         the redaction gate produced, never the raw paste."
+    );
+    assert!(
+        capture.contains("set security ike gateway gw-hq address 198.51.100.10"),
+        "the capture must still carry the lines that are not secret, or replay \
+         would rebuild a smaller estate than the paste did"
+    );
+}
+
+/// Replaying the capture must rebuild the same estate. This is the property the
+/// whole journal route rests on: if the redacted text parses to something
+/// different, an exported workspace is not the workspace that was exported.
+#[test]
+fn replaying_the_capture_rebuilds_the_same_estate() {
+    let capture = {
+        let mut shell = common::booted_shell();
+        let reply = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
+        match decode_reply(&reply) {
+            Ok(ReplyView::FaceRows(r)) => r
+                .iter()
+                .find(|x| x.role == fathom_wasm::protocol::FACE_CAPTURE)
+                .map(|x| x.strings[0].clone())
+                .expect("capture row"),
+            other => panic!("{other:?}"),
+        }
+    };
+
+    // Same clock, same entropy: the mint is a pure function of both, so the
+    // minted ids must match too.
+    let original = {
+        let mut s = common::booted_shell();
+        s.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
+        s.handle(OP_INV_ROWS, &[0])
+    };
+    let replayed = {
+        let mut s = common::booted_shell();
+        s.handle(OP_PASTE, &frame(TS, ENTROPY, &capture));
+        s.handle(OP_INV_ROWS, &[0])
+    };
+    assert_eq!(
+        original, replayed,
+        "replaying the redacted capture produced a different estate than the \
+         original paste did"
+    );
 }

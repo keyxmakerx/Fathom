@@ -1,12 +1,14 @@
 # 47 — The byte census
 
-> **Status:** Proposed
+> **Status:** Proposed. Measured at commit `adbb590` and re-anchored onto `adbd9a2`, both 2026-08-15.
 
 Companion documents: `44-performance-budgets.md` (**owns** every size budget and ceiling —
 `01-ownership.md` row *"Size, memory and latency budgets"*; this document measures, `44` decides),
-`41-technology-choices.md` §3.10 (the component split `44` §5.2 adopted), `35-supply-chain-and-builds.md`
-(why no measuring tool may be downloaded), `79-work-orders/00-ROUTE-TO-WORKABLE.md` §2 stage 1 (the
-decision this census was commissioned to inform).
+`41-technology-choices.md` §2.1 (the language choice these bytes are a consequence of), §2.6 (what
+would reopen it) and §3.10 (the component split `44` §5.2 adopted, and its own instruction to
+*"measure the day `fathom-core` compiles and replace every row"*), `35-supply-chain-and-builds.md`
+(why no measuring tool may be downloaded), `79-work-orders/00-ROUTE-TO-WORKABLE.md` §2 stage 1 and
+§5b (the decisions this census informs).
 
 **This document owns no budget and moves no ceiling.** It owns one thing: the measured composition
 of the release module, and a reproducible instrument for re-measuring it. Where it corrects a number,
@@ -16,23 +18,29 @@ The census was commissioned because of a plain fact: the 900 000-byte ceiling ha
 in this tree for two weeks and **nobody had ever measured where the bytes go.** Every figure in
 circulation was a delta, a guess, or a row in a budget table written before the code existed.
 
+**What it found, in four lines.** The module is **886 321 bytes with 13 679 left**. The largest
+single block — **243 522 bytes, 27.5 %** — is shared B-tree and sort machinery that belongs to no
+feature and appears in no budget. **35 % of the module belongs to no feature at all.** And the config
+view, which is written and tested, **costs 93 838 and does not fit** — the first feature this project
+has had to refuse on size. §11 is what to do about it.
+
 ---
 
 ## 0. Contents
 
 | § | |
 |---|---|
-| 1 | What was measured, on what, and when |
+| 1 | What was measured, on what, and when — **two builds, and which of them to quote** |
 | 2 | The instrument, and why it is a loose `rustc` script |
-| 3 | The module by section |
-| 4 | The code section by crate — two attributions, and why one number is a lie |
+| 3 | The module by section, at both commits, and where the growth went |
+| 4 | The code section by crate — two attributions, why one number is a lie, and what the shared machinery is really the price of |
 | 5 | The largest single contributors |
-| 6 | Cost by removal — what each feature actually costs |
-| 7 | The data section — what 143 567 bytes are |
+| 6 | Cost by removal — what each feature actually costs, at both commits |
+| 7 | The data section — what 143 567 bytes were, and what has since left |
 | 8 | The generated layer: the claim, and what the measurement says |
-| 9 | What persistence and cryptography actually cost |
+| 9 | Persistence, cryptography, and **the config view that does not fit** |
 | 10 | Recorded figures: which hold, which are wrong, and the corrections made |
-| 11 | RECOMMENDATION — five levers, priced |
+| 11 | **RECOMMENDATION** — what to do about 13 679 bytes |
 | | Failure modes |
 | | Open decisions |
 | | Sources consulted |
@@ -44,35 +52,51 @@ circulation was a delta, a guess, or a row in a budget table written before the 
 
 *margin tab: read this before quoting any number below*
 
-### 1.1 The exact build
+### 1.1 Two builds, two jobs
 
-| | |
-|---|---|
-| Repository state | commit `adbb590` ("Merge pull request #14"), measured in an isolated worktree |
-| Date of every measurement in this document | **2026-08-15** |
-| Toolchain | rustc **1.94.1**, pinned by `rust-toolchain.toml`; target `wasm32-unknown-unknown` |
-| Profile | the workspace `[profile.release]`: `opt-level = "z"`, `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = "symbols"`, `debug = 0`, `overflow-checks = true` |
-| Command | `cargo build --release --locked -p fathom-wasm --target wasm32-unknown-unknown` |
-| Artifact | `target/wasm32-unknown-unknown/release/fathom_wasm.wasm` |
-| **Measured size** | **852 918 bytes** against the 900 000-byte ceiling — **47 082 bytes of headroom** |
-| Full artifact | `cargo run --locked -p fathom-artifact` → `target/artifact/fathom-dev.html`, **1 215 578 bytes** |
+This census was taken at one commit and then re-anchored onto another four days later, because the
+module moved 33 403 bytes underneath it while it was being written. Both are recorded, because they
+do different work and confusing them is the single easiest way to misuse this document.
 
-### 1.2 The tree this census does NOT describe, and why that matters
+| | **The analysis build** | **The decision build** |
+|---|---|---|
+| Commit | `adbb590` | `adbd9a2` (the tip) |
+| What it is for | Every composition table, ranking, attribution and ablation in §3–§9. These are *proportions and mechanisms*, and they hold | Every figure a decision rests on: §3.3, §6.4, §9.3, §11 |
+| **Module size** | **852 918** | **886 321** |
+| **Headroom against 900 000** | 47 082 | **13 679** |
+| Full artifact | 1 215 578 | **1 399 960** |
+| Date measured | 2026-08-15 | 2026-08-15 |
 
-Two changes exist in parallel sessions and are **not** in the tree measured here:
+Common to both: rustc **1.94.1** pinned by `rust-toolchain.toml`, target `wasm32-unknown-unknown`,
+the workspace `[profile.release]` (`opt-level = "z"`, `lto = "fat"`, `codegen-units = 1`,
+`panic = "abort"`, `strip = "symbols"`, `debug = 0`, `overflow-checks = true`), built with
+`cargo build --release --locked -p fathom-wasm --target wasm32-unknown-unknown` and read at
+`target/wasm32-unknown-unknown/release/fathom_wasm.wasm`.
 
-| Change | Effect on this census |
-|---|---|
-| The `junos-srx` dictionary moved out of the module and is handed in at boot over `OP_DICT`; `Dictionary::embedded()` deleted | Here it is still `include_str!`-ed (`crates/fathom-ingest/src/dict.rs:80`). §7.2 prices it **by removal** — which is a useful independent check on the saving that change claims |
-| `crates/fathom-layout/` — the diagram's order/route/layer code | Absent here; not priced. It is the largest unmeasured addition in the tree |
+**The rule for quoting this document: if you are deciding, quote a decision-build number and
+re-run §2.4's script first. If you are reasoning about where bytes come from, the analysis build is
+the better instrument, because it has the fuller ablation set behind it.**
 
-A session working from a tree containing both will measure a different total (**870 977 bytes** is
-the figure that tree reports). **Every proportion, ranking and ablation below still holds** — they
-are properties of the same crates under the same profile — but the absolute total does not, and no
-number here should be quoted as "the current size" without re-running §2's script.
+### 1.2 What moved between the two, and what it cost
 
-`scripts/gate-zero.sh` does not exist at this commit either; the verification floor run in
-§*Sources consulted* records that honestly rather than reporting a pass it did not get.
+Three changes landed between `adbb590` and `adbd9a2`, and their net effect is **+33 403 bytes**:
+
+| Change | Direction | Measured |
+|---|---|---|
+| The `junos-srx` dictionary and `schema/field-keys.yaml` left the module and are handed in at boot over `OP_DICT` | **−26 915** (the change's own measurement) | This census independently confirms the data-section half: the data section fell **143 567 → 117 479, −26 088**, against 29 670 bytes of YAML removed. §7.2 had priced the same text at 38 460 by removal, of which 29 670 has now gone |
+| `crates/fathom-layout/` and the diagram surface | **+60 096** by removal (§6.4) | The largest single feature ever added to this module |
+| Aggregation | **+15 344** (the change's own measurement) | Not independently re-measured here |
+
+Two consequences worth stating plainly, because both invert a claim that was true a week ago:
+
+1. **The dictionary lever is spent.** Exactly one `include_str!` of YAML remains in the workspace —
+   `crates/fathom-corpus/src/seed_concepts.yaml`, 8 781 bytes. Stage 1's data-handoff decision is now
+   worth **8 KB**, not 38 KB and never the 200 KB it is sometimes planned as.
+2. **The bytes the dictionary bought back have already been spent, roughly twice over.** The move
+   returned 26 915 and the diagram took 60 096.
+
+`scripts/gate-zero.sh` did not exist at `adbb590` and does exist at the tip; it is run and recorded
+in §*Sources consulted*.
 
 ---
 
@@ -159,6 +183,42 @@ construction, not by inspection.
 is 0.51 %. And the data section is 143 567 bytes in a product that has not yet embedded a finder
 index, a rule pack, an explainer corpus or a font — all four of which `44` §5.3 expects to arrive as
 data.
+
+### 3.2 The same module at the tip
+
+| Section | `adbb590` | `adbd9a2` | Change |
+|---|---:|---:|---:|
+| code | 705 025 (82.66 %) | **764 243 (86.23 %)** | **+59 218** |
+| data | 143 567 (16.83 %) | **117 479 (13.25 %)** | **−26 088** |
+| everything else | 4 326 | 4 599 | +273 |
+| **Total** | **852 918** | **886 321** | **+33 403** |
+
+The two sections moved in opposite directions and the shape of the module changed with them: data
+fell by a fifth as the dictionary left, and code rose by 8.4 % as the diagram arrived. **Code is now
+86.23 % of the module.** Every remaining data-side saving in the tree is now 8 781 bytes
+(`seed_concepts.yaml`) plus the 12 588 bytes of float lookup tables that §5.1 already counts — so
+**there is no meaningful data lever left, and every future one is a code lever.** That is a change of
+regime, not a change of number: the levers that worked in the first half of August do not work again.
+
+### 3.3 Where the growth went, and the fact that should decide the gate
+
+| | `adbb590` | `adbd9a2` | Change |
+|---|---:|---:|---:|
+| `alloc::collections::btree` | 136 031 | 136 495 | +464 |
+| `core::slice::sort` | 82 184 | **107 027** | **+24 843** |
+| **both, the shared machinery** | **218 215 (25.6 %)** | **243 522 (27.5 %)** | **+25 307** |
+
+The module grew 33 403 net. Because the dictionary move gave 26 915 back over the same interval, the
+**gross** growth was about 60 300 — and **25 307 of it, roughly 42 %, is B-tree and sort machinery
+that no feature owns and no budget row can see.** Almost all of it is sort: the diagram sorts nodes,
+edges, channels, layers and groups, and every distinct element type it sorts instantiates its own
+copy of `core::slice::sort`.
+
+This is the clearest evidence in the census for §11's gate proposal. A reviewer looking at the
+diagram's diff would have seen `crates/fathom-layout/` at 15 987 bytes of its own compiled code and
+concluded it was cheap. **It cost 60 096 (§6.4), and the difference is machinery the diff does not
+contain.** No per-component budget of the shape `44` §5.2 specifies could have caught that, because
+the bytes belong to no component.
 
 ---
 
@@ -247,12 +307,38 @@ Grouped by module rather than by crate, the top of the list is unambiguous:
 | `core::ptr::drop_in_place` | 4 298 | 132 | 0.50 % |
 
 **`alloc::collections::btree` plus `core::slice::sort` is 218 215 bytes — 25.6 % of the entire
-module, in 1 118 functions.**
+module, in 1 118 functions.** (At the tip it is **243 522**, 27.5 % — §3.3.)
 
-This is the price of invariant 9. *"BTreeMap/BTreeSet and sorted Vec only"* is the correct rule and
-this census does not argue with it — but the rule is enforced per *type*, and Rust charges per type.
-Fifty distinct key/value pairs across the graph, the ledger, the index and the dictionary produce
-fifty instantiations of a B-tree implementation that is not small, and 278 copies of a sort.
+### 4.4 What this is the price of, stated carefully
+
+This block is the cost of *deterministic ordered collections, instantiated per type*. It is worth
+being exact about where that discipline comes from, because the wrong attribution turns a
+re-engineerable implementation choice into an untouchable law.
+
+**It is not invariant 9.** Invariant 9 (`.context/conventions.md`) is *"Determinism where it is
+observable"* — same workspace + corpus version + rule-pack version set + build ⇒ byte-identical
+emitted config, findings and finder ranking. It says nothing about collections, and
+`.context/conventions.md` contains no occurrence of the string "BTree" at all (`grep -c`, 2026-08-15,
+returns 0).
+
+**The nearest real source is `41` §2.1**, the five-stack language matrix, whose *"Determinism control
+(invariant 9)"* row rates Rust *"**good**: `BTreeMap`, no floats in the schema, explicit sort,
+`#[deny]` lints"*. That is an argument for choosing Rust, not a binding rule, and no document in this
+tree states a "BTree-only rule" as one. (That same cell also says *"no floats in the schema"*, which
+is the correct citation for §5.1's finding.)
+
+The distinction is load-bearing and it is why this section was rewritten. An invariant is not
+negotiable. An implementation technique adopted in service of an invariant is: `BTreeMap<K, V>` is
+one way to get deterministic iteration order, and a sorted `Vec<(K, V)>` behind one non-generic
+lookup helper is another that instantiates once instead of fifty times. **Determinism is the
+requirement; fifty monomorphised B-trees are an implementation of it, and 243 522 bytes is what that
+implementation costs.** Nothing here proposes changing either — it proposes that the choice be
+visible, which it currently is not.
+
+The mechanism is simply that the rule applies per *type* and Rust charges per type. Roughly fifty
+distinct key/value pairs across the graph, the ledger, the index, the layout and the dictionary
+produce that many instantiations of a B-tree implementation that is not small, plus 278 copies of a
+sort (375 at the tip).
 
 **Nobody chose this and nobody was told.** It is the largest single fact in the census and it is
 absent from `44` §5.2's component table, which has no row for it and no row it could hide in.
@@ -298,14 +384,18 @@ Two lines put them in the module, both in the YAML subset parser:
 | `crates/fathom-schema/src/value.rs:82` — `Value::Float(f) => f.to_string()` | Renders one back | **25 740 bytes** |
 | **Both** | | **44 690 bytes — 5.24 % of the module** |
 
-For scale: **that is more than the entire approved crypto stack costs (36 590), and 95 % of the
-headroom the newer tree has left.** The reason the two lines exist is honest and recorded in
+**Re-measured at the tip four days later: 44 825, within 135 bytes** (§6.4). Two ablations, two
+commits, 33 403 bytes of intervening change, the same answer.
+
+For scale: **that is more than the entire approved crypto stack costs (36 590), and more than three
+times the headroom the module has left.** The reason the two lines exist is honest and recorded in
 `value.rs`'s own comment: the shipped tree carries the residue-guard constants `0.75` and `0.15`
 (`11` §10.4), and `62` §2.2's table lists integer spellings only, so the parser accepts a float
 rather than refusing a file it must read. The bug is not the acceptance; it is that accepting it
-costs 44 690 bytes when the two values in question are fixed-point constants that the codebase
+costs 44 825 bytes when the two values in question are fixed-point constants that the codebase
 already knows how to carry — `fathom_corpus` uses `icf_milli` and `fathom_find` uses `score_milli`
-for exactly this.
+for exactly this. **Changing it is not free of decisions** — it goes through `62`'s grammar and
+touches `fathom-canon`'s byte contract; §11.2 states what it costs and what it touches.
 
 **Method note.** These are total-module deltas from four builds; the removed code was confirmed
 function-by-function by diffing the two `name` sections. Removing the parse deleted precisely seven
@@ -316,9 +406,11 @@ any code-size tool and this is why §7 exists.**
 ### 5.2 The demo estate
 
 `fathom_inventory::demo` is 4 483 + 4 388 = **8 871 bytes** of code and reaches into the data section
-for its literals. Removing `OP_ESTATE_DEMO` removes **35 195 bytes** (§6). It is a development
-fixture in a shipped artifact; nothing in this census decides whether it should ship, but nothing in
-the tree records that it costs 4 % of the module either.
+for its literals. Removing `OP_ESTATE_DEMO` removes **35 195 bytes** (§6.2), re-measured at the tip
+as **35 178** (§6.4) — the same number four days and 33 403 bytes later. It is a development fixture
+in a shipped artifact; nothing in this census decides whether it should ship, but nothing in the tree
+records that it costs 4 % of the module either. **It is now one of only two free levers left**, and
+§11.2 puts the question to the owner in one sentence.
 
 ---
 
@@ -372,7 +464,40 @@ No feature can be cut to reclaim them and no per-feature budget can see them.
 This is the measured answer to `44` §5.2's own warning that a total-only gate is insufficient. The
 warning is right, and the remedy it proposes — per-component budgets — **cannot be met by any
 mechanism the section describes**, because 35 % of the module has no component to belong to. §11
-lever 5 proposes what to do instead.
+proposes what to do instead.
+
+### 6.4 The same method at the tip — the numbers §11 spends
+
+Re-run at `adbd9a2`, same method, tree restored from a byte copy after every build. Baseline
+**886 321**.
+
+| Experiment | The edit | Module | Marginal cost |
+|---|---|---:|---:|
+| Float parse removed | drop the `is_simple_float` branch at `subset.rs:545` | 867 205 | −19 116 |
+| Float render removed | `value.rs:82` renders a constant | 860 624 | −25 697 |
+| **Both float sites removed** | both of the above | **841 496** | **−44 825** |
+| **`OP_ESTATE_DEMO` removed** | `#[cfg(any())]` on the arm | **851 143** | **−35 178** |
+| **`OP_DIAGRAM` removed** | `#[cfg(any())]` on the arm | **826 225** | **−60 096** |
+| Diagram + demo removed | both arms | 791 028 | −95 293 |
+| **Floats + demo removed together** | the two free levers of §11 | **806 314** | **−80 007** |
+
+**Two of these reproduce the analysis build's ablations on a tree 33 403 bytes larger**, which is the
+strongest internal check the census has:
+
+| | `adbb590` | `adbd9a2` | Agreement |
+|---|---:|---:|---|
+| Float machinery | 44 690 | 44 825 | within **135 bytes**, 0.30 % |
+| Demo estate | 35 195 | 35 178 | within **17 bytes**, 0.05 % |
+
+Both were measured four days apart, at different totals, against different neighbouring code. They
+are the same numbers. **§11's two free levers are real to within a few hundred bytes.**
+
+**And they add up, which was not guaranteed.** §6.1 warns that marginal costs do not sum. Here they
+do: floats and the demo measured together at **80 007** against a sum of marginals of 80 003 — they
+share four bytes, i.e. nothing. Same for diagram + demo: 95 293 measured against 95 274 summed. This
+is not a contradiction of §6.1 but a demonstration of what it means — features that share *machinery*
+(the finder stack shared 43 415) behave very differently from features that share *nothing*, and
+which case you are in has to be measured rather than assumed either way.
 
 ---
 
@@ -400,10 +525,20 @@ Two segments, 143 544 bytes of initialiser payload (99.98 %; the rest is offsets
 stating plainly because it is the one honest, linear, predictable line in the whole budget: a
 kilobyte of corpus is a kilobyte of module. Nothing else here behaves that way.
 
-It also settles the parallel session's claim independently. Moving the dictionary out over `OP_DICT`
-buys **19 184–19 384 bytes** *of data* here; the figure that tree reports (26 915) additionally
-includes the parse-and-gate code that becomes unreachable when `Dictionary::embedded()` is deleted.
-Both numbers are right about different things and neither should be quoted without saying which.
+It also settled the dictionary-move claim independently, before that change landed. Moving the
+dictionary out over `OP_DICT` buys **19 184–19 384 bytes** *of data*; the 26 915 that change reports
+additionally includes the parse-and-gate code that becomes unreachable when `Dictionary::embedded()`
+is deleted. Both numbers are right about different things and neither should be quoted without saying
+which.
+
+**Confirmed after the fact.** The move landed at `adbd9a2` and the data section fell **143 567 →
+117 479, −26 088**, against the 29 670 bytes of YAML (dictionary 19 183 + field-keys 10 487) that
+left. Predicted from this table: 19 184 + 10 494 = **29 678 of data**. The 3 590-byte difference is
+the data the diagram brought in over the same interval, which this table could not have known about.
+
+**What is left.** After the move, **one `include_str!` of YAML remains in the entire workspace** —
+`crates/fathom-corpus/src/seed_concepts.yaml`, 8 781 bytes, priced above at 8 782 by removal. The
+38 460-byte data lever is down to 8 782, and there is no third file.
 
 ### 7.3 The other 105 107 bytes
 
@@ -442,10 +577,20 @@ dominate. Confirm or refute."*
 
 ### 8.1 Refuted as stated, for the module that ships
 
-**`Graph::from_snapshot` and `slot_from_canon` are not in the shipped module.** `fathom-workspace`
-is not a dependency of `fathom-wasm` (`crates/fathom-wasm/Cargo.toml`), and a search of all 3 121
-named functions returns zero matches for either. The figures describe code that would *arrive with
-persistence*, not code that is there.
+**`Graph::from_snapshot` and `slot_from_canon` are not in the shipped module.** A search of all
+3 121 named functions returns zero matches for either. The figures describe code that would *arrive
+with persistence*, not code that is there.
+
+**Why they are absent, stated correctly.** Not because their crates are absent — they are not.
+`Graph::from_snapshot` is defined at `crates/fathom-graph/src/snap.rs:343` and `slot_from_canon` at
+`crates/fathom-ir/src/generated/accessors.rs:2065`, and **`fathom-graph` and `fathom-ir` are both
+direct dependencies of `fathom-wasm`**. They are absent because **nothing reachable calls them** and
+`lto = "fat"` over a `cdylib` with three roots eliminates what nothing reaches. `fathom-workspace` —
+the crate that *would* call them — is indeed not a dependency (`crates/fathom-wasm/Cargo.toml`), and
+that is why nothing reaches them; but the mechanism is dead-code elimination, not crate absence.
+The distinction matters to anyone reasoning about what adding a dependency drags in: **linking a
+crate costs nothing on its own; reaching into it is what costs**, which is exactly what §8.2 then
+measures and what §9.3 measures again for `fathom-emit`.
 
 What is there:
 
@@ -508,36 +653,91 @@ a different day. The route document's stage-5 conclusion is sound.
 **What the recorded figure does not say, and should:** the two halves are not alike. **Load is 65 %
 of the cost and save is 35 %**, and they share only 29 227 bytes. A build that can save and cannot
 load is 93 036 bytes and is useless. A build that can save and load one *schema version* is the whole
-235 890. This matters because it is the only decomposition that suggests a cheaper design (§11
-lever 3).
+235 890. This matters because it is the only decomposition that names the expensive half, and the
+route that fits is the one that never pays it.
 
-### 9.2 Cryptography does not fit, and by how much
+**Superseded as a route, and it is worth saying why the measurement still matters.** The route
+document's §5b now carries a *journal* route — save the operator's ops and replay them, rather than
+saving the expanded model — measured at **+263 bytes**. That route is better and this census does not
+argue with it. What the census contributes is the reason it is better, in numbers: **65 % of snapshot
+persistence is the load side, and the load side is nothing but re-typing.** A journal never re-types,
+so it never pays the 172 081. Any future proposal to save the expanded model has to answer that
+figure, and now there is one to answer.
+
+### 9.2 Cryptography, against the headroom that actually exists
 
 | | Bytes |
 |---|---:|
 | Ceiling (`44` §5.2) | 900 000 |
-| Module, this tree, measured 2026-08-15 | 852 918 |
-| **Headroom, this tree** | **47 082** |
-| Module, the tree with `fathom-layout` and the dictionary handed in | 870 977 |
-| **Headroom, that tree** | **29 023** |
+| Module at the tip, measured 2026-08-15 | 886 321 |
+| **Headroom** | **13 679** |
 | Approved crypto stack, Argon2id + ChaCha20-Poly1305, as recorded | 36 590 |
-| **Shortfall, that tree** | **−7 567** |
-| Persistence, measured | 235 890 |
-| **Shortfall for persistence + crypto, that tree** | **−243 457** |
+| **Shortfall** | **−22 911** |
+| Free levers available (§6.4: floats 44 825 + demo 35 178, measured together) | 80 007 |
+| **Headroom if both are taken** | **93 686** |
 
-**Encryption does not fit, and it is not close.** But the framing in circulation is wrong in a way
-that matters: *crypto* misses by 7 567 bytes — a rounding error against the 44 690 that two lines of
-float handling cost. **What does not fit is persistence**, by an order of magnitude more, and
-encryption without persistence encrypts nothing. The two must be priced together or the decision is
-taken against the wrong number.
+**The framing that has been in circulation — "encryption is what does not fit" — was wrong twice, in
+opposite directions, and both corrections matter.**
 
-The 36 590 figure is carried here as recorded; it is not reproduced by this census.
-<!-- VERIFY: 36 590 for Argon2id + ChaCha20-Poly1305 appears in the commissioning brief and could not
-be located in docs/ at commit adbb590. Re-measure it against a named, vendored implementation before
-any decision rests on it, and record which implementation was measured — ADR-0032 requires the
-approval record anyway, and it should carry the number. -->
+It was wrong when headroom was 47 082, because crypto missed by only 7 567 bytes while *snapshot
+persistence* missed by 206 867 more; pricing crypto alone optimised the smaller problem. It is wrong
+again now, because §5b found a persistence route costing +263 — so persistence is solved — while
+crypto's shortfall grew from 7 567 to **22 911** as the diagram consumed the headroom. **Crypto is
+now the binding constraint, and it was not when it was last discussed.**
 
----
+**One live figure in the route document is stale and its sign has flipped.** §5b measured the journal
+opcode plus Argon2id plus ChaCha20-Poly1305 as one build at **889 723 — "10,277 to spare"**. That was
+measured against a 852 918-byte module (its own table's +235 926 snapshot row confirms the base), so
+the delta it measured was **+36 805**. Carried onto 886 321 the same work lands near **923 100, some
+23 000 over the ceiling.** That last step is arithmetic across two trees rather than a measurement,
+and §6.1 is explicit that marginal costs do not transfer between trees — it is stated here only to
+show that the margin that decision rests on has been spent by features that landed after it was
+measured. **Re-measure 5b as one build before relying on it.** It remains true that the crypto path
+adds **no wasm import**, which is a security property worth more than the bytes.
+
+The 36 590 figure is carried as recorded; it is not reproduced by this census, and it cannot be:
+`Cargo.lock` holds **zero external packages** at the tip, so there is nothing vendored to measure.
+<!-- VERIFY: 36 590 for Argon2id + ChaCha20-Poly1305 is recorded in 00-ROUTE-TO-WORKABLE.md §2 stage 5
+and implied by §5b's 889 723. The two approval records that now exist — deps/decisions/argon2.md and
+deps/decisions/chacha20poly1305.md, both dated 2026-08-15 — carry no byte figure at all, and
+Cargo.lock has no external package, so nothing in the tree can be built to check it. Re-measure
+against the vendored implementation the day it lands and put the number in the approval record, which
+is where ADR-0032 §5 would have it live. -->
+
+### 9.3 The config view does not fit — the first feature refused on bytes
+
+`fathom-emit` exists, is complete for `junos-srx`, is tested, and is a dependency of nothing. Linking
+it into `fathom-wasm` and reaching `emit()` and `render_config()` from one opcode arm, by the same
+method §9.1 used for `fathom-workspace`:
+
+| | Module | Delta |
+|---|---:|---:|
+| Baseline at the tip | 886 321 | — |
+| **`fathom-emit` linked and reached** | **980 159** | **+93 838** |
+| The same, with §11's two free levers also taken | **900 156** | **+13 835 net** |
+
+**The config view does not fit, by roughly seven times the remaining headroom.** And the second row
+is the one that settles it: **with the float machinery removed and the demo estate removed — every
+free byte this census found, spent — the module with an emitter in it is 900 156, which is 156 bytes
+over the ceiling.** Not close enough to argue about, and not far enough to be comfortable: it is a
+feature that misses by the width of a comment.
+
+**This is the first time a specified feature has been priced out of this product**, and the fact is
+worth more than the number. Every previous byte conversation was about a feature that had not been
+written. This one is written, it works, it has tests, and it cannot ship in the same module as the
+diagram unless something else leaves.
+
+**Three independent measurements agree, and one of them is not this session's.** The session that
+first linked the emitter measured 852 918 → 963 238, **+110 320**, for a whole config *view* — the
+emitter plus the protocol encoding and the page-facing surface a view needs. Its reviewer
+reconstructed a discarded intermediate spike at 945 545, i.e. **+92 627 for the emitter alone**. This
+census measures **+93 838** for the emitter alone, at a different base, four days later. **The
+emitter is ~93 000; the view around it is another ~17 000.** Both figures are correct and they are
+not the same quantity — the distinction failure mode 3 exists to protect.
+
+For scale against `44` §5.2's own table: the row reading *"Rule engine + emitters — 120 KB"* is at
+zero because neither is built. **Half of it now has a price, and that half alone is 93 838** — 78 % of
+a budget that also has to hold a rule engine.
 
 ## 10. Recorded figures — which hold, which are wrong
 
@@ -552,180 +752,311 @@ approval record anyway, and it should carry the number. -->
 | `slot_from_canon` route A +107 857 | `00-ROUTE-TO-WORKABLE.md` §2 stage 6 | **Holds** as a marginal cost. Reproduced at 103 049. Its *self-size* is 11 970 |
 | Create-and-edit route B +5 677 | `00-ROUTE-TO-WORKABLE.md` §2 stage 6 | **Consistent.** Not independently re-measured; the four write opcodes it became now cost 8 430 + 2 284 + 7 247 = 17 961 marginally |
 | `Graph::from_snapshot` 110 256 | commissioning brief | **Wrong as a function size** — it is 6 339, and it is not in the shipped module at all |
-| Headroom 72 971 (module 827 029) | `00-ROUTE-TO-WORKABLE.md` §2/§5, `CLAUDE.md` | **Stale.** 852 918 / 47 082 at commit `adbb590`, 2026-08-15 |
+| Headroom 72 971 (module 827 029) | `00-ROUTE-TO-WORKABLE.md` §2/§5, `CLAUDE.md` | **Stale twice over.** 852 918 / 47 082 at `adbb590`; **886 321 / 13 679 at `adbd9a2`**, both 2026-08-15 |
 | `44` §5.2's seven-row component table, target ≤ 700 KB | `44` §5.2 | **Wrong in structure, not only in value** — §10.2 |
-| `44` §5.3's "WASM core 700 KB → 933 KB in the file" | `44` §5.3 | **Wrong.** 852 918 base64s to 1 137 224; the artifact is 1 215 578 |
+| `44` §5.3's "WASM core 700 KB → 933 KB in the file" | `44` §5.3 | **Wrong.** 886 321 base64s to 1 181 764; the artifact is 1 399 960 |
+| `44` §5.3's 150 KB for shell + CSS + JS | `44` §5.3 | **Over, unremarked.** The built page is 177 950 bytes, over by 27 950, and nothing gates it |
 | `44` §5.5's `xtask size-gate` with per-component ceilings | `44` §5.5 | **Does not exist.** There is no `xtask`; the gate is one total-only assertion, exactly the shape §5.2 warns against |
+| `47` §4.3's *"BTreeMap/BTreeSet and sorted Vec only"*, attributed to invariant 9 | this document, first draft | **Invented, and withdrawn.** No such rule exists in `.context/conventions.md`, which contains no occurrence of "BTree"; invariant 9 is about determinism of emitted output. The 218 215-byte measurement it was attached to is correct. §4.4 carries the real source, `41` §2.1 |
+| §5b's *"889 723 — 10,277 to spare"* for journal + crypto | `00-ROUTE-TO-WORKABLE.md` §5b | **Stale, sign probably flipped.** Measured against 852 918; the same +36 805 lands near 923 100 at the tip. Re-measure as one build (§9.2) |
+| Config view / `fathom-emit` +110 320 | the session that measured it | **Holds, and it is not the emitter alone.** The emitter alone is **93 838** here and 92 627 by that session's reviewer; the remaining ~17 000 is the view around it (§9.3) |
 
 ### 10.2 `44` §5.2 measured against its own rows
 
-| §5.2 row | Budget | Measured, this tree | Verdict |
-|---|---:|---:|---|
-| Graph, ops, CRDT | 90 KB | 107 128 (`fathom_graph`, by instantiation) | **Over by 17 KB, with no CRDT written** |
-| Parsers + dictionary | 140 KB | 163 118 (`fathom_ingest` 116 771 + `fathom_schema` 27 164 + dict data 19 183) | Over by 19 KB |
-| Rule engine + emitters | 120 KB | 0 | Not built |
-| Finder | 60 KB | 187 788 (`fathom_find` 58 614 + `fathom_corpus` 129 174) | **Over by 123 KB** — the corpus index was never a row |
-| Crypto stack | 180 KB | 0 | Not built |
-| CBOR codec + packed writers | 40 KB | 867 (`fathom_canon`; the project chose canonical JSON, not CBOR) | Row describes a decision that changed |
-| `core::fmt`, panic strings, misc | 70 KB | 85 030 (`core` 64 752 + `alloc` 10 470 + `dlmalloc` 7 743 + `std` 725 + shims 1 340) | Over by 13 KB |
-| **Total** | **≤ 700 KB** | **852 918** | **Over by 152 918, with three of seven rows at zero** |
+**Units.** Every budget in `44` §5.2 is written "KB" and every figure below reads that as **1 000
+bytes**, which is the convention the gate itself uses: `crates/fathom-wasm/tests/artifact_gates.rs:94`
+comments *"44 §5.2's hard ceiling, KB read as 1 000 bytes"* above `size <= 900_000` at line 97.
+**Overages are therefore stated in bytes, not in KB**, so that no row can be read in KiB while the
+total is read in KB. An earlier draft of this table stated three of its four overages in KiB while
+its total was in KB; every one of them understated the breach, which is precisely the direction an
+error in a budget document must not go.
 
-**Rows the table does not have, and needs:** the IR and its generated layer (88 605), the inventory
-face (45 168), the wasm shell and protocol (28 777), the weld (8 877), IDs (7 681) — and above all
-the 301 531 bytes of §6.3 that belong to no row at all.
+| §5.2 row | Budget | Measured at `adbd9a2` | Verdict |
+|---|---:|---:|---|
+| Graph, ops, CRDT | 90 000 | 119 564 (`fathom_graph`, by instantiation) | **Over by 29 564**, with no CRDT written |
+| Parsers + dictionary | 140 000 | 143 652 (`fathom_ingest` 116 488 + `fathom_schema` 27 164; dict data now 0) | Over by 3 652 — **the dictionary move nearly rescued this row** |
+| Rule engine + emitters | 120 000 | 0 built. Emitters priced at **93 838** when linked (§9.3) | Not built, and the half that exists does not fit |
+| Finder | 60 000 | 187 788 (`fathom_find` 58 614 + `fathom_corpus` 129 174) | **Over by 127 788** — the corpus index was never a row |
+| Crypto stack | 180 000 | 0 | Not built |
+| CBOR codec + packed writers | 40 000 | **867** (`fathom_canon`; the project chose canonical JSON, not CBOR) | Row describes a decision that changed. **Not zero** |
+| `core::fmt`, panic strings, misc | 70 000 | 86 441 (`core` 65 896 + `alloc` 10 737 + `dlmalloc` 7 743 + `std` 725 + shims 1 340) | Over by 16 441 |
+| **Total** | **≤ 700 000** | **886 321** | **Over by 186 321, with two of seven rows at zero** |
+
+Two rows are at zero — rule engine and crypto — and both are unbuilt work. The CBOR row is **867
+bytes, not zero**; it is a row whose decision changed under it, which is a different fact and needs a
+different remedy. Saying "three of seven at zero" merges the two and hides the one row that is
+telling the table something about itself.
+
+**Rows the table does not have, and needs:** the IR and its generated layer (89 241 by instantiation,
+of which the generated layer is 71 425 — see §8.1, they are not the same number), the inventory face
+(45 202), the diagram (39 803, new since 2026-08-15), the wasm shell and protocol (33 958), the weld
+(8 877), IDs (7 681) — and above all the 301 531 bytes of §6.3 that belong to no row at all.
 
 ### 10.3 Corrections made in place by this session
 
 | Document | Change |
 |---|---|
-| `44` §5.2 | Measurement block inserted: the 2026-08-15 total, the ceiling's status, the per-row verdicts, and the note that the section's own component gate does not exist |
-| `44` §5.3 | The WASM row corrected from 700 KB / 933 KB to the measured 852 918 / 1 137 224, and the artifact total to 1 215 578 |
-| `00-ROUTE-TO-WORKABLE.md` §1, §5, Failure modes | 827 029 / 72 971 corrected to 852 918 / 47 082 with the date and the tree caveat; the persistence figure annotated with its measured reproduction and its save/load split |
+| `44` §5.2 | Measurement block inserted, then rewritten at the tip: the 886 321 total, 13 679 of headroom, the per-row verdicts **stated in bytes** (an earlier draft mixed KB and KiB and understated three of four breaches), the corrected attribution of the shared-machinery cost, the corrected generated-layer figure, and the config-view refusal |
+| `44` §5.3 | The WASM row corrected to the measured 886 321 / 1 181 764; a row added for the dictionary now travelling in the page (39 808); the artifact total corrected to 1 399 960 with its measured composition; **and a new row recording that the shell + CSS + JS budget of 150 KB is exceeded at 177 950 with nothing gating it** |
+| `00-ROUTE-TO-WORKABLE.md` §1, §2 stage 5, §5, Failure modes | 827 029 / 72 971 → **886 321 / 13 679** with the date and commit; "91 % spent" → 98.5 %; the persistence figure annotated with its reproduction and save/load split; the `Graph::from_snapshot` 110 256 relabelled as a reachability cost, not a function size; the crypto bullet corrected from "fits today" to the measured shortfall; the stage-1 data lever corrected from 38 KB to 8 KB; and §5b's "10,277 to spare" flagged as measured against a smaller module |
+| `47` itself | §4.4 **withdraws an invented citation** this document made — a "BTreeMap/BTreeSet and sorted Vec only" rule attributed to invariant 9, which `.context/conventions.md` does not contain — and replaces it with the real source, `41` §2.1. §8.1 corrects a causal claim: the two absent functions are absent by dead-code elimination, not because their crates are absent, since both crates *are* dependencies. §10.1 records both |
 
 No number was changed without a measurement in this document behind it, and none was changed in a
-document this session does not have cause to touch.
+document this session does not have cause to touch. **Where this document was itself wrong, the
+correction is recorded in the same places as the corrections it made to others** — §4.4, §8.1, §10.1
+and Failure modes 5 — rather than quietly edited away.
 
 ---
 
-## 11. RECOMMENDATION — five levers, priced
+## 11. RECOMMENDATION — what to do about 13 679 bytes
 
-*margin tab: what to do, in the order the measurements support*
+*margin tab: the decision, in the owner's priority order*
 
-The decision waiting on this census is *"encryption does not fit; what gives?"* The measured answer
-is that the question is under-specified: crypto misses by 7 567 bytes and persistence misses by
-206 867 more. Five levers, cheapest first. **The first two are free and nobody has to decide
-anything.**
+This section is written to be read by someone who will never open a WebAssembly section header.
+Every number in it is measured, and §6.4 says how each one was taken.
 
-### Lever 1 — Take the float machinery out. 44 690 bytes, no design decision. DO THIS FIRST.
+### 11.1 The position, in plain terms
 
-Parse `0.75` and `0.15` as fixed-point milli-integers in the YAML subset, exactly as `fathom_corpus`
-already does with `icf_milli` and `fathom_find` with `score_milli`, and render them back the same way.
-`Value::Float` may keep existing for the emitter's benefit; what must go is `f64::from_str` and
-`<f64 as Display>` on the reachable path.
+The product ships as one file you open from disk. Inside that file is a compiled program — the
+module — and the module has a hard size limit of **900 000 bytes** that fails the build when
+crossed. As of 2026-08-15 the module is **886 321 bytes**. **There are 13 679 bytes left**, which is
+about 1.5 % of the budget.
 
-**44 690 bytes — 5.24 % of the module, more than the whole crypto stack — for a change that makes the
-parser more deterministic, not less.** It also removes the only floating-point arithmetic on the
-schema path, which invariant 9 has a standing interest in. There is no argument against it that this
-census can find, and it is the cheapest 44 KB in the project.
+That is not a comfortable margin, and the reason it is not is worth stating without blame: **nothing
+was overspent.** The features that consumed it are the features the product is for. The diagram — one
+feature, landed this week — cost 60 096 bytes on its own. Aggregation cost 15 344. Moving the Juniper
+dictionary out of the module gave 26 915 back, and the diagram spent it twice over in the same week.
 
-*What it does not do:* `fathom_find` and `fathom_corpus` still compute in `f64` internally
-(`det_ln`, Jaro-Winkler, BM25). Those are arithmetic, not formatting, and cost nothing here.
+Three things are already specified, already designed, and **do not fit in what is left**:
 
-### Lever 2 — Decide whether the demo estate ships. 35 195 bytes, one sentence from the owner.
-
-`OP_ESTATE_DEMO` is a development fixture. If the answer is "it ships, it is how a new user sees
-something without pasting", then it is a *feature* and belongs in a budget row. If it is a fixture,
-it belongs behind a build flag. **Either answer is fine; what is not fine is that 4.1 % of a module
-against a hard ceiling is a fixture nobody has decided about.**
-
-**Levers 1 and 2 together are 79 885 bytes** — from 852 918 to roughly 773 000, and from the other
-tree's 870 977 to roughly 791 000. That is 109 000 bytes of headroom, which fits the crypto stack
-three times over and still does not fit persistence.
-
-### Lever 3 — Do not make the module able to load a workspace. Save 172 081 of the 235 890.
-
-This is the census's most consequential finding and it is a genuine design fork, so it is stated as
-one rather than recommended.
-
-The load path costs 65 % of persistence because `snapshot_from_json` → `slot_from_canon` instantiates
-a typed parse for **every field of every kind** — 299 of them — whether or not the workspace being
-loaded contains any. The save path costs 35 % because writing is uniform: a value that is in the
-graph already knows its own type.
-
-**DECISION — where does a saved workspace get re-typed?** Three answers:
-
-| Route | Cost | What it loses |
+| Wanted | Costs | Fits in 13 679? |
 |---|---:|---|
-| **A — in the module, as now** | 235 890 | Nothing. Does not fit |
-| **B — save typed, load through the same narrow dispatcher hand entry uses** | ~93 036 + a narrow loader | The file must carry enough type information that the loader does not need the 299-arm table. That is a **format** decision (`17`), and it means a workspace file is self-describing rather than schema-derived — which is *also* the migration story the route document flags as missing (stage 5's "biggest risk"), so it buys two things |
-| **C — the page re-types it in JS before handing it in** | ~0 in wasm | Puts schema knowledge outside the module, where it can disagree with the module. Refuse: ADR-0008's whole point is one source of truth for what a field is |
+| Encryption of the saved workspace (Argon2id + ChaCha20-Poly1305) | 36 590 (recorded, not re-measured — §9.2) | **No.** Short by 22 911 |
+| The config view — showing the operator the Junos lines the graph would produce | 93 838 for the emitter, ~110 000 for the whole view (§9.3) | **No.** Short by ~96 000 |
+| The rule engine — findings — the largest unbuilt feature in the product | never measured; budgeted at 120 000 *together with* the emitter | **Almost certainly not** |
 
-**RECOMMENDATION — B**, and it should be measured before it is committed to, because "narrow
-dispatcher" is exactly what route B of stage 6 already is (+5 677 for the fields a hand-entry form
-needs) and the two should be the same code. If B lands anywhere near its estimate, persistence plus
-crypto becomes ~130 000 bytes rather than 272 480, and both fit inside levers 1 and 2's saving.
+**Saving the operator's work is the one thing on this list that does fit**, and it fits easily: the
+journal route in `00-ROUTE-TO-WORKABLE.md` §5b costs **+263 bytes**, because it saves what the
+operator *did* and replays it, instead of saving the expanded model. This census independently
+explains why that route is the right one: of the 235 890 bytes the save-the-model route costs, **65 %
+is the loading half alone**, and the loading half is nothing but re-deriving the type of every field
+of every kind — 299 of them — whether or not the file being opened contains any. A journal never does
+that, so it never pays for it.
 
-### Lever 4 — Move more data out, and know exactly what it buys: 38 460 bytes, all of it.
+### 11.2 There are 80 007 free bytes, and they are the last free bytes
 
-`OP_DICT` already proves the mechanism and the corpus already arrives as host-supplied `SourceFile`s.
-The remaining embedded text is **38 460 bytes total** (§7.2) and moving all of it is the whole prize.
-**State this plainly in stage 1's decision: data-handoff is a 38 KB lever, not a 200 KB one.** It is
-worth doing for the second platform's dictionary — which will be another ~19 KB of *data* and, more
-importantly, zero new *code* — but it does not solve persistence and it must not be sold as if it
-might.
+Two things in the module cost real space and buy nothing the product needs. Both were measured by
+removal, twice, four days apart, on trees 33 403 bytes apart, and both reproduced (§6.4).
 
-The generated identifier tables (§7.3, 8–12 KB of duplication) are a separate and probably cheaper
-saving: one shared `&[&str]` per table, referenced by every generated function, instead of each
-function carrying its own concatenation. That is a `fathom-schemagen` change, it needs no decision,
-and its size should be measured before anyone budgets on it.
+| | Bytes | What it is | What taking it costs |
+|---|---:|---|---|
+| **Float handling** | **44 825** | Two lines let the YAML reader parse and print decimal numbers. The graph has no decimal numbers *by design* — floats are structurally excluded from the IR — and the whole reason those two lines exist is two constants, `0.75` and `0.15` | The two constants become whole numbers of thousandths (750 and 150), which is what `fathom_corpus` and `fathom_find` already do internally. A small, contained change |
+| **The demo estate** | **35 178** | A fixture estate compiled into the shipped product so a new user sees something before pasting anything | Either nothing, if it is a development fixture, or a real feature if it is how a new user gets started. **Only the owner can say which** |
+| **Both, measured together** | **80 007** | | |
 
-### Lever 5 — Fix the gate before fixing the number. The ceiling is not the problem; the gate is.
+Taking both moves the module from 886 321 to **806 314**, leaving **93 686 bytes** of headroom —
+nearly seven times what exists today.
 
-`44` §5.2 says a total-only gate is insufficient and then §5.5 specifies a per-component gate that
-**does not exist** — there is no `xtask`, no `perf/size-baselines.toml`, and one assertion at
-`artifact_gates.rs:97`. Meanwhile §6.3 measures that **35 % of the module belongs to no component**,
-so the per-component gate as specified could never have been met either.
+**Two honest caveats, because neither lever is quite as free as it first looks.**
 
-**RECOMMENDATION — replace §5.2's component budget with three things this census can actually
-produce, in this order:**
+*The float change is not a no-decision change.* An earlier draft of this document called it one, and
+an edit it made to the route document said it "needs no decision from anyone". Both were wrong, and
+this is what it actually touches:
+
+- **`schema/schema.yaml:2198–2199`** — `accept: 0.75` and `margin: 0.15`, under `matching:
+  residue_guard:`. These are the two values, and they are the only two.
+- **`62` §2.2's YAML-subset table**, whose Accepted column reads *"`true` / `false`, decimal integers,
+  `null` spelled `null`"*. It lists no float spelling in either column — floats are accepted by the
+  parser without being named by the grammar, which is itself worth fixing.
+- **`fathom-canon`'s documented byte contract**, whose header states that the tree *"carries them in
+  one place — `matching:`, the residue-guard constants (11 §10.4) — and `schema.json` transcribes
+  every tree block so the bump checker (62 §16.4) can classify every diff."* Changing the spelling
+  changes what the bump checker sees.
+- **A live test at `crates/fathom-schema/src/subset.rs:847–848`** asserting that
+  `match_threshold: 0.75` parses to `Value::Float(0.75)`. It must keep passing, or be changed
+  deliberately and visibly.
+
+Under CLAUDE.md rule 3 that is a change made *through* `62`'s grammar, with a schema version bump.
+Perhaps a day's work and one small decision — not zero of either. The 44 825 bytes are still the
+cheapest in the project by a wide margin.
+
+*These are the last free bytes.* Everything else this census found is either a feature someone wants
+or machinery that cannot be deleted without deleting a feature. After 80 007 there is no third lever
+of this kind, and it does not come back.
+
+### 11.3 The decision — and it is one decision, not five
+
+**Spend the 80 007 on encryption, and refuse the config view for now.**
+
+That is the owner's own priority order — security, then usability, then dynamic ability — applied to
+the measurements rather than to intuition:
+
+- **Encryption is security, and it is first.** It costs 36 590 of the 80 007 and leaves about 57 000.
+  Saving costs 263 more. The two together are what turn this from a tool that forgets everything into
+  a tool that keeps an operator's estate safely, which is the product's whole reason to exist.
+- **The config view is dynamic ability, and it is third.** It is also the most expensive thing on the
+  list, and it is the one that cannot be made to fit by any amount of tidying. **With every free byte
+  already spent — floats out, demo out — the module with an emitter in it measures 900 156 bytes,
+  which is 156 over the limit** (§9.3). Not close enough to argue about.
+
+**This is the first time this project has had to refuse a feature on size**, and that deserves to be
+said plainly rather than buried in a table. `fathom-emit` is written, it is tested, and it works. It
+is not being refused because it is bad or because it is unfinished. It is being refused because the
+product cannot hold it and the diagram and encryption in one module at one time — and of those
+three, on the owner's stated ordering, it is the one that goes.
+
+**What "refuse for now" must not mean.** It must not mean the crate is deleted, and it must not mean
+the feature is quietly dropped from the specification. It means the config view waits for §11.4's
+architectural answer, and `44` records that it is waiting and why. A refusal that is written down can
+be revisited; one that is not becomes a feature everyone assumes is coming.
+
+### 11.4 The question behind all of this, and the honest answer to it
+
+Every option above buys tens of thousands of bytes once. The product's remaining specification —
+four more views, the rule engine, five more platforms, correlation across pasted configs — will want
+hundreds of thousands. **Arithmetic on what is already priced:**
+
+    886 321   today
+    − 80 007  both free levers taken
+    + 36 590  encryption
+    + 93 838  the emitter alone
+    = 936 742  — over the 900 000 limit, before the rule engine
+                and before four of the six views exist
+
+So the real question is not *"which feature gives way this month"*. It is **"is one module the right
+shape for this product?"** — and that is an architecture question, exactly as `44` §5.2 and the route
+document both say. This census does not answer it and does not propose moving the ceiling. What it
+can do is put three measured facts in front of whoever does.
+
+**Fact 1 — the biggest single thing in the module belongs to no feature, and it grows with types,
+not with code.** `alloc::collections::btree` plus `core::slice::sort` is **243 522 bytes, 27.5 % of
+the module** (§3.3). It is what deterministic ordered collections cost in Rust: the same B-tree and
+the same sorting routine are compiled afresh for every distinct kind of key and value, roughly fifty
+times over. This is the only pool that gets *better* as the product grows, because a single shared
+implementation would be paid for once instead of fifty times — and it is also the reason the diagram
+cost 60 096 when its own source compiles to 15 987. **Before any ceiling is moved, someone should
+spend a day measuring what one shared, non-generic map and sort would save.** That is a real
+engineering project with real risk to determinism, it is not a tidy-up, and nobody has priced it.
+It is the single highest-value unmeasured thing in this tree.
+
+**Fact 2 — the file has plenty of room; the module does not.** The whole artifact is **1 399 960
+bytes against a 4 500 000-byte ceiling — 31 % spent — while the module is 98.5 % spent.** The two
+budgets were set together, from the same component estimate, and only one of them has turned out to
+bind. The dictionary move already exploited this: 29 670 bytes of Juniper statements stopped being
+compiled into the module and started travelling in the page, where there is room. **A second module,
+base64'd into the same file and only started when the operator opens the config view, is the same
+move applied to code instead of data** — and on `44` §5.1's own cost model it is better than it
+sounds, because the largest single stage of boot is compiling the module, and a module that is only
+compiled when it is opened is not paid for at boot at all. It also needs the gate to change shape, or
+it is a way of passing the gate rather than a way of meeting it. `44` owns that call.
+
+**Fact 3 — the 900 000 limit is a stand-in for three things, and none of the three has ever been
+measured.** `44` §5.1 states the cost model exactly: bytes cost **transient boot memory** (about 3×
+the payload), **boot time** (the module's compile step is stage 4, the largest in the sequence, and
+was budgeted at 60 ms for a 700 KB module), and **distribution friction** (a file that goes through
+email). The census measured none of these — it measured bytes. **Whoever decides the ceiling should
+have those three numbers, not this one.** For calibration: `41` §2.6, which is where the language
+choice is made falsifiable, names a different and far higher trigger — *"measured WASM module exceeds
+~1.2 MB **compressed**"* — and at 886 321 bytes uncompressed, this module is nowhere near it.
+
+**So the 900 000 figure is not a physical limit and is not the language tripwire.** It is a seven-row
+component estimate totalling 700 000, written before any of the code existed, plus 200 000 of margin
+whose derivation this census could not find recorded anywhere. And of those seven rows, §10.2
+measures that **four are wrong against real code, two are unbuilt, and one describes a decision that
+changed. Not one row has been measured and found right.** That does not make the ceiling wrong — a
+ceiling nobody checks is worse than a ceiling derived from a bad estimate, which is `44` §5.1's own
+argument for writing one down. It does mean the number carries no more authority than the estimate
+under it, and the estimate has now been measured.
+
+### 11.5 The gate — fix the instrument before fixing the number
+
+`44` §5.2 says a total-only gate is insufficient, and it is right. §5.5 then specifies a
+per-component gate that **has never existed** — no `xtask`, no `perf/size-baselines.toml`, one
+assertion in `artifact_gates.rs`. And §6.3 measures that **35 % of the module belongs to no
+component**, so the per-component gate as specified could never have been met even if someone had
+built it.
+
+**RECOMMENDATION — three things, in this order.** `44` owns whether to take them.
 
 1. **A ratchet.** `perf/size-baselines.toml` with the total and a `reason` string, exactly as §5.5
-   already describes. It is the one part of §5.5 that works regardless of components, it costs a
-   line of TOML per growth, and it makes growth deliberate. **Land this before the next feature.**
-2. **A per-crate report, by instantiation site,** from `scripts/byte-census.sh`, posted rather than
-   gated. §4.2's table is the report. Gating it would be a lie — 35 % is shared — but a reviewer
-   seeing `fathom_corpus 129 174 → 161 000` in a diff will ask the right question.
-3. **A named shared-machinery row**, budgeted and watched. `alloc::collections::btree` +
-   `core::slice::sort` is 218 215 bytes and it grows with the number of distinct *types*, not with
-   the amount of code. That is a budget nobody has and the only one that predicts what the second
-   platform, the rule engine and the diagram will actually cost.
+   already describes. It is the one part of §5.5 that works regardless of components, it costs a line
+   of TOML per growth, and it makes growth deliberate instead of discovered. **Land it before the next
+   feature.** Had it existed a week ago, the diagram's 60 096 would have been a sentence in a pull
+   request rather than a surprise in a census.
+2. **A per-crate report, by instantiation site, posted and not gated.** §4.2's table is the report and
+   `scripts/byte-census.sh` already produces it. Gating it would be a lie — 35 % is shared — but a
+   reviewer who sees `fathom_graph 107 128 → 119 564` in a pull request asks the right question.
+3. **One named row for the shared machinery, budgeted and watched.** B-tree plus sort is 243 522
+   bytes and it grew 25 307 in one week — **42 % of everything the module gained** — while no diff
+   anyone reviewed contained a line of it. It is the only number that predicts what the second
+   platform, the rule engine and the remaining views will actually cost.
 
-**And on the ceiling itself.** `44` §5.2 and the route document are right that 900 000 is an
-architecture question, and this census does not propose moving it. But it does establish what moving
-it would *buy*, which nobody had: the module is 82.66 % code, the code is 47 % shared generic
-machinery, and **the artifact is 1 215 578 bytes against a 4 500 000-byte ceiling — 27 % spent.**
-The pressure is entirely on the wasm sub-budget, and the wasm sub-budget was set as a fraction of a
-3.38 MB artifact projection that has not survived contact with the code. If the ceiling is ever
-raised, the argument for it is that one number was derived from another number that turned out to be
-wrong, and not that the product needs more room.
+**And a fourth, smaller one:** put a gate on the page. `44` §5.3 budgets the HTML shell, CSS and JS
+at 150 KB together; measured, they are **177 950 bytes**. Nothing checks it, so nobody knew. It is not
+urgent — the artifact has room — but a budget with no gate is how the module got here.
 
 ---
 
 ## Failure modes
 
-1. **Someone quotes a total from this document against a different tree.** §1.2 exists for this.
-   Two absolute totals are in circulation (852 918 here, 870 977 with `fathom-layout` and `OP_DICT`)
-   and they differ by more than a third of the remaining headroom. **Re-run §2.4's script; do not
-   quote §3.**
+1. **Someone quotes a total from this document against a different tree.** §1.1 exists for this and
+   the hazard is now proven rather than theoretical: **three** totals are in circulation (827 029,
+   852 918, 886 321) inside four days, and they span more than four times the remaining headroom.
+   `44` §5.3 and `00-ROUTE-TO-WORKABLE.md` §1 both carried a stale one, and §5b's "10,277 to spare"
+   still does (§9.2). **Re-run §2.4's script before quoting any total, including this one.**
 2. **A marginal cost is read as a share.** §6.1 states it and §6.3 measures it: the marginals sum to
    506 962 against 808 493 attributable. Anyone who adds two rows of §6.2 together has over-counted.
+   §6.4 shows the opposite case — two features that share nothing and do sum — so which case you are
+   in is a measurement, never an assumption in either direction.
 3. **A self-size is quoted where a reachability cost was meant, or the reverse.** This already
-   happened once, to `slot_from_canon`, with a 9× error (§8.2). Every figure in this document is
-   labelled as one or the other; keep the label when the figure travels.
+   happened twice: to `slot_from_canon` with a 9× error (§8.2), and to `fathom-emit`, where +110 320
+   (a whole view) and +93 838 (the emitter alone) are both correct and are not the same quantity
+   (§9.3). Every figure in this document is labelled as one or the other; keep the label when the
+   figure travels.
 4. **The instrument goes stale.** `scripts/byte-census.rs` parses the section layout the current
    toolchain emits. A toolchain bump, a `Cargo.toml` profile change, or a future non-empty import
    section will change its assumptions — two of which it asserts (`imported == 0`, every byte lands
-   in a section) so it fails loudly rather than reporting a wrong number.
-5. **Lever 1 is taken as licence to delete `Value::Float`.** It is not. The parser must keep reading
-   the files it reads today; what changes is the *representation*, and a test that `0.75` still
-   parses is part of the change, not optional to it.
-6. **The 44 690 saving is spent before it is banked.** It is measured by ablation, not by a landed
-   change. Nothing in this document is headroom until a build shows it.
+   in a section) so it fails loudly rather than reporting a wrong number. It also carries a list of
+   known crate names for attributing legacy-mangled symbols; **a crate added to the workspace and not
+   added to `KNOWN_CRATES` reports as unattributed rather than wrong**, which is the right failure
+   direction but still needs the one-line edit. `fathom_layout` was added on 2026-08-15 for exactly
+   this reason.
+5. **§11.2's float lever is taken as licence to delete `Value::Float`.** It is not. The parser must
+   keep reading the files it reads today; what changes is the *representation*, and a test that
+   `0.75` still parses is part of the change, not optional to it. Nor is it a no-decision change —
+   §11.2 states what it touches in `62` §2.2 and in `fathom-canon`'s byte contract, and an earlier
+   draft of this document was wrong to call it free of decisions.
+6. **The 80 007 saving is spent before it is banked.** It is measured by ablation, not by a landed
+   change. Nothing in this document is headroom until a build shows it, and §11.3 spends it on paper.
+7. **§11's refusal of the config view is read as "the emitter was a mistake".** It is not, and the
+   crate should not be deleted. `fathom-emit` is complete, tested and correct; it is refused *for this
+   module, at this architecture*, and §11.4 is the question that would let it back in. A refusal
+   recorded with its reason can be revisited; one that is not becomes a silent scope cut.
 
 ---
 
 ## Open decisions
 
-1. **Does the demo estate ship?** (Lever 2.) 35 195 bytes. Owner-shaped, one sentence.
-2. **Where does a saved workspace get re-typed?** (Lever 3, routes A/B/C.) The largest byte decision
-   in the tree and it is a **format** question that `17` owns, not a size question.
-3. **Does `44` §5.2's component table get repaired or replaced?** This census recommends replaced
-   (lever 5). `44` owns the answer.
-4. **What exactly does the approved crypto stack cost?** 36 590 is carried, not reproduced. It should
-   be measured against the specific vendored implementation ADR-0032 requires an approval record for,
-   and the number should live in that record.
-5. **Should `scripts/byte-census.sh` run in CI?** It is two extra release builds. The ratchet
-   (lever 5 item 1) does not need it; the per-crate report does. Not decided here.
+1. **Does the demo estate ship?** (§11.2.) **35 178 bytes.** Owner-shaped, one sentence, and it is
+   now one of only two free levers left in the project.
+2. **Is the config view refused, and recorded as refused?** (§11.3.) This census recommends yes, on
+   the owner's own priority ordering. **It is the first feature this project has had to refuse on
+   size** and the refusal belongs in `44` in writing, not in a plan that quietly stops mentioning it.
+3. **Is one module the right shape for this product?** (§11.4.) The real question, and the only one
+   that changes the trajectory rather than the month. `44` §5.2 and `00-ROUTE-TO-WORKABLE.md` stage 1
+   both already call this an architecture question; §11.4 supplies the three measurements it needs.
+4. **Does `44` §5.2's component table get repaired or replaced?** This census recommends replaced
+   (§11.5). `44` owns the answer.
+5. **What exactly does the approved crypto stack cost?** 36 590 is carried, not reproduced, and it
+   *cannot* be reproduced here: `Cargo.lock` holds zero external packages, so nothing is vendored to
+   measure. `deps/decisions/argon2.md` and `deps/decisions/chacha20poly1305.md` (both 2026-08-15)
+   carry no byte figure. Measure it the day the crates land and put the number in the approval record,
+   which is where ADR-0032 §5 would have it live.
+6. **Should `scripts/byte-census.sh` run in CI?** It is two extra release builds. The ratchet
+   (§11.5 item 1) does not need it; the per-crate report does. Not decided here.
+7. **What would one shared, non-generic map and sort save?** (§11.4 fact 1.) 243 522 bytes are in
+   play, it is the only pool that improves as the product grows, and **nobody has measured it.** This
+   census names it as the highest-value unmeasured question in the tree and does not answer it.
 
 ---
 
@@ -736,30 +1067,43 @@ wrong, and not that the product needs more room.
 | `cargo build --release --locked -p fathom-wasm --target wasm32-unknown-unknown` at commit `adbb590` | Every total in §3, §6, §9 | 2026-08-15 |
 | The same build with `CARGO_PROFILE_RELEASE_STRIP=none` and `-C symbol-mangling-version=v0` | Every per-function and per-crate figure in §4, §5, §8 | 2026-08-15 |
 | `scripts/byte-census.rs` (new; first-party section, code and `name` reader) | The section table, both attributions, the module and function rankings | 2026-08-15 |
-| 24 ablation builds, each edit reverted from a byte copy | §5.1, §6, §7.2, §8.2, §9.1 | 2026-08-15 |
+| 24 ablation builds at `adbb590`, each edit reverted from a byte copy | §5.1, §6.2, §6.3, §7.2, §8.2, §9.1 | 2026-08-15 |
+| **9 further ablation builds at `adbd9a2`**, same method, tree restored and the restored baseline rebuilt to 886 321 to prove it | §6.4, §9.3 | 2026-08-15 |
+| **`scripts/byte-census.sh` re-run at `adbd9a2`** | §3.2, §3.3, §10.2's measured column, the `fathom_layout` rows | 2026-08-15 |
 | Data-segment text scan of the shipped module | §7.1, §7.3 | 2026-08-15 |
-| `crates/fathom-wasm/tests/artifact_gates.rs:97` | The gate's exact form: one total assertion, `size <= 900_000` | 2026-08-15 |
-| `crates/fathom-wasm/Cargo.toml` | That `fathom-workspace` is not a dependency, hence §8.1 | 2026-08-15 |
-| `docs/40-stack/44-performance-budgets.md` §5.2, §5.3, §5.5 | The budget rows measured against in §10.2 | 2026-08-15 |
-| `docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` §1, §2 stages 1/5/6, §5, Failure modes | The recorded figures verified in §10.1 | 2026-08-15 |
-| The commissioning brief | The 110 256 / 107 857 / 36 590 / 26 915 figures put to test | 2026-08-15 |
+| `crates/fathom-wasm/tests/artifact_gates.rs:94, :97` | The gate's exact form: the comment *"44 §5.2's hard ceiling, KB read as 1 000 bytes"* above one total assertion, `size <= 900_000` | 2026-08-15 |
+| `crates/fathom-wasm/Cargo.toml`, `crates/fathom-graph/src/snap.rs:343`, `crates/fathom-ir/src/generated/accessors.rs:2065` | §8.1's corrected causal account: both functions are defined in crates that *are* dependencies, and are absent by dead-code elimination |
+| `.context/conventions.md` invariant 9, and `grep -c BTree` over it (= 0) | §4.4's withdrawal of an invented citation | 2026-08-15 |
+| `docs/40-stack/41-technology-choices.md` §2.1 (the five-stack matrix), §2.6 (what would reopen the language choice), §3.10 (the component split) | §4.4's real source; §11.4's calibration against the 1.2 MB-compressed trigger | 2026-08-15 |
+| `docs/40-stack/44-performance-budgets.md` §5.1 (the cost model behind the ceiling), §5.2, §5.3, §5.5 | §11.4 fact 3; the budget rows measured against in §10.2 | 2026-08-15 |
+| `docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` §1, §2 stages 1/5/6, §5b, §5, Failure modes | The recorded figures verified in §10.1, and §5b's journal route | 2026-08-15 |
+| `deps/decisions/00-INDEX.md`, `argon2.md`, `chacha20poly1305.md`, `00-CLOSURE.md`; `Cargo.lock` | That the crypto crates are approved but not vendored, so 36 590 cannot be reproduced here (§9.2) | 2026-08-15 |
+| The commissioning brief, and the session that first linked `fathom-emit` | The 110 256 / 107 857 / 36 590 / 26 915 / 110 320 / 15 344 figures put to test | 2026-08-15 |
 
-**Verification floor**, run at the end of this session on the tree as delivered:
+**Verification floor**, run at the end of this session on the tree as delivered, at commit `adbd9a2`
+merged:
 
 | Gate | Result |
 |---|---|
 | `cargo fmt --all --check` | no output |
 | `cargo clippy --all-targets --locked -- -D warnings` | clean, exit 0 |
-| `cargo test --workspace --locked` | **420 passed, 0 failed, 0 ignored** |
-| `cargo run --locked -p fathom-schema --bin fathom-schema-check` | 48 kinds · 89 edges · 61 scalars · 10 enums · 14 files · **0 failures, 0 warnings** |
-| `./scripts/gate-zero.sh` | **does not exist at commit `adbb590`.** Recorded as not run, not as passed. No dependency was added by this session — `Cargo.lock` and every `Cargo.toml` are unmodified |
-| `cargo run --locked -p fathom-artifact` | `target/artifact/fathom-dev.html · 1 215 578 bytes` |
+| `cargo test --workspace --locked` | **515 passed, 0 failed, 0 ignored** |
+| `cargo run --locked -p fathom-schema --bin fathom-schema-check` | 48 kinds · 89 edges · 61 scalars · 10 enums · 14 files · **0 failures, 0 warnings**, exit 0 |
+| `./scripts/gate-zero.sh` | **`gate-zero: OK  every external package in Cargo.lock has an approval record`.** It exists at this commit and it passes; no dependency was added by this session |
+| `cargo run --locked -p fathom-artifact` | `target/artifact/fathom-dev.html · 1 399 960 bytes` |
 
 **Nothing was looked up outside this repository.** Every claim here is arithmetic over a file that
 was built, or a file that was read. ADR-0034's rule is about the outside world; it does not apply to
 a binary on disk, and this document deliberately makes no claim about a vendor, a standard, a
-browser or a cryptographic primitive. The one figure it carries from outside its own measurements —
-36 590 for the crypto stack — is marked `VERIFY` in §9.2 rather than restated as fact.
+browser or a cryptographic primitive. **The one place an earlier draft broke this was inward, not
+outward:** it quoted a rule from `.context/conventions.md` that the file does not contain. §4.4
+withdraws it and §10.1 records the withdrawal. That failure mode — inventing a citation to a document
+in this tree — is not covered by "nothing was looked up outside", and the remedy is the same one
+ADR-0034 prescribes: open the section, read it, and quote the words that are there.
+
+The two figures carried from outside this census's own measurements are **36 590** for the crypto
+stack, marked `VERIFY` in §9.2, and **15 344** for aggregation, attributed in §1.2 to the change that
+measured it. Neither is restated as this document's own.
 
 ---
 
@@ -768,23 +1112,35 @@ browser or a cryptographic primitive. The one figure it carries from outside its
 1. **With `44` §5.2, on the shape of a size budget.** The section budgets seven components and
    nothing else, and §6.3 measures that **35 % of the module belongs to no component**. Per-component
    gating as specified is not merely unimplemented, it is unachievable. **Proposed replacement:**
-   §11 lever 5's three-part mechanism — a total ratchet that gates, a per-crate instantiation-site
-   report that informs, and one explicit shared-machinery row that is budgeted and watched. `44`
-   owns the change; this is raised, not made.
+   §11.5's three-part mechanism — a total ratchet that gates, a per-crate instantiation-site report
+   that informs, and one explicit shared-machinery row that is budgeted and watched. `44` owns the
+   change; this is raised, not made.
 
-2. **With `44` §5.2, on which components exist.** Three of its seven rows are at zero (rule engine,
-   crypto, CBOR) and the two largest real contributors — the IR's generated layer and the shared
-   B-tree/sort machinery — have no row. A budget table whose largest line item is absent does not
-   fail loudly; it reports success while the module grows past it, which is what happened.
+2. **With `44` §5.2, on which components exist.** Two of its seven rows are at zero (rule engine,
+   crypto), a third describes a decision that changed (CBOR, measured at 867), and the largest real
+   contributor — the shared B-tree/sort machinery at 243 522 — has no row and cannot be given one
+   under the section's own scheme. A budget table whose largest line item is absent does not fail
+   loudly; it reports success while the module grows past it, which is what happened.
 
 3. **With `00-ROUTE-TO-WORKABLE.md` §2 stage 1, on where the data-handoff decision leads.** The
    stage treats "what stops being compiled in and starts being handed in" as *the* ceiling decision.
-   Measured, it is worth **38 460 bytes** in total (§7.2) — real, worth taking, and an order of
-   magnitude short of what persistence needs. The decision that actually moves the ceiling is
-   stage 5's, restated in §11 lever 3: **where a saved workspace gets re-typed.** The two are
-   different questions and only one of them is on stage 1.
+   Measured, it was worth **38 460 bytes** in total (§7.2), and **most of it has now been taken** —
+   the dictionary move banked 26 915 and one 8 781-byte `include_str!` is all that is left. Stage 1's
+   data lever is now worth 8 KB. The decision that actually moves the ceiling is §11.4's: **is one
+   module the right shape for this product?** The two are different questions and only one of them
+   is on stage 1.
 
-4. **With the framing that "encryption does not fit".** It is true and it is the wrong sentence.
-   Crypto misses by 7 567 bytes against a float-handling defect that costs 44 690. **Persistence** is
-   what does not fit, by 206 867 bytes more, and encryption without persistence protects nothing. Any
-   decision that prices the two separately will optimise the smaller one.
+4. **With the framing that "encryption does not fit".** It is true and it has been the wrong sentence
+   twice, in opposite directions. When headroom was 47 082 it was wrong because *snapshot persistence*
+   missed by far more, and pricing crypto alone optimised the smaller problem. It is wrong again now
+   because §5b's journal route costs +263, so persistence is solved — while crypto's shortfall grew
+   from 7 567 to **22 911** as the diagram spent the headroom. **Crypto is the binding constraint
+   today and it was not when it was last discussed**, which is the general hazard: every one of these
+   sentences was true when written and none stayed true for a week.
+
+5. **With any plan that still treats byte pressure as a series of one-off savings.** This census has
+   now watched the pattern run twice: a lever is found, it is spent, and the next feature consumes
+   more than it returned. The dictionary move gave back 26 915; the diagram took 60 096 in the same
+   week. §11.2's remaining 80 007 is the last lever of that kind in the tree, and §11.4's arithmetic
+   shows it is already committed. **The next byte conversation has to be about shape, not savings**,
+   and this document says so while there is still 13 679 bytes of room to have it in.

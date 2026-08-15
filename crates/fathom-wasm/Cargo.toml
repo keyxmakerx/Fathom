@@ -17,5 +17,6 @@ fathom-graph = { path = "../fathom-graph" }
 fathom-id = { path = "../fathom-id" }
 fathom-ingest = { path = "../fathom-ingest" }
 fathom-inventory = { path = "../fathom-inventory" }
+fathom-layout = { path = "../fathom-layout" }
 fathom-ir = { path = "../fathom-ir" }
 fathom-weld = { path = "../fathom-weld" }

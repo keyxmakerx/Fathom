@@ -72,6 +72,58 @@ pub const FACE_RESIDUE: u8 = 6;
 /// One reference the capture named and did not contain: what it named · the
 /// edge kind that wanted it · the line number.
 pub const FACE_UNRESOLVED: u8 = 7;
+/// The paste as the REDACTION GATE left it — one row, slot 0, the whole text.
+///
+/// This exists so the page can journal a paste without journalling the secret
+/// that was in it. The page holds only the raw text the operator pasted; the
+/// redacted text exists only inside the module, because `RedactedCapture`'s
+/// field is private and its one constructor is `pub(crate)` and is called from
+/// exactly one place, the end of `ingest()`. So there is no way to obtain
+/// redacted text except by running the gate, which is the point.
+///
+/// **A journal built from the raw paste would put a pre-shared key in the
+/// operator's export file.** Invariant 3 is the whole reason this row exists.
+pub const FACE_CAPTURE: u8 = 8;
+
+/// One diagram box: display id · kind · label · x · y · w · h · **aggregation**.
+///
+/// Slot 7 is three space-separated fields — `<count> <interior> <group key>`,
+/// the last possibly empty:
+///
+/// | field | meaning |
+/// |---|---|
+/// | `count` | how many graph nodes the box stands for. `1` is a plain box, and only then is slot 0 an element id the page may post to [`crate::OP_ELEMENT`] |
+/// | `interior` | edges with both ends inside this box, drawn nowhere |
+/// | `group key` | the aggregation group it belongs to, or empty |
+///
+/// Three facts in one slot because [`FACE_SLOTS`] is eight and this record
+/// already used seven: widening the face record would change the stride of
+/// every face in the protocol, and one space-separated triple is a much smaller
+/// thing to explain than that. Group keys contain no spaces
+/// (`agg:<kind>:<ulid>#<offset>`), so the split is unambiguous.
+///
+/// The count is not optional decoration. `59` §3.6: a collapse that does not
+/// say how many it hid is *"a lie with fewer elements"*, so the number crosses
+/// the boundary with the box rather than being something the page could choose
+/// not to ask for.
+pub const FACE_BOX: u8 = 9;
+/// One routed line: from id · to id · edge kind · "1" when containment ·
+/// the points as `x,y x,y ...` · how many graph edges it stands for.
+pub const FACE_LINE: u8 = 10;
+/// The drawing's extent: width · height. One row, always first.
+///
+/// When the caller passed a layer mask (`56` §4) the row carries four more
+/// slots: the mask as a decimal 5-bit number · boxes the mask hid · lines it hid
+/// · boxes drawn that `56` §4.1 has no row for. `slot_count` is 2 without a mask
+/// and 6 with one, so an empty slot 2 means *"no layer projection was applied"*
+/// and is a different claim from *"all five layers are on"* — the two differ by
+/// §4.1's inspector-only kinds.
+///
+/// The counts travel because `59`'s governing rule applies to a layer toggle as
+/// much as to an aggregate: a picture that hides things without saying how many
+/// is a lie with fewer elements. The extent itself is the UNION layout's and
+/// does not change with the mask (`56` §3.6).
+pub const FACE_CANVAS: u8 = 11;
 
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
@@ -113,6 +165,22 @@ pub const ERR_EQUIP_FRAME: u16 = 12;
 /// the errors that mean Fathom's model disagrees with what was asked for, and
 /// paraphrasing them would lose the only diagnosis available.
 pub const ERR_EQUIP_STORE: u16 = 13;
+
+/// A paste arrived before the dictionary did.
+///
+/// A real state since 2026-08-15, when the statement dictionary stopped being
+/// compiled into the module and started arriving over `OP_DICT`. Before that
+/// the module could always fall back on `include_str!`; now there is nothing to
+/// fall back on, and the two wrong answers are a panic and a silent empty
+/// parse. The second is worse: an empty dictionary matches no statement, so
+/// every line becomes residue and the page would report a perfectly well-formed
+/// config as *"none of these lines is one Fathom knows"*, blaming the operator
+/// for a boot the page failed to complete.
+///
+/// Distinct from `ERR_NOT_INITIALISED`, which already means two other things
+/// (no corpus for `OP_QUERY`, no estate for the face opcodes). The remedy here
+/// is the page's and only the page's: call `OP_DICT` first.
+pub const ERR_NO_DICTIONARY: u16 = 14;
 
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
@@ -534,6 +602,105 @@ pub struct PasteReply<'a> {
     pub residue: &'a [[String; 3]],
     /// what was named · the edge kind that wanted it · line number.
     pub unresolved: &'a [[String; 3]],
+    /// The post-redaction text, for the page's journal. Empty for replies that
+    /// are not a paste.
+    pub capture: &'a str,
+}
+
+/// The diagram, as face rows. Numbers travel as decimal strings for the same
+/// reason every other face row does: one decoder in the page, not two.
+///
+/// `filter` is `Some` exactly when the caller asked for a layer mask. It is
+/// reported rather than merely obeyed: the page prints the mask it got back, so
+/// a picture and its toggles can never disagree about which layers produced it.
+pub fn encode_diagram(
+    d: &fathom_layout::Diagram,
+    filter: Option<&fathom_layout::layers::Filter>,
+) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+
+    let (w, h) = (d.width.to_string(), d.height.to_string());
+    let rec = match filter {
+        None => face_slots(&mut blob, FACE_CANVAS, 2, &[w.as_str(), h.as_str()]),
+        Some(f) => {
+            let (m, hn, hl, un) = (
+                f.mask.bits().to_string(),
+                f.hidden_objects.to_string(),
+                f.hidden_edges.to_string(),
+                f.untabled_nodes.to_string(),
+            );
+            face_slots(
+                &mut blob,
+                FACE_CANVAS,
+                6,
+                &[
+                    w.as_str(),
+                    h.as_str(),
+                    m.as_str(),
+                    hn.as_str(),
+                    hl.as_str(),
+                    un.as_str(),
+                ],
+            )
+        }
+    };
+    write_face_record(&mut records, &rec);
+
+    for n in &d.nodes {
+        let (x, y, bw, bh) = (
+            n.x.to_string(),
+            n.y.to_string(),
+            n.w.to_string(),
+            n.h.to_string(),
+        );
+        let agg = format!("{} {} {}", n.count, n.interior, n.group);
+        let rec = face_slots(
+            &mut blob,
+            FACE_BOX,
+            8,
+            &[
+                n.id.as_str(),
+                n.kind,
+                n.label.as_str(),
+                x.as_str(),
+                y.as_str(),
+                bw.as_str(),
+                bh.as_str(),
+                agg.as_str(),
+            ],
+        );
+        write_face_record(&mut records, &rec);
+    }
+
+    for l in &d.links {
+        let mut pts = String::new();
+        for (i, (x, y)) in l.points.iter().enumerate() {
+            if i > 0 {
+                pts.push(' ');
+            }
+            pts.push_str(&x.to_string());
+            pts.push(',');
+            pts.push_str(&y.to_string());
+        }
+        let members = l.members.to_string();
+        let rec = face_slots(
+            &mut blob,
+            FACE_LINE,
+            6,
+            &[
+                l.from.as_str(),
+                l.to.as_str(),
+                l.kind,
+                if l.containment { "1" } else { "" },
+                pts.as_str(),
+                members.as_str(),
+            ],
+        );
+        write_face_record(&mut records, &rec);
+    }
+
+    face_reply(records, 1 + d.nodes.len() + d.links.len(), blob)
 }
 
 pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
@@ -554,9 +721,16 @@ pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
         }
     }
 
+    let mut extra = 0;
+    if !reply.capture.is_empty() {
+        let rec = face_slots(&mut blob, FACE_CAPTURE, 1, &[reply.capture]);
+        write_face_record(&mut records, &rec);
+        extra = 1;
+    }
+
     face_reply(
         records,
-        1 + reply.residue.len() + reply.unresolved.len(),
+        1 + reply.residue.len() + reply.unresolved.len() + extra,
         blob,
     )
 }
