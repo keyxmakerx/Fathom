@@ -15,21 +15,25 @@
 //!
 //! It is **not** `56`'s finished design, and nothing here should be mistaken for
 //! it. Absent, in that document's terms: the five toggled layers (§4), the
-//! aggregation stacks (§1.3), Sugiyama's crossing-reduction pass (§3.2 phase 5),
-//! pins and `LayoutHint` (§3.5), and the reth's two-layer treatment (§4.2). Each
-//! is real work and each sits on top of this rather than replacing it.
+//! aggregation stacks (§1.3), pins and `LayoutHint` (§3.5), and the reth's
+//! two-layer treatment (§4.2). Each is real work and each sits on top of this
+//! rather than replacing it.
 //!
-//! Phase 8 — orthogonal routing with a channel set per band — **is** here, in
+//! **Three of Sugiyama's phases are here.** Phases 4 and 5 — dummy nodes and
+//! crossing reduction — are in [`order`], because ordering a rank by `NodeId`
+//! is deterministic and arbitrary, and arbitrary means lines cross for no
+//! reason. Phase 8 — orthogonal routing with a channel set per band — is in
 //! [`route`], because without it every line between two ranks ran through one
-//! midpoint and a dense estate drew as one thick stroke.
+//! midpoint and a dense estate drew as a single thick stroke.
 //!
 //! # Determinism
 //!
 //! No clock, no RNG, no hash-ordered collection. Ranks come from the containment
-//! tree; order within a rank is by `NodeId`, which is a ULID and therefore a
-//! total order that is a pure function of content. The same graph lays out to
-//! the same coordinates on every machine, which is what makes a diagram
-//! shareable in a change ticket (`16` §1.1's argument, applied to pictures).
+//! tree; order within a rank is `order`'s fixed-length sweep, whose every tie
+//! breaks on `NodeId` — a ULID, and therefore a total order that is a pure
+//! function of content. The same graph lays out to the same coordinates on
+//! every machine, which is what makes a diagram shareable in a change ticket
+//! (`16` §1.1's argument, applied to pictures).
 //!
 //! # Coordinates
 //!
@@ -46,6 +50,7 @@
     clippy::indexing_slicing
 )]
 
+pub mod order;
 mod route;
 
 use fathom_graph::{Graph, NodeId};
@@ -125,17 +130,15 @@ pub fn lay_out(g: &Graph) -> Diagram {
     // is a pure function of content.
     ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
+    // Order within a rank: `56` §3.2 phases 4 and 5, not `NodeId` order, which
+    // is deterministic and arbitrary and made lines cross for no reason.
+    let ordered = order::rows_for_graph(g, &live, &ranked);
+
     let mut nodes: Vec<Node> = Vec::with_capacity(ranked.len());
-    let mut rank_now = u32::MAX;
-    let mut row: i32 = 0;
     let mut widest_rank: i32 = 0;
-    for (rank, id) in &ranked {
-        if *rank != rank_now {
-            rank_now = *rank;
-            row = 0;
-        }
+    for ((rank, id), row) in ranked.iter().zip(ordered.rows.iter()) {
         let x = MARGIN + (*rank as i32) * (BOX_W + RANK_GAP);
-        let y = MARGIN + row * (BOX_H + SIB_GAP);
+        let y = MARGIN + (*row as i32) * (BOX_H + SIB_GAP);
         nodes.push(Node {
             id: id.to_string(),
             kind: id.kind.name(),
@@ -145,8 +148,7 @@ pub fn lay_out(g: &Graph) -> Diagram {
             w: BOX_W,
             h: BOX_H,
         });
-        row += 1;
-        widest_rank = widest_rank.max(row);
+        widest_rank = widest_rank.max(*row as i32 + 1);
     }
 
     let links = route::route(g, &nodes, &live);
