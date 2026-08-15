@@ -32,6 +32,20 @@ set security zones security-zone vpn interfaces st0.0
 /// containment lines crosses the same band and starts at the same y — a fan out
 /// of one box, which is the shape that collapses to a single stroke without
 /// channel allocation, and which is what a real edge firewall looks like.
+/// The repository root, from this crate's manifest directory.
+///
+/// The dictionary used to be `Dictionary::embedded()` -- compiled into the
+/// binary. It moved into the page on 2026-08-15 to buy back 26,915 bytes of the
+/// wasm module's ceiling, so a test loads it from disk like every other
+/// non-wasm caller does.
+fn repo_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("the workspace root is two above this crate")
+        .to_path_buf()
+}
+
 fn dense_paste(n: usize) -> String {
     let mut s = String::from("set system host-name srx-dense-01\n");
     for i in 0..n {
@@ -46,7 +60,8 @@ fn dense_paste(n: usize) -> String {
 }
 
 fn estate(text: &str) -> Graph {
-    let dict = fathom_ingest::dict::Dictionary::embedded().expect("the compiled-in dictionary");
+    let dict =
+        fathom_ingest::dict::Dictionary::load(&repo_root()).expect("the shipped dictionary loads");
     let ing = fathom_ingest::ingest(text.as_bytes(), &dict).expect("the fixture parses");
     let at = fathom_graph::Timestamp(1_786_147_200_000);
     let manifest = fathom_weld::Manifest {

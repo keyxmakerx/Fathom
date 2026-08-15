@@ -529,7 +529,7 @@ fn an_unknown_kind_byte_is_still_refused() {
 /// left it, and this test is the reason that row exists.
 #[test]
 fn the_capture_row_carries_redacted_text_not_the_secret() {
-    let mut shell = Shell::new();
+    let mut shell = common::booted_shell();
     let reply = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
     let rows = match decode_reply(&reply) {
         Ok(ReplyView::FaceRows(r)) => r,
@@ -564,7 +564,7 @@ fn the_capture_row_carries_redacted_text_not_the_secret() {
 #[test]
 fn replaying_the_capture_rebuilds_the_same_estate() {
     let capture = {
-        let mut shell = Shell::new();
+        let mut shell = common::booted_shell();
         let reply = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
         match decode_reply(&reply) {
             Ok(ReplyView::FaceRows(r)) => r
@@ -579,12 +579,12 @@ fn replaying_the_capture_rebuilds_the_same_estate() {
     // Same clock, same entropy: the mint is a pure function of both, so the
     // minted ids must match too.
     let original = {
-        let mut s = Shell::new();
+        let mut s = common::booted_shell();
         s.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
         s.handle(OP_INV_ROWS, &[0])
     };
     let replayed = {
-        let mut s = Shell::new();
+        let mut s = common::booted_shell();
         s.handle(OP_PASTE, &frame(TS, ENTROPY, &capture));
         s.handle(OP_INV_ROWS, &[0])
     };

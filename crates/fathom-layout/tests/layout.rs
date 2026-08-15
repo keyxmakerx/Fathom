@@ -19,8 +19,23 @@ set security zones security-zone trust interfaces ge-0/0/0.0
 set security zones security-zone vpn interfaces st0.0
 ";
 
+/// The repository root, from this crate's manifest directory.
+///
+/// The dictionary used to be `Dictionary::embedded()` -- compiled into the
+/// binary. It moved into the page on 2026-08-15 to buy back 26,915 bytes of the
+/// wasm module's ceiling, so a test loads it from disk like every other
+/// non-wasm caller does.
+fn repo_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("the workspace root is two above this crate")
+        .to_path_buf()
+}
+
 fn estate() -> Graph {
-    let dict = fathom_ingest::dict::Dictionary::embedded().expect("the compiled-in dictionary");
+    let dict =
+        fathom_ingest::dict::Dictionary::load(&repo_root()).expect("the shipped dictionary loads");
     let ing = fathom_ingest::ingest(PASTE.as_bytes(), &dict).expect("the fixture parses");
     let at = fathom_graph::Timestamp(1_786_147_200_000);
     let manifest = fathom_weld::Manifest {
