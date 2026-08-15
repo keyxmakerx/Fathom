@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{
     AddressFamily, EdgeKind, EstablishTunnels, Family, HostService, IkePolicyMode,
-    IpsecProposalProtocol, IpsecVpnDfBit, NodeKind,
+    IpsecProposalProtocol, IpsecVpnDfBit, NodeKind, PolicyAction,
 };
 use fathom_ir::scalar::{self, Scalar};
 use fathom_ir::value::PeerSpec;
@@ -129,6 +129,10 @@ pub enum BoundValue {
     /// operator's sentence and not its Junos spelling.
     Text(scalar::Text),
     Fqdn(scalar::Fqdn),
+    /// Added 2026-08-15 — see `ValueTy::Bool` for why no dictionary could
+    /// reach a `bool` field until a CSV column needed one.
+    Bool(bool),
+    PolicyAction(PolicyAction),
 }
 
 // ---------------------------------------------------------------------------
@@ -612,6 +616,20 @@ fn scalar_value(dict: &Dictionary, ty: ValueTy, raw: &str) -> Result<BoundValue,
         ValueTy::AddressFamily => {
             BoundValue::AddressFamily(known(AddressFamily::from_token(&neutral), |v| {
                 matches!(v, AddressFamily::Unknown(_))
+            })?)
+        }
+        // A closed spelling list, on purpose. Anything else fails to a
+        // `ValueUnparsed` diagnostic the ledger shows, because the alternative
+        // — defaulting — would silently claim a firewall rule is disabled
+        // when nobody said so.
+        ValueTy::Bool => BoundValue::Bool(match mapped {
+            "1" | "true" => true,
+            "0" | "false" => false,
+            _ => return Err(()),
+        }),
+        ValueTy::PolicyAction => {
+            BoundValue::PolicyAction(known(PolicyAction::from_token(&neutral), |v| {
+                matches!(v, PolicyAction::Unknown(_))
             })?)
         }
     })

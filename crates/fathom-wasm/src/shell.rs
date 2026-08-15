@@ -30,6 +30,10 @@ pub struct Shell {
     /// paste. Held rather than rebuilt because every paste needs the same one
     /// and building it parses six YAML files and runs the WO-03 §4.7 gates.
     dict: Option<fathom_ingest::dict::Dictionary>,
+    /// The OPNsense firewall-rules dictionary, on the same terms. A second
+    /// slot rather than a replacement: a paste chooses one, and the one it did
+    /// not choose must still be there for the next paste.
+    csv_dict: Option<fathom_ingest::dict::Dictionary>,
 }
 
 impl Shell {
@@ -38,6 +42,7 @@ impl Shell {
             finder: None,
             estate: None,
             dict: None,
+            csv_dict: None,
         }
     }
 
@@ -120,9 +125,25 @@ impl Shell {
         let entropy = u128::from_le_bytes(entropy);
         let text = req.get(PREFIX..).unwrap_or_default();
 
-        if self.dict.is_none() {
-            match fathom_ingest::dict::Dictionary::embedded() {
-                Ok(d) => self.dict = Some(d),
+        // Which grammar is this? The sniff is exact — the first non-blank line
+        // must begin `@uuid` followed by `;` or `,`, which is the OPNsense
+        // Migration assistant's header and nothing else (`64` §1.1). A fuzzy
+        // sniff would occasionally read a Junos paste as a table, and the cost
+        // of that is the operator's estate replaced by nonsense.
+        let table = fathom_ingest::csv::looks_like_rules_csv(text);
+        let slot = if table {
+            &mut self.csv_dict
+        } else {
+            &mut self.dict
+        };
+        if slot.is_none() {
+            let built = if table {
+                fathom_ingest::dict::Dictionary::embedded_opnsense()
+            } else {
+                fathom_ingest::dict::Dictionary::embedded()
+            };
+            match built {
+                Ok(d) => *slot = Some(d),
                 Err(e) => {
                     return protocol::encode_error(
                         ERR_CORPUS_LOAD,
@@ -134,11 +155,16 @@ impl Shell {
                 }
             }
         }
-        let Some(dict) = self.dict.as_ref() else {
+        let Some(dict) = slot.as_ref() else {
             return protocol::encode_error(ERR_CORPUS_LOAD, "no dictionary");
         };
 
-        let ingest = match fathom_ingest::ingest(text, dict) {
+        let read = if table {
+            fathom_ingest::csv::ingest_csv(text, dict)
+        } else {
+            fathom_ingest::ingest(text, dict)
+        };
+        let ingest = match read {
             Ok(o) => o,
             Err(e) => return protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e)),
         };
@@ -809,6 +835,20 @@ fn refusal_text(e: fathom_ingest::IngestRefusal) -> String {
             fathom_ingest::MAX_PASTE_BYTES,
             fathom_ingest::MAX_PASTE_LINES
         ),
+        // The wording matters more than usual here. An empty export and a
+        // firewall with no rules are the same file, so an operator who is not
+        // told which one they have will believe the wrong thing — and OPNsense
+        // issue #10595 (22 July 2026, open and unanswered on 2026-08-15) is a
+        // report of the export writing 0 bytes while the assistant said it had
+        // found 47 rules. Naming the version is what makes the message
+        // actionable rather than merely apologetic.
+        fathom_ingest::IngestRefusal::EmptyTable { columns } => format!(
+            "this is a table with {columns} columns and no rules in it. If it came out of \
+             OPNsense's Firewall → Rules → Migration assistant, check the file you \
+             downloaded is not empty: opnsense/core issue #10595 reports a 0-byte export \
+             on 26.7.1 while the assistant reported finding rules. Fathom has not touched \
+             your estate."
+        ),
     }
 }
 
@@ -843,6 +883,12 @@ fn residue_reason(outcome: &fathom_ingest::frame::LineOutcome) -> String {
             "held back at the redaction gate: {} ({orig_len} bytes)",
             label.token()
         ),
+        // Reachable only through `csv.rs`, and never as residue — a header is
+        // understood, not left over. Named anyway, because the alternative is
+        // the `{other:?}` arm below printing a Rust debug string at a person.
+        LineOutcome::Header { columns } => {
+            format!("the header row — it named {columns} columns")
+        }
         // `ingest` builds `residue` from exactly the three arms above, so this
         // is unreachable through `ingest`. Naming the outcome rather than
         // asserting keeps a future fourth arm visible instead of silent.

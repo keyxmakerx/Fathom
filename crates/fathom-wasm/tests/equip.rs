@@ -426,9 +426,17 @@ fn a_device_can_be_removed_and_its_chassis_goes_with_it() {
         1,
         "the removed device must leave the inventory and the other must stay"
     );
-    // CHASSIS_KIND_BYTE is InvKind::ALL's last index; one device remains, so one
-    // chassis must remain.
-    let chassis = fathom_inventory::InvKind::ALL.len() as u8 - 1;
+    // The chassis kind byte, derived from the ENUM rather than from the length
+    // of the list. This line read `InvKind::ALL.len() - 1` and a comment saying
+    // "Chassis is the last index", which was true on 2026-08-11 and stopped
+    // being true on 2026-08-15 when `SecurityPolicy` was appended — the test
+    // then silently asked for a row set that has no members and failed on a
+    // count, naming the chassis. The failure was honest and the diagnosis was
+    // not: nothing about the chassis had changed. Position is not identity.
+    let chassis = fathom_inventory::InvKind::ALL
+        .iter()
+        .position(|k| *k == fathom_inventory::InvKind::Chassis)
+        .expect("Chassis is a shipped row set") as u8;
     assert_eq!(
         rows_for(&mut shell, chassis),
         1,

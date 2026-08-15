@@ -505,6 +505,151 @@ fn every_pasted_kind_has_a_consistent_header() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The second grammar. Same opcode, same shell, a table instead of a line
+// grammar — added 2026-08-15 with the OPNsense firewall-rules CSV.
+// ---------------------------------------------------------------------------
+
+/// A four-rule export in the shape the Migration assistant writes (`64` §1.1).
+/// Trimmed to the columns that carry values plus the two that must be residue:
+/// the full 50-column file lives in
+/// `crates/fathom-ingest/tests/fixtures/opnsense-rules-export.csv` and is what
+/// the browser driver pastes.
+const RULES_CSV: &str = "\
+@uuid;enabled;sequence;action;interface;direction;protocol;description;source_net;destination_net;destination_port
+8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;1;1;pass;lan;in;;Default allow LAN to any;lan;any;
+b3a55e21-77f2-4c19-8de1-2f0c4b9a7e55;1;2;block;wan;in;TCP;Block inbound RDP;any;192.168.1.0/24;3389
+2c772765-4c1e-4c61-9f34-0b7926bbf8db;0;3;pass;opt2;in;;Disabled Plex rule;192.168.210.0/24;any;
+d40b7c98-5e33-41aa-b0c7-6a2e1f8d9c07;1;4;reject;lan;out;UDP;Reject v6 DNS;any;any;53
+";
+
+fn pasted_csv() -> (Shell, Vec<FaceRowView>) {
+    let mut shell = Shell::new();
+    let rows = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, RULES_CSV)));
+    (shell, rows)
+}
+
+/// The dictionary is chosen from the text, and the platform the estate is
+/// stamped with is the one that actually read it — never a default.
+#[test]
+fn a_rules_csv_is_read_as_opnsense() {
+    let (_shell, rows) = pasted_csv();
+    let head = summary(&rows);
+    assert_eq!(head.strings[7], "opnsense");
+    // 1 Device + 1 PolicySet + 4 SecurityPolicy.
+    assert_eq!(count(&rows, 0), 6);
+    assert_eq!(count(&rows, 3), 0, "a rules export carries no credential");
+}
+
+/// The junos path is untouched by the sniff, and both dictionaries can be used
+/// by one shell in one session without either standing in for the other.
+#[test]
+fn one_shell_reads_both_grammars() {
+    let mut shell = Shell::new();
+    let junos = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE)));
+    assert_eq!(summary(&junos).strings[7], "junos-srx");
+    let csv = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, RULES_CSV)));
+    assert_eq!(summary(&csv).strings[7], "opnsense");
+    let again = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE)));
+    assert_eq!(summary(&again).strings[7], "junos-srx");
+}
+
+/// The rules reach a face. A parser whose output no view can show is a parser
+/// nobody can check — which is exactly how `RoutingProtocol` sat empty.
+#[test]
+fn the_rules_appear_in_the_inventory() {
+    let (mut shell, _) = pasted_csv();
+    let byte = u8::try_from(
+        InvKind::ALL
+            .iter()
+            .position(|k| *k == InvKind::SecurityPolicy)
+            .expect("SecurityPolicy is a row set"),
+    )
+    .expect("fewer than 256 kinds");
+    let rows = face(&shell.handle(OP_INV_ROWS, &[byte]));
+    assert_eq!(rows[0].role, FACE_HEADER);
+    assert_eq!(rows.len(), 5, "a header and four rules");
+
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .skip(1)
+        .map(|r| r.strings[1..7].to_vec())
+        .collect();
+    let by_ordinal = |n: &str| {
+        cells
+            .iter()
+            .find(|c| c[0] == n)
+            .unwrap_or_else(|| panic!("no rule at ordinal {n}"))
+    };
+    assert_eq!(by_ordinal("1")[1], "permit");
+    assert_eq!(
+        by_ordinal("2")[1],
+        "deny",
+        "OPNsense `block` is Junos `deny`"
+    );
+    assert_eq!(by_ordinal("4")[1], "reject");
+    // The one that matters: issue #10595 is about disabled rules disappearing.
+    assert_eq!(by_ordinal("3")[2], "false");
+    assert_eq!(by_ordinal("1")[2], "true");
+    assert_eq!(
+        by_ordinal("2")[3],
+        "true",
+        "source_net is the literal `any`"
+    );
+    assert_eq!(
+        by_ordinal("1")[3],
+        "—",
+        "source_net is `lan`; nothing may be claimed about it"
+    );
+}
+
+/// Residue at cell granularity: the matches the IR cannot hold are named with
+/// their own bytes, not swallowed by a row that bound something else.
+#[test]
+fn the_cells_the_ir_cannot_hold_are_named() {
+    let (_shell, rows) = pasted_csv();
+    let residue: Vec<&FaceRowView> = rows.iter().filter(|r| r.role == FACE_RESIDUE).collect();
+    let text: Vec<&str> = residue.iter().map(|r| r.strings[1].as_str()).collect();
+    for wanted in ["192.168.1.0/24", "3389", "TCP", "wan", "in", "53"] {
+        assert!(text.contains(&wanted), "`{wanted}` is not named: {text:?}");
+    }
+    // And nothing that DID bind is on the list twice over.
+    assert!(!text.contains(&"Block inbound RDP"));
+    assert!(!text.contains(&"reject"));
+}
+
+/// An export with a header and no records. Issue #10595's failure mode, refused
+/// by name, with the held estate left alone.
+#[test]
+fn an_empty_export_is_refused_and_changes_nothing() {
+    let (mut shell, _) = pasted_csv();
+    let before = shell.handle(
+        OP_INV_ROWS,
+        &[u8::try_from(
+            InvKind::ALL
+                .iter()
+                .position(|k| *k == InvKind::SecurityPolicy)
+                .expect("SecurityPolicy is a row set"),
+        )
+        .expect("fewer than 256 kinds")],
+    );
+    let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, "@uuid;enabled;action\n")));
+    assert_eq!(e.code, ERR_INGEST_REFUSED);
+    assert!(e.detail.contains("10595"), "{}", e.detail);
+    assert!(e.detail.contains("no rules in it"), "{}", e.detail);
+    let after = shell.handle(
+        OP_INV_ROWS,
+        &[u8::try_from(
+            InvKind::ALL
+                .iter()
+                .position(|k| *k == InvKind::SecurityPolicy)
+                .expect("SecurityPolicy is a row set"),
+        )
+        .expect("fewer than 256 kinds")],
+    );
+    assert_eq!(before, after, "a refused paste must not disturb the estate");
+}
+
 /// The kind byte is a wire value. Nine kinds exist; the tenth must still be a
 /// typed refusal rather than a panic or a silently empty table.
 #[test]

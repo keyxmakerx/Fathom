@@ -48,6 +48,14 @@ pub enum InvKind {
     // SHOW it. APPENDED, never inserted: the wire byte OP_INV_ROWS takes is this
     // array's index, so inserting would silently repoint every existing byte.
     Chassis,
+    // Added 2026-08-15 with the OPNsense rules CSV. APPENDED, never inserted,
+    // for the reason `Chassis` states above: the wire byte `OP_INV_ROWS` takes
+    // is this array's index.
+    //
+    // A firewall rule is the first thing the owner asked for by name that is
+    // not a Junos statement, and until now `SecurityPolicy` had no row — so a
+    // ruleset Fathom parsed correctly had nowhere to appear.
+    SecurityPolicy,
 }
 
 impl InvKind {
@@ -66,10 +74,11 @@ impl InvKind {
             InvKind::RoutingProtocol => "RoutingProtocol",
             InvKind::ProtocolAdjacency => "ProtocolAdjacency",
             InvKind::Chassis => "Chassis",
+            InvKind::SecurityPolicy => "SecurityPolicy",
         }
     }
 
-    pub const ALL: [InvKind; 13] = [
+    pub const ALL: [InvKind; 14] = [
         InvKind::Device,
         InvKind::PhysicalPort,
         InvKind::Premises,
@@ -83,6 +92,7 @@ impl InvKind {
         InvKind::RoutingProtocol,
         InvKind::ProtocolAdjacency,
         InvKind::Chassis,
+        InvKind::SecurityPolicy,
     ];
 
     fn node_kind(self) -> NodeKind {
@@ -100,6 +110,7 @@ impl InvKind {
             InvKind::RoutingProtocol => NodeKind::RoutingProtocol,
             InvKind::ProtocolAdjacency => NodeKind::ProtocolAdjacency,
             InvKind::Chassis => NodeKind::Chassis,
+            InvKind::SecurityPolicy => NodeKind::SecurityPolicy,
         }
     }
 }
@@ -183,6 +194,33 @@ const IKE_PROPOSAL_COLUMNS: &[&str] = &[
 ];
 const IPSEC_PROPOSAL_COLUMNS: &[&str] = &["name", "device", "protocol", "encryption", "integrity"];
 
+/// One firewall rule. `ordinal` first because a ruleset is read in order and
+/// the order is the meaning; `enabled` beside `action` because "is it off" and
+/// "does it allow" are the two facts an engineer checks first.
+///
+/// `any source` and `any dest` are the ONLY match columns, and their loneliness
+/// is the honest shape of the schema today: a rule's real source, destination
+/// and ports need `AddressValue` and `L4Spec`, which are empty structs in
+/// `crates/fathom-ir/src/value.rs`. Columns that could only ever be blank would
+/// be worse than none -- they would read as "this rule matches nothing".
+///
+/// **SIX, because six is the wire's limit.** `fathom_wasm::protocol`'s face
+/// record carries `FACE_SLOTS = 8` strings: slot 0 is the id, slot 7 is the
+/// opinions header, and the columns sit between. A seventh column is not
+/// refused -- it is silently truncated, and the page then reads `undefined` for
+/// the tail. `name` (the OPNsense uuid, which the row's own element id already
+/// carries) and `device` (one paste is one device today) are what came off to
+/// stay inside it. `crates/fathom-wasm/tests/face.rs` now pins the limit so the
+/// next kind that wants seven gets a failing test instead of a broken table.
+const SECURITY_POLICY_COLUMNS: &[&str] = &[
+    "ordinal",
+    "action",
+    "enabled",
+    "any source",
+    "any dest",
+    "description",
+];
+
 pub fn columns(kind: InvKind) -> &'static [&'static str] {
     match kind {
         InvKind::Device => DEVICE_COLUMNS,
@@ -198,6 +236,7 @@ pub fn columns(kind: InvKind) -> &'static [&'static str] {
         InvKind::RoutingProtocol => ROUTING_PROTOCOL_COLUMNS,
         InvKind::ProtocolAdjacency => PROTOCOL_ADJACENCY_COLUMNS,
         InvKind::Chassis => CHASSIS_COLUMNS,
+        InvKind::SecurityPolicy => SECURITY_POLICY_COLUMNS,
     }
 }
 
@@ -319,6 +358,14 @@ fn cells(g: &Graph, kind: InvKind, id: NodeId) -> Vec<String> {
             value_cell(g, id, key("Chassis.member_index")),
             value_cell(g, id, key("Chassis.slots")),
             owning_device(g, id),
+        ],
+        InvKind::SecurityPolicy => vec![
+            value_cell(g, id, key("SecurityPolicy.ordinal")),
+            value_cell(g, id, key("SecurityPolicy.action")),
+            value_cell(g, id, key("SecurityPolicy.enabled")),
+            value_cell(g, id, key("SecurityPolicy.match_any_source")),
+            value_cell(g, id, key("SecurityPolicy.match_any_destination")),
+            value_cell(g, id, key("SecurityPolicy.description")),
         ],
     }
 }

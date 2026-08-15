@@ -400,7 +400,12 @@ button.tab:hover { color: var(--ink); }
          (invariant 2), so this is not a convenience: it is the input. -->
     <div class="psheet" id="psheet" role="dialog" aria-label="Paste a config" hidden>
       <div class="phead">
-        <div class="lead">Paste a config — Juniper SRX, set form</div>
+        <!-- Two forms now, and the sheet says so. It said "Juniper SRX, set
+             form" alone until 2026-08-15, which told an operator holding an
+             OPNsense rules export that this box was not for them. Which
+             dictionary runs is decided by the module from the text itself, so
+             there is nothing to choose — only something to know. -->
+        <div class="lead">Paste a config — Juniper SRX set form, or an OPNsense rules CSV</div>
         <p class="prose" id="pHint"></p>
         <p class="prose perr" id="pErr" hidden role="alert"></p>
       </div>
@@ -627,7 +632,17 @@ var S = {
 /* The estate's provenance, in the words the masthead, the band and the folio
    all use. One function, so they cannot drift. */
 function sourceWords() {
-  if (S.source === 'paste') return 'pasted config · junos-srx';
+  /* The platform is READ FROM THE REPLY, never written here. It was the
+     literal string 'junos-srx' until 2026-08-15, which was true while junos-srx
+     was the only dictionary and became a lie the moment a second one landed:
+     an operator who pasted an OPNsense export saw their rules parsed correctly
+     under a masthead, a folio and a band that all said JUNOS-SRX. The module
+     has always sent the real value in the paste summary's last slot — it is
+     `dict.platform()` — and nothing was reading it. */
+  if (S.source === 'paste') {
+    var h = pasteSummary();
+    return 'pasted config · ' + ((h && h.s[7]) || 'unknown platform');
+  }
   if (S.source === 'demo') return 'demo estate · not corpus data';
   /* Deliberately "includes", not "is". Adding by hand does not replace what is
      held, so this estate may well contain pasted devices too, and a word that
@@ -657,7 +672,11 @@ var KINDS = ['Device', 'PhysicalPort', 'Premises',
              /* Appended 2026-08-11 with the equipment form: `model` and `serial`
                 are Chassis fields, so without this button a hand-entered model
                 is stored and invisible. */
-             'Chassis'];
+             'Chassis',
+             /* Appended 2026-08-15 with the OPNsense firewall-rules CSV, which
+                is the first input that is not a Junos statement. A ruleset the
+                module parses correctly needs somewhere to appear. */
+             'SecurityPolicy'];
 
 var VIEWS = [
   { id: 'finder',      t: 'Finder',      key: '⌥1',
@@ -810,7 +829,15 @@ function renderTally(host) {
   var ul = el('ul', 'tally');
   [[h.s[0], 'things understood'],
    [h.s[1], 'connections'],
-   [h.s[2], 'lines not read'],
+   /* "not read", not "lines not read". Reworded 2026-08-15: a `set`-form paste
+      leaves whole lines behind, but a CSV leaves individual CELLS behind — a
+      row of fifty columns can have six understood and forty-four not — and
+      `csv.rs` reports residue at cell granularity because reporting the row as
+      "bound" would be true and useless. Calling forty-four cells "lines" would
+      be a plain lie about a number the operator is meant to act on. The wording
+      is shape-neutral rather than conditional: no platform name is hardcoded
+      into the page, and both readings stay true. */
+   [h.s[2], 'not read'],
    [h.s[3], 'secrets removed'],
    [h.s[4], 'names not found']].forEach(function (pair) {
     var li = el('li');
@@ -829,9 +856,11 @@ function renderResidue(host) {
   var total = h.s[2];
   var p = el('div', 'pad');
 
-  p.appendChild(el('div', 'sh', 'Lines Fathom did not read — ' + total));
+  /* "What", not "Lines" — see the tally's note above: a table's residue is
+     cells, not lines, and the `line` column below still names the row. */
+  p.appendChild(el('div', 'sh', 'What Fathom did not read — ' + total));
   if (rows.length === 0) {
-    p.appendChild(el('p', 'prose', 'Every line was read.'));
+    p.appendChild(el('p', 'prose', 'Everything was read.'));
   } else {
     /* The cap is stated, never silent (78 §5). */
     if (String(rows.length) !== total) {
@@ -1340,9 +1369,12 @@ function setPaste(open) {
   $('psheet').hidden = !open;
   if (open) {
     $('pHint').textContent =
+      /* "every line or cell", not "every line": a CSV's residue is reported
+         per cell, because a row of fifty columns with six understood is not
+         honestly described as a row that was read. */
       'Nothing leaves this page. The text is read in the module, secrets are ' +
-      'destroyed before anything is stored, and every line that cannot be read ' +
-      'is listed back to you rather than dropped.';
+      'destroyed before anything is stored, and every line or cell that cannot ' +
+      'be read is listed back to you rather than dropped.';
     renderPasteError();
     $('pta').focus();
   }
@@ -1414,8 +1446,10 @@ function runPaste() {
   S.invKind = 0;
   loadKind(0);
   var h = pasteSummary();
+  /* "not read", not "lines not read" — a table's residue is cells. Same
+     rewording, same reason, as the tally above. */
   foot(h ? ('read ' + (h.s[6] || 'the config') + ' — ' + h.s[0] + ' understood, ' +
-            plural(h.s[2], 'line', 'lines') + ' not read, ' +
+            h.s[2] + ' not read, ' +
             plural(h.s[3], 'secret', 'secrets') + ' removed')
          : 'read the config');
   setPaste(false);

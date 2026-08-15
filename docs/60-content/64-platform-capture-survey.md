@@ -41,7 +41,7 @@ The question is only ever: *can a human select text and copy a complete-enough c
 | **Arista EOS** | **Yes, fully** | `show running-config` prints everything as plain indented text. Best of the six. It even has a built-in `sanitized` variant that blanks passwords — but you cannot tell from the text whether someone used it, so it changes nothing about our redaction. | A real captured config off a DCS-7150S-64-CL running EOS-4.22.4M, read byte-for-byte: `raw.githubusercontent.com/ksator/arista_eos_audit/master/output/10.83.28.122/eos_commands/text/show%20running-config.txt` (checked 2026-08-10) |
 | **Cisco Nexus (NX-OS)** | **Yes, fully** | `show running-config` after `terminal length 0`. Standard, stable, works the same on 3000/5000/7000/9000. One real gate: a read-only NOC account **cannot** run it. | Cisco's own N9K security guide: "The network-operator role does not have access to the show running-config or show startup-config commands." (checked 2026-08-10) |
 | **Palo Alto PAN-OS** | **Yes, fully** | Four selectable text formats. `set cli config-output-format set`, then `configure`, then `show` — and out comes something that looks almost exactly like Junos set-form. | Palo Alto's CLI Quick Start shows the same node in all four formats side by side, including `set deviceconfig system dns-setting servers primary 1.2.3.4`: `docs.paloaltonetworks.com/pan-os/11-1/pan-os-cli-quick-start/get-started-with-the-cli/customize-the-cli` (checked 2026-08-10) |
-| **OPNsense** | **Yes, fully — two ways** | The whole configuration is one file, `/conf/config.xml`. Better for us: from the console shell, `pluginctl -g` prints the entire config (or any subtree) to the screen as JSON — real screen text you can select, and you can paste just the interfaces without the certificate blobs. | The web download button is literally `file_get_contents('/conf/config.xml')` with no filtering (diag_backup.php ~line 215); `pluginctl` help reads "-g get config property (raw…)" and with no argument returns the whole config as pretty-printed JSON. Both read at commit `ae0088be`, 2026-08-09 (checked 2026-08-10) |
+| **OPNsense** | **Yes, fully — three ways** | The whole configuration is one file, `/conf/config.xml`. Better for us: from the console shell, `pluginctl -g` prints the entire config (or any subtree) to the screen as JSON — real screen text you can select, and you can paste just the interfaces without the certificate blobs. **And, since 26.1, the firewall rules alone come out as a CSV from the GUI — see §1.1, which this survey missed.** | The web download button is literally `file_get_contents('/conf/config.xml')` with no filtering (diag_backup.php ~line 215); `pluginctl` help reads "-g get config property (raw…)" and with no argument returns the whole config as pretty-printed JSON. Both read at commit `ae0088be`, 2026-08-09 (checked 2026-08-10). The CSV path's evidence is in §1.1 (checked 2026-08-15) |
 | **TP-Link Omada — managed switches** | **Yes** | `show running-config` over console/SSH, or the web "Backup Config" export, which is a plain-text file starting `!SG3428XMP` and ending `end`. Two real ones were read. | `raw.githubusercontent.com/MateusAlo/MOVER_pf/master/src/sensing/switch/sysConfigBackup.cfg` — a real 398-line export from a TL-SG3428XMP (checked 2026-08-10) |
 | **TP-Link Omada — ER gateways** | **No** | There is a CLI, but there is no command that prints the whole config. You would run ~20 separate `show` commands and stitch them by hand, and none of them emits config-syntax lines. | The 109-page ER605/ER7206 CLI guide grepped end-to-end for `running-config`, `startup-config`, `show configuration`: **zero hits**. All three ER guide revision pages serve the same PDF, so there is no older or newer guide hiding one. |
 | **TP-Link Omada — EAP access points** | **No** | The CLI is read-only diagnostics, on six models only. No SSID dump, no wireless config, nothing. | TP-Link, verbatim: "all the CLI commands supported on Omada APs can only display certain information; users are not able to make any configuration on Omada APs through the CLI commands." |
@@ -50,6 +50,73 @@ The question is only ever: *can a human select text and copy a complete-enough c
 | **Sodola — web-only models** (SL-SG008W, SL510S-4T2XS, SL-SWTGW218AS) | **No** | No CLI a human can reach. The only export is a file download whose format is nowhere stated in any Sodola document. | ServeTheHome teardown of the SL510S: "there is not an out-of-band management port nor a serial console port on this switch"; the SL510S manual's own Management Service screenshot offers only HTTP and SNMP. |
 | **Cisco Meraki — MX / MS / MR** | **No** | See section 2. | Cisco's own FAQ: "The dashboard configuration cannot be backed up or exported to a local copy. All configurations are stored as a container in the Meraki back end." (page last modified 2026-04-09, checked 2026-08-10) |
 | **Cisco Meraki-managed Catalyst** (C9300-M / C9K on cloud management) | **Yes — but it is not really Meraki** | The Dashboard shows a full IOS-XE running-config as selectable text, and in device-configuration mode the switch keeps full CLI/SSH. This is an IOS-XE ingest problem wearing a Meraki badge. | `documentation.meraki.com/Switching/Cloud_Monitoring_for_Catalyst/Getting_Started/Configuration_History`: "view the current and previous versions of the IOS-XE running configuration of each monitored switch… available for Catalyst switches using configuration source cloud or device" (dateModified 2026-07-20) |
+
+### 1.1 Correction — OPNsense exports firewall rules as CSV, and this survey did not say so
+
+> **Added 2026-08-15.** The row above was written on 2026-08-10 from `/conf/config.xml` and
+> `pluginctl -g` and named no third path. A **fourth** capture path existed at the time and the
+> survey missed it: since 26.1, **Firewall → Rules → Migration assistant exports the firewall rules
+> alone as a CSV file**. That is the shape the owner asked for by name, and a survey that is silent
+> about a capture path is worse than one that is wrong about it, because nobody re-checks silence.
+
+**What is true, and how it was established.** Every line below was checked on **2026-08-15** by
+opening the URL, per ADR-0034.
+
+| Claim | Source | Checked |
+|---|---|---|
+| Firewall → Rules → Migration assistant exports the legacy rules as CSV, which you download, may edit, and re-import into Firewall → Rules [new] | `thomas-krenn.com/en/wiki/OPNsense_26.1_Firewall_Rule_Migration` (page last modified 16 Feb 2026) | 2026-08-15 |
+| The feature was requested as *"dump all rules in a simple csv file"* keyed on the `uuid` that is stable across the legacy and MVC formats; closed via PR #9606 | `github.com/opnsense/core/issues/9579`, opened 4 Jan 2026 | 2026-08-15 |
+| Shipped in the 26.1 series: *"firewall: added a rule migration page (use with care)"* (26.1, 28 Jan 2026); *"firewall: add import/export function and missing lock on set action"* (26.1.3, 4 Mar 2026) | `docs.opnsense.org/releases/CE_26.1.html` | 2026-08-15 |
+| The manual mentions it once and documents nothing about it: *"you can already migrate your existing rules with a helper in Firewall ‣ Rules ‣ Migration assistant."* | `docs.opnsense.org/manual/firewall.html` | 2026-08-15 |
+
+**The header row, verbatim.** One OPNsense user pasted their real export's header into a bug report
+asking for header validation on import, after accidentally importing a backup file and creating
+~80,000 rules:
+
+```
+@uuid;enabled;statetype;state-policy;sequence;action;quick;interfacenot;interface;direction;ipprotocol;protocol;icmptype;icmp6type;gateway;replyto;disablereplyto;log;allowopts;nosync;nopfsync;statetimeout;max-src-nodes;max-src-states;max-src-conn;max;max-src-conn-rate;max-src-conn-rates;overload;adaptivestart;adaptiveend;prio;set-prio;set-prio-low;tag;tagged;tcpflags1;tcpflags2;categories;sched;tos;shaper1;shaper2;description;source_not;source_net;source_port;destination_not;destination_net;destination_port
+```
+
+— `github.com/opnsense/core/issues/9861` (opened 25 Feb 2026, still open; checked 2026-08-15).
+
+That is **one** source, so it was checked against a second and independent one: the exporter itself.
+`src/opnsense/scripts/filter/list_legacy_rules.php` on `opnsense/core` master emits exactly those
+keys, in exactly that order, with the six `source_*`/`destination_*` keys appended last and
+conditionally (read at `raw.githubusercontent.com/opnsense/core/master/...`, 2026-08-15). The two
+agree on the columns and their order. **They do not both establish the delimiter** — the script
+emits JSON and the CSV is assembled above it — so the `;` is attested by the pasted header alone.
+Fathom therefore **sniffs** the delimiter from the header rather than assuming one; that is a
+one-line concession to a fact this survey could not close, and it is written down rather than
+guessed at.
+
+**The action vocabulary**, needed to map a rule into `schema/enums/policy_action.yaml`, is
+`pass | block | reject`, established twice: the model, `OptionValues` = Pass / Block / Reject with
+default `pass` (`.../models/OPNsense/Firewall/Filter.xml`, master, 2026-08-15), and the manual's own
+prose — *"Pass: allow traffic"*, *"Block: deny traffic and don't let the client know it has been
+dropped"*, *"Reject: deny traffic and let the client know about it"* (`docs.opnsense.org/manual/firewall.html`,
+2026-08-15).
+
+**A caution the operator must hear, stated at the strength the evidence supports.** OPNsense issue
+**#10595**, *"26.7.1: Migration Assistant exports 0-byte firewall rules CSV and omits legacy disabled
+rules"*, opened **22 July 2026**, was **still open with no maintainer response** when checked on
+2026-08-15. The reporter states the assistant detected 47 legacy rules and produced a file of **0
+bytes, no header and no content**, and that at least one disabled legacy rule (`2c772765-…`) present
+in `/conf/config.xml` did not appear in the new Rules page; they confirmed 47 rules and 9 disabled
+ones from the shell.
+
+I could not establish this independently. A web search returned the issue itself and a forum
+post-index, not a second report reproducing it, and no release note or commit was found closing it.
+So it is recorded here as **reported and unresolved, not confirmed** — which is the honest rank, and
+it is not smoothed upward. **It is still operationally load-bearing**, because the failure mode is
+silent in the direction that hurts: an operator exports, gets a file, hands it to Fathom, and an
+empty export is indistinguishable from a firewall with no rules unless somebody says so. Fathom's
+own answer to that is in the product, not in this document: a rules CSV with a header and no data
+rows is refused with *"the export is empty"* rather than welded as a device with zero policies.
+
+**What this changes for Fathom.** A firewall-rules CSV is not the `set`-form line grammar
+`fathom-ingest` was built around, and it is not the XML/JSON nested-document family §3 prices. It is
+a third shape — a header row plus one record per line — and it is by far the cheapest of the three
+to read. See the OPNsense engine's own notes for what a row can and cannot become today.
 
 ---
 
@@ -246,6 +313,16 @@ Stated plainly, per platform. These are gaps, not oversights.
 - Whether pasting a real production `config.xml` through a browser textarea is practical in size terms. No file was measured; several certificates plus RRD data could make it multi-megabyte.
 - Whether Business Edition / OPNcentral changes the export mechanism. Only the community repo was read — and the claim "the export mechanism is the same code" is unsourced and should be struck.
 - Note also: `/conf/config.xml` is the whole *configuration* but **not the whole machine state** — SSH host keys, captive-portal vouchers and hand-dropped include files live outside it.
+- *(Added 2026-08-15, with §1.1.)* **The rules-CSV delimiter.** Attested as `;` by one pasted header
+  (issue #9861) and by nothing else; the exporter script emits JSON and the CSV is assembled above
+  it, so the second source confirms the columns and not the separator. Fathom sniffs it.
+- *(Added 2026-08-15.)* **Whether the 0-byte export of issue #10595 is real.** Reported 22 July 2026
+  against 26.7.1, open and unanswered on 2026-08-15; no second report and no closing commit found.
+  Recorded as reported-and-unresolved, deliberately not upgraded to established.
+- *(Added 2026-08-15.)* **Whether the export quotes fields containing the delimiter, and how.** No
+  document, no example, and the exporter script does not do the writing. Fathom implements RFC 4180
+  double-quote doubling *and* accepts unquoted fields, because that is the union of the plausible
+  behaviours rather than a guess at which one ships.
 
 **TP-Link Omada**
 - **Whether the ER gateway's own backup file is text, binary or encrypted.** No vendor statement; the only claim found is an unsourced blog post with no file excerpt. **This is the largest open gap on the platform, because the gateway is where the IPsec/VPN and firewall state lives.**

@@ -157,6 +157,10 @@ fn fixture_counts_pinned() {
             LineOutcome::Noise { .. } => "Noise",
             LineOutcome::Blank => "Blank",
             LineOutcome::Quarantined { .. } => "Quarantined",
+            // Only `csv.rs` produces this, and this fixture is `set` form.
+            // Counted rather than ignored: if a Junos paste ever produced a
+            // header row, the assertion below would fail and say so.
+            LineOutcome::Header { .. } => "Header",
         };
         *classes.entry(name).or_default() += 1;
     }

@@ -74,5 +74,7 @@ pub(crate) fn write_field(
         BoundValue::HostServiceSet(v) => graph.set_field(element, key, v.clone(), record),
         BoundValue::Text(v) => graph.set_field(element, key, v.clone(), record),
         BoundValue::Fqdn(v) => graph.set_field(element, key, v.clone(), record),
+        BoundValue::Bool(v) => graph.set_field(element, key, *v, record),
+        BoundValue::PolicyAction(v) => graph.set_field(element, key, v.clone(), record),
     }
 }

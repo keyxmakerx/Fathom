@@ -222,6 +222,58 @@ fn face_error_replies_are_typed() {
     );
 }
 
+/// **Six columns is the wire's limit, and it is not enforced anywhere else.**
+///
+/// `protocol::FACE_SLOTS` is 8: slot 0 carries the row id (or the kind label on
+/// the header record), slot 7 carries the opinions header, and the columns sit
+/// between. `encode_inv_reply` writes `slot_count = 2 + columns.len()` and then
+/// hands `face_slots` a list it truncates with `.take(FACE_SLOTS)` — so a
+/// seventh column is not refused, it is **silently dropped**, `slot_count`
+/// still claims it exists, and the page reads `undefined` off the end.
+///
+/// Found 2026-08-15 while adding `SecurityPolicy`, whose natural column list
+/// was eight. Pinned rather than fixed: widening the record is a protocol
+/// change that touches every face and the hand-authored reader, which is
+/// owner/planning work. What this test buys is that the next kind to want a
+/// seventh column gets a red test naming the reason instead of a broken table.
+#[test]
+fn no_row_set_exceeds_the_face_record() {
+    for kind in InvKind::ALL {
+        let n = columns(kind).len();
+        assert!(
+            n <= 6,
+            "{} declares {n} columns; the face record carries 6 between the id \
+             and the opinions header, and the surplus is dropped in silence",
+            kind.label()
+        );
+    }
+}
+
+/// Every kind's header record carries its declared columns, and the opinions
+/// header lands in the slot the page reads it from. The assertion above is the
+/// cause; this is the symptom it prevents.
+#[test]
+fn every_kind_header_carries_its_columns_and_the_opinions_slot() {
+    let mut shell = loaded();
+    for kind in InvKind::ALL {
+        let reply = face(&shell.handle(OP_INV_ROWS, &[kind_byte(kind)]));
+        let head = reply.first().expect("a header record");
+        assert_eq!(head.role, FACE_HEADER);
+        let cols = columns(kind);
+        assert_eq!(head.slot_count as usize, 2 + cols.len(), "{}", kind.label());
+        assert_eq!(head.strings[0], kind.label());
+        for (i, name) in cols.iter().enumerate() {
+            assert_eq!(&head.strings[1 + i], name, "{} column {i}", kind.label());
+        }
+        assert_eq!(
+            head.strings[7],
+            "opinions",
+            "{}: the opinions header must survive",
+            kind.label()
+        );
+    }
+}
+
 #[test]
 fn face_reply_encoding_is_deterministic() {
     let mut a = loaded();

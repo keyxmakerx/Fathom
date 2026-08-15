@@ -104,6 +104,23 @@ pub const EMBEDDED_DICT_SOURCES: &[(&str, &str)] = &[
     ),
 ];
 
+/// The OPNsense dictionary's source files, same contract as
+/// [`EMBEDDED_DICT_SOURCES`] and pinned by the same test.
+///
+/// **This is compiled in, and that is a cost, not a design.** `47`'s census
+/// counts every byte here against `44` §5.2's 900 000-byte module ceiling,
+/// where a dictionary handed in by the page over an opcode would cost artifact
+/// bytes instead — a budget with roughly 2.3 MB of room against 4.5. No such
+/// opcode exists in this build, so the honest thing is to spend the module
+/// bytes, measure them, and say exactly how many: see this crate's
+/// `tests/opnsense_csv.rs` and the byte figures in the session record. The
+/// second platform is where compiling dictionaries in stops scaling, and this
+/// is the first evidence of it rather than an argument about it.
+pub const EMBEDDED_DICT_SOURCES_OPNSENSE: &[(&str, &str)] = &[(
+    "firewall-rules.yaml",
+    include_str!("../../../corpus/dict/opnsense/firewall-rules.yaml"),
+)];
+
 /// `schema/field-keys.yaml`, compiled in for the same reason. The registry is
 /// append-only (`62` §2.3), so embedding it is embedding an assignment that
 /// never changes for an existing field.
@@ -125,11 +142,28 @@ impl Dictionary {
         Dictionary::from_sources(&sources, embedded_field_keys()?)
     }
 
+    /// [`embedded`](Dictionary::embedded)'s OPNsense twin.
+    pub fn embedded_opnsense() -> Result<Dictionary, DictError> {
+        let sources: Vec<(String, String)> = EMBEDDED_DICT_SOURCES_OPNSENSE
+            .iter()
+            .map(|(name, text)| ((*name).to_owned(), (*text).to_owned()))
+            .collect();
+        Dictionary::from_sources(&sources, embedded_field_keys()?)
+    }
+
     /// Loads `corpus/dict/junos-srx/` and the schema tree beneath `root`, then
     /// runs every gate of WO-03 §4.7. A gate failure is a load failure: a
     /// dictionary that does not pass is never half-loaded.
     pub fn load(root: &Path) -> Result<Dictionary, DictError> {
-        let dict_dir = root.join("corpus").join("dict").join("junos-srx");
+        Dictionary::load_platform(root, "junos-srx")
+    }
+
+    /// [`load`](Dictionary::load), for any platform directory under
+    /// `corpus/dict/`. Split out 2026-08-15: `load` had the one platform's
+    /// directory name written into it, which was true when there was one
+    /// platform and became a false generality the moment there were two.
+    pub fn load_platform(root: &Path, platform: &str) -> Result<Dictionary, DictError> {
+        let dict_dir = root.join("corpus").join("dict").join(platform);
         let schema_root = root.join("schema");
         let schema = fathom_schema::SchemaTree::load(&schema_root).map_err(|e| DictError {
             file: schema_root.display().to_string(),
@@ -238,6 +272,28 @@ pub(crate) enum ValueTy {
     /// match at all.
     Text,
     Fqdn,
+    /// Added 2026-08-15 with the OPNsense rules CSV. The schema has carried
+    /// `bool` fields since the beginning (`SecurityPolicy.enabled`,
+    /// `Zone.tcp_rst`, …) and no dictionary could reach one, because a
+    /// `set`-form statement spells a boolean by being present rather than by
+    /// carrying a value. A CSV column spells it `0` or `1`, so the type has to
+    /// exist for the first time here.
+    ///
+    /// The accepted spellings are deliberately narrow — `0`/`1` and
+    /// `true`/`false`, nothing else. `yes`/`no`/`on`/`off` are NOT accepted:
+    /// no OPNsense field was seen to emit them, and inventing an accepted
+    /// spelling is inventing a vendor behaviour (ADR-0034). An unrecognised
+    /// token is a `ValueUnparsed` diagnostic, which is visible, rather than a
+    /// silent `false`, which would read as *"this rule is disabled"* — the
+    /// most dangerous wrong answer a firewall tool can give.
+    Bool,
+    /// The `action` column of an OPNsense firewall rule, mapped onto
+    /// `schema/enums/policy_action.yaml` through a token map. Vendor tokens
+    /// established 2026-08-15 from two independent sources — the model's
+    /// `OptionValues` (Pass/Block/Reject, default `pass`) in
+    /// `models/OPNsense/Firewall/Filter.xml` on `opnsense/core` master, and
+    /// the manual's prose at `docs.opnsense.org/manual/firewall.html`.
+    PolicyAction,
 }
 
 impl ValueTy {
@@ -263,6 +319,8 @@ impl ValueTy {
             "EstablishTunnels" => ValueTy::EstablishTunnels,
             "IpsecVpnDfBit" => ValueTy::IpsecVpnDfBit,
             "AddressFamily" => ValueTy::AddressFamily,
+            "bool" => ValueTy::Bool,
+            "PolicyAction" => ValueTy::PolicyAction,
             _ => return None,
         })
     }
@@ -272,6 +330,7 @@ impl ValueTy {
         match self {
             ValueTy::DhGroup => Some("DhGroup"),
             ValueTy::IntegrityAlgorithm => Some("IntegrityAlgorithm"),
+            ValueTy::PolicyAction => Some("PolicyAction"),
             _ => None,
         }
     }
