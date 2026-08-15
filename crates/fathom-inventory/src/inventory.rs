@@ -300,7 +300,7 @@ fn cells(g: &Graph, kind: InvKind, id: NodeId) -> Vec<String> {
         ],
         InvKind::RoutingProtocol => vec![
             value_cell(g, id, key("RoutingProtocol.protocol")),
-            value_cell(g, id, key("RoutingProtocol.router_id")),
+            routing_protocol_router_id(g, id),
             value_cell(g, id, key("RoutingProtocol.local_as")),
             value_cell(g, id, key("RoutingProtocol.reference_bandwidth")),
             owning_device(g, id),
@@ -320,6 +320,41 @@ fn cells(g: &Graph, kind: InvKind, id: NodeId) -> Vec<String> {
             value_cell(g, id, key("Chassis.slots")),
             owning_device(g, id),
         ],
+    }
+}
+
+/// The router id for a `RoutingProtocol` row: its own field where something
+/// set it, otherwise the owning `RoutingInstance`'s.
+///
+/// This is `52` §3.7's "a cell is a field or a stated walk", and the walk is
+/// stated here. `schema/schema.yaml` declares `router_id` on both kinds, and
+/// on Junos only one of them is reachable: there is no `set protocols ospf
+/// router-id` and no `set protocols bgp router-id` — the statement is `set
+/// routing-options router-id`, which is the routing instance, and Juniper's own
+/// description of it says it is used by BGP and OSPF alike (read 2026-08-15,
+/// https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/router-id-edit-routing-options.html).
+///
+/// Without this walk the column would be empty on every Junos paste forever,
+/// which is the failure mode the `UNRENDERED` marker in `render.rs` was added
+/// to stop: a real, present, provenanced value that reads on screen exactly
+/// like a field nobody filled in. The rejected alternative was to bind
+/// `routing-options router-id` onto `RoutingProtocol.router_id` in the
+/// dictionary — that puts an instance-wide fact on a protocol and, worse,
+/// would have to mint a `RoutingProtocol` without knowing its card-1
+/// `protocol`. Storing it correctly and reading it here is the honest split.
+///
+/// The protocol's own field still wins where a platform does set it, so this
+/// is a fallback and not an override.
+fn routing_protocol_router_id(g: &Graph, id: NodeId) -> String {
+    let own = value_cell(g, id, key("RoutingProtocol.router_id"));
+    if !own.is_empty() && own != UNKNOWN {
+        return own;
+    }
+    match g.owner(id) {
+        Some(owner) if owner.kind == NodeKind::RoutingInstance => {
+            value_cell(g, owner, key("RoutingInstance.router_id"))
+        }
+        _ => own,
     }
 }
 

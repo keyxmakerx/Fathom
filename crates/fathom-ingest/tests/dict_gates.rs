@@ -51,9 +51,15 @@ fn dictionary_loads() {
 /// `system ntp server`, and six bare-stanza entries under `security ike` and
 /// `security ipsec`. Chosen by the measurement in `branch_coverage.rs`, not by
 /// taste; sourced per ADR-0034 with the URL and read date beside each entry.
+///
+/// +12 on 2026-08-15: the routing slice — `protocols-ospf.yaml` (5),
+/// `protocols-bgp.yaml` (6, of which three are `secret:`-only catalogue entries
+/// for the BGP TCP-MD5 key at its three documented hierarchy levels and bind
+/// nothing) and `routing-options.yaml` (1). Every form read off Juniper's own
+/// documentation on that date, URL and quoted syntax beside the entry.
 #[test]
-fn entry_count_is_69() {
-    assert_eq!(dict().entry_count(), 69);
+fn entry_count_is_81() {
+    assert_eq!(dict().entry_count(), 81);
 }
 
 /// `14` §6.5: no entry's path is a strict prefix of another's unless the

@@ -1,0 +1,21 @@
+# corpus/dict/junos-srx/routing-options.yaml — the routing-options slice
+# (2026-08-15). One entry. Why it binds `RoutingInstance.router_id` and NOT
+# `RoutingProtocol.router_id`, and why `autonomous-system` is deliberately
+# residue: README-routing.md §4 and §5, beside this file.
+platform: junos-srx
+
+entries:
+  # router-id (Routing Options): `router-id address ;` at `[edit
+  # routing-options]`. "The router identifier is used by BGP and OSPF to
+  # identify the routing device from which a packet originated" — which is why
+  # it belongs to the instance and not to either protocol. `Ip4Addr` because
+  # that is the schema slot and a router id is 32 bits written as a dotted quad
+  # even in an IPv6-only network. Read 2026-08-15.
+  # https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/router-id-edit-routing-options.html
+  - id: junos-srx/routing-options.router-id
+    path: [routing-options, router-id, "$ip"]
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance, fields: [ { field: router_id, from: "$ip", scalar: Ip4Addr } ] }
+    versions: "*"
+    reviewed_by: <named human>

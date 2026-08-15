@@ -67,9 +67,8 @@ pub enum DictGate {
     TokenMapUnknown,
 }
 
-/// The dictionary's eight source files, compiled in, in the order `load`
-/// reads them off disk (`read_dir` then `sort`, so: alphabetical by file
-/// name).
+/// The dictionary's source files, compiled in, in the order `load` reads them
+/// off disk (`read_dir` then `sort`, so: alphabetical by file name).
 ///
 /// This exists for one caller: the WebAssembly build, which has no filesystem
 /// and cannot call `load`. It is deliberately a literal list rather than a
@@ -82,6 +81,18 @@ pub const EMBEDDED_DICT_SOURCES: &[(&str, &str)] = &[
     (
         "interfaces.yaml",
         include_str!("../../../corpus/dict/junos-srx/interfaces.yaml"),
+    ),
+    (
+        "protocols-bgp.yaml",
+        include_str!("../../../corpus/dict/junos-srx/protocols-bgp.yaml"),
+    ),
+    (
+        "protocols-ospf.yaml",
+        include_str!("../../../corpus/dict/junos-srx/protocols-ospf.yaml"),
+    ),
+    (
+        "routing-options.yaml",
+        include_str!("../../../corpus/dict/junos-srx/routing-options.yaml"),
     ),
     (
         "security-flow.yaml",
@@ -254,13 +265,30 @@ pub(crate) enum ValueTy {
     VlanId,
     /// `system time-zone` — `SystemSettings.time_zone`.
     TzName,
-    /// `system ntp server <address>` — `NtpServer.address`. Either family;
-    /// the scalar is `IpAddr`, not `Ip4Addr`, because Junos accepts both.
-    IpAddress,
     /// `security flow tcp-mss … mss N` — the four `SecurityFlowSettings`
     /// clamp fields are `u16` in the schema, and a value over 65535 is a
     /// typo to diagnose rather than a number to truncate.
     U16,
+    // --- the routing slice (2026-08-15) --------------------------------------
+    // `RoutingProtocol` and `ProtocolAdjacency` had inventory rows and a place
+    // in the diagram's layer model with nothing behind them, because no
+    // dictionary entry could name their field types. These are exactly the slot
+    // types `schema/schema.yaml` declares on those two kinds plus the
+    // `RoutingInstance.router_id` that carries a Junos `routing-options
+    // router-id`; nothing here is speculative surface.
+    Ip4Addr,
+    /// Either family, because Junos accepts both. Serves `NtpServer.address`
+    /// from the branch-coverage widening and the routing slice alike -- the two
+    /// slices arrived at the same schema scalar independently, and on merge
+    /// (2026-08-15) the duplicate variant was collapsed onto this one rather
+    /// than kept as a synonym, because two `ValueTy`s spelling one scalar is a
+    /// silent fork waiting for the next `from_name` arm to pick the wrong one.
+    IpAddr,
+    Asn,
+    OspfAreaId,
+    Bandwidth,
+    RoutingProtocolProtocol,
+    ProtocolAdjacencyNetworkType,
 }
 
 impl ValueTy {
@@ -288,8 +316,14 @@ impl ValueTy {
             "AddressFamily" => ValueTy::AddressFamily,
             "VlanId" => ValueTy::VlanId,
             "TzName" => ValueTy::TzName,
-            "IpAddr" => ValueTy::IpAddress,
             "u16" => ValueTy::U16,
+            "Ip4Addr" => ValueTy::Ip4Addr,
+            "IpAddr" => ValueTy::IpAddr,
+            "Asn" => ValueTy::Asn,
+            "OspfAreaId" => ValueTy::OspfAreaId,
+            "Bandwidth" => ValueTy::Bandwidth,
+            "RoutingProtocolProtocol" => ValueTy::RoutingProtocolProtocol,
+            "ProtocolAdjacencyNetworkType" => ValueTy::ProtocolAdjacencyNetworkType,
             _ => return None,
         })
     }
@@ -299,6 +333,13 @@ impl ValueTy {
         match self {
             ValueTy::DhGroup => Some("DhGroup"),
             ValueTy::IntegrityAlgorithm => Some("IntegrityAlgorithm"),
+            // Junos spells OSPFv3 `ospf3` and the schema spells it `ospf_v3`;
+            // Junos spells the OSPF network type `p2p`/`nbma` and the schema
+            // spells them `point_to_point`/`non_broadcast`. Both are vendor
+            // spellings, which is what a token map is for — the alternative is
+            // a second enum in the IR that means the same thing.
+            ValueTy::RoutingProtocolProtocol => Some("RoutingProtocolProtocol"),
+            ValueTy::ProtocolAdjacencyNetworkType => Some("ProtocolAdjacencyNetworkType"),
             _ => None,
         }
     }
@@ -346,19 +387,25 @@ pub(crate) enum ValueSpec {
         ty: SetEnumTy,
         token: String,
     },
+    /// A Junos *flag* statement — `passive;`, `disable;` — whose whole content
+    /// is its own presence. There is no argument to capture, so the value
+    /// cannot come `from:` anywhere: the entry states it, and the entry's path
+    /// is what makes the statement true. Written as a full `bool` rather than
+    /// a presence marker because the schema slot is `bool` and a future
+    /// `passive false` (Junos `delete`, or a vendor that spells the negative)
+    /// has somewhere to land without a second construct.
+    ///
+    /// The polarity lives in the corpus because it is a vendor fact: Junos
+    /// spells the negative (`set interfaces ge-0/0/4 disable`) and the IR
+    /// stores the positive (`Interface.admin_up`), so a hard-coded `true` here
+    /// would make `disable` unmodellable.
+    ConstBool {
+        value: bool,
+    },
     /// `14` §9.1: the binder constructs the placeholder from the entry's
     /// label and never reads the redacted argument's text.
     Secret {
         label: SecretLabel,
-    },
-    /// A flag statement's truth value, carried by the entry rather than by
-    /// the line: `set interfaces ge-0/0/4 disable` has no argument, and what
-    /// it asserts is `admin_up = false`. The polarity lives in the corpus
-    /// because it is a vendor fact — Junos spells the negative and the IR
-    /// stores the positive (`Interface.admin_up`'s schema doc) — and a
-    /// hard-coded `true` here would make `disable` unmodellable.
-    ConstBool {
-        value: bool,
     },
 }
 
@@ -398,6 +445,33 @@ pub(crate) struct Entry {
     pub(crate) partial: bool,
     pub(crate) secret: Option<RedactLabel>,
     pub(crate) secret_exempt: bool,
+    /// `where:` — the tokens a named capture is allowed to take, as
+    /// (path index, allowed tokens) with the tokens sorted. Empty on an
+    /// unconstrained entry, which is nearly all of them.
+    ///
+    /// WHY THIS EXISTS. A free capture claims every token in its position, and
+    /// Junos reuses statement SHAPES across protocols that share nothing else.
+    /// `[protocols, $proto, group, $g, neighbor, $n]` was written for BGP and
+    /// also claimed RIP's `neighbor neighbor-name` at
+    /// `[edit protocols rip group group-name ]` -- documented, and its
+    /// `neighbor-name` is an INTERFACE name, not a peer address
+    /// (https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/neighbor-edit-protocols-rip.html,
+    /// read 2026-08-15). One legal RIP line therefore put a `rip`
+    /// `RoutingProtocol` and a fieldless `ProtocolAdjacency` into the estate of
+    /// record: a peer that does not exist, in the register the product asks to
+    /// be trusted. Same mechanism, smaller blast radius: `set protocols ospf
+    /// local-as 65001` and `set protocols bgp reference-bandwidth 100` are not
+    /// legal Junos and both bound.
+    ///
+    /// REJECTED ALTERNATIVE: spell the protocol as a path LITERAL and drop the
+    /// capture. It works, and it costs the two things the capture buys --
+    /// `key: "$proto"`, which is what keeps `ospf` and `ospf3` from colliding
+    /// onto one `RoutingProtocol` node, and `from: "$proto"`, which is what
+    /// carries the protocol word through the `ospf3 -> ospf_v3` token map into
+    /// the field. Recovering both means one entry per protocol word plus a
+    /// `const_enum` per entry: ten OSPF entries where there are five, and a
+    /// second place for the token map to be forgotten.
+    pub(crate) constraints: Vec<(usize, Vec<String>)>,
     pub(crate) nodes: Vec<NodeSpec>,
     pub(crate) edges: Vec<EdgeSpec>,
 }
@@ -408,6 +482,23 @@ impl Entry {
         self.path
             .iter()
             .position(|s| matches!(s, PathSeg::Capture(n) if n == name))
+    }
+
+    /// Does this entry's `where:` hold against a statement's segments?
+    ///
+    /// Unconstrained entries answer `true` without looking, which is every
+    /// entry that does not spell a `where:`.
+    ///
+    /// A statement that FAILS this test matches no entry, so the ingest gate
+    /// treats it as unknown: every token from the longest known prefix is an
+    /// argument, the base64 detector is armed, and the raw secret-word walk
+    /// runs over the physical line. That is strictly more destruction than a
+    /// match, so narrowing a capture can never open a credential path.
+    pub(crate) fn constraints_hold(&self, segs: &[&str]) -> bool {
+        self.constraints.iter().all(|(at, allowed)| {
+            segs.get(*at)
+                .is_some_and(|t| allowed.iter().any(|a| a == t))
+        })
     }
 
     /// The last capture position — the argument the path detector redacts on
@@ -490,6 +581,10 @@ impl Dictionary {
         let mut visits = 1usize; // the root counts one
         let mut best: Option<(usize, usize)> = None; // (entry, depth)
         let mut known_prefix = 0usize;
+        // The shallowest position at which a `where:` turned this statement
+        // away. See the clamp below `known_prefix`'s final value for what it
+        // is for; `usize::MAX` means "no entry was rejected".
+        let mut rejected_at = usize::MAX;
         let mut stack = vec![Frame {
             node: 0,
             depth: 0,
@@ -505,9 +600,30 @@ impl Dictionary {
                 if frame.depth > known_prefix {
                     known_prefix = frame.depth;
                 }
+                // The `where:` test runs HERE, at the terminal, and not in the
+                // trie walk: the trie folds every capture at a node onto one
+                // child, so `protocols $proto` is a single edge shared by the
+                // OSPF and BGP entries and there is nothing per-entry to gate
+                // on until an entry is in hand. Rejecting at the terminal
+                // leaves the walk itself untouched -- `known_prefix` and the
+                // visit budget are unchanged -- and lets a shorter `partial`
+                // entry still win, which is what should happen.
                 if let Some(e) = node.entry {
-                    if best.map(|(_, d)| frame.depth > d).unwrap_or(true) {
-                        best = Some((e, frame.depth));
+                    let entry = self.entries.get(e);
+                    let holds = entry.is_some_and(|entry| entry.constraints_hold(segs));
+                    if holds {
+                        if best.map(|(_, d)| frame.depth > d).unwrap_or(true) {
+                            best = Some((e, frame.depth));
+                        }
+                    } else if let Some(entry) = entry {
+                        // Where the statement stopped being the entry the trie
+                        // walked to. The first constrained position is the
+                        // divergence point by definition: everything before it
+                        // agreed, everything from it on is a statement this
+                        // dictionary has never described.
+                        if let Some(at) = entry.constraints.iter().map(|(at, _)| *at).min() {
+                            rejected_at = rejected_at.min(at);
+                        }
                     }
                 }
             }
@@ -556,6 +672,36 @@ impl Dictionary {
             Some((e, d)) => (Some(e), d),
             None => (None, 0),
         };
+
+        // TWO CLAMPS ON `known_prefix`, BOTH SECURITY GUARDS. The gate turns
+        // `known_prefix` into the argument list for an unmatched statement
+        // (`redact::gate_statement`: `args.extend(known_prefix..segs.len())`),
+        // so a `known_prefix` that is too LARGE means tokens nobody looks at.
+        //
+        // (a) A statement rejected by a `where:` still walked the trie to full
+        //     depth, because the trie is shared and knows nothing about
+        //     constraints. Found by its own regression test, not by review:
+        //     `set protocols rip group G neighbor ge-0/0/9.0
+        //     authentication-key <key>` reached depth 8 of 8, `args` came out
+        //     EMPTY, and the key was stored verbatim. Narrowing a capture had
+        //     silently disarmed the gate on the statements it narrowed away —
+        //     the precise mistake this whole reconciliation exists to fix,
+        //     reintroduced one layer down. Clamping to the divergence point
+        //     puts every token from the rejected capture onward back in front
+        //     of the detectors.
+        //
+        // (b) The general case, which predates `where:`: if the trie happens
+        //     to spell a statement's whole path without terminating on an
+        //     entry, `known_prefix == segs.len()` and `args` is empty for that
+        //     reason alone. A set-form statement's last token is its argument
+        //     by construction, so when NOTHING matched it is always examined.
+        //     This can only add detector work; a token still has to trip a
+        //     detector to be destroyed, and a bare keyword trips none.
+        if entry.is_none() {
+            known_prefix = known_prefix.min(rejected_at);
+            known_prefix = known_prefix.min(segs.len().saturating_sub(1));
+        }
+
         (
             Match {
                 entry,
@@ -859,6 +1005,63 @@ fn load_entry(
         }
     };
 
+    // `where: { <capture>: [<token>, …] }`. Gated hard on both halves: a
+    // constraint naming a capture the path does not hold is a typo that would
+    // silently constrain nothing, and an empty token list is an entry that can
+    // never match, which is a mistake rather than an intention.
+    let mut constraints: Vec<(usize, Vec<String>)> = Vec::new();
+    if let Some(w) = node.get("where") {
+        let map = w.as_map().ok_or_else(|| {
+            err(
+                file,
+                w.line,
+                DictGate::Parse,
+                format!("`{id}`: `where` is not a map of capture to token list"),
+            )
+        })?;
+        for (name, list) in map {
+            let at = path
+                .iter()
+                .position(|s| matches!(s, PathSeg::Capture(n) if n == name))
+                .ok_or_else(|| {
+                    err(
+                        file,
+                        list.line,
+                        DictGate::CaptureArity,
+                        format!("`{id}`: `where` names `${name}`, which is not in path"),
+                    )
+                })?;
+            let seq = list.as_seq().ok_or_else(|| {
+                err(
+                    file,
+                    list.line,
+                    DictGate::Parse,
+                    format!("`{id}`: `where.{name}` is not a list of tokens"),
+                )
+            })?;
+            let mut allowed: Vec<String> = seq
+                .iter()
+                .map(|n| {
+                    n.as_str()
+                        .map(|t| t.to_owned())
+                        .unwrap_or_else(|| n.scalar_display())
+                })
+                .collect();
+            if allowed.is_empty() {
+                return Err(err(
+                    file,
+                    list.line,
+                    DictGate::Parse,
+                    format!("`{id}`: `where.{name}` is empty, so the entry can never match"),
+                ));
+            }
+            allowed.sort();
+            allowed.dedup();
+            constraints.push((at, allowed));
+        }
+        constraints.sort_by_key(|(at, _)| *at);
+    }
+
     let mut nodes: Vec<NodeSpec> = Vec::new();
     let mut edges: Vec<EdgeSpec> = Vec::new();
     if let Some(binds) = node.get("binds") {
@@ -889,6 +1092,7 @@ fn load_entry(
         partial,
         secret,
         secret_exempt,
+        constraints,
         nodes,
         edges,
     })
@@ -1546,7 +1750,12 @@ mod tests {
         // configuration and reports the miss rate by section, and these are
         // the sections that miss the most and are reachable without shaping a
         // stub value type. See docs/60-content/66-junos-coverage-measurement.md.
-        assert_eq!(d.entry_count(), 69);
+        //
+        // +12 on 2026-08-15 — the routing slice: five OSPF, six BGP (three
+        // that bind and three `secret:`-only catalogue entries for the BGP
+        // TCP-MD5 key, one per documented hierarchy level) and
+        // `routing-options router-id`.
+        assert_eq!(d.entry_count(), 81);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside
@@ -1555,12 +1764,25 @@ mod tests {
     fn lookup_budget_within_8() {
         let d = dict();
         for entry in &d.entries {
+            // The synthetic probe must be a statement the entry could legally
+            // match, so a capture carrying a `where:` is filled with one of the
+            // tokens it allows rather than with `$name`. Substituting a legal
+            // token STRENGTHENS the round trip -- it is the only spelling that
+            // can still reach the terminal -- where leaving `$name` in place
+            // would have turned every constrained entry into a silent
+            // no-match and the round-trip assertion below into a tautology.
             let segs: Vec<String> = entry
                 .path
                 .iter()
-                .map(|s| match s {
+                .enumerate()
+                .map(|(at, s)| match s {
                     PathSeg::Literal(t) => t.clone(),
-                    PathSeg::Capture(n) => format!("${n}"),
+                    PathSeg::Capture(n) => entry
+                        .constraints
+                        .iter()
+                        .find(|(i, _)| *i == at)
+                        .and_then(|(_, allowed)| allowed.first().cloned())
+                        .unwrap_or_else(|| format!("${n}")),
                 })
                 .collect();
             let refs: Vec<&str> = segs.iter().map(|s| s.as_str()).collect();
@@ -1619,11 +1841,20 @@ mod tests {
                 known_prefix: 1
             }
         );
+        // `routing-options` became a known segment on 2026-08-15, when
+        // `routing-options router-id` landed. The static route is still
+        // unmapped — nothing in the dictionary reaches `static` — but the
+        // reported prefix is now 1 rather than 0, which is the point of the
+        // number: it tells the reader how far Fathom followed before it lost
+        // the path, and it followed one segment further than it used to.
         assert_eq!(
             d.lookup(&["routing-options", "static", "route", "10.2.0.0/16"])
-                .0
-                .known_prefix,
-            0
+                .0,
+            Match {
+                entry: None,
+                consumed: 0,
+                known_prefix: 1
+            }
         );
     }
 

@@ -378,8 +378,32 @@ fn gate_statement(
         }
         // The base64 guard: `14` §9.4's three-condition rule keeps
         // fingerprints and descriptions alive. A statement the dictionary
-        // matched is never "no better information".
-        if entry.is_none() && base64ish(text) {
+        // matched is never "no better information" -- but that is only true of
+        // the tokens the entry actually DESCRIBES.
+        //
+        // DEFECT, found 2026-08-15 during this reconciliation. This guard read
+        // `entry.is_none()`, so teaching the dictionary any prefix of a
+        // statement switched the base64 detector off for the WHOLE line,
+        // including trailing tokens the entry never described. Driven:
+        //
+        //   set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 \
+        //       authentication simple-password <28 chars>
+        //
+        // -- a form Juniper documents at exactly that hierarchy level -- was
+        // DESTROYED at baseline `adbb590`, where nothing under `protocols`
+        // matched and `entry` was `None`, and would have been STORED VERBATIM
+        // once the OSPF entries landed. `simple-password` is not a member of
+        // `SECRET_WORD_LIST` (that list holds `password`, and `is_secret_word`
+        // is whole-string equality after folding), so no other detector fires
+        // and the leaf-name walk below cannot save it.
+        //
+        // The rule is the same one the `leaf_hit` match below states: a token
+        // past the end of the entry's path is a token the entry never
+        // described, so the entry is the wrong authority on it. Two detectors
+        // had this bug; fixing one and leaving the other is what made a latent
+        // hole into a live invariant-3 regression.
+        let described_by_entry = entry.is_some_and(|e| at < e.path.len());
+        if !described_by_entry && base64ish(text) {
             detectors |= DetectorSet::BASE64;
         }
         let leaf_hit = match entry {
@@ -388,29 +412,37 @@ fn gate_statement(
             // only authority on whether it follows a secret word. The raw line
             // is also consulted there.
             //
-            // This is a defect fix, not a widening convenience. The hole was
-            // already reachable through the shipped `security-zone … interfaces
-            // <unit>` partial entry: `set security zones security-zone Z
-            // interfaces ge-0/0/0.0 <anything> secret VALUE` matched that entry,
-            // so the walk ran over a six-segment path that ends at `interfaces`
-            // and never saw the word `secret` on the actual line. Adding
-            // bare-stanza entries (2026-08-15) multiplies the reachable paths,
-            // which is what made the hole worth closing rather than merely
-            // worth noting.
+            // This is a defect fix, not a widening convenience, and it was
+            // found twice independently. (a) The hole was already reachable
+            // through the shipped `security-zone … interfaces <unit>` partial
+            // entry: `set security zones security-zone Z interfaces ge-0/0/0.0
+            // <anything> secret VALUE` matched that entry, so the walk ran over
+            // a six-segment path that ends at `interfaces` and never saw the
+            // word `secret` on the actual line. (b) The BGP entries make it
+            // reachable a second way: `set protocols bgp group G neighbor
+            // 203.0.113.1 authentication-key <key>` matches the six-segment
+            // `… neighbor $n` entry, leaving `authentication-key` and the key
+            // itself as trailing tokens. Judged by the entry's path the walk
+            // looks back over `neighbor` and `group` and says clean; judged by
+            // the statement it looks back over `authentication-key` and
+            // destroys the key. Adding bare-stanza entries (2026-08-15)
+            // multiplies the reachable paths, which is what made the hole worth
+            // closing rather than merely worth noting.
             //
             // The two walks are UNIONED, never swapped, so this branch is
-            // strictly stronger than what it replaced. They see different
-            // windows and each has a blind spot the other covers: the entry
-            // walk skips captures and so reaches two LITERALS back in the path,
-            // while the raw walk sees the two physical segments before the
-            // token, one of which is usually the preceding capture's value and
-            // therefore a wasted slot. `14` §9.7 states the direction of error
-            // for this gate as destruction, so: hit if either hits.
+            // strictly stronger than either alone. They see different windows
+            // and each has a blind spot the other covers: the entry walk skips
+            // captures and so reaches two LITERALS back in the path, while the
+            // raw walk sees the two physical segments before the token, one of
+            // which is usually the preceding capture's value and therefore a
+            // wasted slot. `14` §9.7 states the direction of error for this
+            // gate as destruction, so: hit if either hits.
             //
             // `secret_exempt` suppresses only its own half. An exemption is a
-            // claim about the shape the entry models — the field card's
-            // `perfect-forward-secrecy keys group14` — and it cannot speak for
-            // tokens outside that shape, so it may not veto the raw walk.
+            // claim about the shape the entry models -- the field card's
+            // `perfect-forward-secrecy keys group14` -- granted by review for
+            // one statement form, and it cannot speak for tokens outside that
+            // form, so it may not veto the raw walk.
             Some(e) if at >= e.path.len() => {
                 raw_walk(&segs, at) || (!e.secret_exempt && dict::leaf_name_walk(&e.path, at))
             }

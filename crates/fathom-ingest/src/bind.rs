@@ -12,7 +12,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{
     AddressFamily, EdgeKind, EstablishTunnels, Family, HostProtocol, HostService, IkePolicyMode,
-    IpsecProposalProtocol, IpsecVpnDfBit, NodeKind,
+    IpsecProposalProtocol, IpsecVpnDfBit, NodeKind, ProtocolAdjacencyNetworkType,
+    RoutingProtocolProtocol,
 };
 use fathom_ir::scalar::{self, Scalar};
 use fathom_ir::value::PeerSpec;
@@ -130,13 +131,25 @@ pub enum BoundValue {
     Text(scalar::Text),
     Fqdn(scalar::Fqdn),
     // ---- added 2026-08-15 by the branch-coverage widening.
-    /// A flag statement's truth value (`ValueSpec::ConstBool`).
+    /// A flag statement's truth value (`ValueSpec::ConstBool`). Both slices of
+    /// 2026-08-15 needed it; it is the first bool the binder has produced.
     Bool(bool),
     VlanId(scalar::VlanId),
     TzName(scalar::TzName),
+    /// Reached from the branch-coverage widening (`NtpServer.address`) and from
+    /// the routing slice alike -- one variant, because there is one scalar.
     IpAddr(scalar::IpAddr),
     U16(u16),
     HostProtocolSet(BTreeSet<HostProtocol>),
+    // --- the routing slice (2026-08-15) --------------------------------------
+    // One variant per slot type `RoutingProtocol`, `ProtocolAdjacency` and
+    // `RoutingInstance.router_id` declare.
+    Ip4Addr(scalar::Ip4Addr),
+    Asn(scalar::Asn),
+    OspfAreaId(scalar::OspfAreaId),
+    Bandwidth(scalar::Bandwidth),
+    RoutingProtocolProtocol(RoutingProtocolProtocol),
+    ProtocolAdjacencyNetworkType(ProtocolAdjacencyNetworkType),
 }
 
 // ---------------------------------------------------------------------------
@@ -587,6 +600,8 @@ fn bound_value(
         ValueSpec::Secret { .. } => redact::placeholder_of(spec)
             .map(BoundValue::Secret)
             .ok_or(()),
+        // A flag statement has no argument, so there is nothing to capture,
+        // nothing to redact and nothing that can fail to parse.
         ValueSpec::ConstBool { value } => Ok(BoundValue::Bool(*value)),
         ValueSpec::ConstEnum { ty, token } => scalar_value(dict, *ty, token),
         ValueSpec::AppendConst { ty, token } => set_value(*ty, token),
@@ -660,8 +675,27 @@ fn scalar_value(dict: &Dictionary, ty: ValueTy, raw: &str) -> Result<BoundValue,
         }
         ValueTy::VlanId => BoundValue::VlanId(parse(mapped)?),
         ValueTy::TzName => BoundValue::TzName(parse(mapped)?),
-        ValueTy::IpAddress => BoundValue::IpAddr(parse(mapped)?),
         ValueTy::U16 => BoundValue::U16(mapped.parse::<u16>().map_err(|_| ())?),
+        ValueTy::Ip4Addr => BoundValue::Ip4Addr(parse(mapped)?),
+        ValueTy::IpAddr => BoundValue::IpAddr(parse(mapped)?),
+        ValueTy::Asn => BoundValue::Asn(parse(mapped)?),
+        ValueTy::OspfAreaId => BoundValue::OspfAreaId(parse(mapped)?),
+        ValueTy::Bandwidth => BoundValue::Bandwidth(parse(mapped)?),
+        // Junos `ospf3` reaches here already mapped to `ospf_v3`; an
+        // unmapped protocol word (`isis`, or a typo) is refused rather than
+        // stored, the same rule as every other enum in this function.
+        ValueTy::RoutingProtocolProtocol => BoundValue::RoutingProtocolProtocol(known(
+            RoutingProtocolProtocol::from_token(&neutral),
+            |v| matches!(v, RoutingProtocolProtocol::Unknown(_)),
+        )?),
+        // `p2mp-over-lan` is a real Junos interface-type with no schema
+        // counterpart: it lands in `Unknown` and is therefore refused, which
+        // leaves the field empty and the line diagnosed instead of storing a
+        // network type the schema never declared.
+        ValueTy::ProtocolAdjacencyNetworkType => BoundValue::ProtocolAdjacencyNetworkType(known(
+            ProtocolAdjacencyNetworkType::from_token(&neutral),
+            |v| matches!(v, ProtocolAdjacencyNetworkType::Unknown(_)),
+        )?),
     })
 }
 
