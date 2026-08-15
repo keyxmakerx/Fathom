@@ -865,6 +865,12 @@ var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, O
 var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18;
 var OP_DIAGRAM = 19, OP_DICT = 20;
 
+/* protocol::ERR_UNKNOWN_OP. The only error code this page names by number, and
+   it is named because boot() has to tell "this build has no demo estate" apart
+   from "the demo estate broke" — see boot(). Every other refusal is rendered
+   from its code and detail without the page knowing what it means. */
+var ERR_UNKNOWN_OP = 1;
+
 /* The equipment form's fields, and the ONLY place this page names a field key.
    Each entry is [wire key, label, kind, required, note].
 
@@ -1267,9 +1273,11 @@ function renderInventory(host) {
 
   if (!S.loaded) {
     var np = el('div', 'pad');
+    /* No longer offers ?fixture=demo-estate: the fixture is not in this module
+       (see boot()), and an empty state that names a door the build does not
+       have is worse than one that names none. The two doors below are real. */
     unposted(np, 'inventory',
-      'no workspace loaded — paste a config (top right), or load the demo estate ' +
-      'with ?fixture=demo-estate');
+      'no workspace loaded — paste a config (top right), or add equipment by hand');
     if (S.boot) np.appendChild(el('p', 'prose', S.boot));
     host.appendChild(np);
     return;
@@ -1321,6 +1329,14 @@ function renderInventory(host) {
 
   if (S.source === 'paste') renderResidue(host);
 
+  /* `S.source === 'demo'` is reachable only from a module built with
+     --features demo-estate. `cargo run -p fathom-artifact` never builds one, so
+     this branch and sourceWords()'s are dormant in every artifact that command
+     produces. They are KEPT rather than deleted: deleting them would make
+     re-enabling the feature produce a half-broken page that loads the fixture
+     and then labels it "no workspace loaded", which is a worse failure than a
+     dormant branch. Driven live against a hand-spliced feature build on
+     2026-08-15 and the estate rendered and labelled correctly. */
   if (S.source === 'demo') {
     note(host, 'Demo estate · not corpus data',
       'No inventory ships in the corpus. This estate is constructed by checked-in code ' +
@@ -4561,10 +4577,33 @@ function boot() {
       S.boot = replyProblem(dictReply) || 'the statement dictionary did not load';
     }
 
-    /* 45 §9.1: fixture loading is one URL parameter, dev-build only. */
+    /* 45 §9.1: fixture loading is one URL parameter, dev-build only.
+
+       As of 2026-08-15 the demo estate is NOT in the default module. It was a
+       development fixture worth 35,272 bytes of `44` §5.2's 900,000-byte
+       ceiling, and the product has had real inputs since the on-ramp landed:
+       paste, hand entry and correction all work, so the fixture bought a
+       developer a paste and cost every other feature 4% of the budget.
+
+       The page still asks, because a build made with
+       `--features demo-estate` still answers and should still work end to end.
+       When the module refuses, opcode 11 comes back ERR_UNKNOWN_OP (1) — and
+       that raw refusal is REPLACED here rather than shown. "the module refused:
+       code 1 · opcode 11 is not implemented by this module" is true and tells a
+       person who typed ?fixture=demo-estate nothing they can act on. Any other
+       refusal is still shown verbatim: only the one refusal we predicted and
+       caused is worth translating, and swallowing the rest would be the
+       silent-failure this replaces. */
     if (new URLSearchParams(location.search).get('fixture') === 'demo-estate') {
       var reply = call(OP_ESTATE_DEMO, new Uint8Array(0));
       if (reply.kind === 'empty') { S.loaded = true; S.source = 'demo'; loadKind(S.invKind); }
+      else if (reply.kind === 'error' && reply.code === ERR_UNKNOWN_OP) {
+        S.boot =
+          'This module has no demo estate. It was a development fixture and it cost ' +
+          '35,272 bytes of the 900,000-byte module ceiling, so it is compiled in only ' +
+          'by a build with --features demo-estate. Paste a config (top right) or add ' +
+          'equipment by hand instead — both build a real estate.';
+      }
       else { S.boot = replyProblem(reply) || 'the demo estate did not load'; }
     }
     S.view = 'inventory';

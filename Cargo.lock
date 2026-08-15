@@ -69,6 +69,7 @@ version = "0.1.0"
 dependencies = [
  "fathom-graph",
  "fathom-id",
+ "fathom-inventory",
  "fathom-ir",
 ]
 
@@ -118,6 +119,7 @@ dependencies = [
  "fathom-inventory",
  "fathom-ir",
  "fathom-layout",
+ "fathom-wasm",
  "fathom-weld",
 ]
 

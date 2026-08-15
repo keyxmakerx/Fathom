@@ -15,16 +15,19 @@ use crate::protocol::{
     ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED,
     ERR_NO_DICTIONARY, ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
+#[cfg(feature = "demo-estate")]
+use crate::OP_ESTATE_DEMO;
 use crate::{
-    OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_ESTATE_DEMO,
-    OP_FIELD_SET, OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY,
+    OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_FIELD_SET,
+    OP_INIT, OP_INV_ROWS, OP_PASTE, OP_QUERY,
 };
 
 pub struct Shell {
     finder: Option<Finder>,
-    /// The inventory face's graph (WO-08 §4.4). Absent until
-    /// `OP_ESTATE_DEMO` or `OP_PASTE` succeeds; the only workspace this build
-    /// ever holds.
+    /// The inventory face's graph (WO-08 §4.4). Absent until `OP_PASTE` or
+    /// `OP_EQUIP_ADD` succeeds; the only workspace this build ever holds.
+    /// `OP_ESTATE_DEMO` was a third door and is gone from the shipping module
+    /// with the fixture it loaded — see `estate_demo`.
     estate: Option<fathom_graph::Graph>,
     /// The junos-srx statement dictionary, handed in by the host over
     /// `OP_DICT` and held for the module's lifetime. Absent until that call
@@ -56,6 +59,7 @@ impl Shell {
                 }
                 Err((code, detail)) => protocol::encode_error(code, &detail),
             },
+            #[cfg(feature = "demo-estate")]
             OP_ESTATE_DEMO => self.estate_demo(req),
             OP_PASTE => self.paste(req),
             OP_EQUIP_ADD => self.equip_add(req),
@@ -74,6 +78,16 @@ impl Shell {
 
     /// No request bytes. Re-init is permitted, mirroring `OP_INIT`: the held
     /// estate is replaced.
+    ///
+    /// **Not in the shipping module.** The fixture it loads costs 35,272 bytes
+    /// of `44` §5.2's ceiling and the product has had real inputs since the
+    /// on-ramp landed, so `fathom-inventory`'s `demo-estate` feature is off in
+    /// every build except a test build (see that crate's Cargo.toml). With the
+    /// feature off, opcode 11 falls through to the `_` arm and is refused by
+    /// number with `ERR_UNKNOWN_OP` — a typed refusal the page renders, not a
+    /// trap and not a silent no-op. The opcode NUMBER stays reserved forever
+    /// either way: 41 §3.7's table is append-only, so 11 is never reused.
+    #[cfg(feature = "demo-estate")]
     fn estate_demo(&mut self, req: &[u8]) -> Vec<u8> {
         if !req.is_empty() {
             return protocol::encode_error(
