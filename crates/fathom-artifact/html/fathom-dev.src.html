@@ -1562,6 +1562,15 @@ function renderDiagram(host) {
     }
   }
 
+  /* Reconcile the open set against what the module actually drew. A group key
+     is DERIVED from its run's first member (see agg's header), so it can stop
+     existing: paste a second config, add a device that splits a run, and the
+     key names nothing. A stale key draws nothing and is harmless in the
+     request -- but it would still be a rung on the Escape ladder, so a press
+     would be swallowed by a group that is not on screen, which reads as
+     "Escape did nothing" and is the class of defect this rebuild is about. */
+  S.open = S.open.filter(function (o) { return !!tally[o[0]]; });
+
   for (var bi = 0; bi < boxes.length; bi++) {
     var b = boxes[bi], ag = agg[bi];
     var bx = parseInt(b.s[3], 10), by = parseInt(b.s[4], 10);
@@ -1829,7 +1838,10 @@ document.addEventListener('click', function (ev) {
   }
   if (seekAttr(ev.target, 'data-whole')) {
     S.whole = !S.whole;
-    if (!S.whole) S.open = [];
+    /* Either direction resets what is open. Going to `every one drawn` there is
+       nothing left to expand, and an open set that survived would sit on the
+       Escape ladder with nothing drawn to collapse. */
+    S.open = [];
     foot(S.whole ? 'drawing every one' : 'collapsing repeated objects');
     render();
     return;
