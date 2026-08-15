@@ -14,10 +14,9 @@
 //! honestly, and it is the foundation the rest attaches to.
 //!
 //! It is **not** `56`'s finished design, and nothing here should be mistaken for
-//! it. Absent, in that document's terms: the five toggled layers (§4), the
-//! aggregation stacks (§1.3), pins and `LayoutHint` (§3.5), and the reth's
-//! two-layer treatment (§4.2). Each is real work and each sits on top of this
-//! rather than replacing it.
+//! it. Absent, in that document's terms: the aggregation stacks (§1.3), pins
+//! and `LayoutHint` (§3.5), and the reth's two-layer treatment (§4.2). Each is
+//! real work and each sits on top of this rather than replacing it.
 //!
 //! **Three of Sugiyama's phases are here.** Phases 4 and 5 — dummy nodes and
 //! crossing reduction — are in [`order`], because ordering a rank by `NodeId`
@@ -25,6 +24,18 @@
 //! reason. Phase 8 — orthogonal routing with a channel set per band — is in
 //! [`route`], because without it every line between two ranks ran through one
 //! midpoint and a dense estate drew as a single thick stroke.
+//!
+//! **The five layers of §4 are here too**, in [`layers`] — and they filter
+//! AFTER layout, never before. `56` decides that layout is computed once over
+//! the union of all layers so that toggling one never moves a box; laying out
+//! per mask would make the picture jump under the reader, which is the most
+//! likely way to get this feature wrong.
+//!
+//! §4's five layers ARE here, in [`layers`], and they are a filter over this
+//! module's output rather than an input to it — `56` §3.6's DECISION, which is
+//! that one layout is computed over the union of all layers so that a toggle
+//! never moves anything. `lay_out` therefore takes no mask and must not grow
+//! one.
 //!
 //! # Determinism
 //!
@@ -50,6 +61,7 @@
     clippy::indexing_slicing
 )]
 
+pub mod layers;
 pub mod order;
 mod route;
 

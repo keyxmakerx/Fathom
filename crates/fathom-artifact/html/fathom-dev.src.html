@@ -519,6 +519,24 @@ var FACE_HEADER = 0, FACE_INV = 1, FACE_FIELD = 2, FACE_PORT = 3, FACE_IFACE = 4
 var FACE_PASTE = 5, FACE_RESIDUE = 6, FACE_UNRESOLVED = 7, FACE_CAPTURE = 8;
 var FACE_BOX = 9, FACE_LINE = 10, FACE_CANVAS = 11;
 
+/* 56 §4's five layers, toggled independently. The bit order is the module's
+   declaration order (fathom_layout::layers::Layer::ALL) and a layer is
+   appended, never inserted -- a stored or transmitted mask must mean the same
+   thing tomorrow.
+
+   The page sends ONE BYTE and receives a picture. It does not know the
+   projection table and must not: 56 §4.1 says which kinds belong to which
+   layer, that answer is the model's, and a second copy here would be a second
+   answer that drifts. What the page owns is which toggles are pressed. */
+var LAYERS = [
+  [1,  'physical'],
+  [2,  'l2'],
+  [4,  'l3'],
+  [8,  'security'],
+  [16, 'overlay']
+];
+var LAYERS_ALL = 31;
+
 var wasm = null;                 /* the instance's exports */
 var wasmModule = null;
 var DEC = new TextDecoder();     /* one decoder, one decode per reply (41 §3.4) */
@@ -619,6 +637,12 @@ function decode(bytes) {
 var S = {
   view: 'inventory',
   invKind: 0,
+  /* 56 §4's LayerMask, all five on. SESSION state, never graph data -- 56 §0's
+     governing rule allows the diagram exactly two view-local values, the
+     pan/zoom transform and this one, and everything else must terminate in an
+     op against the graph. It is deliberately not journalled and not exported:
+     which layers you were looking at is not a fact about the network. */
+  layers: LAYERS_ALL,
   sel: null,
   face: 'meaning',
   inv: null,
@@ -1253,10 +1277,52 @@ function sEl(tag, attrs) {
   return n;
 }
 
+/* The five layer toggles. Drawn BEFORE anything that can return early, because
+   a mask with every layer off draws no boxes, and a control strip that
+   disappeared with the picture would leave the operator no way back. */
+function layerStrip(host) {
+  var strip = el('div', 'strip');
+  /* The STATE leads, before the buttons, and the explanation trails. The strip
+     wraps on a narrow column, and what must never end up orphaned on the second
+     line is which layers are on -- a filter you cannot read is a filter that
+     gets blamed on the parser. */
+  var lab = el('span', 'lab', 'layer · ' + layerWords());
+  strip.appendChild(lab);
+  LAYERS.forEach(function (L) {
+    var b = el('button', null, L[1]);
+    b.type = 'button';
+    b.setAttribute('data-layer', String(L[0]));
+    b.setAttribute('aria-pressed', String((S.layers & L[0]) !== 0));
+    strip.appendChild(b);
+  });
+  strip.appendChild(el('span', 'lab', 'an element in any active layer is drawn'));
+  var p = el('div', 'pad');
+  p.appendChild(strip);
+  host.appendChild(p);
+  return lab;
+}
+
+/* The mask in words. `56` §5.2 G10 is the release valve — anything the picture
+   cannot say, the band says in three lowercase words. */
+function layerWords() {
+  if (S.layers === LAYERS_ALL) return 'all five';
+  if (S.layers === 0) return 'none';
+  var on = [];
+  LAYERS.forEach(function (L) { if (S.layers & L[0]) on.push(L[1]); });
+  return on.join(' · ');
+}
+
 /* The page DRAWS; it does not lay out. Every coordinate here came from
    fathom-layout in the module (`41` §750: layout runs in the core, because it
    must be deterministic and because the CLI's SVG export shares it). If a box
-   moves, the graph changed — not the renderer. */
+   moves, the graph changed — not the renderer.
+
+   And a LAYER TOGGLE IS NOT A CHANGE. 56 §3.6: one layout, computed over the
+   union of all layers, filtered for drawing. The module returns the union's
+   canvas whatever the mask, so the viewBox below is identical across every
+   toggle and every surviving box keeps its coordinates. 56 §11 row 6 is the
+   defect that prevents: a picture that rearranges under a toggle, after which
+   "users stop using layer toggles within a week." */
 function renderDiagram(host) {
   if (!S.loaded) {
     var p0 = el('div', 'pad');
@@ -1264,7 +1330,8 @@ function renderDiagram(host) {
     host.appendChild(p0);
     return;
   }
-  var reply = call(OP_DIAGRAM, new Uint8Array(0));
+  var maskLabel = layerStrip(host);
+  var reply = call(OP_DIAGRAM, new Uint8Array([S.layers]));
   var bad = replyProblem(reply);
   if (bad) {
     var pe = el('div', 'pad');
@@ -1280,9 +1347,22 @@ function renderDiagram(host) {
     else if (r.role === FACE_BOX) boxes.push(r);
     else if (r.role === FACE_LINE) lines.push(r);
   }
+
+  /* The module reports the mask it actually applied, and the page prints THAT
+     rather than what it believes it sent. A picture and its toggles that can
+     disagree will, and the disagreement is invisible. */
+  var maskBack = canvas ? canvas.s[2] : '';
+  var hidBoxes = canvas ? (canvas.s[3] || '0') : '0';
+  var hidLines = canvas ? (canvas.s[4] || '0') : '0';
+  var untabled = canvas ? (canvas.s[5] || '0') : '0';
+  maskLabel.textContent = 'layer · ' + layerWords() + ' · ' + hidBoxes + ' hidden' +
+    (maskBack === String(S.layers) ? '' : ' · MASK MISMATCH ' + maskBack);
+
   if (!boxes.length) {
     var pn = el('div', 'pad');
-    unposted(pn, 'diagram', 'nothing to draw yet.');
+    unposted(pn, 'diagram', S.layers === 0
+      ? 'every layer is off, so nothing is drawn. Turn one on above.'
+      : 'nothing to draw yet.');
     host.appendChild(pn);
     return;
   }
@@ -1294,7 +1374,7 @@ function renderDiagram(host) {
     viewBox: '0 0 ' + w + ' ' + h,
     width: w, height: h,
     role: 'img',
-    'aria-label': 'Diagram of the estate: ' + boxes.length + ' objects'
+    'aria-label': 'Diagram of the estate: ' + boxes.length + ' objects. Layers: ' + layerWords()
   });
 
   /* Lines first, so boxes sit on top of them. Containment is drawn quieter than
@@ -1351,10 +1431,26 @@ function renderDiagram(host) {
   host.appendChild(wrap);
 
   var note = el('div', 'note pad');
-  note.textContent = boxes.length + ' objects, ' + lines.length +
-    ' links. Computed layout — positions come from the model, not from dragging. ' +
-    'Layers, grouping and hand-placement are not in this build.';
+  note.textContent = boxes.length + ' objects, ' + lines.length + ' links. Layers: ' +
+    layerWords() + ' — ' + hidBoxes + ' objects and ' + hidLines +
+    ' links hidden by the mask. Toggling a layer never moves a box: one layout ' +
+    'is computed over all five and the mask filters what is drawn (56 §3.6). ' +
+    'Computed layout — positions come from the model, not from dragging. ' +
+    'Grouping and hand-placement are not in this build.';
   host.appendChild(note);
+
+  /* What this build cannot draw, said rather than implied. 56 §4.1 gives most
+     of these kinds a treatment -- a bracket, a band, a port stub, a badge, a
+     conduit -- and this build draws one form, a box. Faking a bracket with a
+     box would claim 56 §4.4's tier 1 for a zone that may be scattered. */
+  var gap = el('div', 'note pad');
+  gap.textContent = 'Layer membership is honoured; the treatments are not. ' +
+    'In 56 §4.1 zones are brackets, VLANs are bands, tunnels are conduits, ' +
+    'chassis are sub-rows, ports are stubs and routing protocols are badges — ' +
+    'each is drawn here as the box it is.' +
+    (untabled === '0' ? '' : ' ' + untabled + ' of the objects above have no row in ' +
+     'that table at all, so they are drawn at every layer rather than guessed at.');
+  host.appendChild(gap);
 }
 
 function renderMeaning() {
@@ -1438,6 +1534,16 @@ document.addEventListener('click', function (ev) {
   }
   if ((n = seekAttr(ev.target, 'data-kind'))) {
     loadKind(parseInt(n.getAttribute('data-kind'), 10));
+    render();
+    return;
+  }
+  /* A layer toggle changes one bit of session state and redraws. It runs no op
+     against the graph and journals nothing -- 56 §0: which layers are on is not
+     a fact about the network, and a toggle that wrote to the workspace would be
+     the picture becoming the data structure. */
+  if ((n = seekAttr(ev.target, 'data-layer'))) {
+    S.layers ^= parseInt(n.getAttribute('data-layer'), 10);
+    foot('layers · ' + layerWords());
     render();
     return;
   }

@@ -578,23 +578,62 @@ impl Shell {
             .ok_or_else(|| protocol::encode_error(ERR_NO_ELEMENT, display))
     }
 
-    /// `OP_DIAGRAM`: the whole estate, laid out. No request bytes.
+    /// `OP_DIAGRAM`: the whole estate, laid out. Zero request bytes, or one
+    /// carrying `56` §4's 5-bit `LayerMask`.
     ///
     /// A read, like the other face opcodes: it computes positions and returns
     /// them, and holds nothing. Re-asking after any change is how the page
     /// refreshes, which is correct because the layout is a pure function of the
     /// graph and so cannot drift from it.
+    ///
+    /// **Zero bytes is not the same request as `0b11111`.** With no mask the
+    /// reply is the union scene with no layer projection applied at all — what
+    /// every caller before layers existed meant, unchanged. With all five bits
+    /// set it is the union scene projected through §4.1, which draws two kinds
+    /// fewer: `AddressObject` and `Application` are `— (inspector only)` in that
+    /// table. Collapsing the two would make an old caller silently lose
+    /// elements to a feature it never asked for.
+    ///
+    /// The mask is applied AFTER layout, never as an input to it, so a toggle
+    /// cannot move a box (`56` §3.6, and §11 row 6 for what happens if it can).
+    /// `fathom_layout::lay_out` takes no mask, which is how that is enforced
+    /// rather than merely intended.
     fn diagram(&mut self, req: &[u8]) -> Vec<u8> {
-        if !req.is_empty() {
-            return protocol::encode_error(
-                ERR_BAD_FRAME,
-                &format!("OP_DIAGRAM takes no request; got {} bytes", req.len()),
-            );
-        }
+        let mask = match req {
+            [] => None,
+            [bits] => match fathom_layout::layers::LayerMask::from_bits(*bits) {
+                Some(m) => Some(m),
+                None => {
+                    return protocol::encode_error(
+                        ERR_BAD_FRAME,
+                        &format!(
+                            "layer mask {bits:#010b} sets a bit above the {} layers 56 §4 declares",
+                            fathom_layout::layers::LayerMask::WIDTH
+                        ),
+                    )
+                }
+            },
+            other => {
+                return protocol::encode_error(
+                    ERR_BAD_FRAME,
+                    &format!(
+                        "OP_DIAGRAM takes no request or one mask byte; got {} bytes",
+                        other.len()
+                    ),
+                )
+            }
+        };
         let Some(estate) = self.estate.as_ref() else {
             return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
         };
-        protocol::encode_diagram(&fathom_layout::lay_out(estate))
+        let union = fathom_layout::lay_out(estate);
+        match mask {
+            None => protocol::encode_diagram(&union, None),
+            Some(m) => {
+                let (drawn, filter) = fathom_layout::layers::filter(&union, m);
+                protocol::encode_diagram(&drawn, Some(&filter))
+            }
+        }
     }
 
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {

@@ -91,6 +91,18 @@ pub const FACE_BOX: u8 = 9;
 /// the points as `x,y x,y ...`.
 pub const FACE_LINE: u8 = 10;
 /// The drawing's extent: width · height. One row, always first.
+///
+/// When the caller passed a layer mask (`56` §4) the row carries four more
+/// slots: the mask as a decimal 5-bit number · boxes the mask hid · lines it hid
+/// · boxes drawn that `56` §4.1 has no row for. `slot_count` is 2 without a mask
+/// and 6 with one, so an empty slot 2 means *"no layer projection was applied"*
+/// and is a different claim from *"all five layers are on"* — the two differ by
+/// §4.1's inspector-only kinds.
+///
+/// The counts travel because `59`'s governing rule applies to a layer toggle as
+/// much as to an aggregate: a picture that hides things without saying how many
+/// is a lie with fewer elements. The extent itself is the UNION layout's and
+/// does not change with the mask (`56` §3.6).
 pub const FACE_CANVAS: u8 = 11;
 
 /// Codes 1–5 are WO-07's.
@@ -561,12 +573,42 @@ pub struct PasteReply<'a> {
 
 /// The diagram, as face rows. Numbers travel as decimal strings for the same
 /// reason every other face row does: one decoder in the page, not two.
-pub fn encode_diagram(d: &fathom_layout::Diagram) -> Vec<u8> {
+///
+/// `filter` is `Some` exactly when the caller asked for a layer mask. It is
+/// reported rather than merely obeyed: the page prints the mask it got back, so
+/// a picture and its toggles can never disagree about which layers produced it.
+pub fn encode_diagram(
+    d: &fathom_layout::Diagram,
+    filter: Option<&fathom_layout::layers::Filter>,
+) -> Vec<u8> {
     let mut blob = Blob::default();
     let mut records: Vec<u8> = Vec::new();
 
     let (w, h) = (d.width.to_string(), d.height.to_string());
-    let rec = face_slots(&mut blob, FACE_CANVAS, 2, &[w.as_str(), h.as_str()]);
+    let rec = match filter {
+        None => face_slots(&mut blob, FACE_CANVAS, 2, &[w.as_str(), h.as_str()]),
+        Some(f) => {
+            let (m, hn, hl, un) = (
+                f.mask.bits().to_string(),
+                f.hidden_nodes.to_string(),
+                f.hidden_links.to_string(),
+                f.untabled_nodes.to_string(),
+            );
+            face_slots(
+                &mut blob,
+                FACE_CANVAS,
+                6,
+                &[
+                    w.as_str(),
+                    h.as_str(),
+                    m.as_str(),
+                    hn.as_str(),
+                    hl.as_str(),
+                    un.as_str(),
+                ],
+            )
+        }
+    };
     write_face_record(&mut records, &rec);
 
     for n in &d.nodes {
