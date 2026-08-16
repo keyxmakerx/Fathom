@@ -1,0 +1,118 @@
+# The OPNsense firewall-rules CSV (Firewall -> Rules -> Migration assistant,
+# 26.1+). Path shape: [ <row @uuid>, <column name>, <cell value> ], all three
+# real bytes of the paste -- see csv.rs.
+#
+# THE REASONING IS IN README.md BESIDE THIS FILE, NOT IN THESE COMMENTS.
+# This file is handed to the module at boot over OP_DICT and lives in the page,
+# so a comment here costs artifact bytes rather than module bytes -- README 1
+# carries the correction and why the prose stays outside anyway. Sources and
+# dates for every vendor fact: README 5. What is deliberately absent: README 4.
+platform: opnsense
+reviewed_by: <named human>
+
+token_maps:
+  # Filter.xml OptionValues + the manual's prose, both 2026-08-15 (README 5).
+  PolicyAction:
+    pass: permit
+    block: deny
+    reject: reject
+
+entries:
+  # Every entry re-asserts `name` from the uuid: card 1, and a row with one
+  # understood column must still name its rule (README 3).
+  - id: opnsense/firewall.rule.action
+    path: ["$rule", action, "$v"]
+    binds:
+      nodes:
+        - { as: set, kind: PolicySet }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$rule"
+          fields:
+            - { field: name, from: "$rule", scalar: Identifier }
+            - { field: action, from: "$v", scalar: PolicyAction }
+    versions: ">=26.1"
+    reviewed_by: <named human>
+
+  # `1`/`0`. The most important column in the file: issue #10595 reports
+  # disabled legacy rules going missing, and a rule shown live when the file
+  # says `0` would repeat that failure with worse consequences. Never
+  # defaulted -- an unrecognised spelling is a visible diagnostic.
+  - id: opnsense/firewall.rule.enabled
+    path: ["$rule", enabled, "$v"]
+    binds:
+      nodes:
+        - { as: set, kind: PolicySet }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$rule"
+          fields:
+            - { field: name, from: "$rule", scalar: Identifier }
+            - { field: enabled, from: "$v", scalar: bool }
+    versions: ">=26.1"
+    reviewed_by: <named human>
+
+  - id: opnsense/firewall.rule.sequence
+    path: ["$rule", sequence, "$v"]
+    binds:
+      nodes:
+        - { as: set, kind: PolicySet }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$rule"
+          fields:
+            - { field: name, from: "$rule", scalar: Identifier }
+            - { field: ordinal, from: "$v", scalar: u32 }
+    versions: ">=26.1"
+    reviewed_by: <named human>
+
+  - id: opnsense/firewall.rule.description
+    path: ["$rule", description, "$v"]
+    binds:
+      nodes:
+        - { as: set, kind: PolicySet }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$rule"
+          fields:
+            - { field: name, from: "$rule", scalar: Identifier }
+            - { field: description, from: "$v", scalar: Text }
+    versions: ">=26.1"
+    reviewed_by: <named human>
+
+  # The terminal is a LITERAL, not a capture: only the vendor's `any` keyword
+  # binds. A real network matches nothing here and lands on the residue list
+  # with its own bytes, because `AddressValue` is an empty struct (README 4).
+  - id: opnsense/firewall.rule.source-any
+    path: ["$rule", source_net, any]
+    binds:
+      nodes:
+        - { as: set, kind: PolicySet }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$rule"
+          fields:
+            - { field: name, from: "$rule", scalar: Identifier }
+            - { field: match_any_source, const_enum: "bool.1" }
+    versions: ">=26.1"
+    reviewed_by: <named human>
+
+  - id: opnsense/firewall.rule.destination-any
+    path: ["$rule", destination_net, any]
+    binds:
+      nodes:
+        - { as: set, kind: PolicySet }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$rule"
+          fields:
+            - { field: name, from: "$rule", scalar: Identifier }
+            - { field: match_any_destination, const_enum: "bool.1" }
+    versions: ">=26.1"
+    reviewed_by: <named human>

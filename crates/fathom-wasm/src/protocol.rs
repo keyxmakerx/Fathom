@@ -160,6 +160,41 @@ pub const FACE_LINE: u8 = 10;
 /// does not change with the mask (`56` §3.6).
 pub const FACE_CANVAS: u8 = 11;
 
+// --- ADR-0036's rack elevation ----------------------------------------------
+//
+// Three roles rather than one, because the page must be able to tell a box
+// that fits from one that does not without re-deriving the arithmetic. A
+// single row kind with a status column would push that decision into the
+// JavaScript, and `fathom-inventory`'s own doc is explicit that the page
+// computes nothing.
+//
+// 12/13/14, NOT 8/9/10: those were free when this was written and are now
+// FACE_CAPTURE, FACE_BOX and FACE_LINE on the tip. A face code is a wire
+// discriminant, so a collision would silently render one record kind as
+// another; the numbers moved on the rebase rather than the meanings.
+
+/// The frame itself, always record 0: display id · label · height in units ·
+/// the numbering token · the direction.
+///
+/// THE DIRECTION SLOT HAS THREE STATES, not two: `1` for U1 at the floor, `0`
+/// for U1 at the top, and **EMPTY for "this build cannot read the token"**. It
+/// was two, with empty meaning descending, and that is what let an unreadable
+/// token be drawn ascending — the page had no way to tell "the rack says U1 is
+/// at the top" from "the rack says something I do not understand", so it drew
+/// both. The page must not re-derive the answer by comparing the token against
+/// the enum's spellings: that is a second copy of the schema in JavaScript.
+///
+/// The numbering token travels as text alongside it so an unrecognised token
+/// from a newer schema can be PRINTED rather than merely refused.
+pub const FACE_RACK: u8 = 12;
+/// One placed box: chassis display id · device · chassis · position_u ·
+/// height_u (empty = never stated) · face · `1` when it overflows the frame.
+pub const FACE_RACK_SLOT: u8 = 13;
+/// One pair of boxes whose runs intersect: the two chassis display ids.
+/// Reported, never resolved — this face has no basis for choosing which of two
+/// conflicting assertions is right.
+pub const FACE_RACK_CLASH: u8 = 14;
+
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
 /// The paste frame is shorter than its fixed 24-byte clock+entropy prefix, or
@@ -217,6 +252,36 @@ pub const ERR_EQUIP_STORE: u16 = 13;
 /// is the page's and only the page's: call `OP_DICT` first.
 pub const ERR_NO_DICTIONARY: u16 = 14;
 
+/// `OP_LINK` refused: the schema does not admit this link between these two
+/// boxes, or there is no such link to cut.
+///
+/// Distinct from `ERR_NO_ELEMENT`, which means *"I cannot find that id"*. Here
+/// both ids resolved and the refusal is about the pair.
+///
+/// **The detail is empty for the schema refusal, and that is deliberate.** The
+/// sentence an operator reads — *"nothing in the schema connects a Device to a
+/// Rack"* — names both kinds, and the page picked both boxes so it knows both
+/// kinds. Building that sentence in the module measured 345 bytes against
+/// `44` §5.2's ceiling, which the artifact's own budget can absorb for nothing.
+/// The cut refusal carries its short sentence because the page cannot know
+/// whether a link was there.
+pub const ERR_NO_LINK: u16 = 15;
+
+/// **Not a failure — a question.** `OP_LINK` found more than one edge kind the
+/// schema admits between those two boxes, wrote nothing, and the detail is the
+/// candidate kinds' declared names separated by single spaces.
+///
+/// It travels as an error record because that is what refusing to write *is*,
+/// and because a bespoke reply shape measured over a kilobyte of module to
+/// carry a list of names this record already carries. The page splits on the
+/// space, offers the choice, and posts the chosen name back in the same frame.
+///
+/// A code of its own so the page can tell a question from a failure without
+/// reading prose: `78` §6's floor is about not guessing, and a page that
+/// pattern-matched an English sentence to decide whether to show a chooser
+/// would be guessing.
+pub const ERR_LINK_CHOICE: u16 = 16;
+
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
 
@@ -240,11 +305,19 @@ pub fn pack_corpus(files: &[SourceFile]) -> Vec<u8> {
     out
 }
 
-fn section_byte(section: fathom_corpus::Section) -> u8 {
+/// The wire tag for a corpus section. Public so a decoder can invert the
+/// encoder instead of carrying a second copy of the mapping — the artifact
+/// tests read the frame back out of the assembled page and need to name the
+/// sections it carries.
+pub fn section_byte(section: fathom_corpus::Section) -> u8 {
     match section {
         fathom_corpus::Section::Commands => 0,
         fathom_corpus::Section::Explainers => 1,
         fathom_corpus::Section::Rules => 2,
+        // 3, appended, because 0..=2 are already on the wire in every frame
+        // built to date and renumbering them would be a silent reinterpretation
+        // rather than a rejection.
+        fathom_corpus::Section::Concepts => 3,
     }
 }
 
@@ -779,6 +852,87 @@ pub fn encode_equipment_reply(page: Option<&fathom_inventory::EquipmentPage>) ->
     face_reply(records, count, blob)
 }
 
+/// One rack's elevation (ADR-0035): the frame, every box in it, then every
+/// clash.
+///
+/// Overflow rows are emitted with the fitting ones and flagged in slot 6,
+/// rather than being dropped or clipped to the frame. A 42U rack holding a box
+/// recorded at U48 is a data error somebody must see, and drawing it at U42
+/// would destroy the evidence while looking tidy.
+///
+/// Numbers arrive as decimal strings, for the reason `PasteReply` gives: the
+/// page prints them, and a string cannot be read at the wrong width by a
+/// `DataView`. The page does compute one thing from them — the `y` of a rect —
+/// and that is the whole reason the elevation is cheap.
+pub fn encode_rack_reply(e: Option<&fathom_inventory::Elevation>) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    // `None` is the empty state, not an error — the same convention
+    // `encode_equipment_reply` uses: no rack selected, or a rack whose
+    // `height_u` was never stated and so cannot be drawn.
+    let Some(e) = e else {
+        return face_reply(records, 0, blob);
+    };
+
+    let height = e.height_u.to_string();
+    let rec = face_slots(
+        &mut blob,
+        FACE_RACK,
+        5,
+        &[
+            e.id.as_str(),
+            e.label.as_str(),
+            height.as_str(),
+            e.numbering.as_str(),
+            match e.ascending {
+                Some(true) => "1",
+                Some(false) => "0",
+                // Not a direction, and deliberately not defaulted to one.
+                None => "",
+            },
+        ],
+    );
+    write_face_record(&mut records, &rec);
+    let mut count = 1usize;
+
+    for (slot, over) in e
+        .slots
+        .iter()
+        .map(|s| (s, false))
+        .chain(e.overflow.iter().map(|s| (s, true)))
+    {
+        let pos = slot.position_u.to_string();
+        // An unstated height is an EMPTY slot, never "1". The page draws one
+        // unit and marks it; collapsing the two here would turn "nobody said"
+        // into a measurement, which is the one thing this face must not do.
+        let h = slot.height_u.map(|v| v.to_string()).unwrap_or_default();
+        let rec = face_slots(
+            &mut blob,
+            FACE_RACK_SLOT,
+            7,
+            &[
+                slot.id.as_str(),
+                slot.device.as_str(),
+                slot.chassis.as_str(),
+                pos.as_str(),
+                h.as_str(),
+                slot.face,
+                if over { "1" } else { "" },
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    for (a, b) in &e.collisions {
+        let rec = face_slots(&mut blob, FACE_RACK_CLASH, 2, &[a.as_str(), b.as_str()]);
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    face_reply(records, count, blob)
+}
+
 /// What one paste produced: the summary row, then the lines that were not
 /// understood, then the references that were named and not found.
 ///
@@ -848,7 +1002,28 @@ pub fn encode_diagram(
             n.w.to_string(),
             n.h.to_string(),
         );
-        let agg = format!("{} {} {}", n.count, n.interior, n.group);
+        // `<count> <interior> <placed> <role> <group>`, the group possibly empty
+        // and therefore last. The placed flag rides in this slot rather than in
+        // a ninth of its own for one reason and it is measured: the module has
+        // 3,903 bytes of headroom against `44` §5.2's ceiling, a ninth slot is a
+        // ninth `face_slots` argument and another blob offset per box, and the
+        // group is the only token here that can be empty — so a token inserted
+        // *before* it is unambiguous where one appended after it would not be.
+        // ADR-0037's role is inserted at position 3 for exactly that reason, and
+        // it carries `-` when absent rather than an empty string: two adjacent
+        // empty tokens would collapse into one on a `split(' ')` and the page
+        // would read the group key as the role. `-` is not a schema token
+        // (`62` §7 variant names are `[a-z_]+`), so it cannot collide with a
+        // real one. The page reads `parts[2]` as the flag, `parts[3]` as the
+        // role and `parts[4]` as the key.
+        let agg = format!(
+            "{} {} {} {} {}",
+            n.count,
+            n.interior,
+            u8::from(n.placed),
+            if n.role.is_empty() { "-" } else { &n.role },
+            n.group
+        );
         let rec = face_slots(
             &mut blob,
             FACE_BOX,
@@ -878,10 +1053,15 @@ pub fn encode_diagram(
             pts.push_str(&y.to_string());
         }
         let members = l.members.to_string();
+        // Slot 6 is APPENDED, after the five that were already on the wire. The
+        // page reads slots by index, so inserting anywhere else would have
+        // silently reinterpreted every existing row rather than rejected it —
+        // the same reasoning ADR-0035's placed flag records for the box row,
+        // where the flag went before the only possibly-empty token.
         let rec = face_slots(
             &mut blob,
             FACE_LINE,
-            6,
+            7,
             &[
                 l.from.as_str(),
                 l.to.as_str(),
@@ -889,6 +1069,7 @@ pub fn encode_diagram(
                 if l.containment { "1" } else { "" },
                 pts.as_str(),
                 members.as_str(),
+                if l.hand { "1" } else { "" },
             ],
         );
         write_face_record(&mut records, &rec);

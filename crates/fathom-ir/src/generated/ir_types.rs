@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.1";
+    pub const SCHEMA_VERSION: &str = "0.3";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -194,12 +194,48 @@ mod body {
         /// endpoint. A segment names its two ports and never the cable: re-patch a cable and
         /// every path through it follows automatically.
         PathSegment,
+        /// Where a person put a box. `56` §3.5's LayoutHint, spelled in 62's grammar: one pin
+        /// node contained by the element it places, carrying absolute scene coordinates on the
+        /// 4 px grid, with Origin::Hand provenance like every other thing a human asserted
+        /// (ADR-0035).
+        ///
+        /// **It is an OVERRIDE, never the source of position.** `56` §3.5 keeps layout computed;
+        /// an element with no live pin is placed by `fathom-layout` and an element with one sits
+        /// where the person put it AND IS DRAWN AS PLACED. A picture that mixed the two silently
+        /// would be lying about which is which.
+        ///
+        /// **It is not drawn.** `fathom_layout::agg::live_nodes` excludes this kind, so a pin is
+        /// never a box, never a rank, and never a line. That exclusion is the one place the
+        /// exception lives; every other consumer sees an ordinary contained node.
+        ///
+        /// LAYER, AND THE GAP IT NAMES: `62` §4.2's vocabulary is closed at
+        /// config | physical | service, and a pin belongs to none of the three — it is a fact
+        /// about the drawing, not about the network. `config` is transcribed as the conservative
+        /// reading because `emits: false` already closes the emit consumer and the pin is never
+        /// produced by a capture, so `19` §9.1's re-identification filter can never reach one.
+        /// A fourth value is a 62 amendment and this is not the record that makes it; the gap is
+        /// filed in ADR-0035 §8.
+        LayoutPin,
+        /// A frame or cabinet of 19-inch mounting positions (ADR-0036). 19 §3.10 predicted this
+        /// kind and priced it -- "Chassis --MountedIn--> Rack later is a new kind plus a reference
+        /// edge = minor" -- and this is that edit, paid.
+        ///
+        /// Contained by Premises, exactly as PassiveNode is and for the same reason (19 §3.6): a
+        /// rack has no operational identity, it is only somewhere. It is deliberately NOT a Site
+        /// (an operational grouping, layer: config) and NOT a nested Premises (which has a street
+        /// address, a CLLI and coordinates; a rack has none of those, and 70 §10.8's own cost 3
+        /// records that nesting Premises still would not put devices in racks).
+        ///
+        /// NOTHING PARSES A RACK. No Junos statement -- no vendor statement known to this project --
+        /// says which rack a box is in or at what height. Every Rack and every MountedIn is
+        /// Origin::Hand, and that is a property of the world, not a gap in the ingest dictionary.
+        Rack,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 48;
+        pub const COUNT: usize = 50;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 48] = [
+        pub const ALL: [NodeKind; 50] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -248,6 +284,8 @@ mod body {
             NodeKind::ServiceEndpoint,
             NodeKind::ServicePath,
             NodeKind::PathSegment,
+            NodeKind::LayoutPin,
+            NodeKind::Rack,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -302,6 +340,8 @@ mod body {
                 NodeKind::ServiceEndpoint => "ServiceEndpoint",
                 NodeKind::ServicePath => "ServicePath",
                 NodeKind::PathSegment => "PathSegment",
+                NodeKind::LayoutPin => "LayoutPin",
+                NodeKind::Rack => "Rack",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -354,6 +394,8 @@ mod body {
                 "ServiceEndpoint" => Some(NodeKind::ServiceEndpoint),
                 "ServicePath" => Some(NodeKind::ServicePath),
                 "PathSegment" => Some(NodeKind::PathSegment),
+                "LayoutPin" => Some(NodeKind::LayoutPin),
+                "Rack" => Some(NodeKind::Rack),
                 _ => None,
             }
         }
@@ -408,6 +450,8 @@ mod body {
                 NodeKind::ServiceEndpoint => Layer::Service,
                 NodeKind::ServicePath => Layer::Service,
                 NodeKind::PathSegment => Layer::Service,
+                NodeKind::LayoutPin => Layer::Config,
+                NodeKind::Rack => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -462,6 +506,8 @@ mod body {
                 NodeKind::ServiceEndpoint => false,
                 NodeKind::ServicePath => false,
                 NodeKind::PathSegment => false,
+                NodeKind::LayoutPin => false,
+                NodeKind::Rack => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -517,6 +563,8 @@ mod body {
                 NodeKind::ServiceEndpoint => &[crate::bag::FieldKey(261), crate::bag::FieldKey(262), crate::bag::FieldKey(263), crate::bag::FieldKey(264), crate::bag::FieldKey(265), crate::bag::FieldKey(266), crate::bag::FieldKey(267)],
                 NodeKind::ServicePath => &[crate::bag::FieldKey(268), crate::bag::FieldKey(269), crate::bag::FieldKey(270), crate::bag::FieldKey(271), crate::bag::FieldKey(272)],
                 NodeKind::PathSegment => &[crate::bag::FieldKey(273), crate::bag::FieldKey(274), crate::bag::FieldKey(275), crate::bag::FieldKey(276), crate::bag::FieldKey(277), crate::bag::FieldKey(278), crate::bag::FieldKey(279), crate::bag::FieldKey(280)],
+                NodeKind::LayoutPin => &[crate::bag::FieldKey(300), crate::bag::FieldKey(301)],
+                NodeKind::Rack => &[crate::bag::FieldKey(302), crate::bag::FieldKey(303), crate::bag::FieldKey(304)],
             }
         }
     }
@@ -721,12 +769,39 @@ mod body {
         ExitsAt,
         /// 19 §5.2, §6.7 — constrain, never freeze; honoured by resolve_warp.
         MustTraverse,
+        /// ADR-0035. CONTAINMENT and not a reference, for one reason that decides it: `Graph::tombstone`
+        /// takes the subtree, so removing a device takes its pin with it. A pin for a box that is gone
+        /// is not a fact anybody asserted — the same argument `OP_ELEMENT_REMOVE` already makes about
+        /// a chassis. `out: "0..1"` is what makes "two positions for one box" unrepresentable rather
+        /// than merely unwritten.
+        HasLayoutPin,
+        /// ADR-0036. A rack hangs off the place it stands in, exactly as HasPassiveNode hangs a
+        /// splitter off one (19 §3.6). in: "1" keeps containment a forest and makes
+        /// owner(Premises) usable as Rack's identity term.
+        HasRack,
+        /// ADR-0036. Physical placement of one box in one frame.
+        ///
+        /// A REFERENCE EDGE, AND IT HAS TO BE. Chassis already has a containment parent (Device,
+        /// via HasChassis) and containment is a forest, so a rack cannot contain a chassis without
+        /// taking it away from its device. 70 §10.8's cost 3 posed the fork as "either HasDevice
+        /// widens or a rack is a Site" and both limbs are wrong, because THE THING IN THE RACK IS
+        /// NOT THE DEVICE, IT IS THE CHASSIS: a Junos chassis cluster is one Device with two
+        /// Chassis, and putting node0 and node1 in separate racks is the normal reason to have a
+        /// cluster at all. A containment edge from a rack to a device cannot express that; this
+        /// can, and it needs no widening of anything.
+        ///
+        /// The placement fields sit on the EDGE rather than on Chassis because "at U12, front" is
+        /// a fact about the mounting, not about the box: a chassis on a shelf has no U, and moving
+        /// one between racks should touch one relation rather than three fields on a node. Edges
+        /// are first-class and carry typed fields (ADR-0007); Link, Terminates and Occupies already
+        /// do.
+        MountedIn,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 81;
+        pub const COUNT: usize = 84;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 81] = [
+        pub const ALL: [EdgeKind; 84] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -808,6 +883,9 @@ mod body {
             EdgeKind::EntersAt,
             EdgeKind::ExitsAt,
             EdgeKind::MustTraverse,
+            EdgeKind::HasLayoutPin,
+            EdgeKind::HasRack,
+            EdgeKind::MountedIn,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -895,6 +973,9 @@ mod body {
                 EdgeKind::EntersAt => "EntersAt",
                 EdgeKind::ExitsAt => "ExitsAt",
                 EdgeKind::MustTraverse => "MustTraverse",
+                EdgeKind::HasLayoutPin => "HasLayoutPin",
+                EdgeKind::HasRack => "HasRack",
+                EdgeKind::MountedIn => "MountedIn",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -980,6 +1061,9 @@ mod body {
                 "EntersAt" => Some(EdgeKind::EntersAt),
                 "ExitsAt" => Some(EdgeKind::ExitsAt),
                 "MustTraverse" => Some(EdgeKind::MustTraverse),
+                "HasLayoutPin" => Some(EdgeKind::HasLayoutPin),
+                "HasRack" => Some(EdgeKind::HasRack),
+                "MountedIn" => Some(EdgeKind::MountedIn),
                 _ => None,
             }
         }
@@ -1067,6 +1151,9 @@ mod body {
                 EdgeKind::EntersAt => EdgeClass::Reference,
                 EdgeKind::ExitsAt => EdgeClass::Reference,
                 EdgeKind::MustTraverse => EdgeClass::Reference,
+                EdgeKind::HasLayoutPin => EdgeClass::Containment,
+                EdgeKind::HasRack => EdgeClass::Containment,
+                EdgeKind::MountedIn => EdgeClass::Reference,
             }
         }
     }
@@ -1244,6 +1331,9 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack],
+                EdgeKind::HasRack => &[NodeKind::Premises],
+                EdgeKind::MountedIn => &[NodeKind::Chassis],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1330,6 +1420,9 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PhysicalPort, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit],
                 EdgeKind::ExitsAt => &[NodeKind::PhysicalPort, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit],
                 EdgeKind::MustTraverse => &[NodeKind::Device, NodeKind::PassiveNode],
+                EdgeKind::HasLayoutPin => &[NodeKind::LayoutPin],
+                EdgeKind::HasRack => &[NodeKind::Rack],
+                EdgeKind::MountedIn => &[NodeKind::Rack],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -1416,6 +1509,9 @@ mod body {
                 EdgeKind::EntersAt => EdgeCardBound { min: 0, max: None },
                 EdgeKind::ExitsAt => EdgeCardBound { min: 0, max: None },
                 EdgeKind::MustTraverse => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasLayoutPin => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::HasRack => EdgeCardBound { min: 0, max: None },
+                EdgeKind::MountedIn => EdgeCardBound { min: 0, max: Some(1) },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -1502,6 +1598,9 @@ mod body {
                 EdgeKind::EntersAt => EdgeCardBound { min: 0, max: None },
                 EdgeKind::ExitsAt => EdgeCardBound { min: 0, max: None },
                 EdgeKind::MustTraverse => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasLayoutPin => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasRack => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::MountedIn => EdgeCardBound { min: 0, max: None },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -1589,6 +1688,9 @@ mod body {
                 EdgeKind::EntersAt => false,
                 EdgeKind::ExitsAt => false,
                 EdgeKind::MustTraverse => false,
+                EdgeKind::HasLayoutPin => false,
+                EdgeKind::HasRack => false,
+                EdgeKind::MountedIn => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -1675,6 +1777,9 @@ mod body {
                 EdgeKind::EntersAt => false,
                 EdgeKind::ExitsAt => false,
                 EdgeKind::MustTraverse => false,
+                EdgeKind::HasLayoutPin => false,
+                EdgeKind::HasRack => false,
+                EdgeKind::MountedIn => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -1761,6 +1866,9 @@ mod body {
                 EdgeKind::EntersAt => &[],
                 EdgeKind::ExitsAt => &[],
                 EdgeKind::MustTraverse => &[],
+                EdgeKind::HasLayoutPin => &[],
+                EdgeKind::HasRack => &[],
+                EdgeKind::MountedIn => &[crate::bag::FieldKey(305), crate::bag::FieldKey(306), crate::bag::FieldKey(307)],
             }
         }
     }
@@ -2247,6 +2355,8 @@ mod body {
         Router,
         Switch,
         LoadBalancer,
+        Server,
+        AccessPoint,
         Other,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
@@ -2256,11 +2366,13 @@ mod body {
 
     impl DeviceRole {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 5] = [
+        pub const DECLARED: [&'static str; 7] = [
             "firewall",
             "router",
             "switch",
             "load_balancer",
+            "server",
+            "access_point",
             "other",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
@@ -2270,6 +2382,8 @@ mod body {
                 "router" => DeviceRole::Router,
                 "switch" => DeviceRole::Switch,
                 "load_balancer" => DeviceRole::LoadBalancer,
+                "server" => DeviceRole::Server,
+                "access_point" => DeviceRole::AccessPoint,
                 "other" => DeviceRole::Other,
                 other => DeviceRole::Unknown(other.to_owned()),
             }
@@ -2281,6 +2395,8 @@ mod body {
                 DeviceRole::Router => "router",
                 DeviceRole::Switch => "switch",
                 DeviceRole::LoadBalancer => "load_balancer",
+                DeviceRole::Server => "server",
+                DeviceRole::AccessPoint => "access_point",
                 DeviceRole::Other => "other",
                 DeviceRole::Unknown(t) => t,
             }
@@ -3527,6 +3643,41 @@ mod body {
         }
     }
 
+    /// Inline enum on `Rack.unit_numbering` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum RackUnitNumbering {
+        Ascending,
+        Descending,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl RackUnitNumbering {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 2] = [
+            "ascending",
+            "descending",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> RackUnitNumbering {
+            match token {
+                "ascending" => RackUnitNumbering::Ascending,
+                "descending" => RackUnitNumbering::Descending,
+                other => RackUnitNumbering::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                RackUnitNumbering::Ascending => "ascending",
+                RackUnitNumbering::Descending => "descending",
+                RackUnitNumbering::Unknown(t) => t,
+            }
+        }
+    }
+
     /// Inline enum on `TunnelEndpoint.side` (62 §7 rule 4; codegen-named).
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum TunnelEndpointSide {
@@ -3682,6 +3833,41 @@ mod body {
                 PeersWithRedundancy::Vrrp => "vrrp",
                 PeersWithRedundancy::Other => "other",
                 PeersWithRedundancy::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `MountedIn.face` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum MountedInFace {
+        Front,
+        Rear,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl MountedInFace {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 2] = [
+            "front",
+            "rear",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> MountedInFace {
+            match token {
+                "front" => MountedInFace::Front,
+                "rear" => MountedInFace::Rear,
+                other => MountedInFace::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                MountedInFace::Front => "front",
+                MountedInFace::Rear => "rear",
+                MountedInFace::Unknown(t) => t,
             }
         }
     }
@@ -4175,6 +4361,18 @@ mod body {
         }
     }
 
+    impl crate::canon::CanonicalValue for RackUnitNumbering {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(RackUnitNumbering::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
     impl crate::canon::CanonicalValue for TunnelEndpointSide {
         fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
             Ok(fathom_canon::Json::Str(self.token().to_owned()))
@@ -4218,6 +4416,18 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(PeersWithRedundancy::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for MountedInFace {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(MountedInFace::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -6495,6 +6705,74 @@ mod body {
         }
     }
 
+    /// Fields of kind `LayoutPin`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum LayoutPinField {
+        X,
+        Y,
+    }
+
+    impl LayoutPinField {
+        pub const COUNT: usize = 2;
+        /// Every field, declaration order.
+        pub const ALL: [LayoutPinField; 2] = [
+            LayoutPinField::X,
+            LayoutPinField::Y,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                LayoutPinField::X => "x",
+                LayoutPinField::Y => "y",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                LayoutPinField::X => crate::bag::FieldKey(300),
+                LayoutPinField::Y => crate::bag::FieldKey(301),
+            }
+        }
+    }
+
+    /// Fields of kind `Rack`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum RackField {
+        Label,
+        HeightU,
+        UnitNumbering,
+    }
+
+    impl RackField {
+        pub const COUNT: usize = 3;
+        /// Every field, declaration order.
+        pub const ALL: [RackField; 3] = [
+            RackField::Label,
+            RackField::HeightU,
+            RackField::UnitNumbering,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                RackField::Label => "label",
+                RackField::HeightU => "height_u",
+                RackField::UnitNumbering => "unit_numbering",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                RackField::Label => crate::bag::FieldKey(302),
+                RackField::HeightU => crate::bag::FieldKey(303),
+                RackField::UnitNumbering => crate::bag::FieldKey(304),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -6799,6 +7077,42 @@ mod body {
         }
     }
 
+    /// Fields of edge `MountedIn`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum MountedInField {
+        PositionU,
+        HeightU,
+        Face,
+    }
+
+    impl MountedInField {
+        pub const COUNT: usize = 3;
+        /// Every field, declaration order.
+        pub const ALL: [MountedInField; 3] = [
+            MountedInField::PositionU,
+            MountedInField::HeightU,
+            MountedInField::Face,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                MountedInField::PositionU => "position_u",
+                MountedInField::HeightU => "height_u",
+                MountedInField::Face => "face",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                MountedInField::PositionU => crate::bag::FieldKey(305),
+                MountedInField::HeightU => crate::bag::FieldKey(306),
+                MountedInField::Face => crate::bag::FieldKey(307),
+            }
+        }
+    }
+
     /// Fields of edge `Cabled`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum CabledField {
@@ -6862,7 +7176,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 299] = [
+    pub const FIELD_KEYS: [(&str, u32); 307] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -7162,6 +7476,14 @@ mod body {
         ("Cabled.via_passive", 297),
         ("WarpResolvesVia.candidate", 298),
         ("WarpResolvesVia.ordinal", 299),
+        ("LayoutPin.x", 300),
+        ("LayoutPin.y", 301),
+        ("Rack.label", 302),
+        ("Rack.height_u", 303),
+        ("Rack.unit_numbering", 304),
+        ("MountedIn.position_u", 305),
+        ("MountedIn.height_u", 306),
+        ("MountedIn.face", 307),
     ];
 
     /// 62 §18.1 `schema.scalar.unbound`, compile-time half: every `impl:`

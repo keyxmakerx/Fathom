@@ -10,6 +10,12 @@ publish.workspace = true
 # crate's own tests, so the protocol has one implementation and two harnesses.
 crate-type = ["cdylib", "rlib"]
 
+# `OP_ESTATE_DEMO`'s dispatch arm, and nothing else. Off by default, so the
+# default build IS the shipping module; see fathom-inventory/Cargo.toml for the
+# 35,095-byte measurement and for why the polarity is this way round.
+[features]
+demo-estate = ["fathom-inventory/demo-estate"]
+
 [dependencies]
 fathom-corpus = { path = "../fathom-corpus" }
 fathom-find = { path = "../fathom-find" }
@@ -20,3 +26,12 @@ fathom-inventory = { path = "../fathom-inventory" }
 fathom-layout = { path = "../fathom-layout" }
 fathom-ir = { path = "../fathom-ir" }
 fathom-weld = { path = "../fathom-weld" }
+
+# A package depending on itself: the only way to turn one of its own features on
+# for its own test targets. `tests/face.rs` and `tests/equip.rs` drive
+# `OP_ESTATE_DEMO` and call `fathom_inventory::demo_estate()` directly, and both
+# keep working unchanged — the fixture leaves the module, not the workspace.
+# `resolver = "2"` keeps this out of the release build; artifact_gates.rs
+# asserts that rather than trusting it.
+[dev-dependencies]
+fathom-wasm = { path = ".", features = ["demo-estate"] }

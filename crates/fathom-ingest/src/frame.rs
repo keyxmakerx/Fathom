@@ -81,6 +81,17 @@ pub enum LineOutcome {
         class: NoiseClass,
     },
     Blank,
+    /// A table's header row — the line that named the columns (`csv.rs`).
+    ///
+    /// It exists because none of the other arms is true of it. It is not
+    /// `Bound`: it produced no node. It is not `Unmapped`: it was understood
+    /// completely, and calling it "not in the dictionary" would send an
+    /// operator looking for a dictionary entry that must never exist. It is not
+    /// `Noise`: noise is text a terminal added, and this is the line that gives
+    /// every other line its meaning.
+    Header {
+        columns: u16,
+    },
     /// 14 §9.7 — text destroyed, sketch stored, length recorded.
     Quarantined {
         label: redact::RedactLabel,
@@ -106,6 +117,14 @@ pub enum ShapeError {
     KeyUnparsable,
     /// More than 64 path segments (14 §11.6's depth cap at this layer).
     TooManySegments,
+    /// **A table row whose cell count disagrees with the header's.** Reached
+    /// only from `csv.rs`, and it refuses the whole row rather than binding the
+    /// cells that happen to line up — see that module for why an off-by-one
+    /// column is worse than a missing rule.
+    RowWidth {
+        cells: u16,
+        columns: u16,
+    },
 }
 
 /// Per-line diagnostics that do not change the outcome class.

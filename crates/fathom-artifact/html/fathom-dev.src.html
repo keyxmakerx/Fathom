@@ -58,6 +58,40 @@ body { overflow-y: auto; }
   display: flex; flex-direction: column; padding: 0 var(--s4);
   background: var(--page);
 }
+/* --------------------------------------------------- the diagram's width --
+   THE PICTURE GETS THE WINDOW. Three caps stacked to leave the canvas 424 CSS
+   px wide on any monitor: the sheet at 1180 (`--sheet`), the ledger's 62/38
+   split, and the Outline's fixed 18rem. Each is right for the view it was
+   written for and wrong here.
+
+   `--sheet: 1180px` is `2 × 72ch` of mono — the measure that keeps a line of
+   TEXT readable, and the correct cap for the inventory, the finder and the
+   three placeholder views. A diagram has no line length; capping it trades
+   nothing for legibility and costs a factor of three in scale. So the cap is
+   lifted on this view alone, and the other five keep their measure.
+
+   The ledger's split is re-cut for this view and is STABLE — 74/26 whether or
+   not anything is selected. The first attempt collapsed the meaning column
+   while nothing was picked and gave it back on selection, which is worth
+   recording as a rejected alternative because it looked obviously right and was
+   obviously wrong the moment it was driven: **selecting a box resized the
+   picture under the reader.** `56` §11 row 6 predicts what that costs — it is
+   the same failure the layer toggles are forbidden from causing, arriving by a
+   side door, and it broke three checks in the surface suite at once (zoom
+   in read as zoom out, a click on empty canvas landed on a box, the ring
+   pointed at the wrong place). One fixed split; nothing moves on selection.
+   ------------------------------------------------------------------------ */
+.sheet[data-viewing="diagram"] { max-width: min(2200px, 96vw); }
+.sheet[data-viewing="diagram"] .ledger { grid-template-columns: 80fr 20fr; }
+/* Wider viewport, wider Outline — but the picture takes the growth. Below
+   1400 the Outline keeps the 18rem it was tuned at. */
+/* The Outline keeps the 18rem it was tuned at and does NOT grow with the
+   window: every pixel past that belongs to the picture, which is the thing that
+   was starved. Above 1800 it takes 20rem so long names stop wrapping. */
+@media (min-width: 1800px) {
+  .sheet[data-viewing="diagram"] .dsplit { grid-template-columns: minmax(0, 1fr) 20rem; }
+}
+
 .mast-rule { flex: none; border-top: var(--rule-mast) solid var(--ink); }
 .masthead {
   flex: none; display: flex; align-items: flex-start; justify-content: space-between;
@@ -389,6 +423,109 @@ button.tab:hover { color: var(--ink); }
         outline-offset: -1px; }
 .efield .note { font-size: var(--t-micro); line-height: var(--lh-micro);
                 color: var(--muted); }
+
+/* --- the rack elevation (ADR-0036) ---------------------------------------
+   DRAWN IN REAL DOM, NOT IN AN <svg>, AND THAT IS THE POINT.
+
+   A network diagram needs vector: it has edges, curves and routing. A rack
+   does not. It is a stack of equal-height rows, which is a LIST, and a list
+   drawn as a list puts every box in the accessible tree as a real focusable
+   element with a real name -- rather than as a <rect> inside an aria-hidden
+   picture with a parallel disclosure contract bolted alongside it that has to
+   be kept in sync and announces nothing when it is not.
+
+   Nothing in this block moves: no motion properties of any kind. (Said in
+   words rather than by naming them -- the artifact gate is a substring scan
+   over this file, deliberately, because a scanner that parsed CSS could be
+   fooled by one that did not. A comment listing the banned tokens trips it,
+   and that is the gate working, not a false positive.) */
+/* A GRID, AND IT REPLACED A FLEX COLUMN FOR ONE REASON: the flex version drew
+   a row per unit and skipped the rows a box covered, so a box the renderer had
+   already lost took its units out of the frame with it and a 42U rack drew 40
+   rows. In a grid the frame is declared -- `repeat(height, ...)` -- so every
+   unit row exists because the FRAME says so, and a box is placed INTO it with
+   `grid-row: n / span h` rather than by consuming rows as it goes. A renderer
+   bug can now draw a box in the wrong place; it can no longer delete a unit.
+
+   Columns are one gutter plus one per drawn face lane, set inline because the
+   count is data (see `renderRack`). */
+.relev { display: grid; gap: 0;
+         border: var(--rule-hair) solid var(--ink); border-radius: var(--radius);
+         overflow: hidden; }
+/* The two face headings, and the gutter's. A heading spans its face's lanes,
+   so "front" sits over both columns when a clash has split it in two. */
+.relev .rhd { padding: var(--s1); text-align: center;
+              font-family: var(--mono); font-size: var(--t-micro);
+              color: var(--muted);
+              border-bottom: var(--rule-hair) solid var(--ink); }
+/* The unit number, in the gutter. Tabular figures so the column is a column. */
+.relev .u { padding: 0 var(--s1);
+            display: flex; align-items: center; justify-content: flex-end;
+            font-family: var(--mono); font-size: var(--t-micro);
+            font-variant-numeric: var(--num-tabular); color: var(--muted);
+            border-right: var(--rule-hair) solid var(--hairline);
+            border-bottom: var(--rule-hair) solid var(--hairline); }
+/* An empty unit is drawn, and drawn as empty. A rack's gaps are most of what
+   an elevation is consulted for -- "is there room, and where" -- so they are
+   not absence of a mark, they are the mark. Every unit of every lane gets one
+   of these; a box is painted OVER the ones it occupies, which is what makes a
+   part-occupied row read correctly (front taken, rear still free).
+
+   `--s3` and not `--row-min`: an empty unit is a ruled line nobody can
+   activate, so WCAG 2.5.8's 24px target minimum does not apply to it, and
+   applying it anyway makes a 42U frame 1,008px of blank units. The targets --
+   the boxes -- carry the minimum themselves. */
+.relev .rcell { min-height: var(--s3); background: var(--surface-2);
+                border-bottom: var(--rule-hair) solid var(--hairline);
+                border-right: var(--rule-hair) solid var(--hairline); }
+/* A placed box spans its run: one button covering height_u rows, so it is ONE
+   thing in the accessible tree rather than N. */
+.rbox { display: flex; align-items: center; gap: var(--s2); width: 100%;
+        height: 100%; text-align: left; cursor: pointer;
+        background: var(--surface); color: var(--ink);
+        border: 0; border-left: var(--rule-accent) solid var(--ink);
+        border-bottom: var(--rule-hair) solid var(--hairline);
+        padding: var(--s1) var(--s2); font: inherit; font-size: var(--t-small); }
+/* `--page`, not `--bg`: `--bg` was written here from habit and is declared
+   nowhere in design/tokens.css, so the hover silently took `background`'s
+   initial value (transparent) and the box appeared to lose its fill. The tip's
+   `every_design_token_the_shell_uses_is_declared` caught it; that is the guard
+   working. */
+.rbox:hover { background: var(--page); }
+.rbox:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
+                      outline-offset: var(--focus-offset-inset); }
+.rbox .who { font-weight: 700; }
+.rbox .meta { color: var(--muted); font-size: var(--t-micro);
+              font-family: var(--mono); }
+/* An unstated height, an overflowing placement and a box sharing its space with
+   another are MARKED, never silently normalised. 51 §9's dotted is the
+   incomplete-path treatment and never `dashed`; the caution channel is 51 §9's
+   unmodified.
+
+   `.clash` is the mark that makes "both are drawn" a true sentence rather than
+   a claim: the two boxes sit side by side in their face's two lanes and BOTH
+   wear the caution wash, so the picture says "these two disagree" in the place
+   the disagreement is, not only in a caption underneath. */
+.rbox.guess { border-left-style: var(--rule-style-pending); }
+.rbox.over, .rbox.clash { color: var(--caution); background: var(--caution-wash);
+             border-left-color: var(--caution); }
+.rnote { font-size: var(--t-micro); line-height: var(--lh-micro);
+         color: var(--muted); margin: var(--s1) 0 0; }
+.rclash { color: var(--caution); border-left: var(--rule-accent) solid var(--caution);
+          background: var(--caution-wash); padding: var(--s1) var(--s2);
+          font-size: var(--t-micro); line-height: var(--lh-micro); }
+.rbody { flex: 1 1 auto; min-height: 0; overflow-y: auto;
+         padding: var(--s2) var(--s3); display: flex; flex-direction: column;
+         gap: var(--s2); }
+.rpick { display: flex; flex-wrap: wrap; gap: var(--s1); align-items: center; }
+.rpick button { background: none; cursor: pointer; color: var(--ink);
+                border: var(--rule-hair) solid var(--hairline);
+                padding: var(--s1) var(--s2); font: inherit;
+                font-size: var(--t-tab); }
+.rpick button[aria-pressed="true"] { border-color: var(--ink);
+                                     background: var(--surface); }
+.rpick button:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
+                              outline-offset: var(--focus-offset-outset); }
 /* The inspector's in-place field editor. Deliberately almost invisible until
    focused: the inspector is read far more often than it is edited, and a table
    of boxes reads as a form rather than as a record. */
@@ -436,6 +573,11 @@ button.tab:hover { color: var(--ink); }
 .dstrip .lab { font-size: var(--t-micro); color: var(--muted);
                letter-spacing: var(--track-label); text-transform: uppercase; }
 .dzoomctl { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+/* The placement group (ADR-0035). Same shape as the zoom group because it is
+   the same class of thing — a small band of controls acting on the surface —
+   and giving it a second visual idiom would say the two are different in a way
+   they are not. */
+.dplacectl { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
 .dzoom { font-family: var(--mono); font-size: var(--t-mono); color: var(--ink);
          font-variant-numeric: var(--num-tabular); }
 
@@ -511,6 +653,32 @@ button.tab:hover { color: var(--ink); }
    at this size is a shape, not a diagram -- the Outline under it is the
    interface (`55` §6.3), and this is the overview it belongs to. */
 .sheet[data-width="narrow"] .dview[data-open="1"] .dcanvas { height: 12rem; }
+
+/* ON A PHONE THE PICTURE GETS THE PHONE.
+   The rule above is 12rem because the fact column is 146 CSS px tall at
+   320x800, and inside 146 px a taller canvas is a picture you scroll inside a
+   column you are already scrolling. That reasoning is sound and the premise is
+   the actual defect: the SHELL gives the fact column 146 of 800 px, in every
+   view, and `73` §14 carries it as a shell-wide escalation.
+
+   Fixing the shell everywhere is the right repair and it is not this change.
+   What this does is stop the diagram view from being a victim of it: on a
+   narrow screen the view is already `display: block; height: auto` — it flows
+   and the BODY scrolls — so the canvas can be measured against the VIEWPORT
+   rather than against a column that has no height to give. 55dvh leaves room
+   for the strip above and the first Outline rows below, so opening the picture
+   still shows you that the list continues.
+
+   Kept behind the same disclosure: `55` §6.3 makes the Outline the interface at
+   this width and the picture the thing you ask for. This changes how big it is
+   when you ask, not whether you have to. */
+.sheet[data-width="narrow"] .dview[data-open="1"] .dcanvas {
+  height: 55dvh; min-height: 12rem;
+}
+/* The Outline is what a thumb scrolls at this width, so its rows get the touch
+   target `53` §13 takes at AAA rather than the desk-sized one. */
+.sheet[data-width="narrow"] .dorow,
+.sheet[data-width="narrow"] .dolink { min-height: 44px; align-items: center; }
 /* Hints, not state. Every one of them is said again in the notes under the
    Outline, and at 320 px they cost more than they carry. */
 .sheet[data-width="narrow"] .dhint { display: none; }
@@ -537,11 +705,55 @@ button.tab:hover { color: var(--ink); }
    picture that may not be demoted (§3.6, X9), so it must not be drawn in the
    de-emphasis tone that means "trust this less". */
 .dcount { font-size: var(--t-micro); fill: var(--ink); }
+/* THE PLACED MARK (ADR-0035), and the channel argument for it, because
+   `56` §5.2 says in terms that nothing may be added to the picture's channel
+   budget without taking something away.
+
+   Every channel that table gives a NODE is spent: G1 boundary tone is
+   freshness, G2 boundary dash is AI-proposed (`51` §9 product-wide, and dotted
+   is pending, so both line styles are gone), G3 boundary weight is selection,
+   G8 the second label line is age in words. So the mark takes none of them: it
+   is a separate stroked glyph at the box's own corner plus a word, which is the
+   same move `59` §3.5 made for the aggregation stack after checking the same
+   table — a new node channel, argued rather than assumed.
+
+   Two forms on purpose, because they degrade in different directions. The TICK
+   is geometry, so it survives forced colours, greyscale, monochrome print and
+   every level of detail; the WORD is unambiguous and survives being described
+   to somebody over a phone. The Outline row carries it in text as well, which
+   is the only one of the three an assistive technology can reach — the <svg> is
+   aria-hidden. */
+.dpin { fill: none; stroke: var(--ink); stroke-width: 2; }
+.dplaced { font-size: var(--t-micro); fill: var(--ink); }
+/* `Device.role` in the picture (ADR-0037), right-aligned on the kind's line.
+   `--ink`, not the kind's `--muted`: on a hand-drawn lab every box says
+   `Device` and the role is the fact that distinguishes them, so it is the
+   louder of the two. Same micro size, so the pair reads as one line. */
+.drole { font-size: var(--t-micro); fill: var(--ink); }
 .dline { stroke-width: 1; }
 /* Containment is structure and is drawn quieter than a reference edge. NOT
    dashed -- `51` §9 reserves dashed for proposed elements. */
 .dcontain { stroke: var(--hairline); }
 .dref { stroke: var(--ink); }
+/* A HAND-DRAWN link, and the ink is constrained before it is chosen.
+   `51` §9 reserves `dashed` for AI-proposed content -- "nothing deterministic in
+   this product is ever drawn with a dashed rule" -- and `dotted` for a required
+   value nobody has answered. A link somebody drew is neither, so neither style
+   is available and neither is borrowed.
+
+   What is left is weight and a word, which is the same pair ADR-0035 chose for a
+   hand-placed box (a tick and the word `placed`). The weight alone would not do:
+   `51` §6 records that stroke weight is the signal most likely to be flattened
+   by forced colours and by a monochrome print, and it cannot be read out loud.
+   The word can, and the Outline row carries it as text besides. */
+.dhand { stroke-width: 2; }
+.dhandmark { font-size: var(--t-micro); fill: var(--muted); }
+/* Follows the name's rung and not the kind's, exactly as `.dplaced` does: who
+   drew a link is a claim worth more than the kind noun, and is dropped only when
+   nothing on the picture is readable at all. The heavier STROKE is never
+   dropped -- it costs nothing to draw and is what a zoomed-out reader still
+   has. */
+svg[data-lod="0"] .dhandmark { display: none; }
 /* The focus ring the Outline projects into the picture (`56` §6.2). Painted by
    us from the box's own coordinates, which is what lets it be exactly 2 CSS px
    at every zoom -- see `vector-effect` on the element itself. */
@@ -562,6 +774,19 @@ button.tab:hover { color: var(--ink); }
    that makes it matter. */
 svg[data-lod="1"] .dkind { display: none; }
 svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
+/* The role follows the NAME's rung, not the kind's, for the same reason the
+   placed word does: zoomed out to where `Device` stops being worth its pixels,
+   `server` is still the thing telling one box from the next on a page where
+   every box is a Device. Dropped only at lod 0, where nothing is readable, and
+   the Outline row keeps it at every zoom regardless -- the Outline is the
+   interface (`55` §4.5.2), and level of detail is a property of the picture. */
+svg[data-lod="0"] .drole { display: none; }
+/* The placed WORD follows the name's rung, not the kind's: it is a claim about
+   how this box's position got there, which is worth more than the kind noun and
+   is dropped only when nothing is readable at all. The TICK is never dropped —
+   it is 2 px of stroke that costs nothing to draw and is the whole of what a
+   zoomed-out reader can still see. */
+svg[data-lod="0"] .dplaced { display: none; }
 
 /* --- the Outline. `55` §4.5.2: not an alternative, THE interface. --------- */
 .dout { min-width: 0; min-height: 0; overflow-y: auto;
@@ -597,6 +822,18 @@ svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
          border-left: var(--rule-accent) var(--rule-style-pending) var(--muted);
          padding-left: var(--s2); }
 .dorel { font-size: var(--t-micro); color: var(--muted); text-transform: lowercase; }
+/* `Device.role` on an Outline row (ADR-0037). Mono like `.dokind`, because a
+   role is a schema TOKEN out of schema.yaml (`load_balancer`, `access_point`)
+   and the underscore is part of the word -- the same argument the `.dokind`
+   comment above makes for not uppercasing a CamelCase kind. `--ink` and not
+   `--muted`: on a hand-drawn lab the kind word is `Device` on every single box
+   and the role is the only thing telling four boxes apart, so it is the
+   stronger fact of the two and is inked as one.
+
+   ONE LETTER FROM `.dorel`, which is the edge-direction word ("to"/"from") on a
+   LINK row. They are different rows and different facts; the names are this
+   close because both are shortenings of `dorow`+something. Do not merge them. */
+.dorole { font-family: var(--mono); font-size: var(--t-micro); color: var(--ink); }
 .dolink { padding-left: var(--s5); }
 .dout .note { margin: var(--s3); }
 
@@ -633,6 +870,7 @@ svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
       <span class="tab" id="tabSource">demo estate · not corpus data</span>
       <button type="button" class="tab" id="tabPaste">paste a config</button>
       <button type="button" class="tab" id="tabEquip">add equipment</button>
+      <button type="button" class="tab" id="tabRack">rack view</button>
       <button type="button" class="tab" id="tabExport">export</button>
       <button type="button" class="tab" id="tabImport">import</button>
       <!-- The file input is the universal half of open/save: it works in every
@@ -700,7 +938,12 @@ svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
          (invariant 2), so this is not a convenience: it is the input. -->
     <div class="psheet" id="psheet" role="dialog" aria-label="Paste a config" hidden>
       <div class="phead">
-        <div class="lead">Paste a config — Juniper SRX, set form</div>
+        <!-- Two forms now, and the sheet says so. It said "Juniper SRX, set
+             form" alone until 2026-08-15, which told an operator holding an
+             OPNsense rules export that this box was not for them. Which
+             dictionary runs is decided by the module from the text itself, so
+             there is nothing to choose — only something to know. -->
+        <div class="lead">Paste a config — Juniper SRX set form, or an OPNsense rules CSV</div>
         <p class="prose" id="pHint"></p>
         <p class="prose perr" id="pErr" hidden role="alert"></p>
       </div>
@@ -732,6 +975,45 @@ svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
       </div>
     </div>
 
+    <!-- The rack elevation (ADR-0036). The owner asked "how do I go into rack
+         mount view?" and there was no answer.
+
+         It is a SHEET and not a seventh view, deliberately. `56` §13.4 puts
+         rack inside the diagram's zoom ladder (inside-a-device -> rack ->
+         floor -> building -> map), so a rack is a rung and not a peer of the
+         six. There is no diagram in this build to hang it from, so it ships
+         where the other two on-ramps ship, and does not touch `data-view` --
+         which is the view tabs' selector and therefore an API. -->
+    <div class="psheet" id="rsheet" role="dialog" aria-label="Rack view" hidden>
+      <div class="phead">
+        <div class="lead">Rack view — where the boxes physically are</div>
+        <p class="prose" id="rHint"></p>
+        <p class="prose perr" id="rErr" hidden role="alert"></p>
+      </div>
+      <div class="rbody" id="rbody"></div>
+      <div class="pfoot">
+        <span>esc close</span>
+        <span class="spacer"></span>
+        <button type="button" id="rAdd">put a box in a rack</button>
+      </div>
+    </div>
+
+    <!-- Placement is a separate form because it is a separate assertion: this
+         one says WHERE a box you have already recorded stands. -->
+    <div class="psheet" id="msheet" role="dialog" aria-label="Place a box in a rack" hidden>
+      <div class="phead">
+        <div class="lead">Put a box in a rack</div>
+        <p class="prose" id="mHint"></p>
+        <p class="prose perr" id="mErr" hidden role="alert"></p>
+      </div>
+      <div class="eform" id="mform"></div>
+      <div class="pfoot">
+        <span>esc close</span>
+        <span class="spacer"></span>
+        <button type="button" id="mRun">place it</button>
+      </div>
+    </div>
+
     <!-- 53 §6.2 LAYER 4 — the last resort, and the reason it exists.
          "Render the payload in a focused, pre-selected read-only block with
          `press ⌘C` in the footer. Never a silent failure."
@@ -742,7 +1024,15 @@ svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
          failure may end with the text gone. The command the user asked for is
          one they are about to paste into a change window; making them retype it
          from a row that has since closed is the failure §6.2 is written
-         against. This block needs no permission and no activation. -->
+         against. This block needs no permission and no activation.
+
+         A SIBLING OF THE SHEETS, NEVER A CHILD OF ONE. The rack merge landed it
+         inside `#msheet`'s footer, and `#msheet` carries `hidden` -- so
+         `showCopyBlock`'s `focus()` silently did nothing, the block never took
+         focus, and layer 4 became a panel you could see and not copy from. Both
+         conflict sides ended on the same two closing tags and git had already
+         merged them outside the conflict, so concatenating the two sides nested
+         one inside the other. The finder driver caught it. -->
     <div class="cfall" id="cfall" role="group" aria-label="Copy this by hand" hidden>
       <p class="prose" id="cfWhy"></p>
       <textarea class="cfta" id="cfta" readonly spellcheck="false"
@@ -800,10 +1090,55 @@ var FATHOM_CORPUS_B64 = "@FATHOM_CORPUS_B64@";
    or a script element. There is no escaping to get wrong. */
 var FATHOM_DICT_B64 = "@FATHOM_DICT_B64@";
 
+/* THE SECOND DICTIONARY: the OPNsense firewall-rules table (64 1.1). One
+   Dictionary holds one platform, so this is a second frame and a second OP_DICT
+   call rather than a wider frame -- the module keeps them in separate slots and
+   a paste chooses one by sniffing its first line.
+
+   It is exactly here, beside the first, because the argument that moved the
+   junos dictionary out of the module is the argument this one proves: the
+   SECOND platform is where compiling dictionaries in stops scaling. This one
+   costs the page 4,065 bytes of YAML and the module nothing. */
+var FATHOM_DICT_CSV_B64 = "@FATHOM_DICT_CSV_B64@";
+
 var OP_INIT = 1, OP_QUERY = 4;
 var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, OP_PASTE = 15;
 var OP_EQUIP_ADD = 16, OP_FIELD_SET = 17, OP_ELEMENT_REMOVE = 18;
-var OP_DIAGRAM = 19, OP_DICT = 20;
+var OP_DIAGRAM = 19, OP_DICT = 20, OP_PLACE = 21;
+
+/* protocol::ERR_UNKNOWN_OP. The only error code this page names by number, and
+   it is named because boot() has to tell "this build has no demo estate" apart
+   from "the demo estate broke" — see boot(). Every other refusal is rendered
+   from its code and detail without the page knowing what it means. */
+var ERR_UNKNOWN_OP = 1;
+
+/* ADR-0036. There is no OP_RACK_LIST: a rack is an InvKind, so OP_INV_ROWS
+   lists it, and a second way to ask the same question would have cost 1,663
+   bytes of module for nothing. */
+var OP_RACK_PLACE = 22, OP_RACK_ELEVATION = 23;
+
+/* Draw a link by hand, or cut one. The opcode that makes a hand-built estate a
+   network: every write before it could add a box, name it, move it and rack it,
+   and none of them created an EDGE. */
+var OP_LINK = 24;
+
+/* protocol::ERR_LINK_CHOICE and ERR_NO_LINK, and the SECOND and THIRD codes
+   this page names by number.
+
+   ERR_LINK_CHOICE is not a failure — it is the module saying "the schema admits
+   more than one edge between those two, so choose", with the candidates' names
+   in the detail, space separated. The page has to tell that apart from a real
+   refusal to know whether to show a chooser or a message, and telling them
+   apart by pattern-matching an English sentence would be guessing.
+
+   ERR_NO_LINK travels with an EMPTY detail where a sentence would go, because
+   the sentence names both kinds and this page picked both boxes. Building it in
+   the module measured 345 bytes against `44` §5.2's ceiling; building it here
+   costs artifact bytes, of which there are 2.2 MB spare. */
+var ERR_LINK_CHOICE = 16, ERR_NO_LINK = 15;
+/* `protocol::ERR_EQUIP_STORE`. Named here because the link path words the
+   store's refusal itself — see dgLink — rather than showing `code 13 · out`. */
+var ERR_EQUIP_STORE = 13;
 
 /* The equipment form's fields, and the ONLY place this page names a field key.
    Each entry is [wire key, label, kind, required, note].
@@ -840,7 +1175,21 @@ var EQUIP_FIELDS = [
    nothing parses. */
 var PLATFORMS = ['junos-srx', 'junos-mx', 'junos-ex', 'panos', 'ios-xe', 'nx-os',
                  'eos', 'fortios', 'opnsense', 'omada-sw'];
-var ROLES = ['firewall', 'router', 'switch', 'load_balancer', 'other'];
+/* `Device.role`'s declared tokens, in the schema's own declaration order, with
+   `other` last. ADR-0037 added `server` and `access_point`: the owner's brief is
+   "design my network AND SERVERS for my home lab", and before those two every
+   server, NAS, hypervisor and access point in a lab was `other`.
+
+   The module refuses a role it does not declare (`author.rs` turns the generated
+   unknown arm into a refusal for the FORM direction on purpose), so an option
+   this list offers and the schema does not is not a wrong value in the store --
+   it is a dead entry in a dropdown that always fails. The reverse drift is worse
+   and quieter: a variant the schema declares and this list omits is simply
+   unreachable, which is exactly the defect ADR-0037 was written to fix.
+   `tests/artifact.rs::the_equipment_form_offers_every_declared_role` pins BOTH
+   directions against `DeviceRole::DECLARED`. */
+var ROLES = ['firewall', 'router', 'switch', 'load_balancer', 'server',
+             'access_point', 'other'];
 var FACE_HEADER = 0, FACE_INV = 1, FACE_FIELD = 2, FACE_PORT = 3, FACE_IFACE = 4;
 var FACE_PASTE = 5, FACE_RESIDUE = 6, FACE_UNRESOLVED = 7, FACE_CAPTURE = 8;
 var FACE_BOX = 9, FACE_LINE = 10, FACE_CANVAS = 11;
@@ -877,6 +1226,11 @@ var ROW_UNVERIFIED = 4;
    closed by the conventions and are never sent; the CAPTION is sent, because
    ADR-0011 lets an entry override it and one entry in the seed corpus does. */
 var RISK_CLASS = ['r-safe', 'r-caution', 'r-danger'];
+/* ADR-0036's elevation records. 12/13/14 and not 8/9/10: those became
+   FACE_CAPTURE, FACE_BOX and FACE_LINE on the tip while this was in flight,
+   and a face code is a wire discriminant -- a collision renders one record
+   kind as another rather than failing. */
+var FACE_RACK = 12, FACE_RACK_SLOT = 13, FACE_RACK_CLASH = 14;
 
 var wasm = null;                 /* the instance's exports */
 var wasmModule = null;
@@ -1059,6 +1413,10 @@ var S = {
   /* The last refusal, shown in the paste sheet where the text that caused it
      still is. Cleared by the next success. */
   pasteError: null,
+  /* Whether the last SUCCESSFUL paste was a table. Decides one word — see
+     residueNoun(). Set from the text that was actually read, never from the
+     textarea's current contents, which the operator may have edited since. */
+  pasteWasTable: false,
   /* The last refused hand-add, shown in the equipment sheet where the values
      that caused it are still typed in. Cleared by the next success. */
   equipError: null,
@@ -1097,7 +1455,17 @@ var S = {
 /* The estate's provenance, in the words the masthead, the band and the folio
    all use. One function, so they cannot drift. */
 function sourceWords() {
-  if (S.source === 'paste') return 'pasted config · junos-srx';
+  /* The platform is READ FROM THE REPLY, never written here. It was the
+     literal string 'junos-srx' until 2026-08-15, which was true while junos-srx
+     was the only dictionary and became a lie the moment a second one landed:
+     an operator who pasted an OPNsense export saw their rules parsed correctly
+     under a masthead, a folio and a band that all said JUNOS-SRX. The module
+     has always sent the real value in the paste summary's last slot — it is
+     `dict.platform()` — and nothing was reading it. */
+  if (S.source === 'paste') {
+    var h = pasteSummary();
+    return 'pasted config · ' + ((h && h.s[7]) || 'unknown platform');
+  }
   if (S.source === 'demo') return 'demo estate · not corpus data';
   /* Deliberately "includes", not "is". Adding by hand does not replace what is
      held, so this estate may well contain pasted devices too, and a word that
@@ -1130,7 +1498,28 @@ var KINDS = ['Device', 'PhysicalPort', 'Premises',
              /* Appended 2026-08-11 with the equipment form: `model` and `serial`
                 are Chassis fields, so without this button a hand-entered model
                 is stored and invisible. */
-             'Chassis'];
+             'Chassis',
+             /* Appended 2026-08-15 with ADR-0036's rack view. A rack IS
+                inventory -- a thing the estate holds, with a label, a capacity
+                and a count of what is in it -- so it gets a row here rather
+                than a bespoke opcode. */
+             'Rack',
+             /* Appended 2026-08-15 with the OPNsense firewall-rules CSV, which
+                is the first input that is not a Junos statement. A ruleset the
+                module parses correctly needs somewhere to appear. */
+             'SecurityPolicy'];
+
+/* An InvKind wire byte is a POSITION in this list, and a position is only
+   stable while nothing is appended. TWO kinds were appended on 2026-08-15 by
+   two people who could not see each other's work, which broke a `len() - 1` in
+   the Rust tests that meant "the chassis byte". So nothing here derives one
+   from the length either: ask for the kind you mean, BY NAME. */
+function kindByte(name) {
+  var i = KINDS.indexOf(name);
+  return i < 0 ? 0 : i;
+}
+var CHASSIS_KIND_BYTE = kindByte('Chassis');
+var RACK_KIND_BYTE = kindByte('Rack');
 
 var VIEWS = [
   { id: 'finder',      t: 'Finder',      key: '⌥1',
@@ -1207,9 +1596,11 @@ function renderInventory(host) {
 
   if (!S.loaded) {
     var np = el('div', 'pad');
+    /* No longer offers ?fixture=demo-estate: the fixture is not in this module
+       (see boot()), and an empty state that names a door the build does not
+       have is worse than one that names none. The two doors below are real. */
     unposted(np, 'inventory',
-      'no workspace loaded — paste a config (top right), or load the demo estate ' +
-      'with ?fixture=demo-estate');
+      'no workspace loaded — paste a config (top right), or add equipment by hand');
     if (S.boot) np.appendChild(el('p', 'prose', S.boot));
     host.appendChild(np);
     return;
@@ -1261,6 +1652,14 @@ function renderInventory(host) {
 
   if (S.source === 'paste') renderResidue(host);
 
+  /* `S.source === 'demo'` is reachable only from a module built with
+     --features demo-estate. `cargo run -p fathom-artifact` never builds one, so
+     this branch and sourceWords()'s are dormant in every artifact that command
+     produces. They are KEPT rather than deleted: deleting them would make
+     re-enabling the feature produce a half-broken page that loads the fixture
+     and then labels it "no workspace loaded", which is a worse failure than a
+     dormant branch. Driven live against a hand-spliced feature build on
+     2026-08-15 and the estate rendered and labelled correctly. */
   if (S.source === 'demo') {
     note(host, 'Demo estate · not corpus data',
       'No inventory ships in the corpus. This estate is constructed by checked-in code ' +
@@ -1287,6 +1686,31 @@ function pasteSummary() {
   return head || null;
 }
 
+/* LINES OR CELLS — the residue count's unit, and it is not cosmetic.
+   `csv.rs` reports a table's residue per CELL, on purpose: a row of fifty
+   columns with six understood is not honestly described as a row that was read.
+   So for a table the number in the tally counts cells, and calling them "lines"
+   is a plain lie about a figure the operator is meant to act on -- "44 lines not
+   read" of a four-row file.
+
+   The FIRST draft of this said just "not read" for both, which is true of
+   neither and cost something real: `scripts/drive-branch-coverage.mjs` matches
+   the footer verbatim and `66` §(the tally) quotes it as the evidence for a
+   published coverage figure. A selector is an API and so is a sentence somebody
+   measured with.
+
+   The read is deliberately the page's own, over the operator's own text in the
+   page's own textarea, rather than a platform name mapped here. It is a SECOND
+   reading of the same shape `fathom_ingest::csv::looks_like_rules_csv` performs,
+   and that duplication is stated rather than hidden -- but nothing rests on it
+   beyond a noun: if it disagreed with the module, the count would be right and
+   the word beside it wrong. Both readings are pinned by browser drivers (the
+   branch sweep asserts "lines", the OPNsense drive asserts "cells"), so a drift
+   is a failing check rather than a quiet wrong word. */
+function residueNoun() {
+  return S.pasteWasTable ? 'cells' : 'lines';
+}
+
 function renderTally(host) {
   var h = pasteSummary();
   if (!h) return;
@@ -1294,7 +1718,7 @@ function renderTally(host) {
   var ul = el('ul', 'tally');
   [[h.s[0], 'things understood'],
    [h.s[1], 'connections'],
-   [h.s[2], 'lines not read'],
+   [h.s[2], residueNoun() + ' not read'],
    [h.s[3], 'secrets removed'],
    [h.s[4], 'names not found']].forEach(function (pair) {
     var li = el('li');
@@ -1313,9 +1737,18 @@ function renderResidue(host) {
   var total = h.s[2];
   var p = el('div', 'pad');
 
-  p.appendChild(el('div', 'sh', 'Lines Fathom did not read — ' + total));
+  /* "What", not "Lines" — see the tally's note above: a table's residue is
+     cells, not lines, and the `line` column below still names the row. */
+  /* "Lines" or "Cells", by the same rule and for the same reason as the tally —
+     see residueNoun(). It said "What Fathom did not read" for one afternoon,
+     which is true of both and searchable as neither: it crashed
+     `2026-08-15-real-estate-input-probe.mjs`, which matches this heading to read
+     the withheld-row count out of it. */
+  p.appendChild(el('div', 'sh',
+    (S.pasteWasTable ? 'Cells' : 'Lines') + ' Fathom did not read — ' + total));
   if (rows.length === 0) {
-    p.appendChild(el('p', 'prose', 'Every line was read.'));
+    p.appendChild(el('p', 'prose',
+      S.pasteWasTable ? 'Every cell was read.' : 'Every line was read.'));
   } else {
     /* The cap is stated, never silent (78 §5). */
     if (String(rows.length) !== total) {
@@ -1838,6 +2271,23 @@ function renderBand() {
 }
 
 function renderShell() {
+  /* THE SHELL TELLS THE CSS WHICH VIEW IS ON, AND WHETHER ANYTHING IS PICKED.
+     Both are needed by the diagram's width rules and neither was available:
+     `--sheet` caps the whole app at 1180px and `.ledger` then gives the picture
+     62% of it, of which the Outline takes a fixed 18rem — so the canvas was
+     424 CSS px WIDE ON EVERY MONITOR, and a 59-object estate auto-fitted to
+     0.34x with 118 labels off. Measured, not estimated.
+
+     `--sheet` is 1180 because it is `2 × 72ch` of mono — a measure for READING
+     TEXT, and correct for the other five views. A diagram is not text and does
+     not have a comfortable line length. */
+  /* `data-viewing`, NOT `data-view`. The view TABS already carry `data-view`,
+     and reusing the name on the container made `[data-view="inventory"]` match
+     two elements — the tab and the sheet — so a click on that selector landed
+     on the sheet and switched nothing. It broke selection carry-over from the
+     inventory to the diagram and the removal round trip, in a change that only
+     touched CSS widths. An attribute is a selector, and a selector is an API. */
+  $('sheet').setAttribute('data-viewing', S.view);
   $('mTitle').textContent = viewMeta(S.view).t;
   $('mSub').textContent = 'dev artifact · ' + sourceWords();
   $('tabSource').textContent = sourceWords();
@@ -2053,7 +2503,11 @@ var DG = {
      this is false: refitting under someone who has just zoomed in on one tunnel
      is the tool taking the wheel back. */
   touched: false,
-  grab: null,                /* the live drag, or null */
+  grab: null,                /* the live PAN drag, or null */
+  box: null,                 /* the live BOX drag (ADR-0035), or null */
+  /* Set by a placement, consumed by the next renderDiagram: "the picture's
+     shape changed because I changed it, so do not refit". See opPlace. */
+  hold: false,
   eatClick: false            /* a drag that moved must not also select */
 };
 var dgOpen = false;
@@ -2313,6 +2767,359 @@ function dgClear() {
   say('selection cleared');
 }
 
+/* --- placing a box (ADR-0035) ---------------------------------------------
+
+   A hand-placed position is GRAPH DATA. It goes through the module, into the
+   store, with `Origin::Hand` provenance, and into the journal — which is what
+   makes it survive an export, an import and a colleague. It is emphatically not
+   held here: a position kept in the page would be `75` §2.4's "state written
+   beside the op log", the one shape of new state that document forbids because
+   it forecloses real-time collaboration.
+
+   One keyboard step. 20 scene units — five times `56` §5.3's 4 px grid, so it
+   still lands on the grid, and far enough that one press visibly moves the box
+   at 1×. A 4 px step would be correct and useless: at fit zoom on any real
+   estate it is a sub-pixel move, and a control whose effect you cannot see is a
+   control you will press until something breaks. */
+var DG_NUDGE = 20;
+
+/* The one place a placement reaches the module. `mode` 0 releases the box back
+   to computed layout and ignores the point; 1 places it.
+
+   The clock and the entropy come from the HOST, in the frame, because the
+   module has neither and must acquire neither — its import section is empty and
+   stays empty. Every other writing op on this page does the same. */
+function opPlace(id, mode, x, y) {
+  if (!wasm || !id) return false;
+  var ent = hostEntropy();
+  if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return false; }
+  var idBytes = new TextEncoder().encode(id);
+  var req = new Uint8Array(33 + idBytes.length);
+  var dv = new DataView(req.buffer);
+  var at = Date.now();
+  dv.setBigUint64(0, BigInt(at), true);
+  req.set(ent, 8);
+  req[24] = mode;
+  dv.setInt32(25, x, true);
+  dv.setInt32(29, y, true);
+  req.set(idBytes, 33);
+
+  var reply = call(OP_PLACE, req);
+  var bad = replyProblem(reply);
+  if (bad) { foot(bad); renderShell(); return false; }
+  S.journal.push({ op: 'place', at: at, ent: b64(ent), id: id, mode: mode, x: x, y: y });
+  /* Re-render, and HOLD the view. The picture's extent can grow when a box is
+     dragged past the grid the rank walk produced, which changes the signature
+     `renderDiagram` refits on — and refitting under somebody who has just moved
+     one box rescales the whole picture out from under them. `DG.hold` says "the
+     shape changed because I changed it", which is exactly the case where a
+     refit is wrong. */
+  DG.hold = true;
+  render();
+  return true;
+}
+
+/* What the four nudge buttons and `Alt`+arrow both call.
+
+   The box's CURRENT position is the base whether it came from a pin or from the
+   layout, which is what makes the first nudge of an unplaced box mean "start
+   from where it is" rather than "jump to the origin". */
+function dgNudge(dx, dy) {
+  var b = DG.boxes && S.sel && DG.boxes[S.sel];
+  if (!b) { foot('select a box first — nudging needs something to move'); renderShell(); return; }
+  if (b.collapsed) {
+    foot('that box stands for ' + b.n + ' objects, and a group has no single ' +
+         'position — open it and place one of its members');
+    renderShell();
+    return;
+  }
+  var id = S.sel;
+  if (!opPlace(id, 1, b.x + dx * DG_NUDGE, b.y + dy * DG_NUDGE)) return;
+  foot('moved ' + b.kind + ' ' + b.label);
+  say(b.kind + ' ' + b.label + ' moved, and it is now placed by hand');
+  dgRefocusRow(id);
+}
+
+/* Back under computed layout, in one action. `56` §3.5: "Unpinning is explicit
+   and reversible." */
+function dgFreePlacement() {
+  var b = DG.boxes && S.sel && DG.boxes[S.sel];
+  if (!b) { foot('select a box first'); renderShell(); return; }
+  if (!b.placed) {
+    /* Not an error and not silence. The end state the button promises is
+       already true, and saying so is what stops somebody pressing it again
+       looking for a response. */
+    foot(b.kind + ' ' + b.label + ' is already placed by the layout');
+    renderShell();
+    return;
+  }
+  var id = S.sel;
+  if (!opPlace(id, 0, 0, 0)) return;
+  foot(b.kind + ' ' + b.label + ' is back under computed layout');
+  say(b.kind + ' ' + b.label + ' released, and the layout places it again');
+  dgRefocusRow(id);
+}
+
+/* --- drawing a link by hand -----------------------------------------------
+
+   `52` §3.6 has given the diagram the same four jobs since it was written —
+   "add a device, DRAW A LINK, draw a tunnel, drag for layout" — and until now
+   three of them existed. A person could add a box, name it, correct it, move
+   it, rack it and remove it, and could not connect it to anything, so a lab
+   built by hand was a pile of unconnected boxes. This is the fourth.
+
+   THE GESTURE IS TWO STEPS AND BOTH ARE ORDINARY BUTTONS. Select a box, press
+   `hold this end`; select a second, press `draw the link`. That shape is not a
+   compromise for the keyboard — `55` §4.5.2 puts focus in the Outline and never
+   in the <svg>, so a drag from one shape to another is a gesture half the
+   contract cannot perform and the Outline is where the interface lives. A drag
+   would be a second way to do it, not the way.
+
+   WHICH EDGE IS THE MODULE'S DECISION, NOT THIS PAGE'S. `schema/` declares 84
+   edge kinds; `fathom_weld::hand_link_candidates` narrows them to the reference
+   edges the schema admits between the two kinds, and when exactly one survives
+   the module writes it without asking. When several do it refuses with
+   `ERR_LINK_CHOICE` and the names, and `dgChoice` below turns that into
+   buttons. This page never picks. */
+
+/* The end held for the next `draw the link`, as a display id, or null. Page
+   state and legitimately so: it is a half-finished gesture, not a fact. Nothing
+   is written until the second press, and nothing about it survives a reload —
+   which is right, because an unfinished gesture is not something a colleague
+   should receive. */
+var DG_HOLD = null;
+
+/* The candidate kinds the module last asked about, and the pair they were asked
+   about, so the chooser's buttons post the same two ids the question was about
+   rather than whatever is selected when they are pressed. */
+var DG_ASK = null;
+
+/* The one place a link reaches the module. `mode` 0 cuts, 1 draws. `kind` is a
+   schema edge kind NAME or '' for "you choose, if there is only one".
+
+   The clock and the entropy come from the HOST, in the frame, because the
+   module has neither and must acquire neither — its import section is empty and
+   stays empty. Every other writing op on this page does the same. */
+function opLink(a, b, mode, kind) {
+  if (!wasm || !a || !b) return false;
+  var ent = hostEntropy();
+  if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return false; }
+  var enc = new TextEncoder();
+  var ab = enc.encode(a), bb = enc.encode(b), kb = enc.encode(kind || '');
+  var req = new Uint8Array(29 + ab.length + bb.length + kb.length);
+  var dv = new DataView(req.buffer);
+  var at = Date.now();
+  dv.setBigUint64(0, BigInt(at), true);
+  req.set(ent, 8);
+  req[24] = mode;
+  dv.setUint16(25, ab.length, true);
+  dv.setUint16(27, bb.length, true);
+  req.set(ab, 29);
+  req.set(bb, 29 + ab.length);
+  req.set(kb, 29 + ab.length + bb.length);
+
+  var reply = call(OP_LINK, req);
+
+  /* NOT A FAILURE — A QUESTION. The module found more than one edge the schema
+     admits between those two and refused to guess, which is the whole design:
+     a wrong edge kind in an estate of record is worse than a prompt. */
+  if (reply && reply.kind === 'error' && reply.code === ERR_LINK_CHOICE) {
+    /* **THE MODE TRAVELS WITH THE QUESTION.** Without it the chooser's click arm
+       had to guess, and it guessed `draw` — so pressing "cut the link", being
+       asked which kind, and answering DREW a brand-new edge. The gesture whose
+       whole purpose is to remove a fact silently asserted one, journalled and
+       permanent, and the only signal was a past-tense sentence after the event.
+       Its corollary was equally fatal: a link of an ambiguous kind could never
+       be cut, because every cut re-asked and every answer drew. */
+    DG_ASK = { a: a, b: b, kinds: reply.detail.split(' '), mode: mode };
+    foot(mode === 0
+      ? 'there is more than one link between those two — pick the one to cut'
+      : 'the schema allows ' + DG_ASK.kinds.length + ' kinds of link between those two — pick one');
+    say(mode === 0
+      ? 'more than one link exists; a choice of which to cut has appeared in the link controls'
+      : 'more than one kind of link is possible; a choice has appeared in the link controls');
+    render();
+    return false;
+  }
+  /* THE SCHEMA'S REFUSAL, IN THE OPERATOR'S WORDS AND NOTHING ELSE.
+     `replyProblem` renders every other refusal as `the module refused: code N ·
+     detail`, which is right for a defect nobody expected and wrong here: a
+     schema saying two kinds do not connect is an ordinary answer to an ordinary
+     question, and `code 15` is machinery in a sentence a network engineer is
+     meant to read.
+
+     An empty detail is the schema refusal, which this page words itself because
+     it picked both boxes and knows both kinds (see ERR_NO_LINK). A non-empty one
+     is the module's own sentence — "there is no such link to cut" — passed
+     through unornamented. */
+  /* **THE STORE'S REFUSAL, WORDED HERE.** The module sends one word — `out`,
+     `in`, `sym` or `store` — and this page turns it into a sentence, which is
+     the same division `ERR_NO_LINK` above already uses and for the same reason:
+     prose in the module costs ceiling bytes and prose in the page costs artifact
+     bytes, and there are 4.5 MB of the second and none of the first. Composing
+     these two sentences in Rust measured **433 bytes** of a round that had 451
+     to find, and moving them here is most of what made both features fit.
+
+     `kind` may be empty when the module chose the only candidate itself, and the
+     sentence is written to be true either way. */
+  if (reply && reply.kind === 'error' && reply.code === ERR_EQUIP_STORE &&
+      /^(out|in|sym|store)$/.test(reply.detail || '')) {
+    var kw = kind ? 'a ' + kind : 'a link of that kind';
+    foot(reply.detail === 'sym'
+      ? 'those two already have ' + kw + ' — it has no direction, so there is only one of it'
+      : reply.detail === 'store'
+      ? 'the store refused ' + kw + ' between those two — that is a defect in Fathom rather than something you did'
+      : 'the schema allows only one ' + (kind || 'link of that kind') + ' ' +
+        (reply.detail === 'out' ? 'out of' : 'into') +
+        ' that box, and it already has one');
+    renderShell();
+    return false;
+  }
+  if (reply && reply.kind === 'error' && reply.code === ERR_NO_LINK) {
+    var ka = dgKindOf(a), kb2 = dgKindOf(b);
+    foot(reply.detail ? reply.detail
+      : kind ? kind + ' does not run from a ' + ka + ' to a ' + kb2
+      : 'nothing in the schema connects a ' + ka + ' to a ' + kb2 +
+        /* The one pair where the answer is not "you cannot" but "not here".
+           `MountedIn` is `OP_RACK_PLACE`'s, because that opcode writes the unit
+           the schema declares `card: "1"` and this gesture carries no value for
+           it. Pointing at the door that does work is worth more than a refusal
+           that is technically complete. */
+        (ka === 'Chassis' && kb2 === 'Rack'
+          ? ' — a chassis goes into a rack on the rack sheet, at a unit'
+          : ''));
+    renderShell();
+    return false;
+  }
+  var bad = replyProblem(reply);
+  if (bad) { foot(bad); renderShell(); return false; }
+
+  /* THE KIND THE MODULE ACTUALLY WROTE, not the one that was asked for. With an
+     empty `kind` the module chose, and the journal has to record the choice
+     rather than the blank — an empty kind replayed against a later schema could
+     resolve to something else, and a hand-drawn link that comes back as a
+     DIFFERENT relationship is worse than one that fails to come back. */
+  var wrote = (reply.rows && reply.rows[0] && reply.rows[0].s[0]) || kind;
+
+  /* DID IT ACTUALLY WRITE? Slot 1 is `0` for a cut, `1` for a draw, and `2` for
+     "that link was already there, so nothing was written". The third case is a
+     SUCCESS — the end state asked for is the end state held — and it is not a
+     draw, which matters twice over. See `ALREADY_THERE` in `shell.rs`. */
+  var did = !(reply.rows && reply.rows[0] && reply.rows[0].s[1] === '2');
+
+  /* JOURNALLED, WITH THE SAME CLOCK AND ENTROPY THE OP USED. This has been got
+     wrong twice in this project — the rack shipped writing to the module and
+     not to `S.journal`, so an export dropped every rack in silence. A hand-drawn
+     link that does not survive a round trip is not degraded, it is DELETED:
+     there is no paste that can rebuild it. `importJournal` has the matching
+     arm and `2026-08-16-hand-link-drive.mjs` drives the whole loop.
+
+     NOT PUSHED when nothing was written. Replaying a draw that did not happen
+     is harmless to the estate — it is the same no-op on the way back in — but
+     the journal is the file an operator KEEPS and a colleague READS, and an
+     entry saying a person drew this line when the parser did is a false
+     provenance claim in the record. `88`'s standing rule about the estate of
+     record applies to the journal that rebuilds it. */
+  if (did) {
+    S.journal.push({ op: 'link', at: at, ent: b64(ent), from: a, to: b, kind: wrote, mode: mode });
+  }
+  DG_ASK = null;
+  /* Hold the view: a new line can grow the picture's extent, and refitting
+     under somebody who has just drawn one link rescales everything out from
+     under them. Same reasoning as `opPlace`. */
+  DG.hold = true;
+  render();
+  /* The kind, and whether it was written. An array so `if (!wrote) return` in
+     `dgLink` still tells success from refusal — every refusal above returns
+     `false` — while the sentence below can tell a draw from a no-op. */
+  return [wrote, did];
+}
+
+/* A drawn box's kind word, for the sentences above. Read from what the module
+   already sent — slot 1 of the box row — not inferred from the id. */
+function dgKindOf(id) {
+  var b = DG.boxes && DG.boxes[id];
+  return b ? b.kind : 'box';
+}
+
+/* `PeersWith` -> `peers with`. A schema name split at its capitals and lowered,
+   so a chooser reads as English without a per-edge table anywhere.
+
+   DERIVED, NOT TRANSLATED, and the difference matters: a table mapping 84 edge
+   kinds to phrases would be 84 chances to write down what somebody wished the
+   edge meant instead of what the schema says it means. The schema's own name is
+   kept beside the words — on the button's `title` and in every message the
+   record keeps — because that is what is written into the estate. */
+function dgWords(name) {
+  var out = '', i, c;
+  for (i = 0; i < name.length; i++) {
+    c = name.charAt(i);
+    if (i > 0 && c >= 'A' && c <= 'Z') out += ' ';
+    out += c.toLowerCase();
+  }
+  return out;
+}
+
+/* Step one: remember this end. Nothing is written. */
+function dgHoldEnd() {
+  var b = DG.boxes && S.sel && DG.boxes[S.sel];
+  if (!b) { foot('select a box first — a link needs two ends'); renderShell(); return; }
+  if (b.collapsed) {
+    foot('that box stands for ' + b.n + ' objects, and a link joins two things — ' +
+         'open it and hold one of its members');
+    renderShell();
+    return;
+  }
+  DG_HOLD = S.sel;
+  DG_ASK = null;
+  foot('holding ' + b.kind + ' ' + b.label + ' — select the other end and draw the link');
+  say('holding ' + b.kind + ' ' + b.label + ' as one end of a link');
+  render();
+}
+
+/* Step two: draw it, or cut it. One function because the two are the same
+   gesture with a mode byte, exactly as placing and releasing a box are. */
+function dgLink(mode, kind) {
+  var far = DG_ASK ? DG_ASK.b : S.sel;
+  var near = DG_ASK ? DG_ASK.a : DG_HOLD;
+  if (!near) { foot('hold one end first'); renderShell(); return; }
+  if (!far) { foot('select the other end'); renderShell(); return; }
+  var reply = opLink(near, far, mode, kind || '');
+  if (!reply) return;
+  var wrote = reply[0], did = reply[1];
+  var words = dgKindOf(near) + ' and ' + dgKindOf(far);
+  if (mode === 0) {
+    foot('cut the ' + wrote + ' link between ' + words);
+    say('link cut');
+  } else if (did) {
+    foot('drew a ' + wrote + ' link between ' + words + ' — it is marked as drawn by hand');
+    say('drew a ' + wrote + ' link, marked in the picture as drawn by hand');
+  } else {
+    /* THE THIRD SENTENCE, and it exists because the second one was a lie in the
+       one case it could be. Pressing draw on a pair a PASTE already connected
+       used to answer "drew a BindsInterface link … marked as drawn by hand",
+       when nothing had been drawn and the line in the picture carries no mark
+       at all — because it is the parser's line, not yours. Saying which is
+       whose is the whole point of the hand mark. */
+    foot('those two already have a ' + wrote + ' link — nothing was drawn, ' +
+         'and that line stays as it was read');
+    say('that link was already there; nothing was drawn');
+  }
+  DG_HOLD = null;
+  dgRefocusRow(far);
+}
+
+/* A placement rebuilds the Outline, so the row the user was standing on is a
+   different element afterwards. Put focus back on the new one, or every nudge
+   would drop focus to <body> — `53` §13 failure 7, arrived at from a new
+   direction. */
+function dgRefocusRow(id) {
+  var row = DG.out && DG.out.querySelector('[data-drow="' + cssEsc(id) + '"]');
+  if (!row) return;
+  dgRove(row);
+  row.focus();
+}
+
 /* --- the Outline ----------------------------------------------------------
 
    `55` §4.5.2: "keyboard focus in the diagram view never enters the <svg>. It
@@ -2391,6 +3198,14 @@ function dgExpand(row, open) {
        subtree where only a mouse could have found it. */
     lr.appendChild(el('span', 'dokind docnt',
       c.n > 1 ? c.kind + ' × ' + c.n : c.kind));
+    /* The hand fact, in words, on the tree assistive technology actually reads.
+       The word in the picture is inside an `aria-hidden` <svg>, so on its own it
+       announces this to nobody -- the exact failure
+       `docs/80-review/evidence/2026-08-15-diagram-aggregation-ax.mjs` exists to
+       catch, and the same one ADR-0035 had to answer for a placed box. Who says
+       two boxes are connected is the load-bearing claim a network diagram
+       makes; it belongs on the row a keyboard can reach. */
+    if (c.hand) lr.appendChild(el('span', 'docnt', 'drawn by hand'));
     at.parentNode.insertBefore(lr, at.nextSibling);
     at = lr;
   });
@@ -2455,11 +3270,30 @@ function dgOutline(boxes, noSetKinds, agg) {
        inspector". This is that row. */
     row.appendChild(el('span', 'doname', b.s[2]));
     row.appendChild(el('span', 'dokind', b.s[1]));
+    /* WHAT THE BOX IS FOR (ADR-0037). A plain row takes its accessible name
+       from its own text -- it carries no aria-label, unlike the collapsed
+       branch above -- so a visible span is BOTH the seen fact and the announced
+       one, and there is no second copy to drift. The picture's own right-hand
+       label lives inside the aria-hidden <svg> and announces nothing, which is
+       why it cannot be the only place the role appears.
+
+       After `dokind` and not before it: the kind is what the node IS and the
+       role is what it is FOR, a weaker and more specific fact, and a screen
+       reader reads this row in DOM order. `Device` never appears without
+       `server` following it, never the other way round. */
+    if (ag.role) row.appendChild(el('span', 'dorole', ag.role));
     /* A collapsed box stands for many objects and the row must SHOW so, not
        only announce it. `59` §3.6 makes the cardinal the one label that may
        never be dropped, and a row reading `LogicalUnit st0.0–st0.12 · 3 links`
        with no count is the picture's own stack silently unsaid. */
     if (ag.collapsed) row.appendChild(el('span', 'docnt', ag.n + ' collapsed'));
+    /* The placed fact, in words, on the tree assistive technology actually
+       reads. The tick and the word in the picture are inside an `aria-hidden`
+       <svg>, so on their own they announce this to nobody — which is the exact
+       failure `docs/80-review/evidence/2026-08-15-diagram-aggregation-ax.mjs`
+       exists to catch. `56` §3.5's override is a fact about the box, so it
+       belongs on the box's row. */
+    if (ag.placed) row.appendChild(el('span', 'docnt', 'placed by hand'));
     row.appendChild(el('span', 'docnt', plural(String(n), 'link', 'links')));
     if (noSetKinds.indexOf(b.s[1]) >= 0) {
       row.setAttribute('data-noset', '1');
@@ -2595,9 +3429,9 @@ function renderDiagram(host) {
      and it computes nothing about the graph: the module already emitted every
      link in a total order, and grouping preserves it. */
   DG.conn = {};
-  function bucket(id, far, kind, out, n) {
+  function bucket(id, far, kind, out, n, hand) {
     if (!DG.conn[id]) DG.conn[id] = [];
-    DG.conn[id].push({ far: far, kind: kind, out: out, n: n || 1 });
+    DG.conn[id].push({ far: far, kind: kind, out: out, n: n || 1, hand: !!hand });
   }
 
   /* Which drawn kinds the inventory has no row set for. Reading the kind words
@@ -2630,9 +3464,133 @@ function renderDiagram(host) {
   DG.readout = el('span', 'dzoom', '1.00×');
   zc.appendChild(DG.readout);
   strip.appendChild(zc);
+
+  /* --- placing a box, for a keyboard (ADR-0035) -----------------------------
+
+     A drag is a pointer gesture and half the contract cannot perform one, so
+     the placement has to be reachable another way. These are that way, and they
+     are ORDINARY BUTTONS in an ordinary DOM group, which is deliberate on two
+     counts.
+
+     First, `55` §4.5.2: focus never enters the <svg>, so a control declared on
+     a shape is declared to nobody. Second, and this is the harder one, `53` is
+     the sole owner of the keymap under ADR-0024 and this page binds nothing.
+     The same question came up for continuous zoom and the answer taken there
+     was to ship buttons and decline to invent `+` and `-`; the same answer is
+     taken here rather than a different one. `Alt`+arrow is bound below as an
+     ACCELERATOR over these controls — never as the only way to reach them —
+     and ADR-0035 §9 files it for `53` to ratify or move.
+
+     They act on the SELECTION rather than appearing per row, because a row that
+     carried five buttons would be five more tab stops per box in a list that is
+     already the whole interface, and because "the thing I am working on" is
+     what a selection means.
+
+     Rendered unconditionally, not only when something is selected: `dgSelect`
+     deliberately does not rebuild this strip (rebuilding it would drop the pan,
+     the zoom and the focused row), so a group that appeared on selection would
+     be a group that never appeared. With nothing selected they say so. */
+  var pc = el('div', 'dplacectl');
+  pc.setAttribute('role', 'group');
+  pc.setAttribute('aria-label', 'place the selected box');
+  pc.appendChild(el('span', 'lab', 'place'));
+  [['left', -1, 0], ['right', 1, 0], ['up', 0, -1], ['down', 0, 1]].forEach(function (n) {
+    var b = el('button', null, n[0]);
+    b.type = 'button';
+    b.setAttribute('data-dnudge', n[1] + ' ' + n[2]);
+    pc.appendChild(b);
+  });
+  /* THE UNDO, and it is one action and it is next to the thing it undoes.
+     `56` §3.5 requires unpinning to be explicit and reversible; this is the
+     explicit half. It reads as what it does rather than as "unpin", because
+     "pin" is this build's word and not the operator's. */
+  var bFree = el('button', null, 'let the layout place it');
+  bFree.type = 'button';
+  bFree.setAttribute('data-dfree', '1');
+  pc.appendChild(bFree);
+  strip.appendChild(pc);
+
+  /* --- drawing a link, for a keyboard --------------------------------------
+
+     Same group shape and the same reasoning as the place controls above: focus
+     never enters the <svg>, so the interface is the Outline and its strip, and
+     these act on the SELECTION rather than appearing per row.
+
+     Three controls and no more. `hold this end` remembers one box, `draw the
+     link` and `cut the link` act between it and whatever is selected now. There
+     is no fourth control for "which kind" because the module answers that; when
+     it cannot, the chooser below appears in this same group, next to the
+     buttons that raised the question. */
+  var lc = el('div', 'dplacectl');
+  lc.setAttribute('role', 'group');
+  lc.setAttribute('aria-label', 'draw a link between two boxes');
+  lc.appendChild(el('span', 'lab', 'link'));
+  /* THE HELD END IS THE BUTTON'S OWN LABEL, not a status span beside it, and
+     that is a measurement rather than a preference. As a separate `lab` span
+     this group was four flex items, the strip wrapped one line further at
+     1400x400, and `2026-08-15-diagram-surface-edges.mjs` went red on `at least
+     one row is on screen` — the strip had taken the last visible Outline row,
+     which is the exact defect §the surface rebuild files as its number one and
+     which the `whole` control above was moved into the strip to avoid.
+
+     A button that says what it is holding is also better than a button plus a
+     label that says it: `aria-pressed` carries the mode for assistive
+     technology, the text carries it for everyone, and the `whole` button two
+     blocks up already sets the precedent for a label that changes with state. */
+  var held = DG_HOLD && DG.boxes && DG.boxes[DG_HOLD];
+  var bHold = el('button', null,
+    held ? 'holding ' + held.label
+         : DG_HOLD ? 'holding a box no longer drawn'
+         : 'hold this end');
+  bHold.type = 'button';
+  bHold.setAttribute('data-dhold', '1');
+  /* aria-pressed, because holding an end is a MODE and a button that silently
+     changed what the next press means would be a toggle pretending not to be
+     one. `55` §1.4's rule about a state only a mouse can see, applied to a
+     state only a footer message announced. */
+  bHold.setAttribute('aria-pressed', String(!!DG_HOLD));
+  lc.appendChild(bHold);
+  [['draw the link', '1'], ['cut the link', '0']].forEach(function (n) {
+    var b = el('button', null, n[0]);
+    b.type = 'button';
+    b.setAttribute('data-dlinkmode', n[1]);
+    lc.appendChild(b);
+  });
+
+  /* THE CHOICE, when the schema leaves more than one. Rendered as real buttons
+     in the same group, each labelled with the edge kind's own name split into
+     words — `PeersWith` reads as `peers with`, and the schema's name is kept
+     beside it because that is what goes into the record and into the exported
+     journal. The page NEVER renames an edge to what somebody might wish it
+     meant; `hand_link_candidates` has the reasoning. */
+  if (DG_ASK && DG_ASK.kinds.length) {
+    var ask = el('div', 'dplacectl');
+    ask.setAttribute('role', 'group');
+    /* The verb is IN the label, both places. "which kind of link" told the
+       reader nothing about what pressing a button would DO, which is how the
+       cut-that-draws stayed invisible until it was driven. */
+    ask.setAttribute('aria-label',
+      DG_ASK.mode === 0 ? 'which link to cut' : 'which kind of link to draw');
+    ask.appendChild(el('span', 'lab', DG_ASK.mode === 0 ? 'cut which' : 'draw which'));
+    DG_ASK.kinds.forEach(function (k) {
+      var b = el('button', null, dgWords(k));
+      b.type = 'button';
+      b.setAttribute('data-dlinkkind', k);
+      b.title = k;
+      ask.appendChild(b);
+    });
+    strip.appendChild(ask);
+  }
+  strip.appendChild(lc);
+
+  /* NOT LENGTHENED for the link controls, and that is deliberate: a hint is
+     laid out by the same flex wrap as everything else in this strip, and at
+     1400x400 the extra words cost the last visible Outline row (measured; see
+     the hold button above). The three link buttons say what they do in their
+     own labels, which is where a control's explanation belongs. */
   strip.appendChild(el('span', 'lab dhint',
-    'an element in any active layer is drawn · drag to pan · wheel to zoom · ' +
-    'z fits · arrows walk the outline'));
+    'an element in any active layer is drawn · drag a box to move it · ' +
+    'drag the background to pan · wheel to zoom · z fits · arrows walk the outline'));
 
   /* --- the summary line. `55` §6.3: at 320 px the canvas collapses to this and
      the Outline takes the width. Present at every width, shown at one. */
@@ -2676,6 +3634,7 @@ function renderDiagram(host) {
      a reference: "this port is on that device" is structure, "this tunnel binds
      that interface" is a fact about the network. `51` §9 reserves `dashed` for
      PROPOSED elements, so containment is thin-and-muted, never dashed. */
+  var handLines = 0;
   for (var li = 0; li < lines.length; li++) {
     var l = lines[li];
     var pts = l.s[4];
@@ -2686,8 +3645,14 @@ function renderDiagram(host) {
        `55` §1.4 says a mouse-hover-only affordance inside an aria-hidden subtree
        is not a way of saying it), and only the Outline satisfies both. */
     var lmem = parseInt(l.s[5], 10) || 1;
-    bucket(l.s[0], l.s[1], l.s[2], true, lmem);
-    bucket(l.s[1], l.s[0], l.s[2], false, lmem);
+    /* Slot 6 is `Origin::Hand` on the edge itself — a person drew this line, a
+       parser did not read it out of a capture. It is bucketed through to the
+       Outline row for the same reason the count is: the picture's own mark sits
+       inside an `aria-hidden` subtree and announces this to nobody. */
+    var lhand = l.s[6] === '1';
+    if (lhand) handLines++;
+    bucket(l.s[0], l.s[1], l.s[2], true, lmem, lhand);
+    bucket(l.s[1], l.s[0], l.s[2], false, lmem, lhand);
     var d = '', parts = pts.split(' ');
     for (var pi = 0; pi < parts.length; pi++) {
       var xy = parts[pi].split(',');
@@ -2702,8 +3667,27 @@ function renderDiagram(host) {
       d: d,
       fill: 'none',
       'vector-effect': 'non-scaling-stroke',
-      class: l.s[3] === '1' ? 'dline dcontain' : 'dline dref'
+      class: (l.s[3] === '1' ? 'dline dcontain' : 'dline dref') + (lhand ? ' dhand' : '')
     }));
+    /* THE HAND MARK, and the ink is constrained before it is chosen. `51` §9
+       reserves `dashed` for AI-PROPOSED content ("nothing deterministic in this
+       product is ever drawn with a dashed rule") and `dotted` for an unanswered
+       required value, and a hand-drawn link is neither. So it is marked the way
+       ADR-0035 marks a hand-placed box: a WORD, at the line's midpoint, plus a
+       heavier stroke. A word cannot be confused with a reserved rule style and
+       survives forced colours, which a stroke weight alone does not (`51` §6).
+
+       At the midpoint of the polyline's middle segment rather than of the
+       bounding box: an orthogonal route's centre can sit outside the line. */
+    if (lhand && parts.length >= 2) {
+      var m0 = parts[Math.floor((parts.length - 1) / 2)].split(',');
+      var m1 = parts[Math.floor((parts.length - 1) / 2) + 1].split(',');
+      var mx = (parseInt(m0[0], 10) + parseInt(m1[0], 10)) / 2;
+      var my = (parseInt(m0[1], 10) + parseInt(m1[1], 10)) / 2;
+      var hw = sEl('text', { x: mx, y: my - 4, class: 'dhandmark', 'text-anchor': 'middle' });
+      hw.textContent = 'by hand';
+      DG.scene.appendChild(hw);
+    }
   }
 
   /* Slot 7 is `<count> <interior> <group key>`, the last possibly empty. Read
@@ -2711,13 +3695,27 @@ function renderDiagram(host) {
      about the whole group -- how many of its members are shown against how
      many exist -- and no single box knows it. `59` §3.8's partial state
      ("6 of 40 shown") is exactly that fact. */
-  var agg = [], stood = 0, swallowed = 0, tally = {};
+  var agg = [], stood = 0, swallowed = 0, tally = {}, placedCount = 0;
   for (var ai = 0; ai < boxes.length; ai++) {
-    var parts = (boxes[ai].s[7] || '1 0 ').split(' ');
+    /* `<count> <interior> <placed> <group key>`. The placed flag was inserted
+       BEFORE the group key when ADR-0035 landed, not appended after it: the key
+       is the only token here that may be empty, so a fourth token after it
+       would be indistinguishable from no token at all on an ungrouped box.
+       `crates/fathom-wasm/tests/diagram_agg.rs` pins the same four positions
+       from the other side of the boundary. */
+    var parts = (boxes[ai].s[7] || '1 0 0 - ').split(' ');
     var a = {
       n: parseInt(parts[0], 10) || 1,
       inside: parseInt(parts[1], 10) || 0,
-      grp: parts[2] || '',
+      placed: parts[2] === '1',
+      /* ADR-0037's `Device.role`, inserted at 3 for the same reason the placed
+         flag was inserted at 2: the group key is the only token here that may
+         be empty, so anything appended after it is indistinguishable from
+         nothing. The module sends `-` for "no role" rather than an empty
+         token, because two adjacent spaces collapse under split(' ') and the
+         group key would then be read as the role. */
+      role: parts[3] === '-' ? '' : (parts[3] || ''),
+      grp: parts[4] || '',
       /* An OUTLINE ROW id, not a shape id. `aria-controls` must name nodes the
          accessible tree can reach, and the shapes live inside `aria-hidden`
          SVG. Same index, so row i and box i are the same object throughout. */
@@ -2728,6 +3726,7 @@ function renderDiagram(host) {
     agg.push(a);
     stood += a.n;
     swallowed += a.inside;
+    if (a.placed) placedCount++;
     if (a.key) {
       var t2 = tally[a.key] || (tally[a.key] = { shown: 0, hidden: 0, ids: [] });
       if (a.collapsed) t2.hidden += a.n;
@@ -2800,6 +3799,13 @@ function renderDiagram(host) {
       name = b.s[1] + ' ' + b.s[2] + ', ' + ag.n + ' collapsed. Activate to ' +
              'expand ' + Math.min(ag.n, 6) + ' of them.';
     } else {
+      /* No role here, deliberately. `ag.name` is read in exactly one place --
+         the aria-label a COLLAPSED Outline row carries -- and a plain row takes
+         its accessible name from its own text instead. Putting the role in this
+         string would have looked like surfacing it and announced it to nobody,
+         which is the same shape of mistake as an aria attribute on the
+         aria-hidden <svg>. The plain row's role rides as a visible span in
+         dgOutline, where it is both seen and read. */
       name = b.s[1] + ' ' + b.s[2];
     }
     /* Carried to the Outline, which is the tree assistive technology actually
@@ -2863,10 +3869,57 @@ function renderDiagram(host) {
       : { x: bx + 10, y: by + 17, class: 'dkind' });
     kind.textContent = b.s[1];
     g.appendChild(kind);
+    /* THE ROLE, right-aligned on the kind's line (ADR-0037). A box is 44 px
+       tall and already carries two text lines at +17 and +34, so there is no
+       third rung to give this; the right of the kind line is the only slot in
+       the box that is free on a PLAIN box, and it is free precisely because the
+       two things that use it -- the collapsed count's kind word and the placed
+       word -- never co-occur with a role. A collapsed box never has one (the
+       module leaves it empty for a box standing for many), and `placed` sits on
+       the +34 line. So no reading of any box puts two labels in one slot.
+
+       Rejected: growing BOX_H to 60 for a third rung. That is a layout constant
+       every routing channel, every canvas extent and every stored pin is
+       measured against, changed to make room for one word. */
+    if (ag.role) {
+      var rl = sEl('text', { x: bx + bw - 10, y: by + 17, class: 'drole',
+        'text-anchor': 'end' });
+      rl.textContent = ag.role;
+      g.appendChild(rl);
+    }
     if (ag.collapsed) {
       var cnt = sEl('text', { x: bx + 10, y: by + 17, class: 'dcount' });
       cnt.textContent = ag.n + ' collapsed';
       g.appendChild(cnt);
+    }
+    /* THE PLACED MARK. `56` §3.5 keeps layout computed and makes a hand
+       position an OVERRIDE, so the picture has to say which boxes carry one —
+       "a diagram that silently mixes computed and asserted positions is lying
+       about which is which". This is the picture's half of saying it; the
+       Outline row and the band carry the other two.
+
+       An L at the top-left corner, outside the box by 4 px (`--s1`, the grid
+       every coordinate is a multiple of). Outside rather than inside because
+       the inside of a box is already three labels deep on a collapsed one and
+       two on a plain one, and a mark that has to compete for room is a mark
+       that will be dropped. `non-scaling-stroke` for the same reason every
+       other stroke here carries it: at zoom 3 an unmarked stroke is a slab.
+
+       A box that stands for many nodes can never be placed — `fathom-layout`
+       only reads a pin when the cell holds exactly one node — so this mark and
+       the aggregation stack cannot appear on the same box, and the two node
+       marks never have to share a corner. */
+    if (ag.placed) {
+      g.appendChild(sEl('path', {
+        d: 'M' + (bx - 4) + ' ' + (by + 6) + ' L' + (bx - 4) + ' ' + (by - 4) +
+           ' L' + (bx + 6) + ' ' + (by - 4),
+        class: 'dpin',
+        'vector-effect': 'non-scaling-stroke'
+      }));
+      var pl = sEl('text', { x: bx + bw - 10, y: by + 34, class: 'dplaced',
+        'text-anchor': 'end' });
+      pl.textContent = 'placed';
+      g.appendChild(pl);
     }
     var name2 = sEl('text', { x: bx + 10, y: by + 34, class: 'dname' });
     /* Truncate in the renderer, never in the model: the full name is in the
@@ -2878,7 +3931,8 @@ function renderDiagram(host) {
     DG.scene.appendChild(g);
     DG.boxes[b.s[0]] = {
       x: bx, y: by, w: bw, h: bh, g: g,
-      kind: b.s[1], label: b.s[2], n: ag.n, collapsed: ag.collapsed
+      kind: b.s[1], label: b.s[2], n: ag.n, collapsed: ag.collapsed,
+      placed: ag.placed
     };
   }
 
@@ -2928,9 +3982,28 @@ function renderDiagram(host) {
     '. Layers: ' + layerWords() + ' — ' + hidObjects + ' objects and ' + hidEdges +
     ' links hidden by the mask. Toggling a layer never moves a box: one layout ' +
     'is computed over all five and the mask filters what is drawn (56 §3.6). ' +
-    'Positions come from the model, not from dragging: there is no hand ' +
-    'placement, because a position is graph data (56 §3.5) and the op that ' +
-    'would store one does not exist yet. Staleness is not in this build. Pan, ' +
+    'Positions are computed by the model, and ' +
+    (placedCount === 0
+      ? 'none of these boxes has been moved by hand. Drag one, or use the place ' +
+        'controls above, and it stays where you put it — through an export and ' +
+        'an import, because a position is graph data (ADR-0035) and not a view ' +
+        'preference. '
+      : plural(String(placedCount), 'box carries', 'boxes carry') + ' a hand ' +
+        'position that overrides the computed one — each marked in the picture ' +
+        'with a corner tick and the word placed, and on its Outline row. ') +
+    /* The same sentence the placed count gets, and for the same reason: who
+       asserted a thing is a fact about the picture, and a picture that shows
+       hand-drawn and parsed lines identically is lying about the most
+       load-bearing claim a network diagram makes. */
+    (handLines === 0
+      ? 'No line here was drawn by hand. Hold one box with the link controls ' +
+        'above, select another, and draw one — it survives an export and an ' +
+        'import, because a link is graph data and not a view preference, and ' +
+        'no paste can rebuild it. '
+      : plural(String(handLines), 'line was', 'lines were') + ' drawn by hand ' +
+        'rather than read out of a config — each marked in the picture with the ' +
+        'words by hand and a heavier stroke, and on its Outline row. ') +
+    'Staleness is not in this build. Pan, ' +
     'zoom, which groups are open and whether the picture is open at a narrow ' +
     'width are the only things this page remembers about the surface.');
 
@@ -2992,8 +4065,9 @@ function renderDiagram(host) {
      where the user was standing. Refit only when the picture itself changed
      shape, which is what the signature detects. */
   var sig = DG.w + 'x' + DG.h + ':' + boxes.length;
-  if (sig !== DG.sig) { DG.sig = sig; dgFit(false); }
-  else { dgApply(); dgLod(); dgReadout(); }
+  DG.placed = placedCount;
+  if (sig !== DG.sig && !DG.hold) { DG.sig = sig; dgFit(false); }
+  else { DG.sig = sig; DG.hold = false; dgApply(); dgLod(); dgReadout(); }
 
   /* The other half of the round trip: a row selected in the inventory is still
      selected here, so the box is marked and brought into view. The tree's one
@@ -3033,6 +4107,28 @@ document.addEventListener('click', function (ev) {
     return;
   }
   if ((n = seekAttr(ev.target, 'data-dexpand'))) { dgToggleOpen(n); return; }
+  if ((n = seekAttr(ev.target, 'data-dnudge'))) {
+    var step = n.getAttribute('data-dnudge').split(' ');
+    dgNudge(parseInt(step[0], 10) || 0, parseInt(step[1], 10) || 0);
+    return;
+  }
+  if ((n = seekAttr(ev.target, 'data-dfree'))) { dgFreePlacement(); return; }
+  if ((n = seekAttr(ev.target, 'data-dhold'))) { dgHoldEnd(); return; }
+  if ((n = seekAttr(ev.target, 'data-dlinkmode'))) {
+    dgLink(parseInt(n.getAttribute('data-dlinkmode'), 10), '');
+    return;
+  }
+  /* The chooser's answer. It goes back through the same op with the kind named,
+     so a chosen link and an unambiguous one take the identical path — including
+     the journal push, which is the one place a second path would have quietly
+     lost a hand-drawn line. */
+  if ((n = seekAttr(ev.target, 'data-dlinkkind'))) {
+    /* The mode that RAISED the question, never a literal. This read `1` and so
+       every answer drew, including the answers to "which link do you want to
+       cut". See DG_ASK. */
+    dgLink(DG_ASK ? DG_ASK.mode : 1, n.getAttribute('data-dlinkkind'));
+    return;
+  }
   /* BEFORE the data-drow arm: a collapsed group's Outline row carries both, and
      a click on it must open the group rather than try to select an element id
      that names a group and not a thing. The keyboard path has the same
@@ -3137,6 +4233,28 @@ document.addEventListener('keydown', function (e) {
     return;
   }
 
+  /* THERE IS NO KEYBOARD CHORD FOR NUDGING, AND THAT IS THE FIX.
+     `Alt`+arrow was bound here and it collided head-on: `53` §3.1 already
+     spends `⌥←`/`⌥→` on previous/next view, product-wide and global, so
+     `Alt+ArrowLeft` moved the box AND threw the reader into Findings. Driven,
+     both horizontal directions ejected you from the view you were working in.
+
+     The justification cited `53` §4.4, which is a proposal about OS-reserved
+     `Ctrl+↑`/`Ctrl+↓`, while §3.1 — the actual keymap — had already assigned
+     the chord, and §2.2 item 4 names `Alt` as the namespace for VIEW AND PANE
+     MANAGEMENT rather than for moving objects. The comment that stood here
+     said "no key is invented, because `53` is the sole owner of the keymap"
+     while rebinding a key `53` had assigned, in this same file.
+
+     `53` owns the keymap under ADR-0024 and this page does not get to settle
+     it, so the honest move is to spend no chord at all. **The capability is not
+     lost**: the four place buttons in the strip are real buttons, reachable by
+     Tab and pressed with Enter or Space, which is what the keyboard contract
+     actually requires. An accelerator is a convenience and `53` can grant one;
+     a collision is a defect and this page can only cause one.
+
+     ADR-0035 §9 carries the request for `53` to name a chord. */
+
   if (e.key === 'Enter') {
     e.preventDefault();
     if (link) dgFollow(link); else dgSelect(row.getAttribute('data-drow'));
@@ -3204,13 +4322,30 @@ document.addEventListener('wheel', function (e) {
   dgZoomAt(e.clientX - r.left, e.clientY - r.top, Math.pow(0.9988, dy), false, r);
 }, { passive: false });
 
-/* Drag to pan. */
+/* Drag a box to move it, drag the background to pan (ADR-0035).
+
+   The two gestures start the same way and are told apart by what is under the
+   pointer: a shape carrying `data-dpost` is a box standing for exactly ONE
+   element, and only such a box can hold a position. A collapsed group carries
+   `data-group` instead and falls through to the pan, which is right — a group
+   has no single element whose position it could be, and refusing the drag
+   quietly by panning instead is better than moving forty boxes at once. */
 document.addEventListener('pointerdown', function (e) {
   if (!DG.canvas || !DG.canvas.contains(e.target)) return;
   if (e.button !== 0) return;
   /* One-finger touch belongs to the PAGE (53 §11.4). Scene pinch and two-finger
      pan are that section's other half and are not built. */
   if (e.pointerType === 'touch') return;
+
+  var shape = seekAttr(e.target, 'data-dpost');
+  var id = shape && shape.getAttribute('data-dpost');
+  var b = id && DG.boxes && DG.boxes[id];
+  if (b && !b.collapsed) {
+    DG.box = { id: id, pid: e.pointerId, x: e.clientX, y: e.clientY,
+               bx: b.x, by: b.y, g: b.g, moved: false };
+    return;
+  }
+
   DG.grab = { id: e.pointerId, x: e.clientX, y: e.clientY,
               tx: DG.tx, ty: DG.ty, moved: false,
               /* Read once, here, so the pan path stays one attribute write with
@@ -3225,6 +4360,30 @@ document.addEventListener('pointerdown', function (e) {
      the first move past the slop threshold instead -- which is the only moment
      it is needed, because its job is to keep a drag alive after the cursor
      leaves the canvas. */
+});
+
+/* THE BOX DRAG'S MOVE PATH. One attribute write, on one element, per frame —
+   the same budget `44` §4.7.1 sets for the pan, met the same way: a `transform`
+   on the box's own <g> rather than five rewritten x/y attributes on the rects
+   and texts inside it. The transform is provisional and is thrown away on
+   release; what is stored is the coordinate, computed once, in scene units. */
+document.addEventListener('pointermove', function (e) {
+  if (!DG.box || e.pointerId !== DG.box.pid) return;
+  var bdx = e.clientX - DG.box.x, bdy = e.clientY - DG.box.y;
+  /* The same 3 px of slop the pan uses, and for the same reason: a click that
+     trembles must still select rather than becoming a one-pixel placement
+     nobody asked for. */
+  if (!DG.box.moved && bdx * bdx + bdy * bdy < 9) return;
+  if (!DG.box.moved && DG.canvas) {
+    try { DG.canvas.setPointerCapture(e.pointerId); } catch (err) { /* uncaptured */ }
+  }
+  DG.box.moved = true;
+  /* Divided by the zoom, because the pointer moves in CSS pixels and the scene
+     is in user units: `screen = scene * k + t`. Without this a drag at 0.3x
+     moves the box three times as far as the cursor, which reads as the box
+     escaping the pointer. */
+  DG.box.g.setAttribute('transform',
+    'translate(' + (bdx / DG.k) + ' ' + (bdy / DG.k) + ')');
 });
 
 document.addEventListener('pointermove', function (e) {
@@ -3251,6 +4410,58 @@ document.addEventListener('pointermove', function (e) {
   dgHold(DG.grab.r);
   dgApply();
 });
+
+/* The box drag's end: the provisional transform becomes a stored fact, or
+   nothing happened.
+
+   The pointer's total travel is converted to scene units ONCE, here, and the
+   module snaps the result to `56` §3.5's 4 px grid — snapping on this side
+   would put a rounding rule where nothing checks it, and two hosts that rounded
+   differently would store two positions for one gesture (invariant 9). */
+function dgBoxRelease(e) {
+  if (!DG.box || e.pointerId !== DG.box.pid) return;
+  var drag = DG.box;
+  DG.box = null;
+  if (DG.canvas) {
+    try {
+      if (DG.canvas.hasPointerCapture && DG.canvas.hasPointerCapture(e.pointerId)) {
+        DG.canvas.releasePointerCapture(e.pointerId);
+      }
+    } catch (err) { /* it was never captured */ }
+  }
+  if (!drag.moved) return;
+  /* A drag that moved must not also select what it started on — the same rule
+     the pan already carries, needed here for the same reason. */
+  DG.eatClick = true;
+  var x = Math.round(drag.bx + (e.clientX - drag.x) / DG.k);
+  var y = Math.round(drag.by + (e.clientY - drag.y) / DG.k);
+  var b = DG.boxes && DG.boxes[drag.id];
+  var what = b ? b.kind + ' ' + b.label : drag.id;
+  if (!opPlace(drag.id, 1, x, y)) {
+    /* The op was refused, so the box did not move. Put the shape back where the
+       model says it is rather than leaving it under a transform that now means
+       nothing — a refusal the picture does not undo is a picture that disagrees
+       with the record. */
+    drag.g.removeAttribute('transform');
+    return;
+  }
+  /* A PLACED BOX BECOMES THE SELECTION, and this is the one place the surface's
+     "a drag that moved must not also select" rule is deliberately not applied.
+     That rule exists for the PAN, where the thing under the pointer at the end
+     of the gesture is an accident. Here it is the opposite: the box you just
+     moved is unambiguously the thing you are working on, and the four place
+     buttons and Alt+arrow all act on the selection — so leaving nothing selected
+     after a drag means the mouse and the keyboard paths cannot be used one after
+     the other, which was true until this line existed and was measured in
+     Chromium: nudge after drag moved nothing and answered "select a box first".
+     Run AFTER opPlace, because opPlace rebuilds the scene and dgSelect paints
+     the one that is now on screen. */
+  dgSelect(drag.id);
+  foot('placed ' + what);
+  say(what + ' placed by hand');
+}
+document.addEventListener('pointerup', dgBoxRelease);
+document.addEventListener('pointercancel', dgBoxRelease);
 
 function dgRelease(e) {
   if (!DG.grab || e.pointerId !== DG.grab.id) return;
@@ -3686,6 +4897,16 @@ document.addEventListener('keydown', function (e) {
    Focus is stored on open and returned on close, stored rather than inferred
    (53 §5.1): inferring it means guessing, and the guess is wrong exactly when
    the user came from a text field, which is the case Ctrl+K exists for. */
+
+/* The scrim is up iff any SHEET is -- and the finder is deliberately not one of
+   them. Each setter used to spell out an OR over the other sheets by name,
+   which is a place to forget per sheet: adding the rack view left three of the
+   five saying the scrim should be down while a sheet was up. One function now
+   reads every flag, and every setter assigns its own flag before calling it. */
+function syncScrim() {
+  $('scrim').hidden = !(pOpen || eOpen || rOpen || mOpen);
+}
+
 var fOpen = false;
 var fReturn = null;
 /* 16 §19.2's double-Esc: the second within 400 ms clears the query rather than
@@ -3695,12 +4916,7 @@ var fReturn = null;
    user's two presses and do the wrong one. */
 function setFinder(open, keepFocus) {
   fOpen = open;
-  /* The finder draws NO scrim. 52 §3.2.1 is explicit — it "renders over the
-     sheet with the sheet still legible behind it: no backdrop fade, no dimming
-     layer" — and the reason is functional rather than aesthetic: the thing you
-     are searching for is very often the thing on the screen behind the panel.
-     The two sheets keep theirs; they replace the view rather than sit over it. */
-  $('scrim').hidden = !(pOpen || eOpen);
+  syncScrim();
   $('fsheet').hidden = !open;
   var inp = $('fq');
   if (open) {
@@ -3801,7 +5017,7 @@ var pOpen = false;
 
 function setPaste(open) {
   pOpen = open;
-  $('scrim').hidden = !(open || eOpen);   /* fOpen draws no scrim — setFinder */
+  syncScrim();
   $('psheet').hidden = !open;
   if (open) {
     /* THE REPLACEMENT IS SAID OUT LOUD WHEN THERE IS SOMETHING TO REPLACE.
@@ -3812,16 +5028,20 @@ function setPaste(open) {
        pasted the far end and watched the near end vanish with no dialog, no
        warning and no notice afterwards, six inches under a banner reading
        "NOTHING PARSED IS SILENTLY LOST". The behaviour is a stated limit; what
-       was wrong was the silence. */
+       was wrong was the silence.
+
+       "every line or cell", not "every line": a table's residue is reported per
+       CELL, because a row of fifty columns with six understood is not honestly
+       described as a row that was read. */
     $('pHint').textContent = S.loaded
       ? 'Reading a config REPLACES the estate now held — ' + heldSummary() +
         ' will be dropped. Fathom cannot yet merge two configs into one estate, ' +
         'so export first if you want to keep this one. Nothing leaves this page: ' +
         'the text is read in the module, secrets are destroyed before anything ' +
-        'is stored, and every line that cannot be read is listed back to you.'
+        'is stored, and every line or cell that cannot be read is listed back to you.'
       : 'Nothing leaves this page. The text is read in the module, secrets are ' +
-        'destroyed before anything is stored, and every line that cannot be read ' +
-        'is listed back to you rather than dropped.';
+        'destroyed before anything is stored, and every line or cell that cannot ' +
+        'be read is listed back to you rather than dropped.';
     $('pRun').textContent = S.loaded ? 'replace what is loaded' : 'read it';
     renderPasteError();
     $('pta').focus();
@@ -3872,10 +5092,57 @@ function hostEntropy() {
   return b;
 }
 
+/* The rules-CSV shape, read exactly as the module reads it: the first non-blank
+   line must begin `@uuid` followed immediately by `;` or `,` (`64` §1.1). Exact
+   and not fuzzy, for the same reason the module's is — but note that NOTHING
+   here chooses a parser. The module has already made that decision by the time
+   this runs; this only names the unit in the tally beside the count. */
+function looksLikeRulesTable(text) {
+  var body = text.replace(/^\uFEFF/, '');
+  var first = '';
+  var lines = body.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    if (lines[i].trim()) { first = lines[i]; break; }
+  }
+  return /^@uuid[;,]/.test(first);
+}
+
 function runPaste() {
   var text = $('pta').value;
   if (!wasm) { foot('the module is not instantiated'); renderShell(); return; }
-  if (!text.trim()) { foot('nothing pasted'); renderShell(); return; }
+  /* AN EMPTY PASTE IS NOT ALWAYS AN EMPTY BOX, AND THIS IS THE ONE PLACE THE
+     PAGE CAN SAY SO. OPNsense issue #10595 (opened 22 July 2026 against 26.7.1;
+     still open, unanswered, no fix found — re-established independently on
+     2026-08-16) reports the Migration assistant writing a 0-BYTE
+     download_rules.csv while telling the operator it found 47 rules. Somebody
+     who hits that opens the file, selects all, gets nothing, pastes nothing,
+     and lands exactly here.
+
+     "nothing pasted" is true and useless to them. It reads as their mistake,
+     and the next thing they do is conclude the tool is broken or -- far worse
+     -- that the firewall really has nothing in it. So the sentence names the
+     vendor bug and tells them where the rules still are. It costs page bytes
+     and no module bytes.
+
+     The module carries the other half: a header with no records underneath it
+     is refused by name, with the issue number, from `IngestRefusal::EmptyTable`
+     -- because an empty export and a firewall with no rules are the same file
+     and Fathom may not weld a device with no policies out of one. */
+  if (!text.trim()) {
+    S.pasteError = { kind: 'error', code: 0, detail:
+      'Nothing was pasted. If you copied this from an OPNsense rules export ' +
+      'and the file was EMPTY, that is a known OPNsense bug and not your ' +
+      'mistake: opnsense/core issue #10595 reports Firewall → Rules → ' +
+      'Migration assistant writing a 0-byte download_rules.csv while reporting ' +
+      'that it found rules (open and unanswered when this build was made, ' +
+      '2026-08-16). Your rules are still in /conf/config.xml and your firewall ' +
+      'is still running them — Fathom just has nothing to read. Nothing here ' +
+      'has changed.' };
+    foot('nothing pasted — nothing changed');
+    renderPasteError();
+    renderShell();
+    return;
+  }
   var ent = hostEntropy();
   if (!ent) {
     foot('this browser exposes no cryptographic randomness — the paste is refused');
@@ -3921,6 +5188,7 @@ function runPaste() {
   }
 
   S.pasteError = null;
+  S.pasteWasTable = looksLikeRulesTable(text);
   S.paste = reply;
   S.source = 'paste';
   S.loaded = true;
@@ -3931,7 +5199,7 @@ function runPaste() {
   loadKind(0);
   var h = pasteSummary();
   foot(h ? ('read ' + (h.s[6] || 'the config') + ' — ' + h.s[0] + ' understood, ' +
-            plural(h.s[2], 'line', 'lines') + ' not read, ' +
+            h.s[2] + ' ' + residueNoun() + ' not read, ' +
             plural(h.s[3], 'secret', 'secrets') + ' removed')
          : 'read the config');
   /* THE RAW CONFIG DOES NOT STAY IN THE BOX. `setPaste(false)` hides the sheet
@@ -3972,6 +5240,11 @@ function wasmReset() {
     S.boot = replyProblem(dictReply) || 'the statement dictionary did not load';
     return false;
   }
+  var csvReply = call(OP_DICT, b64bytes(FATHOM_DICT_CSV_B64));
+  if (csvReply.kind !== 'empty') {
+    S.boot = replyProblem(csvReply) || 'the rules-table dictionary did not load';
+    return false;
+  }
   return true;
 }
 
@@ -3984,7 +5257,7 @@ var eOpen = false;
 
 function setEquip(open) {
   eOpen = open;
-  $('scrim').hidden = !(open || pOpen);   /* fOpen draws no scrim — setFinder */
+  syncScrim();
   $('esheet').hidden = !open;
   if (!open) return;
   $('eHint').textContent =
@@ -4272,6 +5545,79 @@ function importJournal(text) {
       new DataView(req.buffer).setBigUint64(0, BigInt(o.at), true);
       req.set(ent, 8); req.set(rb, 24);
       reply = call(OP_ELEMENT_REMOVE, req);
+    } else if (o.op === 'place') {
+      /* ADR-0035. A placement replays through the same opcode that made it,
+         with its own clock and entropy, exactly as every other op here does —
+         which is what makes a dragged box come back where it was put rather
+         than merely somewhere plausible. */
+      var pb = enc.encode(o.id);
+      req = new Uint8Array(33 + pb.length);
+      dv = new DataView(req.buffer);
+      dv.setBigUint64(0, BigInt(o.at), true);
+      req.set(ent, 8);
+      req[24] = o.mode;
+      dv.setInt32(25, o.x, true);
+      dv.setInt32(29, o.y, true);
+      req.set(pb, 33);
+      reply = call(OP_PLACE, req);
+    } else if (o.op === 'rack') {
+      /* ADR-0036. Same shape as `equip`: a chassis id plus the placement
+         fields, replayed through the opcode that made it. A rack is the only
+         thing in the estate that no paste can rebuild, so if this arm is missing
+         the round trip does not degrade — it deletes. */
+      var rcid = enc.encode(o.id);
+      var rparts = [], rtotal = 0;
+      for (var rk = 0; rk < o.fields.length; rk++) {
+        var rfb = enc.encode(o.fields[rk][1]);
+        rparts.push([o.fields[rk][0], rfb]);
+        rtotal += 4 + rfb.length;
+      }
+      req = new Uint8Array(24 + 2 + rcid.length + 1 + rtotal);
+      dv = new DataView(req.buffer);
+      dv.setBigUint64(0, BigInt(o.at), true);
+      req.set(ent, 8);
+      dv.setUint16(24, rcid.length, true);
+      req.set(rcid, 26);
+      var rat = 26 + rcid.length;
+      req[rat] = rparts.length;
+      rat += 1;
+      for (var rm = 0; rm < rparts.length; rm++) {
+        dv.setUint16(rat, rparts[rm][0], true);
+        dv.setUint16(rat + 2, rparts[rm][1].length, true);
+        req.set(rparts[rm][1], rat + 4);
+        rat += 4 + rparts[rm][1].length;
+      }
+      reply = call(OP_RACK_PLACE, req);
+    } else if (o.op === 'link') {
+      /* A HAND-DRAWN LINK, replayed through the opcode that made it, with its
+         own clock and entropy — which is what makes the ids it mints the ids it
+         minted the first time, so `from` and `to` still name the boxes they
+         named.
+
+         THE KIND IS SENT EXPLICITLY, even where the module chose it. It was
+         recorded at the moment of the choice for exactly this replay: an empty
+         kind resolved against a later schema could pick a different edge, and a
+         link that comes back as a DIFFERENT relationship is worse than one that
+         fails to come back. A refusal here stops the import and says which step.
+
+         THIS ARM IS THE FEATURE. A hand-drawn link that does not survive a
+         round trip is not degraded, it is deleted: no paste can rebuild it,
+         because no config ever said it. The rack shipped without its arm and an
+         export dropped every rack in silence; that is twice now, and
+         `docs/80-review/evidence/2026-08-16-hand-link-drive.mjs` drives export,
+         reload and import to keep it from being three times. */
+      var lf = enc.encode(o.from), lt = enc.encode(o.to), lk = enc.encode(o.kind || '');
+      req = new Uint8Array(29 + lf.length + lt.length + lk.length);
+      dv = new DataView(req.buffer);
+      dv.setBigUint64(0, BigInt(o.at), true);
+      req.set(ent, 8);
+      req[24] = o.mode;
+      dv.setUint16(25, lf.length, true);
+      dv.setUint16(27, lt.length, true);
+      req.set(lf, 29);
+      req.set(lt, 29 + lf.length);
+      req.set(lk, 29 + lf.length + lt.length);
+      reply = call(OP_LINK, req);
     } else {
       foot('step ' + (i + 1) + ' is a kind of change this build does not know (' + o.op + ')');
       renderShell();
@@ -4290,9 +5636,20 @@ function importJournal(text) {
 
   S.journal = ops;
   S.paste = null;
+  /* Cleared with the summary it describes. Nothing reads it while `S.paste` is
+     null — `renderTally` returns early and the footer sets it on the line above
+     its own use — but a flag that means "the last paste" must not outlive the
+     last paste, or the next reader to reach for it gets an answer about a
+     session that ended. */
+  S.pasteWasTable = false;
   S.pasteError = null;
   S.equipError = null;
   S.sel = null; S.element = null; S.equipment = null;
+  /* A half-finished gesture must not outlive the estate it was aimed at. A
+     held end is a display id from the workspace that was open a moment ago, and
+     an imported one mints its own; the id would either name nothing or, worse,
+     name something else. Same reasoning as `S.pasteWasTable` on the line above. */
+  DG_HOLD = null; DG_ASK = null;
   S.source = 'imported';
   S.loaded = true;
   S.invKind = 0;
@@ -4314,6 +5671,718 @@ $('importFile').addEventListener('change', function (ev) {
   /* Clear it, so choosing the same file twice fires `change` twice. */
   ev.target.value = '';
 });
+
+/* --- the rack elevation (ADR-0036) ----------------------------------------
+   The owner asked "how do I go into rack Mount view?". This is that view, and
+   it is the FIRST rung of `56` §13.4's ladder -- rack only. Floor, building
+   and map stay proposals with no model behind them.
+
+   THE GEOMETRY IS HERE, IN THE PAGE, AND THAT IS DELIBERATE. The module
+   returns position_u, height_u and a direction; turning those into a row index
+   is one subtraction. Page bytes are ARTIFACT bytes (44 §5.5's 4.5 MB budget,
+   about half spent) while the module is measured against a 900,000-byte
+   ceiling with four figures of headroom. Doing the arithmetic in Rust would
+   have bought nothing and spent the scarce budget instead of the ample one.
+
+   `fathom-inventory`'s rule that "the page computes nothing" is about JOINS,
+   WALKS AND COUNTS -- every one of which still happens in Rust. What is here
+   is a coordinate transform over numbers already decided.
+   ------------------------------------------------------------------------- */
+
+var rOpen = false, mOpen = false;
+var R = { racks: [], sel: null, elev: null, err: null };
+
+/* Which row from the TOP of the frame a run begins on.
+
+   THE WHOLE REASON `unit_numbering` IS DATA. ADR-0036 could not establish a
+   universal convention -- Wikipedia's rack-unit page is silent on direction,
+   NetBox defaults U1 to the bottom, and netbox#191 records a real estate whose
+   Knurr racks number U01 at the top. So neither branch is a default: the rack
+   says which it is, and a rack that has not said is not drawn. */
+function topRow(height, pos, span, ascending) {
+  return ascending ? (height - pos - span + 1) : (pos - 1);
+}
+
+/* THE TWO FACES, AND WHY THERE ARE TWO COLUMNS.
+
+   An elevation is drawn PER FACE, and that is established rather than assumed.
+   NetBox's rack-elevation endpoint takes a face: "the `face` parameter may be
+   used to request either the `front` or `rear` of the elevation"
+   (netboxlabs.com/docs/netbox/en/stable/release-notes/version-2.7/, read
+   2026-08-15). And a device type marked full-depth "is considered to occupy
+   both the front and rear faces of a rack, regardless of which face it is
+   assigned" (netboxlabs.com/docs/netbox/models/dcim/devicetype/, read
+   2026-08-15) -- a rule that only means anything if the two faces are
+   otherwise apart. Two independent statements, both primary, both dated.
+
+   WHAT IS NOT ESTABLISHED, so it is this face's own decision with its reason
+   beside it: NetBox draws ONE face at a time and switches between them. Fathom
+   draws both at once, side by side against one shared unit gutter. A toggle
+   would hide half a rack behind an interaction, and hiding is the one thing
+   this view may not do -- the defect this renderer replaces dropped a box in
+   silence, and defaulting to "front" would drop every rear box in silence by
+   design. Side by side, U5 front and U5 rear are one row and the reader can
+   see both without asking.
+
+   THE THIRD COLUMN. `MountedIn.face` is `card: "0..1"`: somebody can know a
+   box is at U12 without having said which side. That box may not be drawn on
+   the front (a guess) nor across both (which is NetBox's full-depth claim, a
+   different and specific assertion). It gets its own column, labelled, and the
+   column exists only when something is in it. 70 §16: incomplete is drawn and
+   MARKED, never refused. */
+var RFACE_UNSTATED = '—';        /* the module's UNKNOWN, one em dash */
+var RFACES = [
+  ['front', 'front'],
+  ['rear', 'rear'],
+  [RFACE_UNSTATED, 'face not stated']
+];
+
+/* The run a slot draws as: [top row, rows]. An unstated height draws one unit
+   and is marked -- never recorded as 1U. */
+function rackRun(e, s) {
+  var span = s.height === null ? 1 : Math.max(1, s.height);
+  return [topRow(e.height, s.pos, span, e.ascending), span];
+}
+
+/* Give every box a column, so that no box is ever dropped for want of one.
+
+   THE DEFECT THIS REPLACES, named because it shipped and was found in review:
+   the first version kept `starts[top] = s`, one slot per drawn row. Two runs
+   beginning on the same row overwrote each other and the loser was drawn
+   nowhere, named nowhere, and in no accessible-tree node -- while the caption
+   underneath asserted "Both are drawn". Front and rear at the same U is the
+   ORDINARY arrangement of a rack, so an ordinary rack silently lost a box.
+
+   Now: boxes are grouped by face, and inside a face they are packed into
+   sub-columns -- a box takes the first sub-column whose boxes its run does not
+   intersect. One sub-column per face is the normal case. A second appears only
+   where two boxes really are recorded in the same space on the same side, and
+   then BOTH are drawn, side by side, and both are marked. That is "reported,
+   not resolved" honoured in the picture instead of only in prose: this face
+   still has no basis for choosing which of two conflicting assertions is
+   right, and now it does not have to.
+
+   Returns the groups and, separately, every box it could NOT place -- which is
+   named with a count rather than skipped. `continue` is how the first version
+   lost boxes and it does not appear in this function. */
+function packRack(e) {
+  var groups = [], undrawn = [], i, j, k, g, lane, s, run, top, span, placed, clear;
+  for (i = 0; i < RFACES.length; i++) {
+    groups.push({ face: RFACES[i][0], label: RFACES[i][1], lanes: [] });
+  }
+  for (i = 0; i < e.slots.length; i++) {
+    s = e.slots[i];
+    run = rackRun(e, s);
+    top = run[0];
+    span = run[1];
+    /* Outside the frame once the direction is applied. `elevation()` already
+       partitions these into `overflow`, so this is a second net and not the
+       first -- but it NAMES what it catches, because a net that drops things
+       quietly is the bug, not the guard. */
+    if (top < 0 || top + span > e.height) {
+      undrawn.push([s, 'the frame has no unit U' + s.pos]);
+    } else {
+      g = groups[RFACES.length - 1];
+      for (j = 0; j < groups.length; j++) if (groups[j].face === s.face) g = groups[j];
+      placed = false;
+      for (j = 0; j < g.lanes.length && !placed; j++) {
+        lane = g.lanes[j];
+        clear = true;
+        for (k = 0; k < lane.length; k++) {
+          if (top < lane[k].top + lane[k].span && lane[k].top < top + span) { clear = false; }
+        }
+        if (clear) { lane.push({ s: s, top: top, span: span }); placed = true; }
+      }
+      if (!placed) g.lanes.push([{ s: s, top: top, span: span }]);
+    }
+  }
+  /* Front and rear keep a column even when empty: "is there room on the rear
+     at U5" is a question the picture must be able to answer, and a column that
+     is not there answers it by omission. The unstated column appears only when
+     something is in it, because a permanently empty one would teach a reader
+     that "face not stated" is a place boxes go. */
+  for (i = 0; i < groups.length; i++) {
+    if (!groups[i].lanes.length && groups[i].face !== RFACE_UNSTATED) groups[i].lanes.push([]);
+  }
+  return { groups: groups, undrawn: undrawn };
+}
+
+/* One box in words: the same sentence the picture shows, so a box that cannot
+   be drawn is still said in full rather than counted. */
+function rackBoxLine(s) {
+  var span = s.height === null ? 1 : Math.max(1, s.height);
+  return (s.device === RFACE_UNSTATED ? s.chassis : s.device) +
+         ' at U' + s.pos + (span > 1 ? '–U' + (s.pos + span - 1) : '') +
+         ' · ' + s.chassis +
+         (s.face !== RFACE_UNSTATED ? ' · ' + s.face : ' · face not stated') +
+         (s.height === null ? ' · height not stated' : '');
+}
+
+/* Every rack in the estate, via the inventory. Slot 0 is the display id. */
+function loadRacks() {
+  var reply = call(OP_INV_ROWS, new Uint8Array([RACK_KIND_BYTE]));
+  R.racks = [];
+  if (!reply || reply.kind !== 'face') return;
+  for (var i = 0; i < reply.rows.length; i++) {
+    var r = reply.rows[i];
+    if (r.role === FACE_INV) R.racks.push({ id: r.s[0], label: r.s[1] });
+  }
+}
+
+function loadElevation(id) {
+  R.sel = id;
+  R.elev = null;
+  if (!id) return;
+  var reply = call(OP_RACK_ELEVATION, new TextEncoder().encode(id));
+  if (!reply || reply.kind !== 'face') return;
+  /* SPLIT AT THE DOOR, not in the renderer. The wire carries one slot record
+     kind with an `over` flag; the renderer wants two lists, because a box that
+     fits is drawn and a box that does not is NAMED, and a renderer that has to
+     remember to filter is a renderer that will one day forget. `overflowCount`
+     is kept beside them so the count sentence is arithmetic over what arrived
+     rather than over what survived. */
+  var e = null, slots = [], overflow = [], clashes = [];
+  for (var i = 0; i < reply.rows.length; i++) {
+    var r = reply.rows[i];
+    if (r.role === FACE_RACK) {
+      /* Slot 4 has THREE states: '1' up, '0' down, '' this build cannot read
+         the token. `readable` is read, never derived — comparing `numbering`
+         against 'ascending'/'descending' here would put a second copy of the
+         schema's enum in JavaScript, and the two copies would drift. */
+      e = { id: r.s[0], label: r.s[1], height: parseInt(r.s[2], 10) || 0,
+            numbering: r.s[3], ascending: r.s[4] === '1', readable: r.s[4] !== '' };
+    } else if (r.role === FACE_RACK_SLOT) {
+      var slot = { id: r.s[0], device: r.s[1], chassis: r.s[2],
+                   pos: parseInt(r.s[3], 10) || 0,
+                   /* '' means NOBODY SAID, which is not the same as 1U and is
+                      never collapsed into it -- the box is drawn one unit tall
+                      and marked. */
+                   height: r.s[4] === '' ? null : (parseInt(r.s[4], 10) || 1),
+                   face: r.s[5], over: r.s[6] === '1' };
+      (slot.over ? overflow : slots).push(slot);
+    } else if (r.role === FACE_RACK_CLASH) {
+      clashes.push([r.s[0], r.s[1]]);
+    }
+  }
+  if (!e) return;
+  e.slots = slots;
+  e.overflow = overflow;
+  e.overflowCount = overflow.length;
+  e.clashes = clashes;
+  R.elev = e;
+}
+
+function renderRack() {
+  var host = $('rbody');
+  if (!host) return;
+  clear(host);
+  var i, j, k, s, gi;
+
+  if (!S.loaded) {
+    unposted(host, 'rack', 'No estate is loaded. Paste a config or add equipment ' +
+                           'first — a rack holds boxes Fathom already knows about.');
+    return;
+  }
+
+  /* The picker. Real buttons with aria-pressed, in the document, because this
+     is a choice a keyboard user has to be able to make. */
+  var pick = el('div', 'rpick');
+  pick.appendChild(el('span', 'lab', 'rack'));
+  if (!R.racks.length) {
+    pick.appendChild(el('span', null, 'none yet'));
+  }
+  for (i = 0; i < R.racks.length; i++) {
+    (function (rack) {
+      var b = el('button', null, rack.label || '(unlabelled)');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', rack.id === R.sel ? 'true' : 'false');
+      b.addEventListener('click', function () {
+        loadElevation(rack.id);
+        renderRack();
+      });
+      pick.appendChild(b);
+    })(R.racks[i]);
+  }
+  host.appendChild(pick);
+
+  if (!R.elev) {
+    unposted(host, 'rack',
+      R.racks.length
+        ? 'Choose a rack.'
+        : 'No racks yet. Nothing in a pasted config says which rack a box is ' +
+          'in or at what height — no vendor statement this project has ' +
+          'established carries that — so a rack is something you tell Fathom, ' +
+          'not something it can read. Use "put a box in a rack".');
+    return;
+  }
+
+  var e = R.elev;
+
+  /* The frame's own facts, said plainly and above the picture. The numbering
+     direction is stated rather than implied, because a reader who cannot see
+     which end is U1 cannot check the drawing against the frame in front of
+     them. */
+  var head = el('div', 'rnote');
+  head.textContent = (e.label || '(unlabelled)') + ' · ' + e.height + 'U · ' +
+                     (e.readable
+                       ? 'U1 at the ' + (e.ascending ? 'bottom' : 'top') +
+                         ' (' + e.numbering + ')'
+                       : 'unit numbering "' + e.numbering + '" — not recognised');
+  host.appendChild(head);
+
+  /* THE REFUSAL, AND IT IS A REAL ONE NOW.
+     ADR-0036 §7 and `rack.rs` both said "the page refuses the picture" for a
+     numbering token this build cannot read. They said it of code that did not
+     exist: the renderer had no numbering check anywhere, so an unreadable or
+     unset direction printed "U1 at the bottom (<token>)" and drew ascending --
+     the exact guess the field was made required-with-no-default to avoid, and
+     an elevation drawn the wrong way up is wrong in EVERY position while
+     looking entirely plausible.
+
+     The DECISION is the module's (`rack.rs`, `ascending: Option<bool>`) and
+     this is only the branch, so what the two ends mean cannot drift apart. It
+     is driven at the wire, in `crates/fathom-wasm/tests/rack.rs`, because no
+     input this build accepts can reach it: `parse_into_slot` refuses the
+     unknown token, the opcode demands the field, and import replays through the
+     same door. That narrowness is a reason for the guard to be cheap, which it
+     is, and never a reason for it to be absent -- the whole point of the
+     generated `Unknown` arm is that a NEWER schema's token arrives here one day.
+
+     Nothing is hidden by refusing: every box is listed below in the same words
+     the picture would have used. */
+  if (!e.readable) {
+    var no = el('div', 'rclash');
+    no.textContent =
+      'The elevation is not drawn. This rack records its unit numbering as "' +
+      e.numbering + '", which this build does not recognise, and which end is U1 ' +
+      'decides every position in the frame — a picture drawn on a guess would be ' +
+      'wrong in every row while looking right. ' +
+      (e.slots.length + e.overflowCount) + ' box(es) are recorded in it and every ' +
+      'one is named below.';
+    host.appendChild(no);
+    rackNotDrawn(host, e, listAll(e), 'the rack does not say which end is U1');
+    rackLimits(host);
+    return;
+  }
+
+  /* Every box gets a column; nothing is dropped for want of one. */
+  var packed = packRack(e);
+  var cols = [];
+  for (gi = 0; gi < packed.groups.length; gi++) {
+    var grp = packed.groups[gi];
+    for (j = 0; j < grp.lanes.length; j++) cols.push({ g: grp, lane: grp.lanes[j] });
+  }
+
+  /* Which boxes share their space with another. The module reports the pairs
+     and refuses to resolve them; the picture marks both members so the reader
+     sees the disagreement where it is. */
+  /* Keys are prefixed because a bare object is not a map: an id of `__proto__`
+     or `constructor` would read as truthy for every box. Display ids are
+     `<kind>:<ulid>` and cannot be either today, which is exactly the kind of
+     "cannot happen" that stops being true when the id format changes. */
+  var clashing = {};
+  for (i = 0; i < e.clashes.length; i++) {
+    clashing['#' + e.clashes[i][0]] = true;
+    clashing['#' + e.clashes[i][1]] = true;
+  }
+
+  var frame = el('div', 'relev');
+  frame.setAttribute('role', 'group');
+  frame.setAttribute('aria-label',
+    'Rack elevation, ' + e.height + ' units, U1 at the ' +
+    (e.ascending ? 'bottom' : 'top'));
+  /* The frame is DECLARED: `repeat(height, ...)` means the rows exist because
+     the rack has that many units, not because something was drawn into them.
+     That is what makes "a 42U frame draws 42 rows" a property of the layout
+     rather than of the loop that fills it. */
+  frame.style.gridTemplateColumns = 'auto repeat(' + cols.length + ', minmax(0, 1fr))';
+  frame.style.gridTemplateRows = 'auto repeat(' + e.height + ', minmax(var(--s3), auto))';
+
+  /* Heading row. One heading per FACE, spanning that face's lanes, so "front"
+     sits over both columns when a clash has split it in two. */
+  var hu = el('div', 'rhd', 'U');
+  hu.style.gridRow = '1';
+  hu.style.gridColumn = '1';
+  frame.appendChild(hu);
+  var at = 2;
+  for (gi = 0; gi < packed.groups.length; gi++) {
+    var g2 = packed.groups[gi];
+    if (!g2.lanes.length) continue;
+    var hd = el('div', 'rhd', g2.label);
+    hd.style.gridRow = '1';
+    hd.style.gridColumn = at + ' / span ' + g2.lanes.length;
+    frame.appendChild(hd);
+    at += g2.lanes.length;
+  }
+
+  /* Every unit of every lane, unconditionally. This loop cannot skip a row:
+     there is no `continue` in it and nothing it draws depends on what is
+     placed. The boxes go on afterwards, over the top. */
+  for (var row = 0; row < e.height; row++) {
+    var unit = e.ascending ? (e.height - row) : (row + 1);
+    var gut = el('div', 'u', String(unit));
+    gut.style.gridRow = String(row + 2);
+    gut.style.gridColumn = '1';
+    frame.appendChild(gut);
+    for (j = 0; j < cols.length; j++) {
+      var cell = el('div', 'rcell');
+      cell.style.gridRow = String(row + 2);
+      cell.style.gridColumn = String(j + 2);
+      frame.appendChild(cell);
+    }
+  }
+
+  /* The boxes, placed into the frame rather than consuming it. Appended after
+     the empty cells so a box paints over the units it occupies -- which is
+     also what makes a part-occupied row read correctly: front taken, rear
+     still showing as free, in one row. */
+  var drawn = 0;
+  for (j = 0; j < cols.length; j++) {
+    for (k = 0; k < cols[j].lane.length; k++) {
+      var it = cols[j].lane[k];
+      s = it.s;
+      var b = el('button', 'rbox');
+      b.type = 'button';
+      var mark = '';
+      if (s.height === null) mark += ' guess';
+      if (clashing['#' + s.id]) mark += ' clash';
+      if (mark) b.className = 'rbox' + mark;
+      b.appendChild(el('span', 'who', s.device === RFACE_UNSTATED ? s.chassis : s.device));
+      var meta = 'U' + s.pos + (it.span > 1 ? '–U' + (s.pos + it.span - 1) : '') +
+                 ' · ' + s.chassis +
+                 (s.face !== RFACE_UNSTATED ? ' · ' + s.face : ' · face not stated') +
+                 (s.height === null ? ' · height not stated, drawn as 1U' : '') +
+                 (clashing['#' + s.id] ? ' · shares these units with another box' : '');
+      b.appendChild(el('span', 'meta', meta));
+      /* The accessible name carries the same sentence, so a screen reader is
+         told what the picture shows rather than "button". */
+      b.setAttribute('aria-label',
+        (s.device === RFACE_UNSTATED ? s.chassis : s.device) + ' — ' + meta);
+      b.style.gridRow = (it.top + 2) + ' / span ' + it.span;
+      b.style.gridColumn = String(j + 2);
+      /* A box is a target: WCAG 2.5.8's 24px minimum, per unit it covers. The
+         button carries it, so the empty rows do not have to. */
+      b.style.minHeight = 'calc(var(--row-min) * ' + it.span + ')';
+      (function (id) {
+        b.addEventListener('click', function () {
+          postElement(id);
+          setRack(false);
+          S.view = 'inventory';
+          render();
+        });
+      })(s.id);
+      frame.appendChild(b);
+      drawn++;
+    }
+  }
+  host.appendChild(frame);
+
+  /* THE COUNT, ALWAYS, DRAWN OR NOT. A rack elevation that quietly omits a
+     device is worse than no rack elevation, so the arithmetic is printed
+     rather than left to be trusted: how many are recorded, how many the
+     picture holds. A reader who can compare two numbers can catch this class
+     of bug without reading any code, and so can a browser driver. */
+  var recorded = e.slots.length + e.overflowCount;
+  host.appendChild(el('p', 'rnote',
+    recorded + ' box(es) recorded in this rack; ' + drawn + ' drawn.'));
+
+  var missing = [];
+  for (i = 0; i < e.overflow.length; i++) {
+    missing.push([e.overflow[i], 'recorded outside this ' + e.height + 'U frame']);
+  }
+  for (i = 0; i < packed.undrawn.length; i++) missing.push(packed.undrawn[i]);
+  if (missing.length) {
+    rackNotDrawn(host, e, missing, null);
+  }
+
+  if (e.clashes.length) {
+    var cb = el('div', 'rclash');
+    cb.textContent = e.clashes.length === 1
+      ? 'Two boxes are recorded in the same units on the same face. Both are drawn, ' +
+        'side by side in that face\'s column, and both are marked — Fathom has no ' +
+        'basis for choosing which is right, so it shows you the disagreement rather ' +
+        'than resolving it.'
+      : e.clashes.length + ' pairs of boxes are recorded in the same units on the ' +
+        'same face. All are drawn, side by side in their face\'s column, and all are ' +
+        'marked — Fathom has no basis for choosing which is right, so it shows you ' +
+        'the disagreements rather than resolving them.';
+    host.appendChild(cb);
+  }
+
+  rackLimits(host);
+}
+
+/* Every box the picture does not hold, named in full with the count and the
+   reason. Never a silent omission, and never a clip: a 42U rack with a box
+   recorded at U48 is a data error somebody has to see, and drawing it at U42
+   would destroy the evidence of the error. */
+function rackNotDrawn(host, e, rows, why) {
+  var ob = el('div', 'rclash');
+  var lines = [], i;
+  for (i = 0; i < rows.length; i++) {
+    lines.push(rackBoxLine(rows[i][0]) + (rows[i][1] ? ' (' + rows[i][1] + ')' : ''));
+  }
+  ob.textContent = rows.length + ' box(es) are recorded here and not drawn' +
+    (why ? ', because ' + why : '') + ': ' + lines.join('; ') +
+    '. The record is shown as stored rather than moved to fit.';
+  host.appendChild(ob);
+}
+
+/* Everything in the rack, drawable or not, as (slot, reason) rows. */
+function listAll(e) {
+  var rows = [], i;
+  for (i = 0; i < e.slots.length; i++) rows.push([e.slots[i], null]);
+  for (i = 0; i < e.overflow.length; i++) {
+    rows.push([e.overflow[i], 'recorded outside this ' + e.height + 'U frame']);
+  }
+  return rows;
+}
+
+/* The limits, stated in the face rather than left to be discovered. */
+function rackLimits(host) {
+  host.appendChild(el('p', 'rnote',
+    'Front and rear are drawn as two columns against one unit gutter; a box whose ' +
+    'face nobody stated gets its own column rather than being guessed onto one. ' +
+    'Nothing here was parsed — no vendor statement this project has established says ' +
+    'which rack a box is in or at what height, so every rack and every position here ' +
+    'is something you told Fathom. Floor, building and map are not built.'));
+}
+
+function setRack(open) {
+  rOpen = open;
+  syncScrim(open);
+  $('rsheet').hidden = !open;
+  if (!open) return;
+  $('rHint').textContent =
+    'Where your boxes physically stand. Nothing in a config says this, so every ' +
+    'rack and every position here is something a person entered.';
+  loadRacks();
+  if (R.sel) loadElevation(R.sel);
+  renderRack();
+  var first = $('rbody').querySelector('button');
+  if (first) first.focus();
+}
+
+/* --- the placement form --------------------------------------------------- */
+
+/* [wire key, label, kind, required, note]. Same shape as EQUIP_FIELDS, and the
+   keys come from schema/field-keys.yaml the same way. */
+var PLACE_FIELDS = [
+  [302, 'rack name', 'text', true,
+   'A rack you already have is matched by this name; a new name makes a new rack.'],
+  [303, 'rack height in units', 'num', true,
+   'One rack unit is 1.75 in / 44.45 mm (EIA-310, IEC 60297). 42U is the ' +
+   'commonest cabinet; 1 to 100 is accepted. Ignored when the rack already exists.'],
+  [304, 'unit numbering', 'numbering', true,
+   'Which end is U1. There is no universal convention — both are real, so ' +
+   'Fathom will not guess. Ignored when the rack already exists.'],
+  [305, 'position — lowest unit the box occupies', 'num', true,
+   'For a box spanning several units, the lowest-numbered one.'],
+  [306, 'box height in units', 'num', false,
+   'Leave blank if you have not measured it: it is drawn as 1U and marked ' +
+   'rather than recorded as 1U.'],
+  [307, 'face', 'face', false, 'front or rear.']
+];
+var NUMBERINGS = ['ascending', 'descending'];
+var FACES = ['front', 'rear'];
+
+function buildPlaceForm() {
+  var host = $('mform');
+  clear(host);
+
+  /* Which box. A select over the chassis inventory: placement hangs off the
+     CHASSIS, because a chassis cluster is one device with two boxes and the
+     two halves are routinely in different racks. */
+  var wrap = el('div', 'efield');
+  var lab = el('label', null, 'the box');
+  lab.setAttribute('for', 'mfChassis');
+  lab.appendChild(el('span', 'req', ' — required'));
+  wrap.appendChild(lab);
+  var sel = el('select');
+  sel.id = 'mfChassis';
+  var reply = call(OP_INV_ROWS, new Uint8Array([CHASSIS_KIND_BYTE]));
+  var any = false;
+  if (reply && reply.kind === 'face') {
+    for (var i = 0; i < reply.rows.length; i++) {
+      var r = reply.rows[i];
+      if (r.role !== FACE_INV) continue;
+      var o = el('option', null,
+        (r.s[5] || '(no device)') + ' · chassis ' + (r.s[3] || '?') +
+        (r.s[1] !== '—' ? ' · ' + r.s[1] : ''));
+      o.value = r.s[0];
+      sel.appendChild(o);
+      any = true;
+    }
+  }
+  wrap.appendChild(sel);
+  wrap.appendChild(el('div', 'note',
+    any ? 'A device with two chassis has two boxes, and they can be in different racks.'
+        : 'No boxes yet — add equipment or paste a config first.'));
+  host.appendChild(wrap);
+
+  for (var k = 0; k < PLACE_FIELDS.length; k++) {
+    var f = PLACE_FIELDS[k];
+    var w = el('div', 'efield');
+    var id = 'mf' + f[0];
+    var l = el('label', null, f[1]);
+    l.setAttribute('for', id);
+    if (f[3]) l.appendChild(el('span', 'req', ' — required'));
+    w.appendChild(l);
+
+    var input;
+    if (f[2] === 'numbering' || f[2] === 'face') {
+      var opts = f[2] === 'numbering' ? NUMBERINGS : FACES;
+      input = el('select');
+      /* No blank option on `numbering`: it is required and ADR-0035 gives it
+         no default, so an empty choice would look like a valid answer and be
+         refused on submit. */
+      if (!f[3]) input.appendChild(el('option', null, ''));
+      for (var j = 0; j < opts.length; j++) {
+        var oo = el('option', null, opts[j]);
+        oo.value = opts[j];
+        input.appendChild(oo);
+      }
+    } else {
+      input = el('input');
+      input.type = 'text';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      if (f[2] === 'num') input.inputMode = 'numeric';
+    }
+    input.id = id;
+    w.appendChild(input);
+    if (f[4]) w.appendChild(el('div', 'note', f[4]));
+    host.appendChild(w);
+  }
+}
+
+function setPlace(open) {
+  mOpen = open;
+  syncScrim(open);
+  $('msheet').hidden = !open;
+  if (!open) return;
+  $('mHint').textContent =
+    'This says WHERE a box you have already recorded stands. It is stored as ' +
+    'yours — hand-entered — because no config states it.';
+  buildPlaceForm();
+  var first = $('mfChassis');
+  if (first) first.focus();
+}
+
+function runPlace() {
+  if (!wasm) { foot('the module is not instantiated'); renderShell(); return; }
+  var ent = hostEntropy();
+  if (!ent) {
+    foot('this browser exposes no cryptographic randomness — the placement is refused');
+    renderShell();
+    return;
+  }
+  var chassisNode = $('mfChassis');
+  var chassis = chassisNode ? chassisNode.value : '';
+  if (!chassis) { foot('no box to place'); renderShell(); return; }
+
+  var sent = [];
+  for (var i = 0; i < PLACE_FIELDS.length; i++) {
+    var f = PLACE_FIELDS[i];
+    var node = $('mf' + f[0]);
+    if (!node) continue;
+    var v = node.value.trim();
+    if (v) sent.push([f[0], v]);
+  }
+
+  var enc = new TextEncoder();
+  var cid = enc.encode(chassis);
+  var parts = [], total = 0;
+  for (var k = 0; k < sent.length; k++) {
+    var body = enc.encode(sent[k][1]);
+    parts.push([sent[k][0], body]);
+    total += 4 + body.length;
+  }
+
+  var req = new Uint8Array(24 + 2 + cid.length + 1 + total);
+  var dv = new DataView(req.buffer);
+  /* Held in a variable rather than inlined, because the JOURNAL needs the same
+     value: replaying an op with a different clock mints different ULIDs and the
+     replayed estate stops being the estate that was exported. */
+  var rackAt = Date.now();
+  dv.setBigUint64(0, BigInt(rackAt), true);
+  req.set(ent, 8);
+  dv.setUint16(24, cid.length, true);
+  req.set(cid, 26);
+  var at = 26 + cid.length;
+  req[at] = parts.length;
+  at += 1;
+  for (var m = 0; m < parts.length; m++) {
+    dv.setUint16(at, parts[m][0], true);
+    dv.setUint16(at + 2, parts[m][1].length, true);
+    req.set(parts[m][1], at + 4);
+    at += 4 + parts[m][1].length;
+  }
+
+  var reply = call(OP_RACK_PLACE, req);
+  var bad = replyProblem(reply);
+  if (bad) {
+    /* The form stays open with everything still typed in it. */
+    R.err = reply;
+    foot('not placed — nothing changed');
+    renderPlaceError();
+    renderShell();
+    return;
+  }
+
+  R.err = null;
+  /* **JOURNALLED, like every other write in this page.** Without this line a
+     rack survived until the tab closed and no further: the exported `ops` array
+     held the `equip` op and not the placement, the footer said "exported 1 step"
+     for two actions, re-opening the file read "No racks yet.", and NOTHING said
+     anything had been dropped.
+
+     It is the worst place in the product for that defect, because a rack is the
+     only kind in the estate that CANNOT be reconstructed from a paste —
+     ADR-0036 §1 records that nothing parses a rack, so 100% of rack data is
+     hand-entered and 100% of it was being lost. It also contradicted the ADR's
+     own first reason for putting placement in the graph: *"A diagram an engineer
+     arranged and cannot keep is not worth arranging."*
+
+     The `place` op three thousand lines up is the template and was on screen
+     next to this code. Nothing caught it because the journal lives in page
+     JavaScript where no Rust test can see it, the rack driver never exports, and
+     the round-trip driver only exercises pasted estates. */
+  S.journal.push({ op: 'rack', at: rackAt, ent: b64(ent), id: chassis, fields: sent });
+
+  /* THE FIELD ID COMES FROM THE TABLE, NEVER FROM A LITERAL. This read
+     `$('mf300')`, and the key moved to 302 in a rebase when a concurrent branch
+     took 300/301 for LayoutPin. `mf300` then matched nothing, so `rackName` was
+     the empty string, so no rack matched it, so the person was left staring at
+     "Choose a rack" immediately after placing a box in one. The form itself
+     kept working -- which is what made it survive: the write was correct and
+     only the landing was wrong. One table, one source. */
+  var rackKeyNode = $('mf' + PLACE_FIELDS[0][0]);
+  var rackName = rackKeyNode ? rackKeyNode.value.trim() : '';
+  loadRacks();
+  /* Select the rack just written to, so the person lands on the picture their
+     assertion changed rather than on whatever was selected before. */
+  for (var q = 0; q < R.racks.length; q++) {
+    if (R.racks[q].label === rackName) { R.sel = R.racks[q].id; break; }
+  }
+  loadElevation(R.sel);
+  setPlace(false);
+  foot(rackName ? ('placed in ' + rackName) : 'placed');
+  setRack(true);
+  renderShell();
+}
+
+function renderPlaceError() {
+  var box = $('mErr');
+  if (!box) return;
+  if (!R.err) { box.hidden = true; box.textContent = ''; return; }
+  box.textContent = replyProblem(R.err) || 'the placement was refused';
+  box.hidden = false;
+}
+
+$('tabRack').addEventListener('click', function () { setRack(!rOpen); });
+$('rAdd').addEventListener('click', function () { setRack(false); setPlace(true); });
+$('mRun').addEventListener('click', runPlace);
 
 /* --- keyboard ------------------------------------------------------------- */
 document.addEventListener('keydown', function (e) {
@@ -4363,6 +6432,11 @@ document.addEventListener('keydown', function (e) {
        also the only way to discard the payload, which is why it is a rung and
        not a click-only affordance. */
     if (hideCopyBlock()) return;
+    /* Innermost first. The placement form is opened FROM the rack view, so it
+       unwinds back to it rather than to the page — one level, as 53 §3.7
+       requires, where "one level" means the thing that opened this. */
+    if (mOpen) { setPlace(false); setRack(true); return; }
+    if (rOpen) { setRack(false); return; }
     if (eOpen) { setEquip(false); return; }
     if (pOpen) { setPaste(false); return; }
     /* THE FINDER'S RUNG, and it belongs to the finder rather than to the
@@ -4484,10 +6558,43 @@ function boot() {
       S.boot = replyProblem(dictReply) || 'the statement dictionary did not load';
     }
 
-    /* 45 §9.1: fixture loading is one URL parameter, dev-build only. */
+    /* The rules-table dictionary, on the same terms and separately recorded.
+       Two dictionaries, two independent failures: a broken table dictionary
+       must not stop a Junos paste, and a broken Junos one must not stop a
+       rules CSV. The first failure wins the S.boot line, because a page that
+       overwrote it would report the second problem and hide the first. */
+    var csvReply = call(OP_DICT, b64bytes(FATHOM_DICT_CSV_B64));
+    if (csvReply.kind !== 'empty' && !S.boot) {
+      S.boot = replyProblem(csvReply) || 'the rules-table dictionary did not load';
+    }
+
+    /* 45 §9.1: fixture loading is one URL parameter, dev-build only.
+
+       As of 2026-08-15 the demo estate is NOT in the default module. It was a
+       development fixture worth 35,272 bytes of `44` §5.2's 900,000-byte
+       ceiling, and the product has had real inputs since the on-ramp landed:
+       paste, hand entry and correction all work, so the fixture bought a
+       developer a paste and cost every other feature 4% of the budget.
+
+       The page still asks, because a build made with
+       `--features demo-estate` still answers and should still work end to end.
+       When the module refuses, opcode 11 comes back ERR_UNKNOWN_OP (1) — and
+       that raw refusal is REPLACED here rather than shown. "the module refused:
+       code 1 · opcode 11 is not implemented by this module" is true and tells a
+       person who typed ?fixture=demo-estate nothing they can act on. Any other
+       refusal is still shown verbatim: only the one refusal we predicted and
+       caused is worth translating, and swallowing the rest would be the
+       silent-failure this replaces. */
     if (new URLSearchParams(location.search).get('fixture') === 'demo-estate') {
       var reply = call(OP_ESTATE_DEMO, new Uint8Array(0));
       if (reply.kind === 'empty') { S.loaded = true; S.source = 'demo'; loadKind(S.invKind); }
+      else if (reply.kind === 'error' && reply.code === ERR_UNKNOWN_OP) {
+        S.boot =
+          'This module has no demo estate. It was a development fixture and it cost ' +
+          '35,272 bytes of the 900,000-byte module ceiling, so it is compiled in only ' +
+          'by a build with --features demo-estate. Paste a config (top right) or add ' +
+          'equipment by hand instead — both build a real estate.';
+      }
       else { S.boot = replyProblem(reply) || 'the demo estate did not load'; }
     }
     S.view = 'inventory';

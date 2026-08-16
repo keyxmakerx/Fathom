@@ -335,10 +335,37 @@ a diagram you can drag is worth more than a diagram that arranges itself well an
 
 ### 3.5 Manual positions — how they are stored and how they survive
 
+> **AMENDED 2026-08-15 by ADR-0035, and half of this section is now built.** What changed: this
+> section's governing sentence — *"positions are graph data, not view state"* — was **ratified**
+> and given a spelling in `62`'s grammar, which it never had. The `LayoutHint` struct below is
+> **design prose and was never the shipped shape**; what ships is a `LayoutPin` node contained by
+> the element it places, carrying two `i32` fields on the 4 px grid, reached by the containment edge
+> `HasLayoutPin` from the `Placeable` class. ADR-0035 §4 gives the reasoning, including why a
+> `scene_position` field on each of forty-eight kinds was rejected (a field key is per
+> `(kind).field`, so generic code would need a forty-eight-arm table to ask *"does this have a
+> position"*).
+>
+> What ships of the four `Pin` variants: **`Pin::At` only.** `Free` is the absence of a pin;
+> `InLayer` and `Grouped` are unbuilt, and so is `pinned_under`. The schema takes all three
+> additively. The three properties table below is honoured in full for `Pin::At`. **`Ctrl+Z` is
+> unbuilt** — the product has no undo stack for anything yet — but the batch labels are written and
+> a placement is literally *"an op like any other"*, so this section's claim about undo costs that
+> work nothing.
+>
+> One rule this section leaves implicit and ADR-0035 makes explicit: **a box standing for more than
+> one node cannot be placed.** `59`'s aggregation did not exist when this was written; a collapsed
+> group has no single element whose position a pin could be, so a pin is consulted only for a cell
+> holding exactly one node, and dragging a collapsed group pans instead.
+
 Positions are **graph data**, not view state. `52` §10 already places them in the workspace; `11`
 §10.6 already guarantees they survive a rename because they are keyed by `NodeId`.
 
 ```rust
+/// DESIGN PROSE, not the shipped type. See the amendment above and ADR-0035 §4:
+/// what exists in `schema/` is a `LayoutPin` node with `x: i32` and `y: i32`,
+/// contained by the element it places. The shape below is kept because its
+/// FOUR PIN MODES are still the specification and three of them are unbuilt.
+///
 /// Attached to any node that can be drawn. Absent means "lay me out".
 /// Provenance is Origin::Hand — a position is a human assertion, and 11 §8.7
 /// deliberately does not age human assertions.
@@ -1476,7 +1503,17 @@ section asks for.
 
 ### 13.4 PROPOSED — the place ladder, as a schema proposal this document does not make
 
-The rack / floor / building / map rungs need somewhere to live in the graph. **`19` and `62` own
+> **AMENDED 2026-08-15 — the bottom rung now has a model (ADR-0036).** `Rack` is a kind, `HasRack`
+> hangs it off a `Premises` by containment, and `Chassis --MountedIn--> Rack` is a **reference** edge
+> carrying `position_u`, `height_u` and `face`. `70` §10.8's cost 3 asked whether `HasDevice` widens
+> or a rack is a `Site`; **both limbs were wrong, because the thing in the rack is not the device, it
+> is the chassis** — a cluster's two halves are routinely in two racks, which no containment edge
+> from a rack to a device can express. `19` §3.10 had already named and priced the answer. Consequence
+> 2 below is therefore **resolved for the rack rung and stands for floor, building and map.** The
+> rack elevation is a separate renderer, not this layout: see ADR-0036 §4, and §6.1 for the two
+> faces it draws side by side.
+
+The floor / building / map rungs still need somewhere to live in the graph. **`19` and `62` own
 that, not this document**, and the proposal is recorded in `70` §10.8 in full: widen `HasPremises`
 from `from: [root]` to `from: [root, Premises]`, keeping `in: "1"`, so `Premises` nests and
 containment stays a forest.
@@ -1492,7 +1529,9 @@ answered rather than after:
    `Site → Device`, `in: "1"`, and `AtPremises` is a **reference** from `Site` to `Premises`. So a
    rack drawn as an enclosure around devices is drawing a relation the graph does not currently
    have. Under §0's governing rule that is not a rendering detail — it is the picture inventing
-   structure. **Until `70` §13 item 16 is answered, the bottom rungs of the ladder have no model.**
+   structure. **This held until 2026-08-15 and is now answered for the rack** (ADR-0036): a rack
+   does not contain a device and is not drawn as though it did — it references a `Chassis`, which
+   is the relation that actually exists. Floor, building and map still have no model.
 
 ### 13.5 One workspace is one estate — what that removes from this document
 

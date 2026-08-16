@@ -484,12 +484,21 @@ costs 239,964.
 contains all three and they differ by orders of magnitude:
 
 1. **Create and edit** — the above. Days.
-2. **Drag on a canvas** — needs the diagram view, which does not exist in the product *or* in the
+2. **Drag on a canvas** — ~~needs the diagram view, which does not exist in the product *or* in the
    prototype (`design/prototype/fathom-app.html:2001` states its own constraint: *"computed layout,
    never hand-placed coordinates"*). Stage 8, months. Note also that **there is nowhere in `schema/`
    to store where a box sits**; `56` §3.5's `LayoutHint` is prose in a design doc, and it may
    deliberately belong outside the typed graph as a view preference. Undecided, and a dragged box
-   cannot survive a reload until it is.
+   cannot survive a reload until it is.~~
+   **DONE 2026-08-15. Both halves of that paragraph are closed and the estimate was wrong.** The
+   diagram landed the same day; the *Undecided* is decided by **ADR-0035** — a hand-placed position
+   is graph data, stored as a `LayoutPin` node contained by the element it places, written by
+   `OP_PLACE`, journalled, and surviving an export and an import (driven in Chromium through a real
+   reload: `docs/80-review/evidence/2026-08-15-hand-placement-drive.mjs`, 25/25).
+   **Measured at +985 module bytes against "months".** The months were the diagram; what was left,
+   once the decision was made, was under a kilobyte. This document's own lesson from that:
+   **an undecided question inside an estimate makes the estimate meaningless**, because nobody can
+   tell which part of the number is work and which part is waiting for an answer.
 3. **Emit a config from it** — the emitter is already provenance-blind: `fathom-emit`'s flagship test
    builds its whole graph by hand with `Origin::Hand`, touches no parser, and matches a 21-line
    golden byte-for-byte. But its only `EmitScope` variant is `IpsecVpn`; a Device returns
@@ -530,10 +539,12 @@ generator run, three one-line test-constant edits, zero production Rust** — an
    **in**, and `OP_DIAGRAM` costs **60,096 bytes** by removal (`47` §6.4).
    **Three corrections from `47-byte-census.md` (2026-08-15), each measured at this commit.** The
    data-handoff lever this document's stage 1 turns on was worth **38,460 bytes in total** — every
-   embedded YAML byte in the module, measured by removal — and **the dictionary move has now spent
-   most of it.** Exactly one `include_str!` of YAML is left in the whole workspace
-   (`fathom-corpus/src/seed_concepts.yaml`, **8,781 bytes**), so **stage 1's data lever is now an
-   8 KB one**, not a 38 KB one and never a 200 KB one (`47` Disagreements 3). **44,825 bytes, 5.06 % of the module, are two
+   embedded YAML byte in the module, measured by removal — and **it is now spent in full.** The
+   dictionary and `schema/field-keys.yaml` went over `OP_DICT`; the last `include_str!` of YAML in
+   the workspace, the seed concept graph, went over `OP_INIT` on 2026-08-15 for a measured **7,616
+   bytes** (`47` §7.2). **Stage 1's data lever is now worth nothing further** — not 38 KB, not the
+   8 KB this paragraph used to claim, and never the 200 KB it is sometimes planned as
+   (`47` Disagreements 3). **44,825 bytes, 5.06 % of the module, are two
    lines of float handling in the YAML subset parser** (`fathom-schema/src/subset.rs:545` and
    `value.rs:82`) in a product whose IR structurally excludes floats — more than three times the
    headroom, for a change that needs one small schema-grammar decision and no design decision

@@ -297,6 +297,13 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         | NodeKind::Cable
         | NodeKind::PassiveNode
         | NodeKind::Premises
+        //     `Rack` (ADR-0036) joins them, and by the same rule rather than by
+        //     a guess: `56` §4.1 has no row for it, so it is over-drawn and
+        //     MARKED untabled rather than quietly confined to the physical
+        //     layer. Confining it would read as a decision `56` had made, and
+        //     `56` has not made it. The rack ELEVATION is a separate renderer
+        //     and is unaffected by this table — there, a rack is the frame.
+        | NodeKind::Rack
         // (b) `19`'s service model, which `56` does not mention at all.
         | NodeKind::Tenant
         | NodeKind::Service
@@ -331,6 +338,20 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     something could hold one, and hiding it on the strength of a
         //     scope sentence would be the invisible failure again.
         | NodeKind::LearnedRoute => UNTABLED,
+
+        // --- not an element of the network at all -------------------------
+        // A `LayoutPin` says where a person put a box (ADR-0035). It is not a
+        // thing on the network, so it is drawn at no layer — and it never
+        // reaches this function anyway, because `agg::live_nodes` drops the
+        // kind before a cell is built. Both guards are kept: the exclusion
+        // upstream is the mechanism, and this arm is what stops a future caller
+        // that forgets it from drawing pins as boxes at every layer, which is
+        // what `UNTABLED` would have done.
+        NodeKind::LayoutPin => Projection {
+            layers: LayerMask(0),
+            tabled: true,
+            treatment: "not drawn — a position, not an element (ADR-0035)",
+        },
     }
 }
 

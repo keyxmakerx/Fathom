@@ -2,7 +2,7 @@
 //! bytes**, the source's egress and sink hygiene, and the splice's
 //! determinism.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use fathom_artifact::{
     assemble, base64, SHELL_SOURCE, TOKEN_DICT_B64, TOKEN_TOKENS_CSS, TOKEN_WASM_B64,
@@ -215,10 +215,20 @@ fn unpack_dict(bytes: &[u8]) -> Vec<(u8, String, String)> {
 /// The base64 the page carries, lifted out of the assembled file by the same
 /// variable name the shell source declares.
 fn dictionary_frame_in(artifact: &str) -> Vec<(u8, String, String)> {
-    let marker = "var FATHOM_DICT_B64 = \"";
+    frame_named(artifact, "FATHOM_DICT_B64")
+}
+
+/// The rules-table frame, same reading. Two dictionaries travel in two frames
+/// because one `Dictionary` holds one platform.
+fn csv_dictionary_frame_in(artifact: &str) -> Vec<(u8, String, String)> {
+    frame_named(artifact, "FATHOM_DICT_CSV_B64")
+}
+
+fn frame_named(artifact: &str, var: &str) -> Vec<(u8, String, String)> {
+    let marker = format!("var {var} = \"");
     let start = artifact
-        .find(marker)
-        .expect("the page declares FATHOM_DICT_B64")
+        .find(&marker)
+        .unwrap_or_else(|| panic!("the page declares {var}"))
         + marker.len();
     let end = start
         + artifact
@@ -238,9 +248,24 @@ fn the_page_carries_the_dictionary_that_is_on_disk() {
     let root = workspace_root();
     let text = String::from_utf8(assemble(&root).expect("the artifact assembles"))
         .expect("the artifact is UTF-8");
-    let files = dictionary_frame_in(&text);
+    carries_directory(
+        &root,
+        &dictionary_frame_in(&text),
+        fathom_artifact::dictionary::DICT_DIR,
+    );
+    // The second platform gets the SAME guard rather than a weaker one. It
+    // arrived after this test was written, and a drift check that covers only
+    // the dictionary that happened to be first is a check that gets quietly
+    // narrower with every platform.
+    carries_directory(
+        &root,
+        &csv_dictionary_frame_in(&text),
+        fathom_artifact::dictionary::CSV_DICT_DIR,
+    );
+}
 
-    let dict_dir = root.join(fathom_artifact::dictionary::DICT_DIR);
+fn carries_directory(root: &Path, files: &[(u8, String, String)], rel: &str) {
+    let dict_dir = root.join(rel);
     let mut on_disk: Vec<String> = std::fs::read_dir(&dict_dir)
         .expect("the dictionary directory is checked in")
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -256,12 +281,10 @@ fn the_page_carries_the_dictionary_that_is_on_disk() {
         .map(|(_, name, _)| name.clone())
         .collect();
     assert_eq!(
-        carried,
-        on_disk,
-        "the page's dictionary and {} disagree. A file was added, removed or \
+        carried, on_disk,
+        "the page's dictionary and {rel} disagree. A file was added, removed or \
          renamed and the artifact was not rebuilt, or the assembler's enumeration \
-         drifted from Dictionary::load's.",
-        fathom_artifact::dictionary::DICT_DIR
+         drifted from Dictionary::load's."
     );
 
     for (_, name, source) in files
@@ -285,6 +308,206 @@ fn the_page_carries_the_dictionary_that_is_on_disk() {
         keys.first().map(|(_, _, s)| s.as_str()),
         Some(disk_keys.as_str()),
         "schema/field-keys.yaml differs from the copy in the page"
+    );
+}
+
+// --- the seed concept graph the page hands in --------------------------------
+//
+// Until 2026-08-15 `corpus/concepts/seed.yaml` was
+// `include_str!("seed_concepts.yaml")` inside `fathom-corpus`, and the compiler
+// guaranteed two things for free: the module's copy WAS the repository's copy,
+// and a module could not be built without one at all. Moving it onto the
+// `OP_INIT` wire (7 643 bytes of module, against `44` §5.2's 900 000-byte
+// ceiling) spends both guarantees, so both are bought back explicitly:
+//
+//   * `build_concept_table` refuses an empty concept set outright, which is
+//     the "cannot be built without one" half. `fathom_artifact::corpus::verify`
+//     runs the packed frame through `OP_INIT` at assembly time, so that refusal
+//     surfaces as a failed `cargo run -p fathom-artifact` rather than as a
+//     quietly worse finder in someone's browser.
+//   * the two tests below are the "is the repository's copy" half — the bytes,
+//     and then the behaviour, mirroring exactly what the dictionary's pair of
+//     tests does one section above.
+
+/// `fathom_wasm::protocol::pack_corpus`'s frame, read back:
+/// `(section, name, source)` per file. Written out rather than reused because a
+/// decoder sharing code with its encoder cannot catch a wrong encoder.
+fn unpack_corpus(bytes: &[u8]) -> Vec<(u8, String, String)> {
+    let u32_at = |at: usize| -> u32 {
+        let mut v = [0u8; 4];
+        for (i, slot) in v.iter_mut().enumerate() {
+            *slot = *bytes.get(at + i).unwrap_or(&0);
+        }
+        u32::from_le_bytes(v)
+    };
+    let text_at = |at: usize, len: usize| -> String {
+        String::from_utf8(bytes.get(at..at + len).unwrap_or_default().to_vec())
+            .unwrap_or_else(|e| panic!("a frame field is not UTF-8: {e}"))
+    };
+
+    let count = u32_at(0) as usize;
+    let mut at = 4usize;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let section = *bytes.get(at).expect("a section byte");
+        at += 1;
+        let name_len = u32_at(at) as usize;
+        at += 4;
+        let name = text_at(at, name_len);
+        at += name_len;
+        let src_len = u32_at(at) as usize;
+        at += 4;
+        let source = text_at(at, src_len);
+        at += src_len;
+        out.push((section, name, source));
+    }
+    assert_eq!(at, bytes.len(), "the frame has trailing bytes");
+    out
+}
+
+/// The `OP_INIT` base64 the page carries, lifted out of the assembled file by
+/// the same variable name the shell source declares.
+fn corpus_frame_in(artifact: &str) -> Vec<(u8, String, String)> {
+    let marker = "var FATHOM_CORPUS_B64 = \"";
+    let start = artifact
+        .find(marker)
+        .expect("the page declares FATHOM_CORPUS_B64")
+        + marker.len();
+    let end = start
+        + artifact
+            .get(start..)
+            .and_then(|s| s.find('"'))
+            .expect("the literal is closed");
+    unpack_corpus(&unbase64(
+        artifact.get(start..end).expect("the literal's body"),
+    ))
+}
+
+/// `Section::Concepts` on the wire. Named as a literal rather than imported so
+/// that a renumbering of the section bytes — which would silently reinterpret
+/// every frame ever built — fails here instead of agreeing with itself.
+const WIRE_SECTION_CONCEPTS: u8 = 3;
+
+/// A file added to, removed from or edited in `corpus/concepts/`, and the page
+/// shipping the old graph. `include_str!` made this impossible; an assembler
+/// does not, so it is checked — against the FINAL ARTIFACT, because what ships
+/// is what is checked.
+#[test]
+fn the_page_carries_the_seed_concept_graph_that_is_on_disk() {
+    let root = workspace_root();
+    let text = String::from_utf8(assemble(&root).expect("the artifact assembles"))
+        .expect("the artifact is UTF-8");
+    let files = corpus_frame_in(&text);
+
+    let dir = root
+        .join(fathom_artifact::corpus::CORPUS_DIR)
+        .join("concepts");
+    let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+        .expect("corpus/concepts/ is checked in")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().map(|x| x == "yaml").unwrap_or(false))
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    on_disk.sort();
+    assert!(
+        !on_disk.is_empty(),
+        "corpus/concepts/ holds no .yaml: the page would boot a finder with no \
+         seed concept graph, and 16 §12's breadth resolution would silently stop \
+         resolving"
+    );
+
+    let carried: Vec<String> = files
+        .iter()
+        .filter(|(section, _, _)| *section == WIRE_SECTION_CONCEPTS)
+        .map(|(_, name, _)| name.clone())
+        .collect();
+    assert_eq!(
+        carried, on_disk,
+        "the page's concept sources and corpus/concepts/ disagree. A file was \
+         added, removed or renamed and the artifact was not rebuilt, or the \
+         assembler's enumeration drifted from load_corpus's."
+    );
+
+    for (_, name, source) in files
+        .iter()
+        .filter(|(section, _, _)| *section == WIRE_SECTION_CONCEPTS)
+    {
+        let disk =
+            std::fs::read_to_string(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(&disk, source, "{name} differs from the copy in the page");
+    }
+}
+
+/// Bytes being equal does not prove behaviour is equal. The frame the page
+/// carries is loaded into a `CorpusIndex` and its concept table compared with
+/// the one built by reading the directory — ids, kinds, labels, relations,
+/// surfaces and the quantised icf. This is the half of `include_str!`'s
+/// guarantee that says the graph the browser reasons over is the graph in the
+/// repository, not merely the same bytes in a different order.
+#[test]
+fn the_concept_graph_in_the_page_builds_what_the_disk_builds() {
+    let root = workspace_root();
+    let text = String::from_utf8(assemble(&root).expect("the artifact assembles"))
+        .expect("the artifact is UTF-8");
+
+    // The page's frame carries bare names; the shell prefixes each with its
+    // section directory when it parses one, so the same reconstruction happens
+    // here rather than comparing against a name the browser never sees.
+    let files: Vec<fathom_corpus::SourceFile> = corpus_frame_in(&text)
+        .into_iter()
+        .map(|(section, name, source)| {
+            let (section, dir) = fathom_corpus::SECTION_DIRS
+                .iter()
+                .find(|(s, _)| fathom_wasm::protocol::section_byte(*s) == section)
+                .copied()
+                .unwrap_or_else(|| panic!("section byte {section} is not a section"));
+            fathom_corpus::SourceFile {
+                section,
+                name: format!("{dir}/{name}"),
+                source,
+            }
+        })
+        .collect();
+
+    let from_page =
+        fathom_corpus::CorpusIndex::from_sources(&files).expect("the page's corpus loads");
+    let from_disk = fathom_corpus::CorpusIndex::load(&root.join("corpus"))
+        .expect("the checked-in corpus loads");
+
+    let dump = |idx: &fathom_corpus::CorpusIndex| -> String {
+        let mut s = String::new();
+        for c in &idx.concepts.concepts {
+            s.push_str(&format!(
+                "{} {:?} {} seed={} icf={} carriers={} narrower={:?} broader={:?} \
+                 related={:?} opposite={:?}\n",
+                c.id,
+                c.kind,
+                c.label,
+                c.seed,
+                c.icf_milli,
+                c.entry_count,
+                c.narrower,
+                c.broader,
+                c.related,
+                c.opposite
+            ));
+            for surf in &c.surfaces {
+                s.push_str(&format!("  {} {}\n", surf.text, surf.conf_milli));
+            }
+        }
+        s
+    };
+
+    let page = dump(&from_page);
+    assert!(
+        page.contains("concept:state.operational"),
+        "the seed graph reached the index: without it this test would pass on \
+         two equally empty concept tables"
+    );
+    assert_eq!(
+        page,
+        dump(&from_disk),
+        "the concept graph the page ships and the one on disk differ"
     );
 }
 
@@ -316,6 +539,44 @@ fn the_dictionary_in_the_page_builds_what_the_disk_builds() {
             .expect("the page's dictionary loads");
     let from_disk = fathom_ingest::dict::Dictionary::load(&root).expect("the disk's dictionary");
 
+    assert_eq!(from_page.platform(), from_disk.platform());
+    assert_eq!(from_page.entry_count(), from_disk.entry_count());
+    for i in 0..from_disk.entry_count() {
+        let i = u16::try_from(i).expect("fewer than 65536 entries");
+        assert_eq!(from_page.entry_id(i), from_disk.entry_id(i), "entry {i}");
+    }
+}
+
+/// The twin of the test above for the rules-table dictionary, and it asserts
+/// the platform BY NAME. The module routes an `OP_DICT` frame into one of two
+/// slots on `Dictionary::platform()`, so a frame that declared the wrong
+/// platform would be filed as the wrong grammar and every rules paste would
+/// then be refused for want of a dictionary that had in fact been handed in.
+#[test]
+fn the_table_dictionary_in_the_page_builds_what_the_disk_builds() {
+    let root = workspace_root();
+    let text = String::from_utf8(assemble(&root).expect("the artifact assembles"))
+        .expect("the artifact is UTF-8");
+    let files = csv_dictionary_frame_in(&text);
+
+    let sources: Vec<(String, String)> = files
+        .iter()
+        .filter(|(role, _, _)| *role == fathom_wasm::dictframe::ROLE_DICT_SOURCE)
+        .map(|(_, n, s)| (n.clone(), s.clone()))
+        .collect();
+    let keys = files
+        .iter()
+        .find(|(role, _, _)| *role == fathom_wasm::dictframe::ROLE_FIELD_KEYS)
+        .map(|(_, _, s)| s.clone())
+        .expect("the frame carries the field-key registry");
+
+    let from_page =
+        fathom_ingest::hosted::dictionary_from_host(&sources, "schema/field-keys.yaml", &keys)
+            .expect("the page's table dictionary loads");
+    let from_disk = fathom_ingest::dict::Dictionary::load_platform(&root, "opnsense")
+        .expect("the disk's table dictionary");
+
+    assert_eq!(from_page.platform(), "opnsense");
     assert_eq!(from_page.platform(), from_disk.platform());
     assert_eq!(from_page.entry_count(), from_disk.entry_count());
     for i in 0..from_disk.entry_count() {
@@ -373,6 +634,56 @@ fn the_equipment_form_names_the_schema_s_field_keys() {
     }
 }
 
+/// The same pin for the placement form, and it earned itself immediately.
+///
+/// `PLACE_FIELDS` carries six wire numbers for the same reason `EQUIP_FIELDS`
+/// carries seven. They were 300–306 when written and are 302–307 now: a
+/// concurrent branch took 300 and 301 for `LayoutPin.x`/`.y`, and the registry
+/// is append-only, so this form's keys all shifted by two. Nothing in the page
+/// would have complained — the form would have written a rack label into
+/// `LayoutPin.x` and a position into `Rack.label`, silently, and the elevation
+/// would have come back empty with no error anywhere.
+///
+/// Labels are matched rather than positions, so reordering the form is free and
+/// renaming a row fails loudly.
+#[test]
+fn the_placement_form_names_the_schema_s_field_keys() {
+    use fathom_ir::generated::ir_types::{MountedInField, RackField};
+
+    let source = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+
+    let expected = [
+        ("rack name", RackField::Label.key().0),
+        ("rack height in units", RackField::HeightU.key().0),
+        ("unit numbering", RackField::UnitNumbering.key().0),
+        (
+            "position — lowest unit the box occupies",
+            MountedInField::PositionU.key().0,
+        ),
+        ("box height in units", MountedInField::HeightU.key().0),
+        ("face", MountedInField::Face.key().0),
+    ];
+
+    for (label, key) in expected {
+        let row = source
+            .lines()
+            .find(|l| l.contains(&format!("'{label}'")) && l.trim_start().starts_with('['))
+            .unwrap_or_else(|| panic!("PLACE_FIELDS has no row labelled {label:?}"));
+        let got: u32 = row
+            .trim_start()
+            .trim_start_matches('[')
+            .split(',')
+            .next()
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or_else(|| panic!("the {label:?} row does not begin with a number: {row}"));
+        assert_eq!(
+            got, key,
+            "the placement form sends key {got} for {label:?}; the schema declares {key}"
+        );
+    }
+}
+
 /// Every platform the form offers must be one `schema/platforms.yaml` declares.
 /// `PlatformId` is a foreign key into that file, so an option that is not a row
 /// there is a value the store will hold and nothing will ever understand.
@@ -405,6 +716,44 @@ fn the_equipment_form_offers_only_declared_platforms() {
             "the form offers platform {id:?}, which schema/platforms.yaml does not declare"
         );
     }
+}
+
+/// The equipment form's role dropdown must be `DeviceRole::DECLARED`, exactly —
+/// same members, same order.
+///
+/// The platform pin above checks one direction only (nothing offered that is
+/// undeclared), which is the direction that matters for a foreign key. For
+/// `role` the *other* direction is the one that bites, and ADR-0037 exists
+/// because of it: a variant the schema declares and the dropdown omits is a
+/// role nobody can pick. That is not a wrong value in the store, it is a
+/// feature that silently does not exist — precisely how `server` would have
+/// been added to `schema/` and still been unreachable from an empty page.
+///
+/// Order is pinned too, not only membership. The order is a product decision
+/// (`other` reads last because it is the escape hatch, not a peer), the page
+/// renders the array in order, and a dropdown that reorders itself when the
+/// schema is regenerated would be a UI change nobody asked for.
+#[test]
+fn the_equipment_form_offers_every_declared_role() {
+    let source = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+
+    let start = source
+        .find("var ROLES = [")
+        .expect("the page declares ROLES");
+    let end = source[start..].find("];").expect("ROLES is a literal") + start;
+    let listed: Vec<String> = source[start..end]
+        .split('\'')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect();
+
+    assert_eq!(
+        listed,
+        fathom_ir::generated::ir_types::DeviceRole::DECLARED,
+        "the role dropdown and the schema's declared roles disagree"
+    );
 }
 
 /// **Every design token the shell references must exist in `design/tokens.css`.**

@@ -23,8 +23,12 @@
 // see, not what a function returns.
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
 
-const URL = process.env.FATHOM_ARTIFACT ||
-  'file:///home/user/Fathom/.claude/worktrees/wf_4fe78c28-dff-1/target/artifact/fathom-dev.html';
+// The REPO's artifact, not a worktree's. This line held an absolute path into
+// `.claude/worktrees/wf_4fe78c28-dff-1/` — the throwaway tree this file was
+// written in — so the driver stopped running the day that tree was cleaned up.
+// A checked-in test may not depend on a path that is not checked in.
+const ROOT = process.argv[2] || process.cwd();
+const URL = 'file://' + ROOT + '/target/artifact/fathom-dev.html';
 
 const results = [];
 const check = (n, ok, d) => { results.push(ok); console.log((ok ? 'PASS  ' : 'FAIL  ') + n + (d ? '\n        ' + d : '')); };

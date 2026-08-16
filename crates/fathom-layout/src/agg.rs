@@ -231,6 +231,16 @@ pub struct Cell {
     /// of an opened group it is the bare key, so the host can name the group a
     /// focused element belongs to without a second lookup.
     pub group: String,
+    /// `Device.role`'s token when this box stands for exactly one `Device` that
+    /// has one, and empty otherwise (ADR-0037).
+    ///
+    /// **Empty on every collapsed box, deliberately.** A collapsed box stands
+    /// for a run of nodes whose aggregation signature matched, and the
+    /// signature does not include `role` — so a run can hold a firewall and a
+    /// server, and printing either one's role on the box would be a claim about
+    /// all of them. The same rule already governs [`Cell::key`] and the pin: a
+    /// fact about one node is only printable on a box that stands for one node.
+    pub role: String,
 }
 
 impl Cell {
@@ -399,10 +409,23 @@ fn signatures(g: &Graph, live: &[NodeId]) -> Vec<Sig> {
     out
 }
 
-/// Every live node, in `NodeId` order.
+/// Every live node the picture is *about*, in `NodeId` order.
+///
+/// `LayoutPin` is dropped here and nowhere else (ADR-0035). A pin is not a thing
+/// on the network — it is the assertion *"a person put this box here"*, stored in
+/// the graph because that is the only place an assertion can survive an export
+/// and reach a colleague. Drawing it would put one box per placed box on the
+/// canvas, each hanging off its subject by a containment line, which is the
+/// picture describing its own bookkeeping.
+///
+/// Dropping it here rather than in `lay_out` is deliberate: `at` — the node → box
+/// map every later stage indexes — is built from this list, so a pin is absent
+/// from ordering, routing and the aggregation signature by construction rather
+/// than by three more filters that could disagree.
 fn live_nodes(g: &Graph) -> Vec<NodeId> {
     NodeKind::ALL
         .into_iter()
+        .filter(|k| !matches!(k, NodeKind::LayoutPin))
         .flat_map(|k| g.nodes_of_kind(k))
         .filter(|n| n.absent_since.is_none())
         .map(|n| n.id)
@@ -648,6 +671,9 @@ fn single(g: &Graph, id: NodeId, rank: u32, group: String) -> Cell {
         anchor: id,
         members: vec![id],
         group,
+        // The only place a role is read. `residual` builds the collapsed boxes
+        // and leaves this empty by construction rather than by remembering to.
+        role: fathom_inventory::role_word(g, id).unwrap_or_default(),
     }
 }
 
@@ -717,6 +743,9 @@ fn residual(
         anchor: *first,
         members: members.to_vec(),
         group: id,
+        // See `Cell::role`: a box standing for many nodes has no one node's
+        // role to print, and the aggregation signature does not include role.
+        role: String::new(),
     });
 }
 

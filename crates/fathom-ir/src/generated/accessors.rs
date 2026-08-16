@@ -53,7 +53,46 @@ mod body {
         pub fn os_version<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::OsVersion, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(8))
         }
-        /// `Device.role` — `enum { firewall, router, switch, load_balancer, other }`, card `0..1`, emit `—`.
+        /// `Device.role` — `enum { firewall, router, switch, load_balancer, server, access_point, other }`, card `0..1`, emit `—`.
+        /// What the box is FOR, in one word. ADR-0037 added `server` and `access_point`
+        /// on 2026-08-16 and gives the whole argument; the short form is that the owner's
+        /// brief is "design my network AND SERVERS for my home lab" and the five original
+        /// variants sent every server, NAS, hypervisor and wireless access point to
+        /// `other` — a taxonomy that collapses half a lab into one bucket is not a
+        /// taxonomy.
+        ///
+        /// `server` is one variant and not four. A NAS, a hypervisor host, a container
+        /// host and a bare-metal application server differ in what is INSTALLED on them,
+        /// not in what they are, and the schema does not model installed software.
+        /// Splitting them would be a variant per product category, which is exactly how
+        /// an enum stops meaning anything.
+        ///
+        /// `access_point` is the 802.11 term, not a vendor's. It earns a variant because
+        /// it is a distinct network function that every home lab and every branch office
+        /// has at least one of, and because the two variants it would otherwise borrow
+        /// are both wrong: it is not a `switch` (it bridges a radio, and the layer model
+        /// would file it in the wrong place), and it is not `other` (nothing is
+        /// undecided about an AP).
+        ///
+        /// Deliberately NOT variants, so the next person does not re-litigate them:
+        /// `storage`/`nas` and `hypervisor` (fold into `server`, above); `pdu` and `ups`
+        /// (rack furniture with a management address that carries no traffic — they stay
+        /// `other` until someone wants power in the elevation, and that is a rack
+        /// question, not a role question); `camera`, `printer`, `phone`, `workstation`
+        /// (leaves, not infrastructure, and one of them opens the door to all of them);
+        /// `wireless_controller` and `nms` (software on a `server`); `modem`/`ont` (a
+        /// media converter is a `PassiveNode` with ports and no config — 19 §3.6 — and a
+        /// carrier CPE that routes is a `router`).
+        ///
+        /// `other` stays load-bearing and is not a failure state: it is the honest
+        /// answer for a box the taxonomy has not decided, and keeping it honest is
+        /// better than one variant per product category.
+        ///
+        /// Still single-valued at card 0..1, which is a real limit and not an oversight:
+        /// a home gateway that is router + firewall + AP + switch gets one word. Widening
+        /// the cardinality is a separate change with a separate cost (every reader that
+        /// prints "the role" becomes a reader that prints a set), and nothing has asked
+        /// for it yet.
         pub fn role<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::DeviceRole, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(9))
         }
@@ -1446,6 +1485,57 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(280))
         }
     }
+    /// Typed reads for `LayoutPin` fields.
+    pub mod layout_pin {
+        /// `LayoutPin.x` — `i32`, card `1`, emit `—`.
+        /// Absolute scene x, on the 4 px grid (56 §3.5).
+        pub fn x<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&i32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(300))
+        }
+        /// `LayoutPin.y` — `i32`, card `1`, emit `—`.
+        /// Absolute scene y, on the 4 px grid (56 §3.5).
+        pub fn y<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&i32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(301))
+        }
+    }
+    /// Typed reads for `Rack` fields.
+    pub mod rack {
+        /// `Rack.label` — `Text`, card `1`, emit `—`.
+        /// The name stencilled on the frame: R12, AISLE-3-04. No hostname -- nothing addresses a rack.
+        pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(302))
+        }
+        /// `Rack.height_u` — `u8`, card `1`, emit `—`.
+        /// Capacity in rack units. One rack unit is 1.75 in / 44.45 mm under EIA-310 and
+        /// IEC 60297 (en.wikipedia.org/wiki/Rack_unit and /wiki/19-inch_rack, both read
+        /// 2026-08-15). There is NO standard height: 42U is the industry-standard cabinet and
+        /// 42U-48U is the common range, but arbitrary heights are real and are allowed
+        /// (netbox.readthedocs.io/en/stable/models/dcim/rack/, read 2026-08-15). So this is a
+        /// required field with no default rather than a constant. The range is a sanity bound
+        /// on a typo, not a claim about what racks exist.
+        pub fn height_u<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u8, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(303))
+        }
+        /// `Rack.unit_numbering` — `enum { ascending, descending }`, card `1`, emit `—`.
+        /// Which end of the frame is U1. REQUIRED, WITH NO DEFAULT, AND THAT IS THE POINT.
+        ///
+        /// ADR-0034 forbids answering this from memory, and the lookup came back split rather
+        /// than clean. Wikipedia's rack-unit page defines the unit and is SILENT on direction
+        /// (read 2026-08-15). NetBox issue netbox-community/netbox#191 records a real estate
+        /// whose Knurr racks number "U01 at top of rack and U41 at rack bottom", against
+        /// NetBox's opposite default (read 2026-08-15). NetBox ships the disagreement as a
+        /// field: "a toggle is provided to indicate whether rack units are in ascending (from
+        /// the ground up) or descending order" (netbox.readthedocs.io, read 2026-08-15).
+        ///
+        /// Three sources, no universal convention, so none is assumed. `ascending` means U1 is
+        /// at the FLOOR, which is the more common convention but is not the default here --
+        /// an elevation drawn with the wrong direction is upside down and every position in it
+        /// is wrong while looking entirely plausible, which is precisely the silent-wrongness
+        /// 56 §0 exists to prevent. A rack whose direction nobody stated is not drawn.
+        pub fn unit_numbering<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::RackUnitNumbering, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(304))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -1751,6 +1841,14 @@ mod body {
             297 => Some((core::any::TypeId::of::<u8>(), "u8")),
             298 => Some((core::any::TypeId::of::<u8>(), "u8")),
             299 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            300 => Some((core::any::TypeId::of::<i32>(), "i32")),
+            301 => Some((core::any::TypeId::of::<i32>(), "i32")),
+            302 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            303 => Some((core::any::TypeId::of::<u8>(), "u8")),
+            304 => Some((core::any::TypeId::of::<crate::generated::ir_types::RackUnitNumbering>(), "crate::generated::ir_types::RackUnitNumbering")),
+            305 => Some((core::any::TypeId::of::<u8>(), "u8")),
+            306 => Some((core::any::TypeId::of::<u8>(), "u8")),
+            307 => Some((core::any::TypeId::of::<crate::generated::ir_types::MountedInFace>(), "crate::generated::ir_types::MountedInFace")),
             _ => None,
         }
     }
@@ -2058,6 +2156,14 @@ mod body {
             297 => crate::canon::slot_to::<u8>(297, "u8", value),
             298 => crate::canon::slot_to::<u8>(298, "u8", value),
             299 => crate::canon::slot_to::<u16>(299, "u16", value),
+            300 => crate::canon::slot_to::<i32>(300, "i32", value),
+            301 => crate::canon::slot_to::<i32>(301, "i32", value),
+            302 => crate::canon::slot_to::<crate::scalar::Text>(302, "crate::scalar::Text", value),
+            303 => crate::canon::slot_to::<u8>(303, "u8", value),
+            304 => crate::canon::slot_to::<crate::generated::ir_types::RackUnitNumbering>(304, "crate::generated::ir_types::RackUnitNumbering", value),
+            305 => crate::canon::slot_to::<u8>(305, "u8", value),
+            306 => crate::canon::slot_to::<u8>(306, "u8", value),
+            307 => crate::canon::slot_to::<crate::generated::ir_types::MountedInFace>(307, "crate::generated::ir_types::MountedInFace", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2363,6 +2469,14 @@ mod body {
             297 => crate::canon::slot_from::<u8>(j),
             298 => crate::canon::slot_from::<u8>(j),
             299 => crate::canon::slot_from::<u16>(j),
+            300 => crate::canon::slot_from::<i32>(j),
+            301 => crate::canon::slot_from::<i32>(j),
+            302 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            303 => crate::canon::slot_from::<u8>(j),
+            304 => crate::canon::slot_from::<crate::generated::ir_types::RackUnitNumbering>(j),
+            305 => crate::canon::slot_from::<u8>(j),
+            306 => crate::canon::slot_from::<u8>(j),
+            307 => crate::canon::slot_from::<crate::generated::ir_types::MountedInFace>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

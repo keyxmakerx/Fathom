@@ -860,6 +860,60 @@ fn an_edge_hidden_inside_a_collapsed_box_is_counted() {
     );
 }
 
+/// ADR-0037. **A role is a fact about ONE node, so only a box standing for one
+/// node may print it** — the same rule that already governs `Cell::key` and the
+/// hand-placed pin.
+///
+/// The ring is the fixture that can actually catch the wrong answer: all eight
+/// of its devices carry `Device.role = router`, so a `residual` that copied its
+/// anchor's role would produce a collapsed box confidently labelled `router`
+/// and the test would still pass on any fixture where no role is set. Here it
+/// would not: the collapsed box must be blank while the drawn siblings are not.
+///
+/// Why it matters beyond tidiness: the aggregation signature does not include
+/// `role`. A run of like-kind siblings can hold a firewall and a server, so a
+/// role printed on their collapsed box is not merely imprecise — it is a claim
+/// about eight boxes made from one of them, which is `59` §3.6's silent-count
+/// rule in a different coat.
+#[test]
+fn only_a_box_standing_for_one_device_carries_a_role() {
+    let g = ring(8);
+
+    // Un-aggregated: every box stands for one device, and every one says what
+    // it is for. This is the half that proves the field is populated at all.
+    let whole = fathom_layout::lay_out(&g);
+    let devices: Vec<_> = whole.nodes.iter().filter(|n| n.kind == "Device").collect();
+    assert_eq!(devices.len(), 8, "the ring draws eight devices");
+    assert!(
+        devices.iter().all(|n| n.role == "router"),
+        "every device in the ring carries Device.role = router: {:?}",
+        devices.iter().map(|n| &n.role).collect::<Vec<_>>()
+    );
+    assert!(
+        whole
+            .nodes
+            .iter()
+            .filter(|n| n.kind != "Device")
+            .all(|n| n.role.is_empty()),
+        "role is a Device field; nothing else may carry one"
+    );
+
+    // Folded: the box that stands for eight says nothing about what they are
+    // for, even though all eight agree.
+    let d = folded(&g);
+    let collapsed = d
+        .nodes
+        .iter()
+        .find(|n| n.count > 1)
+        .expect("eight like-kind siblings collapse");
+    assert!(
+        collapsed.role.is_empty(),
+        "a box standing for {} nodes printed the role {:?}",
+        collapsed.count,
+        collapsed.role
+    );
+}
+
 /// `*` on the wire is `59` §3.7's retained control: *"an engineer who does not
 /// believe the count is entitled to see the forty."*
 #[test]

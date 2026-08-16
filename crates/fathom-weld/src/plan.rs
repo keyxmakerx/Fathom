@@ -115,6 +115,7 @@ pub(crate) fn write_field(
         BoundValue::Bandwidth(v) => Box::new(*v),
         BoundValue::RoutingProtocolProtocol(v) => Box::new(v.clone()),
         BoundValue::ProtocolAdjacencyNetworkType(v) => Box::new(v.clone()),
+        BoundValue::PolicyAction(v) => Box::new(v.clone()),
     };
     graph.set_field_boxed(element, key, value, record)
 }

@@ -31,6 +31,14 @@ pub const OP_QUERY: u32 = 4;
 /// The inventory face's four opcodes (WO-08 §4.4). 41 §3.7's table holds
 /// 1–10; these take the next free numbers. A new call is a new opcode, never
 /// a changed one — 2, 3 and 5–10 stay refused by number.
+///
+/// **11 is reserved but not implemented by the shipping module.** The demo
+/// estate it loaded was a development fixture costing 35,095 bytes of `44`
+/// §5.2's ceiling, and it now builds only under the `demo-estate` feature,
+/// which only test targets enable. The number stays declared here — and stays
+/// unusable by anything else — because 41 §3.7's table is append-only: an
+/// opcode that once meant "load the demo estate" may never come to mean
+/// something else. Without the feature, a call to 11 returns `ERR_UNKNOWN_OP`.
 pub const OP_ESTATE_DEMO: u32 = 11;
 pub const OP_INV_ROWS: u32 = 12;
 pub const OP_ELEMENT: u32 = 13;
@@ -114,6 +122,90 @@ pub const OP_DIAGRAM: u32 = 19;
 /// (41 §3.7: *"a new call is a new opcode, never a changed one"*), so this
 /// takes the next free number rather than the next one up.
 pub const OP_DICT: u32 = 20;
+
+/// Put a box somewhere, or put it back under computed layout.
+///
+/// The owner asked for this three times — *"drag a device"*, *"add into
+/// inventory by just drag and drop"*, *"didn't we agree we were gonna have a
+/// drag and drop system?"* — and each time the answer was that there was nowhere
+/// in `schema/` to store where a box sits. ADR-0035 is that decision made: **a
+/// hand-placed position is graph data**, a `LayoutPin` contained by the element,
+/// with `Origin::Hand` provenance like every other thing a person asserted.
+///
+/// It is therefore an op like any other, and that is the whole point. A position
+/// kept beside the op log — in `localStorage`, in a view preference, in
+/// side-state — would not survive an export, would not reach a colleague, and is
+/// exactly the *"state written beside the op log"* that `75` §2.4 forbids because
+/// it forecloses real-time collaboration. A position kept **in** the log is one
+/// more op a CRDT converges.
+///
+/// It carries the same 24-byte host clock-and-entropy prefix every writing
+/// opcode does, for the same reason: the module has no clock and no RNG and must
+/// acquire neither (`wasmbin::IMPORT_ALLOWLIST` is empty and stays empty).
+pub const OP_PLACE: u32 = 21;
+/// Put one chassis in one rack, at one unit (ADR-0036).
+///
+/// **This is the only input a rack elevation can have today, and that is a
+/// fact about the world rather than a gap in the dictionary.** No Junos
+/// statement — none this project has established on any platform — says which
+/// rack a box stands in or at what height. So physical placement is asserted
+/// by a person or it does not exist, which makes this opcode a sibling of
+/// `OP_EQUIP_ADD` rather than anything downstream of `OP_PASTE`, and makes
+/// `Origin::Hand` the only provenance it can write.
+///
+/// The rack is found-or-created by label, which is not a shortcut: `Rack`'s
+/// tier-1 identity tuple is `[owner(Premises), label]`, so matching an existing
+/// rack by its label is the schema's own declared identity being used for what
+/// identity is for. An engineer says "node0 is in R12 at U5"; they do not
+/// create a frame and then fill it.
+pub const OP_RACK_PLACE: u32 = 22;
+
+/// Draw a link between two boxes by hand, or cut one.
+///
+/// **This is the opcode that makes a hand-built estate a network.** Before it,
+/// the five write opcodes could add a device, correct a field, remove an
+/// element, place a box and rack a chassis — and not one of them created an
+/// EDGE. So a lab built by hand was a pile of unconnected boxes, and a diagram
+/// of unconnected boxes is not a network diagram. `52` §3.6 has stated the
+/// diagram's job as *"add a device, draw a link, draw a tunnel, drag for
+/// layout"* since it was written; three of those four existed.
+///
+/// # Which edge, and why the module decides
+///
+/// `schema/` declares 84 edge kinds and a person pointing at two boxes is not
+/// going to pick from 84. `fathom_weld::hand_link_candidates` narrows that to
+/// the reference edges the schema admits between those two kinds, computed from
+/// the generated tables and never from a hand-written list (ADR-0008). **When
+/// exactly one is legal this opcode does not ask** — the schema has already
+/// decided, and a menu of one is a question with no content. When several are,
+/// it writes nothing and hands the candidates back for the page to offer,
+/// because guessing writes a false fact into an estate of record. When none is,
+/// it says so plainly, naming both kinds.
+///
+/// # Why the kind travels as a name
+///
+/// A hand-drawn link is journalled and an exported journal outlives the build
+/// that wrote it. An index into `EdgeKind::ALL` is a number whose meaning moves
+/// the next time `schema/` declares an edge; `"PeersWith"` is not, and it reads
+/// as itself in the file an operator keeps.
+///
+/// It carries the same 24-byte host clock-and-entropy prefix every writing
+/// opcode does, for the same reason: the module has no clock and no RNG and
+/// must acquire neither (`wasmbin::IMPORT_ALLOWLIST` is empty and stays empty).
+pub const OP_LINK: u32 = 24;
+
+/// Read one rack's elevation — the frame, its capacity, and every box in it.
+///
+/// Returns numbers, not geometry. The page turns `position_u` into a `y`,
+/// because that is one multiply and page bytes are artifact bytes while this
+/// module is measured against `44` §5.2's ceiling.
+pub const OP_RACK_ELEVATION: u32 = 23;
+
+// There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
+// label, a capacity and a count of what is in it -- so it is an `InvKind` and
+// `OP_INV_ROWS` already lists it. A bespoke opcode would have been a second
+// way to ask the same question, and it measured 1,663 bytes of module for the
+// privilege.
 
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());

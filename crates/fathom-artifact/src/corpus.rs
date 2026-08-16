@@ -31,7 +31,7 @@
 
 use std::path::{Path, PathBuf};
 
-use fathom_corpus::{Section, SourceFile};
+use fathom_corpus::{SourceFile, SECTION_DIRS};
 use fathom_wasm::protocol::pack_corpus;
 use fathom_wasm::shell::Shell;
 use fathom_wasm::OP_INIT;
@@ -39,16 +39,14 @@ use fathom_wasm::OP_INIT;
 /// The corpus root, relative to the workspace root.
 pub const CORPUS_DIR: &str = "corpus";
 
-/// The three sections `load_corpus` reads, in its order. Named here because the
-/// frame is section-tagged and the tag is positional.
-const SECTIONS: [(Section, &str); 3] = [
-    (Section::Commands, "commands"),
-    (Section::Explainers, "explainers"),
-    (Section::Rules, "rules"),
-];
-
 /// The seed corpus as bare-named sources, in `load_corpus`'s own order:
-/// commands, explainers, rules, each directory's `*.yaml` sorted by path.
+/// commands, explainers, rules, concepts, each directory's `*.yaml` sorted by
+/// path.
+///
+/// The section list is `fathom_corpus::SECTION_DIRS` rather than a copy. It was
+/// a copy until `concepts/` was added, and a copy is exactly the shape of
+/// defect that ships a page missing one whole section while every test that
+/// reads the directory still passes.
 ///
 /// Names are the bare file name. The shell prefixes each with its section
 /// directory (`shell::section_prefix`), so a load error in the browser reads
@@ -58,7 +56,7 @@ const SECTIONS: [(Section, &str); 3] = [
 pub fn sources(workspace_root: &Path) -> Result<Vec<SourceFile>, String> {
     let root = workspace_root.join(CORPUS_DIR);
     let mut out = Vec::new();
-    for (section, dir) in SECTIONS {
+    for (section, dir) in SECTION_DIRS {
         let path = root.join(dir);
         let mut paths: Vec<PathBuf> = std::fs::read_dir(&path)
             .map_err(|e| format!("{}: {e}", path.display()))?

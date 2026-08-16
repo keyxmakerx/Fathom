@@ -1,21 +1,33 @@
 //! The concept layer, 16 §3, built from what the seed corpus actually
 //! carries: entry `concepts:`/`symptoms:` sets, the bundle's `new_concepts`
-//! declarations, the explainer concept documents (labels), the crate's seed
-//! concept graph (`seed_concepts.yaml` — transcribed from 16 §3.2/§12 and
-//! 61 §8, pending the authored `corpus/concepts/` tree), and `aka:` harvesting
-//! per 16 §3.6 (exact, lowercased phrases at a fixed harvest confidence — no
-//! invented stems).
+//! declarations, the explainer concept documents (labels), the seed concept
+//! graph in `corpus/concepts/` (transcribed from 16 §3.2/§12 and 61 §8), and
+//! `aka:` harvesting per 16 §3.6 (exact, lowercased phrases at a fixed harvest
+//! confidence — no invented stems).
+//!
+//! The seed graph is corpus content and travels with the corpus. It was a
+//! crate-local `include_str!` until 2026-08-15, which put it in the
+//! WebAssembly data section; it is a section of the `OP_INIT` frame now.
 
 use std::collections::BTreeMap;
 
 use fathom_schema::subset::{parse_profile, Profile};
-use fathom_schema::value::Value;
+use fathom_schema::value::{Node, Value};
 
 use crate::detln::ln_milli;
 use crate::model::Corpus;
 use crate::normalize::{normalize, Lexicons};
 
-pub const SEED_CONCEPTS: &str = include_str!("seed_concepts.yaml");
+// The seed concept graph used to live here, as
+// `include_str!("seed_concepts.yaml")`. Measured 2026-08-15 by blanking the
+// file and rebuilding: it cost the WebAssembly module 8 782 bytes of data
+// section — the file verbatim, comment block and all — against `44` §5.2's
+// 900 000-byte ceiling. It is `corpus/concepts/seed.yaml` now and it reaches
+// the module over `OP_INIT` with the rest of the corpus, which is both where
+// this file's own header always said it belonged ("replaced wholesale by
+// corpus/concepts/ when that tree is authored") and the route the dictionary
+// and the corpus already take. See `build_concept_table` for the runtime
+// refusal that replaces the guarantee `include_str!` gave for free.
 
 /// 16 §3.1 — not decoration: §7.3 gates on `Object`, §3.4 resolves breadth on
 /// `State`, §11 picks ladder entry points from `Action`.
@@ -141,12 +153,45 @@ fn norm_phrase(text: &str, lex: &Lexicons) -> Option<String> {
 pub fn build_concept_table(corpus: &Corpus, lex: &Lexicons) -> Result<ConceptTable, String> {
     // 1. Collect the id universe in deterministic order: seed first (it is the
     //    graph), then declared, then referenced, then explainer-doc concepts.
-    let seed = parse_profile(SEED_CONCEPTS, Profile::Corpus)
-        .map_err(|e| format!("seed_concepts.yaml:{}: {}", e.line, e.message))?;
-    let seed_list = seed
-        .get("concepts")
-        .and_then(|c| c.as_seq())
-        .ok_or("seed_concepts.yaml: no `concepts` sequence")?;
+    // The seed graph arrives with the corpus now. Refusing an empty set is the
+    // whole replacement for what `include_str!` used to guarantee: the compiler
+    // could not build a module whose seed graph was missing, and a host can
+    // hand one in that is. The two wrong answers are a panic and a silent empty
+    // graph, and the second is worse — 16 §12's breadth resolution and §7.3's
+    // object gate both read these relations, so a finder built without them
+    // answers every query slightly worse and says nothing about why. This is
+    // the same reasoning `ERR_NO_DICTIONARY` records for the statement
+    // dictionary, which took this route first.
+    //
+    // The refusal is reached long before a user is: the artifact assembler runs
+    // the packed frame through the module's own `OP_INIT`
+    // (`fathom_artifact::corpus::verify`), so a corpus tree with no
+    // `concepts/` fails `cargo run -p fathom-artifact` as a build defect.
+    if corpus.concept_sources.is_empty() {
+        return Err(
+            "no concept sources: corpus/concepts/ was not handed in, and a finder \
+                    built without the seed graph silently loses breadth resolution and the \
+                    object gate rather than failing"
+                .to_owned(),
+        );
+    }
+    let mut parsed: Vec<(&str, Node)> = Vec::with_capacity(corpus.concept_sources.len());
+    for (name, text) in &corpus.concept_sources {
+        let node = parse_profile(text, Profile::Corpus)
+            .map_err(|e| format!("{name}:{}: {}", e.line, e.message))?;
+        parsed.push((name.as_str(), node));
+    }
+    // Flattened in load order, so several authored `corpus/concepts/*.yaml`
+    // files compose the way the single seed file used to read. A file without a
+    // `concepts:` sequence is a defect in that file, not an empty contribution.
+    let mut seed_list: Vec<&Node> = Vec::new();
+    for (name, node) in &parsed {
+        let seq = node
+            .get("concepts")
+            .and_then(|c| c.as_seq())
+            .ok_or_else(|| format!("{name}: no `concepts` sequence"))?;
+        seed_list.extend(seq.iter());
+    }
 
     let mut by_id: BTreeMap<String, u32> = BTreeMap::new();
     let mut concepts: Vec<Concept> = Vec::new();
@@ -174,7 +219,7 @@ pub fn build_concept_table(corpus: &Corpus, lex: &Lexicons) -> Result<ConceptTab
         ord
     };
 
-    for item in seed_list {
+    for item in seed_list.iter() {
         let id = item
             .get("id")
             .and_then(|v| v.as_str())
@@ -207,7 +252,7 @@ pub fn build_concept_table(corpus: &Corpus, lex: &Lexicons) -> Result<ConceptTab
     }
     // Seed relations, second pass so targets intern deterministically after
     // all seed concepts exist.
-    for item in seed_list {
+    for item in seed_list.iter() {
         let id = item.get("id").and_then(|v| v.as_str()).unwrap_or_default();
         let ord = by_id[id];
         for key in ["narrower", "broader", "related"] {

@@ -370,3 +370,16 @@ fields:
   # WarpResolvesVia
   WarpResolvesVia.candidate: 298
   WarpResolvesVia.ordinal: 299
+  # LayoutPin (ADR-0035) — where a person put a box. Appended at the tail with the next two
+  # integers, which is the only way a key is ever assigned.
+  LayoutPin.x: 300
+  LayoutPin.y: 301
+  # Rack (ADR-0036) — physical placement. Appended after LayoutPin's pair, because a key is
+  # never reassigned and never inserted: the integer is the wire identity of the field.
+  Rack.label: 302
+  Rack.height_u: 303
+  Rack.unit_numbering: 304
+  # MountedIn (ADR-0036)
+  MountedIn.position_u: 305
+  MountedIn.height_u: 306
+  MountedIn.face: 307

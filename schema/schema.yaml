@@ -4,8 +4,35 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.1"    # One minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's "3.2" is
-                    # explicitly illustrative; this is the first shipped content of the tree).
+  version: "0.3"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+                    # "3.2" is explicitly illustrative). 0.2 added physical placement
+                    # (ADR-0035), priced against 62 §16.2's table item by item: one new node
+                    # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
+                    # seven new fields all optional-or-on-a-new-declarer (minor), zero
+                    # removals, zero retypes, zero reordered tuples, no containment
+                    # restructured — MountedIn is a reference, so no existing kind's owner
+                    # changes. Whole change = MINOR.
+                    #
+                    # 0.3 adds two `Device.role` variants, `server` and `access_point`
+                    # (ADR-0037). Priced the same way: 62 §16.2's table reads "New enum
+                    # variant | minor | Variant::Unknown(token) — the generated arm", twice,
+                    # and there is nothing else in the change — no kind, no edge, no field,
+                    # no key. An old build reading a 0.3 export gets
+                    # `DeviceRole::Unknown("server")` and renders the token, which is the
+                    # forward-compatibility the unknown arm exists for.
+                    #
+                    # The two are declared BEFORE `other` rather than appended after it, and
+                    # that is deliberate. `other` is not a peer of the six: it is the
+                    # taxonomy's escape hatch and it reads last everywhere the variants are
+                    # listed — the generated `DECLARED` array, `schema.json`, the form's
+                    # dropdown, the refusal message. Nothing in the tree depends on a
+                    # variant's ordinal: the canonical form of every schema enum is its
+                    # token (`Json::Str(self.token())`, 62 §7), the wire key registry is
+                    # untouched because no FIELD moved, and no code sorts a `DeviceRole`.
+                    # `crates/fathom-ir/tests/generated_contract.rs` pins that the canonical
+                    # form is the token, so if a later change ever does make the ordinal
+                    # load-bearing, it fails a test rather than silently rewriting old
+                    # exports.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -108,6 +135,75 @@ classes:
   - class: PortHost
     members: [Chassis, PassiveNode]
     doc: The two owners of PhysicalPort. 19 §3.3, carried per 19 §7.4 row 5.
+  # ADR-0035. Every kind the diagram can draw as a box — which today is every declared kind,
+  # because `fathom-layout` draws every live node and `56` §4.1's projection table leaves 23
+  # kinds untabled and therefore drawn at every layer. The list is written out rather than
+  # implied: a class is data, and a set that means "all of them" must still be able to stop
+  # meaning that. LayoutPin itself is excluded — a pin is not drawn, so a pin cannot be placed,
+  # and admitting it would make HasLayoutPin a self-referential containment chain.
+  # `crates/fathom-schema/tests/shipped_tree.rs` fails if this list and `kinds:` drift apart,
+  # so a kind added later cannot silently become unplaceable.
+  # A block sequence, not the one-line flow form the three classes above use: 62 §2.3's YAML
+  # subset refuses a flow collection that does not close on its own line, and forty-eight
+  # names do not fit one.
+  - class: Placeable
+    members:
+      - Site
+      - Device
+      - Chassis
+      - RedundancyGroup
+      - ExternalPeer
+      - Interface
+      - AggregateInterface
+      - RethInterface
+      - TunnelInterface
+      - LogicalUnit
+      - Address
+      - Vlan
+      - RoutingInstance
+      - StaticRoute
+      - LearnedRoute
+      - RoutingProtocol
+      - ProtocolAdjacency
+      - Zone
+      - PolicySet
+      - SecurityPolicy
+      - AddressObject
+      - AddressSet
+      - Application
+      - ApplicationSet
+      - NatRuleSet
+      - NatRule
+      - IkeProposal
+      - IkePolicy
+      - IkeGateway
+      - IpsecProposal
+      - IpsecPolicy
+      - IpsecVpn
+      - TrafficSelector
+      - Tunnel
+      - SecurityFlowSettings
+      - SystemSettings
+      - NtpServer
+      - SyslogTarget
+      - PhysicalPort
+      - Cable
+      - PassiveNode
+      - Premises
+      - Tenant
+      - Service
+      - ServiceType
+      - ServiceEndpoint
+      - ServicePath
+      - PathSegment
+      # ADR-0036 appended `Rack`, and `shipped_tree.rs`'s drift test is why it is here rather
+      # than forgotten: a rack is a live node, so `fathom-layout` draws it as a box on the
+      # diagram like any other, and a box you can see but cannot drag would be an arbitrary
+      # hole in ADR-0035's capability. Being Placeable is about the DIAGRAM; it says nothing
+      # about the elevation, where a rack is the frame rather than a box inside one.
+      - Rack
+    doc: |
+      Anything a person can put somewhere on the diagram. ADR-0035.
 
 kinds:
   # Identity tuples are transcribed only where 11 §10.3 or 19 states them. Kinds for which no
@@ -148,7 +244,50 @@ kinds:
       - { name: hostname,   type: Identifier, card: "1", emit: R }
       - { name: platform,   type: PlatformId, card: "1", emit: R, doc: "junos-srx, panos, ios-xe. Not \"vendor\". FK into schema/platforms.yaml." }
       - { name: os_version, type: OsVersion,  card: "0..1", emit: "—", doc: Drives every rule versions predicate (11 §4.7). }
-      - { name: role, type: "enum { firewall, router, switch, load_balancer, other }", card: "0..1", emit: "—" }
+      - name: role
+        type: "enum { firewall, router, switch, load_balancer, server, access_point, other }"
+        card: "0..1"
+        emit: "—"
+        doc: |
+          What the box is FOR, in one word. ADR-0037 added `server` and `access_point`
+          on 2026-08-16 and gives the whole argument; the short form is that the owner's
+          brief is "design my network AND SERVERS for my home lab" and the five original
+          variants sent every server, NAS, hypervisor and wireless access point to
+          `other` — a taxonomy that collapses half a lab into one bucket is not a
+          taxonomy.
+
+          `server` is one variant and not four. A NAS, a hypervisor host, a container
+          host and a bare-metal application server differ in what is INSTALLED on them,
+          not in what they are, and the schema does not model installed software.
+          Splitting them would be a variant per product category, which is exactly how
+          an enum stops meaning anything.
+
+          `access_point` is the 802.11 term, not a vendor's. It earns a variant because
+          it is a distinct network function that every home lab and every branch office
+          has at least one of, and because the two variants it would otherwise borrow
+          are both wrong: it is not a `switch` (it bridges a radio, and the layer model
+          would file it in the wrong place), and it is not `other` (nothing is
+          undecided about an AP).
+
+          Deliberately NOT variants, so the next person does not re-litigate them:
+          `storage`/`nas` and `hypervisor` (fold into `server`, above); `pdu` and `ups`
+          (rack furniture with a management address that carries no traffic — they stay
+          `other` until someone wants power in the elevation, and that is a rack
+          question, not a role question); `camera`, `printer`, `phone`, `workstation`
+          (leaves, not infrastructure, and one of them opens the door to all of them);
+          `wireless_controller` and `nms` (software on a `server`); `modem`/`ont` (a
+          media converter is a `PassiveNode` with ports and no config — 19 §3.6 — and a
+          carrier CPE that routes is a `router`).
+
+          `other` stays load-bearing and is not a failure state: it is the honest
+          answer for a box the taxonomy has not decided, and keeping it honest is
+          better than one variant per product category.
+
+          Still single-valued at card 0..1, which is a real limit and not an oversight:
+          a home gateway that is router + firewall + AP + switch gets one word. Widening
+          the cardinality is a separate change with a separate cost (every reader that
+          prints "the role" becomes a reader that prints a set), and nothing has asked
+          for it yet.
       - { name: domain_name, type: Fqdn, card: "0..1", emit: O, doc: Batfish Domain_Name. }
       - { name: management_address, type: IpAddr, card: "0..1", emit: "—", doc: Inventory only. Never used to reach the device (invariant 2). }
       - { name: cluster_id, type: u16, card: "0..1", emit: "R*", emit_required_when: { platforms: [junos-srx] }, doc: junos-srx chassis cluster only. }
@@ -1044,6 +1183,109 @@ kinds:
       # 19 §6.2 declares this tier anyway; 19's content is transcribed and the collision is a
       # defect to file per 62 §1.
       - [ owner(ServicePath), edge(EntersAt), edge(ExitsAt) ]
+
+  # ======================= the picture — ADR-0035 =======================
+  - kind: LayoutPin
+    layer: config
+    emits: false
+    doc: |
+      Where a person put a box. `56` §3.5's LayoutHint, spelled in 62's grammar: one pin
+      node contained by the element it places, carrying absolute scene coordinates on the
+      4 px grid, with Origin::Hand provenance like every other thing a human asserted
+      (ADR-0035).
+
+      **It is an OVERRIDE, never the source of position.** `56` §3.5 keeps layout computed;
+      an element with no live pin is placed by `fathom-layout` and an element with one sits
+      where the person put it AND IS DRAWN AS PLACED. A picture that mixed the two silently
+      would be lying about which is which.
+
+      **It is not drawn.** `fathom_layout::agg::live_nodes` excludes this kind, so a pin is
+      never a box, never a rank, and never a line. That exclusion is the one place the
+      exception lives; every other consumer sees an ordinary contained node.
+
+      LAYER, AND THE GAP IT NAMES: `62` §4.2's vocabulary is closed at
+      config | physical | service, and a pin belongs to none of the three — it is a fact
+      about the drawing, not about the network. `config` is transcribed as the conservative
+      reading because `emits: false` already closes the emit consumer and the pin is never
+      produced by a capture, so `19` §9.1's re-identification filter can never reach one.
+      A fourth value is a 62 amendment and this is not the record that makes it; the gap is
+      filed in ADR-0035 §8.
+    fields:
+      # i32 and not u16: the scene has a margin and a person dragging leftward past it should
+      # get a negative coordinate rather than a clamp they cannot see the reason for. Integers
+      # and never floats — invariant 9 forbids anything whose bit pattern could differ across
+      # targets, and `fathom-layout` already states that rule for every coordinate it emits.
+      - { name: x, type: i32, card: "1", emit: "—", doc: "Absolute scene x, on the 4 px grid (56 §3.5)." }
+      - { name: y, type: i32, card: "1", emit: "—", doc: "Absolute scene y, on the 4 px grid (56 §3.5)." }
+    # No identity tuple, and this one is a decision rather than a gap: a pin is identified by
+    # what contains it and by nothing else. Two pins on one element is the state HasLayoutPin's
+    # `out: "0..1"` forbids, and a pin has no natural key of its own — inventing one
+    # (`owner + x`) would make moving a box change its identity.
+    identity: []
+  # ======================= physical placement — 19 §3.10, ADR-0036 =======================
+  # Appended, never inserted (62 §2.3): declaration order is diff order and generated
+  # enum order, so a new kind goes at the tail of the block.
+  - kind: Rack
+    layer: physical
+    emits: false
+    doc: |
+      A frame or cabinet of 19-inch mounting positions (ADR-0036). 19 §3.10 predicted this
+      kind and priced it -- "Chassis --MountedIn--> Rack later is a new kind plus a reference
+      edge = minor" -- and this is that edit, paid.
+
+      Contained by Premises, exactly as PassiveNode is and for the same reason (19 §3.6): a
+      rack has no operational identity, it is only somewhere. It is deliberately NOT a Site
+      (an operational grouping, layer: config) and NOT a nested Premises (which has a street
+      address, a CLLI and coordinates; a rack has none of those, and 70 §10.8's own cost 3
+      records that nesting Premises still would not put devices in racks).
+
+      NOTHING PARSES A RACK. No Junos statement -- no vendor statement known to this project --
+      says which rack a box is in or at what height. Every Rack and every MountedIn is
+      Origin::Hand, and that is a property of the world, not a gap in the ingest dictionary.
+    fields:
+      - { name: label, type: Text, card: "1", emit: "—", doc: "The name stencilled on the frame: R12, AISLE-3-04. No hostname -- nothing addresses a rack." }
+      - name: height_u
+        type: u8
+        card: "1"
+        emit: "—"
+        constraints:
+          range: { min: 1, max: 100, platforms: [] }
+        doc: |
+          Capacity in rack units. One rack unit is 1.75 in / 44.45 mm under EIA-310 and
+          IEC 60297 (en.wikipedia.org/wiki/Rack_unit and /wiki/19-inch_rack, both read
+          2026-08-15). There is NO standard height: 42U is the industry-standard cabinet and
+          42U-48U is the common range, but arbitrary heights are real and are allowed
+          (netbox.readthedocs.io/en/stable/models/dcim/rack/, read 2026-08-15). So this is a
+          required field with no default rather than a constant. The range is a sanity bound
+          on a typo, not a claim about what racks exist.
+      - name: unit_numbering
+        type: "enum { ascending, descending }"
+        card: "1"
+        emit: "—"
+        doc: |
+          Which end of the frame is U1. REQUIRED, WITH NO DEFAULT, AND THAT IS THE POINT.
+
+          ADR-0034 forbids answering this from memory, and the lookup came back split rather
+          than clean. Wikipedia's rack-unit page defines the unit and is SILENT on direction
+          (read 2026-08-15). NetBox issue netbox-community/netbox#191 records a real estate
+          whose Knurr racks number "U01 at top of rack and U41 at rack bottom", against
+          NetBox's opposite default (read 2026-08-15). NetBox ships the disagreement as a
+          field: "a toggle is provided to indicate whether rack units are in ascending (from
+          the ground up) or descending order" (netbox.readthedocs.io, read 2026-08-15).
+
+          Three sources, no universal convention, so none is assumed. `ascending` means U1 is
+          at the FLOOR, which is the more common convention but is not the default here --
+          an elevation drawn with the wrong direction is upside down and every position in it
+          is wrong while looking entirely plausible, which is precisely the silent-wrongness
+          56 §0 exists to prevent. A rack whose direction nobody stated is not drawn.
+      # NO `notes` FIELD, deliberately, and it was here in the first draft. Every sibling
+      # physical kind carries one, so copying it in felt like consistency -- but nothing
+      # writes it, nothing reads it, and no face offers it. ADR-0008 makes a schema field a
+      # wire key assigned forever; declaring one on the strength of a pattern spends a key
+      # that can never be reused on a field that does not exist. It appends the day a face
+      # asks for it.
+    identity:
+      - [ owner(Premises), label ]    # tier 1 -- a physical coordinate, PassiveNode's precedent exactly
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -2045,6 +2287,94 @@ edges:
     fields: []
     emit_dict: null
     doc: 19 §5.2, §6.7 — constrain, never freeze; honoured by resolve_warp.
+
+  # ---- the picture, ADR-0035 ----
+  - edge: HasLayoutPin
+    class: containment
+    from: [Placeable]
+    to: [LayoutPin]
+    out: "0..1"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0035. CONTAINMENT and not a reference, for one reason that decides it: `Graph::tombstone`
+      takes the subtree, so removing a device takes its pin with it. A pin for a box that is gone
+      is not a fact anybody asserted — the same argument `OP_ELEMENT_REMOVE` already makes about
+      a chassis. `out: "0..1"` is what makes "two positions for one box" unrepresentable rather
+      than merely unwritten.
+  # ======================= physical placement — ADR-0036 =======================
+  - edge: HasRack
+    class: containment
+    from: [Premises]
+    to: [Rack]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0036. A rack hangs off the place it stands in, exactly as HasPassiveNode hangs a
+      splitter off one (19 §3.6). in: "1" keeps containment a forest and makes
+      owner(Premises) usable as Rack's identity term.
+  - edge: MountedIn
+    class: reference
+    from: [Chassis]
+    to: [Rack]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - name: position_u
+        type: u8
+        card: "1"
+        emit: "—"
+        constraints:
+          range: { min: 1, max: 100, platforms: [] }
+        doc: |
+          The LOWEST-NUMBERED unit this chassis occupies -- NetBox's rule, taken deliberately
+          rather than invented: "this field indicates the base rack unit in which the device
+          is mounted", and a multi-U device occupies its lowest-numbered unit
+          (netbox.readthedocs.io/en/stable/models/dcim/device/, read 2026-08-15).
+
+          "Lowest-numbered" is not "nearest the floor": under descending numbering the
+          lowest-numbered unit is the TOP of the occupied run. The rule is stated on the
+          numbers so it means one thing under both directions of Rack.unit_numbering.
+      - name: height_u
+        type: u8
+        card: "0..1"
+        emit: "—"
+        constraints:
+          range: { min: 1, max: 100, platforms: [] }
+        doc: |
+          How many contiguous units the chassis fills. Optional: somebody who knows a box is
+          at U12 but has not counted its height has said something true and useful, and
+          refusing it would lose the fact. Absent renders as 1U and is MARKED as unstated --
+          it is never silently assumed (19 §6's warp, 70 §16: incomplete is drawn and marked,
+          never refused).
+      - { name: face, type: "enum { front, rear }", card: "0..1", emit: "—", doc: "Which side the chassis is mounted on. \"If installed in a rack, this field denotes the primary face on which the device is mounted\" (netbox.readthedocs.io/en/stable/models/dcim/device/, read 2026-08-15). Optional for the same reason height_u is." }
+    emit_dict: null
+    doc: |
+      ADR-0036. Physical placement of one box in one frame.
+
+      A REFERENCE EDGE, AND IT HAS TO BE. Chassis already has a containment parent (Device,
+      via HasChassis) and containment is a forest, so a rack cannot contain a chassis without
+      taking it away from its device. 70 §10.8's cost 3 posed the fork as "either HasDevice
+      widens or a rack is a Site" and both limbs are wrong, because THE THING IN THE RACK IS
+      NOT THE DEVICE, IT IS THE CHASSIS: a Junos chassis cluster is one Device with two
+      Chassis, and putting node0 and node1 in separate racks is the normal reason to have a
+      cluster at all. A containment edge from a rack to a device cannot express that; this
+      can, and it needs no widening of anything.
+
+      The placement fields sit on the EDGE rather than on Chassis because "at U12, front" is
+      a fact about the mounting, not about the box: a chassis on a shelf has no U, and moving
+      one between racks should touch one relation rather than three fields on a node. Edges
+      are first-class and carry typed fields (ADR-0007); Link, Terminates and Occupies already
+      do.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

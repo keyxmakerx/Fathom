@@ -101,7 +101,44 @@ pub fn parse_into_slot(key: FieldKey, text: &str) -> Result<Box<dyn Any>, Author
             return Err(AuthorError::Parse(ScalarParseError {
                 scalar: "DeviceRole",
                 kind: ScalarParseErrorKind::Syntax {
-                    expected: "firewall, router, switch, load_balancer or other",
+                    // ADR-0037 added `server` and `access_point`. This string is
+                    // hand-written and the DECLARED array is generated, so the two
+                    // can drift and the drift is silent — the message would simply
+                    // stop naming a value the form does accept. `tests/author.rs`
+                    // now asserts every DECLARED token appears in it, which is the
+                    // guard, not this comment.
+                    expected:
+                        "firewall, router, switch, load_balancer, server, access_point or other",
+                },
+            }));
+        }
+        return Ok(Box::new(v));
+    }
+
+    // ADR-0036's two inline placement enums, refusing the unknown arm for the
+    // same reason `DeviceRole` does: a person typing "frnt" wants to be told.
+    if tid == TypeId::of::<ir_types::MountedInFace>() {
+        let v = ir_types::MountedInFace::from_token(text);
+        if matches!(v, ir_types::MountedInFace::Unknown(_)) {
+            return Err(AuthorError::Parse(ScalarParseError {
+                scalar: "MountedInFace",
+                kind: ScalarParseErrorKind::Syntax {
+                    expected: "front or rear",
+                },
+            }));
+        }
+        return Ok(Box::new(v));
+    }
+    if tid == TypeId::of::<ir_types::RackUnitNumbering>() {
+        let v = ir_types::RackUnitNumbering::from_token(text);
+        if matches!(v, ir_types::RackUnitNumbering::Unknown(_)) {
+            return Err(AuthorError::Parse(ScalarParseError {
+                scalar: "RackUnitNumbering",
+                kind: ScalarParseErrorKind::Syntax {
+                    // Named in full rather than as "the two values", because
+                    // ADR-0036 makes this field required with no default and
+                    // the error is where most people will first meet it.
+                    expected: "ascending (U1 at the floor) or descending (U1 at the top)",
                 },
             }));
         }
