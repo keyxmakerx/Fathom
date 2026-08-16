@@ -27,7 +27,14 @@ pub fn repo_root() -> PathBuf {
 /// `corpus/dict/junos-srx/*.yaml`, sorted, exactly as `Dictionary::load` reads
 /// them.
 pub fn dict_sources() -> Vec<(String, String)> {
-    let dir = repo_root().join("corpus").join("dict").join("junos-srx");
+    platform_sources("junos-srx")
+}
+
+/// The same, for any platform directory. The rules-table dictionary
+/// (`corpus/dict/opnsense`) is a second dictionary in a second slot, so a test
+/// that pastes a rules CSV needs it handed in as well.
+pub fn platform_sources(platform: &str) -> Vec<(String, String)> {
+    let dir = repo_root().join("corpus").join("dict").join(platform);
     let mut paths: Vec<PathBuf> = std::fs::read_dir(&dir)
         .expect("the dictionary directory is checked in")
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -54,7 +61,15 @@ pub fn field_keys() -> String {
 
 /// The `OP_DICT` frame the page splices in, built here from the same files.
 pub fn dict_frame() -> Vec<u8> {
-    let sources = dict_sources();
+    frame_of(&dict_sources())
+}
+
+/// The rules-table `OP_DICT` frame — the page's second splice.
+pub fn csv_dict_frame() -> Vec<u8> {
+    frame_of(&platform_sources("opnsense"))
+}
+
+fn frame_of(sources: &[(String, String)]) -> Vec<u8> {
     let keys = field_keys();
     let mut files: Vec<(u8, &str, &str)> = sources
         .iter()
@@ -64,17 +79,28 @@ pub fn dict_frame() -> Vec<u8> {
     pack_dict(&files)
 }
 
-/// A shell that has been through the page's boot: dictionary loaded, nothing
-/// else. The empty reply is asserted rather than ignored, so a dictionary that
-/// stopped loading fails here loudly instead of surfacing as a mystifying
-/// paste refusal in twelve other tests.
+/// A shell that has been through the page's boot: BOTH dictionaries loaded,
+/// nothing else. The empty replies are asserted rather than ignored, so a
+/// dictionary that stopped loading fails here loudly instead of surfacing as a
+/// mystifying paste refusal in twelve other tests.
+///
+/// Both, and not "the one this test needs", because the page hands in both and
+/// a helper that booted less than the page does would let a slot-routing defect
+/// through — the module files a frame by the dictionary's own `platform:` line,
+/// and a test shell holding one dictionary cannot tell a right filing from a
+/// wrong one.
 pub fn booted_shell() -> Shell {
     let mut shell = Shell::new();
-    let reply = shell.handle(OP_DICT, &dict_frame());
-    assert!(
-        reply.is_empty(),
-        "OP_DICT must succeed before any paste; it replied {} bytes",
-        reply.len()
-    );
+    for (what, frame) in [
+        ("the statement dictionary", dict_frame()),
+        ("the rules-table dictionary", csv_dict_frame()),
+    ] {
+        let reply = shell.handle(OP_DICT, &frame);
+        assert!(
+            reply.is_empty(),
+            "OP_DICT must succeed before any paste; {what} replied {} bytes",
+            reply.len()
+        );
+    }
     shell
 }

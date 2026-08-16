@@ -33,6 +33,10 @@ pub struct Shell {
     /// `OP_DICT` and held for the module's lifetime. Absent until that call
     /// succeeds, which is why `OP_PASTE` can refuse with `ERR_NO_DICTIONARY`.
     dict: Option<fathom_ingest::dict::Dictionary>,
+    /// The OPNsense firewall-rules dictionary, on the same terms. A second
+    /// slot rather than a replacement: a paste chooses one, and the one it did
+    /// not choose must still be there for the next paste.
+    csv_dict: Option<fathom_ingest::dict::Dictionary>,
 }
 
 impl Shell {
@@ -41,6 +45,7 @@ impl Shell {
             finder: None,
             estate: None,
             dict: None,
+            csv_dict: None,
         }
     }
 
@@ -52,9 +57,23 @@ impl Shell {
                 Err((code, detail)) => protocol::encode_error(code, &detail),
             },
             OP_QUERY => self.query(req),
+            // Called ONCE PER PLATFORM, and the frame decides which slot it
+            // fills — the dictionary's own `platform:` line, not the call
+            // order and not a new frame field. `from_sources` already refuses
+            // a file set whose platforms disagree, so by the time a dictionary
+            // exists it has exactly one platform and asking it is free.
+            //
+            // The rejected alternative was a platform byte in the frame: it
+            // would let a page label a dictionary something the YAML does not
+            // say, and then a paste would be read by one platform's grammar
+            // and provenanced as another's. Nothing downstream could notice.
             OP_DICT => match crate::dictframe::load(req) {
                 Ok(d) => {
-                    self.dict = Some(d);
+                    if d.platform() == "opnsense" {
+                        self.csv_dict = Some(d);
+                    } else {
+                        self.dict = Some(d);
+                    }
                     Vec::new()
                 }
                 Err((code, detail)) => protocol::encode_error(code, &detail),
@@ -145,20 +164,47 @@ impl Shell {
         let entropy = u128::from_le_bytes(entropy);
         let text = req.get(PREFIX..).unwrap_or_default();
 
+        // Which grammar is this? The sniff is exact — the first non-blank line
+        // must begin `@uuid` followed by `;` or `,`, which is the OPNsense
+        // Migration assistant's header and nothing else (`64` §1.1). A fuzzy
+        // sniff would occasionally read a Junos paste as a table, and the cost
+        // of that is the operator's estate replaced by nonsense.
+        let table = fathom_ingest::csv::looks_like_rules_csv(text);
+
         // No fallback, by design. Until 2026-08-15 this built a compiled-in
         // dictionary here; the bytes moved to the page (`crate::dictframe`) and
         // what is left is a typed refusal. It is stated rather than tolerated
         // because the tolerant version — carry on with an empty dictionary —
         // binds nothing, and the operator is then told their config is
         // unrecognised when in fact the page never finished booting.
-        let Some(dict) = self.dict.as_ref() else {
+        //
+        // Two slots, one per grammar, and the refusals are worded apart: a page
+        // that booted the set-form dictionary and forgot the table one is a
+        // different defect from a page that booted neither, and "no dictionary"
+        // would send whoever reads it to the wrong place.
+        let held = if table {
+            self.csv_dict.as_ref()
+        } else {
+            self.dict.as_ref()
+        };
+        let Some(dict) = held else {
             return protocol::encode_error(
                 ERR_NO_DICTIONARY,
-                "no statement dictionary is loaded: OP_DICT must succeed before OP_PASTE",
+                if table {
+                    "no table dictionary is loaded: OP_DICT must hand in a rules-CSV \
+                     dictionary before a rules export can be read"
+                } else {
+                    "no statement dictionary is loaded: OP_DICT must succeed before OP_PASTE"
+                },
             );
         };
 
-        let ingest = match fathom_ingest::ingest(text, dict) {
+        let read = if table {
+            fathom_ingest::csv::ingest_csv(text, dict)
+        } else {
+            fathom_ingest::ingest(text, dict)
+        };
+        let ingest = match read {
             Ok(o) => o,
             Err(e) => return protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e)),
         };
@@ -1416,6 +1462,36 @@ fn refusal_text(e: fathom_ingest::IngestRefusal) -> String {
             fathom_ingest::MAX_PASTE_BYTES,
             fathom_ingest::MAX_PASTE_LINES
         ),
+        // The wording matters more than usual here. An empty export and a
+        // firewall with no rules are the same file, so an operator who is not
+        // told which one they have will believe the wrong thing — and OPNsense
+        // issue #10595 (22 July 2026, open and unanswered on 2026-08-15) is a
+        // report of the export writing 0 bytes while the assistant said it had
+        // found 47 rules. Naming the version is what makes the message
+        // actionable rather than merely apologetic.
+        // THE MOST LIKELY REAL INPUT ON THIS PATH, AND IT MUST NOT READ AS
+        // "your firewall is empty". A header with no records is what OPNsense
+        // issue #10595 produces: the Migration assistant reports finding 47
+        // legacy rules and writes a 0-byte `download_rules.csv`. Opened 22 July
+        // 2026 against 26.7.1; still open, unanswered, no fix found —
+        // re-established independently on 2026-08-16 rather than carried
+        // forward on trust (ADR-0034).
+        //
+        // The operator who hits it is one step from documenting their firewall
+        // as having no rules at all. So the message says what the file is, says
+        // whose bug it is, and says where the rules still are. It does not
+        // suggest a workaround, because none was established.
+        fathom_ingest::IngestRefusal::EmptyTable { columns } => format!(
+            "this is a rules table with {columns} columns and not one rule under them. \
+             THIS DOES NOT MEAN YOUR FIREWALL HAS NO RULES. If it came from OPNsense's \
+             Firewall → Rules → Migration assistant, an empty export is a known bug in \
+             the assistant, not a fact about your firewall: opnsense/core issue #10595 \
+             reports it writing a 0-byte download_rules.csv while telling the operator it \
+             had found 47 rules (opened 22 July 2026 against 26.7.1, still open and \
+             unanswered on 2026-08-16). Your rules are in /conf/config.xml and your \
+             firewall is still enforcing them. Fathom has refused this file rather than \
+             record an estate with no policies in it, and has not touched what you had."
+        ),
     }
 }
 
@@ -1445,11 +1521,28 @@ fn residue_reason(outcome: &fathom_ingest::frame::LineOutcome) -> String {
                 "the name this statement configures could not be read".to_owned()
             }
             ShapeError::TooManySegments => "more than 64 words deep".to_owned(),
+            // Said in full, because this is the one residue reason whose remedy
+            // is a specific edit to the file rather than "Fathom does not know
+            // this yet". The operator can look at the row, find the stray
+            // delimiter in a description, quote it, and paste again.
+            ShapeError::RowWidth { cells, columns } => format!(
+                "this row has {cells} fields where the header names {columns} columns, so \
+                 which value belongs to which column is not known — most often an \
+                 unquoted `;` inside a description. The whole row is shown rather than \
+                 guessed at: a rule read one column out would say `any` where your file \
+                 says a network."
+            ),
         },
         LineOutcome::Quarantined { label, orig_len } => format!(
             "held back at the redaction gate: {} ({orig_len} bytes)",
             label.token()
         ),
+        // Reachable only through `csv.rs`, and never as residue — a header is
+        // understood, not left over. Named anyway, because the alternative is
+        // the `{other:?}` arm below printing a Rust debug string at a person.
+        LineOutcome::Header { columns } => {
+            format!("the header row — it named {columns} columns")
+        }
         // `ingest` builds `residue` from exactly the three arms above, so this
         // is unreachable through `ingest`. Naming the outcome rather than
         // asserting keeps a future fourth arm visible instead of silent.

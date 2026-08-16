@@ -415,6 +415,59 @@ const offFile = requests.filter((u) => !u.startsWith('file://'));
 check(`zero non-file requests (saw ${requests.length} total)`, offFile.length === 0,
   offFile.join(', '));
 
+console.log('\n16. A RACK SURVIVES AN EXPORT AND A RE-OPEN');
+/* ADR-0036 §1 reason 1 is the whole argument for putting placement in the
+   graph: "A diagram an engineer arranged and cannot keep is not worth
+   arranging." A rack is the ONLY kind in the estate no paste can rebuild — §1
+   records that nothing parses one — so a round trip that drops it does not
+   degrade the record, it DELETES it.
+
+   It shipped dropping it. `runPlaceIntoRack` wrote through `OP_RACK_PLACE`,
+   updated the view, and never touched `S.journal`; `importJournal` had arms for
+   paste, equip, field, remove and place and none for a rack. The exported `ops`
+   array held one op for two user actions, the footer counted one step, the
+   re-opened file read "No racks yet.", and nothing anywhere said a thing had
+   been dropped. Nothing caught it because the journal lives in page JavaScript
+   where no Rust test can see it, and because THIS FILE never exported. */
+await place({ rack: 'RKEEP', height: 42, numbering: 'ascending', pos: 7,
+              span: 2, host: 'srx-a' });
+await page.waitForTimeout(80);
+
+/* Asserted on the EXPORTED FILE rather than on `S.journal`: the page's script
+   is scoped, so the state object is not reachable from a driver — and the file
+   is the thing that actually matters, being what an operator keeps. */
+const dl = page.waitForEvent('download');
+await page.click('#tabExport');
+const saved = resolve(here, '../../../target/rack-round-trip.fathom-journal.json');
+await (await dl).saveAs(saved);
+const doc = JSON.parse((await import('node:fs')).readFileSync(saved, 'utf8'));
+check('and in the file that leaves the machine',
+  doc.ops.some((o) => o.op === 'rack'),
+  JSON.stringify(doc.ops.map((o) => o.op)));
+
+await page.reload();
+await page.waitForFunction(() => document.querySelector('#band button') !== null);
+await (await page.$('input[type=file]')).setInputFiles(saved);
+await page.waitForTimeout(900);
+await page.click('#tabRack');
+await page.waitForTimeout(200);
+const reopened = await page.locator('#rbody').innerText();
+check('THE RACK COMES BACK', /RKEEP/.test(reopened) && !/No racks yet/i.test(reopened),
+  reopened.slice(0, 200).replace(/\n/g, ' | '));
+/* After an import no rack is selected and the view says "Choose a rack." —
+   honest, and what a person does next is choose one. Doing that here rather
+   than asserting on the unselected state, because the question is whether the
+   PLACEMENT survived, not whether the picker remembers. */
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll('#rbody button, #rbody [data-rack]')]
+    .find((x) => /RKEEP/.test(x.textContent));
+  if (b) b.click();
+});
+await page.waitForTimeout(250);
+const chosen = await page.locator('#rbody').innerText();
+check('with the box still at the unit it was put at',
+  /\bU7\b/.test(chosen), chosen.slice(0, 220).replace(/\n/g, ' | '));
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 await browser.close();
 process.exit(fail === 0 ? 0 : 1);

@@ -123,8 +123,12 @@ impl DetectorSet {
 /// set protocols ospf area A interface I authentication simple-password <key>
 /// ```
 ///
-/// and `simple-password` is not `password`: `is_secret_word` is whole-string
-/// equality after folding, so the two never match. With no entry declaring a
+/// and `simple-password` was not `password`: `is_secret_word` was whole-string
+/// equality after folding, so the two never matched. (It matches by COMPONENT
+/// as well now — `dict::is_secret_word` carries that fix and the six live
+/// credentials that forced it. The paragraph below is kept in the past tense it
+/// belongs to: it is the reasoning for this member's existence, not a
+/// description of today's test.) With no entry declaring a
 /// `secret:` at that path, the ONLY thing standing between that key and the
 /// store was `base64ish`, the length-and-alphabet safety net.
 ///
@@ -152,7 +156,55 @@ impl DetectorSet {
 ///
 /// A length heuristic is the wrong instrument for a short secret. The right one
 /// is the name, which is what this list is for.
-pub const SECRET_WORD_LIST: [&str; 25] = [
+///
+/// # `bindpw` and `otp_seed` — added 2026-08-16 with the OPNsense table path
+///
+/// Component matching splits on `-`, `_` and `.` and tests each part, which is
+/// what catches `user_password`, `ipsec_psk` and `radius_secret` — the shapes a
+/// mis-pasted OPNsense export carries. It cannot catch a name whose credential
+/// word is CONCATENATED rather than separated, and OPNsense has exactly two
+/// that matter. Both key strings were read out of the vendor's own source on
+/// 2026-08-16, not recalled:
+///
+/// - `ldap_bindpw` — `src/opnsense/mvc/app/library/OPNsense/Auth/LDAP.php` on
+///   `opnsense/core` master maps `'ldap_bindpw' => 'ldapBindPassword'` in its
+///   `$confMap`. Splitting gives `ldap` and `bindpw`, neither of which was a
+///   member, so the LDAP bind password had no name coupling at all. (Its
+///   sibling `'radius_secret' => 'sharedSecret'`, from `Auth/Radius.php`, was
+///   already caught by the `secret` component.)
+/// - `otp_seed` — a plaintext TOTP seed, listed by `64` §7 as the leading
+///   example of its own class: *"secrets under names with no credential word"*.
+///   `docs.opnsense.org/manual/users.html` names the field *"OTP seed"* (read
+///   2026-08-16). Whoever holds it mints valid second factors forever.
+///
+/// **This closes named instances and NOT the class**, and the distinction is the
+/// whole lesson of the `simple-password` entry above. `64` §7 records the rest
+/// as open.
+///
+/// # `mmonitUrl` — OPEN, AND NOTHING HERE CATCHES IT
+///
+/// **CORRECTED 2026-08-16.** The paragraph that stood here said `pieces()`,
+/// splitting on `:` in the unshaped sweep, catches OPNsense's `mmonitUrl` —
+/// documented by the vendor as `https://user:pass@192.168.1.10:8443/collector`
+/// (docs.opnsense.org/manual/monit.html, read 2026-08-16). **It does not, and it
+/// categorically cannot.** Driven three ways, every one `drops: 0` with the
+/// value verbatim: through the shipped artifact and read back out of the
+/// exported journal, through a width-refused row that really does enter
+/// `gate_unshaped`, and through the Junos `key=value` sweep.
+///
+/// The reason is structural rather than a tuning failure. `pieces()` splits on
+/// `=`, `:` and `,` and then runs only `crypt_prefix`, `long_hex` and
+/// `base64ish`; `base64ish` requires every character to be alphanumeric, `+` or
+/// `/`, so any piece of a URL is rejected by its `@` and its `.` however long the
+/// password is. And `key_names_a_secret` sees the left-hand side of the first
+/// `:`, which is `https`.
+///
+/// So this is an OPEN GAP and is recorded as one. A false claim of protection is
+/// worse than a stated hole: the hole gets closed, and the claim gets trusted.
+/// Closing it needs a value-shaped rule — a URL with a userinfo component is a
+/// credential wherever it appears — which is a different instrument from this
+/// list and is not built.
+pub const SECRET_WORD_LIST: [&str; 29] = [
     "key",
     "keys",
     "key-string",
@@ -161,6 +213,15 @@ pub const SECRET_WORD_LIST: [&str; 25] = [
     "password",
     "passwd",
     "simple-password",
+    // Run together with no separator and no case boundary, so neither the
+    // component split nor the case split can reach them. Both are real OPNsense
+    // credential names carried in `64` §7 and both were driven through the
+    // shipped artifact on 2026-08-16 at values a real box holds: `privkey` holds
+    // a plaintext SSH private key under `//system/backup/*` and a WireGuard
+    // server key (opnsense/core master `Wireguard/Server.xml` declares it), and
+    // `basicauthpass` is caddy's, under the top-level `<Pischem>` element.
+    "privkey",
+    "basicauthpass",
     "plain-text-password",
     "encrypted-password",
     "psk",
@@ -178,6 +239,8 @@ pub const SECRET_WORD_LIST: [&str; 25] = [
     "phash",
     "passhash",
     "private-key",
+    "bindpw",
+    "otp_seed",
 ];
 
 // ---------------------------------------------------------------------------

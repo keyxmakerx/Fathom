@@ -14,7 +14,19 @@
 // picture so every box is inside, which keeps relative positions exact and
 // leaves the stored pin alone. Thirty left-nudges is well past where it broke.
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-const URL='file:///home/user/Fathom/target/artifact/fathom-dev.html';
+/* THE TREE UNDER TEST IS THE TREE THIS SCRIPT LIVES IN.
+   This line used to name /home/user/Fathom absolutely, so running it from a
+   worktree opened the MAIN repo's artifact and reported a clean pass for a
+   build that was never made here. It is derived from the script's own path
+   now, with FATHOM_ARTIFACT as an override for anyone who wants to point it
+   somewhere on purpose. Found 2026-08-16, after six drivers were run from a
+   worktree and answered for somebody else's bytes. */
+import { fileURLToPath as __f } from 'node:url';
+import { dirname as __d, resolve as __r } from 'node:path';
+const __ROOT = __r(__d(__f(import.meta.url)), '..', '..', '..');
+const __ARTIFACT = process.env.FATHOM_ARTIFACT
+  || ('file://' + __ROOT + '/target/artifact/fathom-dev.html');
+const URL = __ARTIFACT;
 const CFG=`set system host-name srx-branch-01
 set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30
 set interfaces ge-0/0/1 unit 0 family inet address 198.51.100.1/30

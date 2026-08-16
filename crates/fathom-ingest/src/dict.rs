@@ -81,7 +81,15 @@ impl Dictionary {
     /// runs every gate of WO-03 §4.7. A gate failure is a load failure: a
     /// dictionary that does not pass is never half-loaded.
     pub fn load(root: &Path) -> Result<Dictionary, DictError> {
-        let dict_dir = root.join("corpus").join("dict").join("junos-srx");
+        Dictionary::load_platform(root, "junos-srx")
+    }
+
+    /// [`load`](Dictionary::load), for any platform directory under
+    /// `corpus/dict/`. Split out 2026-08-15: `load` had the one platform's
+    /// directory name written into it, which was true when there was one
+    /// platform and became a false generality the moment there were two.
+    pub fn load_platform(root: &Path, platform: &str) -> Result<Dictionary, DictError> {
+        let dict_dir = root.join("corpus").join("dict").join(platform);
         let schema_root = root.join("schema");
         let schema = fathom_schema::SchemaTree::load(&schema_root).map_err(|e| DictError {
             file: schema_root.display().to_string(),
@@ -221,6 +229,28 @@ pub(crate) enum ValueTy {
     Bandwidth,
     RoutingProtocolProtocol,
     ProtocolAdjacencyNetworkType,
+    /// Added 2026-08-15 with the OPNsense rules CSV. The schema has carried
+    /// `bool` fields since the beginning (`SecurityPolicy.enabled`,
+    /// `Zone.tcp_rst`, …) and no dictionary could reach one, because a
+    /// `set`-form statement spells a boolean by being present rather than by
+    /// carrying a value. A CSV column spells it `0` or `1`, so the type has to
+    /// exist for the first time here.
+    ///
+    /// The accepted spellings are deliberately narrow — `0`/`1` and
+    /// `true`/`false`, nothing else. `yes`/`no`/`on`/`off` are NOT accepted:
+    /// no OPNsense field was seen to emit them, and inventing an accepted
+    /// spelling is inventing a vendor behaviour (ADR-0034). An unrecognised
+    /// token is a `ValueUnparsed` diagnostic, which is visible, rather than a
+    /// silent `false`, which would read as *"this rule is disabled"* — the
+    /// most dangerous wrong answer a firewall tool can give.
+    Bool,
+    /// The `action` column of an OPNsense firewall rule, mapped onto
+    /// `schema/enums/policy_action.yaml` through a token map. Vendor tokens
+    /// established 2026-08-15 from two independent sources — the model's
+    /// `OptionValues` (Pass/Block/Reject, default `pass`) in
+    /// `models/OPNsense/Firewall/Filter.xml` on `opnsense/core` master, and
+    /// the manual's prose at `docs.opnsense.org/manual/firewall.html`.
+    PolicyAction,
 }
 
 impl ValueTy {
@@ -256,6 +286,8 @@ impl ValueTy {
             "Bandwidth" => ValueTy::Bandwidth,
             "RoutingProtocolProtocol" => ValueTy::RoutingProtocolProtocol,
             "ProtocolAdjacencyNetworkType" => ValueTy::ProtocolAdjacencyNetworkType,
+            "bool" => ValueTy::Bool,
+            "PolicyAction" => ValueTy::PolicyAction,
             _ => return None,
         })
     }
@@ -272,6 +304,7 @@ impl ValueTy {
             // a second enum in the IR that means the same thing.
             ValueTy::RoutingProtocolProtocol => Some("RoutingProtocolProtocol"),
             ValueTy::ProtocolAdjacencyNetworkType => Some("ProtocolAdjacencyNetworkType"),
+            ValueTy::PolicyAction => Some("PolicyAction"),
             _ => None,
         }
     }
@@ -1604,10 +1637,51 @@ pub(crate) fn is_secret_word(text: &str) -> bool {
     }
     // Component match. `14` §9.7 fixes the direction of error as destruction,
     // so a compound whose ANY part names a secret is treated as naming one.
-    needle
+    if needle
         .split(['-', '.'])
         .filter(|p| !p.is_empty())
         .any(|part| SECRET_WORD_LIST.iter().any(|w| fold_word(w) == part))
+    {
+        return true;
+    }
+
+    // **CASE BOUNDARIES TOO, added 2026-08-16.** A separator match cannot see a
+    // camelCase name, and camelCase is what OPNsense's model tree is written in:
+    // driven through the shipped artifact at values a real box holds,
+    // `httpdPassword`, `TlsDnsApiKey` and `preSharedKey` all reached the exported
+    // journal with no name coupling at all. Each is named in `64` §7 as a real
+    // credential — Monit's HTTP password, caddy's DNS API key, an IPsec
+    // pre-shared key on the current (non-legacy) path.
+    //
+    // Splitting `text` rather than `needle`, because `fold_word` has already
+    // lowercased and the case information is exactly what this needs.
+    //
+    // THIS STILL DOES NOT CLOSE THE CLASS, and the two it cannot reach are named
+    // rather than implied: `privkey` and `basicauthpass` are run together with no
+    // case boundary and no separator, so they are members of the list itself
+    // below. `mmonitUrl` carries its credential in the VALUE and no name rule of
+    // any kind reaches it — `redact.rs`'s list comment carries that correction in
+    // full.
+    let mut parts: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for c in text.chars() {
+        if c.is_ascii_uppercase() && !cur.is_empty() {
+            parts.push(std::mem::take(&mut cur));
+        }
+        if c == '-' || c == '_' || c == '.' {
+            if !cur.is_empty() {
+                parts.push(std::mem::take(&mut cur));
+            }
+            continue;
+        }
+        cur.push(c.to_ascii_lowercase());
+    }
+    if !cur.is_empty() {
+        parts.push(cur);
+    }
+    parts
+        .iter()
+        .any(|part| SECRET_WORD_LIST.iter().any(|w| fold_word(w) == *part))
 }
 
 fn build_trie(entries: &[Entry]) -> Result<Vec<DictNode>, DictError> {

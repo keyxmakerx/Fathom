@@ -161,18 +161,21 @@ check('the place buttons work from the keyboard',
   afterBtn.x === beforeBtn.x + 20 && afterBtn.y === beforeBtn.y,
   beforeBtn.x + ' -> ' + afterBtn.x);
 
-await page.click('[data-drow="' + subject + '"]');
-await page.focus('[data-drow="' + subject + '"]');
-await page.keyboard.press('Alt+ArrowDown');
-await page.waitForTimeout(80);
-const afterAlt = await posOf(subject);
-check('Alt+arrow nudges from the Outline row',
-  afterAlt.y === afterBtn.y + 20 && afterAlt.x === afterBtn.x,
-  afterBtn.y + ' -> ' + afterAlt.y);
-check('and focus is still on the row it moved, not on <body>',
-  await page.evaluate(sel =>
-    document.activeElement && document.activeElement.getAttribute('data-drow') === sel,
-    subject));
+/* THE `Alt`+ARROW ACCELERATOR WAS REMOVED, AND THESE TWO CHECKS GO WITH IT.
+   `53` §3.1 already spends `⌥←`/`⌥→` on previous/next view, product-wide and
+   global, so the accelerator collided: `Alt+ArrowLeft` moved the box AND threw
+   the reader into Findings. `53` owns the keymap under ADR-0024 and this page
+   does not get to settle it, so it now spends no chord at all.
+
+   The capability is unchanged and is asserted immediately above: the four place
+   buttons are real buttons, reached with Tab and pressed with Enter, which is
+   what "a keyboard can do it" actually requires. An accelerator is a
+   convenience `53` can grant; a collision is a defect this page can only cause.
+   `docs/80-review/evidence/2026-08-15-placement-keymap-and-extent.mjs` asserts
+   the chord now does ONLY what `53` assigns it.
+
+   Focus retention is asserted there too, on the path that still exists. */
+
 
 // ---- EXPORT, RELOAD, IMPORT ----------------------------------------------------
 const placedBefore = await posOf(subject);
@@ -183,7 +186,13 @@ const download = await Promise.all([
 const saved = await download.path();
 const doc = JSON.parse(readFileSync(saved, 'utf8'));
 const placeOps = doc.ops.filter(o => o.op === 'place');
-check('the export carries the placements as ops', placeOps.length >= 3,
+/* TWO, not three: the third was the `Alt`+arrow nudge, and that accelerator was
+   removed because it collided with `53` §3.1's global view-switch binding (see
+   the block above). The number changed for a stated reason rather than being
+   loosened to `>= 1` to make the line go green — the point of the assertion is
+   that EVERY placement made in this driver reaches the file, so it must track
+   how many were made. Drag is one; the keyboard-pressed place button is two. */
+check('the export carries every placement this driver made', placeOps.length >= 2,
   placeOps.length + ' place ops of ' + doc.ops.length);
 check('each with the clock and entropy that made it',
   placeOps.every(o => typeof o.at === 'number' && typeof o.ent === 'string' &&

@@ -26,6 +26,7 @@
 )]
 
 pub mod bind;
+pub mod csv;
 pub mod dict;
 pub mod frame;
 pub mod hosted;
@@ -126,6 +127,25 @@ pub enum IngestRefusal {
     TooLarge {
         bytes: usize,
         lines: usize,
+    },
+    /// A table with a header and no records (`csv::ingest_csv`).
+    ///
+    /// This refusal exists because of a live vendor defect, not for tidiness.
+    /// `opnsense/core` issue #10595 — *"26.7.1: Migration Assistant exports
+    /// 0-byte firewall rules CSV and omits legacy disabled rules"*, opened
+    /// 22 July 2026, still open and unanswered when checked on 2026-08-15 —
+    /// reports the assistant detecting 47 rules and writing a file with no
+    /// header and no content. That report could not be independently
+    /// corroborated (`64` §5 records it as reported-and-unresolved, not
+    /// established) and it is load-bearing anyway, because the failure is
+    /// silent in the direction that hurts: **an empty export and a firewall
+    /// with no rules are the same file.**
+    ///
+    /// So Fathom refuses rather than welding a device with zero policies and
+    /// letting the operator conclude their rules are gone or, worse, that they
+    /// have none.
+    EmptyTable {
+        columns: usize,
     },
 }
 

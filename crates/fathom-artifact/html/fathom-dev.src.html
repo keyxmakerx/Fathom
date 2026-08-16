@@ -895,7 +895,12 @@ svg[data-lod="0"] .dplaced { display: none; }
          (invariant 2), so this is not a convenience: it is the input. -->
     <div class="psheet" id="psheet" role="dialog" aria-label="Paste a config" hidden>
       <div class="phead">
-        <div class="lead">Paste a config — Juniper SRX, set form</div>
+        <!-- Two forms now, and the sheet says so. It said "Juniper SRX, set
+             form" alone until 2026-08-15, which told an operator holding an
+             OPNsense rules export that this box was not for them. Which
+             dictionary runs is decided by the module from the text itself, so
+             there is nothing to choose — only something to know. -->
+        <div class="lead">Paste a config — Juniper SRX set form, or an OPNsense rules CSV</div>
         <p class="prose" id="pHint"></p>
         <p class="prose perr" id="pErr" hidden role="alert"></p>
       </div>
@@ -1041,6 +1046,17 @@ var FATHOM_CORPUS_B64 = "@FATHOM_CORPUS_B64@";
    backslashes and newlines, and base64's alphabet cannot end a string literal
    or a script element. There is no escaping to get wrong. */
 var FATHOM_DICT_B64 = "@FATHOM_DICT_B64@";
+
+/* THE SECOND DICTIONARY: the OPNsense firewall-rules table (64 1.1). One
+   Dictionary holds one platform, so this is a second frame and a second OP_DICT
+   call rather than a wider frame -- the module keeps them in separate slots and
+   a paste chooses one by sniffing its first line.
+
+   It is exactly here, beside the first, because the argument that moved the
+   junos dictionary out of the module is the argument this one proves: the
+   SECOND platform is where compiling dictionaries in stops scaling. This one
+   costs the page 4,065 bytes of YAML and the module nothing. */
+var FATHOM_DICT_CSV_B64 = "@FATHOM_DICT_CSV_B64@";
 
 var OP_INIT = 1, OP_QUERY = 4;
 var OP_ESTATE_DEMO = 11, OP_INV_ROWS = 12, OP_ELEMENT = 13, OP_EQUIPMENT = 14, OP_PASTE = 15;
@@ -1317,6 +1333,10 @@ var S = {
   /* The last refusal, shown in the paste sheet where the text that caused it
      still is. Cleared by the next success. */
   pasteError: null,
+  /* Whether the last SUCCESSFUL paste was a table. Decides one word — see
+     residueNoun(). Set from the text that was actually read, never from the
+     textarea's current contents, which the operator may have edited since. */
+  pasteWasTable: false,
   /* The last refused hand-add, shown in the equipment sheet where the values
      that caused it are still typed in. Cleared by the next success. */
   equipError: null,
@@ -1355,7 +1375,17 @@ var S = {
 /* The estate's provenance, in the words the masthead, the band and the folio
    all use. One function, so they cannot drift. */
 function sourceWords() {
-  if (S.source === 'paste') return 'pasted config · junos-srx';
+  /* The platform is READ FROM THE REPLY, never written here. It was the
+     literal string 'junos-srx' until 2026-08-15, which was true while junos-srx
+     was the only dictionary and became a lie the moment a second one landed:
+     an operator who pasted an OPNsense export saw their rules parsed correctly
+     under a masthead, a folio and a band that all said JUNOS-SRX. The module
+     has always sent the real value in the paste summary's last slot — it is
+     `dict.platform()` — and nothing was reading it. */
+  if (S.source === 'paste') {
+    var h = pasteSummary();
+    return 'pasted config · ' + ((h && h.s[7]) || 'unknown platform');
+  }
   if (S.source === 'demo') return 'demo estate · not corpus data';
   /* Deliberately "includes", not "is". Adding by hand does not replace what is
      held, so this estate may well contain pasted devices too, and a word that
@@ -1393,12 +1423,17 @@ var KINDS = ['Device', 'PhysicalPort', 'Premises',
                 inventory -- a thing the estate holds, with a label, a capacity
                 and a count of what is in it -- so it gets a row here rather
                 than a bespoke opcode. */
-             'Rack'];
+             'Rack',
+             /* Appended 2026-08-15 with the OPNsense firewall-rules CSV, which
+                is the first input that is not a Junos statement. A ruleset the
+                module parses correctly needs somewhere to appear. */
+             'SecurityPolicy'];
 
 /* An InvKind wire byte is a POSITION in this list, and a position is only
-   stable while nothing is appended. Appending 'Rack' after 'Chassis' broke a
-   `len() - 1` in the Rust tests that meant "the chassis byte", so nothing here
-   derives one from the length either: ask for the kind you mean, by name. */
+   stable while nothing is appended. TWO kinds were appended on 2026-08-15 by
+   two people who could not see each other's work, which broke a `len() - 1` in
+   the Rust tests that meant "the chassis byte". So nothing here derives one
+   from the length either: ask for the kind you mean, BY NAME. */
 function kindByte(name) {
   var i = KINDS.indexOf(name);
   return i < 0 ? 0 : i;
@@ -1571,6 +1606,31 @@ function pasteSummary() {
   return head || null;
 }
 
+/* LINES OR CELLS — the residue count's unit, and it is not cosmetic.
+   `csv.rs` reports a table's residue per CELL, on purpose: a row of fifty
+   columns with six understood is not honestly described as a row that was read.
+   So for a table the number in the tally counts cells, and calling them "lines"
+   is a plain lie about a figure the operator is meant to act on -- "44 lines not
+   read" of a four-row file.
+
+   The FIRST draft of this said just "not read" for both, which is true of
+   neither and cost something real: `scripts/drive-branch-coverage.mjs` matches
+   the footer verbatim and `66` §(the tally) quotes it as the evidence for a
+   published coverage figure. A selector is an API and so is a sentence somebody
+   measured with.
+
+   The read is deliberately the page's own, over the operator's own text in the
+   page's own textarea, rather than a platform name mapped here. It is a SECOND
+   reading of the same shape `fathom_ingest::csv::looks_like_rules_csv` performs,
+   and that duplication is stated rather than hidden -- but nothing rests on it
+   beyond a noun: if it disagreed with the module, the count would be right and
+   the word beside it wrong. Both readings are pinned by browser drivers (the
+   branch sweep asserts "lines", the OPNsense drive asserts "cells"), so a drift
+   is a failing check rather than a quiet wrong word. */
+function residueNoun() {
+  return S.pasteWasTable ? 'cells' : 'lines';
+}
+
 function renderTally(host) {
   var h = pasteSummary();
   if (!h) return;
@@ -1578,7 +1638,7 @@ function renderTally(host) {
   var ul = el('ul', 'tally');
   [[h.s[0], 'things understood'],
    [h.s[1], 'connections'],
-   [h.s[2], 'lines not read'],
+   [h.s[2], residueNoun() + ' not read'],
    [h.s[3], 'secrets removed'],
    [h.s[4], 'names not found']].forEach(function (pair) {
     var li = el('li');
@@ -1597,9 +1657,18 @@ function renderResidue(host) {
   var total = h.s[2];
   var p = el('div', 'pad');
 
-  p.appendChild(el('div', 'sh', 'Lines Fathom did not read — ' + total));
+  /* "What", not "Lines" — see the tally's note above: a table's residue is
+     cells, not lines, and the `line` column below still names the row. */
+  /* "Lines" or "Cells", by the same rule and for the same reason as the tally —
+     see residueNoun(). It said "What Fathom did not read" for one afternoon,
+     which is true of both and searchable as neither: it crashed
+     `2026-08-15-real-estate-input-probe.mjs`, which matches this heading to read
+     the withheld-row count out of it. */
+  p.appendChild(el('div', 'sh',
+    (S.pasteWasTable ? 'Cells' : 'Lines') + ' Fathom did not read — ' + total));
   if (rows.length === 0) {
-    p.appendChild(el('p', 'prose', 'Every line was read.'));
+    p.appendChild(el('p', 'prose',
+      S.pasteWasTable ? 'Every cell was read.' : 'Every line was read.'));
   } else {
     /* The cap is stated, never silent (78 §5). */
     if (String(rows.length) !== total) {
@@ -4446,16 +4515,20 @@ function setPaste(open) {
        pasted the far end and watched the near end vanish with no dialog, no
        warning and no notice afterwards, six inches under a banner reading
        "NOTHING PARSED IS SILENTLY LOST". The behaviour is a stated limit; what
-       was wrong was the silence. */
+       was wrong was the silence.
+
+       "every line or cell", not "every line": a table's residue is reported per
+       CELL, because a row of fifty columns with six understood is not honestly
+       described as a row that was read. */
     $('pHint').textContent = S.loaded
       ? 'Reading a config REPLACES the estate now held — ' + heldSummary() +
         ' will be dropped. Fathom cannot yet merge two configs into one estate, ' +
         'so export first if you want to keep this one. Nothing leaves this page: ' +
         'the text is read in the module, secrets are destroyed before anything ' +
-        'is stored, and every line that cannot be read is listed back to you.'
+        'is stored, and every line or cell that cannot be read is listed back to you.'
       : 'Nothing leaves this page. The text is read in the module, secrets are ' +
-        'destroyed before anything is stored, and every line that cannot be read ' +
-        'is listed back to you rather than dropped.';
+        'destroyed before anything is stored, and every line or cell that cannot ' +
+        'be read is listed back to you rather than dropped.';
     $('pRun').textContent = S.loaded ? 'replace what is loaded' : 'read it';
     renderPasteError();
     $('pta').focus();
@@ -4506,10 +4579,57 @@ function hostEntropy() {
   return b;
 }
 
+/* The rules-CSV shape, read exactly as the module reads it: the first non-blank
+   line must begin `@uuid` followed immediately by `;` or `,` (`64` §1.1). Exact
+   and not fuzzy, for the same reason the module's is — but note that NOTHING
+   here chooses a parser. The module has already made that decision by the time
+   this runs; this only names the unit in the tally beside the count. */
+function looksLikeRulesTable(text) {
+  var body = text.replace(/^\uFEFF/, '');
+  var first = '';
+  var lines = body.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    if (lines[i].trim()) { first = lines[i]; break; }
+  }
+  return /^@uuid[;,]/.test(first);
+}
+
 function runPaste() {
   var text = $('pta').value;
   if (!wasm) { foot('the module is not instantiated'); renderShell(); return; }
-  if (!text.trim()) { foot('nothing pasted'); renderShell(); return; }
+  /* AN EMPTY PASTE IS NOT ALWAYS AN EMPTY BOX, AND THIS IS THE ONE PLACE THE
+     PAGE CAN SAY SO. OPNsense issue #10595 (opened 22 July 2026 against 26.7.1;
+     still open, unanswered, no fix found — re-established independently on
+     2026-08-16) reports the Migration assistant writing a 0-BYTE
+     download_rules.csv while telling the operator it found 47 rules. Somebody
+     who hits that opens the file, selects all, gets nothing, pastes nothing,
+     and lands exactly here.
+
+     "nothing pasted" is true and useless to them. It reads as their mistake,
+     and the next thing they do is conclude the tool is broken or -- far worse
+     -- that the firewall really has nothing in it. So the sentence names the
+     vendor bug and tells them where the rules still are. It costs page bytes
+     and no module bytes.
+
+     The module carries the other half: a header with no records underneath it
+     is refused by name, with the issue number, from `IngestRefusal::EmptyTable`
+     -- because an empty export and a firewall with no rules are the same file
+     and Fathom may not weld a device with no policies out of one. */
+  if (!text.trim()) {
+    S.pasteError = { kind: 'error', code: 0, detail:
+      'Nothing was pasted. If you copied this from an OPNsense rules export ' +
+      'and the file was EMPTY, that is a known OPNsense bug and not your ' +
+      'mistake: opnsense/core issue #10595 reports Firewall → Rules → ' +
+      'Migration assistant writing a 0-byte download_rules.csv while reporting ' +
+      'that it found rules (open and unanswered when this build was made, ' +
+      '2026-08-16). Your rules are still in /conf/config.xml and your firewall ' +
+      'is still running them — Fathom just has nothing to read. Nothing here ' +
+      'has changed.' };
+    foot('nothing pasted — nothing changed');
+    renderPasteError();
+    renderShell();
+    return;
+  }
   var ent = hostEntropy();
   if (!ent) {
     foot('this browser exposes no cryptographic randomness — the paste is refused');
@@ -4555,6 +4675,7 @@ function runPaste() {
   }
 
   S.pasteError = null;
+  S.pasteWasTable = looksLikeRulesTable(text);
   S.paste = reply;
   S.source = 'paste';
   S.loaded = true;
@@ -4565,7 +4686,7 @@ function runPaste() {
   loadKind(0);
   var h = pasteSummary();
   foot(h ? ('read ' + (h.s[6] || 'the config') + ' — ' + h.s[0] + ' understood, ' +
-            plural(h.s[2], 'line', 'lines') + ' not read, ' +
+            h.s[2] + ' ' + residueNoun() + ' not read, ' +
             plural(h.s[3], 'secret', 'secrets') + ' removed')
          : 'read the config');
   /* THE RAW CONFIG DOES NOT STAY IN THE BOX. `setPaste(false)` hides the sheet
@@ -4604,6 +4725,11 @@ function wasmReset() {
   var dictReply = call(OP_DICT, b64bytes(FATHOM_DICT_B64));
   if (dictReply.kind !== 'empty') {
     S.boot = replyProblem(dictReply) || 'the statement dictionary did not load';
+    return false;
+  }
+  var csvReply = call(OP_DICT, b64bytes(FATHOM_DICT_CSV_B64));
+  if (csvReply.kind !== 'empty') {
+    S.boot = replyProblem(csvReply) || 'the rules-table dictionary did not load';
     return false;
   }
   return true;
@@ -4921,6 +5047,34 @@ function importJournal(text) {
       dv.setInt32(29, o.y, true);
       req.set(pb, 33);
       reply = call(OP_PLACE, req);
+    } else if (o.op === 'rack') {
+      /* ADR-0036. Same shape as `equip`: a chassis id plus the placement
+         fields, replayed through the opcode that made it. A rack is the only
+         thing in the estate that no paste can rebuild, so if this arm is missing
+         the round trip does not degrade — it deletes. */
+      var rcid = enc.encode(o.id);
+      var rparts = [], rtotal = 0;
+      for (var rk = 0; rk < o.fields.length; rk++) {
+        var rfb = enc.encode(o.fields[rk][1]);
+        rparts.push([o.fields[rk][0], rfb]);
+        rtotal += 4 + rfb.length;
+      }
+      req = new Uint8Array(24 + 2 + rcid.length + 1 + rtotal);
+      dv = new DataView(req.buffer);
+      dv.setBigUint64(0, BigInt(o.at), true);
+      req.set(ent, 8);
+      dv.setUint16(24, rcid.length, true);
+      req.set(rcid, 26);
+      var rat = 26 + rcid.length;
+      req[rat] = rparts.length;
+      rat += 1;
+      for (var rm = 0; rm < rparts.length; rm++) {
+        dv.setUint16(rat, rparts[rm][0], true);
+        dv.setUint16(rat + 2, rparts[rm][1].length, true);
+        req.set(rparts[rm][1], rat + 4);
+        rat += 4 + rparts[rm][1].length;
+      }
+      reply = call(OP_RACK_PLACE, req);
     } else {
       foot('step ' + (i + 1) + ' is a kind of change this build does not know (' + o.op + ')');
       renderShell();
@@ -4939,6 +5093,12 @@ function importJournal(text) {
 
   S.journal = ops;
   S.paste = null;
+  /* Cleared with the summary it describes. Nothing reads it while `S.paste` is
+     null — `renderTally` returns early and the footer sets it on the line above
+     its own use — but a flag that means "the last paste" must not outlive the
+     last paste, or the next reader to reach for it gets an answer about a
+     session that ended. */
+  S.pasteWasTable = false;
   S.pasteError = null;
   S.equipError = null;
   S.sel = null; S.element = null; S.equipment = null;
@@ -5593,7 +5753,11 @@ function runPlace() {
 
   var req = new Uint8Array(24 + 2 + cid.length + 1 + total);
   var dv = new DataView(req.buffer);
-  dv.setBigUint64(0, BigInt(Date.now()), true);
+  /* Held in a variable rather than inlined, because the JOURNAL needs the same
+     value: replaying an op with a different clock mints different ULIDs and the
+     replayed estate stops being the estate that was exported. */
+  var rackAt = Date.now();
+  dv.setBigUint64(0, BigInt(rackAt), true);
   req.set(ent, 8);
   dv.setUint16(24, cid.length, true);
   req.set(cid, 26);
@@ -5619,6 +5783,25 @@ function runPlace() {
   }
 
   R.err = null;
+  /* **JOURNALLED, like every other write in this page.** Without this line a
+     rack survived until the tab closed and no further: the exported `ops` array
+     held the `equip` op and not the placement, the footer said "exported 1 step"
+     for two actions, re-opening the file read "No racks yet.", and NOTHING said
+     anything had been dropped.
+
+     It is the worst place in the product for that defect, because a rack is the
+     only kind in the estate that CANNOT be reconstructed from a paste —
+     ADR-0036 §1 records that nothing parses a rack, so 100% of rack data is
+     hand-entered and 100% of it was being lost. It also contradicted the ADR's
+     own first reason for putting placement in the graph: *"A diagram an engineer
+     arranged and cannot keep is not worth arranging."*
+
+     The `place` op three thousand lines up is the template and was on screen
+     next to this code. Nothing caught it because the journal lives in page
+     JavaScript where no Rust test can see it, the rack driver never exports, and
+     the round-trip driver only exercises pasted estates. */
+  S.journal.push({ op: 'rack', at: rackAt, ent: b64(ent), id: chassis, fields: sent });
+
   /* THE FIELD ID COMES FROM THE TABLE, NEVER FROM A LITERAL. This read
      `$('mf300')`, and the key moved to 302 in a rebase when a concurrent branch
      took 300/301 for LayoutPin. `mf300` then matched nothing, so `rackName` was
@@ -5825,6 +6008,16 @@ function boot() {
     var dictReply = call(OP_DICT, b64bytes(FATHOM_DICT_B64));
     if (dictReply.kind !== 'empty') {
       S.boot = replyProblem(dictReply) || 'the statement dictionary did not load';
+    }
+
+    /* The rules-table dictionary, on the same terms and separately recorded.
+       Two dictionaries, two independent failures: a broken table dictionary
+       must not stop a Junos paste, and a broken Junos one must not stop a
+       rules CSV. The first failure wins the S.boot line, because a page that
+       overwrote it would report the second problem and hide the first. */
+    var csvReply = call(OP_DICT, b64bytes(FATHOM_DICT_CSV_B64));
+    if (csvReply.kind !== 'empty' && !S.boot) {
+      S.boot = replyProblem(csvReply) || 'the rules-table dictionary did not load';
     }
 
     /* 45 §9.1: fixture loading is one URL parameter, dev-build only.

@@ -3,8 +3,19 @@
    statement into the real page and reads back the STORED capture, because a
    Rust test asserts on a function and this asserts on the product. */
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-const URL = 'file:///home/user/Fathom/target/artifact/fathom-dev.html';
-
+/* THE TREE UNDER TEST IS THE TREE THIS SCRIPT LIVES IN.
+   This line used to name /home/user/Fathom absolutely, so running it from a
+   worktree opened the MAIN repo's artifact and reported a clean pass for a
+   build that was never made here. It is derived from the script's own path
+   now, with FATHOM_ARTIFACT as an override for anyone who wants to point it
+   somewhere on purpose. Found 2026-08-16, after six drivers were run from a
+   worktree and answered for somebody else's bytes. */
+import { fileURLToPath as __f } from 'node:url';
+import { dirname as __d, resolve as __r } from 'node:path';
+const __ROOT = __r(__d(__f(import.meta.url)), '..', '..', '..');
+const __ARTIFACT = process.env.FATHOM_ARTIFACT
+  || ('file://' + __ROOT + '/target/artifact/fathom-dev.html');
+const URL = __ARTIFACT;
 const SECRETS = {
   'ospf simple-password (leak 1: judged by entry, not statement)':
     ['set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 authentication simple-password',

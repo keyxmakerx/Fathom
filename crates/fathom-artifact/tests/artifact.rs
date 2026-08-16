@@ -2,7 +2,7 @@
 //! bytes**, the source's egress and sink hygiene, and the splice's
 //! determinism.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use fathom_artifact::{
     assemble, base64, SHELL_SOURCE, TOKEN_DICT_B64, TOKEN_TOKENS_CSS, TOKEN_WASM_B64,
@@ -215,10 +215,20 @@ fn unpack_dict(bytes: &[u8]) -> Vec<(u8, String, String)> {
 /// The base64 the page carries, lifted out of the assembled file by the same
 /// variable name the shell source declares.
 fn dictionary_frame_in(artifact: &str) -> Vec<(u8, String, String)> {
-    let marker = "var FATHOM_DICT_B64 = \"";
+    frame_named(artifact, "FATHOM_DICT_B64")
+}
+
+/// The rules-table frame, same reading. Two dictionaries travel in two frames
+/// because one `Dictionary` holds one platform.
+fn csv_dictionary_frame_in(artifact: &str) -> Vec<(u8, String, String)> {
+    frame_named(artifact, "FATHOM_DICT_CSV_B64")
+}
+
+fn frame_named(artifact: &str, var: &str) -> Vec<(u8, String, String)> {
+    let marker = format!("var {var} = \"");
     let start = artifact
-        .find(marker)
-        .expect("the page declares FATHOM_DICT_B64")
+        .find(&marker)
+        .unwrap_or_else(|| panic!("the page declares {var}"))
         + marker.len();
     let end = start
         + artifact
@@ -238,9 +248,24 @@ fn the_page_carries_the_dictionary_that_is_on_disk() {
     let root = workspace_root();
     let text = String::from_utf8(assemble(&root).expect("the artifact assembles"))
         .expect("the artifact is UTF-8");
-    let files = dictionary_frame_in(&text);
+    carries_directory(
+        &root,
+        &dictionary_frame_in(&text),
+        fathom_artifact::dictionary::DICT_DIR,
+    );
+    // The second platform gets the SAME guard rather than a weaker one. It
+    // arrived after this test was written, and a drift check that covers only
+    // the dictionary that happened to be first is a check that gets quietly
+    // narrower with every platform.
+    carries_directory(
+        &root,
+        &csv_dictionary_frame_in(&text),
+        fathom_artifact::dictionary::CSV_DICT_DIR,
+    );
+}
 
-    let dict_dir = root.join(fathom_artifact::dictionary::DICT_DIR);
+fn carries_directory(root: &Path, files: &[(u8, String, String)], rel: &str) {
+    let dict_dir = root.join(rel);
     let mut on_disk: Vec<String> = std::fs::read_dir(&dict_dir)
         .expect("the dictionary directory is checked in")
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -256,12 +281,10 @@ fn the_page_carries_the_dictionary_that_is_on_disk() {
         .map(|(_, name, _)| name.clone())
         .collect();
     assert_eq!(
-        carried,
-        on_disk,
-        "the page's dictionary and {} disagree. A file was added, removed or \
+        carried, on_disk,
+        "the page's dictionary and {rel} disagree. A file was added, removed or \
          renamed and the artifact was not rebuilt, or the assembler's enumeration \
-         drifted from Dictionary::load's.",
-        fathom_artifact::dictionary::DICT_DIR
+         drifted from Dictionary::load's."
     );
 
     for (_, name, source) in files
@@ -516,6 +539,44 @@ fn the_dictionary_in_the_page_builds_what_the_disk_builds() {
             .expect("the page's dictionary loads");
     let from_disk = fathom_ingest::dict::Dictionary::load(&root).expect("the disk's dictionary");
 
+    assert_eq!(from_page.platform(), from_disk.platform());
+    assert_eq!(from_page.entry_count(), from_disk.entry_count());
+    for i in 0..from_disk.entry_count() {
+        let i = u16::try_from(i).expect("fewer than 65536 entries");
+        assert_eq!(from_page.entry_id(i), from_disk.entry_id(i), "entry {i}");
+    }
+}
+
+/// The twin of the test above for the rules-table dictionary, and it asserts
+/// the platform BY NAME. The module routes an `OP_DICT` frame into one of two
+/// slots on `Dictionary::platform()`, so a frame that declared the wrong
+/// platform would be filed as the wrong grammar and every rules paste would
+/// then be refused for want of a dictionary that had in fact been handed in.
+#[test]
+fn the_table_dictionary_in_the_page_builds_what_the_disk_builds() {
+    let root = workspace_root();
+    let text = String::from_utf8(assemble(&root).expect("the artifact assembles"))
+        .expect("the artifact is UTF-8");
+    let files = csv_dictionary_frame_in(&text);
+
+    let sources: Vec<(String, String)> = files
+        .iter()
+        .filter(|(role, _, _)| *role == fathom_wasm::dictframe::ROLE_DICT_SOURCE)
+        .map(|(_, n, s)| (n.clone(), s.clone()))
+        .collect();
+    let keys = files
+        .iter()
+        .find(|(role, _, _)| *role == fathom_wasm::dictframe::ROLE_FIELD_KEYS)
+        .map(|(_, _, s)| s.clone())
+        .expect("the frame carries the field-key registry");
+
+    let from_page =
+        fathom_ingest::hosted::dictionary_from_host(&sources, "schema/field-keys.yaml", &keys)
+            .expect("the page's table dictionary loads");
+    let from_disk = fathom_ingest::dict::Dictionary::load_platform(&root, "opnsense")
+        .expect("the disk's table dictionary");
+
+    assert_eq!(from_page.platform(), "opnsense");
     assert_eq!(from_page.platform(), from_disk.platform());
     assert_eq!(from_page.entry_count(), from_disk.entry_count());
     for i in 0..from_disk.entry_count() {

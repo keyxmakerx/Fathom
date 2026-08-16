@@ -444,9 +444,15 @@ fn a_device_can_be_removed_and_its_chassis_goes_with_it() {
         1,
         "the removed device must leave the inventory and the other must stay"
     );
-    // One device remains, so one chassis must remain. Asked for by name: this
-    // line read `ALL.len() - 1` until appending `Rack` made "last" mean
-    // something else.
+    // The chassis kind byte, derived from the ENUM rather than from the length
+    // of the list. This line read `InvKind::ALL.len() - 1` with a comment saying
+    // "Chassis is the last index", true on 2026-08-11 and false on 2026-08-15
+    // when `Rack` was appended — and false again the same day when
+    // `SecurityPolicy` followed it. The test then silently asked for a row set
+    // with no members and failed on a count naming the chassis: an honest
+    // failure with a misleading diagnosis, because nothing about the chassis had
+    // changed. **Position is not identity**, and two independent appends in one
+    // day is the proof.
     let chassis = kind_byte("Chassis");
     assert_eq!(
         rows_for(&mut shell, chassis),

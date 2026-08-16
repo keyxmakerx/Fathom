@@ -34,10 +34,20 @@
 
 use std::path::Path;
 
-/// `Dictionary::load` joins this same path. One platform, because one
-/// `Dictionary` holds one platform (`65` §(a) is the open gap, not this file's
-/// to close).
+/// `Dictionary::load` joins this same path. One platform per directory, because
+/// one `Dictionary` holds one platform — `from_sources` refuses a file set whose
+/// `platform:` lines disagree, so two platforms are two directories, two frames
+/// and two `OP_DICT` calls rather than one dictionary that spans both.
+///
+/// Holding several at once inside ONE `Dictionary` is still `65` §(a)'s open
+/// gap and this file does not close it: the module keeps them in separate slots
+/// and a paste chooses one.
 pub const DICT_DIR: &str = "corpus/dict/junos-srx";
+/// The OPNsense firewall-rules dictionary — a table grammar, not a set-form one
+/// (`64` §1.1). It travels the same way for the same reason: it is 4 065 bytes
+/// of YAML, and `include_str!`ing it would have spent them against `44` §5.2's
+/// 900 000-byte module ceiling instead of the artifact's 4.5 MB.
+pub const CSV_DICT_DIR: &str = "corpus/dict/opnsense";
 pub const FIELD_KEYS_SOURCE: &str = "schema/field-keys.yaml";
 
 /// Every `.yaml` under [`DICT_DIR`], sorted by file name.
@@ -49,9 +59,17 @@ pub const FIELD_KEYS_SOURCE: &str = "schema/field-keys.yaml";
 /// module refuses an out-of-order frame rather than trusting this
 /// (`fathom_wasm::dictframe`), and `tests/artifact.rs` pins the set.
 pub fn sources(root: &Path) -> Result<Vec<(String, String)>, String> {
-    let dir = root.join(DICT_DIR);
+    sources_in(root, DICT_DIR)
+}
+
+/// [`sources`] for any dictionary directory. Split out 2026-08-15 when the
+/// second platform arrived: the one directory name was written into the body,
+/// which was true while there was one platform and became a false generality
+/// the moment there were two.
+pub fn sources_in(root: &Path, rel: &str) -> Result<Vec<(String, String)>, String> {
+    let dir = root.join(rel);
     let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
-        .map_err(|e| format!("{DICT_DIR}: {e}"))?
+        .map_err(|e| format!("{rel}: {e}"))?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().map(|x| x == "yaml").unwrap_or(false))
         .collect();
@@ -68,7 +86,7 @@ pub fn sources(root: &Path) -> Result<Vec<(String, String)>, String> {
     }
     if out.is_empty() {
         return Err(format!(
-            "{DICT_DIR} holds no .yaml: the page would boot with a dictionary that \
+            "{rel} holds no .yaml: the page would boot with a dictionary that \
              understands nothing"
         ));
     }
@@ -81,7 +99,16 @@ pub fn sources(root: &Path) -> Result<Vec<(String, String)>, String> {
 /// The registry goes last only because it reads that way; the module keys on
 /// the role byte, never on position.
 pub fn frame(root: &Path) -> Result<Vec<u8>, String> {
-    let sources = sources(root)?;
+    frame_for(root, DICT_DIR)
+}
+
+/// [`frame`] for any dictionary directory. The field-key registry travels in
+/// EVERY frame, not once: the module builds each dictionary independently and a
+/// dictionary with no registry fails its own wire-key gate, so sharing one
+/// across frames would make the second `OP_DICT` depend on the first having
+/// happened — an ordering rule with nothing to enforce it.
+pub fn frame_for(root: &Path, rel: &str) -> Result<Vec<u8>, String> {
+    let sources = sources_in(root, rel)?;
     let keys = std::fs::read_to_string(root.join(FIELD_KEYS_SOURCE))
         .map_err(|e| format!("{FIELD_KEYS_SOURCE}: {e}"))?;
 
