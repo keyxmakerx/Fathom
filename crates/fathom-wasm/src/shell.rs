@@ -19,7 +19,7 @@ use crate::protocol::{
 use crate::OP_ESTATE_DEMO;
 use crate::{
     OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_FIELD_SET,
-    OP_INIT, OP_INV_ROWS, OP_PASTE, OP_PLACE, OP_QUERY,
+    OP_INIT, OP_INV_ROWS, OP_PASTE, OP_PLACE, OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
 };
 
 pub struct Shell {
@@ -70,6 +70,8 @@ impl Shell {
             OP_INV_ROWS => self.inv_rows(req),
             OP_ELEMENT => self.element(req),
             OP_EQUIPMENT => self.equipment(req),
+            OP_RACK_PLACE => self.rack_place(req),
+            OP_RACK_ELEVATION => self.rack_elevation(req),
             _ => protocol::encode_error(
                 ERR_UNKNOWN_OP,
                 &format!("opcode {op} is not implemented by this module"),
@@ -860,6 +862,346 @@ impl Shell {
         )
     }
 
+    /// `OP_RACK_PLACE`: put one chassis in one rack at one unit (ADR-0035).
+    ///
+    /// Frame — the usual 24-byte clock+entropy prefix, then:
+    ///
+    /// ```text
+    ///  24   2   len   (u16) chassis display id length
+    ///  26  ..   utf8  the chassis display id
+    ///  ..  ..   a field list, exactly OP_EQUIP_ADD's shape
+    /// ```
+    ///
+    /// The field list carries `Rack.*` keys and `MountedIn.*` keys mixed
+    /// together, routed by declarer the same way `OP_EQUIP_ADD` routes between
+    /// `Device` and `Chassis`, and from the same generated tables. A field that
+    /// moves between declarers in a later schema moves here with no edit.
+    ///
+    /// # Found or created, by label
+    ///
+    /// A `Rack.label` matching a rack that already exists REUSES it. That is
+    /// the schema's own tier-1 identity tuple (`[owner(Premises), label]`)
+    /// being used for what identity is for, not a convenience: an engineer
+    /// filling a frame says "and node1 is at U7 in the same rack", and creating
+    /// a second R12 there would make the elevation a lie.
+    ///
+    /// On reuse the supplied `height_u` and `unit_numbering` are IGNORED rather
+    /// than applied. Silently restating a rack's geometry from a form that was
+    /// really about one box is how the second placement quietly resizes the
+    /// frame the first one is drawn in.
+    ///
+    /// # What it does not do
+    ///
+    /// No `Premises`. `HasRack` is `in: "1"`, but `11` §7.2's containment rule
+    /// is an upper bound at write time — the same licence `OP_EQUIP_ADD` uses
+    /// to create a `Device` with no `Site`. Inventing a building nobody
+    /// mentioned would put a fact in the estate no human asserted.
+    ///
+    /// No move. Placing a chassis that is already placed is refused, because
+    /// `MountedIn` is `out: "0..1"` and a move is a different gesture with a
+    /// different undo label. It is named in the refusal rather than silently
+    /// re-pointed.
+    fn rack_place(&mut self, req: &[u8]) -> Vec<u8> {
+        use fathom_graph::{Actor, BatchId, ElementId, Timestamp, UserId};
+        use fathom_ir::generated::ir_types::{EdgeKind, MountedInField, NodeKind, RackField};
+
+        const PREFIX: usize = 24;
+        let Some(head) = req.get(..PREFIX) else {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                &format!(
+                    "OP_RACK_PLACE needs a {PREFIX}-byte clock and entropy prefix; the frame is {} bytes",
+                    req.len()
+                ),
+            );
+        };
+        let at = Timestamp(u64::from_le_bytes(le8(head, 0)));
+        let entropy = u128::from_le_bytes(le16(head, 8));
+
+        let rest = req.get(PREFIX..).unwrap_or_default();
+        let Some(lenb) = rest.get(..2) else {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                "OP_RACK_PLACE needs a 2-byte chassis id length",
+            );
+        };
+        let idlen = usize::from(u16::from_le_bytes([lenb[0], lenb[1]]));
+        let Some(idbytes) = rest.get(2..2 + idlen) else {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                &format!("the chassis id claims {idlen} bytes and the frame is shorter"),
+            );
+        };
+        let Ok(idtext) = std::str::from_utf8(idbytes) else {
+            return protocol::encode_error(ERR_BAD_UTF8, "the chassis display id is not UTF-8");
+        };
+        let idtext = idtext.to_owned();
+
+        let fields = match parse_field_list(rest.get(2 + idlen..).unwrap_or_default()) {
+            Ok(f) => f,
+            Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &e),
+        };
+
+        // Route by declarer, from the generated tables. Never hand-written.
+        let mut on_rack: Vec<(fathom_ir::bag::FieldKey, String)> = Vec::new();
+        let mut on_edge: Vec<(fathom_ir::bag::FieldKey, String)> = Vec::new();
+        for (k, text) in fields {
+            if RackField::ALL.iter().any(|f| f.key() == k) {
+                on_rack.push((k, text));
+            } else if MountedInField::ALL.iter().any(|f| f.key() == k) {
+                on_edge.push((k, text));
+            } else {
+                return protocol::encode_error(
+                    ERR_EQUIP_FRAME,
+                    &format!(
+                        "field key {} is declared by neither Rack nor MountedIn",
+                        k.0
+                    ),
+                );
+            }
+        }
+
+        // Every `card: "1"` field is demanded at the door. `unit_numbering` is
+        // the one that matters: ADR-0035 gives it no default because an
+        // elevation drawn the wrong way up is wrong in every position while
+        // looking entirely plausible. Defaulting it here would reintroduce
+        // exactly the guess the schema refuses to make.
+        for (k, name) in [
+            (RackField::Label.key(), "Rack.label"),
+            (RackField::HeightU.key(), "Rack.height_u"),
+            (RackField::UnitNumbering.key(), "Rack.unit_numbering"),
+        ] {
+            if !on_rack.iter().any(|(x, _)| *x == k) {
+                return protocol::encode_error(
+                    ERR_EQUIP_FRAME,
+                    &format!("a rack needs {name}: the schema declares it required"),
+                );
+            }
+        }
+        if !on_edge
+            .iter()
+            .any(|(k, _)| *k == MountedInField::PositionU.key())
+        {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                "a placement needs MountedIn.position_u: the lowest-numbered unit the box occupies",
+            );
+        }
+
+        // THE `range:` CONSTRAINT, ENFORCED HERE BECAUSE NOTHING ELSE ENFORCES
+        // IT. `schema/schema.yaml` declares `range: { min: 1, max: 100 }` on
+        // these three fields, and `fathom-schemagen` does not carry `range:`
+        // into `ir_types.rs` at all — grep it, there is nothing. So the bound
+        // was decoration: a review drove `height_u = 0` through the form and
+        // got a rack that drew zero rows with its only box reported as outside
+        // the frame, and `height_u = 200` and got two hundred DOM rows.
+        //
+        // Teaching the generator is the right long-term fix and is filed for
+        // planning; it edits a shared generator with siblings in flight, and it
+        // would regenerate every kind in the tree to serve three fields. Taken
+        // instead: the door checks the value, with the numbers in one const and
+        // `crates/fathom-wasm/tests/rack.rs` reading the DECLARED range out of
+        // `schema/schema.yaml` and failing if the two ever disagree. ADR-0008
+        // still holds — the schema is the source, and the drift is a red test
+        // rather than a silent divergence.
+        for (k, name) in [
+            (RackField::HeightU.key(), "Rack.height_u"),
+            (MountedInField::PositionU.key(), "MountedIn.position_u"),
+            (MountedInField::HeightU.key(), "MountedIn.height_u"),
+        ] {
+            let found = on_rack
+                .iter()
+                .chain(on_edge.iter())
+                .find(|(x, _)| *x == k)
+                .map(|(_, t)| t.as_str());
+            let Some(text) = found else { continue };
+            // Out-of-range and unparseable are told apart: `parse_into_slot`
+            // below reports the second with the vendor-shaped message it
+            // already has, so this only claims the range.
+            if let Ok(v) = text.trim().parse::<u32>() {
+                if !(u32::from(RACK_U_MIN)..=u32::from(RACK_U_MAX)).contains(&v) {
+                    return protocol::encode_error(
+                        ERR_FIELD_VALUE,
+                        &format!(
+                            "{name} is {v}; the schema declares range {RACK_U_MIN}..={RACK_U_MAX}. \
+                             A frame with no units cannot hold anything and a unit number outside \
+                             the frame is a typo, not a rack."
+                        ),
+                    );
+                }
+            }
+        }
+
+        // Parse everything BEFORE touching the store, so a FIELD refusal leaves
+        // the estate exactly as it was (OP_EQUIP_ADD's rule, and for its
+        // reason).
+        //
+        // THE LIMIT OF THAT PROPERTY, STATED RATHER THAN IMPLIED. It holds for
+        // parse and door-check refusals, which all run above this line. It does
+        // NOT hold for a store error inside `build()` below: `Graph` has no
+        // rollback, `end_batch` commits what was written, and an `insert_edge`
+        // that fails after `insert_node` succeeded leaves an empty `Rack`
+        // behind while the caller is told the placement failed. The earlier
+        // wording here said "a refusal leaves the estate exactly as it was"
+        // without qualification, which was true of the common case and false of
+        // that one. Building the rollback is a `fathom-graph` change with three
+        // siblings in flight and is filed, not smuggled in here; an orphan rack
+        // is visible in the inventory and removable, which is why the honest
+        // comment is the acceptable interim and the silent one was not.
+        let mut rack_values = Vec::with_capacity(on_rack.len());
+        for (k, text) in &on_rack {
+            match fathom_inventory::parse_into_slot(*k, text) {
+                Ok(v) => rack_values.push((*k, v)),
+                Err(e) => return protocol::encode_error(ERR_FIELD_VALUE, &author_text(e, text)),
+            }
+        }
+        let mut edge_values = Vec::with_capacity(on_edge.len());
+        for (k, text) in &on_edge {
+            match fathom_inventory::parse_into_slot(*k, text) {
+                Ok(v) => edge_values.push((*k, v)),
+                Err(e) => return protocol::encode_error(ERR_FIELD_VALUE, &author_text(e, text)),
+            }
+        }
+
+        let label_text = on_rack
+            .iter()
+            .find(|(k, _)| *k == RackField::Label.key())
+            .map(|(_, t)| t.clone())
+            .unwrap_or_default();
+
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        let chassis = match fathom_inventory::parse_display_id(estate, &idtext) {
+            Some(ElementId::Node(n)) if n.kind == NodeKind::Chassis => n,
+            Some(_) => {
+                return protocol::encode_error(
+                    ERR_NO_ELEMENT,
+                    &format!(
+                        "{idtext} is not a Chassis. A rack holds boxes, and a Device may have \
+                         two of them in two different racks -- which is why placement hangs \
+                         off Chassis and not off Device."
+                    ),
+                )
+            }
+            None => return protocol::encode_error(ERR_NO_ELEMENT, &idtext),
+        };
+        if estate.out(chassis, EdgeKind::MountedIn).next().is_some() {
+            return protocol::encode_error(
+                ERR_EQUIP_STORE,
+                &format!(
+                    "{idtext} is already in a rack. MountedIn is out: \"0..1\", so moving a box \
+                     is a separate gesture with its own undo label; this build does not have it."
+                ),
+            );
+        }
+        // Reuse by label -- the tier-1 identity tuple, used for what identity
+        // is for. Ordered by NodeId so the choice is deterministic if two racks
+        // somehow share a label (invariant 9).
+        let mut existing: Vec<fathom_graph::NodeId> = estate
+            .nodes_of_kind(NodeKind::Rack)
+            .filter(|n| {
+                fathom_inventory::rack_label(estate, n.id).as_deref() == Some(label_text.as_str())
+            })
+            .map(|n| n.id)
+            .collect();
+        existing.sort();
+        let found = existing.first().copied();
+
+        let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
+        let (Ok(user), Ok(batch)) = (ids(1), ids(2)) else {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                &format!(
+                    "the clock reads {} ms, which is past the ULID ceiling",
+                    at.0
+                ),
+            );
+        };
+        let actor = Actor::User(UserId(user));
+        let mut mint = match fathom_weld::Mint::new(at, entropy) {
+            Ok(m) => m,
+            Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
+        };
+
+        let graph = self.estate.as_mut().expect("checked above");
+        if let Err(e) = graph.begin_batch(BatchId(batch), RACK_LABEL) {
+            return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
+        }
+
+        let build = || -> Result<(fathom_graph::NodeId, usize), String> {
+            let mut written = 0usize;
+            let rack = match found {
+                Some(r) => r,
+                None => {
+                    let r = graph
+                        .insert_node(
+                            NodeKind::Rack,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    for (k, v) in rack_values {
+                        graph
+                            .set_field_boxed(
+                                ElementId::Node(r),
+                                k,
+                                v,
+                                hand_record(&mut mint, at, actor)?,
+                            )
+                            .map_err(|e| format!("{e:?}"))?;
+                        written += 1;
+                    }
+                    r
+                }
+            };
+            let edge = graph
+                .insert_edge(
+                    EdgeKind::MountedIn,
+                    mint.next().map_err(|e| format!("{e:?}"))?,
+                    chassis,
+                    rack,
+                    hand_record(&mut mint, at, actor)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+            for (k, v) in edge_values {
+                graph
+                    .set_field_boxed(
+                        ElementId::Edge(edge),
+                        k,
+                        v,
+                        hand_record(&mut mint, at, actor)?,
+                    )
+                    .map_err(|e| format!("{e:?}"))?;
+                written += 1;
+            }
+            Ok((rack, written))
+        };
+
+        let built = build();
+        // The batch closes either way: leaving one open refuses every later
+        // write with `BatchOpen`, turning one bad form into a dead page.
+        let closed = graph.end_batch();
+        match (built, closed) {
+            (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &e),
+            (Ok(_), Err(e)) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+            (Ok((rack, written)), Ok(_)) => {
+                equip_reply_text(&ElementId::Node(rack).to_string(), &written.to_string())
+            }
+        }
+    }
+
+    /// `OP_RACK_ELEVATION`: one rack's frame and contents, by display id.
+    fn rack_elevation(&mut self, req: &[u8]) -> Vec<u8> {
+        let (estate, node) = match self.node_request(req) {
+            Ok(pair) => pair,
+            Err(reply) => return reply,
+        };
+        // `None` is the empty state, not an error — a rack whose height was
+        // never stated cannot be drawn, and the page says so.
+        protocol::encode_rack_reply(fathom_inventory::elevation(estate, node).as_ref())
+    }
+
     fn element(&mut self, req: &[u8]) -> Vec<u8> {
         let (estate, node) = match self.node_request(req) {
             Ok(pair) => pair,
@@ -953,6 +1295,21 @@ const EQUIP_LABEL: &str = "Add equipment by hand";
 /// person did, not for the opcode.
 const EDIT_LABEL: &str = "Correct a field";
 const REMOVE_LABEL: &str = "Remove equipment";
+/// ADR-0036. Named for the gesture, not the opcode: the person put a box in a
+/// rack, and that is what the undo stack should offer to take back.
+const RACK_LABEL: &str = "Place equipment in a rack";
+
+/// `schema/schema.yaml`'s `range: { min: 1, max: 100 }`, transcribed once for
+/// `rack_place`'s door-check because codegen does not carry `range:` yet.
+///
+/// **These two integers are the only hand-copied schema numbers in this file**,
+/// and `crates/fathom-wasm/tests/rack.rs::the_declared_range_is_the_range_the_door_enforces`
+/// reads the declaration out of the YAML and fails if they drift. The bound is
+/// a sanity check on a typo, not a claim about what racks exist — 42U is the
+/// industry-standard cabinet and NetBox allows arbitrary heights, so the max is
+/// deliberately far above anything real rather than tight.
+const RACK_U_MIN: u8 = 1;
+const RACK_U_MAX: u8 = 100;
 
 /// The two placement gestures (`53` §7.2). Named for what the person did, which
 /// is what an undo list has to read as — "Place a box" and not "OP_PLACE mode 1".

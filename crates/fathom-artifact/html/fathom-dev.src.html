@@ -423,6 +423,109 @@ button.tab:hover { color: var(--ink); }
         outline-offset: -1px; }
 .efield .note { font-size: var(--t-micro); line-height: var(--lh-micro);
                 color: var(--muted); }
+
+/* --- the rack elevation (ADR-0036) ---------------------------------------
+   DRAWN IN REAL DOM, NOT IN AN <svg>, AND THAT IS THE POINT.
+
+   A network diagram needs vector: it has edges, curves and routing. A rack
+   does not. It is a stack of equal-height rows, which is a LIST, and a list
+   drawn as a list puts every box in the accessible tree as a real focusable
+   element with a real name -- rather than as a <rect> inside an aria-hidden
+   picture with a parallel disclosure contract bolted alongside it that has to
+   be kept in sync and announces nothing when it is not.
+
+   Nothing in this block moves: no motion properties of any kind. (Said in
+   words rather than by naming them -- the artifact gate is a substring scan
+   over this file, deliberately, because a scanner that parsed CSS could be
+   fooled by one that did not. A comment listing the banned tokens trips it,
+   and that is the gate working, not a false positive.) */
+/* A GRID, AND IT REPLACED A FLEX COLUMN FOR ONE REASON: the flex version drew
+   a row per unit and skipped the rows a box covered, so a box the renderer had
+   already lost took its units out of the frame with it and a 42U rack drew 40
+   rows. In a grid the frame is declared -- `repeat(height, ...)` -- so every
+   unit row exists because the FRAME says so, and a box is placed INTO it with
+   `grid-row: n / span h` rather than by consuming rows as it goes. A renderer
+   bug can now draw a box in the wrong place; it can no longer delete a unit.
+
+   Columns are one gutter plus one per drawn face lane, set inline because the
+   count is data (see `renderRack`). */
+.relev { display: grid; gap: 0;
+         border: var(--rule-hair) solid var(--ink); border-radius: var(--radius);
+         overflow: hidden; }
+/* The two face headings, and the gutter's. A heading spans its face's lanes,
+   so "front" sits over both columns when a clash has split it in two. */
+.relev .rhd { padding: var(--s1); text-align: center;
+              font-family: var(--mono); font-size: var(--t-micro);
+              color: var(--muted);
+              border-bottom: var(--rule-hair) solid var(--ink); }
+/* The unit number, in the gutter. Tabular figures so the column is a column. */
+.relev .u { padding: 0 var(--s1);
+            display: flex; align-items: center; justify-content: flex-end;
+            font-family: var(--mono); font-size: var(--t-micro);
+            font-variant-numeric: var(--num-tabular); color: var(--muted);
+            border-right: var(--rule-hair) solid var(--hairline);
+            border-bottom: var(--rule-hair) solid var(--hairline); }
+/* An empty unit is drawn, and drawn as empty. A rack's gaps are most of what
+   an elevation is consulted for -- "is there room, and where" -- so they are
+   not absence of a mark, they are the mark. Every unit of every lane gets one
+   of these; a box is painted OVER the ones it occupies, which is what makes a
+   part-occupied row read correctly (front taken, rear still free).
+
+   `--s3` and not `--row-min`: an empty unit is a ruled line nobody can
+   activate, so WCAG 2.5.8's 24px target minimum does not apply to it, and
+   applying it anyway makes a 42U frame 1,008px of blank units. The targets --
+   the boxes -- carry the minimum themselves. */
+.relev .rcell { min-height: var(--s3); background: var(--surface-2);
+                border-bottom: var(--rule-hair) solid var(--hairline);
+                border-right: var(--rule-hair) solid var(--hairline); }
+/* A placed box spans its run: one button covering height_u rows, so it is ONE
+   thing in the accessible tree rather than N. */
+.rbox { display: flex; align-items: center; gap: var(--s2); width: 100%;
+        height: 100%; text-align: left; cursor: pointer;
+        background: var(--surface); color: var(--ink);
+        border: 0; border-left: var(--rule-accent) solid var(--ink);
+        border-bottom: var(--rule-hair) solid var(--hairline);
+        padding: var(--s1) var(--s2); font: inherit; font-size: var(--t-small); }
+/* `--page`, not `--bg`: `--bg` was written here from habit and is declared
+   nowhere in design/tokens.css, so the hover silently took `background`'s
+   initial value (transparent) and the box appeared to lose its fill. The tip's
+   `every_design_token_the_shell_uses_is_declared` caught it; that is the guard
+   working. */
+.rbox:hover { background: var(--page); }
+.rbox:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
+                      outline-offset: var(--focus-offset-inset); }
+.rbox .who { font-weight: 700; }
+.rbox .meta { color: var(--muted); font-size: var(--t-micro);
+              font-family: var(--mono); }
+/* An unstated height, an overflowing placement and a box sharing its space with
+   another are MARKED, never silently normalised. 51 §9's dotted is the
+   incomplete-path treatment and never `dashed`; the caution channel is 51 §9's
+   unmodified.
+
+   `.clash` is the mark that makes "both are drawn" a true sentence rather than
+   a claim: the two boxes sit side by side in their face's two lanes and BOTH
+   wear the caution wash, so the picture says "these two disagree" in the place
+   the disagreement is, not only in a caption underneath. */
+.rbox.guess { border-left-style: var(--rule-style-pending); }
+.rbox.over, .rbox.clash { color: var(--caution); background: var(--caution-wash);
+             border-left-color: var(--caution); }
+.rnote { font-size: var(--t-micro); line-height: var(--lh-micro);
+         color: var(--muted); margin: var(--s1) 0 0; }
+.rclash { color: var(--caution); border-left: var(--rule-accent) solid var(--caution);
+          background: var(--caution-wash); padding: var(--s1) var(--s2);
+          font-size: var(--t-micro); line-height: var(--lh-micro); }
+.rbody { flex: 1 1 auto; min-height: 0; overflow-y: auto;
+         padding: var(--s2) var(--s3); display: flex; flex-direction: column;
+         gap: var(--s2); }
+.rpick { display: flex; flex-wrap: wrap; gap: var(--s1); align-items: center; }
+.rpick button { background: none; cursor: pointer; color: var(--ink);
+                border: var(--rule-hair) solid var(--hairline);
+                padding: var(--s1) var(--s2); font: inherit;
+                font-size: var(--t-tab); }
+.rpick button[aria-pressed="true"] { border-color: var(--ink);
+                                     background: var(--surface); }
+.rpick button:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
+                              outline-offset: var(--focus-offset-outset); }
 /* The inspector's in-place field editor. Deliberately almost invisible until
    focused: the inspector is read far more often than it is edited, and a table
    of boxes reads as a form rather than as a record. */
@@ -724,6 +827,7 @@ svg[data-lod="0"] .dplaced { display: none; }
       <span class="tab" id="tabSource">demo estate · not corpus data</span>
       <button type="button" class="tab" id="tabPaste">paste a config</button>
       <button type="button" class="tab" id="tabEquip">add equipment</button>
+      <button type="button" class="tab" id="tabRack">rack view</button>
       <button type="button" class="tab" id="tabExport">export</button>
       <button type="button" class="tab" id="tabImport">import</button>
       <!-- The file input is the universal half of open/save: it works in every
@@ -823,6 +927,45 @@ svg[data-lod="0"] .dplaced { display: none; }
       </div>
     </div>
 
+    <!-- The rack elevation (ADR-0036). The owner asked "how do I go into rack
+         mount view?" and there was no answer.
+
+         It is a SHEET and not a seventh view, deliberately. `56` §13.4 puts
+         rack inside the diagram's zoom ladder (inside-a-device -> rack ->
+         floor -> building -> map), so a rack is a rung and not a peer of the
+         six. There is no diagram in this build to hang it from, so it ships
+         where the other two on-ramps ship, and does not touch `data-view` --
+         which is the view tabs' selector and therefore an API. -->
+    <div class="psheet" id="rsheet" role="dialog" aria-label="Rack view" hidden>
+      <div class="phead">
+        <div class="lead">Rack view — where the boxes physically are</div>
+        <p class="prose" id="rHint"></p>
+        <p class="prose perr" id="rErr" hidden role="alert"></p>
+      </div>
+      <div class="rbody" id="rbody"></div>
+      <div class="pfoot">
+        <span>esc close</span>
+        <span class="spacer"></span>
+        <button type="button" id="rAdd">put a box in a rack</button>
+      </div>
+    </div>
+
+    <!-- Placement is a separate form because it is a separate assertion: this
+         one says WHERE a box you have already recorded stands. -->
+    <div class="psheet" id="msheet" role="dialog" aria-label="Place a box in a rack" hidden>
+      <div class="phead">
+        <div class="lead">Put a box in a rack</div>
+        <p class="prose" id="mHint"></p>
+        <p class="prose perr" id="mErr" hidden role="alert"></p>
+      </div>
+      <div class="eform" id="mform"></div>
+      <div class="pfoot">
+        <span>esc close</span>
+        <span class="spacer"></span>
+        <button type="button" id="mRun">place it</button>
+      </div>
+    </div>
+
     <!-- 53 §6.2 LAYER 4 — the last resort, and the reason it exists.
          "Render the payload in a focused, pre-selected read-only block with
          `press ⌘C` in the footer. Never a silent failure."
@@ -833,7 +976,15 @@ svg[data-lod="0"] .dplaced { display: none; }
          failure may end with the text gone. The command the user asked for is
          one they are about to paste into a change window; making them retype it
          from a row that has since closed is the failure §6.2 is written
-         against. This block needs no permission and no activation. -->
+         against. This block needs no permission and no activation.
+
+         A SIBLING OF THE SHEETS, NEVER A CHILD OF ONE. The rack merge landed it
+         inside `#msheet`'s footer, and `#msheet` carries `hidden` -- so
+         `showCopyBlock`'s `focus()` silently did nothing, the block never took
+         focus, and layer 4 became a panel you could see and not copy from. Both
+         conflict sides ended on the same two closing tags and git had already
+         merged them outside the conflict, so concatenating the two sides nested
+         one inside the other. The finder driver caught it. -->
     <div class="cfall" id="cfall" role="group" aria-label="Copy this by hand" hidden>
       <p class="prose" id="cfWhy"></p>
       <textarea class="cfta" id="cfta" readonly spellcheck="false"
@@ -901,6 +1052,11 @@ var OP_DIAGRAM = 19, OP_DICT = 20, OP_PLACE = 21;
    from "the demo estate broke" — see boot(). Every other refusal is rendered
    from its code and detail without the page knowing what it means. */
 var ERR_UNKNOWN_OP = 1;
+
+/* ADR-0036. There is no OP_RACK_LIST: a rack is an InvKind, so OP_INV_ROWS
+   lists it, and a second way to ask the same question would have cost 1,663
+   bytes of module for nothing. */
+var OP_RACK_PLACE = 22, OP_RACK_ELEVATION = 23;
 
 /* The equipment form's fields, and the ONLY place this page names a field key.
    Each entry is [wire key, label, kind, required, note].
@@ -974,6 +1130,11 @@ var ROW_UNVERIFIED = 4;
    closed by the conventions and are never sent; the CAPTION is sent, because
    ADR-0011 lets an entry override it and one entry in the seed corpus does. */
 var RISK_CLASS = ['r-safe', 'r-caution', 'r-danger'];
+/* ADR-0036's elevation records. 12/13/14 and not 8/9/10: those became
+   FACE_CAPTURE, FACE_BOX and FACE_LINE on the tip while this was in flight,
+   and a face code is a wire discriminant -- a collision renders one record
+   kind as another rather than failing. */
+var FACE_RACK = 12, FACE_RACK_SLOT = 13, FACE_RACK_CLASH = 14;
 
 var wasm = null;                 /* the instance's exports */
 var wasmModule = null;
@@ -1227,7 +1388,23 @@ var KINDS = ['Device', 'PhysicalPort', 'Premises',
              /* Appended 2026-08-11 with the equipment form: `model` and `serial`
                 are Chassis fields, so without this button a hand-entered model
                 is stored and invisible. */
-             'Chassis'];
+             'Chassis',
+             /* Appended 2026-08-15 with ADR-0036's rack view. A rack IS
+                inventory -- a thing the estate holds, with a label, a capacity
+                and a count of what is in it -- so it gets a row here rather
+                than a bespoke opcode. */
+             'Rack'];
+
+/* An InvKind wire byte is a POSITION in this list, and a position is only
+   stable while nothing is appended. Appending 'Rack' after 'Chassis' broke a
+   `len() - 1` in the Rust tests that meant "the chassis byte", so nothing here
+   derives one from the length either: ask for the kind you mean, by name. */
+function kindByte(name) {
+  var i = KINDS.indexOf(name);
+  return i < 0 ? 0 : i;
+}
+var CHASSIS_KIND_BYTE = kindByte('Chassis');
+var RACK_KIND_BYTE = kindByte('Rack');
 
 var VIEWS = [
   { id: 'finder',      t: 'Finder',      key: '⌥1',
@@ -4138,6 +4315,16 @@ document.addEventListener('keydown', function (e) {
    Focus is stored on open and returned on close, stored rather than inferred
    (53 §5.1): inferring it means guessing, and the guess is wrong exactly when
    the user came from a text field, which is the case Ctrl+K exists for. */
+
+/* The scrim is up iff any SHEET is -- and the finder is deliberately not one of
+   them. Each setter used to spell out an OR over the other sheets by name,
+   which is a place to forget per sheet: adding the rack view left three of the
+   five saying the scrim should be down while a sheet was up. One function now
+   reads every flag, and every setter assigns its own flag before calling it. */
+function syncScrim() {
+  $('scrim').hidden = !(pOpen || eOpen || rOpen || mOpen);
+}
+
 var fOpen = false;
 var fReturn = null;
 /* 16 §19.2's double-Esc: the second within 400 ms clears the query rather than
@@ -4147,12 +4334,7 @@ var fReturn = null;
    user's two presses and do the wrong one. */
 function setFinder(open, keepFocus) {
   fOpen = open;
-  /* The finder draws NO scrim. 52 §3.2.1 is explicit — it "renders over the
-     sheet with the sheet still legible behind it: no backdrop fade, no dimming
-     layer" — and the reason is functional rather than aesthetic: the thing you
-     are searching for is very often the thing on the screen behind the panel.
-     The two sheets keep theirs; they replace the view rather than sit over it. */
-  $('scrim').hidden = !(pOpen || eOpen);
+  syncScrim();
   $('fsheet').hidden = !open;
   var inp = $('fq');
   if (open) {
@@ -4253,7 +4435,7 @@ var pOpen = false;
 
 function setPaste(open) {
   pOpen = open;
-  $('scrim').hidden = !(open || eOpen);   /* fOpen draws no scrim — setFinder */
+  syncScrim();
   $('psheet').hidden = !open;
   if (open) {
     /* THE REPLACEMENT IS SAID OUT LOUD WHEN THERE IS SOMETHING TO REPLACE.
@@ -4436,7 +4618,7 @@ var eOpen = false;
 
 function setEquip(open) {
   eOpen = open;
-  $('scrim').hidden = !(open || pOpen);   /* fOpen draws no scrim — setFinder */
+  syncScrim();
   $('esheet').hidden = !open;
   if (!open) return;
   $('eHint').textContent =
@@ -4782,6 +4964,695 @@ $('importFile').addEventListener('change', function (ev) {
   ev.target.value = '';
 });
 
+/* --- the rack elevation (ADR-0036) ----------------------------------------
+   The owner asked "how do I go into rack Mount view?". This is that view, and
+   it is the FIRST rung of `56` §13.4's ladder -- rack only. Floor, building
+   and map stay proposals with no model behind them.
+
+   THE GEOMETRY IS HERE, IN THE PAGE, AND THAT IS DELIBERATE. The module
+   returns position_u, height_u and a direction; turning those into a row index
+   is one subtraction. Page bytes are ARTIFACT bytes (44 §5.5's 4.5 MB budget,
+   about half spent) while the module is measured against a 900,000-byte
+   ceiling with four figures of headroom. Doing the arithmetic in Rust would
+   have bought nothing and spent the scarce budget instead of the ample one.
+
+   `fathom-inventory`'s rule that "the page computes nothing" is about JOINS,
+   WALKS AND COUNTS -- every one of which still happens in Rust. What is here
+   is a coordinate transform over numbers already decided.
+   ------------------------------------------------------------------------- */
+
+var rOpen = false, mOpen = false;
+var R = { racks: [], sel: null, elev: null, err: null };
+
+/* Which row from the TOP of the frame a run begins on.
+
+   THE WHOLE REASON `unit_numbering` IS DATA. ADR-0036 could not establish a
+   universal convention -- Wikipedia's rack-unit page is silent on direction,
+   NetBox defaults U1 to the bottom, and netbox#191 records a real estate whose
+   Knurr racks number U01 at the top. So neither branch is a default: the rack
+   says which it is, and a rack that has not said is not drawn. */
+function topRow(height, pos, span, ascending) {
+  return ascending ? (height - pos - span + 1) : (pos - 1);
+}
+
+/* THE TWO FACES, AND WHY THERE ARE TWO COLUMNS.
+
+   An elevation is drawn PER FACE, and that is established rather than assumed.
+   NetBox's rack-elevation endpoint takes a face: "the `face` parameter may be
+   used to request either the `front` or `rear` of the elevation"
+   (netboxlabs.com/docs/netbox/en/stable/release-notes/version-2.7/, read
+   2026-08-15). And a device type marked full-depth "is considered to occupy
+   both the front and rear faces of a rack, regardless of which face it is
+   assigned" (netboxlabs.com/docs/netbox/models/dcim/devicetype/, read
+   2026-08-15) -- a rule that only means anything if the two faces are
+   otherwise apart. Two independent statements, both primary, both dated.
+
+   WHAT IS NOT ESTABLISHED, so it is this face's own decision with its reason
+   beside it: NetBox draws ONE face at a time and switches between them. Fathom
+   draws both at once, side by side against one shared unit gutter. A toggle
+   would hide half a rack behind an interaction, and hiding is the one thing
+   this view may not do -- the defect this renderer replaces dropped a box in
+   silence, and defaulting to "front" would drop every rear box in silence by
+   design. Side by side, U5 front and U5 rear are one row and the reader can
+   see both without asking.
+
+   THE THIRD COLUMN. `MountedIn.face` is `card: "0..1"`: somebody can know a
+   box is at U12 without having said which side. That box may not be drawn on
+   the front (a guess) nor across both (which is NetBox's full-depth claim, a
+   different and specific assertion). It gets its own column, labelled, and the
+   column exists only when something is in it. 70 §16: incomplete is drawn and
+   MARKED, never refused. */
+var RFACE_UNSTATED = '—';        /* the module's UNKNOWN, one em dash */
+var RFACES = [
+  ['front', 'front'],
+  ['rear', 'rear'],
+  [RFACE_UNSTATED, 'face not stated']
+];
+
+/* The run a slot draws as: [top row, rows]. An unstated height draws one unit
+   and is marked -- never recorded as 1U. */
+function rackRun(e, s) {
+  var span = s.height === null ? 1 : Math.max(1, s.height);
+  return [topRow(e.height, s.pos, span, e.ascending), span];
+}
+
+/* Give every box a column, so that no box is ever dropped for want of one.
+
+   THE DEFECT THIS REPLACES, named because it shipped and was found in review:
+   the first version kept `starts[top] = s`, one slot per drawn row. Two runs
+   beginning on the same row overwrote each other and the loser was drawn
+   nowhere, named nowhere, and in no accessible-tree node -- while the caption
+   underneath asserted "Both are drawn". Front and rear at the same U is the
+   ORDINARY arrangement of a rack, so an ordinary rack silently lost a box.
+
+   Now: boxes are grouped by face, and inside a face they are packed into
+   sub-columns -- a box takes the first sub-column whose boxes its run does not
+   intersect. One sub-column per face is the normal case. A second appears only
+   where two boxes really are recorded in the same space on the same side, and
+   then BOTH are drawn, side by side, and both are marked. That is "reported,
+   not resolved" honoured in the picture instead of only in prose: this face
+   still has no basis for choosing which of two conflicting assertions is
+   right, and now it does not have to.
+
+   Returns the groups and, separately, every box it could NOT place -- which is
+   named with a count rather than skipped. `continue` is how the first version
+   lost boxes and it does not appear in this function. */
+function packRack(e) {
+  var groups = [], undrawn = [], i, j, k, g, lane, s, run, top, span, placed, clear;
+  for (i = 0; i < RFACES.length; i++) {
+    groups.push({ face: RFACES[i][0], label: RFACES[i][1], lanes: [] });
+  }
+  for (i = 0; i < e.slots.length; i++) {
+    s = e.slots[i];
+    run = rackRun(e, s);
+    top = run[0];
+    span = run[1];
+    /* Outside the frame once the direction is applied. `elevation()` already
+       partitions these into `overflow`, so this is a second net and not the
+       first -- but it NAMES what it catches, because a net that drops things
+       quietly is the bug, not the guard. */
+    if (top < 0 || top + span > e.height) {
+      undrawn.push([s, 'the frame has no unit U' + s.pos]);
+    } else {
+      g = groups[RFACES.length - 1];
+      for (j = 0; j < groups.length; j++) if (groups[j].face === s.face) g = groups[j];
+      placed = false;
+      for (j = 0; j < g.lanes.length && !placed; j++) {
+        lane = g.lanes[j];
+        clear = true;
+        for (k = 0; k < lane.length; k++) {
+          if (top < lane[k].top + lane[k].span && lane[k].top < top + span) { clear = false; }
+        }
+        if (clear) { lane.push({ s: s, top: top, span: span }); placed = true; }
+      }
+      if (!placed) g.lanes.push([{ s: s, top: top, span: span }]);
+    }
+  }
+  /* Front and rear keep a column even when empty: "is there room on the rear
+     at U5" is a question the picture must be able to answer, and a column that
+     is not there answers it by omission. The unstated column appears only when
+     something is in it, because a permanently empty one would teach a reader
+     that "face not stated" is a place boxes go. */
+  for (i = 0; i < groups.length; i++) {
+    if (!groups[i].lanes.length && groups[i].face !== RFACE_UNSTATED) groups[i].lanes.push([]);
+  }
+  return { groups: groups, undrawn: undrawn };
+}
+
+/* One box in words: the same sentence the picture shows, so a box that cannot
+   be drawn is still said in full rather than counted. */
+function rackBoxLine(s) {
+  var span = s.height === null ? 1 : Math.max(1, s.height);
+  return (s.device === RFACE_UNSTATED ? s.chassis : s.device) +
+         ' at U' + s.pos + (span > 1 ? '–U' + (s.pos + span - 1) : '') +
+         ' · ' + s.chassis +
+         (s.face !== RFACE_UNSTATED ? ' · ' + s.face : ' · face not stated') +
+         (s.height === null ? ' · height not stated' : '');
+}
+
+/* Every rack in the estate, via the inventory. Slot 0 is the display id. */
+function loadRacks() {
+  var reply = call(OP_INV_ROWS, new Uint8Array([RACK_KIND_BYTE]));
+  R.racks = [];
+  if (!reply || reply.kind !== 'face') return;
+  for (var i = 0; i < reply.rows.length; i++) {
+    var r = reply.rows[i];
+    if (r.role === FACE_INV) R.racks.push({ id: r.s[0], label: r.s[1] });
+  }
+}
+
+function loadElevation(id) {
+  R.sel = id;
+  R.elev = null;
+  if (!id) return;
+  var reply = call(OP_RACK_ELEVATION, new TextEncoder().encode(id));
+  if (!reply || reply.kind !== 'face') return;
+  /* SPLIT AT THE DOOR, not in the renderer. The wire carries one slot record
+     kind with an `over` flag; the renderer wants two lists, because a box that
+     fits is drawn and a box that does not is NAMED, and a renderer that has to
+     remember to filter is a renderer that will one day forget. `overflowCount`
+     is kept beside them so the count sentence is arithmetic over what arrived
+     rather than over what survived. */
+  var e = null, slots = [], overflow = [], clashes = [];
+  for (var i = 0; i < reply.rows.length; i++) {
+    var r = reply.rows[i];
+    if (r.role === FACE_RACK) {
+      /* Slot 4 has THREE states: '1' up, '0' down, '' this build cannot read
+         the token. `readable` is read, never derived — comparing `numbering`
+         against 'ascending'/'descending' here would put a second copy of the
+         schema's enum in JavaScript, and the two copies would drift. */
+      e = { id: r.s[0], label: r.s[1], height: parseInt(r.s[2], 10) || 0,
+            numbering: r.s[3], ascending: r.s[4] === '1', readable: r.s[4] !== '' };
+    } else if (r.role === FACE_RACK_SLOT) {
+      var slot = { id: r.s[0], device: r.s[1], chassis: r.s[2],
+                   pos: parseInt(r.s[3], 10) || 0,
+                   /* '' means NOBODY SAID, which is not the same as 1U and is
+                      never collapsed into it -- the box is drawn one unit tall
+                      and marked. */
+                   height: r.s[4] === '' ? null : (parseInt(r.s[4], 10) || 1),
+                   face: r.s[5], over: r.s[6] === '1' };
+      (slot.over ? overflow : slots).push(slot);
+    } else if (r.role === FACE_RACK_CLASH) {
+      clashes.push([r.s[0], r.s[1]]);
+    }
+  }
+  if (!e) return;
+  e.slots = slots;
+  e.overflow = overflow;
+  e.overflowCount = overflow.length;
+  e.clashes = clashes;
+  R.elev = e;
+}
+
+function renderRack() {
+  var host = $('rbody');
+  if (!host) return;
+  clear(host);
+  var i, j, k, s, gi;
+
+  if (!S.loaded) {
+    unposted(host, 'rack', 'No estate is loaded. Paste a config or add equipment ' +
+                           'first — a rack holds boxes Fathom already knows about.');
+    return;
+  }
+
+  /* The picker. Real buttons with aria-pressed, in the document, because this
+     is a choice a keyboard user has to be able to make. */
+  var pick = el('div', 'rpick');
+  pick.appendChild(el('span', 'lab', 'rack'));
+  if (!R.racks.length) {
+    pick.appendChild(el('span', null, 'none yet'));
+  }
+  for (i = 0; i < R.racks.length; i++) {
+    (function (rack) {
+      var b = el('button', null, rack.label || '(unlabelled)');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', rack.id === R.sel ? 'true' : 'false');
+      b.addEventListener('click', function () {
+        loadElevation(rack.id);
+        renderRack();
+      });
+      pick.appendChild(b);
+    })(R.racks[i]);
+  }
+  host.appendChild(pick);
+
+  if (!R.elev) {
+    unposted(host, 'rack',
+      R.racks.length
+        ? 'Choose a rack.'
+        : 'No racks yet. Nothing in a pasted config says which rack a box is ' +
+          'in or at what height — no vendor statement this project has ' +
+          'established carries that — so a rack is something you tell Fathom, ' +
+          'not something it can read. Use "put a box in a rack".');
+    return;
+  }
+
+  var e = R.elev;
+
+  /* The frame's own facts, said plainly and above the picture. The numbering
+     direction is stated rather than implied, because a reader who cannot see
+     which end is U1 cannot check the drawing against the frame in front of
+     them. */
+  var head = el('div', 'rnote');
+  head.textContent = (e.label || '(unlabelled)') + ' · ' + e.height + 'U · ' +
+                     (e.readable
+                       ? 'U1 at the ' + (e.ascending ? 'bottom' : 'top') +
+                         ' (' + e.numbering + ')'
+                       : 'unit numbering "' + e.numbering + '" — not recognised');
+  host.appendChild(head);
+
+  /* THE REFUSAL, AND IT IS A REAL ONE NOW.
+     ADR-0036 §7 and `rack.rs` both said "the page refuses the picture" for a
+     numbering token this build cannot read. They said it of code that did not
+     exist: the renderer had no numbering check anywhere, so an unreadable or
+     unset direction printed "U1 at the bottom (<token>)" and drew ascending --
+     the exact guess the field was made required-with-no-default to avoid, and
+     an elevation drawn the wrong way up is wrong in EVERY position while
+     looking entirely plausible.
+
+     The DECISION is the module's (`rack.rs`, `ascending: Option<bool>`) and
+     this is only the branch, so what the two ends mean cannot drift apart. It
+     is driven at the wire, in `crates/fathom-wasm/tests/rack.rs`, because no
+     input this build accepts can reach it: `parse_into_slot` refuses the
+     unknown token, the opcode demands the field, and import replays through the
+     same door. That narrowness is a reason for the guard to be cheap, which it
+     is, and never a reason for it to be absent -- the whole point of the
+     generated `Unknown` arm is that a NEWER schema's token arrives here one day.
+
+     Nothing is hidden by refusing: every box is listed below in the same words
+     the picture would have used. */
+  if (!e.readable) {
+    var no = el('div', 'rclash');
+    no.textContent =
+      'The elevation is not drawn. This rack records its unit numbering as "' +
+      e.numbering + '", which this build does not recognise, and which end is U1 ' +
+      'decides every position in the frame — a picture drawn on a guess would be ' +
+      'wrong in every row while looking right. ' +
+      (e.slots.length + e.overflowCount) + ' box(es) are recorded in it and every ' +
+      'one is named below.';
+    host.appendChild(no);
+    rackNotDrawn(host, e, listAll(e), 'the rack does not say which end is U1');
+    rackLimits(host);
+    return;
+  }
+
+  /* Every box gets a column; nothing is dropped for want of one. */
+  var packed = packRack(e);
+  var cols = [];
+  for (gi = 0; gi < packed.groups.length; gi++) {
+    var grp = packed.groups[gi];
+    for (j = 0; j < grp.lanes.length; j++) cols.push({ g: grp, lane: grp.lanes[j] });
+  }
+
+  /* Which boxes share their space with another. The module reports the pairs
+     and refuses to resolve them; the picture marks both members so the reader
+     sees the disagreement where it is. */
+  /* Keys are prefixed because a bare object is not a map: an id of `__proto__`
+     or `constructor` would read as truthy for every box. Display ids are
+     `<kind>:<ulid>` and cannot be either today, which is exactly the kind of
+     "cannot happen" that stops being true when the id format changes. */
+  var clashing = {};
+  for (i = 0; i < e.clashes.length; i++) {
+    clashing['#' + e.clashes[i][0]] = true;
+    clashing['#' + e.clashes[i][1]] = true;
+  }
+
+  var frame = el('div', 'relev');
+  frame.setAttribute('role', 'group');
+  frame.setAttribute('aria-label',
+    'Rack elevation, ' + e.height + ' units, U1 at the ' +
+    (e.ascending ? 'bottom' : 'top'));
+  /* The frame is DECLARED: `repeat(height, ...)` means the rows exist because
+     the rack has that many units, not because something was drawn into them.
+     That is what makes "a 42U frame draws 42 rows" a property of the layout
+     rather than of the loop that fills it. */
+  frame.style.gridTemplateColumns = 'auto repeat(' + cols.length + ', minmax(0, 1fr))';
+  frame.style.gridTemplateRows = 'auto repeat(' + e.height + ', minmax(var(--s3), auto))';
+
+  /* Heading row. One heading per FACE, spanning that face's lanes, so "front"
+     sits over both columns when a clash has split it in two. */
+  var hu = el('div', 'rhd', 'U');
+  hu.style.gridRow = '1';
+  hu.style.gridColumn = '1';
+  frame.appendChild(hu);
+  var at = 2;
+  for (gi = 0; gi < packed.groups.length; gi++) {
+    var g2 = packed.groups[gi];
+    if (!g2.lanes.length) continue;
+    var hd = el('div', 'rhd', g2.label);
+    hd.style.gridRow = '1';
+    hd.style.gridColumn = at + ' / span ' + g2.lanes.length;
+    frame.appendChild(hd);
+    at += g2.lanes.length;
+  }
+
+  /* Every unit of every lane, unconditionally. This loop cannot skip a row:
+     there is no `continue` in it and nothing it draws depends on what is
+     placed. The boxes go on afterwards, over the top. */
+  for (var row = 0; row < e.height; row++) {
+    var unit = e.ascending ? (e.height - row) : (row + 1);
+    var gut = el('div', 'u', String(unit));
+    gut.style.gridRow = String(row + 2);
+    gut.style.gridColumn = '1';
+    frame.appendChild(gut);
+    for (j = 0; j < cols.length; j++) {
+      var cell = el('div', 'rcell');
+      cell.style.gridRow = String(row + 2);
+      cell.style.gridColumn = String(j + 2);
+      frame.appendChild(cell);
+    }
+  }
+
+  /* The boxes, placed into the frame rather than consuming it. Appended after
+     the empty cells so a box paints over the units it occupies -- which is
+     also what makes a part-occupied row read correctly: front taken, rear
+     still showing as free, in one row. */
+  var drawn = 0;
+  for (j = 0; j < cols.length; j++) {
+    for (k = 0; k < cols[j].lane.length; k++) {
+      var it = cols[j].lane[k];
+      s = it.s;
+      var b = el('button', 'rbox');
+      b.type = 'button';
+      var mark = '';
+      if (s.height === null) mark += ' guess';
+      if (clashing['#' + s.id]) mark += ' clash';
+      if (mark) b.className = 'rbox' + mark;
+      b.appendChild(el('span', 'who', s.device === RFACE_UNSTATED ? s.chassis : s.device));
+      var meta = 'U' + s.pos + (it.span > 1 ? '–U' + (s.pos + it.span - 1) : '') +
+                 ' · ' + s.chassis +
+                 (s.face !== RFACE_UNSTATED ? ' · ' + s.face : ' · face not stated') +
+                 (s.height === null ? ' · height not stated, drawn as 1U' : '') +
+                 (clashing['#' + s.id] ? ' · shares these units with another box' : '');
+      b.appendChild(el('span', 'meta', meta));
+      /* The accessible name carries the same sentence, so a screen reader is
+         told what the picture shows rather than "button". */
+      b.setAttribute('aria-label',
+        (s.device === RFACE_UNSTATED ? s.chassis : s.device) + ' — ' + meta);
+      b.style.gridRow = (it.top + 2) + ' / span ' + it.span;
+      b.style.gridColumn = String(j + 2);
+      /* A box is a target: WCAG 2.5.8's 24px minimum, per unit it covers. The
+         button carries it, so the empty rows do not have to. */
+      b.style.minHeight = 'calc(var(--row-min) * ' + it.span + ')';
+      (function (id) {
+        b.addEventListener('click', function () {
+          postElement(id);
+          setRack(false);
+          S.view = 'inventory';
+          render();
+        });
+      })(s.id);
+      frame.appendChild(b);
+      drawn++;
+    }
+  }
+  host.appendChild(frame);
+
+  /* THE COUNT, ALWAYS, DRAWN OR NOT. A rack elevation that quietly omits a
+     device is worse than no rack elevation, so the arithmetic is printed
+     rather than left to be trusted: how many are recorded, how many the
+     picture holds. A reader who can compare two numbers can catch this class
+     of bug without reading any code, and so can a browser driver. */
+  var recorded = e.slots.length + e.overflowCount;
+  host.appendChild(el('p', 'rnote',
+    recorded + ' box(es) recorded in this rack; ' + drawn + ' drawn.'));
+
+  var missing = [];
+  for (i = 0; i < e.overflow.length; i++) {
+    missing.push([e.overflow[i], 'recorded outside this ' + e.height + 'U frame']);
+  }
+  for (i = 0; i < packed.undrawn.length; i++) missing.push(packed.undrawn[i]);
+  if (missing.length) {
+    rackNotDrawn(host, e, missing, null);
+  }
+
+  if (e.clashes.length) {
+    var cb = el('div', 'rclash');
+    cb.textContent = e.clashes.length === 1
+      ? 'Two boxes are recorded in the same units on the same face. Both are drawn, ' +
+        'side by side in that face\'s column, and both are marked — Fathom has no ' +
+        'basis for choosing which is right, so it shows you the disagreement rather ' +
+        'than resolving it.'
+      : e.clashes.length + ' pairs of boxes are recorded in the same units on the ' +
+        'same face. All are drawn, side by side in their face\'s column, and all are ' +
+        'marked — Fathom has no basis for choosing which is right, so it shows you ' +
+        'the disagreements rather than resolving them.';
+    host.appendChild(cb);
+  }
+
+  rackLimits(host);
+}
+
+/* Every box the picture does not hold, named in full with the count and the
+   reason. Never a silent omission, and never a clip: a 42U rack with a box
+   recorded at U48 is a data error somebody has to see, and drawing it at U42
+   would destroy the evidence of the error. */
+function rackNotDrawn(host, e, rows, why) {
+  var ob = el('div', 'rclash');
+  var lines = [], i;
+  for (i = 0; i < rows.length; i++) {
+    lines.push(rackBoxLine(rows[i][0]) + (rows[i][1] ? ' (' + rows[i][1] + ')' : ''));
+  }
+  ob.textContent = rows.length + ' box(es) are recorded here and not drawn' +
+    (why ? ', because ' + why : '') + ': ' + lines.join('; ') +
+    '. The record is shown as stored rather than moved to fit.';
+  host.appendChild(ob);
+}
+
+/* Everything in the rack, drawable or not, as (slot, reason) rows. */
+function listAll(e) {
+  var rows = [], i;
+  for (i = 0; i < e.slots.length; i++) rows.push([e.slots[i], null]);
+  for (i = 0; i < e.overflow.length; i++) {
+    rows.push([e.overflow[i], 'recorded outside this ' + e.height + 'U frame']);
+  }
+  return rows;
+}
+
+/* The limits, stated in the face rather than left to be discovered. */
+function rackLimits(host) {
+  host.appendChild(el('p', 'rnote',
+    'Front and rear are drawn as two columns against one unit gutter; a box whose ' +
+    'face nobody stated gets its own column rather than being guessed onto one. ' +
+    'Nothing here was parsed — no vendor statement this project has established says ' +
+    'which rack a box is in or at what height, so every rack and every position here ' +
+    'is something you told Fathom. Floor, building and map are not built.'));
+}
+
+function setRack(open) {
+  rOpen = open;
+  syncScrim(open);
+  $('rsheet').hidden = !open;
+  if (!open) return;
+  $('rHint').textContent =
+    'Where your boxes physically stand. Nothing in a config says this, so every ' +
+    'rack and every position here is something a person entered.';
+  loadRacks();
+  if (R.sel) loadElevation(R.sel);
+  renderRack();
+  var first = $('rbody').querySelector('button');
+  if (first) first.focus();
+}
+
+/* --- the placement form --------------------------------------------------- */
+
+/* [wire key, label, kind, required, note]. Same shape as EQUIP_FIELDS, and the
+   keys come from schema/field-keys.yaml the same way. */
+var PLACE_FIELDS = [
+  [302, 'rack name', 'text', true,
+   'A rack you already have is matched by this name; a new name makes a new rack.'],
+  [303, 'rack height in units', 'num', true,
+   'One rack unit is 1.75 in / 44.45 mm (EIA-310, IEC 60297). 42U is the ' +
+   'commonest cabinet; 1 to 100 is accepted. Ignored when the rack already exists.'],
+  [304, 'unit numbering', 'numbering', true,
+   'Which end is U1. There is no universal convention — both are real, so ' +
+   'Fathom will not guess. Ignored when the rack already exists.'],
+  [305, 'position — lowest unit the box occupies', 'num', true,
+   'For a box spanning several units, the lowest-numbered one.'],
+  [306, 'box height in units', 'num', false,
+   'Leave blank if you have not measured it: it is drawn as 1U and marked ' +
+   'rather than recorded as 1U.'],
+  [307, 'face', 'face', false, 'front or rear.']
+];
+var NUMBERINGS = ['ascending', 'descending'];
+var FACES = ['front', 'rear'];
+
+function buildPlaceForm() {
+  var host = $('mform');
+  clear(host);
+
+  /* Which box. A select over the chassis inventory: placement hangs off the
+     CHASSIS, because a chassis cluster is one device with two boxes and the
+     two halves are routinely in different racks. */
+  var wrap = el('div', 'efield');
+  var lab = el('label', null, 'the box');
+  lab.setAttribute('for', 'mfChassis');
+  lab.appendChild(el('span', 'req', ' — required'));
+  wrap.appendChild(lab);
+  var sel = el('select');
+  sel.id = 'mfChassis';
+  var reply = call(OP_INV_ROWS, new Uint8Array([CHASSIS_KIND_BYTE]));
+  var any = false;
+  if (reply && reply.kind === 'face') {
+    for (var i = 0; i < reply.rows.length; i++) {
+      var r = reply.rows[i];
+      if (r.role !== FACE_INV) continue;
+      var o = el('option', null,
+        (r.s[5] || '(no device)') + ' · chassis ' + (r.s[3] || '?') +
+        (r.s[1] !== '—' ? ' · ' + r.s[1] : ''));
+      o.value = r.s[0];
+      sel.appendChild(o);
+      any = true;
+    }
+  }
+  wrap.appendChild(sel);
+  wrap.appendChild(el('div', 'note',
+    any ? 'A device with two chassis has two boxes, and they can be in different racks.'
+        : 'No boxes yet — add equipment or paste a config first.'));
+  host.appendChild(wrap);
+
+  for (var k = 0; k < PLACE_FIELDS.length; k++) {
+    var f = PLACE_FIELDS[k];
+    var w = el('div', 'efield');
+    var id = 'mf' + f[0];
+    var l = el('label', null, f[1]);
+    l.setAttribute('for', id);
+    if (f[3]) l.appendChild(el('span', 'req', ' — required'));
+    w.appendChild(l);
+
+    var input;
+    if (f[2] === 'numbering' || f[2] === 'face') {
+      var opts = f[2] === 'numbering' ? NUMBERINGS : FACES;
+      input = el('select');
+      /* No blank option on `numbering`: it is required and ADR-0035 gives it
+         no default, so an empty choice would look like a valid answer and be
+         refused on submit. */
+      if (!f[3]) input.appendChild(el('option', null, ''));
+      for (var j = 0; j < opts.length; j++) {
+        var oo = el('option', null, opts[j]);
+        oo.value = opts[j];
+        input.appendChild(oo);
+      }
+    } else {
+      input = el('input');
+      input.type = 'text';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      if (f[2] === 'num') input.inputMode = 'numeric';
+    }
+    input.id = id;
+    w.appendChild(input);
+    if (f[4]) w.appendChild(el('div', 'note', f[4]));
+    host.appendChild(w);
+  }
+}
+
+function setPlace(open) {
+  mOpen = open;
+  syncScrim(open);
+  $('msheet').hidden = !open;
+  if (!open) return;
+  $('mHint').textContent =
+    'This says WHERE a box you have already recorded stands. It is stored as ' +
+    'yours — hand-entered — because no config states it.';
+  buildPlaceForm();
+  var first = $('mfChassis');
+  if (first) first.focus();
+}
+
+function runPlace() {
+  if (!wasm) { foot('the module is not instantiated'); renderShell(); return; }
+  var ent = hostEntropy();
+  if (!ent) {
+    foot('this browser exposes no cryptographic randomness — the placement is refused');
+    renderShell();
+    return;
+  }
+  var chassisNode = $('mfChassis');
+  var chassis = chassisNode ? chassisNode.value : '';
+  if (!chassis) { foot('no box to place'); renderShell(); return; }
+
+  var sent = [];
+  for (var i = 0; i < PLACE_FIELDS.length; i++) {
+    var f = PLACE_FIELDS[i];
+    var node = $('mf' + f[0]);
+    if (!node) continue;
+    var v = node.value.trim();
+    if (v) sent.push([f[0], v]);
+  }
+
+  var enc = new TextEncoder();
+  var cid = enc.encode(chassis);
+  var parts = [], total = 0;
+  for (var k = 0; k < sent.length; k++) {
+    var body = enc.encode(sent[k][1]);
+    parts.push([sent[k][0], body]);
+    total += 4 + body.length;
+  }
+
+  var req = new Uint8Array(24 + 2 + cid.length + 1 + total);
+  var dv = new DataView(req.buffer);
+  dv.setBigUint64(0, BigInt(Date.now()), true);
+  req.set(ent, 8);
+  dv.setUint16(24, cid.length, true);
+  req.set(cid, 26);
+  var at = 26 + cid.length;
+  req[at] = parts.length;
+  at += 1;
+  for (var m = 0; m < parts.length; m++) {
+    dv.setUint16(at, parts[m][0], true);
+    dv.setUint16(at + 2, parts[m][1].length, true);
+    req.set(parts[m][1], at + 4);
+    at += 4 + parts[m][1].length;
+  }
+
+  var reply = call(OP_RACK_PLACE, req);
+  var bad = replyProblem(reply);
+  if (bad) {
+    /* The form stays open with everything still typed in it. */
+    R.err = reply;
+    foot('not placed — nothing changed');
+    renderPlaceError();
+    renderShell();
+    return;
+  }
+
+  R.err = null;
+  /* THE FIELD ID COMES FROM THE TABLE, NEVER FROM A LITERAL. This read
+     `$('mf300')`, and the key moved to 302 in a rebase when a concurrent branch
+     took 300/301 for LayoutPin. `mf300` then matched nothing, so `rackName` was
+     the empty string, so no rack matched it, so the person was left staring at
+     "Choose a rack" immediately after placing a box in one. The form itself
+     kept working -- which is what made it survive: the write was correct and
+     only the landing was wrong. One table, one source. */
+  var rackKeyNode = $('mf' + PLACE_FIELDS[0][0]);
+  var rackName = rackKeyNode ? rackKeyNode.value.trim() : '';
+  loadRacks();
+  /* Select the rack just written to, so the person lands on the picture their
+     assertion changed rather than on whatever was selected before. */
+  for (var q = 0; q < R.racks.length; q++) {
+    if (R.racks[q].label === rackName) { R.sel = R.racks[q].id; break; }
+  }
+  loadElevation(R.sel);
+  setPlace(false);
+  foot(rackName ? ('placed in ' + rackName) : 'placed');
+  setRack(true);
+  renderShell();
+}
+
+function renderPlaceError() {
+  var box = $('mErr');
+  if (!box) return;
+  if (!R.err) { box.hidden = true; box.textContent = ''; return; }
+  box.textContent = replyProblem(R.err) || 'the placement was refused';
+  box.hidden = false;
+}
+
+$('tabRack').addEventListener('click', function () { setRack(!rOpen); });
+$('rAdd').addEventListener('click', function () { setRack(false); setPlace(true); });
+$('mRun').addEventListener('click', runPlace);
+
 /* --- keyboard ------------------------------------------------------------- */
 document.addEventListener('keydown', function (e) {
   /* Ctrl+K from anywhere, including inside a text field.
@@ -4830,6 +5701,11 @@ document.addEventListener('keydown', function (e) {
        also the only way to discard the payload, which is why it is a rung and
        not a click-only affordance. */
     if (hideCopyBlock()) return;
+    /* Innermost first. The placement form is opened FROM the rack view, so it
+       unwinds back to it rather than to the page — one level, as 53 §3.7
+       requires, where "one level" means the thing that opened this. */
+    if (mOpen) { setPlace(false); setRack(true); return; }
+    if (rOpen) { setRack(false); return; }
     if (eOpen) { setEquip(false); return; }
     if (pOpen) { setPaste(false); return; }
     /* THE FINDER'S RUNG, and it belongs to the finder rather than to the

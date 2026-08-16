@@ -160,6 +160,41 @@ pub const FACE_LINE: u8 = 10;
 /// does not change with the mask (`56` §3.6).
 pub const FACE_CANVAS: u8 = 11;
 
+// --- ADR-0036's rack elevation ----------------------------------------------
+//
+// Three roles rather than one, because the page must be able to tell a box
+// that fits from one that does not without re-deriving the arithmetic. A
+// single row kind with a status column would push that decision into the
+// JavaScript, and `fathom-inventory`'s own doc is explicit that the page
+// computes nothing.
+//
+// 12/13/14, NOT 8/9/10: those were free when this was written and are now
+// FACE_CAPTURE, FACE_BOX and FACE_LINE on the tip. A face code is a wire
+// discriminant, so a collision would silently render one record kind as
+// another; the numbers moved on the rebase rather than the meanings.
+
+/// The frame itself, always record 0: display id · label · height in units ·
+/// the numbering token · the direction.
+///
+/// THE DIRECTION SLOT HAS THREE STATES, not two: `1` for U1 at the floor, `0`
+/// for U1 at the top, and **EMPTY for "this build cannot read the token"**. It
+/// was two, with empty meaning descending, and that is what let an unreadable
+/// token be drawn ascending — the page had no way to tell "the rack says U1 is
+/// at the top" from "the rack says something I do not understand", so it drew
+/// both. The page must not re-derive the answer by comparing the token against
+/// the enum's spellings: that is a second copy of the schema in JavaScript.
+///
+/// The numbering token travels as text alongside it so an unrecognised token
+/// from a newer schema can be PRINTED rather than merely refused.
+pub const FACE_RACK: u8 = 12;
+/// One placed box: chassis display id · device · chassis · position_u ·
+/// height_u (empty = never stated) · face · `1` when it overflows the frame.
+pub const FACE_RACK_SLOT: u8 = 13;
+/// One pair of boxes whose runs intersect: the two chassis display ids.
+/// Reported, never resolved — this face has no basis for choosing which of two
+/// conflicting assertions is right.
+pub const FACE_RACK_CLASH: u8 = 14;
+
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
 /// The paste frame is shorter than its fixed 24-byte clock+entropy prefix, or
@@ -780,6 +815,87 @@ pub fn encode_equipment_reply(page: Option<&fathom_inventory::EquipmentPage>) ->
                 i.ports.as_str(),
             ],
         );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    face_reply(records, count, blob)
+}
+
+/// One rack's elevation (ADR-0035): the frame, every box in it, then every
+/// clash.
+///
+/// Overflow rows are emitted with the fitting ones and flagged in slot 6,
+/// rather than being dropped or clipped to the frame. A 42U rack holding a box
+/// recorded at U48 is a data error somebody must see, and drawing it at U42
+/// would destroy the evidence while looking tidy.
+///
+/// Numbers arrive as decimal strings, for the reason `PasteReply` gives: the
+/// page prints them, and a string cannot be read at the wrong width by a
+/// `DataView`. The page does compute one thing from them — the `y` of a rect —
+/// and that is the whole reason the elevation is cheap.
+pub fn encode_rack_reply(e: Option<&fathom_inventory::Elevation>) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    // `None` is the empty state, not an error — the same convention
+    // `encode_equipment_reply` uses: no rack selected, or a rack whose
+    // `height_u` was never stated and so cannot be drawn.
+    let Some(e) = e else {
+        return face_reply(records, 0, blob);
+    };
+
+    let height = e.height_u.to_string();
+    let rec = face_slots(
+        &mut blob,
+        FACE_RACK,
+        5,
+        &[
+            e.id.as_str(),
+            e.label.as_str(),
+            height.as_str(),
+            e.numbering.as_str(),
+            match e.ascending {
+                Some(true) => "1",
+                Some(false) => "0",
+                // Not a direction, and deliberately not defaulted to one.
+                None => "",
+            },
+        ],
+    );
+    write_face_record(&mut records, &rec);
+    let mut count = 1usize;
+
+    for (slot, over) in e
+        .slots
+        .iter()
+        .map(|s| (s, false))
+        .chain(e.overflow.iter().map(|s| (s, true)))
+    {
+        let pos = slot.position_u.to_string();
+        // An unstated height is an EMPTY slot, never "1". The page draws one
+        // unit and marks it; collapsing the two here would turn "nobody said"
+        // into a measurement, which is the one thing this face must not do.
+        let h = slot.height_u.map(|v| v.to_string()).unwrap_or_default();
+        let rec = face_slots(
+            &mut blob,
+            FACE_RACK_SLOT,
+            7,
+            &[
+                slot.id.as_str(),
+                slot.device.as_str(),
+                slot.chassis.as_str(),
+                pos.as_str(),
+                h.as_str(),
+                slot.face,
+                if over { "1" } else { "" },
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    for (a, b) in &e.collisions {
+        let rec = face_slots(&mut blob, FACE_RACK_CLASH, 2, &[a.as_str(), b.as_str()]);
         write_face_record(&mut records, &rec);
         count += 1;
     }

@@ -573,6 +573,56 @@ fn the_equipment_form_names_the_schema_s_field_keys() {
     }
 }
 
+/// The same pin for the placement form, and it earned itself immediately.
+///
+/// `PLACE_FIELDS` carries six wire numbers for the same reason `EQUIP_FIELDS`
+/// carries seven. They were 300–306 when written and are 302–307 now: a
+/// concurrent branch took 300 and 301 for `LayoutPin.x`/`.y`, and the registry
+/// is append-only, so this form's keys all shifted by two. Nothing in the page
+/// would have complained — the form would have written a rack label into
+/// `LayoutPin.x` and a position into `Rack.label`, silently, and the elevation
+/// would have come back empty with no error anywhere.
+///
+/// Labels are matched rather than positions, so reordering the form is free and
+/// renaming a row fails loudly.
+#[test]
+fn the_placement_form_names_the_schema_s_field_keys() {
+    use fathom_ir::generated::ir_types::{MountedInField, RackField};
+
+    let source = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+
+    let expected = [
+        ("rack name", RackField::Label.key().0),
+        ("rack height in units", RackField::HeightU.key().0),
+        ("unit numbering", RackField::UnitNumbering.key().0),
+        (
+            "position — lowest unit the box occupies",
+            MountedInField::PositionU.key().0,
+        ),
+        ("box height in units", MountedInField::HeightU.key().0),
+        ("face", MountedInField::Face.key().0),
+    ];
+
+    for (label, key) in expected {
+        let row = source
+            .lines()
+            .find(|l| l.contains(&format!("'{label}'")) && l.trim_start().starts_with('['))
+            .unwrap_or_else(|| panic!("PLACE_FIELDS has no row labelled {label:?}"));
+        let got: u32 = row
+            .trim_start()
+            .trim_start_matches('[')
+            .split(',')
+            .next()
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or_else(|| panic!("the {label:?} row does not begin with a number: {row}"));
+        assert_eq!(
+            got, key,
+            "the placement form sends key {got} for {label:?}; the schema declares {key}"
+        );
+    }
+}
+
 /// Every platform the form offers must be one `schema/platforms.yaml` declares.
 /// `PlatformId` is a foreign key into that file, so an option that is not a row
 /// there is a value the store will hold and nothing will ever understand.

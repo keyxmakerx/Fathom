@@ -297,6 +297,13 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         | NodeKind::Cable
         | NodeKind::PassiveNode
         | NodeKind::Premises
+        //     `Rack` (ADR-0036) joins them, and by the same rule rather than by
+        //     a guess: `56` §4.1 has no row for it, so it is over-drawn and
+        //     MARKED untabled rather than quietly confined to the physical
+        //     layer. Confining it would read as a decision `56` had made, and
+        //     `56` has not made it. The rack ELEVATION is a separate renderer
+        //     and is unaffected by this table — there, a rack is the frame.
+        | NodeKind::Rack
         // (b) `19`'s service model, which `56` does not mention at all.
         | NodeKind::Tenant
         | NodeKind::Service

@@ -23,10 +23,26 @@ use fathom_workspace::{check_plain_name, read_plain, write_plain, PlainError, PL
 use std::collections::BTreeSet;
 
 /// WO-05 §4.4's pinned first vector, typed from the document.
+///
+/// Line 3 tracks `SCHEMA_VERSION` and is therefore the ONE line of this vector
+/// that is not a constant of the file format: the document typed it when the
+/// tree was at 0.1, and ADR-0036 moved the tree to 0.2 on 2026-08-15. The
+/// payload below is byte-identical across that bump, which is the useful
+/// thing this vector proves — adding a kind and two edges changes the header
+/// and nothing else, so no existing workspace's body is rewritten.
+///
+/// **THAT IS TRUE AND IT IS NOT THE WHOLE STORY**, so it is said here rather
+/// than left to be discovered: `read_plain` refuses a mismatched version on
+/// THIS LINE, before the body is reached, and the migration chain is empty. A
+/// 0.1 workspace is therefore unreadable by a 0.2 build regardless of the
+/// payload being identical. Deliberate pre-release (nothing has shipped and
+/// `schema/released/` holds no snapshot) and reasoned in ADR-0036 §5.2.
+/// `pinned_header_tracks_the_schema_version` keeps the coupling honest rather
+/// than leaving the next bump to discover it as a mystery diff.
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.1\n",
+    "schema 0.2\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -336,13 +352,31 @@ fn face_version_2_refused_by_name() {
     }
 }
 
+/// The one line of `PINNED` that is not a format constant. Without this, the
+/// next schema bump shows up as an unexplained golden-vector diff and the
+/// tempting fix is to edit the vector until it passes.
+#[test]
+fn pinned_header_tracks_the_schema_version() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    assert!(
+        PINNED.contains(&format!("\nschema {SCHEMA_VERSION}\n")),
+        "PINNED's line 3 is stale: the tree is at {SCHEMA_VERSION}. Retype line 3 \
+         and leave the payload alone — if the payload also moved, that is a \
+         wire-format change and a different conversation."
+    );
+}
+
 #[test]
 fn schema_version_mismatch_refused_by_name() {
-    let bumped = PINNED.replacen("schema 0.1", "schema 0.2", 1);
+    // Any version that is NOT the tree's, so this keeps testing a mismatch
+    // after every bump. 0.1 is the deliberate choice: it is the version this
+    // build genuinely can no longer read, so the test doubles as the
+    // downgrade case — an older workspace meeting a newer build.
+    let bumped = PINNED.replacen("schema 0.2", "schema 0.1", 1);
     match read_plain(bumped.as_bytes()).err() {
         Some(PlainError::SchemaVersionMismatch { found, supported }) => {
-            assert_eq!(found, "0.2");
-            assert_eq!(supported, "0.1");
+            assert_eq!(found, "0.1");
+            assert_eq!(supported, "0.2");
         }
         other => panic!("a schema version difference must refuse by name: {other:?}"),
     }

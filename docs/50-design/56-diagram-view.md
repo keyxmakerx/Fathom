@@ -1503,7 +1503,17 @@ section asks for.
 
 ### 13.4 PROPOSED — the place ladder, as a schema proposal this document does not make
 
-The rack / floor / building / map rungs need somewhere to live in the graph. **`19` and `62` own
+> **AMENDED 2026-08-15 — the bottom rung now has a model (ADR-0036).** `Rack` is a kind, `HasRack`
+> hangs it off a `Premises` by containment, and `Chassis --MountedIn--> Rack` is a **reference** edge
+> carrying `position_u`, `height_u` and `face`. `70` §10.8's cost 3 asked whether `HasDevice` widens
+> or a rack is a `Site`; **both limbs were wrong, because the thing in the rack is not the device, it
+> is the chassis** — a cluster's two halves are routinely in two racks, which no containment edge
+> from a rack to a device can express. `19` §3.10 had already named and priced the answer. Consequence
+> 2 below is therefore **resolved for the rack rung and stands for floor, building and map.** The
+> rack elevation is a separate renderer, not this layout: see ADR-0036 §4, and §6.1 for the two
+> faces it draws side by side.
+
+The floor / building / map rungs still need somewhere to live in the graph. **`19` and `62` own
 that, not this document**, and the proposal is recorded in `70` §10.8 in full: widen `HasPremises`
 from `from: [root]` to `from: [root, Premises]`, keeping `in: "1"`, so `Premises` nests and
 containment stays a forest.
@@ -1519,7 +1529,9 @@ answered rather than after:
    `Site → Device`, `in: "1"`, and `AtPremises` is a **reference** from `Site` to `Premises`. So a
    rack drawn as an enclosure around devices is drawing a relation the graph does not currently
    have. Under §0's governing rule that is not a rendering detail — it is the picture inventing
-   structure. **Until `70` §13 item 16 is answered, the bottom rungs of the ladder have no model.**
+   structure. **This held until 2026-08-15 and is now answered for the rack** (ADR-0036): a rack
+   does not contain a device and is not drawn as though it did — it references a `Chassis`, which
+   is the relation that actually exists. Floor, building and map still have no model.
 
 ### 13.5 One workspace is one estate — what that removes from this document
 

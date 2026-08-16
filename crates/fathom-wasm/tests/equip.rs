@@ -61,6 +61,24 @@ fn rows_for(shell: &mut Shell, kind: u8) -> usize {
 
 const DEVICE_KIND_BYTE: u8 = 0;
 
+/// The wire byte of an `InvKind`, found BY NAME.
+///
+/// `OP_INV_ROWS` takes an index into `InvKind::ALL`, so every such byte is a
+/// position, and a position is only stable while nothing is appended. This
+/// test file used to compute the chassis byte as `ALL.len() - 1` — "the last
+/// index" — which was true until ADR-0035 appended `Rack` after `Chassis` on
+/// 2026-08-15 and quietly made the assertion count racks instead. It failed
+/// loudly here, but the same trick in page code would not have.
+///
+/// So: never derive one of these from the length again. Ask for the kind you
+/// mean.
+fn kind_byte(label: &str) -> u8 {
+    fathom_inventory::InvKind::ALL
+        .iter()
+        .position(|k| k.label() == label)
+        .unwrap_or_else(|| panic!("`{label}` is not an InvKind")) as u8
+}
+
 /// The owner's sentence, end to end: add a device, set its type and model, with
 /// no config pasted and no estate to begin with.
 #[test]
@@ -426,9 +444,10 @@ fn a_device_can_be_removed_and_its_chassis_goes_with_it() {
         1,
         "the removed device must leave the inventory and the other must stay"
     );
-    // CHASSIS_KIND_BYTE is InvKind::ALL's last index; one device remains, so one
-    // chassis must remain.
-    let chassis = fathom_inventory::InvKind::ALL.len() as u8 - 1;
+    // One device remains, so one chassis must remain. Asked for by name: this
+    // line read `ALL.len() - 1` until appending `Rack` made "last" mean
+    // something else.
+    let chassis = kind_byte("Chassis");
     assert_eq!(
         rows_for(&mut shell, chassis),
         1,

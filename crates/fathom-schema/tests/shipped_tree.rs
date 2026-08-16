@@ -52,15 +52,27 @@ fn shipped_tree_declaration_counts_hold() {
     let (tree, _) = check(&schema_root()).expect("tree loads");
     // The writer's counts, verified by the workflow's checker and again here.
     // A drift is not necessarily wrong — but it is a diff someone must mean.
-    assert_eq!(tree.kinds.len(), 49, "kind count");
-    assert_eq!(tree.edges.len(), 90, "edge count (82 + 8 derived)");
+    // ADR-0036 (2026-08-15) moved four of these on top of ADR-0035's row: +1
+    // kind (`Rack`, 49 -> 50), +2 edges (`HasRack`, `MountedIn`, 90 -> 92),
+    // +6 field keys (301 -> 307), version 0.1 -> 0.2. Scalars, enum FILES and
+    // import scopes are deliberately unmoved — `Rack.unit_numbering` and
+    // `MountedIn.face` are INLINE enums (62 §7 rule 4: single-use and
+    // platform-invariant, so no file and no spellings map), and `height_u` /
+    // `position_u` are plain `u8` with a `range` constraint rather than a new
+    // scalar. Both choices are byte decisions as much as modelling ones: a
+    // scalar is a type plus parse plus format plus codegen in a module with a
+    // hard ceiling, bought for a bound that 62 §3.2's per-field `constraints`
+    // already expresses. The `Placeable` CLASS did move — it gained `Rack` —
+    // and `every_kind_but_the_pin_itself_is_placeable` below is the noticer.
+    assert_eq!(tree.kinds.len(), 50, "kind count");
+    assert_eq!(tree.edges.len(), 92, "edge count (84 + 8 derived)");
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
     assert_eq!(tree.classes.len(), 4, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 301, "field-key registry entries");
-    assert_eq!(tree.version.as_deref(), Some("0.1"));
+    assert_eq!(fk.entries.len(), 307, "field-key registry entries");
+    assert_eq!(tree.version.as_deref(), Some("0.2"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and
