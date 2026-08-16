@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.2";
+    pub const SCHEMA_VERSION: &str = "0.3";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -2355,6 +2355,8 @@ mod body {
         Router,
         Switch,
         LoadBalancer,
+        Server,
+        AccessPoint,
         Other,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
@@ -2364,11 +2366,13 @@ mod body {
 
     impl DeviceRole {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 5] = [
+        pub const DECLARED: [&'static str; 7] = [
             "firewall",
             "router",
             "switch",
             "load_balancer",
+            "server",
+            "access_point",
             "other",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
@@ -2378,6 +2382,8 @@ mod body {
                 "router" => DeviceRole::Router,
                 "switch" => DeviceRole::Switch,
                 "load_balancer" => DeviceRole::LoadBalancer,
+                "server" => DeviceRole::Server,
+                "access_point" => DeviceRole::AccessPoint,
                 "other" => DeviceRole::Other,
                 other => DeviceRole::Unknown(other.to_owned()),
             }
@@ -2389,6 +2395,8 @@ mod body {
                 DeviceRole::Router => "router",
                 DeviceRole::Switch => "switch",
                 DeviceRole::LoadBalancer => "load_balancer",
+                DeviceRole::Server => "server",
+                DeviceRole::AccessPoint => "access_point",
                 DeviceRole::Other => "other",
                 DeviceRole::Unknown(t) => t,
             }

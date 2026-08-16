@@ -479,3 +479,127 @@ fn removing_twice_is_refused() {
         "a second removal must be refused"
     );
 }
+
+/// **The owner's sentence, end to end, for the half of it that did not work:**
+/// *"design my network AND SERVERS for my home lab"*. Add a server and an
+/// access point from an empty page and see each one named as what it is — in
+/// the inventory's role column and on the diagram box.
+///
+/// Before ADR-0037 every one of these was `other`. That is the defect: a home
+/// lab is a firewall, a switch, an access point and three or four servers, and
+/// a taxonomy that has a word for only two of those is not describing the lab.
+///
+/// This test is at the wire rather than in the page, because the page can only
+/// offer what the module accepts. The Chromium drive
+/// (`docs/80-review/evidence/2026-08-16-server-role-drive.mjs`) covers the
+/// other half — that the dropdown offers it and the picture draws it.
+#[test]
+fn a_server_and_an_access_point_can_be_added_and_are_named_as_such() {
+    let mut shell = Shell::new();
+    for (i, (name, role)) in [("proxmox-01", "server"), ("ap-loft", "access_point")]
+        .iter()
+        .enumerate()
+    {
+        let reply = shell.handle(
+            OP_EQUIP_ADD,
+            &frame(
+                1_700_000_000_000 + i as u64,
+                0x00c0_ffee_00c0_ffee_00c0_ffee_00c0_ffee + i as u128,
+                &[
+                    (DeviceField::Hostname.key().0, name),
+                    // A real home-lab server does not speak junos, and this
+                    // line is the honest state of that problem rather than a
+                    // hidden one: `Device.platform` is card 1 and a foreign key
+                    // into `schema/platforms.yaml`, which registers no
+                    // general-purpose host. ADR-0037 §5 names it as the thing
+                    // that actually blocks "add my Proxmox box", prices it, and
+                    // declines to invent a platform row for a config nobody has
+                    // seen — which `schema/platforms.yaml` forbids in terms.
+                    (DeviceField::Platform.key().0, "junos-srx"),
+                    (DeviceField::Role.key().0, role),
+                ],
+            ),
+        );
+        assert_eq!(is_error(&reply), None, "{role} was refused: {reply:?}");
+    }
+
+    // The inventory's role column, read through the same face the page reads.
+    // Column 4 is `role` — DEVICE_COLUMNS is hostname, platform, os version,
+    // role — offset by one because slot 0 is the row's element id.
+    let reply = shell.handle(OP_INV_ROWS, &[DEVICE_KIND_BYTE]);
+    let rows = match decode_reply(&reply) {
+        Ok(ReplyView::FaceRows(rows)) => rows,
+        other => panic!("the inventory must answer with a face table, got {other:?}"),
+    };
+    let mut seen: Vec<String> = rows
+        .iter()
+        .filter(|r| r.role == FACE_INV)
+        .map(|r| r.strings[4].clone())
+        .collect();
+    seen.sort();
+    assert_eq!(
+        seen,
+        vec!["access_point".to_owned(), "server".to_owned()],
+        "the inventory's role column must carry both new words"
+    );
+
+    // The diagram. Slot 7 is `<count> <interior> <placed> <role> <group>`, and
+    // reading position 3 here is the assertion that the role survived the pack
+    // — the page reads the same position and nothing else checks the two agree.
+    let reply = shell.handle(fathom_wasm::OP_DIAGRAM, &[0b0001_1111u8]);
+    let rows = match decode_reply(&reply) {
+        Ok(ReplyView::FaceRows(rows)) => rows,
+        other => panic!("the diagram must answer with a face table, got {other:?}"),
+    };
+    let mut drawn: Vec<String> = rows
+        .iter()
+        .filter(|r| r.role == fathom_wasm::protocol::FACE_BOX)
+        .filter_map(|r| r.strings[7].split(' ').nth(3).map(str::to_owned))
+        .filter(|w| w != "-")
+        .collect();
+    drawn.sort();
+    assert_eq!(
+        drawn,
+        vec!["access_point".to_owned(), "server".to_owned()],
+        "both roles must reach the picture, not only the table"
+    );
+}
+
+/// `nas` is the most likely thing a person types into this box, and it is
+/// deliberately NOT a variant: a NAS is a `server` whose job is disks, and
+/// ADR-0037 refuses a variant per product category. Refusing it — rather than
+/// storing it verbatim through the generated unknown arm — is what makes that
+/// refusal a decision the user is told about instead of a silent value nothing
+/// downstream understands.
+///
+/// The message must name every declared role, including the two ADR-0037 added.
+/// It is hand-written next to a generated `DECLARED` array, so it can drift,
+/// and a refusal that fails to mention `server` sends the reader looking for a
+/// word the form does accept.
+#[test]
+fn a_role_that_is_not_declared_is_refused_and_the_message_names_the_ones_that_are() {
+    let mut shell = Shell::new();
+    let reply = shell.handle(
+        OP_EQUIP_ADD,
+        &frame(
+            1_700_000_000_000,
+            11,
+            &[
+                (DeviceField::Hostname.key().0, "truenas-01"),
+                (DeviceField::Platform.key().0, "junos-srx"),
+                (DeviceField::Role.key().0, "nas"),
+            ],
+        ),
+    );
+    assert_eq!(is_error(&reply), Some(ERR_FIELD_VALUE));
+    let text = match decode_reply(&reply) {
+        Ok(ReplyView::Error(e)) => format!("{e:?}"),
+        other => panic!("expected an error reply, got {other:?}"),
+    };
+    for token in fathom_ir::generated::ir_types::DeviceRole::DECLARED {
+        assert!(
+            text.contains(token),
+            "the refusal does not name the declared role {token:?}: {text:?}"
+        );
+    }
+}

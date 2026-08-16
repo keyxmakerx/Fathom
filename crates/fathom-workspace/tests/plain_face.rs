@@ -26,15 +26,17 @@ use std::collections::BTreeSet;
 ///
 /// Line 3 tracks `SCHEMA_VERSION` and is therefore the ONE line of this vector
 /// that is not a constant of the file format: the document typed it when the
-/// tree was at 0.1, and ADR-0036 moved the tree to 0.2 on 2026-08-15. The
-/// payload below is byte-identical across that bump, which is the useful
-/// thing this vector proves — adding a kind and two edges changes the header
-/// and nothing else, so no existing workspace's body is rewritten.
+/// tree was at 0.1, ADR-0036 moved the tree to 0.2 on 2026-08-15, and ADR-0037
+/// moved it to 0.3 on 2026-08-16. The payload below is byte-identical across
+/// both bumps, which is the useful thing this vector proves — adding a kind and
+/// two edges changes the header and nothing else, and adding two enum variants
+/// does not even change the shape of a value, so no existing workspace's body
+/// is rewritten by either.
 ///
 /// **THAT IS TRUE AND IT IS NOT THE WHOLE STORY**, so it is said here rather
 /// than left to be discovered: `read_plain` refuses a mismatched version on
 /// THIS LINE, before the body is reached, and the migration chain is empty. A
-/// 0.1 workspace is therefore unreadable by a 0.2 build regardless of the
+/// 0.2 workspace is therefore unreadable by a 0.3 build regardless of the
 /// payload being identical. Deliberate pre-release (nothing has shipped and
 /// `schema/released/` holds no snapshot) and reasoned in ADR-0036 §5.2.
 /// `pinned_header_tracks_the_schema_version` keeps the coupling honest rather
@@ -42,7 +44,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.2\n",
+    "schema 0.3\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -372,11 +374,22 @@ fn schema_version_mismatch_refused_by_name() {
     // after every bump. 0.1 is the deliberate choice: it is the version this
     // build genuinely can no longer read, so the test doubles as the
     // downgrade case — an older workspace meeting a newer build.
-    let bumped = PINNED.replacen("schema 0.2", "schema 0.1", 1);
+    //
+    // Both halves are taken from `SCHEMA_VERSION` rather than typed. The
+    // comment above already promised this test "keeps testing a mismatch after
+    // every bump" while the code named 0.2 twice, so ADR-0037's bump broke it
+    // in two places and neither failure said what was actually wrong — the
+    // `replacen` silently matched nothing and the file read cleanly, which is a
+    // test that stops testing rather than one that fails. `PINNED`'s line 3 is
+    // pinned to the constant by the test directly above, so this substitution
+    // cannot miss.
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let bumped = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.1", 1);
+    assert_ne!(bumped, PINNED, "the substitution must have landed");
     match read_plain(bumped.as_bytes()).err() {
         Some(PlainError::SchemaVersionMismatch { found, supported }) => {
             assert_eq!(found, "0.1");
-            assert_eq!(supported, "0.2");
+            assert_eq!(supported, SCHEMA_VERSION);
         }
         other => panic!("a schema version difference must refuse by name: {other:?}"),
     }

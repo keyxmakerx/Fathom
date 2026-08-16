@@ -72,7 +72,13 @@ fn shipped_tree_declaration_counts_hold() {
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
     assert_eq!(fk.entries.len(), 307, "field-key registry entries");
-    assert_eq!(tree.version.as_deref(), Some("0.2"));
+    // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
+    // `Device.role` variants is not a kind, not an edge, not a field and not a
+    // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
+    // `enums` (the FILE count) does not move either. That the only line to change
+    // here is the version is itself the evidence that the change is as small as
+    // ADR-0037 claims.
+    assert_eq!(tree.version.as_deref(), Some("0.3"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

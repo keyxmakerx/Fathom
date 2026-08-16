@@ -56,7 +56,14 @@ fn schema_version_is_the_trees() {
     // `schema.yaml`'s own version comment. This assertion exists so a schema
     // version can never move without someone typing the new number, which is
     // the whole point of pinning it; updating it is the deliberate act.
-    assert_eq!(SCHEMA_VERSION, "0.2");
+    //
+    // 0.2 -> 0.3 on 2026-08-16: ADR-0037's two `Device.role` variants,
+    // `server` and `access_point`. 62 §16.2 prices a new enum variant MINOR
+    // because the old build reads the token into the generated unknown arm —
+    // and `device_role_declares_the_home_lab_variants` below drives exactly
+    // that path, so the compatibility claim in the version comment is tested
+    // rather than asserted.
+    assert_eq!(SCHEMA_VERSION, "0.3");
 }
 
 #[test]
@@ -469,6 +476,70 @@ fn enum_tokens_round_trip_including_unknown() {
         Err(CanonError::Shape {
             expected: "a schema enum token"
         })
+    );
+}
+
+/// ADR-0037. Two claims, both of which the version comment in `schema.yaml`
+/// makes and neither of which was checked anywhere before this test.
+///
+/// **Claim 1 — the variants exist and canonicalise to their tokens.** The
+/// canonical form of a schema enum is `Json::Str(token)` and *not* the
+/// variant's ordinal (62 §7). That is the whole reason `server` and
+/// `access_point` could be declared BEFORE `other` instead of appended after
+/// it, which is what keeps `other` reading last in the generated `DECLARED`
+/// array, in `schema.json`, in the equipment form's dropdown and in the
+/// refusal message. If someone later makes an ordinal load-bearing — a
+/// discriminant on the wire, a sort that means something — this assertion is
+/// what has to be deleted first, deliberately, rather than a reordering
+/// silently rewriting what an old export meant.
+///
+/// **Claim 2 — an old build survives a 0.3 export.** 62 §16.2 prices a new
+/// enum variant as a MINOR bump *because* an old build reads the token into
+/// `Variant::Unknown(token)` and keeps it verbatim. `DeviceRole` is where that
+/// promise is now load-bearing for a hand-drawn estate: a home lab whose boxes
+/// are all `server` opened by a 0.2 build must show `server`, not a blank.
+/// Nothing round-tripped that path for `DeviceRole` before, so it is driven
+/// here — the undeclared token stands in for "a token this build does not
+/// know", which is exactly what `server` was to a 0.2 build yesterday.
+#[test]
+fn device_role_declares_the_home_lab_variants() {
+    use fathom_ir::generated::ir_types::DeviceRole;
+
+    assert_eq!(
+        DeviceRole::DECLARED,
+        [
+            "firewall",
+            "router",
+            "switch",
+            "load_balancer",
+            "server",
+            "access_point",
+            "other",
+        ],
+        "the declared roles, in declaration order, with `other` last"
+    );
+
+    for token in DeviceRole::DECLARED {
+        let v = DeviceRole::from_token(token);
+        assert!(
+            !matches!(v, DeviceRole::Unknown(_)),
+            "{token} fell into the unknown arm"
+        );
+        assert_eq!(v.to_canon(), Ok(Json::Str(token.to_owned())));
+        law(v);
+    }
+
+    // Claim 2, driven: the arm an old build lands in, and what it keeps.
+    let old = DeviceRole::from_canon(&Json::Str("server".to_owned())).expect("total");
+    assert_eq!(DeviceRole::from_token("server"), DeviceRole::Server);
+    assert_eq!(old, DeviceRole::Server);
+    let unknown = DeviceRole::from_canon(&Json::Str("quantum_gateway".to_owned())).expect("total");
+    assert_eq!(unknown, DeviceRole::Unknown("quantum_gateway".to_owned()));
+    assert_eq!(
+        unknown.to_canon(),
+        Ok(Json::Str("quantum_gateway".to_owned())),
+        "an unrecognised role must survive a round trip verbatim, or a newer \
+         build's estate loses a field on every save an older build makes"
     );
 }
 

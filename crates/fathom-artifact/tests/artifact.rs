@@ -718,6 +718,44 @@ fn the_equipment_form_offers_only_declared_platforms() {
     }
 }
 
+/// The equipment form's role dropdown must be `DeviceRole::DECLARED`, exactly —
+/// same members, same order.
+///
+/// The platform pin above checks one direction only (nothing offered that is
+/// undeclared), which is the direction that matters for a foreign key. For
+/// `role` the *other* direction is the one that bites, and ADR-0037 exists
+/// because of it: a variant the schema declares and the dropdown omits is a
+/// role nobody can pick. That is not a wrong value in the store, it is a
+/// feature that silently does not exist — precisely how `server` would have
+/// been added to `schema/` and still been unreachable from an empty page.
+///
+/// Order is pinned too, not only membership. The order is a product decision
+/// (`other` reads last because it is the escape hatch, not a peer), the page
+/// renders the array in order, and a dropdown that reorders itself when the
+/// schema is regenerated would be a UI change nobody asked for.
+#[test]
+fn the_equipment_form_offers_every_declared_role() {
+    let source = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+
+    let start = source
+        .find("var ROLES = [")
+        .expect("the page declares ROLES");
+    let end = source[start..].find("];").expect("ROLES is a literal") + start;
+    let listed: Vec<String> = source[start..end]
+        .split('\'')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect();
+
+    assert_eq!(
+        listed,
+        fathom_ir::generated::ir_types::DeviceRole::DECLARED,
+        "the role dropdown and the schema's declared roles disagree"
+    );
+}
+
 /// **Every design token the shell references must exist in `design/tokens.css`.**
 ///
 /// A `var(--typo)` is not an error in CSS — it is an invalid value, so the

@@ -45,6 +45,21 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   owns the keymap). **Measured at +985 module bytes** against `00-ROUTE-TO-WORKABLE.md` §4's
   estimate of *"stage 8, months"* — the months were the diagram. Driven in Chromium through a real
   reload: `docs/80-review/evidence/2026-08-15-hand-placement-drive.mjs`, 25/25.
+- **A home lab has servers, and now the schema does too — ADR-0037, 2026-08-16.** `Device.role`
+  declared `firewall, router, switch, load_balancer, other`, so every server, NAS, hypervisor and
+  access point the owner added was `other`. It now declares **`server`** and **`access_point`** as
+  well (schema 0.2 → 0.3, a minor bump priced in the file's own version comment), and the role is
+  offered by the equipment form, shown in the inventory, and **drawn on the diagram box** —
+  right-aligned on the kind's line, with a `.dorole` span on the Outline row so the accessible tree
+  carries it too. **A server stays a `Device`**: ADR-0037 §2 runs `19` §3.6's three-limb test on a
+  `Server` kind and it scores zero of three — same fields, same edges, same lifecycle. **Measured at
+  +497 module bytes**, of which only **+133** is the taxonomy; the other 364 is putting the answer in
+  the picture, and ADR-0037 §11 disagrees with `00-ROUTE-TO-WORKABLE.md` §4b on exactly that ratio.
+  **The blocker is one field to the left and it is NOT closed:** `Device.platform` is card 1 and a
+  foreign key into `schema/platforms.yaml`, which registers no general-purpose host, so a hand-added
+  Proxmox box must still borrow `junos-srx`. ADR-0037 §5 prices three routes and chooses none —
+  owner work. Driven in Chromium from an **empty page**, five boxes added by hand through the real
+  form: `docs/80-review/evidence/2026-08-16-server-role-drive.mjs`, 23/23.
 - **A pasted SRX branch config binds 47.5% of its lines**, up from 23.8% on 2026-08-14. 29 of 122
   before, 58 after, measured per section in `docs/60-content/66-junos-coverage-measurement.md`.
   `set protocols ospf` and `set protocols bgp` now build `RoutingProtocol` and `ProtocolAdjacency`

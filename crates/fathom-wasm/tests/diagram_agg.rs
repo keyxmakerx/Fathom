@@ -47,17 +47,20 @@ fn hub(units: usize) -> String {
 }
 
 /// One drawn box, as the page reads it: the display id, the label, and slot 7's
-/// `<count> <interior> <placed> <group key>`.
+/// `<count> <interior> <placed> <role> <group key>`.
 ///
-/// `placed` joined the slot with ADR-0035 and sits BEFORE the group key, not
-/// after it: the key is the only token here that can be empty, so a token
-/// appended after it would be unreadable on an ungrouped box.
+/// `placed` joined the slot with ADR-0035 and `role` with ADR-0037, and both sit
+/// BEFORE the group key, not after it: the key is the only token here that can
+/// be empty, so a token appended after it would be unreadable on an ungrouped
+/// box.
 struct Box {
     id: String,
     label: String,
     count: usize,
     interior: u32,
     placed: bool,
+    /// ADR-0037. `-` on the wire means "no role"; this is `None` for that.
+    role: Option<String>,
     group: String,
 }
 
@@ -73,7 +76,11 @@ fn draw(shell: &mut Shell, request: &str) -> Vec<Box> {
         .filter(|r| r.role == FACE_BOX)
         .map(|r| {
             assert_eq!(r.slot_count, 8, "a box row carries eight slots");
-            let mut parts = r.strings[7].splitn(4, ' ');
+            // `<count> <interior> <placed> <role> <group>` — five, since
+            // ADR-0037 inserted the role at 3. `splitn` and not `split`,
+            // because the group is last and is the only token that may be
+            // empty; the limit is what stops an empty tail from disappearing.
+            let mut parts = r.strings[7].splitn(5, ' ');
             Box {
                 id: r.strings[0].clone(),
                 label: r.strings[2].clone(),
@@ -84,6 +91,10 @@ fn draw(shell: &mut Shell, request: &str) -> Vec<Box> {
                     .expect("a decimal count"),
                 interior: parts.next().unwrap_or("0").parse().expect("a decimal"),
                 placed: parts.next().unwrap_or("0") == "1",
+                role: match parts.next().unwrap_or("-") {
+                    "-" => None,
+                    w => Some(w.to_owned()),
+                },
                 group: parts.next().unwrap_or("").to_owned(),
             }
         })
@@ -101,6 +112,58 @@ fn loaded() -> Shell {
         "the fixture must paste"
     );
     shell
+}
+
+/// ADR-0037 inserted the role into slot 7 at position 3, ahead of the group
+/// key. **The `-` sentinel is what keeps the group last**, and this is the test
+/// that would catch its loss.
+///
+/// A `split(' ')` collapses nothing, but two adjacent separators produce an
+/// EMPTY token between them, and an empty role written as an empty token would
+/// therefore be indistinguishable from a missing one only if the packer also
+/// dropped the separator. It did not, and must not: with `-` the positions are
+/// fixed whatever is or is not set, so `parts[4]` is the group key on every box
+/// in every state. Send an empty string instead and a box with no role packs
+/// `1 0 0  agg:…`, which still splits to five — until a trailing empty group on
+/// an ungrouped box makes it `1 0 0  `, and the page reads the key it should
+/// have got at 4 from position 3 instead.
+///
+/// This fixture sets no role at all (no junos-srx dictionary entry writes
+/// `Device.role`), which is exactly the state that exercises the sentinel on
+/// every box.
+#[test]
+fn the_role_sentinel_keeps_the_group_key_last() {
+    let mut shell = loaded();
+    let boxes = draw(&mut shell, "");
+    assert!(!boxes.is_empty(), "the fixture draws boxes");
+
+    assert!(
+        boxes.iter().all(|b| b.role.is_none()),
+        "nothing in this fixture sets Device.role, so every box must carry the \
+         sentinel: {:?}",
+        boxes.iter().map(|b| &b.role).collect::<Vec<_>>()
+    );
+
+    // The group key is still where the page looks for it. A collapsed box
+    // always has one; a plain ungrouped box always has none, and reading either
+    // one position early would show a `-` here.
+    let collapsed = boxes
+        .iter()
+        .find(|b| b.count > 1)
+        .expect("the fan collapses");
+    assert!(
+        collapsed.group.contains('#') && collapsed.group != "-",
+        "a collapsed box's group key must survive at position 4, got {:?}",
+        collapsed.group
+    );
+    assert!(
+        boxes
+            .iter()
+            .filter(|b| b.count == 1)
+            .any(|b| b.group.is_empty()),
+        "some plain box is ungrouped, and its empty group must stay empty \
+         rather than picking up the sentinel"
+    );
 }
 
 /// **The defect, at the wire.** Walk the window forward until one member is

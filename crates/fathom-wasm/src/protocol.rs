@@ -972,19 +972,26 @@ pub fn encode_diagram(
             n.w.to_string(),
             n.h.to_string(),
         );
-        // `<count> <interior> <placed> <group>`, the group possibly empty and
-        // therefore last. The placed flag rides in this slot rather than in a
-        // ninth of its own for one reason and it is measured: the module has
+        // `<count> <interior> <placed> <role> <group>`, the group possibly empty
+        // and therefore last. The placed flag rides in this slot rather than in
+        // a ninth of its own for one reason and it is measured: the module has
         // 3,903 bytes of headroom against `44` §5.2's ceiling, a ninth slot is a
         // ninth `face_slots` argument and another blob offset per box, and the
-        // group is the only token here that can be empty — so a fourth token
-        // inserted *before* it is unambiguous where one appended after it would
-        // not be. The page reads `parts[2]` as the flag and `parts[3]` as the key.
+        // group is the only token here that can be empty — so a token inserted
+        // *before* it is unambiguous where one appended after it would not be.
+        // ADR-0037's role is inserted at position 3 for exactly that reason, and
+        // it carries `-` when absent rather than an empty string: two adjacent
+        // empty tokens would collapse into one on a `split(' ')` and the page
+        // would read the group key as the role. `-` is not a schema token
+        // (`62` §7 variant names are `[a-z_]+`), so it cannot collide with a
+        // real one. The page reads `parts[2]` as the flag, `parts[3]` as the
+        // role and `parts[4]` as the key.
         let agg = format!(
-            "{} {} {} {}",
+            "{} {} {} {} {}",
             n.count,
             n.interior,
             u8::from(n.placed),
+            if n.role.is_empty() { "-" } else { &n.role },
             n.group
         );
         let rec = face_slots(

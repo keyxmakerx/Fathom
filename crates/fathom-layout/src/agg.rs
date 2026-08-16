@@ -231,6 +231,16 @@ pub struct Cell {
     /// of an opened group it is the bare key, so the host can name the group a
     /// focused element belongs to without a second lookup.
     pub group: String,
+    /// `Device.role`'s token when this box stands for exactly one `Device` that
+    /// has one, and empty otherwise (ADR-0037).
+    ///
+    /// **Empty on every collapsed box, deliberately.** A collapsed box stands
+    /// for a run of nodes whose aggregation signature matched, and the
+    /// signature does not include `role` — so a run can hold a firewall and a
+    /// server, and printing either one's role on the box would be a claim about
+    /// all of them. The same rule already governs [`Cell::key`] and the pin: a
+    /// fact about one node is only printable on a box that stands for one node.
+    pub role: String,
 }
 
 impl Cell {
@@ -661,6 +671,9 @@ fn single(g: &Graph, id: NodeId, rank: u32, group: String) -> Cell {
         anchor: id,
         members: vec![id],
         group,
+        // The only place a role is read. `residual` builds the collapsed boxes
+        // and leaves this empty by construction rather than by remembering to.
+        role: fathom_inventory::role_word(g, id).unwrap_or_default(),
     }
 }
 
@@ -730,6 +743,9 @@ fn residual(
         anchor: *first,
         members: members.to_vec(),
         group: id,
+        // See `Cell::role`: a box standing for many nodes has no one node's
+        // role to print, and the aggregation signature does not include role.
+        role: String::new(),
     });
 }
 

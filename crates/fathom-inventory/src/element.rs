@@ -28,6 +28,28 @@ fn bound(g: &Graph, id: NodeId, k: fathom_ir::bag::FieldKey) -> Option<String> {
     }
 }
 
+/// `Device.role`'s token, only when it is a `Device` and only when the field is
+/// actually set. `None` for every other kind and for a device nobody has said a
+/// role for.
+///
+/// This exists so the DIAGRAM can say what a box is for (ADR-0037). The
+/// inventory has had a `role` column since WO-08 and the inspector renders the
+/// field like any other, but the picture drew `Device` over every box — so a
+/// home lab of a firewall, a switch, an access point and four servers looked
+/// like seven identical boxes, which is the state the owner would be drawing
+/// INTO. A role you can only see by clicking is not on the diagram.
+///
+/// It goes through `bound` rather than `value_cell` for the reason `bound`'s own
+/// doc records: `value_cell` answers with an em dash for an unset field, which
+/// is never empty, so a caller testing `is_empty()` would print `Device —` on
+/// every box that has no role. That exact defect shipped once already.
+pub fn role_word(g: &Graph, id: NodeId) -> Option<String> {
+    if id.kind != NodeKind::Device {
+        return None;
+    }
+    bound(g, id, key("Device.role"))
+}
+
 /// One field row of the inspector table (54 §18): name, rendered value,
 /// and the provenance cell ("hand · 2026-07-31" | "unset" |
 /// "absent — asserted · hand · 2026-07-31").

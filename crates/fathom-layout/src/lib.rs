@@ -128,6 +128,17 @@ pub struct Node {
     /// governing rule is about what a collapse hid, not only about how many
     /// boxes it replaced.
     pub interior: u32,
+    /// `Device.role`'s token on a box standing for one `Device` that has one,
+    /// and empty otherwise (ADR-0037). See [`agg::Cell::role`] for why a
+    /// collapsed box never carries one.
+    ///
+    /// **On the box rather than folded into [`Node::kind`].** `kind` is the
+    /// schema's word for what the node IS and it is a `&'static str` from the
+    /// generated tables; a server is a `Device` and writing `Server` there
+    /// would put a role where every reader — the page, the tests, the
+    /// accessible name — expects a kind. The role is a second, weaker fact and
+    /// it travels as one.
+    pub role: String,
 }
 
 /// One drawn edge, already routed. The page draws the points and does not
@@ -233,6 +244,7 @@ pub fn lay_out_with(g: &Graph, view: &agg::View) -> Diagram {
             group: cell.group.clone(),
             placed: pinned.is_some(),
             interior: 0,
+            role: cell.role.clone(),
         });
         widest_rank = widest_rank.max(*row as i32 + 1);
     }
