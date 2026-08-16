@@ -879,15 +879,63 @@ impl Shell {
         if from == to {
             return protocol::encode_error(ERR_NO_ELEMENT, ONE_BOX);
         }
+        // **A CUT ASKS THE GRAPH WHAT IS THERE; A DRAW ASKS THE SCHEMA WHAT IS
+        // LEGAL.** They are different questions and the first version asked the
+        // second one for both, which produced two blockers from one root:
+        //
+        //   * a CUT on a pair with several LEGAL kinds returned the chooser, and
+        //     answering it DREW an edge — the gesture whose whole purpose is to
+        //     remove a fact silently asserted one, journalled and permanent;
+        //   * and so a link of an ambiguous kind could never be cut at all: it
+        //     re-asked forever and every answer drew.
+        //
+        // Eleven pairs are ambiguous under the shipped candidate set, including
+        // `IpsecVpn` to `LogicalUnit`.
+        //
+        // Narrowed IN PLACE, with a plain loop and one `Vec`. A first attempt
+        // used a separate scan plus `.filter().collect()` and cost 1,562 bytes
+        // against a ceiling with 5,117 free — this file's own comment thirty
+        // lines below says why, and it was written after the same lesson: each
+        // distinct closure monomorphises its whole adapter chain.
+        //
         // The kind is IN the id: `NodeId` embeds a `Copy` `NodeKind` (62 §13.1),
-        // so this needs no second lookup.
-        let candidates = fathom_weld::hand_link_candidates(from.kind, to.kind);
+        // so neither end needs a second lookup.
+        let mut candidates = fathom_weld::hand_link_candidates(from.kind, to.kind);
+        if mode == 0 {
+            let mut live: Vec<fathom_ir::generated::ir_types::EdgeKind> = Vec::new();
+            if let Some(g) = self.estate.as_ref() {
+                for k in &candidates {
+                    if live_link(g, from, to, *k).is_some() {
+                        live.push(*k);
+                    }
+                }
+            }
+            candidates = live;
+        }
         let chosen = if want.is_empty() {
             match candidates.as_slice() {
-                // Nothing joins these two. The page names both kinds in the
-                // sentence it shows; see this function's fourth property for
-                // why that sentence is not built here.
-                [] => return protocol::encode_error(ERR_NO_LINK, ""),
+                // Nothing joins these two — but WHICH nothing depends on the
+                // verb, because the list this arm sees is a different list for
+                // each. For a draw it is what the SCHEMA admits, so empty means
+                // *"nothing in the schema connects a Device to a Device"*, and
+                // the page composes that sentence from the two kinds it already
+                // knows (see this function's fourth property for why it is not
+                // built here). For a cut it is what is LIVE, so empty means the
+                // schema is perfectly happy and there is simply no such fact —
+                // and telling an operator the schema forbids what they are
+                // looking at is a false statement about their own estate.
+                //
+                // Narrowing the cut's list is what made this arm ambiguous:
+                // before it, an empty list could only ever mean the schema, and
+                // `2026-08-16-hand-link-drive.mjs` caught the second cut of the
+                // same pair answering "nothing in the schema connects a Device
+                // to a Device" over two devices the schema connects four ways.
+                [] => {
+                    return protocol::encode_error(
+                        ERR_NO_LINK,
+                        if mode == 0 { NOTHING_TO_CUT } else { "" },
+                    )
+                }
                 [only] => *only,
                 // Several. Write NOTHING and hand the names back, space
                 // separated, under a code of their own so the page can tell a
@@ -953,8 +1001,7 @@ impl Shell {
         // measured against `44` §5.2's ceiling.
         let held = live_link(graph, from, to, chosen);
 
-        let mut wrote: Result<(), String> = Ok(());
-        match (mode, held.is_none()) {
+        let wrote: Result<(), &'static str> = match (mode, held.is_none()) {
             // Nothing there to cut. Not an error the store would raise — there
             // is simply no such fact — so it is said here, in words.
             (0, true) => return protocol::encode_error(ERR_NO_LINK, NOTHING_TO_CUT),
@@ -963,13 +1010,25 @@ impl Shell {
             // an unpinned box is: "these two are connected" is a statement
             // about the end state, and an operator who presses it twice has not
             // made an error.
-            (1, false) => {}
+            //
+            // **BUT IT SAYS SO, WITH A WORD OF ITS OWN.** This arm used to fall
+            // through to the shared `Ok(())` reply, which sends `"1"` — and the
+            // page reads `"1"` as *"drew a BindsInterface link … it is marked as
+            // drawn by hand"*. On a link a PASTE built, every clause of that
+            // sentence is false: nothing was drawn, and the existing edge is
+            // machine-read, unmarked, and stays unmarked. In an estate of record
+            // a sentence claiming a hand assertion that does not exist is the
+            // same class of defect as writing one. Driven in
+            // `2026-08-16-the-cut-that-drew.mjs`; the page also skips the
+            // journal push on this word, because a journal entry for a draw that
+            // did not happen replays as a hand link that was never drawn.
+            (1, false) => return equip_reply_text(chosen.name(), ALREADY_THERE),
             (mode, _) => {
                 let label = if mode == 0 { CUT_LABEL } else { LINK_LABEL };
                 if let Err(e) = graph.begin_batch(BatchId(batch), label) {
                     return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
                 }
-                wrote = if mode == 0 {
+                let mut w = if mode == 0 {
                     cut(graph, from, to, chosen, at)
                 } else {
                     draw(graph, from, to, chosen, at, actor, &mut mint)
@@ -977,13 +1036,14 @@ impl Shell {
                 // The batch closes either way — an open batch refuses every
                 // later write with `BatchOpen`, which turns one refused link
                 // into a dead page.
-                if let (Ok(()), Err(e)) = (&wrote, graph.end_batch()) {
-                    wrote = Err(format!("{e:?}"));
+                if let (Ok(()), Err(_)) = (&w, graph.end_batch()) {
+                    w = Err(BATCH_DID_NOT_CLOSE);
                 }
+                w
             }
-        }
+        };
         match wrote {
-            Err(e) => protocol::encode_error(ERR_EQUIP_STORE, &e),
+            Err(e) => protocol::encode_error(ERR_EQUIP_STORE, e),
             // NO EDGE ID IN THE REPLY, and it is a byte decision with a
             // consequence worth naming. `ElementId::Edge(..).to_string()` is a
             // second instantiation of the id formatter — only the node one is
@@ -1615,6 +1675,18 @@ const SHORT_LINK_FRAME: &str = "that link request is malformed";
 const NOT_TWO_BOXES: &str = "pick two boxes that are both still in the estate";
 const ONE_BOX: &str = "that is one box, linked to itself — pick a second one";
 const NOTHING_TO_CUT: &str = "there is no such link to cut";
+const CLOCK_CEILING: &str = "the clock is past the ULID ceiling";
+const STORE_REFUSED_CUT: &str = "the store would not record the cut";
+const BATCH_DID_NOT_CLOSE: &str = "the change did not close cleanly — reload before changing more";
+
+/// `OP_LINK`'s third answer, in the reply's `written` slot beside `"0"` (cut)
+/// and `"1"` (drew): **the link was already there and nothing was written.**
+///
+/// A word rather than a fourth error code, because it is not a refusal — the
+/// end state the operator asked for is the end state they have. It exists so the
+/// page can say which of the two happened, and so the journal records only the
+/// draws that were draws.
+const ALREADY_THERE: &str = "2";
 
 /// One live edge of `kind` between `from` and `to`, or `None`.
 ///
@@ -1655,11 +1727,11 @@ fn cut(
     to: fathom_graph::NodeId,
     kind: fathom_ir::generated::ir_types::EdgeKind,
     at: fathom_graph::Timestamp,
-) -> Result<(), String> {
+) -> Result<(), &'static str> {
     while let Some(id) = live_link(graph, from, to, kind) {
         graph
             .tombstone(fathom_graph::ElementId::Edge(id), at)
-            .map_err(|e| format!("{e:?}"))?;
+            .map_err(|_| STORE_REFUSED_CUT)?;
     }
     Ok(())
 }
@@ -1673,58 +1745,53 @@ fn draw(
     at: fathom_graph::Timestamp,
     actor: fathom_graph::Actor,
     mint: &mut fathom_weld::Mint,
-) -> Result<(), String> {
-    let ulid = mint.next().map_err(|e| format!("{e:?}"))?;
-    let record = hand_record(mint, at, actor)?;
+) -> Result<(), &'static str> {
+    // `&'static str` all the way down, and it is the last of the 451 bytes this
+    // round had to find. Every message on this path is a constant; the only
+    // reason it was `String` is that `link_refusal` used to compose one, and a
+    // `String` return drags the allocator and `format!` into a path that never
+    // needed either.
+    let ulid = mint.next().map_err(|_| CLOCK_CEILING)?;
+    let record = hand_record(mint, at, actor).map_err(|_| CLOCK_CEILING)?;
     graph
         .insert_edge(kind, ulid, from, to, record)
         .map(|_| ())
         .map_err(|e| link_refusal(e, kind))
 }
 
-/// The store's refusal, in the operator's words.
+/// What the store refused, as TWO WORDS the page turns into a sentence.
 ///
-/// `WriteError` is a Rust enum and `{e:?}` is a Rust sentence; an operator who
-/// draws a second `UsesIkePolicy` out of one gateway should be told that a
-/// gateway uses one policy, not `OutBoundExceeded { edge: UsesIkePolicy, .. }`.
+/// **The wording lives in the page, and that is this file's own rule rather than
+/// a new one.** `link`'s `ERR_NO_LINK` arm already says so in terms — *"The page
+/// names both kinds in the sentence it shows; see this function's fourth
+/// property for why that sentence is not built here."* This function was the one
+/// place that broke the rule, and it cost **433 bytes** of a ceiling that had
+/// 451 to find: `format!`, `concat` and the prose all instantiate in the module,
+/// where the page holds strings for free.
 ///
-/// **Only the cardinality arms are translated**, and they share one sentence
-/// with the end named rather than getting one each. Everything else reachable
-/// here is a defect in this file rather than something an operator did, and
-/// reads better as its own name. The single sentence is also bytes: two
-/// `format!` sites differing by a word cost twice what one `concat` does, and
-/// this module had 5,117 bytes of `44` §5.2's ceiling to spend on the whole
-/// feature.
+/// So the module sends what only the module knows — which bound was exceeded and
+/// which edge kind — and the page says it in English. Measured, not assumed.
 fn link_refusal(
     e: fathom_graph::WriteError,
     kind: fathom_ir::generated::ir_types::EdgeKind,
-) -> String {
+) -> &'static str {
     use fathom_graph::WriteError;
     let end = match e {
-        WriteError::OutBoundExceeded { .. } => "out of",
-        WriteError::InBoundExceeded { .. } => "into",
+        WriteError::OutBoundExceeded { .. } => "out",
+        WriteError::InBoundExceeded { .. } => "in",
         // Reachable only through the store's normalisation, and only if the
-        // both-directions scan in `link` ever stops covering it. Translated
-        // rather than left as a debug string because "SymmetricDuplicate" reads
-        // as a bug in Fathom and this is not one.
-        WriteError::SymmetricDuplicate { .. } => {
-            return [
-                "those two already have a ",
-                kind.name(),
-                " link — it has no direction, so there is only one of it",
-            ]
-            .concat()
-        }
-        other => return format!("{other:?}"),
+        // both-directions scan in `link` ever stops covering it.
+        WriteError::SymmetricDuplicate { .. } => "sym",
+        _ => "store",
     };
-    [
-        "the schema allows only one ",
-        kind.name(),
-        " link ",
-        end,
-        " that box, and it already has one",
-    ]
-    .concat()
+    // The kind's NAME is not sent, and that is the last of the 451 bytes: this
+    // returned a `String` and building one instantiates the allocator path for
+    // a value the page can already supply. The page knows which kind it asked
+    // for — it either chose it from the chooser or received it in the reply —
+    // and where it does not, "a link of that kind" is still true and still
+    // actionable. A `&'static str` costs nothing.
+    let _ = kind;
+    end
 }
 
 /// How many residue rows one reply carries. The summary always states the

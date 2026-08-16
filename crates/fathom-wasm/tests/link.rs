@@ -83,6 +83,25 @@ fn wrote_kind(reply: &[u8]) -> String {
     }
 }
 
+/// **Which of the three things the opcode did**, from slot 1 of the same row:
+/// `"0"` cut, `"1"` drew, `"2"` found it already there and wrote nothing.
+///
+/// The third is why this helper exists. It used to answer `"1"` alongside the
+/// other draws, and the page — which has no other way to know — said *"drew a
+/// BindsInterface link … it is marked as drawn by hand"* over a line a PASTE had
+/// built. Nothing was drawn and nothing is marked; every clause was false. A
+/// reply that cannot distinguish "I did it" from "it was already done" forces
+/// the surface to guess, and the surface guessed wrong.
+fn wrote_word(reply: &[u8]) -> String {
+    match decode_reply(reply) {
+        Ok(ReplyView::FaceRows(rows)) => rows
+            .first()
+            .map(|r| r.strings[1].clone())
+            .unwrap_or_default(),
+        other => panic!("expected a face reply, got {other:?}"),
+    }
+}
+
 // --- a two-device lab, built by hand -----------------------------------------
 
 /// Two hand-added devices and their display ids, in the order they were added.
@@ -247,6 +266,16 @@ fn drawing_the_same_link_twice_leaves_one() {
             ),
         );
         assert_eq!(error_code(&reply), None, "draw {i} refused: {reply:?}");
+        // AND IT SAYS WHICH IT DID. The first drew; the second found the line
+        // already there and wrote nothing. Both succeed and they are not the
+        // same event, so the page must not be left to infer one from the other
+        // — see `wrote_word`.
+        assert_eq!(
+            wrote_word(&reply),
+            if i == 0 { "1" } else { "2" },
+            "draw {i} reported the wrong thing"
+        );
+        assert_eq!(wrote_kind(&reply), "PeersWith", "draw {i}");
     }
     assert_eq!(
         drawn_links(&mut shell)
@@ -285,6 +314,15 @@ fn a_link_can_be_cut() {
         &link_frame(1_700_000_003_000, 0x5555_6666_7777_8888, 0, &a, &b, ""),
     );
     assert_eq!(error_code(&again), Some(ERR_NO_LINK));
+    // IN THOSE WORDS, and not the schema's. The cut path narrows its candidate
+    // list to what is LIVE, so an empty list means "no such fact" — while the
+    // draw path's empty list means "the schema does not admit one". They share
+    // a code and they are opposite statements: two devices the schema connects
+    // four ways once answered "nothing in the schema connects a Device to a
+    // Device" on the second cut, which is a false claim about the operator's
+    // own estate. An empty detail is the page's cue to word the schema
+    // sentence, so a non-empty one here is the whole assertion.
+    assert_eq!(error_detail(&again), "there is no such link to cut");
 }
 
 /// **A cut is a tombstone.** The link leaves the picture and the estate keeps

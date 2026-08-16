@@ -1136,6 +1136,9 @@ var OP_LINK = 24;
    the module measured 345 bytes against `44` §5.2's ceiling; building it here
    costs artifact bytes, of which there are 2.2 MB spare. */
 var ERR_LINK_CHOICE = 16, ERR_NO_LINK = 15;
+/* `protocol::ERR_EQUIP_STORE`. Named here because the link path words the
+   store's refusal itself — see dgLink — rather than showing `code 13 · out`. */
+var ERR_EQUIP_STORE = 13;
 
 /* The equipment form's fields, and the ONLY place this page names a field key.
    Each entry is [wire key, label, kind, required, note].
@@ -2921,9 +2924,20 @@ function opLink(a, b, mode, kind) {
      admits between those two and refused to guess, which is the whole design:
      a wrong edge kind in an estate of record is worse than a prompt. */
   if (reply && reply.kind === 'error' && reply.code === ERR_LINK_CHOICE) {
-    DG_ASK = { a: a, b: b, kinds: reply.detail.split(' ') };
-    foot('the schema allows ' + DG_ASK.kinds.length + ' kinds of link between those two — pick one');
-    say('more than one kind of link is possible; a choice has appeared in the link controls');
+    /* **THE MODE TRAVELS WITH THE QUESTION.** Without it the chooser's click arm
+       had to guess, and it guessed `draw` — so pressing "cut the link", being
+       asked which kind, and answering DREW a brand-new edge. The gesture whose
+       whole purpose is to remove a fact silently asserted one, journalled and
+       permanent, and the only signal was a past-tense sentence after the event.
+       Its corollary was equally fatal: a link of an ambiguous kind could never
+       be cut, because every cut re-asked and every answer drew. */
+    DG_ASK = { a: a, b: b, kinds: reply.detail.split(' '), mode: mode };
+    foot(mode === 0
+      ? 'there is more than one link between those two — pick the one to cut'
+      : 'the schema allows ' + DG_ASK.kinds.length + ' kinds of link between those two — pick one');
+    say(mode === 0
+      ? 'more than one link exists; a choice of which to cut has appeared in the link controls'
+      : 'more than one kind of link is possible; a choice has appeared in the link controls');
     render();
     return false;
   }
@@ -2938,6 +2952,29 @@ function opLink(a, b, mode, kind) {
      it picked both boxes and knows both kinds (see ERR_NO_LINK). A non-empty one
      is the module's own sentence — "there is no such link to cut" — passed
      through unornamented. */
+  /* **THE STORE'S REFUSAL, WORDED HERE.** The module sends one word — `out`,
+     `in`, `sym` or `store` — and this page turns it into a sentence, which is
+     the same division `ERR_NO_LINK` above already uses and for the same reason:
+     prose in the module costs ceiling bytes and prose in the page costs artifact
+     bytes, and there are 4.5 MB of the second and none of the first. Composing
+     these two sentences in Rust measured **433 bytes** of a round that had 451
+     to find, and moving them here is most of what made both features fit.
+
+     `kind` may be empty when the module chose the only candidate itself, and the
+     sentence is written to be true either way. */
+  if (reply && reply.kind === 'error' && reply.code === ERR_EQUIP_STORE &&
+      /^(out|in|sym|store)$/.test(reply.detail || '')) {
+    var kw = kind ? 'a ' + kind : 'a link of that kind';
+    foot(reply.detail === 'sym'
+      ? 'those two already have ' + kw + ' — it has no direction, so there is only one of it'
+      : reply.detail === 'store'
+      ? 'the store refused ' + kw + ' between those two — that is a defect in Fathom rather than something you did'
+      : 'the schema allows only one ' + (kind || 'link of that kind') + ' ' +
+        (reply.detail === 'out' ? 'out of' : 'into') +
+        ' that box, and it already has one');
+    renderShell();
+    return false;
+  }
   if (reply && reply.kind === 'error' && reply.code === ERR_NO_LINK) {
     var ka = dgKindOf(a), kb2 = dgKindOf(b);
     foot(reply.detail ? reply.detail
@@ -2964,20 +3001,38 @@ function opLink(a, b, mode, kind) {
      DIFFERENT relationship is worse than one that fails to come back. */
   var wrote = (reply.rows && reply.rows[0] && reply.rows[0].s[0]) || kind;
 
+  /* DID IT ACTUALLY WRITE? Slot 1 is `0` for a cut, `1` for a draw, and `2` for
+     "that link was already there, so nothing was written". The third case is a
+     SUCCESS — the end state asked for is the end state held — and it is not a
+     draw, which matters twice over. See `ALREADY_THERE` in `shell.rs`. */
+  var did = !(reply.rows && reply.rows[0] && reply.rows[0].s[1] === '2');
+
   /* JOURNALLED, WITH THE SAME CLOCK AND ENTROPY THE OP USED. This has been got
      wrong twice in this project — the rack shipped writing to the module and
      not to `S.journal`, so an export dropped every rack in silence. A hand-drawn
      link that does not survive a round trip is not degraded, it is DELETED:
      there is no paste that can rebuild it. `importJournal` has the matching
-     arm and `2026-08-16-hand-link-drive.mjs` drives the whole loop. */
-  S.journal.push({ op: 'link', at: at, ent: b64(ent), from: a, to: b, kind: wrote, mode: mode });
+     arm and `2026-08-16-hand-link-drive.mjs` drives the whole loop.
+
+     NOT PUSHED when nothing was written. Replaying a draw that did not happen
+     is harmless to the estate — it is the same no-op on the way back in — but
+     the journal is the file an operator KEEPS and a colleague READS, and an
+     entry saying a person drew this line when the parser did is a false
+     provenance claim in the record. `88`'s standing rule about the estate of
+     record applies to the journal that rebuilds it. */
+  if (did) {
+    S.journal.push({ op: 'link', at: at, ent: b64(ent), from: a, to: b, kind: wrote, mode: mode });
+  }
   DG_ASK = null;
   /* Hold the view: a new line can grow the picture's extent, and refitting
      under somebody who has just drawn one link rescales everything out from
      under them. Same reasoning as `opPlace`. */
   DG.hold = true;
   render();
-  return wrote;
+  /* The kind, and whether it was written. An array so `if (!wrote) return` in
+     `dgLink` still tells success from refusal — every refusal above returns
+     `false` — while the sentence below can tell a draw from a no-op. */
+  return [wrote, did];
 }
 
 /* A drawn box's kind word, for the sentences above. Read from what the module
@@ -3029,15 +3084,26 @@ function dgLink(mode, kind) {
   var near = DG_ASK ? DG_ASK.a : DG_HOLD;
   if (!near) { foot('hold one end first'); renderShell(); return; }
   if (!far) { foot('select the other end'); renderShell(); return; }
-  var wrote = opLink(near, far, mode, kind || '');
-  if (!wrote) return;
+  var reply = opLink(near, far, mode, kind || '');
+  if (!reply) return;
+  var wrote = reply[0], did = reply[1];
   var words = dgKindOf(near) + ' and ' + dgKindOf(far);
   if (mode === 0) {
     foot('cut the ' + wrote + ' link between ' + words);
     say('link cut');
-  } else {
+  } else if (did) {
     foot('drew a ' + wrote + ' link between ' + words + ' — it is marked as drawn by hand');
     say('drew a ' + wrote + ' link, marked in the picture as drawn by hand');
+  } else {
+    /* THE THIRD SENTENCE, and it exists because the second one was a lie in the
+       one case it could be. Pressing draw on a pair a PASTE already connected
+       used to answer "drew a BindsInterface link … marked as drawn by hand",
+       when nothing had been drawn and the line in the picture carries no mark
+       at all — because it is the parser's line, not yours. Saying which is
+       whose is the whole point of the hand mark. */
+    foot('those two already have a ' + wrote + ' link — nothing was drawn, ' +
+         'and that line stays as it was read');
+    say('that link was already there; nothing was drawn');
   }
   DG_HOLD = null;
   dgRefocusRow(far);
@@ -3500,8 +3566,12 @@ function renderDiagram(host) {
   if (DG_ASK && DG_ASK.kinds.length) {
     var ask = el('div', 'dplacectl');
     ask.setAttribute('role', 'group');
-    ask.setAttribute('aria-label', 'which kind of link');
-    ask.appendChild(el('span', 'lab', 'which link'));
+    /* The verb is IN the label, both places. "which kind of link" told the
+       reader nothing about what pressing a button would DO, which is how the
+       cut-that-draws stayed invisible until it was driven. */
+    ask.setAttribute('aria-label',
+      DG_ASK.mode === 0 ? 'which link to cut' : 'which kind of link to draw');
+    ask.appendChild(el('span', 'lab', DG_ASK.mode === 0 ? 'cut which' : 'draw which'));
     DG_ASK.kinds.forEach(function (k) {
       var b = el('button', null, dgWords(k));
       b.type = 'button';
@@ -4053,7 +4123,10 @@ document.addEventListener('click', function (ev) {
      the journal push, which is the one place a second path would have quietly
      lost a hand-drawn line. */
   if ((n = seekAttr(ev.target, 'data-dlinkkind'))) {
-    dgLink(1, n.getAttribute('data-dlinkkind'));
+    /* The mode that RAISED the question, never a literal. This read `1` and so
+       every answer drew, including the answers to "which link do you want to
+       cut". See DG_ASK. */
+    dgLink(DG_ASK ? DG_ASK.mode : 1, n.getAttribute('data-dlinkkind'));
     return;
   }
   /* BEFORE the data-drow arm: a collapsed group's Outline row carries both, and
