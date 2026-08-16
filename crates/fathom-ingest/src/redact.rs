@@ -123,8 +123,12 @@ impl DetectorSet {
 /// set protocols ospf area A interface I authentication simple-password <key>
 /// ```
 ///
-/// and `simple-password` is not `password`: `is_secret_word` is whole-string
-/// equality after folding, so the two never match. With no entry declaring a
+/// and `simple-password` was not `password`: `is_secret_word` was whole-string
+/// equality after folding, so the two never matched. (It matches by COMPONENT
+/// as well now — `dict::is_secret_word` carries that fix and the six live
+/// credentials that forced it. The paragraph below is kept in the past tense it
+/// belongs to: it is the reasoning for this member's existence, not a
+/// description of today's test.) With no entry declaring a
 /// `secret:` at that path, the ONLY thing standing between that key and the
 /// store was `base64ish`, the length-and-alphabet safety net.
 ///
@@ -152,7 +156,36 @@ impl DetectorSet {
 ///
 /// A length heuristic is the wrong instrument for a short secret. The right one
 /// is the name, which is what this list is for.
-pub const SECRET_WORD_LIST: [&str; 25] = [
+///
+/// # `bindpw` and `otp_seed` — added 2026-08-16 with the OPNsense table path
+///
+/// Component matching splits on `-`, `_` and `.` and tests each part, which is
+/// what catches `user_password`, `ipsec_psk` and `radius_secret` — the shapes a
+/// mis-pasted OPNsense export carries. It cannot catch a name whose credential
+/// word is CONCATENATED rather than separated, and OPNsense has exactly two
+/// that matter. Both key strings were read out of the vendor's own source on
+/// 2026-08-16, not recalled:
+///
+/// - `ldap_bindpw` — `src/opnsense/mvc/app/library/OPNsense/Auth/LDAP.php` on
+///   `opnsense/core` master maps `'ldap_bindpw' => 'ldapBindPassword'` in its
+///   `$confMap`. Splitting gives `ldap` and `bindpw`, neither of which was a
+///   member, so the LDAP bind password had no name coupling at all. (Its
+///   sibling `'radius_secret' => 'sharedSecret'`, from `Auth/Radius.php`, was
+///   already caught by the `secret` component.)
+/// - `otp_seed` — a plaintext TOTP seed, listed by `64` §7 as the leading
+///   example of its own class: *"secrets under names with no credential word"*.
+///   `docs.opnsense.org/manual/users.html` names the field *"OTP seed"* (read
+///   2026-08-16). Whoever holds it mints valid second factors forever.
+///
+/// **This closes two named instances and NOT the class**, and the distinction
+/// is the whole lesson of the `simple-password` entry above. `64` §7 records
+/// the rest of the class as open, and one member of it — OPNsense's
+/// `mmonitUrl`, documented by the vendor as
+/// `https://user:pass@192.168.1.10:8443/collector` — cannot be closed by any
+/// name rule whatsoever, because the credential is in the VALUE and the name
+/// says `Url`. What catches that one is `pieces()`, splitting on `:` in the
+/// unshaped sweep.
+pub const SECRET_WORD_LIST: [&str; 27] = [
     "key",
     "keys",
     "key-string",
@@ -178,6 +211,8 @@ pub const SECRET_WORD_LIST: [&str; 25] = [
     "phash",
     "passhash",
     "private-key",
+    "bindpw",
+    "otp_seed",
 ];
 
 // ---------------------------------------------------------------------------

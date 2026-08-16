@@ -3,10 +3,10 @@
 # real bytes of the paste -- see csv.rs.
 #
 # THE REASONING IS IN README.md BESIDE THIS FILE, NOT IN THESE COMMENTS.
-# `include_str!` embeds this file verbatim into the WebAssembly module, so a
-# comment here is a byte spent against `44` 5.2's ceiling; a comment in the
-# README is not. README 1 measures the difference. Sources and dates for every
-# vendor fact: README 5. What is deliberately absent and why: README 4.
+# This file is handed to the module at boot over OP_DICT and lives in the page,
+# so a comment here costs artifact bytes rather than module bytes -- README 1
+# carries the correction and why the prose stays outside anyway. Sources and
+# dates for every vendor fact: README 5. What is deliberately absent: README 4.
 platform: opnsense
 reviewed_by: <named human>
 

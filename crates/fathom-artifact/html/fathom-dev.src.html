@@ -1172,6 +1172,10 @@ var S = {
   /* The last refusal, shown in the paste sheet where the text that caused it
      still is. Cleared by the next success. */
   pasteError: null,
+  /* Whether the last SUCCESSFUL paste was a table. Decides one word — see
+     residueNoun(). Set from the text that was actually read, never from the
+     textarea's current contents, which the operator may have edited since. */
+  pasteWasTable: false,
   /* The last refused hand-add, shown in the equipment sheet where the values
      that caused it are still typed in. Cleared by the next success. */
   equipError: null,
@@ -1424,6 +1428,31 @@ function pasteSummary() {
   return head || null;
 }
 
+/* LINES OR CELLS — the residue count's unit, and it is not cosmetic.
+   `csv.rs` reports a table's residue per CELL, on purpose: a row of fifty
+   columns with six understood is not honestly described as a row that was read.
+   So for a table the number in the tally counts cells, and calling them "lines"
+   is a plain lie about a figure the operator is meant to act on -- "44 lines not
+   read" of a four-row file.
+
+   The FIRST draft of this said just "not read" for both, which is true of
+   neither and cost something real: `scripts/drive-branch-coverage.mjs` matches
+   the footer verbatim and `66` §(the tally) quotes it as the evidence for a
+   published coverage figure. A selector is an API and so is a sentence somebody
+   measured with.
+
+   The read is deliberately the page's own, over the operator's own text in the
+   page's own textarea, rather than a platform name mapped here. It is a SECOND
+   reading of the same shape `fathom_ingest::csv::looks_like_rules_csv` performs,
+   and that duplication is stated rather than hidden -- but nothing rests on it
+   beyond a noun: if it disagreed with the module, the count would be right and
+   the word beside it wrong. Both readings are pinned by browser drivers (the
+   branch sweep asserts "lines", the OPNsense drive asserts "cells"), so a drift
+   is a failing check rather than a quiet wrong word. */
+function residueNoun() {
+  return S.pasteWasTable ? 'cells' : 'lines';
+}
+
 function renderTally(host) {
   var h = pasteSummary();
   if (!h) return;
@@ -1431,15 +1460,7 @@ function renderTally(host) {
   var ul = el('ul', 'tally');
   [[h.s[0], 'things understood'],
    [h.s[1], 'connections'],
-   /* "not read", not "lines not read". Reworded 2026-08-15: a `set`-form paste
-      leaves whole lines behind, but a CSV leaves individual CELLS behind — a
-      row of fifty columns can have six understood and forty-four not — and
-      `csv.rs` reports residue at cell granularity because reporting the row as
-      "bound" would be true and useless. Calling forty-four cells "lines" would
-      be a plain lie about a number the operator is meant to act on. The wording
-      is shape-neutral rather than conditional: no platform name is hardcoded
-      into the page, and both readings stay true. */
-   [h.s[2], 'not read'],
+   [h.s[2], residueNoun() + ' not read'],
    [h.s[3], 'secrets removed'],
    [h.s[4], 'names not found']].forEach(function (pair) {
     var li = el('li');
@@ -1460,9 +1481,16 @@ function renderResidue(host) {
 
   /* "What", not "Lines" — see the tally's note above: a table's residue is
      cells, not lines, and the `line` column below still names the row. */
-  p.appendChild(el('div', 'sh', 'What Fathom did not read — ' + total));
+  /* "Lines" or "Cells", by the same rule and for the same reason as the tally —
+     see residueNoun(). It said "What Fathom did not read" for one afternoon,
+     which is true of both and searchable as neither: it crashed
+     `2026-08-15-real-estate-input-probe.mjs`, which matches this heading to read
+     the withheld-row count out of it. */
+  p.appendChild(el('div', 'sh',
+    (S.pasteWasTable ? 'Cells' : 'Lines') + ' Fathom did not read — ' + total));
   if (rows.length === 0) {
-    p.appendChild(el('p', 'prose', 'Everything was read.'));
+    p.appendChild(el('p', 'prose',
+      S.pasteWasTable ? 'Every cell was read.' : 'Every line was read.'));
   } else {
     /* The cap is stated, never silent (78 §5). */
     if (String(rows.length) !== total) {
@@ -4368,10 +4396,57 @@ function hostEntropy() {
   return b;
 }
 
+/* The rules-CSV shape, read exactly as the module reads it: the first non-blank
+   line must begin `@uuid` followed immediately by `;` or `,` (`64` §1.1). Exact
+   and not fuzzy, for the same reason the module's is — but note that NOTHING
+   here chooses a parser. The module has already made that decision by the time
+   this runs; this only names the unit in the tally beside the count. */
+function looksLikeRulesTable(text) {
+  var body = text.replace(/^\uFEFF/, '');
+  var first = '';
+  var lines = body.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    if (lines[i].trim()) { first = lines[i]; break; }
+  }
+  return /^@uuid[;,]/.test(first);
+}
+
 function runPaste() {
   var text = $('pta').value;
   if (!wasm) { foot('the module is not instantiated'); renderShell(); return; }
-  if (!text.trim()) { foot('nothing pasted'); renderShell(); return; }
+  /* AN EMPTY PASTE IS NOT ALWAYS AN EMPTY BOX, AND THIS IS THE ONE PLACE THE
+     PAGE CAN SAY SO. OPNsense issue #10595 (opened 22 July 2026 against 26.7.1;
+     still open, unanswered, no fix found — re-established independently on
+     2026-08-16) reports the Migration assistant writing a 0-BYTE
+     download_rules.csv while telling the operator it found 47 rules. Somebody
+     who hits that opens the file, selects all, gets nothing, pastes nothing,
+     and lands exactly here.
+
+     "nothing pasted" is true and useless to them. It reads as their mistake,
+     and the next thing they do is conclude the tool is broken or -- far worse
+     -- that the firewall really has nothing in it. So the sentence names the
+     vendor bug and tells them where the rules still are. It costs page bytes
+     and no module bytes.
+
+     The module carries the other half: a header with no records underneath it
+     is refused by name, with the issue number, from `IngestRefusal::EmptyTable`
+     -- because an empty export and a firewall with no rules are the same file
+     and Fathom may not weld a device with no policies out of one. */
+  if (!text.trim()) {
+    S.pasteError = { kind: 'error', code: 0, detail:
+      'Nothing was pasted. If you copied this from an OPNsense rules export ' +
+      'and the file was EMPTY, that is a known OPNsense bug and not your ' +
+      'mistake: opnsense/core issue #10595 reports Firewall → Rules → ' +
+      'Migration assistant writing a 0-byte download_rules.csv while reporting ' +
+      'that it found rules (open and unanswered when this build was made, ' +
+      '2026-08-16). Your rules are still in /conf/config.xml and your firewall ' +
+      'is still running them — Fathom just has nothing to read. Nothing here ' +
+      'has changed.' };
+    foot('nothing pasted — nothing changed');
+    renderPasteError();
+    renderShell();
+    return;
+  }
   var ent = hostEntropy();
   if (!ent) {
     foot('this browser exposes no cryptographic randomness — the paste is refused');
@@ -4417,6 +4492,7 @@ function runPaste() {
   }
 
   S.pasteError = null;
+  S.pasteWasTable = looksLikeRulesTable(text);
   S.paste = reply;
   S.source = 'paste';
   S.loaded = true;
@@ -4426,10 +4502,8 @@ function runPaste() {
   S.invKind = 0;
   loadKind(0);
   var h = pasteSummary();
-  /* "not read", not "lines not read" — a table's residue is cells. Same
-     rewording, same reason, as the tally above. */
   foot(h ? ('read ' + (h.s[6] || 'the config') + ' — ' + h.s[0] + ' understood, ' +
-            h.s[2] + ' not read, ' +
+            h.s[2] + ' ' + residueNoun() + ' not read, ' +
             plural(h.s[3], 'secret', 'secrets') + ' removed')
          : 'read the config');
   /* THE RAW CONFIG DOES NOT STAY IN THE BOX. `setPaste(false)` hides the sheet
@@ -4808,6 +4882,12 @@ function importJournal(text) {
 
   S.journal = ops;
   S.paste = null;
+  /* Cleared with the summary it describes. Nothing reads it while `S.paste` is
+     null — `renderTally` returns early and the footer sets it on the line above
+     its own use — but a flag that means "the last paste" must not outlive the
+     last paste, or the next reader to reach for it gets an answer about a
+     session that ended. */
+  S.pasteWasTable = false;
   S.pasteError = null;
   S.equipError = null;
   S.sel = null; S.element = null; S.equipment = null;

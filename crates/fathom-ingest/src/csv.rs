@@ -268,6 +268,60 @@ pub fn ingest_csv(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, Inges
         rows += 1;
         split_cells(&capture, span, delim, &mut cells);
         let row = cells.clone();
+
+        // A ROW WHOSE WIDTH DISAGREES WITH THE HEADER'S IS NOT BOUND AT ALL.
+        //
+        // This was the defect. The old code bound every cell it could pair with
+        // a header name and `continue`d past the rest, whose comment claimed
+        // they were "named on the residue list below rather than dropped". They
+        // were not: `residue()` builds its per-cell entries from STATEMENTS, and
+        // a cell that produced no statement produced no residue entry either.
+        // Worse, data rows never entered the safety-net sweep — only the header
+        // and identity-less rows do — so an overflow cell was seen by no
+        // detector of any kind and a secret in one survived with `drops = 0`.
+        //
+        // The fix is not to name the overflow cells. It is to refuse the row,
+        // because a width disagreement means THE COLUMN MAPPING IS UNKNOWN, not
+        // merely that some cells are extra. Both ways of getting here produce
+        // that, and neither is exotic:
+        //
+        //  * An unquoted delimiter inside a free-text column. `64` §5 records
+        //    that the export's quoting rule is established NOWHERE, so this is
+        //    a live possibility on every `description` and `categories` cell.
+        //    One stray `;` widens the row and shifts every column after it —
+        //    which is how `destination_net` gets read out of the `source_net`
+        //    slot and a rule that said `192.168.1.0/24` is documented as `any`.
+        //  * `list_legacy_rules.php` (read 2026-08-15, re-read 2026-08-16 by a
+        //    different session against `opnsense/core` master) appends the six
+        //    `source_*`/`destination_*` keys CONDITIONALLY — `if
+        //    (!empty($rule[$field]))` — so records genuinely carry different key
+        //    sets, and any assembler taking its header from the first record
+        //    emits a header narrower than later rows.
+        //
+        // The two are indistinguishable from inside the file, so the direction
+        // of error has to be chosen, and for a firewall document it is not
+        // close: a rule NAMED on the residue list with its own bytes is a rule
+        // the operator can see and read; a rule bound one column out is a
+        // permit-any that Fathom asserts and nobody questions. `14`'s law is
+        // that nothing parsed is silently lost, and this loses nothing silently
+        // — the row is on the ledger, on the residue list, and swept by the
+        // gate at maximum aggression, which is the treatment every other line
+        // Fathom could not shape already gets.
+        if row.len() != names.len() {
+            outcomes.push(Outcome::new(LineOutcome::Unshaped {
+                reason: ShapeError::RowWidth {
+                    cells: row.len().min(u16::MAX as usize) as u16,
+                    columns: names.len().min(u16::MAX as usize) as u16,
+                },
+            }));
+            unshaped.push(UnshapedLine {
+                line: line.ordinal,
+                span,
+                tokens: row_tokens(&row),
+            });
+            continue;
+        }
+
         let uuid = row.get(uuid_col).map(|c| cell_text(&capture, c));
         let Some(uuid) = uuid.filter(|u| !u.is_empty()) else {
             // No identity, no rule. The whole row is refused rather than bound
@@ -294,9 +348,16 @@ pub fn ingest_csv(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, Inges
                 continue;
             }
             let (Some(name_cell), Some(name)) = (header.get(col), names.get(col)) else {
-                // More cells than the header declared. The extra ones are named
-                // on the residue list below rather than dropped; they cannot be
-                // bound because nothing says what they are.
+                // UNREACHABLE, and it is worth saying which invariant makes it
+                // so: the width check above refused every row whose cell count
+                // is not exactly `names.len()`, and `header` and `names` are the
+                // same vector mapped, so `col < row.len() == names.len()`
+                // indexes both. It stays as a `continue` rather than an
+                // `expect` because a panic below the host boundary is a dead
+                // module and a silently skipped cell is a wrong document, and
+                // of the two the second is at least visible on the ledger: the
+                // row's outcome is `Unmapped`, so the row is on the residue
+                // list either way.
                 continue;
             };
             let value = cell_text(&capture, cell);
@@ -392,9 +453,22 @@ pub fn ingest_csv(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, Inges
 /// the caller will slice them out of (`14` §9.5) — never remapped by arithmetic,
 /// which would have to be kept in step with the gate's edit list forever.
 ///
-/// When a row's post-gate cell count disagrees with its pre-gate one, the whole
-/// row is reported instead of its cells. That happens when the gate quarantined
-/// the row and replaced it with a shape sketch, and a sketch has no columns.
+/// Two rows never reach the per-cell loop, and each has a reason:
+///
+/// * **A quarantined row** is already on the list above, whole. Its cells no
+///   longer exist — the gate replaced the line with a shape sketch, which has
+///   no delimiters and therefore one "cell".
+/// * **A row whose post-gate re-split does not reach the column** falls back to
+///   the whole row's post-gate span rather than being skipped. That fallback is
+///   unreachable today, because the only edit that changes a row's cell count is
+///   a quarantine and quarantined rows are handled above — but *"unreachable"*
+///   and *"silently dropped"* are one refactor apart, and the whole point of
+///   this list is that nothing is dropped silently.
+///
+/// This paragraph used to describe a pre-gate/post-gate CELL COUNT COMPARISON
+/// that does not exist anywhere in this function and never did. It is corrected
+/// rather than implemented: the comparison would have been a second mechanism
+/// for what the quarantine check already decides.
 fn residue(
     capture: &str,
     ledger: &frame::LineLedger,
@@ -450,12 +524,21 @@ fn residue(
             split_cells(capture, span, delim, &mut post);
             at_line = Some(line);
         }
-        let Some(cell) = post.get(col).copied() else {
-            continue;
+        // The fallback the doc above names: a cell that cannot be located in
+        // the post-gate text is reported at the whole row's span, never
+        // dropped. A residue entry pointing at more bytes than it should is a
+        // reader's mild confusion; a missing one is a fact the operator was
+        // promised and did not get.
+        let span = match post.get(col).copied() {
+            Some(cell) => cell.span,
+            None => match spans.get(line).copied() {
+                Some(row) => row,
+                None => continue,
+            },
         };
         out.push(ResidueEntry {
             ordinal: stmt.line,
-            span: cell.span,
+            span,
             // `known_prefix` is the trie depth the lookup reached. On this path
             // depth 1 is "the row was recognised, the column was not", which is
             // what the reader wants to hear.

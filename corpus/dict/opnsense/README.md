@@ -21,21 +21,29 @@
 
 ## 1. Why the reasoning is here and not in the YAML
 
-**A comment in a dictionary file is a shipped byte.** `fathom_ingest::dict` reaches the
-corpus two ways: `Dictionary::load_platform` reads it off disk, and
-`EMBEDDED_DICT_SOURCES_OPNSENSE` pulls it in with `include_str!` so the WebAssembly build
-can parse without a filesystem. `include_str!` embeds the file **verbatim** — every comment
-character lands in the module and is counted against `44` §5.2's 900 000-byte ceiling.
+**Corrected 2026-08-16, and the correction is the more useful half.** This section
+originally argued that a comment in a dictionary file is a *module* byte, because
+`EMBEDDED_DICT_SOURCES_OPNSENSE` pulled the file in with `include_str!` so the WebAssembly
+build could parse without a filesystem. That was true when it was written and is not true
+now: **no dictionary is compiled into the module at all.** `crates/fathom-artifact/src/dictionary.rs`
+packs each `corpus/dict/<platform>/` directory into an `OP_DICT` frame, the page carries it
+base64, and `fathom_ingest::hosted::dictionary_from_host` builds it at boot. The two
+`include_str!` constants are gone.
 
-That was measured rather than assumed. The first draft of `firewall-rules.yaml` carried its
-whole argument in `#` comments and was 9 154 bytes; moving the prose into this file and
-leaving pointers behind took it to the size checked in beside this README. The saving is
-module bytes at the ceiling, in exchange for artifact bytes in a budget with room.
+So a comment here costs **artifact** bytes, in a 4.5 MB budget with roughly 2.3 MB spare —
+not module bytes against `44` §5.2's 900 000-byte ceiling. The prose could come back into
+the YAML and nothing would break.
 
-The rule this establishes, which applies to `corpus/dict/junos-srx/` too and is worth
-raising against it: **prose belongs beside a compiled-in corpus file, not inside it.** House
-style is unchanged — the reasoning is still written down, still reviewable, still next to
-the thing it explains. It is simply not paying rent in the artifact.
+It stays here anyway, for a reason that outlived the byte argument: a dictionary file that
+carries its own essay is a file nobody edits without reading two pages first, and the essay
+goes stale in place — as this very section did, in one day. Prose beside the data can be
+corrected without touching the data.
+
+The measurement is kept because it is still a real number and still instructive: the first
+draft of `firewall-rules.yaml` carried its whole argument in `#` comments and was 9 154
+bytes; moving the prose out took it to 4 065 and the module down by exactly 5 088. That was
+a fifth of the headroom at the time. `corpus/dict/junos-srx/` carries ~3 316 bytes of
+full-line comments on the same terms, and those are now artifact bytes too.
 
 ## 2. The path shape — it is not a command path
 

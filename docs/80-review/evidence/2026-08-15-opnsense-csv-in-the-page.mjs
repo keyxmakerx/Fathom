@@ -83,8 +83,15 @@ const masthead = (await page.textContent('#mSub')) ?? '';
 eq('the masthead names the real platform', masthead.trim(), 'dev artifact · pasted config · opnsense');
 const folio = (await page.textContent('#factFolio')) ?? '';
 ok('and so does the folio', /opnsense/.test(folio) && !/junos/.test(folio), folio);
+// THE UNIT, ASSERTED POSITIVELY. A table's residue is counted in CELLS, and the
+// footer must say so — `scripts/drive-branch-coverage.mjs` asserts the opposite
+// half on a Junos paste ("lines not read"), so between them the two drivers pin
+// both readings and a drift in either direction is a failing check rather than a
+// quietly wrong noun. Checking only that it does NOT say "lines" was the first
+// draft and it passed happily against a footer that said neither.
 const footer = (await page.textContent('#fMsg')) ?? '';
-ok('the footer counts what was not read without calling cells lines', !/lines? not read/.test(footer), footer);
+ok('the footer counts CELLS, not lines', /\d+ cells not read/.test(footer), footer);
+ok('and never calls them lines', !/lines? not read/.test(footer), footer);
 
 // ---------------------------------------------------------------------------
 // 3. The rules reached a face.
@@ -116,11 +123,11 @@ eq('four rows, one per record in the file', rows.length, 4);
 
 const byOrdinal = Object.fromEntries(rows.map((r) => [r[0], r]));
 eq('rule 1 permits', byOrdinal['1']?.[1], 'permit');
-eq('rule 2 denies (OPNsense `block`)', byOrdinal['2']?.[1], 'deny');
-eq('rule 4 rejects', byOrdinal['4']?.[1], 'reject');
+eq('rule 11 denies (OPNsense `block`)', byOrdinal['11']?.[1], 'deny');
+eq('rule 31 rejects', byOrdinal['31']?.[1], 'reject');
 eq('rule 1 is enabled', byOrdinal['1']?.[2], 'true');
-eq('rule 3 is DISABLED, as the file says', byOrdinal['3']?.[2], 'false');
-eq('rule 2 matches any source', byOrdinal['2']?.[3], 'true');
+eq('rule 21 is DISABLED, as the file says', byOrdinal['21']?.[2], 'false');
+eq('rule 11 matches any source', byOrdinal['11']?.[3], 'true');
 eq(
   'rule 1 does not claim to match any source — its source_net is `lan`',
   byOrdinal['1']?.[3],
@@ -129,7 +136,7 @@ eq(
 eq('rule 1 matches any destination', byOrdinal['1']?.[4], 'true');
 eq(
   "the operator's own sentence survived the quoted delimiter",
-  byOrdinal['4']?.[5],
+  byOrdinal['31']?.[5],
   'Reject v6 DNS; see change CHG-4471',
 );
 
@@ -188,9 +195,16 @@ await page.waitForFunction(
   { timeout: 10000 },
 );
 const empty = (await page.textContent('#pErr')) ?? '';
-ok('an empty export is refused by name', /no rules in it/.test(empty), empty);
+// The four things this sentence has to do, checked as four claims. #10595 is
+// the single most likely real input on this path, and the operator who hits it
+// is one step from recording their firewall as having no rules at all — so
+// naming the issue is necessary and nowhere near sufficient.
+ok('an empty export is refused by name', /not one rule under them/.test(empty), empty);
 ok('and it names the vendor issue', /10595/.test(empty), empty);
-ok('and it says the estate was not touched', /has not touched your estate/.test(empty), empty);
+ok('and it refuses to let "0 rules" stand as a fact about the firewall',
+   /DOES NOT MEAN YOUR FIREWALL HAS NO RULES/.test(empty), empty);
+ok('and it says where the rules still are', /\/conf\/config\.xml/.test(empty), empty);
+ok('and it says the estate was not touched', /has not touched what you had/.test(empty), empty);
 
 await page.screenshot({
   path: resolve(here, '2026-08-15-opnsense-empty-export-refused.png'),

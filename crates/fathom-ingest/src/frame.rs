@@ -117,6 +117,14 @@ pub enum ShapeError {
     KeyUnparsable,
     /// More than 64 path segments (14 §11.6's depth cap at this layer).
     TooManySegments,
+    /// **A table row whose cell count disagrees with the header's.** Reached
+    /// only from `csv.rs`, and it refuses the whole row rather than binding the
+    /// cells that happen to line up — see that module for why an off-by-one
+    /// column is worse than a missing rule.
+    RowWidth {
+        cells: u16,
+        columns: u16,
+    },
 }
 
 /// Per-line diagnostics that do not change the outcome class.

@@ -227,9 +227,20 @@ fn face_error_replies_are_typed() {
 /// `protocol::FACE_SLOTS` is 8: slot 0 carries the row id (or the kind label on
 /// the header record), slot 7 carries the opinions header, and the columns sit
 /// between. `encode_inv_reply` writes `slot_count = 2 + columns.len()` and then
-/// hands `face_slots` a list it truncates with `.take(FACE_SLOTS)` — so a
-/// seventh column is not refused, it is **silently dropped**, `slot_count`
-/// still claims it exists, and the page reads `undefined` off the end.
+/// hands `face_slots` a list it truncates with `.take(FACE_SLOTS)`.
+///
+/// **What a seventh column actually costs is the OPINIONS slot, not the
+/// column.** Read the encoder rather than assumed: with seven columns
+/// `header_slots` is already eight long when the pad loop's `len < FACE_SLOTS -
+/// 1` test is reached, so the loop adds nothing, `push("opinions")` makes nine,
+/// and `.take(8)` discards the LAST element. The seventh column survives — into
+/// slot 7, which is the slot the page reads the opinions text out of. So the
+/// failure is not a missing column, it is a column's value rendered as the row's
+/// opinions, and `slot_count` claiming 9 while eight slots exist.
+///
+/// An earlier version of this comment said the seventh column was the casualty.
+/// It was wrong, and the assertion below was right anyway, which is exactly the
+/// combination that survives review: the numbers held while the story did not.
 ///
 /// Found 2026-08-15 while adding `SecurityPolicy`, whose natural column list
 /// was eight. Pinned rather than fixed: widening the record is a protocol

@@ -203,6 +203,39 @@ pub(crate) fn bind(
             Some(m) => *m,
             None => continue,
         };
+        // **A QUARANTINED LINE DOES NOT BIND. INVARIANT 3.**
+        //
+        // The gate quarantines by destroying a line's bytes in the capture and
+        // replacing them with a shape sketch — but a quarantine `Edit` carries
+        // `node: None`, so unlike a value redaction it never re-points the
+        // tree's segment at a marker. The segment still holds the ORIGINAL
+        // text. Bind then ran over it, stored it in the fragment, and
+        // overwrote the line's outcome back to `Bound`.
+        //
+        // The result was a capture that reads `<quoted:89>`, a ledger that says
+        // the line was understood, an empty residue list, and a fragment field
+        // holding `-----BEGIN RSA PRIVATE KEY-----MIIEow…` in full. Everything
+        // an operator or a reviewer would look at said the key was gone.
+        //
+        // Reproduced on BOTH front ends at this commit before the fix — Junos
+        // `set interfaces ge-0/0/0 description "<PEM>"` and an OPNsense
+        // `description` cell holding the same — so this is not the table path's
+        // bug, it is a pre-existing one the table path widened by binding free
+        // text out of an arbitrary vendor column.
+        //
+        // Skipping is the whole fix and it loses nothing silently: the line
+        // keeps its `Quarantined` outcome, which is what puts it on the residue
+        // list with its label and its byte count. The alternative — re-pointing
+        // every node on a quarantined line inside `gate` — is more code doing
+        // the same thing later, and it would still have to be trusted not to
+        // miss a node.
+        let quarantined = outcomes
+            .get(stmt.line.0 as usize)
+            .map(|o| matches!(o.outcome, LineOutcome::Quarantined { .. }))
+            .unwrap_or(false);
+        if quarantined {
+            continue;
+        }
         bind_statement(&mut b, tree, dict, stmt, m, outcomes);
     }
 

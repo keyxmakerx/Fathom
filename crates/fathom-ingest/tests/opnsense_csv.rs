@@ -166,9 +166,14 @@ fn four_rules_come_out_of_four_rows() {
         "the disabled rule must be disabled"
     );
 
+    // 11, not 2. `list_legacy_rules.php` starts `$sequence` at 1 and does
+    // `$sequence += 10` per rule (read 2026-08-16), which is the pf convention
+    // of leaving room to insert. The fixture used to number 1,2,3,4 — a shape
+    // the cited exporter does not emit, in a file whose whole claim is that it
+    // is what the cited exporter emits.
     assert_eq!(
         field(&out, block, "SecurityPolicy.ordinal"),
-        Some(&BoundValue::U32(2))
+        Some(&BoundValue::U32(11))
     );
     assert_eq!(
         field(&out, block, "SecurityPolicy.description"),
@@ -358,8 +363,306 @@ fn the_gate_runs_on_the_table_path() {
     assert_eq!(out.drops.entries[0].orig_len, 4);
 }
 
+/// **The compound secret-name class, on this path** (rule 0, second pass).
+///
+/// The canary above drives `password` — the one spelling that is IN
+/// `SECRET_WORD_LIST` — so it passed while every compound spelling stayed open.
+/// The column names a wrong-file paste carries are not whole-string anything.
+/// `64` §7 lists what an OPNsense configuration actually holds: API keys, LDAP
+/// bind passwords, RADIUS secrets, `otp_seed`, WireGuard keys, X.509 private
+/// keys as bare base64 with no PEM banner.
+///
+/// **THE COLUMN NAMES ARE THE VENDOR'S, NOT PLAUSIBLE-LOOKING INVENTIONS.**
+/// Every one below was read out of `opnsense/core` master on 2026-08-16 —
+/// `Auth/LDAP.php`'s `$confMap` (`ldap_binddn`, `ldap_bindpw`),
+/// `Auth/Radius.php`'s (`radius_secret`), and the manual's *"OTP seed"* field
+/// for `otp_seed`. Inventing a config key would have made this test pass
+/// against a spelling no OPNsense box writes, which is rule 0's failure in a
+/// different costume.
+///
+/// **THE VALUES ARE SHORT ON PURPOSE, AND THE BOUND IS LOOKED UP RATHER THAN
+/// ASSUMED** (ADR-0034). OPNsense's password length constraint is an OPTIONAL
+/// policy, not a floor the product enforces: `docs.opnsense.org/manual/users.html`
+/// describes the Local Database's *"Enable password policy constraints"* and
+/// *"Minimum password length to require"* as settings an administrator turns on
+/// (read 2026-08-16), and `opnsense/core` issue #2390 — *"system: password policy
+/// brush-up"*, opened 4 May 2018, closed, milestone 18.7 — records that length
+/// was not enforced at login at all and asks for **smaller** configurable
+/// minimums (read 2026-08-16). So a six-character account password is a value a
+/// real OPNsense box really holds, and no probe here reaches any content
+/// detector's floor: 24 characters for base64, 32 for hex, 8 for the mask rule.
+///
+/// If one survives, the column-name coupling is what failed. Nothing here is
+/// shaped to suit a detector; every probe is shaped to defeat all of them.
+///
+/// Four of the six pass because of the MERGE rather than because of this
+/// branch: `dict::is_secret_word` became component-matching at the tip
+/// (*"Close the compound-secret-name class — six live credentials were reaching
+/// the export"*), and `raw_walk` calls it, so this path inherited the fix the
+/// moment the two histories joined. The remaining two are concatenations no
+/// component split can reach and are named members of the list — see
+/// `SECRET_WORD_LIST`'s own note on what that does and does not close.
+#[test]
+fn a_compound_credential_column_does_not_survive_the_gate() {
+    let d = dict();
+    let probes = [
+        ("user_password", "hunt3r"),
+        ("ipsec_psk", "s3cret"),
+        ("radius_secret", "r4d1us"),
+        ("ldap_bindpw", "b1ndpw"),
+        ("api.key", "ak0091"),
+        ("otp_seed", "JBSWY3"),
+    ];
+    for (column, value) in probes {
+        let paste = format!(
+            "@uuid;enabled;{column}\n\
+             8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;1;{value}\n"
+        );
+        let out = ingest_csv(paste.as_bytes(), &d).expect("within the caps");
+        assert!(
+            !out.capture.text().contains(value),
+            "`{value}` survived under a column named `{column}`: {}",
+            out.capture.text()
+        );
+        assert!(
+            !format!("{:?}", out.fragment).contains(value),
+            "`{value}` reached the graph fragment under `{column}`"
+        );
+        assert_eq!(out.drops.entries.len(), 1, "column `{column}`");
+    }
+}
+
+/// The other half of rule 0, and the half that is easy to forget: **a gate that
+/// destroys a real export is as broken as one that keeps a real secret.**
+///
+/// Every one of the fifty column names the exporter emits is checked against the
+/// compound rule the test above requires. The list is not retyped from memory —
+/// it is the fixture's own header, which is byte-identical to the header pasted
+/// verbatim in `opnsense/core` #9861 and to the keys
+/// `src/opnsense/scripts/filter/list_legacy_rules.php` builds, in order (read
+/// 2026-08-16; `64` §1.1 carries both URLs).
+///
+/// Two of the fifty are near misses worth naming: `tag` and `tagged` are pf
+/// PACKET tags, and `token` is on the secret-word list — but `tag` is not
+/// `token`, and neither splits into it. `max-src-conn-rate` splits into `max`,
+/// `src`, `conn`, `rate`. None of the fifty carries a secret word in any part.
+#[test]
+fn no_real_column_name_is_read_as_a_credential() {
+    let d = dict();
+    let raw = fixture();
+    let text = String::from_utf8(raw).expect("the fixture is UTF-8");
+    let header: Vec<&str> = text
+        .lines()
+        .next()
+        .expect("the fixture has a header")
+        .split(';')
+        .collect();
+    assert_eq!(header.len(), 50, "the real export's column count");
+
+    // One row, one column at a time, with a value that would be destroyed the
+    // instant the column name were read as a credential — and kept otherwise.
+    for column in &header {
+        if *column == "@uuid" {
+            continue;
+        }
+        let paste = format!(
+            "@uuid;{column}\n\
+             8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;keepme\n"
+        );
+        let out = ingest_csv(paste.as_bytes(), &d).expect("within the caps");
+        assert_eq!(
+            out.drops.entries.len(),
+            0,
+            "column `{column}` of a REAL export was read as a credential and its \
+             value destroyed; the operator loses a rule field to a false positive"
+        );
+        assert!(out.capture.text().contains("keepme"), "column `{column}`");
+    }
+}
+
+/// **The blocker: a row wider than its header.**
+///
+/// Both ways of producing one are real. This drives the first — an unquoted `;`
+/// inside `description`, which is possible on every free-text cell of every
+/// export because `64` §5 records that the writer's quoting rule is established
+/// NOWHERE. The row widens by one and every column after the stray delimiter
+/// shifts left by one.
+///
+/// Four things are asserted, and the last is the point:
+///
+/// 1. The row is refused whole, with its cell count and the header's.
+/// 2. Its bytes are on the residue list — the promise the page makes.
+/// 3. Its cells reach the gate, at the maximum aggression a line Fathom could
+///    not shape already gets. Before the fix a data row entered NO sweep and a
+///    secret in an overflow cell survived with `drops = 0`.
+/// 4. **Nothing from it is bound.** This is what the old code got wrong in the
+///    dangerous direction rather than the lossy one: it bound the cells that
+///    happened to pair with a header name, so a row whose columns had all
+///    shifted was documented with `source_net` read out of the previous
+///    column's slot. A rule that says `any` where the file says a network is a
+///    firewall document that is worse than no document.
+#[test]
+fn a_row_wider_than_its_header_binds_nothing_and_is_named() {
+    let d = dict();
+    // Header: 4 columns. Row: 5 cells, because the description carries a `;`.
+    // Read straight, the row would bind `source_net` = `any` — which is the
+    // NEXT column's value, and the exact lie this refusal exists to prevent.
+    let paste = b"@uuid;action;description;source_net\n\
+                  8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;pass;Reject v6 DNS; see CHG-4471;any\n"
+        .to_vec();
+    let out = ingest_csv(&paste, &d).expect("within the caps");
+
+    let refused: Vec<&LineOutcome> = out
+        .ledger
+        .lines
+        .iter()
+        .map(|l| &l.outcome)
+        .filter(|o| matches!(o, LineOutcome::Unshaped { .. }))
+        .collect();
+    assert_eq!(
+        refused,
+        vec![&LineOutcome::Unshaped {
+            reason: fathom_ingest::frame::ShapeError::RowWidth {
+                cells: 5,
+                columns: 4
+            }
+        }],
+        "the row is refused by width, and the numbers are said out loud"
+    );
+
+    let text = out.capture.text();
+    let named: Vec<&str> = out
+        .residue
+        .iter()
+        .map(|r| {
+            text.get(r.span.start as usize..r.span.end as usize)
+                .unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(named.len(), 1, "the whole row, once: {named:?}");
+    assert!(named[0].contains("CHG-4471"), "{named:?}");
+
+    // Nothing bound. Specifically NOT `match_any_source`, which the old code
+    // would have set from the shifted `any`.
+    assert_eq!(
+        out.fragment
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::SecurityPolicy)
+            .count(),
+        0,
+        "a row whose column mapping is unknown may not assert a firewall rule"
+    );
+}
+
+/// The second way to get a width disagreement, and it needs no operator error
+/// at all: `list_legacy_rules.php` appends the six `source_*`/`destination_*`
+/// keys **conditionally** — `if (!empty($rule[$field]))` — so records genuinely
+/// carry different key sets and an assembler taking its header from the first
+/// record emits a header NARROWER than later rows (source read 2026-08-16).
+///
+/// A narrow row is refused on the same terms as a wide one. It would be
+/// tempting to bind it, since the conditional keys are appended LAST and the
+/// leading columns therefore line up — but that reasoning is an inference about
+/// one exporter's key order, and a row that is short because a MIDDLE value was
+/// lost looks identical from inside the file.
+#[test]
+fn a_row_narrower_than_its_header_binds_nothing_and_is_named() {
+    let d = dict();
+    let paste = b"@uuid;action;enabled;description;source_net;destination_net\n\
+                  8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;pass;1\n"
+        .to_vec();
+    let out = ingest_csv(&paste, &d).expect("within the caps");
+    assert!(out.ledger.lines.iter().any(|l| l.outcome
+        == LineOutcome::Unshaped {
+            reason: fathom_ingest::frame::ShapeError::RowWidth {
+                cells: 3,
+                columns: 6
+            }
+        }));
+    assert_eq!(out.residue.len(), 1);
+    assert_eq!(
+        out.fragment
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::SecurityPolicy)
+            .count(),
+        0
+    );
+}
+
+/// A secret in an overflow cell. The reviewer's case (c), driven directly.
+///
+/// Before the fix this value was seen by no detector of any kind: it produced
+/// no statement, so `gate_statement` never looked at it, and data rows never
+/// entered `gate_unshaped`, so the safety net never looked either. `drops` came
+/// back `0` and the value sat in the sealed capture verbatim.
+///
+/// The value is deliberately below every content detector's floor again — six
+/// characters — so what catches it is the column-name coupling running over the
+/// row at maximum aggression, not a length heuristic.
+#[test]
+fn a_secret_in_an_overflow_cell_is_destroyed() {
+    let d = dict();
+    let paste = b"@uuid;action;description\n\
+                  8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;pass;note;psk;s3cret\n"
+        .to_vec();
+    let out = ingest_csv(&paste, &d).expect("within the caps");
+    assert!(
+        !out.capture.text().contains("s3cret"),
+        "an overflow cell's secret survived: {}",
+        out.capture.text()
+    );
+    assert!(
+        !out.drops.entries.is_empty(),
+        "the overflow cell reached no detector at all"
+    );
+}
+
+/// The table path's half of the quarantine hole — see
+/// `redaction_canary.rs::a_quarantined_line_does_not_bind_its_own_text` for the
+/// mechanism and for the proof that it is NOT this front end's bug.
+///
+/// What this path added was reach. `description` is the one column here that
+/// binds free text, and it binds it out of an arbitrary vendor column, so
+/// whatever an operator typed into a rule description on a box whose backup was
+/// pasted by mistake went straight into `SecurityPolicy.description` while the
+/// capture showed `<quoted:NN>` and the ledger said the line was understood.
+#[test]
+fn a_quarantined_row_binds_nothing() {
+    let d = dict();
+    let key = "-----BEGIN OPENSSH PRIVATE KEY-----FATHOMCANARYb3BlbnNzaA";
+    let paste = format!(
+        "@uuid;action;description\n\
+         8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;pass;{key}\n"
+    );
+    let out = ingest_csv(paste.as_bytes(), &d).expect("within the caps");
+
+    assert!(
+        out.ledger
+            .lines
+            .iter()
+            .any(|l| matches!(l.outcome, LineOutcome::Quarantined { .. })),
+        "{:?}",
+        out.ledger.lines
+    );
+    assert!(!format!("{out:?}").contains("FATHOMCANARY"));
+    assert_eq!(
+        out.fragment
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::SecurityPolicy)
+            .count(),
+        0,
+        "a quarantined row asserts no rule at all — not even the `pass` that \
+         was in a different cell, because the row's text is gone and a rule \
+         with an action and no identity is not a rule"
+    );
+}
+
 /// The empty-export refusal. OPNsense issue #10595 (22 July 2026, open and
-/// unanswered on 2026-08-15) reports the Migration assistant writing a 0-byte
+/// unanswered — state re-established independently on 2026-08-16, see below)
+/// reports the Migration assistant writing a 0-byte
 /// file while reporting 47 rules found. An empty export and a firewall with no
 /// rules are the same file, so Fathom refuses instead of welding a device with
 /// no policies.

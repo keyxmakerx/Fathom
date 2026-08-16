@@ -514,17 +514,24 @@ fn every_pasted_kind_has_a_consistent_header() {
 // grammar — added 2026-08-15 with the OPNsense firewall-rules CSV.
 // ---------------------------------------------------------------------------
 
-/// A four-rule export in the shape the Migration assistant writes (`64` §1.1).
-/// Trimmed to the columns that carry values plus the two that must be residue:
-/// the full 50-column file lives in
-/// `crates/fathom-ingest/tests/fixtures/opnsense-rules-export.csv` and is what
-/// the browser driver pastes.
+/// A four-rule export, REDUCED — eleven of the fifty columns, chosen as the ones
+/// that carry values plus the ones that must land on the residue list. It is not
+/// a verbatim export and is not described as one; the full 50-column file is
+/// `crates/fathom-ingest/tests/fixtures/opnsense-rules-export.csv`, which is
+/// what the browser driver pastes.
+///
+/// The VALUES are the exporter's, even though the column set is not.
+/// `list_legacy_rules.php` starts `$sequence` at 1 and adds 10 per rule, and
+/// defaults an unset `protocol` to `any` rather than leaving it empty (source
+/// read 2026-08-16). A reduced fixture may carry fewer columns than the vendor
+/// writes; it may not carry values the vendor never writes, or the assertions
+/// beneath it are about a file that does not exist.
 const RULES_CSV: &str = "\
 @uuid;enabled;sequence;action;interface;direction;protocol;description;source_net;destination_net;destination_port
-8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;1;1;pass;lan;in;;Default allow LAN to any;lan;any;
-b3a55e21-77f2-4c19-8de1-2f0c4b9a7e55;1;2;block;wan;in;TCP;Block inbound RDP;any;192.168.1.0/24;3389
-2c772765-4c1e-4c61-9f34-0b7926bbf8db;0;3;pass;opt2;in;;Disabled Plex rule;192.168.210.0/24;any;
-d40b7c98-5e33-41aa-b0c7-6a2e1f8d9c07;1;4;reject;lan;out;UDP;Reject v6 DNS;any;any;53
+8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;1;1;pass;lan;in;any;Default allow LAN to any;lan;any;
+b3a55e21-77f2-4c19-8de1-2f0c4b9a7e55;1;11;block;wan;in;TCP;Block inbound RDP;any;192.168.1.0/24;3389
+2c772765-4c1e-4c61-9f34-0b7926bbf8db;0;21;pass;opt2;in;any;Disabled Plex rule;192.168.210.0/24;any;
+d40b7c98-5e33-41aa-b0c7-6a2e1f8d9c07;1;31;reject;lan;out;UDP;Reject v6 DNS;any;any;53
 ";
 
 fn pasted_csv() -> (Shell, Vec<FaceRowView>) {
@@ -587,16 +594,16 @@ fn the_rules_appear_in_the_inventory() {
     };
     assert_eq!(by_ordinal("1")[1], "permit");
     assert_eq!(
-        by_ordinal("2")[1],
+        by_ordinal("11")[1],
         "deny",
         "OPNsense `block` is Junos `deny`"
     );
-    assert_eq!(by_ordinal("4")[1], "reject");
+    assert_eq!(by_ordinal("31")[1], "reject");
     // The one that matters: issue #10595 is about disabled rules disappearing.
-    assert_eq!(by_ordinal("3")[2], "false");
+    assert_eq!(by_ordinal("21")[2], "false");
     assert_eq!(by_ordinal("1")[2], "true");
     assert_eq!(
-        by_ordinal("2")[3],
+        by_ordinal("11")[3],
         "true",
         "source_net is the literal `any`"
     );
@@ -639,8 +646,21 @@ fn an_empty_export_is_refused_and_changes_nothing() {
     );
     let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, "@uuid;enabled;action\n")));
     assert_eq!(e.code, ERR_INGEST_REFUSED);
+    // The three things the operator must be told, asserted as three separate
+    // claims because each fails differently: whose bug it is, that their
+    // firewall is not in fact empty, and where the rules still are. A message
+    // that named the issue but let "0 rules" stand as a statement about the
+    // firewall would pass a `contains("10595")` check and still be the failure
+    // this refusal exists to prevent.
     assert!(e.detail.contains("10595"), "{}", e.detail);
-    assert!(e.detail.contains("no rules in it"), "{}", e.detail);
+    assert!(
+        e.detail
+            .contains("DOES NOT MEAN YOUR FIREWALL HAS NO RULES"),
+        "{}",
+        e.detail
+    );
+    assert!(e.detail.contains("/conf/config.xml"), "{}", e.detail);
+    assert!(e.detail.contains("not one rule under them"), "{}", e.detail);
     let after = shell.handle(
         OP_INV_ROWS,
         &[u8::try_from(

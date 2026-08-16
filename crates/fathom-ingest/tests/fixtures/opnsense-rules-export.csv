@@ -1,5 +1,5 @@
 @uuid;enabled;statetype;state-policy;sequence;action;quick;interfacenot;interface;direction;ipprotocol;protocol;icmptype;icmp6type;gateway;replyto;disablereplyto;log;allowopts;nosync;nopfsync;statetimeout;max-src-nodes;max-src-states;max-src-conn;max;max-src-conn-rate;max-src-conn-rates;overload;adaptivestart;adaptiveend;prio;set-prio;set-prio-low;tag;tagged;tcpflags1;tcpflags2;categories;sched;tos;shaper1;shaper2;description;source_not;source_net;source_port;destination_not;destination_net;destination_port
-8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;1;keep state;;1;pass;1;0;lan;in;inet;;;;;;;0;;;;;;;;;;;;;;;;;;;;;;;;;;Default allow LAN to any;0;lan;;0;any;
-b3a55e21-77f2-4c19-8de1-2f0c4b9a7e55;1;keep state;;2;block;1;0;wan;in;inet;TCP;;;;;;1;;;;;;;;;;;;;;;;;;;;;edge;;;;;Block inbound RDP;0;any;;0;192.168.1.0/24;3389
-2c772765-4c1e-4c61-9f34-0b7926bbf8db;0;keep state;;3;pass;1;0;opt2;in;inet;;;;;;;0;;;;;;;;;;;;;;;;;;;;;;;;;;VM_PlexFileServer_Mint_210_212 Internet Full Access Rule;0;192.168.210.0/24;;0;any;
-d40b7c98-5e33-41aa-b0c7-6a2e1f8d9c07;1;keep state;;4;reject;0;0;lan;out;inet6;UDP;;;;;;1;;;;;;;;;;;;;;;;;;;;;;;;;;"Reject v6 DNS; see change CHG-4471";0;any;;0;any;53
+8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;1;keep;;1;pass;1;0;lan;in;inet;any;;;;;;0;;;;;;;;;;;;;;;;;;;;;;;;;;Default allow LAN to any;0;lan;;0;any;
+b3a55e21-77f2-4c19-8de1-2f0c4b9a7e55;1;keep;;11;block;1;0;wan;in;inet;TCP;;;;;;1;;;;;;;;;;;;;;;;;;;;;edge;;;;;Block inbound RDP;0;any;;0;192.168.1.0/24;3389
+2c772765-4c1e-4c61-9f34-0b7926bbf8db;0;keep;;21;pass;1;0;opt2;in;inet;any;;;;;;0;;;;;;;;;;;;;;;;;;;;;;;;;;VM_PlexFileServer_Mint_210_212 Internet Full Access Rule;0;192.168.210.0/24;;0;any;
+d40b7c98-5e33-41aa-b0c7-6a2e1f8d9c07;1;keep;;31;reject;0;0;lan;out;inet6;UDP;;;;;;1;;;;;;;;;;;;;;;;;;;;;;;;;;"Reject v6 DNS; see change CHG-4471";0;any;;0;any;53

@@ -89,6 +89,54 @@ fn quarantine_destroys_unshaped_secret_line() {
     }
 }
 
+/// **A QUARANTINED LINE'S TEXT MUST NOT REACH THE GRAPH.** Invariant 3.
+///
+/// This is the hole the test above could not see, and the reason it could not
+/// is worth stating: it asserts on `out.capture.text()` and nothing else, so a
+/// secret that was destroyed in the capture and kept in the FRAGMENT looked
+/// identical to one that was destroyed everywhere. `no_canary_survives_anywhere`
+/// serialises the whole output, which is the right shape — but the fixture it
+/// runs has no quarantined line carrying a bindable field, so it never reached
+/// this path either.
+///
+/// The mechanism: a quarantine `Edit` carries `node: None`, so unlike a value
+/// redaction the gate never re-points the tree segment at a marker. The segment
+/// still held the original text, and `bind` — which runs after the gate — read
+/// it, stored it, and overwrote the line's outcome back to `Bound`.
+///
+/// **The probe is a value a real device produces**, not one shaped to trip a
+/// detector. `64` §7 records that an OPNsense `//system/backup/*` subtree holds
+/// sftp and git `privkey` elements containing **plaintext SSH private keys**,
+/// and OpenSSH writes those with a `-----BEGIN OPENSSH PRIVATE KEY-----` banner.
+/// A Junos `description` is free text and will hold whatever was pasted into it.
+/// The body is only 30 characters — well under `base64ish`'s 24-character floor
+/// per line but chosen so that if the banner detector were removed, nothing else
+/// would carry the test.
+#[test]
+fn a_quarantined_line_does_not_bind_its_own_text() {
+    let key = "-----BEGIN OPENSSH PRIVATE KEY-----FATHOMCANARYb3BlbnNzaA";
+    let text = format!("set interfaces ge-0/0/0 description \"{key}\"\n");
+    let out = ingest(text.as_bytes(), &dict()).expect("within the caps");
+
+    assert!(
+        out.ledger
+            .lines
+            .iter()
+            .any(|l| matches!(l.outcome, LineOutcome::Quarantined { .. })),
+        "the PEM banner quarantines the line: {:?}",
+        out.ledger.lines
+    );
+    // The capture was always clean. The fragment was not.
+    assert!(!out.capture.text().contains(CANARY));
+    assert!(
+        !format!("{:?}", out.fragment).contains(CANARY),
+        "a quarantined line's text reached the graph: {:?}",
+        out.fragment
+    );
+    // And the whole output, which is the assertion that generalises.
+    assert!(!format!("{out:?}").contains(CANARY));
+}
+
 #[test]
 fn pfs_keys_group_not_redacted() {
     let out = fixture_run();

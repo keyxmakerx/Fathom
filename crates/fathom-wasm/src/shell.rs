@@ -1112,12 +1112,28 @@ fn refusal_text(e: fathom_ingest::IngestRefusal) -> String {
         // report of the export writing 0 bytes while the assistant said it had
         // found 47 rules. Naming the version is what makes the message
         // actionable rather than merely apologetic.
+        // THE MOST LIKELY REAL INPUT ON THIS PATH, AND IT MUST NOT READ AS
+        // "your firewall is empty". A header with no records is what OPNsense
+        // issue #10595 produces: the Migration assistant reports finding 47
+        // legacy rules and writes a 0-byte `download_rules.csv`. Opened 22 July
+        // 2026 against 26.7.1; still open, unanswered, no fix found —
+        // re-established independently on 2026-08-16 rather than carried
+        // forward on trust (ADR-0034).
+        //
+        // The operator who hits it is one step from documenting their firewall
+        // as having no rules at all. So the message says what the file is, says
+        // whose bug it is, and says where the rules still are. It does not
+        // suggest a workaround, because none was established.
         fathom_ingest::IngestRefusal::EmptyTable { columns } => format!(
-            "this is a table with {columns} columns and no rules in it. If it came out of \
-             OPNsense's Firewall → Rules → Migration assistant, check the file you \
-             downloaded is not empty: opnsense/core issue #10595 reports a 0-byte export \
-             on 26.7.1 while the assistant reported finding rules. Fathom has not touched \
-             your estate."
+            "this is a rules table with {columns} columns and not one rule under them. \
+             THIS DOES NOT MEAN YOUR FIREWALL HAS NO RULES. If it came from OPNsense's \
+             Firewall → Rules → Migration assistant, an empty export is a known bug in \
+             the assistant, not a fact about your firewall: opnsense/core issue #10595 \
+             reports it writing a 0-byte download_rules.csv while telling the operator it \
+             had found 47 rules (opened 22 July 2026 against 26.7.1, still open and \
+             unanswered on 2026-08-16). Your rules are in /conf/config.xml and your \
+             firewall is still enforcing them. Fathom has refused this file rather than \
+             record an estate with no policies in it, and has not touched what you had."
         ),
     }
 }
@@ -1148,6 +1164,17 @@ fn residue_reason(outcome: &fathom_ingest::frame::LineOutcome) -> String {
                 "the name this statement configures could not be read".to_owned()
             }
             ShapeError::TooManySegments => "more than 64 words deep".to_owned(),
+            // Said in full, because this is the one residue reason whose remedy
+            // is a specific edit to the file rather than "Fathom does not know
+            // this yet". The operator can look at the row, find the stray
+            // delimiter in a description, quote it, and paste again.
+            ShapeError::RowWidth { cells, columns } => format!(
+                "this row has {cells} fields where the header names {columns} columns, so \
+                 which value belongs to which column is not known — most often an \
+                 unquoted `;` inside a description. The whole row is shown rather than \
+                 guessed at: a rule read one column out would say `any` where your file \
+                 says a network."
+            ),
         },
         LineOutcome::Quarantined { label, orig_len } => format!(
             "held back at the redaction gate: {} ({orig_len} bytes)",

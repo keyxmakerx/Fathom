@@ -107,11 +107,59 @@ ones from the shell.
 I could not establish this independently. A web search returned the issue itself and a forum
 post-index, not a second report reproducing it, and no release note or commit was found closing it.
 So it is recorded here as **reported and unresolved, not confirmed** — which is the honest rank, and
-it is not smoothed upward. **It is still operationally load-bearing**, because the failure mode is
-silent in the direction that hurts: an operator exports, gets a file, hands it to Fathom, and an
-empty export is indistinguishable from a firewall with no rules unless somebody says so. Fathom's
-own answer to that is in the product, not in this document: a rules CSV with a header and no data
-rows is refused with *"the export is empty"* rather than welded as a device with zero policies.
+it is not smoothed upward.
+
+**Re-checked 2026-08-16, by a different session, and the state is unchanged.** The issue page itself
+reports it **open, opened 22 July 2026, with zero comments**; a second, independent search against
+the 26.7 release notes and changelog returned no fix, no closing commit and still no second
+reproduction. Two lookups, one negative result, recorded as one (ADR-0034 §2). The rank does not
+move: still reported-and-unresolved. What did change is the *reason for re-checking* — a dated
+lookup is a record and cannot notice it has gone stale, and this one is quoted at an operator inside
+the shipped product, so it is re-established rather than carried forward on trust.
+
+**It is operationally load-bearing**, because the failure mode is silent in the direction that
+hurts: an operator exports, gets a file, hands it to Fathom, and an empty export is
+indistinguishable from a firewall with no rules unless somebody says so. Fathom's answer is in the
+product, in two places, because there are two shapes of the same event:
+
+- **A header with no records** is refused by `IngestRefusal::EmptyTable`, and the refusal the
+  operator reads names the issue, states in capitals that it **does not mean their firewall has no
+  rules**, and tells them the rules are still in `/conf/config.xml` and still being enforced.
+- **A genuinely 0-byte file** — which is what the issue actually reports — reaches the page as an
+  empty textarea and never reaches the module at all. The page used to answer *"nothing pasted"*,
+  which is true and reads as the operator's mistake. It now names the bug in the same terms.
+
+Neither refuses quietly and neither guesses. The reason both matter is the second half of #10595's
+title, which is easy to skip: the assistant **also omitted a disabled legacy rule** that was present
+in `/conf/config.xml`. A tool that treated an empty or short export as an estate of record would
+document a firewall as permitting less than it does.
+
+**INVARIANT 3 ON THIS PATH, CONFIRMED AGAINST THE COLUMN SET RATHER THAN ASSUMED.** §7 below lists
+what an OPNsense configuration carries — `otp_seed`, API keys, LDAP bind passwords, RADIUS secrets,
+X.509 private keys as **bare base64 with no PEM banner**, WireGuard keys, credentials inside a
+`mmonitUrl`, and a `//system/backup/*` subtree holding the passphrase for every off-box backup. A
+firewall-rules export should carry none of it, and *"should"* is not a security argument, so the
+fifty columns were checked one at a time against `14` §9.4's secret-word test on 2026-08-16:
+
+- **None of the fifty names a credential**, by whole string or by any `-`/`_`/`.`-separated part.
+  The near misses are worth naming so the next reader does not have to re-derive them: `tag` and
+  `tagged` are pf *packet* tags and neither is `token`; `max-src-conn-rate` splits to `max`, `src`,
+  `conn`, `rate`; `state-policy` to `state`, `policy`. Every column is rule metadata built from
+  rule fields by `list_legacy_rules.php`.
+- **So a real export must lose nothing at the gate**, and that is asserted rather than hoped:
+  `no_real_column_name_is_read_as_a_credential` drives all fifty and fails if any value is
+  destroyed. A gate that shredded a legitimate `description` would be as much a defect as one that
+  kept a password.
+- **The gate still runs on this path**, because the file an operator pastes into the rules box is
+  not always a rules export. #9861 above is the proof: that operator pasted a *backup configuration*
+  into the rules importer and created ~80,000 rules. When that happens the column names are the
+  configuration's own — `ldap_bindpw`, `radius_secret`, `user_password` — and those are coupled to
+  their values by the leaf-name walk and destroyed.
+
+Two named gaps remain and are recorded rather than papered over. `mmonitUrl` carries its credential
+in the **value**, not the name, so no name rule can reach it — what catches it is the `:` split in
+the unshaped sweep. And a bare-base64 private key with no PEM banner is caught by length and
+alphabet alone, which is a heuristic and is described as one.
 
 **What this changes for Fathom.** A firewall-rules CSV is not the `set`-form line grammar
 `fathom-ingest` was built around, and it is not the XML/JSON nested-document family §3 prices. It is
@@ -316,9 +364,11 @@ Stated plainly, per platform. These are gaps, not oversights.
 - *(Added 2026-08-15, with §1.1.)* **The rules-CSV delimiter.** Attested as `;` by one pasted header
   (issue #9861) and by nothing else; the exporter script emits JSON and the CSV is assembled above
   it, so the second source confirms the columns and not the separator. Fathom sniffs it.
-- *(Added 2026-08-15.)* **Whether the 0-byte export of issue #10595 is real.** Reported 22 July 2026
-  against 26.7.1, open and unanswered on 2026-08-15; no second report and no closing commit found.
-  Recorded as reported-and-unresolved, deliberately not upgraded to established.
+- *(Added 2026-08-15; re-checked 2026-08-16.)* **Whether the 0-byte export of issue #10595 is
+  real.** Reported 22 July 2026 against 26.7.1. Open, unanswered and with zero comments on
+  2026-08-16, re-established independently rather than carried forward; no second report and no
+  closing commit found on either date. Recorded as reported-and-unresolved, deliberately not
+  upgraded to established.
 - *(Added 2026-08-15.)* **Whether the export quotes fields containing the delimiter, and how.** No
   document, no example, and the exporter script does not do the writing. Fathom implements RFC 4180
   double-quote doubling *and* accepts unquoted fields, because that is the union of the plausible
