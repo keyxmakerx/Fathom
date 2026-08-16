@@ -60,6 +60,31 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   Proxmox box must still borrow `junos-srx`. ADR-0037 §5 prices three routes and chooses none —
   owner work. Driven in Chromium from an **empty page**, five boxes added by hand through the real
   form: `docs/80-review/evidence/2026-08-16-server-role-drive.mjs`, 23/23.
+- **You can connect two boxes, so a hand-built estate is a network — `OP_LINK` (24), 2026-08-16.**
+  Before it, a person could add a box, name it, correct it, move it, rack it and remove it, and
+  could not join it to anything: a hand-built lab was a pile of unconnected boxes, and a diagram
+  of unconnected boxes is not a network diagram. Hold one end, select the other, draw or cut. The
+  **schema picks the edge** — `hand_link_candidates` offers every reference kind that admits the
+  two, the module writes it when exactly one survives and **refuses to guess when several do**
+  (`ERR_LINK_CHOICE` plus the names; the page turns them into buttons and never picks). Journalled
+  **by edge-kind name, never an ordinal**, because an exported journal outlives the build that
+  wrote it. A hand-drawn line carries the word `by hand` at its midpoint and on the Outline row —
+  `51` §9 reserves `dashed` for AI-proposed and `dotted` for unanswered, so the mark is a word.
+  Driven through a real reload: `2026-08-16-hand-link-drive.mjs`, 31/31.
+- **The chooser had three defects and all three were only visible in a browser — 2026-08-16.**
+  Worth reading before writing another surface: the module was correct at both ends and **the page
+  was what guessed**, so no unit test could have caught any of them. (1) `DG_ASK` recorded the pair
+  and the candidate kinds and *not the verb that raised the question*, so pressing **"cut the link"
+  and answering DREW one** — journalled, exported, permanent. (2) Its corollary: a link of an
+  ambiguous kind **could never be cut**, because every cut re-asked and every answer drew. (3)
+  Found while driving the first two: drawing a link a **paste** had already made is a correct no-op,
+  but it shared its reply word with a real draw, so the page said *"drew a BindsInterface link … it
+  is marked as drawn by hand"* over a line the parser had read — every clause false. `OP_LINK` now
+  answers with a third word, the page says which happened, and **it does not journal a draw that
+  did not occur**. Cut and draw also ask different questions now — the cut asks the graph what is
+  **live**, the draw asks the schema what is **legal** — which made the empty-list refusal ambiguous
+  and produced a fourth wrong sentence the existing driver caught within the hour.
+  `2026-08-16-the-cut-that-drew.mjs`, 18/18.
 - **A pasted SRX branch config binds 47.5% of its lines**, up from 23.8% on 2026-08-14. 29 of 122
   before, 58 after, measured per section in `docs/60-content/66-junos-coverage-measurement.md`.
   `set protocols ospf` and `set protocols bgp` now build `RoutingProtocol` and `ProtocolAdjacency`
@@ -204,7 +229,7 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 554 tests as of 2026-08-15; green is the gate, not the
+- `cargo test --workspace --locked` — 655 tests as of 2026-08-16; green is the gate, not the
   number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0, **0 failures and 0
   warnings** since 2026-08-09. The two standing `schema.identity.unexercised` warnings
@@ -213,8 +238,12 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
   next warning of any code fails a test.
 - `./scripts/gate-zero.sh` — exists since 2026-08-15; fails the build if `Cargo.lock` holds an
   external package with no `deps/decisions/<crate>.md` beside it (ADR-0032 §6).
-- `cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm` — **886,321 bytes
-  against the 900,000 ceiling.** Measure, never estimate; `scripts/byte-census.sh` says where they go.
+- `cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm` — **899,781 bytes
+  against the 900,000 ceiling, which is 219 of headroom.** Measure, never estimate;
+  `scripts/byte-census.sh` says where they go. **At this margin the ceiling decides what ships
+  next**: the rack, the OPNsense engine, the roles and the links between them spent the last of it,
+  and the only lever left is float handling (~44,825), which is ring-fenced for encryption and is
+  the owner's to spend. The next feature of any size does not fit until that decision is made.
 - The executing work order's own acceptance gates, exactly as written.
 
 Interactive artifacts open from disk with zero network; the transcript face in
