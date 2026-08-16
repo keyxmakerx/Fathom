@@ -101,7 +101,14 @@ pub fn parse_into_slot(key: FieldKey, text: &str) -> Result<Box<dyn Any>, Author
             return Err(AuthorError::Parse(ScalarParseError {
                 scalar: "DeviceRole",
                 kind: ScalarParseErrorKind::Syntax {
-                    expected: "firewall, router, switch, load_balancer or other",
+                    // ADR-0037 added `server` and `access_point`. This string is
+                    // hand-written and the DECLARED array is generated, so the two
+                    // can drift and the drift is silent — the message would simply
+                    // stop naming a value the form does accept. `tests/author.rs`
+                    // now asserts every DECLARED token appears in it, which is the
+                    // guard, not this comment.
+                    expected:
+                        "firewall, router, switch, load_balancer, server, access_point or other",
                 },
             }));
         }

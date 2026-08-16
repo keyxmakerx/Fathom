@@ -28,7 +28,7 @@
 //! ```text
 //! line 1   fathom-plain 1
 //! line 2   THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.
-//! line 3   schema <SCHEMA_VERSION>      (0.2 at time of writing — ADR-0036)
+//! line 3   schema <SCHEMA_VERSION>      (0.3 at time of writing — ADR-0037)
 //! line 4   (empty)
 //! line 5   <the snapshot as canonical JSON, one line, ending in the final LF>
 //! ```

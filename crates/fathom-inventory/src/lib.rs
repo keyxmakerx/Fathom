@@ -31,7 +31,7 @@ mod render;
 pub use author::{is_authorable, parse_into_slot, AuthorError};
 #[cfg(feature = "demo-estate")]
 pub use demo::demo_estate;
-pub use element::{element_page, parse_display_id, ElementPage, FieldRow};
+pub use element::{element_page, parse_display_id, role_word, ElementPage, FieldRow};
 pub use equipment::{equipment_page, CabledPeer, EquipmentPage, IfaceRow, PortRow};
 pub use inventory::{columns, rows, InvKind, Row};
 pub use rack::{elevation, rack_label, Elevation, Slot};

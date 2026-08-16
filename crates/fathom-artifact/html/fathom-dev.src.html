@@ -725,6 +725,11 @@ button.tab:hover { color: var(--ink); }
    aria-hidden. */
 .dpin { fill: none; stroke: var(--ink); stroke-width: 2; }
 .dplaced { font-size: var(--t-micro); fill: var(--ink); }
+/* `Device.role` in the picture (ADR-0037), right-aligned on the kind's line.
+   `--ink`, not the kind's `--muted`: on a hand-drawn lab every box says
+   `Device` and the role is the fact that distinguishes them, so it is the
+   louder of the two. Same micro size, so the pair reads as one line. */
+.drole { font-size: var(--t-micro); fill: var(--ink); }
 .dline { stroke-width: 1; }
 /* Containment is structure and is drawn quieter than a reference edge. NOT
    dashed -- `51` §9 reserves dashed for proposed elements. */
@@ -769,6 +774,13 @@ svg[data-lod="0"] .dhandmark { display: none; }
    that makes it matter. */
 svg[data-lod="1"] .dkind { display: none; }
 svg[data-lod="0"] .dkind, svg[data-lod="0"] .dname { display: none; }
+/* The role follows the NAME's rung, not the kind's, for the same reason the
+   placed word does: zoomed out to where `Device` stops being worth its pixels,
+   `server` is still the thing telling one box from the next on a page where
+   every box is a Device. Dropped only at lod 0, where nothing is readable, and
+   the Outline row keeps it at every zoom regardless -- the Outline is the
+   interface (`55` §4.5.2), and level of detail is a property of the picture. */
+svg[data-lod="0"] .drole { display: none; }
 /* The placed WORD follows the name's rung, not the kind's: it is a claim about
    how this box's position got there, which is worth more than the kind noun and
    is dropped only when nothing is readable at all. The TICK is never dropped —
@@ -810,6 +822,18 @@ svg[data-lod="0"] .dplaced { display: none; }
          border-left: var(--rule-accent) var(--rule-style-pending) var(--muted);
          padding-left: var(--s2); }
 .dorel { font-size: var(--t-micro); color: var(--muted); text-transform: lowercase; }
+/* `Device.role` on an Outline row (ADR-0037). Mono like `.dokind`, because a
+   role is a schema TOKEN out of schema.yaml (`load_balancer`, `access_point`)
+   and the underscore is part of the word -- the same argument the `.dokind`
+   comment above makes for not uppercasing a CamelCase kind. `--ink` and not
+   `--muted`: on a hand-drawn lab the kind word is `Device` on every single box
+   and the role is the only thing telling four boxes apart, so it is the
+   stronger fact of the two and is inked as one.
+
+   ONE LETTER FROM `.dorel`, which is the edge-direction word ("to"/"from") on a
+   LINK row. They are different rows and different facts; the names are this
+   close because both are shortenings of `dorow`+something. Do not merge them. */
+.dorole { font-family: var(--mono); font-size: var(--t-micro); color: var(--ink); }
 .dolink { padding-left: var(--s5); }
 .dout .note { margin: var(--s3); }
 
@@ -1148,7 +1172,21 @@ var EQUIP_FIELDS = [
    nothing parses. */
 var PLATFORMS = ['junos-srx', 'junos-mx', 'junos-ex', 'panos', 'ios-xe', 'nx-os',
                  'eos', 'fortios', 'opnsense', 'omada-sw'];
-var ROLES = ['firewall', 'router', 'switch', 'load_balancer', 'other'];
+/* `Device.role`'s declared tokens, in the schema's own declaration order, with
+   `other` last. ADR-0037 added `server` and `access_point`: the owner's brief is
+   "design my network AND SERVERS for my home lab", and before those two every
+   server, NAS, hypervisor and access point in a lab was `other`.
+
+   The module refuses a role it does not declare (`author.rs` turns the generated
+   unknown arm into a refusal for the FORM direction on purpose), so an option
+   this list offers and the schema does not is not a wrong value in the store --
+   it is a dead entry in a dropdown that always fails. The reverse drift is worse
+   and quieter: a variant the schema declares and this list omits is simply
+   unreachable, which is exactly the defect ADR-0037 was written to fix.
+   `tests/artifact.rs::the_equipment_form_offers_every_declared_role` pins BOTH
+   directions against `DeviceRole::DECLARED`. */
+var ROLES = ['firewall', 'router', 'switch', 'load_balancer', 'server',
+             'access_point', 'other'];
 var FACE_HEADER = 0, FACE_INV = 1, FACE_FIELD = 2, FACE_PORT = 3, FACE_IFACE = 4;
 var FACE_PASTE = 5, FACE_RESIDUE = 6, FACE_UNRESOLVED = 7, FACE_CAPTURE = 8;
 var FACE_BOX = 9, FACE_LINE = 10, FACE_CANVAS = 11;
@@ -3166,6 +3204,18 @@ function dgOutline(boxes, noSetKinds, agg) {
        inspector". This is that row. */
     row.appendChild(el('span', 'doname', b.s[2]));
     row.appendChild(el('span', 'dokind', b.s[1]));
+    /* WHAT THE BOX IS FOR (ADR-0037). A plain row takes its accessible name
+       from its own text -- it carries no aria-label, unlike the collapsed
+       branch above -- so a visible span is BOTH the seen fact and the announced
+       one, and there is no second copy to drift. The picture's own right-hand
+       label lives inside the aria-hidden <svg> and announces nothing, which is
+       why it cannot be the only place the role appears.
+
+       After `dokind` and not before it: the kind is what the node IS and the
+       role is what it is FOR, a weaker and more specific fact, and a screen
+       reader reads this row in DOM order. `Device` never appears without
+       `server` following it, never the other way round. */
+    if (ag.role) row.appendChild(el('span', 'dorole', ag.role));
     /* A collapsed box stands for many objects and the row must SHOW so, not
        only announce it. `59` §3.6 makes the cardinal the one label that may
        never be dropped, and a row reading `LogicalUnit st0.0–st0.12 · 3 links`
@@ -3583,12 +3633,19 @@ function renderDiagram(host) {
        would be indistinguishable from no token at all on an ungrouped box.
        `crates/fathom-wasm/tests/diagram_agg.rs` pins the same four positions
        from the other side of the boundary. */
-    var parts = (boxes[ai].s[7] || '1 0 0 ').split(' ');
+    var parts = (boxes[ai].s[7] || '1 0 0 - ').split(' ');
     var a = {
       n: parseInt(parts[0], 10) || 1,
       inside: parseInt(parts[1], 10) || 0,
       placed: parts[2] === '1',
-      grp: parts[3] || '',
+      /* ADR-0037's `Device.role`, inserted at 3 for the same reason the placed
+         flag was inserted at 2: the group key is the only token here that may
+         be empty, so anything appended after it is indistinguishable from
+         nothing. The module sends `-` for "no role" rather than an empty
+         token, because two adjacent spaces collapse under split(' ') and the
+         group key would then be read as the role. */
+      role: parts[3] === '-' ? '' : (parts[3] || ''),
+      grp: parts[4] || '',
       /* An OUTLINE ROW id, not a shape id. `aria-controls` must name nodes the
          accessible tree can reach, and the shapes live inside `aria-hidden`
          SVG. Same index, so row i and box i are the same object throughout. */
@@ -3672,6 +3729,13 @@ function renderDiagram(host) {
       name = b.s[1] + ' ' + b.s[2] + ', ' + ag.n + ' collapsed. Activate to ' +
              'expand ' + Math.min(ag.n, 6) + ' of them.';
     } else {
+      /* No role here, deliberately. `ag.name` is read in exactly one place --
+         the aria-label a COLLAPSED Outline row carries -- and a plain row takes
+         its accessible name from its own text instead. Putting the role in this
+         string would have looked like surfacing it and announced it to nobody,
+         which is the same shape of mistake as an aria attribute on the
+         aria-hidden <svg>. The plain row's role rides as a visible span in
+         dgOutline, where it is both seen and read. */
       name = b.s[1] + ' ' + b.s[2];
     }
     /* Carried to the Outline, which is the tree assistive technology actually
@@ -3735,6 +3799,24 @@ function renderDiagram(host) {
       : { x: bx + 10, y: by + 17, class: 'dkind' });
     kind.textContent = b.s[1];
     g.appendChild(kind);
+    /* THE ROLE, right-aligned on the kind's line (ADR-0037). A box is 44 px
+       tall and already carries two text lines at +17 and +34, so there is no
+       third rung to give this; the right of the kind line is the only slot in
+       the box that is free on a PLAIN box, and it is free precisely because the
+       two things that use it -- the collapsed count's kind word and the placed
+       word -- never co-occur with a role. A collapsed box never has one (the
+       module leaves it empty for a box standing for many), and `placed` sits on
+       the +34 line. So no reading of any box puts two labels in one slot.
+
+       Rejected: growing BOX_H to 60 for a third rung. That is a layout constant
+       every routing channel, every canvas extent and every stored pin is
+       measured against, changed to make room for one word. */
+    if (ag.role) {
+      var rl = sEl('text', { x: bx + bw - 10, y: by + 17, class: 'drole',
+        'text-anchor': 'end' });
+      rl.textContent = ag.role;
+      g.appendChild(rl);
+    }
     if (ag.collapsed) {
       var cnt = sEl('text', { x: bx + 10, y: by + 17, class: 'dcount' });
       cnt.textContent = ag.n + ' collapsed';

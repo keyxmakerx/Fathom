@@ -53,7 +53,46 @@ mod body {
         pub fn os_version<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::OsVersion, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(8))
         }
-        /// `Device.role` — `enum { firewall, router, switch, load_balancer, other }`, card `0..1`, emit `—`.
+        /// `Device.role` — `enum { firewall, router, switch, load_balancer, server, access_point, other }`, card `0..1`, emit `—`.
+        /// What the box is FOR, in one word. ADR-0037 added `server` and `access_point`
+        /// on 2026-08-16 and gives the whole argument; the short form is that the owner's
+        /// brief is "design my network AND SERVERS for my home lab" and the five original
+        /// variants sent every server, NAS, hypervisor and wireless access point to
+        /// `other` — a taxonomy that collapses half a lab into one bucket is not a
+        /// taxonomy.
+        ///
+        /// `server` is one variant and not four. A NAS, a hypervisor host, a container
+        /// host and a bare-metal application server differ in what is INSTALLED on them,
+        /// not in what they are, and the schema does not model installed software.
+        /// Splitting them would be a variant per product category, which is exactly how
+        /// an enum stops meaning anything.
+        ///
+        /// `access_point` is the 802.11 term, not a vendor's. It earns a variant because
+        /// it is a distinct network function that every home lab and every branch office
+        /// has at least one of, and because the two variants it would otherwise borrow
+        /// are both wrong: it is not a `switch` (it bridges a radio, and the layer model
+        /// would file it in the wrong place), and it is not `other` (nothing is
+        /// undecided about an AP).
+        ///
+        /// Deliberately NOT variants, so the next person does not re-litigate them:
+        /// `storage`/`nas` and `hypervisor` (fold into `server`, above); `pdu` and `ups`
+        /// (rack furniture with a management address that carries no traffic — they stay
+        /// `other` until someone wants power in the elevation, and that is a rack
+        /// question, not a role question); `camera`, `printer`, `phone`, `workstation`
+        /// (leaves, not infrastructure, and one of them opens the door to all of them);
+        /// `wireless_controller` and `nms` (software on a `server`); `modem`/`ont` (a
+        /// media converter is a `PassiveNode` with ports and no config — 19 §3.6 — and a
+        /// carrier CPE that routes is a `router`).
+        ///
+        /// `other` stays load-bearing and is not a failure state: it is the honest
+        /// answer for a box the taxonomy has not decided, and keeping it honest is
+        /// better than one variant per product category.
+        ///
+        /// Still single-valued at card 0..1, which is a real limit and not an oversight:
+        /// a home gateway that is router + firewall + AP + switch gets one word. Widening
+        /// the cardinality is a separate change with a separate cost (every reader that
+        /// prints "the role" becomes a reader that prints a set), and nothing has asked
+        /// for it yet.
         pub fn role<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::DeviceRole, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(9))
         }
