@@ -76,6 +76,9 @@ struct Pending<'a> {
     b: &'a Node,
     id: EdgeId,
     kind: &'static str,
+    /// True when a person drew this line rather than a parser reading it out of
+    /// a capture. See [`Link::hand`].
+    hand: bool,
     containment: bool,
     /// x of the band's left wall — the right face of the leftmost of the two
     /// ranks the line touches.
@@ -102,7 +105,7 @@ fn centre(n: &Node) -> i32 {
     n.y + n.h / 2
 }
 
-fn resolve<'a>(a: &'a Node, b: &'a Node, id: EdgeId, kind: EdgeKind) -> Pending<'a> {
+fn resolve<'a>(a: &'a Node, b: &'a Node, id: EdgeId, kind: EdgeKind, hand: bool) -> Pending<'a> {
     let (ay, by) = (centre(a), centre(b));
     let left = if a.x <= b.x { a } else { b };
     Pending {
@@ -110,6 +113,7 @@ fn resolve<'a>(a: &'a Node, b: &'a Node, id: EdgeId, kind: EdgeKind) -> Pending<
         b,
         id,
         kind: kind.name(),
+        hand,
         containment: kind.class() == EdgeClass::Containment,
         wall: left.x + left.w,
         // Two boxes in the same rank are stacked, so both ends leave the same
@@ -124,6 +128,38 @@ fn resolve<'a>(a: &'a Node, b: &'a Node, id: EdgeId, kind: EdgeKind) -> Pending<
         slot: 0,
         members: 1,
     }
+}
+
+/// Did a person DRAW this line, as opposed to a parser reading it out of a
+/// capture or the weld deriving it?
+///
+/// Two conditions, and the second one is a judgement worth stating.
+///
+/// `Origin::Hand` is the obvious half. The other half is **reference only**, and
+/// the reason is that a containment edge is nobody's drawing. `HasChassis`
+/// exists because `OP_EQUIP_ADD` made a chassis; its kind was computed from the
+/// (owner, child) pair by `fathom_weld::containment_edge` and no human chose it.
+/// Its provenance is `Origin::Hand` — truthfully, because a person's gesture
+/// caused it — so a test that asked only about origin would mark every line in a
+/// hand-built estate, which was measured in the browser: two hand-typed devices
+/// and one drawn link produced **three** marked strokes, of which two said
+/// nothing a reader could use.
+///
+/// The mark answers *"who says these two are connected"*, and that question only
+/// has a contested answer for a **relationship** — `class: reference`, the same
+/// class `fathom_weld::hand_link_candidates` is the only one to offer. Structure
+/// is not a claim anybody disputes.
+///
+/// The rejected alternative was to mark every `Origin::Hand` edge and accept the
+/// noise as the price of honesty. It is not honesty: a mark that appears on
+/// every line in a hand-built estate carries no information, and `59`'s own rule
+/// is that a signal which stops distinguishing has stopped being a signal.
+fn hand_drawn(g: &Graph, e: &fathom_graph::Edge, kind: EdgeKind) -> bool {
+    kind.class() == EdgeClass::Reference
+        && matches!(
+            g.provenance(e.prov).map(|p| p.origin),
+            Some(fathom_graph::Origin::Hand)
+        )
 }
 
 /// Closed intervals: two runs that meet at a single y still meet. Treating a
@@ -270,12 +306,19 @@ pub(crate) fn route(g: &Graph, nodes: &[Node], at: &[(NodeId, usize)]) -> (Vec<L
                     {
                         if let Some(line) = pending.get_mut(*p) {
                             line.members += 1;
+                            // A merged stroke is hand-drawn only when EVERY edge
+                            // under it is. A line standing for forty edges of
+                            // which one was drawn by a person is not a
+                            // hand-drawn line, and marking it as one is the same
+                            // silent-count failure `59` files against a collapse
+                            // that does not say what it hid.
+                            line.hand &= hand_drawn(g, e, kind);
                         }
                         continue;
                     }
                     merged.push((ai, bi, kind, pending.len()));
                 }
-                pending.push(resolve(a, b, e.id, kind));
+                pending.push(resolve(a, b, e.id, kind, hand_drawn(g, e, kind)));
             }
         }
     }
@@ -302,6 +345,7 @@ pub(crate) fn route(g: &Graph, nodes: &[Node], at: &[(NodeId, usize)]) -> (Vec<L
                 from: e.a.id.clone(),
                 to: e.b.id.clone(),
                 kind: e.kind,
+                hand: e.hand,
                 containment: e.containment,
                 members: e.members,
                 points: shape(e, channel_x(e.wall, e.slot, count)),

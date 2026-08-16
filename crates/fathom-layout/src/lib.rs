@@ -141,6 +141,22 @@ pub struct Link {
     /// "this port is on that device" is structure and "this tunnel binds that
     /// interface" is a fact about the network.
     pub containment: bool,
+    /// True when a person DREW this line: `Origin::Hand` on the edge's own
+    /// provenance record **and** `class: reference`. `route::hand_drawn` carries
+    /// why containment is excluded — nobody chooses a containment edge, the weld
+    /// computes it from the kind pair — and what marking it measured.
+    ///
+    /// **The page must draw the difference**, for the reason [`Node::placed`]
+    /// gives about position and for one more: a link is the load-bearing claim
+    /// a network diagram makes, and *"who says these two are connected"* is a
+    /// question the picture has to be able to answer. `51` §9 rules out both
+    /// obvious strokes — `dashed` is reserved for AI-proposed content and
+    /// `dotted` for an unanswered required value — so this is marked the way a
+    /// placed box is: a word in the picture and a phrase on the Outline row.
+    ///
+    /// A merged stroke (`members > 1`) is hand only when every edge under it
+    /// is.
+    pub hand: bool,
     /// How many graph edges this one line stands for. `1` is a plain line.
     ///
     /// Higher only when an end was folded into a collapsed group, at which

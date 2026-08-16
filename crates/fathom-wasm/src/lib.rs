@@ -160,6 +160,40 @@ pub const OP_PLACE: u32 = 21;
 /// create a frame and then fill it.
 pub const OP_RACK_PLACE: u32 = 22;
 
+/// Draw a link between two boxes by hand, or cut one.
+///
+/// **This is the opcode that makes a hand-built estate a network.** Before it,
+/// the five write opcodes could add a device, correct a field, remove an
+/// element, place a box and rack a chassis — and not one of them created an
+/// EDGE. So a lab built by hand was a pile of unconnected boxes, and a diagram
+/// of unconnected boxes is not a network diagram. `52` §3.6 has stated the
+/// diagram's job as *"add a device, draw a link, draw a tunnel, drag for
+/// layout"* since it was written; three of those four existed.
+///
+/// # Which edge, and why the module decides
+///
+/// `schema/` declares 84 edge kinds and a person pointing at two boxes is not
+/// going to pick from 84. `fathom_weld::hand_link_candidates` narrows that to
+/// the reference edges the schema admits between those two kinds, computed from
+/// the generated tables and never from a hand-written list (ADR-0008). **When
+/// exactly one is legal this opcode does not ask** — the schema has already
+/// decided, and a menu of one is a question with no content. When several are,
+/// it writes nothing and hands the candidates back for the page to offer,
+/// because guessing writes a false fact into an estate of record. When none is,
+/// it says so plainly, naming both kinds.
+///
+/// # Why the kind travels as a name
+///
+/// A hand-drawn link is journalled and an exported journal outlives the build
+/// that wrote it. An index into `EdgeKind::ALL` is a number whose meaning moves
+/// the next time `schema/` declares an edge; `"PeersWith"` is not, and it reads
+/// as itself in the file an operator keeps.
+///
+/// It carries the same 24-byte host clock-and-entropy prefix every writing
+/// opcode does, for the same reason: the module has no clock and no RNG and
+/// must acquire neither (`wasmbin::IMPORT_ALLOWLIST` is empty and stays empty).
+pub const OP_LINK: u32 = 24;
+
 /// Read one rack's elevation — the frame, its capacity, and every box in it.
 ///
 /// Returns numbers, not geometry. The page turns `position_u` into a `y`,

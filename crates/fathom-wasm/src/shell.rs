@@ -12,14 +12,15 @@ use fathom_find::Finder;
 
 use crate::protocol::{
     self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_EQUIP_FRAME, ERR_EQUIP_STORE,
-    ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED,
-    ERR_NO_DICTIONARY, ERR_NO_ELEMENT, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
+    ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_LINK_CHOICE, ERR_NOTHING_UNDERSTOOD,
+    ERR_NOT_INITIALISED, ERR_NO_DICTIONARY, ERR_NO_ELEMENT, ERR_NO_LINK, ERR_PASTE_FRAME,
+    ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
 #[cfg(feature = "demo-estate")]
 use crate::OP_ESTATE_DEMO;
 use crate::{
     OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_FIELD_SET,
-    OP_INIT, OP_INV_ROWS, OP_PASTE, OP_PLACE, OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
+    OP_INIT, OP_INV_ROWS, OP_LINK, OP_PASTE, OP_PLACE, OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
 };
 
 pub struct Shell {
@@ -85,6 +86,7 @@ impl Shell {
             OP_FIELD_SET => self.field_set(req),
             OP_ELEMENT_REMOVE => self.element_remove(req),
             OP_PLACE => self.place(req),
+            OP_LINK => self.link(req),
             OP_DIAGRAM => self.diagram(req),
             OP_INV_ROWS => self.inv_rows(req),
             OP_ELEMENT => self.element(req),
@@ -784,6 +786,241 @@ impl Shell {
         }
     }
 
+    /// `OP_LINK`: draw a link between two boxes by hand, or cut one.
+    ///
+    /// Frame — the usual 24-byte prefix, a mode byte, two lengths, then three
+    /// strings back to back:
+    ///
+    /// ```text
+    ///   0   8   at_ms   (u64)
+    ///   8  16   entropy (u128)
+    ///  24   1   mode    (u8) 0 = cut the link, 1 = draw it
+    ///  25   2   a_len   (u16, little-endian)
+    ///  27   2   b_len   (u16, little-endian)
+    ///  29  ..   the FROM display id, utf8, a_len bytes
+    ///  ..  ..   the TO display id, utf8, b_len bytes
+    ///  ..  ..   the edge kind's NAME, utf8, to the end. Empty means
+    ///           "you choose, if the schema leaves you only one choice".
+    /// ```
+    ///
+    /// # Four properties, and the second one is the whole design
+    ///
+    /// **Both ends are live nodes.** An edge is a line between two boxes; a line
+    /// between a line and a box is not a thing the schema can express, and a
+    /// line onto a removed box is a fact the diagram will never draw. Both are
+    /// refused in `resolve_node` rather than left to the store.
+    ///
+    /// **A pair with several legal edges is a QUESTION, not a guess.** With no
+    /// kind named and more than one candidate this writes nothing and hands the
+    /// candidate names back under `ERR_LINK_CHOICE`, which the page turns into
+    /// a choice. Picking the first would be indistinguishable from working,
+    /// right up until an estate of record said two devices were vPC peers
+    /// because somebody drew a patch lead.
+    /// `fathom_weld::hand_link_candidates` carries the derivation and the
+    /// rejected alternatives.
+    ///
+    /// **Cutting is a tombstone, never a delete** (`11` §10.5). The record
+    /// keeps *"these two were connected and then they were not"*, which is a
+    /// different and more honest claim than *"they never were"*. It cuts a
+    /// parsed edge as readily as a hand-drawn one, because a person saying *"a
+    /// config once said this and it is no longer true"* is making a legitimate
+    /// assertion and the alternative is a mistake nobody can take back.
+    ///
+    /// **The refusals the page can word itself, it words itself.** `ERR_NO_LINK`
+    /// travels with an empty detail where a sentence naming both kinds would
+    /// have gone, because the page picked both boxes and knows both kinds, and
+    /// building that sentence here measured **345 module bytes** — 7 % of this
+    /// feature's whole budget for prose the page can write for free (`44` §5.2
+    /// measures the module; the artifact has 2.2 MB of its 4.5 MB left). Where
+    /// the module knows something the page does not — the schema's cardinality
+    /// bounds — it still writes the words itself: see `link_refusal`.
+    ///
+    /// Every id comes off the `Mint`, not from the clock plus a discriminator:
+    /// drawing three links in one millisecond is ordinary and the
+    /// clock-plus-discriminator pattern would mint the same `BatchId` twice.
+    /// `field_set` and `place` record the same lesson.
+    fn link(&mut self, req: &[u8]) -> Vec<u8> {
+        use fathom_graph::{Actor, BatchId, Timestamp, UserId};
+
+        const PREFIX: usize = 29;
+        let Some(head) = req.get(..PREFIX) else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_LINK_FRAME);
+        };
+        let at = Timestamp(u64::from_le_bytes(le8(head, 0)));
+        let entropy = u128::from_le_bytes(le16(head, 8));
+        let mode = *head.get(24).unwrap_or(&0);
+        let a_len = usize::from(u16::from_le_bytes(le2(head, 25)));
+        let b_len = usize::from(u16::from_le_bytes(le2(head, 27)));
+        let body = req.get(PREFIX..).unwrap_or_default();
+        let (Some(a_raw), Some(b_raw), Some(k_raw)) = (
+            body.get(..a_len),
+            body.get(a_len..a_len + b_len),
+            body.get(a_len + b_len..),
+        ) else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_LINK_FRAME);
+        };
+        let (Ok(a_id), Ok(b_id), Ok(want)) = (
+            core::str::from_utf8(a_raw),
+            core::str::from_utf8(b_raw),
+            core::str::from_utf8(k_raw),
+        ) else {
+            return protocol::encode_error(ERR_BAD_UTF8, "an id or the edge kind is not UTF-8");
+        };
+
+        let (from, to) = match (self.resolve_node(a_id), self.resolve_node(b_id)) {
+            (Some(f), Some(t)) => (f, t),
+            _ => return protocol::encode_error(ERR_NO_ELEMENT, NOT_TWO_BOXES),
+        };
+        // A box may not be linked to itself. The store would take it — no
+        // cardinality forbids a self-edge — and the diagram would draw nothing,
+        // because `route` treats both ends landing in one box as an interior
+        // edge and counts it instead of drawing it. A gesture whose whole
+        // effect is an invisible fact is worse than a refusal.
+        if from == to {
+            return protocol::encode_error(ERR_NO_ELEMENT, ONE_BOX);
+        }
+        // The kind is IN the id: `NodeId` embeds a `Copy` `NodeKind` (62 §13.1),
+        // so this needs no second lookup.
+        let candidates = fathom_weld::hand_link_candidates(from.kind, to.kind);
+        let chosen = if want.is_empty() {
+            match candidates.as_slice() {
+                // Nothing joins these two. The page names both kinds in the
+                // sentence it shows; see this function's fourth property for
+                // why that sentence is not built here.
+                [] => return protocol::encode_error(ERR_NO_LINK, ""),
+                [only] => *only,
+                // Several. Write NOTHING and hand the names back, space
+                // separated, under a code of their own so the page can tell a
+                // question from a failure.
+                //
+                // AN ERROR RECORD, not a face reply, and the measurement is the
+                // reason: a reply built on `encode_paste_reply` cost over a
+                // kilobyte of module to carry a list of names `encode_error`
+                // already carries. It is not a lie either — the opcode refused
+                // to write, and the detail says what it needs before it will.
+                many => {
+                    let mut names = String::new();
+                    for k in many {
+                        if !names.is_empty() {
+                            names.push(' ');
+                        }
+                        names.push_str(k.name());
+                    }
+                    return protocol::encode_error(ERR_LINK_CHOICE, &names);
+                }
+            }
+        } else {
+            match fathom_weld::edge_kind_named(want) {
+                Some(k) if candidates.contains(&k) => k,
+                // One arm for "no such edge kind" and "not between these two"
+                // alike. They are different mistakes but only a page defect
+                // produces either — the page posts a name this module handed it
+                // — so the operator gets one true sentence rather than two.
+                _ => return protocol::encode_error(ERR_NO_LINK, ""),
+            }
+        };
+
+        let mut mint = match fathom_weld::Mint::new(at, entropy) {
+            Ok(m) => m,
+            Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
+        };
+        let (Ok(user), Ok(batch)) = (fathom_id::Ulid::from_parts(at.0, 1), mint.next()) else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
+        };
+        let actor = Actor::User(UserId(user));
+
+        let Some(graph) = self.estate.as_mut() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        // Is there already a live link of this kind between these two? Asked
+        // BEFORE the batch opens, because `out` borrows the graph immutably and
+        // every write below wants it mutably.
+        //
+        // BOTH DIRECTIONS FOR A SYMMETRIC KIND, and only then. `11` §7.4 has
+        // the store normalise a symmetric edge so the smaller `NodeId` becomes
+        // `from`, so a `Link` the operator drew from B to A is stored A to B
+        // and an `out(from)` scan alone would miss it — then draw a second one,
+        // which the store refuses as `SymmetricDuplicate`, turning a no-op into
+        // an error message. For an asymmetric kind A→B and B→A are genuinely
+        // two different claims and must not be conflated.
+        //
+        // ONE id, not a list, and `cut` re-asks after every tombstone.
+        // Parallel edges of one kind between one pair arise only from a paste,
+        // because the no-op rule below stops this opcode making a second, so
+        // the list a `Vec` would carry has at most one entry almost always.
+        // Plain loops rather than `filter().map().next()`: each distinct
+        // closure monomorphises its whole adapter chain, and this file is
+        // measured against `44` §5.2's ceiling.
+        let held = live_link(graph, from, to, chosen);
+
+        let mut wrote: Result<(), String> = Ok(());
+        match (mode, held.is_none()) {
+            // Nothing there to cut. Not an error the store would raise — there
+            // is simply no such fact — so it is said here, in words.
+            (0, true) => return protocol::encode_error(ERR_NO_LINK, NOTHING_TO_CUT),
+            // Drawing the same link twice is not a second fact. Succeeding
+            // without writing is right for the same reason `place`'s mode 0 on
+            // an unpinned box is: "these two are connected" is a statement
+            // about the end state, and an operator who presses it twice has not
+            // made an error.
+            (1, false) => {}
+            (mode, _) => {
+                let label = if mode == 0 { CUT_LABEL } else { LINK_LABEL };
+                if let Err(e) = graph.begin_batch(BatchId(batch), label) {
+                    return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
+                }
+                wrote = if mode == 0 {
+                    cut(graph, from, to, chosen, at)
+                } else {
+                    draw(graph, from, to, chosen, at, actor, &mut mint)
+                };
+                // The batch closes either way — an open batch refuses every
+                // later write with `BatchOpen`, which turns one refused link
+                // into a dead page.
+                if let (Ok(()), Err(e)) = (&wrote, graph.end_batch()) {
+                    wrote = Err(format!("{e:?}"));
+                }
+            }
+        }
+        match wrote {
+            Err(e) => protocol::encode_error(ERR_EQUIP_STORE, &e),
+            // NO EDGE ID IN THE REPLY, and it is a byte decision with a
+            // consequence worth naming. `ElementId::Edge(..).to_string()` is a
+            // second instantiation of the id formatter — only the node one is
+            // linked today — and nothing needs the answer: the journal records
+            // the two ENDS and the kind, not the edge, because those are what
+            // replay through this opcode. A future "select this link" gesture
+            // will want the id and will have to pay for it then. Measured at
+            // 127 bytes, against a budget of 5,117 for the whole feature.
+            Ok(()) => equip_reply_text(chosen.name(), if mode == 0 { "0" } else { "1" }),
+        }
+    }
+
+    /// A display id to the LIVE NODE it names, or `None`.
+    ///
+    /// Both ends of a link are nodes and both must still be true. `insert_edge`
+    /// checks that a node exists, not that it is still asserted, so a link onto
+    /// a removed box would be taken by the store and then drawn nowhere —
+    /// `lay_out` excludes tombstoned nodes — which is the invisible-fact defect
+    /// `link`'s self-link check also exists to stop.
+    ///
+    /// `Option`, not `Result<_, Vec<u8>>`, and the caller writes one refusal
+    /// for all three ways this can fail. They are different mistakes, but only
+    /// a page defect produces any of them — the page posts ids the module gave
+    /// it — so the operator is better served by one true sentence than by three
+    /// it cannot act on differently. It is also 200 module bytes of encoder that
+    /// nothing reachable would ever run.
+    fn resolve_node(&self, display: &str) -> Option<fathom_graph::NodeId> {
+        let estate = self.estate.as_ref()?;
+        match fathom_inventory::parse_display_id(estate, display)? {
+            fathom_graph::ElementId::Node(n) => estate
+                .node(n)
+                .filter(|node| node.absent_since.is_none())
+                .map(|node| node.id),
+            fathom_graph::ElementId::Edge(_) => None,
+        }
+    }
+
     /// A display id to the element it names, or the refusal to hand back.
     /// Separate from `node_request` because that one hands back the graph too,
     /// which holds an immutable borrow these two writers cannot take.
@@ -1362,6 +1599,134 @@ const RACK_U_MAX: u8 = 100;
 const PLACE_LABEL: &str = "Place a box on the diagram";
 const FREE_LABEL: &str = "Let the layout place it again";
 
+/// The undo labels for the two halves of `OP_LINK`. Named for the gesture, not
+/// the opcode: the person drew a line, and that is what an undo stack offers to
+/// take back.
+const LINK_LABEL: &str = "Draw a link by hand";
+const CUT_LABEL: &str = "Cut a link";
+
+/// `OP_LINK`'s three fixed sentences.
+///
+/// Constants rather than `format!` sites. Nothing in them varies — a short
+/// frame is a page defect, not something an operator can act on by knowing how
+/// many bytes arrived — and each `format!` this file avoids is argument
+/// machinery it does not link.
+const SHORT_LINK_FRAME: &str = "that link request is malformed";
+const NOT_TWO_BOXES: &str = "pick two boxes that are both still in the estate";
+const ONE_BOX: &str = "that is one box, linked to itself — pick a second one";
+const NOTHING_TO_CUT: &str = "there is no such link to cut";
+
+/// One live edge of `kind` between `from` and `to`, or `None`.
+///
+/// The one place `OP_LINK` decides whether a link is already there, so the
+/// draw path's *"do nothing, this is already true"* and the cut path's *"here
+/// is what to tombstone"* can never disagree about what counts.
+fn live_link(
+    graph: &fathom_graph::Graph,
+    from: fathom_graph::NodeId,
+    to: fathom_graph::NodeId,
+    kind: fathom_ir::generated::ir_types::EdgeKind,
+) -> Option<fathom_graph::EdgeId> {
+    for e in graph.out(from, kind) {
+        if e.to == to && e.absent_since.is_none() {
+            return Some(e.id);
+        }
+    }
+    if kind.symmetric() {
+        for e in graph.out(to, kind) {
+            if e.to == from && e.absent_since.is_none() {
+                return Some(e.id);
+            }
+        }
+    }
+    None
+}
+
+/// Tombstone every live edge of `kind` between the two. Never a delete
+/// (`11` §10.5): the record keeps *"these two were connected and then they were
+/// not"*, which is a different and more honest claim than *"they never were"*.
+///
+/// Re-asks after every tombstone rather than holding a list, which is also the
+/// termination argument: `live_link` only ever returns an edge with no
+/// `absent_since`, and each pass sets one, so the loop shrinks a finite set.
+fn cut(
+    graph: &mut fathom_graph::Graph,
+    from: fathom_graph::NodeId,
+    to: fathom_graph::NodeId,
+    kind: fathom_ir::generated::ir_types::EdgeKind,
+    at: fathom_graph::Timestamp,
+) -> Result<(), String> {
+    while let Some(id) = live_link(graph, from, to, kind) {
+        graph
+            .tombstone(fathom_graph::ElementId::Edge(id), at)
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    Ok(())
+}
+
+/// One hand-drawn edge, with `Origin::Hand` provenance.
+fn draw(
+    graph: &mut fathom_graph::Graph,
+    from: fathom_graph::NodeId,
+    to: fathom_graph::NodeId,
+    kind: fathom_ir::generated::ir_types::EdgeKind,
+    at: fathom_graph::Timestamp,
+    actor: fathom_graph::Actor,
+    mint: &mut fathom_weld::Mint,
+) -> Result<(), String> {
+    let ulid = mint.next().map_err(|e| format!("{e:?}"))?;
+    let record = hand_record(mint, at, actor)?;
+    graph
+        .insert_edge(kind, ulid, from, to, record)
+        .map(|_| ())
+        .map_err(|e| link_refusal(e, kind))
+}
+
+/// The store's refusal, in the operator's words.
+///
+/// `WriteError` is a Rust enum and `{e:?}` is a Rust sentence; an operator who
+/// draws a second `UsesIkePolicy` out of one gateway should be told that a
+/// gateway uses one policy, not `OutBoundExceeded { edge: UsesIkePolicy, .. }`.
+///
+/// **Only the cardinality arms are translated**, and they share one sentence
+/// with the end named rather than getting one each. Everything else reachable
+/// here is a defect in this file rather than something an operator did, and
+/// reads better as its own name. The single sentence is also bytes: two
+/// `format!` sites differing by a word cost twice what one `concat` does, and
+/// this module had 5,117 bytes of `44` §5.2's ceiling to spend on the whole
+/// feature.
+fn link_refusal(
+    e: fathom_graph::WriteError,
+    kind: fathom_ir::generated::ir_types::EdgeKind,
+) -> String {
+    use fathom_graph::WriteError;
+    let end = match e {
+        WriteError::OutBoundExceeded { .. } => "out of",
+        WriteError::InBoundExceeded { .. } => "into",
+        // Reachable only through the store's normalisation, and only if the
+        // both-directions scan in `link` ever stops covering it. Translated
+        // rather than left as a debug string because "SymmetricDuplicate" reads
+        // as a bug in Fathom and this is not one.
+        WriteError::SymmetricDuplicate { .. } => {
+            return [
+                "those two already have a ",
+                kind.name(),
+                " link — it has no direction, so there is only one of it",
+            ]
+            .concat()
+        }
+        other => return format!("{other:?}"),
+    };
+    [
+        "the schema allows only one ",
+        kind.name(),
+        " link ",
+        end,
+        " that box, and it already has one",
+    ]
+    .concat()
+}
+
 /// How many residue rows one reply carries. The summary always states the
 /// **total**, so a page that renders both can say how many it is not showing —
 /// `78` §5 forbids the silent cap, not the cap.
@@ -1758,6 +2123,14 @@ fn equip_reply_text(id: &str, written: &str) -> Vec<u8> {
 /// widths the frames above use.
 fn le4(b: &[u8], at: usize) -> [u8; 4] {
     let mut o = [0u8; 4];
+    for (i, slot) in o.iter_mut().enumerate() {
+        *slot = *b.get(at + i).unwrap_or(&0);
+    }
+    o
+}
+
+fn le2(b: &[u8], at: usize) -> [u8; 2] {
+    let mut o = [0u8; 2];
     for (i, slot) in o.iter_mut().enumerate() {
         *slot = *b.get(at + i).unwrap_or(&0);
     }

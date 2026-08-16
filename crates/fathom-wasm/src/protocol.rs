@@ -252,6 +252,36 @@ pub const ERR_EQUIP_STORE: u16 = 13;
 /// is the page's and only the page's: call `OP_DICT` first.
 pub const ERR_NO_DICTIONARY: u16 = 14;
 
+/// `OP_LINK` refused: the schema does not admit this link between these two
+/// boxes, or there is no such link to cut.
+///
+/// Distinct from `ERR_NO_ELEMENT`, which means *"I cannot find that id"*. Here
+/// both ids resolved and the refusal is about the pair.
+///
+/// **The detail is empty for the schema refusal, and that is deliberate.** The
+/// sentence an operator reads — *"nothing in the schema connects a Device to a
+/// Rack"* — names both kinds, and the page picked both boxes so it knows both
+/// kinds. Building that sentence in the module measured 345 bytes against
+/// `44` §5.2's ceiling, which the artifact's own budget can absorb for nothing.
+/// The cut refusal carries its short sentence because the page cannot know
+/// whether a link was there.
+pub const ERR_NO_LINK: u16 = 15;
+
+/// **Not a failure — a question.** `OP_LINK` found more than one edge kind the
+/// schema admits between those two boxes, wrote nothing, and the detail is the
+/// candidate kinds' declared names separated by single spaces.
+///
+/// It travels as an error record because that is what refusing to write *is*,
+/// and because a bespoke reply shape measured over a kilobyte of module to
+/// carry a list of names this record already carries. The page splits on the
+/// space, offers the choice, and posts the chosen name back in the same frame.
+///
+/// A code of its own so the page can tell a question from a failure without
+/// reading prose: `78` §6's floor is about not guessing, and a page that
+/// pattern-matched an English sentence to decide whether to show a chooser
+/// would be guessing.
+pub const ERR_LINK_CHOICE: u16 = 16;
+
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
 
@@ -1016,10 +1046,15 @@ pub fn encode_diagram(
             pts.push_str(&y.to_string());
         }
         let members = l.members.to_string();
+        // Slot 6 is APPENDED, after the five that were already on the wire. The
+        // page reads slots by index, so inserting anywhere else would have
+        // silently reinterpreted every existing row rather than rejected it —
+        // the same reasoning ADR-0035's placed flag records for the box row,
+        // where the flag went before the only possibly-empty token.
         let rec = face_slots(
             &mut blob,
             FACE_LINE,
-            6,
+            7,
             &[
                 l.from.as_str(),
                 l.to.as_str(),
@@ -1027,6 +1062,7 @@ pub fn encode_diagram(
                 if l.containment { "1" } else { "" },
                 pts.as_str(),
                 members.as_str(),
+                if l.hand { "1" } else { "" },
             ],
         );
         write_face_record(&mut records, &rec);

@@ -730,6 +730,25 @@ button.tab:hover { color: var(--ink); }
    dashed -- `51` §9 reserves dashed for proposed elements. */
 .dcontain { stroke: var(--hairline); }
 .dref { stroke: var(--ink); }
+/* A HAND-DRAWN link, and the ink is constrained before it is chosen.
+   `51` §9 reserves `dashed` for AI-proposed content -- "nothing deterministic in
+   this product is ever drawn with a dashed rule" -- and `dotted` for a required
+   value nobody has answered. A link somebody drew is neither, so neither style
+   is available and neither is borrowed.
+
+   What is left is weight and a word, which is the same pair ADR-0035 chose for a
+   hand-placed box (a tick and the word `placed`). The weight alone would not do:
+   `51` §6 records that stroke weight is the signal most likely to be flattened
+   by forced colours and by a monochrome print, and it cannot be read out loud.
+   The word can, and the Outline row carries it as text besides. */
+.dhand { stroke-width: 2; }
+.dhandmark { font-size: var(--t-micro); fill: var(--muted); }
+/* Follows the name's rung and not the kind's, exactly as `.dplaced` does: who
+   drew a link is a claim worth more than the kind noun, and is dropped only when
+   nothing on the picture is readable at all. The heavier STROKE is never
+   dropped -- it costs nothing to draw and is what a zoomed-out reader still
+   has. */
+svg[data-lod="0"] .dhandmark { display: none; }
 /* The focus ring the Outline projects into the picture (`56` §6.2). Painted by
    us from the box's own coordinates, which is what lets it be exactly 2 CSS px
    at every zoom -- see `vector-effect` on the element itself. */
@@ -1073,6 +1092,26 @@ var ERR_UNKNOWN_OP = 1;
    lists it, and a second way to ask the same question would have cost 1,663
    bytes of module for nothing. */
 var OP_RACK_PLACE = 22, OP_RACK_ELEVATION = 23;
+
+/* Draw a link by hand, or cut one. The opcode that makes a hand-built estate a
+   network: every write before it could add a box, name it, move it and rack it,
+   and none of them created an EDGE. */
+var OP_LINK = 24;
+
+/* protocol::ERR_LINK_CHOICE and ERR_NO_LINK, and the SECOND and THIRD codes
+   this page names by number.
+
+   ERR_LINK_CHOICE is not a failure — it is the module saying "the schema admits
+   more than one edge between those two, so choose", with the candidates' names
+   in the detail, space separated. The page has to tell that apart from a real
+   refusal to know whether to show a chooser or a message, and telling them
+   apart by pattern-matching an English sentence would be guessing.
+
+   ERR_NO_LINK travels with an EMPTY detail where a sentence would go, because
+   the sentence names both kinds and this page picked both boxes. Building it in
+   the module measured 345 bytes against `44` §5.2's ceiling; building it here
+   costs artifact bytes, of which there are 2.2 MB spare. */
+var ERR_LINK_CHOICE = 16, ERR_NO_LINK = 15;
 
 /* The equipment form's fields, and the ONLY place this page names a field key.
    Each entry is [wire key, label, kind, required, note].
@@ -2780,6 +2819,192 @@ function dgFreePlacement() {
   dgRefocusRow(id);
 }
 
+/* --- drawing a link by hand -----------------------------------------------
+
+   `52` §3.6 has given the diagram the same four jobs since it was written —
+   "add a device, DRAW A LINK, draw a tunnel, drag for layout" — and until now
+   three of them existed. A person could add a box, name it, correct it, move
+   it, rack it and remove it, and could not connect it to anything, so a lab
+   built by hand was a pile of unconnected boxes. This is the fourth.
+
+   THE GESTURE IS TWO STEPS AND BOTH ARE ORDINARY BUTTONS. Select a box, press
+   `hold this end`; select a second, press `draw the link`. That shape is not a
+   compromise for the keyboard — `55` §4.5.2 puts focus in the Outline and never
+   in the <svg>, so a drag from one shape to another is a gesture half the
+   contract cannot perform and the Outline is where the interface lives. A drag
+   would be a second way to do it, not the way.
+
+   WHICH EDGE IS THE MODULE'S DECISION, NOT THIS PAGE'S. `schema/` declares 84
+   edge kinds; `fathom_weld::hand_link_candidates` narrows them to the reference
+   edges the schema admits between the two kinds, and when exactly one survives
+   the module writes it without asking. When several do it refuses with
+   `ERR_LINK_CHOICE` and the names, and `dgChoice` below turns that into
+   buttons. This page never picks. */
+
+/* The end held for the next `draw the link`, as a display id, or null. Page
+   state and legitimately so: it is a half-finished gesture, not a fact. Nothing
+   is written until the second press, and nothing about it survives a reload —
+   which is right, because an unfinished gesture is not something a colleague
+   should receive. */
+var DG_HOLD = null;
+
+/* The candidate kinds the module last asked about, and the pair they were asked
+   about, so the chooser's buttons post the same two ids the question was about
+   rather than whatever is selected when they are pressed. */
+var DG_ASK = null;
+
+/* The one place a link reaches the module. `mode` 0 cuts, 1 draws. `kind` is a
+   schema edge kind NAME or '' for "you choose, if there is only one".
+
+   The clock and the entropy come from the HOST, in the frame, because the
+   module has neither and must acquire neither — its import section is empty and
+   stays empty. Every other writing op on this page does the same. */
+function opLink(a, b, mode, kind) {
+  if (!wasm || !a || !b) return false;
+  var ent = hostEntropy();
+  if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return false; }
+  var enc = new TextEncoder();
+  var ab = enc.encode(a), bb = enc.encode(b), kb = enc.encode(kind || '');
+  var req = new Uint8Array(29 + ab.length + bb.length + kb.length);
+  var dv = new DataView(req.buffer);
+  var at = Date.now();
+  dv.setBigUint64(0, BigInt(at), true);
+  req.set(ent, 8);
+  req[24] = mode;
+  dv.setUint16(25, ab.length, true);
+  dv.setUint16(27, bb.length, true);
+  req.set(ab, 29);
+  req.set(bb, 29 + ab.length);
+  req.set(kb, 29 + ab.length + bb.length);
+
+  var reply = call(OP_LINK, req);
+
+  /* NOT A FAILURE — A QUESTION. The module found more than one edge the schema
+     admits between those two and refused to guess, which is the whole design:
+     a wrong edge kind in an estate of record is worse than a prompt. */
+  if (reply && reply.kind === 'error' && reply.code === ERR_LINK_CHOICE) {
+    DG_ASK = { a: a, b: b, kinds: reply.detail.split(' ') };
+    foot('the schema allows ' + DG_ASK.kinds.length + ' kinds of link between those two — pick one');
+    say('more than one kind of link is possible; a choice has appeared in the link controls');
+    render();
+    return false;
+  }
+  /* THE SCHEMA'S REFUSAL, IN THE OPERATOR'S WORDS AND NOTHING ELSE.
+     `replyProblem` renders every other refusal as `the module refused: code N ·
+     detail`, which is right for a defect nobody expected and wrong here: a
+     schema saying two kinds do not connect is an ordinary answer to an ordinary
+     question, and `code 15` is machinery in a sentence a network engineer is
+     meant to read.
+
+     An empty detail is the schema refusal, which this page words itself because
+     it picked both boxes and knows both kinds (see ERR_NO_LINK). A non-empty one
+     is the module's own sentence — "there is no such link to cut" — passed
+     through unornamented. */
+  if (reply && reply.kind === 'error' && reply.code === ERR_NO_LINK) {
+    var ka = dgKindOf(a), kb2 = dgKindOf(b);
+    foot(reply.detail ? reply.detail
+      : kind ? kind + ' does not run from a ' + ka + ' to a ' + kb2
+      : 'nothing in the schema connects a ' + ka + ' to a ' + kb2 +
+        /* The one pair where the answer is not "you cannot" but "not here".
+           `MountedIn` is `OP_RACK_PLACE`'s, because that opcode writes the unit
+           the schema declares `card: "1"` and this gesture carries no value for
+           it. Pointing at the door that does work is worth more than a refusal
+           that is technically complete. */
+        (ka === 'Chassis' && kb2 === 'Rack'
+          ? ' — a chassis goes into a rack on the rack sheet, at a unit'
+          : ''));
+    renderShell();
+    return false;
+  }
+  var bad = replyProblem(reply);
+  if (bad) { foot(bad); renderShell(); return false; }
+
+  /* THE KIND THE MODULE ACTUALLY WROTE, not the one that was asked for. With an
+     empty `kind` the module chose, and the journal has to record the choice
+     rather than the blank — an empty kind replayed against a later schema could
+     resolve to something else, and a hand-drawn link that comes back as a
+     DIFFERENT relationship is worse than one that fails to come back. */
+  var wrote = (reply.rows && reply.rows[0] && reply.rows[0].s[0]) || kind;
+
+  /* JOURNALLED, WITH THE SAME CLOCK AND ENTROPY THE OP USED. This has been got
+     wrong twice in this project — the rack shipped writing to the module and
+     not to `S.journal`, so an export dropped every rack in silence. A hand-drawn
+     link that does not survive a round trip is not degraded, it is DELETED:
+     there is no paste that can rebuild it. `importJournal` has the matching
+     arm and `2026-08-16-hand-link-drive.mjs` drives the whole loop. */
+  S.journal.push({ op: 'link', at: at, ent: b64(ent), from: a, to: b, kind: wrote, mode: mode });
+  DG_ASK = null;
+  /* Hold the view: a new line can grow the picture's extent, and refitting
+     under somebody who has just drawn one link rescales everything out from
+     under them. Same reasoning as `opPlace`. */
+  DG.hold = true;
+  render();
+  return wrote;
+}
+
+/* A drawn box's kind word, for the sentences above. Read from what the module
+   already sent — slot 1 of the box row — not inferred from the id. */
+function dgKindOf(id) {
+  var b = DG.boxes && DG.boxes[id];
+  return b ? b.kind : 'box';
+}
+
+/* `PeersWith` -> `peers with`. A schema name split at its capitals and lowered,
+   so a chooser reads as English without a per-edge table anywhere.
+
+   DERIVED, NOT TRANSLATED, and the difference matters: a table mapping 84 edge
+   kinds to phrases would be 84 chances to write down what somebody wished the
+   edge meant instead of what the schema says it means. The schema's own name is
+   kept beside the words — on the button's `title` and in every message the
+   record keeps — because that is what is written into the estate. */
+function dgWords(name) {
+  var out = '', i, c;
+  for (i = 0; i < name.length; i++) {
+    c = name.charAt(i);
+    if (i > 0 && c >= 'A' && c <= 'Z') out += ' ';
+    out += c.toLowerCase();
+  }
+  return out;
+}
+
+/* Step one: remember this end. Nothing is written. */
+function dgHoldEnd() {
+  var b = DG.boxes && S.sel && DG.boxes[S.sel];
+  if (!b) { foot('select a box first — a link needs two ends'); renderShell(); return; }
+  if (b.collapsed) {
+    foot('that box stands for ' + b.n + ' objects, and a link joins two things — ' +
+         'open it and hold one of its members');
+    renderShell();
+    return;
+  }
+  DG_HOLD = S.sel;
+  DG_ASK = null;
+  foot('holding ' + b.kind + ' ' + b.label + ' — select the other end and draw the link');
+  say('holding ' + b.kind + ' ' + b.label + ' as one end of a link');
+  render();
+}
+
+/* Step two: draw it, or cut it. One function because the two are the same
+   gesture with a mode byte, exactly as placing and releasing a box are. */
+function dgLink(mode, kind) {
+  var far = DG_ASK ? DG_ASK.b : S.sel;
+  var near = DG_ASK ? DG_ASK.a : DG_HOLD;
+  if (!near) { foot('hold one end first'); renderShell(); return; }
+  if (!far) { foot('select the other end'); renderShell(); return; }
+  var wrote = opLink(near, far, mode, kind || '');
+  if (!wrote) return;
+  var words = dgKindOf(near) + ' and ' + dgKindOf(far);
+  if (mode === 0) {
+    foot('cut the ' + wrote + ' link between ' + words);
+    say('link cut');
+  } else {
+    foot('drew a ' + wrote + ' link between ' + words + ' — it is marked as drawn by hand');
+    say('drew a ' + wrote + ' link, marked in the picture as drawn by hand');
+  }
+  DG_HOLD = null;
+  dgRefocusRow(far);
+}
+
 /* A placement rebuilds the Outline, so the row the user was standing on is a
    different element afterwards. Put focus back on the new one, or every nudge
    would drop focus to <body> — `53` §13 failure 7, arrived at from a new
@@ -2869,6 +3094,14 @@ function dgExpand(row, open) {
        subtree where only a mouse could have found it. */
     lr.appendChild(el('span', 'dokind docnt',
       c.n > 1 ? c.kind + ' × ' + c.n : c.kind));
+    /* The hand fact, in words, on the tree assistive technology actually reads.
+       The word in the picture is inside an `aria-hidden` <svg>, so on its own it
+       announces this to nobody -- the exact failure
+       `docs/80-review/evidence/2026-08-15-diagram-aggregation-ax.mjs` exists to
+       catch, and the same one ADR-0035 had to answer for a placed box. Who says
+       two boxes are connected is the load-bearing claim a network diagram
+       makes; it belongs on the row a keyboard can reach. */
+    if (c.hand) lr.appendChild(el('span', 'docnt', 'drawn by hand'));
     at.parentNode.insertBefore(lr, at.nextSibling);
     at = lr;
   });
@@ -3080,9 +3313,9 @@ function renderDiagram(host) {
      and it computes nothing about the graph: the module already emitted every
      link in a total order, and grouping preserves it. */
   DG.conn = {};
-  function bucket(id, far, kind, out, n) {
+  function bucket(id, far, kind, out, n, hand) {
     if (!DG.conn[id]) DG.conn[id] = [];
-    DG.conn[id].push({ far: far, kind: kind, out: out, n: n || 1 });
+    DG.conn[id].push({ far: far, kind: kind, out: out, n: n || 1, hand: !!hand });
   }
 
   /* Which drawn kinds the inventory has no row set for. Reading the kind words
@@ -3161,6 +3394,80 @@ function renderDiagram(host) {
   pc.appendChild(bFree);
   strip.appendChild(pc);
 
+  /* --- drawing a link, for a keyboard --------------------------------------
+
+     Same group shape and the same reasoning as the place controls above: focus
+     never enters the <svg>, so the interface is the Outline and its strip, and
+     these act on the SELECTION rather than appearing per row.
+
+     Three controls and no more. `hold this end` remembers one box, `draw the
+     link` and `cut the link` act between it and whatever is selected now. There
+     is no fourth control for "which kind" because the module answers that; when
+     it cannot, the chooser below appears in this same group, next to the
+     buttons that raised the question. */
+  var lc = el('div', 'dplacectl');
+  lc.setAttribute('role', 'group');
+  lc.setAttribute('aria-label', 'draw a link between two boxes');
+  lc.appendChild(el('span', 'lab', 'link'));
+  /* THE HELD END IS THE BUTTON'S OWN LABEL, not a status span beside it, and
+     that is a measurement rather than a preference. As a separate `lab` span
+     this group was four flex items, the strip wrapped one line further at
+     1400x400, and `2026-08-15-diagram-surface-edges.mjs` went red on `at least
+     one row is on screen` — the strip had taken the last visible Outline row,
+     which is the exact defect §the surface rebuild files as its number one and
+     which the `whole` control above was moved into the strip to avoid.
+
+     A button that says what it is holding is also better than a button plus a
+     label that says it: `aria-pressed` carries the mode for assistive
+     technology, the text carries it for everyone, and the `whole` button two
+     blocks up already sets the precedent for a label that changes with state. */
+  var held = DG_HOLD && DG.boxes && DG.boxes[DG_HOLD];
+  var bHold = el('button', null,
+    held ? 'holding ' + held.label
+         : DG_HOLD ? 'holding a box no longer drawn'
+         : 'hold this end');
+  bHold.type = 'button';
+  bHold.setAttribute('data-dhold', '1');
+  /* aria-pressed, because holding an end is a MODE and a button that silently
+     changed what the next press means would be a toggle pretending not to be
+     one. `55` §1.4's rule about a state only a mouse can see, applied to a
+     state only a footer message announced. */
+  bHold.setAttribute('aria-pressed', String(!!DG_HOLD));
+  lc.appendChild(bHold);
+  [['draw the link', '1'], ['cut the link', '0']].forEach(function (n) {
+    var b = el('button', null, n[0]);
+    b.type = 'button';
+    b.setAttribute('data-dlinkmode', n[1]);
+    lc.appendChild(b);
+  });
+
+  /* THE CHOICE, when the schema leaves more than one. Rendered as real buttons
+     in the same group, each labelled with the edge kind's own name split into
+     words — `PeersWith` reads as `peers with`, and the schema's name is kept
+     beside it because that is what goes into the record and into the exported
+     journal. The page NEVER renames an edge to what somebody might wish it
+     meant; `hand_link_candidates` has the reasoning. */
+  if (DG_ASK && DG_ASK.kinds.length) {
+    var ask = el('div', 'dplacectl');
+    ask.setAttribute('role', 'group');
+    ask.setAttribute('aria-label', 'which kind of link');
+    ask.appendChild(el('span', 'lab', 'which link'));
+    DG_ASK.kinds.forEach(function (k) {
+      var b = el('button', null, dgWords(k));
+      b.type = 'button';
+      b.setAttribute('data-dlinkkind', k);
+      b.title = k;
+      ask.appendChild(b);
+    });
+    strip.appendChild(ask);
+  }
+  strip.appendChild(lc);
+
+  /* NOT LENGTHENED for the link controls, and that is deliberate: a hint is
+     laid out by the same flex wrap as everything else in this strip, and at
+     1400x400 the extra words cost the last visible Outline row (measured; see
+     the hold button above). The three link buttons say what they do in their
+     own labels, which is where a control's explanation belongs. */
   strip.appendChild(el('span', 'lab dhint',
     'an element in any active layer is drawn · drag a box to move it · ' +
     'drag the background to pan · wheel to zoom · z fits · arrows walk the outline'));
@@ -3207,6 +3514,7 @@ function renderDiagram(host) {
      a reference: "this port is on that device" is structure, "this tunnel binds
      that interface" is a fact about the network. `51` §9 reserves `dashed` for
      PROPOSED elements, so containment is thin-and-muted, never dashed. */
+  var handLines = 0;
   for (var li = 0; li < lines.length; li++) {
     var l = lines[li];
     var pts = l.s[4];
@@ -3217,8 +3525,14 @@ function renderDiagram(host) {
        `55` §1.4 says a mouse-hover-only affordance inside an aria-hidden subtree
        is not a way of saying it), and only the Outline satisfies both. */
     var lmem = parseInt(l.s[5], 10) || 1;
-    bucket(l.s[0], l.s[1], l.s[2], true, lmem);
-    bucket(l.s[1], l.s[0], l.s[2], false, lmem);
+    /* Slot 6 is `Origin::Hand` on the edge itself — a person drew this line, a
+       parser did not read it out of a capture. It is bucketed through to the
+       Outline row for the same reason the count is: the picture's own mark sits
+       inside an `aria-hidden` subtree and announces this to nobody. */
+    var lhand = l.s[6] === '1';
+    if (lhand) handLines++;
+    bucket(l.s[0], l.s[1], l.s[2], true, lmem, lhand);
+    bucket(l.s[1], l.s[0], l.s[2], false, lmem, lhand);
     var d = '', parts = pts.split(' ');
     for (var pi = 0; pi < parts.length; pi++) {
       var xy = parts[pi].split(',');
@@ -3233,8 +3547,27 @@ function renderDiagram(host) {
       d: d,
       fill: 'none',
       'vector-effect': 'non-scaling-stroke',
-      class: l.s[3] === '1' ? 'dline dcontain' : 'dline dref'
+      class: (l.s[3] === '1' ? 'dline dcontain' : 'dline dref') + (lhand ? ' dhand' : '')
     }));
+    /* THE HAND MARK, and the ink is constrained before it is chosen. `51` §9
+       reserves `dashed` for AI-PROPOSED content ("nothing deterministic in this
+       product is ever drawn with a dashed rule") and `dotted` for an unanswered
+       required value, and a hand-drawn link is neither. So it is marked the way
+       ADR-0035 marks a hand-placed box: a WORD, at the line's midpoint, plus a
+       heavier stroke. A word cannot be confused with a reserved rule style and
+       survives forced colours, which a stroke weight alone does not (`51` §6).
+
+       At the midpoint of the polyline's middle segment rather than of the
+       bounding box: an orthogonal route's centre can sit outside the line. */
+    if (lhand && parts.length >= 2) {
+      var m0 = parts[Math.floor((parts.length - 1) / 2)].split(',');
+      var m1 = parts[Math.floor((parts.length - 1) / 2) + 1].split(',');
+      var mx = (parseInt(m0[0], 10) + parseInt(m1[0], 10)) / 2;
+      var my = (parseInt(m0[1], 10) + parseInt(m1[1], 10)) / 2;
+      var hw = sEl('text', { x: mx, y: my - 4, class: 'dhandmark', 'text-anchor': 'middle' });
+      hw.textContent = 'by hand';
+      DG.scene.appendChild(hw);
+    }
   }
 
   /* Slot 7 is `<count> <interior> <group key>`, the last possibly empty. Read
@@ -3506,6 +3839,18 @@ function renderDiagram(host) {
       : plural(String(placedCount), 'box carries', 'boxes carry') + ' a hand ' +
         'position that overrides the computed one — each marked in the picture ' +
         'with a corner tick and the word placed, and on its Outline row. ') +
+    /* The same sentence the placed count gets, and for the same reason: who
+       asserted a thing is a fact about the picture, and a picture that shows
+       hand-drawn and parsed lines identically is lying about the most
+       load-bearing claim a network diagram makes. */
+    (handLines === 0
+      ? 'No line here was drawn by hand. Hold one box with the link controls ' +
+        'above, select another, and draw one — it survives an export and an ' +
+        'import, because a link is graph data and not a view preference, and ' +
+        'no paste can rebuild it. '
+      : plural(String(handLines), 'line was', 'lines were') + ' drawn by hand ' +
+        'rather than read out of a config — each marked in the picture with the ' +
+        'words by hand and a heavier stroke, and on its Outline row. ') +
     'Staleness is not in this build. Pan, ' +
     'zoom, which groups are open and whether the picture is open at a narrow ' +
     'width are the only things this page remembers about the surface.');
@@ -3616,6 +3961,19 @@ document.addEventListener('click', function (ev) {
     return;
   }
   if ((n = seekAttr(ev.target, 'data-dfree'))) { dgFreePlacement(); return; }
+  if ((n = seekAttr(ev.target, 'data-dhold'))) { dgHoldEnd(); return; }
+  if ((n = seekAttr(ev.target, 'data-dlinkmode'))) {
+    dgLink(parseInt(n.getAttribute('data-dlinkmode'), 10), '');
+    return;
+  }
+  /* The chooser's answer. It goes back through the same op with the kind named,
+     so a chosen link and an unambiguous one take the identical path — including
+     the journal push, which is the one place a second path would have quietly
+     lost a hand-drawn line. */
+  if ((n = seekAttr(ev.target, 'data-dlinkkind'))) {
+    dgLink(1, n.getAttribute('data-dlinkkind'));
+    return;
+  }
   /* BEFORE the data-drow arm: a collapsed group's Outline row carries both, and
      a click on it must open the group rather than try to select an element id
      that names a group and not a thing. The keyboard path has the same
@@ -5075,6 +5433,36 @@ function importJournal(text) {
         rat += 4 + rparts[rm][1].length;
       }
       reply = call(OP_RACK_PLACE, req);
+    } else if (o.op === 'link') {
+      /* A HAND-DRAWN LINK, replayed through the opcode that made it, with its
+         own clock and entropy — which is what makes the ids it mints the ids it
+         minted the first time, so `from` and `to` still name the boxes they
+         named.
+
+         THE KIND IS SENT EXPLICITLY, even where the module chose it. It was
+         recorded at the moment of the choice for exactly this replay: an empty
+         kind resolved against a later schema could pick a different edge, and a
+         link that comes back as a DIFFERENT relationship is worse than one that
+         fails to come back. A refusal here stops the import and says which step.
+
+         THIS ARM IS THE FEATURE. A hand-drawn link that does not survive a
+         round trip is not degraded, it is deleted: no paste can rebuild it,
+         because no config ever said it. The rack shipped without its arm and an
+         export dropped every rack in silence; that is twice now, and
+         `docs/80-review/evidence/2026-08-16-hand-link-drive.mjs` drives export,
+         reload and import to keep it from being three times. */
+      var lf = enc.encode(o.from), lt = enc.encode(o.to), lk = enc.encode(o.kind || '');
+      req = new Uint8Array(29 + lf.length + lt.length + lk.length);
+      dv = new DataView(req.buffer);
+      dv.setBigUint64(0, BigInt(o.at), true);
+      req.set(ent, 8);
+      req[24] = o.mode;
+      dv.setUint16(25, lf.length, true);
+      dv.setUint16(27, lt.length, true);
+      req.set(lf, 29);
+      req.set(lt, 29 + lf.length);
+      req.set(lk, 29 + lf.length + lt.length);
+      reply = call(OP_LINK, req);
     } else {
       foot('step ' + (i + 1) + ' is a kind of change this build does not know (' + o.op + ')');
       renderShell();
@@ -5102,6 +5490,11 @@ function importJournal(text) {
   S.pasteError = null;
   S.equipError = null;
   S.sel = null; S.element = null; S.equipment = null;
+  /* A half-finished gesture must not outlive the estate it was aimed at. A
+     held end is a display id from the workspace that was open a moment ago, and
+     an imported one mints its own; the id would either name nothing or, worse,
+     name something else. Same reasoning as `S.pasteWasTable` on the line above. */
+  DG_HOLD = null; DG_ASK = null;
   S.source = 'imported';
   S.loaded = true;
   S.invKind = 0;
