@@ -26,10 +26,17 @@ use std::collections::BTreeSet;
 ///
 /// Line 3 tracks `SCHEMA_VERSION` and is therefore the ONE line of this vector
 /// that is not a constant of the file format: the document typed it when the
-/// tree was at 0.1, and ADR-0035 moved the tree to 0.2 on 2026-08-15. The
+/// tree was at 0.1, and ADR-0036 moved the tree to 0.2 on 2026-08-15. The
 /// payload below is byte-identical across that bump, which is the useful
 /// thing this vector proves — adding a kind and two edges changes the header
 /// and nothing else, so no existing workspace's body is rewritten.
+///
+/// **THAT IS TRUE AND IT IS NOT THE WHOLE STORY**, so it is said here rather
+/// than left to be discovered: `read_plain` refuses a mismatched version on
+/// THIS LINE, before the body is reached, and the migration chain is empty. A
+/// 0.1 workspace is therefore unreadable by a 0.2 build regardless of the
+/// payload being identical. Deliberate pre-release (nothing has shipped and
+/// `schema/released/` holds no snapshot) and reasoned in ADR-0036 §5.2.
 /// `pinned_header_tracks_the_schema_version` keeps the coupling honest rather
 /// than leaving the next bump to discover it as a mystery diff.
 const PINNED: &str = concat!(

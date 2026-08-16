@@ -1,7 +1,49 @@
-# corpus/dict/junos-srx/security-ipsec.yaml — WO-03 §4.7 entries 22-35.
+# corpus/dict/junos-srx/security-ipsec.yaml — WO-03 §4.7 entries 22-35, plus
+# the three bare-stanza entries added 2026-08-15.
+#
+# The bare stanzas implement `14` §7.1's stated rule — *"`set security ike
+# gateway GW-B` (a bare stanza creation) … creates the node with no fields"* —
+# which nothing had ever implemented. Juniper's own Guided Setup writes
+# `set security ipsec proposal standard` on a line of its own (read
+# 2026-08-15,
+# https://www.juniper.net/documentation/us/en/software/guided-setup/branch-srx-gs/topics/topic-map/step-2-p1-add-ipsec-vpn.html),
+# and until now that line was residue: the object the next four lines refer to
+# did not exist.
+#
+# Each carries `partial: true` because its path is a strict prefix of the
+# deeper entries in this file (`14` §6.5's shadowing gate). Longest match
+# still wins, so a deeper statement binds the deeper entry exactly as before.
+#
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
 entries:
+  - id: junos-srx/security.ipsec.proposal
+    path: [security, ipsec, proposal, "$p"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecProposal, key: "$p", fields: [ { field: name, from: "$p", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.policy
+    path: [security, ipsec, policy, "$pol"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecPolicy, key: "$pol", fields: [ { field: name, from: "$pol", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.ipsec.vpn
+    path: [security, ipsec, vpn, "$v"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: IpsecVpn, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
   - id: junos-srx/security.ipsec.proposal.protocol
     path: [security, ipsec, proposal, "$p", protocol, "$v"]
     binds:

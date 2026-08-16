@@ -90,7 +90,7 @@ fn slot_type_covers_every_registry_key() {
     // the two tables has silently lost a key.
     assert_eq!(
         FIELD_KEYS.len(),
-        306,
+        307,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

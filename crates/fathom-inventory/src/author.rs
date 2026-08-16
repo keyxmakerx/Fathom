@@ -108,7 +108,7 @@ pub fn parse_into_slot(key: FieldKey, text: &str) -> Result<Box<dyn Any>, Author
         return Ok(Box::new(v));
     }
 
-    // ADR-0035's two inline placement enums, refusing the unknown arm for the
+    // ADR-0036's two inline placement enums, refusing the unknown arm for the
     // same reason `DeviceRole` does: a person typing "frnt" wants to be told.
     if tid == TypeId::of::<ir_types::MountedInFace>() {
         let v = ir_types::MountedInFace::from_token(text);
@@ -129,7 +129,7 @@ pub fn parse_into_slot(key: FieldKey, text: &str) -> Result<Box<dyn Any>, Author
                 scalar: "RackUnitNumbering",
                 kind: ScalarParseErrorKind::Syntax {
                     // Named in full rather than as "the two values", because
-                    // ADR-0035 makes this field required with no default and
+                    // ADR-0036 makes this field required with no default and
                     // the error is where most people will first meet it.
                     expected: "ascending (U1 at the floor) or descending (U1 at the top)",
                 },

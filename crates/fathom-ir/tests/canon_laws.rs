@@ -474,13 +474,13 @@ fn enum_tokens_round_trip_including_unknown() {
 
 #[test]
 fn dispatch_names_every_registry_key() {
-    // 299 -> 306 on 2026-08-15: ADR-0035's seven placement keys (Rack.label,
-    // .height_u, .unit_numbering, .notes; MountedIn.position_u, .height_u,
-    // .face). The registry is append-only and a key is never reused, so this
-    // number only ever grows — a SHRINK here is a retired key being recycled,
-    // which silently reinterprets stored bytes, and that is the defect this
-    // guards.
-    assert_eq!(FIELD_KEYS.len(), 306, "the registry grew or shrank");
+    // 301 -> 307 on 2026-08-15: ADR-0036's six placement keys (Rack.label,
+    // .height_u, .unit_numbering; MountedIn.position_u, .height_u, .face),
+    // appended after ADR-0035's LayoutPin.x/.y at 300/301. The registry is
+    // append-only and a key is never reused, so this number only ever grows —
+    // a SHRINK here is a retired key being recycled, which silently
+    // reinterprets stored bytes, and that is the defect this guards.
+    assert_eq!(FIELD_KEYS.len(), 307, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

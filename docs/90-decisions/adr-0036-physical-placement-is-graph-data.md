@@ -1,4 +1,4 @@
-# ADR-0035 — Physical placement is graph data; a rack is a kind and mounting is a reference
+# ADR-0036 — Physical placement is graph data; a rack is a kind and mounting is a reference
 
 > **Status:** **Proposed** — the schema half is executed and gated; the ladder's upper rungs are not.
 > Binding under `CLAUDE.md` rule 2 once Accepted; reopenable on merit under `75` §2, never on sunk cost.
@@ -7,8 +7,12 @@
 > rack, zoom out for a floor(s) with multiple floors and connections between them"*
 > **Answers:** `56` §13.4's stated blocker — *"The rack / floor / building / map rungs need
 > somewhere to live in the graph"*; `70` §10.8 cost 3; `19` §3.10 row 1
-> **Reversal cost:** R2 — one kind, two edges, seven field keys. Field keys are append-only and
-> retire rather than recycle, so a reversal costs seven retired integers and no stored bytes move.
+> **Reversal cost:** R2 — one kind, two edges, six field keys. Field keys are append-only and
+> retire rather than recycle, so a reversal costs six retired integers and no stored bytes move.
+> **Renumbered 0035 → 0036 on rebase**, and the number is the only thing that changed: ADR-0035 had
+> been taken concurrently by *a hand-placed position is graph data*, which lands `LayoutPin` and
+> `OP_PLACE`. The two are siblings and not rivals — that one says where a box sits on the DIAGRAM,
+> this one says where it stands in the WORLD — and both are graph data for the same reason.
 > **Supersedes:** — (amends nothing; `19` §3.10 predicted this edit and priced it)
 
 ## 0. Contents
@@ -17,12 +21,13 @@
 2. Why a rack is a kind, and not a `Premises` and not a `Site`
 3. What a rack actually is — established, not assumed
 4. Why the elevation is not the diagram
-5. What this costs, measured
-6. What it deliberately does not do
+5. What this costs, measured — 5.1 whether it fits · 5.2 what the schema bump costs
+6. What it deliberately does not do — 6.1 two faces, side by side · 6.2 the defect this replaces
 7. Failure modes
 8. Open decisions
 9. Sources consulted
 10. Disagreements
+11. How this was verified
 
 ---
 
@@ -37,7 +42,7 @@ against `62` §16.2 in the file's own version comment):
 
 | Declaration | Class | Shape |
 |---|---|---|
-| `kind: Rack` | `layer: physical`, `emits: false` | `label`, `height_u`, `unit_numbering`, `notes`; identity `[ owner(Premises), label ]` |
+| `kind: Rack` | `layer: physical`, `emits: false` | `label`, `height_u`, `unit_numbering`; identity `[ owner(Premises), label ]`. **No `notes`** — it was there in the first draft because every sibling physical kind has one, and nothing wrote it, read it, or offered it; a field key is assigned forever, so declaring one on the strength of a pattern spends an integer on a field that does not exist |
 | `edge: HasRack` | **containment** | `Premises → Rack`, `out: "0..n"`, `in: "1"` |
 | `edge: MountedIn` | **reference** | `Chassis → Rack`, `out: "0..1"`, `in: "0..n"`; fields `position_u`, `height_u`, `face` |
 
@@ -212,50 +217,85 @@ Every figure below was measured in this worktree with
 `cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm --target-dir target/measure`.
 **Nothing here is an estimate.**
 
-| Build | Bytes | Δ from baseline |
+**RE-MEASURED ON THE TIP, AND THE NUMBER MOVED.** The first version of this table was measured
+against `adbb590` and reported +17,533. Every row below was rebuilt after merging `d96cf95`, and the
+same feature now costs **+21,392**. `47` §9.3's rule is why the table was rebuilt rather than
+carried over: two deltas measured against different bases do not add, and this project has already
+had one verdict reverse sign that way. The +3,859 difference is not drift — it is real work the
+merge created, itemised below.
+
+| Build | Bytes | Δ from the tip |
 |---|---|---|
-| Baseline (`adbb590`, before any edit) | 852,918 | — |
-| Schema only (`Rack`, `HasRack`, `MountedIn`, codegen regenerated) | 851,443 | **−1,475** |
-| Schema + elevation read path (`OP_RACK_ELEVATION` only) | 862,390 | +9,472 |
-| Schema + read + `OP_RACK_PLACE` — **as shipped** | 870,451 | **+17,533** |
-| *(discarded)* the same with a bespoke `OP_RACK_LIST` | 872,317 | +19,399 |
+| The tip (`d96cf95`) | 862,368 | — |
+| Everything but the two dispatch arms — schema, `InvKind::Rack`, `rack.rs`, the protocol codec | 865,162 | +2,794 |
+| + the elevation read path (`OP_RACK_ELEVATION`) | 874,684 | +12,316 |
+| + `OP_RACK_PLACE` — **as shipped** | 883,760 | **+21,392** |
 
-Each row is its own build, not a subtraction: the read-path row was measured by removing only the
-`OP_RACK_PLACE` dispatch arm so LTO drops the write path. Write path = 870,451 − 862,390 = **8,061**.
+Each row is its own build, not a subtraction: the middle rows were measured by removing only the
+dispatch arm, so LTO drops what becomes unreachable. Read path = 874,684 − 865,162 = **9,522**.
+Write path = 883,760 − 874,684 = **9,076**.
 
-Three findings:
+Four findings:
 
-1. **The schema extension is byte-neutral.** It measured 1,475 bytes *under* baseline, which is
-   inlining noise in the direction of smaller. **Adding a kind and two edges to `schema/` is
-   free.** That is worth knowing for every future schema edit. (A byte census is said to exist at
-   a later commit as `docs/40-stack/47-byte-census.md`, carrying a rule that a figure within
-   ~2,000 bytes of a threshold is not a verdict. **It is not in this worktree** — see §10
-   disagreement 1 — so it is described rather than cited, and the integrator should re-anchor
-   this paragraph to it.)
-2. **The face costs +17,533 module bytes**, split +9,472 read / +8,061 write. Those two are not
-   separable in practice: nothing but `OP_RACK_PLACE` can produce a placement, so shipping the
-   renderer alone would ship a view that can only ever be empty.
+1. **The schema extension is nearly free, and it is no longer byte-NEUTRAL.** It measured 1,475
+   bytes *under* baseline before the merge and +2,794 over the tip after it, and the reason is
+   `Placeable`: ADR-0035's `HasLayoutPin` declares `from: [Placeable]`, so admitting `Rack` to that
+   class adds a 49th containment pair, a `layers.rs` arm, and rows in the generated containment
+   tables. **Adding a kind to `schema/` costs whatever the classes that mean "all of them" cost**,
+   which was zero before a class like that existed. Worth knowing for every future kind.
+2. **The face costs +21,392 module bytes**, split +9,522 read / +9,076 write, with +2,794 that
+   belongs to neither. Read and write are not separable in practice: nothing but `OP_RACK_PLACE` can
+   produce a placement, so shipping the renderer alone would ship a view that can only ever be empty.
 3. **A rack is inventory, and saying so saved 1,866 bytes.** The first cut had a bespoke
    `OP_RACK_LIST`; making `Rack` an `InvKind` instead reuses `rows()` for four lines, gives the rack
-   a real inventory row, and deletes a second way to ask the same question.
+   a real inventory row, and deletes a second way to ask the same question. (That figure is from the
+   pre-merge measurement and is a *removal* delta, so it is quoted as the reason a thing is absent
+   rather than as a row in the table above.)
+4. **The renderer rewrite that fixed the vanishing box cost nothing in module bytes**, because it is
+   entirely in the page. Two face columns, sub-lane packing and a declared grid are artifact bytes.
+   §4's split paid for itself the first time the geometry had to change.
 
 ### 5.1 Whether it fits
 
-**At this worktree's baseline it fits with room: 852,918 + 17,533 = 870,451, which is 29,549 bytes
-under the 900,000 ceiling.**
+**It fits: 862,368 + 21,392 = 883,760, which is 16,240 bytes under `44` §5.2's 900,000 ceiling.**
 
-**Against the tip the brief describes — 896,097 used, 3,903 free — it does not fit, and misses by
-13,630.** That is stated plainly rather than softened. It is not a refusal on measurement of the
-kind this project has made before (the config view, refused because it could not fit *after every
-lever was spent*): this one fits comfortably inside the ~35,000 bytes the sibling session is
-freeing, consuming half of it. **The integrator decides, and needs to weigh it against two other siblings competing for
-the same space.** The number to weigh is 17,533.
+That is measured on the merged tree, not projected from an older base. `crates/fathom-wasm/tests/artifact_gates.rs`
+is byte-for-byte untouched — one threshold, not feature-gated, not weakened.
 
-Artifact bytes: `target/artifact/fathom-dev.html` went from **1,215,578** to **1,264,072** —
-**+48,494** against `44` §5.5's 4.5 MB budget (28% of it used). Most of that is the module itself
-arriving base64-encoded at 4/3 size (17,533 × 4/3 ≈ 23,377); the rest is the face's own CSS and
-JavaScript. Artifact bytes are the ample budget and were spent deliberately in preference to module
-bytes wherever the choice existed — §4's last paragraph.
+**16,240 is not much, and the integrator should read it as a shared remainder rather than as this
+feature's slack.** Two sibling sessions are competing for the same space this round. What can be
+given back if it is needed, in the order it should be spent:
+
+| Lever | Worth | What is lost |
+|---|---|---|
+| The write path (`OP_RACK_PLACE`) | 9,076 | Everything. The view can only ever be empty without it — not a lever, listed so nobody suggests it |
+| `Slot.device` / owner-name resolution | unmeasured | The box would say `chassis 0` and not `srx-a`. Cheap to try, and it is the only fat visible |
+
+There is no third. This face is small because the geometry is in the page.
+
+Artifact bytes: `target/artifact/fathom-dev.html` went from **2,220,226** at the tip to **2,289,481**
+— **+69,255** against `44` §5.5's 4.5 MB budget, which is 51% used. Most of that is the module
+itself arriving base64-encoded at 4/3 size (21,392 × 4/3 ≈ 28,523); the rest is the face's own CSS
+and JavaScript, including the whole of the elevation's geometry. Artifact bytes are the ample budget
+and were spent deliberately in preference to module bytes wherever the choice existed — §4's last
+paragraph.
+
+### 5.2 What a 0.1 → 0.2 schema bump costs, which the first version of this section did not say
+
+`schema/migrations/manifest.toml` moves to `schema_version = "0.2"` with `migrations = []`, so
+**`read_plain` refuses every workspace file written by a 0.1 build, by name, on the header line
+before the body is read.** The payload happens to be byte-identical across the bump — which is a
+useful finding and beside the point, since the refusal happens first.
+
+This is defensible and it is a decision, not an oversight: the manifest already records that the
+empty chain is deliberate until the first release, nothing has been released, and `schema/released/`
+holds no snapshot. What was wrong was the silence. It is written here so the first release cannot
+inherit it as an unexamined habit: **the day something ships, a version bump needs a migration or a
+stated refusal, and this paragraph is the precedent to point at.**
+
+Note also that ADR-0035 added `LayoutPin`, `HasLayoutPin` and two field keys at 0.1 without bumping.
+By `62` §16.2 that was itself a minor bump. This edit's 0.2 therefore covers both changes, and the
+gap is named rather than quietly absorbed.
 
 ---
 
@@ -270,7 +310,7 @@ door (`OP_EQUIP_ADD`) rather than a parser feature. The face says so in the page
 | Not built | Why |
 |---|---|
 | **Floor, building, map** | `56` §13.4's upper rungs. Each needs its own model decision and none is made here. The ladder's bottom rung is built; the rest stay proposals |
-| **Two faces drawn** | Front and rear are RECORDED per box and shown in the label; the picture draws one elevation. Drawing two is a design question `56` owns |
+| ~~**Two faces drawn**~~ | **Now built — see §6.1.** The first cut drew one elevation and, worse, silently deleted a box mounted on the other face at the same U |
 | **Moving a box** | `MountedIn` is `out: "0..1"`. A move is a different gesture with a different undo label; re-placing a placed box is refused **by name** rather than silently re-pointed |
 | **Depth, width, power, PDUs** | `19` §3.10 refuses power in writing and the reasoning stands. Depth and width are unmodelled |
 | **Inferring placement** | Refused outright. A face that infers placement it does not know is worse than no face |
@@ -283,8 +323,74 @@ Three things the face does that are worth naming, because each is a refusal to l
 - **A box recorded outside the frame is named, never clipped.** A 42U rack holding a box at U48 is a
   data error somebody must see; drawing it at U42 would destroy the evidence while looking tidy.
 - **Two boxes in one unit are reported, not resolved.** This face has no basis for choosing which of
-  two conflicting assertions is right. Opposite faces at the same U are *not* a clash: back-to-back
-  mounting is normal.
+  two conflicting assertions is right, so **both are drawn, side by side in that face's column, and
+  both are marked** in the picture rather than only in a caption. Opposite faces at the same U are
+  *not* a clash: back-to-back mounting is normal.
+- **Every box is either drawn or named, with the count.** The face prints
+  *"N box(es) recorded in this rack; M drawn"* on every elevation, and lists in full, with the
+  reason, any box the picture does not hold. §6.2 is why that sentence exists.
+
+---
+
+### 6.1 Two faces, side by side — what was established and what was decided
+
+**Established, from two independent primary sources, both read 2026-08-15.** A rack elevation is
+drawn PER FACE. NetBox's elevation endpoint takes one: *"the `face` parameter may be used to request
+either the `front` or `rear` of the elevation"*
+(`netboxlabs.com/docs/netbox/en/stable/release-notes/version-2.7/`). And a device type marked
+full-depth *"is considered to occupy both the front and rear faces of a rack, regardless of which
+face it is assigned"* (`netboxlabs.com/docs/netbox/models/dcim/devicetype/`) — a rule that only
+means anything if the two faces are otherwise apart.
+
+**Not established, and therefore decided here with the reasoning attached.** Neither source says
+whether the two faces should be drawn *at the same time*. NetBox draws one and switches. This face
+draws both at once, as two columns against one shared unit gutter, for a reason that is this
+product's rather than the convention's: **a toggle hides half a rack behind an interaction**, and a
+default of "front" would omit every rear-mounted box silently, by design, in a view whose one
+prohibition is omitting something silently. Side by side, U5 front and U5 rear are one row and the
+reader sees both without asking.
+
+**A third column appears only when something is in it.** `MountedIn.face` is `card: "0..1"`:
+somebody can know a box is at U12 without having said which side. Such a box may not be drawn on
+the front, which would be a guess, nor across both, which is NetBox's specific full-depth claim and
+a different assertion. It gets its own labelled column — `70` §16's rule that incomplete is drawn
+and *marked*, never refused.
+
+### 6.2 The defect this replaces, recorded because it shipped
+
+The first renderer indexed placed boxes by the drawn row they start on — `starts[top] = s`, one slot
+per row. **Any two runs beginning on the same row overwrote each other**, and the loser was drawn
+nowhere, named nowhere, and present in no accessible-tree node. A companion line, `if (covered[row])
+continue;`, then skipped creating the rows the vanished box had claimed, so a 42U frame drew 40.
+
+Two cases reached it, and neither is exotic:
+
+| Case | What happened |
+|---|---|
+| Front and rear at the same U — which §6 itself calls normal | One box gone, **no message of any kind**: opposite faces are correctly not a clash on the wire, so nothing fired |
+| Two boxes overlapping on one face | One box gone — the *taller* one, deterministically — two units gone from the gutter, and the caption underneath printed *"Both are drawn"* |
+
+**A rack elevation that silently drops a device is worse than no rack elevation.** `59`'s governing
+rule is the same rule: a collapse that does not name what it hid is a lie with fewer elements.
+
+Three things changed, and the third is the one that matters:
+
+1. `starts` holds a **list per lane** rather than one slot, and boxes are packed into sub-lanes —
+   each takes the first sub-lane whose runs it does not intersect. A box can no longer lose a race.
+2. The frame is a **declared CSS grid**, `repeat(height, ...)`, so every unit row exists because the
+   rack has that many units. A box is placed *into* it with `grid-row: n / span h` rather than
+   consuming rows as the loop walks. A renderer bug can now draw a box in the wrong place; it can no
+   longer delete a unit.
+3. **The count is printed.** Recorded versus drawn, on every elevation, with every undrawn box named
+   and given its reason. Arithmetic a reader can check without reading code — and so can a driver.
+
+**Why the suite missed it, which is the more important finding.** Every collision assertion was on
+the wire in Rust, and the page's geometry was checked by a *Rust re-implementation of the
+JavaScript* — a `fn top_row` inside a test — which cannot see the renderer's maps at all. The
+browser driver placed boxes only into distinct, non-overlapping units. Both suites passed at 100%
+with the defect present. `docs/80-review/evidence/2026-08-15-rack-view-ax.mjs` now drives both
+collision cases and asks the **accessible tree** how many boxes it can see; the Rust test carries a
+paragraph saying plainly what it does not check.
 
 ---
 
@@ -293,7 +399,10 @@ Three things the face does that are worth naming, because each is a refusal to l
 | Failure | What happens | Guard |
 |---|---|---|
 | A rack's numbering is never stated | It cannot be drawn at all | `card: "1"` plus a refusal at `OP_RACK_PLACE` naming the field |
-| A newer schema's numbering token reaches an older build | The generated `Unknown(token)` arm; the token is carried to the page and printed rather than treated as ascending | `62` §7 rule 2 |
+| A newer schema's numbering token reaches an older build | `elevation()` answers with **no direction** (`ascending: Option<bool>` = `None`), the wire's direction slot is empty, and the page draws **no frame at all** — it prints the token it could not read and names every box in words | `62` §7 rule 2; `crates/fathom-inventory/tests/rack_numbering.rs`; `the_direction_slot_tells_no_direction_apart_from_descending`. **This row asserted a guard that did not exist.** `elevation()` matched `_ => true`, so an unreadable token came out as *"ascending"* and the page drew the frame that way — the exact guess the no-default design exists to prevent. It is a type now, not a comment |
+| A `range:` constraint is declared and enforced by nothing | `OP_RACK_PLACE` checks `1..=100` on the three unit-count fields at the door and names the field, the value and the declared range | **`fathom-schemagen` does not carry `range:` into the generated types at all** — a project-wide gap this edit is the first to lean on. `the_declared_range_is_the_range_the_door_enforces` reads the declaration out of `schema/schema.yaml` and fails if the door and the schema drift. Teaching the generator is the right fix and is filed |
+| A store error part-way through `rack_place` | `Graph` has no rollback, so `end_batch` commits what was written and an orphan `Rack` can survive a refusal. **Named, not fixed**: the doc comment says so, the orphan is visible in the inventory and removable, and building the rollback is a `fathom-graph` change | Filed for planning. The earlier comment claimed "a refusal leaves the estate exactly as it was" without qualification, which was true of field refusals and false of this |
+| Two placed boxes start on the same drawn row | Both are drawn, in side-by-side sub-lanes, both marked; the frame keeps its full height | §6.2. Driven in `2026-08-15-rack-view-ax.mjs` §§10–11 against the accessible tree |
 | `position_u` near 255 with a tall box | `last_u()` saturates rather than wrapping into a low number and appearing to sit at the bottom of the frame | `saturating_add`; `Cargo.toml` keeps `overflow-checks` on in release |
 | Two racks share a label | The lowest `NodeId` wins, deterministically | Sorted before `first()` (invariant 9) |
 | A rack with no label matches another with no label | Cannot happen: `rack_label` returns `Option`, and `value_cell`'s `—` rendering is never compared | `fathom_inventory::rack_label` is separate from `value_cell` for exactly this |
@@ -304,7 +413,10 @@ Three things the face does that are worth naming, because each is a refusal to l
 
 ## 8. Open decisions
 
-1. **Does the elevation draw two faces, or one with a face label?** `56` owns it. One is built.
+1. ~~**Does the elevation draw two faces?**~~ **Decided — §6.1.** Both, side by side, plus a third
+   column for a box whose face nobody stated. The per-face convention is established from two
+   sources; drawing them simultaneously is this face's own decision and is argued rather than
+   assumed. `56` still owns the question for the diagram's zoom ladder.
 2. **Where does a rack sit in the diagram's zoom ladder once a diagram exists?** `56` §13.4. This
    ADR gives the rung a model; it does not decide the navigation.
 3. **`HasRack` is `in: "1"` and nothing creates a `Premises`.** A rack with no premises is written
@@ -313,6 +425,11 @@ Three things the face does that are worth naming, because each is a refusal to l
 4. **Should `Rack` carry a `form` (open frame, cabinet, wall-mount)?** Not added. Nothing traverses
    it and `19` §3.10's test says omit it.
 5. **The move gesture.** Refused by name today; somebody must decide its undo semantics.
+6. **`fathom-schemagen` should carry `constraints.range` into the generated types.** Three fields
+   declare a range and the door enforces it from two hand-written constants pinned by a test. That
+   is the right interim and the wrong permanent answer — §7 row 2.
+7. **`Graph` has no rollback.** §7 row 3. Every batching writer in the tree shares the window, not
+   just this one.
 
 ---
 
@@ -324,6 +441,8 @@ Three things the face does that are worth naming, because each is a refusal to l
 | `en.wikipedia.org/wiki/19-inch_rack` | 2026-08-15 | 44.45 mm corroborated independently; 482.6 mm width; EIA-310-D (Sept 1992, REV E 1996); IEC 60297's full title; *"The industry-standard rack cabinet is 42U tall"*; no standard for depth |
 | `netbox.readthedocs.io/en/stable/models/dcim/rack/` | 2026-08-15 | *"commonly between 42U and 48U tall, but NetBox allows you to define racks of arbitrary height"*; the ascending/descending toggle |
 | `netbox.readthedocs.io/en/stable/models/dcim/device/` | 2026-08-15 | The `face` field; *"the base rack unit in which the device is mounted"*; rack assignment is optional |
+| `netboxlabs.com/docs/netbox/models/dcim/devicetype/` | 2026-08-15 | *"If selected, this device type is considered to occupy both the front and rear faces of a rack, regardless of which face it is assigned"*; *"Users can upload illustrations of the device's front and rear panels. If present, these will be used to render the device in rack elevation diagrams"* — §6.1 |
+| `netboxlabs.com/docs/netbox/en/stable/release-notes/version-2.7/` | 2026-08-15 | *"the `face` parameter may be used to request either the `front` or `rear` of the elevation"* — an elevation is per face. §6.1 |
 | `github.com/netbox-community/netbox` issue **#191** | 2026-08-15 | A real estate numbering top-down (*"U01 is at top of rack and U41 is at rack bottom"*) against NetBox's opposite default |
 | `schema/schema.yaml` (`Chassis`, `Premises`, `PassiveNode`, `HasChassis`, `HasPremises`, `HasPassiveNode`, `AtPremises`) | 2026-08-15 | The containment shape this edit had to fit |
 | `19` §3.3, §3.5, §3.6, §3.10; `62` §2.3, §4, §6, §7, §8, §16.2; `70` §10.7–10.9; `56` §13.4 | 2026-08-15 | The design already on record, including the row that predicted this edit |
@@ -332,17 +451,27 @@ Three things the face does that are worth naming, because each is a refusal to l
 
 ## 10. Disagreements
 
-**1. The brief's stated repository state does not match this worktree, and the byte figures differ by
-43,179.** The task described three live views (inventory, diagram, finder), a `crates/fathom-layout/`
-crate, 557 tests and a module at 896,097 bytes with 3,903 free. This worktree's base commit
-(`adbb590`, 2026-08-11) has **one** live view, **no** `fathom-layout`, **420** tests, and a module at
-**852,918** bytes. There is also no `scripts/gate-zero.sh`, no `scripts/byte-census.sh` and no
-`scripts/drive-*.mjs`, so three of the named floor commands and the named regression drivers do not
-exist here.
+**1. RESOLVED BY THE REBASE — the worktree now IS the tip.** This section previously recorded that
+the brief's stated repository state did not match the base commit (`adbb590`: one live view, no
+`fathom-layout`, 420 tests, 852,918 bytes) and that the byte figures differed by 43,179. `d96cf95`
+has since been merged: `fathom-layout` exists and was read, the module measures 862,368 at the tip,
+and every figure in §5 is measured on the merged tree. **Nothing in §5 is carried over from the old
+base**, because two deltas measured against different bases do not add — `47` §9.3, and the reason
+this project has already had a verdict reverse sign.
 
-Every number in §5 is measured against what is actually present and is labelled as such. **The
-+17,533 delta is the figure that transfers**; the absolute totals do not. The `fathom-layout`
-consequence is recorded in §4's note.
+Two consequences of the merge are recorded rather than absorbed:
+
+- **§4's note is discharged.** `crates/fathom-layout/` now exists and its `layers.rs` was read. The
+  argument in §4 does not depend on its contents — it turns on the y axis being *given* rather than
+  derived, which is a property of racks — and reading the crate did not change it. `Rack` was added
+  to `projection_of`'s exhaustive match as UNTABLED, over-drawn and marked, by the same rule
+  `Premises` and `PassiveNode` already follow: `56` §4.1 has no row for it, and confining it to the
+  physical layer would read as a decision `56` has made and has not.
+- **`Rack` joined the `Placeable` class**, which ADR-0035 introduced and which
+  `shipped_tree.rs::every_kind_but_the_pin_itself_is_placeable` polices. A rack is a live node, so
+  the diagram draws it as a box like any other, and a box you can see but cannot drag would be an
+  arbitrary hole in that capability. It is also §5's finding 1: that class is what made adding a
+  kind stop being free.
 
 **2. `19` §3.10 says *"Nothing in `77` traverses a rack"* and that is still true.** This ADR adds the
 kind anyway, on the owner's direct request. The `19` §3.10 test was about *omission being safe*, not
@@ -355,3 +484,42 @@ should see that the justification here is a stated requirement, not a traversal 
 accessor's body is, so ADR-0008 holds and no integer is hand-copied. **The generator should learn to
 emit edge accessors**, and it is not done here because it edits a shared generator while three
 sibling sessions are in flight. Filed for planning, not for an execution session.
+
+---
+
+## 11. How this was verified
+
+The floor, run in this worktree after the merge of `d96cf95`:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all --check` | silent |
+| `cargo clippy --all-targets --locked -- -D warnings` | exit 0 |
+| `cargo test --workspace --locked` | **598 passed, 0 failed, 0 ignored, 0 filtered** (573 at the tip) |
+| `cargo run --locked -p fathom-schema --bin fathom-schema-check` | 50 kinds · 92 edges · 61 scalars · 10 enums · **0 failures, 0 warnings** |
+| `./scripts/gate-zero.sh` | OK — every external package has an approval record (there are none) |
+| `cargo run --locked -p fathom-artifact` | 2,289,481 bytes |
+| release wasm | **883,760** against the 900,000 ceiling |
+
+`crates/fathom-wasm/tests/artifact_gates.rs` is **byte-for-byte unchanged** against the tip
+(`git diff` is empty): one threshold, not feature-gated, not weakened.
+
+**Every driver in the tree was re-run and every one matches the tip check-for-check**, with one
+exception in each direction:
+
+- `2026-08-15-rack-view-ax.mjs` went **19/19 → 45/45**. The added sections drive the two collision
+  cases against the accessible tree, the full-height frame, the count sentence, the named-not-drawn
+  list and the range refusals.
+- `2026-08-15-hand-placement-drive.mjs` fails **3 checks, and fails the same 3 with the same numbers
+  on `d96cf95` itself** (`Alt`+arrow from the Outline row, the focus that follows it, and
+  *"2 place ops of 3"* in the export). Pre-existing on the tip, untouched here, and named rather
+  than quietly inherited.
+
+One defect was found by that re-run and fixed, and it is the merge hazard the brief warned about in
+its own words. Both sides of one HTML conflict ended on the same two closing tags, which git had
+already merged *outside* the conflict — so concatenating the two sides nested `53` §6.2's layer-4
+copy block **inside `#msheet`**, which carries `hidden`. `showCopyBlock`'s `focus()` then silently
+did nothing and layer 4 became a panel you could see and could not copy from; the finder driver went
+18/18 → 17/18 and said exactly which check. The fix moved the block back to being a sibling of the
+sheets, and the DOM ancestry of every `id` in the built artifact was diffed against the tip's to
+prove nothing else moved: the diff is my eleven new elements and nothing more.

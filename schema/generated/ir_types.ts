@@ -51,6 +51,7 @@ export type NodeKind =
   | "ServiceEndpoint"
   | "ServicePath"
   | "PathSegment"
+  | "LayoutPin"
   | "Rack";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
@@ -101,6 +102,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "ServiceEndpoint",
   "ServicePath",
   "PathSegment",
+  "LayoutPin",
   "Rack",
 ];
 
@@ -187,6 +189,7 @@ export type EdgeKind =
   | "EntersAt"
   | "ExitsAt"
   | "MustTraverse"
+  | "HasLayoutPin"
   | "HasRack"
   | "MountedIn";
 export const EDGE_KINDS: readonly EdgeKind[] = [
@@ -271,6 +274,7 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "EntersAt",
   "ExitsAt",
   "MustTraverse",
+  "HasLayoutPin",
   "HasRack",
   "MountedIn",
 ];
@@ -404,7 +408,8 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   ServiceEndpoint: ["uni_id", "role", "ordinal", "label", "in_service_on", "ceased_on", "attributes"],
   ServicePath: ["ordinal", "role", "label", "last_confirmed", "note"],
   PathSegment: ["ordinal", "kind", "boundary_reason", "warp_technology", "max_hops", "note", "resolution", "corroboration"],
-  Rack: ["label", "height_u", "unit_numbering", "notes"],
+  LayoutPin: ["x", "y"],
+  Rack: ["label", "height_u", "unit_numbering"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -708,11 +713,12 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Cabled.via_passive": 297,
   "WarpResolvesVia.candidate": 298,
   "WarpResolvesVia.ordinal": 299,
-  "Rack.label": 300,
-  "Rack.height_u": 301,
-  "Rack.unit_numbering": 302,
-  "Rack.notes": 303,
-  "MountedIn.position_u": 304,
-  "MountedIn.height_u": 305,
-  "MountedIn.face": 306,
+  "LayoutPin.x": 300,
+  "LayoutPin.y": 301,
+  "Rack.label": 302,
+  "Rack.height_u": 303,
+  "Rack.unit_numbering": 304,
+  "MountedIn.position_u": 305,
+  "MountedIn.height_u": 306,
+  "MountedIn.face": 307,
 };

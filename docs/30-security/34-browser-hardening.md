@@ -168,6 +168,15 @@ loss legible rather than to hide it.
 <meta name="referrer" content="no-referrer">
 ```
 
+> **DEVIATION, 2026-08-15: the shipped artifact sends `worker-src 'none'`.** No `Worker` is
+> constructed anywhere in the page — the count is zero — so `blob:` grants a capability nothing uses,
+> and an unused permissive directive inside an otherwise `default-src 'none'` policy is exactly the
+> thing a security reviewer stops on. The policy above stays the specification; the build is
+> tighter than it until a worker exists. `crates/fathom-artifact/tests/artifact.rs` pins the shipped
+> value, so restoring `blob:` is a deliberate edit. `43` §3.7 carries the same note. Raised by an
+> adversarial acceptance pass, not by a design change.
+
+
 **PROPOSED CHANGE to `21` §7.5:** that section gives the single-file policy as `img-src 'self'
 data:` and `font-src 'self' data:`. Under an opaque origin, `'self'` matches nothing. Keeping it
 there costs nothing operationally and costs something in review: it reads as a grant, and a reviewer

@@ -424,6 +424,17 @@ Unchanged from `34` §2.2's mode A, with one addition and one note.
 `worker-src blob:` is now load-bearing rather than speculative, because D1 parses. §3.9 specifies
 what happens when blob workers turn out to be unavailable.
 
+> **DEVIATION, 2026-08-15: the shipped artifact sends `worker-src 'none'`, not `worker-src blob:`.**
+> Nothing in `crates/fathom-artifact/html/fathom-dev.src.html` constructs a `Worker` — the count is
+> zero — so in the artifact that exists today this directive grants a capability nothing uses, and
+> an unused permissive value inside an otherwise `default-src 'none'` policy is a question a
+> reviewer asks and the page cannot answer. The sentence above ("load-bearing rather than
+> speculative") is true of the deployment mode this section specifies and not yet true of the build.
+> The trigger to restore `blob:` is the first line of code that creates a Worker;
+> `crates/fathom-artifact/tests/artifact.rs` pins the shipped value so that restoring it is a
+> deliberate edit rather than a quiet one. Raised by an adversarial acceptance pass.
+
+
 Discarded by `<meta>` parsing and therefore absent: `frame-ancestors`, `sandbox`, `report-to`. Not
 available at all, because there is no response: COOP, COEP, CORP, `X-Content-Type-Options`,
 `X-Frame-Options`, `Integrity-Policy`, `Permissions-Policy`, `Strict-Transport-Security`,

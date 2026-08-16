@@ -11,10 +11,16 @@
 //! Nothing here writes the graph except `demo_estate()`, and nothing here
 //! reads a clock, draws entropy, or touches a network: the estate is
 //! constructed in code with every ULID and timestamp pinned (invariant 9).
+//!
+//! `demo_estate()` is behind the off-by-default `demo-estate` feature and is
+//! **not in the shipping module**: it is a development fixture and it was
+//! costing 35,095 of `44` §5.2's 900,000 bytes. See this crate's Cargo.toml
+//! for why the feature is off by default and how the test targets still get it.
 
 #![forbid(unsafe_code)]
 
 mod author;
+#[cfg(feature = "demo-estate")]
 mod demo;
 mod element;
 mod equipment;
@@ -23,6 +29,7 @@ mod rack;
 mod render;
 
 pub use author::{is_authorable, parse_into_slot, AuthorError};
+#[cfg(feature = "demo-estate")]
 pub use demo::demo_estate;
 pub use element::{element_page, parse_display_id, ElementPage, FieldRow};
 pub use equipment::{equipment_page, CabledPeer, EquipmentPage, IfaceRow, PortRow};

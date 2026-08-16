@@ -67,64 +67,16 @@ pub enum DictGate {
     TokenMapUnknown,
 }
 
-/// The dictionary's six source files, compiled in, in the order `load` reads
-/// them off disk (`read_dir` then `sort`, so: alphabetical by file name).
-///
-/// This exists for one caller: the WebAssembly build, which has no filesystem
-/// and cannot call `load`. It is deliberately a literal list rather than a
-/// directory walk — a macro cannot walk a directory, and a list that silently
-/// missed a file would produce a dictionary that parses less than the on-disk
-/// one while claiming to be it. `tests/embedded.rs` closes that hole: it reads
-/// the directory and fails if this list and the directory disagree by one file
-/// or by one byte.
-pub const EMBEDDED_DICT_SOURCES: &[(&str, &str)] = &[
-    (
-        "interfaces.yaml",
-        include_str!("../../../corpus/dict/junos-srx/interfaces.yaml"),
-    ),
-    (
-        "security-ike.yaml",
-        include_str!("../../../corpus/dict/junos-srx/security-ike.yaml"),
-    ),
-    (
-        "security-ipsec.yaml",
-        include_str!("../../../corpus/dict/junos-srx/security-ipsec.yaml"),
-    ),
-    (
-        "security-zones.yaml",
-        include_str!("../../../corpus/dict/junos-srx/security-zones.yaml"),
-    ),
-    (
-        "system.yaml",
-        include_str!("../../../corpus/dict/junos-srx/system.yaml"),
-    ),
-    (
-        "token-maps.yaml",
-        include_str!("../../../corpus/dict/junos-srx/token-maps.yaml"),
-    ),
-];
-
-/// `schema/field-keys.yaml`, compiled in for the same reason. The registry is
-/// append-only (`62` §2.3), so embedding it is embedding an assignment that
-/// never changes for an existing field.
-pub const EMBEDDED_FIELD_KEYS: &str = include_str!("../../../schema/field-keys.yaml");
+// The dictionary used to be compiled in here, as six `include_str!` lines plus
+// `schema/field-keys.yaml`, for one caller: the WebAssembly build, which has no
+// filesystem and cannot call `load`. That cost the module 29 670 bytes of data
+// section against `44` §5.2's 900 000-byte ceiling, and every further platform
+// would have cost its own dictionary again. The page hands it in instead —
+// `crate::hosted::dictionary_from_host`, reached from the browser through
+// `OP_DICT`. See that module for the reasoning and for where the anti-drift
+// guard went.
 
 impl Dictionary {
-    /// `load`, without a filesystem: the same six files and the same field-key
-    /// registry, compiled into the binary.
-    ///
-    /// Every gate `load` runs, this runs — it is the same `from_sources` call
-    /// with the same inputs. The only thing it does not do is read the schema
-    /// tree, because the one thing it needs from that tree is the field-key
-    /// table and that file is embedded whole.
-    pub fn embedded() -> Result<Dictionary, DictError> {
-        let sources: Vec<(String, String)> = EMBEDDED_DICT_SOURCES
-            .iter()
-            .map(|(name, text)| ((*name).to_owned(), (*text).to_owned()))
-            .collect();
-        Dictionary::from_sources(&sources, embedded_field_keys()?)
-    }
-
     /// Loads `corpus/dict/junos-srx/` and the schema tree beneath `root`, then
     /// runs every gate of WO-03 §4.7. A gate failure is a load failure: a
     /// dictionary that does not pass is never half-loaded.
@@ -238,6 +190,37 @@ pub(crate) enum ValueTy {
     /// match at all.
     Text,
     Fqdn,
+    // ---- added 2026-08-15 by the branch-coverage widening. Each one exists
+    // ---- because a *measured* section of a documented SRX branch config
+    // ---- needed it, not because the catalogue looked incomplete.
+    /// `vlans <name> vlan-id N` and `interfaces … unit N vlan-id V`.
+    VlanId,
+    /// `system time-zone` — `SystemSettings.time_zone`.
+    TzName,
+    /// `security flow tcp-mss … mss N` — the four `SecurityFlowSettings`
+    /// clamp fields are `u16` in the schema, and a value over 65535 is a
+    /// typo to diagnose rather than a number to truncate.
+    U16,
+    // --- the routing slice (2026-08-15) --------------------------------------
+    // `RoutingProtocol` and `ProtocolAdjacency` had inventory rows and a place
+    // in the diagram's layer model with nothing behind them, because no
+    // dictionary entry could name their field types. These are exactly the slot
+    // types `schema/schema.yaml` declares on those two kinds plus the
+    // `RoutingInstance.router_id` that carries a Junos `routing-options
+    // router-id`; nothing here is speculative surface.
+    Ip4Addr,
+    /// Either family, because Junos accepts both. Serves `NtpServer.address`
+    /// from the branch-coverage widening and the routing slice alike -- the two
+    /// slices arrived at the same schema scalar independently, and on merge
+    /// (2026-08-15) the duplicate variant was collapsed onto this one rather
+    /// than kept as a synonym, because two `ValueTy`s spelling one scalar is a
+    /// silent fork waiting for the next `from_name` arm to pick the wrong one.
+    IpAddr,
+    Asn,
+    OspfAreaId,
+    Bandwidth,
+    RoutingProtocolProtocol,
+    ProtocolAdjacencyNetworkType,
 }
 
 impl ValueTy {
@@ -263,6 +246,16 @@ impl ValueTy {
             "EstablishTunnels" => ValueTy::EstablishTunnels,
             "IpsecVpnDfBit" => ValueTy::IpsecVpnDfBit,
             "AddressFamily" => ValueTy::AddressFamily,
+            "VlanId" => ValueTy::VlanId,
+            "TzName" => ValueTy::TzName,
+            "u16" => ValueTy::U16,
+            "Ip4Addr" => ValueTy::Ip4Addr,
+            "IpAddr" => ValueTy::IpAddr,
+            "Asn" => ValueTy::Asn,
+            "OspfAreaId" => ValueTy::OspfAreaId,
+            "Bandwidth" => ValueTy::Bandwidth,
+            "RoutingProtocolProtocol" => ValueTy::RoutingProtocolProtocol,
+            "ProtocolAdjacencyNetworkType" => ValueTy::ProtocolAdjacencyNetworkType,
             _ => return None,
         })
     }
@@ -272,16 +265,29 @@ impl ValueTy {
         match self {
             ValueTy::DhGroup => Some("DhGroup"),
             ValueTy::IntegrityAlgorithm => Some("IntegrityAlgorithm"),
+            // Junos spells OSPFv3 `ospf3` and the schema spells it `ospf_v3`;
+            // Junos spells the OSPF network type `p2p`/`nbma` and the schema
+            // spells them `point_to_point`/`non_broadcast`. Both are vendor
+            // spellings, which is what a token map is for — the alternative is
+            // a second enum in the IR that means the same thing.
+            ValueTy::RoutingProtocolProtocol => Some("RoutingProtocolProtocol"),
+            ValueTy::ProtocolAdjacencyNetworkType => Some("ProtocolAdjacencyNetworkType"),
             _ => None,
         }
     }
 }
 
-/// The two `set{…}` enum fields this slice appends into (§4.8).
+/// The `set{…}` enum fields this slice appends into (§4.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SetEnumTy {
     Family,
     HostService,
+    /// `host-inbound-traffic protocols ospf|bgp|bfd|all`. The twin of
+    /// `HostService` on both `Zone` and the `ZoneMember` edge; its absence
+    /// was why `set security zones security-zone trust host-inbound-traffic
+    /// protocols all` was residue while the `system-services` line beside it
+    /// bound (measured 2026-08-15).
+    HostProtocol,
 }
 
 impl SetEnumTy {
@@ -289,6 +295,7 @@ impl SetEnumTy {
         match name {
             "Family" => Some(SetEnumTy::Family),
             "HostService" => Some(SetEnumTy::HostService),
+            "HostProtocol" => Some(SetEnumTy::HostProtocol),
             _ => None,
         }
     }
@@ -311,6 +318,21 @@ pub(crate) enum ValueSpec {
     AppendConst {
         ty: SetEnumTy,
         token: String,
+    },
+    /// A Junos *flag* statement — `passive;`, `disable;` — whose whole content
+    /// is its own presence. There is no argument to capture, so the value
+    /// cannot come `from:` anywhere: the entry states it, and the entry's path
+    /// is what makes the statement true. Written as a full `bool` rather than
+    /// a presence marker because the schema slot is `bool` and a future
+    /// `passive false` (Junos `delete`, or a vendor that spells the negative)
+    /// has somewhere to land without a second construct.
+    ///
+    /// The polarity lives in the corpus because it is a vendor fact: Junos
+    /// spells the negative (`set interfaces ge-0/0/4 disable`) and the IR
+    /// stores the positive (`Interface.admin_up`), so a hard-coded `true` here
+    /// would make `disable` unmodellable.
+    ConstBool {
+        value: bool,
     },
     /// `14` §9.1: the binder constructs the placeholder from the entry's
     /// label and never reads the redacted argument's text.
@@ -355,6 +377,33 @@ pub(crate) struct Entry {
     pub(crate) partial: bool,
     pub(crate) secret: Option<RedactLabel>,
     pub(crate) secret_exempt: bool,
+    /// `where:` — the tokens a named capture is allowed to take, as
+    /// (path index, allowed tokens) with the tokens sorted. Empty on an
+    /// unconstrained entry, which is nearly all of them.
+    ///
+    /// WHY THIS EXISTS. A free capture claims every token in its position, and
+    /// Junos reuses statement SHAPES across protocols that share nothing else.
+    /// `[protocols, $proto, group, $g, neighbor, $n]` was written for BGP and
+    /// also claimed RIP's `neighbor neighbor-name` at
+    /// `[edit protocols rip group group-name ]` -- documented, and its
+    /// `neighbor-name` is an INTERFACE name, not a peer address
+    /// (https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/neighbor-edit-protocols-rip.html,
+    /// read 2026-08-15). One legal RIP line therefore put a `rip`
+    /// `RoutingProtocol` and a fieldless `ProtocolAdjacency` into the estate of
+    /// record: a peer that does not exist, in the register the product asks to
+    /// be trusted. Same mechanism, smaller blast radius: `set protocols ospf
+    /// local-as 65001` and `set protocols bgp reference-bandwidth 100` are not
+    /// legal Junos and both bound.
+    ///
+    /// REJECTED ALTERNATIVE: spell the protocol as a path LITERAL and drop the
+    /// capture. It works, and it costs the two things the capture buys --
+    /// `key: "$proto"`, which is what keeps `ospf` and `ospf3` from colliding
+    /// onto one `RoutingProtocol` node, and `from: "$proto"`, which is what
+    /// carries the protocol word through the `ospf3 -> ospf_v3` token map into
+    /// the field. Recovering both means one entry per protocol word plus a
+    /// `const_enum` per entry: ten OSPF entries where there are five, and a
+    /// second place for the token map to be forgotten.
+    pub(crate) constraints: Vec<(usize, Vec<String>)>,
     pub(crate) nodes: Vec<NodeSpec>,
     pub(crate) edges: Vec<EdgeSpec>,
 }
@@ -365,6 +414,23 @@ impl Entry {
         self.path
             .iter()
             .position(|s| matches!(s, PathSeg::Capture(n) if n == name))
+    }
+
+    /// Does this entry's `where:` hold against a statement's segments?
+    ///
+    /// Unconstrained entries answer `true` without looking, which is every
+    /// entry that does not spell a `where:`.
+    ///
+    /// A statement that FAILS this test matches no entry, so the ingest gate
+    /// treats it as unknown: every token from the longest known prefix is an
+    /// argument, the base64 detector is armed, and the raw secret-word walk
+    /// runs over the physical line. That is strictly more destruction than a
+    /// match, so narrowing a capture can never open a credential path.
+    pub(crate) fn constraints_hold(&self, segs: &[&str]) -> bool {
+        self.constraints.iter().all(|(at, allowed)| {
+            segs.get(*at)
+                .is_some_and(|t| allowed.iter().any(|a| a == t))
+        })
     }
 
     /// The last capture position — the argument the path detector redacts on
@@ -447,6 +513,10 @@ impl Dictionary {
         let mut visits = 1usize; // the root counts one
         let mut best: Option<(usize, usize)> = None; // (entry, depth)
         let mut known_prefix = 0usize;
+        // The shallowest position at which a `where:` turned this statement
+        // away. See the clamp below `known_prefix`'s final value for what it
+        // is for; `usize::MAX` means "no entry was rejected".
+        let mut rejected_at = usize::MAX;
         let mut stack = vec![Frame {
             node: 0,
             depth: 0,
@@ -462,9 +532,30 @@ impl Dictionary {
                 if frame.depth > known_prefix {
                     known_prefix = frame.depth;
                 }
+                // The `where:` test runs HERE, at the terminal, and not in the
+                // trie walk: the trie folds every capture at a node onto one
+                // child, so `protocols $proto` is a single edge shared by the
+                // OSPF and BGP entries and there is nothing per-entry to gate
+                // on until an entry is in hand. Rejecting at the terminal
+                // leaves the walk itself untouched -- `known_prefix` and the
+                // visit budget are unchanged -- and lets a shorter `partial`
+                // entry still win, which is what should happen.
                 if let Some(e) = node.entry {
-                    if best.map(|(_, d)| frame.depth > d).unwrap_or(true) {
-                        best = Some((e, frame.depth));
+                    let entry = self.entries.get(e);
+                    let holds = entry.is_some_and(|entry| entry.constraints_hold(segs));
+                    if holds {
+                        if best.map(|(_, d)| frame.depth > d).unwrap_or(true) {
+                            best = Some((e, frame.depth));
+                        }
+                    } else if let Some(entry) = entry {
+                        // Where the statement stopped being the entry the trie
+                        // walked to. The first constrained position is the
+                        // divergence point by definition: everything before it
+                        // agreed, everything from it on is a statement this
+                        // dictionary has never described.
+                        if let Some(at) = entry.constraints.iter().map(|(at, _)| *at).min() {
+                            rejected_at = rejected_at.min(at);
+                        }
                     }
                 }
             }
@@ -513,6 +604,36 @@ impl Dictionary {
             Some((e, d)) => (Some(e), d),
             None => (None, 0),
         };
+
+        // TWO CLAMPS ON `known_prefix`, BOTH SECURITY GUARDS. The gate turns
+        // `known_prefix` into the argument list for an unmatched statement
+        // (`redact::gate_statement`: `args.extend(known_prefix..segs.len())`),
+        // so a `known_prefix` that is too LARGE means tokens nobody looks at.
+        //
+        // (a) A statement rejected by a `where:` still walked the trie to full
+        //     depth, because the trie is shared and knows nothing about
+        //     constraints. Found by its own regression test, not by review:
+        //     `set protocols rip group G neighbor ge-0/0/9.0
+        //     authentication-key <key>` reached depth 8 of 8, `args` came out
+        //     EMPTY, and the key was stored verbatim. Narrowing a capture had
+        //     silently disarmed the gate on the statements it narrowed away —
+        //     the precise mistake this whole reconciliation exists to fix,
+        //     reintroduced one layer down. Clamping to the divergence point
+        //     puts every token from the rejected capture onward back in front
+        //     of the detectors.
+        //
+        // (b) The general case, which predates `where:`: if the trie happens
+        //     to spell a statement's whole path without terminating on an
+        //     entry, `known_prefix == segs.len()` and `args` is empty for that
+        //     reason alone. A set-form statement's last token is its argument
+        //     by construction, so when NOTHING matched it is always examined.
+        //     This can only add detector work; a token still has to trip a
+        //     detector to be destroyed, and a bare keyword trips none.
+        if entry.is_none() {
+            known_prefix = known_prefix.min(rejected_at);
+            known_prefix = known_prefix.min(segs.len().saturating_sub(1));
+        }
+
         (
             Match {
                 entry,
@@ -548,33 +669,6 @@ fn label_from_token(token: &str) -> Option<RedactLabel> {
     ]
     .into_iter()
     .find(|l| l.token() == token)
-}
-
-/// `EMBEDDED_FIELD_KEYS`, parsed into the map `from_sources` wants.
-///
-/// The same reading `SchemaTree::load` performs — literally the same function,
-/// `fathom_schema::model::field_key_entries`, so the two paths cannot drift.
-/// A negative or over-wide key is refused rather than wrapped: the registry is
-/// a `u32` on the wire (`11` §14.1) and a value that does not fit it is a
-/// defect in the file, not something to round.
-fn embedded_field_keys() -> Result<BTreeMap<String, u32>, DictError> {
-    let node = fathom_schema::subset::parse(EMBEDDED_FIELD_KEYS).map_err(|e| DictError {
-        file: "schema/field-keys.yaml".to_owned(),
-        line: e.line,
-        gate: DictGate::Parse,
-        message: e.message,
-    })?;
-    let mut keys = BTreeMap::new();
-    for (name, key, line) in fathom_schema::model::field_key_entries(&node) {
-        let key = u32::try_from(key).map_err(|_| DictError {
-            file: "schema/field-keys.yaml".to_owned(),
-            line,
-            gate: DictGate::Parse,
-            message: format!("field key `{name}` is {key}, which is not a u32"),
-        })?;
-        keys.insert(name, key);
-    }
-    Ok(keys)
 }
 
 impl Dictionary {
@@ -816,6 +910,88 @@ fn load_entry(
         }
     };
 
+    // `where: { <capture>: [<token>, …] }`. Gated hard on both halves: a
+    // constraint naming a capture the path does not hold is a typo that would
+    // silently constrain nothing, and an empty token list is an entry that can
+    // never match, which is a mistake rather than an intention.
+    let mut constraints: Vec<(usize, Vec<String>)> = Vec::new();
+    if let Some(w) = node.get("where") {
+        let map = w.as_map().ok_or_else(|| {
+            err(
+                file,
+                w.line,
+                DictGate::Parse,
+                format!("`{id}`: `where` is not a map of capture to token list"),
+            )
+        })?;
+        for (name, list) in map {
+            let at = path
+                .iter()
+                .position(|s| matches!(s, PathSeg::Capture(n) if n == name))
+                .ok_or_else(|| {
+                    err(
+                        file,
+                        list.line,
+                        DictGate::CaptureArity,
+                        format!("`{id}`: `where` names `${name}`, which is not in path"),
+                    )
+                })?;
+            let seq = list.as_seq().ok_or_else(|| {
+                err(
+                    file,
+                    list.line,
+                    DictGate::Parse,
+                    format!("`{id}`: `where.{name}` is not a list of tokens"),
+                )
+            })?;
+            let mut allowed: Vec<String> = seq
+                .iter()
+                .map(|n| {
+                    n.as_str()
+                        .map(|t| t.to_owned())
+                        .unwrap_or_else(|| n.scalar_display())
+                })
+                .collect();
+            if allowed.is_empty() {
+                return Err(err(
+                    file,
+                    list.line,
+                    DictGate::Parse,
+                    format!("`{id}`: `where.{name}` is empty, so the entry can never match"),
+                ));
+            }
+            // Deduplicated by a quadratic scan, and NEITHER this list nor the
+            // constraint list is sorted. Both were, for two lines, and the two
+            // lines cost 5 963 BYTES OF MODULE -- measured, by diffing the byte
+            // census function-for-function against a build without them.
+            // `Vec<String>::sort` and `Vec<(usize, Vec<String>)>::sort_by_key`
+            // each monomorphise the whole of `core::slice::sort` (drift,
+            // quicksort, stable_partition, smallsort) for their element type,
+            // and they were doing it for lists that hold one or two items.
+            //
+            // Nothing observable depends on either order: `constraints_hold`
+            // is an `all()` over an `any()` and the divergence point is a
+            // `min()`, all three order-independent. Invariant 9 asks for
+            // determinism in what is emitted, and the YAML's own order is
+            // already deterministic. Against 13 679 bytes of headroom, tidiness
+            // at 6 KB is not tidiness.
+            // `retain` with a seen-set, rather than indexing: the crate denies
+            // `clippy::indexing_slicing`, and a dedup that can panic on a
+            // corpus file is a worse trade than one extra small allocation on
+            // a list of one or two tokens. Still no sort -- see above.
+            let mut seen: Vec<String> = Vec::with_capacity(allowed.len());
+            allowed.retain(|t| {
+                if seen.iter().any(|s| s == t) {
+                    false
+                } else {
+                    seen.push(t.clone());
+                    true
+                }
+            });
+            constraints.push((at, allowed));
+        }
+    }
+
     let mut nodes: Vec<NodeSpec> = Vec::new();
     let mut edges: Vec<EdgeSpec> = Vec::new();
     if let Some(binds) = node.get("binds") {
@@ -846,6 +1022,7 @@ fn load_entry(
         partial,
         secret,
         secret_exempt,
+        constraints,
         nodes,
         edges,
     })
@@ -1161,6 +1338,23 @@ fn load_field(
             value: ValueSpec::Secret { label },
         });
     }
+    // `const_bool` is read with `as_bool`, never with a string compare: a
+    // `const_bool: "false"` typo must fail the load rather than bind `true`
+    // because a non-empty string looked truthy.
+    if let Some(node) = spec.get("const_bool") {
+        let value = node.as_bool().ok_or_else(|| {
+            err(
+                file,
+                line,
+                DictGate::TypeUnknown,
+                format!("`{id}`: `const_bool` is not `true` or `false`"),
+            )
+        })?;
+        return Ok(FieldSpec {
+            field,
+            value: ValueSpec::ConstBool { value },
+        });
+    }
     if let Some(text) = spec.get("const_enum").and_then(|n| n.as_str()) {
         let (ty, token) = split_enum_token(file, id, line, text)?;
         let ty = ValueTy::from_name(&ty).ok_or_else(|| {
@@ -1342,22 +1536,78 @@ pub(crate) fn leaf_name_walk(path: &[PathSeg], at: usize) -> bool {
     false
 }
 
+fn fold_word(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c == '_' {
+                '-'
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect()
+}
+
+/// Leaf names that CONTAIN a secret word and do not name a secret.
+///
+/// A keychain statement carries the NAME of a key chain, which is an ordinary
+/// identifier an operator needs to keep — destroying it loses the link between
+/// the protocol and its keys while protecting nothing, because the key material
+/// lives under `[edit security authentication-key-chains]` where its own `key`
+/// segment catches it. This list is the price of component matching and it is
+/// deliberately short: every member is a statement whose argument was checked
+/// against Juniper's documentation and found to be a name.
+///
+/// Checked 2026-08-15:
+/// - `authentication-key-chain` / `key-chain` — the chain's name.
+///   <https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/authentication-key-chain-edit-protocols-bgp.html>
+const SECRET_WORD_EXEMPT: [&str; 3] = ["key-chain", "authentication-key-chain", "keychain"];
+
 /// The secret-word test: case-folded, hyphens and underscores equal
-/// (`14` §9.4).
+/// (`14` §9.4), **and matched by COMPONENT as well as whole string**.
+///
+/// THE COMPONENT HALF IS A DEFECT FIX, 2026-08-15, AND IT IS THE SECOND ATTEMPT
+/// AT THIS BUG. Junos leaf names are compound, and whole-string equality misses
+/// every one of them:
+///
+/// | statement | leaf | in the list? |
+/// |---|---|---|
+/// | `protocols isis interface … hello-authentication-key` | `hello-authentication-key` | no — `authentication-key` is |
+/// | `snmp v3 … authentication-password` | `authentication-password` | no — `password` is |
+/// | `snmp v3 … privacy-password` | `privacy-password` | no |
+/// | `access profile … chap-secret` | `chap-secret` | no — `secret` is |
+/// | `access profile … pap-password` | `pap-password` | no |
+/// | `ppp-options chap default-chap-secret` | `default-chap-secret` | no |
+///
+/// All six were driven through the shipped artifact at lengths the device
+/// documents as legal, and all six came back **verbatim in the exported
+/// journal** — the file an operator keeps — on the same screen as the product's
+/// own sentence saying secrets are destroyed before anything is stored.
+///
+/// The first attempt, three days earlier, added the single word
+/// `simple-password` to the list. That closed one instance and left the class
+/// open, which is the more useful lesson: a hand-maintained list of whole words
+/// cannot describe a vendor's compound naming, and every new statement form the
+/// dictionary learns is another chance for the list to be one word short.
+///
+/// The correct rule was already in this tree, in `redact.rs`'s
+/// `key_names_a_secret`, reachable only from the `key=value` sweep for
+/// non-Junos text. It is the same test; it was wired to one path and not the
+/// other.
 pub(crate) fn is_secret_word(text: &str) -> bool {
-    let fold = |s: &str| {
-        s.chars()
-            .map(|c| {
-                if c == '_' {
-                    '-'
-                } else {
-                    c.to_ascii_lowercase()
-                }
-            })
-            .collect::<String>()
-    };
-    let needle = fold(text);
-    SECRET_WORD_LIST.iter().any(|w| fold(w) == needle)
+    let needle = fold_word(text);
+    if SECRET_WORD_EXEMPT.iter().any(|w| fold_word(w) == needle) {
+        return false;
+    }
+    if SECRET_WORD_LIST.iter().any(|w| fold_word(w) == needle) {
+        return true;
+    }
+    // Component match. `14` §9.7 fixes the direction of error as destruction,
+    // so a compound whose ANY part names a secret is treated as naming one.
+    needle
+        .split(['-', '.'])
+        .filter(|p| !p.is_empty())
+        .any(|part| SECRET_WORD_LIST.iter().any(|w| fold_word(w) == part))
 }
 
 fn build_trie(entries: &[Entry]) -> Result<Vec<DictNode>, DictError> {
@@ -1480,7 +1730,18 @@ mod tests {
         // 39 through WO-03; +3 on 2026-08-10 — `system domain-name` and
         // `description` at both the interface and the unit level, the three
         // statements a 26-line branch config produced as residue.
-        assert_eq!(d.entry_count(), 42);
+        //
+        // +27 on 2026-08-15, chosen by measurement rather than by taste:
+        // `tests/branch_coverage.rs` binds a documented SRX branch
+        // configuration and reports the miss rate by section, and these are
+        // the sections that miss the most and are reachable without shaping a
+        // stub value type. See docs/60-content/66-junos-coverage-measurement.md.
+        //
+        // +12 on 2026-08-15 — the routing slice: five OSPF, six BGP (three
+        // that bind and three `secret:`-only catalogue entries for the BGP
+        // TCP-MD5 key, one per documented hierarchy level) and
+        // `routing-options router-id`.
+        assert_eq!(d.entry_count(), 81);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside
@@ -1489,12 +1750,25 @@ mod tests {
     fn lookup_budget_within_8() {
         let d = dict();
         for entry in &d.entries {
+            // The synthetic probe must be a statement the entry could legally
+            // match, so a capture carrying a `where:` is filled with one of the
+            // tokens it allows rather than with `$name`. Substituting a legal
+            // token STRENGTHENS the round trip -- it is the only spelling that
+            // can still reach the terminal -- where leaving `$name` in place
+            // would have turned every constrained entry into a silent
+            // no-match and the round-trip assertion below into a tautology.
             let segs: Vec<String> = entry
                 .path
                 .iter()
-                .map(|s| match s {
+                .enumerate()
+                .map(|(at, s)| match s {
                     PathSeg::Literal(t) => t.clone(),
-                    PathSeg::Capture(n) => format!("${n}"),
+                    PathSeg::Capture(n) => entry
+                        .constraints
+                        .iter()
+                        .find(|(i, _)| *i == at)
+                        .and_then(|(_, allowed)| allowed.first().cloned())
+                        .unwrap_or_else(|| format!("${n}")),
                 })
                 .collect();
             let refs: Vec<&str> = segs.iter().map(|s| s.as_str()).collect();
@@ -1553,11 +1827,20 @@ mod tests {
                 known_prefix: 1
             }
         );
+        // `routing-options` became a known segment on 2026-08-15, when
+        // `routing-options router-id` landed. The static route is still
+        // unmapped — nothing in the dictionary reaches `static` — but the
+        // reported prefix is now 1 rather than 0, which is the point of the
+        // number: it tells the reader how far Fathom followed before it lost
+        // the path, and it followed one segment further than it used to.
         assert_eq!(
             d.lookup(&["routing-options", "static", "route", "10.2.0.0/16"])
-                .0
-                .known_prefix,
-            0
+                .0,
+            Match {
+                entry: None,
+                consumed: 0,
+                known_prefix: 1
+            }
         );
     }
 

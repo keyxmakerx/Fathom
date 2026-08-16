@@ -1,11 +1,11 @@
-//! `OP_RACK_PLACE` / `OP_RACK_ELEVATION` — ADR-0035's physical placement,
+//! `OP_RACK_PLACE` / `OP_RACK_ELEVATION` — ADR-0036's physical placement,
 //! driven through the shell the way the page drives it.
 //!
 //! The properties these hold, in order of what losing one would cost:
 //!
 //! 1. **The numbering direction is never guessed.** A rack drawn upside down
 //!    is wrong in every position while looking entirely plausible, and no
-//!    source establishes a universal convention (ADR-0035 §3). So the field is
+//!    source establishes a universal convention (ADR-0036 §3). So the field is
 //!    required at the door and the two directions produce genuinely different
 //!    pictures — asserted here by computing the drawn `y` both ways.
 //! 2. **A box that does not fit is named, never clipped.** A 42U frame holding
@@ -107,7 +107,10 @@ fn a_box(shell: &mut Shell, at: u64, hostname: &str, member: &str) -> String {
 struct Elevation {
     height_u: u8,
     numbering: String,
-    ascending: bool,
+    /// THREE states on the wire, and the third is the point: `Some(true)` U1 at
+    /// the floor, `Some(false)` U1 at the top, `None` this build cannot read
+    /// the stored token and will not guess a direction from it.
+    ascending: Option<bool>,
     /// position_u, height_u text (empty = unstated), face, overflow flag.
     slots: Vec<(u8, String, String, bool)>,
     clashes: usize,
@@ -126,7 +129,11 @@ fn elevation(shell: &mut Shell, rack_id: &str) -> Elevation {
     Elevation {
         height_u: head.strings[2].parse().expect("a decimal height"),
         numbering: head.strings[3].clone(),
-        ascending: head.strings[4] == "1",
+        ascending: match head.strings[4].as_str() {
+            "1" => Some(true),
+            "0" => Some(false),
+            _ => None,
+        },
         slots: rows
             .iter()
             .filter(|r| r.role == FACE_RACK_SLOT)
@@ -192,7 +199,7 @@ fn a_box_can_be_placed_in_a_rack_and_the_rack_shows_it() {
     };
     assert_eq!(e.height_u, 42);
     assert_eq!(e.numbering, "ascending");
-    assert!(e.ascending);
+    assert_eq!(e.ascending, Some(true));
     assert_eq!(
         e.slots,
         vec![(5u8, "2".to_owned(), "front".to_owned(), false)]
@@ -200,10 +207,21 @@ fn a_box_can_be_placed_in_a_rack_and_the_rack_shows_it() {
     assert_eq!(e.clashes, 0);
 }
 
-/// The property ADR-0035's whole numbering field exists for. Both directions
+/// The property ADR-0036's whole numbering field exists for. Both directions
 /// are stored and BOTH produce a different drawn position for the same U, so a
 /// build that quietly defaulted one of them would fail here rather than ship a
 /// picture that is upside down and plausible.
+///
+/// **WHAT THIS TEST DOES NOT DO, said here because believing otherwise is how
+/// the first version of this view shipped a defect.** `top_row` below is a
+/// RE-IMPLEMENTATION of the page's arithmetic, not the page's arithmetic. It
+/// can prove that the two directions differ and that the module carries the
+/// token; it cannot see `renderRack`'s lane packing, its frame declaration, or
+/// its DOM at all. A renderer bug that drew every box in the wrong column, or
+/// dropped one entirely, passes this test — and one did, at 100%, until a
+/// browser driver looked at the accessible tree.
+/// `docs/80-review/evidence/2026-08-15-rack-view-ax.mjs` is where the picture
+/// is actually checked. This is a check on the WIRE.
 #[test]
 fn the_two_numbering_directions_draw_the_same_unit_in_different_places() {
     /// The page's arithmetic, restated: which row from the TOP of the frame a
@@ -245,8 +263,8 @@ fn the_two_numbering_directions_draw_the_same_unit_in_different_places() {
         elevation(&mut downs, &r)
     };
 
-    assert!(up.ascending);
-    assert!(!down.ascending);
+    assert_eq!(up.ascending, Some(true));
+    assert_eq!(down.ascending, Some(false));
     assert_eq!(up.numbering, "ascending");
     assert_eq!(down.numbering, "descending");
     // The same stored U, drawn 31 rows apart. If these ever agree, the
@@ -464,7 +482,11 @@ fn a_second_placement_cannot_resize_the_frame() {
         e.height_u, 42,
         "the frame keeps the height it was created with"
     );
-    assert!(e.ascending, "and the direction it was created with");
+    assert_eq!(
+        e.ascending,
+        Some(true),
+        "and the direction it was created with"
+    );
 }
 
 /// `MountedIn` is `out: "0..1"`. Moving is a different gesture and this build
@@ -602,4 +624,210 @@ fn every_placement_is_hand_asserted() {
             "a rack field must be hand-asserted or unset, got {s:?}"
         );
     }
+}
+
+/// `schema/schema.yaml` declares `range: { min: 1, max: 100 }` on the three
+/// unit-count fields and **nothing carries it into the generated types** —
+/// `fathom-schemagen` drops `range:` on the floor, which a review demonstrated
+/// by storing a 0U rack (drawn with zero rows, its only box reported as outside
+/// the frame) and a 200U one (two hundred DOM rows).
+///
+/// `shell.rs` therefore checks the bound at the door, from two hand-written
+/// constants, and this is what stops those constants becoming a second opinion:
+/// it reads the DECLARED range out of the YAML and fails if the door and the
+/// schema disagree. ADR-0008 still decides — the schema is the source — and the
+/// drift is now a red test rather than a bound that silently means nothing.
+///
+/// A text scan and not a parse, deliberately: `fathom-schema`'s tree does not
+/// model `constraints:` at all, so there is nothing to ask. The scan is exact
+/// about what it looks for and fails loudly if the declaration is reworded,
+/// which is the correct behaviour — a reworded declaration needs a human.
+#[test]
+fn the_declared_range_is_the_range_the_door_enforces() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("the workspace root is two levels up from the crate")
+        .join("schema/schema.yaml");
+    let text = std::fs::read_to_string(&root).expect("schema/schema.yaml is checked in");
+
+    // Every `range:` line in the file, so a fourth field declaring a different
+    // bound cannot slip past by not being in a list here.
+    let ranges: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("range:"))
+        .collect();
+    assert_eq!(
+        ranges.len(),
+        3,
+        "the schema declares {} range constraints; this test knows about the three \
+         unit-count fields. A new one needs a decision about who enforces it, not a \
+         bigger number here.",
+        ranges.len()
+    );
+    for line in ranges {
+        assert_eq!(
+            line, "range: { min: 1, max: 100, platforms: [] }",
+            "the declared range moved; shell.rs's RACK_U_MIN/RACK_U_MAX still say 1..=100"
+        );
+    }
+}
+
+/// The door refuses a rack with no units. A 0U frame holds nothing by
+/// definition, so every box in it is reported as outside the frame — a picture
+/// that is technically honest and completely useless, produced from a typo.
+#[test]
+fn a_rack_of_zero_units_is_refused() {
+    let mut shell = Shell::new();
+    let c = a_box(&mut shell, 1_700_000_000_000, "srx-a", "0");
+    let mut f = rack_fields("R1", "0", "ascending");
+    f.push((MountedInField::PositionU.key().0, "1"));
+    let reply = shell.handle(OP_RACK_PLACE, &place_frame(1_700_000_000_100, 1, &c, &f));
+    assert_eq!(is_error(&reply), Some(ERR_FIELD_VALUE));
+    let text = error_text(&reply);
+    assert!(
+        text.contains("Rack.height_u is 0") && text.contains("1..=100"),
+        "the refusal must name the field, the value and the declared range: {text}"
+    );
+    // And it refused BEFORE the store: no rack exists.
+    let rows = shell.handle(OP_INV_ROWS, &[kind_byte("Rack")]);
+    let Ok(ReplyView::FaceRows(rows)) = decode_reply(&rows) else {
+        panic!("the inventory must answer with a face table")
+    };
+    assert_eq!(
+        rows.iter()
+            .filter(|r| r.role == fathom_wasm::protocol::FACE_INV)
+            .count(),
+        0,
+        "a refused placement must leave no rack behind"
+    );
+}
+
+/// The other end of the same bound. 200U was accepted before this check and
+/// drew two hundred DOM rows.
+#[test]
+fn a_rack_taller_than_the_declared_range_is_refused() {
+    let mut shell = Shell::new();
+    let c = a_box(&mut shell, 1_700_000_000_000, "srx-a", "0");
+    let mut f = rack_fields("R1", "200", "ascending");
+    f.push((MountedInField::PositionU.key().0, "1"));
+    let reply = shell.handle(OP_RACK_PLACE, &place_frame(1_700_000_000_100, 1, &c, &f));
+    assert_eq!(is_error(&reply), Some(ERR_FIELD_VALUE));
+    assert!(error_text(&reply).contains("Rack.height_u is 200"));
+}
+
+/// `position_u` is on the same bound, and U0 is not a unit in any rack: the
+/// lowest-numbered unit of a 19-inch frame is U1 under both directions.
+#[test]
+fn a_position_of_zero_is_refused() {
+    let mut shell = Shell::new();
+    let c = a_box(&mut shell, 1_700_000_000_000, "srx-a", "0");
+    let mut f = rack_fields("R1", "42", "ascending");
+    f.push((MountedInField::PositionU.key().0, "0"));
+    let reply = shell.handle(OP_RACK_PLACE, &place_frame(1_700_000_000_100, 1, &c, &f));
+    assert_eq!(is_error(&reply), Some(ERR_FIELD_VALUE));
+    assert!(error_text(&reply).contains("MountedIn.position_u is 0"));
+}
+
+/// A box height of zero. `drawn()` clamps it to 1 for the picture, which is
+/// right for drawing and wrong for storing: a 0U box is not a thing, and
+/// storing one means the picture and the record disagree forever after.
+#[test]
+fn a_box_height_of_zero_is_refused() {
+    let mut shell = Shell::new();
+    let c = a_box(&mut shell, 1_700_000_000_000, "srx-a", "0");
+    let mut f = rack_fields("R1", "42", "ascending");
+    f.push((MountedInField::PositionU.key().0, "5"));
+    f.push((MountedInField::HeightU.key().0, "0"));
+    let reply = shell.handle(OP_RACK_PLACE, &place_frame(1_700_000_000_100, 1, &c, &f));
+    assert_eq!(is_error(&reply), Some(ERR_FIELD_VALUE));
+    assert!(error_text(&reply).contains("MountedIn.height_u is 0"));
+}
+
+/// The direction slot on the wire has THREE states, and the third is the one
+/// that matters: an unreadable token must not be indistinguishable from a rack
+/// numbered from the top.
+///
+/// It had two. Empty meant "descending", so the page could not tell "U1 is at
+/// the top" from "this build does not understand the stored token" and drew
+/// both — one of them upside down. `crates/fathom-inventory/tests/rack_numbering.rs`
+/// proves the model returns no direction; this proves the wire carries that
+/// distinction to the page, which is where the picture is decided.
+///
+/// The unreadable rack is built through the store rather than through the door,
+/// because no door produces one — that is the state's whole nature, and its
+/// reachability is a future schema's, not today's input's.
+#[test]
+fn the_direction_slot_tells_no_direction_apart_from_descending() {
+    use fathom_graph::{
+        Actor, BatchId, Confidence, ElementId, Graph, Origin, ProvenanceId, ProvenanceRecord,
+        Timestamp, UserId,
+    };
+    use fathom_id::Ulid;
+    use fathom_ir::generated::ir_types::{NodeKind, RackUnitNumbering, FIELD_KEYS};
+    use fathom_wasm::protocol::{encode_rack_reply, FACE_RACK};
+
+    const TS0: u64 = 1_785_456_000_000;
+    let ulid = |k: u128| Ulid::from_parts(TS0, k).expect("TS0 fits 48 bits");
+    let prov = || ProvenanceRecord {
+        id: ProvenanceId(ulid(1)),
+        origin: Origin::Hand,
+        asserted_at: Timestamp(TS0),
+        asserted_by: Actor::User(UserId(ulid(0))),
+        confidence: Confidence::Asserted,
+        supersedes: None,
+    };
+    let key = |n: &str| {
+        let (_, k) = FIELD_KEYS
+            .iter()
+            .find(|(name, _)| *name == n)
+            .unwrap_or_else(|| panic!("`{n}` is not a declared field"));
+        fathom_ir::bag::FieldKey(*k)
+    };
+
+    let direction = |numbering: RackUnitNumbering| {
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(ulid(2)), "a rack for one test")
+            .expect("a fresh graph takes a batch");
+        let r = g
+            .insert_node(NodeKind::Rack, ulid(3), prov())
+            .expect("Rack is a declared kind");
+        g.set_field(
+            ElementId::Node(r),
+            key("Rack.label"),
+            fathom_ir::scalar::Text("R1".to_owned()),
+            prov(),
+        )
+        .expect("label is Text");
+        g.set_field(ElementId::Node(r), key("Rack.height_u"), 10u8, prov())
+            .expect("height_u is u8");
+        g.set_field(
+            ElementId::Node(r),
+            key("Rack.unit_numbering"),
+            numbering,
+            prov(),
+        )
+        .expect("unit_numbering takes its own enum");
+        g.end_batch().expect("the batch closes");
+
+        let e = fathom_inventory::elevation(&g, r).expect("a rack has an elevation");
+        let bytes = encode_rack_reply(Some(&e));
+        let Ok(ReplyView::FaceRows(rows)) = decode_reply(&bytes) else {
+            panic!("the elevation encodes as a face table")
+        };
+        rows.iter()
+            .find(|r| r.role == FACE_RACK)
+            .expect("a frame record")
+            .strings[4]
+            .clone()
+    };
+
+    assert_eq!(direction(RackUnitNumbering::Ascending), "1");
+    assert_eq!(direction(RackUnitNumbering::Descending), "0");
+    assert_eq!(
+        direction(RackUnitNumbering::Unknown("from-the-hinge-side".to_owned())),
+        "",
+        "three states; the page branches on this one to draw no frame at all"
+    );
 }

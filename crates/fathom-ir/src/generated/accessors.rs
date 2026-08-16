@@ -1446,12 +1446,25 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(280))
         }
     }
+    /// Typed reads for `LayoutPin` fields.
+    pub mod layout_pin {
+        /// `LayoutPin.x` — `i32`, card `1`, emit `—`.
+        /// Absolute scene x, on the 4 px grid (56 §3.5).
+        pub fn x<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&i32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(300))
+        }
+        /// `LayoutPin.y` — `i32`, card `1`, emit `—`.
+        /// Absolute scene y, on the 4 px grid (56 §3.5).
+        pub fn y<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&i32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(301))
+        }
+    }
     /// Typed reads for `Rack` fields.
     pub mod rack {
         /// `Rack.label` — `Text`, card `1`, emit `—`.
         /// The name stencilled on the frame: R12, AISLE-3-04. No hostname -- nothing addresses a rack.
         pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(300))
+            crate::bag::typed(bag, crate::bag::FieldKey(302))
         }
         /// `Rack.height_u` — `u8`, card `1`, emit `—`.
         /// Capacity in rack units. One rack unit is 1.75 in / 44.45 mm under EIA-310 and
@@ -1462,7 +1475,7 @@ mod body {
         /// required field with no default rather than a constant. The range is a sanity bound
         /// on a typo, not a claim about what racks exist.
         pub fn height_u<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u8, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(301))
+            crate::bag::typed(bag, crate::bag::FieldKey(303))
         }
         /// `Rack.unit_numbering` — `enum { ascending, descending }`, card `1`, emit `—`.
         /// Which end of the frame is U1. REQUIRED, WITH NO DEFAULT, AND THAT IS THE POINT.
@@ -1481,11 +1494,7 @@ mod body {
         /// is wrong while looking entirely plausible, which is precisely the silent-wrongness
         /// 56 §0 exists to prevent. A rack whose direction nobody stated is not drawn.
         pub fn unit_numbering<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::RackUnitNumbering, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(302))
-        }
-        /// `Rack.notes` — `Text`, card `0..1`, emit `—`.
-        pub fn notes<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(303))
+            crate::bag::typed(bag, crate::bag::FieldKey(304))
         }
     }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
@@ -1793,13 +1802,14 @@ mod body {
             297 => Some((core::any::TypeId::of::<u8>(), "u8")),
             298 => Some((core::any::TypeId::of::<u8>(), "u8")),
             299 => Some((core::any::TypeId::of::<u16>(), "u16")),
-            300 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            301 => Some((core::any::TypeId::of::<u8>(), "u8")),
-            302 => Some((core::any::TypeId::of::<crate::generated::ir_types::RackUnitNumbering>(), "crate::generated::ir_types::RackUnitNumbering")),
-            303 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            304 => Some((core::any::TypeId::of::<u8>(), "u8")),
+            300 => Some((core::any::TypeId::of::<i32>(), "i32")),
+            301 => Some((core::any::TypeId::of::<i32>(), "i32")),
+            302 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            303 => Some((core::any::TypeId::of::<u8>(), "u8")),
+            304 => Some((core::any::TypeId::of::<crate::generated::ir_types::RackUnitNumbering>(), "crate::generated::ir_types::RackUnitNumbering")),
             305 => Some((core::any::TypeId::of::<u8>(), "u8")),
-            306 => Some((core::any::TypeId::of::<crate::generated::ir_types::MountedInFace>(), "crate::generated::ir_types::MountedInFace")),
+            306 => Some((core::any::TypeId::of::<u8>(), "u8")),
+            307 => Some((core::any::TypeId::of::<crate::generated::ir_types::MountedInFace>(), "crate::generated::ir_types::MountedInFace")),
             _ => None,
         }
     }
@@ -2107,13 +2117,14 @@ mod body {
             297 => crate::canon::slot_to::<u8>(297, "u8", value),
             298 => crate::canon::slot_to::<u8>(298, "u8", value),
             299 => crate::canon::slot_to::<u16>(299, "u16", value),
-            300 => crate::canon::slot_to::<crate::scalar::Text>(300, "crate::scalar::Text", value),
-            301 => crate::canon::slot_to::<u8>(301, "u8", value),
-            302 => crate::canon::slot_to::<crate::generated::ir_types::RackUnitNumbering>(302, "crate::generated::ir_types::RackUnitNumbering", value),
-            303 => crate::canon::slot_to::<crate::scalar::Text>(303, "crate::scalar::Text", value),
-            304 => crate::canon::slot_to::<u8>(304, "u8", value),
+            300 => crate::canon::slot_to::<i32>(300, "i32", value),
+            301 => crate::canon::slot_to::<i32>(301, "i32", value),
+            302 => crate::canon::slot_to::<crate::scalar::Text>(302, "crate::scalar::Text", value),
+            303 => crate::canon::slot_to::<u8>(303, "u8", value),
+            304 => crate::canon::slot_to::<crate::generated::ir_types::RackUnitNumbering>(304, "crate::generated::ir_types::RackUnitNumbering", value),
             305 => crate::canon::slot_to::<u8>(305, "u8", value),
-            306 => crate::canon::slot_to::<crate::generated::ir_types::MountedInFace>(306, "crate::generated::ir_types::MountedInFace", value),
+            306 => crate::canon::slot_to::<u8>(306, "u8", value),
+            307 => crate::canon::slot_to::<crate::generated::ir_types::MountedInFace>(307, "crate::generated::ir_types::MountedInFace", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2419,13 +2430,14 @@ mod body {
             297 => crate::canon::slot_from::<u8>(j),
             298 => crate::canon::slot_from::<u8>(j),
             299 => crate::canon::slot_from::<u16>(j),
-            300 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            301 => crate::canon::slot_from::<u8>(j),
-            302 => crate::canon::slot_from::<crate::generated::ir_types::RackUnitNumbering>(j),
-            303 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            304 => crate::canon::slot_from::<u8>(j),
+            300 => crate::canon::slot_from::<i32>(j),
+            301 => crate::canon::slot_from::<i32>(j),
+            302 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            303 => crate::canon::slot_from::<u8>(j),
+            304 => crate::canon::slot_from::<crate::generated::ir_types::RackUnitNumbering>(j),
             305 => crate::canon::slot_from::<u8>(j),
-            306 => crate::canon::slot_from::<crate::generated::ir_types::MountedInFace>(j),
+            306 => crate::canon::slot_from::<u8>(j),
+            307 => crate::canon::slot_from::<crate::generated::ir_types::MountedInFace>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

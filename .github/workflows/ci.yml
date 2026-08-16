@@ -6,12 +6,19 @@
 # it may rewrite Cargo.lock, so an earlier unlocked step silently repairs the lockfile the
 # later locked step was meant to catch: the gate passes and the drift ships. ADR-0032 §4.
 #
-# NOT YET PRESENT: gate zero — fail the build when Cargo.lock gains a non-first-party
-# package with no approval record. ADR-0032 §6 requires it before any dependency lands,
-# and ADR-0032 was ratified on 2026-08-08 — so this is now the LAST guard between an
-# unapproved crate and the tree, and it does not exist yet. Zero dependencies today,
-# so nothing is breached; it must land before the first one does. ADR-0034 §4 adds a
-# second gate here at the same time: a dependency-vulnerability scan on every run.
+# GATE ZERO IS NOW PRESENT (2026-08-15, scripts/gate-zero.sh): the build fails when
+# Cargo.lock gains a non-first-party package with no approval record in deps/decisions/.
+# ADR-0032 §6 requires it BEFORE any dependency lands, and the owner has approved the
+# first two crates, so it landed first — which is the whole substance of §6.
+#
+# It runs FIRST, before any cargo command, because ADR-0032 item 2 and item 3 are the
+# same defect seen twice: a crate's build.rs executes on this runner before any gate
+# produces a result. A tripwire that runs after the code has already run is decoration.
+#
+# STILL NOT PRESENT: ADR-0034 §4's dependency-vulnerability scan. Gate zero checks that
+# a human wrote a record, not that the crate is free of known advisories. The advisory
+# check for the first two crates was done by hand and is recorded in their approval
+# records; it is not yet mechanical, and it should be.
 name: gates
 on:
   push:
@@ -26,8 +33,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Before rustup, before cargo, before anything can execute a build script.
+      - name: Gate zero — no unapproved dependency
+        run: ./scripts/gate-zero.sh
+
       - name: Install the pinned toolchain (reads rust-toolchain.toml)
         run: rustup toolchain install
+
+      # ADR-0032 item 2: --locked on EVERY invocation, and a metadata check first.
+      # Without this, an unlocked step re-resolves and writes a fresh Cargo.lock that
+      # the next --locked step then reads and finds consistent, so the gate passes and
+      # the drift ships.
+      - name: Lockfile is consistent and complete
+        run: cargo metadata --locked --offline --format-version 1 > /dev/null
+
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy, warnings are errors

@@ -1,4 +1,4 @@
-//! The rack elevation — physical placement, projected (ADR-0035).
+//! The rack elevation — physical placement, projected (ADR-0036).
 //!
 //! # Why this is not the diagram, and must never be built inside it
 //!
@@ -108,10 +108,29 @@ pub struct Elevation {
     pub label: String,
     /// Capacity in units.
     pub height_u: u8,
-    /// `true` when U1 is at the floor. Read from `Rack.unit_numbering`, never
-    /// assumed — ADR-0035 records the three sources that failed to establish a
-    /// universal convention, which is why this is data.
-    pub ascending: bool,
+    /// `Some(true)` when U1 is at the floor, `Some(false)` when it is at the
+    /// top, and **`None` when this build cannot read the stored token at all**.
+    /// Read from `Rack.unit_numbering`, never assumed — ADR-0036 records the
+    /// three sources that failed to establish a universal convention, which is
+    /// why this is data.
+    ///
+    /// AN `Option` AND NOT A `bool`, and the change is the fix for a real
+    /// defect. It was a `bool` with `_ => true` behind it: the generated
+    /// `Unknown(token)` arm and the unset field both came out as *"ascending"*,
+    /// carrying a comment that said the PAGE would refuse such a picture. The
+    /// page did no such thing — it printed "U1 at the bottom (<token>)" and drew
+    /// the frame ascending, which is precisely the guess this field exists to
+    /// prevent, and an elevation drawn the wrong way up is wrong in every
+    /// position while looking entirely plausible.
+    ///
+    /// `Option` makes that unrepresentable rather than merely discouraged: there
+    /// is no direction to read out of an unreadable token, so the type does not
+    /// offer one, and the decision lives here rather than being re-derived in
+    /// JavaScript from the token's spelling. `fathom-inventory`'s own rule is
+    /// that the page computes nothing; comparing a token against the enum's two
+    /// declared spellings in the page would have been a second copy of the
+    /// schema, drifting from the first.
+    pub ascending: Option<bool>,
     /// The stored token, for the page to print. A rack whose numbering is the
     /// generated `Unknown` arm renders its token verbatim rather than being
     /// silently treated as ascending.
@@ -163,12 +182,18 @@ pub fn elevation(g: &Graph, rack: NodeId) -> Option<Elevation> {
     // way up is upside down in every position while looking entirely plausible,
     // which is the silent wrongness `56` §0 exists to prevent.
     let ascending = match numbering {
-        Some(RackUnitNumbering::Ascending) => true,
-        Some(RackUnitNumbering::Descending) => false,
-        // The generated unknown arm: a token from a newer schema. Drawn
-        // ascending would be a guess, so it is carried to the page as its own
-        // token and the page refuses the picture, not this function.
-        _ => true,
+        Some(RackUnitNumbering::Ascending) => Some(true),
+        Some(RackUnitNumbering::Descending) => Some(false),
+        // The generated unknown arm, and `None`: a token from a newer schema,
+        // or a rack written by something that bypassed the opcode. There is no
+        // direction to return, so none is returned. The TOKEN still travels
+        // (below) so the page can print what it could not read, and the page
+        // draws no frame at all for a `None`.
+        //
+        // This arm used to be `_ => true` with a comment asserting that the
+        // page refused such a picture. It did not; it drew the frame ascending.
+        // The type is what enforces it now.
+        _ => None,
     };
     let numbering_token = match numbering {
         Some(RackUnitNumbering::Ascending) => "ascending".to_owned(),
