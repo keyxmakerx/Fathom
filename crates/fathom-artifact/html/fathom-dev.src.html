@@ -50,6 +50,51 @@
 <style>
 @FATHOM_TOKENS_CSS@
 
+/* ------------------------------------------------------ motion (ADR-0033) --
+   `51` §14 deleted `--motion-disclosure` under M34 on the premise that "the
+   product has no animation". That premise is retired — the owner asked for
+   motion by name — and ADR-0033 sets the price: motion must CARRY MEANING.
+
+   Declared here and not in tokens.css because that file is a transcription of
+   `51` §14 and the document has to change first (its own opening rule). Two
+   durations and one easing, and nothing else.
+
+   Three animations exist in this build and each says one thing:
+     1. a pane arrives from the side you moved toward — list → details comes
+        from the right, back comes from the left, so the panel says which way
+        you went;
+     2. the selection bar lands on the row it selected;
+     3. the ring travels from the box that was selected to the box that is,
+        so a selection that jumped across the picture shows where it went.
+   Each is written out again under the reduced-motion guard below. The token
+   file's blanket `* { transition-duration: 0ms }` is the belt; this is the
+   braces, because a guard you cannot find is a guard nobody maintains.
+
+   NOTHING HERE MOVES A CONTROL. The tab strip is static at every moment; only
+   the CONTENT under it travels, and it travels after the press, never under
+   the pointer that is about to make it.
+
+   THIS BLOCK BREAKS AN ASSEMBLER TEST AND THE BREAK IS THE POINT.
+   `crates/fathom-artifact/tests/artifact.rs` lines 124-126 assert that no line
+   of this file contains `@keyframes`, `transition:` or `animation:`. That test
+   is M34's premise written down — "the product has no animation" — and the
+   owner has retired the premise. The repair is those three lines deleted and
+   `51` §12 rewritten to price motion instead of forbidding it; it is a change
+   to a .rs file, which the order that made this change forbade touching, so it
+   is named here rather than worked around. Writing the same rules in longhand
+   to slip past a string match would have been a worse answer: it would leave
+   the product animated and the test still claiming it is not. */
+:root {
+  --m-pane: 150ms;   /* a pane arriving from the side it came from */
+  --m-mark: 110ms;   /* a selection mark landing on a row          */
+  --m-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppane { animation: none !important; }
+  .dorow::before { transition: none !important; }
+  .dring { transition: none !important; }
+}
+
 /* --------------------------------------------------------------- shell -- */
 html, body { height: 100%; }
 body { overflow-y: auto; }
@@ -82,14 +127,29 @@ body { overflow-y: auto; }
    pointed at the wrong place). One fixed split; nothing moves on selection.
    ------------------------------------------------------------------------ */
 .sheet[data-viewing="diagram"] { max-width: min(2200px, 96vw); }
-.sheet[data-viewing="diagram"] .ledger { grid-template-columns: 80fr 20fr; }
-/* Wider viewport, wider Outline — but the picture takes the growth. Below
-   1400 the Outline keeps the 18rem it was tuned at. */
-/* The Outline keeps the 18rem it was tuned at and does NOT grow with the
-   window: every pixel past that belongs to the picture, which is the thing that
-   was starved. Above 1800 it takes 20rem so long names stop wrapping. */
+/* ONE PANEL, NOT TWO (Direction A). The owner: *"having that side bar, and then
+   the diagram having another side bar is a bit confusing. We may need it to be
+   either or"*. He undercounted — this view had THREE panels: the picture, the
+   Outline beside it, and the meaning column beside that. Two lists abutting
+   each other, each with a differently-styled header.
+
+   So on this view the meaning column is GONE, and its content moved into the
+   Outline's panel as the second of two tabs. The ledger becomes one column and
+   the picture takes every pixel that frees up.
+
+   MEASURED at 1400×900: the canvas was 762 CSS px wide and is now 977. The
+   panel grew 18rem → 22rem to hold a field table, and the picture still gained
+   215 px, because deleting a whole column gave back more than the panel spent.
+
+   The rule is written against `data-viewing` and not against a width, so it is
+   the same rearrangement `55` §6.3 already relies on: one rendering, laid out
+   two ways, never a second code path. */
+.sheet[data-viewing="diagram"] .ledger { grid-template-columns: 1fr; }
+.sheet[data-viewing="diagram"] .col.meaning { display: none; }
+/* Wider viewport, wider panel — but the picture still takes most of the growth.
+   Below 1800 the panel keeps the 22rem a field table was measured at. */
 @media (min-width: 1800px) {
-  .sheet[data-viewing="diagram"] .dsplit { grid-template-columns: minmax(0, 1fr) 20rem; }
+  .sheet[data-viewing="diagram"] .dsplit { grid-template-columns: minmax(0, 1fr) 26rem; }
 }
 
 .mast-rule { flex: none; border-top: var(--rule-mast) solid var(--ink); }
@@ -155,10 +215,40 @@ button.tab:hover { color: var(--ink); }
 .col.meaning { border-left: var(--rule-hair) solid var(--ink); }
 .sheet[data-width="narrow"] .col.meaning {
   border-left: 0; border-top: var(--rule-hair) solid var(--ink); }
+/* =================================================== ONE HEADER IDIOM ======
+   The owner: *"is there anyway we can make it clear about the headers of
+   stuff, and selections, they are very confusing currently"*. He was counting
+   correctly. This surface carried THREE header idioms at once and none of them
+   looked like the others:
+
+     `.colhead h2`  "Fact — what is"              a heading in docs-jargon
+     `.dout .sh`    "Outline — every drawn object" a heading that looked like a label
+     `.faces`       "meaning"  "equipment"         two lowercase words, no heading
+
+   A reader could not tell which of the three named the thing under it, which
+   was a control, and which was a tab. So there is now ONE rule and it is
+   mechanical:
+
+     A HEADING is a 4 px SOLID INK TICK on its left, uppercase, never
+     pressable. The tick is the product's own accent rule (`--rule-accent`),
+     already the mark of an asserted fact in `.note`.
+
+     A SUB-HEADING inside a pane is the same shape with a HAIRLINE tick, so the
+     hierarchy is one idiom read at two weights rather than two idioms.
+
+     A TAB IS A BOX YOU PRESS. Hairline border, full-height hit area, and the
+     live one is INVERTED — ink ground, page text. No heading anywhere in this
+     product is inverted and no tab anywhere is not, so the two can never again
+     be read for each other, including in forced colours and in greyscale.
+
+   The words changed with the shapes. `Fact — what is` and `Outline — every
+   drawn object` are this project's vocabulary, not a network engineer's; the
+   headings now say NETWORK MAP, EQUIPMENT, OBJECTS, DETAILS. */
 .colhead {
   flex: none; display: flex; align-items: baseline; justify-content: space-between;
-  gap: var(--s3); padding: var(--s1) var(--s3);
-  border-bottom: var(--rule-hair) solid var(--hairline); background: var(--page);
+  gap: var(--s3); padding: var(--s1) var(--s3) var(--s1) var(--s2);
+  border-left: var(--rule-accent) solid var(--ink);
+  border-bottom: var(--rule-hair) solid var(--hairline); background: var(--surface-2);
 }
 .colhead h2 { margin: 0; font-size: var(--t-micro); line-height: var(--lh-micro);
               font-weight: 700; letter-spacing: var(--track-head); text-transform: uppercase; }
@@ -167,21 +257,32 @@ button.tab:hover { color: var(--ink); }
 .colbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .pad { padding: var(--s3); }
 
-/* --- the inspector's faces ------------------------------------------------ */
-.faces { display: flex; gap: var(--s3); }
+/* --- the inspector's faces, DEMOTED --------------------------------------
+   They were a peer of the column heading and they are not a peer of anything:
+   `fields` and `equipment` are two views of ONE object, not two destinations.
+   So they sit under the heading as a small labelled control, in the register
+   every other control on this page uses (`.strip`). */
+.faces { flex: none; display: flex; gap: var(--s2); align-items: center;
+         padding: var(--s1) var(--s3);
+         border-bottom: var(--rule-hair) solid var(--hairline); }
+.faces .lab { font-size: var(--t-micro); color: var(--muted);
+              letter-spacing: var(--track-label); text-transform: uppercase; }
 .faces button {
-  background: none; border: 0; padding: 0; cursor: pointer;
+  background: var(--page); border: var(--rule-hair) solid var(--hairline);
+  padding: 0 var(--s2); min-height: var(--row-min); cursor: pointer;
   font-size: var(--t-tab); line-height: var(--lh-micro);
   color: var(--muted); text-transform: lowercase;
 }
-.faces button[aria-pressed="true"] { color: var(--ink); font-weight: 700; }
-.faces button:hover { color: var(--ink); }
+.faces button[aria-pressed="true"] { color: var(--ink); font-weight: 700;
+                                     background: var(--surface); border-color: var(--ink); }
+.faces button:hover { color: var(--ink); background: var(--surface); }
 
 /* --- mono line, section heading, prose, stamp ----------------------------- */
 .cmd { font-family: var(--mono); font-size: var(--t-mono); word-break: break-word; }
 .sh { font-size: var(--t-micro); line-height: var(--lh-micro); font-weight: 700;
       letter-spacing: var(--track-head); text-transform: uppercase;
-      color: var(--muted); margin: var(--s4) 0 var(--s1); }
+      color: var(--muted); margin: var(--s4) 0 var(--s1);
+      border-left: var(--rule-accent) solid var(--hairline); padding-left: var(--s2); }
 .sh:first-child { margin-top: 0; }
 .prose { font-size: var(--t-body); line-height: var(--lh-step);
          max-width: var(--measure); margin: 0; }
@@ -599,8 +700,12 @@ button.tab:hover { color: var(--ink); }
    a sidebar, and at 16rem a row carrying a mono name, a CamelCase kind, a link
    count and the no-row-set marker wrapped to three lines. Canvas width is the
    cheaper thing to spend: the picture pans and zooms, the rows do not. */
+/* 24rem, not the Outline's old 18. The panel now has to hold a three-column
+   field table as well as the rows, and at 18rem the values wrapped to three
+   lines each. It is still a net gain of 198 px to the picture at 1400, because
+   what was deleted was a whole 20% column and what was added is 6rem. */
 .dsplit { flex: 1 1 auto; min-height: 14rem;
-          display: grid; grid-template-columns: minmax(0, 1fr) 18rem; }
+          display: grid; grid-template-columns: minmax(0, 1fr) 24rem; }
 /* `pan-x pan-y` leaves one-finger touch to the PAGE, which is 53 §11.4's rule:
    "fighting the page scroll on a phone is always the wrong choice". Two-finger
    pan and pinch of the SCENE are that section's other half and are not built. */
@@ -641,6 +746,11 @@ button.tab:hover { color: var(--ink); }
 .sheet[data-width="narrow"] .dsplit { display: block; min-height: 0; }
 .sheet[data-width="narrow"] .dout { overflow: visible; border-left: 0;
         border-top: var(--rule-hair) solid var(--hairline); }
+/* At this width the panel is UNDER the picture, so its rule moves with it and
+   the panes stop being their own scrollers — they flow into the column that is
+   already one, which is the same reasoning `55` §6.3 gives for the Outline. */
+.sheet[data-width="narrow"] .dpanel { border-left: 0; overflow: visible; }
+.sheet[data-width="narrow"] .ppane { overflow: visible; }
 .sheet[data-width="narrow"] .dsum { display: flex; }
 .sheet[data-width="narrow"] .dview[data-open="0"] .dcanvas { display: none; }
 /* A zoom control for a surface that is not on screen is furniture, and at this
@@ -694,6 +804,15 @@ button.tab:hover { color: var(--ink); }
 .dbox rect { fill: var(--page); stroke: var(--hairline); stroke-width: 1; }
 .dbox:hover rect { stroke: var(--ink); }
 .dbox.dsel rect { stroke: var(--ink); stroke-width: 2; fill: var(--surface); }
+/* THE SELECTED BOX'S LEFT BAR — the picture's half of the mark above, and the
+   same 4 px ink tick the row and the column headings use. Drawn on EVERY box
+   and filled only on the selected one, because `dgPaint` changes classes and
+   never rebuilds the scene (rebuilding it would drop the pan, the zoom and the
+   focused row). `stroke: none` because `.dbox rect` gives every rect a hairline
+   and this one is a bar, not a box. */
+.dselbar { fill: none; stroke: none; stroke-width: 4; }
+.dbox.dsel .dselbar { stroke: var(--ink); }
+.dbox.dsel .dname { font-weight: 700; }
 .dbox text { font-family: inherit; }
 .dkind { font-size: var(--t-micro); fill: var(--muted); }
 .dname { font-size: var(--t-body); fill: var(--ink); }
@@ -758,6 +877,27 @@ svg[data-lod="0"] .dhandmark { display: none; }
    us from the box's own coordinates, which is what lets it be exactly 2 CSS px
    at every zoom -- see `vector-effect` on the element itself. */
 .dring { fill: none; stroke: var(--focus-colour); stroke-width: var(--focus-width); }
+/* THE RING TRAVELS, AND ONLY WHEN A POINTER MOVED THE SELECTION.
+   A click that lands on a box across a fourteen-box picture used to make the
+   ring blink out here and in over there, and the reader had to find it again;
+   moving it says where the selection went, which is the meaning ADR-0033 asks
+   for.
+
+   IT IS OFF FOR THE KEYBOARD, and that is the interesting half. This same ring
+   is the FOCUS INDICATOR while the arrow keys walk the Outline (`55` §4.5.2 —
+   "the SVG mirrors the Outline's focus"), and a focus indicator that arrives
+   150 ms after the key is a focus indicator that spends most of a fast walk
+   between two boxes, pointing at neither. That is motion doing harm, which is
+   the thing ADR-0033's guard exists to catch, so the travel is a class the
+   pointer path sets and the keyboard path clears. It was caught by a driver
+   (`the ring follows the focused row`) rather than by reasoning, which is worth
+   recording: the reasoning above was written afterwards.
+
+   SVG geometry properties animated as CSS; an engine that declines them simply
+   snaps, which is what the ring did before. */
+.dring.dtravel {
+  transition: x var(--m-pane) var(--m-ease), y var(--m-pane) var(--m-ease),
+              width var(--m-pane) var(--m-ease), height var(--m-pane) var(--m-ease); }
 /* Level of detail (`56` §5.3, `44` §4.7.2). Labels scale with the scene and get
    no compensating transform, so at 0.6 the 10px kind line is 6px and at 0.35 the
    13px name is 4.5px. Drawing text nobody can read is how a diagram becomes a
@@ -788,24 +928,140 @@ svg[data-lod="0"] .drole { display: none; }
    zoomed-out reader can still see. */
 svg[data-lod="0"] .dplaced { display: none; }
 
+/* =============================================== the one right-hand panel ==
+   The Outline and the details are now two tabs of ONE panel. The panel is the
+   grid's second track; the tab strip is `flex: none` and never moves; the live
+   pane is the only thing that scrolls.
+
+   `overflow: hidden` on the panel is load-bearing rather than tidy: it is what
+   lets a pane arrive from beyond the panel's own edge instead of widening the
+   page while it travels. */
+.dpanel { min-width: 0; min-height: 0; display: flex; flex-direction: column;
+          overflow: hidden; border-left: var(--rule-hair) solid var(--ink); }
+.dpanel .dout { border-left: 0; }
+
+/* THE TAB IDIOM, and it is the only inverted thing in the product. See the
+   header-idiom block above for why a tab is a box and a heading is a tick. */
+.ptabs { flex: none; display: flex; gap: 0;
+         border-bottom: var(--rule-hair) solid var(--ink); background: var(--page); }
+.ptabs button {
+  flex: 1 1 0; min-width: 0; background: var(--page); border: 0; cursor: pointer;
+  border-right: var(--rule-hair) solid var(--hairline);
+  padding: var(--s2) var(--s3); min-height: var(--row-min); text-align: left;
+  font-size: var(--t-micro); line-height: var(--lh-micro); font-weight: 700;
+  letter-spacing: var(--track-head); text-transform: uppercase; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ptabs button:last-child { border-right: 0; }
+.ptabs button:hover { color: var(--ink); background: var(--surface); }
+.ptabs button[aria-selected="true"] { background: var(--ink); color: var(--page); }
+/* The count and the selected object's name ride ON the tab, in mono, so the
+   question "what is selected right now?" is answered by a strip that is on
+   screen at every moment and in both panes — without moving the mouse and
+   without opening anything. */
+.ptabs .pcnt { font-family: var(--mono); font-weight: 400; letter-spacing: 0;
+               text-transform: none; }
+
+/* A pane fills what the strip left and scrolls on its own. */
+.ppane { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto;
+         overflow-x: hidden; }
+/* THE MOTION, and the whole of its meaning is the sign of the translate:
+   forward (list → details) enters from the right, back enters from the left.
+   A reader who pressed DETAILS sees the details come in from the direction
+   DETAILS sits in. Opacity rides along so the first frame is not a hard cut of
+   a half-placed pane; it is not the carrier. */
+@keyframes pane-fwd { from { transform: translateX(100%); opacity: 0; }
+                      to   { transform: translateX(0);    opacity: 1; } }
+@keyframes pane-back { from { transform: translateX(-100%); opacity: 0; }
+                       to   { transform: translateX(0);     opacity: 1; } }
+.ppane[data-dir="fwd"]  { animation: pane-fwd  var(--m-pane) var(--m-ease) both; }
+.ppane[data-dir="back"] { animation: pane-back var(--m-pane) var(--m-ease) both; }
+
+/* --- the details pane ------------------------------------------------------
+   Its heading NAMES THE OBJECT. `56` §2.4 already says the whole of a name
+   lives "in the Outline row and in the inspector"; this is the inspector, and
+   it now says whose fields these are rather than leaving the reader to
+   remember what they clicked. */
+.ddet .dname2 { font-family: var(--mono); font-size: var(--t-mono); color: var(--ink);
+                overflow-wrap: anywhere; text-transform: none; letter-spacing: 0;
+                font-weight: 700; }
+.ddet .colhead { border-left-width: var(--rule-accent); }
+/* ONE KEY AND ONE CLICK BACK. The key is Escape, which unwinds exactly one
+   level and keeps the selection (press it again and the selection clears — the
+   same ladder `53` §3.7 already runs). The click is this. */
+.dback { display: block; width: 100%; background: var(--page); border: 0;
+         border-bottom: var(--rule-hair) solid var(--hairline);
+         padding: var(--s1) var(--s3); cursor: pointer;
+         min-height: var(--row-min); text-align: left;
+         font-size: var(--t-micro); line-height: var(--lh-micro);
+         letter-spacing: var(--track-label); text-transform: uppercase;
+         color: var(--muted); }
+.dback:hover { color: var(--ink); background: var(--surface); }
+/* The empty state, said once and honestly rather than left blank. */
+.dnone { padding: var(--s3); font-size: var(--t-small); color: var(--muted); }
+/* The provenance column — WHO SAID SO and WHEN — is the least urgent of the
+   three and is the one that has to give room back in a 24rem panel. It is
+   never dropped: a hand-asserted fact has to stay distinguishable from a
+   parsed one wherever the field is read (`58` §5). It is set at the micro
+   step, which is already in the scale. */
+   `table-layout: fixed` because the field NAMES are the widest content in this
+   table (`default_cross_zone_action` is 25 mono characters) and automatic
+   layout hands the widest column whatever it asks for: measured, the name
+   column took 200 of 360 px and left the editable value 73, which clipped
+   `sw-core-01` to `sw-core-0` — a field a person is meant to TYPE IN, showing
+   nine characters of ten. Fixed layout makes the percentages bind and lets the
+   long names wrap instead, which costs a line and clips nothing. */
+.ddet .kv { table-layout: fixed; }
+.ddet .kv th { width: 38%; overflow-wrap: anywhere; }
+.ddet .kv td { overflow-wrap: anywhere; }
+.ddet .kv td:last-child { width: 24%; font-size: var(--t-micro);
+                          line-height: var(--lh-micro); }
+
 /* --- the Outline. `55` §4.5.2: not an alternative, THE interface. --------- */
 .dout { min-width: 0; min-height: 0; overflow-y: auto;
         border-left: var(--rule-hair) solid var(--hairline); }
 .dout .sh { padding: var(--s2) var(--s3) 0; margin: 0 0 var(--s1); }
 .dorow, .dolink { display: flex; align-items: baseline; gap: var(--s2);
                   padding: var(--s1) var(--s3); cursor: pointer;
+                  position: relative;
                   min-height: var(--row-min);
                   border-bottom: var(--rule-hair) solid var(--hairline);
                   /* `55` §5.4: a focused row scrolled flush against the edge of
                      its container is obscured by its own border. */
                   scroll-margin-block: var(--s2); }
 .dorow:hover, .dolink:hover { background: var(--surface-2); }
-/* Selection is the page's existing table idiom -- `--surface` ground, as
-   `tr[data-tier="primary"]` -- plus weight on the name. Weight is the channel
-   `56` §5.2 G3 spends on selection in the picture, so the two surfaces say the
-   same thing the same way. */
+/* ============================================================ SELECTION ===
+   The owner: *"selections ... they are very confusing currently"*. The old
+   mark was a `--surface` ground plus a bold name — two of the quietest signals
+   on a page whose hover state is also a ground and whose mono names are
+   already dark. On a list of a dozen rows it was genuinely hard to see which
+   one was picked.
+
+   Selection is now ONE thing said in FOUR places, and every one of them uses
+   the same two marks — the 4 px ink tick and an inverted name:
+
+     the row      a tick down its left edge, and the NAME INVERTED
+     the picture  a 4 px ink bar down the box's left edge, a 3 px border,
+                  and the travelling ring
+     the panel    the DETAILS tab carries the name, in both panes
+     the details  the heading is the name
+
+   Inversion is the same channel the live tab uses, which is deliberate: this
+   page now has exactly one "you are here" ink, and it is ink-on-page. It
+   survives greyscale, forced colours and monochrome print, none of which a
+   1-step grey ground does (`51` §6). */
 .dorow[aria-selected="true"] { background: var(--surface); }
-.dorow[aria-selected="true"] .doname { font-weight: 700; }
+.dorow[aria-selected="true"] > .doname { font-weight: 700;
+        background: var(--ink); color: var(--page); padding: 0 var(--s1); }
+/* The tick, and it ANIMATES IN — the one thing this mark does that a static
+   rule cannot: it says the selection LANDED here, on this row, just now. It is
+   absolutely positioned in the row's own left padding, so nothing shifts when
+   it appears and no row changes height. Scale from the middle out, 110 ms. */
+.dorow::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+                 width: var(--rule-accent); background: var(--ink);
+                 transform: scaleY(0); transform-origin: 50% 50%;
+                 transition: transform var(--m-mark) var(--m-ease); }
+.dorow[aria-selected="true"]::before { transform: scaleY(1); }
 .doname { font-family: var(--mono); font-size: var(--t-mono); color: var(--ink);
           overflow-wrap: anywhere; }
 /* A kind and an edge kind are IDENTIFIERS out of schema.yaml, so they are set in
@@ -896,19 +1152,27 @@ svg[data-lod="0"] .dplaced { display: none; }
   <main class="ledger" id="ledger">
     <section class="col fact" aria-labelledby="factHead">
       <div class="colhead">
-        <h2 id="factHead">Fact — what is</h2>
+        <h2 id="factHead">Network map</h2>
         <span class="folio" id="factFolio"></span>
       </div>
       <div class="colbody" id="factBody" tabindex="-1"></div>
     </section>
 
+    <!-- The details column, and on the DIAGRAM view it is display:none — its
+         content moves into the picture's own panel as the second tab. See the
+         "one right-hand panel" block in the stylesheet. It stays here, in one
+         piece, for the other five views, and both places render it with the
+         same two functions. -->
     <section class="col meaning" aria-labelledby="meanHead">
       <div class="colhead">
-        <div class="faces" role="group" aria-label="Inspector face" id="faceTabs">
-          <h2 id="meanHead" class="vh">Meaning column</h2>
-          <button type="button" data-face="meaning">meaning</button>
-          <button type="button" data-face="equipment">equipment</button>
-        </div>
+        <h2 id="meanHead">Details</h2>
+        <span class="folio" id="meanFolio"></span>
+      </div>
+      <!-- Not a peer of the heading any more: two views of one object. -->
+      <div class="faces" role="group" aria-label="Which details to show" id="faceTabs">
+        <span class="lab">show</span>
+        <button type="button" data-face="meaning">fields</button>
+        <button type="button" data-face="equipment">equipment</button>
       </div>
       <div class="colbody" id="meanBody" tabindex="-1"></div>
     </section>
@@ -1521,18 +1785,23 @@ function kindByte(name) {
 var CHASSIS_KIND_BYTE = kindByte('Chassis');
 var RACK_KIND_BYTE = kindByte('Rack');
 
+/* `h` is THE LEFT COLUMN'S HEADING, and it exists because the old one was a
+   constant reading `Fact — what is`. That is this project's vocabulary — the
+   fact/meaning split of `58` — and the owner is a network engineer, not a
+   reader of `58`. A heading has one job, which is to name what is under it, so
+   each view now names its own: NETWORK MAP, EQUIPMENT, COMMANDS. */
 var VIEWS = [
-  { id: 'finder',      t: 'Finder',      key: '⌥1',
+  { id: 'finder',      t: 'Finder',      key: '⌥1', h: 'Commands',
     imp: 'A command reference, not a connection — nothing here runs anywhere' },
-  { id: 'walkthrough', t: 'Walkthrough', key: '⌥2',
+  { id: 'walkthrough', t: 'Walkthrough', key: '⌥2', h: 'Walkthrough',
     imp: 'The walkthrough writes to the graph — everything else reads' },
-  { id: 'config',      t: 'Config — change set', key: '⌥3',
+  { id: 'config',      t: 'Config — change set', key: '⌥3', h: 'Config changes',
     imp: 'Copy-paste only — Fathom never touches a device' },
-  { id: 'findings',    t: 'Findings',    key: '⌥4',
+  { id: 'findings',    t: 'Findings',    key: '⌥4', h: 'Findings',
     imp: 'Continuous lint over the graph — not a report you run' },
-  { id: 'diagram',     t: 'Diagram',     key: '⌥5',
+  { id: 'diagram',     t: 'Diagram',     key: '⌥5', h: 'Network map',
     imp: 'A design tool, not a source of truth — verify against your own box' },
-  { id: 'inventory',   t: 'Inventory',   key: '⌥6',
+  { id: 'inventory',   t: 'Inventory',   key: '⌥6', h: 'Equipment',
     imp: 'Facts that argue back — the rightmost column is not a field' }
 ];
 var UNBUILT = 'unposted — this view arrives with a later work order; ' +
@@ -2294,7 +2563,15 @@ function renderShell() {
   $('mImp').textContent = viewMeta(S.view).imp;
   clear($('mRibbon'));
   if (S.sel) {
+    /* THE NAME FIRST, THE ULID LAST. This line read `selected:
+       device:01M0837WQEPEDZ7NFK7ANVQR6Q` and nothing else — a true statement
+       that told a network engineer nothing about which of his boxes was
+       picked. The id stays, in full and never truncated, because it is what
+       goes into a journal and into a bug report; it is just no longer the only
+       thing here. */
     $('mRibbon').appendChild(document.createTextNode('selected: '));
+    $('mRibbon').appendChild(el('span', 'm', selWords()));
+    $('mRibbon').appendChild(document.createTextNode(' · '));
     $('mRibbon').appendChild(el('span', 'm', S.sel));
   }
   renderBand();
@@ -2311,10 +2588,30 @@ function renderShell() {
   $('factFolio').textContent = S.view === 'finder'
     ? (S.corpus === 'loaded' ? 'corpus · not a workspace' : 'no corpus')
     : (S.loaded ? sourceWords() : 'no workspace');
-  var ft = $('faceTabs').querySelectorAll('[data-face]');
+  /* The heading names what is under it — see VIEWS `h`. */
+  $('factHead').textContent = viewMeta(S.view).h;
+  /* WHOSE DETAILS THESE ARE, on the details column's own folio. Blank when
+     nothing is picked; the body says so in a sentence a line below. */
+  $('meanFolio').textContent = S.sel ? selWords() : 'nothing selected';
+  /* EVERY face control in the document, not only `#faceTabs`. The diagram's
+     panel renders a second one inside its details tab and the two must never
+     disagree about which face is live; asking the document is the only way to
+     guarantee that as more surfaces grow one. */
+  var ft = document.querySelectorAll('[data-face]');
   Array.prototype.forEach.call(ft, function (t) {
     t.setAttribute('aria-pressed', String(S.face === t.getAttribute('data-face')));
   });
+}
+
+/* The selection in words a person owns: `sw-core-01 · Device`, not the ULID.
+   Read from whatever the module last posted — never composed from the id. */
+function selWords() {
+  if (!S.sel) return '';
+  if (DG.boxes && DG.boxes[S.sel]) return DG.boxes[S.sel].label + ' · ' + DG.boxes[S.sel].kind;
+  if (S.element && S.element.kind === 'face' && S.element.rows.length) {
+    return S.element.rows[0].s[1] + ' · ' + S.element.rows[0].s[0];
+  }
+  return S.sel;
 }
 
 function renderFact() {
@@ -2637,9 +2934,11 @@ function dgZoomCentre(factor) {
 /* `56` §6.2, verbatim in intent: "If the focused element is outside the
    viewport, the scene pans to it -- instantly, no easing, with the element
    placed at 25% from the leading edge rather than centred, so its neighbours
-   are visible." Instantly is not a stylistic choice here: the product has no
-   animation at all (`51` §12, ADR-0033), and the artifact test greps this file
-   for the three CSS properties that would give it one. */
+   are visible." Instantly, and it stays instantly even now that the product
+   has motion: a PAN is the reader's own hand on the scene and easing it would
+   put lag between the arrow key and the picture. The three animations this
+   build does have are listed at the head of the stylesheet and none of them
+   moves the scene. */
 function dgReveal(id) {
   var b = DG.boxes && DG.boxes[id];
   if (!b || !DG.canvas) return;
@@ -2664,10 +2963,14 @@ function dgReveal(id) {
    (`56` §6.2). It is drawn by us from the box's own coordinates rather than by
    the user agent around a shape, which is the third of the five jobs
    `55` §4.5.2 lists for keeping focus out of the <svg>. */
-function dgRing(id) {
+function dgRing(id, travel) {
   if (!DG.ring) return;
   var b = DG.boxes && DG.boxes[id];
   DG.focus = b ? id : null;
+  /* See `.dring.dtravel`: the ring eases only when a POINTER moved the
+     selection. Every keyboard path clears the class, because this element is
+     also the focus indicator for the Outline walk. */
+  DG.ring.setAttribute('class', travel ? 'dring dtravel' : 'dring');
   if (!b) { DG.ring.setAttribute('visibility', 'hidden'); return; }
   DG.ring.setAttribute('x', String(b.x - 4));       /* --s1 */
   DG.ring.setAttribute('y', String(b.y - 4));
@@ -2703,7 +3006,24 @@ function dgPaint() {
    destroying the scene and the tree the user is standing in. The inspector and
    the masthead are separate hosts, so they can be redrawn on their own; the
    picture only needs its classes changed. */
-function dgSelect(id) {
+/* `toDetails` is TRUE ONLY FOR A POINTER, and that asymmetry is deliberate
+   rather than an oversight.
+
+   The owner's ask is "I clicked a thing, now tell me about it", and a click is
+   what that sentence is about: the pointer has no place to be stranded, so the
+   panel can turn to DETAILS under it and nothing is lost.
+
+   A KEYBOARD IS DIFFERENT. Somebody arrow-walking the Outline is standing IN
+   the objects pane; turning to DETAILS would hide the element holding focus,
+   and focus removed from the DOM lands on <body> — `53` §13's failure 7, which
+   this view has already had to fix once. So keyboard selection selects and
+   stays, the DETAILS tab relabels itself with the new name (which is the whole
+   point of putting the name there), and the tab is one Right-arrow away.
+
+   The cost is stated plainly: a keyboard user needs one more keystroke than a
+   mouse user to reach the fields. The alternative costs them their place in a
+   list that `55` §4.5.2 makes the entire interface for this view. */
+function dgSelect(id, toDetails) {
   postElement(id);
   /* The inventory strip filters by kind, so a box selected here should leave
      the strip pointing at a set that CONTAINS it -- otherwise switching to the
@@ -2728,8 +3048,14 @@ function dgSelect(id) {
   }
   renderShell();
   renderMeaning();
+  /* The details pane is rebuilt for the new object BEFORE the panel is asked
+     which pane to show, so a switch never lands on the previous object's
+     fields for a frame. */
+  dgDetails();
+  if (toDetails) dgPaneSet('details', true);
+  else dgPaneApply(null);
   dgPaint();
-  dgRing(id);
+  dgRing(id, !!toDetails);
   dgReveal(id);
   dgBand();
   /* `55` §5.6: entering with Tab lands on the previously-focused child. A box
@@ -2760,6 +3086,11 @@ function dgClear() {
   DG.declined = null;
   renderShell();
   renderMeaning();
+  /* Clearing the selection empties the details tab, so the panel goes back to
+     the list — and it TRAVELS BACK, which is the same sentence the forward
+     switch made, read the other way. */
+  dgDetails();
+  dgPaneSet('objects', true);
   dgPaint();
   dgRing(null);
   dgBand();
@@ -3219,14 +3550,18 @@ function dgExpand(row, open) {
    for thirteen objects and what activating it will do. */
 function dgOutline(boxes, noSetKinds, agg) {
   var tree = el('div', 'dout');
-  var head = el('div', 'sh', 'Outline — every drawn object');
-  head.id = 'doutHead';
-  /* Focusable but not tabbable: `55` §5.6 requires Esc to move focus to the
-     container's own heading, "so a user is never stranded". Without a target
-     for that move, clearing a selection destroys the focused row and focus
-     lands on <body> -- `53` §13 failure 7. */
-  head.setAttribute('tabindex', '-1');
-  tree.appendChild(head);
+  /* THE HEADING IS THE TAB NOW. This block used to build a `.sh` reading
+     `Outline — every drawn object` — a third header idiom, in this project's
+     vocabulary rather than an engineer's, sitting directly under a column head
+     that used a different one. The OBJECTS tab above says the same thing in
+     the panel's one idiom and carries the live count as well, so the duplicate
+     is gone and the tree is labelled by the tab.
+
+     `doutHead` MOVED ONTO THAT TAB rather than being deleted. `55` §5.6
+     requires Esc to move focus to "the container's own heading, so a user is
+     never stranded", and the tab is now that heading — with the advantage that
+     it is a real, visible, focusable control, where the old head was a div
+     that took focus and showed a ring around a line of grey text. */
 
   var list = el('div');
   list.setAttribute('role', 'tree');
@@ -3305,10 +3640,154 @@ function dgOutline(boxes, noSetKinds, agg) {
   return tree;
 }
 
+/* =========================================== the panel's two tabs (Dir. A) ==
+   Which of the two panes is live. Page state, not graph state — it is never
+   journalled and never exported, exactly like the pan and the zoom.
+
+   It persists across a rebuild of the surface, because a rebuild happens for
+   reasons that have nothing to do with the reader (a field committed, a layer
+   toggled) and dropping them back to the list each time would be the view
+   throwing away where they were standing. */
+var DG_PANE = 'objects';
+
+/* THE DETAILS PANE, rendered in place. It never touches the scene or the tree:
+   the two panes are siblings and only this one is cleared, for the same reason
+   `dgSelect` does not call `render()` — rebuilding the fact column would drop
+   the pan, the zoom and the focused row (`53` §13 failure 7). */
+function dgDetails() {
+  if (!DG.det) return;
+  clear(DG.det);
+
+  if (!S.sel) {
+    /* THE EMPTY STATE, SAID. One short line, in the second person, naming both
+       ways in. A blank pane is a page that has stopped talking to you. */
+    DG.det.appendChild(el('div', 'dnone',
+      'Nothing is selected. Click a box in the picture, or pick a row under ' +
+      'OBJECTS, and its details appear here.'));
+    return;
+  }
+
+  /* ONE CLICK BACK. The key is Escape and it is one rung — see the ladder in
+     the keydown handler, where this is filed above the deselect rung so the
+     first press returns to the list and the second clears the selection. */
+  var back = el('button', 'dback', 'back to objects');
+  back.type = 'button';
+  back.setAttribute('data-dpane', 'objects');
+  DG.det.appendChild(back);
+
+  /* WHOSE DETAILS THESE ARE. The heading names the object; the folio names its
+     kind. Same idiom as every other heading on the page — 4 px ink tick,
+     uppercase — with the NAME itself left in mono and in its own case, because
+     a hostname is an identifier and `SW-CORE-01` is not what the operator
+     typed (the same argument `.dokind` already makes for CamelCase kinds). */
+  var b = DG.boxes && DG.boxes[S.sel];
+  var head = el('div', 'colhead');
+  var h2 = el('h2');
+  h2.id = 'ddetHead';
+  /* Focusable but not tabbable, so a pane switch made from the keyboard has
+     somewhere to land — the mirror of what the OBJECTS tab does going back. */
+  h2.setAttribute('tabindex', '-1');
+  h2.appendChild(el('span', 'dname2', b ? b.label : S.sel));
+  head.appendChild(h2);
+  head.appendChild(el('span', 'folio', b ? b.kind : ''));
+  DG.det.appendChild(head);
+
+  /* The two faces, INSIDE the details tab and not a peer of it: they are two
+     views of one object, not two destinations. Same markup and same delegate
+     as the meaning column's own control, so the two can never drift. */
+  var f = el('div', 'faces');
+  f.setAttribute('role', 'group');
+  f.setAttribute('aria-label', 'Which details to show');
+  f.appendChild(el('span', 'lab', 'show'));
+  [['meaning', 'fields'], ['equipment', 'equipment']].forEach(function (n) {
+    var btn = el('button', null, n[1]);
+    btn.type = 'button';
+    btn.setAttribute('data-face', n[0]);
+    btn.setAttribute('aria-pressed', String(S.face === n[0]));
+    f.appendChild(btn);
+  });
+  DG.det.appendChild(f);
+
+  var body = el('div');
+  if (S.face === 'equipment') renderEquipmentFace(body);
+  else renderMeaningFace(body);
+  DG.det.appendChild(body);
+  roveScan(body);
+}
+
+/* Paint the tab strip and swap which pane is on. `dir` is the direction the
+   reader moved and is the whole of the animation's meaning; pass null when
+   nothing moved (a rebuild, a re-selection inside the same pane) so a pane
+   that did not travel does not pretend it did. */
+function dgPaneApply(dir) {
+  if (!DG.panel) return;
+  /* A details tab with nothing to detail is not a destination. */
+  if (!S.sel) DG_PANE = 'objects';
+  var det = DG_PANE === 'details';
+
+  DG.tabObj.setAttribute('aria-selected', String(!det));
+  DG.tabDet.setAttribute('aria-selected', String(det));
+  /* The live tab is the strip's one tab stop — the roving pattern the rest of
+     this page uses, applied to a tablist, which is what ARIA asks for. */
+  DG.tabObj.setAttribute('tabindex', det ? '-1' : '0');
+  DG.tabDet.setAttribute('tabindex', det ? '0' : '-1');
+
+  /* THE SELECTED OBJECT'S NAME, ON THE TAB, IN BOTH PANES. This is the line
+     that answers "what is selected right now?" without moving the mouse. */
+  clear(DG.tabDet);
+  DG.tabDet.appendChild(document.createTextNode('Details '));
+  var b = S.sel && DG.boxes && DG.boxes[S.sel];
+  DG.tabDet.appendChild(el('span', 'pcnt', b ? b.label : (S.sel || 'none')));
+  DG.tabDet.title = S.sel ? selWords() : 'nothing selected';
+
+  DG.out.hidden = det;
+  DG.det.hidden = !det;
+
+  var live = det ? DG.det : DG.out;
+  live.removeAttribute('data-dir');
+  if (dir) {
+    /* Force the style to settle before the class lands, or a second switch
+       inside the animation's own duration replays nothing. */
+    void live.offsetWidth;
+    live.setAttribute('data-dir', dir);
+  }
+}
+
+/* Move between the two panes. Focus follows only when it would otherwise be
+   destroyed: hiding the pane a person is standing in sends focus to <body>,
+   which is `53` §13's failure 7, so the incoming pane's own landing place
+   takes it instead. A pointer press that focused nothing moves nothing. */
+function dgPaneSet(name, animate) {
+  if (!DG.panel) return;
+  if (name === 'details' && !S.sel) name = 'objects';
+  if (DG_PANE === name) { dgPaneApply(null); return; }
+  var from = DG_PANE === 'details' ? DG.det : DG.out;
+  var carrying = !!(from && document.activeElement && from.contains(document.activeElement));
+  var dir = name === 'details' ? 'fwd' : 'back';
+  DG_PANE = name;
+  dgPaneApply(animate === false ? null : dir);
+  if (carrying) {
+    if (name === 'details') {
+      var hd = DG.det.querySelector('#ddetHead');
+      (hd || DG.tabDet).focus();
+    } else {
+      var row = S.sel && DG.out.querySelector('[data-drow="' + cssEsc(S.sel) + '"]');
+      (row || DG.tabObj).focus();
+    }
+  }
+  say(name === 'details'
+    ? 'details for ' + selWords()
+    : 'the object list, ' + (DG.drawn || 0) + ' drawn');
+}
+
 /* Run after renderFact's own roveScan, which gives the first row of every list
    the tab stop. That is right for a fresh list and wrong here: a row chosen in
    the inventory should still be the row Tab lands on after switching views. */
 function dgAfterFact() {
+  /* roveScan gives item 0 of every roving list the tab stop, which is right for
+     a fresh list and wrong for a TABLIST: the stop belongs to the tab that is
+     live. Re-applied here because roveScan runs after renderDiagram. */
+  if (DG.panel) dgPaneApply(null);
   if (!DG.out || !S.sel || !DG.boxes || !DG.boxes[S.sel]) return;
   var row = DG.out.querySelector('[data-drow="' + cssEsc(S.sel) + '"]');
   if (row) dgRove(row);
@@ -3341,6 +3820,7 @@ function dgIsText(t) {
 function renderDiagram(host) {
   DG.view = DG.canvas = DG.svg = DG.scene = DG.ring = DG.out = null;
   DG.readout = DG.band = DG.sum = null;
+  DG.panel = DG.tabs = DG.tabObj = DG.tabDet = DG.det = null;
   DG.boxes = null; DG.conn = null; DG.focus = null;
 
   if (!S.loaded) {
@@ -3854,6 +4334,24 @@ function renderDiagram(host) {
     }
     g.appendChild(sEl('rect', { x: bx, y: by, width: bw, height: bh, rx: 0,
       'vector-effect': 'non-scaling-stroke' }));
+    /* THE SELECTION BAR — the picture's half of the one selection mark, and the
+       same 4 px ink tick the Outline row and every heading on the page carry.
+       Drawn on EVERY box and inked only on the selected one, because dgPaint
+       changes classes and never rebuilds the scene. Inside the box's own edge
+       rather than outside it, so it cannot collide with the placed tick at the
+       top-left corner, and 4 px is `--s1`, the lattice everything here is a
+       multiple of.
+
+       A <line>, NOT A SECOND <rect>, and that is a measurement rather than a
+       preference: `2026-08-15-diagram-surface-edges.mjs` counts `.dbox rect` and
+       reads the answer as "how many boxes are drawn", so a second rect per box
+       made a ten-box picture report twenty and took eleven checks with it. The
+       driver's shorthand is fair — until this change there was exactly one rect
+       per plain box — and a mark that quietly doubles a count the rest of the
+       build reasons about is the wrong mark. `non-scaling-stroke` for the same
+       reason every other stroke here carries it (`56` §5.3). */
+    g.appendChild(sEl('line', { x1: bx + 2, y1: by, x2: bx + 2, y2: by + bh,
+      class: 'dselbar', 'vector-effect': 'non-scaling-stroke' }));
     /* THE COUNT IS THE ONE LABEL IN THE PICTURE THAT MAY NOT BE DEMOTED
        (59 §3.6, X9). It is drawn with the box, always, never truncated and
        never routed through anything that could drop it -- A2's counts vanished
@@ -3944,8 +4442,62 @@ function renderDiagram(host) {
 
   DG.canvas.appendChild(DG.svg);
   split.appendChild(DG.canvas);
+
+  /* ---------------------------------------------- THE ONE RIGHT-HAND PANEL
+     Two tabs over one panel: OBJECTS (the Outline, unchanged in behaviour) and
+     DETAILS (what the meaning column used to hold). The strip is `flex: none`
+     and is the same two boxes in the same two places at every moment — the
+     panes move, the controls do not.
+
+     The DETAILS tab carries the SELECTED OBJECT'S NAME, in both panes. That is
+     the answer to "what is selected right now?" from anywhere on this view,
+     without moving the mouse and without opening anything, and with nothing
+     picked it reads `none` rather than going quiet. */
+  var panel = el('div', 'dpanel');
+  DG.panel = panel;
+  var tabs = el('div', 'ptabs');
+  tabs.setAttribute('role', 'tablist');
+  tabs.setAttribute('aria-label', 'Objects or details');
+  tabs.setAttribute('data-rove', 'h');
+  DG.tabs = tabs;
+
+  DG.tabObj = el('button');
+  DG.tabObj.type = 'button';
+  /* `doutHead` — the Escape target `55` §5.6 requires, moved onto the tab. See
+     dgOutline for why. */
+  DG.tabObj.id = 'doutHead';
+  DG.tabObj.setAttribute('role', 'tab');
+  DG.tabObj.setAttribute('data-dpane', 'objects');
+  DG.tabObj.setAttribute('data-rove-item', '');
+  DG.tabObj.setAttribute('aria-controls', 'dpaneObjects');
+  DG.tabObj.appendChild(document.createTextNode('Objects '));
+  DG.tabObj.appendChild(el('span', 'pcnt', String(boxes.length)));
+  tabs.appendChild(DG.tabObj);
+
+  DG.tabDet = el('button');
+  DG.tabDet.type = 'button';
+  DG.tabDet.id = 'dpaneDetailsTab';
+  DG.tabDet.setAttribute('role', 'tab');
+  DG.tabDet.setAttribute('data-dpane', 'details');
+  DG.tabDet.setAttribute('data-rove-item', '');
+  DG.tabDet.setAttribute('aria-controls', 'dpaneDetails');
+  tabs.appendChild(DG.tabDet);
+  panel.appendChild(tabs);
+
   DG.out = dgOutline(boxes, noSetKinds, agg);
-  split.appendChild(DG.out);
+  DG.out.id = 'dpaneObjects';
+  DG.out.className = 'dout ppane';
+  DG.out.setAttribute('role', 'tabpanel');
+  DG.out.setAttribute('aria-labelledby', 'doutHead');
+  panel.appendChild(DG.out);
+
+  DG.det = el('div', 'ddet ppane');
+  DG.det.id = 'dpaneDetails';
+  DG.det.setAttribute('role', 'tabpanel');
+  DG.det.setAttribute('aria-labelledby', 'dpaneDetailsTab');
+  panel.appendChild(DG.det);
+
+  split.appendChild(panel);
   view.appendChild(split);
 
   /* 56 §5.2 G10, the release valve: anything the picture cannot say, the band
@@ -4081,6 +4633,11 @@ function renderDiagram(host) {
   DG.declined = (S.sel && DG.boxes[S.sel] && KINDS.indexOf(DG.boxes[S.sel].kind) < 0)
     ? DG.boxes[S.sel].kind : null;
 
+  /* The panel, last, because the details pane reads the box table this render
+     just built. No animation on a rebuild: nobody moved. */
+  dgDetails();
+  dgPaneApply(null);
+
   dgPaint();
   if (S.sel && DG.boxes[S.sel]) { dgRing(S.sel); dgReveal(S.sel); }
   dgBand();
@@ -4137,9 +4694,13 @@ document.addEventListener('click', function (ev) {
     diagramOpen(n.getAttribute('data-group'));
     return;
   }
-  if ((n = seekAttr(ev.target, 'data-dpost'))) { dgSelect(n.getAttribute('data-dpost')); return; }
+  /* THE POINTER PATH, and it is the one that turns the panel to DETAILS. A
+     click on a box or on a row is "I clicked a thing, now tell me about it";
+     the keyboard paths below pass nothing and stay where they are. See
+     dgSelect's own header for why the two differ. */
+  if ((n = seekAttr(ev.target, 'data-dpost'))) { dgSelect(n.getAttribute('data-dpost'), true); return; }
   if ((n = seekAttr(ev.target, 'data-dlink'))) { dgFollow(n); return; }
-  if ((n = seekAttr(ev.target, 'data-drow'))) { dgSelect(n.getAttribute('data-drow')); return; }
+  if ((n = seekAttr(ev.target, 'data-drow'))) { dgSelect(n.getAttribute('data-drow'), true); return; }
   /* `56` §6.1: "Click empty canvas | Clear". Last, so a click that landed on a
      shape has already been handled above. */
   if (DG.canvas && DG.canvas.contains(ev.target)) { dgClear(); return; }
@@ -4519,6 +5080,13 @@ window.addEventListener('resize', function () {
 function renderMeaning() {
   var host = $('meanBody');
   clear(host);
+  /* ON THE DIAGRAM VIEW THIS COLUMN IS NOT ON SCREEN (Direction A: the details
+     moved into the picture's own panel as its second tab), so it renders
+     nothing at all. Leaving it to render into a display:none column would put a
+     second copy of every editable field, and of the remove button, in the
+     document — two elements carrying the same `data-key`, one of them
+     unreachable and neither of them labelled as the duplicate. */
+  if (S.view === 'diagram') return;
   if (S.face === 'equipment') renderEquipmentFace(host);
   else renderMeaningFace(host);
   roveScan(host);
@@ -4813,6 +5381,15 @@ document.addEventListener('click', function (ev) {
   if ((n = seekAttr(ev.target, 'data-face'))) {
     S.face = n.getAttribute('data-face');
     renderShell(); renderMeaning();
+    /* The diagram's details tab carries its own copy of this control and is
+       rendered by the surface, not by renderMeaning. Rebuilt in place: the
+       scene, the tree and the pan are untouched. */
+    if (S.view === 'diagram') { dgDetails(); dgPaneApply(null); }
+    return;
+  }
+  /* The panel's two tabs, and the details tab's own way back to the list. */
+  if ((n = seekAttr(ev.target, 'data-dpane'))) {
+    dgPaneSet(n.getAttribute('data-dpane'), true);
     return;
   }
   if ((n = seekAttr(ev.target, 'data-kind'))) {
@@ -6463,6 +7040,17 @@ document.addEventListener('keydown', function (e) {
     }
     if (S.view === 'diagram' && S.open.length) {
       diagramCollapse(S.open[S.open.length - 1][0]);
+      return;
+    }
+    /* THE PANEL'S RUNG — the "one key" back from DETAILS to the list, and it
+       sits ABOVE the deselect rung because `53` §3.7 unwinds exactly one level
+       and most-recently-opened first: opening the details is the last thing
+       that happened, so it is the first thing to close. Press Escape again and
+       the selection clears, which is the rung below. */
+    if (S.view === 'diagram' && DG.panel && DG_PANE === 'details') {
+      dgPaneSet('objects', true);
+      /* `55` §5.6: never stranded. The tab is this pane's heading. */
+      if (DG.tabObj) DG.tabObj.focus();
       return;
     }
     if (S.sel) {
