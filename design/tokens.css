@@ -208,6 +208,32 @@ input, button, select, textarea {
   }
 }
 
+/* --- MOTION. §12, rewritten 2026-08-17. -----------------------------------
+   This section did not exist, because `51` §12 read as "the product has no
+   animation" and the artifact test enforced it by banning `@keyframes`,
+   `transition:` and `animation:` outright.
+
+   THE OWNER RETIRED THAT PREMISE: *"i love the theme and UX direction where
+   it's blocky and very termix + zerobyte look and feel, but they had animations
+   still and like submenus that all make sense"*. ADR-0033 was always the real
+   rule and it never said no — it said MOTION MUST CARRY MEANING. So the ban
+   becomes a price: a duration is a token, never a number at the call site, and
+   every animated property has a `prefers-reduced-motion` answer.
+
+   Two durations is the whole budget. If a third is ever needed, the question to
+   answer first is what NEW meaning it carries that neither of these two does. */
+:root {
+  /* A pane arriving from the side it came from — the diagram panel's
+     objects/details switch. The sign of the translate is the meaning: it says
+     which way you moved and where the other pane still is. */
+  --m-pane: 150ms;
+  /* A selection mark landing on a row. Says the selection ARRIVED HERE, JUST
+     NOW, which is the one thing a static rule cannot say. */
+  --m-mark: 110ms;
+  /* One easing, so nothing in the product moves in a way nothing else does. */
+  --m-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
 /* Mono in prose. §7.4 */
 code, .m { font-family: var(--mono); font-size: 0.96em; }
 .m-caps  { font-family: var(--mono); font-size: 0.94em; letter-spacing: 0.01em; }

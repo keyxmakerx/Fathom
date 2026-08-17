@@ -74,21 +74,22 @@
    the CONTENT under it travels, and it travels after the press, never under
    the pointer that is about to make it.
 
-   THIS BLOCK BREAKS AN ASSEMBLER TEST AND THE BREAK IS THE POINT.
-   `crates/fathom-artifact/tests/artifact.rs` lines 124-126 assert that no line
-   of this file contains `@keyframes`, `transition:` or `animation:`. That test
-   is M34's premise written down — "the product has no animation" — and the
-   owner has retired the premise. The repair is those three lines deleted and
-   `51` §12 rewritten to price motion instead of forbidding it; it is a change
-   to a .rs file, which the order that made this change forbade touching, so it
-   is named here rather than worked around. Writing the same rules in longhand
-   to slip past a string match would have been a worse answer: it would leave
-   the product animated and the test still claiming it is not. */
-:root {
-  --m-pane: 150ms;   /* a pane arriving from the side it came from */
-  --m-mark: 110ms;   /* a selection mark landing on a row          */
-  --m-ease: cubic-bezier(0.2, 0, 0, 1);
-}
+   THIS BLOCK BROKE AN ASSEMBLER TEST AND THE BREAK WAS THE POINT. The test
+   asserted that no line of this file contained `@keyframes`, `transition:` or
+   `animation:` — M34's premise written down, "the product has no animation" —
+   and the owner retired that premise in his own words. The branch that added
+   the motion could not touch a `.rs` file, so it named the repair instead of
+   working around it, which was the right call: writing the same rules in
+   longhand to slip past a string match would have left the product animated
+   and the test still claiming it was not.
+
+   THE REPAIR IS DONE, 2026-08-17. `artifact.rs` now runs
+   `motion_is_priced_not_banned`, which asks the two questions a ban could not:
+   every duration comes from a `--m-*` token declared in `design/tokens.css`
+   beside what it MEANS, and anything that animates must have a
+   `prefers-reduced-motion` answer. Whether a given animation is MEANINGFUL is
+   ADR-0033's question and no test can ask it — these two halves are the part
+   that can be made impossible to skip. */
 @media (prefers-reduced-motion: reduce) {
   .ppane { animation: none !important; }
   .dorow::before { transition: none !important; }
