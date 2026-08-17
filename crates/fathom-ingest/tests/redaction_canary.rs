@@ -557,3 +557,51 @@ fn a_camelcase_credential_name_couples_to_its_value() {
          values: {leaked:?}"
     );
 }
+
+/// **EVERY DECLARED SECRET IS CAUGHT TWICE, AND `trap-group` WAS CAUGHT ONCE.**
+///
+/// The dictionary declares fourteen `secret:` paths and `14` §9.1's fourth
+/// structural property makes that set the redaction catalogue. The leaf-name
+/// walk is the second net under it, and the two are independent by design: a
+/// dictionary that is stale, missing, or — the case that found this — REPLACED
+/// by a hand-supplied engine still leaves the names.
+///
+/// Thirteen of the fourteen had a name on `SECRET_WORD_LIST`. `snmp.trap-group`
+/// did not, so its community string had exactly one detector and the shipped
+/// dictionary was the whole of its protection. Proved with a canary rather than
+/// argued, on 2026-08-17.
+///
+/// The probe is EIGHT characters on purpose, and the reason is rule 0 in
+/// `CLAUDE.md`: a gate is tested against what a device accepts, never against
+/// what the detector needs. A 24-character probe would pass on `base64ish`
+/// alone and prove nothing about the name — which is exactly how a live
+/// credential leak survived four reviews on 2026-08-15.
+#[test]
+fn an_snmp_trap_group_community_is_destroyed_because_of_its_name() {
+    let secret = "Fath0mTG";
+    assert_eq!(
+        secret.len(),
+        8,
+        "short enough that only the NAME can catch it"
+    );
+    assert!(
+        !crate_base64_floor_would_catch(secret),
+        "if base64 can catch this the test proves nothing about the name"
+    );
+    let line = format!("set snmp trap-group {secret}\n");
+    let out = ingest(line.as_bytes(), &dict()).expect("within the caps");
+    let serialised = format!("{out:?}");
+    assert!(
+        !serialised.contains(secret),
+        "an SNMP trap-group community survived the gate: {serialised}"
+    );
+    assert!(
+        out.drops
+            .entries
+            .iter()
+            .any(|e| e.detectors.0 & DetectorSet::LEAF_NAME != 0),
+        "the leaf-name walk must be one of the detectors, so the dictionary is \
+         not the only thing standing between this value and the store: {:?}",
+        out.drops.entries
+    );
+}

@@ -1456,3 +1456,616 @@ possible signal that the project has stopped believing in phase 0.
 `75` §6.4's closing line is the right one to end on, and it is meant literally:
 
 > **Nobody should build anything from this document.**
+
+---
+
+## 14. The parse-server question — asked 2026-08-17, answered here
+
+> **Status:** Proposed · **Added 2026-08-17** in response to a direct owner question.
+> Six designs were developed against the code and each was attacked by an independent
+> reviewer. **Three new rungs are added to §5's ladder (E7, E8, E9). None is approved.**
+> The recommendation in §14.7 requires no rung, no connection and no decision by anybody
+> but the owner about what to spend.
+
+This section is written to be read by the owner rather than by a reviewer. §14.2 is the
+decision. §14.3 is the part he asked for most directly and the part most likely to be acted
+on. §14.10 is the list of things nobody could establish, and it is worth as much as §14.7.
+
+### 14.0 Contents
+
+| § | |
+|---|---|
+| 14.1 | The question, in his words |
+| 14.2 | The answer, up front |
+| 14.3 | **"In memory, erased after" — the checklist of what actually defeats it** |
+| 14.4 | The thing under all of it: a config with the passwords out is still a map |
+| 14.5 | The six families — what crosses, what it frees, what it costs |
+| 14.6 | Where the designer and the reviewer disagreed, and which one this section follows |
+| 14.7 | The ranking, and the one recommendation |
+| 14.8 | Three new rungs for §5's ladder — E7, E8, E9 |
+| 14.9 | What this exercise found that has nothing to do with servers |
+| 14.10 | **Could not be established** |
+| 14.11 | What would have to be true for the answer to change |
+| 14.12 | Failure modes |
+| 14.13 | Open decisions |
+| 14.14 | Sources consulted |
+| 14.15 | Disagreements |
+
+---
+
+### 14.1 The question, in his words
+
+Two passages, 2026-08-17, owner in conversation. Recorded verbatim per `75` §15's discipline,
+and — like the two passages in §4.1 — **neither exists in any file in this repository, so this
+document is the only record.**
+
+> *"wait but couldn't that part be like sent over, like the engine states 'these are config
+> variables with security concerns' and they just don't transfer, like pre-emptive, vs having
+> every single config variable and such on the client's side?"*
+
+> *"i would say think of outside of the box stuff, to see if we can't come to a more permant
+> solution, also how would this look on the server side, because i assume IP stuff would be
+> translated as well, which technically is a security concern but as long as it resides in
+> memory and is erased upon finishing translation it should be fine...? maybe? idk how that
+> actually works in practice"*
+
+Four questions are in there and this section answers all four:
+
+1. Is there a **permanent** answer rather than a patch?
+2. What does it actually **look like on the server**?
+3. Is *"in memory, erased after"* a real guarantee **in practice**?
+4. Implied, and it is the one that decides everything: **a config with the passwords taken
+   out is still a map of the network.** Any answer that treats secrets as the only sensitive
+   thing has missed the point.
+
+**The instinct in the first passage is right and it is already built.** The engine does state
+which variables have security concerns: it is the `secret:` declaration in the dictionary,
+**14 entries, 1,204 bytes, about 2% of the 58,823 bytes of Junos engine on disk** (counted
+2026-08-17: `grep -c '^\\s*secret:' corpus/dict/`, 11 `.yaml` files under
+`corpus/dict/junos-srx/`). The only thing the instinct gets wrong is the direction.
+**That catalogue cannot live on the far side of the wire, because it is the thing that
+decides what may cross the wire.** It is already in the right place, and the honest answer
+to the first question is *"we do that, and here is the file."*
+
+---
+
+### 14.2 The answer, up front
+
+> **NO SERVER. NOT THIS ONE, NOT A SMALLER ONE, NOT A CAREFUL ONE. THE BYTES THAT STARTED THIS
+> CONVERSATION ARE ON THIS SIDE OF THE WIRE, THERE ARE BETWEEN TWENTY AND FOUR HUNDRED TIMES
+> AS MANY AS THE BLOCKED FEATURE NEEDS, AND TAKING THEM COSTS NOTHING THAT ANYBODY OUTSIDE CAN
+> SEE.**
+
+The sentence for a network engineer, because it is the whole finding in one line:
+
+> **We were about to move a customer's firewall config off his machine because a lookup table
+> got compiled as a chain of `if` statements.**
+
+Three measurements, all reproduced against the tree at `0e31af6` on 2026-08-17:
+
+| | bytes | ratio to the 602 that blocked WO-10 |
+|---|---:|---:|
+| What DHCP relay + bootp needs | **602** | 1× |
+| Headroom today | **219** | — |
+| One generated function compiled as a table instead of a branch tree | claimed **11,089** — mechanism corroborated, headline unreproduced (§14.10) | ~18× |
+| The store's eight `BTreeMap`s as sorted vectors, plus six sort sites | claimed **70,674** — unreproduced (§14.10) | ~117× |
+| Moving the finder out of the module | **220,289**, measured independently twice today | **366×** |
+| What moving the parser to a server would free | **116,771** by attribution, `47` §4.2 | 194× |
+
+**The largest zero-egress lever measured is 1.9× larger than the entire prize of the server
+that would have read the config.** That is not a close call, and it does not become one at any
+future module size, because the shared-machinery finding behind it — **243,522 bytes, 27.5% of
+the module, belonging to no feature at all** (`47` §3.3) — grows with types rather than with
+features.
+
+**On the permanence question, which he asked for by name.** A server is not the permanent
+answer; it is a patch that spends the product's only differentiator to buy less than half of
+what tightening the implementation buys for free, and it buys it **once**. The permanent answer
+is `47` §11.4's question — *"is one module the right shape for this product?"* — and its
+already-measured answer, `47` §11.4 fact 2: a second WASM module carried inside the same file
+and instantiated only when its view is opened. That is the same move the project already made
+for data on 2026-08-15 when the dictionary stopped being compiled in and started travelling in
+the page. **It delivers 100% of the byte value of a server and the part it does not deliver is
+nothing.** §5.9's second standing requirement demands that the export-shaped substitution be
+answered first; here it is answered, and it wins outright.
+
+---
+
+### 14.3 "In memory, erased after" — the checklist of what actually defeats it
+
+> **HE IS ASKING THE RIGHT QUESTION. THE ANSWER IS THAT IT IS A REAL ENGINEERING GOAL AND IT IS
+> NOT A GUARANTEE. IT IS ACHIEVABLE TO A BOUNDED DEGREE; EVERY CONTROL IS SOMETHING AN OPERATOR
+> CAN SWITCH OFF SILENTLY; AND NONE OF IT IS CHECKABLE BY THE PERSON WHOSE CONFIG IT IS.**
+
+*"In transit"* and *"at rest"* are solved problems. This is the third one — **data in use** —
+and the industry has not solved it. Below is what defeats *"it only ever lives in RAM"*, in
+the order an engineer would meet them. **Rows 1–5 were verified by this session against
+primary sources on 2026-08-17.** Rows marked ◇ were not, and say so.
+
+| # | What defeats it | The mechanism, from the source | Source, read 2026-08-17 |
+|---|---|---|---|
+| **1** | **A reverse proxy writes the config to a file on disk, by default, with nobody deciding anything.** This is the single most concrete refutation | `client_body_buffer_size` defaults to **`8k｜16k`** — *"By default, buffer size is equal to two memory pages. This is 8K on x86, other 32-bit platforms, and x86-64. It is usually 16K on other 64-bit platforms."* And: ***"In case the request body is larger than the buffer, the whole body or only its part is written to a temporary file."*** Default path `client_body_temp`. `client_body_in_file_only` defaults `off`, and **`on` means *"temporary files are not removed after request processing"*** | nginx.org, `ngx_http_core_module` |
+| | | **A 122-line branch config already exceeds 8K. A full chassis config exceeds it by orders of magnitude.** So under a stock proxy the config is a file on the server's filesystem before your code reads a byte | |
+| **2** | **Zeroing a buffer does not erase the data, and this is documented as a limitation rather than a bug** | ***"The explicit_bzero() function does not guarantee that sensitive data is completely erased from memory. (The same is true of bzero().) For example, there may be copies of the sensitive data in a register and in 'scratch' stack areas."*** The function is unaware of those copies and cannot erase them | Linux man-pages **6.18 (2026-02-08)**, `bzero(3)` NOTES |
+| **3** | **The same limitation in Rust specifically, from the crate you would reach for** | `zeroize` v1.9.0: the `Vec`/`String` impls *"zeroize the entire capacity of their backing buffer, **but cannot guarantee copies of the data were not previously made by buffer reallocation**"*; *"stack spilling and other optimizations may leave temporary copies of data from the heap on the stack"*; and `mlock`/`mprotect`, swap and RAM scraping are **explicitly out of scope** | docs.rs/zeroize v1.9.0 |
+| | | **A parser that grows a `String` reallocates by definition.** Every reallocation leaves a copy of the config in a freed heap page that nothing overwrites until the allocator reuses it | |
+| **4** | **One crash writes the whole thing to disk** | `Storage=` — ***"When 'external' (the default), cores will be stored in /var/lib/systemd/coredump/."*** A core dump is an image of the process's memory at the moment it died | `coredump.conf(5)`, systemd 261~rc1 (rendered 2026-05-30) |
+| | | **Correction to one of the six submissions:** it claimed this page says `Storage=none` exists *"to minimize collecting and storing sensitive information, for example for General Data Protection Regulation (GDPR) compliance."* **That sentence is not in the primary man page.** The default and the path are confirmed; the GDPR rationale came from a vendor guide and is not asserted here | |
+| **5** | **The request may not be safe to send even once** | TLS 1.3 early data (0-RTT): ***"This data is not forward secret, as it is encrypted solely under keys derived using the offered PSK"***, and ***"There are no guarantees of non-replay between connections."*** A browser that sends the POST as early data on a resumed connection has handed it to an on-path attacker under a key with no forward secrecy, replayable | RFC 8446 §2.3 |
+| **6** ◇ | **Swap, hibernation, hypervisor snapshot, live migration, memory ballooning** | Unless swap is off or encrypted, pages holding the config can be written to the swap device. A cloud instance snapshot or a live migration captures RAM. On Proxmox, a snapshot taken with `--vmstate` writes guest RAM to storage the guest cannot reach | Not verified by this session. Stated as ordinary operating behaviour, not as a citation |
+| **7** ◇ | **Logs — and not the ones you would guard** | Access logs do not carry bodies. **Panic messages and stack traces do**, and a parser's error message routinely quotes the offending line. That is the leak that survives every body-capture setting, and it arrives in the code path someone added while debugging | Not verified. Named because it is the row an operator would not think to check |
+| **8** ◇ | **The TLS plaintext exists somewhere that is not your process** | If a load balancer terminates TLS — and load balancing is something the owner asked for by name — the plaintext is in the balancer's buffers before your code sees it, and re-encryption to the backend is a separate, optional step | Not verified against a vendor doc by this session |
+| **9** ◇ | **The technology that genuinely addresses data-in-use is not free** | Hardware enclaves (SEV-SNP, TDX, Nitro) are the only construction that makes "cannot read" structural rather than promised. They carry a named cloud or CPU vendor as a permanent dependency, a build the owner cannot run at home, and a live 2024–2026 attack record against their attestation | **Not verified by this session.** One submission cited BadRAM/CVE-2024-21944, Battering RAM, WireTap and TEE.Fail; none was checked. See §14.10 |
+
+**What this means in one paragraph, in his terms.** You can shorten the window. You cannot close
+it, you cannot prove you closed it, and the person whose config it is cannot check any of it.
+`14` §9.9 already draws exactly this distinction on the client and its sentence is the right one
+for the server too: redaction is ***"not a confidentiality control"***, it is ***"a retention
+control"***, and what it changes is a secret's lifetime ***"from indefinite to the duration of
+one ingest."*** The client-side version reduces that lifetime to one paste **on a machine the
+owner owns**, where every reader of it is an attacker `31` §6 already places out of scope. The
+server-side version reduces it to one request **on a machine somebody else owns**, where none of
+`31` §6's scoping applies. His instinct that memory-only beats storage is correct. **The step
+from "better" to "fine" is the one that does not hold.**
+
+---
+
+### 14.4 The thing under all of it: a config with the passwords out is still a map
+
+The owner did not say this and it is the reason his own proposal fails. Stating it plainly,
+because every family in §14.5 lives or dies on it:
+
+> **THE SECRETS ARE 2% OF THE FILE. THE OTHER 98% IS THE NETWORK.**
+
+Measured, not asserted:
+
+| | |
+|---|---|
+| Secret-bearing paths the engine declares | **14 entries, 1,204 bytes — about 2%** of 58,823 bytes of Junos dictionary |
+| A pasted branch config that Fathom binds | **47.5%** (`66`; pinned at `crates/fathom-ingest/tests/branch_coverage.rs`) |
+| **Residue — lines Fathom did not understand** | **52.5%**, and by construction it is the half the dictionary cannot classify, so no pre-emptive filter can decide whether any of it is sensitive |
+| Schema field keys | **307** (`FIELD_KEYS: [(&str, u32); 307]`, verified 2026-08-17) |
+| Of those, name- or address-typed — what a pseudonymiser could touch | **117 (38.1%)** — one submission's count, not re-derived here |
+| Of those, everything else — survives any pseudonymisation unchanged | **190 (61.9%)** — crypto parameters, ASNs, VLAN IDs, OSPF areas, policy actions, port ranges, MTUs, dates |
+
+**So a "pre-emptive filter" would withhold 38% of the model and ship 62% of it, and the 62% is
+the part that identifies you.** DH group 14 with AES-256-CBC and a 3600-second lifetime, OSPF
+area 0.0.0.51, a policy set of 47 rules **in that order**, a cluster with `reth0` and `reth1`,
+three zones joined in exactly that pattern — that is a fingerprint, and it is the same
+fingerprint next week.
+
+**What an attacker holding a secret-stripped config actually holds.** The estate. The addressing
+plan and how it is allocated. Which boxes are edge and which are core. Every VPN peer address,
+and therefore every branch, partner and supplier relationship the organisation has. Which zone
+pairs are permitted, in what order, and — the part people forget — **which are not**, i.e.
+exactly where the firewall does and does not stop lateral movement, without having to probe for
+it. Which routing adjacencies exist and, because `authentication-key` survives as a *word* while
+its value does not, **which adjacencies will accept an unauthenticated peer**. Management and
+out-of-band addresses. And from the residue, whatever the parser could not model, verbatim.
+
+That is `31` §1.5's *"map"*. It is precisely what §5.2's blast-radius paragraph for E3b already
+calls ***"a reconnaissance package worth substantially more than a graph"*** — and E3b keeps it
+on the operator's own laptop behind his own passphrase. Every design in §14.5 that sends
+anything sends the same material **to one place, for every user, in plaintext at the moment of
+processing**, and `38` §5.2's temporal finding compounds it: a *series* discloses *"when each
+thing changed, and therefore when each window of exposure opened."* **A server sees the series
+by construction.**
+
+**And there is a worse artefact than the config, which nobody in the corpus had noticed.** A
+config is lossy, noisy, one box, one vendor's syntax, 52.5% unparsed, with dead stanzas — and an
+attacker must do the parsing work himself. **The graph is that config deduplicated, typed,
+normalised, cross-referenced and — once `70` §6's correlation requirement exists — joined across
+every device ever pasted.** By the owner's own answer at `77` §10 it is the system of record. So
+the design that sounds safest — *"the server never sees a config, it only holds the graph"* — is
+**strictly the worse half of both options**. `03` §4.10 refuses long-horizon config storage on
+grounds that mirror this exactly, and the corpus has never applied that argument to the graph
+because the graph is assumed to be the safe artefact. On the evidence it is the more valuable
+one. **That inversion should be carried into `31` regardless of what happens to this section.**
+
+**Which families protect the map, and which do not:**
+
+| | Protects the map? |
+|---|---|
+| **Family 5** (client-side byte recovery), **Family 6** (the generated-table fix), **Family 3B** (hand-in engine file) | **Yes, completely.** Nothing crosses. Not the config, not the residue, not a hash of either, not a count of lines, not a manifest of "variables with security concerns" |
+| **Family 3A** (fetch the engine) | **Yes for the map, no for the fact of it.** No config crosses. A per-launch beacon crosses, naming the operator's IP, the time, and — from which engine was fetched — **the vendor of equipment they are documenting** |
+| **Family 4** (fetch our own code) | **Yes on the wire, no in effect.** No config crosses, but §14.6's leak 4 shows the operator of that origin can execute arbitrary code in the tab at next reload and can disarm the redaction gate with one line of engine YAML |
+| **Family 1** (send the post-gate capture) | **NO.** It sends the map itself, in full, verbatim except for 14 catalogued values |
+| **Family 2** (send the tokenised structure) | **NO.** It sends the map with the labels removed, which the 2007 literature on anonymised network data treats as a solved re-identification problem, and which EU law treats as pseudonymised rather than anonymised — still personal data |
+
+---
+
+### 14.5 The six families — what crosses, what it frees, what it costs
+
+Six designs, each developed against the code, each attacked by an independent reviewer. The
+`frees` column is the honest figure after the reviewer's correction, not the designer's headline.
+
+| | Family | What crosses the wire | What it frees | What it costs the promise | Reviewer |
+|---|---|---|---|---|---|
+| **1** | **Catalogue-strip** — ship the client the 14-entry secret catalogue, run frame→lex→shape→redact locally, POST the post-gate capture, server does bind→resolve | **The operator's entire paste, byte-for-byte**, minus 14 marker substitutions and shape sketches. Every hostname, interface, IP, zone, ordered policy, NAT rule, IKE gateway and peer, BGP neighbour, static route, SNMP target — **plus 52.5% residue verbatim** | **12,165** by definition site; a defensible range of 12,000–20,000. **Not 116,771** — that figure assumes the *whole* crate leaves, and this design keeps the gate, which keeps the dictionary machinery | Everything. G1's scope, G2, G3, G7, G9. Converts three facts a hostile stranger can check in an afternoon into six promises checkable by nobody | **not-worth-it** |
+| **2** | **Structure-only** — replace every value with `$1`, `$2`, send only the shape, server says "bind `$1` into `Device.hostname`" | **The complete co-reference graph.** Measured on the real 122-line fixture: 7,665 bytes of 8,779, **87.3% of the original**. Token reuse *is* the topology: `$14` is a VLAN that is a zone that is an interface member; `$59` chains a gateway to its address, its external interface and the VPN bound to it. Plus every closed-set value in clear — `aggressive`, `pre-shared-keys`, DH group, PFS absent | **34,172 gross**, and overstated: it is before the tokeniser, the wire codec, the substitution table and the fetch plumbing, all new client code | Same as family 1, plus it **forfeits 72,904 of the 107,076** a plain server would free, because the client must keep the dictionary in order to tokenise — which is the protection the shipped build already has for free by never sending anything | **not-worth-it** |
+| **3A** | **Fetch the engine** — the artifact downloads `<platform>.engine` at launch | No config. A **per-launch beacon**: source IP, SNI, path, time, UA, TLS fingerprint — i.e. *"this address is running Fathom and is about to read a Junos SRX config, at 14:02"* | **ZERO.** The dictionaries left the module on 2026-08-15 and now arrive over `OP_DICT`; the module cannot tell whether the page got them from a literal or a `fetch` | `connect-src 'none'` becomes an allowlist. G3 dies as designed. G7 is contradicted by name — `03` §3.3 already refuses a *version check* because *"a version check is a beacon"*, and this is a beacon that also names your vendor | **refuse outright** |
+| **3B** | **Hand in the engine as a file** — open an engine the way you open any other file | **NOTHING.** No request, no CSP change, no module bytes | Zero, and it was never about bytes. It buys the real thing the owner asked for: *"people can add their own"* | **None** — if and only if §14.9's eviction defect is fixed first | **worth it, with conditions** |
+| **4** | **Code origin** — a read-only container on the owner's own box serves the app's code as hash-pinned modules; config never leaves the tab | No config, ever. One `GET` per module | 246,773 for `OP_PASTE`; 226,594 for the finder stack — genuinely the largest byte prize on offer | **The pinning argument is circular** and the whole security case rests on it — see §14.6. Also creates a **compelled-code-delivery channel** the product does not have today | **not-worth-it** |
+| **5** | **No server at all** — sorted vectors instead of `BTreeMap`, insertion sort instead of `slice::sort`, finder out of the module | **NOTHING** | Claimed **290,962** in one build. Of that, **220,289 is the finder move and it was reproduced exactly, twice, today.** The other 70,674 is unreproduced | Parts 1 and 2: **zero.** Part 3: real but bounded — it moves ~220 KB from the side of the boundary that makes §2.1's *cannot*-connect claim to the side that makes only the *does-not* claim | **worth it, with conditions — and split it** |
+| **6** | **Wildcards** — one generated function, `slot_type`, compiled as a 307-branch decision tree instead of a 307-entry array | **NOTHING** | Claimed **11,089**. Mechanism corroborated by the repo's own census (`slot_type` = **16,789 bytes**, the project's second-largest function); headline unreproduced | **Zero.** No wire, no CSP, no import, no dependency, no gate-zero exposure | **worth it, with conditions** |
+
+---
+
+### 14.6 Where the designer and the reviewer disagreed, and which one this section follows
+
+Five substantive disagreements. **In four of the five the reviewer was right and this session
+verified the deciding fact in the source rather than taking either side's word.**
+
+| # | The disagreement | Verdict |
+|---|---|---|
+| **1** | **Family 2's "tail leak".** The designer measured four values crossing in plaintext even after tokenisation — `192.0.2.20`, the local IKE identity `branch`, the remote identity `hq`, `read-only` — and called it *"a defect class, not four bad entries."* The reviewer said that is a defect in the designer's Python prototype, not in the shipped gate | **The reviewer, verified.** `crates/fathom-ingest/src/redact.rs:456` reads `for idx in m.consumed..segs.len()` — the shipped gate already treats every token past the matched path as an argument. **And the correction is fatal rather than reassuring:** a tokeniser using the gate's own rule ships `snmp trap-group $9 $10 $11`, and the server then learns nothing the client's dictionary did not already know. **Wire privacy and server coverage are the same variable with opposite signs, and the exchange rate is exactly 1:1 at `m.consumed`. There is no operating point.** That is family 2's impossibility, proved from the source rather than argued |
+| **2** | **Family 1's leak.** The designer quoted the shape-sketch format `<word:12> <quoted:31>` correctly and did not notice what the number is | **The reviewer, verified.** `redact.rs:719–756`: `let len = token.span.end.saturating_sub(token.span.start)` — **the exact byte length of the original token**, and a quarantined line is by construction one the gate believes carries a secret. So the sketch publishes the lengths of exactly the secrets it destroys. **Fifty lines earlier, `redact.rs:54–56` carries the sibling field `orig_len` with the comment *"for the in-session report only; the persistence layer must not store it."*** The corpus already ranks this quantity as too sensitive to write to the operator's **own encrypted disk**. See §14.9 — this is a live local defect and it is worth fixing whatever happens here |
+| **3** | **Family 3B's safety.** The designer argued a handed-in engine is safe because nothing crosses the wire, and because *"the gate does not take the engine's word for what is secret."* The reviewer found that is true for 13 of 14 declared secrets and false for the 14th | **The reviewer, verified twice.** `crates/fathom-wasm/src/shell.rs:71–79` has exactly two dictionary slots and a catch-all `else { self.dict = Some(d); }` — **every set-form engine lands in the same slot and evicts what was there.** And `corpus/dict/junos-srx/system.yaml:127–129` declares `snmp.trap-group` with `secret: { label: snmp-community }` while `trap-group` is **absent from the 29-entry `SECRET_WORD_LIST`** (confirmed by reading the list). So that one statement is protected by the dictionary path **and nothing else**: load a PAN-OS engine, junos-srx is gone, and a real SNMP community goes verbatim into the capture, the graph and the exported journal. **The designer reviewed the loader against what it loads. Nobody reviewed it against what it unloads** |
+| **4** | **Family 4's hash pinning.** The designer's load-bearing sentence: *"because every module's hash is pinned in the page the browser already trusted, a compromised server cannot substitute code, only refuse to serve it"* — repeated as the sole answer to three separate risks. The reviewer: the browser trusted that page **because the same server served it** | **The reviewer.** Subresource Integrity protects a subresource from everyone except the party serving the document; there is no attribute, header or manifest that pins the top-level document, and the one mechanism that ever did (Signed HTTP Exchanges) is Chromium-only and being withdrawn. **This session did not re-verify either claim — see §14.10** — but the argument does not need them: the corpus already wrote the refutation and family 4 quotes it for the wrong build. `34` §2.11 channel 6: ***"The policy is in the artifact. An attacker who can change the artifact changes the policy first."*** `43` §5 F8 says the hash *"is D1's one genuine security advantage over the served build"* and is *"worth nothing against one who replaces the file."* On D1 the attacker must reach your disk and there is a published hash to check. On a served build the document is re-fetched from the box on every reload, so **the attacker who can replace the file is the operator, by default, permanently, at no cost** |
+| **5** | **Family 5's boundary claim.** The designer's one honest cost — ~220 KB crossing from *cannot* to *does not* — is bounded by a claim stated three times: *"the code that moves handles the CORPUS, not the ESTATE. It never sees a pasted config."* | **The reviewer, verified.** That is true of `fathom-find` **today** and false of the finder that ships. `docs/10-core/16-command-finder.md` §16 specifies slot binding — `pub struct Binding` at line 1423, walking up to three edges in the user's graph — a depth-8 focus stack fed by the diagram selection and the last edited node, workspace-scored context, a real peer address interpolated into a copyable command (`clear security ike security-associations 203.0.113.10`, line 1491), and a `misses.log` **in the workspace** holding query text (line 367). The code agrees the zero is temporary: `crates/fathom-find/src/lib.rs:79` — *"Context (`X`) is 0 throughout: **this build** has no workspace."* **A bound that is false is not a bound, and it is the only thing family 5 spends** |
+
+**The one place this section departs from both.** Several submissions cite `47` §11.2's *"there
+are 80 007 free bytes, and they are the last free bytes"* as two available levers. **The demo-estate
+half of that, 35,178, has already been spent.** `crates/fathom-inventory/Cargo.toml:29–30` makes
+`demo-estate` a non-default feature and `crates/fathom-wasm/tests/artifact_gates.rs:96–117`
+asserts the fixture's own strings are absent from the shipping module. Today's 899,781 baseline is
+already a build without it. **The remaining free lever is float handling alone, ~44,825, and
+CLAUDE.md's own verification section already says so while `47` §11.2 does not.** `47` should be
+corrected.
+
+---
+
+### 14.7 The ranking, and the one recommendation
+
+Ranked by what they cost the promise, worst first. **Nothing here is approved; the last three
+rows require no approval because they cross no boundary.**
+
+| Rank | | Verdict |
+|---|---|---|
+| 6 | **Family 1 — catalogue-strip** | **Refuse.** Refusable at §5.9 **step 1** without reaching the byte table: binding on a server needs `open_socket`, which is not in `{read_workspace, read_corpus, read_user_text, write_workspace, write_clipboard, write_screen}`. The instruction there is one word: *"Stop."* It also asks a **retention** control to do **confidentiality** work against a third party, which is a category error `14` §9.9 already names |
+| 5 | **Family 2 — structure-only** | **Refuse**, and it is the more instructive refusal, because the idea is genuinely good and the failure is structural: **to know which word is a value, you must already have the engine.** The thing you would send to the server is the thing you need in your hand before you can send anything. Named prior art exists — Netconan, from the Batfish team, does exactly this and **runs entirely on the operator's own machine**, because the anonymiser needs the vendor knowledge, so it may as well do the parse |
+| 4 | **Family 3A — fetch the engine** | **Refuse outright, and it is the easiest refusal in the set:** it is the only proposal here that offers **nothing** for the property it spends. Zero bytes against the one budget that is full, in exchange for `connect-src 'none'` becoming a list a reviewer must trust |
+| 3 | **Family 4 — code origin** | **Refuse.** The largest byte prize and a circular security argument. Its own best material should be kept: the analysis of why the six-stage pipeline cannot be cut, which permanently closes every parse-on-server variant, and the eleven-mechanism answer to the in-memory question that §14.3 is built from |
+| **2** | **Family 3B — hand in an engine as a file** | **Worth building, after §14.9's fix.** It is the right permanent answer to *"people can add their own"*: zero network, zero CSP change, zero module bytes, works air-gapped, works on the locked-down laptop that is this product's reason to exist. **But it must not ship before the eviction defect is closed in the module** — not in the page, per the project's own 2026-08-16 chooser post-mortem, where *"the module was correct at both ends and the page was what guessed"* |
+| **1** | **Families 5 and 6 — take the bytes that are already here** | **THE RECOMMENDATION** |
+
+> ### THE RECOMMENDATION
+>
+> **Take family 6's generated-table fix and family 5's parts 1 and 2. Do not take family 5's
+> part 3. Do not build any server.**
+>
+> | | | |
+> |---|---|---|
+> | **Take now** | Family 6 — `slot_type` as a static table, fixed in the **generator** (`crates/fathom-schemagen/src/rust_gen.rs`), not in the output | claimed ~11,089 |
+> | **Take now** | Family 5 part 1 — the store's eight `BTreeMap`s as sorted vectors | claimed 45,549 |
+> | **Take now** | Family 5 part 2 — six sort call sites as binary insertion sort | claimed 25,125 |
+> | **HOLD** | Family 5 part 3 — the finder out of the module | 220,289, **and it is the one with a price** |
+> | **Never** | Any server that reads a config, in any of the four shapes above | — |
+>
+> **Why a network engineer should accept this.** WO-10 needs 602 bytes. **Family 6 alone clears
+> it about eighteen times over, and it is one function in one code generator.** Parts 1 and 2
+> clear it about 117 times over. None of the three moves a boundary, changes a header, adds a
+> dependency or is visible to any adversary in §14.5's threat set. The feature the owner asked
+> for by name ships **without this argument being settled at all.**
+>
+> **Why part 3 is held rather than taken.** It is the biggest number in the exercise and it is
+> the only one with a real cost, and the cost is not bytes — it is that `16` §16's finder reads
+> the estate. **So the order is: the owner decides `16` §16 first, in a record, not in a comment.**
+> If slot binding or the focus stack or `misses.log` ships in any form, the finder is an estate
+> component and it **stays in the module**, and family 5's own stated rule — *draw the boundary
+> by what data a component touches* — decides it against itself. If the owner refuses `16` §16
+> permanently, the move is defensible. **That refusal costs a real feature and should be priced
+> as a feature refusal, not absorbed as a side effect of an optimisation.**
+>
+> **And the sentence that should be said out loud when this is over.** Buying eighteen schema
+> kinds' worth of room removes the forcing function without removing any of the demand behind
+> it. `47` §11.3's refusal of the config view stands. `70` §6's correlation requirement still
+> has no mechanism. **The egress question is not closed by this recommendation and must not be
+> recorded as closed** — the next time the wall is hit, the owner will be further in and the
+> analysis will be cheaper to skip.
+
+---
+
+### 14.8 Three new rungs for §5's ladder
+
+> **EVERY RUNG BELOW IS: NOT APPROVED. NOT SCHEDULED. NOT DESIGNED. RECORDED HERE ONLY SO THAT
+> THE PRICE IS FINDABLE BY WHOEVER ASKS NEXT.** They belong **below the line** by §5.0's
+> direction and credential-class tests — no device is contacted, no device credential is
+> accepted, and `31` §1.5's *"a total compromise of Fathom yields no reachability"* survives
+> word for word. **That should be said plainly rather than buried, because it is the difference
+> between these and E4/E2/E5b/E3a.** It is also not enough: E7 is E1 with the one property that
+> made E1 the third-safest rung — *the server holds ciphertext it cannot read* — deliberately
+> removed.
+
+#### E7 — the parse relay (families 1 and 2)
+
+| Field | |
+|---|---|
+| **Status** | NOT APPROVED · NOT SCHEDULED · NOT DESIGNED · **refused at §5.9 step 1** |
+| **What it requires** | An outbound POST from the browser to one origin carrying either the post-gate capture text (**E7a**) or its tokenised structural form (**E7b**), and a server holding the full dictionary that runs `match_statements` → `bind` → `resolve` and returns a fragment. Needs `open_socket`. No device connection, no device credential |
+| **Invariants broken** | **1 outright. 4 in substance** — G9 is emptied, because a server that binds is a server that **reads**, and `70` §8's whole answer to the owner's load-balancing requirement is that *the server stores ciphertext it cannot read*. **3 in effect for E7a**, because every hole `redact.rs` documents against itself — the `mmonitUrl` userinfo case marked **OPEN** in its own source, the short-secret class CLAUDE.md rule 0 records, concatenated credential names, unanticipated tokenisation — converts from a bounded **retention** failure inside the operator's own encrypted workspace into a **disclosure** of a live credential to a third party, for every user, at the moment of paste |
+| **Ship gates it would delete** | X0.8 and X0.9 in the browser artifact; G1's scope, G2, G3, G6 and G7 become unpassable for this build. `36` Q17's five-minute no-egress procedure and Q12's forty-minute canary stop being things a hostile reviewer can run |
+| **Blast radius** | For every user, in plaintext at the moment of processing: the addressing plan, the zone graph, the ordered policy set **including its denials**, every VPN peer address, every routing adjacency and which of them are unauthenticated, 52.5% of every config verbatim as residue — **and, per §14.6 disagreement 2, the exact byte length of every secret the gate destroyed on a quarantined line.** Plus the sequence and timing of pastes, which is §5.2's temporal channel |
+| **Reversible** | **No.** Disclosed is disclosed. Retention outlives the request by whatever nginx, `systemd-coredump`, swap and the backup system decided |
+| **Third party** | **None required** — self-hosting is possible, which is exactly why it is seductive. §5.4's warning applies unchanged: *absence of a third party is not evidence of low risk* |
+| **Cheaper no-egress alternative** | **`47` §11.4 fact 2's second module inside the same file.** Delivers **100%** of the byte value; the part it does not deliver is nothing |
+| **The one-sentence completion §5.9 requires** | *An attacker who compromises a Fathom instance with E7 enabled obtains a complete, machine-readable map of every estate ever pasted — and can do nothing to a production network, because there is still no socket, no credential and no session* |
+
+#### E8 — the engine fetch (family 3A)
+
+| Field | |
+|---|---|
+| **Status** | NOT APPROVED · NOT SCHEDULED · **and the only rung in this document that buys zero bytes** |
+| **What it requires** | One outbound `GET` per platform to a named static host, no body, no user data in either direction |
+| **Invariants broken** | 1. Nothing else |
+| **Ship gates it would delete** | X0.9 as designed — `45` §13.4's mode-A rule is *no allowlist at all, not for a favicon or a source map or a report endpoint*, and the first allowlist entry ends that discipline. X0.8 survives as a mechanism and dies as a claim |
+| **Blast radius** | No config. A per-launch beacon naming IP, time and **the vendor of equipment the operator runs** — which `03` §3.3 already refuses in its weaker form: *"A version check is a beacon."* Plus the publisher's ability to change what the redaction gate destroys, remotely, per target, without a build |
+| **Byte value** | **ZERO.** The dictionaries left the module on 2026-08-15 (`crates/fathom-ingest/src/hosted.rs`; `dict.rs:70–77`) and arrive over `OP_DICT`. The module cannot observe where the page got them |
+| **Cheaper no-egress alternative** | **Family 3B — hand the file in.** 100% of the value |
+
+#### E9 — the code origin (family 4)
+
+| Field | |
+|---|---|
+| **Status** | NOT APPROVED · NOT SCHEDULED · **and its stated protection is void by construction** |
+| **What it requires** | The artifact fetches hash-pinned modules of its own compiled code and engine data from one origin the user configured. No config crosses, in either direction |
+| **Invariants broken** | 1. **And invariant 3 in substance**, because the same origin serves the document carrying the pins and the policy, so the operator of that origin can execute arbitrary code in every tab at next reload — and can more quietly ship one line of dictionary YAML carrying `secret_exempt: { reason: ... }`, which requires nothing but free text and which disables the leaf-name detector for a chosen path with `drops = 0` and no visible symptom |
+| **Ship gates it would delete** | X0.9 in the served build. G8's storage clause stops being architectural (a real origin hands the page localStorage, IndexedDB, OPFS, the Cache API and a service worker) and becomes policy |
+| **The capability nobody priced** | **Compelled code delivery.** Today there is no mechanism by which anybody can put new code into a running Fathom, so an order served on anyone — subpoena, employer change-management — yields nothing prospective. This creates one and points it at a single source address |
+| **Byte value** | The largest on offer: 246,773 for `OP_PASTE`, 226,594 for the finder stack. **All of it is available with zero packets** via `47` §11.4 fact 2 |
+
+---
+
+### 14.9 What this exercise found that has nothing to do with servers
+
+**Three live defects, all verified in the source by this session on 2026-08-17, all of which
+exist today at `0e31af6` and none of which is caused by any proposal above.** They are the most
+valuable output of the exercise and they should be ordered independently of every verdict in it.
+
+| # | Defect | Evidence | Why it matters now |
+|---|---|---|---|
+| **1** | **The shape sketch publishes the byte length of every secret it destroys, into the capture.** `redact.rs:719–756` emits `<word:{len}>` / `<quoted:{len}>` where `len` is the exact original token length, and a quarantined line is by construction one the gate believes carries a secret. With `head_safe` the first two tokens are kept verbatim, so the wire carries **name plus exact length** | Read directly from the source. And `redact.rs:54–56`, fifty lines earlier, marks the sibling field `orig_len` *"for the in-session report only; **the persistence layer must not store it.**"* | The capture **is** welded into the workspace as `Origin::Parsed` provenance. **So the corpus's own judgement — that this quantity must not be persisted — is already being violated by the sketch, on the operator's own encrypted disk, today.** Survivable, which is why nobody caught it. Worth a work order regardless |
+| **2** | **A handed-in engine evicts the one it replaces, and one declared secret has no second detector.** `shell.rs:71–79` has two dictionary slots and a catch-all `else`; `system.yaml:127–129` declares `snmp.trap-group` with `secret: { label: snmp-community }`; `trap-group` is absent from the 29-entry `SECRET_WORD_LIST` | Read directly from both sources | Harmless **today**, because the only caller is the artifact's own boot sequence and `crates/fathom-artifact/tests/artifact.rs` compares the spliced frame byte-for-byte against the directory. **A hand-in loader is precisely the change that turns a correct contract into a vulnerability, and the existing test asserts the replacement works** |
+| **3** | **`trap-group` should be in `SECRET_WORD_LIST` so that no declared secret has exactly one detector** | Follows from 2 | **This is the only item here that reduces today's risk. It costs a handful of bytes and should be done whether or not anything else in this section is ever built** |
+
+**And the durable rule that comes out of defect 2, which is worth more than the defect:**
+
+> **NOTHING ARRIVING AFTER THE BUILD MAY REDUCE WHAT THE INGEST GATE DESTROYS, ONLY INCREASE IT.
+> UNION, NEVER REPLACE.**
+
+Get that rule into the **module** and engines are safely extensible for ever — by file, by USB,
+by git, by anything. Leave it out and every future distribution mechanism inherits the same hole.
+It is proposed here as an amendment to invariant 3 and it is `03`'s to make, not this document's.
+Note that first-party code already violates it twice — a dictionary *match* disables the base64
+detector (`redact.rs:509–510`) and `secret_exempt` disables the leaf-name detector — so the rule
+is a repair to something already broken, not a new constraint on a clean design.
+
+---
+
+### 14.10 Could not be established
+
+> **PER ADR-0034, THIS LIST IS PART OF THE ANSWER. A CONFIDENT WRONG ANSWER HERE WOULD BE USED TO
+> DECIDE WHETHER A PERSON'S FIREWALL CONFIG LEAVES HIS MACHINE. "I COULD NOT ESTABLISH THIS"
+> OUTRANKS A GUESS.**
+
+**A. Not verified by this session, and named because the conclusion does not depend on them.**
+
+| # | Claim | State |
+|---|---|---|
+| 1 | **The `explicit_bzero` negative has ONE primary source, not two.** Linux man-pages 6.18 (2026-02-08) is established. A second independent publisher was **not obtained** — one submission reported Gnulib returning HTTP 503 twice, and Debian/Arch mirrors are the same upstream project and therefore not independent | ADR-0034's two-sources rule for a negative is **not satisfied.** The corroborating `zeroize` v1.9.0 text is from a different ecosystem and says the same thing, which is evidence but is not a second statement of the same claim |
+| 2 | Whether any specific reverse proxy, ingress or WAF logs request **bodies** by default. Two submissions declined to assert it either way | **Correct handling. This section asserts nothing about bodies in logs.** What is established is that nginx writes bodies to a **temporary file** above 8K, which is a stronger finding and needed no lookup about logging |
+| 3 | MDN's Subresource Integrity element list (no top-level document), and the Signed HTTP Exchanges deprecation | Not re-verified. §14.6 disagreement 4 does not rest on either — `34` §2.11 channel 6 and `43` §5 F8 decide it from the corpus |
+| 4 | Whether any shipping browser honours `Access-Control-Allow-Origin: null` for a `file://` document | **Unresolved by two independent submissions.** It decides whether E8 is *impossible* for D1 or merely inadvisable, and nobody drove Chromium to find out. It is settleable in one driver script in the style of `docs/80-review/evidence/2026-08-15-hand-placement-drive.mjs` and that evidence file does not exist |
+| 5 | Whether CSP violation reports (`report-uri`/`report-to`) are governed by `connect-src` | **Not established.** MDN's enumeration omits them; CSP3 has no carve-out either way. It decides how much `connect-src 'none'` is worth in any hash-pinned design |
+| 6 | Whether `script-src` hash-sources cover a module script's **static imports** | Not established. If they do not, every fetched module must be a single flat file with no imports, and nobody has written that down |
+| 7 | The confidential-computing attack record — BadRAM/CVE-2024-21944, Battering RAM, WireTap, TEE.Fail | **Not verified.** Not needed: the argument against server-side binding is decided at §5.9 step 1, before hardware enters |
+| 8 | *Breyer*, CJEU C-582/14 (IP addresses as personal data); EDPB Guidelines 01/2025 on Pseudonymisation; Coull et al., NDSS 2007; the CryptoPAn fingerprinting results; Netconan's feature set | **Not verified by this session.** Cited in submissions, repeated here as attributed rather than as established, and **none is load-bearing** — §14.4's argument is made from measurements in this repository |
+| 9 | Whether V8 compiles a WASM module eagerly or lazily at instantiation | **Two first-party Google sources contradict each other**, per one submission. Unresolved. It does not change the security verdict; it does change the boot-cost argument for a second in-file module, so nobody should quote a compile-time figure without saying which branch they took |
+
+**B. Numbers nobody has reproduced, listed because they are the ones most likely to be quoted.**
+
+| # | Number | State |
+|---|---|---|
+| 10 | Family 6's **−11,089** for the `slot_type` table | **Mechanism corroborated, headline unreproduced.** `slot_type` is **16,789 bytes** and has **307 arms** — both confirmed by this session against `target/census/census.md:130` and the generated source. The *saving* exists in one deleted worktree. Its own reviewer reports the components do not sum and the "edges are free" sub-finding is contradicted. **Do not publish 11,089 until one clean build of the corrected table exists** |
+| 11 | Family 5's **−45,549**, **−25,125** and the combined **−290,962 / 291,181 free** | **Unreproduced.** They exist in one deleted worktree. The 655/655 test result is reported by the author of the change, which is not the gate `78` §6 means. **The 220,289 finder ablation is the exception: reproduced exactly, twice, today, by two independent parties** |
+| 12 | Family 1's **12,165** for the binder | Definition-site only. Its own author attempted the by-removal ablation `47` §6.1 requires and **the build was refused by the session's permission classifier**; no ablation number exists |
+| 13 | The crypto stack at **36,590** | **Never reproduced.** `Cargo.lock` holds zero external packages, so nothing is vendored to build. `47` open decision 5 |
+| 14 | The rule engine at **120,000** | Never measured, and budgeted **together with** the emitter, which alone measures 93,838 |
+| 15 | Boot time on reference hardware | **Never measured, by anyone, ever.** `perf/machines.toml` does not exist. Every millisecond in the ceiling debate is arithmetic |
+
+**C. Citations in the tree that are wrong, found while checking.**
+
+| # | | |
+|---|---|---|
+| 16 | **WO-10 line 131: *"the recommended lever is still `47`'s finder move: 220,289 bytes."*** `grep -rn "220,289" docs/` returns **exactly one hit — that line.** The string does not appear in `47` at all | **The number is right and the citation is wrong.** 220,289 was reproduced exactly today by two independent parties. `47` §6.3's nearest figure is 226,594, for a different tree and a different ablation. **Re-attribute it before it is quoted a third time** |
+| 17 | **`47` §11.2: *"There are 80 007 free bytes, and they are the last free bytes."*** | **Stale by one lever.** The demo-estate half (35,178) is already spent — `crates/fathom-inventory/Cargo.toml:29–30` makes it a non-default feature and `crates/fathom-wasm/tests/artifact_gates.rs:96–117` asserts its absence from the shipping module. **The remaining free lever is floats alone, ~44,825.** CLAUDE.md already says this; `47` does not |
+| 18 | **WO-10 §2.1's *"server-side engines would free on the order of 116,771 bytes, about 190× the 602 this order needs."*** | **Right about the split it describes, and it is not the split the owner proposed.** 116,771 is the whole crate leaving, i.e. the un-gated model where the raw config crosses. Every design in §14.5 that keeps the gate client-side keeps the dictionary machinery too, so the recoverable figure is the binder alone. **Also stale**: one submission re-measured `fathom_ingest` at the tip as **138,733**. §2.1 should be amended |
+
+---
+
+### 14.11 What would have to be true for the answer to change
+
+Written as things somebody could check, so that this section can be reopened on merit rather
+than on fatigue.
+
+| # | The answer changes if… | Today |
+|---|---|---|
+| **1** | **A mechanism exists, in shipping browsers, by which the top-level document is authenticated independently of the party serving it.** Without it, "a compromised server cannot substitute code" cannot be said in any design that fetches anything | No such mechanism as of 2026-08-17, and the only one that ever existed is being withdrawn. **This is the single condition that would move family 4 from *refuse* to *re-price*** |
+| **2** | **The gate is re-architected so that engine data can only ADD redaction, never subtract it** — §14.9's rule, enforced in the module | Not true today, and **first-party code violates it twice** (`redact.rs:509–510` and `secret_exempt`) |
+| **3** | **`47` §11.4 fact 2's second in-file module is built and measured, and it fails.** If the duplication of the 243,522 bytes of shared machinery eats the win, the "no server" byte argument weakens | **Nobody has run the experiment.** It is named precisely: `#[cfg(any())]` the `OP_PASTE` arm, build a second `cdylib` exposing only `OP_PASTE` against the same `fathom-ir` and `fathom-graph`, measure both, sum. **This is the highest-value unrun measurement in the project** |
+| **4** | **The 900,000 ceiling is re-derived rather than re-argued.** `47` §11.4 fact 3 records that it is *"a seven-row component estimate… plus 200,000 of margin whose derivation this census could not find recorded anywhere"* | Not done. And per row 15 above, nobody has ever opened the artifact on reference hardware and written down three numbers |
+| **5** | **`43` §14.3's gap is closed.** Invariant 1 binds *the application* and nothing binds *the service*. Any container on the owner's own box is a service | Open. **This is D-38.5 and it should be closed on its own merits, not as a step toward anything** |
+| **6** | **`03` picks a reading of `N-R-10`.** Under the literal reading — *"no field stores raw device configuration text beyond the current parse session"* — posting post-gate capture text to a server is a boundary breach on its face, before any of §14.5's analysis runs | **D-38.9, still open.** No price for E7 is final until somebody picks |
+| **7** | **The owner decides `16` §16.** It gates family 5 part 3 and nothing else in this section | Open, and it is a **product** decision rather than a security one |
+
+**And one thing that does not change the answer, stated because it will be offered.** A better
+filter does not change it. Perfect redaction does not change it. **Hostnames, the addressing
+plan, the zone graph and the ordered policy set were never what redaction removes**, so a design
+whose entire pitch is *"only the secret values do not cross"* has not addressed the disclosure at
+all — it has addressed 2% of it.
+
+---
+
+### 14.12 Failure modes
+
+Entries feed §10's register. Numbering continues from F10.
+
+| # | Failure | Why it happens | What reduces it |
+|---|---|---|---|
+| **F11** | **The recommendation is taken and the egress question is recorded as closed.** WO-10 ships, the wall recedes, and the next person to hit it finds a section headed "answered" | Buying eighteen schema kinds of room removes the forcing function without removing any of the demand behind it. `47` §11.3's refusal stands; `70` §6 still has no mechanism | §14.7's closing paragraph, which says this in the recommendation itself rather than in a footnote, and D-38.13 |
+| **F12** | **"Server-side engines free 116,771 bytes" is quoted for a design that keeps the gate client-side.** The two are opposite designs and the number belongs to only one | WO-10 §2.1 states it in a sentence that reads as general, and item 18 above shows it is also stale | §14.10 item 18, and amending WO-10 §2.1 |
+| **F13** | **A distribution mechanism ships without §14.9's union rule and inherits the eviction hole.** File, fetch, USB or git — the defect is in the module, not in the transport | The existing test at `crates/fathom-wasm/tests/dictionary.rs` **asserts the replacement works**, which is correct today and is exactly what would have to be inverted | §14.9's rule stated as an invariant-3 amendment, and a test that hands in two engines and re-runs the canary fixture. **No such test exists** |
+| **F14** | **The "in memory, erased after" checklist is used to design a server rather than to decide against one.** §14.3 is a good checklist and a good checklist reads like a plan | It is the most actionable-looking part of this section, which is why it was asked for | The masthead on §14.3, and its closing paragraph: every item is a **policy** in §2.2's taxonomy, checkable by nobody outside the operator |
+| **F15** | **Family 5 part 3 is taken as an optimisation and `16` §16 is quietly abandoned as a side effect.** Nobody files it as a feature refusal because it arrives as a byte saving | The finder's estate-reading is specified in `16` and reads as 0 in `fathom-find` today, so a reviewer checking the code sees a corpus-only component | §14.7's ordering — decide `16` §16 first, in a record — and D-38.14 |
+| **F16** | **An unreproduced number from §14.10 B hardens by repetition.** 11,089 and 290,962 are the two at risk, and item 16 shows exactly how it happens: a figure repeated twice acquires a citation it never had | CLAUDE.md's own standing warning exists because this has already happened three times in four days | §14.10 B's explicit list, and the instruction not to publish 11,089 or 290,962 until a second party rebuilds |
+
+---
+
+### 14.13 Open decisions
+
+Continues §11's register. None is scheduled.
+
+| ID | The fork | Recommendation | Consequence of not deciding |
+|---|---|---|---|
+| **D-38.10** | Does **§14.9's union rule** — *nothing arriving after the build may reduce what the ingest gate destroys* — become an amendment to invariant 3? | **Yes**, and independently of family 3B. It is a repair to something first-party code already violates twice, not a new constraint | Every future engine-distribution mechanism inherits the eviction hole, and the mechanism that *finds* new secrets stays separated from the mechanism that *destroys* them |
+| **D-38.11** | Is the **graph a larger disclosure than the config**? §14.4 argues it is: deduplicated, typed, correlated across every device, and by `77` §10 the system of record | **Decide it in `31`, not here**, exactly as §4.6 decides D-38.7. `03` §4.10 already makes this argument about configs and nobody has applied it to the graph | Every future "the server never sees a config, only the graph" proposal is reviewed as the safe option when it is the less safe one |
+| **D-38.12** | Should §14.6's **"does the far end have to read?"** become a third test in §5.0, alongside the direction and credential-class tests? | **Yes.** E5a, E3b and E1 all answer *no*, and `70` §8's entire compatibility finding for load balancing depends on that *no*. E7 is the first rung that answers *yes*, and neither existing test catches it | E7-shaped proposals pass both existing tests — the far end is our own service, no device credential is needed — and six of seven fields read cheap, which is the pattern §5.1 warns about in caps |
+| **D-38.13** | Does this section get a **review date or an explicit never**, per `03` §12 D7 and F7? | A review date, not a never. The demand behind E7 is real and only its answer is refused | F11 — the question is recorded as closed and reopens under worse conditions |
+| **D-38.14** | Is `16` §16 — slot binding, the focus stack, workspace-scored context, `misses.log` — **in or out**? | **The owner's call, and it must be made before family 5 part 3 is touched.** In → the finder stays in the module. Out → it may move, and that is a feature refusal to be recorded as one | F15, and a 220 KB boundary move justified by a bound that `16` already falsifies |
+| **D-38.15** | Do §14.10 C's three citation defects get corrected — WO-10 line 131, WO-10 §2.1, `47` §11.2? | **Yes, and by whoever owns each file.** None is this document's to edit | Three wrong numbers in circulation, two of which are the ones most likely to be quoted in a byte argument |
+
+---
+
+### 14.14 Sources consulted
+
+**The owner's two passages first, in `75` §15's form, because §14.1's entire reading rests on
+them and neither exists in any file in this repository.**
+
+| Claim | Source |
+|---|---|
+| **The pre-emptive-filtering question, verbatim** — *"wait but couldn't that part be like sent over…"* | **Owner, in conversation, 2026-08-17.** Quoted in full at §14.1. Appears nowhere else in this repository |
+| **The in-memory question, verbatim** — *"…as long as it resides in memory and is erased upon finishing translation it should be fine…? maybe? idk how that actually works in practice"* | **Owner, in conversation, 2026-08-17.** Quoted in full at §14.1. Appears nowhere else in this repository. It is the source of §14.3 |
+
+**Verified by this session on 2026-08-17, with the source and the date, per ADR-0034.**
+
+| What | Where |
+|---|---|
+| `client_body_buffer_size` default `8k｜16k`; *"the whole body or only its part is written to a temporary file"*; `client_body_in_file_only off` by default and `on` meaning *"temporary files are not removed after request processing"*; `client_body_temp_path client_body_temp` | nginx.org, `ngx_http_core_module` |
+| *"The explicit_bzero() function does not guarantee that sensitive data is completely erased from memory. (The same is true of bzero().)"*, and the register/scratch-stack reasons | **Linux man-pages 6.18, dated 2026-02-08**, `bzero(3)` NOTES |
+| The `Vec`/`String` reallocation-copy sentence; stack spilling; `mlock`/`mprotect`/swap/RAM-scraping out of scope | **`zeroize` v1.9.0**, docs.rs |
+| *"When 'external' (the default), cores will be stored in /var/lib/systemd/coredump/."* **And the absence of the GDPR sentence one submission attributed to this page** | `coredump.conf(5)`, **systemd 261~rc1**, rendering created 2026-05-30 |
+| 0-RTT: *"This data is not forward secret, as it is encrypted solely under keys derived using the offered PSK"*; *"There are no guarantees of non-replay between connections."* | **RFC 8446 §2.3** |
+
+**Read directly from this repository at `0e31af6` on 2026-08-17.** Every figure in §§14.2, 14.4,
+14.6 and 14.9 attributed to the tree comes from one of these.
+
+| What | Where |
+|---|---|
+| The six stages, the gate at stage four, and *"NOTHING PARSED IS SILENTLY LOST, AND NOTHING SECRET IS EVER KEPT"* | `crates/fathom-ingest/src/lib.rs` |
+| **The sketch's `<word:{len}>` length oracle** (§14.9 defect 1); **`orig_len`'s "the persistence layer must not store it"**; the 29-entry `SECRET_WORD_LIST` and the absence of `trap-group` from it; **the argument-token rule `for idx in m.consumed..segs.len()`** (§14.6 disagreement 1); the `mmonitUrl` **OPEN** comment and its *"It does not, and it categorically cannot"*; the entry-match and `secret_exempt` detector suppressions | `crates/fathom-ingest/src/redact.rs` |
+| **The two dictionary slots and the catch-all `else`** (§14.9 defect 2) | `crates/fathom-wasm/src/shell.rs:71–79` |
+| **`snmp.trap-group` declaring `secret: { label: snmp-community }`**; the 14 `secret:` entries; 58,823 bytes across 11 `.yaml` files | `corpus/dict/junos-srx/` |
+| The dictionary's removal from the module and its arrival over `OP_DICT` | `crates/fathom-ingest/src/dict.rs:70–77`, `crates/fathom-ingest/src/hosted.rs` |
+| **`demo-estate` off by default, and the gate asserting its absence** (§14.6's correction to `47` §11.2) | `crates/fathom-inventory/Cargo.toml:29–30`; `crates/fathom-wasm/tests/artifact_gates.rs:96–117` |
+| **`FIELD_KEYS: [(&str, u32); 307]`**; `slot_type`'s 307 arms | `crates/fathom-ir/src/generated/ir_types.rs`, `.../accessors.rs` |
+| **`slot_type` = 16,789 bytes**; module total 899,781 | `target/census/census.md`, produced by `scripts/byte-census.sh` |
+| **`16` §16 — `pub struct Binding` (line 1423), the focus stack, the interpolated peer address (line 1491), `misses.log` in the workspace (line 367)**; and `fathom-find`'s own *"Context (`X`) is 0 throughout: **this build** has no workspace"* | `docs/10-core/16-command-finder.md`; `crates/fathom-find/src/lib.rs:79` |
+| The three builds — 899,781 / 900,027 / 900,383 — and §2.1's server-side paragraph | `docs/70-ops/79-work-orders/WO-10-dhcp-relay-and-bootp.md` |
+| 243,522 = 27.5% shared B-tree and sort; the 80,007 levers; the emitter at +93,838 / +110,668 and §11.3's refusal; §11.4's three facts | `docs/40-stack/47-byte-census.md` |
+| Redaction as *"a retention control, not a confidentiality control"*, and the lifetime sentence | `docs/10-core/14-parsers-and-ingest.md` §9.9 |
+| 47.5% bound / 52.5% residue | `docs/60-content/66-junos-coverage-measurement.md`; pinned at `crates/fathom-ingest/tests/branch_coverage.rs` |
+
+**Attributed but not verified by this session** — each is named in §14.10 A and none is
+load-bearing: MDN on Subresource Integrity and `Access-Control-Allow-Origin: null`; the Signed
+HTTP Exchanges deprecation; W3C Subresource Integrity's CORS requirement; the confidential-computing
+attack record; *Breyer* C-582/14; EDPB Guidelines 01/2025; Coull, Wright, Monrose, Collins and
+Reiter, NDSS 2007; the CryptoPAn fingerprinting literature; Netconan.
+
+---
+
+### 14.15 Disagreements
+
+Under `.context/conventions.md`'s rule, stated in the author's voice.
+
+#### 14.15.1 The premise was wrong, and that is the finding — not the refusal
+
+Everyone in this exercise, including the owner and including the work order that started it, was
+asking **which part of the config we could bear to send somewhere.** That is a reasonable question
+and it has a good answer, and the good answer is that the question should not have been reached.
+
+WO-10 §2 is exactly right that the block is *"not the parser, not the weld, not the page — the
+generated types."* It then reaches for a server, and §2.1 concedes the owner's intuition is
+*"arithmetically right"*, which it is. **What nobody did was go and look at why the generated
+types cost what they cost.** One function — `slot_type`, the 307-arm field-key dispatch — is
+**16,789 bytes**, the project's second-largest function, and it is a route table compiled as a
+chain of `if` statements. That is one measurement, taken with a tool the project already owns,
+against a file already on disk. **It was available on 2026-08-17 to anybody who ran
+`scripts/byte-census.sh` and read line 130 of its own output.**
+
+This is the second finding of exactly this shape. `47` §4.4 already recorded the first: 243,522
+bytes, 27.5% of the module, of shared B-tree and sort machinery *"that belongs to no feature"* and
+appears in no budget row. **Two independent findings, same shape: a large fraction of the ceiling
+was never a constraint. It was a compilation strategy nobody chose and nobody was told about.**
+
+So my disagreement is not with any of the six designs, five of which were correctly refused by
+their own authors or reviewers. It is with the sequencing that produced them. **Before pricing a
+capability that would send a customer's firewall configuration to a machine he does not own, the
+project owed itself one afternoon of looking for bytes that are free.** That afternoon has now
+happened, and it found between twenty and four hundred times what the blocked feature needed.
+
+#### 14.15.2 The `does the far end have to read?` test should have existed before this
+
+§5.0 proposes two tests and both are good. **Neither catches E7**, and that is not a small gap —
+E7 passes the direction test (the far end is our own service, not a device), passes the
+credential-class test (no device credential), and reads cheap on six of the seven fields, which
+§5.1 warns about in capitals. The thing that catches it is one question: **does the far end have
+to read what you sent?** E5a, E3b and E1 all answer *no*, and `70` §8's entire compatibility
+finding for the owner's load-balancing requirement is built on that *no*. E7 is the first rung
+that answers *yes*.
+
+It should be D-38.12 and it should go into `03` §5 with the other two, where a person triaging a
+feature request will actually meet it. A test that lives only in a security document does not get
+run by the person who needs it.
+
+#### 14.15.3 The most useful thing here is a rule about local files, not about networks
+
+The exercise was about egress and the best output is not. **Defect 2 in §14.9 — a handed-in
+engine evicts the gate's rule set, and one declared secret has exactly one detector — has nothing
+to do with any wire.** The config stays on the machine and **the protection is what travels.**
+
+That is the mirror image of the mistake the owner's fourth, implied point identifies. *"We removed
+the passwords, so it is safe to send"* misses that the map is the payload. *"Nothing left the
+machine, so it is safe"* misses that something arrived. **A design that treats "did bytes leave?"
+as the only question is wrong in exactly the same way, and this project has now made both
+mistakes in the same week** — the first in five of these six submissions, the second in the one
+submission that looked safest.
+
+`14` §9.1's fourth structural property already says the right thing: **the set of `secret:` entries
+IS the redaction catalogue.** If that is true — and the code enforces it at load time — then the
+catalogue is a security boundary, and a security boundary that an unreviewed file can silently
+replace is not one. §14.9's union rule is the repair, it costs almost nothing, and it should
+outlive every verdict in this section.
+
+#### 14.15.4 On the owner's third question, and why he should not feel talked out of it
+
+He asked whether *"in memory and erased upon finishing translation"* is real, and then wrote
+*"maybe? idk how that actually works in practice."* **That instinct is the correct one and it is
+better than the instinct of most people who ship servers**, who assume it and never check. The
+answer is that it is a real engineering goal, it is achievable to a bounded degree, and it is not
+a guarantee — and the reasons are properties of computers rather than of programmer discipline.
+nginx will write his config to a file with nobody deciding anything. A single panic writes it to
+`/var/lib/systemd/coredump/`. The Rust crate built for erasing secrets says in its own
+documentation that it cannot guarantee the copies a reallocated `String` already made, and the
+`bzero(3)` man page says the same thing about registers and scratch stack.
+
+**None of that is an argument that he was wrong to ask. It is the answer to what he asked.** And
+the part worth keeping is the last clause of it: even done perfectly, **he could not check it**,
+and neither could the security team at his work. That is the difference between a property and a
+promise, and it is the entire reason Fathom is worth using at work today. `38` §3.4 calls it the
+property *"most likely to be undervalued internally and most likely to be the reason the tool gets
+onto a locked-down laptop."* Every design in §14.5 that sends anything spends precisely the
+property that would have got it there, in order to buy a feature whose stated purpose was getting
+it there.
+
+`38`'s own closing line is the right one and it is meant literally: **nobody should build anything
+from this document.**

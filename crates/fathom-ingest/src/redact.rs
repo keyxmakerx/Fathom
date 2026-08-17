@@ -204,7 +204,7 @@ impl DetectorSet {
 /// Closing it needs a value-shaped rule — a URL with a userinfo component is a
 /// credential wherever it appears — which is a different instrument from this
 /// list and is not built.
-pub const SECRET_WORD_LIST: [&str; 29] = [
+pub const SECRET_WORD_LIST: [&str; 30] = [
     "key",
     "keys",
     "key-string",
@@ -229,6 +229,27 @@ pub const SECRET_WORD_LIST: [&str; 29] = [
     "passphrase",
     "community",
     "snmp-community-string",
+    // `trap-group` — added 2026-08-17. NOT a new class of secret: the dictionary
+    // has declared `snmp.trap-group` with `secret: { label: snmp-community }`
+    // since it was written, so the value has always been destroyed on a config
+    // this engine understands.
+    //
+    // IT IS HERE BECAUSE IT WAS THE ONLY ONE OF THE FOURTEEN DECLARED SECRETS
+    // WITH EXACTLY ONE DETECTOR. Every other declared secret is caught twice —
+    // once by the dictionary path and once by this leaf-name list — so the
+    // dictionary going missing, going stale or being replaced degrades those
+    // thirteen to a second net and this one to nothing. Found 2026-08-17 by an
+    // adversarial review of the "hand in your own engine" proposal, and proved
+    // with a canary rather than argued: a `set snmp trap-group <name>` line
+    // dropped its value with the shipped dictionary and kept it without one.
+    //
+    // The proposal is not built and may never be. The gap it exposed is real
+    // today for a different reason — `43` §5's offline artifact can be launched
+    // with a dictionary that failed to splice — and closing it costs a word.
+    // The rule it argues for is bigger than the word and belongs to `03`:
+    // NOTHING ARRIVING AFTER THE BUILD MAY REDUCE WHAT THIS GATE DESTROYS,
+    // ONLY INCREASE IT.
+    "trap-group",
     "authentication-key",
     "auth-key",
     "md5",
