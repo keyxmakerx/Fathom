@@ -100,6 +100,13 @@ const addDevice = async (hostname, role) => {
 const deviceRows = () => page.$$eval('[data-drow]', ns =>
   ns.map(n => ({ id: n.getAttribute('data-drow'), text: n.textContent })));
 
+
+// THE PANEL IS ONE PANEL NOW. Selecting a row turns it to DETAILS, which is the
+// whole point of direction A — and it takes the object list off screen, so a
+// driver that selects two things in a row must come back to the list between
+// them. `#doutHead` is the OBJECTS tab.
+const objects = () => page.click('#doutHead').catch(() => {});
+
 await page.goto(FILE);
 await page.waitForFunction(() => document.querySelector('#band button') !== null);
 
@@ -143,6 +150,7 @@ await page.screenshot({ path: OUT + '/2026-08-16-link-before.png' });
 // buttons ARE the interface, and they are driven WITH THE KEYBOARD here — Tab
 // to them, press Enter — because "a keyboard can do it" is a claim about keys,
 // not about a programmatic click.
+await objects();
 await page.click('[data-drow="' + sw.id + '"]');
 await page.focus('[data-dhold]');
 await page.keyboard.press('Enter');
@@ -151,6 +159,7 @@ check('holding one end is announced as a mode, not just in the footer',
   await page.$eval('[data-dhold]', b => b.getAttribute('aria-pressed')) === 'true',
   await footer());
 
+await objects();
 await page.click('[data-drow="' + fw.id + '"]');
 await page.focus('[data-dlinkmode="1"]');
 await page.keyboard.press('Enter');
@@ -209,8 +218,10 @@ check('and containment rows are NOT marked, so the mark still means something',
 await page.screenshot({ path: OUT + '/2026-08-16-link-drawn.png' });
 
 // ---- PRESSING IT TWICE IS NOT TWO FACTS --------------------------------------
+await objects();
 await page.click('[data-drow="' + sw.id + '"]');
 await page.click('[data-dhold]');
+await objects();
 await page.click('[data-drow="' + fw.id + '"]');
 await page.click('[data-dlinkmode="1"]');
 await page.waitForTimeout(150);
@@ -228,8 +239,12 @@ check('and one stroke in the picture', (await handStrokes()) === 1);
 // under its device, so it is reached by opening that disclosure. Order matters:
 // the hold click re-renders and rebuilds the Outline, so the disclosure has to
 // be opened AFTER it, never before.
+await objects();
 await page.click('[data-drow="' + sw.id + '"]');
 await page.click('[data-dhold]');
+// The hold re-renders AND the selection turned the panel to DETAILS, so the
+// list has to come back before the folded child row can be opened or clicked.
+await objects();
 await outlineLinks(sw.id);
 const chassisRow = await page.$('.dofold[data-dparent="' + sw.id + '"]');
 if (chassisRow) {
@@ -309,8 +324,10 @@ await page.screenshot({ path: OUT + '/2026-08-16-link-reopened.png' });
 
 // ---- CUTTING IT --------------------------------------------------------------
 // "Removing a link must be possible too, or the first mistake is permanent."
+await objects();
 await page.click('[data-drow="' + sw2.id + '"]');
 await page.click('[data-dhold]');
+await objects();
 await page.click('[data-drow="' + fw2.id + '"]');
 await page.click('[data-dlinkmode="0"]');
 await page.waitForTimeout(150);
@@ -319,8 +336,10 @@ check('a link can be cut', !(await outlineLinks(sw2.id)).some(t => /PeersWith/.t
 check('and the picture has no hand stroke left', (await handStrokes()) === 0);
 
 // A second cut says there is nothing there rather than pretending to work.
+await objects();
 await page.click('[data-drow="' + sw2.id + '"]');
 await page.click('[data-dhold]');
+await objects();
 await page.click('[data-drow="' + fw2.id + '"]');
 await page.click('[data-dlinkmode="0"]');
 await page.waitForTimeout(150);
@@ -335,8 +354,10 @@ check('and says it without an error code in the sentence',
 
 // A cut is a TOMBSTONE, not a delete, so redrawing has to work — the store
 // counts live edges only.
+await objects();
 await page.click('[data-drow="' + sw2.id + '"]');
 await page.click('[data-dhold]');
+await objects();
 await page.click('[data-drow="' + fw2.id + '"]');
 await page.click('[data-dlinkmode="1"]');
 await page.waitForTimeout(150);
