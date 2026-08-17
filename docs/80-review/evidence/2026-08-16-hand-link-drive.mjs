@@ -110,7 +110,11 @@ check('the page starts with no estate at all',
 await addDevice('switch-lab-01', 'switch');
 await addDevice('fw-lab-01', 'firewall');
 await page.click('[data-view="diagram"]');
-await page.waitForFunction(() => document.querySelectorAll('.dbox').length >= 4);
+// TWO devices are TWO boxes. It was four until 2026-08-17: every hand-added
+// device also writes a Chassis and the picture drew it as a second box, which
+// is what the owner meant by "why does creating a piece of equipment have 2
+// things listed vs just one?". The chassis is now a row under its device.
+await page.waitForFunction(() => document.querySelectorAll('.dbox').length >= 2);
 
 const rows = await deviceRows();
 const sw = rows.find(r => /switch-lab-01/.test(r.text));
@@ -123,9 +127,13 @@ const before = await outlineLinks(sw.id);
 check('and NOTHING connects them — this is the pile of unconnected boxes',
   !before.some(t => /PeersWith/.test(t)),
   before.length + ' connection rows, none between the two devices');
-check('the note says so in words',
+// Culled from 40 words to 12 on 2026-08-17, and renamed with the controls it
+// names: the paragraph explaining that a link is graph data no paste can
+// rebuild is this driver's subject, not something to print on every render.
+// What survives is the instruction, in the buttons' own current words.
+check('the note names the gesture in the controls\' own words',
   (await page.$$eval('.dout .note', ns => ns.map(n => n.textContent).join(' ')))
-    .includes('No line here was drawn by hand'));
+    .includes('Press connect from here on one box, select another, and connect them'));
 
 await page.screenshot({ path: OUT + '/2026-08-16-link-before.png' });
 
@@ -216,11 +224,16 @@ check('and one stroke in the picture', (await handStrokes()) === 1);
 // containment is never offerable — a node has exactly one parent and the weld
 // computes it from the kind pair alone. The refusal must be a SENTENCE, never a
 // Rust error, and it must name both kinds.
-const chassisRow = (await deviceRows()).find(r => /Chassis/.test(r.text));
+// The chassis is no longer a TOP-LEVEL Outline row — it is the folded child row
+// under its device, so it is reached by opening that disclosure. Order matters:
+// the hold click re-renders and rebuilds the Outline, so the disclosure has to
+// be opened AFTER it, never before.
+await page.click('[data-drow="' + sw.id + '"]');
+await page.click('[data-dhold]');
+await outlineLinks(sw.id);
+const chassisRow = await page.$('.dofold[data-dparent="' + sw.id + '"]');
 if (chassisRow) {
-  await page.click('[data-drow="' + sw.id + '"]');
-  await page.click('[data-dhold]');
-  await page.click('[data-drow="' + chassisRow.id + '"]');
+  await page.click('.dofold[data-dparent="' + sw.id + '"]');
   await page.click('[data-dlinkmode="1"]');
   await page.waitForTimeout(150);
   const msg = await footer();

@@ -87,9 +87,14 @@ const start = await posOf(subject);
 check('a fresh paste has no hand positions at all',
   (await page.$$('.dpin')).length === 0 && !start.placed,
   subject + ' at ' + start.x + ',' + start.y);
-check('and the note says so in words',
+// The zero-state sentence was culled from 44 words to 8 on 2026-08-17 — it used
+// to explain that a position is graph data and survives an export, which is
+// this driver's whole subject and belongs in this file rather than on the
+// owner's screen on every render. What the page must still do is INVITE the
+// gesture, which is what this now pins.
+check('and the note invites the gesture in words',
   (await page.$$eval('.dout .note', ns => ns.map(n => n.textContent).join(' ')))
-    .includes('none of these boxes has been moved by hand'));
+    .includes('Drag a box to place it by hand'));
 
 // ---- DRAG IT ------------------------------------------------------------------
 // Real pointer events at real coordinates, through the page's own listeners.

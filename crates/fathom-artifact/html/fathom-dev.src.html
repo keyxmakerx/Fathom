@@ -94,10 +94,15 @@ body { overflow-y: auto; }
 
 .mast-rule { flex: none; border-top: var(--rule-mast) solid var(--ink); }
 .masthead {
-  flex: none; display: flex; align-items: flex-start; justify-content: space-between;
+  flex: none; display: flex; flex-wrap: wrap; align-items: flex-start;
+  justify-content: space-between;
   gap: var(--s5); padding: var(--s2) 0 var(--s1);
   border-bottom: var(--rule-hair) solid var(--ink);
 }
+/* `flex-wrap` above is the whole 320 px story for this header. The doors are
+   real boxes now, so the right-hand column has a real minimum width; without
+   the wrap it pushed the document to 393 px at a 320 px viewport, which is a
+   horizontal scrollbar on the owner's phone (WCAG 1.4.10 Reflow). */
 .mast-l { min-width: 0; }
 .masthead h1 {
   margin: 0; font-size: var(--t-title); line-height: var(--lh-title);
@@ -109,12 +114,81 @@ body { overflow-y: auto; }
 .ribbon .m { color: var(--ink); font-family: var(--mono); }
 .imperative { font-size: var(--t-tab); line-height: var(--lh-micro); font-weight: 700;
               letter-spacing: var(--track-head); text-transform: uppercase; margin-top: var(--s1); }
-.tabs { display: flex; flex-direction: column; align-items: flex-end; gap: 0; flex: none; }
+/* --- the masthead's right-hand side: three doors, then everything quiet ----
+   THE THREE DOORS ARE THE ONLY WAY A LAB GETS BUILT, and they shipped as 17 px
+   grey text in the top-right corner, pixel-identical to `theme · auto` and to
+   two spans that are not buttons at all. The owner's words were "the menus are
+   hard to understand"; measured, the three controls that BUILD something were
+   the least visible controls on the page.
+
+   The fix is hierarchy inside the aesthetic that is already here, not a new
+   aesthetic. No new colour — every value below is a token; no radius (`51` §10
+   sets `--radius: 0` deliberately); no shadow (§11: there is no elevation
+   scale). A door is the same ink on `--surface` with a hairline round it, a
+   `--rule-accent` left edge — the legend's 4 px measure, though the legend's
+   own signal is the risk COLOUR on it and this one is ink, so the cue here is
+   weight and not hue — and enough padding to be a real target. The quiet group keeps exactly the
+   treatment every tab had — 11 px, muted, dotted underline — so the demotion
+   costs the aesthetic nothing.
+
+   44 px is WCAG 2.2 SC 2.5.5 Target Size (Enhanced), Level AAA: "The size of
+   the target for pointer inputs is at least 44 by 44 CSS pixels" (W3C
+   Recommendation, 12 December 2024; Understanding doc updated 11 May 2026).
+   That is the AAA figure, not the AA one — the diagram's own comments cite
+   2.5.8's 24 px, which it meets. The masthead is held to the higher number
+   because it is the front door and the owner reaches it on a phone. The quiet
+   group gets the same 44 px of HIT AREA without growing its type, which is the
+   padding technique the Understanding document names. */
+.tabs { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s1);
+        flex: none; }
+.doors { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); }
+.door {
+  display: flex; flex-direction: column; justify-content: center;
+  min-height: 44px; min-width: 44px; padding: var(--s1) var(--s3);
+  background: var(--surface); color: var(--ink); cursor: pointer;
+  border: var(--rule-hair) solid var(--ink);
+  border-left: var(--rule-accent) solid var(--ink);
+  font-size: var(--t-small); line-height: var(--lh-micro);
+  text-align: left; text-transform: lowercase; white-space: nowrap;
+}
+.door:hover { background: var(--page); }
+.door .dk { font-size: var(--t-micro); line-height: var(--lh-micro); color: var(--muted);
+            letter-spacing: var(--track-label); text-transform: uppercase; }
+.utils { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
+         gap: var(--s4); }
+.stated { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s3);
+          padding-bottom: var(--s1); }
 .tab { font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
        text-transform: lowercase; letter-spacing: 0; white-space: nowrap; }
 button.tab { background: none; border: 0; padding: 0; cursor: pointer; text-align: right;
              border-bottom: var(--rule-hair) dotted var(--muted); }
 button.tab:hover { color: var(--ink); }
+/* The hit area is 44 px tall; the dotted underline stays on the text, which is
+   why it is an inner span and not this element's own bottom border. */
+.utils button.tab { display: inline-flex; align-items: center; min-height: 44px;
+                    min-width: 44px; justify-content: flex-end; border-bottom: 0; }
+.utils button.tab .u { border-bottom: var(--rule-hair) dotted var(--muted); }
+.utils button.tab:hover .u { border-bottom-color: var(--ink); }
+/* Narrow: the header stacks, so the doors take the full width and split it
+   between them rather than wrapping into three 44 px rows. `--bp-cols` drives
+   `data-width`; this is the same breakpoint the ledger uses, not a new one. */
+.sheet[data-width="narrow"] .masthead { gap: var(--s2); }
+.sheet[data-width="narrow"] .tabs { width: 100%; align-items: stretch; }
+.sheet[data-width="narrow"] .doors { justify-content: flex-start; }
+/* Three equal columns that WRAP THEIR OWN TEXT. Left to `nowrap` the doors
+   wrapped as boxes instead — two 44 px rows where one 56 px row carries the
+   same three labels — and the first screen at 390×844 is 74% chrome already. */
+.sheet[data-width="narrow"] .door { flex: 1 1 0; min-width: 0; white-space: normal;
+                                    padding: var(--s1); }
+.sheet[data-width="narrow"] .utils,
+.sheet[data-width="narrow"] .stated { justify-content: flex-start; }
+/* Narrow: the one claim left in `.stated` is already on the same screen, so on
+   a phone it is a row of chrome that says nothing new. `no sockets, ever` is
+   the footer's `offline artifact · zero subresources`, which is pinned by the
+   100dvh flex column and therefore always visible. Nothing is dropped, a
+   duplicate is. (`#tabSource` used to be the other one and is gone at every
+   width now — see the markup.) */
+.sheet[data-width="narrow"] .stated { display: none; }
 
 /* --- risk legend (54 §6). Required chrome, never collapsed, never moves. -- */
 .legend {
@@ -139,12 +213,46 @@ button.tab:hover { color: var(--ink); }
   background: none; border: 0; padding: 0 0 var(--s1); cursor: pointer;
   font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
   text-transform: lowercase; border-bottom: var(--rule-mast) solid transparent;
+  /* WCAG 2.2 SC 2.5.5 (Level AAA), as above: the box is 44 px, the type is
+     unchanged at 11 px. Six view tabs measured 23 px tall before this. */
+  display: inline-flex; align-items: center; min-height: 44px; min-width: 44px;
+  justify-content: center;
 }
 .band button:hover { color: var(--ink); }
 .band button[aria-current="true"] { color: var(--ink); border-bottom-color: var(--ink); }
 .band .cnt { color: var(--muted); }
+/* THE THREE UNBUILT VIEWS ARE MARKED, NOT HIDDEN AND NOT DELETED. Walkthrough,
+   config and findings are placeholders; config is a placeholder BY DECISION
+   (`47` §11 refuses it on the module ceiling), so it is not going to quietly
+   appear one morning and the owner is entitled to see it sitting there. What
+   was wrong was that they looked exactly like the three live views, so half the
+   band did nothing and the eye had no way to tell which half.
+
+   They keep their place in the registry order — `⌥1`…`⌥6` and `⌥←`/`⌥→` walk
+   VIEWS, so reordering the band would put the picture and the keyboard into
+   disagreement, and CSS `order` would put the picture and the FOCUS order into
+   disagreement, which is worse (WCAG 2.4.3). So the marking is a word. */
+.band button[data-unbuilt] .soon {
+  font-size: var(--t-micro); letter-spacing: var(--track-label);
+  text-transform: uppercase; color: var(--muted);
+  border: var(--rule-hair) dotted var(--muted); padding: 0 var(--s1);
+  margin-left: var(--s1);
+}
 .band .backing { font-size: var(--t-tab); color: var(--muted); margin-left: auto;
                  text-transform: lowercase; }
+/* Narrow: tighter gaps, and the backing note goes. It is three words now rather
+   than a second copy of `sourceWords()` (see `renderBand`), but at 320 px it
+   still costs a whole wrapped row of the band, and a row of the band is a
+   quarter of everything above the fold. */
+.sheet[data-width="narrow"] .band { gap: var(--s2); }
+.sheet[data-width="narrow"] .band .backing { display: none; }
+/* Narrow: the mark goes too. `NOT BUILT` costs a whole wrapped band row at
+   320 px — measured, band 153 px with it and 101 without — and the row it costs
+   is a quarter of everything below the fold. The three views are still there,
+   still in registry order, and pressing one still answers with the sentence
+   that says what is live; what is dropped on a phone is the chip, not the
+   honesty. */
+.sheet[data-width="narrow"] .band .soon { display: none; }
 
 /* =============================================================== ledger == */
 .ledger { flex: 1 1 auto; min-height: 0; position: relative;
@@ -196,6 +304,26 @@ button.tab:hover { color: var(--ink); }
 .kv th { width: 34%; font-family: var(--mono); font-size: var(--t-mono);
          font-weight: 400; color: var(--ink); }
 .kv .mu { color: var(--muted); }
+
+/* The unset-fields drawer. A native `<details>` and nothing else: it is in the
+   tab order, it toggles on Enter and Space, and it announces expanded state
+   without a line of script or an `aria-` attribute this page would have to keep
+   in sync. The summary keeps its DEFAULT `display: list-item` on purpose —
+   `display: flex` suppresses the `::marker`, and measured in Chromium that is
+   the whole visual affordance gone: the control then renders at the same 10px
+   muted caps as the `.sh` heading two rows above it and reads as a caption
+   nobody clicks. `var(--s3)` top and bottom measures 44px, which is more than
+   `55` §6.5 asks of any target here — that table's standard is SC 2.5.8's
+   24 × 24, which `--row-min` meets — and is spent on this one control because
+   it is the only door to ten editable fields, and a door nobody finds is worse
+   than a footnote nobody reads. No marker rotation, no animation — ADR-0033:
+   motion must carry meaning, and this motion would carry none; the marker's own
+   open/closed glyph is the state, and the browser draws it. */
+.unsetfields { margin-top: var(--s2); }
+.unsetfields > summary { cursor: pointer; color: var(--muted);
+        font-size: var(--t-micro); letter-spacing: var(--track-label);
+        text-transform: uppercase; padding: var(--s3) 0; }
+.unsetfields > summary:hover { color: var(--ink); }
 
 /* --- the 4px accent note. Never a box, never an icon. --------------------- */
 .note { border-left: var(--rule-accent) solid var(--ink); background: var(--surface-2);
@@ -572,7 +700,13 @@ button.tab:hover { color: var(--ink); }
 .dstrip button:hover, .dsum button:hover { background: var(--surface); }
 .dstrip .lab { font-size: var(--t-micro); color: var(--muted);
                letter-spacing: var(--track-label); text-transform: uppercase; }
-.dzoomctl { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+/* The three task groups all lay out the same way, because they ARE the same
+   kind of thing -- a run of controls for one job -- and a second visual idiom
+   would claim a difference that is not there. `wrap` on each one matters as
+   much as on the strip: a group that could not wrap internally would be an
+   unbreakable flex item, and one long item is what pushes the strip onto the
+   line that costs the last Outline row at 1400x400. */
+.dgrp, .dzoomctl { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
 /* The placement group (ADR-0035). Same shape as the zoom group because it is
    the same class of thing — a small band of controls acting on the surface —
    and giving it a second visual idiom would say the two are different in a way
@@ -644,8 +778,21 @@ button.tab:hover { color: var(--ink); }
 .sheet[data-width="narrow"] .dsum { display: flex; }
 .sheet[data-width="narrow"] .dview[data-open="0"] .dcanvas { display: none; }
 /* A zoom control for a surface that is not on screen is furniture, and at this
-   width furniture is what pushed the content off the bottom. */
-.sheet[data-width="narrow"] .dview[data-open="0"] .dzoomctl { display: none; }
+   width furniture is what pushed the content off the bottom.
+
+   THE SAME IS TRUE OF MOVING A BOX, and it took a survey to notice: at 390x844
+   the picture is collapsed by default (`55` §6.3), so `left`, `right`, `up`,
+   `down` and `auto-place it` drive a surface that is not on screen — five
+   controls a thumb can reach whose only effect is invisible. Eight of the
+   seventeen were in that state; this rule and the one above are the eight.
+
+   The CONNECT group stays at every width, and the difference is the whole test
+   for what belongs here: connecting two boxes changes the OUTLINE — a new row
+   under each end, marked `by hand` — so it acts on something the reader can see
+   at 320 px. The layer toggles and `show every one` stay for the same reason:
+   they change which rows the Outline lists, not just which shapes are drawn. */
+.sheet[data-width="narrow"] .dview[data-open="0"] .dzoomctl,
+.sheet[data-width="narrow"] .dview[data-open="0"] .dmovectl { display: none; }
 /* 12rem, not more. At 320x800 the fact column is 146 CSS px tall, so a taller
    canvas is a picture the user has to scroll inside a column they are already
    scrolling; at 12rem the expanded surface is 192 px and most of it is on
@@ -865,27 +1012,86 @@ svg[data-lod="0"] .dplaced { display: none; }
       <div class="ribbon" id="mRibbon"></div>
       <div class="imperative" id="mImp"></div>
     </div>
+    <!-- TWO GROUPS, NOT SEVEN PEERS. The doors build the estate; export, import
+         and theme act on a workspace that already exists, and shipped looking
+         exactly the same as the doors. The order is the order of the work:
+         a config first, then boxes the config could not know about, then where
+         they physically live.
+
+         Each group is ONE tab stop, arrow keys within it — the roving contract
+         `53` §8.3 that `#band` and every list on the page already use, declared
+         here in the markup because these seven nodes are static and `roveScan`
+         only ever runs over rendered regions. The `role="toolbar"` is what
+         earns a group the right to be one stop (WAI-ARIA APG toolbar pattern);
+         without it, collapsing six stops into two would be hiding controls. -->
     <div class="tabs">
-      <span class="tab">no sockets, ever</span>
-      <span class="tab" id="tabSource">demo estate · not corpus data</span>
-      <button type="button" class="tab" id="tabPaste">paste a config</button>
-      <button type="button" class="tab" id="tabEquip">add equipment</button>
-      <button type="button" class="tab" id="tabRack">rack view</button>
-      <button type="button" class="tab" id="tabExport">export</button>
-      <button type="button" class="tab" id="tabImport">import</button>
-      <!-- The file input is the universal half of open/save: it works in every
-           browser, unlike the folder picker, which is Chromium-only. Hidden
-           because a bare file input cannot be styled and the tab above drives
-           it. -->
-      <input type="file" id="importFile" class="vh" accept=".json,application/json"
-             aria-label="Open a Fathom workspace">
-      <button type="button" class="tab" id="tabTheme">theme · auto</button>
+      <div class="doors" role="toolbar" aria-label="Build the estate" data-rove="h">
+        <button type="button" class="door" id="tabPaste" data-rove-item tabindex="0"
+                ><span class="dk">start here</span>paste a config</button>
+        <button type="button" class="door" id="tabEquip" data-rove-item tabindex="-1"
+                ><span class="dk">or</span>add equipment</button>
+        <button type="button" class="door" id="tabRack" data-rove-item tabindex="-1"
+                ><span class="dk">then</span>rack view</button>
+      </div>
+      <div class="utils" role="toolbar" aria-label="Workspace file and appearance"
+           data-rove="h">
+        <button type="button" class="tab" id="tabExport" data-rove-item tabindex="0"
+                ><span class="u">export</span></button>
+        <button type="button" class="tab" id="tabImport" data-rove-item tabindex="-1"
+                ><span class="u">import</span></button>
+        <!-- The file input is the universal half of open/save: it works in every
+             browser, unlike the folder picker, which is Chromium-only. Hidden
+             because a bare file input cannot be styled and the tab above drives
+             it. `tabindex="-1"` because it was ALSO a tab stop — an invisible
+             1×1 one, the sixth thing a keyboard reached on this page and the
+             only stop that showed nothing at all. It stays in the accessibility
+             tree with its label; it is only out of the Tab order. -->
+        <input type="file" id="importFile" class="vh" accept=".json,application/json"
+               tabindex="-1" aria-label="Open a Fathom workspace">
+        <button type="button" class="tab" id="tabTheme" data-rove-item tabindex="-1"
+                ><span class="u">theme · auto</span></button>
+      </div>
+      <!-- Not controls. They were styled as tabs and sat above the buttons,
+           which is two claims dressed as menu items.
+
+           `#tabSource` USED TO BE THE SECOND OF THESE AND IS GONE. It printed
+           `sourceWords()` — and so did the masthead's own subtitle three lines
+           above it, the band's backing note below it, and the fact column's
+           folio below that: the same sentence about where the estate came from,
+           FOUR TIMES inside the top 200 pixels, measured. One of them had to be
+           the one, and the masthead's is the one a person reads first and the
+           one that is on screen at every width. The band's note now says only
+           where the estate LIVES, which is a different fact; the folio stays
+           because `52` §3.2 puts it over the column it describes. Repetition is
+           not emphasis — the fourth copy taught the reader to stop reading the
+           corner, which is exactly where the three doors now are. -->
+      <div class="stated">
+        <span class="tab">no sockets, ever</span>
+      </div>
     </div>
   </header>
 
-  <!-- 54 §6 placement rule: the legend appears on every view that renders a
-       Risk value, always in the same place, never collapsed. -->
-  <ul class="legend" aria-label="Risk legend">
+  <!-- 54 §6 placement rule, read exactly: the legend appears on EVERY VIEW
+       THAT RENDERS A RISK VALUE, always in the same place, never collapsed,
+       never behind a disclosure. One surface in this build renders one — the
+       finder, whose every hit carries a `.riskband` — so the legend belongs on
+       the finder view and on the Ctrl+K overlay, and nowhere else. Showing it
+       over the other five was not the rule, it was the rule with its condition
+       dropped; §6's own cost paragraph prices three lines "repeated on every
+       view" against the one time you need it, and five views that cannot show
+       you a risk are not that time. Placement, states and keyboard are
+       untouched: it does not move, it does not react, it is not dismissible,
+       and it is not collapsed — it is absent where there is nothing to key.
+       §22 failure mode 9 (shown once, on the first view) is about a PRINTED
+       export losing the key on sides 2-6, and it is NOT closed by this change
+       and was not closed before it: `54` §6 specifies `.legend.repeat` and an
+       `@media print` block, and this page has neither — it has no print styles
+       at all. Printing the finder still carries the key because the legend is
+       on that view; printing any other view never had a Risk value to key. If
+       print styles are ever written, `.legend.repeat` is where fm9 gets its
+       answer, and `syncLegend()` is the one line to extend when a second
+       surface renders a Risk value. -->
+  <ul class="legend" id="riskLegend" aria-label="Risk legend">
     <li class="legend-item r-safe">Read-only — safe on production</li>
     <li class="legend-item r-caution">Changes config — needs a commit</li>
     <li class="legend-item r-danger">Disruptive — drops live traffic</li>
@@ -1159,14 +1365,18 @@ var ERR_EQUIP_STORE = 13;
    rather than silently writing the wrong field. `Chassis.model` was written
    here as 300 from memory and is 19; the pin is why that class of mistake now
    costs a red test rather than a silently mis-stored value. */
+/* Slot 5 is a HINT, not a gloss on the label. `hostname` needs no explaining to
+   a network engineer and its note said "The name the box calls itself."; the
+   ones that remain are an example he can pattern-match against, or a fact about
+   where the value goes. */
 var EQUIP_FIELDS = [
-  [6,  'hostname',           'text', true,  'The name the box calls itself.'],
+  [6,  'hostname',           'text', true,  ''],
   [7,  'platform',           'plat', true,  'Which config language it speaks.'],
   [9,  'role',               'role', false, ''],
   [19, 'model',              'text', false, 'SRX345, MX204, C9300-48P.'],
-  [20, 'serial',             'text', false, 'Inventory only. Never leaves this page.'],
+  [20, 'serial',             'text', false, 'Never leaves this page.'],
   [8,  'os version',         'text', false, '21.4R3-S5.'],
-  [11, 'management address', 'text', false, 'Recorded, never connected to (invariant 2).']
+  [11, 'management address', 'text', false, 'Recorded, never connected to.']
 ];
 
 /* The platforms schema/platforms.yaml registers. A closed list, because
@@ -1521,22 +1731,36 @@ function kindByte(name) {
 var CHASSIS_KIND_BYTE = kindByte('Chassis');
 var RACK_KIND_BYTE = kindByte('Rack');
 
+/* `built` is the band's own honesty flag. It is derived from nothing — there is
+   no reply that reports it — so it is a hand-maintained list, and the rule is
+   that it changes in the same commit as the view it describes. Three of six are
+   true today: finder, diagram, inventory. */
+/* `imp` is an INSTRUCTION or it is empty. It held an aphorism per view until
+   2026-08-17 — six of them, one per masthead, each explaining what KIND OF
+   THING the view was rather than what to do with it. A line read once and never
+   again is furniture; the two that survive survive because they name an action,
+   and the finder's survives because it is the one safety claim that has to
+   stand beside a row captioned DISRUPTIVE — DROPS LIVE TRAFFIC. An unbuilt view
+   says what it is in `UNBUILT` below and needs no second sentence above it. */
 var VIEWS = [
-  { id: 'finder',      t: 'Finder',      key: '⌥1',
-    imp: 'A command reference, not a connection — nothing here runs anywhere' },
-  { id: 'walkthrough', t: 'Walkthrough', key: '⌥2',
-    imp: 'The walkthrough writes to the graph — everything else reads' },
-  { id: 'config',      t: 'Config — change set', key: '⌥3',
-    imp: 'Copy-paste only — Fathom never touches a device' },
-  { id: 'findings',    t: 'Findings',    key: '⌥4',
-    imp: 'Continuous lint over the graph — not a report you run' },
-  { id: 'diagram',     t: 'Diagram',     key: '⌥5',
-    imp: 'A design tool, not a source of truth — verify against your own box' },
-  { id: 'inventory',   t: 'Inventory',   key: '⌥6',
-    imp: 'Facts that argue back — the rightmost column is not a field' }
+  { id: 'finder',      t: 'Finder',      key: '⌥1', built: true,
+    imp: 'Nothing here runs anywhere.' },
+  { id: 'walkthrough', t: 'Walkthrough', key: '⌥2', built: false, imp: '' },
+  { id: 'config',      t: 'Config — change set', key: '⌥3', built: false, imp: '' },
+  { id: 'findings',    t: 'Findings',    key: '⌥4', built: false, imp: '' },
+  { id: 'diagram',     t: 'Diagram',     key: '⌥5', built: true,
+    imp: 'Click a box to inspect it. Drag one to move it.' },
+  { id: 'inventory',   t: 'Inventory',   key: '⌥6', built: true,
+    imp: 'Pick a kind, then a row.' }
 ];
+/* This sentence named the wrong views for two builds: the diagram (⌥5) has been
+   live since 2026-08-15 and this went on telling the reader it was not. It is
+   built from `VIEWS` now, so the band's mark and the empty view's words cannot
+   drift apart again. */
 var UNBUILT = 'unposted — this view arrives with a later work order; ' +
-              'the finder (⌥1) and the inventory face (⌥6) are live in this build';
+              VIEWS.filter(function (v) { return v.built; })
+                   .map(function (v) { return v.id + ' (' + v.key + ')'; })
+                   .join(', ') + ' are live in this build';
 
 function viewIdx(id) { var i; for (i = 0; i < VIEWS.length; i++) if (VIEWS[i].id === id) return i; return 5; }
 function viewMeta(id) { return VIEWS[viewIdx(id)]; }
@@ -1558,6 +1782,15 @@ function foot(msg) { S.msg = msg; $('fMsg').textContent = msg; }
    also a visible change of the thing you are standing on -- the scene pans, the
    zoom moves -- so it is the first that has to say so. */
 function say(msg) { $('live').textContent = msg; }
+
+/* 54 §6's condition, evaluated. The finder is the one surface that renders a
+   Risk value (`renderHit`'s `.riskband`), in both of its forms — the view and
+   the Ctrl+K overlay, which can be raised over any of the six. `fOpen` is
+   declared far below and hoisted; this is called from `renderShell` and from
+   `setFinder`, which are the only two places either input changes. */
+function syncLegend() {
+  $('riskLegend').hidden = !(S.view === 'finder' || fOpen);
+}
 
 function unposted(host, label, body) {
   var u = el('div', 'unposted');
@@ -1582,7 +1815,7 @@ function replyProblem(reply) {
 function renderInventory(host) {
   var p = el('div', 'pad');
   var strip = el('div', 'strip');
-  strip.appendChild(el('span', 'lab', 'kind — a row set is a kind plus a filter'));
+  strip.appendChild(el('span', 'lab', 'kind'));
   KINDS.forEach(function (k, i) {
     var b = el('button', null, k);
     b.type = 'button';
@@ -1590,7 +1823,12 @@ function renderInventory(host) {
     b.setAttribute('aria-pressed', String(S.invKind === i));
     strip.appendChild(b);
   });
-  strip.appendChild(el('span', 'lab', 'columns generated from schema.yaml · opinions is not a field'));
+  /* NO TRAILING LABEL HERE. `.lab` is a PREFIX in this strip — "kind" stands in
+     front of the buttons it names — so a `.lab` after the last button reads as a
+     sixteenth, greyed-out row set, which is what "opinions — no rule engine yet"
+     did when it was driven: same 10px muted caps, same line, 130px and a whole
+     table away from the column it was about. The one surviving fact about that
+     column now sits directly under the table (52 §3.7.1). */
   p.appendChild(strip);
   host.appendChild(p);
 
@@ -1600,7 +1838,7 @@ function renderInventory(host) {
        (see boot()), and an empty state that names a door the build does not
        have is worse than one that names none. The two doors below are real. */
     unposted(np, 'inventory',
-      'no workspace loaded — paste a config (top right), or add equipment by hand');
+      'no workspace loaded — paste a config (the door marked START HERE), or add equipment by hand');
     if (S.boot) np.appendChild(el('p', 'prose', S.boot));
     host.appendChild(np);
     return;
@@ -1666,10 +1904,35 @@ function renderInventory(host) {
       '(fathom-inventory::demo_estate()), consistent with schema/schema.yaml, and labelled ' +
       'as a demo everywhere it appears.');
   }
-  note(host, 'The rightmost column is not a field',
-    'It is the per-row finding aggregate (52 §3.7.1). No rule engine is in this build, so ' +
-    'every cell reads —. The column stays: you cannot look at the inventory without seeing ' +
-    'what the rule engine thinks of each row, including that it is not here yet.');
+  /* WHY THIS ROW SET LOOKS LIKE A SECOND COPY OF THE DEVICE LIST, said on the
+     row set itself rather than left to be worked out. The owner asked *"why
+     does creating a piece of equipment have 2 things listed vs just one?"* —
+     `schema/` declares `HasChassis` min 1, so every box added by hand gets one,
+     and here they are, one per device, each named after the device it is in.
+     The diagram no longer draws them as a second box (see `dgFoldChassis`); this
+     set is where the fields themselves are edited, and it is what the rack sheet
+     mounts, so it stays.
+
+     THE EXCEPTION IS STATED, because the page cannot keep the promise without
+     it: a chassis with a second drawn edge is drawn beside its device again,
+     and racking it is exactly what gives it one. An inconsistency a reader
+     cannot explain is worse than a consistent wrong — the wrong one at least
+     teaches a rule. */
+  if (S.invKind === CHASSIS_KIND_BYTE) {
+    note(host, 'A chassis is a part of a device, not a second device',
+      'Model and serial belong to the box, not to the device — a chassis cluster is ' +
+      'one device with two boxes — so the equipment form writes one of these behind ' +
+      'every device you add. The diagram shows it under its device rather than ' +
+      'beside it, unless something else points at it, and putting it in a rack ' +
+      'does. This is where the fields are edited, and it is what the rack sheet ' +
+      'mounts, at a unit.');
+  }
+  /* Forty-five words to nine, and STILL UNDER THE COLUMN IT EXPLAINS. 52 §3.7.1
+     requires the opinions column to be always visible and always honest that no
+     rule engine is behind it; it says nothing about how many sentences that
+     costs, and it does not permit moving the explanation to the far side of the
+     screen from the em-dashes it accounts for. */
+  note(host, 'Opinions', 'No rule engine in this build, so every cell reads —.');
 }
 
 /* --- what one paste produced ---------------------------------------------
@@ -1801,11 +2064,12 @@ function renderResidue(host) {
   }
 
   host.appendChild(p);
-  note(p, 'Nothing parsed is silently lost',
-    'Every line above is one Fathom could not turn into a fact. It is listed rather ' +
-    'than dropped, because a config you cannot see the gaps in is worse than no config. ' +
-    'Secrets are the exception and they are the opposite case: they are destroyed at the ' +
-    'gate, before anything is stored, and only their kind is kept.');
+  /* "NOTHING PARSED IS SILENTLY LOST" stood here in 10px caps over a table
+     whose heading already reads "Lines Fathom did not read — 0" and a tally
+     that already counts them. It restated the surface it sat under, and it
+     rendered at full length even when the count was zero and there was nothing
+     to explain. The claim is not withdrawn — it is DEMONSTRATED by the table,
+     which is stronger than asserting it in four sentences. */
 }
 
 function note(host, lead, body) {
@@ -1924,9 +2188,13 @@ function renderHits(host, prefix) {
     return;
   }
   if (!S.query) {
+    /* The examples are the instruction — they teach the query shape faster than
+       a sentence about it can. "Nothing is sent anywhere" is dropped here and
+       nowhere else: the masthead imperative on this view says it, the top band
+       says `no sockets, ever`, and three tellings on one screen is one. */
     host.appendChild(el('p', 'fmiss',
-      'Type what you are trying to find out — "is phase 2 up", "ipsec", or the command ' +
-      'itself. Nothing is sent anywhere; the whole corpus is in this file.'));
+      'Type what you are trying to find out — "is phase 2 up", "ipsec", or the ' +
+      'command itself.'));
     return;
   }
   var bad = finderProblem(S.hits);
@@ -2004,6 +2272,11 @@ function reviewFallback() {
 }
 
 /* --- the inspector's meaning face ----------------------------------------- */
+/* Whether the unset-fields drawer is open. Survives the re-render a field
+   commit forces; deliberately not in `S`, which is what the page knows about
+   the graph. */
+var unsetOpen = false;
+
 function renderMeaningFace(host) {
   if (!S.sel) {
     var p0 = el('div', 'pad');
@@ -2021,13 +2294,43 @@ function renderMeaningFace(host) {
   p.appendChild(el('div', 'stamp', h.s[2]));       /* the id, in full, never truncated */
   if (h.s[3]) p.appendChild(el('div', 'stamp', h.s[3]));
 
-  p.appendChild(el('div', 'sh', 'Fields — generated from schema.yaml'));
-  p.appendChild(fieldTable(S.element.rows.slice(1)));
+  /* TWELVE ROWS FOR A DEVICE WITH TWO FACTS. A pasted SRX device answers with
+     every field its kind declares, and ten of them read `unset` — so the two
+     things the config actually said were two rows in ten rows of dashes, and
+     the eye had to find them. The set rows now stand alone and the unset ones
+     sit behind a native `<details>` that STATES ITS OWN COUNT, which is the
+     `78` §5 rule: a cap is stated, never silent.
 
-  /* Type a value and press Enter. Said in words because an input that commits
-     on Enter and NOT on blur is the safer behaviour and the less obvious one. */
-  p.appendChild(el('div', 'note', 'Type in a field and press Enter to change it. ' +
-                                  'Leaving the box does not save.'));
+     A disclosure and not a deletion, because every one of those rows is an
+     editable input and the editing path is the point — `10 fields not set` is
+     one Enter away from the same table, and `<details>`/`<summary>` is in the
+     tab order and toggles on Enter and Space without a line of script. */
+  p.appendChild(el('div', 'sh', 'Fields'));
+  var records = S.element.rows.slice(1);
+  var isSet = function (r) { return r.role === FACE_FIELD && r.s[2] !== 'unset'; };
+  var isUnset = function (r) { return r.role === FACE_FIELD && r.s[2] === 'unset'; };
+  var setRows = records.filter(isSet), unsetRows = records.filter(isUnset);
+
+  if (setRows.length) p.appendChild(fieldTable(setRows));
+  else p.appendChild(el('p', 'prose', 'Nothing is set on this element yet.'));
+
+  if (unsetRows.length) {
+    var det = el('details', 'unsetfields');
+    /* The open state is remembered across the re-render that a commit forces,
+       or setting three fields in a row would close the drawer three times. It
+       is page state and nothing else -- it is never exported and never asked
+       of the module (ADR-0019). */
+    det.open = unsetOpen;
+    det.addEventListener('toggle', function () { unsetOpen = det.open; });
+    det.appendChild(el('summary', null,
+      plural(String(unsetRows.length), 'field not set', 'fields not set')));
+    det.appendChild(fieldTable(unsetRows));
+    p.appendChild(det);
+  }
+
+  /* Enter commits and blur does not — the safer behaviour and the less obvious
+     one, so it is said. It said it in sixteen words; seven do it. */
+  p.appendChild(el('div', 'note', 'Enter saves. Leaving the box does not.'));
 
   var rm = el('button', null, 'remove this element');
   rm.type = 'button';
@@ -2264,9 +2567,21 @@ function renderBand() {
     btn.setAttribute('aria-current', String(S.view === v.id));
     btn.appendChild(document.createTextNode(v.id + ' '));
     btn.appendChild(el('span', 'cnt', v.key));
+    /* Marked in the DOM, not only in colour: the <svg> is aria-hidden and so is
+       every colour difference, so the word has to be a real text node or the
+       band tells a screen reader that all six views are the same. */
+    if (!v.built) {
+      btn.setAttribute('data-unbuilt', '');
+      btn.appendChild(el('span', 'soon', 'not built'));
+    }
     b.appendChild(btn);
   });
-  var back = el('span', 'backing', S.loaded ? sourceWords() + ' · in the module' : sourceWords());
+  /* WHERE THE ESTATE LIVES, not where it came from. It said both — the whole of
+     `sourceWords()` plus `· in the module` — which made it the third of four
+     copies of one sentence in the top 200 px. The masthead states the source;
+     this states that the graph is held in the WebAssembly module and not on a
+     server, which is invariant 1 made visible and is worth its own line. */
+  var back = el('span', 'backing', S.loaded ? 'in the module' : 'nothing loaded');
   b.appendChild(back);
 }
 
@@ -2288,9 +2603,9 @@ function renderShell() {
      inventory to the diagram and the removal round trip, in a change that only
      touched CSS widths. An attribute is a selector, and a selector is an API. */
   $('sheet').setAttribute('data-viewing', S.view);
+  syncLegend();
   $('mTitle').textContent = viewMeta(S.view).t;
   $('mSub').textContent = 'dev artifact · ' + sourceWords();
-  $('tabSource').textContent = sourceWords();
   $('mImp').textContent = viewMeta(S.view).imp;
   clear($('mRibbon'));
   if (S.sel) {
@@ -2343,18 +2658,38 @@ function sEl(tag, attrs) {
    draws no boxes and a control strip that disappeared with the picture would
    leave the operator no way back. */
 function layerStrip(strip) {
+  /* THE GROUP IS NAMED FOR THE TASK, NOT FOR THE MECHANISM. A reader in this
+     strip is doing one of three things -- looking at the picture, changing it,
+     or adding to it -- and the groups are cut that way (`55` §1.4: a control
+     names the intent, and the mechanism is the implementation's business). So
+     the layers, the detail control and the zoom controls are ONE group called
+     "looking at the picture": all three change what you see and none of them
+     changes the graph. The other two groups are `move` and `connect` below.
+     A screen-reader user hears this name before every button in it, which is
+     why it says what the group is FOR rather than what it is MADE OF. */
+  var g = el('div', 'dgrp');
+  g.setAttribute('role', 'group');
+  /* NO `which` IN THIS NAME, and that is not a style choice: the chooser group
+     that appears when the schema admits more than one edge kind is found by
+     `2026-08-16-the-cut-that-drew.mjs` as `[aria-label*="which"]`, first match
+     in the document. A second group carrying the word would answer that query
+     instead and the driver would read this label while asserting about the
+     chooser's — the same class of defect the chooser itself was built to fix. */
+  g.setAttribute('aria-label',
+    'looking at the picture — layers, detail and zoom');
+  strip.appendChild(g);
   /* The STATE leads, before the buttons, and the explanation trails. The strip
      wraps on a narrow column, and what must never end up orphaned on the second
      line is which layers are on -- a filter you cannot read is a filter that
      gets blamed on the parser. */
-  var lab = el('span', 'lab', 'layer · ' + layerWords());
-  strip.appendChild(lab);
+  var lab = el('span', 'lab', 'layers · ' + layerWords());
+  g.appendChild(lab);
   LAYERS.forEach(function (L) {
     var b = el('button', null, L[1]);
     b.type = 'button';
     b.setAttribute('data-layer', String(L[0]));
     b.setAttribute('aria-pressed', String((S.layers & L[0]) !== 0));
-    strip.appendChild(b);
+    g.appendChild(b);
   });
   /* No trailing hint here: the strip's hints are appended once, after the zoom
      controls, so the explanations sit together at the end rather than one of
@@ -2686,13 +3021,16 @@ function dgPaint() {
     for (id in DG.boxes) {
       if (!Object.prototype.hasOwnProperty.call(DG.boxes, id)) continue;
       var g = DG.boxes[id].g;
-      g.setAttribute('class', 'dbox' + (S.sel === id ? ' dsel' : ''));
+      /* dgBoxOf, not S.sel: a folded chassis is drawn as part of its device, so
+         the device's box is what carries the mark for it. */
+      g.setAttribute('class', 'dbox' + (dgBoxOf(S.sel) === id ? ' dsel' : ''));
     }
   }
   if (DG.out) {
     var rows = DG.out.querySelectorAll('[data-drow]');
     Array.prototype.forEach.call(rows, function (row) {
-      row.setAttribute('aria-selected', String(row.getAttribute('data-drow') === S.sel));
+      row.setAttribute('aria-selected',
+        String(row.getAttribute('data-drow') === dgBoxOf(S.sel)));
     });
   }
 }
@@ -2720,6 +3058,11 @@ function dgSelect(id) {
      places: the row carries it before you click, the footer says it when you
      do, and the band keeps saying it while the selection stands. */
   var b = DG.boxes && DG.boxes[id];
+  /* A FOLDED CHASSIS HAS NO BOX AND IS STILL A SELECTION. It is reached from
+     the child row under its device (see dgExpand), so `DG.boxes` cannot answer
+     for it — without this the kind strip would stay on Device while the
+     inspector showed a Chassis, and the footer would read out a raw ulid. */
+  if (!b && DG.fold && DG.fold.of[id]) b = { kind: 'Chassis', label: dgFoldName(id) };
   DG.declined = null;
   if (b) {
     var ki = KINDS.indexOf(b.kind);
@@ -2729,8 +3072,11 @@ function dgSelect(id) {
   renderShell();
   renderMeaning();
   dgPaint();
-  dgRing(id);
-  dgReveal(id);
+  /* The ring and the pan follow the BOX, which for a folded chassis is the
+     device it is part of — pointing the ring at nothing would leave the reader
+     with a selected element and no idea where in the picture it lives. */
+  dgRing(dgBoxOf(id));
+  dgReveal(dgBoxOf(id));
   dgBand();
   /* `55` §5.6: entering with Tab lands on the previously-focused child. A box
      picked with the mouse IS that child, so the tree's one tab stop moves onto
@@ -2869,7 +3215,7 @@ function dgFreePlacement() {
    built by hand was a pile of unconnected boxes. This is the fourth.
 
    THE GESTURE IS TWO STEPS AND BOTH ARE ORDINARY BUTTONS. Select a box, press
-   `hold this end`; select a second, press `draw the link`. That shape is not a
+   `connect from here`; select a second, press `connect them`. That shape is not a
    compromise for the keyboard — `55` §4.5.2 puts focus in the Outline and never
    in the <svg>, so a drag from one shape to another is a gesture half the
    contract cannot perform and the Outline is where the interface lives. A drag
@@ -3024,6 +3370,16 @@ function opLink(a, b, mode, kind) {
     S.journal.push({ op: 'link', at: at, ent: b64(ent), from: a, to: b, kind: wrote, mode: mode });
   }
   DG_ASK = null;
+  /* AND THE HELD END IS RELEASED HERE, BEFORE THE REPAINT, not after it.
+     `dgLink` used to clear it on the line after this function returned — which
+     is one repaint too late: the strip below was rebuilt while `DG_HOLD` still
+     pointed at the first box, so the button came back reading `connecting from
+     switch-lab-01` with `aria-pressed="true"` over a mode that had just ended.
+     Press it again and the page answered `press connect from here on one box
+     first`, contradicting the button's own label. A mode's state is only ever
+     read at render time, so a mode must be cleared before the render, never
+     after — the same ordering rule `DG_ASK` above already follows. */
+  DG_HOLD = null;
   /* Hold the view: a new line can grow the picture's extent, and refitting
      under somebody who has just drawn one link rescales everything out from
      under them. Same reasoning as `opPlace`. */
@@ -3039,6 +3395,11 @@ function opLink(a, b, mode, kind) {
    already sent — slot 1 of the box row — not inferred from the id. */
 function dgKindOf(id) {
   var b = DG.boxes && DG.boxes[id];
+  /* A folded chassis has no box of its own and is still a real end of a
+     refused link. Without this the schema's refusal — the one sentence in this
+     view written to name BOTH kinds — reads "nothing in the schema connects a
+     Device to a box", which names one kind and a shape. */
+  if (!b && DG.fold && DG.fold.of[id]) return 'Chassis';
   return b ? b.kind : 'box';
 }
 
@@ -3063,16 +3424,27 @@ function dgWords(name) {
 /* Step one: remember this end. Nothing is written. */
 function dgHoldEnd() {
   var b = DG.boxes && S.sel && DG.boxes[S.sel];
-  if (!b) { foot('select a box first — a link needs two ends'); renderShell(); return; }
+  if (!b) {
+    /* A folded chassis IS selected and is not a box, so "select a box first"
+       would be telling a reader to do the thing he just did. */
+    foot(S.sel && DG.fold && DG.fold.of[S.sel]
+      ? 'a chassis is part of the device it is in — hold the device instead'
+      : 'select a box first — a link needs two ends');
+    renderShell();
+    return;
+  }
   if (b.collapsed) {
     foot('that box stands for ' + b.n + ' objects, and a link joins two things — ' +
-         'open it and hold one of its members');
+         'open it and connect from one of its members');
     renderShell();
     return;
   }
   DG_HOLD = S.sel;
   DG_ASK = null;
-  foot('holding ' + b.kind + ' ' + b.label + ' — select the other end and draw the link');
+  /* The message names the button the reader must press next, so it is rewritten
+     whenever that button is: an instruction that names a control by a label the
+     control no longer carries is worse than no instruction. */
+  foot('holding ' + b.kind + ' ' + b.label + ' — select the other end and press connect them');
   say('holding ' + b.kind + ' ' + b.label + ' as one end of a link');
   render();
 }
@@ -3082,7 +3454,7 @@ function dgHoldEnd() {
 function dgLink(mode, kind) {
   var far = DG_ASK ? DG_ASK.b : S.sel;
   var near = DG_ASK ? DG_ASK.a : DG_HOLD;
-  if (!near) { foot('hold one end first'); renderShell(); return; }
+  if (!near) { foot('press connect from here on one box first'); renderShell(); return; }
   if (!far) { foot('select the other end'); renderShell(); return; }
   var reply = opLink(near, far, mode, kind || '');
   if (!reply) return;
@@ -3105,7 +3477,9 @@ function dgLink(mode, kind) {
          'and that line stays as it was read');
     say('that link was already there; nothing was drawn');
   }
-  DG_HOLD = null;
+  /* `DG_HOLD` is cleared inside `opLink`, before its render, and not here:
+     clearing it after the repaint left the button claiming a hold that was
+     already released. */
   dgRefocusRow(far);
 }
 
@@ -3174,14 +3548,67 @@ function dgExpand(row, open) {
   if (!open) { dgRove(row); return; }
 
   var conns = (DG.conn && DG.conn[id]) || [];
+  /* THE CHASSIS THIS DEVICE IS MADE OF, folded out of the picture and INTO this
+     disclosure (see dgFoldChassis). It is listed first and it is not a
+     connection: `56` §4.1 makes a chassis a sub-row of its device, so under a
+     keyboard it is a PART of this box, and the parts of a thing are read before
+     the things it is joined to.
+
+     A whole row rather than a word on the parent, because model and serial are
+     the two facts the equipment form asks for that live on the chassis and not
+     on the device, and because the chassis must stay SELECTABLE — it is what
+     the rack sheet mounts and what `OP_FIELD_SET` writes a corrected serial to.
+     Folding a node out of the picture must never fold it out of reach. */
+  var folded = (DG.fold && DG.fold.into[id]) || [];
+  var kids = folded.length + conns.length;
   var at = row;
+  folded.forEach(function (cid, i) {
+    var f = (DG.chassis && DG.chassis[cid]) || null;
+    /* `dofold` carries no rules of its own: `dolink`'s indent is exactly what a
+       child row wants. It is here as the name this row answers to — in a
+       driver, and in the stylesheet the day a chassis row wants its own ink. */
+    var cr = el('div', 'dolink dofold');
+    cr.setAttribute('role', 'treeitem');
+    cr.setAttribute('aria-level', '2');
+    cr.setAttribute('aria-setsize', String(kids));
+    cr.setAttribute('aria-posinset', String(i + 1));
+    cr.setAttribute('tabindex', '-1');
+    cr.setAttribute('data-rove-item', '');
+    cr.setAttribute('data-dparent', id);
+    /* `data-dlink` and `data-did`, exactly as a connection row carries them, so
+       the click delegate, the Enter binding and the focus listener all reach
+       this row without any of the three learning a second idiom. */
+    cr.setAttribute('data-dlink', cid);
+    cr.setAttribute('data-did', cid);
+    /* `made of`, not `part of`. The sibling connection rows use `to` and `from`,
+       so this slot is read as carrying a DIRECTION, and `part of chassis` under
+       a device says the containment backwards — which is the one thing the
+       Chassis row set's own note exists to correct. */
+    cr.appendChild(el('span', 'dorel', 'made of'));
+    cr.appendChild(el('span', 'doname', dgFoldName(cid)));
+    var bits = [];
+    if (f && dgFoldVal(f.model)) bits.push(f.model);
+    if (f && dgFoldVal(f.serial)) bits.push(f.serial);
+    /* Both said, in full, and neither invented: an unset field arrives as `—`
+       and is reported as unset rather than printed as if it were a value. */
+    cr.appendChild(bits.length
+      ? el('span', 'dokind', bits.join(' · '))
+      : el('span', 'dorel', 'model and serial not set'));
+    /* The edge kind, as every other child row carries it. It is `HasChassis`
+       and saying so is what keeps the fold honest: the containment edge is
+       still in the record and still readable, it is simply not drawn as a
+       stroke between two boxes any more. */
+    cr.appendChild(el('span', 'dokind docnt', 'HasChassis'));
+    at.parentNode.insertBefore(cr, at.nextSibling);
+    at = cr;
+  });
   conns.forEach(function (c, i) {
     var far = DG.boxes[c.far];
     var lr = el('div', 'dolink');
     lr.setAttribute('role', 'treeitem');
     lr.setAttribute('aria-level', '2');
-    lr.setAttribute('aria-setsize', String(conns.length));
-    lr.setAttribute('aria-posinset', String(i + 1));
+    lr.setAttribute('aria-setsize', String(kids));
+    lr.setAttribute('aria-posinset', String(folded.length + i + 1));
     lr.setAttribute('tabindex', '-1');
     lr.setAttribute('data-rove-item', '');
     lr.setAttribute('data-dparent', id);
@@ -3262,7 +3689,7 @@ function dgOutline(boxes, noSetKinds, agg) {
       row.setAttribute('aria-label', ag.name);
     } else {
       row.setAttribute('aria-expanded', 'false');
-      row.setAttribute('aria-selected', String(S.sel === id));
+      row.setAttribute('aria-selected', String(dgBoxOf(S.sel) === id));
     }
 
     /* The name in full. `56` §2.4 truncates in the PICTURE and says where the
@@ -3282,6 +3709,33 @@ function dgOutline(boxes, noSetKinds, agg) {
        reader reads this row in DOM order. `Device` never appears without
        `server` following it, never the other way round. */
     if (ag.role) row.appendChild(el('span', 'dorole', ag.role));
+    /* THE MODEL, ON THE DEVICE'S OWN ROW, because it is what a network engineer
+       calls a box when he is not calling it by its hostname — "the SRX345 in
+       the loft". It sits with the kind and the role, which are the other two
+       answers to *what is this*, and not with the counts on the right.
+
+       The SERIAL is one row down, under the disclosure, and that split is
+       deliberate rather than a shortage of room: a model number identifies a
+       box across a conversation and a serial identifies it to a supplier, and
+       putting a 20-character asset tag on every row of the estate's index
+       pushes the counts off a 320 px column for a fact nobody reads at a
+       glance. Both are reachable, one is on the surface.
+
+       The COUNT is `N chassis`, next to `N links`, because the disclosure now
+       holds two kinds of child and a row that promised only links would be
+       lying about what pressing → does. */
+    var foldIn = (DG.fold && DG.fold.into[id]) || [];
+    if (foldIn.length) {
+      row.setAttribute('data-dfold', foldIn.join(' '));
+      var models = [];
+      foldIn.forEach(function (cid) {
+        var mf = DG.chassis && DG.chassis[cid];
+        var mm = mf ? dgFoldVal(mf.model) : '';
+        if (mm && models.indexOf(mm) < 0) models.push(mm);
+      });
+      if (models.length) row.appendChild(el('span', 'dokind', models.join(' · ')));
+      row.appendChild(el('span', 'docnt', foldIn.length + ' chassis'));
+    }
     /* A collapsed box stands for many objects and the row must SHOW so, not
        only announce it. `59` §3.6 makes the cardinal the one label that may
        never be dropped, and a row reading `LogicalUnit st0.0–st0.12 · 3 links`
@@ -3309,8 +3763,8 @@ function dgOutline(boxes, noSetKinds, agg) {
    the tab stop. That is right for a fresh list and wrong here: a row chosen in
    the inventory should still be the row Tab lands on after switching views. */
 function dgAfterFact() {
-  if (!DG.out || !S.sel || !DG.boxes || !DG.boxes[S.sel]) return;
-  var row = DG.out.querySelector('[data-drow="' + cssEsc(S.sel) + '"]');
+  if (!DG.out || !S.sel || !DG.boxes || !DG.boxes[dgBoxOf(S.sel)]) return;
+  var row = DG.out.querySelector('[data-drow="' + cssEsc(dgBoxOf(S.sel)) + '"]');
   if (row) dgRove(row);
 }
 
@@ -3327,6 +3781,140 @@ function dgIsText(t) {
   return false;
 }
 
+/* --- ONE PIECE OF EQUIPMENT IS ONE THING ON SCREEN -----------------------
+
+   The owner's words: *"why does creating a piece of equipment have 2 things
+   listed vs just one?"* He is right, and the picture was worse than the
+   question suggests. Adding one box through the equipment sheet wrote a
+   `Device` AND a `Chassis` — `schema/` declares `HasChassis` min 1 and
+   `equip_add` honours it — so a two-device lab drew four boxes, said
+   `4 objects · 2 links`, labelled two of them `chassis 0`, and put `1 link` on
+   the Outline row of a device connected to NOTHING. That "link" was the
+   containment edge to its own chassis. Every number on the surface was
+   arithmetically correct and every one of them told a network engineer
+   something false about his network.
+
+   `crates/fathom-layout/src/layers.rs` already says what the right answer is,
+   in `56` §4.1's projection table, and has since before the diagram shipped:
+
+       NodeKind::Chassis => tabled(PHY, "sub-row inside the device box"),
+
+   A sub-row is geometry and geometry is `fathom-layout`'s, which is module
+   bytes, of which there are 219. So this page does the half a renderer may
+   honestly do on its own: **it declines to draw a second box.** The chassis is
+   not deleted, not hidden and not summarised — it keeps its node, its fields,
+   its rack mount and its inventory row set, and it gains a child row under the
+   device it belongs to, which is where a part of a thing belongs in a tree.
+
+   WHAT IS FOLDED, AND WHAT IS NEVER FOLDED. Only a chassis whose ONLY edge in
+   the drawn scene is the containment edge from one device, and which stands
+   for exactly one node, and which carries no hand position. A chassis somebody
+   dragged somewhere is an assertion a person made about where it goes (ADR-0035
+   makes a pin graph data), and hiding it would discard that in silence; a
+   chassis with a second edge would take that edge off the picture with it. Both
+   stay drawn, and stay drawn as boxes, which is the honest failure.
+
+   The pair is recognised from the module's own emission — a containment line
+   (slot 3) between a box the module calls `Device` and a box it calls
+   `Chassis` — and NOT from the edge's name. Containment between that pair is
+   unique by construction: a node has exactly one parent and the weld computes
+   it from the kind pair alone, which is the same fact `dgLink`'s refusal rests
+   on ("containment is never offerable"). Reading the kinds the module sent is
+   the same class of work as `pasteRows` and the connection buckets; it forms no
+   opinion about the graph. */
+function dgFoldChassis(boxes, lines) {
+  var kind = {}, touch = {}, one = {}, pinned = {}, i, l, p;
+  for (i = 0; i < boxes.length; i++) {
+    kind[boxes[i].s[0]] = boxes[i].s[1];
+    /* Slot 7 is `<count> <interior> <placed> <role> <group key>` — the same
+       four positions the aggregation reader below parses, read here for the two
+       flags that veto a fold. */
+    p = (boxes[i].s[7] || '1 0 0 - ').split(' ');
+    one[boxes[i].s[0]] = (parseInt(p[0], 10) || 1) === 1;
+    pinned[boxes[i].s[0]] = p[2] === '1';
+  }
+  for (i = 0; i < lines.length; i++) {
+    touch[lines[i].s[0]] = (touch[lines[i].s[0]] || 0) + 1;
+    touch[lines[i].s[1]] = (touch[lines[i].s[1]] || 0) + 1;
+  }
+  var of = {}, into = {}, cut = {}, n = 0, a, b, ch, dev;
+  for (i = 0; i < lines.length; i++) {
+    l = lines[i];
+    if (l.s[3] !== '1') continue;
+    a = l.s[0]; b = l.s[1];
+    ch = kind[a] === 'Chassis' ? a : (kind[b] === 'Chassis' ? b : '');
+    if (!ch) continue;
+    dev = ch === a ? b : a;
+    if (kind[dev] !== 'Device' || of[ch]) continue;
+    /* THE DEVICE'S OWN PIN IS NOT A VETO. Folding a chassis hides a COMPUTED
+       position and never a hand-asserted one, so nothing of ADR-0035's is lost
+       when the device beside it has been placed. Vetoing on it meant dragging a
+       box — the gesture this view invites in its own band — put that box's
+       chassis straight back, which is the defect the fold exists to remove
+       arriving by the most likely route to it. */
+    if (touch[ch] !== 1 || !one[ch] || pinned[ch] || !one[dev]) continue;
+    of[ch] = dev;
+    cut[i] = true;
+    (into[dev] || (into[dev] = [])).push(ch);
+    n++;
+  }
+  var keptB = [], keptL = [];
+  for (i = 0; i < boxes.length; i++) if (!of[boxes[i].s[0]]) keptB.push(boxes[i]);
+  for (i = 0; i < lines.length; i++) if (!cut[i]) keptL.push(lines[i]);
+  /* Every chassis the picture still draws BESIDE its device, counted. Without
+     it the band says how many were folded and nothing at all about the ones
+     that were not, and an estate where two devices have no chassis box and the
+     third does is an inconsistency the reader is left to explain to himself. */
+  var left = 0;
+  for (i = 0; i < keptB.length; i++) if (keptB[i].s[1] === 'Chassis') left++;
+  return { boxes: keptB, lines: keptL, of: of, into: into, n: n, left: left };
+}
+
+/* The chassis's own fields, for the rows that carry them. ONE call, the same
+   one `renderRack` makes to fill its box picker (`OP_INV_ROWS` over
+   `CHASSIS_KIND_BYTE`), and the slots are the Chassis row set's own columns:
+   model, serial, member_index, slots, device. Nothing is joined here — the map
+   is keyed by the element id the module put in slot 0, which is the same id the
+   diagram's box row carries, so a chassis is matched to a chassis and never to
+   a hostname that happens to look like one. */
+function chassisFacts() {
+  var out = {};
+  if (!wasm) return out;
+  var reply = call(OP_INV_ROWS, new Uint8Array([CHASSIS_KIND_BYTE]));
+  if (replyProblem(reply) || !reply.rows.length) return out;
+  reply.rows.slice(1).forEach(function (r) {
+    out[r.s[0]] = { model: r.s[1], serial: r.s[2], member: r.s[3], device: r.s[5] };
+  });
+  return out;
+}
+
+/* A value the module sends as `—` is unset, and an unset value must never be
+   printed as if it were one. */
+function dgFoldVal(v) { return v && v !== '—' ? v : ''; }
+
+/* What a folded chassis is CALLED on the rows that carry it. The module's own
+   label for it is `chassis 0`, which is the member index and is the label the
+   owner objected to — on a single-chassis box the 0 says nothing, and saying
+   nothing in a place a reader must look is how `chassis 0` came to read as a
+   second device. So the index appears only when it distinguishes something,
+   which is a chassis CLUSTER, which is the case the field exists for. */
+function dgFoldName(cid) {
+  var f = (DG.chassis && DG.chassis[cid]) || null;
+  var m = f ? dgFoldVal(f.member) : '';
+  return 'chassis' + (m && m !== '0' ? ' ' + m : '');
+}
+
+/* The box a selection is DRAWN AS. A folded chassis has no box of its own, so
+   the device it was folded into carries the mark — otherwise picking a chassis
+   in the inventory's Chassis row set and switching to the diagram highlights
+   nothing at all, which reads as "the diagram lost my selection". The selection
+   itself is NOT rewritten: the inspector still shows the chassis, because the
+   chassis is what was picked. */
+function dgBoxOf(id) {
+  return (DG.fold && DG.fold.of[id]) || id;
+}
+
+
 /* The page DRAWS; it does not lay out. Every coordinate here came from
    fathom-layout in the module (`41` §750: layout runs in the core, because it
    must be deterministic and because the CLI's SVG export shares it). If a box
@@ -3342,6 +3930,7 @@ function renderDiagram(host) {
   DG.view = DG.canvas = DG.svg = DG.scene = DG.ring = DG.out = null;
   DG.readout = DG.band = DG.sum = null;
   DG.boxes = null; DG.conn = null; DG.focus = null;
+  DG.fold = null; DG.chassis = null;
 
   if (!S.loaded) {
     var p0 = el('div', 'pad');
@@ -3369,6 +3958,19 @@ function renderDiagram(host) {
     else if (r.role === FACE_LINE) lines.push(r);
   }
 
+  /* ONE PIECE OF EQUIPMENT, ONE BOX. See dgFoldChassis for what is folded and
+     what is never folded. This happens BEFORE anything counts, positions or
+     draws, so `2 objects · 1 link` over a pair of unconnected boxes, the
+     Outline's `1 link` on a device joined to nothing, and the second box
+     labelled `chassis 0` all come out right by construction rather than by
+     three separate corrections that could disagree. */
+  var fold = dgFoldChassis(boxes, lines);
+  boxes = fold.boxes;
+  lines = fold.lines;
+  DG.fold = fold;
+  DG.chassis = fold.n ? chassisFacts() : {};
+
+
   /* The module reports the mask it actually applied, and the page prints THAT
      rather than what it believes it sent. A picture and its toggles that can
      disagree will, and the disagreement is invisible. */
@@ -3387,6 +3989,10 @@ function renderDiagram(host) {
   DG.view = view;
   var strip = el('div', 'dstrip');
   var maskLabel = layerStrip(strip);
+  /* The group `layerStrip` opened, taken from the label it returned rather than
+     kept in a second variable: everything that is about LOOKING at the picture
+     goes in here, and the two groups below are the other two tasks. */
+  var look = maskLabel.parentNode;
   /* `59` §3.7 keeps the un-aggregated form as a control in the PRODUCT, not
      only in the study: "an engineer who does not believe the count is entitled
      to see the forty."
@@ -3396,17 +4002,25 @@ function renderDiagram(host) {
      column's height -- the exact shape of the surface rebuild's defect 1 -- and
      it cost the last visible Outline row at 1400x400: `touching 1` before the
      two branches were merged, `touching 0` after. Measured, not reasoned.
-     Not in the zoom group either: that group is taken away at narrow widths
-     because it drives a canvas that is collapsed there, and this control
-     changes WHAT IS DRAWN, which matters at every width. */
+     In the LOOKING group but NOT inside `.dzoomctl`: the narrow rule takes the
+     zoom controls away because they drive a canvas that is collapsed there, and
+     this control changes WHAT IS DRAWN, which matters at every width -- so it
+     has to sit beside that sub-group and not inside it.
+
+     STATE, NOT THE NEXT ACTION, in the visible label. It read `collapse
+     repeated objects` while `aria-pressed` was `true`, so the two halves of the
+     same button disagreed: the text named the action, the flag named the state,
+     and a screen reader read them out together. `hold this end` two blocks down
+     set the precedent -- the label says what IS, `aria-pressed` says the same
+     thing again in the machine's words. */
   var whole = el('button', null,
-    S.whole ? 'collapse repeated objects' : 'draw every one');
+    S.whole ? 'showing every one' : 'show every one');
   whole.type = 'button';
   whole.setAttribute('data-whole', '1');
   whole.setAttribute('aria-pressed', String(!!S.whole));
-  strip.appendChild(whole);
+  look.appendChild(whole);
   view.appendChild(strip);
-  maskLabel.textContent = 'layer · ' + layerWords() + ' · ' + hidObjects + ' hidden' +
+  maskLabel.textContent = 'layers · ' + layerWords() + ' · ' + hidObjects + ' hidden' +
     (maskBack === String(S.layers) ? '' : ' · MASK MISMATCH ' + maskBack);
 
   if (!boxes.length) {
@@ -3444,11 +4058,15 @@ function renderDiagram(host) {
     if (noSetKinds.indexOf(b.s[1]) < 0) noSetKinds.push(b.s[1]);
   });
 
-  /* --- the strip's second half: fit, zoom, and the number the surface turns on
-     Wrapped in one element so the narrow rule can take the whole group away
-     while the canvas it drives is collapsed. */
+  /* --- still LOOKING: fit, zoom, and the number the surface turns on ---------
+     Wrapped in one element so the narrow rule can take the whole sub-group away
+     while the canvas it drives is collapsed. It goes INSIDE the looking group,
+     because zooming is the same task as toggling a layer -- neither touches the
+     graph -- and a reader should not have to learn two places for one job.
+     `fit on screen` rather than `fit`, which named a mechanism and left the
+     object of the verb to be guessed. */
   var zc = el('div', 'dzoomctl');
-  var bFit = el('button', null, 'fit');
+  var bFit = el('button', null, 'fit on screen');
   bFit.type = 'button';
   bFit.setAttribute('data-dfit', '1');
   zc.appendChild(bFit);
@@ -3463,7 +4081,7 @@ function renderDiagram(host) {
   zc.appendChild(el('span', 'lab', 'zoom'));
   DG.readout = el('span', 'dzoom', '1.00×');
   zc.appendChild(DG.readout);
-  strip.appendChild(zc);
+  look.appendChild(zc);
 
   /* --- placing a box, for a keyboard (ADR-0035) -----------------------------
 
@@ -3490,10 +4108,22 @@ function renderDiagram(host) {
      deliberately does not rebuild this strip (rebuilding it would drop the pan,
      the zoom and the focused row), so a group that appeared on selection would
      be a group that never appeared. With nothing selected they say so. */
-  var pc = el('div', 'dplacectl');
+  /* `dmovectl` as well as `dplacectl`: the second class is what the narrow rule
+     takes away when the picture is collapsed, and it is on this group and not
+     on the connect group below because moving a box you cannot see does
+     nothing a reader can check, while connecting two writes a row in the
+     Outline that is on screen at 320 px. */
+  var pc = el('div', 'dplacectl dmovectl');
   pc.setAttribute('role', 'group');
-  pc.setAttribute('aria-label', 'place the selected box');
-  pc.appendChild(el('span', 'lab', 'place'));
+  /* THE SECOND TASK: changing the picture. The old name, `place the selected
+     box`, named ADR-0035's mechanism -- a pin is placed -- and left a reader to
+     work out that this is how you move a box. The verb an engineer uses for
+     dragging a box across a drawing is `move`, and the group says which box it
+     will move, because these controls act on the selection and nothing in the
+     name said so. */
+  pc.setAttribute('aria-label',
+    'changing the picture — move the box you have selected');
+  pc.appendChild(el('span', 'lab', 'move'));
   [['left', -1, 0], ['right', 1, 0], ['up', 0, -1], ['down', 0, 1]].forEach(function (n) {
     var b = el('button', null, n[0]);
     b.type = 'button';
@@ -3503,8 +4133,15 @@ function renderDiagram(host) {
   /* THE UNDO, and it is one action and it is next to the thing it undoes.
      `56` §3.5 requires unpinning to be explicit and reversible; this is the
      explicit half. It reads as what it does rather than as "unpin", because
-     "pin" is this build's word and not the operator's. */
-  var bFree = el('button', null, 'let the layout place it');
+     "pin" is this build's word and not the operator's.
+
+     `auto-place it` rather than `let the layout place it`: "the layout" is the
+     name of a module (`fathom-layout`), and naming the machinery in a button is
+     how a control ends up meaning nothing to the person pressing it. `auto` is
+     the word the operator already has for the same idea, and `place` is kept
+     because it is the word the picture and the Outline both use for a hand
+     position (`placed`, `placed by hand`). */
+  var bFree = el('button', null, 'auto-place it');
   bFree.type = 'button';
   bFree.setAttribute('data-dfree', '1');
   pc.appendChild(bFree);
@@ -3516,15 +4153,24 @@ function renderDiagram(host) {
      never enters the <svg>, so the interface is the Outline and its strip, and
      these act on the SELECTION rather than appearing per row.
 
-     Three controls and no more. `hold this end` remembers one box, `draw the
-     link` and `cut the link` act between it and whatever is selected now. There
-     is no fourth control for "which kind" because the module answers that; when
-     it cannot, the chooser below appears in this same group, next to the
-     buttons that raised the question. */
+     Three controls and no more. `connect from here` remembers one box,
+     `connect them` and `disconnect them` act between it and whatever is
+     selected now. There is no fourth control for "which kind" because the
+     module answers that; when it cannot, the chooser below appears in this same
+     group, next to the buttons that raised the question.
+
+     THE THIRD TASK: adding to the picture. `link` is this build's word for an
+     edge and `draw`/`cut` are the renderer's verbs; the engineer's words for
+     the same two acts are `connect` and `disconnect`, and they are also the
+     only two words here that say the RESULT rather than the drawing of it. The
+     record still says `PeersWith` and the note still says `drawn by hand` --
+     the schema's name is never renamed to what somebody wishes it meant, and
+     the provenance mark keeps the word the export uses. */
   var lc = el('div', 'dplacectl');
   lc.setAttribute('role', 'group');
-  lc.setAttribute('aria-label', 'draw a link between two boxes');
-  lc.appendChild(el('span', 'lab', 'link'));
+  lc.setAttribute('aria-label',
+    'adding to the picture — connect two boxes, or disconnect them');
+  lc.appendChild(el('span', 'lab', 'connect'));
   /* THE HELD END IS THE BUTTON'S OWN LABEL, not a status span beside it, and
      that is a measurement rather than a preference. As a separate `lab` span
      this group was four flex items, the strip wrapped one line further at
@@ -3536,21 +4182,62 @@ function renderDiagram(host) {
      A button that says what it is holding is also better than a button plus a
      label that says it: `aria-pressed` carries the mode for assistive
      technology, the text carries it for everyone, and the `whole` button two
-     blocks up already sets the precedent for a label that changes with state. */
-  var held = DG_HOLD && DG.boxes && DG.boxes[DG_HOLD];
+     blocks up already sets the precedent for a label that changes with state.
+
+     THE HELD BOX IS READ FROM THE ROWS THE MODULE JUST SENT, and reading it
+     anywhere else was a defect that shipped. It read `DG.boxes`, which this
+     function empties at the top and which the painter four hundred lines below
+     does not fill until after this strip is built — so the lookup missed EVERY
+     time and the button said `holding a box no longer drawn` about a box that
+     was drawn, on screen, and selected. Reproduced in Chromium: hold a device
+     you have just added and the footer says `holding Device switch-lab-01`
+     while the button beside it denies the box exists. Two sentences about one
+     state and only one of them true, which is how it survived: nobody reads the
+     button when the footer has just answered. `boxes` is the reply's own rows
+     and it is in scope here — `s[0]` is the id, `s[2]` the label. */
+  var held = null, heldFull = '';
+  if (DG_HOLD) {
+    for (var hi = 0; hi < boxes.length; hi++) {
+      if (boxes[hi].s[0] === DG_HOLD) { held = boxes[hi].s[2]; break; }
+    }
+    /* CAPPED, AND THIS IS THE HALF THE LOOKUP FIX NEEDS. Until the lookup
+       worked, this button's width was a CONSTANT — the miss meant it always
+       read the 29-character refusal — so the strip's measured height never
+       depended on what was held. Making it truthful makes it UNBOUNDED: a
+       30-character hostname (`core-router-datacenter-west-01`, which is an
+       ordinary name for a lab) puts the strip back onto a third line at
+       1400x400 and hands back the Outline row this round was measured to win,
+       3 rows to 2, and 3 to 1 at 320x800.
+
+       Elided at the MIDDLE, the way `fitName` treats a range and for the same
+       reason: a lab's hostnames differ at the tail (`-01`, `-02`), so a
+       head-only cut would give two different boxes the same label — a control
+       that lies about which end it is holding, which is the defect this whole
+       block exists to remove. The full name is on the Outline row and in the
+       footer sentence that lands beside this very press, and `title` carries it
+       whole for a pointer. */
+    if (held && held.length > 16) {
+      heldFull = held;
+      held = held.slice(0, 8) + '…' + held.slice(-7);
+    }
+  }
   var bHold = el('button', null,
-    held ? 'holding ' + held.label
-         : DG_HOLD ? 'holding a box no longer drawn'
-         : 'hold this end');
+    held ? 'connecting from ' + held
+         : DG_HOLD ? 'connecting from a box not drawn now'
+         : 'connect from here');
   bHold.type = 'button';
   bHold.setAttribute('data-dhold', '1');
+  /* The whole name, for a pointer, when the label above had to elide it. The
+     same division the chooser uses for the schema's edge name: the button says
+     what fits, the title says what it is. */
+  if (heldFull) bHold.title = heldFull;
   /* aria-pressed, because holding an end is a MODE and a button that silently
      changed what the next press means would be a toggle pretending not to be
      one. `55` §1.4's rule about a state only a mouse can see, applied to a
      state only a footer message announced. */
   bHold.setAttribute('aria-pressed', String(!!DG_HOLD));
   lc.appendChild(bHold);
-  [['draw the link', '1'], ['cut the link', '0']].forEach(function (n) {
+  [['connect them', '1'], ['disconnect them', '0']].forEach(function (n) {
     var b = el('button', null, n[0]);
     b.type = 'button';
     b.setAttribute('data-dlinkmode', n[1]);
@@ -3583,14 +4270,29 @@ function renderDiagram(host) {
   }
   strip.appendChild(lc);
 
-  /* NOT LENGTHENED for the link controls, and that is deliberate: a hint is
-     laid out by the same flex wrap as everything else in this strip, and at
-     1400x400 the extra words cost the last visible Outline row (measured; see
-     the hold button above). The three link buttons say what they do in their
-     own labels, which is where a control's explanation belongs. */
+  /* WHAT IS LEFT IS WHAT NO CONTROL SAYS. Four of the six clauses that stood
+     here restated a button standing beside them -- "an element in any active
+     layer is drawn" is the layer group, "drag a box to move it" is the move
+     group, "wheel to zoom" and the fit clause are the zoom group -- and a hint
+     that repeats the control it sits under teaches nothing and costs a line of
+     the strip, which at 1400x400 is a line of the Outline (measured; see the
+     hold button above).
+
+     The two that survive are the two facts NO control carries: `z` is a
+     keyboard binding (`53` §3.4, and the only letter this view binds), and
+     dragging the background is the only way to pan, with nothing but the grab
+     cursor to say so.
+
+     143 CHARACTERS DOWN TO 35, AND THE LAST ELEVEN OF THEM ARE WORTH A ROW.
+     Measured at 1400x400, where the strip is laid out in a 1050 px box: at 46
+     chars ("z fits the picture · …") the hint does not fit beside the connect
+     group and takes a third line — strip 101 px, ONE Outline row on screen. At
+     35 it sits on the second line, the strip is 73 px, and TWO rows are on
+     screen. This is the same measurement that moved the `whole` control into
+     the strip and put the held box's name inside its own button, arriving for
+     the third time: on this surface a line of strip is a row of the estate. */
   strip.appendChild(el('span', 'lab dhint',
-    'an element in any active layer is drawn · drag a box to move it · ' +
-    'drag the background to pan · wheel to zoom · z fits · arrows walk the outline'));
+    'z fits · drag the background to pan'));
 
   /* --- the summary line. `55` §6.3: at 320 px the canvas collapses to this and
      the Outline takes the width. Present at every width, shown at one. */
@@ -3819,7 +4521,8 @@ function renderDiagram(host) {
     ag.controls = partial ? grpTally.ids.join(' ') : '';
 
     var g = sEl('g', {
-      class: 'dbox' + (S.sel === b.s[0] ? ' dsel' : '') + (ag.collapsed ? ' dagg' : '')
+      class: 'dbox' + (dgBoxOf(S.sel) === b.s[0] ? ' dsel' : '') +
+             (ag.collapsed ? ' dagg' : '')
     });
     /* A collapsed box is NOT a selection -- there is no single element to
        inspect -- so it carries data-group and no data-post, and a box that
@@ -3973,39 +4676,71 @@ function renderDiagram(host) {
      is the object count, so that is the arithmetic both places use now. */
   var collapsed = 0;
   for (var ci = 0; ci < agg.length; ci++) if (agg[ci].collapsed) collapsed += agg[ci].n;
+  /* WHAT SURVIVED THE 2026-08-17 CULL, AND THE TEST THAT DECIDED IT: a clause
+     stays if it is a number about THIS estate, or an instruction that names the
+     next action. It goes if it teaches the design — "one layout is computed
+     over all five and the mask filters what is drawn", "because a position is
+     graph data (ADR-0035) and not a view preference", "Staleness is not in this
+     build", the list of what pan and zoom remember. Every one of those is true,
+     is written down in `56` §3.6 and ADR-0035 where it belongs, and was read
+     once. Three notes of 1,714 characters carried 46% of the page's words over
+     a picture the owner came to look at.
+
+     `56` §5.2 G10's release valve is UNCHANGED in substance: anything the
+     picture cannot say, the band says, and no count has been dropped or
+     degraded — boxes, objects, collapsed, lines, swallowed, hidden objects,
+     hidden links, placed and hand-drawn all still print, which is 59 §6.2's
+     defect avoided. What is gone is the prose between the numbers. */
   note(DG.out, 'This is a rendering, not a record',
     boxes.length + ' boxes standing for ' + stood + ' objects' +
-    (collapsed > 0 ? ' · ' + collapsed + ' collapsed' : '') + ' · ' +
+    (collapsed > 0 ? ' · ' + collapsed + ' collapsed' : '') +
+    /* FOLDED IS NOT COLLAPSED AND IS NOT HIDDEN, so it is counted on its own
+       clause and never added into `stood`. A collapsed box stands for many
+       nodes of the SAME kind; a folded chassis is a part of the box beside it,
+       still in the record, still selectable, one row down. Summing the two
+       would give a reader a third number that is true of nothing — the exact
+       arithmetic defect `59` §3.9 files against this band. */
+    (fold.n > 0 ? ' · ' + fold.n + ' chassis shown under their device, not beside it'
+                : '') +
+    /* AND THE ONES THAT ARE NOT, with the reason. A chassis something else
+       points at — a rack mount is the common case — keeps its own box, because
+       folding it would take that second line off the picture with it. Saying so
+       is the difference between a rule and a surprise. */
+    (fold.left > 0
+      ? ' · ' + fold.left + ' chassis still drawn beside its device, because ' +
+        'something other than that device points at it — a rack mount, usually'
+      : '') + ' · ' +
     lines.length + ' lines' +
-    (swallowed > 0 ? ' · ' + swallowed + ' links are between objects inside one ' +
-     'collapsed box and are drawn nowhere' : '') +
-    '. Layers: ' + layerWords() + ' — ' + hidObjects + ' objects and ' + hidEdges +
-    ' links hidden by the mask. Toggling a layer never moves a box: one layout ' +
-    'is computed over all five and the mask filters what is drawn (56 §3.6). ' +
-    'Positions are computed by the model, and ' +
+    (swallowed > 0 ? ' · ' + swallowed + ' links inside a collapsed box, drawn ' +
+     'nowhere' : '') +
+    ' · layers ' + layerWords() + ', ' + hidObjects + ' objects and ' + hidEdges +
+    ' links hidden' +
+    /* `untabled` was the only fact in the deleted "treatments are not" note:
+       an object with no row in 56 §4.1's projection table is drawn at EVERY
+       layer, so it does not disappear when you toggle one off, and a reader
+       toggling layers will otherwise think the mask is broken. */
+    (untabled === '0' ? '' : ' · ' + untabled + ' objects have no layer and are ' +
+     'drawn at every one') +
+    '. ' +
     (placedCount === 0
-      ? 'none of these boxes has been moved by hand. Drag one, or use the place ' +
-        'controls above, and it stays where you put it — through an export and ' +
-        'an import, because a position is graph data (ADR-0035) and not a view ' +
-        'preference. '
-      : plural(String(placedCount), 'box carries', 'boxes carry') + ' a hand ' +
-        'position that overrides the computed one — each marked in the picture ' +
-        'with a corner tick and the word placed, and on its Outline row. ') +
-    /* The same sentence the placed count gets, and for the same reason: who
-       asserted a thing is a fact about the picture, and a picture that shows
-       hand-drawn and parsed lines identically is lying about the most
-       load-bearing claim a network diagram makes. */
+      ? 'Drag a box to place it by hand. '
+      : plural(String(placedCount), 'box carries', 'boxes carry') +
+        ' a hand position — marked placed. ') +
+    /* Who asserted a thing is a fact about the picture, and a picture that
+       shows hand-drawn and parsed lines identically is lying about the most
+       load-bearing claim a network diagram makes. The MARK is what matters and
+       the mark stays; the paragraph explaining why it stays does not. */
     (handLines === 0
-      ? 'No line here was drawn by hand. Hold one box with the link controls ' +
-        'above, select another, and draw one — it survives an export and an ' +
-        'import, because a link is graph data and not a view preference, and ' +
-        'no paste can rebuild it. '
-      : plural(String(handLines), 'line was', 'lines were') + ' drawn by hand ' +
-        'rather than read out of a config — each marked in the picture with the ' +
-        'words by hand and a heavier stroke, and on its Outline row. ') +
-    'Staleness is not in this build. Pan, ' +
-    'zoom, which groups are open and whether the picture is open at a narrow ' +
-    'width are the only things this page remembers about the surface.');
+      ? 'Press connect from here on one box, select another, and connect them. '
+      : plural(String(handLines), 'line was', 'lines were') +
+        ' drawn by hand — each marked by hand. ') +
+    /* THE KEYBOARD ROUTE, and it is the one clause of the old hint that had to
+       come back rather than be culled. `55` §4.5.2 makes the Outline this
+       view's focus path, not a fallback, and the <svg> is aria-hidden — so a
+       person who cannot use a mouse learns the arrows here or nowhere.
+       `role="tree"` implies arrow navigation to assistive technology and
+       implies nothing at all to a sighted keyboard user. */
+    'The arrow keys walk this list; Alt with an arrow moves the selected box.');
 
   /* `59` §3.7 asks an expanded group to state its own state IN THE PICTURE —
      "in a reserved band on the owning device: `st0 · 6 of 40 shown`" — and §3.9
@@ -4032,29 +4767,25 @@ function renderDiagram(host) {
     note(DG.out, 'Partly expanded', partials.join(' · ') + '.');
   }
 
-  /* What this build cannot draw, said rather than implied. 56 §4.1 gives most
-     of these kinds a treatment -- a bracket, a band, a port stub, a badge, a
-     conduit -- and this build draws one form, a box. Faking a bracket with a
-     box would claim 56 §4.4's tier 1 for a zone that may be scattered. */
-  note(DG.out, 'Layer membership is honoured; the treatments are not',
-    'In 56 §4.1 zones are brackets, VLANs are bands, tunnels are conduits, ' +
-    'chassis are sub-rows, ports are stubs and routing protocols are badges — ' +
-    'each is drawn here as the box it is.' +
-    (untabled === '0' ? '' : ' ' + untabled + ' of the objects above have no row in ' +
-     'that table at all, so they are drawn at every layer rather than guessed at.'));
+  /* THE "TREATMENTS ARE NOT" NOTE IS GONE. It said that 56 §4.1 draws zones as
+     brackets, VLANs as bands, tunnels as conduits and this build draws boxes —
+     a true statement about the SPEC's gap, addressed to a maintainer, standing
+     permanently in front of an owner drawing his lab. `56` §4.4's tier-1 rule
+     is about not faking a bracket, and this build still does not fake one; not
+     announcing the shortfall in 40 words over every render is not the same as
+     claiming a treatment. The one clause in it that was about this estate —
+     `untabled`, the objects with no layer row — moved up into the count note,
+     because that is where a person toggling a layer will be looking. */
 
-  /* The gap between what is drawn and what the inventory can show, stated
-     where it is discovered rather than in a commit message. */
+  /* The gap between what is drawn and what the inventory can show, stated where
+     it is discovered. The first sentence is a fact about HIS estate and names
+     the kinds; the four that followed it explained InvKind, named the Rust
+     type, and told him whose job the fix was. He cannot act on any of that. */
   if (noSetCount) {
-    note(DG.out, 'Selecting these leaves the kind strip alone',
-      noSetCount + ' of the ' + boxes.length + ' objects drawn are kinds the ' +
-      'inventory has no row set for — ' + noSetKinds.join(', ') + '. The diagram ' +
-      'draws every kind the layout emits and the kind strip is ' +
-      'fathom_inventory::InvKind, which declares thirteen; the two are not the ' +
-      'same list. Picking one of these is honoured in the ribbon, the inspector ' +
-      'and the picture, and the strip is left where it was rather than pointed ' +
-      'at an unrelated kind with nothing marked. Growing InvKind is the fix and ' +
-      'it is a change to the module, not to this page.');
+    note(DG.out, 'Not in the inventory',
+      noSetCount + ' of ' + boxes.length + ' objects drawn are kinds the ' +
+      'inventory has no row set for — ' + noSetKinds.join(', ') +
+      '. Selecting one leaves the kind strip where it is.');
   }
 
   DG.band = el('div', 'dband');
@@ -4917,6 +5648,7 @@ var fReturn = null;
 function setFinder(open, keepFocus) {
   fOpen = open;
   syncScrim();
+  syncLegend();
   $('fsheet').hidden = !open;
   var inp = $('fq');
   if (open) {
@@ -5033,15 +5765,20 @@ function setPaste(open) {
        "every line or cell", not "every line": a table's residue is reported per
        CELL, because a row of fifty columns with six understood is not honestly
        described as a row that was read. */
+    /* Both branches keep every clause that is about HIS data or his next move:
+       the word REPLACES, what will be dropped by name, the export-first
+       instruction, the reason (no merge yet), and the two security facts a
+       person is entitled to before pasting a firewall config into anything.
+       What went is the third telling of "the text is read in the module" — the
+       top band already says `no sockets, ever` — and the "rather than dropped"
+       tail, which the residue table demonstrates a second later. */
     $('pHint').textContent = S.loaded
-      ? 'Reading a config REPLACES the estate now held — ' + heldSummary() +
-        ' will be dropped. Fathom cannot yet merge two configs into one estate, ' +
-        'so export first if you want to keep this one. Nothing leaves this page: ' +
-        'the text is read in the module, secrets are destroyed before anything ' +
-        'is stored, and every line or cell that cannot be read is listed back to you.'
-      : 'Nothing leaves this page. The text is read in the module, secrets are ' +
-        'destroyed before anything is stored, and every line or cell that cannot ' +
-        'be read is listed back to you rather than dropped.';
+      ? 'This REPLACES what is held — ' + heldSummary() + ' will be dropped. ' +
+        'Fathom cannot merge two configs yet, so export first to keep it. ' +
+        'Secrets are destroyed before anything is stored; every line that ' +
+        'cannot be read is listed back to you.'
+      : 'Nothing leaves this page. Secrets are destroyed before anything is ' +
+        'stored; every line that cannot be read is listed back to you.';
     $('pRun').textContent = S.loaded ? 'replace what is loaded' : 'read it';
     renderPasteError();
     $('pta').focus();
@@ -5260,11 +5997,13 @@ function setEquip(open) {
   syncScrim();
   $('esheet').hidden = !open;
   if (!open) return;
+  /* The two facts a person acts on: what this door is for, and that unlike the
+     paste door it ADDS. The hand-entered mark survives because it is a claim
+     about provenance the whole product rests on — but the mark is visible on
+     every row it applies to, so one clause is enough here. */
   $('eHint').textContent =
-    'For a box you own but have no config for. Everything you type is stored ' +
-    'as yours — marked hand-entered, so you can always tell it apart from what ' +
-    'a config said. Nothing here is sent anywhere, and nothing you have already ' +
-    'added is replaced.';
+    'For a box you own but have no config for. Stored as yours — marked ' +
+    'hand-entered. Nothing already added is replaced.';
   buildEquipForm();
   var first = $('ef6');
   if (first) first.focus();
@@ -6154,8 +6893,8 @@ function setRack(open) {
   $('rsheet').hidden = !open;
   if (!open) return;
   $('rHint').textContent =
-    'Where your boxes physically stand. Nothing in a config says this, so every ' +
-    'rack and every position here is something a person entered.';
+    'Where your boxes physically stand. No config says this — every rack and ' +
+    'position here is hand-entered.';
   loadRacks();
   if (R.sel) loadElevation(R.sel);
   renderRack();
@@ -6170,18 +6909,24 @@ function setRack(open) {
 var PLACE_FIELDS = [
   [302, 'rack name', 'text', true,
    'A rack you already have is matched by this name; a new name makes a new rack.'],
+  /* The definition of a rack unit (1.75 in / 44.45 mm, EIA-310, IEC 60297) and
+     the paragraph on why Fathom will not guess the numbering direction are
+     gone. Both were correct and both were addressed to someone who does not
+     already know what a U is — which is not the person filling in this form.
+     What survives is the accepted range and the fact that these two are
+     ignored on a rack that already exists, because both change what he types. */
   [303, 'rack height in units', 'num', true,
-   'One rack unit is 1.75 in / 44.45 mm (EIA-310, IEC 60297). 42U is the ' +
-   'commonest cabinet; 1 to 100 is accepted. Ignored when the rack already exists.'],
+   '42U is commonest; 1 to 100 accepted. Ignored if the rack already exists.'],
   [304, 'unit numbering', 'numbering', true,
-   'Which end is U1. There is no universal convention — both are real, so ' +
-   'Fathom will not guess. Ignored when the rack already exists.'],
+   'Which end is U1. Ignored if the rack already exists.'],
   [305, 'position — lowest unit the box occupies', 'num', true,
    'For a box spanning several units, the lowest-numbered one.'],
   [306, 'box height in units', 'num', false,
    'Leave blank if you have not measured it: it is drawn as 1U and marked ' +
    'rather than recorded as 1U.'],
-  [307, 'face', 'face', false, 'front or rear.']
+  /* The note read "front or rear." over a dropdown whose two options are
+     `front` and `rear`. */
+  [307, 'face', 'face', false, '']
 ];
 var NUMBERINGS = ['ascending', 'descending'];
 var FACES = ['front', 'rear'];
@@ -6262,8 +7007,7 @@ function setPlace(open) {
   $('msheet').hidden = !open;
   if (!open) return;
   $('mHint').textContent =
-    'This says WHERE a box you have already recorded stands. It is stored as ' +
-    'yours — hand-entered — because no config states it.';
+    'Where a box you have already recorded stands. Hand-entered.';
   buildPlaceForm();
   var first = $('mfChassis');
   if (first) first.focus();
@@ -6507,7 +7251,10 @@ $('tabTheme').addEventListener('click', function () {
   var m = THEMES[themeIdx];
   if (m === 'auto') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', m);
-  this.textContent = 'theme · ' + m;
+  /* Into the label span, NOT this element: `this.textContent = …` would delete
+     the span that carries the quiet group's dotted underline, so the first
+     theme click used to erase the control's own styling. */
+  this.querySelector('.u').textContent = 'theme · ' + m;
 });
 
 /* --- responsive: the breakpoint is read from the token file --------------- */
@@ -6592,7 +7339,7 @@ function boot() {
         S.boot =
           'This module has no demo estate. It was a development fixture and it cost ' +
           '35,272 bytes of the 900,000-byte module ceiling, so it is compiled in only ' +
-          'by a build with --features demo-estate. Paste a config (top right) or add ' +
+          'by a build with --features demo-estate. Paste a config (the door marked START HERE) or add ' +
           'equipment by hand instead — both build a real estate.';
       }
       else { S.boot = replyProblem(reply) || 'the demo estate did not load'; }
