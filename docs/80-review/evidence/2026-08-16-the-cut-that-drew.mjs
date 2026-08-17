@@ -88,6 +88,13 @@ const rowFor = frag => page.evaluate(f => {
 }, frag);
 
 const hold = () => page.click('[data-dhold]');
+
+// THE PANEL IS ONE PANEL NOW. Selecting a row turns it to DETAILS, which is the
+// whole point of direction A — and it takes the object list off screen, so a
+// driver that selects two things in a row must come back to the list between
+// them. `#doutHead` is the OBJECTS tab.
+const objects = () => page.click('#doutHead').catch(() => {});
+
 const verb = m => page.click('[data-dlinkmode="' + m + '"]');
 const kinds = () => page.$$eval('[data-dlinkkind]',
   n => n.map(x => x.getAttribute('data-dlinkkind')));
@@ -110,8 +117,10 @@ const drawnByThePaste = await handLines();
 check('the paste drew no hand links', drawnByThePaste === 0, String(drawnByThePaste));
 
 // ---- 1. DRAW: the question is asked, and it says DRAW --------------------------
+await objects();
 await page.click('[data-drow="' + vpn + '"]');
 await hold();
+await objects();
 await page.click('[data-drow="' + unit + '"]');
 await verb(1);
 await page.waitForTimeout(200);
@@ -140,8 +149,10 @@ check('drawing a link the paste already made claims no hand mark',
   (await handLines()) + ' hand line(s) · ' + (await footer()));
 
 // ---- 2. DRAW the other one, which is genuinely new ----------------------------
+await objects();
 await page.click('[data-drow="' + vpn + '"]');
 await hold();
+await objects();
 await page.click('[data-drow="' + unit + '"]');
 await verb(1);
 await page.waitForTimeout(200);
@@ -156,8 +167,10 @@ check('answering with a free kind draws exactly one link',
 // paste, one drawn by hand — so the cut is ambiguous and must ask. Before the
 // fix the count went 1 → 2 here: the chooser answered "draw" to a question
 // raised by "cut", and the gesture meant to remove a line added one.
+await objects();
 await page.click('[data-drow="' + vpn + '"]');
 await hold();
+await objects();
 await page.click('[data-drow="' + unit + '"]');
 const before = await handLines();
 await verb(0);
@@ -188,8 +201,10 @@ check('A LINK OF AN AMBIGUOUS KIND CAN BE CUT', (await handLines()) === 0,
   (await handLines()) + ' hand line(s) left · ' + (await footer()));
 
 // ---- 5. one kind left, so the next cut does not ask ---------------------------
+await objects();
 await page.click('[data-drow="' + vpn + '"]');
 await hold();
+await objects();
 await page.click('[data-drow="' + unit + '"]');
 await verb(0);
 await page.waitForTimeout(250);
@@ -199,8 +214,10 @@ check('and it still draws nothing', (await handLines()) === 0,
   (await handLines()) + ' hand line(s) · ' + (await footer()));
 
 // ---- 6. now nothing joins them, and cutting says so ---------------------------
+await objects();
 await page.click('[data-drow="' + vpn + '"]');
 await hold();
+await objects();
 await page.click('[data-drow="' + unit + '"]');
 await verb(0);
 await page.waitForTimeout(250);

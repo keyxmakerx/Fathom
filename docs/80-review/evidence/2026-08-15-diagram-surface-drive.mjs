@@ -360,6 +360,10 @@ check('the ring goes with it',
 
 // ---- Escape does not strand focus on <body> (defect 6, 55 §5.6) --------------------
 await page.click('[data-dpost="' + sixth + '"] rect');
+// Picking a box turns the one panel to DETAILS (direction A), so the row is off
+// screen and cannot take focus. Back to the list first. `#doutHead` is the
+// OBJECTS tab and is also `55` §5.6's Escape target, which the next check pins.
+await page.click('#doutHead');
 await (await page.$('[data-drow="' + sixth + '"]')).focus();
 check('focus is on the row before Escape',
   (await page.evaluate(() => document.activeElement.getAttribute('data-drow'))) === sixth);
@@ -368,7 +372,17 @@ const landed = await page.evaluate(() => ({
   tag: document.activeElement.tagName, id: document.activeElement.id }));
 check('Escape moves focus to the Outline\'s heading, not to <body> (55 §5.6)',
   landed.id === 'doutHead', JSON.stringify(landed));
-check('and the selection is gone', (await page.$$eval('.dsel', n => n.length)) === 0);
+// ESCAPE IS A LADDER NOW, and one rung was added by direction A: the first
+// press returns the panel to the list, the next clears the selection. That is
+// the same shape `53` gives every other Escape in the product — undo the
+// smallest thing first — and it is why this needs two presses where it needed
+// one. Focus landing on `#doutHead` above is unchanged and is the `55` §5.6
+// requirement this block exists for.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(80);
+check('and a second Escape clears the selection',
+  (await page.$$eval('.dsel', n => n.length)) === 0,
+  (await page.$$eval('.dsel', n => n.length)) + ' still marked');
 
 // ---- inventory -> diagram ----------------------------------------------------------
 await page.click('[data-view="inventory"]');

@@ -121,9 +121,84 @@ fn shell_source_carries_no_egress_and_no_sinks() {
         if line.contains("box-shadow") {
             assert!(line.contains("var(--shadow)"), "{line}");
         }
-        assert!(!line.contains("@keyframes"), "{line}");
-        assert!(!line.contains("transition:"), "{line}");
-        assert!(!line.contains("animation:"), "{line}");
+    }
+    motion_is_priced_not_banned(&source);
+}
+
+/// **`51` §12, rewritten 2026-08-17: MOTION IS PRICED, NOT BANNED.**
+///
+/// This used to be three lines inside the loop above — `@keyframes`,
+/// `transition:` and `animation:` were forbidden outright — and that encoded a
+/// premise the owner has retired in his own words: *"i love the theme and UX
+/// direction ... but they had animations still and like submenus that all make
+/// sense and easy to understand."*
+///
+/// ADR-0033 was always the real rule and it never said no. It said **motion must
+/// carry meaning**. A ban cannot tell a pane sliding in from the side it came
+/// from — which says which way you moved — from a fade that decorates. So the
+/// test stops asking *"is there motion"* and asks the two questions that
+/// actually separate them, both of which are checkable:
+///
+/// 1. **Every duration is a token.** `51` §10 forbids a magic number at the call
+///    site for the same reason it forbids a hex colour: a duration nobody named
+///    is a duration nobody agreed. `--m-pane` and `--m-mark` are declared in
+///    `design/tokens.css` with what each one MEANS beside it, and
+///    `every_design_token_the_shell_uses_is_declared` already fails on a token
+///    that is used and not declared.
+/// 2. **Every animated property has a reduced-motion answer.** Vestibular
+///    disorders are not a preference and `55`'s posture on assistive settings is
+///    that the product obeys them. A page that animates without a
+///    `prefers-reduced-motion: reduce` block is not accessible, whatever the
+///    motion means.
+///
+/// What this deliberately does NOT check: whether a given animation is
+/// meaningful. No test can. That is a review question and ADR-0033 is where it
+/// is asked; this function's job is to make the two mechanical halves
+/// impossible to skip.
+fn motion_is_priced_not_banned(source: &str) {
+    let mut animated = 0usize;
+    // BLOCK-COMMENT STATE, not a per-line prefix test. This file's own prose
+    // quotes the property names being checked — the paragraph explaining why
+    // motion used to be banned contains the words `transition:` and
+    // `animation:` — and a continuation line of a `/* */` block starts with
+    // whatever word it starts with, not with `*`. Testing the prefix alone
+    // failed on exactly that line, which is a pleasing way to find out that a
+    // lint reading source needs to read it as source.
+    let mut in_block = false;
+    for line in source.lines() {
+        let l = line.trim_start();
+        let opens = l.matches("/*").count();
+        let closes = l.matches("*/").count();
+        let was_in_block = in_block;
+        if opens > closes {
+            in_block = true;
+        } else if closes > opens {
+            in_block = false;
+        }
+        if was_in_block || in_block || l.starts_with("/*") || l.starts_with("//") {
+            continue;
+        }
+        for prop in ["transition:", "animation:", "animation-duration:"] {
+            let Some(rest) = l.split_once(prop).map(|(_, r)| r) else {
+                continue;
+            };
+            // `none` is how the reduced-motion block turns motion OFF, and it
+            // carries no duration to name.
+            if rest.contains("none") {
+                continue;
+            }
+            animated += 1;
+            assert!(
+                rest.contains("var(--m-"),
+                "a duration must come from a motion token, not a number at the                  call site (`51` §10). Declare it in design/tokens.css beside                  what it MEANS: {line}"
+            );
+        }
+    }
+    if animated > 0 {
+        assert!(
+            source.contains("prefers-reduced-motion: reduce"),
+            "the shell animates {animated} propert(ies) and has no              `@media (prefers-reduced-motion: reduce)` block. Motion that              cannot be turned off is not a preference (ADR-0033, `55`)."
+        );
     }
 }
 
