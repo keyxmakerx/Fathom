@@ -286,8 +286,10 @@ All owner's, none taken here.
    answered, and it is upstream of `OP_CABLE`.
 7. **Should `schema/platforms.yaml` carry a port complement?** It would make §12.3 route 3
    possible and it is a schema change.
-8. **How is "cable to that device, port unknown" recorded?** §13.2. Three routes priced,
-   none chosen; the likeliest is relaxing `PhysicalPort.label` to `0..1`. Cheap now.
+8. **How is "cable to that device, port unknown" recorded?** §13.2. **Promoted to a blocker
+   by §13.5**: under drag-first capture this is the normal state of every new cable, not an
+   edge case, so `PhysicalPort.label` almost certainly becomes `0..1`. Nothing in §12 or §13
+   can be built until this is answered.
 
 ## 12. Cabling mode, and the correction that protects the trace
 
@@ -432,12 +434,14 @@ Added 2026-08-18. The owner corrected §12.6's reading of "granular editing":
 > the otherside, like it dropsdown or expands under the field i'm typing in to provide it or
 > leave blank if i don't know and it puts it in unknown."*
 
-**This is a better data-entry design than §12's drag-and-drop, and it should lead.** Three
-reasons, none of them aesthetic:
+**Both are built. This is not an alternative to §12's drag-and-drop and an earlier draft of
+this section was wrong to rank them** — see §13.5, which is the owner's correction and the
+most important paragraph in this file. The two halves do different jobs: **the drag captures,
+the field completes.** What follows is why the field half is worth building well, not an
+argument for building it first.
 
-1. **It is faster where the work actually happens.** Documenting an estate is a list-shaped
-   job — you go down the ports of a switch one at a time. Typing never leaves the keyboard;
-   dragging means finding two things on a canvas for every one cable.
+1. **It is fast for the list-shaped half of the work.** Some documenting is done down a
+   switch's ports one at a time, and there typing never leaves the keyboard.
 2. **It is keyboard-native for free.** §12's drag gesture needs a keyboard twin built
    alongside it or the browser drivers fail it. A text field with a completion list *is* the
    keyboard path, and the mouse affordance is the one that comes free instead.
@@ -514,9 +518,54 @@ things are built on the current shape.**
 
 It is a *data-entry* design, not a *reading* one. §12.7's range cabling — *"ports 1–24 to
 ports 1–24"* — is twenty-four trips through this field, and the field does not make that
-better. The two designs are complementary rather than competing: type-to-link for the
-one-at-a-time case, a range gesture for the panel case, and §12's drag for the case where a
-person is looking at a picture rather than a list.
+better.
+
+### 13.5 The owner's correction, and it changes the shape of both halves
+
+> *"nunununo no. We are doing both, because it's WAY faster to drag and drop, and then fill
+> out later, or even in line than it is to be editing the dedicated piece of equipment page.
+> trust me, we aren't reinventing the wheel here, other people have done similar things
+> before."*
+
+**He is right and §13's opening was wrong.** Ranking them was the error, and the reason it
+was an error is worth stating because it changes what gets built:
+
+> **THE DRAG IS FOR CAPTURE. THE FIELD IS FOR COMPLETION. A CABLE IS BORN INCOMPLETE AND
+> THAT IS THE FEATURE, NOT A DEFECT TO DESIGN AROUND.**
+
+You drag ten cables in fifteen seconds because you can see both boxes and your hands know
+where they go. Not one of those ten has a label, a media type, a lane or a far-end port yet,
+and **none of that stops the ten cables from being true**. You fill them in afterwards,
+inline, from a list — or you never do, and the estate still says ten real things it did not
+say before.
+
+The failure mode this avoids is the one he named: a form that demands every field before it
+will record anything turns a fifteen-second job into a twenty-minute one and gets abandoned.
+Drag-then-annotate is a long-established pattern in inventory and diagramming tools, and the
+project has no reason to relitigate it.
+
+**Three consequences, and the first one promotes an open decision to a precondition.**
+
+1. **`PhysicalPort.label` must become `0..1`.** §13.2 offered relaxing it as one of three
+   routes, likeliest but optional. Under drag-first it is not optional: *"there is a port and
+   I do not know which"* is the **normal state of every freshly-dragged cable**, not an edge
+   case in a form. A schema that cannot say it cannot record the primary gesture. Open
+   decision 8 is now a blocker rather than a preference.
+2. **Incompleteness is drawn, never hidden.** `70` §16 already settled the doctrine — an
+   incomplete path is drawn and *marked*, never refused — and `51` §9 reserves `dotted` for
+   *unanswered*. A dragged cable with one end unresolved is exactly an unanswered fact, so it
+   draws dotted and says so on its Outline row. The mark is what makes capture-first honest
+   rather than sloppy: the estate never pretends the gap is not there.
+3. **The unfinished need a home, and one exists with nothing in it.** *"17 cables have no far
+   port · 4 have no label"* is a standing list of what the estate does not yet know, which is
+   precisely the **findings** view — one of the three placeholders. This gives an unbuilt view
+   its first real job, and it is the natural place the annotate half is driven from: work the
+   list down rather than hunting the canvas for what is dotted.
+
+**What this does NOT change.** The two guardrails in §13.3 hold for the drag as well: a
+gesture must never invent a device that was not named, and where several edge kinds are legal
+between two ends the product offers them and refuses to pick. Fast capture is not permission
+to guess.
 
 ## Failure modes
 
@@ -550,6 +599,11 @@ person is looking at a picture rather than a list.
   in the side panel; a 42U elevation does not fit in a 380px column and I was letting the
   plumbing pick the design. I then proposed a full-screen takeover; the owner corrected that
   to the canvas swapping what it draws while the chrome stays, which is cheaper and better.
+- **With myself, on §13, and the owner corrected it.** The section opened by ranking
+  type-to-link above drag-and-drop. That was wrong: they do different jobs — the drag
+  captures, the field completes — and ranking them would have produced a slower product and
+  a form nobody finishes. Retracted in §13.5, which also promotes open decision 8 from a
+  preference to a blocker.
 - **With the five designs, on §8.** They were evaluated before the owner's last constraints
   arrived. "Dozens of racks" is not a detail — it refutes The Open Spine's central premise,
   and no reviewer had the chance to say so.
