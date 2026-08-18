@@ -147,6 +147,44 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   stores ciphertext it cannot read, which is what `33` and `43` D2/D3 already specify. `70` §9
   records that there is **no thin first release** — most features work before anything ships.
 
+- **A week of design is on disk and none of it is built — `docs/50-design/57-the-zoom-ladder-and-the-trace.md`,
+  2026-08-18.** It began as a complaint that `rack view` sat in the band's data-entry row and
+  opened into the product's shape. **Read `57` §14 before planning anything**: it sorts every
+  raised item into *buildable now* (four, page-side, no decision needed), *blocked on the owner*
+  (five, all cheap-now-expensive-later), and *blocked on bytes* (everything else). The honest
+  summary is in its own §14: **the design has outrun the build capacity — eight unbuilt designs
+  against 203 free bytes** — and every road out runs through `47`'s levers, none of which is
+  proved. Four findings from it bind future work:
+  **(a) the schema forks physical from logical and they meet at the chassis** — `Premises → Rack →
+  Chassis` and `Site → Device → Chassis` hang off different roots, so "physical view or logical
+  view" is the wrong question; it is one ladder that forks once, at the box.
+  **(b) `19` §6.5's `trace_step` is fully specified and has never been implemented** — the cable
+  walk, the sort orders, the `PassThrough` step, a 16-hop cap and seven named outcomes. Drawing a
+  trace is following a decision already taken, not inventing one.
+  **(c) nothing creates a `Cable`, and nothing creates a `PhysicalPort`.** Both kinds and all
+  their edges are declared; no opcode builds either. The physical trace is fully expressible and
+  completely unbuildable on a hand-made estate.
+  **(d) "why does this packet go here" is answerable with no rules engine** — never say permitted
+  or denied; from the ingress and egress interfaces the graph names the two zones, the policy set
+  between them, and its policies *in the order the device reads them*. Four hundred policies
+  become the twenty-seven pointing this way, exactly and not heuristically.
+- **One schema decision is a hard blocker and it is the owner's** (`57` §13.5, open decision 8):
+  **does `PhysicalPort.label` become `0..1`?** It is `card: "1"` today — the silkscreen, required.
+  Under the drag-then-annotate capture the owner specified, *"there is a port and I do not know
+  which"* is the normal state of every freshly-drawn cable rather than an edge case, so a schema
+  that cannot say it cannot record the primary gesture. **Nothing in `57` §12 or §13 is buildable
+  until this is answered.**
+- **The parse-server question is answered and the answer is no server — `38` §14, 2026-08-17.**
+  Six designs, each attacked by an independent reviewer. The finding in one line: *we were about
+  to move a customer's firewall config off his machine because a lookup table got compiled as a
+  chain of `if` statements.* The largest zero-egress lever is 1.9× the entire prize of the server
+  that would have read the config. Two live defects came out of it: the shape sketch publishes the
+  exact byte length of every secret it destroys (§14.9, open), and `snmp.trap-group` had exactly
+  one detector where every other declared secret has two (**fixed 2026-08-17**, +16 bytes, with an
+  8-character canary). The durable rule it produced, proposed to `03` and not yet ratified:
+  **nothing arriving after the build may reduce what the ingest gate destroys, only increase it —
+  union, never replace.**
+
 ## Rules that bind every session
 
 0. **A SAFETY GATE IS TESTED AGAINST WHAT A DEVICE ACCEPTS, NEVER AGAINST WHAT THE DETECTOR
@@ -184,6 +222,25 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
    deciding in it is a defect.
 
 ## Next actions
+
+- **Friday, when usage resets: prove the three byte levers first.** `47` names three — one
+  generated dispatch emitted as a table rather than a branch tree (~11,089, mechanism
+  corroborated, headline unreproduced), the store's eight `BTreeMap`s as sorted vectors
+  (~45,549, unreproduced), six sort sites as one shared insertion sort (~25,125, unreproduced).
+  **~81,000 bytes claimed against 203 free and 602 needed for the next feature.** A run to prove
+  all three was started 2026-08-17 and stopped in its first minute for cost. It is the single
+  highest-leverage unproven claim in the project: **an entire category of blocked work empties
+  the moment it lands**, and the first lever makes every future schema kind cheaper, which
+  changes the economics of everything left. The fourth lever — moving the finder out, 220,289
+  measured twice — is **held, not recommended**: today's finder reads only the public corpus, but
+  the finder as *specified* (`16` §16.1) walks the user's graph, so moving it puts estate-touching
+  code outside the module boundary.
+- **Four things are buildable with no decision and no bytes** (`57` §14.1 pile A): move `rack
+  view` out of the band so selecting a rack is how you get an elevation; build rung 4, the inside
+  of a box, which is the largest design gap and needs no new kind; make inventory cells editable
+  for fields that already exist, since `OP_FIELD_SET` is already there and only reach is missing;
+  and give the empty findings view its first job as *what the estate does not know yet* — "17
+  cables have no far port". A session with no owner available should go here.
 
 - **Read `docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` first** (Proposed, 2026-08-10). It is
   the measured route: where the product actually is (**1 of 6 views live; 3 inventory kinds against
@@ -229,7 +286,7 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 655 tests as of 2026-08-16; green is the gate, not the
+- `cargo test --workspace --locked` — 656 tests as of 2026-08-17; green is the gate, not the
   number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0, **0 failures and 0
   warnings** since 2026-08-09. The two standing `schema.identity.unexercised` warnings
@@ -238,8 +295,9 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
   next warning of any code fails a test.
 - `./scripts/gate-zero.sh` — exists since 2026-08-15; fails the build if `Cargo.lock` holds an
   external package with no `deps/decisions/<crate>.md` beside it (ADR-0032 §6).
-- `cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm` — **899,781 bytes
-  against the 900,000 ceiling, which is 219 of headroom.** Measure, never estimate;
+- `cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm` — **899,797 bytes
+  against the 900,000 ceiling, which is 203 of headroom** (2026-08-17, after the `trap-group`
+  detector). Measure, never estimate;
   `scripts/byte-census.sh` says where they go. **At this margin the ceiling decides what ships
   next**: the rack, the OPNsense engine, the roles and the links between them spent the last of it,
   and the only lever left is float handling (~44,825), which is ring-fenced for encryption and is

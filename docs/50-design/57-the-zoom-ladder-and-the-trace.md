@@ -567,6 +567,92 @@ gesture must never invent a device that was not named, and where several edge ki
 between two ends the product offers them and refuses to pick. Fast capture is not permission
 to guess.
 
+## 14. Where this stands — the handoff
+
+Written 2026-08-18 at the close of the week, because the honest summary of five days of
+design is uncomfortable and worth saying in one place:
+
+> **THE DESIGN HAS OUTRUN THE BUILD CAPACITY BY ROUGHLY A YEAR OF BYTES.** There are eight
+> unbuilt designs in this file and **203 free bytes** in the module. The constraint is not
+> ideas and has not been ideas for some time. **Every road out of here runs through `47`'s
+> byte levers**, and not one of them has been proved.
+
+### 14.1 The three categories, and only one of them is stuck
+
+Everything raised this week sorts into three piles, and conflating them is what makes the
+situation look worse than it is.
+
+**A — Buildable now. No decision, no bytes, page-side.** This pile is not empty and it is
+where a session with no owner available should go.
+
+| | what | why it is free |
+|---|---|---|
+| A1 | **Move `rack view` out of the band** — selecting a rack is how you get an elevation | the renderer exists; only the entry point changes |
+| A2 | **Rung 4 — inside the box** (§7) | needs no new kind, no opcode, no rules engine; a renderer and a layout, both page-side |
+| A3 | **Editable inventory cells** for fields that already exist | `OP_FIELD_SET` already exists (§12.6); this is reach, not machinery |
+| A4 | **The findings view as "what the estate does not know yet"** (§13.5.3) | reads the graph it already has; gives an empty placeholder its first job |
+
+**B — Blocked on the owner.** Five decisions, all cheap now and expensive later, none of
+which an execution session may take (`78` §5).
+
+| | decision | why it cannot wait |
+|---|---|---|
+| B1 | **Does `PhysicalPort.label` become `0..1`?** | **hard blocker.** §13.5: under drag-first capture, "a port I cannot name" is the normal state of every new cable. Nothing in §12 or §13 is buildable until this is answered |
+| B2 | **Is a `Site` related to a `Premises`?** (§4) | a rack cannot be at a site. Invisible in one building, immediate at work |
+| B3 | **Where do `PhysicalPort`s come from?** (§12.3) | cabling shows an empty port list on every hand-built device until this is answered |
+| B4 | **Reopen the no-move refusal?** | drag-and-drop in a rack *is* a move, and `rack_place` refuses one on purpose |
+| B5 | **Is the trace a dedicated view?** | he said yes (§8.4); it takes one of six view slots, three of which are placeholders |
+
+**C — Blocked on bytes.** Everything else. `OP_CABLE`, unmount, move, DHCP's `DhcpRelay`,
+and any new kind at all. **203 bytes free; DHCP alone needs 602.**
+
+### 14.2 The unlock, and it is unproven
+
+`47` names three levers that would free an estimated **~81,000 bytes** — 135× what DHCP
+needs — with no server, no egress and no visible change to the product:
+
+| lever | claimed | state |
+|---|---|---|
+| one generated dispatch emitted as a table instead of a branch tree | ~11,089 | **mechanism corroborated, headline unreproduced** |
+| the store's eight `BTreeMap`s as sorted vectors | ~45,549 | **unreproduced** |
+| six sort sites as one shared insertion sort | ~25,125 | **unreproduced** |
+
+A run to prove all three was started on 2026-08-17 and stopped by the owner at the first
+minute for cost. **It is the single highest-leverage unproven claim in the project**, because
+category C empties the moment it lands and stays empty — the first lever in particular makes
+*every future schema kind* cheaper, which changes the economics of everything left to build.
+
+The fourth lever, moving the finder out of the module (**220,289 bytes, measured twice**), is
+**held rather than recommended**: a reviewer established that while today's finder code only
+reads the public corpus, the finder as *specified* walks the user's graph. Moving it would
+put estate-touching code outside the module boundary, which is a different and worse trade
+than the byte figure suggests.
+
+### 14.3 What I would actually do first, in order
+
+1. **Prove the three byte levers.** Nothing else changes shape until this is known, and it is
+   the only item that unblocks a whole category. If they land, category C empties.
+2. **Answer B1.** One schema decision, one line, and it unblocks the entire cabling design.
+3. **A1 and A4** — cheap, visible, and A4 gives the annotate half somewhere to live.
+4. **A2 — rung 4.** The biggest design gap, no dependencies, and it is where "why does this
+   go here" lives.
+5. **`OP_CABLE`**, once bytes exist and B1/B3 are answered.
+
+### 14.4 What I am least confident about
+
+Stated plainly, because a handoff that only lists conclusions is not one.
+
+- **Scale is hand-waved in all five trace directions** (§5). Each has a mechanism; none was
+  tested against an estate forty times the fixture. The aggregation catch — the default view
+  folds groups above six, which is exactly the granularity a thread needs — suggests the
+  problem is worse than any of the five modelled.
+- **The three byte figures are claims, not measurements.** Only `slot_type`'s 16,348 is
+  corroborated. Do not plan on ~81,000 until it is built and read off a real artifact.
+- **Six of the owner's constraints (§8) arrived after every design was judged.** Only two of
+  the five were re-examined against them, by reasoning rather than by rendering.
+- **Nothing in this file has been driven in a browser**, which is the standard this project
+  holds every other claim to.
+
 ## Failure modes
 
 - **This document is a record of design, not of code.** Nothing here has been driven in a
