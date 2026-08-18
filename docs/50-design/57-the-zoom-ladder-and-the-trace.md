@@ -282,6 +282,143 @@ All owner's, none taken here.
 4. **What does a bundle of ten links look like?** Undesigned (§8.3).
 5. **What is the top-down view?** A floor plan is a different drawing from an elevation and
    nothing above designed it (§8.5).
+6. **Where do `PhysicalPort`s come from?** §12.3. Cabling mode does not work until this is
+   answered, and it is upstream of `OP_CABLE`.
+7. **Should `schema/platforms.yaml` carry a port complement?** It would make §12.3 route 3
+   possible and it is a schema change.
+
+## 12. Cabling mode, and the correction that protects the trace
+
+Added 2026-08-18, after §8 was written. The owner's words:
+
+> *"we need to also have the ability to easily edit stuff, either by like very granular, or
+> something as simple as drag and dropping cables. We should be able to go into cabling mode
+> or something, where i can draw a cable between one device and another, you'd prompt me when
+> i click on the first box to indicate where it is coming out of, but give an option for
+> unknown or virtual (seperate options and more if needed) and then drag and drop, doing the
+> same thing with the ports on the other side."*
+
+### 12.1 His two options are already declared — on the other edge
+
+`Link` (`Interface → Interface`, symmetric, `0..1` at each end) declares:
+
+```
+media: enum { copper, fibre, dac, virtual, unknown }
+```
+
+**`virtual` and `unknown` are the two he named, verbatim, and they already exist.** Along with
+`length_m`, `label` (documented as *"Patch panel reference"*) and `provider_circuit`.
+
+But they are on `Link`, not on `Cable`. And that is the correction:
+
+> **`virtual` IS NOT A KIND OF CABLE. IT IS THE ABSENCE OF ONE.**
+
+`Cable` + `Terminates` is the physical plant: a run of copper or fibre between two
+`PhysicalPort`s. `Link` is a logical adjacency between two `Interface`s, which may or may not
+have any metal under it. Two VMs on one hypervisor, a VLAN, a tunnel — all `Link`, none of
+them `Cable`.
+
+**If "virtual" were offered as a port choice in a cable dialog, the product would write
+fiction into the physical plant** — and `19` §6.5's `trace_step` walks `Terminates` and
+`PassThrough` to answer *"where does this physically go"*. A virtual cable in that walk
+returns a physical path that does not exist, confidently, in the one feature whose entire
+value is being trustworthy about the plant.
+
+So the dialog's shape is not *"pick a port, or unknown, or virtual"*. It is:
+
+| the person means | what gets written |
+|---|---|
+| out of this specific port | `Cable` + `Terminates{end: A, lane?}` |
+| out of *a* port, I don't know which | a **one-ended cable** — see §12.2 |
+| there is no cable, these just talk | `Link{media: virtual}` — a different gesture |
+| I don't know if there's a cable | `Link{media: unknown}` |
+| off the estate entirely | `Terminates → ExternalPeer`, which is declared |
+
+The last row is one he did not ask for and will want: `Terminates` goes to
+`PhysicalPort | ExternalPeer`, so "this uplink goes to the ISP" is already expressible.
+
+### 12.2 A one-ended cable is legal, and the schema says so out loud
+
+`Terminates` is `out: "0..2"` at the cable end. A cable with **one** termination is a valid
+graph. `Cable`'s own doc anticipates exactly the owner's "unknown" case:
+
+> *"A one-ended cable with no label has no recovery key — if you record a planned cable,
+> label it."*
+
+So "unknown far end" needs no new option and no new field. It is a cable with one
+`Terminates`, and the schema's advice — **label it, or you will never find it again** — is
+the prompt the form should give. That is a designed behaviour available for free.
+
+### 12.3 The blocker nobody has hit yet: there are no ports
+
+`HasPort` is `Chassis → PhysicalPort`, and **nothing creates a `PhysicalPort`.** A device
+added by hand gets a `Device` and a `Chassis` and zero ports.
+
+So "click the box and pick which port it comes out of" shows an **empty list on every
+hand-built device in the estate**. This is the same shape of blocker as `OP_CABLE` (§6.2) and
+it is upstream of it: cabling mode cannot work at all until ports exist. Two routes, neither
+chosen here:
+
+1. **Ports arrive with the equipment.** The add-equipment sheet asks how many ports and of
+   what kind, and writes them. Cheap, but wrong for a chassis with mixed line cards.
+2. **Ports are created inline by the cabling gesture.** Clicking a box with no ports offers
+   *"add a port"* as the first item. Better for the hand-built case and more code.
+
+A platform-driven default (an SRX345 has a known port complement) is the obvious third route
+and it needs `schema/platforms.yaml` to carry port data, which it does not.
+
+### 12.4 Cabling mode is not a mode — it is `OP_LINK`'s gesture one rung down
+
+The product removed a mode this week (`rack view` as a door) and should not add one back.
+But cabling genuinely is repetitive — you draw twenty of them in a sitting — so it wants to
+be **sticky**, like a pen tool, rather than a screen.
+
+There is already an idiom for exactly this: `OP_LINK`'s *hold one end, select the other,
+draw or cut*. Cabling is the same gesture one rung down — **ports instead of boxes**. That
+unification is worth taking deliberately:
+
+| rung | hold | select | writes |
+|---|---|---|---|
+| 1 — site | a device | another device | a reference edge the schema admits |
+| 3 — chassis | a **port** | another **port** | `Cable` + two `Terminates` |
+
+Same muscle memory, same refusal-to-guess when several kinds are legal, same `by hand` mark,
+same keyboard path. It should also be drawable **from the rack elevation**, because that is
+where a person can see both boxes at once — which is the answer to §8's "one rack at a time
+with travel between them" meeting cabling.
+
+### 12.5 Breakout is modelled, and it will bite
+
+`Terminates.lane` is a `u8` and `Cable.assembly` is documented as *"breakout assembly,
+multi-fibre bundle"*. So one 40G port fanning to four 10G ports is expressible — and it means
+the port picker cannot assume one cable per port. Any design that draws "one line per port"
+is wrong the first time the owner documents a breakout, which in a home lab with a 40G
+uplink is week one.
+
+### 12.6 On "granular editing", which is the larger half of his ask
+
+`OP_FIELD_SET` already exists: a stored field can be corrected. So granular editing is not
+missing — it is **unreachable**. You can only edit what a form happens to expose, and the
+forms expose what somebody remembered to put in them.
+
+The general answer, which is a bigger idea than cabling: **every fact on screen should be
+editable where it is shown.** The inventory already renders every field of every kind from
+the generated tables; making those cells editable in place reaches far more of the estate
+than any number of purpose-built sheets, and it is page-side. That is probably the highest
+value-per-byte item in this entire document.
+
+### 12.7 Scale, again
+
+Dozens of cables between two racks is the normal case, and drawing each by hand is the kind
+of tedium that makes people stop using a tool. Two things worth designing before anyone
+builds the single-cable gesture:
+
+- **Range cabling.** *"ports 1–24 on this panel go to ports 1–24 on that one"* is one gesture,
+  not twenty-four. `PassThrough` is symmetric and `0..n`, so a patch panel's whole front-to-back
+  mapping is expressible in one sweep.
+- **The bundle.** `Cable.assembly` groups them. Ten cables between two racks should draw as
+  one bundle with a count, expanding on focus — which is also §8.3's unanswered question
+  about ten links between two devices, and probably the same treatment.
 
 ## Failure modes
 
@@ -290,6 +427,8 @@ All owner's, none taken here.
 - **The five directions were judged against three requirements and then the owner added six
   more constraints** (§8). Only two of the five were re-examined against them, and only by
   reasoning rather than by rendering.
+- **§12 was written from the schema and from reasoning, not from a render.** No drawing of
+  cabling mode exists and the owner asked for no more renders this week.
 - **One of five checks did not complete** (Facing Pages, API error), so that direction is
   recorded unchecked and should not be relied on.
 
