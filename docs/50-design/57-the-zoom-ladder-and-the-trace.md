@@ -286,6 +286,11 @@ All owner's, none taken here.
    answered, and it is upstream of `OP_CABLE`.
 7. **Should `schema/platforms.yaml` carry a port complement?** It would make §12.3 route 3
    possible and it is a schema change.
+8b. **Where does a thing that is not in a rack live?** §15. A `Surface` kind plus widening
+   `MountedIn`, and a `Device`-to-`Premises` relationship. Second independent surfacing of the
+   §4 gap.
+8c. **Does `height_u` move from `MountedIn` to `Chassis`?** §15.6. A 2U server is 2U whether
+   or not it is racked. Cheap now, a migration later.
 8. **How is "cable to that device, port unknown" recorded?** §13.2. **Promoted to a blocker
    by §13.5**: under drag-first capture this is the normal state of every new cable, not an
    edge case, so `PhysicalPort.label` almost certainly becomes `0..1`. Nothing in §12 or §13
@@ -652,6 +657,107 @@ Stated plainly, because a handoff that only lists conclusions is not one.
   the five were re-examined against them, by reasoning rather than by rendering.
 - **Nothing in this file has been driven in a browser**, which is the standard this project
   holds every other claim to.
+
+## 15. Where a thing is: racks, shelves, buildings and the floor
+
+Added 2026-08-18, from the owner's own estate:
+
+> *"oh we'll need to be able to put it into a building, but it doesn't have to be in one.
+> However i'm not gonna lie 99.9% of equipment will be... I also want to account for something
+> like i have where i have a shelf, and little mini pcs and other stuff on a per shelf, just
+> kinda sitting there. Heck my own NAS is a PC case sitting on a shelf on my rack (which is
+> just a short rack)"*
+
+**This is the most useful thing he has said about the physical model**, because it is a real
+estate rather than a hypothetical one, and the schema answers only one third of it.
+
+### 15.1 What already works
+
+- **Custom rack sizes.** `Rack.height_u` is `card: "1"`, `u8`, range 1–100. His *"short rack"*
+  is a rack with a small `height_u` and needs nothing. Nothing is hardcoded to 42U.
+- **`face`** is `enum { front, rear }` on `MountedIn`, so front and rear mounting is there.
+- **Unstated height is handled honestly.** The elevation draws an item of unknown height as
+  one unit and *marks* it, rather than silently assuming 1U — `70` §16's doctrine, applied.
+- **Not being in a rack is already legal.** `MountedIn` is `out: "0..1"`, so zero racks is a
+  valid `Chassis`.
+
+### 15.2 Three ways a thing is somewhere, and only one is modelled
+
+| how | example from his estate | modelled? |
+|---|---|---|
+| **bolted into a rack at a U** | the switch, the firewall | **yes** — `MountedIn{position_u, height_u, face}` |
+| **resting on a surface** | mini PCs on a shelf; the NAS, a PC case on a shelf in the rack | **no** |
+| **just in a building** | an AP on a wall, a switch on a desk | **no** — and see §15.5 |
+
+### 15.3 Why "just use `MountedIn` with the height blank" is wrong
+
+It is the obvious cheap answer and it fails twice.
+
+1. **It poisons clash detection.** The elevation already reports two items claiming one U as a
+   clash. Three mini PCs on one shelf would all sit at the shelf's U and produce **three
+   permanent false clashes**, in a feature whose whole value is catching the real ones.
+2. **It asserts a fact nobody stated.** *"Bolted at U14"* is not true of a PC case resting on
+   a shelf. This product exists to not do that.
+
+A real shelf fixes both cleanly: **the shelf** takes one legitimate mount at U14–U15, and the
+things on it are not in the rack at all — so nothing collides and nothing is claimed.
+
+### 15.4 `PassiveNode` is not the answer, checked rather than assumed
+
+It looks close — its `form` enum has `enclosure` and `other`. But it is *"hardware with ports
+and no configuration… owns `PhysicalPort`s exactly as a `Chassis` does"*, it is contained by
+`Premises` so it cannot be mounted in a rack, and nothing can rest on it. It models things in
+the **signal path**. A shelf carries weight, not signal.
+
+### 15.5 The recommendation
+
+Two changes, and the second is larger than the first.
+
+**(a) A surface is a kind, and it can be racked or free-standing.**
+
+```
+Surface        label, form: enum { shelf, desk, floor, bracket, cabinet_base, other }
+MountedIn      from: [Chassis, Surface]     <- widen the existing edge
+HasSurface     Premises -> Surface          <- for a shelf not in a rack
+RestsOn        Chassis -> Surface           <- reference edge, no position
+```
+
+Widening `MountedIn` rather than inventing a second mounting edge is the point: a shelf **is**
+a rack-mounted item, so it should get `position_u`, `height_u` and `face` from the edge that
+already means that. His NAS then reads exactly as he described it — a `Chassis` that
+`RestsOn` a `Surface` that is `MountedIn` his short rack at some U.
+
+**(b) A `Device` must be able to be in a `Premises`.** This is §4's gap, and §15 is the second
+independent place it has surfaced, which is usually the signal that it is the real structural
+problem rather than an edge case. Today `HasDevice` is `Site → Device` and `HasRack` is
+`Premises → Rack`, and the two roots are unrelated — so **the only way for anything to be in
+a building is to be bolted into a rack.** An access point on a wall, a switch on a desk, a
+mini PC on a shelf: none of them can say which building they are in.
+
+His own words settle the requirement — *"we'll need to be able to put it into a building, but
+it doesn't have to be in one… 99.9% of equipment will be"* — so the relationship is
+**optional and near-universal**, which is precisely the shape `HasDevice`/`MountedIn` already
+use (`0..1` in, `0..n` out).
+
+### 15.6 What it costs
+
+New kinds are module bytes, and module bytes are the thing there are none of.
+
+| | measured or estimated |
+|---|---|
+| one new kind, all its generated dispatch | **+602 measured** (`DhcpRelay`, WO-10 §2) |
+| a reference edge | small, unmeasured |
+| free bytes today | **203** |
+
+So §15.5 is **pile C — blocked on the byte work**, like everything else. But the *decision* is
+free and it is the usual asymmetry: settle it now and it is a schema edit; settle it after the
+rack renderer, the cabling gesture and the trace are built on the current shape and it is a
+migration plus three rewrites.
+
+**The height field is in the wrong place and this is the moment to move it.** `height_u` is on
+`MountedIn` — the mounting *relationship* — so a 2U server has no height until it is racked,
+and unracking it loses the fact. Height is a property of the box: it belongs on `Chassis`,
+with `MountedIn` keeping only `position_u` and `face`. Cheap now; a migration later.
 
 ## Failure modes
 
