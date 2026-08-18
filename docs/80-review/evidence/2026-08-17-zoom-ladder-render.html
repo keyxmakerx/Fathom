@@ -1,0 +1,360 @@
+<title>The Zoom Ladder</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+:root {
+  color-scheme: light dark;
+  --ink:#14171A; --muted:#5C6772; --surface:#F2F4F6; --surface-2:#FAFBFC;
+  --hairline:#D2D7DD; --page:#FFFFFF;
+  --safe:#1F6F4A; --safe-wash:#EEF5F1;
+  --caution:#A8571B; --caution-wash:#FBF3EA;
+  --danger:#8C2F2F; --danger-wash:#F8EFEF;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px; --s8:64px;
+}
+:root:not([data-theme="light"]) {
+  @media (prefers-color-scheme: dark) {
+    --ink:#DFE4E8; --muted:#8A95A0; --surface:#191C20; --surface-2:#141719;
+    --hairline:#2B3138; --page:#0F1215;
+    --safe:#35A06E; --safe-wash:#132019;
+    --caution:#D97328; --caution-wash:#29180E;
+    --danger:#EA6260; --danger-wash:#271817;
+  }
+}
+:root[data-theme="dark"] {
+  --ink:#DFE4E8; --muted:#8A95A0; --surface:#191C20; --surface-2:#141719;
+  --hairline:#2B3138; --page:#0F1215;
+  --safe:#35A06E; --safe-wash:#132019;
+  --caution:#D97328; --caution-wash:#29180E;
+  --danger:#EA6260; --danger-wash:#271817;
+}
+
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--page); color:var(--ink);
+  font-family:var(--sans); font-size:16px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap { max-width:1180px; margin:0 auto; padding:var(--s7) var(--s5) var(--s8); }
+
+/* ---- masthead: the product's own idiom, a 3px rule under a mono kicker ---- */
+.mast { border-bottom:3px solid var(--ink); padding-bottom:var(--s4); margin-bottom:var(--s6); }
+.kick {
+  font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:0.14em;
+  text-transform:uppercase; color:var(--muted); margin:0 0 var(--s3);
+}
+h1 {
+  font-family:var(--mono); font-weight:700; font-size:clamp(28px,4.4vw,44px);
+  line-height:1.08; letter-spacing:-0.02em; margin:0; text-wrap:balance;
+}
+.dek { max-width:64ch; color:var(--muted); margin:var(--s4) 0 0; font-size:17px; }
+
+h2 {
+  font-family:var(--mono); font-weight:700; font-size:20px; letter-spacing:-0.01em;
+  margin:var(--s8) 0 var(--s4); padding-bottom:var(--s2);
+  border-bottom:1px solid var(--hairline); text-wrap:balance;
+}
+h3 {
+  font-family:var(--mono); font-size:13px; font-weight:700; letter-spacing:0.08em;
+  text-transform:uppercase; color:var(--muted); margin:var(--s6) 0 var(--s3);
+}
+p { max-width:68ch; }
+strong { font-weight:600; }
+code, .m {
+  font-family:var(--mono); font-size:0.9em;
+  background:var(--surface); padding:1px 5px; border:1px solid var(--hairline);
+}
+
+/* ---- the ladder spine ------------------------------------------------- */
+.rung {
+  display:grid; grid-template-columns:88px 1fr; gap:0;
+  border:1px solid var(--hairline); border-bottom:none; background:var(--page);
+}
+.rung:last-of-type { border-bottom:1px solid var(--hairline); }
+.rung-z {
+  border-right:1px solid var(--hairline); background:var(--surface);
+  padding:var(--s4) var(--s3); display:flex; flex-direction:column; gap:var(--s1);
+  align-items:center; justify-content:flex-start;
+}
+.zlab {
+  font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:0.1em;
+  color:var(--muted); text-transform:uppercase;
+}
+.znum {
+  font-family:var(--mono); font-size:26px; font-weight:700; line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+.rung-b { padding:var(--s5); min-width:0; }
+.rung-h {
+  display:flex; align-items:baseline; gap:var(--s3); flex-wrap:wrap;
+  margin-bottom:var(--s2);
+}
+.rung-h b { font-family:var(--mono); font-size:17px; font-weight:700; }
+.rung-h .kinds { font-family:var(--mono); font-size:12px; color:var(--muted); }
+.rung-b > p { margin:0 0 var(--s4); font-size:15px; color:var(--muted); max-width:60ch; }
+
+/* status chips — form as well as word */
+.chip {
+  font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:0.08em;
+  text-transform:uppercase; padding:2px 7px; border:1px solid currentColor;
+  white-space:nowrap;
+}
+.c-live { color:var(--safe); background:var(--safe-wash); }
+.c-part { color:var(--caution); background:var(--caution-wash); }
+.c-none { color:var(--danger); background:var(--danger-wash); }
+
+/* ---- canvas mockups --------------------------------------------------- */
+.canvas {
+  border:1px solid var(--hairline); background:var(--surface-2);
+  overflow-x:auto; margin-bottom:var(--s3);
+}
+.canvas svg { display:block; min-width:520px; width:100%; height:auto; }
+.cap {
+  font-family:var(--mono); font-size:11px; color:var(--muted);
+  margin:0 0 var(--s4); line-height:1.5;
+}
+
+/* svg type */
+.s-lab { font-family:var(--mono); font-size:11px; font-weight:700; fill:var(--ink); }
+.s-sub { font-family:var(--mono); font-size:9px; fill:var(--muted); }
+.s-u   { font-family:var(--mono); font-size:8px; fill:var(--muted); }
+.s-box { fill:var(--page); stroke:var(--ink); stroke-width:1.5; }
+.s-dim { fill:var(--surface); stroke:var(--hairline); stroke-width:1; }
+.s-sel { fill:var(--safe-wash); stroke:var(--safe); stroke-width:2.5; }
+.s-lin { stroke:var(--muted); stroke-width:1.5; fill:none; }
+
+/* ---- the fork --------------------------------------------------------- */
+.fork { display:grid; grid-template-columns:1fr 1fr; gap:var(--s5); margin:var(--s5) 0; }
+@media (max-width:760px){ .fork{grid-template-columns:1fr;} .rung{grid-template-columns:56px 1fr;} }
+.lane { border:1px solid var(--hairline); }
+.lane-h {
+  font-family:var(--mono); font-size:12px; font-weight:700; letter-spacing:0.1em;
+  text-transform:uppercase; padding:var(--s3) var(--s4);
+  border-bottom:1px solid var(--hairline); background:var(--surface);
+}
+.lane ol { margin:0; padding:var(--s4) var(--s4) var(--s4) var(--s6); }
+.lane li { font-family:var(--mono); font-size:13px; margin-bottom:var(--s2); }
+.lane li span { color:var(--muted); font-size:11px; }
+
+/* ---- verdict table ---------------------------------------------------- */
+.tw { overflow-x:auto; border:1px solid var(--hairline); margin:var(--s4) 0; }
+table { border-collapse:collapse; width:100%; min-width:560px; font-size:14px; }
+th, td { text-align:left; padding:var(--s3) var(--s4); border-bottom:1px solid var(--hairline); vertical-align:top; }
+th {
+  font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:0.1em;
+  text-transform:uppercase; color:var(--muted); background:var(--surface);
+}
+tr:last-child td { border-bottom:none; }
+td.mono { font-family:var(--mono); font-size:13px; white-space:nowrap; }
+
+.note {
+  border-left:4px solid var(--caution); background:var(--caution-wash);
+  padding:var(--s4) var(--s5); margin:var(--s5) 0;
+}
+.note p { margin:0; max-width:62ch; }
+.note b { font-family:var(--mono); font-size:13px; }
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="kick">Design render · not built · 2026-08-17</p>
+  <h1>The Zoom Ladder</h1>
+  <p class="dek">One canvas, one zoom control, five depths — from a campus of sites down to a
+  single port. The rack stops being a separate screen and becomes a rung.</p>
+</header>
+
+<p>You asked to zoom <em>into</em> a box and out to site data, all inside the canvas. The schema
+already supports most of it — but it declares <strong>two containment chains, not one</strong>,
+and that decides where the ladder forks. Below is each rung as the canvas would actually draw it.</p>
+
+<h2>1 · The five rungs</h2>
+
+<div class="rung">
+  <div class="rung-z"><span class="zlab">depth</span><span class="znum">0</span></div>
+  <div class="rung-b">
+    <div class="rung-h"><b>Premises</b><span class="kinds">Premises → Rack, Site</span>
+      <span class="chip c-none">no renderer</span></div>
+    <p>Zoomed all the way out: the buildings. One box per premises, with what's inside it counted.
+    Nothing draws this today.</p>
+    <div class="canvas"><svg viewBox="0 0 620 150" role="img" aria-label="Three premises boxes: Home Lab, Garage, and Colo, each showing rack and device counts.">
+      <rect class="s-box" x="24" y="30" width="150" height="80"/>
+      <text class="s-lab" x="36" y="52">HOME LAB</text>
+      <text class="s-sub" x="36" y="70">premises</text>
+      <text class="s-sub" x="36" y="86">2 racks · 7 devices</text>
+      <rect class="s-box" x="234" y="30" width="150" height="80"/>
+      <text class="s-lab" x="246" y="52">GARAGE</text>
+      <text class="s-sub" x="246" y="70">premises</text>
+      <text class="s-sub" x="246" y="86">1 rack · 2 devices</text>
+      <rect class="s-dim" x="444" y="30" width="150" height="80"/>
+      <text class="s-lab" x="456" y="52" fill="var(--muted)">COLO</text>
+      <text class="s-sub" x="456" y="70">premises</text>
+      <text class="s-sub" x="456" y="86">empty</text>
+      <text class="s-u" x="24" y="132">click a premises to descend</text>
+    </svg></div>
+  </div>
+</div>
+
+<div class="rung">
+  <div class="rung-z"><span class="zlab">depth</span><span class="znum">1</span></div>
+  <div class="rung-b">
+    <div class="rung-h"><b>Site</b><span class="kinds">Site → Device</span>
+      <span class="chip c-live">live today</span></div>
+    <p>The network diagram you already have: devices, the links between them, five toggled layers.
+    This is the rung the product currently opens on.</p>
+    <div class="canvas"><svg viewBox="0 0 620 175" role="img" aria-label="Network topology: a firewall linked to a core switch, which links to two servers and an access point.">
+      <path class="s-lin" d="M120 56 L120 92"/>
+      <path class="s-lin" d="M120 118 L120 140 L52 140"/>
+      <path class="s-lin" d="M120 118 L120 140 L200 140"/>
+      <path class="s-lin" d="M186 105 L300 105"/>
+      <rect class="s-box" x="58" y="26" width="124" height="30"/>
+      <text class="s-lab" x="68" y="46">srx-branch-01</text>
+      <text class="s-sub" x="152" y="46" text-anchor="end" fill="var(--muted)">firewall</text>
+      <rect class="s-sel" x="58" y="92" width="128" height="30"/>
+      <text class="s-lab" x="68" y="112">sw-core-01</text>
+      <text class="s-sub" x="178" y="112" text-anchor="end" fill="var(--muted)">switch</text>
+      <rect class="s-box" x="6" y="140" width="92" height="26"/>
+      <text class="s-lab" x="14" y="157">nas-01</text>
+      <rect class="s-box" x="156" y="140" width="92" height="26"/>
+      <text class="s-lab" x="164" y="157">pve-01</text>
+      <rect class="s-box" x="300" y="90" width="104" height="30"/>
+      <text class="s-lab" x="310" y="110">ap-attic</text>
+      <text class="s-u" x="430" y="112">▸ 2 racks here</text>
+    </svg></div>
+    <p class="cap">The selected box is outlined, exactly as it is today.</p>
+  </div>
+</div>
+
+<div class="rung">
+  <div class="rung-z"><span class="zlab">depth</span><span class="znum">2</span></div>
+  <div class="rung-b">
+    <div class="rung-h"><b>Rack</b><span class="kinds">Rack ──MountedIn──→ Chassis</span>
+      <span class="chip c-part">built, wrong door</span></div>
+    <p>The elevation: U positions, spans, front and rear faces, and a clash when two things claim
+    the same slot. It exists and works — it is just reached through a button in the wrong row
+    instead of by descending into a rack.</p>
+    <div class="canvas"><svg viewBox="0 0 620 260" role="img" aria-label="A 12U rack elevation with a firewall at U1, a switch at U3, a 2U server at U5, and an empty slot at U7.">
+      <rect class="s-dim" x="150" y="20" width="230" height="220"/>
+      <text class="s-lab" x="150" y="14">RACK-A · 12U · front</text>
+      <text class="s-u" x="136" y="42" text-anchor="end">U12</text>
+      <text class="s-u" x="136" y="78" text-anchor="end">U9</text>
+      <text class="s-u" x="136" y="114" text-anchor="end">U7</text>
+      <text class="s-u" x="136" y="150" text-anchor="end">U5</text>
+      <text class="s-u" x="136" y="196" text-anchor="end">U3</text>
+      <text class="s-u" x="136" y="228" text-anchor="end">U1</text>
+      <rect class="s-box" x="160" y="180" width="210" height="26"/>
+      <text class="s-lab" x="170" y="197">sw-core-01</text>
+      <text class="s-sub" x="360" y="197" text-anchor="end">1U</text>
+      <rect class="s-sel" x="160" y="130" width="210" height="42"/>
+      <text class="s-lab" x="170" y="148">pve-01</text>
+      <text class="s-sub" x="170" y="163">2U · front</text>
+      <rect class="s-box" x="160" y="212" width="210" height="26"/>
+      <text class="s-lab" x="170" y="229">srx-branch-01</text>
+      <text class="s-sub" x="360" y="229" text-anchor="end">1U</text>
+      <rect x="160" y="100" width="210" height="24" fill="none" stroke="var(--hairline)" stroke-width="1" stroke-dasharray="3 3"/>
+      <text class="s-u" x="265" y="116" text-anchor="middle">empty</text>
+      <text class="s-u" x="400" y="140">◂ selected · 2U at U5</text>
+      <text class="s-u" x="400" y="156">drag to move · out to unmount</text>
+    </svg></div>
+    <p class="cap">Drag-and-drop needs two module operations that do not exist yet — see below.</p>
+  </div>
+</div>
+
+<div class="rung">
+  <div class="rung-z"><span class="zlab">depth</span><span class="znum">3</span></div>
+  <div class="rung-b">
+    <div class="rung-h"><b>Chassis</b><span class="kinds">Chassis → PhysicalPort</span>
+      <span class="chip c-none">no renderer</span></div>
+    <p>Inside one box: the faceplate. Ports in their real positions, each one either patched or
+    free. The kinds are declared; nothing draws them.</p>
+    <div class="canvas"><svg viewBox="0 0 620 130" role="img" aria-label="A chassis faceplate with eight ports, three of them in use.">
+      <rect class="s-dim" x="24" y="34" width="500" height="56"/>
+      <text class="s-lab" x="24" y="26">sw-core-01 · chassis 0 · front</text>
+      <rect class="s-sel" x="40" y="48" width="42" height="28"/>
+      <text class="s-u" x="61" y="66" text-anchor="middle">0/0</text>
+      <rect class="s-box" x="94" y="48" width="42" height="28"/>
+      <text class="s-u" x="115" y="66" text-anchor="middle">0/1</text>
+      <rect class="s-box" x="148" y="48" width="42" height="28"/>
+      <text class="s-u" x="169" y="66" text-anchor="middle">0/2</text>
+      <rect class="s-dim" x="202" y="48" width="42" height="28"/>
+      <text class="s-u" x="223" y="66" text-anchor="middle">0/3</text>
+      <rect class="s-dim" x="256" y="48" width="42" height="28"/>
+      <text class="s-u" x="277" y="66" text-anchor="middle">0/4</text>
+      <rect class="s-dim" x="310" y="48" width="42" height="28"/>
+      <text class="s-u" x="331" y="66" text-anchor="middle">0/5</text>
+      <rect class="s-dim" x="364" y="48" width="42" height="28"/>
+      <text class="s-u" x="385" y="66" text-anchor="middle">0/6</text>
+      <rect class="s-dim" x="418" y="48" width="42" height="28"/>
+      <text class="s-u" x="439" y="66" text-anchor="middle">0/7</text>
+      <text class="s-u" x="24" y="112">solid = patched · grey = free · selected 0/0 → srx-branch-01</text>
+    </svg></div>
+  </div>
+</div>
+
+<h2>2 · Where the ladder forks</h2>
+
+<p>This is the part your question answered itself. The schema declares <strong>two chains</strong>,
+and they are not variations of one — they hang off different roots:</p>
+
+<div class="fork">
+  <div class="lane">
+    <div class="lane-h">Physical — where it is</div>
+    <ol>
+      <li>Premises <span>(root)</span></li>
+      <li>Rack <span>HasRack</span></li>
+      <li>Chassis <span>MountedIn</span></li>
+      <li>PhysicalPort <span>HasPort</span></li>
+    </ol>
+  </div>
+  <div class="lane">
+    <div class="lane-h">Logical — how it talks</div>
+    <ol>
+      <li>Site <span>(root)</span></li>
+      <li>Device <span>HasDevice</span></li>
+      <li>Interface <span>HasInterface</span></li>
+      <li>LogicalUnit → Address <span>HasUnit, HasAddress</span></li>
+    </ol>
+  </div>
+</div>
+
+<p><strong>They meet at the chassis.</strong> A chassis is bolted into a rack (physical) and belongs
+to a device in a site (logical). That is the one rung where switching stance makes sense — and it
+means the answer to "physical view or logical view?" is neither: it is <em>one</em> ladder that
+forks once, at the box.</p>
+
+<div class="note">
+  <p><b>The consequence worth arguing with.</b> A rack cannot appear in a site, and a site cannot
+  contain a rack — <code>HasRack</code> runs from <code>Premises</code>, and <code>HasDevice</code>
+  runs from <code>Site</code>. If you want "this rack is at the Denver site", that is a schema change,
+  not a rendering choice. Worth deciding before anything is built.</p>
+</div>
+
+<h2>3 · What it costs</h2>
+
+<p>The 900,000-byte ceiling is on the Rust module only. Page code lives in the HTML file, which has
+no ceiling. So the canvas swap is nearly free; the drag-and-drop is not.</p>
+
+<div class="tw"><table>
+  <thead><tr><th>Piece</th><th>Where it lives</th><th>State</th></tr></thead>
+  <tbody>
+    <tr><td>Canvas swaps what it draws</td><td class="mono">page</td><td>free — pan, zoom and fit already work</td></tr>
+    <tr><td>Rack elevation renderer</td><td class="mono">page</td><td>already written and tested</td></tr>
+    <tr><td>Premises and faceplate renderers</td><td class="mono">page</td><td>new, but page-side</td></tr>
+    <tr><td>Descend / ascend a rung</td><td class="mono">page</td><td>new, page-side</td></tr>
+    <tr><td>Mount a chassis at a U</td><td class="mono">module</td><td>exists</td></tr>
+    <tr><td><strong>Unmount</strong></td><td class="mono">module</td><td>does not exist anywhere</td></tr>
+    <tr><td><strong>Move U14 → U20</strong></td><td class="mono">module</td><td>refused on purpose</td></tr>
+  </tbody>
+</table></div>
+
+<p>Drag-and-drop <em>is</em> a move, so it needs the refusal reopened rather than worked around.
+Both module pieces must be measured against the 203 bytes currently free — which is an argument for
+doing the byte work first, not for a smaller design.</p>
+
+<h3>One thing I would insist on</h3>
+<p>Every rung needs a keyboard path. The product's rule is that a state only a mouse can see is not
+a state, and the browser drivers enforce it. So descending is a key as well as a click, and mounting
+is "select, then choose a U" as well as a drag.</p>
+
+</div>
