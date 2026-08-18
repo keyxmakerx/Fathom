@@ -235,12 +235,23 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   measured twice — is **held, not recommended**: today's finder reads only the public corpus, but
   the finder as *specified* (`16` §16.1) walks the user's graph, so moving it puts estate-touching
   code outside the module boundary.
-- **Four things are buildable with no decision and no bytes** (`57` §14.1 pile A): move `rack
+- **Five things are buildable with no decision and no bytes** (`57` §14.1 pile A): move `rack
   view` out of the band so selecting a rack is how you get an elevation; build rung 4, the inside
   of a box, which is the largest design gap and needs no new kind; make inventory cells editable
   for fields that already exist, since `OP_FIELD_SET` is already there and only reach is missing;
-  and give the empty findings view its first job as *what the estate does not know yet* — "17
-  cables have no far port". A session with no owner available should go here.
+  give the empty findings view its first job as *what the estate does not know yet* — "17
+  cables have no far port"; and **give the inventory Direction A's treatment, which it never got**
+  (`57` §16). A session with no owner available should go here.
+- **The inventory still has the three-region defect Direction A was written to fix** — `57` §16,
+  found 2026-08-18 by the owner in a rebuilt artifact: *"when you are looking at equipment and
+  click on it, you have like 3 pages opened, it was too much and you couldn't see anything."*
+  `.sheet[data-viewing="diagram"] .ledger { grid-template-columns: 1fr }` collapses the 62/38
+  ledger **for the diagram only**; the inventory still renders kind strip + table-at-62% +
+  meaning column. Fixing one of the two places a defect occurs is worse than missing it, because
+  the two views now disagree about an idiom whose whole point was that they would not. The fix is
+  the diagram's own, page-side, and needs no decision. **Its browser drivers will break exactly as
+  the diagram's three did** — click a row, the panel turns to DETAILS, the next row is gone — and
+  the three-line helper in `2026-08-16-hand-link-drive.mjs` is the fix.
 
 - **Read `docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` first** (Proposed, 2026-08-10). It is
   the measured route: where the product actually is (**1 of 6 views live; 3 inventory kinds against

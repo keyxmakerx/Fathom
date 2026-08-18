@@ -596,6 +596,7 @@ where a session with no owner available should go.
 | A2 | **Rung 4 — inside the box** (§7) | needs no new kind, no opcode, no rules engine; a renderer and a layout, both page-side |
 | A3 | **Editable inventory cells** for fields that already exist | `OP_FIELD_SET` already exists (§12.6); this is reach, not machinery |
 | A4 | **The findings view as "what the estate does not know yet"** (§13.5.3) | reads the graph it already has; gives an empty placeholder its first job |
+| A5 | **Give the inventory Direction A's treatment too** (§16) | the same fix already written for the diagram; page-side, no module bytes |
 
 **B — Blocked on the owner.** Five decisions, all cheap now and expensive later, none of
 which an execution session may take (`78` §5).
@@ -758,6 +759,69 @@ migration plus three rewrites.
 `MountedIn` — the mounting *relationship* — so a 2U server has no height until it is racked,
 and unracking it loses the fact. Height is a property of the box: it belongs on `Chassis`,
 with `MountedIn` keeping only `position_u` and `face`. Cheap now; a migration later.
+
+## 16. The inventory never got Direction A, and it is the same defect
+
+Found 2026-08-18 when the owner said, of a build he had just rebuilt:
+
+> *"which PR/build was the one where when you are looking at equipment and click on it, you
+> have like 3 pages opened, it was too much and you couldn't see anything"*
+
+**He was describing the inventory, and he is right: the fix landed on the diagram only.**
+
+### 16.1 What is actually on screen
+
+`.ledger` is the shared two-column frame — `grid-template-columns: 62fr 38fr`, the *fact*
+column and the *meaning* column. Direction A collapsed it **for one view**:
+
+```css
+.sheet[data-viewing="diagram"] .ledger { grid-template-columns: 1fr; }
+```
+
+and moved what had been the third region into the Outline's panel as a second tab. The
+diagram went from three competing regions to two, and the picture grew 762 → 928 px.
+
+**The inventory was never touched.** It still renders as:
+
+| region | what it is |
+|---|---|
+| 1 | the kind strip |
+| 2 | the table, inside the ledger's **62%** column |
+| 3 | the meaning column, the remaining **38%** |
+
+So picking a kind and clicking a row still puts three things on screen at once, and the table
+— the thing a person came to read — gets 62% of what is left after the strip. On a laptop
+that is a table with a horizontal scrollbar beside two columns of chrome.
+
+**This is the same defect Direction A was written to fix.** It was fixed in one of the two
+places it occurs, which is worse than not having noticed, because the two views now disagree
+about their own idiom — and making them agree was the stated point of Direction A.
+
+### 16.2 The fix
+
+Not a new design. Apply the one that already exists:
+
+1. Collapse the ledger for the inventory as it is collapsed for the diagram — the selector
+   already exists and needs one more view in it.
+2. Move the meaning column into a tabbed panel beside the table, using the same
+   `OBJECTS` / `DETAILS` pattern the diagram now uses (`dgPaneSet` / `dgPaneApply` and the
+   `#doutHead` tab are the working reference).
+3. Selecting a row turns the panel to `DETAILS`, exactly as selecting a box does. Escape
+   returns to the list. The keyboard path is the diagram's, already driven and passing.
+
+**Page-side. No module bytes, no schema change, no owner decision.** It belongs in §14.1's
+pile A as **A5** and it is probably the cheapest visible improvement left in the product.
+
+### 16.3 One thing to check while doing it
+
+The three browser drivers that broke when the diagram gained its panel broke for one reason —
+they clicked a row, the panel turned to `DETAILS`, and the row they wanted next was no longer
+on screen. **The inventory's drivers will break the same way**, and the fix is the same:
+return to the list tab between selections. `2026-08-16-hand-link-drive.mjs` and
+`2026-08-16-the-cut-that-drew.mjs` carry the pattern, and the helper is three lines.
+
+Deferred to next week at the owner's direction, 2026-08-18: *"Nope we'll have to save it for
+next week just make sure its all documented please."*
 
 ## Failure modes
 
