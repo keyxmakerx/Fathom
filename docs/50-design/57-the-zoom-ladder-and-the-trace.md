@@ -286,6 +286,8 @@ All owner's, none taken here.
    answered, and it is upstream of `OP_CABLE`.
 7. **Should `schema/platforms.yaml` carry a port complement?** It would make §12.3 route 3
    possible and it is a schema change.
+8. **How is "cable to that device, port unknown" recorded?** §13.2. Three routes priced,
+   none chosen; the likeliest is relaxing `PhysicalPort.label` to `0..1`. Cheap now.
 
 ## 12. Cabling mode, and the correction that protects the trace
 
@@ -419,6 +421,102 @@ builds the single-cable gesture:
 - **The bundle.** `Cable.assembly` groups them. Ten cables between two racks should draw as
   one bundle with a count, expanding on focus — which is also §8.3's unanswered question
   about ten links between two devices, and probably the same treatment.
+
+## 13. Type-to-link: the inventory as the universal editor
+
+Added 2026-08-18. The owner corrected §12.6's reading of "granular editing":
+
+> *"by granular editing i meant like if i'm filling out an inventory, i should be able to
+> edit port ge0/1/0 and in the field basically @ another device, though without the @, and it
+> will lookup and i can click on it. Then we have a link. Maybe even offer for me to provide
+> the otherside, like it dropsdown or expands under the field i'm typing in to provide it or
+> leave blank if i don't know and it puts it in unknown."*
+
+**This is a better data-entry design than §12's drag-and-drop, and it should lead.** Three
+reasons, none of them aesthetic:
+
+1. **It is faster where the work actually happens.** Documenting an estate is a list-shaped
+   job — you go down the ports of a switch one at a time. Typing never leaves the keyboard;
+   dragging means finding two things on a canvas for every one cable.
+2. **It is keyboard-native for free.** §12's drag gesture needs a keyboard twin built
+   alongside it or the browser drivers fail it. A text field with a completion list *is* the
+   keyboard path, and the mouse affordance is the one that comes free instead.
+3. **The completion engine already exists.** The finder searches 98 corpus entries with
+   fuzzy matching from `Ctrl`+`K`. Pointing that same widget at the estate rather than the
+   corpus is reuse, not new machinery.
+
+### 13.1 What it really is: an edge wearing a field's clothes
+
+A field holds a scalar. A connection to another node is an **edge**. So "type a device name
+into a field and get a link" is a *form affordance over an edge*, not a new field type — and
+therefore **needs no schema change at all**. That is the whole reason this is cheap.
+
+It also generalises past cabling, which is the part worth taking seriously:
+
+| editing this | typing here | writes |
+|---|---|---|
+| a `PhysicalPort` | *connects to* | `Cable` + two `Terminates` |
+| a `Chassis` | *mounted in* | `MountedIn{position_u, face}` |
+| a `Device` | *site* | `HasDevice` |
+| an `Interface` | *linked to* | `Link{media}` |
+
+**Every edge becomes a typeable field, and the inventory becomes the universal editor.** That
+is a far larger answer to "granular editing" than any number of purpose-built sheets, and it
+is page-side.
+
+### 13.2 The gap his flow hits immediately, and it is a real one
+
+> **"CABLE FROM `ge-0/1/0` TO `sw-core-01`, PORT UNKNOWN" IS NOT EXPRESSIBLE.**
+
+His design says: name the far device, then leave the far port blank if you do not know it.
+That is exactly right as a workflow and the schema cannot record it.
+
+- `Terminates` goes to `PhysicalPort | ExternalPeer`. There is no third option.
+- A **placeholder port** on the far device does not work: `PhysicalPort.label` is `card: "1"`
+  — required, documented as *"The silkscreen"*. Inventing a silkscreen value is fiction, and
+  it is exactly the kind of fiction invariant 3's neighbours exist to prevent.
+- A **one-ended cable** is legal (§12.2) but **loses the far device entirely**, which is the
+  one thing he did know. That is a strictly worse record than what he typed.
+- `Link{media: unknown}` is `Interface → Interface`, so it needs two interfaces, and at this
+  point in the flow he may know neither.
+
+So the honest options, none chosen here:
+
+1. **Relax `PhysicalPort.label` to `0..1`** — a port whose silkscreen has not been read. Small
+   schema change, minor bump, and it makes "there is a port here and I do not know which"
+   directly sayable. This is probably right and it is the owner's call.
+2. **A field on `Terminates` or `Cable` for an unresolved far end** — records the device
+   without pretending to a port. More faithful, more machinery, and a second way to say
+   where a cable goes, which is how graphs rot.
+3. **Accept the loss** and record `Link{media: unknown}` at the interface level when the port
+   is not known. Cheapest, and it silently moves the fact from the physical plant to the
+   logical layer, which will confuse the trace.
+
+**This is the same shape of decision as §4's site-and-premises gap: cheap now, expensive after
+things are built on the current shape.**
+
+### 13.3 Three behaviours to get right
+
+- **Ambiguity is refused, never guessed.** Typing a name where several edge kinds are legal
+  between the two ends is `OP_LINK`'s existing situation, and it already has the right answer:
+  offer the names, never pick. The completion list must not silently choose the first legal
+  kind.
+- **A name that does not exist must not become one by accident.** *"connects to: pve-02"*
+  where `pve-02` is not in the estate is powerful — it is how you document a lab at speed —
+  and a typo that silently creates a ghost device is how an estate of record stops being one.
+  Creation must be an explicit, separate choice in the list (*"create device pve-02"*), never
+  the fallback when nothing matched.
+- **The link the field creates is hand-asserted and must be marked.** Same rule as `OP_LINK`:
+  a fact a person typed carries `by hand` on the Outline row and in the picture, so a
+  colleague can always tell it from something a config said.
+
+### 13.4 What it does not solve
+
+It is a *data-entry* design, not a *reading* one. §12.7's range cabling — *"ports 1–24 to
+ports 1–24"* — is twenty-four trips through this field, and the field does not make that
+better. The two designs are complementary rather than competing: type-to-link for the
+one-at-a-time case, a range gesture for the panel case, and §12's drag for the case where a
+person is looking at a picture rather than a list.
 
 ## Failure modes
 
