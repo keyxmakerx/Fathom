@@ -185,6 +185,35 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   **nothing arriving after the build may reduce what the ingest gate destroys, only increase it —
   union, never replace.**
 
+- **The owner intends to fork a server version, and has redefined an invariant in passing —
+  `docs/40-stack/48-the-server-fork.md`, 2026-08-18.** *"this would be after we were full server
+  solution, so it wouldn't be that main rule anymore, that main rule is only for demo mode like it
+  is currently."* **Invariant 1 has been read throughout this corpus as permanent; the owner's
+  position is that it governs the CLIENT-ONLY mode.** `48` §1 records this without amending
+  `.context/conventions.md` — that is `03`'s and the owner's (open decision 1) — but several
+  documents, `38` above all, argue from the invariant as though it could never change. Their
+  reasoning is sound *for the artifact they were written about*; do not carry their conclusions
+  across the fork without re-checking the premise. Three findings bind planning:
+  **(a) the fork is small.** Thirteen core crates are platform-neutral Rust with zero
+  dependencies and their 656 tests already run natively, not in a browser. Only `fathom-wasm`
+  (an opcode shell) and `fathom-artifact` (an HTML assembler) are browser-specific. **Fork the
+  app, not the vocabulary** — `schema/` and the generated types stay one source of truth or the
+  two sides silently stop being able to read each other's exports.
+  **(b) the 900,000-byte ceiling is a WASM constraint and does not exist natively**, so all of
+  `57` §14.1's pile C unblocks on the server side the moment the same crates compile for a
+  binary. This does NOT help the client, where `47`'s levers remain the only lever.
+  **(c) the store is single-estate and in-memory** — `OP_PASTE` replaces what is held. Many
+  estates, concurrency and durable persistence are the actual scope of the fork, alongside HTTP,
+  auth and storage.
+- **The largest new design surface in the server version is permissions, not storage** (`48` §5),
+  because it touches every read path. A permission implemented as a server-side check fails open
+  when the check is wrong; a permission implemented as *"we do not hold the key"* has no such
+  failure mode — but **revocation is its hard problem** and should be understood before it is
+  designed: someone removed from a group still holds the key they were given, so real revocation
+  means re-keying and re-encrypting everything it protected. And the axis for secrets is
+  **key custody, not RAM versus disk** — `38` §14.3 already lists eleven mechanisms that defeat
+  *"it only lives in memory"*.
+
 ## Rules that bind every session
 
 0. **A SAFETY GATE IS TESTED AGAINST WHAT A DEVICE ACCEPTS, NEVER AGAINST WHAT THE DETECTOR
