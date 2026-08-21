@@ -2046,6 +2046,23 @@ fn paste_reply(
     let secrets = ingest.drops.entries.len().to_string();
     let unresolved_total = weld.unresolved.len().to_string();
 
+    // WHAT THIS PASTE PRODUCED, in sixteen characters (`49` §19 phase 0, item 3).
+    //
+    // The journal records the redacted TEXT and a replay re-runs the parser over
+    // it, so a build whose dictionary has improved since — 23.8% to 47.5% line
+    // coverage in two days this month — rebuilds a DIFFERENT estate from the
+    // same file, with different ULIDs, and says nothing. This is the fact that
+    // lets the page notice. `fathom_graph::shape` argues what is in the digest,
+    // what is deliberately left out, and why it is drift detection and never a
+    // seal.
+    //
+    // It travels on the paste reply rather than as its own opcode because a
+    // paste is the only step whose output depends on a dictionary that changes
+    // underneath it; every other journalled op names its own ids explicitly.
+    // That is also 448 module bytes cheaper, which at 203 bytes of headroom is
+    // not a rounding error.
+    let shape = fathom_graph::shape_hex(graph);
+
     protocol::encode_paste_reply(&protocol::PasteReply {
         summary: [
             &nodes,
@@ -2060,6 +2077,7 @@ fn paste_reply(
         residue: &residue,
         unresolved: &unresolved,
         capture: text,
+        shape: &shape,
     })
 }
 
@@ -2183,6 +2201,7 @@ fn equip_reply_text(id: &str, written: &str) -> Vec<u8> {
         residue: &[],
         unresolved: &[],
         capture: "",
+        shape: "",
     })
 }
 

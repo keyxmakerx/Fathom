@@ -195,6 +195,23 @@ pub const FACE_RACK_SLOT: u8 = 13;
 /// conflicting assertions is right.
 pub const FACE_RACK_CLASH: u8 = 14;
 
+// --- the shape reply (`49` §19 phase 0, item 3) -------------------------------
+
+/// The held estate's shape digest — one row, slot 0, 16 lowercase hex
+/// characters. [`fathom_graph::shape_hex`] defines what is in it.
+///
+/// One slot and no counts. The page already has the paste's four summary
+/// numbers from [`FACE_PASTE`] and journals them itself, so repeating them here
+/// would be a second place for the same fact to be written and a second place
+/// for it to be wrong.
+///
+/// **The value is opaque to the page.** It compares two of these for equality
+/// and never parses, truncates, orders or displays one. That is deliberate: the
+/// digest is drift detection and is NOT tamper-evidence — FNV-1a is
+/// non-cryptographic by its own specification (RFC 9923, February 2026) — so no
+/// surface may present it as a seal.
+pub const FACE_SHAPE: u8 = 15;
+
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
 /// The paste frame is shorter than its fixed 24-byte clock+entropy prefix, or
@@ -953,6 +970,8 @@ pub struct PasteReply<'a> {
     /// The post-redaction text, for the page's journal. Empty for replies that
     /// are not a paste.
     pub capture: &'a str,
+    /// The shape digest of the estate this paste built — [`FACE_SHAPE`].
+    pub shape: &'a str,
 }
 
 /// The diagram, as face rows. Numbers travel as decimal strings for the same
@@ -1096,11 +1115,20 @@ pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
         }
     }
 
+    // Two optional tail rows, each present only when its string is. The
+    // arithmetic counts what was written rather than assuming, because
+    // `equip_reply_text` reuses this encoder for replies that are not pastes and
+    // have neither.
     let mut extra = 0;
     if !reply.capture.is_empty() {
         let rec = face_slots(&mut blob, FACE_CAPTURE, 1, &[reply.capture]);
         write_face_record(&mut records, &rec);
-        extra = 1;
+        extra += 1;
+    }
+    if !reply.shape.is_empty() {
+        let rec = face_slots(&mut blob, FACE_SHAPE, 1, &[reply.shape]);
+        write_face_record(&mut records, &rec);
+        extra += 1;
     }
 
     face_reply(
