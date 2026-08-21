@@ -204,14 +204,26 @@ fn the_page_makes_journal_entries_in_exactly_one_place() {
 fn the_importer_still_reads_the_version_before_the_envelope() {
     let source = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
         .expect("the shell source is checked in");
-    assert!(
-        source.contains("doc.version !== 1 && doc.version !== EXPORT_VERSION"),
-        "the importer refuses v1 workspaces, which are files people already have"
-    );
-    assert!(
-        source.contains("var EXPORT_VERSION = 2;"),
-        "the export version did not move when the entry shape did"
-    );
+    // THE PROPERTY, NOT THE NUMBER. This asserted `EXPORT_VERSION = 2` for a
+    // day and broke the moment the paste-shape work made it 3 — which is the
+    // test being wrong, not the change: pinning the current version tests
+    // nothing, because the version SHOULD move whenever the entry shape does.
+    // What must hold is that EVERY VERSION BELOW THE CURRENT ONE IS STILL
+    // READ, since each is a workspace an operator already keeps.
+    let current: u32 = source
+        .split("var EXPORT_VERSION = ")
+        .nth(1)
+        .and_then(|t| t.split(';').next())
+        .and_then(|t| t.trim().parse().ok())
+        .expect("the page declares an export version");
+    assert!(current >= 2, "the export version went backwards");
+    for old in 1..current {
+        assert!(
+            source.contains(&format!("doc.version !== {old} &&")),
+            "the importer refuses v{old} workspaces, which are files people \
+             already have — an upgrade must not destroy saved work"
+        );
+    }
 }
 
 fn motion_is_priced_not_banned(source: &str) {

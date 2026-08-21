@@ -164,6 +164,7 @@ fn a_tombstone_moves_the_digest() {
             ulid: ulid(8),
         }),
         Timestamp(AT + 1_000),
+        fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
     )
     .expect("tombstone");
     gone.end_batch().expect("close");

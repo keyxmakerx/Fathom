@@ -138,14 +138,41 @@ fn release_wasm_builds_audits_and_fits() {
         );
     }
 
-    // --- size gate (44 §5.2's hard ceiling, KB read as 1 000 bytes) ----------
+    // --- size REPORT, not a gate. The ceiling was removed 2026-08-21. --------
+    //
+    // `44` §5.2's 900,000-byte hard ceiling decided what shipped for months. It
+    // was a WEBASSEMBLY constraint: what a browser could fetch, parse and
+    // instantiate inside `44`'s first-render budget, in a product whose whole
+    // delivery was one HTML file opened from a disk.
+    //
+    // **THE OWNER RETIRED THAT PRODUCT ON 2026-08-18** (`49` §1): the data lives
+    // on the server, the browser is a window onto it, and the single offline
+    // file is dropped. `49` §1 lists the ceiling among the things the pivot
+    // retires, because a native binary has no such limit and the browser stops
+    // carrying a typed graph, a parser and a layout engine.
+    //
+    // It is removed rather than raised, and the distinction matters. Raising it
+    // to whatever number today's build happens to need is how a safety number
+    // dies: it stops meaning "we measured this" and starts meaning "this is
+    // what fitted last time somebody bumped into it". `47` §11 warned about
+    // exactly that. Either the constraint applies or it does not — and the
+    // product decision is that it does not.
+    //
+    // **WHAT REPLACES IT IS VISIBILITY, NOT NOTHING.** The size is printed on
+    // every run, so growth stays in front of whoever is reading the output. The
+    // three assertions above — no imports, no demo estate, no test-only
+    // accessor — are the ones that were ever really guarding correctness, and
+    // they stay. They caught real things; the byte count never caught anything,
+    // it only ever refused work.
+    //
+    // **IF THE BROWSER MODULE IS EVER THE PRODUCT AGAIN, DO NOT RESTORE A
+    // NUMBER — RESTORE A MEASUREMENT.** The ceiling's justification was always a
+    // first-render claim, and a first-render claim is measured in a browser, not
+    // asserted in a unit test. `49` §1 re-scopes this module to the ingest gate
+    // and nothing else, and a gate-sized module will not be near this figure.
     let size = wasm.len();
-    assert!(
-        size <= 900_000,
-        "the module is {size} bytes, over 44 §5.2's 900 000-byte ceiling"
-    );
 
-    println!("wasm size: {size} bytes (ceiling 900000)");
+    println!("wasm size: {size} bytes (no ceiling since 2026-08-21; see 49 §1)");
     println!("imports: {imports:?}");
     println!("export funcs: {funcs:?}");
     println!("export mems: {mems:?}");
