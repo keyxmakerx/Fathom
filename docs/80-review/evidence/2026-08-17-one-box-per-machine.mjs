@@ -129,13 +129,29 @@ check('and it is marked as placed, so nothing was traded away',
 // that without re-homing an edge onto a node that is not its end (ADR-0019), so
 // the rule is SAID instead. An inconsistency a reader cannot explain is worse
 // than a consistent wrong: the wrong one at least teaches a rule.
-await page.click('#tabRack');
+// THE ROUTE TO THE PLACEMENT FORM MOVED ON 2026-08-21 (`57` §2, §14.1 A1).
+// `rack view` was a door in the band and is not one any more: the elevation is
+// a rung of the diagram now, reached by selecting a rack, and `put a box in a
+// rack` moved into the `add equipment` sheet — which is the only door that does
+// not need a rack to already exist. This driver is taught the new way in, and
+// the assertion is STRENGTHENED rather than moved: it used to check that a
+// sheet opened, and now checks that the box picker on the form actually offers
+// the folded chassis, which is what "still mountable" always claimed.
+await page.click('#tabEquip');
+await page.waitForTimeout(200);
+await page.click('#rAdd');
 await page.waitForTimeout(400);
-// `#rAdd` is the rack sheet's own add control — the same handle
-// `2026-08-15-rack-view-ax.mjs` drives it by, rather than a guess at a form id.
-const racked = await page.locator('#rAdd').isVisible().catch(() => false);
-check('the rack sheet still opens over a folded estate, so a chassis is ' +
-      'still mountable', racked);
+const mountable = await page.locator('#mfChassis option').evaluateAll(
+  (os) => os.map((o) => o.textContent).join(' | '));
+check('a folded chassis is still offered to the placement form, so it is ' +
+      'still mountable', /sw-core-01/.test(mountable), mountable);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+// Escape unwinds ONE level (`53` §3.7), and the placement form is opened FROM
+// the equipment sheet now, so the first press lands back on that rather than on
+// the page. Asserted rather than assumed, the same way the rack driver does it.
+check('esc from the placement form returns to the equipment sheet',
+  await page.locator('#esheet').isVisible() && !(await page.locator('#msheet').isVisible()));
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 

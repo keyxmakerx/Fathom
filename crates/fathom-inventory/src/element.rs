@@ -110,6 +110,18 @@ pub(crate) fn display_name(g: &Graph, id: NodeId) -> String {
         NodeKind::Device => value_cell(g, id, key("Device.hostname")),
         NodeKind::PhysicalPort => value_cell(g, id, key("PhysicalPort.label")),
         NodeKind::Premises => value_cell(g, id, key("Premises.label")),
+        // THE THIRD TIME THIS DEFECT HAS BEEN FIXED, and the comment below
+        // records the first two. `Rack` shipped with ADR-0036 and no arm here,
+        // so a rack drew on the diagram, listed in the Outline and titled its
+        // inspector as `rack:01M0JR…` while `R12` sat bound on the node — and
+        // it went unnoticed because a rack was only ever reached through a
+        // picker that reads `Rack.label` out of the inventory columns instead.
+        //
+        // It is load-bearing now rather than cosmetic: `57` §2 makes SELECTING
+        // a rack the way into its elevation, and you cannot select a frame you
+        // cannot tell from the frame beside it. `Rack.label` is `card: "1"`,
+        // so there is always one to show.
+        NodeKind::Rack => value_cell(g, id, key("Rack.label")),
         NodeKind::Site => value_cell(g, id, key("Site.name")),
         NodeKind::Cable => {
             let label = value_cell(g, id, key("Cable.label"));

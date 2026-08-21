@@ -744,7 +744,14 @@ button.tab:hover { color: var(--ink); }
 .rclash { color: var(--caution); border-left: var(--rule-accent) solid var(--caution);
           background: var(--caution-wash); padding: var(--s1) var(--s2);
           font-size: var(--t-micro); line-height: var(--lh-micro); }
-.rbody { flex: 1 1 auto; min-height: 0; overflow-y: auto;
+/* The elevation's own column. It used to be a sheet's body and it is now the
+   CHART AREA at depth 2 (`57` §2), so it is sized by the `.dsplit` grid track
+   the canvas used to hold rather than by a flex parent — `min-height: 0` is
+   what lets it scroll inside that track instead of pushing the view taller.
+   The `flex` shorthand is kept and is inert in a grid cell: it still applies
+   when this element is the whole column at narrow width. */
+.rbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; min-width: 0;
+         background: var(--page);
          padding: var(--s2) var(--s3); display: flex; flex-direction: column;
          gap: var(--s2); }
 .rpick { display: flex; flex-wrap: wrap; gap: var(--s1); align-items: center; }
@@ -848,6 +855,44 @@ button.tab:hover { color: var(--ink); }
            background: var(--page); cursor: grab; touch-action: pan-x pan-y; }
 .dcanvas[data-grab="1"] { cursor: grabbing; }
 .dcanvas svg { display: block; width: 100%; height: 100%; }
+
+/* --- THE ZOOM LADDER'S DEPTH AXIS (`57` §2) --------------------------------
+   "One canvas. Zoom is a depth axis, not a set of modes. The chart area swaps
+   what it draws; the band, the masthead and the side panel stay put."
+
+   That is one CSS rule and a second element in the same grid track, and it is
+   written that way on purpose: rungs 0 (Premises) and 3 (Chassis) are unbuilt,
+   and when they arrive each is one more value of `data-depth` and one more
+   element beside this one — never a new view, a new screen or a modal. What
+   makes this a LADDER and not a set of modes is that the strip above, the panel
+   to the right and the band below are the same nodes at every depth and are
+   never rebuilt for a descent.
+
+   `display: none` rather than a detached element, because every measurement in
+   the canvas machinery — dgFit, dgReveal, dgZoomCentre — already returns early
+   on a zero-sized rect, so a hidden canvas keeps its pan and zoom for the way
+   back out with no branch anywhere in the code that reads it. */
+.dview[data-depth="rack"] .dcanvas { display: none; }
+/* A ZOOM CONTROL FOR A SURFACE THAT IS NOT ON SCREEN IS FURNITURE. The same
+   sentence the narrow rules below make, and the same test: `zoom in` and the
+   four `move` buttons drive the canvas, and at rack depth the canvas is not
+   what the chart area is drawing. The layers, `show every one` and the connect
+   group stay, because those change what the OUTLINE lists — and the Outline is
+   on screen at every depth. */
+.dview[data-depth="rack"] .dzoomctl,
+.dview[data-depth="rack"] .dmovectl { display: none; }
+/* `show the picture` is the narrow width's disclosure for the canvas, and the
+   third control that drives a surface the depth axis has taken off screen —
+   pressing it at rung 2 does nothing a reader can see. Its counts are not lost:
+   `.dband` carries the same objects and links at every width and is right below
+   this. Measured at 320x800, where this line is 28 px of a column that has 146
+   to give. */
+.sheet[data-width="narrow"] .dview[data-depth="rack"] .dsum { display: none; }
+/* The rung you are on, and the rung out. `.dladder` is in the LOOKING group
+   beside the layer toggles, because changing depth is the same task as changing
+   zoom: it changes what you see and never what is recorded. */
+.dladder { display: flex; flex-wrap: wrap; gap: var(--s1); align-items: baseline; }
+.dladder .dhere { font-size: var(--t-tab); color: var(--ink); }
 .dband { flex: none; padding: var(--s1) var(--s3);
          border-top: var(--rule-hair) solid var(--hairline);
          font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
@@ -886,6 +931,14 @@ button.tab:hover { color: var(--ink); }
    already one, which is the same reasoning `55` §6.3 gives for the Outline. */
 .sheet[data-width="narrow"] .dpanel { border-left: 0; overflow: visible; }
 .sheet[data-width="narrow"] .ppane { overflow: visible; }
+/* THE ELEVATION IS NOT BEHIND THE DISCLOSURE, and that is the difference
+   between it and the canvas. `55` §6.3 collapses the PICTURE at this width
+   because the Outline beside it carries every fact the picture carries; the
+   elevation carries facts nothing else on this page carries — which unit a box
+   is at, and which are empty — and it is real DOM, so it flows into the one
+   column the thumb is already scrolling instead of being a viewport inside it.
+   Hiding it would leave a reader who descended into a rack looking at nothing. */
+.sheet[data-width="narrow"] .rbody { overflow: visible; }
 .sheet[data-width="narrow"] .dsum { display: flex; }
 .sheet[data-width="narrow"] .dview[data-open="0"] .dcanvas { display: none; }
 /* A zoom control for a surface that is not on screen is furniture, and at this
@@ -1272,23 +1325,32 @@ svg[data-lod="0"] .dplaced { display: none; }
     <!-- TWO GROUPS, NOT SEVEN PEERS. The doors build the estate; export, import
          and theme act on a workspace that already exists, and shipped looking
          exactly the same as the doors. The order is the order of the work:
-         a config first, then boxes the config could not know about, then where
-         they physically live.
+         a config first, then boxes the config could not know about.
+
+         TWO DOORS, NOT THREE, AND THE THIRD WAS A CATEGORY ERROR (`57` §1).
+         `rack view` stood here from 2026-08-17 under a `then` kicker, beside
+         `paste a config` and `add equipment` — and the first two are HOW DATA
+         GETS IN while the third was A WAY OF LOOKING AT DATA ALREADY THERE.
+         The owner spotted it the day it shipped and it opened the whole
+         zoom-ladder conversation. `57` §2 decides what happens to it: it is not
+         deleted, it is RELOCATED to where selecting a rack takes you, and the
+         band goes back to being two doors, which is what a band of doors is
+         for. The `then` kicker goes with it — it was the third rung of a
+         sequence and there is no third rung here any more; `start here` and
+         `or` are a complete pair on their own.
 
          Each group is ONE tab stop, arrow keys within it — the roving contract
          `53` §8.3 that `#band` and every list on the page already use, declared
-         here in the markup because these seven nodes are static and `roveScan`
+         here in the markup because these six nodes are static and `roveScan`
          only ever runs over rendered regions. The `role="toolbar"` is what
          earns a group the right to be one stop (WAI-ARIA APG toolbar pattern);
-         without it, collapsing six stops into two would be hiding controls. -->
+         without it, collapsing five stops into two would be hiding controls. -->
     <div class="tabs">
       <div class="doors" role="toolbar" aria-label="Build the estate" data-rove="h">
         <button type="button" class="door" id="tabPaste" data-rove-item tabindex="0"
                 ><span class="dk">start here</span>paste a config</button>
         <button type="button" class="door" id="tabEquip" data-rove-item tabindex="-1"
                 ><span class="dk">or</span>add equipment</button>
-        <button type="button" class="door" id="tabRack" data-rove-item tabindex="-1"
-                ><span class="dk">then</span>rack view</button>
       </div>
       <div class="utils" role="toolbar" aria-label="Workspace file and appearance"
            data-rove="h">
@@ -1441,31 +1503,24 @@ svg[data-lod="0"] .dplaced { display: none; }
       <div class="eform" id="eform"></div>
       <div class="pfoot">
         <span>esc close</span>
+        <!-- WHERE `put a box in a rack` LIVES NOW, and it had to move somewhere.
+             It stood in the rack sheet's own footer, and the rack sheet is gone
+             (`57` §2): the elevation is reached by SELECTING a rack, and until
+             a rack exists there is nothing to select. Leaving the only thing
+             that CREATES a rack behind the only door that needs one to already
+             exist is a locked room with the key inside.
+
+             The equipment sheet is the honest home rather than a convenient
+             one. This door is "add equipment — no config needed"; saying which
+             frame a box stands in is the same act — a fact about your own
+             equipment that no config states and that you are recording by
+             hand. It is a secondary button rather than a second `add it`,
+             because the sheet's own verb is still adding a box — so it sits on
+             the LEFT of the spacer, beside `esc close`, and the right-hand end
+             of the footer stays the one button this sheet is named for. -->
+        <button type="button" id="rAdd">put a box in a rack</button>
         <span class="spacer"></span>
         <button type="button" id="eRun">add it</button>
-      </div>
-    </div>
-
-    <!-- The rack elevation (ADR-0036). The owner asked "how do I go into rack
-         mount view?" and there was no answer.
-
-         It is a SHEET and not a seventh view, deliberately. `56` §13.4 puts
-         rack inside the diagram's zoom ladder (inside-a-device -> rack ->
-         floor -> building -> map), so a rack is a rung and not a peer of the
-         six. There is no diagram in this build to hang it from, so it ships
-         where the other two on-ramps ship, and does not touch `data-view` --
-         which is the view tabs' selector and therefore an API. -->
-    <div class="psheet" id="rsheet" role="dialog" aria-label="Rack view" hidden>
-      <div class="phead">
-        <div class="lead">Rack view — where the boxes physically are</div>
-        <p class="prose" id="rHint"></p>
-        <p class="prose perr" id="rErr" hidden role="alert"></p>
-      </div>
-      <div class="rbody" id="rbody"></div>
-      <div class="pfoot">
-        <span>esc close</span>
-        <span class="spacer"></span>
-        <button type="button" id="rAdd">put a box in a rack</button>
       </div>
     </div>
 
@@ -2880,7 +2935,17 @@ function renderShell() {
   syncLegend();
   $('mTitle').textContent = viewMeta(S.view).t;
   $('mSub').textContent = 'dev artifact · ' + sourceWords();
-  $('mImp').textContent = viewMeta(S.view).imp;
+  /* THE IMPERATIVE IS ABOUT WHAT IS ON SCREEN, AND AT RUNG 2 THAT IS NOT THE
+     PICTURE. "Click a box to inspect it. Drag one to move it." is true of the
+     diagram and false of a rack elevation — nothing in a frame can be dragged,
+     `rack_place` refuses a move on purpose (`57` §14.1 B4), and the masthead is
+     the first line a reader takes an instruction from. The view's own sentence
+     is used at every other depth, so this is one substitution rather than a
+     second table of strings that could drift from `VIEWS`. */
+  $('mImp').textContent =
+    (S.view === 'diagram' && DG_DEPTH)
+      ? 'Click a box for its details. Escape comes back out to the diagram.'
+      : viewMeta(S.view).imp;
   clear($('mRibbon'));
   if (S.sel) {
     /* THE NAME FIRST, THE ULID LAST. This line read `selected:
@@ -3219,9 +3284,27 @@ function dgBand() {
   /* A zoom reading for a picture that is not on screen is a number about
      nothing. At this width the canvas is a summary line (`55` §6.3) and the
      band says so instead. */
-  bits.push(shut ? 'picture collapsed at this width' : 'zoom ' + dgZoomWords());
-  if (!shut && lod === '1') bits.push(plural(String(DG.drawn), 'kind label off', 'kind labels off'));
-  if (!shut && lod === '0') bits.push(plural(String(DG.drawn * 2), 'label off', 'labels off'));
+  /* THE DEPTH LEADS, when there is one. `56` §5.2 G10 makes this band the
+     release valve for anything the picture cannot say, and at rung 2 the thing
+     it cannot say is the largest one there is: the counts, the zoom and the
+     layer words below are all about a picture that is not on screen. Saying
+     which rack you are inside first stops every number after it from being read
+     as a claim about the elevation. */
+  if (DG_DEPTH) bits.push('inside a rack — escape comes back out');
+  /* A ZOOM READING FOR A PICTURE THAT IS NOT ON SCREEN IS A NUMBER ABOUT
+     NOTHING, and there are now two ways for it not to be on screen: collapsed
+     at 320 px, and one rung down. The narrow case had this sentence already;
+     the depth case is the same sentence and gets the same treatment rather than
+     a second one that could drift from it. */
+  bits.push(DG_DEPTH ? 'the whole diagram is one rung up'
+          : shut ? 'picture collapsed at this width' : 'zoom ' + dgZoomWords());
+  /* `shut || DG_DEPTH`: a suppression count is a fact about a drawing, and at
+     rung 2 the drawing it is about is one rung up. Naming "14 labels off" over
+     an elevation that has every one of its names in the document would be the
+     band describing the wrong picture. */
+  var away = shut || !!DG_DEPTH;
+  if (!away && lod === '1') bits.push(plural(String(DG.drawn), 'kind label off', 'kind labels off'));
+  if (!away && lod === '0') bits.push(plural(String(DG.drawn * 2), 'label off', 'labels off'));
   /* The refusal, restated for as long as it applies. A decline the user only
      hears once is a decline they will read as a bug the second time. */
   if (DG.declined) {
@@ -3368,6 +3451,32 @@ function dgPaint() {
    list that `55` §4.5.2 makes the entire interface for this view. */
 function dgSelect(id, toDetails) {
   postElement(id);
+  /* A RACK IS A RUNG, NOT A DESTINATION — `57` §2, and this line is the whole
+     of item A1. "`rack view` stops being a door. It is not deleted; it is
+     relocated to where selecting a rack takes you."
+
+     A rack is already a box in this picture and always has been: `layers.rs`
+     has no row for it in `56` §4.1's projection table, so it is OVER-drawn and
+     MARKED untabled rather than quietly confined to a layer. There has been
+     something to click here since ADR-0036 shipped; there was nowhere for the
+     click to go.
+
+     BEFORE the rest of this function and not after it, because a descent
+     rebuilds the whole view and everything below would be built and thrown away
+     in the same frame — on an estate of any size that is a second `OP_DIAGRAM`
+     and a second layout for one click. The two things that must survive the
+     rebuild (the selection and the kind strip) are `dgDescend`'s, so that
+     arriving from the placement form does the same thing arriving from here
+     does.
+
+     `DG_DEPTH !== id` so that selecting the rack you are already inside — which
+     is what pressing its own picker button does — is a no-op rather than a
+     re-entry that re-announces the descent. */
+  var rack = DG.boxes && DG.boxes[id];
+  if (rack && rack.kind === 'Rack') {
+    if (DG_DEPTH !== id) dgDescend(id, !toDetails);
+    return;
+  }
   /* The inventory strip filters by kind, so a box selected here should leave
      the strip pointing at a set that CONTAINS it -- otherwise switching to the
      inventory shows a highlighted row that is not there.
@@ -4112,6 +4221,91 @@ function dgOutline(boxes, noSetKinds, agg) {
    throwing away where they were standing. */
 var DG_PANE = 'objects';
 
+/* --- THE ZOOM LADDER, RUNG 2 (`57` §2) -------------------------------------
+
+   Which rack the chart area is inside, by display id, or null for the whole
+   diagram. `57` §2's table has four rungs — Premises, Site, Rack, Chassis — of
+   which two are built: rung 1 is the picture this view has always drawn, and
+   rung 2 is the elevation ADR-0036 shipped in a sheet. This variable is the
+   axis between them.
+
+   IT IS PAGE STATE AND NEVER GRAPH DATA, the same category as the pan, the
+   zoom and DG_PANE: where a reader is standing is not a fact about the
+   network, so it is not journalled, not exported, and not in `schema/`. ADR-0035
+   drew that line for a hand-placed POSITION and put the position on the other
+   side of it — a position is an assertion about the world, a viewport is not.
+
+   WHY DEPTH IS NOT A SEVENTH VIEW, restated because the sheet this replaces
+   said the opposite in its own comment: `56` §13.4 puts rack inside the
+   diagram's ladder, and `52`'s six views are peers you switch between with ⌥1-6
+   while a rung is somewhere you go INTO and come back OUT of. A view switch
+   keeps the selection and changes how it is drawn (see `go`); a descent keeps
+   everything and changes what the chart area draws. Those are different verbs
+   and they get different mechanisms. */
+var DG_DEPTH = null;
+
+/* Go down into a rack. The elevation renderer is untouched — `renderRack`
+   draws exactly what it drew inside the sheet, and this changes only how it is
+   reached, which is the whole of `57` §14.1's item A1.
+
+   `focusIn` is TRUE FOR A KEYBOARD and false for a pointer, and it is the
+   mirror of the asymmetry `dgSelect` already documents. A descent rebuilds the
+   view, which destroys the Outline row the reader is standing on, and a focused
+   element removed from the DOM sends focus to <body> — `53` §13's failure 7,
+   which this view has had to fix once already. So a keyboard descent lands
+   focus in the place it just arrived at; a pointer descent moves nothing,
+   because the pointer has not been stranded anywhere. */
+function dgDescend(id, focusIn) {
+  /* THE RACK YOU ARE INSIDE IS THE RACK THAT IS SELECTED, and it is set here
+     rather than at each call site so the two ways in cannot disagree. Selecting
+     it in the picture already ran `postElement`; landing here from the
+     placement form has not, and without this line a person who just stated
+     where a box stands would descend into a frame while the panel on the right
+     still described whatever they had picked ten minutes ago. The kind strip
+     follows for the same reason (`Rack` is in `KINDS`, so this never declines)
+     and any previous decline is cleared. */
+  if (S.sel !== id) postElement(id);
+  var rki = KINDS.indexOf('Rack');
+  if (rki >= 0 && rki !== S.invKind) loadKind(rki);
+  DG.declined = null;
+  loadRacks();
+  var label = '';
+  for (var i = 0; i < R.racks.length; i++) {
+    if (R.racks[i].id === id) { label = R.racks[i].label; break; }
+  }
+  DG_DEPTH = id;
+  loadElevation(id);
+  render();
+  foot('inside rack ' + (label || id) + ' — escape comes back out');
+  say('Inside rack ' + (label || id) + '. Press Escape to come back out to the diagram.');
+  if (focusIn) {
+    /* The rung out, not the first rack in the picker: a reader who arrived by
+       keyboard needs the way back before they need a peer. */
+    var out = document.querySelector('[data-ddepth]');
+    if (out) out.focus();
+  }
+}
+
+/* Come back out to the whole diagram. The canvas kept its pan and its zoom
+   while it was hidden (see `.dview[data-depth="rack"] .dcanvas`), and the
+   render below takes the `else` branch of the fit test because the box count
+   has not changed — so the picture comes back exactly as it was left. */
+function dgAscend(focusOut) {
+  if (!DG_DEPTH) return;
+  DG_DEPTH = null;
+  render();
+  foot('back out to the whole diagram');
+  say('Back out to the whole diagram.');
+  /* `55` §5.6: never stranded. Coming out with a key lands on the row of the
+     rack you were inside, which is where you were when you went in. */
+  if (focusOut) {
+    var row = DG.out && S.sel &&
+              DG.out.querySelector('[data-drow="' + cssEsc(dgBoxOf(S.sel)) + '"]');
+    if (row) { dgRove(row); row.focus(); }
+    else { var hd = $('doutHead'); if (hd) hd.focus(); }
+  }
+}
+
 /* THE DETAILS PANE, rendered in place. It never touches the scene or the tree:
    the two panes are siblings and only this one is cleared, for the same reason
    `dgSelect` does not call `render()` — rebuilding the fact column would drop
@@ -4474,8 +4668,31 @@ function renderDiagram(host) {
   var hidEdges = canvasRow ? (canvasRow.s[4] || '0') : '0';
   var untabled = canvasRow ? (canvasRow.s[5] || '0') : '0';
 
+  /* RECONCILE THE DEPTH AGAINST THE ESTATE THAT IS ACTUALLY HELD, in one
+     place, before anything is drawn. `OP_PASTE` REPLACES what is held (`49`
+     §10 files that as a phase-0 defect and it is still true today), an import
+     replays a different journal, and either can leave `DG_DEPTH` naming a rack
+     that no longer exists. A stale rung draws an empty elevation under a
+     breadcrumb naming a rack that is gone AND swallows the Escape that would
+     have cleared the selection — the same class of defect the `S.open` filter
+     below this function's aggregation block exists to prevent, which is why it
+     is fixed the same way rather than at each of the three call sites. */
+  if (DG_DEPTH) {
+    loadRacks();
+    var still = false;
+    for (var dq = 0; dq < R.racks.length; dq++) {
+      if (R.racks[dq].id === DG_DEPTH) { still = true; break; }
+    }
+    if (!still) DG_DEPTH = null;
+  }
+
   var view = el('div', 'dview');
   view.setAttribute('data-open', dgOpen ? '1' : '0');
+  /* The depth axis, declared on the view so the CSS can swap the chart area
+     without a second rendering path (`57` §2). `site` is written out rather
+     than left absent: rungs 0 and 3 are unbuilt, and an attribute that only
+     appears at one depth is an attribute the next rung has to rediscover. */
+  view.setAttribute('data-depth', DG_DEPTH ? 'rack' : 'site');
   DG.view = view;
   var strip = el('div', 'dstrip');
   var maskLabel = layerStrip(strip);
@@ -4483,6 +4700,53 @@ function renderDiagram(host) {
      kept in a second variable: everything that is about LOOKING at the picture
      goes in here, and the two groups below are the other two tasks. */
   var look = maskLabel.parentNode;
+
+  /* --- WHICH RUNG YOU ARE ON, AND THE WAY BACK UP (`57` §2) ----------------
+
+     A breadcrumb, and it is deliberately a breadcrumb rather than a lone `back`
+     button: `57` §2's ladder has four rungs and two of them are unbuilt, so the
+     shape that has to be right today is the one the other two slot into. When
+     Premises and Chassis arrive, each is one more crumb in this row and one more
+     value of `data-ddepth` — not a second control, and not a retrofit.
+
+     IT SITS IN THE STRIP AND NOT OVER THE ELEVATION, because the strip is
+     furniture that stays put at every depth (`57` §2: "the band, the masthead
+     and the side panel stay put") and because changing depth is the same task
+     as changing zoom — it changes what you see and never what is recorded, so
+     it belongs in the LOOKING group with the layers and the zoom.
+
+     ABSENT AT DEPTH 1, rather than present and disabled. There is nowhere above
+     the whole diagram to go, and a disabled control that is disabled forever is
+     furniture that teaches a reader to ignore the row it is in.
+
+     `55` §1.4, the accessible half: the rung you are ON is a real text node in
+     the document, not a pressed state on a button and not a class. A reader who
+     has descended has to be able to find out where they are without pressing
+     anything, and `aria-current="true"` is the standard way of saying which
+     item in a set of links or steps is the one you are looking at. */
+  if (DG_DEPTH) {
+    var ladder = el('div', 'dladder');
+    ladder.setAttribute('role', 'group');
+    ladder.setAttribute('aria-label', 'how deep you are looking');
+    ladder.appendChild(el('span', 'lab', 'depth'));
+    var bUp = el('button', null, 'out to the whole diagram');
+    bUp.type = 'button';
+    bUp.setAttribute('data-ddepth', 'site');
+    ladder.appendChild(bUp);
+    /* The rack's own label, from the rows `loadRacks` just read, and NEVER the
+       display id: an operator who stencilled `R12` on the frame gets `R12`. It
+       falls back to the id only when a rack somehow has no label, which
+       `Rack.label` being `card: "1"` should make impossible and which is not
+       worth being silent about if it ever happens. */
+    var hereName = DG_DEPTH;
+    for (var dl = 0; dl < R.racks.length; dl++) {
+      if (R.racks[dl].id === DG_DEPTH) { hereName = R.racks[dl].label || hereName; break; }
+    }
+    var here = el('span', 'dhere', 'rack ' + hereName);
+    here.setAttribute('aria-current', 'true');
+    ladder.appendChild(here);
+    look.insertBefore(ladder, look.firstChild);
+  }
   /* `59` §3.7 keeps the un-aggregated form as a control in the PRODUCT, not
      only in the study: "an engineer who does not believe the count is entitled
      to see the forty."
@@ -4542,7 +4806,14 @@ function renderDiagram(host) {
      the module already sent and checking them against this page's own strip
      order -- no opinion about the graph, same class as the grouping above. */
   var noSetKinds = [], noSetCount = 0;
+  /* HOW MANY RACKS ARE IN THE PICTURE, for the note at the foot of the Outline.
+     Selecting a rack now does something no other box does — it changes what the
+     chart area draws — and nothing said so BEFORE the press; the breadcrumb, the
+     band and the footer all appear afterwards. Counted here rather than derived
+     later because this is already the loop that reads every box's kind word. */
+  var rackCount = 0;
   boxes.forEach(function (b) {
+    if (b.s[1] === 'Rack') rackCount++;
     if (KINDS.indexOf(b.s[1]) >= 0) return;
     noSetCount++;
     if (noSetKinds.indexOf(b.s[1]) < 0) noSetKinds.push(b.s[1]);
@@ -5156,6 +5427,24 @@ function renderDiagram(host) {
   DG.canvas.appendChild(DG.svg);
   split.appendChild(DG.canvas);
 
+  /* RUNG 2 IN THE CHART AREA (`57` §2). The canvas above is still built, still
+     holds its scene and still keeps its pan and zoom — CSS takes it off screen
+     for as long as the reader is inside a rack, and puts it back untouched when
+     they come out. That is why a descent and an ascent cost no refit: the box
+     count has not changed, so the signature test at the foot of this function
+     takes its `else` branch and re-applies the transform that was already there.
+
+     `id="rbody"` IS KEPT. It was the rack sheet's body and it is now a column of
+     this grid; `renderRack` still finds its host by that id and draws exactly
+     what it drew before, unchanged. This job is about how the elevation is
+     REACHED, not about what it draws, and a renderer that had to be rewritten to
+     be reached differently would have been the wrong shape to begin with. */
+  if (DG_DEPTH) {
+    var rbody = el('div', 'rbody');
+    rbody.id = 'rbody';
+    split.appendChild(rbody);
+  }
+
   /* ---------------------------------------------- THE ONE RIGHT-HAND PANEL
      Two tabs over one panel: OBJECTS (the Outline, unchanged in behaviour) and
      DETAILS (what the meaning column used to hold). The strip is `flex: none`
@@ -5296,6 +5585,22 @@ function renderDiagram(host) {
       ? 'Press connect from here on one box, select another, and connect them. '
       : plural(String(handLines), 'line was', 'lines were') +
         ' drawn by hand — each marked by hand. ') +
+    /* THE RUNG DOWN, NAMED BEFORE IT IS TAKEN. This note's own surviving rule
+       is that a clause stays if it is "a number about THIS estate, or an
+       instruction that names the next action" — this is both, and it is the one
+       thing the picture cannot say for itself: every other box on the canvas
+       answers a click by filling in the panel, and a rack answers by replacing
+       what the chart area draws. A reader who is told that afterwards has
+       already been surprised once. Absent on an estate with no racks, which is
+       most of them, so it costs nothing where it would teach nothing.
+
+       `57` §2's other rungs will not each get a clause here — Premises and
+       Chassis are containers a reader expects to open. A rack is the one that
+       is also an ordinary box in the picture beside its own contents. */
+    (rackCount === 0
+      ? ''
+      : plural(String(rackCount), 'rack is drawn', 'racks are drawn') +
+        ' — select one to go inside it and see its units. ') +
     /* THE KEYBOARD ROUTE, and it is the one clause of the old hint that had to
        come back rather than be culled. `55` §4.5.2 makes the Outline this
        view's focus path, not a fallback, and the <svg> is aria-hidden — so a
@@ -5354,6 +5659,11 @@ function renderDiagram(host) {
   view.appendChild(DG.band);
   host.appendChild(view);
 
+  /* AFTER the view is in the document, because `renderRack` finds its host by
+     id and `$` is `getElementById` — a detached subtree is not in the document
+     and would have been rendered into nothing, silently. */
+  if (DG_DEPTH) renderRack();
+
   /* Keep the transform across a rebuild -- a view switch must not throw away
      where the user was standing. Refit only when the picture itself changed
      shape, which is what the signature detects. */
@@ -5399,6 +5709,16 @@ function cssEsc(s) { return String(s).replace(/["\\]/g, '\\$&'); }
 
 document.addEventListener('click', function (ev) {
   var n;
+  /* The rung out. `data-ddepth` names the rung to GO TO rather than a
+     direction, so the breadcrumb's other crumbs need no new attribute when
+     rungs 0 and 3 arrive — `premises` and `chassis` are values of this one.
+     `false` for the focus argument: a pointer press has not stranded anybody,
+     and moving focus out from under the mouse is what `dgSelect`'s own
+     asymmetry exists to avoid. */
+  if ((n = seekAttr(ev.target, 'data-ddepth'))) {
+    if (n.getAttribute('data-ddepth') === 'site') dgAscend(false);
+    return;
+  }
   if ((n = seekAttr(ev.target, 'data-dfit'))) { dgFit(true); return; }
   if ((n = seekAttr(ev.target, 'data-dzoom'))) {
     dgZoomCentre(parseFloat(n.getAttribute('data-dzoom')));
@@ -6222,7 +6542,10 @@ document.addEventListener('keydown', function (e) {
    five saying the scrim should be down while a sheet was up. One function now
    reads every flag, and every setter assigns its own flag before calling it. */
 function syncScrim() {
-  $('scrim').hidden = !(pOpen || eOpen || rOpen || mOpen);
+  /* `rOpen` is gone from this list because the rack sheet is gone: the
+     elevation is a rung of the diagram now (`57` §2), and a rung is not an
+     overlay — nothing is dimmed behind it, because there is no behind. */
+  $('scrim').hidden = !(pOpen || eOpen || mOpen);
 }
 
 var fOpen = false;
@@ -7000,8 +7323,18 @@ $('importFile').addEventListener('change', function (ev) {
 
 /* --- the rack elevation (ADR-0036) ----------------------------------------
    The owner asked "how do I go into rack Mount view?". This is that view, and
-   it is the FIRST rung of `56` §13.4's ladder -- rack only. Floor, building
-   and map stay proposals with no model behind them.
+   it is RUNG 2 of `57` §2's zoom ladder -- rack only. Premises and the inside
+   of a chassis stay designs with no renderer.
+
+   WHAT DRAWS HERE HAS NOT CHANGED SINCE ADR-0036; HOW IT IS REACHED HAS.
+   It shipped as a sheet behind a third door in the band, and `56` §13.4 was
+   cited for it with the caveat "there is no diagram in this build to hang it
+   from". There is one now. `57` §1 records what the owner saw the day the door
+   shipped: `paste a config` and `add equipment` are how data gets IN and
+   `rack view` was a way of LOOKING at data already there, which is a category
+   error and put the answer to "where are my boxes?" behind a control that
+   looked like an on-ramp. Selecting the rack is the answer now -- see
+   `dgDescend` -- and every function below is the one that was already here.
 
    THE GEOMETRY IS HERE, IN THE PAGE, AND THAT IS DELIBERATE. The module
    returns position_u, height_u and a direction; turning those into a row index
@@ -7015,7 +7348,7 @@ $('importFile').addEventListener('change', function (ev) {
    is a coordinate transform over numbers already decided.
    ------------------------------------------------------------------------- */
 
-var rOpen = false, mOpen = false;
+var mOpen = false;
 var R = { racks: [], sel: null, elev: null, err: null };
 
 /* Which row from the TOP of the frame a run begins on.
@@ -7222,10 +7555,26 @@ function renderRack() {
       var b = el('button', null, rack.label || '(unlabelled)');
       b.type = 'button';
       b.setAttribute('aria-pressed', rack.id === R.sel ? 'true' : 'false');
-      b.addEventListener('click', function () {
-        loadElevation(rack.id);
-        renderRack();
-      });
+      /* THE PICKER IS A STEP SIDEWAYS ALONG THE RUNG, AND IT HAS TO MOVE THE
+         RUNG WITH IT. It ran `loadElevation` and redrew the frame, which was
+         complete while this face was a sheet and its own only state. Inside the
+         ladder there is a second thing that says which rack you are in — the
+         breadcrumb — and the first version of this change left it behind: the
+         picker drew R12 while `DEPTH · rack R13` stood above it, which is two
+         answers to one question and the picture was the one nobody would doubt.
+         Caught by the driver, not by reading.
+
+         `dgDescend` rather than a second assignment, so there is one way to
+         change which rack you are inside no matter which control asks — the
+         picker here, a rack in the picture, or a placement that just landed.
+         `false` for the focus argument: the reader pressed a button that is
+         still on screen after the rebuild, so nothing is stranded.
+
+         The owner asked for exactly this gesture — "maybe some kind of icon
+         that when you click on it takes you to a different rack" (`57` §1). It
+         is not the highlighted-connection half of that ask, which needs cables
+         and `57` §6.2 records that nothing creates one. */
+      b.addEventListener('click', function () { dgDescend(rack.id, false); });
       pick.appendChild(b);
     })(R.racks[i]);
   }
@@ -7235,10 +7584,16 @@ function renderRack() {
     unposted(host, 'rack',
       R.racks.length
         ? 'Choose a rack.'
+        /* NAMING WHERE THE BUTTON IS, not just what it says. It used to be in
+           the footer of the sheet this sentence was printed in, so "use it" was
+           enough; it is now behind the `add equipment` door (see the equipment
+           sheet's footer), and a control named without its location is a
+           control the reader hunts for. */
         : 'No racks yet. Nothing in a pasted config says which rack a box is ' +
           'in or at what height — no vendor statement this project has ' +
           'established carries that — so a rack is something you tell Fathom, ' +
-          'not something it can read. Use "put a box in a rack".');
+          'not something it can read. Open "add equipment" and use "put a box ' +
+          'in a rack".');
     return;
   }
 
@@ -7389,13 +7744,26 @@ function renderRack() {
       /* A box is a target: WCAG 2.5.8's 24px minimum, per unit it covers. The
          button carries it, so the empty rows do not have to. */
       b.style.minHeight = 'calc(var(--row-min) * ' + it.span + ')';
+      /* CLICKING A BOX IN THE FRAME NO LONGER LEAVES THE RACK.
+         It used to close the sheet and switch the whole page to the inventory,
+         which was the right answer while this was an overlay: dismissing it put
+         you back where you were, so it had to send you somewhere with fields.
+         Inside the ladder that reads as a teleport — you descended into a rack,
+         touched a box in it, and the rack was gone.
+
+         `dgSelect` is what the picture one rung up already uses, so this row and
+         a box on the canvas now do the same thing: select, and turn the panel
+         on the right to DETAILS. The panel is the half of the view `57` §2 says
+         stays put, and this is it earning that. `true` for `toDetails` because
+         this is a pointer press and the pointer is not stranded by the switch —
+         the same asymmetry `dgSelect` documents at length.
+
+         RUNG 3 IS WHERE THIS REALLY WANTS TO GO. `57` §7 calls the inside of a
+         box the largest design gap in the file and it has no renderer, so
+         descending further is not something this build can honestly offer.
+         Selecting is what it can do, and it is not pretending to be more. */
       (function (id) {
-        b.addEventListener('click', function () {
-          postElement(id);
-          setRack(false);
-          S.view = 'inventory';
-          render();
-        });
+        b.addEventListener('click', function () { dgSelect(id, true); });
       })(s.id);
       frame.appendChild(b);
       drawn++;
@@ -7474,22 +7842,17 @@ function rackLimits(host) {
     'is something you told Fathom. Floor, building and map are not built.'));
 }
 
-function setRack(open) {
-  rOpen = open;
-  syncScrim(open);
-  $('rsheet').hidden = !open;
-  if (!open) return;
-  $('rHint').textContent =
-    'Where your boxes physically stand. No config says this — every rack and ' +
-    'position here is hand-entered.';
-  loadRacks();
-  if (R.sel) loadElevation(R.sel);
-  renderRack();
-  var first = $('rbody').querySelector('button');
-  if (first) first.focus();
-}
+/* `setRack` IS GONE, AND THE ABSENCE IS THE FEATURE. It opened and closed a
+   sheet, and the sentence it wrote into `#rHint` — "Where your boxes physically
+   stand. No config says this" — was the sheet introducing itself. There is no
+   sheet to introduce: you arrive here by selecting a rack, so you already know
+   what you are looking at and why. What that sentence actually TAUGHT (that a
+   rack is hand-entered and no parser can produce one) is a fact about the
+   product rather than about this frame, and it now lives in two places that a
+   person reaches on purpose: `rackLimits`, under every drawn elevation, and
+   `#mHint` on the form where a rack is created. `dgDescend` replaces the rest.
 
-/* --- the placement form --------------------------------------------------- */
+   --- the placement form --------------------------------------------------- */
 
 /* [wire key, label, kind, required, note]. Same shape as EQUIP_FIELDS, and the
    keys come from schema/field-keys.yaml the same way. */
@@ -7593,8 +7956,16 @@ function setPlace(open) {
   syncScrim(open);
   $('msheet').hidden = !open;
   if (!open) return;
+  /* THE SECOND HALF OF THIS SENTENCE CAME FROM THE RACK SHEET, which no longer
+     exists. It is the one thing a person filling this form in needs told and
+     cannot work out: nothing in a pasted config says which rack a box is in or
+     at what height, so a rack is not something Fathom failed to find — it is
+     something only you can state. Said here rather than over the elevation,
+     because this is the form where a rack comes into being. */
   $('mHint').textContent =
-    'Where a box you have already recorded stands. Hand-entered.';
+    'Where a box you have already recorded stands. Nothing in a pasted config ' +
+    'says which rack a box is in or at what height — no vendor statement this ' +
+    'project has established carries that — so every rack here is hand-entered.';
   buildPlaceForm();
   var first = $('mfChassis');
   if (first) first.focus();
@@ -7696,11 +8067,27 @@ function runPlace() {
   for (var q = 0; q < R.racks.length; q++) {
     if (R.racks[q].label === rackName) { R.sel = R.racks[q].id; break; }
   }
-  loadElevation(R.sel);
   setPlace(false);
-  foot(rackName ? ('placed in ' + rackName) : 'placed');
-  setRack(true);
-  renderShell();
+  /* THE LANDING, AND IT IS THE LADDER'S OWN ANSWER TO "did that work?".
+     It used to reopen the rack sheet. There is no sheet, and re-rendering
+     whatever view happened to be underneath would leave the person who just
+     stated where a box stands looking at something else. So the landing is the
+     rack itself: the diagram, one rung down, inside the frame they just wrote
+     to. `dgDescend` does the loading, the announcement and the footer.
+
+     `S.view` is set rather than `go()` called, and this is the one place on the
+     page that is right: `go` is `S.view = …; render()`, and `dgDescend` renders
+     too, so going through it would lay the whole estate out twice for one
+     press. Everything `go` does that matters is done — the selection is
+     untouched, which is `go`'s own stated contract.
+
+     `R.sel` is resolved above by matching the typed rack name against the rows
+     `loadRacks` just read, and the one thing that can leave it null is a rack
+     name that matched nothing, which cannot happen on a write that succeeded.
+     The guard is there because "cannot happen" is how the field-key defect two
+     comments up shipped. */
+  if (R.sel) { S.view = 'diagram'; dgDescend(R.sel, false); }
+  else { foot(rackName ? ('placed in ' + rackName) : 'placed'); renderShell(); }
 }
 
 function renderPlaceError() {
@@ -7711,8 +8098,11 @@ function renderPlaceError() {
   box.hidden = false;
 }
 
-$('tabRack').addEventListener('click', function () { setRack(!rOpen); });
-$('rAdd').addEventListener('click', function () { setRack(false); setPlace(true); });
+/* The `#tabRack` listener is gone with the door it drove (`57` §1). The
+   placement form now opens from the equipment sheet, which is where the button
+   lives; it closes that sheet on the way, so only one of the two is ever up and
+   Escape has exactly one level to unwind (`53` §3.7). */
+$('rAdd').addEventListener('click', function () { setEquip(false); setPlace(true); });
 $('mRun').addEventListener('click', runPlace);
 
 /* --- keyboard ------------------------------------------------------------- */
@@ -7763,11 +8153,12 @@ document.addEventListener('keydown', function (e) {
        also the only way to discard the payload, which is why it is a rung and
        not a click-only affordance. */
     if (hideCopyBlock()) return;
-    /* Innermost first. The placement form is opened FROM the rack view, so it
-       unwinds back to it rather than to the page — one level, as 53 §3.7
-       requires, where "one level" means the thing that opened this. */
-    if (mOpen) { setPlace(false); setRack(true); return; }
-    if (rOpen) { setRack(false); return; }
+    /* Innermost first. The placement form is opened FROM the equipment sheet
+       now, so it unwinds back to THAT rather than to the page — one level, as
+       53 §3.7 requires, where "one level" means the thing that opened this.
+       It used to unwind to the rack sheet for exactly the same reason; the rung
+       below it moved and this one followed it rather than being rewritten. */
+    if (mOpen) { setPlace(false); setEquip(true); return; }
     if (eOpen) { setEquip(false); return; }
     if (pOpen) { setPaste(false); return; }
     /* THE FINDER'S RUNG, and it belongs to the finder rather than to the
@@ -7792,7 +8183,13 @@ document.addEventListener('keydown', function (e) {
       setFinder(false);
       return;
     }
-    if (S.view === 'diagram' && S.open.length) {
+    /* `!DG_DEPTH` ADDED WITH THE ZOOM LADDER. An expanded group belongs to the
+       picture one rung up, and at rack depth that picture is not on screen —
+       so collapsing one here changes nothing the reader can see, which reads as
+       "Escape did nothing" and is the exact defect the comment at the head of
+       this ladder was written against. The rung is not lost: come out of the
+       rack and the very next press collapses it. */
+    if (S.view === 'diagram' && !DG_DEPTH && S.open.length) {
       diagramCollapse(S.open[S.open.length - 1][0]);
       return;
     }
@@ -7807,6 +8204,23 @@ document.addEventListener('keydown', function (e) {
       if (DG.tabObj) DG.tabObj.focus();
       return;
     }
+    /* THE LADDER'S RUNG — one rung up the depth axis (`57` §2), and it is the
+       obvious way back that the job requires Escape to also do. It sits BELOW
+       the panel's rung and ABOVE the deselect rung, and both placements follow
+       `53` §3.7's "most-recently-opened first" read literally:
+
+       - below DETAILS, because you cannot open the details pane without already
+         being where you are — a descent never opens it (see `dgSelect`), so if
+         the pane is open the reader opened it after arriving, and it is the
+         more recent thing.
+       - above the deselect, because the rack you are inside IS the selection
+         (see `dgDescend`), and clearing it while still standing in its frame
+         would leave the breadcrumb naming a rack nothing is pointing at.
+
+       `true` for the focus argument: this is the keyboard path by definition,
+       so the reader is standing somewhere that is about to be rebuilt and
+       `55` §5.6's "never stranded" applies. */
+    if (S.view === 'diagram' && DG_DEPTH) { dgAscend(true); return; }
     if (S.sel) {
       /* `55` §5.6: Esc "moves focus to the container's own heading, so a user
          is never stranded". render() rebuilds the fact column, which destroys
