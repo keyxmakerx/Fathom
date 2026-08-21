@@ -145,8 +145,25 @@ body { overflow-y: auto; }
    The rule is written against `data-viewing` and not against a width, so it is
    the same rearrangement `55` §6.3 already relies on: one rendering, laid out
    two ways, never a second code path. */
-.sheet[data-viewing="diagram"] .ledger { grid-template-columns: 1fr; }
-.sheet[data-viewing="diagram"] .col.meaning { display: none; }
+/* AND THE INVENTORY, WHICH NEVER GOT IT (`57` §16). The fix above landed on
+   one of the two places the defect occurs, which is worse than not having
+   noticed it: the owner's complaint — *"when you are looking at equipment and
+   click on it, you have like 3 pages opened, it was too much and you couldn't
+   see anything"* — is about THIS view, and the two views then disagreed about
+   an idiom whose whole point was that they would not.
+
+   So the selector carries both views rather than being copied, because the
+   thing being asserted is that the two are the SAME rearrangement. The
+   inventory's third region moves into a panel beside the table on exactly the
+   diagram's pattern; see `.isplit` below and `ivPaneSet`.
+
+   The sheet's 1180px cap is NOT lifted here. `--sheet` is `2 × 72ch` of mono —
+   a measure for reading TEXT — and a table of hostnames and addresses is text.
+   The diagram lifts it because a picture has no line length; this view does. */
+.sheet[data-viewing="diagram"] .ledger,
+.sheet[data-viewing="inventory"] .ledger { grid-template-columns: 1fr; }
+.sheet[data-viewing="diagram"] .col.meaning,
+.sheet[data-viewing="inventory"] .col.meaning { display: none; }
 /* Wider viewport, wider panel — but the picture still takes most of the growth.
    Below 1800 the panel keeps the 22rem a field table was measured at. */
 @media (min-width: 1800px) {
@@ -479,6 +496,58 @@ button.tab:hover { color: var(--ink); }
 .inv .mu { color: var(--muted); }
 .inv td button:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
                                outline-offset: var(--focus-offset-inset); }
+
+/* --- the inventory's own split (Direction A, `57` §16) --------------------
+   THE TABLE AND ONE PANEL, and nothing else competing with them. What used to
+   be three regions — the kind strip, the table at 62%, and the meaning column
+   at 38% — is now the strip and two, and the panel is the same `.dpanel` the
+   diagram builds so the two views cannot drift apart again.
+
+   `24rem` and `minmax(0, 1fr)` are the diagram's numbers, not new ones: the
+   panel holds the same field table, and it wrapped every value onto three
+   lines at 18rem there for the same reason it would here.
+
+   THE PANEL IS A FIXED TRACK AND NEVER APPEARS ON SELECTION. Direction A's
+   own rejected alternative on the diagram was to hand the third column back
+   when something was picked, which resized the picture under the reader; the
+   same move here would resize the TABLE under the reader, which is worse — a
+   table re-flows its columns, so the cell the eye was on moves sideways. One
+   split, and only what is IN the panel changes.
+
+   `min-height: 14rem` is `.dsplit`'s floor and it is here for `.dsplit`'s
+   reason: `.colbody` scrolls, so once the strip and the table will not fit,
+   the column scrolls rather than crushing the panel to zero rows. */
+.iview { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.isplit { flex: 1 1 auto; min-height: 14rem;
+          display: grid; grid-template-columns: minmax(0, 1fr) 24rem; }
+/* The table's own column scrolls; the panel's live pane scrolls separately
+   (`.ppane`). Two scrollers side by side is the shape the diagram already
+   ships — the picture pans, the panel scrolls — and it is what lets a 400-row
+   row set be read without the notes beside it moving. */
+.icol { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* Narrow: the same collapse the diagram makes at this width. The panel goes
+   UNDER the table and both stop being their own scrollers, because the column
+   they are in is already one — `55` §6.3's argument, applied to this view. */
+.sheet[data-width="narrow"] .iview { display: block; height: auto; }
+.sheet[data-width="narrow"] .isplit { display: block; min-height: 0; }
+.sheet[data-width="narrow"] .icol { overflow: visible; }
+/* THE PANEL ITSELF CARRIES `.dpanel` AS WELL AS `.ipanel`, and the same is
+   true of `.ptabs`, `.ppane`, `.ddet`, `.dback` and `.dnone`. Not laziness:
+   §16's finding is that the two views had stopped agreeing about one idiom, so
+   they are made to share the RULES and not merely to resemble each other. A
+   second copy of the tab strip's styling is a second thing to keep in step,
+   and this file has just been bitten by exactly that. `.ipanel` exists only
+   for the two rules below, which are about this pane's contents rather than
+   about the panel.
+
+   The `d` prefix now reads as "the panel idiom Direction A introduced" rather
+   than "diagram". Renaming the six classes would touch every diagram driver
+   that queries them, for no behaviour; it is worth doing on the day the two
+   panels become one function and not before. */
+/* The notes were laid out against a `.pad` in the fact column and lose it in a
+   pane; the gutter comes back so they do not sit on the panel's own rule. */
+.ipanel .note { margin: var(--s3); }
+.ipanel .iabout .prose { padding: var(--s3) var(--s3) 0; }
 
 /* --- footer --------------------------------------------------------------- */
 .foot { flex: none; display: flex; flex-wrap: wrap; gap: var(--s4);
@@ -2093,6 +2162,22 @@ function replyProblem(reply) {
    Every string below arrives in a reply. Nothing here joins, counts or walks.
    ------------------------------------------------------------------------- */
 function renderInventory(host) {
+  /* DIRECTION A, ON THE VIEW IT WAS NEVER APPLIED TO (`57` §16).
+     The whole view is one flex column so the split below can own the height
+     the strip leaves — the same shape `.dview` gives the diagram. Everything
+     that follows appends into `view`, including the two early returns, so
+     there is one container and not two layouts. `host` is rebound to it
+     rather than threaded through, deliberately: every append below then reads
+     unchanged, which is what keeps this diff small enough to merge.
+
+     `IV.panel` is cleared FIRST. The two early returns leave no panel, and a
+     pane function that ran against last render's dead nodes would write the
+     previous kind's details into a document that no longer holds them. */
+  var view = el('div', 'iview');
+  host.appendChild(view);
+  IV.panel = null;
+  host = view;
+
   var p = el('div', 'pad');
   var strip = el('div', 'strip');
   strip.appendChild(el('span', 'lab', 'kind'));
@@ -2129,6 +2214,17 @@ function renderInventory(host) {
   var bad = replyProblem(S.inv);
   if (bad) { var bp = el('div', 'pad'); unposted(bp, 'inventory', bad); host.appendChild(bp); return; }
 
+  /* THE SPLIT: the table, and one panel. `57` §16.2, step 1 and step 2. The
+     table goes in the left column with the residue under it — both are the
+     row set and both scroll together — and everything that used to be in the
+     meaning column, plus the notes that used to sit below the fold, goes in
+     the panel. */
+  var split = el('div', 'isplit');
+  var left = el('div', 'icol');
+  split.appendChild(left);
+  split.appendChild(ivPanel(KINDS[S.invKind], S.inv.rows.length - 1));
+  host.appendChild(split);
+
   var head = S.inv.rows[0];
   var cols = head.slotCount - 2;
   var t = el('table', 'inv');
@@ -2161,14 +2257,14 @@ function renderInventory(host) {
   t.appendChild(tb);
   var tw = el('div', 'pad invwrap');
   tw.appendChild(t);
-  host.appendChild(tw);
+  left.appendChild(tw);
   /* The return leg of the round trip. Something picked in the diagram is marked
      here, and a mark 400 rows below the fold is not a mark. `block: 'nearest'`
      so an already-visible row does not jump; nothing scrolls when nothing is
      selected. */
   if (selRow && selRow.scrollIntoView) selRow.scrollIntoView({ block: 'nearest' });
 
-  if (S.source === 'paste') renderResidue(host);
+  if (S.source === 'paste') renderResidue(left);
 
   /* `S.source === 'demo'` is reachable only from a module built with
      --features demo-estate. `cargo run -p fathom-artifact` never builds one, so
@@ -2179,7 +2275,7 @@ function renderInventory(host) {
      dormant branch. Driven live against a hand-spliced feature build on
      2026-08-15 and the estate rendered and labelled correctly. */
   if (S.source === 'demo') {
-    note(host, 'Demo estate · not corpus data',
+    note(IV.about, 'Demo estate · not corpus data',
       'No inventory ships in the corpus. This estate is constructed by checked-in code ' +
       '(fathom-inventory::demo_estate()), consistent with schema/schema.yaml, and labelled ' +
       'as a demo everywhere it appears.');
@@ -2197,9 +2293,16 @@ function renderInventory(host) {
      it: a chassis with a second drawn edge is drawn beside its device again,
      and racking it is exactly what gives it one. An inconsistency a reader
      cannot explain is worse than a consistent wrong — the wrong one at least
-     teaches a rule. */
+     teaches a rule.
+
+     IT MOVED INTO THE PANEL'S ABOUT TAB (`57` §16). It is about the ROW SET
+     and not about a column, so the pane that says what this row set is, is
+     where it belongs; and the reader who most needs it is the one who has just
+     pressed `Chassis` and selected nothing, which is exactly when ABOUT is
+     the live tab. Contrast the Opinions note below, which explains a COLUMN
+     and stays under it. */
   if (S.invKind === CHASSIS_KIND_BYTE) {
-    note(host, 'A chassis is a part of a device, not a second device',
+    note(IV.about, 'A chassis is a part of a device, not a second device',
       'Model and serial belong to the box, not to the device — a chassis cluster is ' +
       'one device with two boxes — so the equipment form writes one of these behind ' +
       'every device you add. The diagram shows it under its device rather than ' +
@@ -2211,8 +2314,277 @@ function renderInventory(host) {
      requires the opinions column to be always visible and always honest that no
      rule engine is behind it; it says nothing about how many sentences that
      costs, and it does not permit moving the explanation to the far side of the
-     screen from the em-dashes it accounts for. */
-  note(host, 'Opinions', 'No rule engine in this build, so every cell reads —.');
+     screen from the em-dashes it accounts for.
+
+     WHICH IS WHY IT DID NOT MOVE INTO THE PANEL when everything else did
+     (`57` §16). It is filed under the em-dashes, in the column that scrolls
+     with them; a tab that hides itself the moment a row is picked is the far
+     side of the screen with extra steps. */
+  note(left, 'Opinions', 'No rule engine in this build, so every cell reads —.');
+
+  /* The panel, last, so the details pane is filled for the element that is
+     posted right now. No animation on a rebuild: nobody moved. The tab strip
+     is painted again by `ivAfterFact`, after renderFact's roveScan has had its
+     go at the tab stops. */
+  ivDetails();
+  ivPaneApply(null);
+}
+
+/* ================================ the inventory's panel — Direction A ======
+   `57` §16, and the owner's own words: *"when you are looking at equipment and
+   click on it, you have like 3 pages opened, it was too much and you couldn't
+   see anything"*.
+
+   The three were the kind strip, the table at 62% of the ledger, and the
+   meaning column at 38%. The meaning column is now gone on this view (see the
+   stylesheet's Direction A block) and what it held is the second of two tabs
+   over ONE panel beside the table — the same OBJECTS/DETAILS shape the diagram
+   grew on 2026-08-17, over the same `.dpanel`, `.ptabs`, `.ppane` and `.ddet`
+   rules.
+
+   THE FIRST TAB IS `ABOUT`, NOT `OBJECTS`, and that is the one deliberate
+   difference from the diagram. On the diagram the list of objects is in the
+   panel because the picture does not name anything; here the list IS the
+   table, on screen at every moment and never hidden by a tab. So the first
+   tab holds what the panel should say when nothing is picked: which row set
+   you are in, how big it is, and what the other tab will show. It is
+   deliberately quiet — a pane that invented something to fill itself would be
+   the third region arriving again through a side door.
+
+   THIS IS A SECOND, SMALL IMPLEMENTATION OF `dgPaneApply`/`dgPaneSet` AND NOT
+   A SHARED ONE, which is a debt and is recorded as one. The two panels differ
+   in what their first pane holds, where the selected object's name comes from
+   (`DG.boxes` there, the posted element here) and what focus does on the way
+   back, and folding them together would mean rewriting the diagram's panel in
+   the same change that first builds this one. What guards the drift in the
+   meantime is that both are driven: the diagram's by
+   `2026-08-17-one-panel-direction-a.mjs` and this one by
+   `2026-08-21-inventory-direction-a.mjs`, and the styling is genuinely shared
+   rather than copied, so a change to the idiom lands on both by construction.
+   ------------------------------------------------------------------------ */
+
+/* Which pane is live. Page state, never graph state — it is not journalled and
+   not exported, exactly like `DG_PANE`, the pan and the zoom. It survives a
+   rebuild for the same reason: a rebuild happens because a field was committed
+   or a kind was pressed, and dropping the reader back to ABOUT each time would
+   be the view throwing away where they were standing. */
+var IV_PANE = 'about';
+var IV = { panel: null, tabAbout: null, tabDet: null, about: null, det: null };
+
+/* The selection in the words the INVENTORY has for it. Deliberately not
+   `selWords()`: that answers from `DG.boxes` first, which is the diagram's
+   last render and can be a stale label for an element the module has since
+   re-posted. This reads the element that was actually posted. */
+function ivSelName() {
+  if (!S.sel) return null;
+  if (S.element && S.element.kind === 'face' && S.element.rows.length) {
+    return { label: S.element.rows[0].s[1], kind: S.element.rows[0].s[0] };
+  }
+  return { label: S.sel, kind: '' };
+}
+
+function ivPanel(kindName, rows) {
+  var panel = el('div', 'dpanel ipanel');
+  IV.panel = panel;
+
+  var tabs = el('div', 'ptabs');
+  tabs.setAttribute('role', 'tablist');
+  /* The name says what the two tabs are FOR, not what they are made of —
+     `55` §1.4, and the same rule the diagram's control groups follow. It also
+     carries no bare word another driver queries on: `the-cut-that-drew` finds
+     the edge chooser by `[aria-label*="which"]`, first match in the document,
+     and a second group carrying that word would answer instead. */
+  tabs.setAttribute('aria-label', 'this row set, or one row');
+  tabs.setAttribute('data-rove', 'h');
+  IV.tabs = tabs;
+
+  IV.tabAbout = el('button');
+  IV.tabAbout.type = 'button';
+  /* The Escape target `55` §5.6 requires: the pane's heading is its tab. */
+  IV.tabAbout.id = 'iaboutHead';
+  IV.tabAbout.setAttribute('role', 'tab');
+  IV.tabAbout.setAttribute('data-ipane', 'about');
+  IV.tabAbout.setAttribute('data-rove-item', '');
+  IV.tabAbout.setAttribute('aria-controls', 'ipaneAbout');
+  IV.tabAbout.appendChild(document.createTextNode('About '));
+  IV.tabAbout.appendChild(el('span', 'pcnt', kindName));
+  tabs.appendChild(IV.tabAbout);
+
+  IV.tabDet = el('button');
+  IV.tabDet.type = 'button';
+  IV.tabDet.id = 'ipaneDetailsTab';
+  IV.tabDet.setAttribute('role', 'tab');
+  IV.tabDet.setAttribute('data-ipane', 'details');
+  IV.tabDet.setAttribute('data-rove-item', '');
+  IV.tabDet.setAttribute('aria-controls', 'ipaneDetails');
+  tabs.appendChild(IV.tabDet);
+  panel.appendChild(tabs);
+
+  IV.about = el('div', 'iabout ppane');
+  IV.about.id = 'ipaneAbout';
+  IV.about.setAttribute('role', 'tabpanel');
+  IV.about.setAttribute('aria-labelledby', 'iaboutHead');
+  /* THE COUNT IS OF THE REPLY, NOT OF THE GRAPH (ADR-0019). It is the number
+     of rows the module just sent for this kind — the same arithmetic the
+     diagram's `Objects` tab does over the boxes it was handed — so the page
+     cannot disagree with the store about it. */
+  IV.about.appendChild(el('p', 'prose',
+    plural(String(rows), 'row in this set', 'rows in this set') +
+    '. Pick one and its fields open under DETAILS.'));
+  panel.appendChild(IV.about);
+
+  IV.det = el('div', 'ddet ppane');
+  IV.det.id = 'ipaneDetails';
+  IV.det.setAttribute('role', 'tabpanel');
+  IV.det.setAttribute('aria-labelledby', 'ipaneDetailsTab');
+  panel.appendChild(IV.det);
+  return panel;
+}
+
+/* THE DETAILS PANE, rendered in place. Never touches the table: the two panes
+   are siblings and only this one is cleared, so committing a field does not
+   rebuild four hundred rows under the reader's cursor. */
+function ivDetails() {
+  if (!IV.det) return;
+  clear(IV.det);
+
+  if (!S.sel) {
+    /* Reachable only in the frame between a selection clearing and the tab
+       strip catching up — `ivPaneApply` forces ABOUT when nothing is picked —
+       but a blank pane is a page that has stopped talking to you, so it says
+       what it is. */
+    IV.det.appendChild(el('div', 'dnone',
+      'Nothing is selected. Pick a row in the table and its details appear here.'));
+    return;
+  }
+
+  /* ONE CLICK BACK, and it does not claim the table went anywhere — on this
+     view it never does. The key is Escape, one rung, filed above the deselect
+     rung so the first press closes the details and the second clears the
+     selection. */
+  var back = el('button', 'dback', 'close these details');
+  back.type = 'button';
+  back.setAttribute('data-ipane', 'about');
+  IV.det.appendChild(back);
+
+  var who = ivSelName();
+  var head = el('div', 'colhead');
+  var h2 = el('h2');
+  h2.id = 'idetHead';
+  /* Focusable, not tabbable: a pane switch made from the keyboard needs
+     somewhere to land, and the ABOUT tab is the mirror of it going back. */
+  h2.setAttribute('tabindex', '-1');
+  h2.appendChild(el('span', 'dname2', who.label));
+  head.appendChild(h2);
+  head.appendChild(el('span', 'folio', who.kind));
+  IV.det.appendChild(head);
+
+  /* The two faces, INSIDE the details tab and not a peer of it: two views of
+     one object, not two destinations. Same markup and the same document-level
+     delegate as the meaning column's own control and as the diagram's, so no
+     one of the three can decide on its own which face is live — `renderShell`
+     re-presses every `[data-face]` in the document from `S.face`. */
+  var f = el('div', 'faces');
+  f.setAttribute('role', 'group');
+  f.setAttribute('aria-label', 'Which details to show');
+  f.appendChild(el('span', 'lab', 'show'));
+  [['meaning', 'fields'], ['equipment', 'equipment']].forEach(function (n) {
+    var btn = el('button', null, n[1]);
+    btn.type = 'button';
+    btn.setAttribute('data-face', n[0]);
+    btn.setAttribute('aria-pressed', String(S.face === n[0]));
+    f.appendChild(btn);
+  });
+  IV.det.appendChild(f);
+
+  var body = el('div');
+  if (S.face === 'equipment') renderEquipmentFace(body);
+  else renderMeaningFace(body);
+  IV.det.appendChild(body);
+  roveScan(body);
+}
+
+/* Paint the tab strip and swap which pane is on. `dir` is the direction the
+   reader moved and is the whole of the animation's meaning; pass null when
+   nothing moved. */
+function ivPaneApply(dir) {
+  if (!IV.panel) return;
+  /* A details tab with nothing to detail is not a destination. */
+  if (!S.sel) IV_PANE = 'about';
+  var det = IV_PANE === 'details';
+
+  IV.tabAbout.setAttribute('aria-selected', String(!det));
+  IV.tabDet.setAttribute('aria-selected', String(det));
+  /* The live tab is the strip's one tab stop — the roving pattern the rest of
+     this page uses, applied to a tablist, which is what ARIA asks for. */
+  IV.tabAbout.setAttribute('tabindex', det ? '-1' : '0');
+  IV.tabDet.setAttribute('tabindex', det ? '0' : '-1');
+
+  /* THE SELECTED ROW'S NAME, ON THE TAB, IN BOTH PANES — the answer to "what
+     is selected right now?" without opening anything. */
+  var who = ivSelName();
+  clear(IV.tabDet);
+  IV.tabDet.appendChild(document.createTextNode('Details '));
+  IV.tabDet.appendChild(el('span', 'pcnt', who ? who.label : 'none'));
+  IV.tabDet.title = who ? who.label + ' · ' + who.kind : 'nothing selected';
+
+  IV.about.hidden = det;
+  IV.det.hidden = !det;
+
+  var live = det ? IV.det : IV.about;
+  live.removeAttribute('data-dir');
+  if (dir) {
+    /* Force the style to settle before the class lands, or a second switch
+       inside the animation's own duration replays nothing. */
+    void live.offsetWidth;
+    live.setAttribute('data-dir', dir);
+  }
+}
+
+/* Move between the two panes. Focus follows only when it would otherwise be
+   destroyed: hiding the pane a person is standing in sends focus to <body>,
+   which is `53` §13's failure 7. */
+function ivPaneSet(name, animate) {
+  if (!IV.panel) return;
+  if (name === 'details' && !S.sel) name = 'about';
+  if (IV_PANE === name) { ivPaneApply(null); return; }
+  var from = IV_PANE === 'details' ? IV.det : IV.about;
+  var carrying = !!(from && document.activeElement && from.contains(document.activeElement));
+  var dir = name === 'details' ? 'fwd' : 'back';
+  IV_PANE = name;
+  ivPaneApply(animate === false ? null : dir);
+  if (carrying) {
+    if (name === 'details') {
+      var hd = IV.det.querySelector('#idetHead');
+      (hd || IV.tabDet).focus();
+    } else {
+      IV.tabAbout.focus();
+    }
+  }
+  var who = ivSelName();
+  say(name === 'details'
+    ? 'details for ' + (who ? who.label + ', ' + who.kind : 'nothing')
+    : 'about this row set');
+}
+
+/* Run after renderFact's own roveScan, for the reason `dgAfterFact` exists:
+   roveScan gives item 0 of every roving list the tab stop, which is right for
+   a fresh list and wrong for a TABLIST — the stop belongs to the tab that is
+   live — and wrong for a table whose row is already picked. */
+function ivAfterFact() {
+  if (!IV.panel) return;
+  ivPaneApply(null);
+  if (!S.sel) return;
+  var row = $('factBody').querySelector(
+    '.inv [data-post="' + cssEsc(S.sel) + '"][data-rove-item]');
+  if (row) {
+    var list = row.closest('[data-rove]');
+    if (list) {
+      var items = list.querySelectorAll('[data-rove-item]');
+      Array.prototype.forEach.call(items, function (it) { it.setAttribute('tabindex', '-1'); });
+      row.setAttribute('tabindex', '0');
+    }
+  }
 }
 
 /* --- what one paste produced ---------------------------------------------
@@ -2950,6 +3322,7 @@ function renderFact() {
   roveScan(host);
   roveScan($('band'));
   if (S.view === 'diagram') dgAfterFact();
+  if (S.view === 'inventory') ivAfterFact();
 }
 
 /* --- the diagram ---------------------------------------------------------- */
@@ -5832,8 +6205,14 @@ function renderMeaning() {
      nothing at all. Leaving it to render into a display:none column would put a
      second copy of every editable field, and of the remove button, in the
      document — two elements carrying the same `data-key`, one of them
-     unreachable and neither of them labelled as the duplicate. */
-  if (S.view === 'diagram') return;
+     unreachable and neither of them labelled as the duplicate.
+
+     THE INVENTORY IS NOW IN THE SAME POSITION (`57` §16): its details moved
+     into the table's own panel, so this column is `display: none` there too
+     and rendering into it would put the same duplicate pair in the document.
+     One test of whether the two views really share the idiom is that they
+     share this line. */
+  if (S.view === 'diagram' || S.view === 'inventory') return;
   if (S.face === 'equipment') renderEquipmentFace(host);
   else renderMeaningFace(host);
   roveScan(host);
@@ -6132,11 +6511,21 @@ document.addEventListener('click', function (ev) {
        rendered by the surface, not by renderMeaning. Rebuilt in place: the
        scene, the tree and the pan are untouched. */
     if (S.view === 'diagram') { dgDetails(); dgPaneApply(null); }
+    /* And the inventory's panel, for the same reason: it renders its own copy
+       of this control and is not rebuilt by renderMeaning. */
+    if (S.view === 'inventory') { ivDetails(); ivPaneApply(null); }
     return;
   }
   /* The panel's two tabs, and the details tab's own way back to the list. */
   if ((n = seekAttr(ev.target, 'data-dpane'))) {
     dgPaneSet(n.getAttribute('data-dpane'), true);
+    return;
+  }
+  /* The inventory's, and a SEPARATE attribute rather than the same one: the
+     two panels are two objects with two pieces of state, and one attribute
+     over both would make a stale tab from the other view a live control. */
+  if ((n = seekAttr(ev.target, 'data-ipane'))) {
+    ivPaneSet(n.getAttribute('data-ipane'), true);
     return;
   }
   if ((n = seekAttr(ev.target, 'data-kind'))) {
@@ -6166,8 +6555,28 @@ document.addEventListener('click', function (ev) {
     return;
   }
   if ((n = seekAttr(ev.target, 'data-post'))) {
-    postElement(n.getAttribute('data-post'));
+    var pid = n.getAttribute('data-post');
+    /* `53` §13 failure 7, and it predates this change: render() destroys the
+       button that was just pressed, and a focused element removed from the
+       document sends focus to <body>. Direction A is what made it visible —
+       the panel beside the table now turns at the same moment, so a reader
+       who has lost focus has also lost the thread. Focus goes back onto the
+       SAME ROW rather than into the pane: unlike the diagram, this view's list
+       did not go anywhere, so neither should the reader. */
+    var onRow = document.activeElement === n;
+    postElement(pid);
     render();
+    if (S.view === 'inventory') {
+      /* `57` §16.2 step 3: picking a row turns the panel to DETAILS, exactly
+         as picking a box does. After render(), because render() rebuilds the
+         panel and this must act on the nodes that are live. */
+      ivPaneSet('details', true);
+      if (onRow) {
+        var again = $('factBody').querySelector(
+          '.inv [data-post="' + cssEsc(pid) + '"][data-rove-item]');
+        if (again) again.focus();
+      }
+    }
     return;
   }
   /* A collapsed group carries data-group and NEVER data-post, and a box that
@@ -7886,6 +8295,22 @@ document.addEventListener('keydown', function (e) {
       if (DG.tabObj) DG.tabObj.focus();
       return;
     }
+    /* THE SAME RUNG ON THE INVENTORY (`57` §16.2 step 3: "Escape returns to
+       the list"). Same position in the ladder for the same reason — opening
+       the details was the last thing that happened, so it is the first thing
+       to close, and a second press clears the selection.
+
+       Focus moves to the ABOUT tab only if it was inside the pane that just
+       went away. A reader standing in the TABLE who presses Escape stays in
+       the table: the list is on screen on this view, and yanking them out of
+       the row they were on to a tab beside it would be `53` §13's failure 7
+       committed on purpose. */
+    if (S.view === 'inventory' && IV.panel && IV_PANE === 'details') {
+      var inDet = !!(IV.det && document.activeElement && IV.det.contains(document.activeElement));
+      ivPaneSet('about', true);
+      if (inDet && IV.tabAbout) IV.tabAbout.focus();
+      return;
+    }
     if (S.sel) {
       /* `55` §5.6: Esc "moves focus to the container's own heading, so a user
          is never stranded". render() rebuilds the fact column, which destroys
@@ -7894,10 +8319,17 @@ document.addEventListener('keydown', function (e) {
          failure 7. The heading is the only surface in this view that survives
          the rebuild, so it is where focus goes. */
       var inTree = DG.out && document.activeElement && DG.out.contains(document.activeElement);
+      /* The inventory's version of the same sentence. Its table is rebuilt by
+         render() too, so a reader standing on the row that was selected loses
+         the element under them; the ABOUT tab is this panel's heading and is
+         where they land. Read BEFORE render(), like `inTree`. */
+      var inRows = S.view === 'inventory' && document.activeElement &&
+                   $('factBody').contains(document.activeElement);
       S.sel = null; S.element = null; S.equipment = null;
       DG.declined = null;
       render();
       if (inTree) { var hd = $('doutHead'); if (hd) hd.focus(); }
+      else if (inRows) { var ah = $('iaboutHead'); if (ah) ah.focus(); }
       return;
     }
     return;
