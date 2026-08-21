@@ -122,6 +122,21 @@ pub struct KindGen {
     pub emits: bool,
     pub doc: Vec<String>,
     pub fields: Vec<FieldGen>,
+    /// The identity tuples, in declared order — tier 1 first.
+    ///
+    /// **This reaches generated code so that nothing hand-writes it.** The
+    /// tuples were parsed here for the gates alone and never emitted, so the
+    /// only way for the module to ask *"are these two rows the same thing"*
+    /// was a per-kind rule written in Rust — which ADR-0008 forbids, and which
+    /// the tree already contains one of (`rack_place`'s reuse-by-label). One
+    /// is a special case; two is a pattern, and the pattern's failure mode is
+    /// that the owner edits `schema/schema.yaml` and nothing changes.
+    ///
+    /// Raw term strings exactly as declared. The consumer resolves them
+    /// against the field table, so a tuple naming a field that does not exist
+    /// fails where the field is looked up rather than silently matching
+    /// nothing.
+    pub identity: Vec<Vec<String>>,
 }
 
 #[derive(Debug)]
@@ -298,12 +313,22 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
         if fields.is_empty() {
             return err(format!("kind `{name}` declares no fields"));
         }
+        // The gated model already parsed and validated these; the second
+        // element of each pair is the source line, which codegen does not
+        // need. No new parsing, and therefore no second reading to disagree.
+        let identity: Vec<Vec<String>> = tree
+            .kinds
+            .iter()
+            .find(|mk| mk.name == name)
+            .map(|mk| mk.identity.iter().map(|(terms, _)| terms.clone()).collect())
+            .unwrap_or_default();
         kinds.push(KindGen {
             name: name.clone(),
             layer,
             emits,
             doc: doc_of(k),
             fields,
+            identity,
         });
     }
 

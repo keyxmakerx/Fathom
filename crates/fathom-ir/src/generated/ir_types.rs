@@ -399,6 +399,65 @@ mod body {
                 _ => None,
             }
         }
+        /// The declared identity tiers, tier 1 first (62 §4.5).
+        ///
+        /// Raw term strings as declared. Empty means the schema does NOT say
+        /// how to tell two of these apart — treat that as unanswerable, never
+        /// as "always distinct".
+        pub const fn identity_tiers(self) -> &'static [&'static [&'static str]] {
+            match self {
+                NodeKind::Site => &[&["code"], &["name"]],
+                NodeKind::Device => &[&["hostname", "platform"], &["platform", "management_address"]],
+                NodeKind::Chassis => &[],
+                NodeKind::RedundancyGroup => &[],
+                NodeKind::ExternalPeer => &[],
+                NodeKind::Interface => &[&["owner(Device)", "name.parsed"], &["owner(Device)", "name.raw"]],
+                NodeKind::AggregateInterface => &[],
+                NodeKind::RethInterface => &[],
+                NodeKind::TunnelInterface => &[],
+                NodeKind::LogicalUnit => &[&["owner(InterfaceLike)", "index"]],
+                NodeKind::Address => &[&["owner(LogicalUnit)", "value"]],
+                NodeKind::Vlan => &[],
+                NodeKind::RoutingInstance => &[],
+                NodeKind::StaticRoute => &[],
+                NodeKind::LearnedRoute => &[],
+                NodeKind::RoutingProtocol => &[],
+                NodeKind::ProtocolAdjacency => &[],
+                NodeKind::Zone => &[],
+                NodeKind::PolicySet => &[],
+                NodeKind::SecurityPolicy => &[&["owner(PolicySet)", "name"], &["owner(PolicySet)", "ordinal"]],
+                NodeKind::AddressObject => &[],
+                NodeKind::AddressSet => &[],
+                NodeKind::Application => &[],
+                NodeKind::ApplicationSet => &[],
+                NodeKind::NatRuleSet => &[],
+                NodeKind::NatRule => &[],
+                NodeKind::IkeProposal => &[],
+                NodeKind::IkePolicy => &[],
+                NodeKind::IkeGateway => &[&["owner(Device)", "name"], &["owner(Device)", "peer.address", "edge(ExternalInterface)"], &["edge_in(TunnelEndpoint via IpsecVpn)", "side"]],
+                NodeKind::IpsecProposal => &[],
+                NodeKind::IpsecPolicy => &[],
+                NodeKind::IpsecVpn => &[],
+                NodeKind::TrafficSelector => &[&["owner(IpsecVpn)", "name"], &["owner(IpsecVpn)", "local_ip", "remote_ip"]],
+                NodeKind::Tunnel => &[],
+                NodeKind::SecurityFlowSettings => &[],
+                NodeKind::SystemSettings => &[],
+                NodeKind::NtpServer => &[],
+                NodeKind::SyslogTarget => &[],
+                NodeKind::PhysicalPort => &[&["owner(PortHost)", "position"], &["owner(PortHost)", "label"]],
+                NodeKind::Cable => &[&["edge(Terminates:A)", "edge(Terminates:B)"], &["label"]],
+                NodeKind::PassiveNode => &[&["owner(Premises)", "label"]],
+                NodeKind::Premises => &[&["clli"], &["street"], &["label"]],
+                NodeKind::Tenant => &[&["code"], &["name"]],
+                NodeKind::Service => &[&["owner(Tenant)", "cid"], &["owner(Tenant)", "label"]],
+                NodeKind::ServiceType => &[&["builtin_id"], &["code"]],
+                NodeKind::ServiceEndpoint => &[&["owner(Service)", "uni_id"], &["owner(Service)", "ordinal"], &["owner(Service)", "edge(AttachesTo)"]],
+                NodeKind::ServicePath => &[&["owner(Service)", "ordinal"], &["owner(Service)", "label"]],
+                NodeKind::PathSegment => &[&["owner(ServicePath)", "ordinal"], &["owner(ServicePath)", "edge(EntersAt)", "edge(ExitsAt)"]],
+                NodeKind::LayoutPin => &[],
+                NodeKind::Rack => &[&["owner(Premises)", "label"]],
+            }
+        }
         /// The kind's layer (62 §4.2).
         pub const fn layer(self) -> Layer {
             match self {

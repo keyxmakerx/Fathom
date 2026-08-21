@@ -154,6 +154,58 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
         );
     }
     o.push_str("                _ => None,\n            }\n        }\n");
+
+    // ---- identity tiers ----------------------------------------------------
+    //
+    // Emitted 2026-08-21 so that ADR-0008 holds for identity as it does for
+    // every other schema fact: the question "are these two rows the same
+    // thing" is answered from `schema/`, not from a rule somebody wrote in
+    // Rust. Before this the tuples were parsed for the GATES ONLY and never
+    // reached code, so the only way to ask was a hand-written per-kind rule —
+    // and the tree already had one. One is a special case; two is a pattern,
+    // and the pattern's failure mode is the owner editing schema.yaml and
+    // nothing changing.
+    //
+    // RAW TERM STRINGS, exactly as declared, in declared order — tier 1 first.
+    // Not resolved to FieldKeys here: a term may name something that is not a
+    // plain field, and resolving at the call site means a tuple naming a field
+    // that does not exist fails where it is looked up rather than silently
+    // matching nothing.
+    //
+    // Most kinds declare none, and an empty slice is the honest answer for
+    // them: `11` §10.3 is SILENT about their identity, which is not the same
+    // as saying they have none, and a consumer must treat empty as
+    // "unanswerable" rather than as "always distinct".
+    o.push_str("        /// The declared identity tiers, tier 1 first (62 §4.5).\n");
+    o.push_str("        ///\n");
+    o.push_str("        /// Raw term strings as declared. Empty means the schema does NOT say\n");
+    o.push_str("        /// how to tell two of these apart — treat that as unanswerable, never\n");
+    o.push_str("        /// as \"always distinct\".\n");
+    o.push_str(
+        "        pub const fn identity_tiers(self) -> &'static [&'static [&'static str]] {\n            match self {\n",
+    );
+    for k in &x.kinds {
+        if k.identity.is_empty() {
+            let _ = writeln!(o, "                NodeKind::{} => &[],", k.name);
+            continue;
+        }
+        let tiers: Vec<String> = k
+            .identity
+            .iter()
+            .map(|tier| {
+                let terms: Vec<String> = tier.iter().map(|t| format!("\"{t}\"")).collect();
+                format!("&[{}]", terms.join(", "))
+            })
+            .collect();
+        let _ = writeln!(
+            o,
+            "                NodeKind::{} => &[{}],",
+            k.name,
+            tiers.join(", ")
+        );
+    }
+    o.push_str("            }\n        }\n");
+
     o.push_str("        /// The kind's layer (62 §4.2).\n");
     o.push_str("        pub const fn layer(self) -> Layer {\n            match self {\n");
     for k in &x.kinds {
