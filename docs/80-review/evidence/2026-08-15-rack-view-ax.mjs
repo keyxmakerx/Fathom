@@ -52,7 +52,64 @@ const requests = [];
 page.on('request', (r) => requests.push(r.url()));
 
 await page.goto('file://' + artifact);
-await page.waitForFunction(() => document.getElementById('tabRack') !== null);
+await page.waitForFunction(() => document.getElementById('tabEquip') !== null);
+
+// -------------------------------------------------------------------------
+// THE WAY IN CHANGED ON 2026-08-21 AND THIS FILE WAS TAUGHT IT (`57` §2).
+//
+// `rack view` used to be a third door in the band, and the owner's complaint
+// about it opened the whole zoom-ladder design: `paste a config` and `add
+// equipment` are how data gets IN, and `rack view` was a way of LOOKING at data
+// already there. It is a rung of the diagram now — you select a rack and the
+// chart area draws its elevation — and `put a box in a rack` moved to the `add
+// equipment` sheet, which is the only door that does not need a rack to already
+// exist.
+//
+// NOT ONE ASSERTION BELOW WAS WEAKENED FOR IT. Every check on what the
+// elevation DRAWS is untouched and still reads `#rbody`, because the renderer
+// is untouched — the change was to how it is reached. What moved is the
+// plumbing: `enterRack` replaces `page.click('#tabRack')`, `place` opens the
+// form through the equipment door, and section 1 now asserts the new contract
+// (two doors, and selecting a rack is the way in) instead of the old one.
+// -------------------------------------------------------------------------
+
+// Dismiss whatever is up, so a helper never types into the wrong sheet. The
+// scrim is the page's own answer to "is a sheet open", so it is what is asked.
+async function closeSheets() {
+  for (let i = 0; i < 4; i++) {
+    if (!(await page.locator('#scrim').isVisible())) return;
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(60);
+  }
+}
+
+// Open the placement form the way a person does now: through the second door.
+async function openPlaceForm() {
+  await closeSheets();
+  await page.click('#tabEquip');
+  await page.waitForTimeout(60);
+  await page.click('#rAdd');
+  await page.waitForTimeout(60);
+}
+
+// Go into a rack's elevation by SELECTING the rack, which is the whole of the
+// new contract. The Outline row is the keyboard-and-pointer handle the diagram
+// already gives every box; the rack is drawn as one because `layers.rs`
+// over-draws it and marks it untabled.
+async function enterRack(label) {
+  await closeSheets();
+  await page.click('[data-view="diagram"]');
+  await page.waitForTimeout(200);
+  const row = await page.evaluate((name) => {
+    const r = [...document.querySelectorAll('[data-drow]')]
+      .find((x) => /Rack/.test(x.textContent) && x.textContent.includes(name));
+    return r ? r.getAttribute('data-drow') : null;
+  }, label);
+  if (!row) return false;
+  await page.click('[data-drow="' + row + '"]');
+  await page.waitForTimeout(250);
+  return true;
+}
 
 // The placement form's field ids are the schema's field keys, and those keys
 // MOVED during a rebase -- 300-306 became 302-307 when a concurrent branch took
@@ -60,13 +117,11 @@ await page.waitForFunction(() => document.getElementById('tabRack') !== null);
 // the registry that goes stale silently, so they are read out of the rendered
 // form by its LABELS, which is also how a person finds them.
 async function fieldIds() {
-  await page.click('#rAdd');
-  await page.waitForTimeout(50);
+  await openPlaceForm();
   const map = await page.locator('#mform label').evaluateAll(
     (ls) => Object.fromEntries(ls.map((l) => [l.textContent.replace(/ — required$/, '').trim(),
                                               l.getAttribute('for')])));
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(50);
+  await closeSheets();
   return map;
 }
 
@@ -86,21 +141,12 @@ async function addBox(hostname, member) {
 // mints.
 const F = {};
 async function place(opts) {
-  /* The placement form opens FROM the rack view, so make sure that is up --
-     a successful placement leaves it open, a refusal leaves the form open, and
-     Esc unwinds one level. Asserting the state instead of assuming it keeps the
-     driver honest about which sheet it is typing into. */
-  if (!(await page.locator('#rsheet').isVisible())
-      && !(await page.locator('#msheet').isVisible())) {
-    await page.click('#tabRack');
-    await page.waitForTimeout(50);
-  }
-  if (await page.locator('#msheet').isVisible()) {
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(50);
-  }
-  await page.click('#rAdd');
-  await page.waitForTimeout(50);
+  /* The placement form opens FROM the equipment sheet now. A successful
+     placement closes both and lands inside the rack; a refusal leaves the form
+     open with everything still typed in it. Either way this starts from a clean
+     page rather than assuming which of the two it is looking at, which is the
+     same discipline the version that drove the rack sheet had. */
+  await openPlaceForm();
   await page.fill('#' + F.rack, opts.rack);
   await page.fill('#' + F.height, String(opts.height));
   await page.selectOption('#' + F.numbering, opts.numbering);
@@ -116,18 +162,35 @@ async function place(opts) {
   await page.waitForTimeout(80);
 }
 
-console.log('\n1. the rack view exists and is reachable');
-check('a "rack view" tab is present', await page.locator('#tabRack').count() === 1);
+console.log('\n1. rack view is NOT a door — the band is two doors, and the way in is the rack');
+// The category error, asserted from the outside: the band's job is HOW DATA
+// GETS IN, and there are exactly two ways in.
+check('the band offers two doors, not three',
+  await page.locator('.doors button').count() === 2,
+  (await page.locator('.doors button').evaluateAll((ns) => ns.map((n) => n.textContent.trim())))
+    .join(' | '));
+check('and none of them is a way of LOOKING',
+  await page.locator('#tabRack').count() === 0);
+// The `then` kicker went with the door it belonged to. `start here` and `or`
+// are a pair; `then` was the third rung of a sequence with no third rung left.
+const kickers = await page.locator('.doors .dk').evaluateAll((ns) => ns.map((n) => n.textContent.trim()));
+check('the "then" kicker went with it', !kickers.includes('then'), kickers.join(','));
 
 await addBox('srx-a', '0');
 await addBox('srx-b', '1');
 
 console.log('\n2. the empty state says what it cannot do, rather than showing nothing');
-await page.click('#tabRack');
-await page.waitForTimeout(50);
-const empty = await page.locator('#rbody').innerText();
+// THIS SENTENCE MOVED WITH THE SHEET IT USED TO LIVE IN, and it is asserted in
+// its new home rather than dropped. It was the rack sheet's empty state — which
+// cannot exist any more, because with no racks there is nothing to select and
+// no elevation to stand in. The one person who needs telling that a rack is
+// hand-entered is the one about to create one, so it is now the hint on the
+// form that creates it.
+await openPlaceForm();
+const empty = await page.locator('#mHint').innerText();
 check('it says no config states rack position',
-  /nothing in a pasted config says which rack/i.test(empty), empty.slice(0, 160));
+  /nothing in a pasted config says which rack/i.test(empty), empty.slice(0, 200));
+await closeSheets();
 
 console.log('\n3. a box can be placed by hand');
 const LABELS = await fieldIds();
@@ -139,14 +202,22 @@ F.span = LABELS['box height in units'];
 F.face = LABELS['face'];
 check('the form offers every placement field the schema declares',
   Object.values(F).every(Boolean), JSON.stringify(F));
-await page.click('#rAdd');
-await page.waitForTimeout(50);
+await openPlaceForm();
 const chassisValues = await page.locator('#mfChassis option').evaluateAll(
   (os) => os.map((o) => o.value));
-await page.keyboard.press('Escape');
-await page.waitForTimeout(50);
+await closeSheets();
 await place({ rack: 'R12', height: 42, numbering: 'ascending', pos: 5, span: 2,
               face: 'front', chassis: chassisValues[0] });
+
+// A SUCCESSFUL PLACEMENT LANDS YOU IN THE RACK, which is the ladder's own
+// answer to "did that work?" — it used to reopen the rack sheet, and there is
+// no sheet. The elevation is on screen with nothing further pressed.
+check('placing a box lands inside the rack it was placed in',
+  await page.locator('.dview').getAttribute('data-depth') === 'rack'
+    && await page.locator('#rbody').isVisible(),
+  String(await page.locator('.dview').getAttribute('data-depth')));
+check('and the picture one rung up is not on screen at the same time',
+  !(await page.locator('.dcanvas').isVisible()));
 
 const drawn = await page.locator('#rbody').innerText();
 check('the frame states its own geometry', /42U/.test(drawn) && /U1 at the bottom/.test(drawn),
@@ -167,9 +238,14 @@ check('the rack picker is a button in the accessibility tree',
   JSON.stringify(flat.filter((n) => n.role === 'button').slice(0, 12).map((n) => n.name)));
 
 console.log('\n5. the box is keyboard reachable and activates');
-await page.keyboard.press('Escape');   // close, so focus starts clean
-await page.click('#tabRack');
-await page.waitForTimeout(50);
+// Leave and come back by SELECTING the rack, so the state under this section is
+// reached the way a person reaches it rather than by reopening a sheet.
+check('escape comes back out of the rack', await (async () => {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  return await page.locator('.dview').getAttribute('data-depth') === 'site';
+})());
+check('selecting the rack goes back in', await enterRack('R12'));
 let reached = false;
 for (let i = 0; i < 60 && !reached; i++) {
   await page.keyboard.press('Tab');
@@ -201,20 +277,19 @@ check('the refusal names the reason rather than silently moving the box',
   await page.locator('#mErr').innerText().catch(() => '(no error shown)'));
 
 console.log('\n8. the numbering direction reaches the picture');
-// Escape unwinds ONE level: the placement form returns to the rack view that
-// opened it. So two presses to reach the page — which is itself the contract
-// 53 §3.7 asks for, and is asserted here rather than assumed.
+// Escape unwinds ONE level, and the level below the placement form is now the
+// EQUIPMENT SHEET that opened it rather than the rack sheet that used to. Two
+// presses to reach the page either way — the contract 53 §3.7 asks for is that
+// one press undoes one thing, not that a particular sheet is underneath.
 await page.keyboard.press('Escape');
-await page.waitForTimeout(50);
-check('esc from the placement form returns to the rack view, not to the page',
-  await page.locator('#rsheet').isVisible() && !(await page.locator('#msheet').isVisible()));
+await page.waitForTimeout(60);
+check('esc from the placement form returns to the sheet that opened it, not to the page',
+  await page.locator('#esheet').isVisible() && !(await page.locator('#msheet').isVisible()));
 await page.keyboard.press('Escape');
-await page.waitForTimeout(50);
-check('a second esc closes the rack view',
-  !(await page.locator('#rsheet').isVisible()));
+await page.waitForTimeout(60);
+check('a second esc closes that sheet too',
+  !(await page.locator('#esheet').isVisible()) && !(await page.locator('#scrim').isVisible()));
 await addBox('srx-c', '0');
-await page.click('#tabRack');
-await page.waitForTimeout(50);
 await place({ rack: 'R99', height: 10, numbering: 'descending', pos: 1, host: 'srx-c' });
 const desc = await page.locator('#rbody').innerText();
 check('a descending frame reports U1 at the top', /U1 at the top/.test(desc),
@@ -251,11 +326,9 @@ check('it says how the two faces are drawn',
 // -------------------------------------------------------------------------
 console.log('\n10. two boxes at the same unit on OPPOSITE faces — both drawn');
 await page.reload();
-await page.waitForFunction(() => document.getElementById('tabRack') !== null);
+await page.waitForFunction(() => document.getElementById('tabEquip') !== null);
 await addBox('srx-front', '0');
 await addBox('srx-rear', '0');
-await page.click('#tabRack');
-await page.waitForTimeout(50);
 await place({ rack: 'RB', height: 10, numbering: 'ascending', pos: 5, span: 1,
               face: 'front', host: 'srx-front' });
 await place({ rack: 'RB', height: 10, numbering: 'ascending', pos: 5, span: 1,
@@ -296,11 +369,9 @@ check('opposite faces are NOT reported as a clash',
 // -------------------------------------------------------------------------
 console.log('\n11. two boxes overlapping on the SAME face — both drawn, both marked');
 await page.reload();
-await page.waitForFunction(() => document.getElementById('tabRack') !== null);
+await page.waitForFunction(() => document.getElementById('tabEquip') !== null);
 await addBox('srx-a2', '0');
 await addBox('srx-b2', '0');
-await page.click('#tabRack');
-await page.waitForTimeout(50);
 await place({ rack: 'RC', height: 42, numbering: 'ascending', pos: 10, span: 3,
               face: 'front', host: 'srx-a2' });
 await place({ rack: 'RC', height: 42, numbering: 'ascending', pos: 12, span: 1,
@@ -353,10 +424,8 @@ console.log('  wrote 2026-08-15-rack-view.png (the same-face overlap, both boxes
 // -------------------------------------------------------------------------
 console.log('\n12. a box outside the frame is named, never clipped and never silent');
 await page.reload();
-await page.waitForFunction(() => document.getElementById('tabRack') !== null);
+await page.waitForFunction(() => document.getElementById('tabEquip') !== null);
 await addBox('srx-hi', '0');
-await page.click('#tabRack');
-await page.waitForTimeout(50);
 await place({ rack: 'RD', height: 10, numbering: 'ascending', pos: 40, span: 1,
               face: 'front', host: 'srx-hi' });
 const outText = await page.locator('#rbody').innerText();
@@ -393,10 +462,8 @@ check('and the frame is still the full 10 units',
 
 console.log('\n14. the declared range is enforced, not decoration');
 await page.reload();
-await page.waitForFunction(() => document.getElementById('tabRack') !== null);
+await page.waitForFunction(() => document.getElementById('tabEquip') !== null);
 await addBox('srx-r', '0');
-await page.click('#tabRack');
-await page.waitForTimeout(50);
 await place({ rack: 'R0', height: 0, numbering: 'ascending', pos: 1,
               host: 'srx-r' });
 check('a 0U rack is refused, by name',
@@ -449,24 +516,20 @@ await page.reload();
 await page.waitForFunction(() => document.querySelector('#band button') !== null);
 await (await page.$('input[type=file]')).setInputFiles(saved);
 await page.waitForTimeout(900);
-await page.click('#tabRack');
-await page.waitForTimeout(200);
-const reopened = await page.locator('#rbody').innerText();
-check('THE RACK COMES BACK', /RKEEP/.test(reopened) && !/No racks yet/i.test(reopened),
-  reopened.slice(0, 200).replace(/\n/g, ' | '));
-/* After an import no rack is selected and the view says "Choose a rack." —
-   honest, and what a person does next is choose one. Doing that here rather
-   than asserting on the unselected state, because the question is whether the
-   PLACEMENT survived, not whether the picker remembers. */
-await page.evaluate(() => {
-  const b = [...document.querySelectorAll('#rbody button, #rbody [data-rack]')]
-    .find((x) => /RKEEP/.test(x.textContent));
-  if (b) b.click();
-});
-await page.waitForTimeout(250);
+/* THE RE-OPENED RACK IS REACHED THE NEW WAY, and that makes this a stronger
+   round trip than it was. It used to open a sheet and then pick RKEEP out of
+   its picker, because after an import no rack was selected. Now the imported
+   rack has to be a BOX IN THE PICTURE carrying its own label for `enterRack` to
+   find it at all — so a rack that came back as a bare ULID, or came back and
+   was not drawn, fails here rather than being picked out of a list by a driver
+   that already knew its name. */
+const back = await enterRack('RKEEP');
+check('THE RACK COMES BACK, drawn and named, and selecting it opens its frame',
+  back && await page.locator('.dview').getAttribute('data-depth') === 'rack');
 const chosen = await page.locator('#rbody').innerText();
 check('with the box still at the unit it was put at',
-  /\bU7\b/.test(chosen), chosen.slice(0, 220).replace(/\n/g, ' | '));
+  /\bU7\b/.test(chosen) && !/No racks yet/i.test(chosen),
+  chosen.slice(0, 220).replace(/\n/g, ' | '));
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
 await browser.close();
