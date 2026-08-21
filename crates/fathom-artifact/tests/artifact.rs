@@ -226,6 +226,65 @@ fn the_importer_still_reads_the_version_before_the_envelope() {
     }
 }
 
+/// **THE PAGE'S FACE CODES MUST EQUAL THE MODULE'S.**
+///
+/// A face code is a wire discriminant: the module tags each reply record with
+/// one and the page switches on it. If the two files disagree, a record of one
+/// kind is rendered as another — silently, with plausible-looking output,
+/// because both sides are reading the same bytes with different meanings.
+///
+/// This is not hypothetical and it is not old. `protocol.rs` carries a
+/// paragraph warning that a collision does exactly that, and **within a day of
+/// it being written two parallel branches both claimed code 15** — the shape
+/// digest and the findings view — and the merge on 2026-08-21 had to renumber
+/// one of them. Two files that must be edited together will eventually not be.
+///
+/// So the agreement is asserted rather than maintained by care.
+#[test]
+fn the_pages_face_codes_match_the_modules() {
+    let page = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+    let proto = std::fs::read_to_string(
+        workspace_root().join("crates/fathom-wasm/src/protocol.rs"),
+    )
+    .expect("the protocol source is checked in");
+
+    let mut checked = 0usize;
+    for line in proto.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("pub const FACE_") else {
+            continue;
+        };
+        let Some((name, value)) = rest.split_once(": u8 = ") else {
+            continue;
+        };
+        let Some(value) = value.strip_suffix(';') else {
+            continue;
+        };
+        let name = format!("FACE_{name}");
+        // The page declares these as plain `var` initialisers, singly or in a
+        // comma list. Both spellings are searched for the same pair.
+        let needle_single = format!("var {name} = {value};");
+        let needle_in_list = format!("{name} = {value}");
+        if !page.contains(&name) {
+            // Not every module-side face has to be read by the page.
+            continue;
+        }
+        checked += 1;
+        assert!(
+            page.contains(&needle_single) || page.contains(&needle_in_list),
+            "the page and the module disagree about {name}: the module says \
+             {value}. A face code is a wire discriminant, so a mismatch renders \
+             one record kind as another rather than failing."
+        );
+    }
+    assert!(
+        checked >= 8,
+        "only {checked} face codes were cross-checked, so this test is not \
+         reading the declarations it thinks it is"
+    );
+}
+
 fn motion_is_priced_not_banned(source: &str) {
     let mut animated = 0usize;
     // BLOCK-COMMENT STATE, not a per-line prefix test. This file's own prose

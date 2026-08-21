@@ -201,6 +201,29 @@ pub const OP_LINK: u32 = 24;
 /// module is measured against `44` §5.2's ceiling.
 pub const OP_RACK_ELEVATION: u32 = 23;
 
+/// What the estate does not know yet.
+///
+/// The findings view's first real job (`57` §13.5 consequence 3): every field
+/// `schema/schema.yaml` declares `card: "1"` against every live element that
+/// has no value under it. Read-only, no clock, no entropy — it asserts
+/// nothing, so it carries none of the 24-byte prefix the writing opcodes do.
+///
+/// # Why it is an opcode and not a page-side walk
+///
+/// `57` §14.1 files this as pile A, *"page-side, no module bytes"*, and that
+/// classification does not survive contact with the two questions the view
+/// has to ask. "Which fields are required" lives in the `card:` column and
+/// reaches a reader only through `fathom-schemagen`'s generated tables
+/// (ADR-0008); "which of them has no stored value" is
+/// `Graph::presence`'s three-state answer, and the page has no graph — it has
+/// the strings of whatever it last asked about. A page-side version would
+/// need a copy of the schema in JavaScript and one `OP_ELEMENT` per element,
+/// which is the exact defect `protocol::FACE_RACK` was written to stop.
+///
+/// So it costs module bytes, and `47`'s ceiling is the reason that is worth
+/// stating out loud rather than absorbing quietly.
+pub const OP_FINDINGS: u32 = 25;
+
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and
 // `OP_INV_ROWS` already lists it. A bespoke opcode would have been a second

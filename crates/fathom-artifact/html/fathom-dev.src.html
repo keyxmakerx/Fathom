@@ -548,6 +548,45 @@ button.tab:hover { color: var(--ink); }
    pane; the gutter comes back so they do not sit on the panel's own rule. */
 .ipanel .note { margin: var(--s3); }
 .ipanel .iabout .prose { padding: var(--s3) var(--s3) 0; }
+/* --- the findings view's gap list (`57` §13.5.3) --------------------------
+   A two-level list rather than a table, because the two levels are not two
+   columns: the group is a SENTENCE and the rows under it are elements. The
+   inventory's `.inv` table is right when every row has the same shape and
+   wrong here.
+
+   No new colour and no new ink. `51` §9 reserves the three risk colours and
+   this list is not risk — it is absence, which the tokens already have a
+   treatment for: muted, with the count in mono at the reading size. The one
+   emphasised thing on the row is the NUMBER, because the number is what makes
+   the row a job. */
+.gaprow { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2);
+          padding: var(--s2) 0 var(--s1);
+          border-top: var(--rule-hair) solid var(--hairline); }
+.gaprow:first-child { border-top: 0; }
+.gaprow .n { font-family: var(--mono); font-size: var(--t-mono); font-weight: 700;
+             color: var(--ink); }
+.gaprow .what { font-size: var(--t-small); color: var(--ink); }
+/* "cannot be typed in yet" — a WORD, never a colour or an icon. `55`: a state
+   only a mouse can see is not a state, and a state only a colour carries is
+   not one either. */
+.gaprow .mark { font-size: var(--t-micro); letter-spacing: var(--track-label);
+                text-transform: uppercase; color: var(--muted); }
+.gapitems { list-style: none; margin: 0 0 var(--s3); padding: 0; }
+.gapitems button {
+  display: block; width: 100%; text-align: left; background: none; border: 0;
+  padding: var(--s1) var(--s3) var(--s1) var(--s4); cursor: pointer;
+  font-family: var(--mono); font-size: var(--t-mono); color: var(--ink);
+  min-height: var(--row-min); }
+.gapitems button:hover { background: var(--surface); }
+.gapitems button:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
+                                 outline-offset: var(--focus-offset-inset); }
+.gapitems button[aria-current="true"] { background: var(--surface); font-weight: 700; }
+.gapitems .idw { color: var(--muted); }
+/* The cap, said out loud. `59` §3.6: a collapse that does not say how many it
+   hid is a lie with fewer elements. */
+.gapmore { font-size: var(--t-micro); color: var(--muted); padding-left: var(--s4); }
+.emptykinds { font-family: var(--mono); font-size: var(--t-mono); color: var(--muted);
+              word-break: break-word; max-width: var(--measure); }
 
 /* --- footer --------------------------------------------------------------- */
 .foot { flex: none; display: flex; flex-wrap: wrap; gap: var(--s4);
@@ -1717,6 +1756,12 @@ var OP_RACK_PLACE = 22, OP_RACK_ELEVATION = 23;
    and none of them created an EDGE. */
 var OP_LINK = 24;
 
+/* What the estate does not know yet — the findings view's first real job
+   (`57` §13.5.3). Read-only, no request bytes, no clock and no entropy: it
+   asserts nothing, so it carries none of the 24-byte prefix the writing
+   opcodes do. */
+var OP_FINDINGS = 25;
+
 /* protocol::ERR_LINK_CHOICE and ERR_NO_LINK, and the SECOND and THIRD codes
    this page names by number.
 
@@ -1835,6 +1880,22 @@ var FACE_RACK = 12, FACE_RACK_SLOT = 13, FACE_RACK_CLASH = 14;
    equality and never parses, orders, truncates or shows one. It is drift
    detection and not a seal -- see the journal's own note below. */
 var FACE_SHAPE = 15;
+/* The findings view's four records: the head tally, one gap group, one element
+   under a group, and one kind the estate holds none of.
+
+   THE WORD "FINDING" IS NOT USED FOR THESE ROWS ANYWHERE BELOW.
+   `.context/conventions.md` reserves it for "one rule firing against one
+   node", and this build has no rule engine. The view is named Findings
+   because it is one of `52`'s six views; what is IN it is a GAP — a required
+   field with no stored value — and the difference is the whole honesty of the
+   screen. */
+/* 16-19, NOT 15-18. The shape digest (FACE_SHAPE) and this view were built on
+   parallel branches and both claimed 15; the merge on 2026-08-21 gave the
+   digest the number it had first and moved these up. A face code is a wire
+   discriminant — a collision renders one record kind as another — so these MUST
+   equal `protocol.rs`, and an assembler test asserts exactly that rather than
+   trusting two files to be edited together. */
+var FACE_GAP_HEAD = 16, FACE_GAP = 17, FACE_GAP_ITEM = 18, FACE_GAP_EMPTY = 19;
 
 var wasm = null;                 /* the instance's exports */
 var wasmModule = null;
@@ -1998,6 +2059,10 @@ var S = {
   inv: null,
   element: null,
   equipment: null,
+  /* The last OP_FINDINGS reply. Re-read on every render of that view rather
+     than invalidated by the write paths — see loadFindings for why a cached
+     work list is the one kind of staleness this view cannot afford. */
+  findings: null,
   loaded: false,
   /* '' until something is loaded, then 'demo', 'paste' or 'hand'. Two estates
      can never be on screen at once, and every label reads off this one word so
@@ -2178,8 +2243,14 @@ var VIEWS = [
     imp: '' },
   { id: 'config',      t: 'Config — change set', key: '⌥3', built: false,
     h: 'Config changes', imp: '' },
-  { id: 'findings',    t: 'Findings',    key: '⌥4', built: false, h: 'Findings',
-    imp: '' },
+  /* BUILT 2026-08-21, and its heading says what is under it rather than
+     repeating the tab's name. The view has no rule engine behind it and never
+     claims one: what it lists is what the estate does not KNOW — a required
+     field with nothing stored under it — which is a fact about the record, not
+     a judgement about the network. */
+  { id: 'findings',    t: 'Findings',    key: '⌥4', built: true,
+    h: 'What the estate does not know',
+    imp: 'Click a row to open that element and fill it in.' },
   { id: 'diagram',     t: 'Diagram',     key: '⌥5', built: true,  h: 'Network map',
     imp: 'Click a box to inspect it. Drag one to move it.' },
   { id: 'inventory',   t: 'Inventory',   key: '⌥6', built: true,  h: 'Equipment',
@@ -2844,6 +2915,268 @@ function note(host, lead, body) {
 }
 
 /* =========================================================================
+   2c. THE FINDINGS VIEW — what the estate does not know yet
+   (`57` §13.5 consequence 3, §14.1 pile A item A4).
+
+   NO RULE HAS FIRED HERE AND NOTHING BELOW SAYS ONE HAS.
+   `.context/conventions.md` reserves the word *finding* for "one rule firing
+   against one node". This build has zero lines of rule engine. What this view
+   lists is a GAP: a field `schema/schema.yaml` declares `card: "1"` against an
+   element with no stored value under it. A rule says *this is wrong*; a gap
+   says *nobody has said*, and only the second is a claim this build has any
+   right to make.
+
+   WHY IT EXISTS BEYOND FILLING A SCREEN. The owner's capture workflow is
+   drag-then-annotate (`57` §12, §13): drop ten cables in fifteen seconds and
+   fill in the details later. That only works if "later" has somewhere to
+   happen — a standing list of what is unfinished, worked down, rather than a
+   hunt across the canvas for what is drawn dotted. This is that list.
+
+   EVERY NUMBER ON THIS SCREEN IS THE MODULE'S. Nothing here counts, joins or
+   walks; `fathom_inventory::findings` does all of it and hands over strings,
+   including each row's sentence, because "2 of 5" is a computation.
+   ========================================================================= */
+
+/* One crossing, on every render of this view, deliberately.
+   `OP_FINDINGS` is read-only and the view's whole value is that it is never
+   stale: an operator fills a field on the right and the count on the left has
+   to move. Caching it behind an invalidation flag would mean every future
+   write opcode remembering to clear it, and the first one that forgot would
+   leave a work list quietly reporting yesterday's estate — which is the one
+   failure this view must not have. The walk is bounded by the schema's field
+   count times the estate, and `49` §8 already says the answer to scale here is
+   to scope the question, not to cache the answer. */
+function loadFindings() {
+  S.findings = S.loaded ? call(OP_FINDINGS, new Uint8Array(0)) : null;
+}
+
+/* WHERE THE KEYBOARD WAS, so selecting a row does not throw the reader out of
+   the list.
+
+   Found by driving it, and invisible to a mouse: pressing Enter on a row runs
+   the document's `data-post` delegate, which re-renders the view, and
+   `renderFact`'s `clear()` removes the very button that had focus — so focus
+   falls to <body> and the next ArrowDown does nothing at all. A pointer user
+   never notices; a keyboard user is ejected on every single selection, which
+   is the opposite of "work the list down". `55`'s rule cuts both ways: a state
+   only a mouse can keep is not a state either.
+
+   This is the same shape of defect the diagram's three drivers hit when
+   Direction A landed, and it is recorded here so the next list-shaped surface
+   looks for it before shipping rather than after.
+
+   A `focusin` listener rather than a read inside the renderer, because by the
+   time the renderer runs the element is already detached and
+   `document.activeElement` is <body>. */
+var GAP_FOCUS = null;
+document.addEventListener('focusin', function (e) {
+  var n = e.target;
+  if (n && n.closest && n.closest('.gapitems')) {
+    GAP_FOCUS = n.getAttribute('data-post');
+  }
+});
+
+/* Put it back, AFTER `renderFact`'s roveScan has handed out the tab stops —
+   roveScan gives item 0 the `0` and everything else `-1`, so restoring focus
+   before it would leave the focused row untabbable. */
+function gapRestoreFocus() {
+  if (!GAP_FOCUS) return;
+  var want = document.querySelector('.gapitems [data-post="' + GAP_FOCUS + '"]');
+  if (!want) { GAP_FOCUS = null; return; }
+  var list = want.closest('[data-rove]');
+  if (list) {
+    var items = list.querySelectorAll('[data-rove-item]');
+    Array.prototype.forEach.call(items, function (it) {
+      it.setAttribute('tabindex', it === want ? '0' : '-1');
+    });
+  }
+  want.focus();
+}
+
+function gapRows(role) {
+  if (!S.findings || S.findings.kind !== 'face') return [];
+  return S.findings.rows.filter(function (r) { return r.role === role; });
+}
+
+function renderFindings(host) {
+  loadFindings();
+
+  if (!S.loaded) {
+    var np = el('div', 'pad');
+    /* "No workspace" is NOT "nothing is missing", and the two must never read
+       the same. Telling somebody who has pasted nothing that their estate is
+       complete would be the worst sentence this view could produce; the module
+       refuses the call outright for the same reason. */
+    unposted(np, 'nothing to check',
+      'no workspace loaded — paste a config (the door marked START HERE), or add ' +
+      'equipment by hand. An empty page is not a complete estate.');
+    host.appendChild(np);
+    return;
+  }
+
+  var bad = replyProblem(S.findings);
+  if (bad) { var bp = el('div', 'pad'); unposted(bp, 'findings', bad); host.appendChild(bp); return; }
+
+  var head = S.findings.rows[0];
+  if (!head || head.role !== FACE_GAP_HEAD) {
+    var hp = el('div', 'pad');
+    unposted(hp, 'findings', 'the reply carried no summary row');
+    host.appendChild(hp);
+    return;
+  }
+
+  /* The tally, in the same shape the paste sheet uses — one idiom for "here
+     are the numbers", not two. */
+  var p = el('div', 'pad');
+  var ul = el('ul', 'tally');
+  [[head.s[1], 'things nobody has stated'],
+   [head.s[0], 'kinds of gap'],
+   [head.s[2], 'elements checked'],
+   [head.s[3], 'kinds present']].forEach(function (pair) {
+    var li = el('li');
+    li.appendChild(el('span', 'n', pair[0]));
+    li.appendChild(el('span', 'k', pair[1]));
+    ul.appendChild(li);
+  });
+  p.appendChild(ul);
+  host.appendChild(p);
+
+  var gaps = gapRows(FACE_GAP);
+  var items = gapRows(FACE_GAP_ITEM);
+  var body = el('div', 'pad');
+
+  if (gaps.length === 0) {
+    /* TWO ZEROES THAT MEAN DIFFERENT THINGS, and the third state — no
+       workspace at all — is handled further up.
+
+       An estate whose every element has been removed reports no gaps because
+       there is nothing left to check. Saying "nothing required is unstated"
+       over it would be true and useless, and it reads as a clean bill of
+       health on an empty record. The two sentences are separated here for the
+       same reason the module separates ERR_NOT_INITIALISED from an empty
+       answer. */
+    if (head.s[2] === '0') {
+      body.appendChild(el('div', 'sh', 'Nothing is held'));
+      body.appendChild(el('p', 'prose',
+        'This workspace has no live elements — everything in it has been removed. ' +
+        'There is nothing to check, which is not the same as nothing being missing.'));
+    } else {
+      /* Plainly, and without congratulation. Everything the schema requires of
+         what is held has been stated; that is a smaller claim than "the estate
+         is complete" and the sentence says which one it is. */
+      body.appendChild(el('div', 'sh', 'Nothing required is unstated'));
+      body.appendChild(el('p', 'prose',
+        'Every field the schema requires of the ' + head.s[2] + ' elements held has a ' +
+        'value. That is not the same as the estate being complete — see what it holds ' +
+        'none of, below.'));
+    }
+  } else {
+    body.appendChild(el('div', 'sh', 'Not stated — biggest first'));
+    gaps.forEach(function (g, i) {
+      var row = el('div', 'gaprow');
+      row.appendChild(el('span', 'n', g.s[2]));
+      /* The sentence arrives whole. Slot 5 already reads "2 of 5 Device nodes
+         have no platform"; composing it here would put the arithmetic, the
+         plural and the schema's field name in JavaScript. */
+      row.appendChild(el('span', 'what', g.s[5]));
+      /* Slot 6 empty means no parser exists for that field's type, so the row
+         names work nobody can do TODAY. It is still shown — it is true, and an
+         operator who cannot see it cannot ask for it — but it says so, rather
+         than sending someone looking for an editor that is not there. */
+      if (!g.s[6]) row.appendChild(el('span', 'mark', 'cannot be typed in yet'));
+      body.appendChild(row);
+
+      var mine = items.filter(function (r) { return r.s[3] === String(i); });
+      var list = el('ul', 'gapitems');
+      list.setAttribute('data-rove', 'v');
+      list.setAttribute('aria-label', g.s[5]);
+      mine.forEach(function (r) {
+        var li = el('li');
+        var b = el('button');
+        b.type = 'button';
+        b.setAttribute('data-post', r.s[0]);
+        b.setAttribute('data-rove-item', '');
+        if (S.sel === r.s[0]) b.setAttribute('aria-current', 'true');
+        b.appendChild(document.createTextNode(r.s[1] + ' '));
+        /* The id in full and never truncated (`54` §18): it is what goes into
+           a journal and into a bug report. */
+        b.appendChild(el('span', 'idw', r.s[0]));
+        li.appendChild(b);
+        list.appendChild(li);
+      });
+      body.appendChild(list);
+      /* The cap is stated whenever it bit. Slot 4 is how many ids travelled;
+         slot 2 is how many there really are. */
+      if (parseInt(g.s[2], 10) > parseInt(g.s[4], 10)) {
+        body.appendChild(el('div', 'gapmore',
+          g.s[4] + ' of ' + g.s[2] + ' shown — the rest are in the inventory'));
+      }
+    });
+  }
+  host.appendChild(body);
+
+  var empty = gapRows(FACE_GAP_EMPTY);
+  if (empty.length) {
+    var ep = el('div', 'pad');
+    ep.appendChild(el('div', 'sh',
+      'The estate holds none of these — ' + empty.length + ' kinds'));
+    ep.appendChild(el('p', 'prose',
+      'A kind with nothing in it reports no gaps because there is nothing to check, ' +
+      'which is a different claim from everything being filled in. Each name carries ' +
+      'how many required fields would have been checked.'));
+    /* THE NAMES GO BEHIND A DISCLOSURE, THE REASON DOES NOT.
+       Forty-four kind names set in mono is eight lines of the schema's
+       vocabulary under a work list that is two rows long, and it buried the
+       thing a reader came for. A native `<details>` — the idiom the
+       inspector's unset-fields drawer already uses — keeps every name one
+       press away, in the tab order, announcing its own expanded state, with
+       no script and no aria attribute to keep in sync. The COUNT is in the
+       heading above it, so the collapsed state still states the whole fact.
+       The note below is deliberately outside it: a caveat nobody opens is a
+       caveat nobody reads. */
+    var names = empty.map(function (r) {
+      return r.s[0] + (r.s[1] === '0' ? '' : ' (' + r.s[1] + ')');
+    });
+    var d = el('details', 'unsetfields');
+    d.appendChild(el('summary', null, 'the ' + empty.length + ' names'));
+    d.appendChild(el('p', 'emptykinds', names.join(' · ')));
+    ep.appendChild(d);
+
+    /* THE CAVEAT IS CONDITIONAL ON THE REPLY, not typed in as a standing fact.
+       `57` §6.2 established that nothing in this build creates a Cable or a
+       PhysicalPort — no opcode and no dictionary entry — so the two are empty
+       BY CONSTRUCTION and their absence from the gap list proves nothing about
+       anyone's cabling. That sentence would go stale the day `OP_CABLE` lands;
+       gating it on the module still reporting both kinds as empty means it
+       disappears by itself the moment one exists, instead of waiting for
+       somebody to remember this line. */
+    var physical = ['Cable', 'PhysicalPort'].filter(function (k) {
+      return empty.some(function (r) { return r.s[0] === k; });
+    });
+    if (physical.length) {
+      /* NO DOC NUMBERS AND NO BACKTICKS IN THE SENTENCE. `57` §6.2 is the
+         source and it belongs in this comment; a network engineer reading the
+         screen is owed plain English, and a stray pair of backticks reads as
+         markdown that leaked. */
+      note(ep, 'Why the physical layer is empty',
+        physical.join(' and ') + ': nothing in this build creates one — no opcode, and ' +
+        'no dictionary entry. So this list says nothing about your cabling, and it will ' +
+        'not until something can record a cable.');
+    }
+    host.appendChild(ep);
+  }
+
+  /* Said once, at the foot, where a reader who has worked down the list will
+     ask it. `52` §3.7.1's opinions column makes the same promise on the
+     inventory and this is its sibling. */
+  note(host, 'No rule has fired',
+    'There is no rule engine in this build. Every row above is a field the schema ' +
+    'marks required — exactly one value, always — checked against what the graph ' +
+    'holds. Nothing here judges whether your network is right; it reports what ' +
+    'nobody has said yet.');
+}
+
+/* =========================================================================
    2b. THE FINDER — view 1 of 6, and the one surface that reads corpus rather
    than graph (52 §3.2).
 
@@ -3439,11 +3772,15 @@ function renderFact() {
   if (S.view === 'diagram') renderDiagram(host);
   else if (S.view === 'inventory') renderInventory(host);
   else if (S.view === 'finder') renderFinderView(host);
+  else if (S.view === 'findings') renderFindings(host);
   else { var p = el('div', 'pad'); unposted(p, S.view, UNBUILT); host.appendChild(p); }
   roveScan(host);
   roveScan($('band'));
   if (S.view === 'diagram') dgAfterFact();
   if (S.view === 'inventory') ivAfterFact();
+  /* After roveScan, for the reason gapRestoreFocus records: selecting a row
+     rebuilds this view and takes the focused button with it. */
+  if (S.view === 'findings') gapRestoreFocus();
 }
 
 /* --- the diagram ---------------------------------------------------------- */

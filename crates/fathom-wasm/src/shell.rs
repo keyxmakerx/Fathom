@@ -20,7 +20,8 @@ use crate::protocol::{
 use crate::OP_ESTATE_DEMO;
 use crate::{
     OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_FIELD_SET,
-    OP_INIT, OP_INV_ROWS, OP_LINK, OP_PASTE, OP_PLACE, OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
+    OP_FINDINGS, OP_INIT, OP_INV_ROWS, OP_LINK, OP_PASTE, OP_PLACE, OP_QUERY, OP_RACK_ELEVATION,
+    OP_RACK_PLACE,
 };
 
 pub struct Shell {
@@ -93,6 +94,7 @@ impl Shell {
             OP_EQUIPMENT => self.equipment(req),
             OP_RACK_PLACE => self.rack_place(req),
             OP_RACK_ELEVATION => self.rack_elevation(req),
+            OP_FINDINGS => self.findings(req),
             _ => protocol::encode_error(
                 ERR_UNKNOWN_OP,
                 &format!("opcode {op} is not implemented by this module"),
@@ -1180,6 +1182,27 @@ impl Shell {
                 protocol::encode_diagram(&drawn, Some(&filter))
             }
         }
+    }
+
+    /// `OP_FINDINGS`: what the estate does not know yet. No request bytes.
+    ///
+    /// Refuses with `ERR_NOT_INITIALISED` when no estate is held, like every
+    /// other face opcode. That is not the same answer as "nothing is missing",
+    /// and the two must never be rendered the same way: an empty page has no
+    /// gaps because it has nothing, and telling an operator their estate is
+    /// complete because they have not pasted anything yet would be the worst
+    /// sentence in the product.
+    fn findings(&mut self, req: &[u8]) -> Vec<u8> {
+        if !req.is_empty() {
+            return protocol::encode_error(
+                ERR_BAD_FRAME,
+                &format!("OP_FINDINGS takes no request; got {} bytes", req.len()),
+            );
+        }
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        protocol::encode_findings_reply(&fathom_inventory::findings(estate))
     }
 
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {
