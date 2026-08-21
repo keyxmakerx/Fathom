@@ -24,6 +24,7 @@ pub mod graph;
 pub mod id;
 pub mod op;
 pub mod prov;
+pub mod shape;
 pub mod snap;
 
 pub use field::{FieldHistory, FieldInfo, HistoryEntry, StoredPresence};
@@ -34,6 +35,7 @@ pub use prov::{
     Actor, CaptureId, CaptureSpan, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp,
     UserId,
 };
+pub use shape::{shape_digest, shape_hex};
 pub use snap::{
     EdgeSnap, FieldSnap, HistoryEntrySnap, HistorySnap, NodeSnap, Snapshot, SnapshotError,
 };

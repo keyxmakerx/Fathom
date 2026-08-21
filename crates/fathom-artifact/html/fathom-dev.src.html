@@ -1830,6 +1830,11 @@ var RISK_CLASS = ['r-safe', 'r-caution', 'r-danger'];
    and a face code is a wire discriminant -- a collision renders one record
    kind as another rather than failing. */
 var FACE_RACK = 12, FACE_RACK_SLOT = 13, FACE_RACK_CLASH = 14;
+/* The shape digest of the estate a paste built (`49` §19 phase 0, item 3). Slot
+   0, sixteen hex characters, and OPAQUE HERE: this page compares two of them for
+   equality and never parses, orders, truncates or shows one. It is drift
+   detection and not a seal -- see the journal's own note below. */
+var FACE_SHAPE = 15;
 
 var wasm = null;                 /* the instance's exports */
 var wasmModule = null;
@@ -2045,7 +2050,23 @@ var S = {
      A PASTE ENTRY HOLDS THE REDACTED TEXT, NEVER THE RAW PASTE. The module hands
      it back in the FACE_CAPTURE row for exactly this reason: journalling what
      the operator actually typed would write their pre-shared keys into the
-     export file. Invariant 3. */
+     export file. Invariant 3.
+
+     A PASTE ENTRY ALSO CARRIES WHAT IT PRODUCED — not the product, a DIGEST of
+     it. Re-deriving is the whole point of an op log and it is also the trap
+     (`49` §10a): this parser changes constantly, the Junos dictionary went from
+     23.8% to 47.5% line coverage in two days this month, and the same text read
+     by a later build gives a different estate with different ids. Recording the
+     product would fix that by freezing the operator at last month's reading,
+     which is not a fix. So the entry carries `shape` — sixteen characters from
+     `fathom_graph::shape_hex`, over the identities and edge endpoints the paste
+     built — plus the four counts the tally already shows. Replay re-derives, as
+     before, and then CHECKS. See checkDrift.
+
+     `shape` IS NOT TAMPER-EVIDENCE and nothing here may call it that. It is
+     FNV-1a, non-cryptographic by its own specification (RFC 9923, February
+     2026); anyone editing this plaintext file can recompute it. It catches
+     accidents, which is what this defect is. */
   journal: [],
   /* The next sequence number to hand out, and who the page says is working.
      `seq` restarts at 1 for a fresh workspace and continues from the highest
@@ -2053,6 +2074,13 @@ var S = {
      produce two entries claiming the same position. */
   seq: 1,
   author: 'local',
+  /* Set by an import that re-read a paste and got something else, and by
+     nothing else. Holds the whole plain-English account, because a footer line
+     is not enough room to say what happened or what he can do about it, and
+     because this is not a transient toast: it is the answer to "why is my
+     diagram different", and it must still be there after he clicks something.
+     Cleared by the next paste or import. */
+  drift: null,
   boot: null,
   msg: ''
 };
@@ -2264,6 +2292,7 @@ function renderInventory(host) {
     return;
   }
 
+  if (S.drift) renderDrift(host);
   if (S.source === 'paste') renderTally(host);
 
   var bad = replyProblem(S.inv);
@@ -2679,6 +2708,33 @@ function pasteSummary() {
    is a failing check rather than a quiet wrong word. */
 function residueNoun() {
   return S.pasteWasTable ? 'cells' : 'lines';
+}
+
+/* The drift note, above the inventory it is about. It sits here and not in the
+   footer because a footer line has no room for it and because it is not news
+   for a second: it is the answer to "why is my diagram different from the one I
+   saved", and it has to still be there after he clicks a row.
+
+   `.perr` is reused rather than extended — 51 §9's caution channel, unmodified,
+   which is what the paste refusal already wears. This is the same class of
+   thing: a true statement the operator has to read before he trusts what is
+   under it. No new colour, and none was needed.
+
+   `role="alert"` so a screen reader is told when it appears (55 — a state only
+   a mouse can see is not a state), and one paragraph per blank line so the
+   account reads as prose rather than as one wall. */
+function renderDrift(host) {
+  var p = el('div', 'pad');
+  /* `drift` alongside `perr` so a driver -- and a reader of the DOM -- can tell
+     this note from the paste and equipment refusals, which wear `perr` too and
+     sit hidden in their sheets. Same look, different claim. */
+  var box = el('div', 'perr drift');
+  box.setAttribute('role', 'alert');
+  S.drift.split('\n\n').forEach(function (para) {
+    box.appendChild(el('p', 'prose', para));
+  });
+  p.appendChild(box);
+  host.appendChild(p);
 }
 
 function renderTally(host) {
@@ -7244,9 +7300,10 @@ function runPaste() {
 
   /* Journal the REDACTED capture, never `text` -- which is the raw thing the
      operator pasted and may hold a pre-shared key. See S.journal. */
-  var cap = null;
+  var cap = null, shp = null;
   for (var ci = 0; ci < reply.rows.length; ci++) {
-    if (reply.rows[ci].role === FACE_CAPTURE) { cap = reply.rows[ci].s[0]; break; }
+    if (reply.rows[ci].role === FACE_CAPTURE) cap = reply.rows[ci].s[0];
+    else if (reply.rows[ci].role === FACE_SHAPE) shp = reply.rows[ci].s[0];
   }
   if (cap === null) {
     /* Refuse rather than fall back to `text`. A module too old to send the
@@ -7254,8 +7311,29 @@ function runPaste() {
        the only thing it could journal instead is the unredacted paste. */
     foot('this module does not return the redacted capture — the paste was read but is not saveable');
   } else {
-    jpush('paste', at, ent, { text: cap });
+    /* WHAT THE PASTE PRODUCED, recorded beside the text it was produced from.
+       `shape` is the digest; the four counts are the tally's own numbers, taken
+       from the summary row this page already decoded, so they cost no module
+       bytes and they are what makes the mismatch sentence say something an
+       engineer can act on rather than "the fingerprint differs". A module too
+       old to send the row leaves `shape` null and checkDrift skips: the entry is
+       still a correct paste, it just cannot be checked, and refusing a saveable
+       paste over a missing CHECK would be the wrong trade.
+
+       THROUGH `jpush`, NOT A DIRECT PUSH. The entry also needs `seq` and `by`
+       (2026-08-21), and an assembler test fails the build if an entry is built
+       anywhere but there — which is exactly the collision this merge was: two
+       changes landing on the same entry shape in the same week, one of which
+       would silently have shipped a paste with no author and no position. */
+    var sum = reply.rows[0];
+    jpush('paste', at, ent, {
+      text: cap,
+      shape: shp,
+      things: sum.s[0], connections: sum.s[1],
+      unread: sum.s[2], secrets: sum.s[3]
+    });
   }
+  S.drift = null;
 
   S.pasteError = null;
   S.pasteWasTable = looksLikeRulesTable(text);
@@ -7497,9 +7575,25 @@ function unb64(text) {
 }
 
 var EXPORT_MAGIC = 'fathom-journal';
-/* 2 as of 2026-08-21: every entry gained `seq` and `by`. The importer reads
-   both versions; see `importJournal`. */
-var EXPORT_VERSION = 2;
+/* 3. Version 2 was the author-and-sequence envelope (`49` §19 phase 0 item 1);
+   3 adds the paste's shape digest and counts (item 3). The two landed in the
+   same week from different branches.
+
+   OLDER FILES ARE OPENED, NOT REFUSED, and this reverses the position the item-3
+   branch took. Its argument was sound as far as it went — replaying a v1 file
+   without the drift check is "exactly the silence this version exists to end" —
+   but the conclusion does not follow, because refusing is not the only
+   alternative to silence. SAYING SO is.
+
+   A workspace file is a file an operator KEEPS. Refusing it turns an upgrade
+   into the silent destruction of his saved work, which is a worse outcome than
+   the one being avoided: he loses everything rather than losing one check. So a
+   v1 or v2 file is replayed, its missing envelope is SYNTHESISED from what the
+   file already supports (see `importJournal`), its pastes carry no `shape`, and
+   `checkDrift` skips them — which it already does for a paste written by a
+   module too old to send the row. The page says the check could not be run. An
+   unchecked replay that announces itself is not silence. */
+var EXPORT_VERSION = 3;
 
 /* THE ONLY PLACE A JOURNAL ENTRY IS MADE.
 
@@ -7562,6 +7656,90 @@ function exportJournal() {
   renderShell();
 }
 
+/* DID THE REPLAY REBUILD WHAT THE FILE SAYS IT BUILT? (`49` §19 phase 0, item 3.)
+   Null when it did, or when this cannot be known; otherwise the whole account,
+   in the words the tally already uses.
+
+   The comparison is TWO things, and each catches what the other cannot. The
+   digest is over identities and edge endpoints, so it sees an estate that has
+   the same number of everything and is not the same estate — a zone binding the
+   parser now reads differently, say. The COUNTS see the case the digest is
+   deliberately blind to: a dictionary that learned to fill in a FIELD on a node
+   that already existed moves no identity, but the line it learned always leaves
+   the unread list, so `unread` moves. Between them the blind spot is small, and
+   it is written down in `fathom_graph::shape` rather than pretended away.
+
+   The digest decides; the counts explain. "The fingerprint differs" is useless
+   to the man holding the config. "It gave 15 things when you saved it and gives
+   19 now" is something he can act on. */
+function checkDrift(o, reply, step, total) {
+  if (!o.shape || !o.things) return null;
+  var now = null, k;
+  for (k = 0; k < reply.rows.length; k++) {
+    if (reply.rows[k].role === FACE_SHAPE) { now = reply.rows[k].s[0]; break; }
+  }
+  /* A module that cannot answer is not a module that answered "different".
+     Silence here is the honest outcome: nothing is claimed either way. */
+  if (now === null) return null;
+  var sum = reply.rows[0];
+  var was = [o.things, o.connections, o.unread, o.secrets];
+  var is = [sum.s[0], sum.s[1], sum.s[2], sum.s[3]];
+  var grew = was[0] !== is[0] || was[1] !== is[1] || was[2] !== is[2];
+  if (now === o.shape && !grew) return null;
+
+  var left = total - step;
+  var note =
+    'Step ' + step + ' of ' + total + ' did not rebuild what you saved.\n\n' +
+    'Fathom does not keep your network in this file — it keeps the config text, ' +
+    'and it reads it again every time you open it. It does not read it the same ' +
+    'way today. ';
+  if (grew) {
+    note += 'When you saved this, that config gave ' + was[0] + ' things and ' +
+            was[1] + ' connections, with ' + was[2] + ' lines it could not read. ' +
+            'Today the same text gives ' + is[0] + ' things and ' + is[1] +
+            ' connections, with ' + is[2] + ' unread. Fathom has learned more of ' +
+            'this vendor since you saved.';
+  } else {
+    note += 'It gives the same counts as it did — ' + is[0] + ' things and ' +
+            is[1] + ' connections — but not the same items. Something the parser ' +
+            'reads has moved rather than grown.';
+  }
+  note += '\n\nWhat is on screen is what Fathom reads today, and it is the better ' +
+          'reading. ' +
+          'But every item was made fresh, so the ids the rest of the file uses no ' +
+          'longer name the same things. ';
+  note += left > 0
+    ? 'The remaining ' + plural(String(left), 'step', 'steps') + ' — the links, moves and ' +
+      'rack placements you made by hand — were NOT replayed. Replaying them would ' +
+      'have attached your work to whatever now happens to hold those ids, and ' +
+      'nothing would have told you.'
+    : 'There were no further steps in the file, so nothing of yours was dropped.';
+  note += '\n\nYour saved file has not been touched — keep it. ' +
+          (left > 0
+            ? 'To carry that work over, redraw it here and export again.'
+            : 'Exporting from here writes what it reads today.');
+  return note;
+}
+
+/* Write today's answer onto a paste entry, after the operator has been told it
+   differs from the one in the file.
+
+   Without this the journal in memory would describe an estate that is not on
+   screen: the entry would still carry last month's digest and counts while the
+   inventory showed this month's reading, and the next export would write a file
+   that reports drift against itself, every time it is opened, forever. It is
+   not silent — renderDrift is on the page saying exactly what changed — and it
+   does NOT touch `text`, which is the operator's own capture and the only thing
+   in the entry he ever gave us. */
+function restampPaste(o, reply) {
+  var sum = reply.rows[0], k;
+  for (k = 0; k < reply.rows.length; k++) {
+    if (reply.rows[k].role === FACE_SHAPE) { o.shape = reply.rows[k].s[0]; break; }
+  }
+  o.things = sum.s[0]; o.connections = sum.s[1];
+  o.unread = sum.s[2]; o.secrets = sum.s[3];
+}
+
 /* Replay. Each op goes back through the SAME opcode that made it, with its
    original clock and entropy, so the rebuilt estate is byte-identical rather
    than merely equivalent.
@@ -7578,12 +7756,20 @@ function importJournal(text) {
     renderShell();
     return;
   }
-  /* TWO VERSIONS ARE READABLE. v1 predates `seq` and `by` (2026-08-21); v2 has
-     them. A v1 file is not refused — it is a workspace an operator already
-     keeps, and refusing it would make the upgrade destroy his work — so the
-     missing fields are SYNTHESISED below, and the synthesis claims only what
-     the file actually supports. */
-  if (doc.version !== 1 && doc.version !== EXPORT_VERSION) {
+  /* THREE VERSIONS ARE READABLE, and none of the older two is refused, because
+     a workspace file is a file an operator already keeps and refusing it makes
+     an upgrade destroy his work.
+
+       v1  predates `seq` and `by`, and predates the paste's `shape` digest.
+       v2  has the envelope; no `shape`.
+       v3  has both.
+
+     What is missing is SYNTHESISED below, and the synthesis claims only what
+     the file already supports. A paste with no `shape` cannot be checked for
+     drift and `checkDrift` skips it — the same path a paste written by a module
+     too old to send the summary row already takes — and the page SAYS the check
+     could not be run rather than implying it passed. */
+  if (doc.version !== 1 && doc.version !== 2 && doc.version !== EXPORT_VERSION) {
     foot('that workspace was written by a different version of Fathom (' + doc.version + ')');
     renderShell();
     return;
@@ -7622,6 +7808,10 @@ function importJournal(text) {
   }
 
   var enc = new TextEncoder();
+  /* How many of `ops` actually ran. Below `ops.length` only when a paste came
+     back different from what the file says it built — see the stop in the loop. */
+  var replayed = ops.length;
+  S.drift = null;
   for (var i = 0; i < ops.length; i++) {
     var o = ops[i], ent = unb64(o.ent), reply, req, dv;
     if (o.op === 'paste') {
@@ -7770,7 +7960,30 @@ function importJournal(text) {
       renderShell();
       return;
     }
+    if (o.op === 'paste') {
+      /* STOP HERE IF THE PASTE READ DIFFERENTLY, and do not attempt the rest.
+         This is not caution, it is the only safe move. Ids are minted by
+         walking upward from the entropy in the entry (`fathom-weld`'s Mint), so
+         an id is a pure function of (clock, entropy, how-many-were-minted-
+         before-it). A parser that mints one more node than it used to does not
+         invalidate the ids that follow — it REASSIGNS them, to live elements of
+         other kinds. So a hand-drawn link replayed after drift does not
+         reliably fail; it can succeed against the wrong pair of boxes and be
+         journalled, exported and believed. Refusing to replay is the difference
+         between losing the hand work and silently corrupting it.
+
+         What ran stays: the estate the paste built is correct for today, it is
+         loaded, and it is worth having. */
+      var dnote = checkDrift(o, reply, i + 1, ops.length);
+      if (dnote) { S.drift = dnote; restampPaste(o, reply); replayed = i + 1; break; }
+    }
   }
+
+  /* The journal must describe what is on screen, or the next export writes a
+     file that does not. After a drift stop the steps below the paste were never
+     applied, so they are not part of this session — and the note says, in so
+     many words, that the operator's saved file still holds them. */
+  if (replayed < ops.length) ops = ops.slice(0, replayed);
 
   S.journal = ops;
   /* CONTINUE THE SEQUENCE, never restart it. The next edit after an import must
@@ -7799,7 +8012,13 @@ function importJournal(text) {
   S.loaded = true;
   S.invKind = 0;
   loadKind(0);
-  foot('opened a workspace — ' + plural(ops.length, 'step', 'steps') + ' replayed');
+  /* The footer says which of the two happened; the note says what it means. A
+     footer line has no room for the account and the account must not be a line
+     that scrolls away, so they are not the same sentence and neither repeats
+     the other. */
+  foot(S.drift
+    ? 'opened it, but that config does not read the same today — read the note'
+    : 'opened a workspace — ' + plural(String(ops.length), 'step', 'steps') + ' replayed');
   S.view = 'inventory';
   render();
 }
