@@ -232,8 +232,11 @@ impl Shell {
         // tests both use. Colliding with a minted element ULID is harmless —
         // `by_ulid` covers nodes and edges only, and batch ids are checked
         // against other batch ids, of which a fresh graph has none.
+        // `ids` mints the BATCH only. The author was `ids(1)` until 2026-08-21
+        // — derived from the host clock, so a fifty-op estate carried up to
+        // fifty distinct "users", none of them anybody. See `UserId::LOCAL`.
         let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
-        let (Ok(user), Ok(batch)) = (ids(1), ids(2)) else {
+        let Ok(batch) = ids(2) else {
             return protocol::encode_error(
                 ERR_PASTE_FRAME,
                 &format!(
@@ -245,7 +248,7 @@ impl Shell {
         let manifest = fathom_weld::Manifest {
             at,
             entropy,
-            actor: fathom_graph::Actor::User(fathom_graph::UserId(user)),
+            actor: fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
             batch: fathom_graph::BatchId(batch),
             label: PASTE_LABEL,
             platform: fathom_ir::scalar::PlatformId(dict.platform().to_owned()),
@@ -391,8 +394,11 @@ impl Shell {
             }
         }
 
+        // `ids` mints the BATCH only. The author was `ids(1)` until 2026-08-21
+        // — derived from the host clock, so a fifty-op estate carried up to
+        // fifty distinct "users", none of them anybody. See `UserId::LOCAL`.
         let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
-        let (Ok(user), Ok(batch)) = (ids(1), ids(2)) else {
+        let Ok(batch) = ids(2) else {
             return protocol::encode_error(
                 ERR_EQUIP_FRAME,
                 &format!(
@@ -401,7 +407,7 @@ impl Shell {
                 ),
             );
         };
-        let actor = Actor::User(UserId(user));
+        let actor = Actor::User(UserId::LOCAL);
         let mut mint = match fathom_weld::Mint::new(at, entropy) {
             Ok(m) => m,
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
@@ -547,11 +553,10 @@ impl Shell {
             Ok(m) => m,
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
         };
-        let (Ok(user), Ok(batch), Ok(prov)) = (
-            fathom_id::Ulid::from_parts(at.0, 1),
-            mint.next(),
-            mint.next(),
-        ) else {
+        // The author is UserId::LOCAL, a constant, so only the two mints can
+        // fail. It was `Ulid::from_parts(at.0, 1)` until 2026-08-21 — the host
+        // clock — which made every millisecond a different "user".
+        let (Ok(batch), Ok(prov)) = (mint.next(), mint.next()) else {
             return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
         };
 
@@ -565,7 +570,7 @@ impl Shell {
             id: fathom_graph::ProvenanceId(prov),
             origin: fathom_graph::Origin::Hand,
             asserted_at: at,
-            asserted_by: Actor::User(UserId(user)),
+            asserted_by: Actor::User(UserId::LOCAL),
             confidence: fathom_graph::Confidence::Asserted,
             supersedes: None,
         };
@@ -622,7 +627,11 @@ impl Shell {
         if let Err(e) = graph.begin_batch(BatchId(batch), REMOVE_LABEL) {
             return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
         }
-        let removed = graph.tombstone(element, at);
+        let removed = graph.tombstone(
+            element,
+            at,
+            fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+        );
         let closed = graph.end_batch();
         match (removed, closed) {
             (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
@@ -711,10 +720,13 @@ impl Shell {
             Ok(m) => m,
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
         };
-        let (Ok(user), Ok(batch)) = (fathom_id::Ulid::from_parts(at.0, 1), mint.next()) else {
+        // The author is a CONSTANT, so only the batch mint can fail here. It
+        // used to be `Ulid::from_parts(at.0, 1)` — the host clock — which made
+        // every millisecond a different "user". See `UserId::LOCAL`.
+        let Ok(batch) = mint.next() else {
             return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
         };
-        let actor = Actor::User(UserId(user));
+        let actor = Actor::User(UserId::LOCAL);
 
         let existing = self
             .estate
@@ -735,7 +747,7 @@ impl Shell {
                 // different and more honest claim than "it was never placed".
                 if let Some(pin) = existing {
                     graph
-                        .tombstone(ElementId::Node(pin), at)
+                        .tombstone(ElementId::Node(pin), at, actor)
                         .map_err(|e| format!("{e:?}"))?;
                 }
                 return Ok(());
@@ -972,10 +984,13 @@ impl Shell {
             Ok(m) => m,
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
         };
-        let (Ok(user), Ok(batch)) = (fathom_id::Ulid::from_parts(at.0, 1), mint.next()) else {
+        // The author is a CONSTANT, so only the batch mint can fail here. It
+        // used to be `Ulid::from_parts(at.0, 1)` — the host clock — which made
+        // every millisecond a different "user". See `UserId::LOCAL`.
+        let Ok(batch) = mint.next() else {
             return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
         };
-        let actor = Actor::User(UserId(user));
+        let actor = Actor::User(UserId::LOCAL);
 
         let Some(graph) = self.estate.as_mut() else {
             return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
@@ -1029,7 +1044,7 @@ impl Shell {
                     return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
                 }
                 let mut w = if mode == 0 {
-                    cut(graph, from, to, chosen, at)
+                    cut(graph, from, to, chosen, at, Actor::User(UserId::LOCAL))
                 } else {
                     draw(graph, from, to, chosen, at, actor, &mut mint)
                 };
@@ -1451,8 +1466,11 @@ impl Shell {
         existing.sort();
         let found = existing.first().copied();
 
+        // `ids` mints the BATCH only. The author was `ids(1)` until 2026-08-21
+        // — derived from the host clock, so a fifty-op estate carried up to
+        // fifty distinct "users", none of them anybody. See `UserId::LOCAL`.
         let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
-        let (Ok(user), Ok(batch)) = (ids(1), ids(2)) else {
+        let Ok(batch) = ids(2) else {
             return protocol::encode_error(
                 ERR_EQUIP_FRAME,
                 &format!(
@@ -1461,7 +1479,7 @@ impl Shell {
                 ),
             );
         };
-        let actor = Actor::User(UserId(user));
+        let actor = Actor::User(UserId::LOCAL);
         let mut mint = match fathom_weld::Mint::new(at, entropy) {
             Ok(m) => m,
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
@@ -1727,10 +1745,11 @@ fn cut(
     to: fathom_graph::NodeId,
     kind: fathom_ir::generated::ir_types::EdgeKind,
     at: fathom_graph::Timestamp,
+    by: fathom_graph::Actor,
 ) -> Result<(), &'static str> {
     while let Some(id) = live_link(graph, from, to, kind) {
         graph
-            .tombstone(fathom_graph::ElementId::Edge(id), at)
+            .tombstone(fathom_graph::ElementId::Edge(id), at, by)
             .map_err(|_| STORE_REFUSED_CUT)?;
     }
     Ok(())
@@ -2359,5 +2378,22 @@ fn section_prefix(section: Section) -> &'static str {
         Section::Explainers => "explainers/",
         Section::Rules => "rules/",
         Section::Concepts => "concepts/",
+    }
+}
+
+/// A read path into the held estate, **for tests only**.
+///
+/// The opcodes are the only door a browser has and they answer with rendered
+/// faces rather than with the graph — which is right, and which left no way to
+/// assert on provenance. That gap is why the clock-derived author survived: a
+/// test could see what a face SAID and never who a fact was ATTRIBUTED TO.
+///
+/// Gated behind `inspect`, which nothing but this crate's own dev-dependency
+/// enables. `artifact_gates.rs` proves it is absent from the shipping module
+/// rather than trusting the feature resolver.
+#[cfg(feature = "inspect")]
+impl Shell {
+    pub fn estate_for_test(&self) -> Option<&fathom_graph::Graph> {
+        self.estate.as_ref()
     }
 }

@@ -19,7 +19,7 @@
 
 use crate::field::StoredPresence;
 use crate::id::{ElementId, NodeId};
-use crate::prov::{ProvenanceId, Timestamp};
+use crate::prov::{Actor, ProvenanceId, Timestamp};
 use fathom_id::Ulid;
 use fathom_ir::bag::FieldKey;
 
@@ -47,9 +47,17 @@ pub enum Op {
         prov: ProvenanceId,
     },
     /// `11` §10.5: absence is not deletion. This is the normal removal.
+    ///
+    /// **`by` was added 2026-08-21 and it closes the one hole an audit log can
+    /// never backfill.** Every other op reaches a `ProvenanceRecord`, which
+    /// carries `asserted_by`; a tombstone writes no provenance record, so a
+    /// removal was the single operation in the product with no author at all.
+    /// A field that was changed can be traced; a fact that was *removed* could
+    /// not be, and that is the one people ask about.
     Tombstone {
         element: ElementId,
         at: Timestamp,
+        by: Actor,
     },
 }
 

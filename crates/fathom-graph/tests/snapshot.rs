@@ -519,8 +519,12 @@ fn tombstones_history_and_log_survive() {
     g.clear_field(ElementId::Node(site), SiteField::Name.key(), prov(201))
         .expect("clear");
     // A tombstone, which cascades down containment.
-    g.tombstone(ElementId::Node(site), Timestamp(AT + 1))
-        .expect("tombstone");
+    g.tombstone(
+        ElementId::Node(site),
+        Timestamp(AT + 1),
+        fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+    )
+    .expect("tombstone");
     g.end_batch().expect("close");
 
     let s = g.to_snapshot().expect("closed");

@@ -15,6 +15,12 @@ crate-type = ["cdylib", "rlib"]
 # 35,095-byte measurement and for why the polarity is this way round.
 [features]
 demo-estate = ["fathom-inventory/demo-estate"]
+# A READ PATH INTO THE HELD ESTATE, FOR TESTS ONLY. The opcodes are the only
+# door a browser has, and they answer with rendered faces rather than the graph
+# — which is correct, and which left no way to assert on PROVENANCE. `resolver
+# = "2"` keeps a dev-dependency's features out of the release build, and
+# artifact_gates.rs asserts that rather than trusting it.
+inspect = []
 
 [dependencies]
 fathom-corpus = { path = "../fathom-corpus" }
@@ -34,4 +40,4 @@ fathom-weld = { path = "../fathom-weld" }
 # `resolver = "2"` keeps this out of the release build; artifact_gates.rs
 # asserts that rather than trusting it.
 [dev-dependencies]
-fathom-wasm = { path = ".", features = ["demo-estate"] }
+fathom-wasm = { path = ".", features = ["demo-estate", "inspect"] }

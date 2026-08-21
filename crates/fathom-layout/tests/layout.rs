@@ -295,8 +295,12 @@ fn a_tombstoned_pin_gives_the_box_back_to_the_layout() {
         "free",
     )
     .expect("batch");
-    g.tombstone(fathom_graph::ElementId::Node(p), at)
-        .expect("tombstone");
+    g.tombstone(
+        fathom_graph::ElementId::Node(p),
+        at,
+        fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+    )
+    .expect("tombstone");
     g.end_batch().expect("batch closes");
 
     assert_eq!(

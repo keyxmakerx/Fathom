@@ -24,9 +24,39 @@ pub struct Timestamp(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProvenanceId(pub Ulid);
 
-/// Workspace-local, opaque, never transmitted (`11` §8.2).
+/// Workspace-local and opaque.
+///
+/// **The clause "never transmitted" was removed from this comment on
+/// 2026-08-21.** It is `11` §8.2's sentence and it was true of the client-only
+/// artifact, which is the only thing that existed when it was written. `49`
+/// makes the product server-hosted and multi-user, so a user id is exactly the
+/// thing that *is* transmitted. `11` §8.2 is the document to amend; this
+/// comment stops asserting the opposite in the meantime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UserId(pub Ulid);
+
+impl UserId {
+    /// **Made by a build that had no accounts.**
+    ///
+    /// Not a person, and deliberately not a *fresh* non-person either. Until
+    /// 2026-08-21 every mutating opcode minted its author as
+    /// `Ulid::from_parts(at.0, 1)` — derived from the host clock — so a
+    /// fifty-operation estate carried up to fifty distinct `UserId`s, none of
+    /// which was anybody. `49` §10c called that "the same anonymous nobody";
+    /// it was in fact **one nobody per millisecond**, which is worse, because
+    /// it looks like authorship data and is noise.
+    ///
+    /// A ULID's top 48 bits are its minting clock, so `Ulid(0)` is the Unix
+    /// epoch and no real account can ever collide with it.
+    ///
+    /// **It is a value a server READS and never a value a server WRITES.** An
+    /// operation that arrives carrying `LOCAL` was made before Fathom had
+    /// accounts, and the honest sentence about it stays honest forever: *these
+    /// operations came from a file, in this order, made before there were
+    /// users.* Rewriting them to name whoever imported the file would assert
+    /// something nobody knows.
+    pub const LOCAL: UserId = UserId(Ulid(0));
+}
 
 /// Who asserted it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

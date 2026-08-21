@@ -301,8 +301,12 @@ fn worked_example() -> Graph {
     .expect("rename");
     g.clear_field(ElementId::Node(zone_wan), ZoneField::Name.key(), prov(201))
         .expect("clear");
-    g.tombstone(ElementId::Edge(member_vpn), Timestamp(AT + 1))
-        .expect("tombstone");
+    g.tombstone(
+        ElementId::Edge(member_vpn),
+        Timestamp(AT + 1),
+        fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+    )
+    .expect("tombstone");
     g.end_batch().expect("close");
     g
 }

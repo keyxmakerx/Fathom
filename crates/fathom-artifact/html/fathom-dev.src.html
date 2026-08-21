@@ -1923,6 +1923,12 @@ var S = {
      the operator actually typed would write their pre-shared keys into the
      export file. Invariant 3. */
   journal: [],
+  /* The next sequence number to hand out, and who the page says is working.
+     `seq` restarts at 1 for a fresh workspace and continues from the highest
+     imported value after an import, so an import followed by an edit cannot
+     produce two entries claiming the same position. */
+  seq: 1,
+  author: 'local',
   boot: null,
   msg: ''
 };
@@ -2682,7 +2688,7 @@ function commitField(input) {
   var reply = call(OP_FIELD_SET, req);
   var bad = replyProblem(reply);
   if (bad) { foot(bad); renderShell(); return; }
-  S.journal.push({ op: 'field', at: at, ent: b64(ent), id: S.sel, key: key, value: value });
+  jpush('field', at, ent, { id: S.sel, key: key, value: value });
   foot('changed');
   postElement(S.sel);
   loadKind(S.invKind);
@@ -2707,7 +2713,7 @@ function removeSelected() {
   var reply = call(OP_ELEMENT_REMOVE, req);
   var bad = replyProblem(reply);
   if (bad) { foot(bad); renderShell(); return; }
-  S.journal.push({ op: 'remove', at: at, ent: b64(ent), id: S.sel });
+  jpush('remove', at, ent, { id: S.sel });
   var gone = S.sel;
   S.sel = null;
   S.element = null;
@@ -3492,7 +3498,7 @@ function opPlace(id, mode, x, y) {
   var reply = call(OP_PLACE, req);
   var bad = replyProblem(reply);
   if (bad) { foot(bad); renderShell(); return false; }
-  S.journal.push({ op: 'place', at: at, ent: b64(ent), id: id, mode: mode, x: x, y: y });
+  jpush('place', at, ent, { id: id, mode: mode, x: x, y: y });
   /* Re-render, and HOLD the view. The picture's extent can grow when a box is
      dragged past the grid the rank walk produced, which changes the signature
      `renderDiagram` refits on — and refitting under somebody who has just moved
@@ -3706,7 +3712,7 @@ function opLink(a, b, mode, kind) {
      provenance claim in the record. `88`'s standing rule about the estate of
      record applies to the journal that rebuilds it. */
   if (did) {
-    S.journal.push({ op: 'link', at: at, ent: b64(ent), from: a, to: b, kind: wrote, mode: mode });
+    jpush('link', at, ent, { from: a, to: b, kind: wrote, mode: mode });
   }
   DG_ASK = null;
   /* AND THE HELD END IS RELEASED HERE, BEFORE THE REPAINT, not after it.
@@ -6508,7 +6514,7 @@ function runPaste() {
        the only thing it could journal instead is the unredacted paste. */
     foot('this module does not return the redacted capture — the paste was read but is not saveable');
   } else {
-    S.journal.push({ op: 'paste', at: at, ent: b64(ent), text: cap });
+    jpush('paste', at, ent, { text: cap });
   }
 
   S.pasteError = null;
@@ -6707,7 +6713,7 @@ function runEquip() {
     return;
   }
 
-  S.journal.push({ op: 'equip', at: at, ent: b64(ent), fields: sent });
+  jpush('equip', at, ent, { fields: sent });
   S.equipError = null;
   S.source = 'hand';
   S.loaded = true;
@@ -6751,7 +6757,37 @@ function unb64(text) {
 }
 
 var EXPORT_MAGIC = 'fathom-journal';
-var EXPORT_VERSION = 1;
+/* 2 as of 2026-08-21: every entry gained `seq` and `by`. The importer reads
+   both versions; see `importJournal`. */
+var EXPORT_VERSION = 2;
+
+/* THE ONLY PLACE A JOURNAL ENTRY IS MADE.
+
+   Before 2026-08-21 there were seven separate push call sites and
+   every one of them independently remembered to write `at` and `ent`. Adding a
+   field meant editing seven places and an eighth push site added later would
+   simply not have it — which is how a journal ends up with entries that cannot
+   be ordered or attributed. An assembler test now asserts that a direct push
+   onto the journal appears nowhere and this function appears once.
+
+   `seq` IS THE ORDER. `at` is the host's wall clock and is not: two operations
+   in the same millisecond have no relative position, and a clock that steps
+   backwards — an NTP correction, a laptop waking in another timezone —
+   reorders history. `seq` is monotonic from 1 within one design.
+
+   `by` IS ASSERTED BY THE PAGE AND VERIFIED BY NOBODY. Until a server exists
+   there is no authentication, so `by` is a LABEL, not an audit control. It
+   says `local`, which means "made by a build that had no accounts" — an honest
+   sentence a server can still read truthfully in six months. It is deliberately
+   not a per-session id: one engineer working across a lunch break would become
+   two authors, and inventing that is the same class of error as inventing a
+   correlation. */
+function jpush(op, at, ent, extra) {
+  var e = { seq: S.seq++, by: S.author, op: op, at: at, ent: b64(ent) };
+  for (var k in extra) { if (Object.prototype.hasOwnProperty.call(extra, k)) e[k] = extra[k]; }
+  S.journal.push(e);
+  return e;
+}
 
 /* What a workspace file IS: the ops, in order, each with the clock and entropy
    that produced it. Replaying them rebuilds the estate exactly, including the
@@ -6802,13 +6838,32 @@ function importJournal(text) {
     renderShell();
     return;
   }
-  if (doc.version !== EXPORT_VERSION) {
+  /* TWO VERSIONS ARE READABLE. v1 predates `seq` and `by` (2026-08-21); v2 has
+     them. A v1 file is not refused — it is a workspace an operator already
+     keeps, and refusing it would make the upgrade destroy his work — so the
+     missing fields are SYNTHESISED below, and the synthesis claims only what
+     the file actually supports. */
+  if (doc.version !== 1 && doc.version !== EXPORT_VERSION) {
     foot('that workspace was written by a different version of Fathom (' + doc.version + ')');
     renderShell();
     return;
   }
   var ops = doc.ops || [];
   if (!ops.length) { foot('that workspace is empty'); renderShell(); return; }
+
+  /* THE ENVELOPE. A v1 entry has no `seq` and no `by`, and the honest repair is
+     narrow: the ops were written to the file in the order they happened, so
+     numbering them 1..n asserts nothing the file did not already say. `by`
+     becomes `local`, which is the true statement — that build had no accounts.
+     Neither value is invented from nothing and neither is guessed.
+
+     A v2 entry is trusted as written but not blindly: an entry with no `seq`
+     in a file that claims v2 is a file somebody edited, and the same repair is
+     applied rather than letting an undefined sequence poison the ordering. */
+  for (var e = 0; e < ops.length; e++) {
+    if (typeof ops[e].seq !== 'number') ops[e].seq = e + 1;
+    if (typeof ops[e].by !== 'string' || !ops[e].by) ops[e].by = 'local';
+  }
 
   /* Start from nothing. The first op is normally a paste, which replaces the
      estate anyway; starting clean makes an import that begins with a hand-added
@@ -6953,14 +7008,38 @@ function importJournal(text) {
     if (bad) {
       /* Stop at the first refusal and say which step. Continuing would build a
          workspace that is neither the saved one nor an empty one, and the
-         operator would have no way to tell which. */
-      foot('step ' + (i + 1) + ' of ' + ops.length + ' was refused: ' + bad);
+         operator would have no way to tell which.
+
+         AND UNDO WHAT WAS ALREADY APPLIED, 2026-08-21. `wasmReset()` ran before
+         this loop and `i` ops have already reached the module, so returning
+         here used to leave the module holding a PARTIAL estate while
+         `S.journal` still described the PREVIOUS workspace — the two disagreeing
+         silently, which is the exact outcome the comment above says it is
+         avoiding. It is the same posture the pre-check refusal ten lines above
+         already takes: nothing was opened, and what you had is gone rather than
+         half-replaced by something nobody chose. */
+      wasmReset();
+      S.journal = [];
+      S.seq = 1;
+      S.loaded = false;
+      S.source = '';
+      S.paste = null;
+      S.sel = null; S.element = null; S.equipment = null;
+      foot('step ' + (i + 1) + ' of ' + ops.length + ' was refused: ' + bad +
+           ' — nothing was opened');
       renderShell();
       return;
     }
   }
 
   S.journal = ops;
+  /* CONTINUE THE SEQUENCE, never restart it. The next edit after an import must
+     not claim a position an imported op already holds, or the file has two
+     entries that both say they are eleventh. */
+  S.seq = 1;
+  for (var sq = 0; sq < ops.length; sq++) {
+    if (ops[sq].seq >= S.seq) S.seq = ops[sq].seq + 1;
+  }
   S.paste = null;
   /* Cleared with the summary it describes. Nothing reads it while `S.paste` is
      null — `renderTally` returns early and the footer sets it on the line above
@@ -7679,7 +7758,7 @@ function runPlace() {
      next to this code. Nothing caught it because the journal lives in page
      JavaScript where no Rust test can see it, the rack driver never exports, and
      the round-trip driver only exercises pasted estates. */
-  S.journal.push({ op: 'rack', at: rackAt, ent: b64(ent), id: chassis, fields: sent });
+  jpush('rack', rackAt, ent, { id: chassis, fields: sent });
 
   /* THE FIELD ID COMES FROM THE TABLE, NEVER FROM A LITERAL. This read
      `$('mf300')`, and the key moved to 302 in a rebase when a concurrent branch

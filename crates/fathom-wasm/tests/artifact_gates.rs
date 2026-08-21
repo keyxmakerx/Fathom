@@ -119,6 +119,25 @@ fn release_wasm_builds_audits_and_fits() {
         );
     }
 
+    // The `inspect` feature is the same bet on the same resolver rule, made
+    // 2026-08-21 for a read path into the held estate that only tests use. It
+    // is far smaller than the demo estate, which is exactly why it needs the
+    // assertion more: a few hundred bytes would never trip the size gate below,
+    // so nothing else in this file would notice it shipping.
+    //
+    // The probe is chosen by the same negative control as the two above —
+    // `estate_for_test` is present in a `--features inspect` build and absent
+    // from this one, checked before this was written rather than assumed.
+    {
+        let probe = b"estate_for_test";
+        assert!(
+            !wasm.windows(probe.len()).any(|w| w == probe),
+            "the test-only estate accessor is linked into the shipping module. \
+             Something enabled fathom-wasm's `inspect` feature in the module's \
+             normal dependency graph; it belongs to test targets only."
+        );
+    }
+
     // --- size gate (44 §5.2's hard ceiling, KB read as 1 000 bytes) ----------
     let size = wasm.len();
     assert!(

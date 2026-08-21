@@ -155,6 +155,65 @@ fn shell_source_carries_no_egress_and_no_sinks() {
 /// meaningful. No test can. That is a review question and ADR-0033 is where it
 /// is asked; this function's job is to make the two mechanical halves
 /// impossible to skip.
+/// **A JOURNAL ENTRY IS MADE IN EXACTLY ONE PLACE.**
+///
+/// Until 2026-08-21 there were seven independent push sites, each remembering
+/// on its own to write the entry's fields. `seq` and `by` landed that day and
+/// would have had to be added seven times — and an eighth push site written
+/// next month would silently have neither, producing entries that cannot be
+/// ordered or attributed. That is not a hypothetical: the rack op shipped
+/// without an import arm and an export dropped every rack in silence, which is
+/// the same class of omission one file over.
+///
+/// So the shape is enforced rather than remembered: `jpush` is the only
+/// constructor, and this test fails if a direct push comes back.
+#[test]
+fn the_page_makes_journal_entries_in_exactly_one_place() {
+    let source = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+    assert!(
+        !source.contains("S.journal.push({"),
+        "a journal entry is being built at a call site instead of in `jpush`, \
+         so it will not carry `seq` or `by`"
+    );
+    assert_eq!(
+        source.matches("function jpush(").count(),
+        1,
+        "there must be exactly one journal-entry constructor"
+    );
+    // And every op the page can write goes through it. The list is the seven
+    // op tags; a new op that forgets `jpush` fails here rather than shipping a
+    // journal that cannot be ordered.
+    for op in [
+        "'field'", "'remove'", "'place'", "'link'", "'paste'", "'equip'", "'rack'",
+    ] {
+        assert!(
+            source.contains(&format!("jpush({op}")),
+            "op {op} does not go through `jpush`"
+        );
+    }
+}
+
+/// The importer must read the version that existed before `seq` and `by`.
+///
+/// A workspace file is a file an operator KEEPS. Bumping the export version
+/// without teaching the importer the old one turns an upgrade into a silent
+/// destruction of his saved work — he opens last month's estate and is told it
+/// was written by a different version of Fathom.
+#[test]
+fn the_importer_still_reads_the_version_before_the_envelope() {
+    let source = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+    assert!(
+        source.contains("doc.version !== 1 && doc.version !== EXPORT_VERSION"),
+        "the importer refuses v1 workspaces, which are files people already have"
+    );
+    assert!(
+        source.contains("var EXPORT_VERSION = 2;"),
+        "the export version did not move when the entry shape did"
+    );
+}
+
 fn motion_is_priced_not_banned(source: &str) {
     let mut animated = 0usize;
     // BLOCK-COMMENT STATE, not a per-line prefix test. This file's own prose
