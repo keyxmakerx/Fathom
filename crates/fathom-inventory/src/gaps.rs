@@ -420,8 +420,12 @@ mod tests {
 
         g.begin_batch(BatchId(ulid(800)), "gaps test")
             .expect("a fresh batch");
-        g.tombstone(ElementId::Node(fourth), Timestamp(TS0 + 1))
-            .expect("a device can be removed");
+        g.tombstone(
+            ElementId::Node(fourth),
+            Timestamp(TS0 + 1),
+            fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+        )
+        .expect("a device can be removed");
         g.end_batch().expect("the batch closes");
         assert_eq!(
             gap_for(&findings(&g), "Device", "platform"),

@@ -244,10 +244,9 @@ fn the_importer_still_reads_the_version_before_the_envelope() {
 fn the_pages_face_codes_match_the_modules() {
     let page = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
         .expect("the shell source is checked in");
-    let proto = std::fs::read_to_string(
-        workspace_root().join("crates/fathom-wasm/src/protocol.rs"),
-    )
-    .expect("the protocol source is checked in");
+    let proto =
+        std::fs::read_to_string(workspace_root().join("crates/fathom-wasm/src/protocol.rs"))
+            .expect("the protocol source is checked in");
 
     let mut checked = 0usize;
     for line in proto.lines() {

@@ -77,7 +77,13 @@ const ops = doc.ops || [];
 
 check('the export carries three steps', ops.length === 3, ops.length + ' step(s)');
 
-check('the file declares version 2', doc.version === 2, 'version ' + doc.version);
+// NOT A FIXED NUMBER. This read `=== 2` for one day and broke the moment the
+// paste-shape work made it 3 — which is the assertion being wrong, not the
+// change. The version SHOULD move whenever the entry shape does; what this
+// driver is here to prove is that the ENVELOPE is present and that older files
+// still open, and neither of those depends on the number.
+check('the file declares a version at or past the envelope',
+  typeof doc.version === 'number' && doc.version >= 2, 'version ' + doc.version);
 
 check('EVERY step names an author', ops.every(o => typeof o.by === 'string' && o.by),
   JSON.stringify(ops.map(o => o.by)));
@@ -110,7 +116,7 @@ check('the clock is not relied on for order' + (collided ? ' (and it DID collide
 // upgrade into a silent destruction of saved work.
 const v1 = {
   magic: doc.magic,
-  version: 1,
+  version: 1,   // the shape before `seq`, `by` and the paste digest existed
   ops: ops.map(o => {
     const { seq, by, ...rest } = o;   // exactly a v1 entry: no seq, no by
     return rest;
