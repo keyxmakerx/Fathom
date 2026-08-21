@@ -214,6 +214,42 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   **key custody, not RAM versus disk** — `38` §14.3 already lists eleven mechanisms that defeat
   *"it only lives in memory"*.
 
+- **THE PRODUCT PIVOTED, 2026-08-18/21 — `docs/40-stack/49-the-server-product.md` is the plan.**
+  The owner took four decisions explicitly and none is open: **data lives on the server** (the
+  browser is a window, not a peer), **live multi-user editing**, **multi-tenant**, and
+  **thousands of devices per design**. And the consequence he accepted: **the single offline HTML
+  file is dropped.** That retires the 900,000-byte ceiling, `47`'s three unproven byte levers as
+  the top priority, `47` §11's refusal of the config view, and all of `57` §14.1's byte-blocked
+  pile. **Read `49` before planning anything.** Five findings bind:
+  **(a) `fathom-wasm` is NOT retired — it is re-scoped to the ingest gate and nothing else.**
+  The pivot's own framing said to drop it; `49` §1 refuses, because it is the only vehicle that
+  puts the redaction gate in the browser, and dropping it means a second gate written in
+  JavaScript that drifts from the Rust one and is the copy that actually decides whether a
+  password crosses the wire.
+  **(b) the secrets answer is "you are already most of the way there".** Passwords are protected
+  by *not having them* — the gate — and that is cheap, permanent and unbreakable by a bug.
+  **NetBox deleted its secrets store in v3.0 and points at Vault; Nautobot never built one.**
+  What is genuinely expensive is protecting **the map** — addressing, zones, tunnel endpoints and
+  the ~50% of a config the parser does not understand — which `38` §14.4 already priced at *"the
+  secrets are 2% of the file, the other 98% is the network."*
+  **(c) `fathom-layout` is CUBIC and it was measured, not estimated** (`49` §8): 2,281 nodes in
+  112.8 ms, 36,481 nodes in **244 seconds**. Doubling the estate multiplies time ~7.5x.
+  **Aggregation shrinks the picture and not the work** — folding a 72,961-node estate yields 8
+  boxes and still takes 17.3 s. The rule is **lay out a scope, never an estate**.
+  **(d) firmware: Fathom CONFIGURES a firmware server rather than being one** (`49` §16.0).
+  Hosting vendor images multi-tenant is a licensing question as well as an isolation one. Fathom
+  generates the account file, the sshd block, the proxy site, the per-device commands and the
+  checksum manifest, and never holds the bytes.
+  **(e) the SSH login model is decided** (`49` §16.2): **per-device key, one shared read-only
+  machine account (`fw-pull`), plus a separate per-person account for writing.** Identity is
+  per-device, the account is shared — so revoking a device is deleting one line. `rssh` and
+  `scponly` are rejected as unmaintained; TFTP is rejected as unauthenticated.
+- **The journal is an accidental advantage with three defects** (`49` §10) and all three are
+  phase-0 fixes that are free now and brutal later: every op must carry a real author identity
+  and a server-assigned sequence number from the first line of server code; `OP_PASTE` must
+  become *add to this design* rather than *replace it*; and a paste must record what it
+  **produced** so a replay replays the product rather than re-running the parser.
+
 ## Rules that bind every session
 
 0. **A SAFETY GATE IS TESTED AGAINST WHAT A DEVICE ACCEPTS, NEVER AGAINST WHAT THE DETECTOR
