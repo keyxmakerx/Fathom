@@ -195,6 +195,55 @@ pub const FACE_RACK_SLOT: u8 = 13;
 /// conflicting assertions is right.
 pub const FACE_RACK_CLASH: u8 = 14;
 
+// --- what the estate does not know yet (`57` §13.5.3) ------------------------
+//
+// Four more roles on the stride-72 face record, for the reason FACE_PASTE
+// gives: the reply is a list of labelled string rows, which is what
+// KIND_FACE_ROW already is.
+//
+// 15–18. Nothing below 15 is free: 0–4 are WO-08's, 5–8 the paste's, 9–11 the
+// diagram's and 12–14 the rack's. A face code is a wire discriminant, so a
+// collision renders one record kind as another (see FACE_RACK's note, which
+// records that happening).
+//
+// NOT CALLED A FINDING ANYWHERE IN THE WIRE FORMAT. `.context/conventions.md`
+// reserves that word for "one rule firing against one node", and this build
+// has no rule engine. What these rows carry is a GAP: a `card: "1"` field with
+// no stored value. The view is named Findings because it is one of `52`'s six
+// views; its content is not findings and must not claim to be.
+
+/// The one summary row, always record 0: gap groups · unstated facts · live
+/// elements walked · kinds present · kinds the estate holds none of.
+pub const FACE_GAP_HEAD: u8 = 15;
+/// One gap group — a kind, a required field, and how many lack it:
+/// kind · field · missing · population · examples carried · the sentence ·
+/// `1` when a person can type this field's value today.
+///
+/// The sentence is composed in `fathom-inventory` and travels whole. The page
+/// renders strings and computes nothing, and "2 of 5" is a computation.
+///
+/// Slot 6 is the uncomfortable one, and being uncomfortable is why it is here:
+/// both gaps a real estate produces in this build are fields nothing can type
+/// in, so a row that reads as a job is not one yet. `Gap::authorable` carries
+/// the reasoning.
+pub const FACE_GAP: u8 = 16;
+/// One element under the group above it: display id · display name · kind ·
+/// the group's index as a decimal string.
+///
+/// The index rather than a nesting depth, because the page has to be able to
+/// reassemble the tree from a flat record list and record ORDER is not a
+/// contract anything else in this protocol relies on.
+pub const FACE_GAP_ITEM: u8 = 17;
+/// A kind the estate holds none of: kind · how many required fields went
+/// unchecked.
+///
+/// Emitted so the view can distinguish "zero because they are all complete"
+/// from "zero because there are none" — the second being the true state of
+/// `Cable` and `PhysicalPort`, which nothing in this build creates (`57`
+/// §6.2). A list that silently reported nothing for them would be telling an
+/// operator their cabling was finished.
+pub const FACE_GAP_EMPTY: u8 = 18;
+
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
 /// The paste frame is shorter than its fixed 24-byte clock+entropy prefix, or
@@ -1076,6 +1125,89 @@ pub fn encode_diagram(
     }
 
     face_reply(records, 1 + d.nodes.len() + d.links.len(), blob)
+}
+
+/// What the estate does not know yet: the head row, every gap group with its
+/// examples, then every kind the estate holds none of.
+///
+/// An estate with nothing missing is `record_count = 1` — the head row alone,
+/// with zeros in it. It is never an error and never an empty reply, because
+/// "nothing is missing" is an answer the view has to be able to state plainly
+/// and a caller cannot tell an empty reply from a call that did not happen.
+///
+/// Counts arrive as decimal strings for the reason `encode_rack_reply` gives:
+/// the page prints them, and a string cannot be read at the wrong width by a
+/// `DataView`.
+pub fn encode_findings_reply(f: &fathom_inventory::Findings) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+
+    let groups = f.gaps.len().to_string();
+    let facts = f.total_missing().to_string();
+    let checked = f.checked.to_string();
+    let kinds = f.kinds_present.to_string();
+    let empties = f.empty.len().to_string();
+    let rec = face_slots(
+        &mut blob,
+        FACE_GAP_HEAD,
+        5,
+        &[
+            groups.as_str(),
+            facts.as_str(),
+            checked.as_str(),
+            kinds.as_str(),
+            empties.as_str(),
+        ],
+    );
+    write_face_record(&mut records, &rec);
+    let mut count = 1usize;
+
+    for (i, gap) in f.gaps.iter().enumerate() {
+        let index = i.to_string();
+        let missing = gap.missing.to_string();
+        let population = gap.population.to_string();
+        let carried = gap.examples.len().to_string();
+        let rec = face_slots(
+            &mut blob,
+            FACE_GAP,
+            7,
+            &[
+                gap.kind_word,
+                gap.field,
+                missing.as_str(),
+                population.as_str(),
+                carried.as_str(),
+                gap.sentence.as_str(),
+                if gap.authorable { "1" } else { "" },
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for ex in &gap.examples {
+            let rec = face_slots(
+                &mut blob,
+                FACE_GAP_ITEM,
+                4,
+                &[
+                    ex.id.as_str(),
+                    ex.name.as_str(),
+                    gap.kind_word,
+                    index.as_str(),
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
+    }
+
+    for e in &f.empty {
+        let n = e.required_fields.to_string();
+        let rec = face_slots(&mut blob, FACE_GAP_EMPTY, 2, &[e.kind_word, n.as_str()]);
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    face_reply(records, count, blob)
 }
 
 pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {

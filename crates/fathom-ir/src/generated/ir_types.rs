@@ -7486,6 +7486,30 @@ mod body {
         ("MountedIn.face", 307),
     ];
 
+    /// Every field key the schema declares at `card: "1"`, packed one bit
+    /// per key, least-significant bit first. Read it through [`field_required`];
+    /// the array is public only so a test can pin its length.
+    pub const FIELD_REQUIRED_BITS: [u8; 39] = [
+        0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
+        0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x81, 0x00, 0x46, 0xa0, 0x10, 0xd8,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x03,
+    ];
+
+    /// Whether `schema/schema.yaml` declares this field `card: "1"` —
+    /// exactly one value, always, and no default (62 §4.3).
+    ///
+    /// A key outside the registry answers `false`, which is the only safe
+    /// direction: an unknown key is not a field this build can require
+    /// anything of, and claiming otherwise would report a gap against a
+    /// field that does not exist.
+    pub const fn field_required(key: crate::bag::FieldKey) -> bool {
+        let i = key.0 as usize / 8;
+        if i >= FIELD_REQUIRED_BITS.len() {
+            return false;
+        }
+        FIELD_REQUIRED_BITS[i] & (1 << (key.0 % 8)) != 0
+    }
+
     /// 62 §18.1 `schema.scalar.unbound`, compile-time half: every `impl:`
     /// path bound in the `scalars:` block is referenced here by its declared
     /// path, so a binding that does not resolve fails `cargo build` of this

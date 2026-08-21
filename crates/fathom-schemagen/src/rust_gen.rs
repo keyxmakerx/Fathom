@@ -311,6 +311,8 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
     }
     o.push_str("    ];\n\n");
 
+    required_field_bits(&mut o, x)?;
+
     // ---- the scalar-binding inventory -------------------------------------
     o.push_str(
         "    /// 62 §18.1 `schema.scalar.unbound`, compile-time half: every \
@@ -407,6 +409,83 @@ fn edge_kind_enum(o: &mut String, name: &str, edges: &[EdgeGen], doc: &str) {
         o.push_str("            }\n        }\n");
     }
     o.push_str("    }\n\n");
+}
+
+/// `card: "1"` as a packed bitset, one bit per field key (62 §4.3).
+///
+/// **Why a bitset and not a per-kind slice.** `NodeKind::fields()` already
+/// exists and is a slice table; a second one keyed the same way would have
+/// cost roughly 700 bytes of fat pointers and keys plus a 50-arm match, in a
+/// module measured against `44` §5.2's ceiling to the byte. The bitset is one
+/// contiguous array indexed by the key itself, and the caller already holds
+/// the key because it is walking `fields()` — so the required half rides along
+/// for a shift and a mask.
+///
+/// **Why this is generated at all.** "Required and absent" is the only thing
+/// the estate can honestly call *missing* rather than merely unset, and the
+/// only place the answer exists is `schema/schema.yaml`'s `card:` column. A
+/// hand-written list of required fields in a reader is wrong the first time
+/// `schema/` moves, and nothing fails when it goes wrong (ADR-0008).
+///
+/// Edge fields are included: the bit states what the SCHEMA declares, not what
+/// any particular reader walks. A reader that only visits nodes never asks
+/// about an edge field's bit.
+fn required_field_bits(o: &mut String, x: &Extracted) -> Result<(), ExtractError> {
+    let mut required: Vec<u32> = Vec::new();
+    for k in &x.kinds {
+        for f in &k.fields {
+            if f.card == "1" {
+                required.push(x.field_key(&k.name, &f.name)?);
+            }
+        }
+    }
+    for e in &x.edges {
+        for f in &e.fields {
+            if f.card == "1" {
+                required.push(x.field_key(&e.name, &f.name)?);
+            }
+        }
+    }
+    // Sized from the largest key the registry holds, not from its length: the
+    // registry has gaps (LayoutPin's and Rack's keys start at 300), so a
+    // length-sized array would index out of bounds on exactly the keys this
+    // feature was written to check.
+    let max = x.field_keys.iter().map(|(_, k)| *k).max().unwrap_or(0);
+    let len = (max as usize / 8) + 1;
+    let mut bits = vec![0u8; len];
+    for k in &required {
+        bits[*k as usize / 8] |= 1 << (*k % 8);
+    }
+    o.push_str(
+        "    /// Every field key the schema declares at `card: \"1\"`, packed \
+         one bit\n    /// per key, least-significant bit first. Read it through \
+         [`field_required`];\n    /// the array is public only so a test can pin \
+         its length.\n",
+    );
+    let _ = writeln!(o, "    pub const FIELD_REQUIRED_BITS: [u8; {len}] = [");
+    for chunk in bits.chunks(16) {
+        let row: Vec<String> = chunk.iter().map(|b| format!("0x{b:02x}")).collect();
+        let _ = writeln!(o, "        {},", row.join(", "));
+    }
+    o.push_str("    ];\n\n");
+    o.push_str(
+        "    /// Whether `schema/schema.yaml` declares this field `card: \
+         \"1\"` —\n    /// exactly one value, always, and no default (62 §4.3).\n\
+    \x20   ///\n    /// A key outside the registry answers `false`, which is the \
+         only safe\n    /// direction: an unknown key is not a field this build \
+         can require\n    /// anything of, and claiming otherwise would report a \
+         gap against a\n    /// field that does not exist.\n",
+    );
+    o.push_str(
+        "    pub const fn field_required(key: crate::bag::FieldKey) -> bool {\n\
+     \x20       let i = key.0 as usize / 8;\n\
+     \x20       if i >= FIELD_REQUIRED_BITS.len() {\n\
+     \x20           return false;\n\
+     \x20       }\n\
+     \x20       FIELD_REQUIRED_BITS[i] & (1 << (key.0 % 8)) != 0\n\
+     \x20   }\n\n",
+    );
+    Ok(())
 }
 
 /// The static schema tables an L0-enforcing store reads: endpoint kind sets,

@@ -7,7 +7,8 @@
 use fathom_ir::bag::{FieldBag, FieldError, FieldKey};
 use fathom_ir::generated::accessors;
 use fathom_ir::generated::ir_types::{
-    DerivedEdgeKind, EdgeKind, EstablishTunnels, LinkMedia, NodeKind, SiteField, FIELD_KEYS,
+    field_required, DerivedEdgeKind, EdgeKind, EstablishTunnels, LinkMedia, NodeKind, SiteField,
+    FIELD_KEYS, FIELD_REQUIRED_BITS,
 };
 use fathom_ir::scalar::{Text, TzName};
 use std::any::Any;
@@ -130,4 +131,91 @@ fn typed_accessors_read_hit_miss_and_wrong_type() {
         accessors::site::timezone(&bag).map(|t| t.0.as_str()),
         Ok("Australia/Brisbane")
     );
+}
+
+/// The required-field bitset agrees, field for field, with the `card:` string
+/// the OTHER generated artifact prints in its documentation.
+///
+/// `field_required` is emitted by `rust_gen::required_field_bits` as packed
+/// bits; the same `card` string is emitted, independently, by
+/// `rust_gen::accessors` into each field's doc line. Two emission paths from
+/// one source, compared here — which is the only cross-check available without
+/// a YAML parser in this crate, and it catches the failure that matters: a
+/// bitset that stops tracking `schema/` while still compiling.
+///
+/// It reads the checked-in file rather than a rebuilt one on purpose. What
+/// ships is what is on disk (62 §17.1), and `fathom-schemagen`'s own stale
+/// check is what proves the disk matches the generator.
+#[test]
+fn the_required_bitset_agrees_with_the_generated_documentation() {
+    let accessors = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/generated/accessors.rs"),
+    )
+    .expect("the generated accessors are checked in");
+
+    let mut checked = 0usize;
+    let mut required = 0usize;
+    for line in accessors.lines() {
+        // `    /// `Site.name` — `Text`, card `1`, emit `—`.`
+        let Some(rest) = line.trim_start().strip_prefix("/// `") else {
+            continue;
+        };
+        let Some((name, tail)) = rest.split_once("` — `") else {
+            continue;
+        };
+        let Some(at) = tail.find(", card `") else {
+            continue;
+        };
+        let card = &tail[at + ", card `".len()..];
+        let Some((card, _)) = card.split_once('`') else {
+            continue;
+        };
+        let Some((_, key)) = FIELD_KEYS.iter().find(|(n, _)| *n == name) else {
+            continue;
+        };
+        checked += 1;
+        if card == "1" {
+            required += 1;
+        }
+        assert_eq!(
+            field_required(FieldKey(*key)),
+            card == "1",
+            "`{name}` is documented `card: \"{card}\"` and the bitset disagrees"
+        );
+    }
+    assert!(
+        checked > 250 && required > 50,
+        "the parse found {checked} documented fields and {required} required ones, \
+         which is too few to have read the file: a cross-check that silently \
+         matches nothing is not one"
+    );
+}
+
+/// A key outside the registry is not required — the only safe answer, and the
+/// one a reader relies on when it meets a key from a newer schema.
+#[test]
+fn an_unregistered_key_is_never_required() {
+    let max = FIELD_KEYS.iter().map(|(_, k)| *k).max().expect("keys");
+    assert!(!field_required(FieldKey(max + 1)));
+    assert!(!field_required(FieldKey(u32::MAX)));
+    // Key 0 is never allocated: the registry starts at 1.
+    assert!(!field_required(FieldKey(0)));
+}
+
+/// Every key the bitset marks is a key the registry holds. A stray bit would
+/// make a reader report a gap against a field that does not exist.
+#[test]
+fn the_bitset_marks_only_registered_keys() {
+    for (byte, bits) in FIELD_REQUIRED_BITS.iter().enumerate() {
+        for bit in 0..8u32 {
+            if bits & (1 << bit) == 0 {
+                continue;
+            }
+            let key = (byte as u32) * 8 + bit;
+            assert!(
+                FIELD_KEYS.iter().any(|(_, k)| *k == key),
+                "bit for key {key} is set and no field claims it"
+            );
+        }
+    }
 }
