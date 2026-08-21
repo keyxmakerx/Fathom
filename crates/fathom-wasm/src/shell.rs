@@ -13,8 +13,8 @@ use fathom_find::Finder;
 use crate::protocol::{
     self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_EQUIP_FRAME, ERR_EQUIP_STORE,
     ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_LINK_CHOICE, ERR_NOTHING_UNDERSTOOD,
-    ERR_NOT_INITIALISED, ERR_NO_DICTIONARY, ERR_NO_ELEMENT, ERR_NO_LINK, ERR_PASTE_FRAME,
-    ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
+    ERR_NOT_INITIALISED, ERR_NO_DICTIONARY, ERR_NO_ELEMENT, ERR_NO_LINK, ERR_PASTE_CHOICE,
+    ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
 #[cfg(feature = "demo-estate")]
 use crate::OP_ESTATE_DEMO;
@@ -149,23 +149,31 @@ impl Shell {
     /// estate in place: a paste that Fathom could not read is not a reason to
     /// throw away the one it could.
     fn paste(&mut self, req: &[u8]) -> Vec<u8> {
-        const PREFIX: usize = 24;
+        // 25, not 24: the clock, the entropy, and one byte of CONFIRMATION.
+        //
+        // `confirm == 1` means the operator has been shown `ERR_PASTE_CHOICE`
+        // and has said the two boxes are different. It is not a mode and there
+        // is deliberately no "replace" flag beside it — see this function's
+        // own doc comment.
+        const PREFIX: usize = 25;
         let Some(head) = req.get(..PREFIX) else {
             return protocol::encode_error(
                 ERR_PASTE_FRAME,
                 &format!(
-                    "OP_PASTE needs a {PREFIX}-byte clock and entropy prefix; the frame is {} bytes",
+                    "OP_PASTE needs a {PREFIX}-byte clock, entropy and confirm prefix; the frame is {} bytes",
                     req.len()
                 ),
             );
         };
-        let (at_bytes, entropy_bytes) = head.split_at(8);
+        let (at_bytes, rest) = head.split_at(8);
+        let (entropy_bytes, confirm_bytes) = rest.split_at(16);
         let mut at = [0u8; 8];
         at.copy_from_slice(at_bytes);
         let mut entropy = [0u8; 16];
         entropy.copy_from_slice(entropy_bytes);
         let at = fathom_graph::Timestamp(u64::from_le_bytes(at));
         let entropy = u128::from_le_bytes(entropy);
+        let confirmed = confirm_bytes[0] == 1;
         let text = req.get(PREFIX..).unwrap_or_default();
 
         // Which grammar is this? The sniff is exact — the first non-blank line
@@ -229,16 +237,27 @@ impl Shell {
             return protocol::encode_error(ERR_NOTHING_UNDERSTOOD, &nothing_understood(&ingest));
         }
 
-        // The user and batch ids: the millisecond plus a fixed discriminator,
-        // the pattern `fathom-inventory`'s demo estate and the weld's own
-        // tests both use. Colliding with a minted element ULID is harmless —
-        // `by_ulid` covers nodes and edges only, and batch ids are checked
-        // against other batch ids, of which a fresh graph has none.
-        // `ids` mints the BATCH only. The author was `ids(1)` until 2026-08-21
-        // — derived from the host clock, so a fifty-op estate carried up to
-        // fifty distinct "users", none of them anybody. See `UserId::LOCAL`.
-        let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
-        let Ok(batch) = ids(2) else {
+        // THE BATCH ID IS DERIVED FROM THE ENTROPY, NOT FROM A CONSTANT.
+        //
+        // It was `Ulid::from_parts(at.0, 2)` — the millisecond plus a fixed
+        // discriminator — and the comment here said colliding was harmless
+        // because "batch ids are checked against other batch ids, OF WHICH A
+        // FRESH GRAPH HAS NONE". That was true precisely because a paste threw
+        // the estate away. **Making the paste additive made it false**: a
+        // second paste into a held estate reuses the same batch id and the
+        // store refuses it with `BatchIdReused`, which reaches the operator as
+        // a Rust debug string about a ULID.
+        //
+        // Found by a test that pasted twice — not by reading this, which had a
+        // comment explaining why it was safe, written when it was.
+        //
+        // The entropy is fresh per call from the host's CSPRNG, so two pastes
+        // get two batches. Still deterministic in the sense invariant 9 needs:
+        // the same `(at, entropy)` produces the same bytes, which is what
+        // replay depends on. Colliding with a minted ELEMENT ulid remains
+        // harmless for the reason the old comment gave — `by_ulid` covers
+        // nodes and edges, and batches are checked only against batches.
+        let Ok(batch) = fathom_id::Ulid::from_parts(at.0, entropy) else {
             return protocol::encode_error(
                 ERR_PASTE_FRAME,
                 &format!(
@@ -256,15 +275,88 @@ impl Shell {
             platform: fathom_ir::scalar::PlatformId(dict.platform().to_owned()),
         };
 
-        let mut graph = fathom_graph::Graph::new();
-        let weld = match fathom_weld::apply_new_device(&mut graph, &ingest, &manifest) {
+        // ---- 1. THE DRY RUN, into a graph nobody will ever see -------------
+        //
+        // The weld runs twice on purpose. This first pass exists so that every
+        // refusal the weld can raise happens BEFORE the operator's estate is
+        // touched, and so the identity check below has a real typed `Device`
+        // to read terms from rather than a guess assembled from the ingest.
+        //
+        // `apply_new_device`'s own doc says why it must not be the pass that
+        // runs against a live estate first: "On any error the graph is left
+        // with the partial batch OPEN and the ops written so far recorded —
+        // `fathom-graph` has no rollback." Against a throwaway that costs
+        // nothing. Against a real design it would be the operator's work.
+        //
+        // The cost is one extra weld per paste. `49` §8 measured where the time
+        // actually goes and it is the layout, not the weld.
+        let mut dry = fathom_graph::Graph::new();
+        let dry_weld = match fathom_weld::apply_new_device(&mut dry, &ingest, &manifest) {
             Ok(w) => w,
             Err(e) => return protocol::encode_error(ERR_WELD_REFUSED, &format!("{e:?}")),
         };
 
-        let reply = paste_reply(&graph, &ingest, &weld, dict);
-        self.estate = Some(graph);
-        reply
+        // ---- 2. IS THIS A BOX THE DESIGN ALREADY HOLDS? --------------------
+        if !confirmed {
+            if let Some(existing) = self.estate.as_ref() {
+                if let Some(clash) = identity_clash(existing, &dry) {
+                    return protocol::encode_error(ERR_PASTE_CHOICE, &clash);
+                }
+            }
+        }
+
+        // ---- 3. THE REAL WELD, into the estate that is held ----------------
+        //
+        // ADDITIVE. Until 2026-08-21 this line was `self.estate = Some(graph)`
+        // — a paste REPLACED the design, and `49` §10b calls that a bomb still
+        // in the room. On a server holding many designs of thousands of
+        // devices it is wrong in every case: pasting a second switch must not
+        // delete the first.
+        //
+        // `get_or_insert_with` is the pattern `equip_add` already uses, so an
+        // empty page and a populated one take the same path rather than the
+        // empty case being a special one somebody has to remember.
+        let graph = self.estate.get_or_insert_with(fathom_graph::Graph::new);
+        let weld = match fathom_weld::apply_new_device(graph, &ingest, &manifest) {
+            Ok(w) => w,
+            Err(e) => {
+                // THE STORE'S ID-COLLISION ERRORS MUST NOT REACH A PERSON AS
+                // RUST. `BatchIdReused`, `ProvenanceIdReused` and the element
+                // form were unreachable while a paste replaced the estate — it
+                // welded into a fresh graph every time, which by definition had
+                // nothing to collide with. Making the paste additive made all
+                // three reachable, and the first thing a test saw was
+                // `Store(ProvenanceIdReused { id: ProvenanceId(Ulid(01KZ…)) })`
+                // rendered at an operator.
+                //
+                // The cause is real and is not a bug in the store: the mint
+                // walks a counter from the host's entropy, so two pastes whose
+                // entropy happens to fall within `minted` of each other produce
+                // overlapping id ranges. With sixteen bytes from a CSPRNG that
+                // is vanishingly unlikely; it is not impossible, and "unlikely"
+                // is not a thing to render a debug string about.
+                //
+                // `dry_weld.minted` is the exact count the dry run just
+                // produced, so the sentence can say how much room was needed
+                // rather than guessing.
+                let detail = format!("{e:?}");
+                if detail.contains("IdReused") {
+                    return protocol::encode_error(
+                        ERR_WELD_REFUSED,
+                        &format!(
+                            "this paste needs {} fresh identifiers and the ones it was given \
+                             overlap identifiers this design already uses, so nothing was \
+                             added. Nothing is wrong with the config or the design — paste \
+                             it again and it will be given different ones.",
+                            dry_weld.minted
+                        ),
+                    );
+                }
+                return protocol::encode_error(ERR_WELD_REFUSED, &detail);
+            }
+        };
+
+        paste_reply(graph, &ingest, &weld, dict)
     }
 
     /// `OP_EQUIP_ADD`: one piece of equipment, entered by hand.
@@ -2438,4 +2530,106 @@ impl Shell {
     pub fn estate_for_test(&self) -> Option<&fathom_graph::Graph> {
         self.estate.as_ref()
     }
+}
+
+/// **IS THIS A BOX THE DESIGN ALREADY HOLDS?** — and the answer is never a
+/// merge, only a question or a no.
+///
+/// Returns the refusal text when a live `Device` in `estate` matches the
+/// freshly-welded `Device` in `dry` on any identity tier the SCHEMA declares,
+/// and `None` otherwise.
+///
+/// # The tiers come from `schema/`, not from here
+///
+/// `NodeKind::identity_tiers()` is generated from `schema/schema.yaml` (added
+/// the same day as this function, for this function). Hard-coding "hostname
+/// and platform" would have been three lines shorter and is the hand-written
+/// per-kind rule ADR-0008 forbids — it would also mean the owner editing
+/// `schema/schema.yaml` silently changed nothing. There was already one such
+/// rule in the tree (`rack_place`'s reuse-by-label); a second is the point at
+/// which a special case becomes a pattern.
+///
+/// # A tier only counts when every term in it is present
+///
+/// `Device` declares `[hostname, platform]` and `[platform,
+/// management_address]`. A config with no `set system host-name` leaves the
+/// first tier unevaluable, and **no junos-srx dictionary entry populates
+/// `management_address`** (checked: zero hits across `corpus/dict/`), so the
+/// second is unevaluable from a paste as well. Such a device can never be
+/// recognised and always welds as new — which the reply says out loud rather
+/// than letting an estate of record silently fill with duplicates.
+///
+/// A term this function cannot resolve to a field is treated the same way:
+/// unevaluable, never a match. `Interface`'s `owner(Device)` is the shape that
+/// forces this, and it is why every sub-device tier is unusable by
+/// construction — none can be evaluated until two devices are already known to
+/// be the same device, which is precisely the decision being refused.
+fn identity_clash(estate: &fathom_graph::Graph, dry: &fathom_graph::Graph) -> Option<String> {
+    use fathom_ir::generated::ir_types::{DeviceField, NodeKind};
+
+    // The paste's device. `apply_new_device` seeds exactly one.
+    let fresh = dry.nodes_of_kind(NodeKind::Device).next()?;
+
+    // Resolve each declared term to a field key. Only `Device`'s own fields
+    // are resolvable here; anything else leaves the tier unevaluable.
+    let term_key = |term: &str| -> Option<fathom_ir::bag::FieldKey> {
+        DeviceField::ALL
+            .iter()
+            .find(|f| f.name() == term)
+            .map(|f| f.key())
+    };
+
+    for tier in NodeKind::Device.identity_tiers() {
+        let mut wanted = Vec::new();
+        let mut evaluable = true;
+        for term in *tier {
+            match term_key(term).and_then(|k| fathom_inventory::field_text(dry, fresh.id, k)) {
+                Some(text) => wanted.push((term_key(term).expect("resolved above"), text)),
+                None => {
+                    evaluable = false;
+                    break;
+                }
+            }
+        }
+        if !evaluable || wanted.is_empty() {
+            continue;
+        }
+
+        // Ordered by NodeId so the device named in the refusal is the same one
+        // every time (invariant 9) rather than whichever the iterator reached
+        // first.
+        let mut hits: Vec<fathom_graph::NodeId> = estate
+            .nodes_of_kind(NodeKind::Device)
+            .filter(|n| {
+                n.absent_since.is_none()
+                    && wanted.iter().all(|(k, text)| {
+                        fathom_inventory::field_text(estate, n.id, *k).as_deref()
+                            == Some(text.as_str())
+                    })
+            })
+            .map(|n| n.id)
+            .collect();
+        hits.sort();
+        let Some(hit) = hits.first().copied() else {
+            continue;
+        };
+
+        let name = term_key("hostname")
+            .and_then(|k| fathom_inventory::field_text(estate, hit, k))
+            .unwrap_or_else(|| "that device".to_owned());
+        let terms: Vec<&str> = tier.to_vec();
+        return Some(format!(
+            "{name} is already in this design — the same {}. Fathom will not \
+             merge a second reading of a box it already has: it cannot yet, and \
+             guessing would put two half-true versions of one device in your \
+             estate of record. If this is a DIFFERENT box that happens to match, \
+             say so and it will be added as a second device. If it is the SAME \
+             box and this config is newer, there is no update yet — that is \
+             re-identification and nothing in this build implements it.|{}|{}",
+            terms.join(" and "),
+            fathom_graph::ElementId::Node(hit),
+            name
+        ));
+    }
+    None
 }

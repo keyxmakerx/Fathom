@@ -1775,7 +1775,7 @@ var OP_FINDINGS = 25;
    the sentence names both kinds and this page picked both boxes. Building it in
    the module measured 345 bytes against `44` §5.2's ceiling; building it here
    costs artifact bytes, of which there are 2.2 MB spare. */
-var ERR_LINK_CHOICE = 16, ERR_NO_LINK = 15;
+var ERR_LINK_CHOICE = 16, ERR_NO_LINK = 15, ERR_PASTE_CHOICE = 17;
 /* `protocol::ERR_EQUIP_STORE`. Named here because the link path words the
    store's refusal itself — see dgLink — rather than showing `code 13 · out`. */
 var ERR_EQUIP_STORE = 13;
@@ -2146,6 +2146,11 @@ var S = {
      diagram different", and it must still be there after he clicks something.
      Cleared by the next paste or import. */
   drift: null,
+  /* Set when a paste names a box the design already holds, and by nothing
+     else. Holds the module's sentence plus the existing device's id and name,
+     so the answer can be offered without the page re-deriving any of it.
+     Cleared by the next paste, confirmed or not. */
+  pasteDup: null,
   boot: null,
   msg: ''
 };
@@ -7237,6 +7242,16 @@ document.addEventListener('click', function (ev) {
     if (S.view === 'inventory') { ivDetails(); ivPaneApply(null); }
     return;
   }
+  /* THE ONE ANSWER to "the design already holds a box this paste names". It
+     re-runs the SAME text with confirm set — the text is kept in `S.pasteDup`
+     rather than re-read from the box, so answering cannot silently paste
+     something the question was not about. */
+  if ((n = seekAttr(ev.target, 'data-pdup'))) {
+    var dup = S.pasteDup;
+    S.pasteDup = null;
+    if (dup) runPasteText(dup.text, true);
+    return;
+  }
   /* The panel's two tabs, and the details tab's own way back to the list. */
   if ((n = seekAttr(ev.target, 'data-dpane'))) {
     dgPaneSet(n.getAttribute('data-dpane'), true);
@@ -7498,14 +7513,28 @@ function setPaste(open) {
        What went is the third telling of "the text is read in the module" — the
        top band already says `no sockets, ever` — and the "rather than dropped"
        tail, which the residue table demonstrates a second later. */
+    /* THIS SENTENCE SAID "REPLACES" UNTIL 2026-08-21 AND IT WAS TRUE. It is the
+       opposite of true now, and a warning that names the wrong outcome is worse
+       than no warning: it teaches an operator to export before every paste, and
+       then one day he does not and nothing bad happens, so he stops believing
+       the next warning too.
+
+       What replaces it is the honest limit, which has not changed: Fathom still
+       cannot MERGE two readings of one box. It adds a second device and asks
+       first. The two security facts a person is entitled to before pasting a
+       firewall config into anything stay verbatim. */
     $('pHint').textContent = S.loaded
-      ? 'This REPLACES what is held — ' + heldSummary() + ' will be dropped. ' +
-        'Fathom cannot merge two configs yet, so export first to keep it. ' +
-        'Secrets are destroyed before anything is stored; every line that ' +
-        'cannot be read is listed back to you.'
+      ? 'This ADDS to what is held — ' + heldSummary() + ' stays. Fathom still ' +
+        'cannot merge two readings of the same box, so a config naming a device ' +
+        'you already have will ask before it adds a second one. Secrets are ' +
+        'destroyed before anything is stored; every line that cannot be read is ' +
+        'listed back to you.'
       : 'Nothing leaves this page. Secrets are destroyed before anything is ' +
         'stored; every line that cannot be read is listed back to you.';
-    $('pRun').textContent = S.loaded ? 'replace what is loaded' : 'read it';
+    /* "add to this design", never "replace what is loaded" — the label was
+       true until 2026-08-21 and is the opposite of true now. A control that
+       names the wrong outcome is worse than an unlabelled one. */
+    $('pRun').textContent = S.loaded ? 'add to this design' : 'read it';
     renderPasteError();
     $('pta').focus();
   }
@@ -7537,11 +7566,64 @@ function heldSummary() {
    of reply; it is noise here, and it is only used for the shapes that have no
    human-written detail. */
 function renderPasteError() {
+  /* THE DUPLICATE QUESTION IS STATE AND MUST SURVIVE A RE-RENDER, for the same
+     reason `S.pasteError` does: it is the answer to "why did nothing happen",
+     and it must still be there after the operator looks at the inventory to
+     check what he already has — which is EXACTLY what he will do, because the
+     question names a device and invites him to go and see it.
+     Found by driving it: the button existed, and vanished the moment anything
+     else on the page redrew. */
+  if (S.pasteDup) { renderPasteDup(); return; }
   var n = $('pErr'), r = S.pasteError, msg = null;
   if (r && r.kind === 'error') msg = r.detail;
   else if (r) msg = replyProblem(r);
   n.textContent = msg || '';
   n.hidden = !msg;
+}
+
+/* THE DESIGN ALREADY HOLDS A BOX THIS PASTE NAMES.
+
+   The module found a live device matching an identity tuple the SCHEMA
+   declares and refused to guess whether it is the same box. This renders the
+   question. It offers ONE answer, because one is all that honestly exists:
+
+     - "these are different boxes" re-posts the same text with confirm set, and
+       the paste welds a second device.
+     - "same box, update it" IS NOT OFFERED. That is `11` §10.4's
+       re-identification and nothing in this build implements it. A button that
+       looked like it worked would be worse than no button, so the sentence says
+       so in words instead — including what the only lie-free workflow costs,
+       because it costs a lot and an operator should hear it before he does it.
+
+   `55` §1.4: the answer is a real button in the document, reachable and
+   pressable from the keyboard, not a state only a mouse can see. */
+function renderPasteDup() {
+  var n = $('pErr'), d = S.pasteDup;
+  clear(n);
+  if (!d) { n.hidden = true; return; }
+  n.hidden = false;
+
+  var p = el('p', 'pdupsay', d.sentence);
+  n.appendChild(p);
+
+  var row = el('div', 'pdupact');
+  var yes = el('button', 'door', 'these are different boxes — add it');
+  yes.type = 'button';
+  yes.setAttribute('data-pdup', 'add');
+  row.appendChild(yes);
+  n.appendChild(row);
+
+  /* What the other answer would cost, stated rather than offered. Removing the
+     old device and pasting the new one is the only workflow available today
+     that asserts nothing false — and it throws away every hand fact about that
+     box, because the new device mints new ids and the pins, the rack placement
+     and any hand-drawn links point at the tombstone. */
+  n.appendChild(el('p', 'pdupwhy',
+    'If it is the same box and this config is newer, there is no update yet. ' +
+    'The only way to replace it today is to remove ' + (d.name || 'the device') +
+    ' and paste again — and that loses its position on the diagram, its rack ' +
+    'placement and any links you drew by hand, because the new device is a ' +
+    'different object.'));
 }
 
 /* 16 bytes from the platform CSPRNG. There is no fallback: Math.random is not
@@ -7570,8 +7652,18 @@ function looksLikeRulesTable(text) {
   return /^@uuid[;,]/.test(first);
 }
 
-function runPaste() {
-  var text = $('pta').value;
+/* `confirm` is passed only by the duplicate answer below. A paste from the
+   button always asks first. */
+function runPaste(confirm) {
+  runPasteText($('pta').value, confirm);
+}
+
+/* The paste, given its text explicitly.
+   Split out on 2026-08-21 so the duplicate answer can re-run the EXACT text the
+   question was asked about. Reading the box again would be a different paste
+   wearing the same answer: the operator may have edited it, or the sheet may
+   have been reopened on something else. */
+function runPasteText(text, confirm) {
   if (!wasm) { foot('the module is not instantiated'); renderShell(); return; }
   /* AN EMPTY PASTE IS NOT ALWAYS AN EMPTY BOX, AND THIS IS THE ONE PLACE THE
      PAGE CAN SAY SO. OPNsense issue #10595 (opened 22 July 2026 against 26.7.1;
@@ -7613,14 +7705,35 @@ function runPaste() {
     return;
   }
 
+  /* 25 bytes of prefix: the clock, the entropy, and one CONFIRM byte.
+     `confirm` is 1 only when the operator has been shown ERR_PASTE_CHOICE and
+     has said the two boxes are different — never a default, never remembered
+     across pastes. `pasteRun` is called with it false from the button and true
+     from that one answer. */
   var body = new TextEncoder().encode(text);
-  var req = new Uint8Array(24 + body.length);
+  var req = new Uint8Array(25 + body.length);
   var at = Date.now();
   new DataView(req.buffer).setBigUint64(0, BigInt(at), true);
   req.set(ent, 8);
-  req.set(body, 24);
+  req[24] = confirm ? 1 : 0;
+  req.set(body, 25);
 
   var reply = call(OP_PASTE, req);
+
+  /* THE DESIGN ALREADY HOLDS A BOX THIS PASTE NAMES.
+     Not an error — the module refusing to guess, exactly as ERR_LINK_CHOICE
+     does for an ambiguous link, and the page's job is the same: show what was
+     found, offer the ONE answer that exists, and never pick. The detail is
+     `sentence|display-id|hostname`. */
+  if (reply && reply.kind === 'error' && reply.code === ERR_PASTE_CHOICE) {
+    var parts = String(reply.detail || '').split('|');
+    S.pasteDup = { text: text, sentence: parts[0] || '', id: parts[1] || '', name: parts[2] || '' };
+    S.pasteError = null;
+    renderPasteDup();
+    renderShell();
+    return;
+  }
+  S.pasteDup = null;
   var bad = replyProblem(reply);
   if (bad) {
     /* A refused paste changes NOTHING. S.paste keeps the last successful
@@ -7734,7 +7847,16 @@ function wasmReset() {
 }
 
 $('tabPaste').addEventListener('click', function () { setPaste(!pOpen); });
-$('pRun').addEventListener('click', runPaste);
+/* WRAPPED, NOT PASSED DIRECTLY. `addEventListener('click', runPaste)` hands the
+   MouseEvent in as the first argument — which became `confirm`, which is
+   truthy, so EVERY paste from this button was pre-confirmed and the duplicate
+   question could never fire. The module was refusing correctly and the page was
+   answering "yes, different boxes" on the operator's behalf, silently.
+
+   Nothing in Rust could have caught it: the module was right at both ends. It
+   took driving the real button in a browser, which is the same lesson as the
+   2026-08-16 chooser post-mortem, one file over. */
+$('pRun').addEventListener('click', function () { runPaste(false); });
 
 /* --- the second door: add equipment by hand ------------------------------- */
 
@@ -8152,10 +8274,22 @@ function importJournal(text) {
   for (var i = 0; i < ops.length; i++) {
     var o = ops[i], ent = unb64(o.ent), reply, req, dv;
     if (o.op === 'paste') {
+      /* A REPLAY CONFIRMS. Every op in a journal is an op that HAPPENED — a
+         refused paste never reaches the file — so replaying one is reproducing
+         history, not re-deciding it. Asking the duplicate question again here
+         would stop an import dead on step 2 of a workspace whose two pastes the
+         operator already sorted out, and there is nobody to answer: an import
+         is not an interactive moment.
+
+         This is the 2026-08-16 chooser post-mortem's lesson arriving one file
+         over. That defect was a question that failed to record the verb which
+         raised it; this is a question that must not be asked twice. Both come
+         from the same place — a decision belongs with the record of what it
+         decided, not with the code that re-derives it. */
       var body = enc.encode(o.text);
-      req = new Uint8Array(24 + body.length);
+      req = new Uint8Array(25 + body.length);
       new DataView(req.buffer).setBigUint64(0, BigInt(o.at), true);
-      req.set(ent, 8); req.set(body, 24);
+      req.set(ent, 8); req[24] = 1; req.set(body, 25);
       reply = call(OP_PASTE, req);
     } else if (o.op === 'equip') {
       var parts = [], total = 0;

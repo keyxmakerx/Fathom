@@ -56,10 +56,18 @@ await page.click('#tabPaste');
 ck('the raw config is gone from the box', (await page.inputValue('#pta')) === '');
 
 // ---- second paste NAMES what will be lost ----
+// THE WARNING CHANGED ON 2026-08-21 BECAUSE THE BEHAVIOUR DID. A paste used to
+// REPLACE the held estate and this block asserted the page said so loudly. It
+// now ADDS, so the same assertions inverted: what must be loud is that the held
+// estate SURVIVES, and that the real remaining limit — no merging two readings
+// of one box — is still stated rather than quietly dropped along with the
+// warning it used to sit beside.
 const hint = await page.textContent('#pHint');
-ck('the second paste says it REPLACES', hint.includes('REPLACES'));
-ck('and names the device by hostname', hint.includes('srx-branch-01'), hint.slice(0,140));
-ck('and the button says so too', (await page.textContent('#pRun')).includes('replace'));
+ck('the second paste says it ADDS', hint.includes('ADDS'));
+ck('and does not still claim to replace', !hint.includes('REPLACES'), hint.slice(0, 140));
+ck('and names what survives', hint.includes('srx-branch-01'), hint.slice(0,140));
+ck('and still states the real limit — no merging', /cannot merge/i.test(hint));
+ck('and the button says so too', (await page.textContent('#pRun')).includes('add'));
 await page.click('#tabPaste');   // close
 
 // ---- VLANs are named, not ULIDs ----

@@ -62,7 +62,7 @@ fn fixture_bytes() -> Vec<u8> {
 }
 
 fn frame(text: &[u8]) -> Vec<u8> {
-    let mut f = Vec::with_capacity(24 + text.len());
+    let mut f = Vec::with_capacity(25 + text.len());
     f.extend_from_slice(&TS.to_le_bytes());
     f.extend_from_slice(&ENTROPY.to_le_bytes());
     f.extend_from_slice(text);

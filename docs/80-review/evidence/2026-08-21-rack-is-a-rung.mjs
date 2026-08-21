@@ -298,9 +298,20 @@ check('and the picker steps sideways to the rack beside it',
 // -------------------------------------------------------------------------
 console.log('\n10. THE RUNG IS RECONCILED AGAINST THE ESTATE THAT IS HELD');
 // -------------------------------------------------------------------------
-// `OP_PASTE` REPLACES what is held (`49` §10). A reader standing inside a rack
-// when that happens must not be left in a frame that no longer exists — under a
+// THIS SECTION ASSERTED THE OPPOSITE UNTIL 2026-08-21, and the inversion is the
+// point rather than a repair.
+//
+// `OP_PASTE` used to REPLACE what is held, so a reader standing inside a rack
+// when a paste landed was left in a frame that no longer existed — under a
 // breadcrumb naming it, swallowing the Escape that would clear the selection.
+// The rung had to be dropped, and this checked that it was.
+//
+// A paste ADDS now (`49` §10b). The rack a person is standing in survives, so
+// dropping the rung would be the defect: it would throw away where they were
+// for an event that did not touch it. What must still hold is the underlying
+// rule — THE RUNG NAMES SOMETHING THAT EXISTS — and the honest way to test that
+// is with the gesture that can still make it false, which is removing the rack
+// itself, not pasting beside it.
 await page.click('#tabPaste');
 await page.waitForTimeout(100);
 await page.fill('#pta', [
@@ -313,10 +324,18 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(100);
 await page.click('[data-view="diagram"]');
 await page.waitForTimeout(300);
-check('a paste that replaces the estate drops the rung it invalidated',
-  await depth() === 'site', String(await depth()));
-check('and does not leave a breadcrumb pointing at a rack that is gone',
-  await page.locator('.dladder').count() === 0);
+check('A PASTE NO LONGER THROWS AWAY WHERE YOU WERE STANDING',
+  await depth() === 'rack', String(await depth()));
+check('and the breadcrumb still names the rack, because it still exists',
+  await page.locator('.dladder').count() > 0);
+
+// And the rule the old assertion was really protecting, tested with the gesture
+// that can still break it: remove the rack while inside it.
+const railBefore = await page.locator('.dladder').count();
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+check('Escape leaves the rack by hand', await depth() === 'site',
+  String(await depth()) + ' (rail was ' + railBefore + ')');
 
 // -------------------------------------------------------------------------
 console.log('\n11. invariant 1 — no egress');

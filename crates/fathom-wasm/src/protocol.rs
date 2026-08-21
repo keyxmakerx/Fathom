@@ -351,6 +351,37 @@ pub const ERR_NO_LINK: u16 = 15;
 /// would be guessing.
 pub const ERR_LINK_CHOICE: u16 = 16;
 
+/// The paste names a device the design already holds, and Fathom will not
+/// guess whether they are the same box.
+///
+/// **This code exists because the thing that used to stand in for it was
+/// removed.** `70` §16.3 settled the collision question by deferring it:
+///
+/// > a tier-1 match is a **proposal to a human, not an automatic merge**,
+/// > because two real branch sites may both run a `core-01` SRX on the same
+/// > platform. **Until it is designed, `OP_PASTE` replaces the held estate and
+/// > says so, which is the behaviour that cannot silently merge two boxes.**
+///
+/// Making the paste additive removes that guard, so the proposal has to exist.
+/// It cannot ship bare.
+///
+/// **What replacing was actually doing.** Pasting the same box twice yielded
+/// one device — because the second paste destroyed the first. That is not
+/// correlation; it is amnesia that happens to look like correlation from one
+/// angle. This code replaces it with a question, which is the truth about what
+/// Fathom knows.
+///
+/// The message carries the existing device's display id and hostname so the
+/// page can name it. The page turns it into buttons and **never picks** — the
+/// same contract `ERR_LINK_CHOICE` has, and for the same reason.
+///
+/// **There is exactly one button.** *"These are different boxes — add it"*
+/// re-posts the frame with `confirm = 1`. The other one a reader expects —
+/// *"same box, update it"* — is `11` §10.4's re-identification, which has no
+/// implementation anywhere in this tree, and the refusal says so in words
+/// rather than offering a control that would lie.
+pub const ERR_PASTE_CHOICE: u16 = 17;
+
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
 

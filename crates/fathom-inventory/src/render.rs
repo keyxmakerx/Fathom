@@ -105,6 +105,26 @@ pub(crate) fn value_cell(g: &Graph, id: NodeId, k: FieldKey) -> String {
     field_cell(g, id, k).0
 }
 
+/// One field's canonical text, or `None` when it holds nothing.
+///
+/// The same reading `value_cell` does, minus its rendering convention: an
+/// absent field is `None` here rather than an em dash, because the callers of
+/// this are comparing values rather than displaying them and *"both of these
+/// are —"* must never read as a match.
+///
+/// Added 2026-08-21 for the identity check in `OP_PASTE`. Public because the
+/// alternative was the shell reading slots itself, and a second reader of the
+/// same bytes is a second place for the canonical form to be got wrong —
+/// `rack_label` is the precedent, and this is its general case.
+pub fn field_text(g: &Graph, id: NodeId, k: FieldKey) -> Option<String> {
+    let text = field_cell(g, id, k).0;
+    if text.is_empty() || text == UNKNOWN {
+        None
+    } else {
+        Some(text)
+    }
+}
+
 macro_rules! as_scalar {
     ($tid:expr, $bag:expr, $key:expr, $($t:ident),+ $(,)?) => {
         $(

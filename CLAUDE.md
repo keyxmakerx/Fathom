@@ -244,11 +244,22 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   machine account (`fw-pull`), plus a separate per-person account for writing.** Identity is
   per-device, the account is shared — so revoking a device is deleting one line. `rssh` and
   `scponly` are rejected as unmaintained; TFTP is rejected as unauthenticated.
-- **The journal is an accidental advantage with three defects** (`49` §10) and all three are
-  phase-0 fixes that are free now and brutal later: every op must carry a real author identity
-  and a server-assigned sequence number from the first line of server code; `OP_PASTE` must
-  become *add to this design* rather than *replace it*; and a paste must record what it
-  **produced** so a replay replays the product rather than re-running the parser.
+- **PHASE 0 IS DONE, 2026-08-21** (`49` §19). All four: the secret-length leak closed; every op
+  carries an author and a sequence number; a paste records what it produced and says so when a
+  replay diverges; and **`OP_PASTE` adds to the design rather than replacing it**.
+  Four things that only a browser found, worth knowing before the next surface is built:
+  **(a) `addEventListener('click', runPaste)` passed the MouseEvent as the confirm argument**, so
+  every paste was silently pre-confirmed and the duplicate question could never fire — the module
+  was correct at both ends and the page was answering on the operator's behalf.
+  **(b) making the paste additive made three store errors reachable that had never been reachable**
+  (`BatchIdReused` and friends), because welding into a fresh graph time meant nothing to collide
+  with. The batch id was derived from the clock; it is derived from the entropy now, and an id
+  overlap is refused in English rather than as a Rust debug string.
+  **(c) a replay must never re-ask a question that was already answered.** Every op in a journal
+  is an op that happened, so `importJournal` confirms; without it an import died on step 2.
+  **(d) two page sentences became lies the moment the behaviour changed** — the paste hint said
+  `REPLACES` and the button said `replace what is loaded`. A warning that names the wrong outcome
+  is worse than none: it teaches an operator to ignore the next one.
 
 ## Rules that bind every session
 

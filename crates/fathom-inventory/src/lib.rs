@@ -37,3 +37,4 @@ pub use equipment::{equipment_page, CabledPeer, EquipmentPage, IfaceRow, PortRow
 pub use gaps::{findings, EmptyKind, Findings, Gap, GapExample, EXAMPLES_PER_GAP};
 pub use inventory::{columns, rows, InvKind, Row};
 pub use rack::{elevation, rack_label, Elevation, Slot};
+pub use render::field_text;

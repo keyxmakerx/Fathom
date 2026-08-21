@@ -45,9 +45,12 @@ set protocols bgp group ISP-EDGE neighbor 203.0.113.1 authentication-key Tr0ub4d
 ";
 
 fn frame(at: u64, entropy: u128, text: &str) -> Vec<u8> {
-    let mut f = Vec::with_capacity(24 + text.len());
+    let mut f = Vec::with_capacity(25 + text.len());
     f.extend_from_slice(&at.to_le_bytes());
     f.extend_from_slice(&entropy.to_le_bytes());
+    // The confirm byte (2026-08-21). 0 = refuse if this names a device the
+    // design already holds.
+    f.push(0);
     f.extend_from_slice(text.as_bytes());
     f
 }
@@ -219,8 +222,16 @@ fn the_bgp_authentication_key_never_comes_back() {
     }
     // The paste reply itself carries the residue lines verbatim, so it is the
     // most likely place for a key to survive.
+    // A SECOND PASTE OF THE SAME CONFIG, which since 2026-08-21 is a question
+    // rather than a silent replacement. The canary needs the reply, not the
+    // refusal, so it answers the question the way an operator would when the
+    // boxes really are different — fresh entropy, confirm set. NOTHING ABOUT
+    // THE ASSERTION BELOW CHANGES: the residue lines are still scanned for the
+    // key, which is the whole point of this test.
+    let mut confirmed = frame(TS, ENTROPY.wrapping_add(1 << 40), PASTE);
+    confirmed[24] = 1;
     seen.extend(
-        face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE)))
+        face(&shell.handle(OP_PASTE, &confirmed))
             .iter()
             .flat_map(|r| r.strings.iter().cloned()),
     );
