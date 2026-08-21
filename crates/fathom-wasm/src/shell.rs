@@ -1965,10 +1965,17 @@ fn residue_reason(outcome: &fathom_ingest::frame::LineOutcome) -> String {
                  says a network."
             ),
         },
-        LineOutcome::Quarantined { label, orig_len } => format!(
-            "held back at the redaction gate: {} ({orig_len} bytes)",
-            label.token()
-        ),
+        // THE BYTE COUNT IS GONE, 2026-08-21, and for the same reason the
+        // shape sketch lost its per-token length: a quarantined line is one
+        // the gate believes carries a secret, so its exact length is a bound
+        // on that secret. `14` §9.5 already says `orig_len` is "for the
+        // in-session report only; the persistence layer must not store it" —
+        // and this string is journalled with the residue and travels wherever
+        // the export goes. The label says WHAT was held back, which is the
+        // part a person acts on; the length only ever helped a guesser.
+        LineOutcome::Quarantined { label, .. } => {
+            format!("held back at the redaction gate: {}", label.token())
+        }
         // Reachable only through `csv.rs`, and never as residue — a header is
         // understood, not left over. Named anyway, because the alternative is
         // the `{other:?}` arm below printing a Rust debug string at a person.

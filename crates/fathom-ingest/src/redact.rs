@@ -733,10 +733,47 @@ fn raw_walk(texts: &[String], at: usize) -> bool {
         .any(|t| dict::is_secret_word(t))
 }
 
-/// `14` §9.7's sketch, verbatim: the first two tokens are kept only if
-/// neither trips a detector and both are in the dictionary's known segment
-/// set; every other token becomes `<word:LEN>` or `<quoted:LEN>`; no
-/// character of any token beyond the second survives.
+/// `14` §9.7's sketch: the first two tokens are kept only if neither trips a
+/// detector and both are in the dictionary's known segment set; every other
+/// token becomes `<word>` or `<quoted>`; no character of any token beyond the
+/// second survives.
+///
+/// # THE LENGTH IS GONE, AND THAT IS A DELIBERATE DEVIATION FROM `14` §9.7
+///
+/// §9.7 specifies `<word:LEN>` and `<quoted:LEN>` with the token's exact byte
+/// length, and that is what this emitted until 2026-08-21. **It was a length
+/// oracle for every secret the gate destroys.**
+///
+/// A quarantined line is, by construction, one the gate believes carries a
+/// secret. So `set snmp community <word:12>` says: the community string on
+/// this box is exactly twelve characters. With `head_safe` keeping the first
+/// two tokens verbatim, the reader gets the statement's name *and* the
+/// secret's exact length — which is most of what a guesser wants and all of
+/// what a search-space calculation needs.
+///
+/// **The corpus already forbids this quantity being kept.** Fifty lines above,
+/// [`RedactionEntry::orig_len`] carries `14` §9.5's rule in its own doc
+/// comment — *"for the in-session report only; the persistence layer must not
+/// store it"*. The sketch is written into the capture, and the capture is
+/// welded into the workspace as `Origin::Parsed` provenance. So the sketch was
+/// persisting, on the operator's own disk, the exact quantity §9.5 says must
+/// not be persisted.
+///
+/// Survivable while nothing left the machine, which is why four reviews and a
+/// dedicated adversarial pass over `38` §14 did not catch it until one did.
+/// **It stops being survivable the moment a capture crosses a wire**, which is
+/// what `49` decided this product will do.
+///
+/// The number bought nothing it cost. What makes a quarantined line
+/// recognisable to the person who pasted it is its SHAPE — how many tokens,
+/// which were quoted, and the two head words when they are safe to keep. The
+/// length of the fifth token identifies nothing to a human and hands an
+/// attacker a bound. It is not bucketed or coarsened, because a bucket is
+/// still an oracle with fewer bits; it is removed.
+///
+/// The deviation follows the precedent set by `simple-password`'s addition to
+/// `SECRET_WORD_LIST`: where `14` and a live leak disagree, the leak wins and
+/// the reason is written down here rather than in a commit message.
 fn sketch(capture: &str, dict: &Dictionary, tokens: &[lex::Token], texts: &[String]) -> String {
     let text_at = |at: usize| -> String {
         texts
@@ -767,10 +804,11 @@ fn sketch(capture: &str, dict: &Dictionary, tokens: &[lex::Token], texts: &[Stri
             out.push_str(&text_at(at));
             continue;
         }
-        let len = token.span.end.saturating_sub(token.span.start);
+        // No length. See this function's doc comment: the byte count was a
+        // length oracle for the secret this line was quarantined to protect.
         match token.kind {
-            TokenKind::Quoted => out.push_str(&format!("<quoted:{len}>")),
-            _ => out.push_str(&format!("<word:{len}>")),
+            TokenKind::Quoted => out.push_str("<quoted>"),
+            _ => out.push_str("<word>"),
         }
     }
     out
