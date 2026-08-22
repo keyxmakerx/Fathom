@@ -194,6 +194,40 @@ pub const FACE_RACK_SLOT: u8 = 13;
 /// Reported, never resolved — this face has no basis for choosing which of two
 /// conflicting assertions is right.
 pub const FACE_RACK_CLASH: u8 = 14;
+/// The inventory's editable columns, one record per reply, immediately after
+/// the header and before the first row.
+///
+/// **It mirrors the header's slot layout exactly** — slot 0 is not a column,
+/// slots 1..=6 are the columns in order, slot 7 is the opinions column — so the
+/// page reads a column's key at the same index it read that column's name, and
+/// an off-by-one is not available to it. Slot 0 and slot 7 are always empty:
+/// neither is a field of the row, and the opinions column is a rule engine's,
+/// which this build does not have.
+///
+/// Each column's slot holds `FieldKey` in decimal, or the empty string where
+/// the column cannot be typed into — because it is a walk, or because
+/// `fathom_inventory::is_authorable` says the schema's type for it cannot yet
+/// be parsed from text. `fathom_inventory::column_keys` decides; nothing here
+/// forms an opinion about it.
+///
+/// A record rather than more slots on the header, because [`FACE_SLOTS`] is
+/// eight and the header already spends all eight. A record rather than a
+/// name-to-key table in the page, because the page must never hold one: that is
+/// how a form ends up writing one field into another's slot, and it is why
+/// `encode_element_reply` already sends the inspector's keys the same way.
+/// **29, not 15 — this was the third face-code collision in two days.**
+///
+/// 15 went to the shape digest, 16–19 to the findings view and 20–28 to rung 4,
+/// every one of them on a branch built in parallel with this one. The paragraph
+/// above warns that a face code is a wire discriminant and that a collision
+/// renders one record kind as another; three branches then demonstrated it in a
+/// row, which is the strongest argument available that the warning was not
+/// enough on its own.
+///
+/// `artifact.rs`'s `the_pages_face_codes_match_the_modules` is what catches it
+/// now, and it caught this one. Anyone adding a face should read the next free
+/// number out of this file rather than out of a memory of it.
+pub const FACE_INV_KEY: u8 = 29;
 
 // --- the shape reply (`49` §19 phase 0, item 3) -------------------------------
 
@@ -880,6 +914,7 @@ fn face_reply(records: Vec<u8>, count: usize, blob: Blob) -> Vec<u8> {
 pub fn encode_inv_reply(
     kind_label: &str,
     columns: &[&str],
+    keys: &[Option<fathom_ir::bag::FieldKey>],
     rows: &[fathom_inventory::Row],
 ) -> Vec<u8> {
     let mut blob = Blob::default();
@@ -897,6 +932,23 @@ pub fn encode_inv_reply(
     let rec = face_slots(&mut blob, FACE_HEADER, slot_count, &header_slots);
     write_face_record(&mut records, &rec);
 
+    // [`FACE_INV_KEY`]: which columns a person may type into, at the same slot
+    // index the header put their names. Written from `keys` verbatim — this
+    // function decides nothing about editability, it carries what
+    // `fathom_inventory::column_keys` said.
+    let decimals: Vec<String> = keys
+        .iter()
+        .map(|k| k.map(|k| k.0.to_string()).unwrap_or_default())
+        .collect();
+    let mut key_slots: Vec<&str> = Vec::with_capacity(FACE_SLOTS);
+    key_slots.push("");
+    key_slots.extend(decimals.iter().map(String::as_str));
+    while key_slots.len() < FACE_SLOTS {
+        key_slots.push("");
+    }
+    let rec = face_slots(&mut blob, FACE_INV_KEY, slot_count, &key_slots);
+    write_face_record(&mut records, &rec);
+
     for row in rows {
         let mut slots: Vec<&str> = Vec::with_capacity(FACE_SLOTS);
         slots.push(row.id.as_str());
@@ -909,7 +961,8 @@ pub fn encode_inv_reply(
         write_face_record(&mut records, &rec);
     }
 
-    face_reply(records, 1 + rows.len(), blob)
+    // 2 = the header and the key row. Both are chrome; neither is a row.
+    face_reply(records, 2 + rows.len(), blob)
 }
 
 fn write_element(

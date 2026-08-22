@@ -222,9 +222,10 @@ fn the_inventory_face_renders_the_pasted_estate() {
     let hostname = summary(&rows).strings[6].clone();
 
     let devices = face(&shell.handle(OP_INV_ROWS, &[0]));
+    // Two chrome records to skip: the header and `FACE_INV_KEY`.
     let cells: Vec<String> = devices
         .iter()
-        .skip(1)
+        .skip(2)
         .flat_map(|r| r.strings.iter().cloned())
         .collect();
     assert!(
@@ -344,10 +345,12 @@ fn kind_byte(kind: InvKind) -> u8 {
         .expect("a declared kind")
 }
 
+/// `skip(2)`, not `skip(1)`: an inventory reply opens with the header AND the
+/// editable-column key row (`FACE_INV_KEY`), and neither is a device.
 fn devices(shell: &mut Shell) -> Vec<[String; 8]> {
     face(&shell.handle(OP_INV_ROWS, &[kind_byte(InvKind::Device)]))
         .into_iter()
-        .skip(1)
+        .skip(2)
         .map(|r| r.strings)
         .collect()
 }
@@ -492,11 +495,12 @@ fn the_objects_a_config_builds_are_reachable_and_named() {
     for (kind, name, what) in want {
         let byte = kind_byte(kind);
         let rows = face(&shell.handle(OP_INV_ROWS, &[byte]));
-        assert!(rows.len() > 1, "{what} has no rows at kind byte {byte}");
+        assert!(rows.len() > 2, "{what} has no rows at kind byte {byte}");
 
+        // Two chrome records to skip: the header and `FACE_INV_KEY`.
         let cells: Vec<String> = rows
             .iter()
-            .skip(1)
+            .skip(2)
             .flat_map(|r| r.strings.iter().cloned())
             .collect();
         assert!(
@@ -623,11 +627,11 @@ fn the_rules_appear_in_the_inventory() {
     .expect("fewer than 256 kinds");
     let rows = face(&shell.handle(OP_INV_ROWS, &[byte]));
     assert_eq!(rows[0].role, FACE_HEADER);
-    assert_eq!(rows.len(), 5, "a header and four rules");
+    assert_eq!(rows.len(), 6, "a header, the column keys, and four rules");
 
     let cells: Vec<Vec<String>> = rows
         .iter()
-        .skip(1)
+        .skip(2)
         .map(|r| r.strings[1..7].to_vec())
         .collect();
     let by_ordinal = |n: &str| {

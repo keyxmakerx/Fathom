@@ -39,6 +39,6 @@ pub use gaps::{findings, EmptyKind, Findings, Gap, GapExample, EXAMPLES_PER_GAP}
 pub use inside::{
     inside, Inside, PolicyRow, ProtoRow, RouteBand, SetBand, TunnelBand, Unit, Way, ZoneBand,
 };
-pub use inventory::{columns, rows, InvKind, Row};
+pub use inventory::{column_keys, columns, rows, InvKind, Row};
 pub use rack::{elevation, rack_label, Elevation, Slot};
 pub use render::field_text;

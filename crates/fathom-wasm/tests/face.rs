@@ -7,11 +7,13 @@
 //! no compiler checks (§9 item 9).
 
 use fathom_inventory::{
-    columns, demo_estate, element_page, equipment_page, parse_display_id, rows, InvKind,
+    column_keys, columns, demo_estate, element_page, equipment_page, parse_display_id, rows,
+    InvKind,
 };
 use fathom_wasm::protocol::{
     decode_reply, ErrorView, FaceRowView, ReplyView, ERR_BAD_FRAME, ERR_BAD_UTF8,
-    ERR_NOT_INITIALISED, ERR_NO_ELEMENT, FACE_FIELD, FACE_HEADER, FACE_IFACE, FACE_INV, FACE_PORT,
+    ERR_NOT_INITIALISED, ERR_NO_ELEMENT, FACE_FIELD, FACE_HEADER, FACE_IFACE, FACE_INV,
+    FACE_INV_KEY, FACE_PORT,
 };
 use fathom_wasm::shell::Shell;
 use fathom_wasm::{OP_ELEMENT, OP_EQUIPMENT, OP_ESTATE_DEMO, OP_INV_ROWS};
@@ -56,7 +58,8 @@ fn estate_demo_then_inventory_rows_mirror_the_crate() {
         let records = face(&reply);
         let cols = columns(kind);
         let expected = rows(&g, kind);
-        assert_eq!(records.len(), 1 + expected.len(), "{}", kind.label());
+        // Two chrome records now: the header, then the editable-column keys.
+        assert_eq!(records.len(), 2 + expected.len(), "{}", kind.label());
 
         let head = &records[0];
         assert_eq!(head.role, FACE_HEADER);
@@ -67,7 +70,29 @@ fn estate_demo_then_inventory_rows_mirror_the_crate() {
         }
         assert_eq!(head.strings[7], "opinions");
 
-        for (rec, row) in records[1..].iter().zip(expected.iter()) {
+        // The key row mirrors the header slot for slot, which is what lets the
+        // page read a column's key at the index it read that column's name.
+        let keys = &records[1];
+        assert_eq!(keys.role, FACE_INV_KEY);
+        assert_eq!(keys.slot_count, head.slot_count);
+        assert_eq!(
+            keys.strings[0],
+            "",
+            "{}: slot 0 is not a column",
+            kind.label()
+        );
+        for (i, k) in column_keys(kind).iter().enumerate() {
+            let want = k.map(|k| k.0.to_string()).unwrap_or_default();
+            assert_eq!(keys.strings[1 + i], want, "{} key {i}", kind.label());
+        }
+        assert_eq!(
+            keys.strings[7],
+            "",
+            "{}: the opinions column is never editable",
+            kind.label()
+        );
+
+        for (rec, row) in records[2..].iter().zip(expected.iter()) {
             assert_eq!(rec.role, FACE_INV);
             assert_eq!(rec.slot_count, head.slot_count);
             assert_eq!(rec.strings[0], row.id);
@@ -77,6 +102,35 @@ fn estate_demo_then_inventory_rows_mirror_the_crate() {
             assert_eq!(rec.strings[7], row.opinions);
         }
     }
+}
+
+/// The one sentence the key row exists to make true, pinned on the kind an
+/// operator meets first: **the columns a cell editor is offered over are the
+/// device's own typeable fields, and `premises` is not one of them.**
+///
+/// `premises` is the case that matters. It is a traversal — Device -> Site ->
+/// Premises `label` — so it renders like every other cell and has nowhere to
+/// write, and a page that decided editability by looking at the column NAME
+/// would offer it. Named here rather than left to the generic loop above,
+/// because a loop that compares two derivations of the same table would still
+/// pass if both were wrong.
+#[test]
+fn the_device_row_set_offers_its_own_fields_and_not_the_walk() {
+    let mut shell = loaded();
+    let records = face(&shell.handle(OP_INV_ROWS, &[kind_byte(InvKind::Device)]));
+    let head = &records[0];
+    let keys = &records[1];
+    assert_eq!(keys.role, FACE_INV_KEY);
+
+    let offered: Vec<&str> = (0..columns(InvKind::Device).len())
+        .filter(|i| !keys.strings[1 + i].is_empty())
+        .map(|i| head.strings[1 + i].as_str())
+        .collect();
+    assert_eq!(
+        offered,
+        ["hostname", "platform", "os_version", "role"],
+        "the editable Device columns"
+    );
 }
 
 #[test]

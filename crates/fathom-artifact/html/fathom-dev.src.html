@@ -496,6 +496,36 @@ button.tab:hover { color: var(--ink); }
 .inv .mu { color: var(--muted); }
 .inv td button:focus-visible { outline: var(--focus-width) solid var(--focus-colour);
                                outline-offset: var(--focus-offset-inset); }
+/* --- a cell you can type into (52 §3.7) ------------------------------------
+   "Lets you change | Field values, in place, in the cell."
+
+   The mark is a dotted hairline under the VALUE — the same span, the same two
+   tokens and the same hover as `.utils button.tab .u`, which is already this
+   page's word for "a quiet control you can act on". Under the value and not
+   under the cell, because the cell's own bottom edge is the row rule and a
+   second line there would read as a thicker rule rather than as a state.
+
+   NOT a colour: 51 §9's three inks are the risk enum's, reserved, and never
+   spent on chrome. NOT hover-only: `55` §1 — a state only a mouse can see is
+   not a state — so it is always drawn, and its accessible half is the cell's
+   own name, which ends "— editable". WHICH cells get it is the module's answer
+   and never this page's (`fathom_inventory::column_keys`).
+   -------------------------------------------------------------------------- */
+.inv td button.icell .u { border-bottom: var(--rule-hair) dotted var(--muted); }
+.inv td button.icell:hover .u { border-bottom-color: var(--ink); }
+/* The editor wears the cell's own type, so committing does not make the value
+   jump from one face to another. Scoped past `.fedit`, which is declared later
+   and would otherwise win on equal specificity. */
+.inv td .iedit { font-family: var(--mono); font-size: var(--t-mono); }
+/* A refusal, in the cell, under the text that caused it. `.perr` is the page's
+   one refusal idiom — the paste, equipment and placement sheets all wear it —
+   and this only makes it fit in a cell whose default is `nowrap`. */
+.inv td .cellerr { font-size: var(--t-micro); line-height: var(--lh-micro);
+                   white-space: normal; margin: var(--s1) var(--s1) var(--s1) 0;
+                   max-width: 34ch; }
+/* The keys, said where the caret is. `.note` is the page's own quiet aside;
+   this only lets it wrap inside a cell whose default is `nowrap`. */
+.inv td .cellhint { white-space: normal; max-width: 34ch; }
 
 /* --- the inventory's own split (Direction A, `57` §16) --------------------
    THE TABLE AND ONE PANEL, and nothing else competing with them. What used to
@@ -2031,6 +2061,20 @@ var FACE_GAP_HEAD = 16, FACE_GAP = 17, FACE_GAP_ITEM = 18, FACE_GAP_EMPTY = 19;
 var FACE_INSIDE = 20, FACE_IN_IFACE = 21, FACE_IN_UNIT = 22, FACE_IN_ZONE = 23;
 var FACE_IN_SET = 24, FACE_IN_POLICY = 25, FACE_IN_ROUTE = 26;
 var FACE_IN_PROTO = 27, FACE_IN_TUNNEL = 28;
+/* Which inventory columns a person may type into, and the wire key to write
+   each one with -- one record per reply, at the slot indices the header used
+   for the names. The keys travel WITH the row set rather than being looked up
+   here, for the reason `encode_element_reply` already sends the inspector's:
+   a name-to-key table in JavaScript is how a form ends up writing one field
+   into another's slot. */
+/* 29, NOT 15. This is the THIRD face-code collision in two days: 15 was taken
+   by the shape digest, 16-19 by the findings view and 20-28 by rung 4, all on
+   parallel branches. `protocol.rs` warned that a face code is a wire
+   discriminant and a collision renders one record kind as another; three
+   branches then proved it in a row. `artifact.rs`'s
+   `the_pages_face_codes_match_the_modules` is what now catches it, and it
+   caught this one. */
+var FACE_INV_KEY = 29;
 
 var wasm = null;                 /* the instance's exports */
 var wasmModule = null;
@@ -2161,6 +2205,25 @@ function decode(bytes) {
 var S = {
   view: 'inventory',
   invKind: 0,
+  /* THE OPEN INVENTORY CELL EDITOR, and it is STATE rather than DOM on purpose.
+     The table is rebuilt by every render, so an <input> held only in the
+     document is destroyed the moment anything else happens — taking the text
+     somebody typed with it, and sending focus to <body>, which is `53` §13's
+     failure 7. Holding it here means the render draws the editor back, with the
+     typing and the refusal still in it.
+
+     `{ id, col, key, text, label, err }` — the row's display id, the column
+     index, the schema's wire key for that column (never a name), what is in the
+     box now, the box's accessible name, and the module's own words for why it
+     said no. Null when nothing is open, and exactly one can be. Session state:
+     an editor half-typed is not a fact about the network, so it is not
+     journalled and not exported. */
+  edit: null,
+  /* Whether the next render should put focus INTO that editor. Set only by
+     something the person just did — opening the editor, or a refusal they must
+     see and fix — and cleared as it is spent, so an unrelated repaint can never
+     pull the caret out of wherever they actually are (`53` §13, failure 6). */
+  editFocus: false,
   /* 56 §4's LayerMask, all five on. SESSION state, never graph data -- 56 §0's
      governing rule allows the diagram exactly two view-local values, the
      pan/zoom transform and this one, and everything else must terminate in an
@@ -2455,6 +2518,30 @@ function replyProblem(reply) {
    2. THE FACE — the inventory table, the inspector, the equipment page.
    Every string below arrives in a reply. Nothing here joins, counts or walks.
    ------------------------------------------------------------------------- */
+/* The data rows of an inventory reply, BY ROLE and never by index.
+
+   An inventory reply opens with chrome — the header, and since the inventory
+   became editable the `FACE_INV_KEY` row that says which columns can be typed
+   into — and a `slice(1)` that was right for one chrome record silently reads
+   the other as a device. That is not hypothetical: `heldSummary` builds the
+   sentence naming what is loaded out of slot 1 of each row, and slot 1 of the
+   key row is a decimal field key, so the paste sheet would have opened by
+   telling the operator his estate contained `6`. Reading by role costs a filter
+   and cannot be wrong the next time a record is added. */
+function invRows(reply) {
+  if (!reply || reply.kind !== 'face') return [];
+  return reply.rows.filter(function (r) { return r.role === FACE_INV; });
+}
+
+/* The editable-column record, or null in a reply that carries none. */
+function invKeyRow(reply) {
+  if (!reply || reply.kind !== 'face') return null;
+  for (var i = 0; i < reply.rows.length; i++) {
+    if (reply.rows[i].role === FACE_INV_KEY) return reply.rows[i];
+  }
+  return null;
+}
+
 function renderInventory(host) {
   /* DIRECTION A, ON THE VIEW IT WAS NEVER APPLIED TO (`57` §16).
      The whole view is one flex column so the split below can own the height
@@ -2529,19 +2616,56 @@ function renderInventory(host) {
   thead.appendChild(htr);
   t.appendChild(thead);
 
+  /* Which columns may be typed into, and the wire key for each. The module
+     sends them as their own record at the same slot indices the header used for
+     the names, so a key is read at the index its column was read at and an
+     off-by-one is not available here. An empty slot means "not editable", and
+     the reason is the module's: a walk has nowhere to write (a `premises` cell
+     is a traversal, not a field), and a type `author.rs` cannot yet parse from
+     text would refuse every value the cell could ever take. */
+  var keyRow = invKeyRow(S.inv);
+  var colKey = function (ci) {
+    return keyRow && keyRow.s[1 + ci] ? keyRow.s[1 + ci] : null;
+  };
+
   var tb = el('tbody');
   tb.setAttribute('data-rove', 'v');
   var selRow = null;
-  S.inv.rows.slice(1).forEach(function (r) {
+  invRows(S.inv).forEach(function (r) {
     var tr = el('tr');
     if (S.sel === r.s[0]) { tr.setAttribute('data-tier', 'primary'); selRow = tr; }
     for (var ci = 0; ci < cols; ci++) {
       var td = el('td');
-      var b = el('button', null, r.s[1 + ci]);
-      b.type = 'button';
-      b.setAttribute('data-post', r.s[0]);
-      if (ci === 0) b.setAttribute('data-rove-item', '');
-      td.appendChild(b);
+      var k = colKey(ci);
+      if (k && S.edit && S.edit.id === r.s[0] && S.edit.col === ci) {
+        td.appendChild(cellEditor(r, ci, k));
+      } else {
+        var b = el('button', null, r.s[1 + ci]);
+        b.type = 'button';
+        b.setAttribute('data-post', r.s[0]);
+        /* Every cell carries its column index, editable or not: it is how focus
+           finds its way back to the cell a commit destroyed (`53` §8.5). */
+        b.setAttribute('data-icol', String(ci));
+        if (k) {
+          b.setAttribute('data-iedit', k);
+          b.className = 'icell';
+          /* The value moves into the page's own quiet-control span so the
+             dotted hairline sits under the TEXT rather than along the row rule.
+             `textContent` is unchanged by the nesting, which is what every
+             reader of this table — including the drivers — goes through. */
+          clear(b);
+          b.appendChild(el('span', 'u', r.s[1 + ci]));
+          /* The accessible half of that hairline. A screen reader has no
+             hairline, so the fact that this cell can be typed into is said in
+             the name — `55` §1 read in the other direction, and the reason the
+             mark is not hover-only either. `unset` rather than the em dash,
+             because "os_version: — — editable" is not a sentence. */
+          b.setAttribute('aria-label', head.s[1 + ci] + ': ' +
+            (r.s[1 + ci] === '—' ? 'unset' : r.s[1 + ci]) + ' — editable');
+        }
+        if (ci === 0) b.setAttribute('data-rove-item', '');
+        td.appendChild(b);
+      }
       tr.appendChild(td);
     }
     var tdo = el('td', 'opcol');
@@ -2558,6 +2682,21 @@ function renderInventory(host) {
      so an already-visible row does not jump; nothing scrolls when nothing is
      selected. */
   if (selRow && selRow.scrollIntoView) selRow.scrollIntoView({ block: 'nearest' });
+  /* The other half of holding the editor in `S` rather than in the document:
+     the render above built a fresh <input>, so focus has to be put back into
+     it. Only when the person's own last action asked for that — see
+     `S.editFocus` — never on a repaint they did not cause. */
+  if (S.edit && S.editFocus) {
+    var live = tw.querySelector('.iedit');
+    if (live) {
+      S.editFocus = false;
+      live.focus();
+      /* The caret goes to the end rather than selecting the value: a refusal
+         leaves text that is usually nearly right, and select-all would have the
+         next keystroke destroy it. */
+      if (live.setSelectionRange) live.setSelectionRange(live.value.length, live.value.length);
+    }
+  }
 
   if (S.source === 'paste') renderResidue(left);
 
@@ -2880,6 +3019,177 @@ function ivAfterFact() {
       row.setAttribute('tabindex', '0');
     }
   }
+}
+
+/* --- editing a cell (52 §3.7) ---------------------------------------------
+
+   *"Lets you change | Field values, in place, in the cell."*
+
+   Granular editing was never missing from this product — `OP_FIELD_SET` has
+   been able to correct a stored field since 2026-08-11. It was UNREACHABLE:
+   the only way to reach one was through whatever form somebody had remembered
+   to build, so the fields on the equipment sheet could be corrected and the
+   other two hundred and ninety could not. The inventory already renders every
+   declared column of every kind. Making those cells writable reaches more of
+   the estate than any number of purpose-built sheets, and it is all page-side.
+
+   WHAT IS IN SCOPE, exactly: a scalar the schema already declares and
+   `fathom_inventory::is_authorable` already accepts. The module decides both —
+   this page asks and does not judge. An edge is NOT in scope: writing one
+   through a field needs a completion list over the estate and runs into an open
+   schema decision, and half of it built would be worse than none.
+
+   THE REFUSAL IS THE POINT AS MUCH AS THE WRITE. The value is parsed inside the
+   module, by the same grammar that reads a pasted config, so a typo comes back
+   as that grammar's own sentence. It is shown in the cell, the text stays where
+   it was typed, and nothing is journalled: `73`'s rule that a claim enters the
+   record only when somebody makes it.
+   ------------------------------------------------------------------------- */
+
+/* The open editor, drawn from `S.edit` rather than from whatever was in the
+   cell — the render that rebuilt this table is often the one that came back
+   from a refusal, and the text that caused it must survive. */
+function cellEditor(row, ci, k) {
+  var wrap = el('div');
+  var inp = el('input');
+  inp.type = 'text';
+  /* `fedit` for the inspector's own editor styling, `iedit` for what this one
+     is: the two are separate commits with separate targets and must never share
+     a handler. */
+  inp.className = 'fedit iedit';
+  inp.value = S.edit.text;
+  inp.autocomplete = 'off';
+  inp.spellcheck = false;
+  inp.setAttribute('data-ikey', k);
+  inp.setAttribute('data-irow', row.s[0]);
+  inp.setAttribute('data-icol', String(ci));
+  inp.setAttribute('aria-label', S.edit.label);
+  wrap.appendChild(inp);
+  /* The same seven words the inspector says, plus the one key this editor has
+     that the inspector's does not. `53` §13's failure 1 argues for saying the
+     less obvious behaviour rather than trusting it to be guessed, and "blur
+     does not commit" is the least obvious thing about this box. */
+  wrap.appendChild(el('div', 'note cellhint',
+    'Enter saves. Escape abandons. Leaving the box does not.'));
+  if (S.edit.err) {
+    var box = el('div', 'prose perr cellerr', S.edit.err);
+    box.id = 'iedErr';
+    box.setAttribute('role', 'alert');
+    inp.setAttribute('aria-invalid', 'true');
+    inp.setAttribute('aria-describedby', 'iedErr');
+    wrap.appendChild(box);
+  }
+  return wrap;
+}
+
+/* Open the editor over one cell.
+
+   The gesture is a click, or Enter or Space on the focused cell — which on a
+   <button> are the same event, so the pointer path and the keyboard path are
+   ONE path and cannot drift apart (`55` §1). Nothing else opens it: a cell that
+   is not editable behaves exactly as it did before, and a driver that clicks a
+   row to select it still selects it.
+
+   Selecting the row happens too, as it does for any other cell. The inventory's
+   round trip to the diagram is what a click here has always meant, and making
+   it depend on which column you happened to hit would be a worse surprise than
+   the editor is. */
+function beginEdit(btn) {
+  var id = btn.getAttribute('data-post');
+  S.edit = {
+    id: id,
+    col: parseInt(btn.getAttribute('data-icol'), 10),
+    key: btn.getAttribute('data-iedit'),
+    /* `—` is this view's word for UNSET and `absent` is its word for
+       asserted-absent. Both are ANSWERS the module rendered, not text anybody
+       typed, so neither is seeded into the box — `absent` parses perfectly well
+       as an Identifier, and a person who pressed Enter to look would have
+       stored the literal word. */
+    text: (btn.textContent === '—' || btn.textContent === 'absent') ? '' : btn.textContent,
+    label: btn.getAttribute('aria-label') || '',
+    err: null
+  };
+  S.editFocus = true;
+  if (S.sel !== id) postElement(id);
+  render();
+}
+
+/* Abandon. Nothing was written — `OP_FIELD_SET` runs on commit and on nothing
+   else — so there is nothing to undo and the cell simply reads the graph
+   again. */
+function cancelEdit() {
+  if (!S.edit) return;
+  var id = S.edit.id, col = S.edit.col;
+  S.edit = null;
+  foot('edit abandoned');
+  render();
+  refocusCell(id, col);
+}
+
+/* Commit. Enter commits; blur does not, for the reason `commitField` gives and
+   which applies harder in a table: tabbing across forty rows to READ them must
+   not write forty assertions with your name on them. */
+function commitCell(input) {
+  if (!wasm || !S.edit) return;
+  S.edit.text = input.value;
+  var value = input.value.trim();
+  var refuse = function (why) {
+    S.edit.err = why;
+    S.editFocus = true;
+    foot('refused — ' + why);
+    render();
+  };
+  if (!value) { refuse('a blank is not a value — clear is not built yet'); return; }
+
+  var ent = hostEntropy();
+  if (!ent) { refuse('this browser exposes no cryptographic randomness'); return; }
+
+  var idBytes = new TextEncoder().encode(S.edit.id);
+  var valBytes = new TextEncoder().encode(value);
+  var req = new Uint8Array(30 + idBytes.length + valBytes.length);
+  var dv = new DataView(req.buffer);
+  var at = Date.now();
+  var key = parseInt(S.edit.key, 10);
+  dv.setBigUint64(0, BigInt(at), true);
+  req.set(ent, 8);
+  dv.setUint32(24, key, true);
+  dv.setUint16(28, idBytes.length, true);
+  req.set(idBytes, 30);
+  req.set(valBytes, 30 + idBytes.length);
+
+  var reply = call(OP_FIELD_SET, req);
+  var bad = replyProblem(reply);
+  /* The module's own sentence, not a friendlier one written here. `author.rs`
+     names what it expected — "firewall, router, switch, load_balancer, server,
+     access_point or other" — and a second grammar on this page would be a
+     second answer that drifts from the one that actually decides. */
+  if (bad) { refuse(bad); return; }
+
+  var id = S.edit.id, col = S.edit.col;
+  S.journal.push({ op: 'field', at: at, ent: b64(ent), id: id, key: key, value: value });
+  S.edit = null;
+  foot('changed');
+  postElement(id);
+  loadKind(S.invKind);
+  render();
+  refocusCell(id, col);
+}
+
+/* `53` §8.5, and §13's failure 7 with it: when the thing you were standing on
+   is rebuilt, focus goes back to it and NEVER to <body>. Committing re-runs the
+   row set and builds a new table, so the cell is found again by (row, column)
+   rather than held as a reference across the render that destroyed it.
+
+   The fallback chain is §8.5's: the row's first cell if that column is gone,
+   then the kind strip, which is the one surface in this view no render can
+   take away. */
+function refocusCell(id, col) {
+  var tb = document.querySelector('.invwrap table.inv tbody');
+  var at = tb && (tb.querySelector('[data-post="' + cssEsc(id) + '"][data-icol="' + col + '"]')
+               || tb.querySelector('[data-post="' + cssEsc(id) + '"][data-icol="0"]'));
+  if (at) { at.focus(); return; }
+  var strip = document.querySelector('.strip [data-kind]');
+  if (strip) strip.focus();
 }
 
 /* --- what one paste produced ---------------------------------------------
@@ -5576,7 +5886,7 @@ function chassisFacts() {
   if (!wasm) return out;
   var reply = call(OP_INV_ROWS, new Uint8Array([CHASSIS_KIND_BYTE]));
   if (replyProblem(reply) || !reply.rows.length) return out;
-  reply.rows.slice(1).forEach(function (r) {
+  invRows(reply).forEach(function (r) {
     out[r.s[0]] = { model: r.s[1], serial: r.s[2], member: r.s[3], device: r.s[5] };
   });
   return out;
@@ -7237,6 +7547,11 @@ function render() { renderShell(); renderFact(); renderMeaning(); }
 
 function go(view) {
   /* A view switch never changes the selection — it changes how it is drawn. */
+  /* It does close an open cell editor, though: the table it was standing in is
+     about to stop being on screen, and an editor that came back with old typing
+     in it when the reader returned would be a claim they had forgotten making.
+     Nothing is lost that was written — nothing was written. */
+  S.edit = null;
   S.view = view;
   render();
 }
@@ -7276,6 +7591,11 @@ document.addEventListener('keydown', function (e) {
    4. INTENTIONS — one crossing each.
    ------------------------------------------------------------------------- */
 function loadKind(i) {
+  /* A different row set is a different set of rows, so an editor open over one
+     of the old ones has nothing left to write to. Cleared HERE rather than at
+     each call site: every path that changes the kind, replaces the estate, or
+     reloads the table after a write comes through this one function. */
+  S.edit = null;
   S.invKind = i;
   if (S.loaded) S.inv = call(OP_INV_ROWS, new Uint8Array([i]));
 }
@@ -7579,6 +7899,15 @@ document.addEventListener('click', function (ev) {
     render();
     return;
   }
+  /* An editable inventory cell. BEFORE the `data-post` arm because every cell
+     carries both attributes: the row is selected either way, and this arm is
+     the one that also opens the editor. Enter and Space on a focused <button>
+     arrive here as a click, which is how the keyboard path and the pointer path
+     stay one path (`55` §1). */
+  if ((n = seekAttr(ev.target, 'data-iedit'))) {
+    beginEdit(n);
+    return;
+  }
   if ((n = seekAttr(ev.target, 'data-post'))) {
     var pid = n.getAttribute('data-post');
     /* `53` §13 failure 7, and it predates this change: render() destroys the
@@ -7638,13 +7967,30 @@ document.addEventListener('keydown', function (e) {
 });
 
 /* Enter commits an edited field. On the same delegate as everything else so a
-   table rebuilt by a render carries no listeners of its own to leak. */
+   table rebuilt by a render carries no listeners of its own to leak.
+
+   TWO EDITORS, TWO COMMITS. The inspector's writes the field the panel is
+   showing; the inventory's writes the cell it is standing in, which is a
+   different element and a different key. They share a class for their styling
+   and nothing else, and the inventory's is tested FIRST because its inputs
+   carry both. */
 document.addEventListener('keydown', function (e) {
   if (e.key !== 'Enter') return;
   var t = e.target;
-  if (!t || !t.classList || !t.classList.contains('fedit')) return;
+  if (!t || !t.classList) return;
+  if (t.classList.contains('iedit')) { e.preventDefault(); commitCell(t); return; }
+  if (!t.classList.contains('fedit')) return;
   e.preventDefault();
   commitField(t);
+});
+
+/* What is in the box is what the person typed, kept in `S` as they type it, so
+   that a render caused by anything at all draws the editor back with their text
+   in it rather than with the graph's. */
+document.addEventListener('input', function (e) {
+  var t = e.target;
+  if (!S.edit || !t || !t.classList || !t.classList.contains('iedit')) return;
+  S.edit.text = t.value;
 });
 
 /* --- the finder overlay (52 §3.2.1) --------------------------------------
@@ -7841,7 +8187,7 @@ function heldSummary() {
   if (!reply || reply.kind !== 'face' || reply.rows.length < 2) {
     return 'the estate now loaded';
   }
-  var rows = reply.rows.slice(1), names = [];
+  var rows = invRows(reply), names = [];
   for (var i = 0; i < rows.length && names.length < 3; i++) {
     if (rows[i].s[1]) names.push(rows[i].s[1]);
   }
@@ -10169,12 +10515,23 @@ document.addEventListener('keydown', function (e) {
       setFinder(false);
       return;
     }
+    /* AN OPEN INVENTORY CELL EDITOR. A rung, not a handler bound to the input,
+       for the reason `59` §3.8 gives and this ladder already follows: one
+       document-level handler with a stated priority ladder, ordering rather
+       than scoping.
+
+       It sits BELOW the finder's rung — Ctrl+K works from inside a text field,
+       so the finder can be the thing most recently opened over this — and it
+       must sit ABOVE the deselect rung, because without it Escape in a
+       half-typed cell would clear the selection and leave the editor standing
+       in a table that no longer had a selected row. */
+    if (S.edit) { cancelEdit(); return; }
     /* `!DG_DEPTH` ADDED WITH THE ZOOM LADDER. An expanded group belongs to the
-       picture one rung up, and at rack depth that picture is not on screen —
-       so collapsing one here changes nothing the reader can see, which reads as
-       "Escape did nothing" and is the exact defect the comment at the head of
-       this ladder was written against. The rung is not lost: come out of the
-       rack and the very next press collapses it. */
+       picture one rung up, and at rack or device depth that picture is not on
+       screen — so collapsing one here changes nothing the reader can see, which
+       reads as "Escape did nothing" and is the exact defect the comment at the
+       head of this ladder was written against. The rung is not lost: come out
+       and the very next press collapses it. */
     if (S.view === 'diagram' && !DG_DEPTH && S.open.length) {
       diagramCollapse(S.open[S.open.length - 1][0]);
       return;

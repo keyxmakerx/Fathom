@@ -89,7 +89,9 @@ fn table(shell: &mut Shell, kind: InvKind) -> Vec<FaceRowView> {
         Some(FACE_HEADER),
         "record 0 of an inventory reply is its header"
     );
-    rows.into_iter().skip(1).collect()
+    // Two, not one: record 1 is `FACE_INV_KEY`, which says which columns a
+    // person may type into. Chrome, like the header — never a row.
+    rows.into_iter().skip(2).collect()
 }
 
 /// One cell of one inventory row by COLUMN index.

@@ -1331,7 +1331,8 @@ impl Shell {
         };
         protocol::encode_inv_reply(
             kind.label(),
-            fathom_inventory::columns(kind),
+            &fathom_inventory::columns(kind),
+            &fathom_inventory::column_keys(kind),
             &fathom_inventory::rows(estate, kind),
         )
     }
