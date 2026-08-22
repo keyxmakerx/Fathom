@@ -192,7 +192,16 @@ check('Tab alone reaches the role cell of the second row', landed, tabs + ' pres
 
 // Enter on a focused <button> IS a click, which is why the pointer path and the
 // keyboard path are one path here and cannot drift apart.
-await page.keyboard.press('Enter');
+//
+// TWO PRESSES, NOT ONE, since the merge on 2026-08-22. Selecting a row and
+// editing a cell both live on the same button, and selecting has to win the
+// first press or Direction A's core gesture — pick a row, the panel turns to
+// DETAILS — is gone. So the idiom is the one every file manager has used for
+// thirty years: the first press selects the row, the second edits the cell you
+// are on. The pointer path does exactly the same, which is the point.
+await page.keyboard.press('Enter');   // selects the row, turns the panel
+await page.waitForTimeout(200);
+await page.keyboard.press('Enter');   // now edits the cell
 await page.waitForSelector('.invwrap table.inv .iedit');
 let f = await focused();
 check('Enter opens the editor and focus is inside it',
@@ -282,7 +291,14 @@ await page.click('[data-view="inventory"]');
 await page.waitForFunction(() => document.querySelectorAll('.inv tbody tr').length === 2);
 
 // ---- THE POINTER PATH IS THE SAME PATH -------------------------------------
-await page.click('.invwrap table.inv tbody tr:nth-child(1) td button[data-icol="2"]');
+// And it is the same TWO-PRESS path, which is the whole reason it is worth
+// driving separately: a pointer that opened an editor in one click while the
+// keyboard needed two would be two grammars for one gesture. First click
+// selects the row, second click on the same cell edits it.
+const cell2 = '.invwrap table.inv tbody tr:nth-child(1) td button[data-icol="2"]';
+await page.click(cell2);
+await page.waitForTimeout(200);
+await page.click(cell2);
 await page.waitForSelector('.invwrap table.inv .iedit');
 check('clicking an editable cell opens the same editor',
   (await focused()).tag === 'INPUT');

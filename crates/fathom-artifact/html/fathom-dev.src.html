@@ -2605,7 +2605,23 @@ function renderInventory(host) {
   var split = el('div', 'isplit');
   var left = el('div', 'icol');
   split.appendChild(left);
-  split.appendChild(ivPanel(KINDS[S.invKind], S.inv.rows.length - 1));
+  /* COUNT THE ROW RECORDS, do not subtract a guess at how many chrome records
+     came with them.
+
+     This was `rows.length - 1`, which was right while a reply carried exactly
+     one non-row record — the header. The editable-cells work added a second
+     (`FACE_INV_KEY`, which says which columns may be typed into), and the
+     sentence beside a one-row table began reading "2 rows in this set".
+
+     Nobody wrote a wrong number: an arithmetic that encodes how much chrome a
+     reply happens to have was correct on the day and became wrong when the
+     protocol grew, silently, in a sentence a person reads. Filtering by role
+     cannot go stale the same way, because a row record is a row record however
+     many other kinds of record travel beside it. */
+  split.appendChild(ivPanel(
+    KINDS[S.invKind],
+    S.inv.rows.filter(function (r) { return r.role === FACE_INV; }).length
+  ));
   host.appendChild(split);
 
   var head = S.inv.rows[0];
@@ -7924,9 +7940,30 @@ document.addEventListener('click', function (ev) {
      the one that also opens the editor. Enter and Space on a focused <button>
      arrive here as a click, which is how the keyboard path and the pointer path
      stay one path (`55` §5). */
+  /* SELECTING IS THE FIRST GESTURE AND EDITING IS THE SECOND, and the order of
+     these two arms is the whole of it.
+
+     This arm ran FIRST when the two features were merged, so a click on any
+     editable cell opened an editor and the row was never selected — which
+     silently removed Direction A's core gesture, the one the whole inventory
+     panel exists for. Five checks in `2026-08-21-inventory-direction-a.mjs`
+     went red and named it exactly: "picking a row turns the panel to DETAILS".
+
+     The resolution is the idiom every file manager has used for thirty years:
+     a click on a row you are not on SELECTS it; a click on a row you are
+     already on EDITS the cell you pressed. Both gestures survive, neither
+     needs a modifier, and the destructive-looking one requires the reader to
+     already be where the change will land. Enter behaves the same way for the
+     same reason — `53` §5's rule that the keyboard path mirrors the pointer
+     path rather than inventing a second grammar. */
   if ((n = seekAttr(ev.target, 'data-iedit'))) {
-    beginEdit(n);
-    return;
+    var eid = n.getAttribute('data-post');
+    if (eid && S.sel === eid) {
+      beginEdit(n);
+      return;
+    }
+    /* Not on this row yet — fall through to the selection arm below, which
+       selects it and turns the panel. The next press on the same cell edits. */
   }
   if ((n = seekAttr(ev.target, 'data-post'))) {
     var pid = n.getAttribute('data-post');
@@ -7946,8 +7983,22 @@ document.addEventListener('click', function (ev) {
          panel and this must act on the nodes that are live. */
       ivPaneSet('details', true);
       if (onRow) {
-        var again = $('factBody').querySelector(
-          '.inv [data-post="' + cssEsc(pid) + '"][data-rove-item]');
+        /* BACK TO THE SAME CELL, NOT THE FIRST ONE. This restored the row's
+           rove item — column 0 — which was right while selecting was the only
+           thing a cell did. Editing now lives on the second press of the same
+           button, so landing a column away means the second Enter opens an
+           editor on a cell the reader never chose: Tab to `role`, press Enter,
+           press Enter, and type into `hostname`.
+
+           A driver caught it by asserting the editor opened holding the value
+           it was standing on, which is why that assertion is worth more than a
+           check that an editor merely opened. */
+        var col = n.getAttribute('data-icol');
+        var sel = '.inv [data-post="' + cssEsc(pid) + '"]';
+        var again = col !== null
+          ? $('factBody').querySelector(sel + '[data-icol="' + cssEsc(col) + '"]')
+          : null;
+        if (!again) again = $('factBody').querySelector(sel + '[data-rove-item]');
         if (again) again.focus();
       }
     }
