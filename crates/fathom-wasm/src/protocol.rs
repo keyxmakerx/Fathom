@@ -264,6 +264,64 @@ pub const FACE_GAP_ITEM: u8 = 18;
 /// operator their cabling was finished.
 pub const FACE_GAP_EMPTY: u8 = 19;
 
+// --- inside the box, the ladder's fourth rung (`57` §7) ----------------------
+//
+// Eight roles on the same stride-72 record and no new record kind, for the
+// reason the paste reply's block already gives: a reply that is a list of
+// labelled string rows is exactly what `KIND_FACE_ROW` is.
+//
+// The bands are FLAT and each child names its parent by display id, rather
+// than the page reassembling them from record order. `FACE_GAP_ITEM` set that
+// precedent one block up and its reason holds here too — record order is not
+// a contract anything else in this protocol relies on, and a renderer that
+// depends on one breaks silently the day a band is emitted somewhere else.
+
+/// The head, always record 0: device display id · hostname · interfaces ·
+/// units · zones · policy sets · policies · `<routing instances> <tunnels>
+/// <unzoned units>`.
+///
+/// Slot 7 is three space-separated decimals, which is [`FACE_BOX`]'s own
+/// documented compromise and is taken here for the same reason: `FACE_SLOTS`
+/// is eight, widening the face record would change the stride of every face in
+/// the protocol, and three decimals in one slot is a much smaller thing to
+/// explain than that.
+///
+/// **Every number is a count of live elements this build actually walked.**
+/// The page prints them and computes none of them (ADR-0019).
+pub const FACE_INSIDE: u8 = 20;
+/// One interface: display id · name · schema kind word · unit count.
+pub const FACE_IN_IFACE: u8 = 21;
+/// One logical unit: display id · its interface's display id · label ·
+/// addresses joined `, ` · zone display id · zone name · tunnel name.
+///
+/// Slots 4–6 are empty rather than an em dash where there is nothing. The
+/// page owns how absence is said, so there is one convention for it and not
+/// two — see `Unit::zone`.
+pub const FACE_IN_UNIT: u8 = 22;
+/// One zone: display id · name · member units.
+pub const FACE_IN_ZONE: u8 = 23;
+/// One policy set: display id · what the graph can say about the zone pair it
+/// governs, **empty on every estate this build can produce** · policy count.
+///
+/// Slot 1's emptiness is the honest half of `57` §6.3 and is documented at
+/// `fathom_inventory::SetBand::scope`: `PolicyScope` is a unit struct, so a
+/// `PolicySet` cannot name the pair it sits between. The page says so in
+/// words and draws no edge into this band.
+pub const FACE_IN_SET: u8 = 24;
+/// One security policy: display id · its set's display id · ordinal · name ·
+/// action · `1`/`0`/empty for enabled · description.
+///
+/// Emitted in `ordinal` order, which is **the order the device reads them**
+/// and is the one clause of `57` §6.3 that is both exact and buildable.
+pub const FACE_IN_POLICY: u8 = 25;
+/// One routing instance: display id · name.
+pub const FACE_IN_ROUTE: u8 = 26;
+/// One routing protocol: display id · its instance's display id · protocol
+/// token · adjacency count.
+pub const FACE_IN_PROTO: u8 = 27;
+/// One ipsec vpn: display id · name · the unit it binds, or empty.
+pub const FACE_IN_TUNNEL: u8 = 28;
+
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
 /// The paste frame is shorter than its fixed 24-byte clock+entropy prefix, or
@@ -1256,6 +1314,165 @@ pub fn encode_findings_reply(f: &fathom_inventory::Findings) -> Vec<u8> {
     for e in &f.empty {
         let n = e.required_fields.to_string();
         let rec = face_slots(&mut blob, FACE_GAP_EMPTY, 2, &[e.kind_word, n.as_str()]);
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    face_reply(records, count, blob)
+}
+
+/// Inside one box, as records (`57` §7).
+///
+/// `None` is the empty state and not an error, the convention
+/// [`encode_rack_reply`] and `encode_equipment_reply` already use: the display
+/// id named something that is not a live `Device`, and the page says so rather
+/// than showing a diagnostic.
+///
+/// Counts arrive as decimal strings for the reason [`encode_rack_reply`]
+/// gives: the page prints them, and a string cannot be read at the wrong width
+/// by a `DataView`.
+pub fn encode_inside_reply(i: Option<&fathom_inventory::Inside>) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let Some(i) = i else {
+        return face_reply(records, 0, blob);
+    };
+
+    let ifaces = i.ways.len().to_string();
+    let units = i.unit_count().to_string();
+    let zones = i.zones.len().to_string();
+    let sets = i.sets.len().to_string();
+    let policies = i.policy_count().to_string();
+    let tail = format!("{} {} {}", i.routes.len(), i.tunnels.len(), i.unzoned());
+    let rec = face_slots(
+        &mut blob,
+        FACE_INSIDE,
+        8,
+        &[
+            i.device.as_str(),
+            i.name.as_str(),
+            ifaces.as_str(),
+            units.as_str(),
+            zones.as_str(),
+            sets.as_str(),
+            policies.as_str(),
+            tail.as_str(),
+        ],
+    );
+    write_face_record(&mut records, &rec);
+    let mut count = 1usize;
+
+    for w in &i.ways {
+        let n = w.units.len().to_string();
+        let rec = face_slots(
+            &mut blob,
+            FACE_IN_IFACE,
+            4,
+            &[w.id.as_str(), w.name.as_str(), w.kind_word, n.as_str()],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for u in &w.units {
+            // Joined here rather than in the page: `55` §1.4 the other way
+            // round — a string a reader is shown is a string this side
+            // composed. Two addresses on one unit is ordinary (inet plus
+            // inet6) and the join is the only computation in the band.
+            let addrs = u.addresses.join(", ");
+            let rec = face_slots(
+                &mut blob,
+                FACE_IN_UNIT,
+                7,
+                &[
+                    u.id.as_str(),
+                    w.id.as_str(),
+                    u.label.as_str(),
+                    addrs.as_str(),
+                    u.zone.as_str(),
+                    u.zone_name.as_str(),
+                    u.tunnel.as_str(),
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
+    }
+
+    for z in &i.zones {
+        let n = z.members.to_string();
+        let rec = face_slots(
+            &mut blob,
+            FACE_IN_ZONE,
+            3,
+            &[z.id.as_str(), z.name.as_str(), n.as_str()],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    for s in &i.sets {
+        let n = s.policies.len().to_string();
+        let rec = face_slots(
+            &mut blob,
+            FACE_IN_SET,
+            3,
+            &[s.id.as_str(), s.scope.as_str(), n.as_str()],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for p in &s.policies {
+            let rec = face_slots(
+                &mut blob,
+                FACE_IN_POLICY,
+                7,
+                &[
+                    p.id.as_str(),
+                    s.id.as_str(),
+                    p.ordinal.as_str(),
+                    p.name.as_str(),
+                    p.action.as_str(),
+                    p.enabled.as_str(),
+                    p.description.as_str(),
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
+    }
+
+    for r in &i.routes {
+        let rec = face_slots(
+            &mut blob,
+            FACE_IN_ROUTE,
+            2,
+            &[r.id.as_str(), r.name.as_str()],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for p in &r.protocols {
+            let n = p.adjacencies.to_string();
+            let rec = face_slots(
+                &mut blob,
+                FACE_IN_PROTO,
+                4,
+                &[
+                    p.id.as_str(),
+                    r.id.as_str(),
+                    p.protocol.as_str(),
+                    n.as_str(),
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
+    }
+
+    for t in &i.tunnels {
+        let rec = face_slots(
+            &mut blob,
+            FACE_IN_TUNNEL,
+            3,
+            &[t.id.as_str(), t.name.as_str(), t.unit.as_str()],
+        );
         write_face_record(&mut records, &rec);
         count += 1;
     }

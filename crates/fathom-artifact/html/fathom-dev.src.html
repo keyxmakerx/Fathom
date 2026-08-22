@@ -980,7 +980,8 @@ button.tab:hover { color: var(--ink); }
    the canvas machinery — dgFit, dgReveal, dgZoomCentre — already returns early
    on a zero-sized rect, so a hidden canvas keeps its pan and zoom for the way
    back out with no branch anywhere in the code that reads it. */
-.dview[data-depth="rack"] .dcanvas { display: none; }
+.dview[data-depth="rack"] .dcanvas,
+.dview[data-depth="device"] .dcanvas { display: none; }
 /* A ZOOM CONTROL FOR A SURFACE THAT IS NOT ON SCREEN IS FURNITURE. The same
    sentence the narrow rules below make, and the same test: `zoom in` and the
    four `move` buttons drive the canvas, and at rack depth the canvas is not
@@ -988,19 +989,114 @@ button.tab:hover { color: var(--ink); }
    group stay, because those change what the OUTLINE lists — and the Outline is
    on screen at every depth. */
 .dview[data-depth="rack"] .dzoomctl,
-.dview[data-depth="rack"] .dmovectl { display: none; }
+.dview[data-depth="rack"] .dmovectl,
+.dview[data-depth="device"] .dzoomctl,
+.dview[data-depth="device"] .dmovectl { display: none; }
 /* `show the picture` is the narrow width's disclosure for the canvas, and the
    third control that drives a surface the depth axis has taken off screen —
    pressing it at rung 2 does nothing a reader can see. Its counts are not lost:
    `.dband` carries the same objects and links at every width and is right below
    this. Measured at 320x800, where this line is 28 px of a column that has 146
    to give. */
-.sheet[data-width="narrow"] .dview[data-depth="rack"] .dsum { display: none; }
+.sheet[data-width="narrow"] .dview[data-depth="rack"] .dsum,
+.sheet[data-width="narrow"] .dview[data-depth="device"] .dsum { display: none; }
 /* The rung you are on, and the rung out. `.dladder` is in the LOOKING group
    beside the layer toggles, because changing depth is the same task as changing
    zoom: it changes what you see and never what is recorded. */
 .dladder { display: flex; flex-wrap: wrap; gap: var(--s1); align-items: baseline; }
 .dladder .dhere { font-size: var(--t-tab); color: var(--ink); }
+
+/* --- RUNG 4: INSIDE THE BOX (`57` §7) ---------------------------------------
+
+   The path THROUGH a device, drawn left to right because that is the direction
+   the sentence runs: a packet arrives on a unit, the unit is in a zone, a
+   policy set governs a pair of zones, a routing instance decides where it goes
+   and it leaves by another unit. Four bands, in that order, and they are
+   COLUMNS rather than a list because a list is what the inventory already is.
+
+   `grid-auto-flow: column` with `auto-columns` rather than four named tracks:
+   a band that is empty on this estate is still drawn (its emptiness is the
+   answer to a question — see `renderInside`), so the count never varies and
+   the tracks never have to be recomputed. It wraps to one column below
+   `--bp-cols`, where four columns of 24rem cannot be read side by side.
+
+   NO RADIUS, NO SHADOW, ONE HAIRLINE. `51` §10: the zero radius is deliberate
+   and there is no elevation scale. The bands are told apart by their rules and
+   their headings, exactly as the ledger's two regions are. */
+.ibody { min-width: 0; min-height: 0; overflow: auto; padding: var(--s3);
+         display: flex; flex-direction: column; gap: var(--s3); }
+.ibands { display: grid; gap: var(--s4);
+          grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+/* `--bp-cols` is the token for "two columns become one" and this is its four-
+   column case; four bands of 24rem cannot be read side by side on a phone. */
+@media (max-width: 860px) { .ibands { grid-auto-flow: row; } }
+.iband { min-width: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.iband > h3 { font-size: var(--t-tab); letter-spacing: var(--track-label);
+              text-transform: uppercase; color: var(--muted);
+              line-height: var(--lh-micro); font-weight: 600;
+              border-bottom: var(--rule-hair) solid var(--hairline);
+              padding-bottom: var(--s1); }
+/* One item in a band. A button because every one of them is a thing you can
+   point at and `55` §5.1 is unambiguous that a target which responds to a
+   click responds to Enter — the narrowing below is reached the same way from
+   both. Left rule rather than a box: the band is already ruled at the top and
+   a second full border would make a wall of rectangles at four columns wide. */
+.iitem { display: block; width: 100%; text-align: left; background: none;
+         border: 0; border-left: var(--rule-accent) solid var(--hairline);
+         padding: var(--s1) var(--s2); font: inherit; color: var(--ink);
+         font-size: var(--t-small); line-height: var(--lh-micro);
+         min-height: var(--row-min); cursor: pointer; }
+.iitem:hover { background: var(--surface); }
+.iitem[aria-pressed="true"], .iitem[data-ion="1"] {
+  border-left-color: var(--ink); background: var(--surface); }
+/* Everything the narrowing did not put in play. NOT `display: none`: `59` §3.7
+   keeps the whole set visible when a control hides part of it, and a reader
+   who does not believe the narrowing is entitled to see what it set aside. */
+.iitem[data-ioff="1"] { opacity: 0.45; }
+/* An interface is a HEADING and not a target: what a `ZoneMember` points at is
+   a LogicalUnit, so the unit is the thing you can narrow by and the interface
+   is what the units are under. Making both clickable would offer a gesture
+   whose result the graph cannot answer. */
+.iface { font-family: var(--mono); font-size: var(--t-mono); color: var(--ink);
+         padding: var(--s1) 0 0; line-height: var(--lh-micro); }
+.iname { font-family: var(--mono); font-size: var(--t-mono); }
+.imeta { display: block; color: var(--muted); font-size: var(--t-micro);
+         line-height: var(--lh-micro); }
+/* A row that carries a schema token — a policy's action, an interface's kind.
+   Right-aligned on the name's line, the same idiom `.dorole` uses on the
+   Outline row.
+
+   NEVER COLOURED. `51`'s three risk colours are RESERVED for ReadOnly /
+   ChangesConfig / Disruptive, and a green `permit` beside a red `deny` would
+   spend them on a different axis and read as Fathom's verdict on the rule.
+   The word is the whole treatment — the precedent is `by hand` on a link.
+
+   AND NEVER UPPERCASED, which is `.dokind`'s rule verbatim and which the first
+   draft of this line broke: these are IDENTIFIERS out of `schema.yaml`, so
+   `text-transform: uppercase` turned `TunnelInterface` into `TUNNELINTERFACE`
+   and destroyed the word boundaries that are the only thing making a CamelCase
+   name readable at 10px. Mono, own case, muted — the same treatment the
+   inventory's columns and the Outline row already give the same words. */
+.itok { float: right; color: var(--muted); font-size: var(--t-micro);
+        font-family: var(--mono); line-height: var(--lh-micro); }
+/* The sentence `57` §6.3 requires, and the band that carries the break. Prose,
+   at prose width, in the muted ink — it is not a warning and must not look
+   like one. */
+.inote { font-size: var(--t-micro); line-height: var(--lh-micro);
+         color: var(--muted); max-width: var(--measure); }
+.inote b { font-weight: 600; color: var(--ink); }
+.iempty { font-size: var(--t-small); line-height: var(--lh-micro);
+          color: var(--muted); font-style: normal; }
+/* The way out of a narrowing. `59` §3.7's rule applied to a filter rather than
+   to aggregation: a control that sets a view aside must offer the way back in
+   the same place it announced what it did. */
+.iclear { background: var(--page); border: var(--rule-hair) solid var(--hairline);
+          border-radius: var(--radius); padding: var(--s1) var(--s2);
+          font: inherit; font-size: var(--t-micro); line-height: var(--lh-micro);
+          letter-spacing: var(--track-label); text-transform: uppercase;
+          color: var(--muted); cursor: pointer; align-self: flex-start;
+          min-height: var(--row-min); }
+.iclear:hover { color: var(--ink); background: var(--surface); }
 .dband { flex: none; padding: var(--s1) var(--s3);
          border-top: var(--rule-hair) solid var(--hairline);
          font-size: var(--t-tab); line-height: var(--lh-micro); color: var(--muted);
@@ -1762,6 +1858,16 @@ var OP_LINK = 24;
    opcodes do. */
 var OP_FINDINGS = 25;
 
+/* Inside one box — the zoom ladder's fourth rung (`57` §7). Takes a Device
+   display id as raw UTF-8 and returns the four bands: the ways in and out, the
+   zones, the policy sets with their policies IN THE ORDER THE DEVICE READS
+   THEM, and the routing instances and tunnels. Read-only, like the two above.
+
+   The rung `57` §7 calls "the most interesting thing left": rung 3 is a
+   faceplate — ports on the OUTSIDE of the box — and the path THROUGH the box
+   had appeared in every trace design only as a list in a side panel. */
+var OP_INSIDE = 26;
+
 /* protocol::ERR_LINK_CHOICE and ERR_NO_LINK, and the SECOND and THIRD codes
    this page names by number.
 
@@ -1896,6 +2002,22 @@ var FACE_SHAPE = 15;
    equal `protocol.rs`, and an assembler test asserts exactly that rather than
    trusting two files to be edited together. */
 var FACE_GAP_HEAD = 16, FACE_GAP = 17, FACE_GAP_ITEM = 18, FACE_GAP_EMPTY = 19;
+/* Rung 4's nine records: the head tally, one interface, one logical unit, one
+   zone, one policy set, one security policy, one routing instance, one routing
+   protocol, one ipsec vpn.
+
+   THE BANDS ARE FLAT AND EACH CHILD NAMES ITS PARENT BY DISPLAY ID. A unit
+   carries its interface's id, a policy carries its set's id, a protocol
+   carries its instance's id — so the renderer below never reassembles the tree
+   from record ORDER, which is not a contract anything in this protocol relies
+   on (FACE_GAP_ITEM set the precedent for the same reason).
+
+   `artifact.rs`'s `the_pages_face_codes_match_the_modules` pins every one of
+   these against `protocol.rs`, because two parallel branches both claimed code
+   15 within a day of the warning being written. */
+var FACE_INSIDE = 20, FACE_IN_IFACE = 21, FACE_IN_UNIT = 22, FACE_IN_ZONE = 23;
+var FACE_IN_SET = 24, FACE_IN_POLICY = 25, FACE_IN_ROUTE = 26;
+var FACE_IN_PROTO = 27, FACE_IN_TUNNEL = 28;
 
 var wasm = null;                 /* the instance's exports */
 var wasmModule = null;
@@ -4067,7 +4189,18 @@ function dgBand() {
      layer words below are all about a picture that is not on screen. Saying
      which rack you are inside first stops every number after it from being read
      as a claim about the elevation. */
-  if (DG_DEPTH) bits.push('inside a rack — escape comes back out');
+  if (DG_DEPTH) {
+    bits.push((DG_RUNG === 'device' ? 'inside a box' : 'inside a rack') +
+              ' — escape comes back out');
+    /* AND WHAT THE NARROWING SET ASIDE, because `56` §5.5 requires a cardinal
+       on every suppression and `59` §6.2 files losing it as a defect. Rung 4's
+       narrowing dims rather than hides, so nothing is lost — but a reader who
+       has scrolled the bands away still needs to be told that one is in play. */
+    if (DG_RUNG === 'device' && IN.focus) {
+      var fu = inUnit(IN.focus);
+      if (fu) bits.push('narrowed to ' + fu.label);
+    }
+  }
   /* A ZOOM READING FOR A PICTURE THAT IS NOT ON SCREEN IS A NUMBER ABOUT
      NOTHING, and there are now two ways for it not to be on screen: collapsed
      at 320 px, and one rung down. The narrow case had this sentence already;
@@ -4251,7 +4384,7 @@ function dgSelect(id, toDetails) {
      re-entry that re-announces the descent. */
   var rack = DG.boxes && DG.boxes[id];
   if (rack && rack.kind === 'Rack') {
-    if (DG_DEPTH !== id) dgDescend(id, !toDetails);
+    if (DG_DEPTH !== id) dgDescend(id, !toDetails, 'rack');
     return;
   }
   /* The inventory strip filters by kind, so a box selected here should leave
@@ -5021,6 +5154,21 @@ var DG_PANE = 'objects';
    and they get different mechanisms. */
 var DG_DEPTH = null;
 
+/* WHICH RUNG `DG_DEPTH` NAMES — `'rack'` or `'device'`, and null beside a null
+   depth. Added with rung 4 (`57` §7).
+
+   A SECOND VARIABLE AND NOT A PREFIX TEST ON THE DISPLAY ID. An id is
+   `<kind-lower>:<ulid>` and the temptation is to read the kind out of it; that
+   would put a copy of `schema/`'s kind names in JavaScript, which is the drift
+   ADR-0008 exists to prevent and which this page has already paid for once —
+   see `dgSelect`'s note on `InvKind` declining VISIBLY rather than guessing.
+   Every caller of `dgDescend` already knows which kind it is holding, so it
+   says so.
+
+   `renderRack` and `renderInside` are the two renderers this selects between,
+   and neither knows the other exists. */
+var DG_RUNG = null;
+
 /* Go down into a rack. The elevation renderer is untouched — `renderRack`
    draws exactly what it drew inside the sheet, and this changes only how it is
    reached, which is the whole of `57` §14.1's item A1.
@@ -5032,32 +5180,73 @@ var DG_DEPTH = null;
    which this view has had to fix once already. So a keyboard descent lands
    focus in the place it just arrived at; a pointer descent moves nothing,
    because the pointer has not been stranded anywhere. */
-function dgDescend(id, focusIn) {
-  /* THE RACK YOU ARE INSIDE IS THE RACK THAT IS SELECTED, and it is set here
-     rather than at each call site so the two ways in cannot disagree. Selecting
+/* `rung` IS 'rack' OR 'device' and is required. Rung 4 arrived with `57` §7
+   and it is the same verb — the strip, the panel and the band stay put, the
+   chart area swaps, Escape climbs out — so it is the same function rather than
+   a second one that resembles it. What differs is three lines: which kind the
+   inventory strip follows, which loader runs, and what the sentence calls the
+   place you have arrived at. */
+function dgDescend(id, focusIn, rung) {
+  var device = rung === 'device';
+  /* THE THING YOU ARE INSIDE IS THE THING THAT IS SELECTED, and it is set here
+     rather than at each call site so the ways in cannot disagree. Selecting
      it in the picture already ran `postElement`; landing here from the
      placement form has not, and without this line a person who just stated
      where a box stands would descend into a frame while the panel on the right
      still described whatever they had picked ten minutes ago. The kind strip
-     follows for the same reason (`Rack` is in `KINDS`, so this never declines)
-     and any previous decline is cleared. */
+     follows for the same reason (`Rack` and `Device` are both in `KINDS`, so
+     this never declines) and any previous decline is cleared. */
   if (S.sel !== id) postElement(id);
-  var rki = KINDS.indexOf('Rack');
+  var rki = KINDS.indexOf(device ? 'Device' : 'Rack');
   if (rki >= 0 && rki !== S.invKind) loadKind(rki);
   DG.declined = null;
-  loadRacks();
   var label = '';
-  for (var i = 0; i < R.racks.length; i++) {
-    if (R.racks[i].id === id) { label = R.racks[i].label; break; }
+  if (device) {
+    loadInside(id);
+    /* `Device.hostname` is NOT `card: "1"` and an OPNsense rules export names
+       none, so `inside` hands back the em dash `value_cell` renders for an
+       unset field. `inside —` is not a sentence; the display id is at least an
+       identifier a person can match against the panel. The breadcrumb makes
+       the same test — found in a browser, 2026-08-22, where it made it and this
+       did not. */
+    label = (IN.of && IN.of.name !== '—') ? IN.of.name : '';
+  } else {
+    loadRacks();
+    for (var i = 0; i < R.racks.length; i++) {
+      if (R.racks[i].id === id) { label = R.racks[i].label; break; }
+    }
+    loadElevation(id);
   }
   DG_DEPTH = id;
-  loadElevation(id);
+  DG_RUNG = device ? 'device' : 'rack';
+  /* THE PANEL COMES BACK TO OBJECTS ON A DEVICE DESCENT, and the reason is the
+     Escape ladder rather than taste. Found in a browser, 2026-08-22.
+
+     `53` §3.7 unwinds one level, most-recently-opened first, and the ladder's
+     DETAILS rung sits above its depth rung on the stated premise that "you
+     cannot open the details pane without already being where you are — a
+     descent never opens it". That is true of the rack, which is selected from
+     the Outline and descends before the pane is touched. It is FALSE of rung 4,
+     whose door lives INSIDE the details pane: a device descent always begins
+     with the pane open, so the pane is the OLDER thing and Escape was closing
+     it before climbing out — one extra press, in the wrong order, every time.
+
+     Closing it here is also the honest reading of what the two surfaces are
+     for: the details pane is a partial account of a box you are looking at from
+     outside, and once you are inside it the chart area IS its details. Two
+     answers to one question is worse than one. */
+  if (device) DG_PANE = 'objects';
   render();
-  foot('inside rack ' + (label || id) + ' — escape comes back out');
-  say('Inside rack ' + (label || id) + '. Press Escape to come back out to the diagram.');
+  /* THE WORD FOR THE PLACE, not a generic "inside". A reader who descends into
+     a rack and a reader who descends into a box are looking at two different
+     kinds of drawing and the sentence has to say which. */
+  var where = (device ? 'inside ' : 'inside rack ') + (label || id);
+  foot(where + ' — escape comes back out');
+  say(where.charAt(0).toUpperCase() + where.slice(1) +
+      '. Press Escape to come back out to the diagram.');
   if (focusIn) {
-    /* The rung out, not the first rack in the picker: a reader who arrived by
-       keyboard needs the way back before they need a peer. */
+    /* The rung out, not the first item in the picture: a reader who arrived by
+       keyboard needs the way back before they need anything else. */
     var out = document.querySelector('[data-ddepth]');
     if (out) out.focus();
   }
@@ -5070,6 +5259,11 @@ function dgDescend(id, focusIn) {
 function dgAscend(focusOut) {
   if (!DG_DEPTH) return;
   DG_DEPTH = null;
+  DG_RUNG = null;
+  /* The narrowing belongs to the rung it was made on. Leaving it set would
+     mean a reader who came out of one box and into another found a way marked
+     as the one in play that they never picked. */
+  IN.focus = null;
   render();
   foot('back out to the whole diagram');
   say('Back out to the whole diagram.');
@@ -5124,6 +5318,33 @@ function dgDetails() {
   head.appendChild(h2);
   head.appendChild(el('span', 'folio', b ? b.kind : ''));
   DG.det.appendChild(head);
+
+  /* --- THE WAY IN TO RUNG 4 (`57` §7) ------------------------------------
+
+     A DOOR, AND NOT A DESCENT ON SELECTION. The rack's rung is reached by
+     selecting a rack, because a rack has no other use in this picture. A
+     device is what the whole view is about — every other gesture on this page
+     starts by selecting one — so making a click on a box swap the chart area
+     would take the diagram away from the person using it.
+
+     ONLY FOR A DEVICE, and only when there is one. `b.kind` is the kind word
+     the layout emitted, which is the same string `dgSelect` already switches
+     on for `Rack`, so the two doors are told apart the same way.
+
+     NOT SHOWN FOR AN AGGREGATED BOX. A folded group's slot-0 id names a group
+     and not a thing (see FACE_BOX slot 7), so there is nothing to descend
+     into; `b.n` is the module's own count from FACE_BOX slot 7 and `1` is the
+     only value that makes the id an element id the page may post.
+
+     `data-dinto` carries the id rather than the handler reading `S.sel`,
+     because a delegated listener that reads global state is one selection
+     change away from opening the wrong box. */
+  if (b && b.kind === 'Device' && b.n === 1) {
+    var into = el('button', 'dback', 'go inside this box');
+    into.type = 'button';
+    into.setAttribute('data-dinto', S.sel);
+    DG.det.appendChild(into);
+  }
 
   /* The two faces, INSIDE the details tab and not a peer of it: they are two
      views of one object, not two destinations. Same markup and same delegate
@@ -5455,12 +5676,22 @@ function renderDiagram(host) {
      below this function's aggregation block exists to prevent, which is why it
      is fixed the same way rather than at each of the three call sites. */
   if (DG_DEPTH) {
-    loadRacks();
     var still = false;
-    for (var dq = 0; dq < R.racks.length; dq++) {
-      if (R.racks[dq].id === DG_DEPTH) { still = true; break; }
+    if (DG_RUNG === 'device') {
+      /* A DEVICE IS RECONCILED BY RE-ASKING FOR IT, not by scanning a list.
+         `OP_INSIDE` returns the empty reply for anything that is not a live
+         `Device` and an error for a display id that resolves to nothing, so
+         `loadInside` leaving `IN.of` null IS the "it is gone" answer — one
+         round trip, and the same one that would have had to happen anyway. */
+      loadInside(DG_DEPTH);
+      still = !!IN.of;
+    } else {
+      loadRacks();
+      for (var dq = 0; dq < R.racks.length; dq++) {
+        if (R.racks[dq].id === DG_DEPTH) { still = true; break; }
+      }
     }
-    if (!still) DG_DEPTH = null;
+    if (!still) { DG_DEPTH = null; DG_RUNG = null; IN.focus = null; }
   }
 
   var view = el('div', 'dview');
@@ -5469,7 +5700,7 @@ function renderDiagram(host) {
      without a second rendering path (`57` §2). `site` is written out rather
      than left absent: rungs 0 and 3 are unbuilt, and an attribute that only
      appears at one depth is an attribute the next rung has to rediscover. */
-  view.setAttribute('data-depth', DG_DEPTH ? 'rack' : 'site');
+  view.setAttribute('data-depth', DG_DEPTH ? DG_RUNG : 'site');
   DG.view = view;
   var strip = el('div', 'dstrip');
   var maskLabel = layerStrip(strip);
@@ -5515,11 +5746,23 @@ function renderDiagram(host) {
        falls back to the id only when a rack somehow has no label, which
        `Rack.label` being `card: "1"` should make impossible and which is not
        worth being silent about if it ever happens. */
-    var hereName = DG_DEPTH;
-    for (var dl = 0; dl < R.racks.length; dl++) {
-      if (R.racks[dl].id === DG_DEPTH) { hereName = R.racks[dl].label || hereName; break; }
+    var hereName = DG_DEPTH, hereWord = 'rack ';
+    if (DG_RUNG === 'device') {
+      /* THE HOSTNAME THE MODULE READ, and never the display id: an operator
+         who named the box `srx-branch-01` gets that. `Device.hostname` is not
+         `card: "1"`, so a hand-added box may genuinely have none — in which
+         case `inside` returns the em dash `value_cell` renders for an unset
+         field, and falling back to the id is more use than an em dash on its
+         own as the name of the place you are standing in. */
+      hereWord = '';
+      var hn = IN.of && IN.of.name;
+      hereName = (hn && hn !== '—') ? hn : DG_DEPTH;
+    } else {
+      for (var dl = 0; dl < R.racks.length; dl++) {
+        if (R.racks[dl].id === DG_DEPTH) { hereName = R.racks[dl].label || hereName; break; }
+      }
     }
-    var here = el('span', 'dhere', 'rack ' + hereName);
+    var here = el('span', 'dhere', hereWord + hereName);
     here.setAttribute('aria-current', 'true');
     ladder.appendChild(here);
     look.insertBefore(ladder, look.firstChild);
@@ -6217,9 +6460,13 @@ function renderDiagram(host) {
      REACHED, not about what it draws, and a renderer that had to be rewritten to
      be reached differently would have been the wrong shape to begin with. */
   if (DG_DEPTH) {
-    var rbody = el('div', 'rbody');
-    rbody.id = 'rbody';
-    split.appendChild(rbody);
+    /* ONE MORE ELEMENT BESIDE THE OTHER, which is exactly what the CSS block
+       at the head of this file said rungs 0, 3 and 4 would each be: "never a
+       new view, a new screen or a modal". `#ibody` is rung 4's what `#rbody`
+       is rung 2's, and neither renderer knows the other exists. */
+    var chart = el('div', DG_RUNG === 'device' ? 'ibody' : 'rbody');
+    chart.id = DG_RUNG === 'device' ? 'ibody' : 'rbody';
+    split.appendChild(chart);
   }
 
   /* ---------------------------------------------- THE ONE RIGHT-HAND PANEL
@@ -6447,7 +6694,10 @@ function renderDiagram(host) {
      old snapshot, and the count under the frame then stated a number that was
      true a moment ago. A picture that is merely out of date is recoverable; a
      COUNT that is confidently wrong is the estate of record lying. */
-  if (DG_DEPTH) { loadElevation(DG_DEPTH); renderRack(); }
+  if (DG_DEPTH) {
+    if (DG_RUNG === 'device') { loadInside(DG_DEPTH); renderInside(); }
+    else { loadElevation(DG_DEPTH); renderRack(); }
+  }
 
   /* Keep the transform across a rebuild -- a view switch must not throw away
      where the user was standing. Refit only when the picture itself changed
@@ -6504,6 +6754,32 @@ document.addEventListener('click', function (ev) {
     if (n.getAttribute('data-ddepth') === 'site') dgAscend(false);
     return;
   }
+  /* The rung IN, for a device (`57` §7). It is an explicit door and NOT a
+     descent-on-selection like the rack's, and the difference is deliberate: a
+     rack has no other use, so selecting one can only mean "show me its
+     elevation", while a device is the thing this whole view is FOR — making a
+     click on a box swap the picture would take away the diagram. So the door
+     lives in the details pane, under the name of the box it opens.
+
+     `dgSelect`'s asymmetry applies and it is READ FROM THE EVENT rather than
+     from a second handler. A descent rebuilds the view, which destroys this
+     very button; a pointer user is not stranded by that and a keyboard user is
+     (`53` §13's failure 7). `detail` is 0 on a click synthesised by Enter or
+     Space on a button and non-zero on a real press, which is the standard way
+     to tell them apart without registering a keydown that would double-fire
+     against this same listener. */
+  if ((n = seekAttr(ev.target, 'data-dinto'))) {
+    dgDescend(n.getAttribute('data-dinto'), ev.detail === 0, 'device');
+    return;
+  }
+  /* Narrow rung 4 to one way in, or clear the narrowing. Neither writes
+     anything: this is a reader standing somewhere, which `DG_DEPTH`'s own note
+     puts firmly on the viewport side of ADR-0035's line. */
+  if ((n = seekAttr(ev.target, 'data-inway'))) {
+    inFocus(n.getAttribute('data-inway'));
+    return;
+  }
+  if ((n = seekAttr(ev.target, 'data-inclear'))) { inFocus(null); return; }
   if ((n = seekAttr(ev.target, 'data-dfit'))) { dgFit(true); return; }
   if ((n = seekAttr(ev.target, 'data-dzoom'))) {
     dgZoomCentre(parseFloat(n.getAttribute('data-dzoom')));
@@ -8760,7 +9036,7 @@ function renderRack() {
          that when you click on it takes you to a different rack" (`57` §1). It
          is not the highlighted-connection half of that ask, which needs cables
          and `57` §6.2 records that nothing creates one. */
-      b.addEventListener('click', function () { dgDescend(rack.id, false); });
+      b.addEventListener('click', function () { dgDescend(rack.id, false, 'rack'); });
       pick.appendChild(b);
     })(R.racks[i]);
   }
@@ -9028,6 +9304,502 @@ function rackLimits(host) {
     'is something you told Fathom. Floor, building and map are not built.'));
 }
 
+/* --- RUNG 4: INSIDE THE BOX (`57` §7) ---------------------------------------
+
+   `57` §7 is titled "THE GAP: nobody designed the inside of a box", and its
+   finding is that rung 3 is a FACEPLATE — ports on the outside — while the
+   path THROUGH the box appeared in all five trace designs only as a list in a
+   side panel. This is that path, drawn.
+
+   THE SENTENCE THIS VIEW EXISTS UNDER, from `57` §6.3, and it is not
+   decoration:
+
+     Fathom does not evaluate policy. It never says permitted or denied.
+
+   There are zero lines of rule engine in this build. What the graph CAN say,
+   exactly and not heuristically, is which zone an interface is in and which
+   policies a set holds in the order the device reads them. `inNote` puts that
+   on the screen and `crates/fathom-wasm/tests/inside.rs` holds the module to
+   it from the other side.
+
+   AND THE MIDDLE CLAUSE IS MISSING, WHICH THE VIEW SAYS RATHER THAN HIDES.
+   §6.3's second clause is "which policy set governs that pair", and it is not
+   recordable: `PolicySet.scope` is typed `PolicyScope`, and
+   `fathom_ir::value::PolicyScope` is a unit struct that carries no zone ids at
+   all. So NO LINE IS DRAWN between the zones band and the policy band, and the
+   note says why — because two bands side by side with nothing between them is
+   read as a connection unless something says otherwise. ADR-0008: needing a
+   field is a report item, not a licence to invent one.
+
+   WHAT IS NOT A BAND, AND WHY. `NatRuleSet`, `NatRule`, `AddressObject`,
+   `Application` and `StaticRoute` are declared in `schema/` and NOTHING BUILDS
+   ANY OF THEM on any platform in this build. A band that is empty on every
+   estate in existence is furniture that teaches a reader to ignore the column
+   it is in.
+   ------------------------------------------------------------------------- */
+
+/* `of` is the projection, `focus` is the unit the reader has narrowed to.
+
+   BOTH ARE PAGE STATE, and `focus` is the interesting one: it is where a
+   reader is standing, which `DG_DEPTH`'s own note puts on the same side of
+   ADR-0035's line as the pan and the zoom. It is not journalled, not exported
+   and not in `schema/`. */
+var IN = { of: null, focus: null };
+
+function loadInside(id) {
+  IN.of = null;
+  if (!id || !S.loaded) return;
+  var reply = call(OP_INSIDE, new TextEncoder().encode(id));
+  /* An error reply (a display id that resolves to nothing) and an empty face
+     reply (a live element that is not a Device) are the SAME answer to this
+     caller — there is nothing to be inside of — and `render`'s reconciliation
+     reads `IN.of` being null as exactly that. The two are still distinct on
+     the wire, and `inside.rs` pins both. */
+  if (!reply || reply.kind !== 'face' || !reply.rows.length) return;
+
+  var o = null, byIface = {}, bySet = {}, byRoute = {};
+  var i, r;
+  for (i = 0; i < reply.rows.length; i++) {
+    r = reply.rows[i];
+    if (r.role === FACE_INSIDE) {
+      /* Slot 7 is `<routing instances> <tunnels> <unzoned units>` — three
+         decimals in one slot, which is FACE_BOX's own documented compromise
+         and is taken for the same reason (eight slots, and widening the record
+         changes the stride of every face in the protocol). */
+      var tail = (r.s[7] || '0 0 0').split(' ');
+      o = { device: r.s[0], name: r.s[1],
+            ifaces: r.s[2], units: r.s[3], zones: r.s[4],
+            sets: r.s[5], policies: r.s[6],
+            routes: tail[0] || '0', tunnels: tail[1] || '0',
+            unzoned: tail[2] || '0',
+            ways: [], zoneRows: [], setRows: [], routeRows: [], tunnelRows: [] };
+    } else if (!o) {
+      /* Record 0 is the head. A reply that starts with anything else is a
+         protocol fault rather than an empty estate, and rendering the rest of
+         it would draw bands with no counts to check them against. */
+      return;
+    } else if (r.role === FACE_IN_IFACE) {
+      var w = { id: r.s[0], name: r.s[1], kind: r.s[2], units: [] };
+      byIface[w.id] = w;
+      o.ways.push(w);
+    } else if (r.role === FACE_IN_UNIT) {
+      /* THE CHILD NAMES ITS PARENT, so nothing here depends on record order.
+         A unit whose interface is not in the reply is dropped rather than
+         drawn loose: it would be a module defect, and a loose unit under no
+         interface is a picture that invents a place for it. */
+      var into = byIface[r.s[1]];
+      if (into) {
+        into.units.push({ id: r.s[0], label: r.s[2], addrs: r.s[3],
+                          zone: r.s[4], zoneName: r.s[5], tunnel: r.s[6] });
+      }
+    } else if (r.role === FACE_IN_ZONE) {
+      o.zoneRows.push({ id: r.s[0], name: r.s[1], members: r.s[2] });
+    } else if (r.role === FACE_IN_SET) {
+      var st = { id: r.s[0], scope: r.s[1], n: r.s[2], policies: [] };
+      bySet[st.id] = st;
+      o.setRows.push(st);
+    } else if (r.role === FACE_IN_POLICY) {
+      var ps = bySet[r.s[1]];
+      if (ps) {
+        ps.policies.push({ id: r.s[0], ordinal: r.s[2], name: r.s[3],
+                           action: r.s[4], enabled: r.s[5], what: r.s[6] });
+      }
+    } else if (r.role === FACE_IN_ROUTE) {
+      var ri = { id: r.s[0], name: r.s[1], protos: [] };
+      byRoute[ri.id] = ri;
+      o.routeRows.push(ri);
+    } else if (r.role === FACE_IN_PROTO) {
+      var rr = byRoute[r.s[1]];
+      if (rr) rr.protos.push({ id: r.s[0], protocol: r.s[2], adj: r.s[3] });
+    } else if (r.role === FACE_IN_TUNNEL) {
+      o.tunnelRows.push({ id: r.s[0], name: r.s[1], unit: r.s[2] });
+    }
+  }
+  IN.of = o;
+  /* A NARROWING SURVIVES ONLY WHILE ITS UNIT DOES. A paste, an import or a
+     removal can take the unit away while the reader is standing on it, and a
+     stale focus would grey four bands against a unit that is no longer drawn —
+     which reads as "the picture is broken" rather than as "that is gone". */
+  if (IN.focus && !inUnit(IN.focus)) IN.focus = null;
+}
+
+/* The narrowed unit's record, or null. One walk, in one place, because three
+   bands ask the same question and three copies of it would eventually
+   disagree about which. */
+function inUnit(id) {
+  if (!id || !IN.of) return null;
+  for (var i = 0; i < IN.of.ways.length; i++) {
+    var us = IN.of.ways[i].units;
+    for (var j = 0; j < us.length; j++) if (us[j].id === id) return us[j];
+  }
+  return null;
+}
+
+/* Narrow to one way in, or clear it. Pressing the unit already in play clears
+   it, which is what `aria-pressed` on those buttons promises.
+
+   NEVER `render()`: this changes which items are marked and nothing else, and
+   a full rebuild would drop the pan, the zoom and the focused element —
+   `53` §13's failure 7, which `dgSelect` already documents at length. */
+function inFocus(id) {
+  var u = (id && id !== IN.focus) ? inUnit(id) : null;
+  /* WHICH WAY IN THE READER WAS STANDING ON, read BEFORE the rebuild.
+     `renderInside` replaces every node in the chart area, and a focused element
+     removed from the DOM sends focus to <body> — `53` §13's failure 7, which
+     this page has already had to fix in three other places and which this
+     surface shipped in its first draft. Found in a browser, 2026-08-22:
+     arrow-walk the ways in, press Enter, and the narrowing landed correctly
+     while the reader was left standing on nothing.
+
+     The landing place is the SAME way in, which is where they were, and never
+     the first one. Clearing from the `show every way in` button lands on the
+     way that was in play, for the same reason: that is what the reader was
+     looking at. */
+  var was = document.activeElement;
+  var keep = null;
+  if (was && was.getAttribute) {
+    keep = was.getAttribute('data-inway') ||
+           (was.getAttribute('data-inclear') ? IN.focus : null);
+  }
+  IN.focus = u ? id : null;
+  renderInside();
+  /* THE BAND IS PART OF WHAT CHANGED. `56` §5.2 makes it the release valve for
+     anything the picture cannot say, and `59` §6.2 files a suppression with no
+     cardinal as a defect — so a narrowing that the band does not mention is one
+     of those. It is repainted here rather than by `render()` because a
+     narrowing must NOT rebuild the view (see this function's own note), and
+     `dgBand` reads only counts that the narrowing has not touched.
+
+     Found in a browser, 2026-08-22: the bands said `narrowed to st0.0` and the
+     band underneath them still said nothing at all. */
+  dgBand();
+  if (keep) {
+    var back = document.querySelector('[data-inway="' + cssEsc(keep) + '"]');
+    if (back) {
+      /* The roving tab stop moves with the focus, or the band would keep its
+         stop on item 0 and Tab would send the reader somewhere they have not
+         been. Same three lines the rove keydown handler runs. */
+      var band = back.closest('[data-rove]');
+      if (band) {
+        var its = band.querySelectorAll('[data-rove-item]');
+        for (var q = 0; q < its.length; q++) its[q].setAttribute('tabindex', '-1');
+      }
+      back.setAttribute('tabindex', '0');
+      back.focus();
+    }
+  }
+  if (!u) { foot('showing every way in'); say('Narrowing cleared.'); return; }
+  var where = u.zoneName ? 'in zone ' + u.zoneName : 'in no recorded zone';
+  foot(u.label + ' — ' + where);
+  say(u.label + ', ' + where + '. ' +
+      'Fathom does not evaluate policy; this is what the graph puts in play.');
+}
+
+function renderInside() {
+  var host = $('ibody');
+  if (!host) return;
+  clear(host);
+
+  if (!S.loaded) {
+    unposted(host, 'inside', 'No estate is loaded. Paste a config or add ' +
+                             'equipment first — the inside of a box is what ' +
+                             'Fathom read out of one.');
+    return;
+  }
+  var o = IN.of;
+  if (!o) {
+    host.appendChild(el('p', 'inote',
+      'That box is no longer in the design. Press Escape to come back out.'));
+    return;
+  }
+
+  host.appendChild(inNote(o));
+
+  var bands = el('div', 'ibands');
+  bands.appendChild(inWays(o));
+  bands.appendChild(inZones(o));
+  bands.appendChild(inSets(o));
+  bands.appendChild(inRouting(o));
+  host.appendChild(bands);
+  roveScan(host);
+}
+
+/* THE STANDING SENTENCE (`57` §6.3), and the counts that make it concrete.
+
+   Two paragraphs and no more. The first is what this view refuses to do; the
+   second is what it therefore cannot draw, said BEFORE a reader infers it from
+   two bands sitting side by side. Both are prose at `--measure`, in the muted
+   ink, because this is an explanation and not a warning — `51`'s caution
+   channel means "this changes the device" and spending it here would be
+   spending a reserved colour on the wrong axis. */
+function inNote(o) {
+  var box = el('div');
+  var p1 = el('p', 'inote');
+  p1.appendChild(el('b', null, 'Fathom does not evaluate policy.'));
+  p1.appendChild(document.createTextNode(
+    ' It never says permitted or denied, and there is no rule engine here to ' +
+    'say it with. What it can say exactly is which zone an interface is in, ' +
+    'and which policies a set holds in the order the device reads them.'));
+  box.appendChild(p1);
+
+  var p2 = el('p', 'inote');
+  p2.appendChild(document.createTextNode(
+    'Which policy set governs a given pair of zones is '));
+  p2.appendChild(el('b', null, 'not recorded'));
+  p2.appendChild(document.createTextNode(
+    ': the schema has a slot for it and no shape to put in the slot, so no ' +
+    'line is drawn between the zones and the policy sets and none should be ' +
+    'read into their sitting side by side.'));
+  box.appendChild(p2);
+
+  /* WHAT THE PICTURE HOLDS, as counts the module computed. Never an estimate
+     and never a projection: this crate's rule that the page computes nothing
+     is about joins, walks and counts, and every one of these is a count. */
+  var p3 = el('p', 'inote');
+  p3.id = 'inTally';
+  p3.textContent = plural(o.ifaces, 'interface', 'interfaces') + ' · ' +
+    plural(o.units, 'unit', 'units') + ' · ' +
+    plural(o.zones, 'zone', 'zones') + ' · ' +
+    plural(o.sets, 'policy set', 'policy sets') + ' · ' +
+    plural(o.policies, 'policy', 'policies') + ' · ' +
+    plural(o.routes, 'routing instance', 'routing instances') + ' · ' +
+    plural(o.tunnels, 'tunnel', 'tunnels');
+  box.appendChild(p3);
+
+  if (IN.focus) {
+    var u = inUnit(IN.focus);
+    var p4 = el('p', 'inote');
+    p4.id = 'inNarrow';
+    p4.appendChild(el('b', null, 'Narrowed to ' + u.label + '.'));
+    p4.appendChild(document.createTextNode(
+      u.zoneName
+        ? ' It is in zone ' + u.zoneName + '. Everything else is dimmed, not ' +
+          'hidden. The policy sets and the routing are unchanged, because ' +
+          'nothing in the design connects a unit to either of them.'
+        : ' No zone claims it, so nothing is put in play by choosing it. That ' +
+          'is a fact about the design rather than about the device.'));
+    var clr = el('button', 'iclear', 'show every way in');
+    clr.type = 'button';
+    clr.setAttribute('data-inclear', '1');
+    box.appendChild(p4);
+    box.appendChild(clr);
+  }
+  return box;
+}
+
+/* One band: a real heading and its rows.
+
+   `data-rove` IS THE CALLER'S, NOT THIS FUNCTION'S. Only band 1 has anything a
+   reader can operate — the ways in — and a `[data-rove]` list with no
+   `[data-rove-item]` in it is furniture: `roveScan` walks it, finds nothing,
+   and the attribute tells the next reader of this file that arrow keys do
+   something there when they do not. */
+function inBand(title) {
+  var b = el('div', 'iband');
+  b.appendChild(el('h3', null, title));
+  return b;
+}
+
+/* Band 1. The interfaces are headings and the units are the targets — see
+   `.iface` in the stylesheet for why. */
+function inWays(o) {
+  var band = inBand('way in and out');
+  band.setAttribute('data-rove', 'v');
+  if (!o.ways.length) {
+    band.appendChild(el('p', 'iempty', 'No interface is recorded on this box.'));
+    return band;
+  }
+  o.ways.forEach(function (w) {
+    var h = el('div', 'iface');
+    h.appendChild(document.createTextNode(w.name));
+    /* THE KIND TOKEN ONLY WHERE IT IS NOT `Interface`. A tunnel, an aggregate
+       and a reth are the exceptions and marking them is information; marking
+       every plain interface as `INTERFACE` is a column of the same word, and a
+       page that marks everything marks nothing. Nothing is lost — the kind is
+       on the Outline row and in the inspector. */
+    if (w.kind && w.kind !== 'Interface') {
+      h.appendChild(el('span', 'itok', w.kind));
+    }
+    band.appendChild(h);
+    if (!w.units.length) {
+      /* NOT AN ERROR AND NOT A GAP. `set interfaces ge-0/0/2 description spare`
+         builds exactly this, and an interface that carries no traffic yet is a
+         fact about the estate. */
+      band.appendChild(el('p', 'iempty', 'no unit recorded'));
+      return;
+    }
+    w.units.forEach(function (u) {
+      var it = el('button', 'iitem');
+      it.type = 'button';
+      it.setAttribute('data-inway', u.id);
+      it.setAttribute('data-rove-item', '');
+      /* `aria-pressed` and not `aria-current`: this is a toggle a reader sets
+         and clears, and pressing the unit that is already in play clears it —
+         see `inFocus`. `55`: a state only a mouse can see is not a state, so
+         the flag says in the accessible tree exactly what the dimming says in
+         the picture. */
+      it.setAttribute('aria-pressed', String(IN.focus === u.id));
+      if (IN.focus && IN.focus !== u.id) it.setAttribute('data-ioff', '1');
+      it.appendChild(el('span', 'iname', u.label));
+      var meta = [];
+      meta.push(u.addrs || 'no address recorded');
+      meta.push(u.zoneName ? 'zone ' + u.zoneName : 'no zone recorded');
+      if (u.tunnel) meta.push('tunnel ' + u.tunnel);
+      it.appendChild(el('span', 'imeta', meta.join(' · ')));
+      band.appendChild(it);
+    });
+  });
+  return band;
+}
+
+/* Band 2. The one band the narrowing actually moves, because `ZoneMember` is
+   the one edge in this picture that joins two bands. */
+function inZones(o) {
+  var band = inBand('zones');
+  if (!o.zoneRows.length) {
+    band.appendChild(el('p', 'iempty',
+      'No zone is recorded on this box. A switch or a router legitimately has ' +
+      'none; on a firewall it means the zones have not been read yet.'));
+    return band;
+  }
+  var live = IN.focus ? (inUnit(IN.focus) || {}).zone : null;
+  o.zoneRows.forEach(function (z) {
+    var it = el('div', 'iitem');
+    it.setAttribute('data-inzone', z.id);
+    /* NOT A TARGET. Narrowing BY a zone would be a second gesture reaching the
+       same set of units the first one already reaches, and an enabled control
+       that does nothing is the furniture `.dladder`'s own note argues against.
+       A div and not a disabled button, because a disabled button is removed
+       from the accessible tree in some browsers and this row carries the
+       narrowing's whole answer. */
+    if (live) {
+      if (live === z.id) it.setAttribute('data-ion', '1');
+      else it.setAttribute('data-ioff', '1');
+    }
+    it.appendChild(el('span', 'iname', z.name));
+    it.appendChild(el('span', 'imeta', plural(z.members, 'unit', 'units')));
+    band.appendChild(it);
+  });
+  if (o.unzoned !== '0') {
+    band.appendChild(el('p', 'iempty',
+      plural(o.unzoned, 'unit is', 'units are') + ' in no zone. That is ' +
+      'ordinary on a management or loopback unit and is reported rather than ' +
+      'left as a blank cell.'));
+  }
+  return band;
+}
+
+/* Band 3, and the reason the note above exists. */
+function inSets(o) {
+  var band = inBand('policy sets');
+  if (!o.setRows.length) {
+    band.appendChild(el('p', 'iempty',
+      'The design holds no policy set for this box. Nothing in this build ' +
+      'reads `set security policies` from a Junos config — those lines come ' +
+      'back on the paste sheet as residue rather than being dropped — so an ' +
+      'SRX will show none here even when its config has hundreds.'));
+    return band;
+  }
+  o.setRows.forEach(function (st) {
+    var h = el('div', 'iface');
+    h.appendChild(document.createTextNode('policy set'));
+    h.appendChild(el('span', 'itok', plural(st.n, 'policy', 'policies')));
+    band.appendChild(h);
+    /* The scope is PRINTED WHEN THERE IS ONE and named as absent when there is
+       not. It is empty on every estate this build can produce; reading it
+       rather than assuming means the day `PolicyScope` grows a shape this band
+       starts telling the truth without anyone remembering to come back here.
+       `inside.rs` holds the tripwire from the other side. */
+    band.appendChild(el('p', 'iempty', st.scope
+      ? 'governs ' + st.scope
+      : 'which zones it governs is not recorded'));
+    st.policies.forEach(function (p) {
+      var it = el('div', 'iitem');
+      it.setAttribute('data-inpolicy', p.id);
+      it.appendChild(el('span', 'iname',
+        (p.ordinal || '—') + '  ' + (p.name || '(unnamed)')));
+      /* THE SCHEMA'S OWN TOKEN AND NO COLOUR. `51` reserves --safe / --caution
+         / --danger for ReadOnly / ChangesConfig / Disruptive; a green `permit`
+         beside a red `deny` would spend three reserved colours on a different
+         axis and read as Fathom's verdict on the rule.
+
+         IMMEDIATELY AFTER THE NAME and before any `.imeta`, because it floats
+         right and a float that follows a block element is pushed onto the line
+         below it. `.iface` sets the same order for the same reason. */
+      if (p.action) it.appendChild(el('span', 'itok', p.action));
+      /* WHAT A PERSON WROTE ABOUT THE RULE, under the machine's name for it.
+         OPNsense names every rule by its `@uuid`, so without this the band is a
+         column of `8f1d0d3e-1c6a-4a4e-…` while `Block inbound RDP` sits unused
+         in the same row of the same export. The uuid stays — it is what
+         identifies the rule ON THE DEVICE and an operator grepping the config
+         needs it — and the description says what it is for. */
+      if (p.what) it.appendChild(el('span', 'imeta', p.what));
+      /* THREE STATES, NEVER TWO. OPNsense issue #10595 is disabled rules going
+         missing; `''` is "nobody said" and is not the same as enabled. */
+      if (p.enabled === '0') {
+        it.appendChild(el('span', 'imeta', 'disabled on the device'));
+      } else if (p.enabled === '') {
+        it.appendChild(el('span', 'imeta', 'nobody has said whether it is enabled'));
+      }
+      band.appendChild(it);
+    });
+  });
+  band.appendChild(el('p', 'iempty',
+    'In the order the device reads them. Fathom does not say which one would ' +
+    'match.'));
+  return band;
+}
+
+/* Band 4. Two lists under one heading because they answer the same question —
+   how does it leave — and neither is long enough to be a column of its own. */
+function inRouting(o) {
+  var band = inBand('how it leaves');
+  if (!o.routeRows.length && !o.tunnelRows.length) {
+    band.appendChild(el('p', 'iempty',
+      'No routing instance and no tunnel is recorded on this box.'));
+    return band;
+  }
+  o.routeRows.forEach(function (ri) {
+    var h = el('div', 'iface');
+    h.appendChild(document.createTextNode(ri.name));
+    band.appendChild(h);
+    if (!ri.protos.length) {
+      band.appendChild(el('p', 'iempty', 'no routing protocol recorded'));
+      return;
+    }
+    ri.protos.forEach(function (p) {
+      var it = el('div', 'iitem');
+      it.setAttribute('data-inproto', p.id);
+      it.appendChild(el('span', 'iname', p.protocol || '(unnamed protocol)'));
+      it.appendChild(el('span', 'imeta',
+        plural(p.adj, 'adjacency', 'adjacencies')));
+      band.appendChild(it);
+    });
+  });
+  if (o.tunnelRows.length) {
+    var live = IN.focus ? (inUnit(IN.focus) || {}).tunnel : null;
+    o.tunnelRows.forEach(function (t) {
+      var it = el('div', 'iitem');
+      it.setAttribute('data-intunnel', t.id);
+      /* The one thing in this band the narrowing can move, and it moves
+         because `BindsInterface` is a real edge from the vpn to the unit. */
+      if (IN.focus) {
+        if (live && live === t.name) it.setAttribute('data-ion', '1');
+        else it.setAttribute('data-ioff', '1');
+      }
+      it.appendChild(el('span', 'iname', t.name));
+      it.appendChild(el('span', 'itok', 'tunnel'));
+      it.appendChild(el('span', 'imeta',
+        t.unit ? 'bound to ' + t.unit : 'bound to no unit'));
+      band.appendChild(it);
+    });
+  }
+  band.appendChild(el('p', 'iempty',
+    'Fathom has not read a static route on any platform, so a route table is ' +
+    'not drawn here and its absence is not a claim that there is none.'));
+  return band;
+}
+
 /* `setRack` IS GONE, AND THE ABSENCE IS THE FEATURE. It opened and closed a
    sheet, and the sentence it wrote into `#rHint` — "Where your boxes physically
    stand. No config says this" — was the sheet introducing itself. There is no
@@ -9272,7 +10044,7 @@ function runPlace() {
      name that matched nothing, which cannot happen on a write that succeeded.
      The guard is there because "cannot happen" is how the field-key defect two
      comments up shipped. */
-  if (R.sel) { S.view = 'diagram'; dgDescend(R.sel, false); }
+  if (R.sel) { S.view = 'diagram'; dgDescend(R.sel, false, 'rack'); }
   else { foot(rackName ? ('placed in ' + rackName) : 'placed'); renderShell(); }
 }
 
@@ -9422,6 +10194,23 @@ document.addEventListener('keydown', function (e) {
        `true` for the focus argument: this is the keyboard path by definition,
        so the reader is standing somewhere that is about to be rebuilt and
        `55` §5.6's "never stranded" applies. */
+    /* RUNG 4'S NARROWING, and it sits ABOVE the depth rung for the reason
+       `53` §3.7 gives everywhere else on this ladder: most-recently-opened
+       first. You cannot narrow without already being inside a box, so the
+       narrowing is always the more recent thing and is always the first to go.
+
+       It cannot affect any of the rungs below it on an estate this build could
+       produce before today — `DG_RUNG` is null until something descends into a
+       device — so no existing Escape behaviour moves. */
+    if (S.view === 'diagram' && DG_RUNG === 'device' && IN.focus) {
+      /* `55` §5.6's "never stranded" is `inFocus`'s own job and is not repeated
+         here: it reads where the reader is standing BEFORE it rebuilds and puts
+         them back on the same way in. A second focus call here would fight it,
+         and would send a reader who pressed Escape from somewhere else on the
+         page into a band they were not in. */
+      inFocus(null);
+      return;
+    }
     if (S.view === 'diagram' && DG_DEPTH) { dgAscend(true); return; }
     if (S.sel) {
       /* `55` §5.6: Esc "moves focus to the container's own heading, so a user

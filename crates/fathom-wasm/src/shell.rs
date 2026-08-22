@@ -20,8 +20,8 @@ use crate::protocol::{
 use crate::OP_ESTATE_DEMO;
 use crate::{
     OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_FIELD_SET,
-    OP_FINDINGS, OP_INIT, OP_INV_ROWS, OP_LINK, OP_PASTE, OP_PLACE, OP_QUERY, OP_RACK_ELEVATION,
-    OP_RACK_PLACE,
+    OP_FINDINGS, OP_INIT, OP_INSIDE, OP_INV_ROWS, OP_LINK, OP_PASTE, OP_PLACE, OP_QUERY,
+    OP_RACK_ELEVATION, OP_RACK_PLACE,
 };
 
 pub struct Shell {
@@ -95,6 +95,7 @@ impl Shell {
             OP_RACK_PLACE => self.rack_place(req),
             OP_RACK_ELEVATION => self.rack_elevation(req),
             OP_FINDINGS => self.findings(req),
+            OP_INSIDE => self.inside(req),
             _ => protocol::encode_error(
                 ERR_UNKNOWN_OP,
                 &format!("opcode {op} is not implemented by this module"),
@@ -1676,6 +1677,18 @@ impl Shell {
         // `None` is the empty state, not an error — a rack whose height was
         // never stated cannot be drawn, and the page says so.
         protocol::encode_rack_reply(fathom_inventory::elevation(estate, node).as_ref())
+    }
+
+    /// Inside one box (`57` §7). A display id that names anything but a live
+    /// `Device` yields the empty reply, not an error: the page can descend
+    /// only from a device box today, and a stale id after a paste or an import
+    /// is a rung to climb out of rather than a fault to report.
+    fn inside(&mut self, req: &[u8]) -> Vec<u8> {
+        let (estate, node) = match self.node_request(req) {
+            Ok(pair) => pair,
+            Err(reply) => return reply,
+        };
+        protocol::encode_inside_reply(fathom_inventory::inside(estate, node).as_ref())
     }
 
     fn element(&mut self, req: &[u8]) -> Vec<u8> {

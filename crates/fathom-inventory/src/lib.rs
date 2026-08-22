@@ -25,6 +25,7 @@ mod demo;
 mod element;
 mod equipment;
 mod gaps;
+mod inside;
 mod inventory;
 mod rack;
 mod render;
@@ -35,6 +36,9 @@ pub use demo::demo_estate;
 pub use element::{element_page, parse_display_id, role_word, ElementPage, FieldRow};
 pub use equipment::{equipment_page, CabledPeer, EquipmentPage, IfaceRow, PortRow};
 pub use gaps::{findings, EmptyKind, Findings, Gap, GapExample, EXAMPLES_PER_GAP};
+pub use inside::{
+    inside, Inside, PolicyRow, ProtoRow, RouteBand, SetBand, TunnelBand, Unit, Way, ZoneBand,
+};
 pub use inventory::{columns, rows, InvKind, Row};
 pub use rack::{elevation, rack_label, Elevation, Slot};
 pub use render::field_text;

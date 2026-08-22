@@ -224,6 +224,31 @@ pub const OP_RACK_ELEVATION: u32 = 23;
 /// stating out loud rather than absorbing quietly.
 pub const OP_FINDINGS: u32 = 25;
 
+/// Inside one box — the zoom ladder's fourth rung (`57` §7).
+///
+/// Takes a `Device` display id as raw UTF-8, like every other node-addressed
+/// face, and returns the four bands `fathom_inventory::inside` projects: the
+/// ways in and out, the zones, the policy sets with their policies **in the
+/// order the device reads them**, and the routing instances and tunnels.
+///
+/// Read-only. No clock, no entropy, no 24-byte prefix.
+///
+/// # Why an opcode, when `57` §14.1 filed rung 4 as page-side
+///
+/// The same answer `OP_FINDINGS` gives one paragraph up, and for a sharper
+/// reason. This rung is eight graph walks — `HasInterface`, `HasUnit`,
+/// `HasAddress`, `HasZone`, `ZoneMember`, `HasPolicySet`, `HasPolicy`,
+/// `HasRoutingInstance` and their two siblings — plus a sort on
+/// `SecurityPolicy.ordinal` whose correctness is the whole feature. The page
+/// holds strings, not a graph; a page-side version would be one `OP_ELEMENT`
+/// per element and a first-match ordering computed in JavaScript.
+///
+/// **`57` §14.1's "page-side and therefore free" was a byte-ceiling argument
+/// and the ceiling was retired on 2026-08-21 (`49` §1).** What survives it is
+/// ADR-0019's rule, which points the other way: views are pure functions of
+/// typed data, and every join and count happens in Rust.
+pub const OP_INSIDE: u32 = 26;
+
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and
 // `OP_INV_ROWS` already lists it. A bespoke opcode would have been a second
