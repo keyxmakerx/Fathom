@@ -149,7 +149,8 @@ check('a field whose type cannot be typed in is not offered either',
   conf !== null && conf.editable === false, JSON.stringify(conf));
 
 // ---- THE MARK IS IN THE ACCESSIBLE TREE, NOT ONLY UNDER THE PIXELS ---------
-// `55` §1: a state only a mouse can see is not a state. The hairline under an
+// `55` §1.4 lists "content hidden behind hover" among the defects this design
+// cannot have, and `55` §5 is keyboard-only operation. The hairline under an
 // editable value has no screen-reader equivalent, so the cell says it in its
 // own name.
 const role0 = await cellInfo('sw-lab-01', 3);

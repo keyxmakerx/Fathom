@@ -506,7 +506,8 @@ button.tab:hover { color: var(--ink); }
    second line there would read as a thicker rule rather than as a state.
 
    NOT a colour: 51 §9's three inks are the risk enum's, reserved, and never
-   spent on chrome. NOT hover-only: `55` §1 — a state only a mouse can see is
+   spent on chrome. NOT hover-only: `55` §1.4 puts *"content hidden behind
+   hover"* on the list of defects this design cannot have, and `55` §5 is
    not a state — so it is always drawn, and its accessible half is the cell's
    own name, which ends "— editable". WHICH cells get it is the module's answer
    and never this page's (`fathom_inventory::column_keys`).
@@ -2657,11 +2658,26 @@ function renderInventory(host) {
           b.appendChild(el('span', 'u', r.s[1 + ci]));
           /* The accessible half of that hairline. A screen reader has no
              hairline, so the fact that this cell can be typed into is said in
-             the name — `55` §1 read in the other direction, and the reason the
+             the name — `55` §5 read in the other direction, and the reason the
              mark is not hover-only either. `unset` rather than the em dash,
              because "os_version: — — editable" is not a sentence. */
           b.setAttribute('aria-label', head.s[1 + ci] + ': ' +
             (r.s[1 + ci] === '—' ? 'unset' : r.s[1 + ci]) + ' — editable');
+        } else {
+          /* THE OTHER HALF, and without it this change made the accessible tree
+             WORSE where it used to be uniformly bare. Before editing existed
+             every cell read as its own text, em dash included; now the editable
+             ones say "os_version: unset — editable" and the rest still say "—",
+             which is a screen reader hearing a dash and nothing else, next to
+             neighbours that announce themselves properly.
+
+             `55`'s governing posture is that a defect here is fixed by ADDING A
+             WORD, so the non-editable cell gets the same sentence minus the
+             last clause. It does NOT say "not editable": why a column cannot be
+             typed into is `is_authorable`'s answer and belongs in the meaning
+             column, not repeated on every row of the table. */
+          b.setAttribute('aria-label', head.s[1 + ci] + ': ' +
+            (r.s[1 + ci] === '—' ? 'unset' : r.s[1 + ci]));
         }
         if (ci === 0) b.setAttribute('data-rove-item', '');
         td.appendChild(b);
@@ -3086,7 +3102,7 @@ function cellEditor(row, ci, k) {
 
    The gesture is a click, or Enter or Space on the focused cell — which on a
    <button> are the same event, so the pointer path and the keyboard path are
-   ONE path and cannot drift apart (`55` §1). Nothing else opens it: a cell that
+   ONE path and cannot drift apart (`55` §5). Nothing else opens it: a cell that
    is not editable behaves exactly as it did before, and a driver that clicks a
    row to select it still selects it.
 
@@ -7903,7 +7919,7 @@ document.addEventListener('click', function (ev) {
      carries both attributes: the row is selected either way, and this arm is
      the one that also opens the editor. Enter and Space on a focused <button>
      arrive here as a click, which is how the keyboard path and the pointer path
-     stay one path (`55` §1). */
+     stay one path (`55` §5). */
   if ((n = seekAttr(ev.target, 'data-iedit'))) {
     beginEdit(n);
     return;
