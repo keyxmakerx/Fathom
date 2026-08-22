@@ -3182,7 +3182,11 @@ function commitCell(input) {
   if (bad) { refuse(bad); return; }
 
   var id = S.edit.id, col = S.edit.col;
-  S.journal.push({ op: 'field', at: at, ent: b64(ent), id: id, key: key, value: value });
+  /* THROUGH `jpush`, which did not exist when this branch was written. An
+     entry built at a call site carries no `seq` and no `by` — and this is the
+     second commit in two days to try it, which is exactly why the rule is a
+     test rather than a convention. */
+  jpush('field', at, ent, { id: id, key: key, value: value });
   S.edit = null;
   foot('changed');
   postElement(id);
