@@ -439,8 +439,22 @@ check('the tunnel bound to that unit is put in play too',
 
 const nnote = (await notes()).join(' ');
 check('the narrowing says what it did', /Narrowed to st0\.0/.test(nnote), nnote.slice(-260));
+// THIS PINNED THE OLD WORDING AND THE OLD WORDING WAS FALSE. It read "the
+// policy sets and THE ROUTING are unchanged" while, three inches below, the
+// tunnel bound to this very unit was lit in the routing band — which check 437
+// above asserts, in the same run. The two assertions contradicted each other
+// and both passed, because one read a sentence and the other read the picture.
+//
+// So it asserts the PROPERTY now, in both directions: the note must say what
+// the narrowing left alone, and must NOT claim the routing was left alone,
+// because it was not.
 check('and says what it did NOT touch, rather than letting it look like a filter',
-  /nothing in the design connects a unit to either of them/.test(nnote));
+  /policy sets do not move/i.test(nnote) &&
+  /nothing in the design connects a unit to one/i.test(nnote), nnote.slice(-200));
+check('and does not claim the routing was untouched, which is what the picture disproves',
+  !/routing (are|is) unchanged/i.test(nnote), nnote.slice(-200));
+check('and names the tunnel it DID light, since check 437 asserts it is lit',
+  /tunnel hq-vpn is bound to it/i.test(nnote), nnote.slice(-200));
 check('the band carries the narrowing too, so it survives scrolling the bands away',
   /narrowed to st0\.0/.test(await page.locator('.dband').textContent()),
   await page.locator('.dband').textContent());

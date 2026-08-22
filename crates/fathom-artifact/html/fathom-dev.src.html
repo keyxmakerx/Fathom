@@ -1045,8 +1045,21 @@ button.tab:hover { color: var(--ink); }
          border: 0; border-left: var(--rule-accent) solid var(--hairline);
          padding: var(--s1) var(--s2); font: inherit; color: var(--ink);
          font-size: var(--t-small); line-height: var(--lh-micro);
-         min-height: var(--row-min); cursor: pointer; }
-.iitem:hover { background: var(--surface); }
+         min-height: var(--row-min); }
+/* THE POINTER AND THE HOVER BELONG TO THE ROWS THAT ARE ACTUALLY BUTTONS.
+   `.iitem` is worn by every row in all four bands, and only band one's rows are
+   `<button>` — the other three are divs with no tabindex, no role and no
+   delegate arm, by deliberate choice, because what a zone or an adjacency
+   would narrow TO is not recorded (see `inRouting`). The stylesheet was
+   handing all of them a pointer and a hover anyway, so three bands out of four
+   invited a click and did nothing when it came.
+
+   A reviewer measured it: clicking a zone row left `#ibody` byte-identical.
+   The code comment beside those rows explicitly rejects "an enabled control
+   that does nothing" and the CSS then supplied the affordance regardless —
+   which is the same defect as a sentence that overclaims, wearing a cursor. */
+button.iitem { cursor: pointer; }
+button.iitem:hover { background: var(--surface); }
 .iitem[aria-pressed="true"], .iitem[data-ion="1"] {
   border-left-color: var(--ink); background: var(--surface); }
 /* Everything the narrowing did not put in play. NOT `display: none`: `59` §3.7
@@ -9571,11 +9584,26 @@ function inNote(o) {
     var p4 = el('p', 'inote');
     p4.id = 'inNarrow';
     p4.appendChild(el('b', null, 'Narrowed to ' + u.label + '.'));
+    /* THIS SENTENCE NAMES WHAT ACTUALLY MOVES, and an earlier draft did not.
+       It said "everything else is dimmed" and "the routing is unchanged" —
+       and in the same view the tunnel bound to the chosen unit was lit in the
+       routing band, while the policy band dimmed nothing at all. Three clauses,
+       one contradicting the picture beside it and one contradicting the other
+       two, in precisely the case this feature exists for.
+
+       Found by a reviewer driving it rather than reading it, and it is the
+       fifth of a class this project has now fixed six times: a sentence that
+       describes a behaviour the code does not have. The rule that keeps
+       catching it is worth restating — the picture is the source of truth and
+       the sentence is written FROM it, never the other way round. */
+    var says = ' It is in zone ' + u.zoneName + '.';
+    if (u.tunnel) says += ' The tunnel ' + u.tunnel + ' is bound to it, and is lit below.';
+    says += ' The other ways in and the other zones are dimmed, not hidden.' +
+            ' The policy sets do not move, because nothing in the design' +
+            ' connects a unit to one.';
     p4.appendChild(document.createTextNode(
       u.zoneName
-        ? ' It is in zone ' + u.zoneName + '. Everything else is dimmed, not ' +
-          'hidden. The policy sets and the routing are unchanged, because ' +
-          'nothing in the design connects a unit to either of them.'
+        ? says
         : ' No zone claims it, so nothing is put in play by choosing it. That ' +
           'is a fact about the design rather than about the device.'));
     var clr = el('button', 'iclear', 'show every way in');
