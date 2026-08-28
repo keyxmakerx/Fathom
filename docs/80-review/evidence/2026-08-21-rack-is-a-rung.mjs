@@ -329,13 +329,34 @@ check('A PASTE NO LONGER THROWS AWAY WHERE YOU WERE STANDING',
 check('and the breadcrumb still names the rack, because it still exists',
   await page.locator('.dladder').count() > 0);
 
-// And the rule the old assertion was really protecting, tested with the gesture
-// that can still break it: remove the rack while inside it.
+// And the rule the old assertion was really protecting, tested with the
+// gesture that can still break it: REMOVE THE RACK WHILE STANDING INSIDE IT.
+// The 2026-08-28 review caught that this comment promised the gesture and the
+// code below only pressed Escape — a test description asserting a test that
+// did not exist, which is the same defect class as a sentence overclaiming on
+// screen. The renderer carries a reconciliation pass (renderDiagram: "if
+// (!still) DG_DEPTH = null") and until now NOTHING drove it.
 const railBefore = await page.locator('.dladder').count();
-await page.keyboard.press('Escape');
-await page.waitForTimeout(150);
-check('Escape leaves the rack by hand', await depth() === 'site',
-  String(await depth()) + ' (rail was ' + railBefore + ')');
+await page.click('[data-view="inventory"]');
+await page.waitForTimeout(200);
+// Select the rack's row (the Rack kind strip entry), then remove it.
+await page.evaluate(() => {
+  const strip = [...document.querySelectorAll('[data-kind]')]
+    .find(n => /rack/i.test(n.textContent));
+  strip.click();
+});
+await page.waitForTimeout(200);
+await page.click('.inv tbody tr td button');
+await page.waitForTimeout(200);
+await page.click('[data-remove]');
+await page.waitForTimeout(300);
+await page.click('[data-view="diagram"]');
+await page.waitForTimeout(300);
+check('REMOVING THE RACK YOU ARE STANDING IN DROPS THE RUNG',
+  await depth() === 'site', String(await depth()));
+check('and leaves no breadcrumb naming a rack that is gone',
+  await page.locator('.dladder').count() === 0,
+  (await page.locator('.dladder').count()) + ' rail(s), was ' + railBefore);
 
 // -------------------------------------------------------------------------
 console.log('\n11. invariant 1 — no egress');

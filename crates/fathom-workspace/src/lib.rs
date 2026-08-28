@@ -771,7 +771,18 @@ fn read_op(j: &Json, path: &str) -> Result<Op, PlainError> {
         "tombstone" => Ok(Op::Tombstone {
             element: ElementId::parse(get_str(key_or(p, "element", path)?, path)?)?,
             at: Timestamp(get_u64(key_or(p, "at", path)?, path)?),
-            by: Actor::User(UserId(read_ulid(key_or(p, "by", path)?, path)?)),
+            // `by` is OPTIONAL ON READ, required on write. A file written
+            // before 2026-08-21 has no author on its tombstones, and a workspace
+            // file is a file an operator keeps — hard-requiring the key would
+            // make the envelope upgrade destroy saved work, which is the exact
+            // failure the page's importer already refuses (it synthesises
+            // `local` for a v1 journal). Same repair, same honesty: `LOCAL`
+            // means "made by a build that had no accounts", which is the true
+            // statement about that file.
+            by: match p.get("by") {
+                Some(v) => Actor::User(UserId(read_ulid(v, path)?)),
+                None => Actor::User(UserId::LOCAL),
+            },
         }),
         _ => Err(shape(path, "one of the four op tags")),
     }

@@ -11,7 +11,8 @@
 // page edit). The label fix itself is pinned in Rust by
 // `fathom-inventory/tests/projection.rs::a_bound_name_is_never_rendered_as_a_ulid`.
 //
-// Expected: 13/14.
+// Expected: 15/16 — the one standing red (VLAN names) predates this file's
+// current form; the additive-paste inversion of 2026-08-21 grew the count.
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
 /* THE TREE UNDER TEST IS THE TREE THIS SCRIPT LIVES IN.
    This line used to name /home/user/Fathom absolutely, so running it from a

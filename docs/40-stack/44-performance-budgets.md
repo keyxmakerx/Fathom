@@ -159,7 +159,7 @@ rank statistics over 200 iterations after 20 discarded warm-up iterations (§8.5
 | **B15** | unlock → first device interactive (TTI-a), 20 devices | 220 ms | **400 ms** | 900 ms | e2e, every PR |
 | **B16** | unlock → all findings settled, 20 devices | 500 ms | **900 ms** | 2,500 ms | e2e, every PR |
 | **B17** | A1 artifact size | — | — | **4.5 MB** | size gate, every PR |
-| **B18** | WASM core, uncompressed | 700 KB target | — | **900 KB** | twiggy gate, every PR |
+| **B18** | WASM core, uncompressed | 700 KB target | — | ~~**900 KB**~~ **removed 2026-08-21** | size REPORTED per run (`artifact_gates.rs`); `49` §1 retires the ceiling with the pivot |
 | **B19** | steady resident memory, 20-device workspace | — | **120 MB** | 250 MB | e2e memory probe, nightly |
 
 Two things to read out of this table before the rationale sections:
@@ -731,7 +731,7 @@ did not have:
 | CBOR codec + packed writers | 40 KB | " |
 | `core::fmt`, panic strings, misc | 70 KB | " |
 | **Target total** | **≤ 700 KB** | `xtask size-gate` |
-| **Hard ceiling** | **≤ 900 KB** | fails the merge |
+| **Hard ceiling** | ~~**≤ 900 KB** — fails the merge~~ **REMOVED 2026-08-21**: the pivot (`49` §1) retires it; `artifact_gates.rs` reports the size on every run and carries the reasoning — removed rather than raised, so the number never stops meaning "we measured this" | — |
 | Brotli, for modes B–D | ≤ 260 KB | reported, not gated separately |
 
 **Per-component gating is the point.** A total-only gate lets the crypto stack grow 80 KB while the

@@ -131,6 +131,42 @@ const afterConfirm = await devices();
 check('answering "different boxes" adds one', afterConfirm > afterRefusal,
   afterRefusal + ' -> ' + afterConfirm + ' rows');
 
+// ---- 4. THE ANSWER SURVIVES A ROUND TRIP -------------------------------------
+// The journal now holds a paste whose duplicate question the operator ANSWERED.
+// `importJournal` hardcodes confirm on replay ("A REPLAY CONFIRMS" — every op
+// in a journal is an op that happened; a refused paste never reaches the file),
+// and until 2026-08-28 NOTHING PINNED THAT LINE. The phase-0 record says that
+// without it an import died on step 2 with nobody present to answer — a defect
+// found only by driving — and a future edit dropping `req[24] = 1` would have
+// brought it back with all drivers green.
+const [dl] = await Promise.all([
+  page.waitForEvent('download'),
+  page.click('#tabExport'),
+]);
+let exported = '';
+for await (const c of await dl.createReadStream()) exported += c;
+await page.reload();
+await page.waitForFunction(() => document.querySelector('#band button') !== null);
+await page.evaluate(text => {
+  const f = new File([text], 'w.fathom-journal.json', { type: 'application/json' });
+  const dt = new DataTransfer();
+  dt.items.add(f);
+  const input = document.getElementById('importFile');
+  input.files = dt.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}, exported);
+await page.waitForTimeout(800);
+await page.click('[data-view="inventory"]');
+await page.waitForTimeout(250);
+const afterImport = await devices();
+check('REOPENING THE WORKSPACE REPLAYS THE ANSWERED QUESTION WITHOUT RE-ASKING',
+  afterImport === afterConfirm, afterConfirm + ' saved -> ' + afterImport + ' reopened');
+const reAsked = await page.evaluate(() => {
+  const n = document.querySelector('#pErr');
+  return n && !n.hidden && /already in this design/.test(n.innerText);
+});
+check('and no duplicate question is standing after the import', !reAsked);
+
 check('no page errors', errors.length === 0, errors.join(' | '));
 
 await browser.close();

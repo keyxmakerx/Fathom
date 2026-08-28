@@ -1450,8 +1450,11 @@ and the remaining decision is `44`'s number, which is planning's under ADR-0001'
    declares its tiers, so a second paste of a box already in the workspace is *detectable*. What
    happens next is a UX question and is deliberately not decided in `schema/`: a tier-1 match is a
    **proposal to a human, not an automatic merge**, because two real branch sites may both run a
-   `core-01` SRX on the same platform. `53`/`54` own the surface. Until it is designed, `OP_PASTE`
-   replaces the held estate and says so, which is the behaviour that cannot silently merge two boxes.
+   `core-01` SRX on the same platform. `53`/`54` own the surface. *(Until it was designed, `OP_PASTE`
+   replaced the held estate — the behaviour that cannot silently merge two boxes. **The surface
+   was built 2026-08-21**: the paste is additive, and a tier-1 match refuses with
+   `ERR_PASTE_CHOICE`, names the existing box, and offers exactly one answer — "these are
+   different boxes". The merge half is still unbuilt and the refusal says so in words.)*
 21. **`Chassis` still declares `identity: []`** (§16.3). Not blocking and nobody has asked, so it is
    filed rather than decided — but the two obvious tiers are `[ owner(Device), member_index ]` and
    `[ owner(Device), serial ]`, and the second is the one that survives a re-slot. It matters the

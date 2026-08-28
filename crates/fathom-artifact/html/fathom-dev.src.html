@@ -299,12 +299,13 @@ button.tab:hover { color: var(--ink); }
 .band button:hover { color: var(--ink); }
 .band button[aria-current="true"] { color: var(--ink); border-bottom-color: var(--ink); }
 .band .cnt { color: var(--muted); }
-/* THE THREE UNBUILT VIEWS ARE MARKED, NOT HIDDEN AND NOT DELETED. Walkthrough,
-   config and findings are placeholders; config is a placeholder BY DECISION
-   (`47` §11 refuses it on the module ceiling), so it is not going to quietly
-   appear one morning and the owner is entitled to see it sitting there. What
-   was wrong was that they looked exactly like the three live views, so half the
-   band did nothing and the eye had no way to tell which half.
+/* THE UNBUILT VIEWS ARE MARKED, NOT HIDDEN AND NOT DELETED. Two remain:
+   walkthrough and config. Findings left this list on 2026-08-21 when it got
+   its first job (the estate's gaps). Config was a placeholder BY DECISION —
+   `47` §11 refused it on the module ceiling — and that refusal LAPSED when
+   the ceiling was removed on 2026-08-21; nobody has re-ordered the view, so
+   it stays marked until somebody does, for the original reason: a view that
+   looks live and is not teaches the operator to distrust the marks.
 
    They keep their place in the registry order — `⌥1`…`⌥6` and `⌥←`/`⌥→` walk
    VIEWS, so reordering the band would put the picture and the keyboard into
@@ -2345,6 +2346,11 @@ var S = {
      diagram different", and it must still be there after he clicks something.
      Cleared by the next paste or import. */
   drift: null,
+  /* Set only by checkDrift's same-shape path: the gate's count moved while the
+     graph did not, which is a fact about the SAVED FILE (it holds a value
+     today's gate destroys), not about the replay. Non-blocking; cleared with
+     drift by the next paste or import. */
+  gateNote: null,
   /* Set when a paste names a box the design already holds, and by nothing
      else. Holds the module's sentence plus the existing device's id and name,
      so the answer can be offered without the page re-deriving any of it.
@@ -2482,7 +2488,10 @@ function el(tag, cls, txt) {
 }
 function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
 /* "1 secret", "0 secrets". The count arrives as a string and stays one. */
-function plural(n, one, many) { return n + ' ' + (n === '1' ? one : many); }
+/* `n` arrives as a string from wire slots and as a number from page counts;
+   `String(n)` folds both, because `7 === '7'` is false and the one caller that
+   passed a number said "steps" about a single step for two days. */
+function plural(n, one, many) { return n + ' ' + (String(n) === '1' ? one : many); }
 function foot(msg) { S.msg = msg; $('fMsg').textContent = msg; }
 /* The polite live region. It has existed in the markup since WO-08 and nothing
    wrote to it; the diagram is the first surface where a state change is not
@@ -2591,7 +2600,7 @@ function renderInventory(host) {
     return;
   }
 
-  if (S.drift) renderDrift(host);
+  if (S.drift || S.gateNote) renderDrift(host);
   if (S.source === 'paste') renderTally(host);
 
   var bad = replyProblem(S.inv);
@@ -3282,6 +3291,17 @@ function residueNoun() {
    account reads as prose rather than as one wall. */
 function renderDrift(host) {
   var p = el('div', 'pad');
+  /* The gate note first when both exist: a credential on the operator's disk
+     outranks a parser reading differently. */
+  if (S.gateNote) {
+    var gbox = el('div', 'perr drift gatenote');
+    gbox.setAttribute('role', 'alert');
+    S.gateNote.split('\n\n').forEach(function (para) {
+      gbox.appendChild(el('p', 'prose', para));
+    });
+    p.appendChild(gbox);
+  }
+  if (!S.drift) { host.appendChild(p); return; }
   /* `drift` alongside `perr` so a driver -- and a reader of the DOM -- can tell
      this note from the paste and equipment refusals, which wear `perr` too and
      sit hidden in their sheets. Same look, different claim. */
@@ -6026,10 +6046,13 @@ function renderDiagram(host) {
   var untabled = canvasRow ? (canvasRow.s[5] || '0') : '0';
 
   /* RECONCILE THE DEPTH AGAINST THE ESTATE THAT IS ACTUALLY HELD, in one
-     place, before anything is drawn. `OP_PASTE` REPLACES what is held (`49`
-     §10 files that as a phase-0 defect and it is still true today), an import
-     replays a different journal, and either can leave `DG_DEPTH` naming a rack
-     that no longer exists. A stale rung draws an empty elevation under a
+     place, before anything is drawn. This sentence used to justify itself with
+     "OP_PASTE replaces what is held" — true when written, false since
+     2026-08-21 (the paste is additive now). The reconciliation OUTLIVED its
+     original reason, which is the mark of a good invariant: an import still
+     swaps the whole journal, and a REMOVAL can tombstone the very rack the
+     ladder is standing in (driven since 2026-08-28 by rack-is-a-rung §10) —
+     either leaves `DG_DEPTH` naming a rack that no longer exists. A stale rung draws an empty elevation under a
      breadcrumb naming a rack that is gone AND swallows the Escape that would
      have cleared the selection — the same class of defect the `S.open` filter
      below this function's aggregation block exists to prevent, which is why it
@@ -7910,8 +7933,21 @@ document.addEventListener('click', function (ev) {
     return;
   }
   if ((n = seekAttr(ev.target, 'data-kind'))) {
-    loadKind(parseInt(n.getAttribute('data-kind'), 10));
+    /* `53` §13 failure 7, fixed here on 2026-08-28: render() rebuilds the
+       strip and destroys the button that was just pressed, and a focused
+       element removed from the document sends focus to <body> — so a keyboard
+       user switching kinds restarted from the top of the page. The data-post
+       arm below has carried exactly this repair for its rows since Direction
+       A; the strip never got it. Same pattern: remember whether focus was ON
+       the control, and put it back on the rebuilt twin. */
+    var onKindBtn = document.activeElement === n;
+    var kindIdx = n.getAttribute('data-kind');
+    loadKind(parseInt(kindIdx, 10));
     render();
+    if (onKindBtn) {
+      var kb = document.querySelector('[data-kind="' + cssEsc(kindIdx) + '"]');
+      if (kb) kb.focus();
+    }
     return;
   }
   /* A layer toggle changes one bit of session state and redraws. It runs no op
@@ -7982,7 +8018,20 @@ document.addEventListener('click', function (ev) {
          as picking a box does. After render(), because render() rebuilds the
          panel and this must act on the nodes that are live. */
       ivPaneSet('details', true);
-      if (onRow) {
+      /* AT PHONE WIDTH THE PANEL IS BELOW THE TABLE AND OFF SCREEN — driven
+         at 390x844, the DETAILS pane's top sat at 841px of an 844px viewport,
+         so tapping a row produced a response 3px tall and read as "nothing
+         happened". That is the owner's original phone complaint, live. On
+         narrow, focus moves INTO the pane instead of back onto the row:
+         focus() scrolls the pane into view, the reader is standing on what
+         their tap opened, and Escape (the panel's rung) brings them back.
+         The desk path below is unchanged — same-cell refocus is what makes
+         the second Enter edit. */
+      var narrowSheet = $('sheet').getAttribute('data-width') === 'narrow';
+      if (narrowSheet && IV.det) {
+        IV.det.tabIndex = -1;
+        IV.det.focus();
+      } else if (onRow) {
         /* BACK TO THE SAME CELL, NOT THE FIRST ONE. This restored the row's
            rove item — column 0 — which was right while selecting was the only
            thing a cell did. Editing now lives on the second press of the same
@@ -8371,6 +8420,14 @@ function runPaste(confirm) {
    have been reopened on something else. */
 function runPasteText(text, confirm) {
   if (!wasm) { foot('the module is not instantiated'); renderShell(); return; }
+  /* A NEW PASTE RETIRES THE OLD QUESTION, whatever happens next. This clear
+     used to live only on the success-and-refusal paths below, so the two early
+     returns (empty text, no entropy) left `S.pasteDup` standing — and a stale
+     "is this the same box?" question, with its live ADD button wired to the
+     PREVIOUS text, sat beside an error about the CURRENT one. Answering it
+     would have pasted something the question was no longer about. Cleared
+     here, once, so a return added later cannot reopen the hole. */
+  S.pasteDup = null;
   /* AN EMPTY PASTE IS NOT ALWAYS AN EMPTY BOX, AND THIS IS THE ONE PLACE THE
      PAGE CAN SAY SO. OPNsense issue #10595 (opened 22 July 2026 against 26.7.1;
      still open, unanswered, no fix found — re-established independently on
@@ -8432,8 +8489,14 @@ function runPasteText(text, confirm) {
      found, offer the ONE answer that exists, and never pick. The detail is
      `sentence|display-id|hostname`. */
   if (reply && reply.kind === 'error' && reply.code === ERR_PASTE_CHOICE) {
+    /* FROM THE TAIL, not the head: the detail is `sentence|id|name` and the
+       sentence is free prose — a `|` in it would shift every field left if the
+       split were read from the front. The id and the name are the two fixed
+       fields, so they come off the end and the sentence is whatever remains. */
     var parts = String(reply.detail || '').split('|');
-    S.pasteDup = { text: text, sentence: parts[0] || '', id: parts[1] || '', name: parts[2] || '' };
+    var dupName = parts.length > 2 ? parts.pop() : '';
+    var dupId = parts.length > 1 ? parts.pop() : '';
+    S.pasteDup = { text: text, sentence: parts.join('|'), id: dupId, name: dupName };
     S.pasteError = null;
     renderPasteDup();
     renderShell();
@@ -8490,6 +8553,7 @@ function runPasteText(text, confirm) {
     });
   }
   S.drift = null;
+  S.gateNote = null;
 
   S.pasteError = null;
   S.pasteWasTable = looksLikeRulesTable(text);
@@ -8850,7 +8914,36 @@ function checkDrift(o, reply, step, total) {
   var was = [o.things, o.connections, o.unread, o.secrets];
   var is = [sum.s[0], sum.s[1], sum.s[2], sum.s[3]];
   var grew = was[0] !== is[0] || was[1] !== is[1] || was[2] !== is[2];
-  if (now === o.shape && !grew) return null;
+
+  /* THE SECRETS COUNT IS COMPARED SEPARATELY, AND IT DOES NOT STOP THE REPLAY.
+     was[3]/is[3] were collected and never read until 2026-08-28 — so the one
+     drift case that matters MOST was reported as "no drift": a gate that has
+     since gained a detector destroying a credential the old build let through
+     to residue. Nodes and edges are unchanged (the digest excludes what the
+     gate ate), the residue count is unchanged (the line was residue either
+     way) — only this count moves. And its meaning is exactly this: THE FILE
+     THE OPERATOR KEEPS HOLDS, IN PLAINTEXT, A VALUE TODAY'S GATE DESTROYS.
+     That is not hypothetical; it is the OSPF simple-password and trap-group
+     history of this very gate.
+
+     It does not stop the replay, because it must not: the digest matching
+     means every minted id is identical, so the hand ops replay safely — and a
+     stop would leave the operator with LESS than the file holds. What he
+     needs is the warning about the file on his disk. */
+  var secretsMoved = was[3] !== undefined && is[3] !== undefined && was[3] !== is[3];
+  if (now === o.shape && !grew) {
+    if (secretsMoved) {
+      S.gateNote =
+        'The design opened exactly as saved. But Fathom\u2019s redaction gate has ' +
+        'learned since this file was written: it now destroys ' + is[3] + ' ' +
+        'secrets in this config where the saved file recorded ' + was[3] + '. ' +
+        'That means the SAVED FILE itself holds, in plain text, something ' +
+        'today\u2019s gate treats as a credential. What is loaded here is clean. ' +
+        'Export from here and replace the old file, then treat wherever the old ' +
+        'file has been \u2014 disks, backups, mail \u2014 as having held a secret.';
+    }
+    return null;
+  }
 
   var left = total - step;
   var note =
@@ -8977,6 +9070,7 @@ function importJournal(text) {
      back different from what the file says it built — see the stop in the loop. */
   var replayed = ops.length;
   S.drift = null;
+  S.gateNote = null;
   for (var i = 0; i < ops.length; i++) {
     var o = ops[i], ent = unb64(o.ent), reply, req, dv;
     if (o.op === 'paste') {
@@ -9178,6 +9272,7 @@ function importJournal(text) {
      session that ended. */
   S.pasteWasTable = false;
   S.pasteError = null;
+  S.pasteDup = null;
   S.equipError = null;
   S.sel = null; S.element = null; S.equipment = null;
   /* A half-finished gesture must not outlive the estate it was aimed at. A
@@ -10784,7 +10879,8 @@ function boot() {
     /* 45 §9.1: fixture loading is one URL parameter, dev-build only.
 
        As of 2026-08-15 the demo estate is NOT in the default module. It was a
-       development fixture worth 35,272 bytes of `44` §5.2's 900,000-byte
+       development fixture worth 35,272 bytes (a real cost when `44` §5.2's ceiling
+       ruled; the ceiling went 2026-08-21 and the exclusion stays for tidiness of the
        ceiling, and the product has had real inputs since the on-ramp landed:
        paste, hand entry and correction all work, so the fixture bought a
        developer a paste and cost every other feature 4% of the budget.
@@ -10803,10 +10899,10 @@ function boot() {
       if (reply.kind === 'empty') { S.loaded = true; S.source = 'demo'; loadKind(S.invKind); }
       else if (reply.kind === 'error' && reply.code === ERR_UNKNOWN_OP) {
         S.boot =
-          'This module has no demo estate. It was a development fixture and it cost ' +
-          '35,272 bytes of the 900,000-byte module ceiling, so it is compiled in only ' +
-          'by a build with --features demo-estate. Paste a config (the door marked START HERE) or add ' +
-          'equipment by hand instead — both build a real estate.';
+          'This module has no demo estate. It is a development fixture, compiled in ' +
+          'only by a build with --features demo-estate. Paste a config (the door ' +
+          'marked START HERE) or add equipment by hand instead \u2014 both build a real ' +
+          'estate.';
       }
       else { S.boot = replyProblem(reply) || 'the demo estate did not load'; }
     }

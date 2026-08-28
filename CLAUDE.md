@@ -5,11 +5,14 @@ and the next actions.
 
 ## What this is
 
-A security-first, client-side network tool: one typed graph, six views over it, teaching
-and estate-of-record as co-equal goals. **It never connects to anything** — no device
-access, no credentials, no telemetry, permanently (invariants 1–3,
-`.context/conventions.md`; every future exception is priced in
-`docs/30-security/38-the-egress-question.md` and none is approved).
+A security-first network tool: one typed graph, six views over it, teaching and
+estate-of-record as co-equal goals. **The current artifact never connects to anything** — no
+device access, no credentials, no telemetry (invariants 1–3, `.context/conventions.md`;
+exceptions are priced in `docs/30-security/38-the-egress-question.md` and none is approved).
+**The product pivoted on 2026-08-18**: the destination is a server-hosted, multi-tenant,
+live-collaborative version (`docs/40-stack/49-the-server-product.md`), the single offline
+HTML file is being dropped, and invariant 1 is the owner's rule for the CLIENT-ONLY mode
+(`48` §1). Nothing server-side is built yet; what ships today is still the one file.
 
 ## Which kind of session is this?
 
@@ -29,11 +32,15 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   scalars); `crates/fathom-schema` parses and checks it; `cargo test` pins zero failures.
 - **Design: decided and demonstrated.** `design/prototype/fathom-app.html` is the whole
   product as one interactive file — the fidelity bar for anything built.
-- **Three of six views are live, as of 2026-08-15.** Inventory, diagram and finder. The diagram
-  draws with crossing reduction, orthogonal channel routing, five toggled layers and `59`'s
-  aggregation; the finder searches all 98 command entries from Ctrl+K. Walkthrough, config and
-  findings are still placeholders — and **config is placeholder by decision, not by omission**: see
-  the refusal below.
+- **Four of six views are live as of 2026-08-22.** Inventory (with in-place cell editing),
+  diagram (crossing reduction, orthogonal routing, five layers, `59`'s aggregation, and a
+  zoom-depth ladder: select a rack for its elevation, "go inside" a device for rung 4's
+  interface→zone→policy→routing bands), finder (98 command entries from Ctrl+K), and
+  findings — which reports the estate's GAPS (required fields with no value), deliberately
+  not called findings in the wire format because there is no rule engine. Walkthrough and
+  config are still placeholders; **config was placeholder by byte-ceiling refusal (`47`
+  §11), and that refusal lapsed when the ceiling was removed on 2026-08-21** — nobody has
+  re-ordered the view since.
 - **You can drag a box, and it stays where you put it — ADR-0035, 2026-08-15.** The owner asked
   three times and was refused three times for want of somewhere in `schema/` to store a position.
   That decision is made: **a hand-placed position is graph data.** `LayoutPin` (kind 49), contained
@@ -108,13 +115,10 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   paste sheet that renders what was understood *and every line that was not*. Driven in Chromium
   against a 26-line SRX config: 15 nodes, 23 edges, 5 residue lines named, 1 pre-shared key
   destroyed, one network request (the file). Evidence: `docs/80-review/evidence/2026-08-09-*.png`;
-  the plain-English account is `overnight-report.md`. **The module is 894,557 bytes against `44` §5.2's
-  900,000-byte ceiling — 5,443 bytes of headroom** (measured 2026-08-15 at `dc34fe5`, after the finder
-  and the widened dictionary landed; the diagram cost 60,096 and the dictionary move gave 26,915 back).
-  **That headroom is now small enough that the ceiling is the binding constraint on every remaining
-  feature, and the next one to arrive will not fit.** **Do not quote a module size without re-running
-  `scripts/byte-census.sh`** — it has moved three times in four days and three different totals are in
-  circulation. **The often-cited "+239,964 for persistence" prices the wrong feature**: it is the
+  the plain-English account is `overnight-report.md`. **The 900,000-byte ceiling was REMOVED on 2026-08-21** at the
+  owner's direction (`49` §1 retires it with the pivot): `artifact_gates.rs` now REPORTS the
+  module size on every run instead of gating it. **Do not quote a module size without
+  re-running the build** — at least five totals are in circulation from the ceiling era. **The often-cited "+239,964 for persistence" prices the wrong feature**: it is the
   cost of saving the expanded model, none of it is cryptography, and the journal route measures
   +263. See `79-work-orders/00-ROUTE-TO-WORKABLE.md` §5b. See `79-work-orders/00-ROUTE-TO-WORKABLE.md` §2 stage 1: the ceiling is an
   architecture question, not a number to raise.
@@ -149,12 +153,12 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 - **A week of design is on disk and none of it is built — `docs/50-design/57-the-zoom-ladder-and-the-trace.md`,
   2026-08-18.** It began as a complaint that `rack view` sat in the band's data-entry row and
-  opened into the product's shape. **Read `57` §14 before planning anything**: it sorts every
-  raised item into *buildable now* (four, page-side, no decision needed), *blocked on the owner*
-  (five, all cheap-now-expensive-later), and *blocked on bytes* (everything else). The honest
-  summary is in its own §14: **the design has outrun the build capacity — eight unbuilt designs
-  against 203 free bytes** — and every road out runs through `47`'s levers, none of which is
-  proved. Four findings from it bind future work:
+  opened into the product's shape. **Read `57` §14 before planning anything**, knowing its frame is
+  dated: it sorted every raised item into *buildable now* / *blocked on the owner* / *blocked
+  on bytes* — and the byte pile emptied when the ceiling came off (2026-08-21), while pile A
+  was built out on 2026-08-21/22. What survives of §14 unchanged is the owner-blocked pile
+  (five decisions, all cheap-now-expensive-later, none answered). Four findings from it still
+  bind future work:
   **(a) the schema forks physical from logical and they meet at the chassis** — `Premises → Rack →
   Chassis` and `Site → Device → Chassis` hang off different roots, so "physical view or logical
   view" is the wrong question; it is one ladder that forks once, at the box.
@@ -178,8 +182,10 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   Six designs, each attacked by an independent reviewer. The finding in one line: *we were about
   to move a customer's firewall config off his machine because a lookup table got compiled as a
   chain of `if` statements.* The largest zero-egress lever is 1.9× the entire prize of the server
-  that would have read the config. Two live defects came out of it: the shape sketch publishes the
-  exact byte length of every secret it destroys (§14.9, open), and `snmp.trap-group` had exactly
+  that would have read the config. Two live defects came out of it: the shape sketch published the
+  exact byte length of every secret it destroys (**fixed 2026-08-21** — the length is gone
+  from the sketch, two canaries assert byte-identical output across secret lengths, and the
+  38 §14.9 row is closed), and `snmp.trap-group` had exactly
   one detector where every other declared secret has two (**fixed 2026-08-17**, +16 bytes, with an
   8-character canary). The durable rule it produced, proposed to `03` and not yet ratified:
   **nothing arriving after the build may reduce what the ingest gate destroys, only increase it —
@@ -244,9 +250,12 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   machine account (`fw-pull`), plus a separate per-person account for writing.** Identity is
   per-device, the account is shared — so revoking a device is deleting one line. `rssh` and
   `scponly` are rejected as unmaintained; TFTP is rejected as unauthenticated.
-- **PHASE 0 IS DONE, 2026-08-21** (`49` §19). All four: the secret-length leak closed; every op
-  carries an author and a sequence number; a paste records what it produced and says so when a
-  replay diverges; and **`OP_PASTE` adds to the design rather than replacing it**.
+- **PHASE 0'S CODE IS DONE, 2026-08-21** (`49` §19). All four coded items: the secret-length
+  leak closed; every op carries an author and a sequence number; a paste records what it
+  produced and says so when a replay diverges; and **`OP_PASTE` adds to the design rather
+  than replacing it**. (§19 phase 0 also lists two DECISION items — open decisions 1 and 2,
+  invariant 4 and where tenancy lives — which are the owner's and remain open; "done" here
+  means the code half, not the whole phase.)
   Four things that only a browser found, worth knowing before the next surface is built:
   **(a) `addEventListener('click', runPaste)` passed the MouseEvent as the confirm argument**, so
   every paste was silently pre-confirmed and the duplicate question could never fire — the module
@@ -299,57 +308,52 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Next actions
 
-- **Friday, when usage resets: prove the three byte levers first.** `47` names three — one
-  generated dispatch emitted as a table rather than a branch tree (~11,089, mechanism
-  corroborated, headline unreproduced), the store's eight `BTreeMap`s as sorted vectors
-  (~45,549, unreproduced), six sort sites as one shared insertion sort (~25,125, unreproduced).
-  **~81,000 bytes claimed against 203 free and 602 needed for the next feature.** A run to prove
-  all three was started 2026-08-17 and stopped in its first minute for cost. It is the single
-  highest-leverage unproven claim in the project: **an entire category of blocked work empties
-  the moment it lands**, and the first lever makes every future schema kind cheaper, which
-  changes the economics of everything left. The fourth lever — moving the finder out, 220,289
-  measured twice — is **held, not recommended**: today's finder reads only the public corpus, but
-  the finder as *specified* (`16` §16.1) walks the user's graph, so moving it puts estate-touching
-  code outside the module boundary.
-- **Five things are buildable with no decision and no bytes** (`57` §14.1 pile A): move `rack
-  view` out of the band so selecting a rack is how you get an elevation; build rung 4, the inside
-  of a box, which is the largest design gap and needs no new kind; make inventory cells editable
-  for fields that already exist, since `OP_FIELD_SET` is already there and only reach is missing;
-  give the empty findings view its first job as *what the estate does not know yet* — "17
-  cables have no far port"; and **give the inventory Direction A's treatment, which it never got**
-  (`57` §16). A session with no owner available should go here.
-- **The inventory still has the three-region defect Direction A was written to fix** — `57` §16,
-  found 2026-08-18 by the owner in a rebuilt artifact: *"when you are looking at equipment and
-  click on it, you have like 3 pages opened, it was too much and you couldn't see anything."*
-  `.sheet[data-viewing="diagram"] .ledger { grid-template-columns: 1fr }` collapses the 62/38
-  ledger **for the diagram only**; the inventory still renders kind strip + table-at-62% +
-  meaning column. Fixing one of the two places a defect occurs is worse than missing it, because
-  the two views now disagree about an idiom whose whole point was that they would not. The fix is
-  the diagram's own, page-side, and needs no decision. **Its browser drivers will break exactly as
-  the diagram's three did** — click a row, the panel turns to DETAILS, the next row is gone — and
-  the three-line helper in `2026-08-16-hand-link-drive.mjs` is the fix.
+- **The three byte levers are RETIRED AS A PRIORITY** — the ceiling they existed to get
+  under was removed on 2026-08-21 with the pivot (`49` §1). `47`'s measurements stand as
+  history and one of the three still matters on its own merits: the generated dispatch as a
+  table makes every future schema kind cheaper on both sides of the fork. Worth doing
+  someday; blocking nothing. The finder-move lever stays **held** for the reason recorded:
+  the finder as *specified* (`16` §16.1) walks the user's graph, so moving it puts
+  estate-touching code outside the module boundary.
+- **`57` §14.1's pile A is BUILT OUT — all five landed 2026-08-21/22**: `rack view` left the
+  band (selecting a rack descends into its elevation); rung 4 draws the inside of a box;
+  inventory cells are editable in place for fields the module says are writable (first press
+  selects, second edits); the findings view reports the estate's gaps; and the inventory got
+  Direction A. Each has a browser driver beside it in `docs/80-review/evidence/`. What pile A
+  leaves behind: the **phone view** is still the placeholder the owner complained about — its
+  branch (`worktree-wf_0a5147a2-769-3`) was verified but NOT merged after colliding with the
+  cell-edit work in ten places, and needs a rebuild on the current base. Two of its
+  narrow-width defects were fixed on HEAD directly on 2026-08-28 (kind-strip focus drop; the
+  invisible tap response at 390px); the rest of the narrow findings wait for the rebuild.
+- **The inventory's three-region defect is FIXED, 2026-08-22** (`57` §16 records the defect;
+  the owner found it himself). Both views now share one collapse selector and one
+  OBJECTS/DETAILS panel idiom — asserted by `2026-08-21-inventory-direction-a.mjs` (42
+  checks), not just resembling each other.
 
-- **Read `docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` first** (Proposed, 2026-08-10). It is
-  the measured route: where the product actually is (**1 of 6 views live; 3 inventory kinds against
-  the 9 a paste builds; zero lines of rule engine; zero lines of diagram; 42 Junos statements**),
-  nine stages in dependency order, and §4's split between what genuinely needs the owner and what
-  merely says it does. Written from six independent surveys each adversarially verified, so its
-  numbers are measurements rather than estimates. **It disagrees with the program plan in three
-  named places** (§5) — notably that persistence is hours-behind-a-decision, not unblocked days.
+- **Read `docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` for the route's shape, not its
+  snapshot** (Proposed, 2026-08-10). Its numbers were measurements ON THAT DAY — *"1 of 6
+  views live; zero lines of diagram; 42 Junos statements"* — and every one has since moved
+  (four views live, the diagram shipped 2026-08-15, coverage measured in `66`). What is still
+  load-bearing is its dependency ordering — nine stages — and §4's split between what
+  genuinely needs the owner and what merely says it does. Written from six independent
+  surveys each adversarially verified. **It disagrees with the program plan in three named
+  places** (§5) — notably that persistence is hours-behind-a-decision, not unblocked days.
 - **`00-PROGRAM-PLAN.md`** (Proposed) remains the long-term shape: eleven stages, the unwritten work
   orders, and the tier-ordered owner list. Its tier 1 is **overstated by 4×** — four of its five
   are already on disk. The queue below stays the operational truth; on disagreement the queue wins.
-- **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — WO-06 (finder
-  completion, the shakedown order) leads; WO-01 (the `Scalar` trait) and WO-02 (the graph
-  store) unblock everything downstream. Every order carries its own plan, gates, and
+- **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — eight of nine DONE;
+  WO-04 (the dictionary deepening) is the one open order, and WO-10 (DHCP relay + bootp) was
+  written blocked-on-bytes and **unblocked when the ceiling came off** — nobody has flipped
+  its row or ordered it started. Every order carries its own plan, gates, and
   stop-and-escalate list; `78` governs.
-- **Raised by the on-ramp (2026-08-09), neither queued nor decided:** (a) the module is 812 KB
-  against `44` §5.2's 900 KB ceiling — decide before the second platform's dictionary lands whether
-  the ceiling moves or the dictionary is handed in by the page instead of compiled in
-  (`fathom_ingest::dict::EMBEDDED_DICT_SOURCES`); (b) `OP_PASTE` replaces the held estate, because
-  merging a second paste is `70` §6's unbuilt correlation requirement and this session would not
-  fake it; (c) `set system domain-name` and `set interfaces … description` are residue for want of
-  two dictionary lines — cheap, and nobody has ordered them.
+- **Raised by the on-ramp (2026-08-09), two of three now settled:** (a) the ceiling question
+  is CLOSED — removed 2026-08-21 with the pivot, and the dictionary had already moved out of
+  the module to the page on 2026-08-15; (b) `OP_PASTE` is ADDITIVE as of 2026-08-21, with the
+  duplicate-box question (`ERR_PASTE_CHOICE`) standing in where `70` §6's correlation is still
+  unbuilt — a match asks, never merges; (c) still true and still cheap: `set system
+  domain-name` and `set interfaces … description` are residue for want of two dictionary
+  lines, and nobody has ordered them. So is `set security policies` — rung 4's policy band is
+  EMPTY on every Junos estate for want of that dictionary entry, and the band says so.
 - **Planning-only, queued in the orders' §10 lists:** the crypto route for the workspace
   file (WO-05 §2 — never execution work), the dictionary reconciliation (WO-04 §10.2),
   the `73` §14 escalation register as it fills (the section now exists; it was cited from nine
@@ -373,7 +377,7 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 656 tests as of 2026-08-17; green is the gate, not the
+- `cargo test --workspace --locked` — 715 tests as of 2026-08-28; green is the gate, not the
   number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0, **0 failures and 0
   warnings** since 2026-08-09. The two standing `schema.identity.unexercised` warnings
@@ -382,13 +386,11 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
   next warning of any code fails a test.
 - `./scripts/gate-zero.sh` — exists since 2026-08-15; fails the build if `Cargo.lock` holds an
   external package with no `deps/decisions/<crate>.md` beside it (ADR-0032 §6).
-- `cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm` — **899,797 bytes
-  against the 900,000 ceiling, which is 203 of headroom** (2026-08-17, after the `trap-group`
-  detector). Measure, never estimate;
-  `scripts/byte-census.sh` says where they go. **At this margin the ceiling decides what ships
-  next**: the rack, the OPNsense engine, the roles and the links between them spent the last of it,
-  and the only lever left is float handling (~44,825), which is ring-fenced for encryption and is
-  the owner's to spend. The next feature of any size does not fit until that decision is made.
+- `cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm` — builds
+  clean. **The 900,000-byte ceiling was removed 2026-08-21** (`49` §1; the owner chose remove
+  over raise, and `artifact_gates.rs` records why in the code): the size is now REPORTED on
+  every `artifact_gates` run, not gated. Read the number off the run — do not quote one from
+  a document, including this one; at least five ceiling-era totals are still in circulation.
 - The executing work order's own acceptance gates, exactly as written.
 
 Interactive artifacts open from disk with zero network; the transcript face in

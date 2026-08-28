@@ -128,7 +128,7 @@ impl Shell {
 
     /// `OP_PASTE`: pasted text in, an estate out.
     ///
-    /// Frame — a fixed 24-byte prefix, then the paste:
+    /// Frame — a fixed 25-byte prefix (clock, entropy, confirm), then the paste:
     ///
     /// ```text
     ///   0   8   at_ms   (u64) the host's clock, once, for the whole apply
@@ -306,6 +306,55 @@ impl Shell {
             }
         }
 
+        // ---- 2b. THE RANGE PRE-FLIGHT, read-only, so the real weld cannot
+        //          fail against the live estate at all -----------------------
+        //
+        // This was specified in the phase-0 brief as step 6 and NOT BUILT, and
+        // the 2026-08-28 review found the hazard it existed to prevent:
+        // `apply_new_device` opens its batch first and `fathom-graph` has no
+        // rollback, so an id collision mid-weld leaves the operator's estate
+        // holding a partial batch and partially-written nodes — while the
+        // error text claimed "nothing was added" and advised a retry that,
+        // with the same entropy, would fail identically forever.
+        //
+        // The dry run makes the check exact rather than probabilistic: the
+        // mint walks a contiguous 80-bit counter from `entropy & mask` with
+        // one shared timestamp, and `dry_weld.minted` is precisely how many
+        // ids the real weld will issue. So every id it will claim can be
+        // asked about, read-only, before anything is written. Elements and
+        // provenance records are separate namespaces in the store and both
+        // are asked; the batch id (derived from the same entropy) is scanned
+        // in the log. ~a hundred lookups per paste, against `49` §8's finding
+        // that layout, not weld, is where paste time actually goes.
+        if let Some(existing) = self.estate.as_ref() {
+            let base = entropy & ((1u128 << 80) - 1);
+            let collides = (0..u128::from(dry_weld.minted)).any(|i| {
+                let counter = (base + i) & ((1u128 << 80) - 1);
+                let Ok(ulid) = fathom_id::Ulid::from_parts(at.0, counter) else {
+                    return true;
+                };
+                existing.resolve_ref(fathom_id::NodeId(ulid)).is_some()
+                    || existing
+                        .provenance(fathom_graph::ProvenanceId(ulid))
+                        .is_some()
+            }) || existing
+                .log()
+                .iter()
+                .any(|b| b.id == fathom_graph::BatchId(batch));
+            if collides {
+                return protocol::encode_error(
+                    ERR_WELD_REFUSED,
+                    &format!(
+                        "this paste needs {} fresh identifiers and the ones it was given \
+                         overlap identifiers this design already uses, so nothing was \
+                         added. Nothing is wrong with the config or the design — paste \
+                         it again and it will be given different ones.",
+                        dry_weld.minted
+                    ),
+                );
+            }
+        }
+
         // ---- 3. THE REAL WELD, into the estate that is held ----------------
         //
         // ADDITIVE. Until 2026-08-21 this line was `self.estate = Some(graph)`
@@ -340,17 +389,23 @@ impl Shell {
                 // `dry_weld.minted` is the exact count the dry run just
                 // produced, so the sentence can say how much room was needed
                 // rather than guessing.
+                // With the pre-flight above, an id collision here should be
+                // unreachable. If one fires anyway, the estate MAY hold a
+                // partial batch — `fathom-graph` has no rollback — so the
+                // sentence must not claim nothing was added. (The first
+                // version of this branch did exactly that, and also matched
+                // only two of the three collision errors: `UlidReused` does
+                // not contain the substring "IdReused" — capital I — which the
+                // review caught by reading rather than running.)
                 let detail = format!("{e:?}");
-                if detail.contains("IdReused") {
+                if detail.contains("Reused") {
                     return protocol::encode_error(
                         ERR_WELD_REFUSED,
-                        &format!(
-                            "this paste needs {} fresh identifiers and the ones it was given \
-                             overlap identifiers this design already uses, so nothing was \
-                             added. Nothing is wrong with the config or the design — paste \
-                             it again and it will be given different ones.",
-                            dry_weld.minted
-                        ),
+                        "an identifier collision was hit part-way through writing this \
+                         paste, which the pre-flight should have made impossible. The \
+                         design may hold a partial copy of it: export what you have, \
+                         then reopen the export to get back to a clean state, and \
+                         please report this — it is a bug in Fathom, not in your config.",
                     );
                 }
                 return protocol::encode_error(ERR_WELD_REFUSED, &detail);
@@ -489,11 +544,17 @@ impl Shell {
             }
         }
 
-        // `ids` mints the BATCH only. The author was `ids(1)` until 2026-08-21
-        // — derived from the host clock, so a fifty-op estate carried up to
-        // fifty distinct "users", none of them anybody. See `UserId::LOCAL`.
-        let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
-        let Ok(batch) = ids(2) else {
+        // THE BATCH ID IS DERIVED FROM THE ENTROPY, exactly as the paste's is
+        // and for the same reason, found the same way: `Ulid(at, 2)` — the
+        // millisecond plus a fixed discriminator — was harmless while every
+        // write landed in a fresh graph, and became a collision the moment
+        // estates accumulate. Two hand edits in the same millisecond (an
+        // import replays dozens) would reuse one batch id and the second is
+        // refused as `BatchIdReused`. The paste hit this first (2026-08-21);
+        // the 2026-08-28 review found these two sites still on the old
+        // derivation. (The author half of the old `ids` story is `UserId::
+        // LOCAL` — see its doc.)
+        let Ok(batch) = fathom_id::Ulid::from_parts(at.0, entropy) else {
             return protocol::encode_error(
                 ERR_EQUIP_FRAME,
                 &format!(
@@ -1583,11 +1644,17 @@ impl Shell {
         existing.sort();
         let found = existing.first().copied();
 
-        // `ids` mints the BATCH only. The author was `ids(1)` until 2026-08-21
-        // — derived from the host clock, so a fifty-op estate carried up to
-        // fifty distinct "users", none of them anybody. See `UserId::LOCAL`.
-        let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
-        let Ok(batch) = ids(2) else {
+        // THE BATCH ID IS DERIVED FROM THE ENTROPY, exactly as the paste's is
+        // and for the same reason, found the same way: `Ulid(at, 2)` — the
+        // millisecond plus a fixed discriminator — was harmless while every
+        // write landed in a fresh graph, and became a collision the moment
+        // estates accumulate. Two hand edits in the same millisecond (an
+        // import replays dozens) would reuse one batch id and the second is
+        // refused as `BatchIdReused`. The paste hit this first (2026-08-21);
+        // the 2026-08-28 review found these two sites still on the old
+        // derivation. (The author half of the old `ids` story is `UserId::
+        // LOCAL` — see its doc.)
+        let Ok(batch) = fathom_id::Ulid::from_parts(at.0, entropy) else {
             return protocol::encode_error(
                 ERR_EQUIP_FRAME,
                 &format!(

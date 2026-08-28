@@ -14,6 +14,13 @@
 > vendor, a protocol, a library version or a security practice in this document was looked up
 > on 2026-08-21 and is cited with its date, per ADR-0034. Everything that could not be
 > established is named in §21, and that list is part of the answer.**
+>
+> **ADDENDUM 2026-08-28:** §19's phase 0 is no longer unbuilt — its four CODED items
+> landed 2026-08-21 (secret-length leak closed; author + sequence on every op; the paste
+> product record with drift detection; the additive paste behind `ERR_PASTE_CHOICE`), and
+> the 900,000-byte ceiling §1 retires was actually removed the same day. The two DECISION
+> items in phase 0 — open decisions 1 and 2 — remain the owner's and remain open. Nothing
+> server-side exists yet.
 
 ## Contents
 

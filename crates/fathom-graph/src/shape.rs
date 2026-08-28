@@ -144,9 +144,9 @@ fn element(tag: u8, kind: &str, ulid: u128, absent: bool) -> Fnv {
 /// this graph holds.
 ///
 /// Defined over **the whole held estate after a step**, not over one operation's
-/// product. Today `OP_PASTE` replaces what is held, so for a paste the two are
-/// the same thing; when it becomes *"add to this design"* (`49` §19 phase 0,
-/// item 2) this definition still means what it says and needs no edit.
+/// product — which is why `OP_PASTE` becoming *"add to this design"* on
+/// 2026-08-21 (`49` §19 phase 0) needed no edit here: the definition was
+/// written for that day, and this sentence used to say so in the future tense.
 pub fn shape_digest(graph: &Graph) -> u64 {
     let mut total: u64 = 0;
     // WALKED BY KIND, and the reason is bytes, not taste. `nodes_of_kind`'s

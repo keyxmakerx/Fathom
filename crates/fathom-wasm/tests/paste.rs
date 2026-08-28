@@ -876,3 +876,46 @@ fn two_different_boxes_both_survive() {
          change exists to fix"
     );
 }
+
+/// **AN ID COLLISION IS REFUSED BEFORE THE ESTATE IS TOUCHED.**
+///
+/// `apply_new_device` opens its batch first and `fathom-graph` has no
+/// rollback, so a collision hit MID-WELD leaves a partial batch in the
+/// operator's estate. The pre-flight makes that unreachable: the dry run says
+/// exactly which ids the real weld will claim, and every one is asked about,
+/// read-only, before anything is written.
+///
+/// The probe reuses one entropy value for two different boxes — which a real
+/// host never does, and which is therefore the exact hostile input the
+/// pre-flight exists for.
+#[test]
+fn an_id_collision_is_refused_with_nothing_written() {
+    let mut shell = common::booted_shell();
+    let ok = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
+    assert!(matches!(decode_reply(&ok), Ok(ReplyView::FaceRows(_))));
+
+    // Different hostname (so the identity check passes), SAME entropy (so the
+    // minted range overlaps the first paste's exactly).
+    let clash = shell.handle(
+        OP_PASTE,
+        &frame(TS, ENTROPY, "set system host-name srx-clash-99\n"),
+    );
+    let e = error(&clash);
+    assert!(
+        e.detail.contains("nothing was added"),
+        "the refusal must be the pre-flight's (before writing), not the \
+         mid-weld fallback: {}",
+        e.detail
+    );
+
+    // And nothing WAS added: the estate still holds exactly one device, and
+    // the log holds exactly one batch — no partial second batch.
+    let g = shell.estate_for_test().expect("an estate");
+    assert_eq!(
+        g.nodes_of_kind(fathom_ir::generated::ir_types::NodeKind::Device)
+            .count(),
+        1,
+        "a refused paste wrote a device"
+    );
+    assert_eq!(g.log().len(), 1, "a refused paste left a batch in the log");
+}

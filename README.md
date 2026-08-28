@@ -1,9 +1,12 @@
 # Fathom — architecture corpus, schema, and first code
 
-The design corpus, declared schema and first toolchain for a security-first, client-side
-network engineering tool. Fifty-odd specification documents, thirty-three decision records, six
-adversarial critiques, a seed content corpus, a declared `schema/` tree, six Rust crates —
-the schema toolchain and the working command finder — a full-application interactive mockup,
+The design corpus, declared schema and toolchain for a security-first network engineering
+tool. The current artifact is client-side — one HTML file, opens offline, connects to
+nothing; the destination since the 2026-08-18 pivot is a server-hosted version
+(`docs/40-stack/49-the-server-product.md`), not yet begun. Fifty-odd specification
+documents, thirty-plus decision records, six adversarial critiques, a seed content corpus, a
+declared `schema/` tree, sixteen Rust crates — parser, typed store, layout, views, and the
+redaction gate that destroys credentials at ingest — a full-application interactive mockup,
 and a work-order queue (`docs/70-ops/79-work-orders/`) that pre-decides the engineering line.
 
 Fathom models a network as one typed graph and projects it into a diagram, a configuration, a set

@@ -791,7 +791,7 @@ a budget that also has to hold a rule engine.
 
 | Recorded | Where | Verdict |
 |---|---|---|
-| 900 000-byte ceiling | `44` §5.2, gated in `crates/fathom-wasm/tests/artifact_gates.rs:97` | **Holds** as a gate. As a *budget* the section behind it does not — §10.2 |
+| 900 000-byte ceiling | `44` §5.2; was gated in `artifact_gates.rs` | **Removed 2026-08-21** (`49` §1, the pivot). The gate became a per-run size REPORT; this census stands as the record of where the bytes went while the ceiling ruled |
 | Persistence +239 964 | `70` §—, `00-ROUTE-TO-WORKABLE.md` §2/§5/Failure modes, `CLAUDE.md` | **Holds.** Reproduced at 235 890 |
 | `slot_from_canon` route A +107 857 | `00-ROUTE-TO-WORKABLE.md` §2 stage 6 | **Holds** as a marginal cost. Reproduced at 103 049. Its *self-size* is 11 970 |
 | Create-and-edit route B +5 677 | `00-ROUTE-TO-WORKABLE.md` §2 stage 6 | **Consistent.** Not independently re-measured; the four write opcodes it became now cost 8 430 + 2 284 + 7 247 = 17 961 marginally |

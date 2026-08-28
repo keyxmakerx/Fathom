@@ -656,15 +656,28 @@ fn the_sketch_reveals_nothing_about_how_long_the_secret_was() {
     ]
     .iter()
     .map(|secret| {
-        // A statement the dictionary does not shape, so it takes the
-        // quarantine path and is sketched rather than bound.
-        let line =
-            format!("set ecurity ike policy IKE-POL pre-shared-key ascii-text \"{secret}\"\n");
+        // NO `set` PREFIX, AND THAT ONE WORD IS THE WHOLE TEST. With it, the
+        // line SHAPES as a statement and the raw pre-shared-key detector
+        // destroys the value per-token (`<REDACTED:unknown>`) — a path that
+        // was already length-blind, so a first version of this test passed
+        // WITH THE DEFECT REINTRODUCED, proved by revert during the
+        // 2026-08-28 review. Without `set` the line is unshaped — the clipped
+        // head a real terminal paste produces, the same shape the fixture's
+        // quarantined line has — and goes to `sketch`, the function this test
+        // exists to guard. The assertion below the map pins that we actually
+        // arrived there, so the probe cannot silently drift back onto the
+        // other path.
+        let line = format!("ecurity ike policy IKE-POL pre-shared-key ascii-text \"{secret}\"\n");
         let out = ingest(line.as_bytes(), &dict()).expect("within the caps");
         let text = out.capture.text().to_string();
         assert!(
             !text.contains(&secret[..]),
             "the secret itself survived: {text}"
+        );
+        assert!(
+            text.contains("<word") && text.contains("<quoted"),
+            "the probe no longer reaches the sketch path, so this test is \
+             guarding nothing: {text}"
         );
         text
     })

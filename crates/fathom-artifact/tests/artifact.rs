@@ -241,49 +241,94 @@ fn the_importer_still_reads_the_version_before_the_envelope() {
 ///
 /// So the agreement is asserted rather than maintained by care.
 #[test]
-fn the_pages_face_codes_match_the_modules() {
+fn the_pages_wire_constants_match_the_modules() {
     let page = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
         .expect("the shell source is checked in");
     let proto =
         std::fs::read_to_string(workspace_root().join("crates/fathom-wasm/src/protocol.rs"))
             .expect("the protocol source is checked in");
+    let ops = std::fs::read_to_string(workspace_root().join("crates/fathom-wasm/src/lib.rs"))
+        .expect("the wasm lib source is checked in");
 
+    // FACE_* was the original scope, and the 2026-08-28 review found the gap:
+    // the page also duplicates ERR_* and OP_* literals, and nothing checked
+    // them — so a renumbered ERR_PASTE_CHOICE would have silently turned every
+    // duplicate-device question into a raw "the module refused: code 18". Same
+    // defect class, one prefix over. All three families are scraped now, and
+    // module-side VALUE UNIQUENESS is asserted per family, because both
+    // face-code collisions this month landed the duplicate in BOTH files at
+    // once — a page-vs-module comparison alone cannot see that.
     let mut checked = 0usize;
-    for line in proto.lines() {
-        let line = line.trim();
-        let Some(rest) = line.strip_prefix("pub const FACE_") else {
-            continue;
-        };
-        let Some((name, value)) = rest.split_once(": u8 = ") else {
-            continue;
-        };
-        let Some(value) = value.strip_suffix(';') else {
-            continue;
-        };
-        let name = format!("FACE_{name}");
-        // The page declares these as plain `var` initialisers, singly or in a
-        // comma list. Both spellings are searched for the same pair.
-        let needle_single = format!("var {name} = {value};");
-        let needle_in_list = format!("{name} = {value}");
-        if !page.contains(&name) {
-            // Not every module-side face has to be read by the page.
-            continue;
+    for (src, prefix, ty) in [
+        (&proto, "FACE_", ": u8 = "),
+        (&proto, "ERR_", ": u16 = "),
+        (&ops, "OP_", ": u32 = "),
+    ] {
+        let mut seen: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for line in src.lines() {
+            let line = line.trim();
+            let Some(rest) = line.strip_prefix("pub const ") else {
+                continue;
+            };
+            let Some(rest) = rest.strip_prefix(prefix) else {
+                continue;
+            };
+            let Some((name, value)) = rest.split_once(ty) else {
+                continue;
+            };
+            let Some(value) = value.strip_suffix(';') else {
+                continue;
+            };
+            let name = format!("{prefix}{name}");
+            seen.entry(value.trim().to_owned())
+                .or_default()
+                .push(name.clone());
+
+            // The page declares its copies as `var NAME = value` — singly or
+            // in a comma list. Restricting the needle to `NAME = value` with a
+            // terminator keeps a comment quoting the constant from satisfying
+            // it, and keeps `= 1` from matching a page that says `= 15`.
+            // "Declared", not "mentioned": the page's prose QUOTES constant
+            // names (a comment explains ERR_NOT_INITIALISED without declaring
+            // it), and the first run of this test failed on exactly that. A
+            // declaration is `var NAME =` or a `, NAME =` continuation of one.
+            let declared =
+                page.contains(&format!("var {name} =")) || page.contains(&format!(", {name} ="));
+            if !declared {
+                continue; // not every module constant is read by the page
+            }
+            checked += 1;
+            let ok = [
+                format!("var {name} = {value};"),
+                format!("{name} = {value};"),
+                format!("{name} = {value},"),
+            ]
+            .iter()
+            .any(|n| page.contains(n.as_str()));
+            assert!(
+                ok,
+                "the page and the module disagree about {name}: the module \
+                 says {value}. These are wire discriminants — a mismatch \
+                 renders one thing as another rather than failing."
+            );
         }
-        checked += 1;
-        assert!(
-            page.contains(&needle_single) || page.contains(&needle_in_list),
-            "the page and the module disagree about {name}: the module says \
-             {value}. A face code is a wire discriminant, so a mismatch renders \
-             one record kind as another rather than failing."
-        );
+        for (value, names) in &seen {
+            assert!(
+                names.len() == 1,
+                "{prefix} value {value} is claimed by more than one constant: \
+                 {names:?}. Both collisions this month landed in BOTH files at \
+                 once, which the page-vs-module check alone cannot see."
+            );
+        }
     }
     assert!(
-        checked >= 8,
-        "only {checked} face codes were cross-checked, so this test is not \
-         reading the declarations it thinks it is"
+        checked >= 30,
+        "only {checked} wire constants were cross-checked, so this test is \
+         not reading the declarations it thinks it is (the floor was 8 when \
+         only FACE_* was scraped; 30 FACE codes alone exist now)"
     );
 }
-
 fn motion_is_priced_not_banned(source: &str) {
     let mut animated = 0usize;
     // BLOCK-COMMENT STATE, not a per-line prefix test. This file's own prose

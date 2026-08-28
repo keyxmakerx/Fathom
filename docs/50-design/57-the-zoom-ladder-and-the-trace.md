@@ -5,6 +5,12 @@
 > **Nothing in this document is built.** No `.rs` file, no `schema/` change and no page
 > change came out of it. It exists so that a week's design conversation is not lost, and so
 > the next session starts from the findings rather than from the questions.
+>
+> **ADDENDUM 2026-08-28: that sentence is now historical.** Pile A (§14.1) was built out on
+> 2026-08-21/22 — the rack rung, rung 4 (§7's gap), editable cells, the gaps view, Direction
+> A on the inventory — and the byte pile (§14.1 C) emptied when the 900,000-byte ceiling was
+> removed with the pivot (`49` §1). The owner-blocked pile is untouched: every decision in it
+> is still open. §14's sorting logic is dated; its findings (§2, §3, §6) still bind.
 
 Two renders were published and approved in outline. This file is the durable record of
 what they showed, what five independent designs and four adversarial checks established,
@@ -592,11 +598,11 @@ where a session with no owner available should go.
 
 | | what | why it is free |
 |---|---|---|
-| A1 | **Move `rack view` out of the band** — selecting a rack is how you get an elevation | the renderer exists; only the entry point changes |
-| A2 | **Rung 4 — inside the box** (§7) | needs no new kind, no opcode, no rules engine; a renderer and a layout, both page-side |
-| A3 | **Editable inventory cells** for fields that already exist | `OP_FIELD_SET` already exists (§12.6); this is reach, not machinery |
-| A4 | **The findings view as "what the estate does not know yet"** (§13.5.3) | reads the graph it already has; gives an empty placeholder its first job |
-| A5 | **Give the inventory Direction A's treatment too** (§16) | the same fix already written for the diagram; page-side, no module bytes |
+| A1 ✅ 2026-08-21 | **Move `rack view` out of the band** — selecting a rack is how you get an elevation | the renderer exists; only the entry point changes |
+| A2 ✅ 2026-08-22 | **Rung 4 — inside the box** (§7) | needs no new kind, no opcode, no rules engine; a renderer and a layout, both page-side |
+| A3 ✅ 2026-08-22 | **Editable inventory cells** for fields that already exist | `OP_FIELD_SET` already exists (§12.6); this is reach, not machinery |
+| A4 ✅ 2026-08-21 | **The findings view as "what the estate does not know yet"** (§13.5.3) | reads the graph it already has; gives an empty placeholder its first job |
+| A5 ✅ 2026-08-22 | **Give the inventory Direction A's treatment too** (§16) | the same fix already written for the diagram; page-side, no module bytes |
 
 **B — Blocked on the owner.** Five decisions, all cheap now and expensive later, none of
 which an execution session may take (`78` §5).
@@ -767,7 +773,7 @@ Found 2026-08-18 when the owner said, of a build he had just rebuilt:
 > *"which PR/build was the one where when you are looking at equipment and click on it, you
 > have like 3 pages opened, it was too much and you couldn't see anything"*
 
-**He was describing the inventory, and he is right: the fix landed on the diagram only.**
+**He was describing the inventory, and he was right: the fix had landed on the diagram only.** *(Fixed 2026-08-22 — this section is the record of the defect, not a live report; `2026-08-21-inventory-direction-a.mjs` asserts the shared idiom.)*
 
 ### 16.1 What is actually on screen
 

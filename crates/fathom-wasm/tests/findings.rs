@@ -479,6 +479,10 @@ set security zones security-zone trust interfaces ge-0/0/0.0
     let mut frame = Vec::new();
     frame.extend_from_slice(&1_700_000_000_000u64.to_le_bytes());
     frame.extend_from_slice(&9u128.to_le_bytes());
+    // Confirm byte — without it the module reads the config's first 's' as the
+    // flag and "et system host-name…" goes to residue: the gaps under test were
+    // being computed over an estate with an unbound hostname nobody intended.
+    frame.push(0);
     frame.extend_from_slice(config.as_bytes());
     let reply = shell.handle(OP_PASTE, &frame);
     assert_eq!(

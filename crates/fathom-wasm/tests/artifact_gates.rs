@@ -1,7 +1,8 @@
 //! The two artifact gates the security corpus specifies for this module, made
 //! runnable: the import audit (34 §7.5, 42 §9.4 check 5 — here asserting the
-//! stronger fact that the import section is *empty*) and the size gate
-//! (44 §5.2's 900 KB uncompressed ceiling, read as 900 000 bytes).
+//! stronger fact that the import section is *empty*) and the size REPORT —
+//! 44 §5.2's 900 KB ceiling until 2026-08-21, when the pivot removed it
+//! (`49` §1); the reasoning lives beside the report below.
 //!
 //! The audit parses the built `.wasm` with `fathom_wasm::wasmbin`: no
 //! `wasm-objdump`, no `twiggy`, no tool download (78 §5 item 2).
@@ -120,21 +121,50 @@ fn release_wasm_builds_audits_and_fits() {
     }
 
     // The `inspect` feature is the same bet on the same resolver rule, made
-    // 2026-08-21 for a read path into the held estate that only tests use. It
-    // is far smaller than the demo estate, which is exactly why it needs the
-    // assertion more: a few hundred bytes would never trip the size gate below,
-    // so nothing else in this file would notice it shipping.
+    // 2026-08-21 for a read path into the held estate that only tests use.
     //
-    // The probe is chosen by the same negative control as the two above —
-    // `estate_for_test` is present in a `--features inspect` build and absent
-    // from this one, checked before this was written rather than assumed.
+    // **THE FIRST VERSION OF THIS GUARD WAS VACUOUS, AND ITS COMMENT CLAIMED A
+    // POSITIVE CONTROL THAT WAS NEVER RUN.** It searched the wasm for the
+    // bytes `estate_for_test` — but the method is never called from the
+    // cdylib, so fat LTO dead-code-eliminates it EVEN WHEN THE FEATURE IS ON,
+    // and `strip = "symbols"` leaves no name behind. The 2026-08-28 review
+    // proved it: a `--features inspect` release build was byte-identical in
+    // size and contained zero occurrences of the probe. A guard that cannot
+    // fail is worse than none, and a comment asserting an unrun control is
+    // rule 0's defect in a byte gate.
+    //
+    // So the assertion moved from the ARTIFACT to the FEATURE GRAPH, which is
+    // where the property actually lives: nothing in the shipping dependency
+    // graph may enable `inspect`. And the positive control is IN the test
+    // this time — the dev graph must show the feature, or the probe text has
+    // drifted and the test is guarding nothing again.
     {
-        let probe = b"estate_for_test";
+        let tree = |extra: &[&str]| {
+            let out = std::process::Command::new("cargo")
+                .args([
+                    "tree",
+                    "-p",
+                    "fathom-wasm",
+                    "--target",
+                    "wasm32-unknown-unknown",
+                ])
+                .args(extra)
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
+                .output()
+                .expect("cargo tree runs");
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        let shipping = tree(&["-e", "features,no-dev"]);
         assert!(
-            !wasm.windows(probe.len()).any(|w| w == probe),
-            "the test-only estate accessor is linked into the shipping module. \
-             Something enabled fathom-wasm's `inspect` feature in the module's \
-             normal dependency graph; it belongs to test targets only."
+            !shipping.contains("inspect"),
+            "the `inspect` feature is enabled in the shipping dependency \
+             graph; the test-only estate accessor would compile into the module"
+        );
+        let dev = tree(&["-e", "features"]);
+        assert!(
+            dev.contains("inspect"),
+            "the dev graph no longer shows the `inspect` feature at all — the \
+             probe has drifted and this guard is vacuous again"
         );
     }
 
