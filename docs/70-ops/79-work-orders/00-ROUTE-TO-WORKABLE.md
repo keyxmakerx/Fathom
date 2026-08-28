@@ -5,6 +5,29 @@
 > refute — synthesised and then re-checked by hand. Where a verifier refuted a survey, the verifier
 > wins and the correction is stated.
 >
+> **READ THIS FOR THE ROUTE'S SHAPE, NOT ITS SNAPSHOT (banner added 2026-08-28).** Every number
+> below is a measurement taken on 2026-08-10 and almost all of them have moved. Three things in
+> particular will mislead a reader who takes this document at face value:
+>
+> 1. **The 900,000-byte ceiling this document is built around no longer exists.** It was removed on
+>    2026-08-21 with the pivot to a server-hosted product (`49` §1). **§2 stage 1 — *"the ceiling is
+>    an architecture question, not a number to raise"* — is therefore a closed question, answered by
+>    removing it**, and §3's byte tables, §4's estimates and the 98.5%-spent framing in §1 are all
+>    history. `47`'s three unproven byte levers are retired as a priority for the same reason.
+> 2. **The product state in §1 is four views out of date.** *"1 of 6 views live, zero lines of
+>    diagram, 42 Junos statements"* was true that day; the diagram shipped 2026-08-15, four views
+>    are live, and coverage is measured in `66`.
+> 3. **The destination changed underneath the route.** This plans a single offline HTML file. The
+>    owner dropped that on 2026-08-18/21 in favour of a server-hosted, multi-tenant, live-editing
+>    product. `docs/40-stack/49-the-server-product.md` is the current plan and supersedes this one
+>    on **where the product is going**.
+>
+> **What survives, and is why this file is not withdrawn:** the *dependency ordering* — what must
+> exist before what — is independent of both the ceiling and the delivery mode, and §4's split
+> between work that genuinely needs the owner and work that merely says it does is still the most
+> useful page in the queue. Read it for those. `00-INDEX.md` remains the queue and still wins on
+> what is takeable today.
+>
 > **Relationship to `00-PROGRAM-PLAN.md`:** that document's eleven stages describe the same
 > destination and are not withdrawn. This one re-orders the route against **measurements** the
 > program plan did not have, and its §2 is the operational sequence. Where the two disagree on

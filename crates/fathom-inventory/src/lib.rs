@@ -14,8 +14,10 @@
 //!
 //! `demo_estate()` is behind the off-by-default `demo-estate` feature and is
 //! **not in the shipping module**: it is a development fixture and it was
-//! costing 35,095 of `44` §5.2's 900,000 bytes. See this crate's Cargo.toml
-//! for why the feature is off by default and how the test targets still get it.
+//! costing 35,095 of `44` §5.2's 900,000 bytes. That ceiling was removed on
+//! 2026-08-21 (`49` §1) and it was never the main reason: the paste sheet gives
+//! a person a real estate in two seconds. See this crate's Cargo.toml for why
+//! the feature is off by default and how the test targets still get it.
 
 #![forbid(unsafe_code)]
 

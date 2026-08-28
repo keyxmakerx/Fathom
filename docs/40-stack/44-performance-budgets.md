@@ -653,6 +653,30 @@ is a ceiling nobody checks.
 
 ### 5.2 The WASM core, by component
 
+> **THE 900 000-BYTE CEILING WAS REMOVED BY THE OWNER ON 2026-08-21. This document owns that
+> figure, so this is where the removal is recorded** (added 2026-08-28; the change had been noted
+> in `49` §1, in `CLAUDE.md` and in the test that enforced it, but not yet here, which under the
+> precedence rule is the only place that can retire it).
+>
+> **What was decided.** Offered *raise the ceiling*, *remove it and keep a size report*, or *hold
+> the work*, the owner chose **remove it and keep a size report**. `47` §11 had just refused the
+> config view for want of ~110 000 bytes — the first feature refusal in the project's history —
+> and the pivot to a server-hosted product (`49` §1) dropped the single offline HTML file that the
+> ceiling existed to keep openable. A limit whose purpose has gone is not a safety property; it is
+> whatever fitted last time, and enforcing it would have gone on costing features for a reason
+> that no longer applied.
+>
+> **What replaced it.** Nothing enforcing. `crates/fathom-wasm/tests/artifact_gates.rs` prints the
+> module size on every run and asserts nothing about it; `scripts/byte-census.sh` still says where
+> the bytes went. **A size report is not a budget** — the number is now evidence for a judgement,
+> and there is no number a build can fail against.
+>
+> **What this does NOT retire.** The measurements below and in `47` are unaffected and are still
+> the best account of where the module's bytes go; §5.1's latency budgets are untouched; and
+> `48` §5b's observation stands — the ceiling was a WASM constraint that never existed for a
+> native binary, so the server fork never inherited it. Everything below this block describes a
+> constraint that was real when it was written. **Read it as measurement, not as a limit.**
+
 > **Ownership (ADR-0017):** this document owns every size and budget figure. `41` §3.10's and
 > `43` §3.2's independent totals are deleted; `41`'s per-component *split* survives and its
 > numbers live here. One number is contested and decides everything: `41`/this document

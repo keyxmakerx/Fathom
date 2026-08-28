@@ -1,6 +1,25 @@
 # 47 — The byte census
 
 > **Status:** Proposed. Measured at commit `adbb590` and re-anchored onto `adbd9a2`, both 2026-08-15.
+>
+> **THE CEILING THIS DOCUMENT MEASURES AGAINST WAS REMOVED ON 2026-08-21** (banner added
+> 2026-08-28). `44` §5.2 owns that figure and records the decision; in short, the owner chose
+> *remove the ceiling, keep a size report* after the pivot to a server-hosted product (`49` §1)
+> dropped the single offline HTML file the limit existed to keep openable. **Two things here are
+> therefore history rather than standing conclusions:**
+>
+> - **§11's refusal of the config view is WITHDRAWN.** It refused the feature because linking
+>   `fathom-emit` cost +110 668 bytes against 13 679 free. There is nothing left to breach, so the
+>   config view is a scheduling question now, not a refused one. §11's *reasoning* about how to
+>   spend a scarce budget is still worth reading; its *verdict* is not in force.
+> - **The three byte levers §11 recommends proving are retired as a priority.** They existed to buy
+>   room under the ceiling. Anyone tempted to spend a session on them should read `49` first.
+>
+> **Everything else stands and is why this file is not withdrawn.** The measurements are correct,
+> the method reproduces (`scripts/byte-census.sh`), and §1's three structural findings are
+> independent of any limit — above all that **243 522 bytes, 27.5 % of the module, is shared
+> B-tree and sort machinery that no feature owns and no budget row can see.** That is still true,
+> still nobody's, and still the most interesting number in the tree.
 
 Companion documents: `44-performance-budgets.md` (**owns** every size budget and ceiling —
 `01-ownership.md` row *"Size, memory and latency budgets"*; this document measures, `44` decides),

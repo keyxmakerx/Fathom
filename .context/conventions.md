@@ -72,6 +72,27 @@ first external crate does.
 
 ## Hard invariants — every document must be consistent with these
 
+> **Standing note — read this before arguing from invariants 1 and 2 (added 2026-08-28).**
+> **The invariants below are unamended and every one of them still binds.** But the owner has
+> changed what two of them are understood to *scope*, and several documents in this corpus argue
+> from the old reading. On 2026-08-18 he said, of invariant 1: *"this would be after we were full
+> server solution, so it wouldn't be that main rule anymore, that main rule is only for demo mode
+> like it is currently."* On 2026-08-18/21 he took the pivot decisions in
+> `docs/40-stack/49-the-server-product.md` §1 — data on the server, live multi-user editing,
+> multi-tenant — and accepted their consequence: **the single offline HTML file is dropped.** And
+> invariant 2's *"permanent product boundary"* sentence is contradicted by his stated long-term
+> intent, recorded in `48` §1 and `49` §16: monitoring, config pulls, and an SCP firmware
+> distribution path.
+>
+> **Nothing here amends anything.** Amending an invariant is `03`'s and the owner's
+> (`48` §1, open decision 1), and `48` deliberately declined to do it. What this note exists to
+> stop is a fresh session reading this file first — as CLAUDE.md rule 2 tells it to — and then
+> reasoning from *"the product can never connect to anything, permanently"* as a settled premise
+> when the owner has said it governs the client-only mode he calls the demo. **Two readings are
+> live and only the owner closes the gap.** Where a document's conclusion depends on which reading
+> is right, say so rather than picking; `38` §14 is the worked example, and its finding stands on
+> its own merits for the client artifact regardless of how the invariant is finally scoped.
+
 1. **No egress by default.** The application never opens a connection the user did not
    configure. Enforced by `default-src 'none'` with a per-directive allowlist —
    `connect-src`, `img-src`, `font-src`, `form-action` and `frame-src` all constrained —

@@ -1,19 +1,29 @@
 # WO-10 — DHCP relay and BOOTP: the first statements the estate cannot hold
 
-> **Status:** READY, BLOCKED ON BYTES — authored 2026-08-17 at the owner's request
-> (*"that's fine if we can't build it currently then can you prepare it to be added later"*).
+> **Status: OPEN — unblocked 2026-08-21, flipped here 2026-08-28.** Authored 2026-08-17 at the
+> owner's request (*"that's fine if we can't build it currently then can you prepare it to be added
+> later"*) and held as READY, BLOCKED ON BYTES until the pivot removed the ceiling it was waiting
+> on (`49` §1; the owner chose *remove the ceiling, keep a size report* over raising it).
+>
+> **Its own flip condition is satisfied vacuously and that is worth stating rather than glossing.**
+> The line below used to read *"flip to OPEN the moment … `cargo build … -p fathom-wasm` reports at
+> least 1,200 bytes of headroom"*. There is no ceiling now, so there is no headroom to measure
+> against and the test cannot be run as written. The order is unblocked because **the constraint
+> was retired, not because it was met** — a distinction that matters if the ceiling ever returns in
+> another form (`48` §5b: it is a WASM constraint and does not exist natively, so the server fork
+> never had it).
+>
 > Nothing in this order is waiting on a decision about **what** to build or **how**; the modelling,
 > the field keys, the dictionary entries and the gates are all written below and can be executed as
-> they stand. It is waiting on **room in the module**, and the block is measured rather than
-> asserted: see §2. Flip to OPEN the moment `47`'s finder lever (or an equivalent) has landed and
-> `cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm` reports at least
-> 1,200 bytes of headroom.
+> they stand. **What remains is code.**
 >
-> **This order is also the first proof that the ceiling costs the product a feature the owner asked
-> for by name**, which is why §2 is written as a measurement report rather than a caveat.
+> **§2 is kept verbatim as history**, not as a live block. It is the measurement that proved the
+> ceiling cost the product a feature the owner asked for by name — the evidence behind the decision
+> to remove it — and deleting it would erase the reasoning while keeping the outcome.
 
-Depends on: **the byte decision** (owner; `47` §11, `00-ROUTE-TO-WORKABLE.md` §2 stage 1). No code
-dependency — `fathom-ingest`, `fathom-weld` and `fathom-graph` are all DONE and all sufficient.
+Depends on: **nothing.** `fathom-ingest`, `fathom-weld` and `fathom-graph` are all DONE and all
+sufficient; the byte decision this order once waited on (`47` §11,
+`00-ROUTE-TO-WORKABLE.md` §2 stage 1) was taken by the owner on 2026-08-21.
 
 The owner's words, 2026-08-17: *"we need to make sure dhcp relay but also bootp is there. Since we
 use bootp apparently, just discovered that."* And, on where it should live: *"make sure it's to the
@@ -340,9 +350,14 @@ assigning, because `47`'s lever or another order may have taken them.
 
 ## 8. Acceptance gates
 
-* G1 — the floor (`78` §6) green, including the byte gate. **The build must come in under 900,000
-  with the kind in it.** If it does not, the lever this order was unblocked on was not enough:
-  stop, and escalate rather than trimming the modelling.
+* G1 — the floor (`78` §6) green. **This gate was rewritten 2026-08-28 and the old text would now
+  send a session looking for something that is not there.** It used to read *"including the byte
+  gate — the build must come in under 900,000 with the kind in it … stop, and escalate rather than
+  trimming the modelling."* There is no byte gate: `crates/fathom-wasm/tests/artifact_gates.rs`
+  reports the module size and asserts nothing about it, by the owner's decision of 2026-08-21
+  (*remove the ceiling, keep a size report*). **Record the size this order adds** — the report
+  prints it and `scripts/byte-census.sh` says where it went — and do not trim the modelling to hit
+  any number. There is no number to hit.
 * G2 — `fathom-schema-check` 0 failures **and 0 warnings**. A new kind with `identity: []` has
   raised `schema.identity.unexercised` before; `crates/fathom-schema/tests/shipped_tree.rs` pins
   the empty warning set, so this fails a test rather than printing.
@@ -370,7 +385,9 @@ assigning, because `47`'s lever or another order may have taken them.
 ## 10. Stop and escalate
 
 1. §5.4 cannot be closed from two independent sources. Do not guess a grammar; `78` §4.
-2. The build exceeds 900,000 with §4 in it (G1).
+2. ~~The build exceeds 900,000 with §4 in it (G1).~~ **Retired 2026-08-28** — this trigger cannot
+   fire, because the ceiling it names was removed on 2026-08-21 and G1 no longer asserts a size.
+   Struck rather than deleted so nobody re-derives it from §2's measurements, which are history.
 3. §5.4 item 4 turns out to need a `RoutingInstance` edge — re-measure and re-escalate before
    writing it.
 4. A second platform's relay form (PAN-OS, Nexus, Meraki) turns out not to fit `DhcpRelay`'s

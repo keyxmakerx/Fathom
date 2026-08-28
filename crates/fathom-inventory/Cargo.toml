@@ -20,6 +20,10 @@ fathom-graph = { path = "../fathom-graph" }
 # and correction all work, so the fixture no longer buys anything a person
 # cannot get in two seconds.
 #
+# (The ceiling named above was removed 2026-08-21, `49` §1 — but it was never the
+# main reason and nothing here changes: the fixture buys nothing the paste sheet
+# does not, and that argument is byte-independent.)
+#
 # The feature is OFF by default, deliberately. Default-on with
 # `default-features = false` on the `fathom-wasm` side would have been one line
 # shorter and was rejected: it makes the shipped configuration the exceptional

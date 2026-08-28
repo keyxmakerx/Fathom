@@ -22,6 +22,15 @@
 //! reach for and would be found only by a CI failure.
 //!
 //! Adding a type here is one line. Adding all of them is a ceiling decision.
+//!
+//! **THE CEILING WAS REMOVED ON 2026-08-21 (`49` §1), SO THE PARAGRAPHS ABOVE ARE
+//! HISTORY AND NO LONGER FORBID ANYTHING** (note added 2026-08-28). There is no
+//! merge to fail: `crates/fathom-wasm/tests/artifact_gates.rs` reports the module
+//! size and asserts nothing about it. The wide `slot_from_canon` dispatch is now a
+//! straight trade — +107,857 bytes for every field of every kind becoming writable
+//! — and it is a **judgement**, not a refusal. It has not been made. Do not read
+//! the measurement above as a standing veto, and do not delete it either: it is
+//! the price, and it is still the price.
 
 use core::any::{Any, TypeId};
 
