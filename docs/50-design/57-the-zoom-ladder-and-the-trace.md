@@ -297,10 +297,12 @@ All owner's, none taken here.
    §4 gap.
 8c. **Does `height_u` move from `MountedIn` to `Chassis`?** §15.6. A 2U server is 2U whether
    or not it is racked. Cheap now, a migration later.
-8. **How is "cable to that device, port unknown" recorded?** §13.2. **Promoted to a blocker
-   by §13.5**: under drag-first capture this is the normal state of every new cable, not an
-   edge case, so `PhysicalPort.label` almost certainly becomes `0..1`. Nothing in §12 or §13
-   can be built until this is answered.
+8. ~~**How is "cable to that device, port unknown" recorded?**~~ **ANSWERED 2026-08-28**
+   (`70` §18.3): `PhysicalPort.label` is `0..1` as of schema 0.4 — *"absolutely"*, in the
+   owner's word, because the empty-chart-then-fill-in gesture is *"one of the main
+   features"*. §13.5's promotion of this row to a blocker read the answer correctly a week
+   early. §12 and §13 are unblocked; B3 (where ports come from) is the next open question
+   they meet.
 
 ## 12. Cabling mode, and the correction that protects the trace
 
@@ -609,7 +611,7 @@ which an execution session may take (`78` §5).
 
 | | decision | why it cannot wait |
 |---|---|---|
-| B1 | **Does `PhysicalPort.label` become `0..1`?** | **hard blocker.** §13.5: under drag-first capture, "a port I cannot name" is the normal state of every new cable. Nothing in §12 or §13 is buildable until this is answered |
+| B1 ✅ 2026-08-28 | **Does `PhysicalPort.label` become `0..1`?** — **ANSWERED YES** (*"absolutely, one of the main features is to be able to create essentially a lucid chart with no information"*, `70` §18.3) and executed the same day: schema 0.4 relaxes the card, `62` §16.2 prices it minor. | ~~hard blocker~~ **cleared.** Everything in §12 and §13 is now buildable; B3 is the next question those sections meet |
 | B2 | **Is a `Site` related to a `Premises`?** (§4) | a rack cannot be at a site. Invisible in one building, immediate at work |
 | B3 | **Where do `PhysicalPort`s come from?** (§12.3) | cabling shows an empty port list on every hand-built device until this is answered |
 | B4 | **Reopen the no-move refusal?** | drag-and-drop in a rack *is* a move, and `rack_place` refuses one on purpose |

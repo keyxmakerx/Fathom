@@ -172,12 +172,18 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   or denied; from the ingress and egress interfaces the graph names the two zones, the policy set
   between them, and its policies *in the order the device reads them*. Four hundred policies
   become the twenty-seven pointing this way, exactly and not heuristically.
-- **One schema decision is a hard blocker and it is the owner's** (`57` §13.5, open decision 8):
-  **does `PhysicalPort.label` become `0..1`?** It is `card: "1"` today — the silkscreen, required.
-  Under the drag-then-annotate capture the owner specified, *"there is a port and I do not know
-  which"* is the normal state of every freshly-drawn cable rather than an edge case, so a schema
-  that cannot say it cannot record the primary gesture. **Nothing in `57` §12 or §13 is buildable
-  until this is answered.**
+- **The hard schema blocker is CLOSED — `PhysicalPort.label` is `0..1` as of 2026-08-28**
+  (schema 0.3 → 0.4, minor; owner's answer verbatim in `70` §18.3: *"absolutely, one of the
+  main features is to be able to create essentially a lucid chart with no information"*).
+  `57` §13.5's open decision 8 is answered and **everything in `57` §12–§13 — cabling mode,
+  drag-then-annotate, the port prompt — is now buildable.** The next question that work meets
+  is `57` §14.1 B3: nothing creates a `PhysicalPort` on a hand-built device yet, so cabling
+  shows an empty port list until an opcode or the catalogue populates ports. Three more
+  answers landed the same day (`70` §18): tenancy lives OUTSIDE the graph as server tables
+  (49 §22 decision 2, closed — and enterprise LDAP/AD arrived as a new phase-1 requirement);
+  key custody is delegated to an ADR-0034 survey of enterprise practice (decision 1, IN
+  PROGRESS); and general-purpose hosts get ENGINES, not a catch-all platform — the `proxmox`
+  vendor row is registered, its platform row waiting on a `64`-style survey.
 - **The parse-server question is answered and the answer is no server — `38` §14, 2026-08-17.**
   Six designs, each attacked by an independent reviewer. The finding in one line: *we were about
   to move a customer's firewall config off his machine because a lookup table got compiled as a

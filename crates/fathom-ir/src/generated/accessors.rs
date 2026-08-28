@@ -1103,8 +1103,8 @@ mod body {
     }
     /// Typed reads for `PhysicalPort` fields.
     pub mod physical_port {
-        /// `PhysicalPort.label` — `Text`, card `1`, emit `—`.
-        /// The silkscreen: "1", "PON 0/1". Not the interface name.
+        /// `PhysicalPort.label` — `Text`, card `0..1`, emit `—`.
+        /// The silkscreen: "1", "PON 0/1". Not the interface name. Absent means: the port exists and nobody has read the faceplate yet.
         pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(208))
         }

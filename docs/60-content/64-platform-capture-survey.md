@@ -468,6 +468,53 @@ The correct deliverable is a clear, sourced "not supported, and here is why" in 
 
 ---
 
+## 7. Proxmox VE — surveyed 2026-08-28, on the owner's question
+
+Added after the ten. The owner, naming the platform and asking the capture question in one
+breath (`70` §18.4): *"proxmox would probably need to be an engine … It's just a shame you
+can't copy and paste an entire config…unless that's a thing?"* One researcher, primary
+documentation plus one independent source, per this document's method.
+
+**The answer: yes, it is a thing — Proxmox VE configuration is plain text a person can copy
+from an SSH session.** Better than most of the ten above, and with one gate-critical wrinkle.
+
+- **Where it lives.** All cluster-level configuration sits under `/etc/pve` — a FUSE mount
+  (pmxcfs) backed by a replicated database, presenting ordinary readable text files:
+  `storage.cfg`, `datacenter.cfg`, `user.cfg`, `domains.cfg`, firewall files, SDN files, and
+  one `<VMID>.conf` per VM and container. Source: Proxmox VE wiki, *Proxmox Cluster file
+  system (pmxcfs)*, pve.proxmox.com/wiki/Proxmox_Cluster_file_system_(pmxcfs), checked
+  2026-08-28. Independent confirmation of the mount and its readable format: free-pmx,
+  *The pmxcfs mountpoint of /etc/pve* (no affiliation with Proxmox), checked 2026-08-28.
+- **What prints it.** `qm config <vmid>` and `pct config <vmid>` print a VM's or container's
+  config as `option: value` lines — *"a simple colon separated key/value format"* per
+  qm.conf(5); `pvesh get <path>` prints any API subtree as text, JSON or YAML; node
+  networking is Debian's plain-text `/etc/network/interfaces`. Sources: qm(1), pct(1),
+  pvesh(1), qm.conf(5) and the Admin Guide's network chapter at pve.proxmox.com/pve-docs/,
+  all checked 2026-08-28.
+- **Family.** Colon-separated full-key-per-line plus sectioned key-value blocks — nearer
+  family A than anything else in §3, and far easier than B's indentation or C's documents.
+- **The secret split is unusually clean — and one capture shape crosses it.** Proxmox
+  separates configuration from credentials by PATH: `storage.cfg` holds storage definitions
+  and **no passwords**; the passwords live beside it in `/etc/pve/priv/` (`storage/<ID>.pw`,
+  `token.cfg`, `shadow.cfg` with hashed realm passwords, CA and TFA keys). A person pasting
+  file-by-file will rarely paste a secret by accident. **But `pvereport` — the support
+  bundle command a Proxmox admin is most likely to have run — concatenates the node's
+  config files into one text stream with no redaction code in the module**, so the gate
+  must treat a pasted pvereport as the arrival shape and learn its secret-bearing sections
+  before any dictionary work begins. Sources: Admin Guide storage and user-management
+  chapters; proxmox/pve-manager `PVE/Report.pm`, read at master, checked 2026-08-28.
+- **Could not be established:** any single command that emits the whole node or cluster
+  configuration as one canonical document, the way Junos `show configuration` does. The
+  closest is `pvereport`, which is a diagnostic concatenation, not a canonical export.
+  One source (the pve-manager tree); recorded as unestablished per ADR-0034 rule 2.
+- **What this does NOT decide.** Whether and when a `proxmox-ve` platform row and
+  dictionary get built is `00-INDEX.md`'s and the owner's; this section is the evidence
+  that the capture path exists. §6's closing note applies with full force: a hypervisor
+  full of VMs multiplies devices faster than any platform above, so correlation still
+  outranks it.
+
+---
+
 ## Failure modes
 
 1. **This survey is read as a decision.** It is not. It establishes what is possible; the order in

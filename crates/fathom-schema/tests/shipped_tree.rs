@@ -78,7 +78,12 @@ fn shipped_tree_declaration_counts_hold() {
     // `enums` (the FILE count) does not move either. That the only line to change
     // here is the version is itself the evidence that the change is as small as
     // ADR-0037 claims.
-    assert_eq!(tree.version.as_deref(), Some("0.3"));
+    //
+    // 0.3 -> 0.4 (2026-08-28) is the same shape of evidence again: relaxing
+    // `PhysicalPort.label` to `0..1` (the owner's answer to 57 §13.5's open
+    // decision 8, 70 §18) moves no count in this function — same kinds, same
+    // edges, same 307 keys, same files. A cardinality is not a declaration.
+    assert_eq!(tree.version.as_deref(), Some("0.4"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

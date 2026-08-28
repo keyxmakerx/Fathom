@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.3"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.4"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -33,6 +33,16 @@ schema:
                     # form is the token, so if a later change ever does make the ordinal
                     # load-bearing, it fails a test rather than silently rewriting old
                     # exports.
+                    #
+                    # 0.4 relaxes ONE cardinality: PhysicalPort.label goes "1" → "0..1"
+                    # (owner, 2026-08-28, 70 §18 — closing 57 §13.5's open decision 8,
+                    # which was the hard blocker on all of cabling mode). Priced against
+                    # 62 §16.2: "Relaxed constraint / widened cardinality upper bound"
+                    # reads minor; a LOWERED lower bound is the same relaxation read from
+                    # the other end — every 0.3 export is a valid 0.4 export, and an old
+                    # build reading a new export meets a missing optional where it expected
+                    # a required, which is the tolerated direction. Nothing else moved: no
+                    # kind, no edge, no retype, no tuple reordered. Whole change = MINOR.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -924,7 +934,13 @@ kinds:
       NOTE (form vs content): 62 §4.1's declaration sketch shows position: Identifier,
       card "1"; 19 §3.3's field table (PortPosition, 0..1) is the normative content and wins.
     fields:
-      - { name: label, type: Text, card: "1", emit: "—", doc: "The silkscreen: \"1\", \"PON 0/1\". Not the interface name." }
+      # card was "1" until 0.4 — the silkscreen, required. The owner answered 57 §13.5's
+      # open decision 8 on 2026-08-28 (70 §18): under 57 §12's drag-then-annotate capture,
+      # "there is a port and I do not know which" is the NORMAL state of a freshly drawn
+      # cable end, not an edge case, and a schema that cannot say it cannot record the
+      # primary gesture. Tier-2 identity simply does not fire when no label is held —
+      # exactly as tier-1 already behaves when position (0..1 since birth) is absent.
+      - { name: label, type: Text, card: "0..1", emit: "—", doc: "The silkscreen: \"1\", \"PON 0/1\". Not the interface name. Absent means: the port exists and nobody has read the faceplate yet." }
       - { name: position, type: PortPosition, card: "0..1", emit: "—", doc: "{ slot: Option<u8>, subslot: Option<u8>, index: u16 }." }
       - { name: connector, type: "enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, other }", card: "0..1", emit: "—" }
       - { name: service, type: "enum { ethernet, pon, rf, serial, console, management, other }", card: "0..1", emit: "—", doc: What the cage is for. }

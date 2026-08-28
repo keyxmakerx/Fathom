@@ -271,6 +271,48 @@ Note the precedent cost, because ADR-0002 already priced it: *"Editing an invari
 precedent that invariants are editable. They were load-bearing precisely because they read as
 fixed."* The one thing that must not happen is choosing by accident.
 
+**ADDENDUM 2026-08-28 — the owner delegated this to evidence, and the evidence is in.** His
+words (`70` §18.1): *"what is the most secure but optimised way of handling this? surely we
+aren't coming up with anything unique, others should have made similar secure products. This
+is enterprise level though keep in mind."* An ADR-0034 survey ran the same day — every claim
+below carries its source and check date in `70` §18.1's commissioned research. Four findings:
+
+1. **Envelope encryption — a data key per tenant, wrapped by a master key in a key-management
+   service — is the documented standard at all three major clouds**, stated in those words by
+   the AWS KMS developer guide, Google Cloud KMS's envelope-encryption page, and Microsoft's
+   Azure encryption-at-rest page (all checked 2026-08-28). AWS documents the per-tenant
+   pattern specifically, including the access-condition mechanics that prevent cross-tenant
+   key use (AWS Security Blog, 2026-08-06).
+2. **No mainstream collaborative SaaS offers server-unreadable encryption together with
+   server-side search and unconditional recovery — and the products on each side say why.**
+   Slack's engineering blog rejects end-to-end explicitly because it would break search,
+   unfurling and notifications; Tresorit (genuinely zero-knowledge) documents that lost
+   passwords may be unrecoverable and offers no server-side content search; Proton's search
+   is client-side. Negative established across three products, per ADR-0034 rule 2. What
+   §2 priced as the "keep invariant 4" cost is what the whole market priced the same way.
+3. **The enterprise-tier norm is CUSTOMER-MANAGED keys, not end-to-end**: Slack EKM,
+   Salesforce Shield BYOK, Atlassian CMK, Miro BYOK — and **Lucid itself sells "Lucid KMS"
+   as an Enterprise Shield add-on**, on AWS-held keys by default. The comparable the owner
+   named as the model monetises exactly the staged custody switch this decision recommends.
+   Revocation and the customer's own audit trail (wrap/unwrap events logged to the
+   customer's CloudTrail, in Slack's case) are what the customer buys.
+4. **SOC 2 and ISO 27001 do not require application-layer encryption** — CC6.1 and control
+   8.24 are risk-based; disk/database encryption plus access control is the accepted
+   baseline (compliance-vendor summaries, not the standards' text; two independent sources).
+
+**RECOMMENDATION, firmed accordingly — the staged plan above, with the switch destination
+now named.** Server-held keys; application-layer envelope encryption with a data key per
+tenant from the first byte (not just disk encryption, which finding 4 would permit — one
+tier above the compliance floor, and cheap when built in from the start); the wrap point
+built so a **customer-supplied master key** can replace the house key later as the
+enterprise feature, which is the "custody change" the staged plan already required — the
+evidence says its destination is customer-managed keys, not end-to-end. Never say
+"zero-knowledge" or "we cannot read your data"; say what Fathom can say that no comparable
+can: **device credentials are protected by never arriving** — the ingest gate destroys them
+in the browser before upload, which is a stronger sentence about the most dangerous 2% of a
+config than any custody arrangement is about the rest. Awaiting the owner's ratification as
+the ADR this decision already requires.
+
 **Decision 5 — do not write the cryptography.**
 
 `32` §15 already forbids hand-rolling, and `deps/decisions/chacha20poly1305.md` says why better
@@ -724,6 +766,21 @@ cheat sheets, read 2026-08-21.
   it cannot be phished. Keep one-time codes as the fallback for people whose hardware cannot.
 - **Organisations: OpenID Connect, not SAML.** 12.0M downloads against 636k, and the SAML crate
   is still on version 0.0.22.
+- **The customer's directory is the source of truth — the owner said so before being asked**
+  (2026-08-28, `70` §18.2: *"they may use ldap or Active directory for their users"*). The
+  ADR-0034 survey commissioned that day found the split the industry runs: **for the hosted
+  product, the SaaS never speaks LDAP itself** — the customer's identity provider (Entra ID,
+  Okta) fronts their directory and the product speaks OIDC/SAML to the provider, with SCIM
+  for provisioning and deprovisioning; **for the self-hosted build, a direct LDAP/AD bind is
+  still the documented norm** — GitLab, Grafana and NetBox all ship it, NetBox via
+  `django-auth-ldap` with Active Directory examples (all checked 2026-08-28). Same two-shape
+  answer as the reverse proxy in phase 1: hosted and self-hosted differ at the boundary, one
+  binary behind it. Design the user table so an externally-provisioned user is the normal
+  case and a Fathom-local password is the special one, not the reverse.
+- **Passkeys are mainstream, not exotic** — FIDO Alliance's 2026 state-of-passkeys report
+  (published 2026-05-07): ~5 billion passkeys in use, 68% of organisations deployed or
+  deploying for employee sign-in. The bullet above stays as written; this is the currency
+  evidence behind it.
 - **Drop OPAQUE** (`33` §3.2). OPAQUE's whole prize was: if the server is breached, the attacker
   cannot even guess at your password offline. That was worth a great deal when the server held
   nothing but ciphertext it could not read, so the password was the only thing worth stealing.
@@ -1427,14 +1484,22 @@ Each with the consequence, in plain language.
    you can honestly say "we cannot read your network", and you give up server-side search,
    server-side drawing and export, any ability to recover a customer's account, and much of the
    schema validation — and you take on hand-building the sync protocol. *If the server:* the
-   product is much cheaper and faster to build, and every marketing sentence changes. **This is
-   the single highest-value question you can answer this week and it takes one sentence.
-   Most of §5 to §13 assumes the server holds them.**
-2. **Do organisations, users and designs go inside `schema/` as node kinds, or outside it as
-   ordinary server tables?** ADR-0008 says a field not in `schema/` does not exist. **My view:
-   outside** — an organisation is not part of anyone's network, and putting it in the graph
-   means every diagram, inventory and rule has to learn to ignore it. But it is your decision,
-   and **§11 cannot be built until it is taken.**
+   product is much cheaper and faster to build, and every marketing sentence changes. **Most of
+   §5 to §13 assumes the server holds them.**
+   **IN PROGRESS 2026-08-28** (`70` §18.1): the owner delegated this to evidence — *"what is
+   the most secure but optimised way of handling this? … others should have made similar
+   secure products. This is enterprise level though keep in mind"* — the same delegation shape
+   that settled §16.2's login model. An ADR-0034-compliant survey of enterprise practice and
+   comparable products was commissioned the same day; the recommendation lands in §3 when the
+   owner ratifies it. Not open, not closed.
+2. ~~**Do organisations, users and designs go inside `schema/` as node kinds, or outside it as
+   ordinary server tables?**~~ **ANSWERED 2026-08-28: outside, as ordinary server tables**
+   (`70` §18.2 — *"what does users and orgs have anything to do with the graph? … would be
+   seperated from graphs and networks?"*). The question read as strange to him because the
+   answer was obvious to him. §11 is unblocked. The answer also volunteered a phase-1
+   requirement nothing had captured: **enterprise customers may bring LDAP or Active
+   Directory**, so §12's sign-in design must admit a customer directory as the source of
+   truth for who exists.
 3. **Does dark become the default theme?** (§14 item 2.) This reverses `51` §5 and ADR-0026,
    which gated dark behind three conditions — two of which were byte- and diagram-scoped and are
    now moot. Both references are dark-first. **Shipping dark-first without reopening ADR-0026
@@ -1442,17 +1507,23 @@ Each with the consequence, in plain language.
 4. **Does `--radius` move from 0 to 2px?** (§14 item 1.) Your stated preference against `51`
    §10's argument — which Zerobyte empirically refutes, because it runs 10px with no shadows and
    cards the same colour as the page.
-5. **Does `PhysicalPort.label` become optional?** `57` §13.5, still open, still blocking. It is
-   required today — the silkscreen. Under the drag-then-annotate capture you specified, *"there
-   is a port and I do not know which"* is the normal state of every freshly drawn cable, and a
-   schema that cannot say it cannot record the primary gesture. **Nothing in `57` §12 or §13 is
-   buildable until this is answered.**
+5. ~~**Does `PhysicalPort.label` become optional?**~~ **ANSWERED YES 2026-08-28 and executed
+   the same day** (`70` §18.3 — *"absolutely, one of the main features is to be able to create
+   essentially a lucid chart with no information, then a user can go in and fill in info as
+   needed"*). Schema 0.4 relaxes the card to `0..1`, priced minor by `62` §16.2. All of `57`
+   §12–§13 — cabling mode, drag-then-annotate, the port prompt — is now buildable; the next
+   question that work meets is `57` §14.1 B3, where `PhysicalPort`s come from.
 6. **Does invariant 1 formally become mode-scoped?** `48` open decision 1, still open. The client
    mode it governed is now being dropped entirely, which arguably settles it by attrition — but
    `.context/conventions.md` still states it unconditionally and several documents argue from it.
 7. **`Device.platform` and the missing general-purpose host.** ADR-0037 §5 prices three routes
-   and chooses none. `schema/platforms.yaml` registers no general-purpose host, so a hand-added
-   Proxmox box must still borrow `junos-srx`. **Still yours, still not closed.**
+   and chooses none. **Direction set 2026-08-28, narrow wart still open** (`70` §18.4): the
+   owner chose engines over a catch-all — *"proxmox would probably need to be an engine"* —
+   so hosts earn registry rows and dictionaries the way network vendors do (the `proxmox`
+   vendor row is registered; the platform row waits on the `64`-style survey). What a
+   hand-added box with NO engine declares as its platform is the remaining question, now to
+   be answered inside that direction. And the Proxmox example this row used was the corpus's
+   illustration, not his estate — he flagged it, and it should not be repeated as his.
 8. **Do you want Termix's eight terminal themes?** They would probably delight you, and as
    specified they let a cosmetic setting redefine the risk colours. **Answerable only in the
    form: pin the three risk colours outside the theme system and let a theme move only the

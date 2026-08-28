@@ -63,7 +63,16 @@ fn schema_version_is_the_trees() {
     // and `device_role_declares_the_home_lab_variants` below drives exactly
     // that path, so the compatibility claim in the version comment is tested
     // rather than asserted.
-    assert_eq!(SCHEMA_VERSION, "0.3");
+    //
+    // 0.3 -> 0.4 on 2026-08-28: `PhysicalPort.label` relaxed `1` -> `0..1` —
+    // the owner's answer to 57 §13.5's open decision 8 (70 §18), the hard
+    // blocker on cabling mode. Under drag-then-annotate capture, "there is a
+    // port and I do not know which" is the normal state of a fresh cable end,
+    // and a schema that cannot say it cannot record the primary gesture.
+    // 62 §16.2 prices a relaxed cardinality MINOR: every 0.3 export is a
+    // valid 0.4 export. One bit cleared in FIELD_REQUIRED_BITS; no kind, no
+    // edge, no retype, no tuple reordered.
+    assert_eq!(SCHEMA_VERSION, "0.4");
 }
 
 #[test]
