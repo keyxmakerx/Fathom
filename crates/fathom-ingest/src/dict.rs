@@ -384,7 +384,19 @@ pub(crate) struct FieldSpec {
 pub(crate) struct NodeSpec {
     pub(crate) kind: KindSpec,
     pub(crate) owner: Option<usize>,
-    pub(crate) key: Option<String>,
+    /// Capture names (without the leading `$`) that together identify the
+    /// node. One name is the common case; more than one is a composite key —
+    /// the resolved capture texts are joined with `'\0'` at bind time, which
+    /// is safe because `Identifier::parse` requires printable ASCII and can
+    /// never contain a NUL byte. `None` means the node has no key at all
+    /// (e.g. a fieldless singleton `PolicySet` in the OPNsense dictionary).
+    pub(crate) key: Option<Vec<String>>,
+    /// `true` when this entry should assign `<kind>.ordinal` the moment the
+    /// node is FIRST created under its owner — see `load_key`'s neighbour
+    /// `ordinal_from_position` on `EdgeSpec` for the edge-side sibling
+    /// mechanism, which this is not: that one numbers tokens within a single
+    /// bracket list, this one numbers statements across separate lines.
+    pub(crate) ordinal_on_create: bool,
     pub(crate) fields: Vec<FieldSpec>,
 }
 
@@ -1158,12 +1170,28 @@ fn load_node(
             )
         })?),
     };
-    let key = capture_ref(file, id, line, spec, "key", path)?;
+    let key = load_key(file, id, line, spec, path)?;
 
     let owners: Vec<String> = match kind {
         KindSpec::Fixed(k) => vec![k.name().to_owned()],
         KindSpec::InterfaceLike => INTERFACE_LIKE.iter().map(|k| k.name().to_owned()).collect(),
     };
+    let ordinal_on_create = spec
+        .get("ordinal_on_create")
+        .and_then(|n| n.as_bool())
+        .unwrap_or(false);
+    if ordinal_on_create {
+        for owner in &owners {
+            if field_keys.get(&format!("{owner}.ordinal")).is_none() {
+                return Err(err(
+                    file,
+                    line,
+                    DictGate::FieldUnknown,
+                    format!("`{id}`: `{owner}.ordinal` has no wire key"),
+                ));
+            }
+        }
+    }
     let mut fields = Vec::new();
     if let Some(list) = spec.get("fields") {
         for f in list
@@ -1179,9 +1207,72 @@ fn load_node(
             kind,
             owner,
             key,
+            ordinal_on_create,
             fields,
         },
     ))
+}
+
+/// A node's `key:` — one capture (`key: "$if"`, the historic scalar form) or
+/// several joined into a composite (`key: ["$fz", "$tz"]`), so that e.g. a
+/// Junos `PolicySet` can be keyed on the zone PAIR rather than either zone
+/// alone, which would silently collapse distinct evaluation orders whenever
+/// two pairs share one zone. Each named capture is validated exactly as the
+/// single-capture form always was: it must strip a `$` and name a capture the
+/// entry's own path actually declares.
+fn load_key(
+    file: &str,
+    id: &str,
+    line: usize,
+    spec: &Node,
+    path: &[PathSeg],
+) -> Result<Option<Vec<String>>, DictError> {
+    let key_node = match spec.get("key") {
+        None => return Ok(None),
+        Some(k) => k,
+    };
+    let Some(items) = key_node.as_seq() else {
+        // The scalar form — delegate to `capture_ref` so the single-capture
+        // path keeps its original error messages verbatim.
+        return Ok(capture_ref(file, id, line, spec, "key", path)?.map(|n| vec![n]));
+    };
+    if items.is_empty() {
+        return Err(err(
+            file,
+            key_node.line,
+            DictGate::CaptureArity,
+            format!("`{id}`: `key` list is empty"),
+        ));
+    }
+    let mut names = Vec::with_capacity(items.len());
+    for item in items {
+        let text = item.as_str().ok_or_else(|| {
+            err(
+                file,
+                item.line,
+                DictGate::CaptureArity,
+                format!("`{id}`: a `key` list item is not a string"),
+            )
+        })?;
+        let name = text.strip_prefix('$').ok_or_else(|| {
+            err(
+                file,
+                item.line,
+                DictGate::CaptureArity,
+                format!("`{id}`: `key` item `{text}` is not a capture reference"),
+            )
+        })?;
+        if !capture_exists(path, name) {
+            return Err(err(
+                file,
+                item.line,
+                DictGate::CaptureArity,
+                format!("`{id}`: `${name}` is used in binds but is not in path"),
+            ));
+        }
+        names.push(name.to_owned());
+    }
+    Ok(Some(names))
 }
 
 fn load_edge(
@@ -1815,7 +1906,11 @@ mod tests {
         // that bind and three `secret:`-only catalogue entries for the BGP
         // TCP-MD5 key, one per documented hierarchy level) and
         // `routing-options router-id`.
-        assert_eq!(d.entry_count(), 81);
+        //
+        // +4 on 2026-08-28 — `security policies`: the bare stanza, `match
+        // source-address any`, `match destination-address any`, `then
+        // permit`. See `corpus/dict/junos-srx/security-policies.yaml`.
+        assert_eq!(d.entry_count(), 85);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside

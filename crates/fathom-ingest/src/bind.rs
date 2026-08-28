@@ -355,11 +355,28 @@ fn bind_statement(
     for node in &entry.nodes {
         match &node.key {
             None => keys.push(None),
-            Some(name) => match seg(name) {
-                Some((text, None)) if scalar::Identifier::parse(&text).is_ok() => {
-                    keys.push(Some(text))
+            Some(names) => {
+                // A composite key (more than one capture) joins the
+                // resolved, already-validated component TEXTS with a NUL
+                // byte: `Identifier::parse` requires printable ASCII, so a
+                // NUL can never appear inside a validated component and this
+                // join can never collide with a component's own text. The
+                // joined string is used only as the fragment's dedup key
+                // (`Builder::upsert`) — it is never stored as a field value.
+                let mut parts: Vec<String> = Vec::with_capacity(names.len());
+                let mut ok = true;
+                for name in names {
+                    match seg(name) {
+                        Some((text, None)) if scalar::Identifier::parse(&text).is_ok() => {
+                            parts.push(text)
+                        }
+                        _ => {
+                            ok = false;
+                            break;
+                        }
+                    }
                 }
-                _ => {
+                if !ok {
                     merge(
                         outcomes,
                         slot,
@@ -370,7 +387,8 @@ fn bind_statement(
                     );
                     return;
                 }
-            },
+                keys.push(Some(parts.join("\0")));
+            }
         }
     }
 
@@ -386,8 +404,29 @@ fn bind_statement(
             KindSpec::InterfaceLike => interface_like(&key),
         };
         let owner = spec.owner.and_then(|o| local.get(o).copied());
-        let id = b.upsert(kind, owner, &key);
+        let (id, is_new) = b.upsert(kind, owner, &key);
         local.push(id);
+        // Assign `ordinal` exactly once, at the moment the node is first
+        // created — never on a later re-assertion, and never from the
+        // statement's own line number, which would put the four different
+        // statement forms that can each first-name a policy (bare stanza,
+        // `match source-address`, `match destination-address`, `then`) in an
+        // order that depends on which entry happened to run first rather
+        // than on how many siblings already exist. `is_new` guarantees the
+        // node has no fields yet, so this assertion can never conflict.
+        if spec.ordinal_on_create && is_new {
+            if let Some(k) = dict.field_key(kind.name(), "ordinal") {
+                let ordinal = b
+                    .nodes
+                    .iter()
+                    .filter(|n| n.kind == kind && n.owner == owner)
+                    .count()
+                    .saturating_sub(1) as u32;
+                if b.assert_node(id, FieldKey(k), BoundValue::U32(ordinal), prov, &mut diags) {
+                    fields_written = fields_written.saturating_add(1);
+                }
+            }
+        }
         for field in &spec.fields {
             let key_id = match dict.field_key(kind.name(), &field.field) {
                 Some(k) => FieldKey(k),
@@ -513,10 +552,18 @@ fn interface_like(name: &str) -> NodeKind {
 }
 
 impl Builder {
-    fn upsert(&mut self, kind: NodeKind, owner: Option<FragNodeId>, key: &str) -> FragNodeId {
+    /// Returns the node and whether this call just created it (`true`) or
+    /// found it already in the fragment (`false`) — the signal
+    /// `ordinal_on_create` needs to fire exactly once per node.
+    fn upsert(
+        &mut self,
+        kind: NodeKind,
+        owner: Option<FragNodeId>,
+        key: &str,
+    ) -> (FragNodeId, bool) {
         let index_key = (kind.index(), owner.map(|FragNodeId(o)| o), key.to_owned());
         if let Some(id) = self.index.get(&index_key) {
-            return *id;
+            return (*id, false);
         }
         let id = FragNodeId(self.nodes.len() as u32);
         self.nodes.push(FragNode {
@@ -525,7 +572,7 @@ impl Builder {
             fields: Vec::new(),
         });
         self.index.insert(index_key, id);
-        id
+        (id, true)
     }
 
     /// True when the assertion added a field the node did not have. A

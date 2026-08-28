@@ -57,9 +57,15 @@ fn dictionary_loads() {
 /// for the BGP TCP-MD5 key at its three documented hierarchy levels and bind
 /// nothing) and `routing-options.yaml` (1). Every form read off Juniper's own
 /// documentation on that date, URL and quoted syntax beside the entry.
+///
+/// +4 on 2026-08-28: `security policies` — `security-policies.yaml`'s bare
+/// stanza, `match source-address any`, `match destination-address any`, and
+/// `then permit`. Sourced to Juniper's `security-edit-policies.html`, already
+/// cited by `docs/60-content/66-junos-coverage-measurement.md` §10. What
+/// stays residue and why is in the dictionary file's own header comment.
 #[test]
-fn entry_count_is_81() {
-    assert_eq!(dict().entry_count(), 81);
+fn entry_count_is_85() {
+    assert_eq!(dict().entry_count(), 85);
 }
 
 /// `14` §6.5: no entry's path is a strict prefix of another's unless the

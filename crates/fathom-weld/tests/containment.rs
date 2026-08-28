@@ -282,6 +282,7 @@ fn every_owner_pair_the_shipped_dictionary_produces_resolves() {
             "Device->SystemSettings",
             "Interface->LogicalUnit",
             "LogicalUnit->Address",
+            "PolicySet->SecurityPolicy",
             "SystemSettings->NtpServer",
             "TunnelInterface->LogicalUnit",
         ],
