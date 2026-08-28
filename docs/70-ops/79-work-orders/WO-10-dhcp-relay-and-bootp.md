@@ -393,3 +393,45 @@ assigning, because `47`'s lever or another order may have taken them.
 4. A second platform's relay form (PAN-OS, Nexus, Meraki) turns out not to fit `DhcpRelay`'s
    fields. The kind is meant to be cross-vendor; if it is not, that is a modelling decision and
    planning work, not an execution session's.
+
+## 11. Companion edits and first-cut scope — authorized 2026-08-28, before execution
+
+Added by the planning pass that re-verified this order against the tree at schema 0.4 (50
+kinds / 92 edges / 307 field keys), under the owner's same-day delegation (*"i'll trust your
+judgements"*). `78` §4 makes any schema declaration or pinned-test change not spelled out in
+the order a stop trigger; this section spells them out so the executing session does not stall
+on edits whose content the tree itself forces. Nothing here changes what §4 builds.
+
+1. **`DhcpRelay` joins the `Placeable` class** (`schema/schema.yaml`, the ADR-0035 members
+   list). `shipped_tree.rs::every_kind_but_the_pin_itself_is_placeable` pins that every kind
+   but `LayoutPin` is placeable; a relay is drawn as a box like `NtpServer` and there is no
+   reason to make it the first deliberately-unplaceable kind. Add it with a one-line comment
+   naming this order.
+2. **Schema version `0.4` → `0.5`**, priced in the file's own version comment per `62` §16.2:
+   one new kind (minor), two new edge kinds (minor), four fields all on the new declarer
+   (minor) — whole change MINOR. The four pins move together, as they did for 0.4:
+   `schema.yaml`'s comment, `canon_laws.rs`, `shipped_tree.rs`, and `plain_face.rs`'s PINNED
+   line 3 (retype the line, leave the payload alone).
+3. **`shipped_tree_declaration_counts_hold` re-pins**: 51 kinds, 94 edges (86 + 8 derived),
+   311 field keys, version `Some("0.5")`; scalars/enums/classes/scopes unmoved. Update with
+   the customary explanatory paragraph — the ADR-0036/0037 paragraphs in that function are
+   the template. This is the test's designed maintenance path, not a weakening.
+4. **First-cut statement scope, decided**: this order's gates test exactly three forms —
+   `helpers bootp server`, `helpers bootp interface … server`, and `dhcp-relay server-group`
+   — and the first cut binds exactly those three. The other five §5.3 statements
+   (`active-server-group` both forms, `group … interface`, `maximum-hop-count`,
+   `minimum-wait-time`) stay **named residue**: the group-name indirection crosses lines the
+   one-line binder cannot express against address-keyed nodes, and the stanza-global values
+   have no per-address home. Binding them is a follow-up planning item, not an improvisation;
+   residue is the honest first cut and every gate passes without them.
+5. **G7 is satisfied by its literal text**: a sourced, dated comment block on the bootp
+   entries in `forwarding-options.yaml` plus a sourced paragraph in the `66` re-measure note.
+   Carrying the deprecation INTO the estate (a dictionary `deprecated:` key, page copy) is
+   unordered surface work — do not invent it here.
+6. **Inventory columns for the relay row** follow the sibling-kind precedent (`NtpServer`'s
+   shape) within the pinned six-slot limit. Public names, chosen by precedent, recorded in
+   the executing commit.
+
+§5.4 is untouched by this section: it still must be closed from two independent dated sources
+BEFORE `schema/schema.yaml` is edited, because item 2 (hostname legality) decides
+`server`'s type, and §10 item 1 still governs if it cannot be closed.
