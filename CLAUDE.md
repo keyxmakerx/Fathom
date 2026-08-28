@@ -92,11 +92,18 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   **live**, the draw asks the schema what is **legal** — which made the empty-list refusal ambiguous
   and produced a fourth wrong sentence the existing driver caught within the hour.
   `2026-08-16-the-cut-that-drew.mjs`, 18/18.
-- **A pasted SRX branch config binds 47.5% of its lines**, up from 23.8% on 2026-08-14. 29 of 122
-  before, 58 after, measured per section in `docs/60-content/66-junos-coverage-measurement.md`.
-  `set protocols ospf` and `set protocols bgp` now build `RoutingProtocol` and `ProtocolAdjacency`
-  — the rows the owner asked for by name. Everything else is still named on the residue list rather
-  than dropped.
+- **A pasted SRX branch config binds 57.4% of its lines**, up from 23.8% on 2026-08-14 and 47.5%
+  on 2026-08-15. 29 of 122 lines bound at the start, 58 after the 2026-08-15 widening, 70 after
+  `corpus/dict/junos-srx/security-policies.yaml` landed 2026-08-28 — measured per section in
+  `docs/60-content/66-junos-coverage-measurement.md`, re-run and confirmed by a prover session the
+  same day. `set protocols ospf` and `set protocols bgp` build `RoutingProtocol` and
+  `ProtocolAdjacency`; `set security policies … policy NAME match source-address any` / `…
+  destination-address any` / `… then permit` build a `PolicySet` keyed on the zone **pair** (not
+  either zone alone) and a `SecurityPolicy` per named policy, ordinal assigned once at first
+  creation — rung 4's policy band, empty on every Junos paste until this landed, now draws it.
+  `match application …` (9 of the section's 21 lines, including the literal `any`) stays residue:
+  `SecurityPolicy` has no `match_any_application` field. Everything else not named above is still
+  on the residue list rather than dropped.
 - **Code: the schema toolchain and the finder core are complete** (`fathom-id`,
   `fathom-schema`, `fathom-schemagen`, `fathom-ir` with checked-in generated types,
   `fathom-corpus`, `fathom-find`). **As of 2026-08-08 the queue has run: six more crates exist** —
@@ -348,18 +355,27 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   orders, and the tier-ordered owner list. Its tier 1 is **overstated by 4×** — four of its five
   are already on disk. The queue below stays the operational truth; on disagreement the queue wins.
 - **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — eight of nine DONE;
-  WO-04 (the dictionary deepening) is the one open order, and WO-10 (DHCP relay + bootp) was
-  written blocked-on-bytes and **unblocked when the ceiling came off** — nobody has flipped
-  its row or ordered it started. Every order carries its own plan, gates, and
-  stop-and-escalate list; `78` governs.
-- **Raised by the on-ramp (2026-08-09), two of three now settled:** (a) the ceiling question
+  WO-04 (the dictionary deepening) is the one open order. **WO-10 (DHCP relay + bootp) was run
+  2026-08-28 and stopped at its own Step 0**, before any schema edit: two independent, dated
+  Juniper sources (the CLI Reference `helpers` statement page; the Junos DHCP User Guide's
+  worked example — both re-confirmed independently the same day) establish that
+  `routing-instance` may qualify an individual `server` statement under `helpers bootp`
+  (`server 172.16.0.3 routing-instance c3;`), and the order's own `DhcpRelay` kind spells no
+  edge for it — its own §10 item 3 stop-and-escalate trigger, fired as written. WO-10 is
+  **BLOCKED on planning** (a `RoutingInstance` edge, a field, or a deliberate first-cut
+  exclusion — `78` §5, not an execution session's call), not OPEN and not DONE. No schema,
+  dictionary, or generated file changed; the tree carries no `DhcpRelay` kind. Every order
+  carries its own plan, gates, and stop-and-escalate list; `78` governs.
+- **Raised by the on-ramp (2026-08-09), all three now settled:** (a) the ceiling question
   is CLOSED — removed 2026-08-21 with the pivot, and the dictionary had already moved out of
   the module to the page on 2026-08-15; (b) `OP_PASTE` is ADDITIVE as of 2026-08-21, with the
   duplicate-box question (`ERR_PASTE_CHOICE`) standing in where `70` §6's correlation is still
-  unbuilt — a match asks, never merges; (c) still true and still cheap: `set system
-  domain-name` and `set interfaces … description` are residue for want of two dictionary
-  lines, and nobody has ordered them. So is `set security policies` — rung 4's policy band is
-  EMPTY on every Junos estate for want of that dictionary entry, and the band says so.
+  unbuilt — a match asks, never merges; (c) `set system domain-name` and `set interfaces …
+  description` bind (shipped 2026-08-15, before this line was last true), and `set security
+  policies` (bare stanza, both `match …-address any` forms, `then permit`) binds too as of
+  2026-08-28 — rung 4's policy band is no longer empty on a Junos paste that carries policy
+  lines; `match application …` is the one part of that section still residue, for want of a
+  `match_any_application` field.
 - **Planning-only, queued in the orders' §10 lists:** the crypto route for the workspace
   file (WO-05 §2 — never execution work), the dictionary reconciliation (WO-04 §10.2),
   the `73` §14 escalation register as it fills (the section now exists; it was cited from nine

@@ -1,21 +1,38 @@
 # WO-10 — DHCP relay and BOOTP: the first statements the estate cannot hold
 
-> **Status: OPEN — unblocked 2026-08-21, flipped here 2026-08-28.** Authored 2026-08-17 at the
-> owner's request (*"that's fine if we can't build it currently then can you prepare it to be added
-> later"*) and held as READY, BLOCKED ON BYTES until the pivot removed the ceiling it was waiting
-> on (`49` §1; the owner chose *remove the ceiling, keep a size report* over raising it).
+> **Status: BLOCKED ON PLANNING — run 2026-08-28, stopped at Step 0 (§10 item 3 fired).**
+> Authored 2026-08-17 at the owner's request (*"that's fine if we can't build it currently then can
+> you prepare it to be added later"*) and held as READY, BLOCKED ON BYTES until the pivot removed
+> the ceiling it was waiting on (`49` §1; the owner chose *remove the ceiling, keep a size report*
+> over raising it), then flipped to OPEN on 2026-08-28.
 >
-> **Its own flip condition is satisfied vacuously and that is worth stating rather than glossing.**
-> The line below used to read *"flip to OPEN the moment … `cargo build … -p fathom-wasm` reports at
-> least 1,200 bytes of headroom"*. There is no ceiling now, so there is no headroom to measure
-> against and the test cannot be run as written. The order is unblocked because **the constraint
-> was retired, not because it was met** — a distinction that matters if the ceiling ever returns in
-> another form (`48` §5b: it is a WASM constraint and does not exist natively, so the server fork
-> never had it).
+> **An execution session ran the same day and did not reach §4.** §5.4 item 4 asks whether
+> `routing-instance` may qualify an individual `server` statement. Two independent, dated Juniper
+> sources say it may — Juniper Networks, *"helpers"*, Junos OS CLI reference (`sampling-forwarding-
+> monitoring` topic tree) and Juniper Networks, *DHCP and BOOTP Relay Agent*, Junos OS DHCP User
+> Guide's worked configuration example, both fetched 2026-08-28, syntax `server address {
+> routing-instance [...]; }` / `server 172.16.0.3 routing-instance c3;` — re-confirmed
+> independently by the prover session the same day via a separate web search returning the same
+> two documents plus a third-party worked example with the identical syntax. `DhcpRelay` as
+> spelled in §4 carries `HasDhcpRelay` and `RelaysFor` and no edge to `RoutingInstance`. That is
+> §10 item 3's own trigger, worded there in advance: *"§5.4 item 4 turns out to need a
+> `RoutingInstance` edge — re-measure and re-escalate before writing it."* No schema, field-key,
+> dictionary, or generated file was touched; `grep -n DhcpRelay schema/schema.yaml` returns
+> nothing and the working tree was clean before and after the run.
 >
-> Nothing in this order is waiting on a decision about **what** to build or **how**; the modelling,
-> the field keys, the dictionary entries and the gates are all written below and can be executed as
-> they stand. **What remains is code.**
+> **The decision this order now waits on, spelled out rather than left implicit:** whether the
+> first cut (i) adds a `RoutingInstance` reference edge to `DhcpRelay` and re-measures §2's byte
+> table for three edges rather than two, (ii) adds a field instead, or (iii) deliberately excludes
+> `routing-instance`-qualified `server` lines from the first-cut statement set (§11 item 4 already
+> narrows the cut to three literal forms; a qualified line is not one of them and could
+> legitimately stay named residue rather than forcing a schema change). Any of the three is
+> buildable in an afternoon once chosen; none is an execution session's to choose (`78` §5). The
+> third §5.3 form, `dhcp-relay server-group`, carries no such qualifier in the CLI Reference syntax
+> block and is not affected either way.
+>
+> Nothing else in this order is waiting on a decision; §4's modelling, §6's field keys, §5.3's
+> statement set and §8's gates stand as written and are executable the moment §5.4 item 4 is
+> answered.
 >
 > **§2 is kept verbatim as history**, not as a live block. It is the measurement that proved the
 > ceiling cost the product a feature the owner asked for by name — the evidence behind the decision
@@ -389,7 +406,7 @@ assigning, because `47`'s lever or another order may have taken them.
    fire, because the ceiling it names was removed on 2026-08-21 and G1 no longer asserts a size.
    Struck rather than deleted so nobody re-derives it from §2's measurements, which are history.
 3. §5.4 item 4 turns out to need a `RoutingInstance` edge — re-measure and re-escalate before
-   writing it.
+   writing it. **Fired 2026-08-28** — see the status block above; the two sources are named there.
 4. A second platform's relay form (PAN-OS, Nexus, Meraki) turns out not to fit `DhcpRelay`'s
    fields. The kind is meant to be cross-vendor; if it is not, that is a modelling decision and
    planning work, not an execution session's.
