@@ -1793,6 +1793,43 @@ registered per the registry's own precedent (*"a vendor is registered when the o
 platform is declared only when a real config has been seen"*); the platform row waits on the
 survey landing in `64`.
 
+### 18.5 The DHCP relay's routing instance — route (i), the fullest one — 2026-08-29
+
+WO-10 stopped at its own Step 0 on 2026-08-28: `routing-instance` may legally qualify a DHCP
+relay's `server` statement, and `DhcpRelay` as modelled carried no edge for it. The escalation
+named three routes and, per `78` §5, an execution session may pick none of them. Put to the
+owner as a plain question — add a real link, add a flat field, or leave those lines
+unread for now — with a recommendation for the *cheapest* route (iii).
+
+**The answer, verbatim (2026-08-29):**
+
+> *"1 now please"*
+
+**He chose route (i) — a real `RoutingInstance` edge — against the recommendation, and he was
+right to.** The recommendation had argued from his own usage (*"you said you use BOOTP; you
+didn't say you use routing instances with it"*), which is a fair scheduling argument and a poor
+modelling one. Two things it undervalued:
+
+1. **A routing instance is a declared kind in this schema.** Naming one with a string field would
+   be a natural-key reference, which **invariant 7 forbids product-wide** — *"the graph contains
+   no natural-key references"*. Route (ii) was therefore never really available; it was an
+   invariant breach wearing a shortcut's clothes, and the question should have said so.
+2. **Route (iii) makes the estate quietly wrong rather than incomplete.** A `server 10.0.0.1
+   routing-instance mgmt` line read as `server 10.0.0.1` does not omit a fact — it records a
+   *different* fact, in the default instance, and the reasoning in `19` §1 (*"is there a route to
+   THIS address"*) would then be answered against the wrong routing table. `70` §16's doctrine is
+   that an incomplete path is drawn and **marked**, never silently completed; dropping the
+   qualifier completes it silently.
+
+**What it decides.** `RelayServerIn` (`DhcpRelay → RoutingInstance`, `0..1` out) is declared in
+WO-10 §4; §5.4 item 4 is closed; the order is OPEN with code the only thing remaining. A relay
+whose statement names no instance carries no edge, and **absent means the default instance, never
+"unknown"** — the config stated a complete fact by saying nothing, and `19` §6.3's three states
+must not be collapsed.
+
+**What it does not decide.** Nothing about the other four unbound `dhcp-relay` forms (`70` §18.4's
+neighbours in WO-10 §11 item 4), which stay named residue by the same section's standing decision.
+
 ## 15. Disagreements
 
 1. **Against the framing of the original questions.** Q3 and Q4 were put to the owner in project

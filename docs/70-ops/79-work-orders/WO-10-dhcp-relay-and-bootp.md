@@ -1,38 +1,30 @@
 # WO-10 — DHCP relay and BOOTP: the first statements the estate cannot hold
 
-> **Status: BLOCKED ON PLANNING — run 2026-08-28, stopped at Step 0 (§10 item 3 fired).**
-> Authored 2026-08-17 at the owner's request (*"that's fine if we can't build it currently then can
-> you prepare it to be added later"*) and held as READY, BLOCKED ON BYTES until the pivot removed
-> the ceiling it was waiting on (`49` §1; the owner chose *remove the ceiling, keep a size report*
-> over raising it), then flipped to OPEN on 2026-08-28.
+> **Status: OPEN — unblocked by the owner 2026-08-29. §5.4 item 4 is CLOSED and §4 now spells the
+> third edge.** Authored 2026-08-17 (*"that's fine if we can't build it currently then can you
+> prepare it to be added later"*), held BLOCKED ON BYTES until the ceiling was removed 2026-08-21
+> (`49` §1), flipped OPEN 2026-08-28, and stopped the same day at Step 0 when §10 item 3 fired as
+> written.
 >
-> **An execution session ran the same day and did not reach §4.** §5.4 item 4 asks whether
-> `routing-instance` may qualify an individual `server` statement. Two independent, dated Juniper
-> sources say it may — Juniper Networks, *"helpers"*, Junos OS CLI reference (`sampling-forwarding-
-> monitoring` topic tree) and Juniper Networks, *DHCP and BOOTP Relay Agent*, Junos OS DHCP User
-> Guide's worked configuration example, both fetched 2026-08-28, syntax `server address {
-> routing-instance [...]; }` / `server 172.16.0.3 routing-instance c3;` — re-confirmed
-> independently by the prover session the same day via a separate web search returning the same
-> two documents plus a third-party worked example with the identical syntax. `DhcpRelay` as
-> spelled in §4 carries `HasDhcpRelay` and `RelaysFor` and no edge to `RoutingInstance`. That is
-> §10 item 3's own trigger, worded there in advance: *"§5.4 item 4 turns out to need a
-> `RoutingInstance` edge — re-measure and re-escalate before writing it."* No schema, field-key,
-> dictionary, or generated file was touched; `grep -n DhcpRelay schema/schema.yaml` returns
-> nothing and the working tree was clean before and after the run.
+> **What fired it, and what closed it.** An execution session established from two independent
+> dated Juniper sources — the Junos OS CLI Reference `helpers` statement page and the Junos OS DHCP
+> User Guide's worked example, both fetched 2026-08-28, syntax `server address { routing-instance
+> [...]; }` and `server 172.16.0.3 routing-instance c3;`, re-confirmed independently by a prover
+> session the same day — that `routing-instance` may qualify an individual `server` statement.
+> `DhcpRelay` as spelled carried no edge for it, which is exactly §10 item 3's trigger. **The
+> session was right to stop and touched nothing.**
 >
-> **The decision this order now waits on, spelled out rather than left implicit:** whether the
-> first cut (i) adds a `RoutingInstance` reference edge to `DhcpRelay` and re-measures §2's byte
-> table for three edges rather than two, (ii) adds a field instead, or (iii) deliberately excludes
-> `routing-instance`-qualified `server` lines from the first-cut statement set (§11 item 4 already
-> narrows the cut to three literal forms; a qualified line is not one of them and could
-> legitimately stay named residue rather than forcing a schema change). Any of the three is
-> buildable in an afternoon once chosen; none is an execution session's to choose (`78` §5). The
-> third §5.3 form, `dhcp-relay server-group`, carries no such qualifier in the CLI Reference syntax
-> block and is not affected either way.
+> **The owner chose route (i) on 2026-08-29** — the fullest of the three the escalation named,
+> and the most work: *"1 now please"*, choosing a real `RoutingInstance` edge over a flat field or
+> excluding the qualified form. `70` §18.5 records it. §4 below now declares **three** edges, not
+> two, and §5.4 item 4 is answered rather than open. **What remains is code.**
 >
-> Nothing else in this order is waiting on a decision; §4's modelling, §6's field keys, §5.3's
-> statement set and §8's gates stand as written and are executable the moment §5.4 item 4 is
-> answered.
+> **§2's byte table is NOT re-measured and does not need to be.** §5.4 item 4's instruction —
+> *"if it is needed, re-measure §2: the byte figures there are for two edges, not three"* — was
+> written to check a third edge still fitted under the 900,000-byte ceiling. **That ceiling was
+> removed on 2026-08-21**, so there is nothing to fit under and no headroom to measure against.
+> G1 as rewritten says it plainly: record the size, do not trim the modelling to hit a number.
+> The instruction is retired here rather than obeyed hollowly.
 >
 > **§2 is kept verbatim as history**, not as a live block. It is the measurement that proved the
 > ceiling cost the product a feature the owner asked for by name — the evidence behind the decision
@@ -247,6 +239,29 @@ must not ship it to save 356 bytes.
       a global relay serves every unit, and a unit can be named by more than one relay
       when a group and the global stanza both cover it — which is itself a finding worth
       stating rather than a shape to forbid.
+
+  # Added 2026-08-29 by the owner's route (i) decision (70 §18.5), closing §5.4 item 4.
+  # `routing-instance` may qualify an individual `server` statement — established from two
+  # independent dated Juniper sources, cited in this order's status block. A flat field was
+  # offered and refused: a routing instance is a declared kind in this schema (schema.yaml
+  # `- kind: RoutingInstance`), so naming one by a string would be the natural-key reference
+  # invariant 7 forbids product-wide. An edge is what the rest of the schema does.
+  - edge: RelayServerIn
+    class: reference
+    from: [DhcpRelay]
+    to: [RoutingInstance]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      The routing instance in which this relay's server address is reached, when the
+      statement qualifies it. `0..1` out: a `server` statement names at most one
+      routing-instance. Absent means the statement named none, which means the default
+      instance — and absent must never be rendered as "unknown": the config stated a
+      complete fact by saying nothing (19 §6.3's three states; do not collapse them).
 ```
 
 **`RelaysFor` is a reference edge, so `hand_link_candidates` will offer it** the moment it exists
@@ -325,9 +340,12 @@ their dates:
    a host union in §4;
 3. the units and bounds of `maximum-hop-count` and `minimum-wait-time`, which decide the scalar
    types and whether either needs a validity rule;
-4. whether `routing-instance` may qualify a server, which decides whether `RelaysFor` is enough or a
-   second edge to `RoutingInstance` is needed. **If it is needed, re-measure §2**: the byte figures
-   there are for two edges, not three.
+4. ~~whether `routing-instance` may qualify a server~~ — **CLOSED 2026-08-28/29.** It may:
+   `server address { routing-instance [...]; }` per the Junos OS CLI Reference `helpers` page and
+   `server 172.16.0.3 routing-instance c3;` per the Junos OS DHCP User Guide's worked example, both
+   fetched 2026-08-28 and independently re-confirmed the same day. `RelaysFor` was NOT enough; the
+   owner chose a third edge (route (i), `70` §18.5) and §4 declares `RelayServerIn`. The clause
+   *"if it is needed, re-measure §2"* is retired with the ceiling, not obeyed — see the status block.
 
 Juniper's CLI Explorer, the SRX administration guide PDF, and a second vendor-independent source are
 the routes; the KB article on relaying across an IPsec tunnel is a worked example rather than a
@@ -429,11 +447,18 @@ on edits whose content the tree itself forces. Nothing here changes what §4 bui
    (minor) — whole change MINOR. The four pins move together, as they did for 0.4:
    `schema.yaml`'s comment, `canon_laws.rs`, `shipped_tree.rs`, and `plain_face.rs`'s PINNED
    line 3 (retype the line, leave the payload alone).
-3. **`shipped_tree_declaration_counts_hold` re-pins**: 51 kinds, 94 edges (86 + 8 derived),
-   311 field keys, version `Some("0.5")`; scalars/enums/classes/scopes unmoved. Update with
-   the customary explanatory paragraph — the ADR-0036/0037 paragraphs in that function are
-   the template. This is the test's designed maintenance path, not a weakening.
-4. **First-cut statement scope, decided**: this order's gates test exactly three forms —
+3. **`shipped_tree_declaration_counts_hold` re-pins**: 51 kinds, **95 edges (87 + 8 derived —
+   THREE new edge kinds, not two, since the owner's 2026-08-29 route (i) decision added
+   `RelayServerIn`)**, 311 field keys, version `Some("0.5")`; scalars/enums/classes/scopes
+   unmoved. **Read the real counts off `fathom-schema-check` rather than trusting these
+   numbers** — they are stated to show what should move, and the tool is the authority.
+   Update with the customary explanatory paragraph — the ADR-0036/0037 paragraphs in that
+   function are the template. This is the test's designed maintenance path, not a weakening.
+4. **First-cut statement scope, decided** — **and widened 2026-08-29 by the owner's route (i)
+   choice**: a `server` line carrying `routing-instance <name>` now BINDS (writing
+   `RelayServerIn` to the named instance, left Pending if that instance is not in the estate,
+   exactly as `reth0.0` behaves) rather than staying residue. Excluding it was route (iii)
+   and the owner refused it. Otherwise as written: this order's gates test exactly three forms —
    `helpers bootp server`, `helpers bootp interface … server`, and `dhcp-relay server-group`
    — and the first cut binds exactly those three. The other five §5.3 statements
    (`active-server-group` both forms, `group … interface`, `maximum-hop-count`,
