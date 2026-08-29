@@ -568,8 +568,54 @@ fn gate_statement(
             // `perfect-forward-secrecy keys group14` -- granted by review for
             // one statement form, and it cannot speak for tokens outside that
             // form, so it may not veto the raw walk.
+            //
+            // THE ENTRY WALK IS BOUNDED TO ONE TOKEN PAST THE PATH, AND THAT
+            // BOUND IS A DEFECT FIX (2026-08-29).
+            //
+            // `leaf_name_walk(path, at)` starts `path.iter().take(at)`, which
+            // for every `at >= path.len()` is the WHOLE path — so it returns
+            // the same answer for a token one past the entry as for a token
+            // twenty past it. It has no notion of distance once it leaves the
+            // modelled path, because the tokens out there are not IN the path
+            // to be counted.
+            //
+            // That was harmless while no short entry path carried a secret
+            // word. Adding `trap-group` to the word list on 2026-08-17 — to
+            // give `snmp.trap-group` the second detector every other declared
+            // secret already had — made it reachable, and it destroyed the
+            // whole tail of the statement:
+            //
+            //   set snmp trap-group branch-traps targets 192.0.2.20 \
+            //       categories link routing
+            //
+            // is one secret (`branch-traps`, which Juniper puts in the trap
+            // PDU as the community) followed by five tokens of ordinary
+            // configuration — and all six were destroyed, unbounded, because
+            // `[snmp, trap-group, $g]` is three segments long and every token
+            // past it looks equally adjacent to `trap-group`.
+            //
+            // **This reduces what the gate destroys, which is the dangerous
+            // direction**, so it is bounded as narrowly as the defect allows:
+            // the entry walk still runs for the token IMMEDIATELY past the
+            // modelled path, which is the only position the path's own leaf
+            // names can honestly speak about. Everything beyond that is judged
+            // by `raw_walk`, which reads the statement's real preceding tokens
+            // and has always had the two-token bound this one lacked. The
+            // union is unchanged in strength for every case the paragraphs
+            // above describe: the BGP key sits two past its entry and is
+            // caught by the raw walk on `authentication-key`; the zones hole
+            // is caught by the raw walk on `secret`; a bare
+            // `set snmp trap-group NAME` is at `path.len() - 1` and never
+            // reaches this arm at all.
+            //
+            // `14` §9.7 makes destruction the safe direction of error, and it
+            // still is — but destroying an unbounded run of the network is not
+            // erring toward safety, it is erring toward an estate that has
+            // lost the addresses it exists to record (`38` §14.4: the secrets
+            // are 2% of the file, the other 98% is the network).
             Some(e) if at >= e.path.len() => {
-                raw_walk(&segs, at) || (!e.secret_exempt && dict::leaf_name_walk(&e.path, at))
+                raw_walk(&segs, at)
+                    || (at == e.path.len() && !e.secret_exempt && dict::leaf_name_walk(&e.path, at))
             }
             Some(e) => {
                 // The suppression the field card's own `perfect-forward-secrecy

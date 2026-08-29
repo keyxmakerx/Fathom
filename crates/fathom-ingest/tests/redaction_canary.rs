@@ -612,6 +612,97 @@ fn an_snmp_trap_group_community_is_destroyed_because_of_its_name() {
     );
 }
 
+/// **THE GATE MUST NOT EAT THE STATEMENT AFTER THE SECRET.**
+///
+/// The companion to the canary above, and the defect that one CAUSED. Adding
+/// `trap-group` to `SECRET_WORD_LIST` on 2026-08-17 gave the community its
+/// second detector — correctly — and simultaneously armed an unbounded sweep
+/// that destroyed every remaining token on the line. Nobody saw it for twelve
+/// days because the canary above uses `set snmp trap-group NAME` with NOTHING
+/// AFTER IT, so the only shape that can show the defect was the one shape not
+/// tested.
+///
+/// **This is the tail half of rule 0.** That rule says to test against what a
+/// device accepts rather than what the detector needs, and the canary above
+/// obeyed it about the secret's LENGTH while quietly disobeying it about the
+/// statement's SHAPE: a real Junos trap-group is configured with `targets`,
+/// `categories` and `version` clauses after the name, and a probe with no
+/// tail is no more a real statement than a 28-character `simple-password`
+/// was a real one.
+///
+/// Both directions are asserted here, because each alone is satisfiable by
+/// breaking the other: the community still dies, AND the destination address
+/// still lives.
+///
+/// The statement form is Juniper's own, from the `trap-group` configuration
+/// statement page (juniper.net, Junos OS CLI reference, read 2026-08-29 while
+/// investigating this defect): the group takes `targets <address>`,
+/// `categories <category...>` and `version <v1|v2|all>` beneath its name.
+#[test]
+fn the_gate_destroys_the_trap_community_and_not_the_trap_destination() {
+    let secret = "Fath0mTG";
+    let target = "192.0.2.20";
+    // A full statement, in the form Juniper documents — not a probe trimmed to
+    // the one token under test.
+    let line = format!(
+        "set snmp trap-group {secret} targets {target} categories link routing version v2\n"
+    );
+    let out = ingest(line.as_bytes(), &dict()).expect("within the caps");
+    let serialised = format!("{out:?}");
+
+    // 1. The secret still dies. This half must never be traded for the other.
+    assert!(
+        !serialised.contains(secret),
+        "the trap-group community survived: {serialised}"
+    );
+
+    // 2. And the network survives. The trap DESTINATION is an address the
+    //    estate exists to record — `38` §14.4: the secrets are 2% of the file,
+    //    the other 98% is the network. Destroying it is not erring toward
+    //    safety, it is erring toward an estate that has lost what it is for.
+    assert!(
+        out.capture.text().contains(target),
+        "the trap destination address was destroyed with the community — the \
+         unbounded tail sweep is back. Capture: {:?}",
+        out.capture.text()
+    );
+
+    // 3. The bound, stated as a number rather than left to the two assertions
+    //    above to imply. Before the 2026-08-29 fix this line produced SIX drop
+    //    entries: the community plus every one of the five trailing tokens.
+    //    `targets` still goes, and that is `raw_walk`'s deliberate two-token
+    //    proximity window rather than this defect — it sits immediately after
+    //    the literal `trap-group`. Nothing beyond it may.
+    let destroyed = out.drops.entries.len();
+    assert!(
+        destroyed <= 2,
+        "the gate destroyed {destroyed} tokens on one trap-group line; only the \
+         community and the keyword adjacent to `trap-group` may go: {:?}",
+        out.drops.entries
+    );
+
+    // 4. Length is not a proxy for distance: a LONGER tail must not destroy
+    //    more. This is the assertion that actually pins "unbounded" as fixed,
+    //    because a fix that merely capped the sweep at five would pass 3.
+    let longer = format!(
+        "set snmp trap-group {secret} targets {target} categories link routing \
+         authentication chassis configuration remote-operations rmon-alarm \
+         services startup vrrp version v2\n"
+    );
+    let out2 = ingest(longer.as_bytes(), &dict()).expect("within the caps");
+    assert_eq!(
+        out2.drops.entries.len(),
+        destroyed,
+        "a longer tail on the same statement destroyed more tokens, so the \
+         sweep is still growing with the line: {:?}",
+        out2.drops.entries
+    );
+    assert!(
+        !format!("{out2:?}").contains(secret),
+        "the community survived on the longer form"
+    );
+}
+
 /// **THE SKETCH MUST NOT PUBLISH THE LENGTH OF WHAT THE GATE DESTROYED.**
 ///
 /// Found 2026-08-21 by an adversarial review of the parse-server designs in

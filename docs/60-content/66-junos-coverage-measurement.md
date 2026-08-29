@@ -72,6 +72,24 @@ read branch-srx — 39 understood, 64 lines not read, 7 secrets removed
 
 122 − 58 = 64. The page and the test are counting the same thing, from opposite ends.
 
+**That footer is the 2026-08-15 reading and the secrets figure has moved twice since.** It is
+kept as quoted evidence of that day rather than silently edited, because the two moves are worth
+carrying:
+
+| when | secrets removed | why |
+| --- | ---: | --- |
+| 2026-08-15 | 7 | as quoted above |
+| 2026-08-17 | 9 | `trap-group` joined `SECRET_WORD_LIST` so the SNMP trap community would have a second detector — correct in itself, and it **also armed an unbounded sweep** that destroyed every remaining token of the statement. On this fixture: `targets` and the trap destination address `192.0.2.20`. The +2 is the whole of the drift, and it was **not intended by that commit** |
+| 2026-08-29 | 8 | the sweep is bounded to one token past the modelled path (`crates/fathom-ingest/src/redact.rs`, see its comment). The community still dies; the destination address lives. `targets` still goes, which is the raw walk's deliberate two-token proximity window and not the defect |
+
+**The 7 → 9 move was flagged and re-pinned on 2026-08-28 without being explained**, in a session
+whose scope was elsewhere; it was chased down the next day. The lesson is `47` §9.3's, in a new
+place: a number that moves for an unknown reason is a finding, and re-pinning it to whatever the
+tree currently says makes the driver green and the claim hollow. The regression guard is
+`the_gate_destroys_the_trap_community_and_not_the_trap_destination`
+(`crates/fathom-ingest/tests/redaction_canary.rs`), which asserts both directions and pins that a
+longer tail does not destroy more.
+
 That run is reproducible rather than reported: `scripts/drive-branch-coverage.mjs` pastes the
 fixture into the real artifact and asserts **31 facts about the DOM** — one network request and
 only one (the file itself), no console errors, the tally above, no trace of any of the four

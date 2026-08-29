@@ -73,15 +73,29 @@ if (m) {
   // because nothing was asked to. A tally this document calls re-runnable has
   // to be pinned to a number, and a number that moves has to fail here.
   //
-  // VERIFY: this pin is 7 in doc 66 and reads 9 on this tree as of
-  // 2026-08-28, on a rebuild with NO changes to any redaction path — the
-  // drift predates this widening (confirmed by re-running this driver
-  // against a stash of this session's own diff) and its cause was not
-  // investigated here, which is Family 1's own scope, not this one's. Pinned
-  // to the number the tree actually produces so this driver stays green and
-  // truthful; doc 66 and this comment both need the real cause chased down
-  // by whoever owns the secrets-count history next.
-  check('9 secrets destroyed', m[3] === '9', 'got ' + m[3]);
+  // 7 -> 9 -> 8, and every step of that is now explained. This pin has moved
+  // twice and the second move was a DEFECT, so the history is worth carrying:
+  //
+  //   7  before 2026-08-17.
+  //   9  after `trap-group` joined SECRET_WORD_LIST (2026-08-17). That change
+  //      was right — it gave the trap community the second detector every
+  //      other declared secret already had — but it also armed an unbounded
+  //      sweep in `redact.rs`'s entry walk, which destroyed EVERY remaining
+  //      token on the line. On this fixture that is `targets` and the trap
+  //      destination address `192.0.2.20`: +2, which is the whole of the
+  //      drift. Investigated 2026-08-29 after a session flagged it rather
+  //      than explaining it.
+  //   8  after the bound landed (2026-08-29, `redact.rs`, see its comment).
+  //      The community dies and the destination address lives. `targets`
+  //      still goes, and that is `raw_walk`'s deliberate two-token proximity
+  //      window rather than the defect — it sits immediately after the
+  //      literal `trap-group`.
+  //
+  // The regression guard is `the_gate_destroys_the_trap_community_and_not_the
+  // _trap_destination` in crates/fathom-ingest/tests/redaction_canary.rs,
+  // which asserts both directions and pins that a LONGER tail does not
+  // destroy more — the assertion that actually holds "unbounded" fixed.
+  check('8 secrets destroyed', m[3] === '8', 'got ' + m[3]);
 }
 
 // No credential text survives anywhere in the rendered page.
