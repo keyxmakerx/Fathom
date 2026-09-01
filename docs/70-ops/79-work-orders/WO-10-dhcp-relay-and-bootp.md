@@ -1,30 +1,49 @@
 # WO-10 — DHCP relay and BOOTP: the first statements the estate cannot hold
 
-> **Status: OPEN — unblocked by the owner 2026-08-29. §5.4 item 4 is CLOSED and §4 now spells the
-> third edge.** Authored 2026-08-17 (*"that's fine if we can't build it currently then can you
-> prepare it to be added later"*), held BLOCKED ON BYTES until the ceiling was removed 2026-08-21
-> (`49` §1), flipped OPEN 2026-08-28, and stopped the same day at Step 0 when §10 item 3 fired as
-> written.
+> **Status: DONE — executed 2026-08-29.** Authored 2026-08-17 at the owner's request, held
+> BLOCKED ON BYTES until the ceiling was removed (2026-08-21), flipped OPEN 2026-08-28, stopped
+> the same day at Step 0 when §10 item 3 fired as written (`routing-instance` may qualify a
+> `server`; `DhcpRelay` carried no edge for it), unblocked 2026-08-29 when the owner chose route
+> (i) — a real `RoutingInstance` edge, `70` §18.5 — and executed the same day. **Schema 0.4 →
+> 0.5.** Every gate in §8 is green and the numbers are below, read off the runs and not off a
+> document.
 >
-> **What fired it, and what closed it.** An execution session established from two independent
-> dated Juniper sources — the Junos OS CLI Reference `helpers` statement page and the Junos OS DHCP
-> User Guide's worked example, both fetched 2026-08-28, syntax `server address { routing-instance
-> [...]; }` and `server 172.16.0.3 routing-instance c3;`, re-confirmed independently by a prover
-> session the same day — that `routing-instance` may qualify an individual `server` statement.
-> `DhcpRelay` as spelled carried no edge for it, which is exactly §10 item 3's trigger. **The
-> session was right to stop and touched nothing.**
+> **RUN 2026-08-29 — ALL SEVEN GATES PASS.**
 >
-> **The owner chose route (i) on 2026-08-29** — the fullest of the three the escalation named,
-> and the most work: *"1 now please"*, choosing a real `RoutingInstance` edge over a flat field or
-> excluding the qualified form. `70` §18.5 records it. §4 below now declares **three** edges, not
-> two, and §5.4 item 4 is answered rather than open. **What remains is code.**
+> | gate | result | evidence |
+> | --- | --- | --- |
+> | G1 floor | green — fmt, clippy, 727 tests (up 7), schema-check, gate-zero, wasm | **module 967,884 → 969,090 bytes: +1,206** for the kind, three edges, four fields and every arm (dictionary bytes are page-side). Reported, not gated — there is no number to hit |
+> | G2 schema-check | **0 failures, 0 warnings** — 51 kinds · 95 edges · 61 scalars · 10 enums | `identity: []` raised nothing: the unexercised warning fires only from ImportScope tier claims |
+> | G3 bootp server | a `helpers bootp server` line builds ONE `DhcpRelay` owned by the Device, `server` bound, **not on the residue list** | `dhcp_relay.rs::g3_…` at the fragment; `2026-08-29-dhcp-relay-drive.mjs` at the DOM — the row, the `HasDhcpRelay` child under the device in the Outline, and the line absent from the paste's residue table |
+> | G4 server-group | three addresses → **three nodes, one `group_name`**, distinct servers; the bootp rows carry NO group | `g4_…`; the driver's inventory rows `[10.0.0.5/6/7, relay-01, DHCP-GRP]` |
+> | G5 round trip | five relay rows after export → reload → import, group and addresses byte-identical, by kind name | the driver's §4. **With one caveat, recorded and escalated — see §10 item 5** |
+> | G6 gate unmoved | `git diff HEAD -- crates/fathom-ingest/tests/redaction_canary.rs` is **empty**; the canary suite is green | rule 0 was not tempted: no relay statement carries a credential |
+> | G7 deprecation | stated where a person reads it, with source and date | `forwarding-options.yaml`'s header quotes Juniper's `bootp` page (read 2026-08-29): *"The /forwarding-options/helpers/bootp command is deprecated"*; `66` carries the paragraph |
 >
-> **§2's byte table is NOT re-measured and does not need to be.** §5.4 item 4's instruction —
-> *"if it is needed, re-measure §2: the byte figures there are for two edges, not three"* — was
-> written to check a third edge still fitted under the 900,000-byte ceiling. **That ceiling was
-> removed on 2026-08-21**, so there is nothing to fit under and no headroom to measure against.
-> G1 as rewritten says it plainly: record the size, do not trim the modelling to hit a number.
-> The instruction is retired here rather than obeyed hollowly.
+> **Beyond the gates.** §5.4 items 1–3 are CLOSED in the dictionary file's header with the verbatim
+> syntax blocks pulled from the raw HTML of Juniper's `helpers`, `bootp` and `dhcp-relay` pages
+> (2026-08-29; the markdown converter drops them, which is why 2026-08-17's fetches came back
+> empty). The owner's route (i) binds: a qualified `server` line writes `RelayServerIn` to the
+> named instance, an unqualified one writes nothing (absent is the default instance, never
+> "unknown"), and both directions are pinned at the fragment
+> (`a_qualified_server_links_to_its_routing_instance_and_an_unqualified_one_does_not`). The
+> `interface` form writes a REAL `RelaysFor` when the unit is declared in the paste and a Pending
+> one when it is not. The five undecided forms are named residue by §11 item 4 and a test says so
+> byte-for-byte. Six fragment tests, two browser drivers (25/25 new; the 2026-08-28 policies
+> driver's relay section flipped from "residue" to "understood" and is 17/17). Coverage on the
+> measured fixture is **unmoved at 70/122** because it contains zero `forwarding-options` lines —
+> re-measured, not assumed; extending the fixture is not this order's to do.
+>
+> **What executing it found (§10 item 5, new).** `RelayServerIn` is ALWAYS pending today — no
+> dictionary entry builds a `RoutingInstance` — and pending references are *carried out, not
+> written* (`14` §7.3; `fathom-weld` step 9). The paste reply shows them once, in the inventory's
+> pending table (the driver asserts `RoutingInstance c3 · RelayServerIn` there); the import path
+> replays the PRODUCT and reports none. **So the relay survives a reload and its routing-instance
+> qualifier does not.** The driver pins that as the current truth rather than hiding it. It is a
+> planning decision with three routes and none is an execution session's: bind
+> `routing-instances` so the target exists; persist pending references (reopening `14` §7.3);
+> or replay the parser rather than the product. The owner's route (i) is only fully delivered
+> once one of them is taken.
 >
 > **§2 is kept verbatim as history**, not as a live block. It is the measurement that proved the
 > ceiling cost the product a feature the owner asked for by name — the evidence behind the decision
@@ -428,6 +447,12 @@ assigning, because `47`'s lever or another order may have taken them.
 4. A second platform's relay form (PAN-OS, Nexus, Meraki) turns out not to fit `DhcpRelay`'s
    fields. The kind is meant to be cross-vendor; if it is not, that is a modelling decision and
    planning work, not an execution session's.
+5. **Fired 2026-08-29, at execution.** `RelayServerIn` is always a pending reference (nothing
+   builds a `RoutingInstance`) and pending references do not survive an export and an import
+   (`14` §7.3: carried out, not written). The relay round-trips; its routing-instance qualifier
+   is lost on reload. Routes: bind `routing-instances` so the target node exists; persist pending
+   references in the store (reopens `14` §7.3 — planning); or make the journal replay the parser
+   rather than the product (reopens phase 0's §10a decision — planning). Escalated, not chosen.
 
 ## 11. Companion edits and first-cut scope — authorized 2026-08-28, before execution
 

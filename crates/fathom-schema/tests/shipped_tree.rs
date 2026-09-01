@@ -64,14 +64,14 @@ fn shipped_tree_declaration_counts_hold() {
     // hard ceiling, bought for a bound that 62 §3.2's per-field `constraints`
     // already expresses. The `Placeable` CLASS did move — it gained `Rack` —
     // and `every_kind_but_the_pin_itself_is_placeable` below is the noticer.
-    assert_eq!(tree.kinds.len(), 50, "kind count");
-    assert_eq!(tree.edges.len(), 92, "edge count (84 + 8 derived)");
+    assert_eq!(tree.kinds.len(), 51, "kind count");
+    assert_eq!(tree.edges.len(), 95, "edge count (87 + 8 derived)");
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
     assert_eq!(tree.classes.len(), 4, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 307, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 311, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -83,7 +83,16 @@ fn shipped_tree_declaration_counts_hold() {
     // `PhysicalPort.label` to `0..1` (the owner's answer to 57 §13.5's open
     // decision 8, 70 §18) moves no count in this function — same kinds, same
     // edges, same 307 keys, same files. A cardinality is not a declaration.
-    assert_eq!(tree.version.as_deref(), Some("0.4"));
+    //
+    // 0.4 -> 0.5 (2026-08-29) is WO-10 and moves three of the counts above:
+    // +1 kind (`DhcpRelay`, 50 -> 51), +3 edges (`HasDhcpRelay`, `RelaysFor`,
+    // `RelayServerIn`, 92 -> 95 -- THREE, not the order's original two, because
+    // the owner chose a real `RoutingInstance` edge over a string field,
+    // 70 §18.5), +4 field keys (308-311, 307 -> 311). Scalars, enum files,
+    // classes and scopes are unmoved: `server` is the existing `IpAddr`,
+    // `group_name` the existing `Identifier`, the two limits plain `u32`. The
+    // `Placeable` CLASS gained `DhcpRelay` and the noticer below still holds.
+    assert_eq!(tree.version.as_deref(), Some("0.5"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

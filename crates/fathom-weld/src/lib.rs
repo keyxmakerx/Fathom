@@ -116,7 +116,7 @@ pub const HAND_LINK_EXCLUDED: &[EdgeKind] = &[EdgeKind::MountedIn];
 /// box, in `EdgeKind::ALL` order.
 ///
 /// Computed from the generated tables, exactly as [`containment_edge`] is and
-/// for the same reason (ADR-0008): the schema declares 84 edge kinds, and a
+/// for the same reason (ADR-0008): the schema declares 87 edge kinds, and a
 /// hand-written list of which ones join which kinds would be wrong the first
 /// time `schema/` moved.
 ///

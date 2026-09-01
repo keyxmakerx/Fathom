@@ -88,9 +88,11 @@ fn slot_type_covers_every_registry_key() {
     // assertion in `canon_laws.rs` — both pin the same registry from opposite
     // sides (canon dispatch and slot typing), so both move together or one of
     // the two tables has silently lost a key.
+    // 307 -> 311 on 2026-08-29: WO-10's four `DhcpRelay` keys at 308-311;
+    // the loop below is what proves each reaches a slot type.
     assert_eq!(
         FIELD_KEYS.len(),
-        307,
+        311,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

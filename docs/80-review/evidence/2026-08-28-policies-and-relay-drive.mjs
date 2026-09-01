@@ -178,17 +178,23 @@ check('and carries the pasted description',
 check('the description line is understood, not residue',
   !pasteResultBody.includes('set interfaces ge-0/0/0 description "WAN uplink"'));
 
-// ---- 4. DHCP RELAY / BOOTP — HONEST RESULT, NOT THE BRIEF'S ASSUMPTION ----
+// ---- 4. DHCP RELAY / BOOTP — BUILT THE NEXT DAY, AND THIS SECTION FLIPPED ----
+//
+// When this file was written (2026-08-28) WO-10 had stopped at its own
+// escalation trigger and these two lines were correctly RESIDUE; the header
+// above records why, and it is kept as the history of an honest driver. On
+// 2026-08-29 the owner chose a real RoutingInstance edge (70 §18.5), the order
+// ran to completion, and the same two lines now BIND — so the assertions
+// flipped with the facts. `2026-08-29-dhcp-relay-drive.mjs` is the full proof
+// (nodes, edges, group, round trip); this section keeps only the negative
+// that belongs to this file's own paste.
 
-console.log('\n4. DHCP RELAY / BOOTP — WO-10 WAS NOT BUILT, AND THE PAGE SAYS SO CORRECTLY');
+console.log('\n4. DHCP RELAY / BOOTP — WO-10 IS BUILT, AND THE LINES ARE UNDERSTOOD');
 
-check('the bootp server line is named on the residue list (WO-10 not built)',
-  pasteResultBody.includes('set forwarding-options helpers bootp server 172.16.0.3'));
-check('the dhcp-relay server-group line is named on the residue list (WO-10 not built)',
-  pasteResultBody.includes('set forwarding-options dhcp-relay server-group DHCP-GRP 10.0.0.5'));
-check('neither line was silently dropped — both are named, not just counted',
-  /set forwarding-options helpers bootp server/.test(pasteResultBody) &&
-  /set forwarding-options dhcp-relay server-group/.test(pasteResultBody));
+check('the bootp server line is understood, not residue (WO-10 built 2026-08-29)',
+  !pasteResultBody.includes('set forwarding-options helpers bootp server 172.16.0.3'));
+check('the dhcp-relay server-group line is understood, not residue',
+  !pasteResultBody.includes('set forwarding-options dhcp-relay server-group DHCP-GRP 10.0.0.5'));
 
 // ---- 5. THE ROUND TRIP -----------------------------------------------------
 

@@ -174,6 +174,9 @@ pub(crate) fn display_name(g: &Graph, id: NodeId) -> String {
         // and is not shown looks identical to one nobody has named.
         NodeKind::Vlan => value_cell(g, id, key("Vlan.name")),
         NodeKind::NtpServer => value_cell(g, id, key("NtpServer.address")),
+        // WO-10 §7.3, 2026-08-29: "a relay's name is its server address." The
+        // arm is not optional, for the reason the comment above records twice.
+        NodeKind::DhcpRelay => value_cell(g, id, key("DhcpRelay.server")),
         // A device has one unnamed default instance and any number of named
         // ones, so the unbound case is common and is NOT an error. `—` alone
         // identifies nothing and a ULID is noise; saying it is the unnamed one

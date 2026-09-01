@@ -1830,6 +1830,18 @@ must not be collapsed.
 **What it does not decide.** Nothing about the other four unbound `dhcp-relay` forms (`70` §18.4's
 neighbours in WO-10 §11 item 4), which stay named residue by the same section's standing decision.
 
+**Executed the same day, and execution found the next question.** WO-10 is DONE (schema 0.5, all
+seven gates, `2026-08-29-dhcp-relay-drive.mjs` 25/25). The edge the owner chose is written, and it
+is written as a PENDING reference every time, because no dictionary entry builds a
+`RoutingInstance` yet — and pending references are carried out of the weld, never stored (`14`
+§7.3). The paste shows `RoutingInstance c3 · RelayServerIn` in the inventory's pending table; a
+reload does not, because the journal replays what was stored. **So route (i) is half delivered:
+the fact is read, shown, and lost on save.** WO-10 §10 item 5 names the three routes — bind
+`routing-instances`, persist pending references, or replay the parser — and none is an execution
+session's. This is the owner's next decision on this thread, and the cheapest of the three
+(binding `routing-instances`, which is dictionary work the estate needs anyway) is the one that
+also makes the routing view truer.
+
 ## 15. Disagreements
 
 1. **Against the framing of the original questions.** Q3 and Q4 were put to the owner in project

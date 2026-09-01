@@ -70,7 +70,14 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             }
         }
     }
-    assert_eq!(resolved, 96, "the containment pair set moved");
+    // 96 -> 98 on 2026-08-29 (WO-10, schema 0.5), and the second one is the
+    // one to notice: `HasDhcpRelay` adds (Device, DhcpRelay), and joining the
+    // `Placeable` class adds (DhcpRelay, LayoutPin) through `HasLayoutPin` —
+    // every placeable kind owns its own pin, so a new kind costs TWO pairs
+    // here, never one. A count that moved by one would mean the kind was
+    // declared but left out of the class, which is exactly the drift
+    // `shipped_tree.rs::every_kind_but_the_pin_itself_is_placeable` guards.
+    assert_eq!(resolved, 98, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -85,7 +92,8 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
         .into_iter()
         .filter(|k| k.class() == EdgeClass::Containment)
         .count();
-    assert_eq!(containment, 43);
+    // 44 as of 2026-08-29: `HasDhcpRelay` (WO-10, schema 0.5), Device -> DhcpRelay.
+    assert_eq!(containment, 44);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {

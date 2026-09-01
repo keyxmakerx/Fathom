@@ -2415,7 +2415,10 @@ var KINDS = ['Device', 'PhysicalPort', 'Premises',
              /* Appended 2026-08-15 with the OPNsense firewall-rules CSV, which
                 is the first input that is not a Junos statement. A ruleset the
                 module parses correctly needs somewhere to appear. */
-             'SecurityPolicy'];
+             'SecurityPolicy',
+             /* Appended 2026-08-29 with WO-10. A relay's server address is a
+                thing the estate holds and a person will look for by kind. */
+             'DhcpRelay'];
 
 /* An InvKind wire byte is a POSITION in this list, and a position is only
    stable while nothing is appended. TWO kinds were appended on 2026-08-15 by

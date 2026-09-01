@@ -383,3 +383,8 @@ fields:
   MountedIn.position_u: 305
   MountedIn.height_u: 306
   MountedIn.face: 307
+  # DhcpRelay (WO-10, 2026-08-29)
+  DhcpRelay.server: 308
+  DhcpRelay.group_name: 309
+  DhcpRelay.maximum_hop_count: 310
+  DhcpRelay.minimum_wait_time: 311

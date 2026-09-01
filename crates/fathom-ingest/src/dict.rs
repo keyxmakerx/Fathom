@@ -1910,7 +1910,7 @@ mod tests {
         // +4 on 2026-08-28 — `security policies`: the bare stanza, `match
         // source-address any`, `match destination-address any`, `then
         // permit`. See `corpus/dict/junos-srx/security-policies.yaml`.
-        assert_eq!(d.entry_count(), 85);
+        assert_eq!(d.entry_count(), 90);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside

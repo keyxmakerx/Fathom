@@ -63,9 +63,16 @@ fn dictionary_loads() {
 /// `then permit`. Sourced to Juniper's `security-edit-policies.html`, already
 /// cited by `docs/60-content/66-junos-coverage-measurement.md` §10. What
 /// stays residue and why is in the dictionary file's own header comment.
+///
+/// +5 on 2026-08-29: WO-10 -- `forwarding-options.yaml`'s `helpers bootp
+/// server`, the same with `routing-instance`, `helpers bootp interface …
+/// server`, the same with `routing-instance`, and `dhcp-relay server-group`.
+/// Syntax read off Juniper's `helpers`, `bootp` and `dhcp-relay` statement
+/// pages that day, quoted in the file. The five other §5.3 forms are named
+/// residue by WO-10 §11 item 4's decision.
 #[test]
-fn entry_count_is_85() {
-    assert_eq!(dict().entry_count(), 85);
+fn entry_count_is_90() {
+    assert_eq!(dict().entry_count(), 90);
 }
 
 /// `14` §6.5: no entry's path is a strict prefix of another's unless the

@@ -1536,6 +1536,29 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(304))
         }
     }
+    /// Typed reads for `DhcpRelay` fields.
+    pub mod dhcp_relay {
+        /// `DhcpRelay.server` — `IpAddr`, card `1`, emit `O`.
+        /// The grammar token is `address` on both Juniper pages read 2026-08-29 and neither offers a hostname alternative (WO-10 §5.4 item 2); a hostname here is ValueUnparsed, never a dropped server -- the NtpServer precedent.
+        pub fn server<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpAddr, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(308))
+        }
+        /// `DhcpRelay.group_name` — `Identifier`, card `0..1`, emit `O`.
+        /// The dhcp-relay server-group this address belongs to. Absent on the legacy helpers bootp form.
+        pub fn group_name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(309))
+        }
+        /// `DhcpRelay.maximum_hop_count` — `u32`, card `0..1`, emit `O`.
+        /// `maximum-hop-count number` (Juniper, 2026-08-29). Units: hops. Range not established -- WO-10 §5.4 item 3; residue in the first cut.
+        pub fn maximum_hop_count<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(310))
+        }
+        /// `DhcpRelay.minimum_wait_time` — `u32`, card `0..1`, emit `O`.
+        /// `minimum-wait-time seconds` (Juniper, 2026-08-29). Units: seconds. Range not established -- WO-10 §5.4 item 3; residue in the first cut.
+        pub fn minimum_wait_time<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(311))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -1849,6 +1872,10 @@ mod body {
             305 => Some((core::any::TypeId::of::<u8>(), "u8")),
             306 => Some((core::any::TypeId::of::<u8>(), "u8")),
             307 => Some((core::any::TypeId::of::<crate::generated::ir_types::MountedInFace>(), "crate::generated::ir_types::MountedInFace")),
+            308 => Some((core::any::TypeId::of::<crate::scalar::IpAddr>(), "crate::scalar::IpAddr")),
+            309 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            310 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            311 => Some((core::any::TypeId::of::<u32>(), "u32")),
             _ => None,
         }
     }
@@ -2164,6 +2191,10 @@ mod body {
             305 => crate::canon::slot_to::<u8>(305, "u8", value),
             306 => crate::canon::slot_to::<u8>(306, "u8", value),
             307 => crate::canon::slot_to::<crate::generated::ir_types::MountedInFace>(307, "crate::generated::ir_types::MountedInFace", value),
+            308 => crate::canon::slot_to::<crate::scalar::IpAddr>(308, "crate::scalar::IpAddr", value),
+            309 => crate::canon::slot_to::<crate::scalar::Identifier>(309, "crate::scalar::Identifier", value),
+            310 => crate::canon::slot_to::<u32>(310, "u32", value),
+            311 => crate::canon::slot_to::<u32>(311, "u32", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2477,6 +2508,10 @@ mod body {
             305 => crate::canon::slot_from::<u8>(j),
             306 => crate::canon::slot_from::<u8>(j),
             307 => crate::canon::slot_from::<crate::generated::ir_types::MountedInFace>(j),
+            308 => crate::canon::slot_from::<crate::scalar::IpAddr>(j),
+            309 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            310 => crate::canon::slot_from::<u32>(j),
+            311 => crate::canon::slot_from::<u32>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

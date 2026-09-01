@@ -90,6 +90,22 @@ tree currently says makes the driver green and the claim hollow. The regression 
 (`crates/fathom-ingest/tests/redaction_canary.rs`), which asserts both directions and pins that a
 longer tail does not destroy more.
 
+**Re-measured 2026-08-29 after WO-10 (DHCP relay + BOOTP) landed: unmoved at 70/122.** The
+fixture contains zero `forwarding-options` lines — its DHCP lines are `dhcp-local-server`, the
+DHCP *server*, which WO-10 §9 excludes by name — so the five new dictionary entries bind nothing
+in it. Recorded rather than "fixed": extending the measured fixture would move the documented
+baseline, and the right next measurement is a second fixture (§note above). The relay's own
+proof is `docs/80-review/evidence/2026-08-29-dhcp-relay-drive.mjs`, 25/25.
+
+**And the finding that matters to whoever pastes a bootp config (WO-10 G7).** Juniper's `bootp`
+statement page, read 2026-08-29: *"For supported SRX Series Firewalls, JDHCP or extended DHCP is
+the enhanced versions of the DHCP daemon (legacy DHCP) … The /forwarding-options/helpers/bootp
+command is deprecated."* Release information on the same page: *"Statement introduced before
+Junos OS Release 7.4."* The replacement is `forwarding-options dhcp-relay`, whose `server-group`
+form the dictionary binds beside the legacy one. A pasted `helpers bootp` line is not wrong and
+it works; it is the kind of thing the teaching half of the product exists to say, and carrying
+it INTO the estate (a `deprecated:` key, page copy) is unordered surface work — WO-10 §11 item 5.
+
 That run is reproducible rather than reported: `scripts/drive-branch-coverage.mjs` pastes the
 fixture into the real artifact and asserts **31 facts about the DOM** — one network request and
 only one (the file itself), no console errors, the tally above, no trace of any of the four

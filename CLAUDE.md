@@ -28,8 +28,10 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 - **Specification: complete.** The foundational corpus (docs 00–74, ADRs 0001–0030) plus
   the post-redefinition set: `77` (owner requirements verbatim) → `76` (analysis + build
   order) → `19` (the IR extension) → `62` (the schema grammar).
-- **Schema: instantiated and gated.** `schema/` is real (48 kinds / 89 edges / 61
-  scalars); `crates/fathom-schema` parses and checks it; `cargo test` pins zero failures.
+- **Schema: instantiated and gated.** `schema/` is real (51 kinds / 95 edges / 61
+  scalars as of schema 0.5, 2026-08-29 — read the number off `fathom-schema-check`, this
+  line has lagged before); `crates/fathom-schema` parses and checks it; `cargo test` pins
+  zero failures.
 - **Design: decided and demonstrated.** `design/prototype/fathom-app.html` is the whole
   product as one interactive file — the fidelity bar for anything built.
 - **Four of six views are live as of 2026-08-22.** Inventory (with in-place cell editing),
@@ -354,18 +356,20 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 - **`00-PROGRAM-PLAN.md`** (Proposed) remains the long-term shape: eleven stages, the unwritten work
   orders, and the tier-ordered owner list. Its tier 1 is **overstated by 4×** — four of its five
   are already on disk. The queue below stays the operational truth; on disagreement the queue wins.
-- **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — eight of nine DONE;
-  WO-04 (the dictionary deepening) is the one open order. **WO-10 (DHCP relay + bootp) was run
-  2026-08-28 and stopped at its own Step 0**, before any schema edit: two independent, dated
-  Juniper sources (the CLI Reference `helpers` statement page; the Junos DHCP User Guide's
-  worked example — both re-confirmed independently the same day) establish that
-  `routing-instance` may qualify an individual `server` statement under `helpers bootp`
-  (`server 172.16.0.3 routing-instance c3;`), and the order's own `DhcpRelay` kind spells no
-  edge for it — its own §10 item 3 stop-and-escalate trigger, fired as written. WO-10 is
-  **BLOCKED on planning** (a `RoutingInstance` edge, a field, or a deliberate first-cut
-  exclusion — `78` §5, not an execution session's call), not OPEN and not DONE. No schema,
-  dictionary, or generated file changed; the tree carries no `DhcpRelay` kind. Every order
-  carries its own plan, gates, and stop-and-escalate list; `78` governs.
+- **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — **nine of ten DONE**;
+  WO-04 (the emitters) is the one open order. **WO-10 (DHCP relay + bootp) is DONE as of
+  2026-08-29** — schema 0.4 → 0.5: the `DhcpRelay` kind, `HasDhcpRelay`, `RelaysFor`, and
+  `RelayServerIn`, the third edge the owner chose (*"1 now please"*, `70` §18.5) after the order
+  stopped at its own Step 0 on 2026-08-28 because Juniper's grammar admits `routing-instance` on a
+  `server` line. All seven gates green, +1,206 module bytes measured, six fragment tests,
+  `2026-08-29-dhcp-relay-drive.mjs` 25/25. Coverage on the measured fixture is unmoved (it has no
+  `forwarding-options` lines). **Executing it fired a new escalation, WO-10 §10 item 5, and it is
+  the owner's next decision on this thread:** `RelayServerIn` is always a PENDING reference (nothing
+  builds a `RoutingInstance` yet) and pending references are carried out of the weld, never stored
+  (`14` §7.3) — so the paste shows `RoutingInstance c3 · RelayServerIn` in the inventory's pending
+  table and a reload loses it. Three routes named there; the cheapest is binding
+  `routing-instances`, which the routing view needs anyway. Every order carries its own plan,
+  gates, and stop-and-escalate list; `78` governs.
 - **Raised by the on-ramp (2026-08-09), all three now settled:** (a) the ceiling question
   is CLOSED — removed 2026-08-21 with the pivot, and the dictionary had already moved out of
   the module to the page on 2026-08-15; (b) `OP_PASTE` is ADDITIVE as of 2026-08-21, with the

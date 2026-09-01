@@ -63,6 +63,10 @@ pub enum InvKind {
     // not a Junos statement, and until now `SecurityPolicy` had no row — so a
     // ruleset Fathom parsed correctly had nowhere to appear.
     SecurityPolicy,
+    // Appended 2026-08-29 with WO-10. A relay's server address is a thing the
+    // estate holds and a person will look for by kind; APPENDED for the reason
+    // `Chassis` states above.
+    DhcpRelay,
 }
 
 impl InvKind {
@@ -83,10 +87,11 @@ impl InvKind {
             InvKind::Chassis => "Chassis",
             InvKind::Rack => "Rack",
             InvKind::SecurityPolicy => "SecurityPolicy",
+            InvKind::DhcpRelay => "DhcpRelay",
         }
     }
 
-    pub const ALL: [InvKind; 15] = [
+    pub const ALL: [InvKind; 16] = [
         InvKind::Device,
         InvKind::PhysicalPort,
         InvKind::Premises,
@@ -102,6 +107,7 @@ impl InvKind {
         InvKind::Chassis,
         InvKind::Rack,
         InvKind::SecurityPolicy,
+        InvKind::DhcpRelay,
     ];
 
     fn node_kind(self) -> NodeKind {
@@ -121,6 +127,7 @@ impl InvKind {
             InvKind::Chassis => NodeKind::Chassis,
             InvKind::Rack => NodeKind::Rack,
             InvKind::SecurityPolicy => NodeKind::SecurityPolicy,
+            InvKind::DhcpRelay => NodeKind::DhcpRelay,
         }
     }
 }
@@ -374,6 +381,20 @@ const SECURITY_POLICY_COLUMNS: &[Col] = &[
     f("description", "SecurityPolicy.description"),
 ];
 
+/// One relay target: the server address first because it IS the row's name
+/// (WO-10 §7.3), the device beside it because a relay is meaningless without
+/// the box that relays, then the group and the two limits. Five of the six
+/// slots; names by sibling precedent, as WO-10 §11 item 6 authorises. The
+/// routing instance is an EDGE (`RelayServerIn`) and is read off the element
+/// page, not a column -- the same reason `bound to` is a walk above.
+const DHCP_RELAY_COLUMNS: &[Col] = &[
+    f("server", "DhcpRelay.server"),
+    w("device", Walk::OwningDevice),
+    f("group", "DhcpRelay.group_name"),
+    f("max hops", "DhcpRelay.maximum_hop_count"),
+    f("min wait", "DhcpRelay.minimum_wait_time"),
+];
+
 fn table(kind: InvKind) -> &'static [Col] {
     match kind {
         InvKind::Device => DEVICE_COLUMNS,
@@ -391,6 +412,7 @@ fn table(kind: InvKind) -> &'static [Col] {
         InvKind::Chassis => CHASSIS_COLUMNS,
         InvKind::Rack => RACK_COLUMNS,
         InvKind::SecurityPolicy => SECURITY_POLICY_COLUMNS,
+        InvKind::DhcpRelay => DHCP_RELAY_COLUMNS,
     }
 }
 
