@@ -53,7 +53,8 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   buttons in the strip, plus `Alt`+arrow as an accelerator (filed in ADR-0035 §9 for `53`, which
   owns the keymap). **Measured at +985 module bytes** against `00-ROUTE-TO-WORKABLE.md` §4's
   estimate of *"stage 8, months"* — the months were the diagram. Driven in Chromium through a real
-  reload: `docs/80-review/evidence/2026-08-15-hand-placement-drive.mjs`, 25/25.
+  reload: `docs/80-review/evidence/2026-08-15-hand-placement-drive.mjs`, 23/23 (corrected here from
+  a stale "25/25" — re-run and recounted by the ADR-0039 proving session, 2026-09-02).
 - **A home lab has servers, and now the schema does too — ADR-0037, 2026-08-16.** `Device.role`
   declared `firewall, router, switch, load_balancer, other`, so every server, NAS, hypervisor and
   access point the owner added was `other`. It now declares **`server`** and **`access_point`** as
@@ -234,21 +235,36 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   exists**: `Esc` mid-drag reverts the preview or the provisional move and releases capture, one
   rung covering both `DG.box` and `DG.connect`. **No Rust, no opcode, no schema change** — the
   gesture terminates in `OP_CABLE` (27), unchanged; **module bytes confirmed unchanged at
-  988,540**. Page **+14,870 bytes** (2,803,728 → 2,818,598). New driver
-  `2026-09-02-drag-to-connect-drive.mjs` (48/48) through a real reload, including the
-  keyboard-equivalence assertion (the same journal record shape from a drag and from the strip) and
-  export → reload → import; `2026-08-15-hand-placement-drive.mjs` (23/23),
-  `2026-08-29-cabling-drive.mjs` (56/56), `2026-08-16-hand-link-drive.mjs` (31/31) and
+  988,540**. Page **+14,870 bytes** (2,803,728 → 2,818,598). Driver
+  `2026-09-02-drag-to-connect-drive.mjs` (**58/58**, up from 48/48 at first cut) through a real
+  reload, including the keyboard-equivalence assertion (the same journal record shape from a drag
+  and from the strip), a real off-canvas release (distinct wording from an Escape cancel — added
+  by the proving pass below), and export → reload → import; `2026-08-15-hand-placement-drive.mjs`
+  (23/23), `2026-08-29-cabling-drive.mjs` (56/56), `2026-08-16-hand-link-drive.mjs` (31/31) and
   `2026-08-16-the-cut-that-drew.mjs` (18/18) re-run with no regression. `56` §6.3 and §6.4 are
   annotated against what actually shipped (both predate ADR-0038/0039 and named a mechanism —
   `Op::SetLayoutHint`, `Op::AddEdge`, keys `L`/`T` — that was never built); `fathom-weld`'s stale
-  *"no opcode creates a `Cable`"* comment was corrected in the same pass that filed the ADR. What
-  stays open, all in ADR-0039 §10: the shape autoprompt (drop-on-empty-canvas creating a node and
-  its edge in one gesture, `49` §15 item 3); drop-on-a-port (needs the rung-3 faceplate, ADR-0038
-  §9 item 2); a keyboard chord for connect, if `53` wants one; `?` (the shortcut-help sheet) is
-  specified in `53` §3.1 and still does not exist anywhere in the page; alignment guides and
-  measured distances (`49` §15 item 5) stay the move-drag's, constrained to `LayoutPin`-writing
-  gestures.
+  *"no opcode creates a `Cable`"* comment was corrected in the same pass that filed the ADR.
+  **Proven the same day, adversarially, and one evidence-only defect found and fixed — the page
+  itself needed no change.** Three skeptics attacked no-regression, never-guesses, and §5's band
+  arithmetic; the first two held outright. The third found the shipped band arithmetic itself
+  correct but the driver's own "two zoom levels" section (which §9's failure-mode row leans on)
+  materially weaker than it read: it moved the zoom by one ~20% strip-button click and silently
+  passed as `'not exercised'` when no safe alternate zoom existed for a run's layout — a gate
+  tested against what the assertion needed, the exact anti-pattern rule 0 above warns against.
+  Rewritten to zoom on the test pair's own shared midpoint via a real wheel event (the same
+  `dgZoomAt` arithmetic a physical scroll runs, a different real input than the strip buttons) and
+  drive two genuinely far-apart, honestly-computed points — as close to where D4's floor takes
+  over as the pair's own geometry allows, and as close to the true `DG_MAX` ceiling as it allows —
+  failing outright rather than passing vacuously if neither exists. In passing this also drove a
+  real off-canvas pointer release, which the first cut's own header claimed as covered but only
+  Escape (a structurally different code path) actually exercised. ADR-0039 §7 carries the dated
+  as-built note. What stays open, all in ADR-0039 §10: the shape autoprompt (drop-on-empty-canvas
+  creating a node and its edge in one gesture, `49` §15 item 3); drop-on-a-port (needs the rung-3
+  faceplate, ADR-0038 §9 item 2); a keyboard chord for connect, if `53` wants one; `?` (the
+  shortcut-help sheet) is specified in `53` §3.1 and still does not exist anywhere in the page;
+  alignment guides and measured distances (`49` §15 item 5) stay the move-drag's, constrained to
+  `LayoutPin`-writing gestures.
 - **The parse-server question is answered and the answer is no server — `38` §14, 2026-08-17.**
   Six designs, each attacked by an independent reviewer. The finding in one line: *we were about
   to move a customer's firewall config off his machine because a lookup table got compiled as a

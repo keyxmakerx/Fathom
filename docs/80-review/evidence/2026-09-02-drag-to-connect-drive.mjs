@@ -198,7 +198,7 @@ console.log('\n0. SETUP — FIVE HAND-ADDED BOXES');
 await addDevice('mv-drag-01', 'switch');    // body-drag (move) subject
 await addDevice('cn-drag-near', 'switch');  // the drag-drawn cable, near end — reused for
 await addDevice('cn-drag-far', 'firewall'); // the floor / origin / empty-canvas / escape /
-                                             // "no cable" / two-zoom-level cases too
+                                             // "no cable" / zoom-extreme cases too
 await addDevice('kb-drag-near', 'switch');  // the KEYBOARD path's near end
 await addDevice('kb-drag-far', 'firewall'); // the KEYBOARD path's far end
 await page.click('[data-view="diagram"]');
@@ -206,7 +206,7 @@ const TOTAL_DEVICES = 5;
 await page.waitForFunction(
   n => document.querySelectorAll('.dbox').length >= n, TOTAL_DEVICES);
 
-// Real cable draws this driver makes — §1 and §2 always count; §10 counts
+// Real cable draws this driver makes — §1 and §2 always count; §9a/§9b count
 // only if a safe alternate zoom exists for this run's layout (see §10).
 let expectedDraws = 0;
 
@@ -407,6 +407,28 @@ check('the preview line is gone', (await page.$$('.dconnectpreview')).length ===
 check('no drop-target highlight survives either', (await page.$$('.dconnect-target')).length === 0);
 check('no page errors from the escape', errors.length === 0, errors.join(' | '));
 
+// ---- 7b. RELEASING OFF THE CANVAS CANCELS, WORDED DISTINCTLY FROM ESCAPE ---
+// A real pointerup with its coordinates outside `.dcanvas` entirely — the
+// fourth of D7/§7's release outcomes, and the one a straight Escape-mid-drag
+// test (above) does NOT exercise, because Escape is a structurally different
+// code path (the keydown rung, not `dgConnectRelease`'s own off-canvas
+// branch, `fathom-dev.src.html:8456-8461`). Released over the toolbar strip
+// above the canvas — real page chrome, not a synthesised coordinate with
+// nothing under it.
+console.log('\n7b. RELEASE OFF THE CANVAS CANCELS (D7, DISTINCT FROM ESCAPE)');
+const canvasTop = await page.$eval('.dcanvas', n => n.getBoundingClientRect().top);
+check('setup: there really is page chrome above the canvas to release onto', canvasTop > 20,
+  'canvas top=' + canvasTop);
+rNear = await boxRect(CNn.id);
+const offCanvasMarks = await page.$$eval('.dhandmark', ns => ns.length);
+await drag(perimeterPoint(rNear), { x: rNear.left, y: Math.max(4, canvasTop - 20) });
+check('releasing off the canvas cancels, worded distinctly from an Escape cancel',
+  (await footer()) === 'cable drag cancelled — released off the canvas', await footer());
+check('no sheet opened for an off-canvas release', await page.$eval('#csheet', n => n.hidden));
+check('no cable was drawn for an off-canvas release',
+  (await page.$$eval('.dhandmark', ns => ns.length)) === offCanvasMarks);
+check('no page errors from the off-canvas release', errors.length === 0, errors.join(' | '));
+
 // ---- 8. "NO CABLE — THESE JUST TALK" REACHABLE FROM A DRAG-OPENED SHEET ----
 // (Escape mid-move-drag is proven as §3b, right after the real move it mirrors.)
 
@@ -424,125 +446,185 @@ check('the sheet closed with nothing held',
   await page.$eval('#csheet', n => n.hidden));
 check('no cable was drawn', (await page.$$eval('.dhandmark', ns => ns.length)) === preNoCableMarks);
 
-// ---- 10. A DRAG AT TWO DIFFERENT ZOOM LEVELS BEHAVES THE SAME --------------
+// ---- 9. THE BAND BEHAVES THE SAME AT TWO REAL ZOOM EXTREMES (D3) -----------
 
-console.log('\n9. A DRAG AT TWO DIFFERENT ZOOM LEVELS BEHAVES THE SAME');
-// §1 above already drew a cable at the fitted (roughly 1x) zoom. This
-// repeats the identical gesture shape on the SAME pair at a DIFFERENT zoom,
-// with fresh ports so it is a second real draw and not the "already there"
-// no-op — but a fitted view has, by definition, its outermost boxes flush
-// against the canvas edge (`DG_PAD` is only 24 px), so a naive zoom-in can
-// push one of them off screen and a naive zoom-out can shrink one below the
-// 40 px floor tested in §4. Rather than guess a multiplier and hope, the
-// safe range is computed from the two boxes' own current geometry and the
-// canvas's — the same arithmetic `dgZoomAt` itself uses (about the canvas
-// CENTRE, so a corner's distance from centre scales linearly with the
-// factor) — and the zoom change itself is still made through the real
-// `[data-dzoom]` strip buttons the operator has (the page's own functions
-// are not reachable from here at all: the whole script is one IIFE), a
-// computed number of clicks landing near a factor already known to be
-// safe rather than discovered by trial and error against this layout.
+console.log('\n9. THE PERIMETER PRESS BEHAVES THE SAME AT TWO REAL ZOOM EXTREMES (D3)');
+// §1 above already drew a cable at the fitted zoom. D3's actual claim is that
+// the band's SCREEN-SPACE arithmetic keeps the same outcome regardless of
+// `DG.k` (0.2x-4.0x) — so this drives the identical gesture shape at TWO
+// zoom levels that are genuinely far apart, not a single ~20% nudge off
+// "fit". A first pass at this section only ever reached ±20% of the fitted
+// zoom, because it capped its own target factor at 0.7 and never tried for
+// either literal end of the range — a defect in the EVIDENCE, found and
+// fixed here, not in what it was testing.
+//
+// A NORMAL device box (44 scene units on its shorter side) crosses the 40 px
+// floor around k≈0.91 — comfortably above `DG_MIN` (0.2) — so "the same
+// relative press at k=0.2 and k=4.0" is not actually a claim D3 makes for a
+// box this size: below ≈0.91, D4's floor has already taken the box out of
+// band-eligibility entirely, and §4 above already drives that exact case at
+// the true `DG_MIN`. What D3 promises, and what this section now actually
+// DRIVES rather than assumes, is the band's own operating range: one press
+// as close to where the floor takes over as this box pair's own geometry
+// allows (§9a), and one as close to the true `DG_MAX` ceiling as this
+// layout's canvas allows without either box leaving it (§9b) — computed
+// fresh from the two boxes' own on-screen rects and the canvas's, zoomed
+// with a REAL wheel event (the page's own `wheel` listener,
+// `fathom-dev.src.html:8150`, applies `Math.pow(0.9988, dy)` about the
+// cursor position exactly as `dgZoomAt` does for the strip buttons — so this
+// reaches the SAME function through a DIFFERENT real input device, not a
+// synthesised call). If no safe alternate zoom exists for a run's layout
+// this section FAILS outright rather than silently reporting a pass: a
+// "not exercised" fallback that still prints PASS is exactly the gate
+// CLAUDE.md rule 0 warns against, tested against what the assertion needs
+// rather than what a real device box's geometry requires.
 const readK = () => page.evaluate(() => {
   const t = document.querySelector('.dscene').getAttribute('transform') || '';
   const m = t.match(/scale\(([\d.]+)\)/);
   return m ? Number(m[1]) : 1;
 });
-const kFit = await readK();
-const zoomFactor = await page.evaluate(sel => {
-  var cr = document.querySelector('.dcanvas').getBoundingClientRect();
-  var ccx = (cr.left + cr.right) / 2, ccy = (cr.top + cr.bottom) / 2;
+const DG_MAX_REF = 4, DG_MIN_REF = 0.2, FLOOR_REF = 40;
+
+// Zoom about a chosen screen point via a REAL wheel event, landing on the
+// given absolute target `k` (clamped by the page itself to `DG_MIN`/`DG_MAX`,
+// the same `dgClamp` every other zoom path goes through).
+const wheelZoomTo = async (anchor, targetK) => {
+  const k0 = await readK();
+  if (Math.abs(targetK - k0) < 1e-6) return k0;
+  await page.mouse.move(anchor.x, anchor.y);
+  const dy = Math.log(targetK / k0) / Math.log(0.9988);
+  await page.mouse.wheel(0, dy);
+  await page.waitForTimeout(150);
+  return readK();
+};
+
+const bothSafe = async (marginPx, floorPx) => {
+  const cr = await page.$eval('.dcanvas', n2 => { const r = n2.getBoundingClientRect();
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; });
+  const ok = p => !!p && p.left >= cr.left - marginPx && p.right <= cr.right + marginPx &&
+    p.top >= cr.top - marginPx && p.bottom <= cr.bottom + marginPx &&
+    Math.min(p.width, p.height) >= floorPx;
+  return ok(await boxRect(CNn.id)) && ok(await boxRect(CNf.id));
+};
+
+// From the two boxes' CURRENT rects and the canvas's, the safe factor range
+// reachable by zooming about their SHARED midpoint (not the canvas centre —
+// anchoring on the pair itself, the same way an operator would scroll-zoom
+// on the two boxes they are about to cable, buys far more headroom than a
+// canvas-centre anchor when the pair sits off-centre in a five-box layout):
+// `maxF` is the largest multiplier before either box's farthest corner
+// would leave the canvas, `minF` the smallest before either box's shorter
+// side would drop under `FLOOR_REF + 4` px — a few px of margin ABOVE D4's
+// literal 40, so the low end sits demonstrably above the line, not on it.
+const safeRange = () => page.evaluate(([nId, fId, floorTarget]) => {
+  const cr = document.querySelector('.dcanvas').getBoundingClientRect();
   function rectFor(id) {
-    var r = document.querySelector('[data-dpost="' + id + '"] rect');
+    const r = document.querySelector('[data-dpost="' + id + '"] rect');
     return r ? r.getBoundingClientRect() : null;
   }
+  const rn = rectFor(nId), rf = rectFor(fId);
+  if (!rn || !rf) return null;
+  const acx = ((rn.left + rn.right) / 2 + (rf.left + rf.right) / 2) / 2;
+  const acy = ((rn.top + rn.bottom) / 2 + (rf.top + rf.bottom) / 2) / 2;
   function maxFactor(r) {
-    var corners = [[r.left, r.top], [r.right, r.top], [r.left, r.bottom], [r.right, r.bottom]];
-    var best = Infinity;
-    corners.forEach(function (c) {
-      var ox = c[0] - ccx, oy = c[1] - ccy;
-      var fx = ox >= 0 ? (cr.right - ccx) / Math.max(Math.abs(ox), 1e-6)
-                        : (ccx - cr.left) / Math.max(Math.abs(ox), 1e-6);
-      var fy = oy >= 0 ? (cr.bottom - ccy) / Math.max(Math.abs(oy), 1e-6)
-                        : (ccy - cr.top) / Math.max(Math.abs(oy), 1e-6);
+    const corners = [[r.left, r.top], [r.right, r.top], [r.left, r.bottom], [r.right, r.bottom]];
+    let best = Infinity;
+    corners.forEach(c => {
+      const ox = c[0] - acx, oy = c[1] - acy;
+      const fx = ox >= 0 ? (cr.right - 2 - acx) / Math.max(Math.abs(ox), 1e-6)
+                          : (acx - (cr.left + 2)) / Math.max(Math.abs(ox), 1e-6);
+      const fy = oy >= 0 ? (cr.bottom - 2 - acy) / Math.max(Math.abs(oy), 1e-6)
+                          : (acy - (cr.top + 2)) / Math.max(Math.abs(oy), 1e-6);
       best = Math.min(best, fx, fy);
     });
     return best;
   }
-  var boxes = [sel[0], sel[1]].map(rectFor).filter(Boolean);
-  if (boxes.length < 2) return null;
-  var maxF = Math.min.apply(null, boxes.map(maxFactor));
-  var minF = Math.max.apply(null, boxes.map(function (r) { return 50 / Math.min(r.width, r.height); }));
-  if (minF >= maxF) return null;
-  // Prefer shrinking (more of ADR-0039's own reasoning is about the band
-  // getting THIN, not thick) unless there is no room to; clamp inside the
-  // safe range with a hair of margin either side.
-  var candidate = Math.max(minF * 1.1, Math.min(0.7, maxF * 0.9));
-  if (candidate <= minF || candidate >= maxF) candidate = (minF + maxF) / 2;
-  return candidate;
-}, [CNn.id, CNf.id]);
+  const maxF = Math.min(maxFactor(rn), maxFactor(rf));
+  const minF = Math.max(floorTarget / Math.min(rn.width, rn.height),
+                         floorTarget / Math.min(rf.width, rf.height));
+  return { maxF, minF, anchor: { x: acx, y: acy } };
+}, [CNn.id, CNf.id, FLOOR_REF + 4]);
 
-// The strip's own buttons move `k` by ×0.8 (out) or ×1.25 (in) per press —
-// `dgZoomCentre`'s own factors — never a value this driver invents; find how
-// many presses of whichever one lands closest to, and still inside, the
-// computed safe range.
-let kHigh = kFit, clicksMade = 0, clickBtn = null;
-if (zoomFactor && Math.abs(zoomFactor - 1) > 0.08) {
-  clickBtn = zoomFactor < 1 ? '0.8' : '1.25';
-  var stepF = zoomFactor < 1 ? 0.8 : 1.25;
-  var n = Math.max(1, Math.round(Math.log(zoomFactor) / Math.log(stepF)));
-  for (let i = 0; i < n; i++) {
-    await page.click('[data-dzoom="' + clickBtn + '"]');
-    clicksMade++;
+// ---- 9a. NEAR THE FLOOR: as close as this pair's geometry allows ----------
+await page.click('[data-dfit]');
+await page.waitForTimeout(150);
+let kFit = await readK();
+const rangeLow = await safeRange();
+check('this layout has room to zoom toward the floor', !!rangeLow && rangeLow.minF < 1,
+  JSON.stringify(rangeLow));
+if (rangeLow && rangeLow.minF < 1) {
+  let kLow = await wheelZoomTo(rangeLow.anchor, Math.max(DG_MIN_REF, kFit * rangeLow.minF));
+  let tries = 0;
+  while (!(await bothSafe(2, FLOOR_REF)) && tries < 8) {
+    kLow = await wheelZoomTo(rangeLow.anchor, kLow * 1.05);
+    tries++;
   }
-  await page.waitForTimeout(150);
-  kHigh = await readK();
-  // Rounding to a whole number of clicks can overshoot the safe range even
-  // though the continuous target was inside it — step back one click at a
-  // time until it is not, rather than trusting the arithmetic blindly.
-  const stillSafe = async () => {
-    const cr = await page.$eval('.dcanvas', n2 => { const r = n2.getBoundingClientRect();
-      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; });
-    const ok = p => !!p && p.left >= cr.left - 1 && p.right <= cr.right + 1 &&
-      p.top >= cr.top - 1 && p.bottom <= cr.bottom + 1 && Math.min(p.width, p.height) >= 45;
-    return ok(await boxRect(CNn.id)) && ok(await boxRect(CNf.id));
-  };
-  const backBtn = clickBtn === '0.8' ? '1.25' : '0.8';
-  while (clicksMade > 0 && !(await stillSafe())) {
-    await page.click('[data-dzoom="' + backBtn + '"]');
-    clicksMade--;
-    await page.waitForTimeout(120);
-    kHigh = await readK();
-  }
-}
-if (clicksMade > 0) {
-  check('the zoom actually changed from the first drag', Math.abs(kHigh - kFit) > 0.05,
-    'fit k=' + kFit + ' -> k=' + kHigh + ' (' + clicksMade + '× ' + clickBtn + ')');
-} else {
-  check('the zoom actually changed from the first drag', true,
-    'no safe alternate zoom for this layout (fit k=' + kFit + ') — not exercised');
-}
-
-if (Math.abs(kHigh - kFit) > 0.05) {
+  check('the low zoom actually left "fit" and sits close to, but above, the 40 px floor',
+    kLow <= kFit - 0.1 && (await bothSafe(2, FLOOR_REF)),
+    'fit k=' + kFit + ' -> k=' + kLow);
   rNear = await boxRect(CNn.id);
   rFar = await boxRect(CNf.id);
   await drag(perimeterPoint(rNear), bodyPoint(rFar));
-  check('the perimeter press still opens the picker at a different zoom',
-    await page.$eval('#csheet', n => !n.hidden), 'k=' + kHigh);
-  await mintPort('ge-1/0/0');
-  await mintPort('ge-1/0/1');
+  check('the perimeter press still opens the picker near the floor',
+    await page.$eval('#csheet', n => !n.hidden), 'k=' + kLow);
+  await mintPort('ge-2/0/0');
+  await mintPort('ge-2/0/1');
   await page.waitForTimeout(200);
-  check('and the cable still draws, the same way, at this zoom',
+  check('and the cable still draws, the same way, near the floor',
     (await footer()) === 'drew a cable — it is marked as drawn by hand');
   expectedDraws++;
 } else {
-  check('the perimeter press still opens the picker at a different zoom', true,
-    'no safe alternate zoom for this layout — not exercised');
-  check('and the cable still draws, the same way, at this zoom', true, 'not exercised');
+  check('the low zoom actually left "fit" and sits close to, but above, the 40 px floor',
+    false, 'no safe low zoom found for this layout — see rangeLow above');
+  check('the perimeter press still opens the picker near the floor', false, 'skipped — no safe zoom found');
+  check('and the cable still draws, the same way, near the floor', false, 'skipped — no safe zoom found');
 }
+
+// ---- 9b. NEAR THE CEILING: as close to true DG_MAX (4.0) as this pair's geometry allows --
+await page.click('[data-dfit]');
+await page.waitForTimeout(150);
+kFit = await readK();
+const rangeHigh = await safeRange();
+check('this layout has room to zoom toward the ceiling', !!rangeHigh && rangeHigh.maxF > 1,
+  JSON.stringify(rangeHigh));
+if (rangeHigh && rangeHigh.maxF > 1) {
+  const ceilingK = Math.min(DG_MAX_REF, kFit * rangeHigh.maxF * 0.97);
+  let kHigh = await wheelZoomTo(rangeHigh.anchor, ceilingK);
+  let tries = 0;
+  while (!(await bothSafe(2, FLOOR_REF)) && tries < 8) {
+    kHigh = await wheelZoomTo(rangeHigh.anchor, kHigh * 0.95);
+    tries++;
+  }
+  check('the high zoom actually left "fit" by a real margin — as close to the ' +
+    'true DG_MAX (4.0) ceiling as this pair\'s own on-canvas geometry allows',
+    kHigh >= kFit + 0.1 && (await bothSafe(2, FLOOR_REF)),
+    'fit k=' + kFit + ' -> k=' + kHigh + ' (' + Math.round(100 * kHigh / DG_MAX_REF) +
+    '% of DG_MAX=' + DG_MAX_REF + '; this run\'s five-box vertical stack already fills ' +
+    'most of the canvas height at "fit", which is what bounds how much further in a ' +
+    'TWO-box subset can zoom before its neighbours push it off screen)');
+  rNear = await boxRect(CNn.id);
+  rFar = await boxRect(CNf.id);
+  await drag(perimeterPoint(rNear), bodyPoint(rFar));
+  check('the perimeter press still opens the picker near the ceiling',
+    await page.$eval('#csheet', n => !n.hidden), 'k=' + kHigh);
+  await mintPort('ge-3/0/0');
+  await mintPort('ge-3/0/1');
+  await page.waitForTimeout(200);
+  check('and the cable still draws, the same way, near the ceiling',
+    (await footer()) === 'drew a cable — it is marked as drawn by hand');
+  expectedDraws++;
+} else {
+  check('the high zoom actually left "fit" by a real margin — as close to the ' +
+    'true DG_MAX (4.0) ceiling as this pair\'s own on-canvas geometry allows',
+    false, 'no safe high zoom found for this layout — see rangeHigh above');
+  check('the perimeter press still opens the picker near the ceiling', false, 'skipped — no safe zoom found');
+  check('and the cable still draws, the same way, near the ceiling', false, 'skipped — no safe zoom found');
+}
+
 await page.click('[data-dfit]');
 await page.waitForTimeout(150);
 
-// ---- 11. EXPORT -> RELOAD -> IMPORT PRESERVES THE DRAGGED CABLE ------------
+// ---- 10. EXPORT -> RELOAD -> IMPORT PRESERVES THE DRAGGED CABLE -----------
 
 console.log('\n10. EXPORT -> RELOAD -> IMPORT PRESERVES THE DRAGGED CABLE');
 const download = await Promise.all([
@@ -552,10 +634,11 @@ const download = await Promise.all([
 const saved = await download.path();
 const doc = JSON.parse(readFileSync(saved, 'utf8'));
 const allCableDraws = doc.ops.filter(o => o.op === 'cable' && o.mode === 1);
-// §5/§6/§7/§9 all cancel or refuse before ever reaching `OP_CABLE`, so none
+// §5/§6/§7/§8 all cancel or refuse before ever reaching `OP_CABLE`, so none
 // of them add to this count — `expectedDraws` tracks exactly the draws that
-// really happened (§1, §2, and §10 only if this run had a safe alternate
-// zoom for its own layout).
+// really happened (§1, §2 always; §9a/§9b each add one only if this run's
+// layout had a safe zoom to reach — both checked and asserted above, not
+// silently skipped).
 check('the journal carries every cable this driver actually drew — the drag ones and the keyboard one',
   allCableDraws.length === expectedDraws, allCableDraws.length + ' vs expected ' + expectedDraws);
 

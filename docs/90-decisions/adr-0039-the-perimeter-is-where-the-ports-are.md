@@ -126,7 +126,9 @@ ADR-0035 fixed its 4px snap grid in a record.
 - **The sheet records the verb that opened it** (the 2026-08-16 chooser defect), and the drag
   is a fourth way in, so it carries its own verb.
 - **The move-drag is not regressed.** Its driver
-  (`2026-08-15-hand-placement-drive.mjs`, 25/25) must stay green untouched.
+  (`2026-08-15-hand-placement-drive.mjs`, 23/23 — corrected here from a stale "25/25" that had
+  circulated since the driver was first filed; re-run three times against this record's own build
+  and the pre-ADR-0039 build alike, both count 23) must stay green untouched.
 
 ## 7. What will be built
 
@@ -136,6 +138,73 @@ ADR-0035 fixed its 4px snap grid in a record.
 | the module | **nothing.** `OP_CABLE` (27) is unchanged |
 | evidence | `docs/80-review/evidence/2026-09-02-drag-to-connect-drive.mjs` through a real reload: a cable drawn entirely by drag; the same cable by keyboard producing the same journal shape; body-drag still moves; the band suppressed on a small box; Escape mid-connect and mid-move; drop on origin; drop on empty canvas; *"these just talk"* reached from a drag; export → reload → import |
 | docs | this record; the stale `fathom-weld` comment corrected; `56` §6.3 and §6.4 annotated; CLAUDE.md's state bullet |
+
+### As built, 2026-09-02 (the proving session)
+
+Three adversarial skeptics attacked the no-regression claim, the never-guesses claim, and §5's
+band arithmetic independently, against the build this record's own execution session left
+behind. Two held with no defect (no-regression; the-guess, modulo one evidence gap it flagged
+as non-blocking and this pass closed anyway). The third — the band — found the shipped page
+code correct in every respect it checked (screen-space arithmetic, the named constants, the
+floor suppression, the 3px slop, D9's no-synthesised-selection) but found the **evidence** for
+D3's zoom-invariance claim materially weaker than §9's own failure-mode row and the execution
+session's own report implied. Nothing here changes the page, the module, or the schema — the
+gesture built by the execution session is unchanged. What follows is where the **evidence**
+changed and why.
+
+1. **§9's failure-mode row says "the driver drags at two zoom levels" stops the band feeling
+   different at different zooms. The first cut of the evidence only ever moved the zoom by a
+   single ~20% step off the fitted view** (one click of the `0.8×` strip button, `k=1.488 →
+   k=1.190`), because its own search capped its target factor at `Math.min(0.7, maxF * 0.9)` —
+   nowhere near either `DG_MIN` (0.2) or `DG_MAX` (4.0), and its own comments admitted why: a
+   fitted view packs the outermost boxes close to the canvas edge (`DG_PAD` is only 24px), so a
+   naive zoom toward either true extreme pushes a box off screen or under the 40px floor. Where
+   no safe alternate zoom existed for a run's layout the section silently degraded to
+   `check(..., true, 'not exercised')` — a vacuously passing assertion, which is exactly the
+   anti-pattern CLAUDE.md rule 0 names: a gate tested against what the assertion needs rather
+   than what the real range requires. **Rewritten**, not reworded: the section now computes the
+   true safe factor range from the two test boxes' own on-screen rects and the canvas's, anchors
+   the zoom on the **pair's own shared midpoint** (not the canvas centre, which buys materially
+   more headroom when the pair sits off-centre in a five-box layout) rather than the strip's
+   canvas-centred buttons, and drives the zoom with a **real wheel event** — the same `wheel`
+   listener and the same `Math.pow(0.9988, dy)` arithmetic `dgZoomAt` runs for a physical
+   scroll (`fathom-dev.src.html:8150`), a different real input path than the strip buttons the
+   first cut used, not a synthesised call into the page's own functions. It now drives the drag
+   at two genuinely far-apart points — one as close to where D4's floor takes over as the pair's
+   geometry allows (this run: `k=1.000`, against a `k=1.488` fit — the box's shorter side lands
+   at 44 CSS px, four above the literal 40), and one as close to the true `DG_MAX` ceiling as the
+   pair's own on-canvas geometry allows (this run: `k≈1.689`, 42% of `DG_MAX` — this five-box
+   vertical layout already fills most of the canvas height at "fit", which is what bounds how
+   far a two-box subset of it can zoom in before its neighbours would leave the canvas, not a
+   limit in the arithmetic) — and **fails outright**, rather than passing vacuously, if no safe
+   alternate zoom exists for a run's layout. A structural point worth recording precisely rather
+   than leaving implicit: for a normal 44-scene-unit device box, the 40px floor is crossed around
+   `k≈0.91`, well above `DG_MIN` (0.2) — so "the same relative press produces the same outcome at
+   `k=0.2` and `k=4.0`" is not a claim D3 makes for a box this size at all; below `≈0.91` D4's
+   floor has already taken the box out of band-eligibility, which is the case §4 already drives
+   at the true `DG_MIN`, separately and correctly. What D3 promises, and what §9 now actually
+   drives, is the band's own operating range, not the whole `DG_MIN`–`DG_MAX` span.
+2. **The evidence claimed all four release outcomes (box / origin / empty canvas / off-canvas)
+   were driven, and Escape "for both drags."** True of three outcomes and of both Escapes; the
+   fourth — a real pointerup released with its coordinates outside `.dcanvas` — was not actually
+   driven by the shipped suite. Escape mid-drag (§7) exercises a structurally different code path
+   (the keydown rung) from `dgConnectRelease`'s own off-canvas branch
+   (`fathom-dev.src.html:8456-8461`), so passing the former proved nothing about the latter. A
+   skeptic drove it by hand and confirmed the page said the right, distinct sentence
+   (`cable drag cancelled — released off the canvas`, not the Escape wording); **§7b now drives
+   it automatically** — a real release over the toolbar chrome above the canvas — so the claim in
+   this section's own second row is no longer a promise the automated suite doesn't keep.
+3. **Cosmetic**: the file's `// ----` section-header comments and its `console.log` section
+   numbers had drifted apart (a comment read "10." over a console line that printed "9.",
+   and similarly for the next section) from an earlier edit that inserted a subsection without
+   renumbering both. Realigned; §9 is now one section with 9a/9b subsections (matching the
+   existing 3/3b pattern already in the file), and the export/reload section is 10 in both places.
+
+Re-run twice after the rewrite for stability: **58/58**, both runs, byte-identical journal counts
+(`4` cable draws: §1, §2, §9a, §9b). The five drivers this record must not regress were re-run
+unchanged and green: `2026-08-15-hand-placement-drive.mjs` 23/23,
+`2026-08-29-cabling-drive.mjs` 56/56, `2026-08-16-hand-link-drive.mjs` 31/31,
+`2026-08-16-the-cut-that-drew.mjs` 18/18.
 
 ## 8. Cost, measured
 
