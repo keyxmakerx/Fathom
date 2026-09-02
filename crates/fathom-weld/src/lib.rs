@@ -146,8 +146,17 @@ pub const HAND_LINK_EXCLUDED: &[EdgeKind] = &[EdgeKind::MountedIn];
 /// lab's *"this switch is cabled to that firewall"* comes back as `PeersWith`,
 /// because `PeersWith` is the only reference edge the schema declares between
 /// two `Device`s. The schema's cable is a `Cable` node with two `Terminates`
-/// edges onto `PhysicalPort`s (`19` §5.1), no opcode creates a `Cable`, and
-/// naming that gap is worth more than dressing `PeersWith` up as a patch lead.
+/// edges onto `PhysicalPort`s (`19` §5.1), and naming that distinction is worth
+/// more than dressing `PeersWith` up as a patch lead.
+///
+/// **Corrected 2026-09-02.** This comment used to end "no opcode creates a
+/// `Cable`". That was true when written and false since 2026-08-29:
+/// `OP_CABLE` (27, ADR-0038) mints a `Cable`, its two `Terminates` edges, and
+/// whatever `PhysicalPort` or `Chassis` the gesture needs. The distinction the
+/// paragraph draws still holds and is why the two are separate opcodes — a
+/// `PeersWith` is not a patch lead — but this function is the first thing read
+/// when asking what a device-to-device connection means, and it must not
+/// answer that a cable is unbuildable. ADR-0039 §12.2.
 /// A `Vec` rather than `impl Iterator`, and it is bytes: an iterator returned
 /// across a crate boundary monomorphises its adapter chain into every caller,
 /// where a `Vec` instantiates the filter once here. The caller wants the length
