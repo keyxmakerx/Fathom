@@ -360,6 +360,58 @@ fn a_cable_between_two_ports_never_produces_a_passthrough() {
     }
 }
 
+/// **Replay determinism (ADR-0038 §4's journal record).** The journal stores
+/// the RAW request — tag, id text, label — never the ids a draw minted, so a
+/// replay re-sends the same frame and must re-mint the same ids through the
+/// same `(clock, entropy)` header. Proved here without a browser: two
+/// independently built shells, given byte-identical inputs at every step
+/// (the same fixed `at`/`entropy` `two_devices()` always uses, then the same
+/// draw frame), must mint identical cable, port and chassis ids — the
+/// property `docs/80-review/evidence/2026-08-29-cabling-drive.mjs`'s
+/// unlabelled-port replay case will exercise through the page's own import
+/// arm, which is not this crate's to write.
+#[test]
+fn replaying_a_draw_with_the_same_header_mints_the_same_ids() {
+    let (mut shell_1, a1, b1) = two_devices();
+    let reply_1 = shell_1.handle(
+        OP_CABLE,
+        &draw_frame(
+            1_700_000_001_000,
+            0x9999_8888_7777_6666,
+            &End::Mint(&a1, "ge-0/0/0"),
+            &End::Mint(&b1, "ge-0/0/1"),
+            "",
+        ),
+    );
+    assert_eq!(error_code(&reply_1), None);
+
+    let (mut shell_2, a2, b2) = two_devices();
+    assert_eq!(
+        a1, a2,
+        "two_devices() must itself be deterministic, or this test proves nothing"
+    );
+    assert_eq!(b1, b2);
+    let reply_2 = shell_2.handle(
+        OP_CABLE,
+        &draw_frame(
+            1_700_000_001_000,
+            0x9999_8888_7777_6666,
+            &End::Mint(&a2, "ge-0/0/0"),
+            &End::Mint(&b2, "ge-0/0/1"),
+            "",
+        ),
+    );
+    assert_eq!(error_code(&reply_2), None);
+
+    for slot in 1..=5 {
+        assert_eq!(
+            reply_slot(&reply_1, slot),
+            reply_slot(&reply_2, slot),
+            "slot {slot} diverged between two byte-identical replays"
+        );
+    }
+}
+
 /// **D5, the paste half.** A pasted device has zero `Chassis` — nothing in
 /// `fathom-ingest`/`fathom-weld` constructs one (confirmed by the scout: no
 /// site under `corpus/dict/junos-srx/` or call in `fathom-weld` ever builds
