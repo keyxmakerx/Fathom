@@ -107,9 +107,15 @@ a live port or box, both ends name the same port, tag 3, or tag 2 on the near en
 store wedged* is the test to copy.
 
 **Write sequence, one batch** (`OP_EQUIP_ADD`'s shape): mint a `Chassis` + `HasChassis` if the
-box has none (D5) → mint each tag-1 port + `HasPort` under its chassis → mint the `Cable` +
-`HasCable` (root containment — reuse whatever the weld uses to attach a fresh root-owned node;
-do not hand-roll it) → `Terminates` to A then B with `end` set by D6 → label if given → close.
+box has none (D5) → mint each tag-1 port + `HasPort` under its chassis → mint the `Cable` →
+`Terminates` to A then B with `end` set by D6 → label if given → close.
+
+**Corrected 2026-08-29, at execution.** As first filed this line said *"mint the `Cable` +
+`HasCable` (root containment — reuse whatever the weld uses)"*. There is nothing to reuse: a
+root-owned kind's ownership is implicit in the store and `Graph::insert_edge` refuses a
+root-containment edge outright, so no `HasCable` edge is ever written for a Cable, by paste or
+by hand. Found by the module builder, confirmed by a skeptic and the prover; §6's as-built note
+records it. The prose above now says what the code does.
 Every id from **one** `Mint` seeded by the header's clock and entropy, one `next()` per new id,
 so a replay with the same header mints the same ids.
 
