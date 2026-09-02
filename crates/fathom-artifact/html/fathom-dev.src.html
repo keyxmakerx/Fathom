@@ -793,6 +793,11 @@ button.tab:hover { color: var(--ink); }
         outline-offset: -1px; }
 .efield .note { font-size: var(--t-micro); line-height: var(--lh-micro);
                 color: var(--muted); }
+/* ADR-0038's port picker: one row per existing port, the pick button and its
+   "cabled to" fact (when there is one) on the same line rather than stacked,
+   so a box with many ports reads as a list and not a column of paragraphs. */
+.cport { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.cport .note { font-size: var(--t-micro); color: var(--muted); }
 
 /* --- the rack elevation (ADR-0036) ---------------------------------------
    DRAWN IN REAL DOM, NOT IN AN <svg>, AND THAT IS THE POINT.
@@ -1789,6 +1794,27 @@ svg[data-lod="0"] .dplaced { display: none; }
       </div>
     </div>
 
+    <!-- ADR-0038. The port picker: which port a cable comes out of, or goes
+         into. One sheet, two roles (`CSHEET_ROLE`) -- the same dialog asks for
+         the near end and, once one is held, the far end -- because the ports
+         it lists and the "add a port" mint are the same question asked twice,
+         and a second markup skeleton for the same question is a second place
+         for the two to drift. Built entirely by `buildCableForm` (`el()`
+         only, like every sheet here) because the list is the box's actual
+         ports, read fresh from `OP_EQUIPMENT` each time it opens. -->
+    <div class="psheet" id="csheet" role="dialog" aria-label="Cable a port" hidden>
+      <div class="phead">
+        <div class="lead" id="cLead">Cable a port</div>
+        <p class="prose" id="cHint"></p>
+        <p class="prose perr" id="cErr" hidden role="alert"></p>
+      </div>
+      <div class="eform" id="cform"></div>
+      <div class="pfoot">
+        <span>esc close</span>
+        <span class="spacer"></span>
+      </div>
+    </div>
+
     <!-- 53 §6.2 LAYER 4 — the last resort, and the reason it exists.
          "Render the payload in a focused, pre-selected read-only block with
          `press ⌘C` in the footer. Never a silent failure."
@@ -1912,6 +1938,24 @@ var OP_FINDINGS = 25;
    faceplate — ports on the OUTSIDE of the box — and the path THROUGH the box
    had appeared in every trace design only as a list in a side panel. */
 var OP_INSIDE = 26;
+
+/* ADR-0038. A cable is a hand-drawn fact one rung down from `OP_LINK`: it
+   mints a `Cable` node and its `Terminates` edges in one batch, and mints the
+   `PhysicalPort` — and the `Chassis` — the gesture needs when the box has
+   none. `mode` 0 cuts (by the cable's own display id), 1 draws (by two end
+   specs and an optional label). See `opCableDraw`/`opCableCut` for the exact
+   frame; the shape is ADR-0038 §4, byte for byte. */
+var OP_CABLE = 27;
+
+/* protocol::ERR_CABLE_COUNT / ERR_CABLE_END / ERR_NO_CABLE, ADR-0038's three.
+   COUNT is refused before anything else in the frame is even parsed — the
+   frame carries a count byte for a future N-record draw (`57` §12.7) and this
+   build refuses any value but 1 rather than silently truncating a bigger
+   request. END is every way an end spec can fail to resolve: not a live port
+   or box, both ends naming the same port, tag 3 (reserved), or tag 2 (unknown)
+   on the near end where only the far end may be unknown (D4). NO_CABLE is a
+   cut naming something that is not a live `Cable`. */
+var ERR_CABLE_COUNT = 18, ERR_CABLE_END = 19, ERR_NO_CABLE = 20;
 
 /* protocol::ERR_LINK_CHOICE and ERR_NO_LINK, and the SECOND and THIRD codes
    this page names by number.
@@ -2418,7 +2462,13 @@ var KINDS = ['Device', 'PhysicalPort', 'Premises',
              'SecurityPolicy',
              /* Appended 2026-08-29 with WO-10. A relay's server address is a
                 thing the estate holds and a person will look for by kind. */
-             'DhcpRelay'];
+             'DhcpRelay',
+             /* Appended 2026-08-29 with ADR-0038. `PhysicalPort` has had a row
+                since WO-08 §8 item 6 (above); `Cable` did not, because nothing
+                could write one. `OP_CABLE` does now, and this row plus the
+                existing cell editor is the annotate-later half of the empty-
+                chart principle (`57` §13.5) — no bespoke sheet. */
+             'Cable'];
 
 /* An InvKind wire byte is a POSITION in this list, and a position is only
    stable while nothing is appended. TWO kinds were appended on 2026-08-15 by
@@ -2431,6 +2481,7 @@ function kindByte(name) {
 }
 var CHASSIS_KIND_BYTE = kindByte('Chassis');
 var RACK_KIND_BYTE = kindByte('Rack');
+var CABLE_KIND_BYTE = kindByte('Cable');
 
 /* `built` is the band's own honesty flag. It is derived from nothing — there is
    no reply that reports it — so it is a hand-maintained list, and the rule is
@@ -4023,9 +4074,31 @@ function commitField(input) {
 /* Remove the selected element. Not a delete: the store tombstones, so the node
    stays in the record marked absent from this moment, and its subtree goes with
    it — removing a device takes its chassis, because a chassis with no device is
-   not a fact anyone asserted. */
+   not a fact anyone asserted.
+
+   A `Cable` IS NOT ROUTED THROUGH THIS (ADR-0038 D8). `Graph::tombstone`
+   cascades through containment only — `Terminates` is `class: reference` — so
+   the generic remove would tombstone the `Cable` node and strand its two
+   `Terminates` edges live, pointing at a gone node; a device would keep
+   showing `cabled to` a cable that is gone. `OP_CABLE` mode 0 tombstones the
+   cable AND both edges in one batch, which is the only correct way to remove
+   one, so this function is the single place BOTH doors have to pass through:
+   the Cable inventory row's own `remove` press reaches it exactly the way
+   every other kind's does, and it is what silently redirects. */
 function removeSelected() {
   if (!wasm || !S.sel) return;
+  var kind = S.element && S.element.rows && S.element.rows[0] && S.element.rows[0].s[0];
+  if (kind === 'Cable') {
+    var cid = S.sel;
+    if (!opCableCut(cid)) return;
+    S.sel = null;
+    S.element = null;
+    S.equipment = null;
+    loadKind(S.invKind);
+    foot('cut the cable ' + cid);
+    render();
+    return;
+  }
   var ent = hostEntropy();
   if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return; }
   var idBytes = new TextEncoder().encode(S.sel);
@@ -5234,6 +5307,401 @@ function dgRefocusRow(id) {
   row.focus();
 }
 
+/* --- cabling a port, by hand (ADR-0038) -------------------------------------
+
+   One rung down from the link gesture above, and the same shape: hold one
+   end, select the other, finish it. What differs is what "an end" IS — a
+   link holds a BOX already drawn (`DG_HOLD`, a display id); a cable holds a
+   PORT SPEC (`CABLE_HOLD`, `{box, end}`), and `end` may name a port that does
+   not exist yet (D1's "add a port"). Nothing is written until the far end is
+   chosen, exactly as nothing is written while a link is merely held.
+
+   Both presses open the SAME sheet (`#csheet`) in a different role
+   (`CSHEET_ROLE`), because the near and far questions are the same question
+   — which port, a fresh one, or (far only) none named yet — and a second
+   skeleton for one question is a second place for the two to drift. THE ROLE
+   TRAVELS WITH THE SHEET, set once before it opens and read by every button
+   inside it, for the reason 2026-08-16's chooser defect is in this file's own
+   history: a picker that has to re-derive which question it is answering can
+   answer the wrong one. */
+
+/* The half-finished gesture: `{ box: <display id the picker opened for>,
+   end: <the end spec chosen> }`, or `null`. Page state, like `DG_HOLD` above
+   — an unfinished gesture is not a fact, and nothing about it survives a
+   reload. */
+var CABLE_HOLD = null;
+
+/* The sheet's own state. `CSHEET_BOX` is READ FRESH into `OP_EQUIPMENT` rows
+   every time the sheet opens (`buildCableForm`), never cached across a press
+   — a port this very gesture just minted for the near end must appear the
+   next time the sheet opens for the far one. */
+var cOpen = false;
+var CSHEET_ROLE = null;
+var CSHEET_BOX = null;
+
+/* A held end, in words, for the strip button's own label — mirrors the link
+   group's `held`/`heldFull` treatment above rather than a fresh round trip. */
+function cableEndWord(end) {
+  if (!end) return '';
+  if (end.tag === 0) return end.portLabel || 'a port';
+  if (end.tag === 1) return end.label ? 'a new port “' + end.label + '”' : 'a new unlabelled port';
+  return 'unknown';
+}
+
+/* A display id's label, read from whatever the diagram already sent —
+   `DG.boxes`, like `dgKindOf` above — falling back to the id itself, which is
+   what a folded chassis or a stale selection genuinely has. */
+function dgBoxLabel(id) {
+  var b = DG.boxes && DG.boxes[id];
+  return b ? b.label : id;
+}
+
+/* Step one: open the picker for the NEAR end, from whatever is selected.
+   `S.equipment` already holds this box's ports (`postElement` populates it on
+   every selection, at rung 1 and in the rack elevation alike — `57` §2's
+   "the panel stays put" is exactly why this is already fetched), but
+   `buildCableForm` re-asks anyway: this press can follow a mint on a DIFFERENT
+   box moments ago, and a stale list would show a port that is not there yet
+   or hide one that now is. */
+function dgCableHoldNear() {
+  var b = DG.boxes && S.sel && DG.boxes[S.sel];
+  if (b && b.collapsed) {
+    foot('that box stands for ' + b.n + ' objects, and a cable runs to one thing — ' +
+         'open it and cable from one of its members');
+    renderShell();
+    return;
+  }
+  if (!S.sel) {
+    foot('select a device or chassis first — a cable needs a box to come out of');
+    renderShell();
+    return;
+  }
+  openCableSheet('near', S.sel);
+}
+
+/* Step two: open the picker for the FAR end, once one is held. */
+function dgCableThem() {
+  if (!CABLE_HOLD) { foot('press cable from here on one box first'); renderShell(); return; }
+  if (!S.sel) { foot('select the other end'); renderShell(); return; }
+  openCableSheet('far', S.sel);
+}
+
+function openCableSheet(role, box) {
+  CSHEET_ROLE = role;
+  CSHEET_BOX = box;
+  cOpen = true;
+  syncScrim();
+  $('csheet').hidden = false;
+  $('cLead').textContent = 'Cable a port — ' + dgBoxLabel(box);
+  buildCableForm();
+}
+
+function setCableSheet(open) {
+  if (open) { openCableSheet(CSHEET_ROLE || 'near', CSHEET_BOX); return; }
+  cOpen = false;
+  syncScrim();
+  $('csheet').hidden = true;
+}
+
+/* Built from `OP_EQUIPMENT`, exactly as `portTable` reads it — never a second
+   idea of what a port is. `el()` throughout, like every sheet in this file:
+   an artifact test greps for a markup-from-string sink and this is exactly
+   where one would otherwise be reached for. */
+function buildCableForm() {
+  var host = $('cform');
+  clear(host);
+  $('cErr').hidden = true;
+
+  var boxLabel = dgBoxLabel(CSHEET_BOX);
+  $('cHint').textContent = CSHEET_ROLE === 'near'
+    ? 'Which port on ' + boxLabel + ' does the cable come out of? Or add one, or say these two are not cabled.'
+    : 'Which port on ' + boxLabel + ' does it go into? Or add one, or say the far end is not modelled yet.';
+
+  var reply = CSHEET_BOX ? call(OP_EQUIPMENT, new TextEncoder().encode(CSHEET_BOX)) : null;
+  var bad = CSHEET_BOX ? replyProblem(reply) : 'no box to cable';
+  if (bad) {
+    host.appendChild(el('div', 'note', bad));
+    return;
+  }
+  var ports = reply.rows.filter(function (r) { return r.role === FACE_PORT; });
+
+  var list = el('div', 'efield');
+  list.appendChild(el('label', null, 'existing ports'));
+  if (ports.length) {
+    ports.forEach(function (r) {
+      var row = el('div', 'cport');
+      var b = el('button', null, r.s[1]);
+      b.type = 'button';
+      b.setAttribute('data-dcableport', r.s[0]);
+      b.setAttribute('data-dcablelabel', r.s[1]);
+      b.title = r.s[0];
+      row.appendChild(b);
+      /* Shown, never hidden: a port already cabled is still a legal end to
+         pick — a breakout is a real thing the schema admits (`Terminates.in:
+         "0..n"`, D6's own note) — but which port that WOULD be is exactly the
+         fact `57` §12.3 says a picker must never leave unsaid. */
+      if (r.s[5] && r.s[5] !== '—') row.appendChild(el('span', 'note', 'cabled to ' + r.s[5]));
+      list.appendChild(row);
+    });
+  } else {
+    list.appendChild(el('div', 'note', boxLabel + ' has no ports recorded yet.'));
+  }
+  host.appendChild(list);
+
+  var mint = el('div', 'efield');
+  var mlab = el('label', null, 'add a port');
+  mlab.setAttribute('for', 'cAddLabel');
+  mint.appendChild(mlab);
+  var minput = el('input');
+  minput.type = 'text';
+  minput.id = 'cAddLabel';
+  minput.autocomplete = 'off';
+  minput.spellcheck = false;
+  minput.placeholder = 'the silkscreen, or leave blank for unlabelled';
+  mint.appendChild(minput);
+  var mbtn = el('button', null, 'add it');
+  mbtn.type = 'button';
+  mbtn.setAttribute('data-dcablemint', '1');
+  mint.appendChild(mbtn);
+  host.appendChild(mint);
+
+  if (CSHEET_ROLE === 'far') {
+    var unk = el('div', 'efield');
+    var ubtn = el('button', null, 'unknown — the far end is not modelled');
+    ubtn.type = 'button';
+    ubtn.setAttribute('data-dcableunknown', '1');
+    unk.appendChild(ubtn);
+    host.appendChild(unk);
+
+    /* The cable's own label, entered once, here, because this is the press
+       that writes the `Cable` node. D4: the schema's own advisory sentence,
+       said rather than enforced — this build never refuses an unlabelled
+       one-ended cable, it only tells the operator what that costs. */
+    var lab = el('div', 'efield');
+    var llab = el('label', null, 'cable label (optional)');
+    llab.setAttribute('for', 'cCableLabel');
+    lab.appendChild(llab);
+    var linput = el('input');
+    linput.type = 'text';
+    linput.id = 'cCableLabel';
+    linput.autocomplete = 'off';
+    linput.spellcheck = false;
+    lab.appendChild(linput);
+    lab.appendChild(el('div', 'note',
+      'A cable identified only by its ends has no name of its own if the far ' +
+      'end is unknown — label it, or you will never find it again.'));
+    host.appendChild(lab);
+  }
+
+  var no = el('div', 'efield');
+  var nbtn = el('button', null, 'no cable — these just talk');
+  nbtn.type = 'button';
+  nbtn.setAttribute('data-dcablenocable', '1');
+  no.appendChild(nbtn);
+  no.appendChild(el('div', 'note',
+    'For a relationship with no physical wire behind it — this closes the ' +
+    'sheet without recording a cable. Use the connect controls above instead.'));
+  host.appendChild(no);
+
+  var first = host.querySelector('button, input');
+  if (first) first.focus();
+}
+
+/* One end spec off the wire's own shape — `{tag}` plus its own fields — never
+   carrying the display extras (`portLabel`) the sheet attaches for its own
+   sentences. Journalled and wired from this, always, so neither can drift
+   from the other. */
+function cableEndSpec(end) {
+  if (end.tag === 0) return { tag: 0, id: end.id };
+  if (end.tag === 1) return { tag: 1, boxId: end.boxId, label: end.label || '' };
+  return { tag: 2 };
+}
+
+function cableEndBytes(end) {
+  var spec = cableEndSpec(end);
+  var enc = new TextEncoder();
+  if (spec.tag === 0) {
+    var idb = enc.encode(spec.id);
+    var out = new Uint8Array(2 + idb.length);
+    out[0] = 0;
+    out[1] = idb.length;
+    out.set(idb, 2);
+    return out;
+  }
+  if (spec.tag === 1) {
+    var boxb = enc.encode(spec.boxId), lblb = enc.encode(spec.label);
+    var out2 = new Uint8Array(3 + boxb.length + lblb.length);
+    out2[0] = 1;
+    out2[1] = boxb.length;
+    out2.set(boxb, 2);
+    out2[2 + boxb.length] = lblb.length;
+    out2.set(lblb, 3 + boxb.length);
+    return out2;
+  }
+  return new Uint8Array([2]);
+}
+
+/* One byte per length, ADR-0038 §4 — never guessed past 255. A display id
+   this page ever sees is a `kind:ulid` and is nowhere near the limit; a
+   hand-typed label could be, so it is the only one checked. */
+function cableTooLong(s) { return new TextEncoder().encode(s || '').length > 255; }
+
+/* The one place a cable draw reaches the module — mirrors `opLink` exactly:
+   the clock and the entropy come from the HOST, in the frame, for the same
+   reason opLink's own header gives; the reply's three words are OP_LINK's
+   three words (see `ALREADY_THERE` in `shell.rs`); the held gesture and the
+   sheet are released BEFORE the render, never after, for the ordering bug
+   `opLink` already answers for. */
+function opCableDraw(near, far, label) {
+  if (!wasm) return false;
+  var ent = hostEntropy();
+  if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return false; }
+  if (cableTooLong(label) || (near.tag === 1 && cableTooLong(near.label)) ||
+      (far.tag === 1 && cableTooLong(far.label))) {
+    foot('that label is longer than this build allows — 255 bytes');
+    renderShell();
+    return false;
+  }
+  var nb = cableEndBytes(near), fb = cableEndBytes(far);
+  var enc = new TextEncoder();
+  var lb = enc.encode(label || '');
+  var req = new Uint8Array(26 + nb.length + fb.length + 1 + lb.length);
+  var dv = new DataView(req.buffer);
+  var at = Date.now();
+  dv.setBigUint64(0, BigInt(at), true);
+  req.set(ent, 8);
+  req[24] = 1;
+  req[25] = 1;
+  req.set(nb, 26);
+  req.set(fb, 26 + nb.length);
+  req[26 + nb.length + fb.length] = lb.length;
+  req.set(lb, 27 + nb.length + fb.length);
+
+  var reply = call(OP_CABLE, req);
+  /* THE SCHEMA'S REFUSAL, IN THE OPERATOR'S WORDS. An empty detail is the
+     module declining to name a specific reason (`shell.rs`'s own comment:
+     "the page sent the id and already knows what it sent") — this page
+     words it once here rather than showing `code 19 · `. */
+  if (reply && reply.kind === 'error' && reply.code === ERR_CABLE_END) {
+    foot('that end is not a live port or box to cable — pick again from the list');
+    renderShell();
+    return false;
+  }
+  if (reply && reply.kind === 'error' && reply.code === ERR_CABLE_COUNT) {
+    foot('that cable request asked for more than one cable at once, which this build refuses');
+    renderShell();
+    return false;
+  }
+  var bad = replyProblem(reply);
+  if (bad) { foot(bad); renderShell(); return false; }
+
+  var row = reply.rows && reply.rows[0];
+  var word = (row && row.s[0]) || '';
+  /* DID IT ACTUALLY WRITE? Word `2` is "already there" — a live cable already
+     terminated both NAMED ports before this call, which is a correct no-op
+     and never journalled as a draw, for the exact reason `opLink`'s own
+     comment gives: replaying a no-op as a draw would assert a hand-mark over
+     nothing new. */
+  var did = word !== '2';
+  if (did) {
+    jpush('cable', at, ent, {
+      mode: 1,
+      near: cableEndSpec(near),
+      far: cableEndSpec(far),
+      label: label || ''
+    });
+  }
+  CABLE_HOLD = null;
+  setCableSheet(false);
+  DG.hold = true;
+  render();
+  return [word, did, row];
+}
+
+/* Cut, by the cable's own display id — never by re-deriving it from two
+   ports (see the `cc` group's comment on why the strip offers no third
+   button for this). Mirrors `opCableDraw`'s frame discipline exactly. */
+function opCableCut(cableId) {
+  if (!wasm) return false;
+  var ent = hostEntropy();
+  if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return false; }
+  var enc = new TextEncoder();
+  var idb = enc.encode(cableId);
+  var req = new Uint8Array(26 + 1 + idb.length);
+  var dv = new DataView(req.buffer);
+  var at = Date.now();
+  dv.setBigUint64(0, BigInt(at), true);
+  req.set(ent, 8);
+  req[24] = 0;
+  req[25] = 1;
+  req[26] = idb.length;
+  req.set(idb, 27);
+
+  var reply = call(OP_CABLE, req);
+  if (reply && reply.kind === 'error' && reply.code === ERR_NO_CABLE) {
+    foot(reply.detail || 'there is no such cable to cut');
+    renderShell();
+    return false;
+  }
+  var bad = replyProblem(reply);
+  if (bad) { foot(bad); renderShell(); return false; }
+  jpush('cable', at, ent, { mode: 0, cable: cableId });
+  return true;
+}
+
+/* One press, from either sheet role. Near HOLDS; far FINISHES. Neither reads
+   `CSHEET_ROLE` past this point without going through here, which is the
+   whole point of recording the verb with the state rather than re-deriving
+   it at each button (the 2026-08-16 chooser defect, in advance). */
+function cablePick(end) {
+  if (CSHEET_ROLE === 'near') {
+    var boxLabel = dgBoxLabel(CSHEET_BOX);
+    CABLE_HOLD = { box: CSHEET_BOX, end: end };
+    setCableSheet(false);
+    foot('holding ' + cableEndWord(end) + ' on ' + boxLabel +
+         ' — select the other end and press cable them');
+    say('holding a port for a cable — select the other end');
+    render();
+    return;
+  }
+  var linput = $('cCableLabel');
+  var label = linput ? linput.value.trim() : '';
+  var res = opCableDraw(CABLE_HOLD.end, end, label);
+  if (!res) return;
+  var did = res[1];
+  if (did) {
+    foot('drew a cable — it is marked as drawn by hand');
+    say('drew a cable, marked in the picture as drawn by hand');
+  } else {
+    foot('those two ports already have a cable between them — nothing was drawn');
+    say('that cable was already there; nothing was drawn');
+  }
+  dgRefocusRow(CSHEET_BOX);
+}
+
+function cablePickMint() {
+  var input = $('cAddLabel');
+  var label = input ? input.value.trim() : '';
+  if (cableTooLong(label)) {
+    foot('that label is longer than this build allows — 255 bytes');
+    renderShell();
+    return;
+  }
+  cablePick({ tag: 1, boxId: CSHEET_BOX, label: label });
+}
+
+/* D3: never a cable. Closes the sheet and abandons whatever end was held —
+   the operator has just said this pair does not need one — and points at
+   the door that DOES write the relationship. */
+function cableNoCable() {
+  setCableSheet(false);
+  CABLE_HOLD = null;
+  foot('no cable drawn — those two are related, not wired; use the connect ' +
+       'controls above to draw a link between them');
+  say('no cable drawn; use the connect controls for a logical link instead');
+  render();
+}
+
 /* --- the Outline ----------------------------------------------------------
 
    `55` §4.5.2: "keyboard focus in the diagram view never enters the <svg>. It
@@ -5300,7 +5768,36 @@ function dgExpand(row, open) {
      the rack sheet mounts and what `OP_FIELD_SET` writes a corrected serial to.
      Folding a node out of the picture must never fold it out of reach. */
   var folded = (DG.fold && DG.fold.into[id]) || [];
-  var kids = folded.length + conns.length;
+  /* ONE-ENDED CABLES (ADR-0038 D4/D10). `fathom-layout` derives a canvas line
+     only from a TWO-ended `Cable` (`resolve_cable` needs two boxes to draw a
+     line between) — an unknown far end therefore emits no `FACE_LINE` row at
+     all, and `DG.conn` never learns it exists. This is "page-side work" per
+     the module builder's own note: the fact still has to live somewhere a
+     keyboard reaches, and `cabled_peer`'s own text — already fetched for the
+     port picker's port list — already says `<label> · far end unmodelled` for
+     exactly this case. Read here, fresh, only for a `Device` row being
+     opened (a one-ended cable's near end is always a port on some device),
+     and only on the disclosure a reader actually asked for — this function is
+     already called lazily, per row, so this adds no cost to a row nobody
+     opens. */
+  var oneEnded = [];
+  var db = DG.boxes && DG.boxes[id];
+  if (db && db.kind === 'Device') {
+    var eqReply = call(OP_EQUIPMENT, new TextEncoder().encode(id));
+    if (eqReply && eqReply.kind === 'face') {
+      eqReply.rows.forEach(function (r) {
+        if (r.role !== FACE_PORT) return;
+        /* Slot 6 is the far device's display id, empty for a cable with no
+           second modelled end (`equipment.rs`'s `cabled_peer`); slot 5 is
+           `—` for no cable at all, so both together are what tell "one-ended
+           cable" apart from "no cable" and from an ordinary two-ended one. */
+        if (r.s[6] === '' && r.s[5] && r.s[5] !== '—') {
+          oneEnded.push({ port: r.s[1], text: r.s[5] });
+        }
+      });
+    }
+  }
+  var kids = folded.length + conns.length + oneEnded.length;
   var at = row;
   folded.forEach(function (cid, i) {
     var f = (DG.chassis && DG.chassis[cid]) || null;
@@ -5356,25 +5853,63 @@ function dgExpand(row, open) {
     lr.setAttribute('data-did', c.far);
     /* Words, not arrow glyphs. `54` §22 encloses the product's glyph set and no
        arrow is in it, and "to" and "from" are what a screen reader would have
-       had to say anyway. */
-    lr.appendChild(el('span', 'dorel', c.out ? 'to' : 'from'));
+       had to say anyway.
+
+       ADR-0038 D13: a cable line is worded `cable to <name>`, derived by the
+       same mechanical rule `dgWords` already applies to a schema edge kind --
+       `dgWords('Cable')` is `'cable'` -- rather than a second, hand-written
+       table naming what a cable row says about itself. */
+    lr.appendChild(el('span', 'dorel',
+      (c.cable ? dgWords(c.kind) + ' ' : '') + (c.out ? 'to' : 'from')));
     lr.appendChild(el('span', 'doname', far ? far.label : c.far));
     /* `59` failure mode 18: a merged stroke that does not say how many links it
        stands for reads as one link. The count is said HERE, on the row a
        keyboard reaches, because the stroke itself lives inside an aria-hidden
-       subtree where only a mouse could have found it. */
-    lr.appendChild(el('span', 'dokind docnt',
-      c.n > 1 ? c.kind + ' × ' + c.n : c.kind));
+       subtree where only a mouse could have found it.
+
+       A cable row already says `cable` in its relation word above, so the
+       kind is not repeated here -- only the multiplicity, when there is one. */
+    if (c.cable) {
+      if (c.n > 1) lr.appendChild(el('span', 'dokind docnt', '× ' + c.n));
+    } else {
+      lr.appendChild(el('span', 'dokind docnt',
+        c.n > 1 ? c.kind + ' × ' + c.n : c.kind));
+    }
     /* The hand fact, in words, on the tree assistive technology actually reads.
        The word in the picture is inside an `aria-hidden` <svg>, so on its own it
        announces this to nobody -- the exact failure
        `docs/80-review/evidence/2026-08-15-diagram-aggregation-ax.mjs` exists to
        catch, and the same one ADR-0035 had to answer for a placed box. Who says
        two boxes are connected is the load-bearing claim a network diagram
-       makes; it belongs on the row a keyboard can reach. */
-    if (c.hand) lr.appendChild(el('span', 'docnt', 'drawn by hand'));
+       makes; it belongs on the row a keyboard can reach.
+
+       ADR-0038 D13's midpoint word is `cable · by hand` -- this row's suffix
+       matches it exactly rather than the link row's `drawn by hand`, since the
+       two are read together (`54` §18: the row is the fact, the mark is where
+       it stands). */
+    if (c.hand) lr.appendChild(el('span', 'docnt', c.cable ? 'by hand' : 'drawn by hand'));
     at.parentNode.insertBefore(lr, at.nextSibling);
     at = lr;
+  });
+  /* The one-ended cables computed above, last: they are not a connection to
+     anything drawn, so they read as their own kind of fact rather than as a
+     `to`/`from` row with nothing on the other end of the sentence. No
+     `data-dlink`/`data-did` — there is nothing live to follow to, which is
+     the fact this row exists to state. */
+  oneEnded.forEach(function (o, i) {
+    var er = el('div', 'dolink');
+    er.setAttribute('role', 'treeitem');
+    er.setAttribute('aria-level', '2');
+    er.setAttribute('aria-setsize', String(kids));
+    er.setAttribute('aria-posinset', String(folded.length + conns.length + i + 1));
+    er.setAttribute('tabindex', '-1');
+    er.setAttribute('data-rove-item', '');
+    er.setAttribute('data-dparent', id);
+    er.appendChild(el('span', 'dorel', 'cable'));
+    er.appendChild(el('span', 'doname', o.text));
+    er.appendChild(el('span', 'docnt', 'on ' + o.port + ' · by hand'));
+    at.parentNode.insertBefore(er, at.nextSibling);
+    at = er;
   });
   dgRove(row);
 }
@@ -5885,6 +6420,44 @@ function dgIsText(t) {
    on ("containment is never offerable"). Reading the kinds the module sent is
    the same class of work as `pasteRows` and the connection buckets; it forms no
    opinion about the graph. */
+/* ADR-0038's `Cable` and `PhysicalPort` are graph citizens with no picture of
+   their own to be drawn INTO — `57` §7's rung 3, the faceplate, has no
+   renderer, and `fathom-layout/src/layers.rs` places both kinds in the "no
+   row in `56` §4.1's table — drawn everywhere and counted" bucket, which was
+   right while nothing built one and is wrong now that `OP_CABLE` mints them
+   by the gesture: a drawn cable puts a THIRD box on the canvas (the `Cable`
+   node itself) wired to two more (its ports) by their raw `Terminates`
+   edges, alongside the ONE line `fathom-layout`'s `resolve_cable` derives
+   for exactly this fact. D10's own words are "the cable draws box-to-box
+   like a link" — one line between two boxes, not a scaffold.
+
+   Folded here, page-side, the same shape `dgFoldChassis` already uses for an
+   identical problem one layer up (a hand-added device's `Chassis` drawing as
+   a second box until 2026-08-17): every `Cable` and `PhysicalPort` box, and
+   every line that touches one, is dropped before anything downstream counts
+   a box or a line. The DERIVED device-to-device cable line survives this
+   untouched — `resolve_cable`'s own two endpoints are the DEVICES a cable's
+   ports belong to, never the ports or the cable, so it never touches a
+   dropped id.
+
+   Nothing is lost: `PhysicalPort`'s own fields are the picker's list and the
+   inventory row (D14); `Cable`'s are the inventory row and the Outline's
+   `cable to <device>` sub-row this file's own `dgExpand` now builds. Both
+   were already unreachable from the canvas before this feature — rung 3 does
+   not exist — so this is the same "declining honestly" `renderRack`'s own
+   click handler already practises, not a new kind of refusal. */
+function dgFoldPorts(boxes, lines) {
+  var drop = {}, i, k;
+  for (i = 0; i < boxes.length; i++) {
+    k = boxes[i].s[1];
+    if (k === 'Cable' || k === 'PhysicalPort') drop[boxes[i].s[0]] = true;
+  }
+  var keptB = [], keptL = [];
+  for (i = 0; i < boxes.length; i++) if (!drop[boxes[i].s[0]]) keptB.push(boxes[i]);
+  for (i = 0; i < lines.length; i++) if (!drop[lines[i].s[0]] && !drop[lines[i].s[1]]) keptL.push(lines[i]);
+  return { boxes: keptB, lines: keptL };
+}
+
 function dgFoldChassis(boxes, lines) {
   var kind = {}, touch = {}, one = {}, pinned = {}, i, l, p;
   for (i = 0; i < boxes.length; i++) {
@@ -6021,6 +6594,14 @@ function renderDiagram(host) {
     else if (r.role === FACE_BOX) boxes.push(r);
     else if (r.role === FACE_LINE) lines.push(r);
   }
+
+  /* ADR-0038's ports and cables, folded off the canvas BEFORE the chassis
+     fold runs — see dgFoldPorts for why, and why the order matters (a
+     chassis whose only other touch was its own port has to be back down to
+     one touch by the time dgFoldChassis counts). */
+  var pf = dgFoldPorts(boxes, lines);
+  boxes = pf.boxes;
+  lines = pf.lines;
 
   /* ONE PIECE OF EQUIPMENT, ONE BOX. See dgFoldChassis for what is folded and
      what is never folded. This happens BEFORE anything counts, positions or
@@ -6202,9 +6783,9 @@ function renderDiagram(host) {
      and it computes nothing about the graph: the module already emitted every
      link in a total order, and grouping preserves it. */
   DG.conn = {};
-  function bucket(id, far, kind, out, n, hand) {
+  function bucket(id, far, kind, out, n, hand, cable) {
     if (!DG.conn[id]) DG.conn[id] = [];
-    DG.conn[id].push({ far: far, kind: kind, out: out, n: n || 1, hand: !!hand });
+    DG.conn[id].push({ far: far, kind: kind, out: out, n: n || 1, hand: !!hand, cable: !!cable });
   }
 
   /* Which drawn kinds the inventory has no row set for. Reading the kind words
@@ -6436,6 +7017,70 @@ function renderDiagram(host) {
   }
   strip.appendChild(lc);
 
+  /* --- cabling a port, for a keyboard (ADR-0038) ---------------------------
+
+     One rung down from the group above, and the same two-step shape: hold
+     one end, select the other, finish it. The difference is what "holding an
+     end" MEANS — a link holds a BOX (`DG_HOLD`, a display id already on
+     screen); a cable holds a PORT SPEC (`CABLE_HOLD`, `{box, end}`, where
+     `end` may name a port that does not exist yet — D1's "add a port" mints
+     nothing until the far end is chosen too, exactly as nothing is written
+     when a link is merely held). Both presses open the SAME sheet
+     (`#csheet`) in a different role, because the box's ports and the "add a
+     port" mint are the same question asked twice, and a picker that guessed
+     which port a click meant is exactly what `57` §12.3 rules out.
+
+     THE VERB TRAVELS WITH THE PICKER — `CSHEET_ROLE`, set before the sheet
+     opens and read by every button inside it — for the reason 2026-08-16's
+     chooser defect is in this file's own history: a picker whose buttons
+     have to re-derive which question is being asked is a picker that can
+     answer the wrong one.
+
+     Cutting a cable is NOT a third button here. `OP_CABLE`'s cut takes the
+     CABLE's own display id (ADR-0038 §4), and nothing on this page — not the
+     box, not either port — resolves to one without either guessing among
+     same-named ports or asking the module a query it does not offer. The
+     `Cable` inventory row (D14) already carries that id exactly, with no
+     lookup: selecting it there and pressing `remove` is the honest door, and
+     `removeSelected` below routes a `Cable` through `OP_CABLE` mode 0 rather
+     than the generic remove so D8's tombstone-both-edges rule still holds.
+     Documented here rather than silently decided, because the ADR's own
+     text (§6, "the picker; the hold-a-port gesture on the strip") reads as
+     though cut belongs on this strip too, and it does not without inventing
+     a resolution step the module was never asked to provide. */
+  var cc = el('div', 'dplacectl');
+  cc.setAttribute('role', 'group');
+  cc.setAttribute('aria-label',
+    'cabling a port — hold one end, select the other box, and cable them');
+  cc.appendChild(el('span', 'lab', 'cable'));
+  var cheld = null, cheldFull = '';
+  if (CABLE_HOLD) {
+    /* READ FROM `boxes` — the rows the module just sent — and NEVER from
+       `DG.boxes`, which this function does not fill until the painter four
+       hundred lines below runs. The link group's own `held` lookup above
+       states the defect this would otherwise reproduce verbatim: the lookup
+       would miss every time and this button would say "cabling from a box
+       not drawn now" about a box that is, in fact, on screen. */
+    var chLabel = CABLE_HOLD.box;
+    for (var chi = 0; chi < boxes.length; chi++) {
+      if (boxes[chi].s[0] === CABLE_HOLD.box) { chLabel = boxes[chi].s[2]; break; }
+    }
+    cheld = chLabel + ' · ' + cableEndWord(CABLE_HOLD.end);
+    if (cheld.length > 24) { cheldFull = cheld; cheld = cheld.slice(0, 12) + '…' + cheld.slice(-11); }
+  }
+  var bCableHold = el('button', null,
+    cheld ? 'cabling from ' + cheld : 'cable from here');
+  bCableHold.type = 'button';
+  bCableHold.setAttribute('data-dcablehold', '1');
+  if (cheldFull) bCableHold.title = cheldFull;
+  bCableHold.setAttribute('aria-pressed', String(!!CABLE_HOLD));
+  cc.appendChild(bCableHold);
+  var bCableThem = el('button', null, 'cable them');
+  bCableThem.type = 'button';
+  bCableThem.setAttribute('data-dcablethem', '1');
+  cc.appendChild(bCableThem);
+  strip.appendChild(cc);
+
   /* WHAT IS LEFT IS WHAT NO CONTROL SAYS. Four of the six clauses that stood
      here restated a button standing beside them -- "an element in any active
      layer is drawn" is the layer group, "drag a box to move it" is the move
@@ -6519,8 +7164,15 @@ function renderDiagram(host) {
        inside an `aria-hidden` subtree and announces this to nobody. */
     var lhand = l.s[6] === '1';
     if (lhand) handLines++;
-    bucket(l.s[0], l.s[1], l.s[2], true, lmem, lhand);
-    bucket(l.s[1], l.s[0], l.s[2], false, lmem, lhand);
+    /* Slot 7 is ADR-0038 D10's `cable` flag — this line is derived from a
+       `Cable` (mint Cable, walk Terminates -> port -> chassis -> device),
+       never from a graph edge the Outline would otherwise word as `hand.kind
+       + " link"`. Bucketed through exactly as `hand` is, for the same
+       reason: the SVG is `aria-hidden` and the Outline is what a keyboard
+       and a screen reader actually reach. */
+    var lcable = l.s[7] === '1';
+    bucket(l.s[0], l.s[1], l.s[2], true, lmem, lhand, lcable);
+    bucket(l.s[1], l.s[0], l.s[2], false, lmem, lhand, lcable);
     var d = '', parts = pts.split(' ');
     for (var pi = 0; pi < parts.length; pi++) {
       var xy = parts[pi].split(',');
@@ -6553,7 +7205,10 @@ function renderDiagram(host) {
       var mx = (parseInt(m0[0], 10) + parseInt(m1[0], 10)) / 2;
       var my = (parseInt(m0[1], 10) + parseInt(m1[1], 10)) / 2;
       var hw = sEl('text', { x: mx, y: my - 4, class: 'dhandmark', 'text-anchor': 'middle' });
-      hw.textContent = 'by hand';
+      /* D13: derived, not translated. `dgWords('Cable')` is `'cable'` by the
+         same mechanical rule a link's edge-kind name goes through — there is
+         no second table naming what a cable line says about itself. */
+      hw.textContent = lcable ? dgWords(l.s[2]) + ' · by hand' : 'by hand';
       DG.scene.appendChild(hw);
     }
   }
@@ -7193,6 +7848,24 @@ document.addEventListener('click', function (ev) {
     dgLink(DG_ASK ? DG_ASK.mode : 1, n.getAttribute('data-dlinkkind'));
     return;
   }
+  /* ADR-0038's two strip presses. Both go through the picker sheet; neither
+     writes anything itself — see the comment above the `cc` group. */
+  if ((n = seekAttr(ev.target, 'data-dcablehold'))) { dgCableHoldNear(); return; }
+  if ((n = seekAttr(ev.target, 'data-dcablethem'))) { dgCableThem(); return; }
+  /* The picker's own buttons, inside `#csheet`. Each carries enough to build
+     one end spec and nothing that has to be re-derived — the same discipline
+     `data-dlinkkind` above follows, applied one rung down. */
+  if ((n = seekAttr(ev.target, 'data-dcableport'))) {
+    cablePick({
+      tag: 0,
+      id: n.getAttribute('data-dcableport'),
+      portLabel: n.getAttribute('data-dcablelabel') || ''
+    });
+    return;
+  }
+  if ((n = seekAttr(ev.target, 'data-dcablemint'))) { cablePickMint(); return; }
+  if ((n = seekAttr(ev.target, 'data-dcableunknown'))) { cablePick({ tag: 2 }); return; }
+  if ((n = seekAttr(ev.target, 'data-dcablenocable'))) { cableNoCable(); return; }
   /* BEFORE the data-drow arm: a collapsed group's Outline row carries both, and
      a click on it must open the group rather than try to select an element id
      that names a group and not a thing. The keyboard path has the same
@@ -8133,8 +8806,11 @@ document.addEventListener('input', function (e) {
 function syncScrim() {
   /* `rOpen` is gone from this list because the rack sheet is gone: the
      elevation is a rung of the diagram now (`57` §2), and a rung is not an
-     overlay — nothing is dimmed behind it, because there is no behind. */
-  $('scrim').hidden = !(pOpen || eOpen || mOpen);
+     overlay — nothing is dimmed behind it, because there is no behind.
+     `cOpen` (ADR-0038's port picker) joins the other three for the reason
+     this function exists at all: one place to remember rather than one per
+     sheet. */
+  $('scrim').hidden = !(pOpen || eOpen || mOpen || cOpen);
 }
 
 var fOpen = false;
@@ -9203,6 +9879,53 @@ function importJournal(text) {
       req.set(lt, 29 + lf.length);
       req.set(lk, 29 + lf.length + lt.length);
       reply = call(OP_LINK, req);
+    } else if (o.op === 'cable') {
+      /* ADR-0038. Replayed through the SAME opcode, with the SAME clock and
+         entropy, mode and end specs it was made with — which is what makes a
+         mint-inline port and its `Cable` come back as the SAME ids rather
+         than merely equivalent ones (`fathom-wasm/tests/cable.rs`'s
+         replay-determinism test proves this from the module side; this arm
+         is the other half of that proof).
+
+         THE RAW END SPECS ARE SENT, never the ids the reply minted — the
+         same discipline `link`'s arm states above for its `kind`: a tag-1
+         mint replayed against a box whose port catalogue has since changed
+         must mint again, from the same recipe, not be pointed at whatever
+         now happens to hold the old id.
+
+         A CABLE THAT DOES NOT SURVIVE A ROUND TRIP IS DELETED, THE SAME AS A
+         HAND-DRAWN LINK — no paste can rebuild it, because no config said it.
+         This arm is written in from the start rather than discovered as a
+         gap after driving a reload, per the phase-0 lesson (CLAUDE.md
+         2026-08-21 (c)): a replay must never re-ask a question that already
+         happened, and both branches below call `OP_CABLE` exactly as
+         `opCableDraw`/`opCableCut` do, with nothing left for the operator to
+         confirm. */
+      if (o.mode === 0) {
+        var cidb = enc.encode(o.cable);
+        req = new Uint8Array(26 + 1 + cidb.length);
+        dv = new DataView(req.buffer);
+        dv.setBigUint64(0, BigInt(o.at), true);
+        req.set(ent, 8);
+        req[24] = 0;
+        req[25] = 1;
+        req[26] = cidb.length;
+        req.set(cidb, 27);
+      } else {
+        var cnb = cableEndBytes(o.near), cfb = cableEndBytes(o.far);
+        var clb = enc.encode(o.label || '');
+        req = new Uint8Array(26 + cnb.length + cfb.length + 1 + clb.length);
+        dv = new DataView(req.buffer);
+        dv.setBigUint64(0, BigInt(o.at), true);
+        req.set(ent, 8);
+        req[24] = 1;
+        req[25] = 1;
+        req.set(cnb, 26);
+        req.set(cfb, 26 + cnb.length);
+        req[26 + cnb.length + cfb.length] = clb.length;
+        req.set(clb, 27 + cnb.length + cfb.length);
+      }
+      reply = call(OP_CABLE, req);
     } else {
       foot('step ' + (i + 1) + ' is a kind of change this build does not know (' + o.op + ')');
       renderShell();
@@ -9283,6 +10006,10 @@ function importJournal(text) {
      an imported one mints its own; the id would either name nothing or, worse,
      name something else. Same reasoning as `S.pasteWasTable` on the line above. */
   DG_HOLD = null; DG_ASK = null;
+  /* Same reasoning, one rung down: a held port names a box and a port from
+     the workspace that was open a moment ago, and an import replaces it. */
+  CABLE_HOLD = null;
+  if (cOpen) setCableSheet(false);
   S.source = 'imported';
   S.loaded = true;
   S.invKind = 0;
@@ -10662,6 +11389,13 @@ document.addEventListener('keydown', function (e) {
     if (mOpen) { setPlace(false); setEquip(true); return; }
     if (eOpen) { setEquip(false); return; }
     if (pOpen) { setPaste(false); return; }
+    /* ADR-0038's picker, same tier as the three sheets above it: it is a
+       `role="dialog"` overlay like they are, and Esc closes the innermost
+       thing that opened. Closing it leaves `CABLE_HOLD` exactly as it was —
+       a press mid-picker has not finished the gesture either way, and the
+       rung below is where a HELD end (with no sheet open over it) is
+       released. */
+    if (cOpen) { setCableSheet(false); return; }
     /* THE FINDER'S RUNG, and it belongs to the finder rather than to the
        overlay. 52 §3.2.2: "Both forms are the same code, the same index, the
        same ranking, the same keymap." This branch was gated on `fOpen` alone,
@@ -10695,6 +11429,38 @@ document.addEventListener('keydown', function (e) {
        half-typed cell would clear the selection and leave the editor standing
        in a table that no longer had a selected row. */
     if (S.edit) { cancelEdit(); return; }
+    /* A HELD LINK OR CABLE END, WITH NO SHEET OVER IT (ADR-0038 D12). This
+       rung did not exist before ADR-0038 — `DG_HOLD`/`DG_ASK` have been
+       reachable since `OP_LINK` shipped 2026-08-16 and never had a way out
+       except completing the gesture or navigating away from `S.sel`
+       entirely, which does not even clear them (`opLink` clears both, but
+       only ON COMPLETION). A held end that cannot be escaped is a stuck
+       "connecting from X" button with no keyboard path off it, and it is
+       fixed here rather than carried forward a second time into the cable
+       gesture that inherits the identical shape.
+
+       It sits BELOW the finder and the cell editor (both can be reached
+       while an end is held, and `53` §3.7 unwinds most-recently-opened
+       first) and ABOVE the diagram-collapse rung: a held end is a half-made
+       ASSERTION about what happens next, which is a more urgent thing to be
+       able to back out of than a disclosure that only changes what is drawn.
+       Diagram-view-scoped because neither state is reachable from any other
+       view. */
+    if (S.view === 'diagram' && (DG_HOLD || DG_ASK || CABLE_HOLD)) {
+      var wasCableHeld = !!CABLE_HOLD;
+      DG_HOLD = null; DG_ASK = null; CABLE_HOLD = null;
+      foot('released');
+      say('the held end was released; nothing was drawn or cut');
+      render();
+      /* `55` §5.6: never stranded. The button this press was almost
+         certainly standing on is rebuilt by `render()` — its own label
+         changes the moment the hold it names is gone — so focus is put back
+         on its replacement rather than left to fall to <body>. */
+      var relBtn = $('sheet').querySelector(
+        wasCableHeld ? '[data-dcablehold]' : '[data-dhold]');
+      if (relBtn) relBtn.focus();
+      return;
+    }
     /* `!DG_DEPTH` ADDED WITH THE ZOOM LADDER. An expanded group belongs to the
        picture one rung up, and at rack or device depth that picture is not on
        screen — so collapsing one here changes nothing the reader can see, which
