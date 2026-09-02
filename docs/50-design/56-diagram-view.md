@@ -936,6 +936,20 @@ are visible.
 
 ### 6.3 Drag
 
+> **AMENDED 2026-08-15/2026-09-02 by ADR-0035 and ADR-0039.** The shipped shape differs from the
+> table below in three ways. **Pointer capture is NOT taken on `pointerdown`** — capturing then
+> retargeted every subsequent `click` to the canvas and nothing in the picture could be selected
+> with a mouse; capture is taken on the first move past a 3 px slop threshold instead, which is also
+> the only point this build needs it (ADR-0035). **The commit is `Op::Place` (opcode 21,
+> `OP_PLACE`), not `Op::SetLayoutHint`** — the latter is this section's own prose and was never the
+> shipped wire shape (see §3.5's own amendment above, which the same gap covers for what a position
+> *is*). **The Escape hatch this row has specified since it was written was never built until
+> ADR-0039, 2026-09-02 — over two weeks after the rest of this table shipped (ADR-0035,
+> 2026-08-15):** the move-drag's only way out was completing it (`pointerup`) or an OS-forced
+> `pointercancel`, with no keyboard abort in between. It is built now, in one Escape rung shared
+> with the connect-drag §6.4 below is annotated to describe (ADR-0039 D7). Multi-select is unbuilt;
+> this row is aspirational until it exists.
+
 | | |
 |---|---|
 | Pointer | `setPointerCapture` on `pointerdown`; one delegated listener on the `<svg>` |
@@ -950,6 +964,26 @@ are visible.
 **drag end**, never drag frame.
 
 ### 6.4 Connect — the round trip
+
+> **COLLISION with what shipped, annotated rather than rewritten (ADR-0038, ADR-0039).** This
+> section predates both opcodes that exist today and its mechanism paragraph is wrong on every
+> count: **no `L` or `T` key is bound anywhere** — `53` (ADR-0024) owns the keymap in full and binds
+> neither; the shipped reference path is two strip buttons (*"connect from here"* / *"connect
+> them"*, and *"cable from here"* / *"cable them"*), not a keystroke. **There is no single
+> `Op::AddEdge { kind: Link, from, to }`** — `OP_LINK` (24, 2026-08-16) and `OP_CABLE` (27,
+> ADR-0038, 2026-08-29) are two separate opcodes with separate frames, and deliberately so: routing
+> a device-to-device cable through `OP_LINK` would silently write `PeersWith` (the only reference
+> edge the schema admits between two `Device`s) instead of minting a `Cable`, because `OP_LINK`
+> writes without asking whenever exactly one candidate survives (ADR-0038 D2). **§6.4.1's physical
+> link is unbuilt as this section describes it** — no per-interface disclosure resolves ports for a
+> `Link`; what ships is `Cable`/`Terminates`/`PhysicalPort` nodes, a different schema shape than the
+> `Interface → Interface` edge this subsection specifies (`19` §3.4, ADR-0008). **§6.4.2's tunnel
+> round trip is unbuilt entirely** — no gesture mints the IKE/IPsec object chain; the walkthrough
+> view (`52` §6) it hands off to is still a placeholder. What §6.4.3's table forbids is still
+> honoured by everything that does exist. **ADR-0039 (2026-09-02) adds a pointer affordance over
+> `OP_LINK`/`OP_CABLE` as they actually shipped** — a drag from a box's perimeter opens the cable
+> picker, a drag from its body moves the box (ADR-0035) — and writes nothing this section's model
+> would recognise as `Op::AddEdge`.
 
 *margin tab: this is the feature*
 

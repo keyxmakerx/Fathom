@@ -1332,6 +1332,16 @@ svg[data-lod="0"] .dhandmark { display: none; }
    us from the box's own coordinates, which is what lets it be exactly 2 CSS px
    at every zoom -- see `vector-effect` on the element itself. */
 .dring { fill: none; stroke: var(--focus-colour); stroke-width: var(--focus-width); }
+/* ADR-0039: the connect-drag's preview line and drop-target highlight. Both
+   are decorative -- the SVG stays aria-hidden and what they represent is
+   spoken through the live region on a hover-target CHANGE (D11), never once
+   per pointermove. Neither survives the drag: the line node is removed and
+   the highlight class cleared on release, cancel or Escape alike, so
+   neither is ever present in a static bijection snapshot (`55` §4.5.8). Not
+   dashed: `51` §9 reserves dashed for AI-proposed content and this is
+   neither proposed nor content, it is a pointer's own trail. */
+.dconnectpreview { stroke: var(--muted); stroke-width: 1; pointer-events: none; }
+.dbox.dconnect-target rect { stroke: var(--ink); stroke-width: 3; }
 /* THE RING TRAVELS, AND ONLY WHEN A POINTER MOVED THE SELECTION.
    A click that lands on a box across a fourteen-box picture used to make the
    ring blink out here and in over there, and the reader had to find it again;
@@ -4561,6 +4571,7 @@ var DG = {
   touched: false,
   grab: null,                /* the live PAN drag, or null */
   box: null,                 /* the live BOX drag (ADR-0035), or null */
+  connect: null,             /* the live CONNECT drag from a perimeter (ADR-0039), or null */
   /* Set by a placement, consumed by the next renderDiagram: "the picture's
      shape changed because I changed it, so do not refit". See opPlace. */
   hold: false,
@@ -5339,6 +5350,22 @@ var cOpen = false;
 var CSHEET_ROLE = null;
 var CSHEET_BOX = null;
 
+/* ADR-0039: state that travels only with a DRAG-opened sheet, none of it
+   surviving a close -- an unfinished gesture is not a fact, exactly like
+   `CABLE_HOLD` above. `CSHEET_VERB` is the record of WHICH verb opened this
+   sheet (the 2026-08-16 chooser defect, restated for a third entry point):
+   `'drag'` when a perimeter press opened it, `null` for the strip's
+   hold-then-select. `CSHEET_FAR` is the far box a drag already named, read
+   once by `cablePick`'s near branch to walk straight into the far picker
+   instead of closing the sheet and asking the operator to go select an end
+   they already dragged onto. `CSHEET_DRAG_NEAR` is the near box, kept past
+   the point `CSHEET_BOX` is overwritten with the far one, so a CANCELLED
+   drag (Escape, "no cable") has a row to put focus back on -- a drag has no
+   keyboard row it was standing on the way a held link does. */
+var CSHEET_VERB = null;
+var CSHEET_FAR = null;
+var CSHEET_DRAG_NEAR = null;
+
 /* A held end, in words, for the strip button's own label — mirrors the link
    group's `held`/`heldFull` treatment above rather than a fresh round trip. */
 function cableEndWord(end) {
@@ -5399,6 +5426,13 @@ function openCableSheet(role, box) {
 function setCableSheet(open) {
   if (open) { openCableSheet(CSHEET_ROLE || 'near', CSHEET_BOX); return; }
   cOpen = false;
+  /* ADR-0039: every path that closes this sheet closes through here, so this
+     is the one place a drag's own state (the verb, the far box, the near
+     row to return to) is released -- the same "an unfinished gesture is not
+     a fact" reasoning `CABLE_HOLD` above is held to. */
+  CSHEET_VERB = null;
+  CSHEET_FAR = null;
+  CSHEET_DRAG_NEAR = null;
   syncScrim();
   $('csheet').hidden = true;
 }
@@ -5695,6 +5729,23 @@ function cablePick(end) {
   if (CSHEET_ROLE === 'near') {
     var boxLabel = dgBoxLabel(CSHEET_BOX);
     CABLE_HOLD = { box: CSHEET_BOX, end: end };
+    /* ADR-0039 D1: a drag already named the far box, so the near pick walks
+       straight into the far picker -- the SAME function the strip's second
+       press calls (`openCableSheet`), called here instead of there -- rather
+       than closing the sheet and asking the operator to go select an end
+       they already dragged onto. `CSHEET_FAR` is set only by the drag
+       release handler, so a strip-pressed near hold always finds it null and
+       takes the branch below, exactly as it did before this record. */
+    if (CSHEET_VERB === 'drag' && CSHEET_FAR) {
+      var farLabel = dgBoxLabel(CSHEET_FAR);
+      var farId2 = CSHEET_FAR;
+      CSHEET_DRAG_NEAR = CSHEET_BOX;
+      foot('holding ' + cableEndWord(end) + ' on ' + boxLabel +
+           ' — pick the port on ' + farLabel);
+      say('holding a port for a cable; picking the port on the far end');
+      openCableSheet('far', farId2);
+      return;
+    }
     setCableSheet(false);
     foot('holding ' + cableEndWord(end) + ' on ' + boxLabel +
          ' — select the other end and press cable them');
@@ -5732,12 +5783,20 @@ function cablePickMint() {
    the operator has just said this pair does not need one — and points at
    the door that DOES write the relationship. */
 function cableNoCable() {
+  /* ADR-0039: read before the close, which is where they are released. A
+     strip-opened sheet has no drag state to restore and both are null. */
+  var wasDrag = CSHEET_VERB === 'drag', dragNear = CSHEET_DRAG_NEAR;
   setCableSheet(false);
   CABLE_HOLD = null;
   foot('no cable drawn — those two are related, not wired; use the connect ' +
        'controls above to draw a link between them');
   say('no cable drawn; use the connect controls for a logical link instead');
   render();
+  /* A drag never had a keyboard row to fall back to -- there was no press on
+     an Outline row to remember, the gesture began on the canvas. Put focus
+     on the near box's row rather than leaving it on a control render() just
+     rebuilt out from under it (`53` §13 failure 7). */
+  if (wasDrag && dragNear) dgRefocusRow(dragNear);
 }
 
 /* --- the Outline ----------------------------------------------------------
@@ -8101,14 +8160,47 @@ document.addEventListener('wheel', function (e) {
   dgZoomAt(e.clientX - r.left, e.clientY - r.top, Math.pow(0.9988, dy), false, r);
 }, { passive: false });
 
-/* Drag a box to move it, drag the background to pan (ADR-0035).
+/* THE PERIMETER TEST (ADR-0039 §5). Given the pointerdown event and the box
+   `<g>` it landed on, answers whether the press falls in the band just
+   inside the box's RENDERED edge.
 
-   The two gestures start the same way and are told apart by what is under the
-   pointer: a shape carrying `data-dpost` is a box standing for exactly ONE
-   element, and only such a box can hold a position. A collapsed group carries
-   `data-group` instead and falls through to the pan, which is right — a group
-   has no single element whose position it could be, and refusing the drag
-   quietly by panning instead is better than moving forty boxes at once. */
+   Screen space, via the box's own client rect, so the band's apparent
+   thickness is constant across the 0.2x-4.0x zoom range (`DG_MIN`/`DG_MAX`)
+   the same way the box's own hairline stroke already is
+   (`vector-effect: non-scaling-stroke`, `56` §5.3) -- a band measured in
+   SCENE units would render 20x thicker at one end of that range than the
+   other (D3).
+
+   D4: a box whose shorter side is under `DG_PERIM_FLOOR` screen pixels has
+   no band at all -- 10 px on each side needs 20 px of width before the body
+   vanishes, so below the floor the whole box stays body, and the keyboard
+   path (the strip's hold-then-select) is what reaches it instead. */
+var DG_PERIM_BAND = 10;   /* ADR-0039 D3, §5 -- the band's own thickness, CSS px */
+var DG_PERIM_FLOOR = 40;  /* ADR-0039 D4, §5 -- below this, there is no band */
+function dgOnPerimeter(e, shape) {
+  var rectEl = shape && shape.querySelector('rect');
+  var r = rectEl ? rectEl.getBoundingClientRect() : (shape && shape.getBoundingClientRect());
+  if (!r || Math.min(r.width, r.height) < DG_PERIM_FLOOR) return false;
+  var edge = Math.min(e.clientX - r.left, r.right - e.clientX,
+                       e.clientY - r.top, r.bottom - e.clientY);
+  return edge >= 0 && edge < DG_PERIM_BAND;
+}
+
+/* Drag a box to move it, drag its perimeter to cable it, drag the
+   background to pan (ADR-0035, ADR-0039).
+
+   Three gestures start the same way and are told apart by what is under the
+   pointer and where on it: a shape carrying `data-dpost` is a box standing
+   for exactly ONE element, and only such a box can hold a position or be
+   cabled from. A collapsed group carries `data-group` instead and falls
+   through to the pan, which is right — a group has no single element whose
+   position it could be, and refusing the drag quietly by panning instead is
+   better than moving forty boxes at once.
+
+   The perimeter test runs BEFORE the move branch, on the same press, because
+   D1/D2 make the two mutually exclusive reads of one gesture: press near the
+   box's edge and it draws a cable: press its body and it moves, as it always
+   has. */
 document.addEventListener('pointerdown', function (e) {
   if (!DG.canvas || !DG.canvas.contains(e.target)) return;
   if (e.button !== 0) return;
@@ -8120,6 +8212,11 @@ document.addEventListener('pointerdown', function (e) {
   var id = shape && shape.getAttribute('data-dpost');
   var b = id && DG.boxes && DG.boxes[id];
   if (b && !b.collapsed) {
+    if (dgOnPerimeter(e, shape)) {
+      DG.connect = { id: id, pid: e.pointerId, x: e.clientX, y: e.clientY,
+                     moved: false, line: null, hoverId: null };
+      return;
+    }
     DG.box = { id: id, pid: e.pointerId, x: e.clientX, y: e.clientY,
                bx: b.x, by: b.y, g: b.g, moved: false };
     return;
@@ -8241,6 +8338,161 @@ function dgBoxRelease(e) {
 }
 document.addEventListener('pointerup', dgBoxRelease);
 document.addEventListener('pointercancel', dgBoxRelease);
+
+/* THE CONNECT DRAG (ADR-0039). Same shape as the box drag above -- the same
+   3px slop before anything happens, capture taken on the first real move,
+   nothing written until release, `pointercancel` treated as a release -- a
+   second drag idiom in this file that broke any one of those would be the
+   first inconsistency here, not the first drag.
+
+   What differs is what release DOES: it never writes anything itself. It
+   opens the same picker `dgCableHoldNear`/`dgCableThem` open from the strip
+   (`openCableSheet`), fed the ids the drag itself captured -- never `S.sel`,
+   which `dgSelect` reads as "this is a Rack" and descends into its elevation
+   (D9); a synthesised selection would hijack the gesture into navigation
+   mid-drag. */
+document.addEventListener('pointermove', function (e) {
+  var c = DG.connect;
+  if (!c || e.pointerId !== c.pid) return;
+  var dx = e.clientX - c.x, dy = e.clientY - c.y;
+  /* The same 3 px of slop the box drag and the pan both use. */
+  if (!c.moved && dx * dx + dy * dy < 9) return;
+  if (!c.moved && DG.canvas) {
+    try { DG.canvas.setPointerCapture(e.pointerId); } catch (err) { /* uncaptured */ }
+  }
+  c.moved = true;
+  dgConnectPreview(e);
+});
+
+/* The preview line and the drop-target highlight, both decorative (D11) --
+   the SVG stays `aria-hidden` and neither is a fact until the gesture ends
+   in a written cable. The line is rewritten every frame because it is
+   thrown away wholesale on release or Escape and never becomes state
+   anything reads; the highlight and its live-region sentence update ONLY
+   when the box under the pointer CHANGES, never once per frame, which is
+   the difference between a state announced and a screen reader flooded. */
+function dgConnectPreview(e) {
+  var c = DG.connect;
+  if (!c || !DG.canvas || !DG.scene) return;
+  var origin = DG.boxes && DG.boxes[c.id];
+  if (!origin) return;
+  /* The pointer's client position, inverted into scene units -- the same
+     `(client - offset - translate) / zoom` arithmetic `dgZoomAt` already
+     does for the wheel, the only other place in this file that inverts the
+     scene transform. */
+  var r = DG.canvas.getBoundingClientRect();
+  var sx = (e.clientX - r.left - DG.tx) / DG.k;
+  var sy = (e.clientY - r.top - DG.ty) / DG.k;
+  if (!c.line) {
+    c.line = sEl('line', { class: 'dconnectpreview', 'vector-effect': 'non-scaling-stroke' });
+    DG.scene.appendChild(c.line);
+  }
+  c.line.setAttribute('x1', origin.x + origin.w / 2);
+  c.line.setAttribute('y1', origin.y + origin.h / 2);
+  c.line.setAttribute('x2', sx);
+  c.line.setAttribute('y2', sy);
+
+  var over = document.elementFromPoint(e.clientX, e.clientY);
+  var overShape = over && seekAttr(over, 'data-dpost');
+  var hoverId = overShape && overShape.getAttribute('data-dpost');
+  /* Hovering back over the box the drag started on is not a valid drop
+     target (D8) and is never highlighted as one. */
+  if (hoverId === c.id) hoverId = null;
+  if (hoverId !== c.hoverId) {
+    if (c.hoverId) {
+      var was = DG.boxes && DG.boxes[c.hoverId];
+      if (was && was.g) was.g.classList.remove('dconnect-target');
+    }
+    if (hoverId) {
+      var now = DG.boxes[hoverId];
+      if (now && now.g) now.g.classList.add('dconnect-target');
+    }
+    c.hoverId = hoverId;
+    say(hoverId
+      ? 'dragging a cable toward ' + dgKindOf(hoverId) + ' ' + dgBoxLabel(hoverId)
+      : 'dragging a cable');
+  }
+}
+
+/* Strips the preview line and any drop-target highlight, on every terminal
+   state (a completed drop, a cancel, Escape) alike -- nothing about the
+   drag survives past the gesture that made it. */
+function dgConnectClearPreview(c) {
+  if (!c) return;
+  if (c.line && c.line.parentNode) c.line.parentNode.removeChild(c.line);
+  if (c.hoverId) {
+    var b = DG.boxes && DG.boxes[c.hoverId];
+    if (b && b.g) b.g.classList.remove('dconnect-target');
+  }
+}
+
+/* THE FOUR OUTCOMES (ADR-0039 §7). Over another box: open the picker, near
+   then far (D1). Back on the box the drag started from: cancel (D8). Empty
+   canvas: revert, and say plainly that creating a box this way is not built
+   (D6, `49` §15 item 3). Off-canvas or `pointercancel`: revert, same as the
+   box drag. */
+function dgConnectRelease(e) {
+  var c = DG.connect;
+  if (!c || e.pointerId !== c.pid) return;
+  DG.connect = null;
+  if (DG.canvas) {
+    try {
+      if (DG.canvas.hasPointerCapture && DG.canvas.hasPointerCapture(e.pointerId)) {
+        DG.canvas.releasePointerCapture(e.pointerId);
+      }
+    } catch (err) { /* it was never captured */ }
+  }
+  dgConnectClearPreview(c);
+  if (!c.moved) return;   /* a press in the band that never moved is a click */
+  /* A drag that moved must not also select what it started on -- the same
+     rule the box drag and the pan both carry. */
+  DG.eatClick = true;
+
+  if (e.type === 'pointercancel') {
+    foot('cable drag cancelled — nothing drawn');
+    say('the cable drag was cancelled; nothing was drawn');
+    return;
+  }
+  var target = document.elementFromPoint(e.clientX, e.clientY);
+  if (!target || !DG.canvas || !DG.canvas.contains(target)) {
+    foot('cable drag cancelled — released off the canvas');
+    say('the cable drag was cancelled; nothing was drawn');
+    return;
+  }
+  var farShape = seekAttr(target, 'data-dpost');
+  var farId = farShape && farShape.getAttribute('data-dpost');
+  if (farId && farId === c.id) {
+    foot('cable drag cancelled — dropped back on the box it started from');
+    say('the cable drag was cancelled; nothing was drawn');
+    return;
+  }
+  if (farId) {
+    var farBox = DG.boxes && DG.boxes[farId];
+    if (farBox && farBox.collapsed) {
+      foot('that box stands for ' + farBox.n + ' objects, and a cable runs to one thing — ' +
+           'open it and cable to one of its members');
+      say('cannot cable to a collapsed group');
+      return;
+    }
+    CSHEET_VERB = 'drag';
+    CSHEET_FAR = farId;
+    openCableSheet('near', c.id);
+    return;
+  }
+  if (seekAttr(target, 'data-group')) {
+    foot('that is a collapsed group, and a cable runs to one thing — ' +
+         'open it and cable to one of its members');
+    say('cannot cable to a collapsed group');
+    return;
+  }
+  /* D6: creating a box by dragging into space is a different feature
+     (`49` §15 item 3) and is not built -- said plainly rather than silently
+     doing nothing, which would read as the product being broken. */
+  foot('dragging to empty space does not create a box — that gesture is not built yet');
+  say('drag to empty canvas does nothing yet; creating a box this way is not built');
+}
+document.addEventListener('pointerup', dgConnectRelease);
+document.addEventListener('pointercancel', dgConnectRelease);
 
 function dgRelease(e) {
   if (!DG.grab || e.pointerId !== DG.grab.id) return;
@@ -11433,7 +11685,15 @@ document.addEventListener('keydown', function (e) {
        a press mid-picker has not finished the gesture either way, and the
        rung below is where a HELD end (with no sheet open over it) is
        released. */
-    if (cOpen) { setCableSheet(false); return; }
+    if (cOpen) {
+      /* ADR-0039: same reasoning as `cableNoCable`'s own comment -- a
+         drag-opened sheet has no row a keyboard user was standing on to
+         fall back to, so it gets one explicitly. */
+      var cableWasDrag = CSHEET_VERB === 'drag', cableDragNear = CSHEET_DRAG_NEAR;
+      setCableSheet(false);
+      if (cableWasDrag && cableDragNear) dgRefocusRow(cableDragNear);
+      return;
+    }
     /* THE FINDER'S RUNG, and it belongs to the finder rather than to the
        overlay. 52 §3.2.2: "Both forms are the same code, the same index, the
        same ranking, the same keymap." This branch was gated on `fOpen` alone,
@@ -11467,6 +11727,55 @@ document.addEventListener('keydown', function (e) {
        half-typed cell would clear the selection and leave the editor standing
        in a table that no longer had a selected row. */
     if (S.edit) { cancelEdit(); return; }
+    /* AN IN-FLIGHT POINTER DRAG (ADR-0039 D7). `56` §6.3 has read "Esc
+       mid-drag reverts to the pre-drag positions and releases capture"
+       since it was written and neither drag ever built it -- the box-move
+       (ADR-0035) had pointerup and pointercancel as its only way out of a
+       held pointer, and the connect-drag this record adds would have
+       shipped the identical gap a second time rather than close it. One
+       rung covers both, because the pointerdown branch that sets them is
+       exclusive: only one of `DG.box` / `DG.connect` is ever live. Release
+       whichever's capture, strip its provisional mark, write nothing --
+       exactly the discipline a refused release already keeps.
+
+       Above the held-end rung below: a pointer physically held down right
+       now is a more immediate in-flight state than a completed click's
+       hold, which can sit for as long as the operator likes with nothing
+       captured. */
+    if (S.view === 'diagram' && (DG.box || DG.connect)) {
+      if (DG.box) {
+        var escBoxDrag = DG.box;
+        DG.box = null;
+        if (DG.canvas) {
+          try {
+            if (DG.canvas.hasPointerCapture && DG.canvas.hasPointerCapture(escBoxDrag.pid)) {
+              DG.canvas.releasePointerCapture(escBoxDrag.pid);
+            }
+          } catch (err) { /* it was never captured */ }
+        }
+        if (escBoxDrag.moved) {
+          escBoxDrag.g.removeAttribute('transform');
+          DG.eatClick = true;
+        }
+        foot('drag cancelled — nothing moved');
+        say('the drag was cancelled; nothing was moved');
+      } else {
+        var escConnDrag = DG.connect;
+        DG.connect = null;
+        if (DG.canvas) {
+          try {
+            if (DG.canvas.hasPointerCapture && DG.canvas.hasPointerCapture(escConnDrag.pid)) {
+              DG.canvas.releasePointerCapture(escConnDrag.pid);
+            }
+          } catch (err) { /* it was never captured */ }
+        }
+        dgConnectClearPreview(escConnDrag);
+        if (escConnDrag.moved) DG.eatClick = true;
+        foot('cable drag cancelled — nothing drawn');
+        say('the cable drag was cancelled; nothing was drawn');
+      }
+      return;
+    }
     /* A HELD LINK OR CABLE END, WITH NO SHEET OVER IT (ADR-0038 D12). This
        rung did not exist before ADR-0038 — `DG_HOLD`/`DG_ASK` have been
        reachable since `OP_LINK` shipped 2026-08-16 and never had a way out

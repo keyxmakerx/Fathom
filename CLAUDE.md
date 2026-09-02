@@ -219,6 +219,36 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   *add a port* from the Inventory; and, newly recorded, `Terminates.end`'s literal A/B letter
   having no wire read path (property-tested instead) and `begin_batch` refusals still surfacing
   as raw Rust `Debug` text across several opcodes, cable included, not just this one.
+- **You can drag a box's edge to cable it, not just its body to move it — ADR-0039, 2026-09-02.**
+  A press in a 10-CSS-pixel band inside a box's rendered edge (`DG_PERIM_BAND`, screen space so it
+  stays 10px at every zoom from 0.2x to 4x, exactly the reasoning the box's own hairline stroke
+  already uses) draws a cable; a press in its body still moves it, unchanged (ADR-0035). Release
+  over another box opens the SAME `OP_CABLE` picker the strip's *cable from here* / *cable them*
+  opens — near then far, no second drag needed — writing the identical journal shape a keyboard
+  cable produces, ids and clock/entropy excepted; release back on the origin box cancels; release
+  on empty canvas reverts and says plainly that creating a box this way is not built (`49` §15 item
+  3); release off-canvas or a `pointercancel` reverts too. A box whose shorter side draws under 40
+  screen pixels has no band at all — the whole box stays body, per D4 — because 10px each side
+  would otherwise eat a small box until the keyboard is the only way to move it. **The escape hatch
+  `56` §6.3 has specified since it was written and this build never had, for EITHER drag, now
+  exists**: `Esc` mid-drag reverts the preview or the provisional move and releases capture, one
+  rung covering both `DG.box` and `DG.connect`. **No Rust, no opcode, no schema change** — the
+  gesture terminates in `OP_CABLE` (27), unchanged; **module bytes confirmed unchanged at
+  988,540**. Page **+14,870 bytes** (2,803,728 → 2,818,598). New driver
+  `2026-09-02-drag-to-connect-drive.mjs` (48/48) through a real reload, including the
+  keyboard-equivalence assertion (the same journal record shape from a drag and from the strip) and
+  export → reload → import; `2026-08-15-hand-placement-drive.mjs` (23/23),
+  `2026-08-29-cabling-drive.mjs` (56/56), `2026-08-16-hand-link-drive.mjs` (31/31) and
+  `2026-08-16-the-cut-that-drew.mjs` (18/18) re-run with no regression. `56` §6.3 and §6.4 are
+  annotated against what actually shipped (both predate ADR-0038/0039 and named a mechanism —
+  `Op::SetLayoutHint`, `Op::AddEdge`, keys `L`/`T` — that was never built); `fathom-weld`'s stale
+  *"no opcode creates a `Cable`"* comment was corrected in the same pass that filed the ADR. What
+  stays open, all in ADR-0039 §10: the shape autoprompt (drop-on-empty-canvas creating a node and
+  its edge in one gesture, `49` §15 item 3); drop-on-a-port (needs the rung-3 faceplate, ADR-0038
+  §9 item 2); a keyboard chord for connect, if `53` wants one; `?` (the shortcut-help sheet) is
+  specified in `53` §3.1 and still does not exist anywhere in the page; alignment guides and
+  measured distances (`49` §15 item 5) stay the move-drag's, constrained to `LayoutPin`-writing
+  gestures.
 - **The parse-server question is answered and the answer is no server — `38` §14, 2026-08-17.**
   Six designs, each attacked by an independent reviewer. The finding in one line: *we were about
   to move a customer's firewall config off his machine because a lookup table got compiled as a

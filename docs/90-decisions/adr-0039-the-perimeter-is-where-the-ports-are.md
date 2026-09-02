@@ -140,9 +140,11 @@ ADR-0035 fixed its 4px snap grid in a record.
 ## 8. Cost, measured
 
 Page bytes before and after, read off the `fathom-artifact` build by the proving session.
-Before: **2,803,728 bytes** (2026-08-29, after ADR-0038). After: <!-- VERIFY: fill from the run -->.
-Module bytes are expected to be **unchanged at 988,540** — this record adds no Rust — and a
-change there is a finding, not a rounding.
+Before: **2,803,728 bytes** (2026-08-29, after ADR-0038). After: **2,818,598 bytes** (2026-09-02,
+this record's own build — read directly off `cargo run -p fathom-artifact`'s own output) —
+**+14,870 bytes**. Module bytes are **unchanged at 988,540** (`cargo build --locked --release
+--target wasm32-unknown-unknown -p fathom-wasm`, the same figure ADR-0038 §7 measured): this
+record adds no Rust, and the wasm build confirms it rather than merely asserting it.
 
 ## 9. Failure modes
 
