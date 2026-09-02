@@ -474,6 +474,26 @@ pub const ERR_LINK_CHOICE: u16 = 16;
 /// rather than offering a control that would lie.
 pub const ERR_PASTE_CHOICE: u16 = 17;
 
+/// `OP_CABLE`'s frame carries a count byte and this build refuses any value
+/// but `1` (ADR-0038 D7). Not a limit on how many cables an estate may hold —
+/// a limit on how many one CALL may write, so a future range-cabling frame
+/// that sends more fails loudly on this build rather than silently
+/// truncating to the first record.
+pub const ERR_CABLE_COUNT: u16 = 18;
+
+/// `OP_CABLE`'s frame named an end spec that does not resolve: not a live
+/// port, not a live device or chassis, both ends naming the same port, tag
+/// `3` (`ExternalPeer`, reserved and unbuilt), or tag `2` (unknown) on the
+/// near end — an unknown end is legal only where the operator does not know
+/// the FAR one.
+///
+/// The detail is empty, deliberately, and for `ERR_NO_LINK`'s reason: the
+/// page sent both ends and already knows what it sent.
+pub const ERR_CABLE_END: u16 = 19;
+
+/// `OP_CABLE`'s cut named something that does not resolve to a live `Cable`.
+pub const ERR_NO_CABLE: u16 = 20;
+
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
 
@@ -1266,15 +1286,17 @@ pub fn encode_diagram(
             pts.push_str(&y.to_string());
         }
         let members = l.members.to_string();
-        // Slot 6 is APPENDED, after the five that were already on the wire. The
-        // page reads slots by index, so inserting anywhere else would have
-        // silently reinterpreted every existing row rather than rejected it —
-        // the same reasoning ADR-0035's placed flag records for the box row,
-        // where the flag went before the only possibly-empty token.
+        // Slot 6 (`hand`) was APPENDED after the five that were already on the
+        // wire; slot 7 (`cable`, ADR-0038) is APPENDED after that, and is the
+        // last one `FACE_SLOTS = 8` allows. The page reads slots by index, so
+        // inserting anywhere else would have silently reinterpreted every
+        // existing row rather than rejected it — the same reasoning
+        // ADR-0035's placed flag records for the box row, where the flag went
+        // before the only possibly-empty token.
         let rec = face_slots(
             &mut blob,
             FACE_LINE,
-            7,
+            8,
             &[
                 l.from.as_str(),
                 l.to.as_str(),
@@ -1283,6 +1305,7 @@ pub fn encode_diagram(
                 pts.as_str(),
                 members.as_str(),
                 if l.hand { "1" } else { "" },
+                if l.cable { "1" } else { "" },
             ],
         );
         write_face_record(&mut records, &rec);

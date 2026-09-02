@@ -67,6 +67,13 @@ pub enum InvKind {
     // estate holds and a person will look for by kind; APPENDED for the reason
     // `Chassis` states above.
     DhcpRelay,
+    // Appended 2026-08-29 with ADR-0038. `PhysicalPort` has had a row since
+    // WO-08 §8 item 6; `Cable` did not, because nothing could write one. Now
+    // that `OP_CABLE` does, the annotate-later half of the empty-chart
+    // principle (`57` §13.5: "the drag captures, the field completes") is
+    // this row and the existing cell editor — no bespoke sheet. APPENDED for
+    // the reason `Chassis` states above.
+    Cable,
 }
 
 impl InvKind {
@@ -88,10 +95,11 @@ impl InvKind {
             InvKind::Rack => "Rack",
             InvKind::SecurityPolicy => "SecurityPolicy",
             InvKind::DhcpRelay => "DhcpRelay",
+            InvKind::Cable => "Cable",
         }
     }
 
-    pub const ALL: [InvKind; 16] = [
+    pub const ALL: [InvKind; 17] = [
         InvKind::Device,
         InvKind::PhysicalPort,
         InvKind::Premises,
@@ -108,6 +116,7 @@ impl InvKind {
         InvKind::Rack,
         InvKind::SecurityPolicy,
         InvKind::DhcpRelay,
+        InvKind::Cable,
     ];
 
     fn node_kind(self) -> NodeKind {
@@ -128,6 +137,7 @@ impl InvKind {
             InvKind::Rack => NodeKind::Rack,
             InvKind::SecurityPolicy => NodeKind::SecurityPolicy,
             InvKind::DhcpRelay => NodeKind::DhcpRelay,
+            InvKind::Cable => NodeKind::Cable,
         }
     }
 }
@@ -194,6 +204,8 @@ enum Walk {
     RouterId,
     /// Rack -> how many chassis are mounted in it.
     Mounted,
+    /// Cable -> both `Terminates` ends, each rendered `<host>:<port>`.
+    CableEnds,
 }
 
 /// One column: what it is called, and what it is.
@@ -395,6 +407,23 @@ const DHCP_RELAY_COLUMNS: &[Col] = &[
     f("min wait", "DhcpRelay.minimum_wait_time"),
 ];
 
+/// One cable, ADR-0038 D14. `label` first because it is the row's own name —
+/// D11's `(unlabelled)` fallback is what a fresh one from the gesture shows.
+/// `terminates` is a walk, not a field: a cable's own location is which two
+/// ports it joins, and that lives on the `Terminates` edges, not on `Cable`
+/// itself — the same reason `cables to` is a walk on `PhysicalPort`'s row.
+/// Five of `Cable`'s nine declared fields did not fit the six-slot limit
+/// `SECURITY_POLICY_COLUMNS` names; `assembly`, `provider_circuit` and
+/// `notes` are reached through the inspector, not this row.
+const CABLE_COLUMNS: &[Col] = &[
+    f("label", "Cable.label"),
+    w("terminates", Walk::CableEnds),
+    f("media", "Cable.media"),
+    f("length_m", "Cable.length_m"),
+    f("ownership", "Cable.ownership"),
+    f("installed_on", "Cable.installed_on"),
+];
+
 fn table(kind: InvKind) -> &'static [Col] {
     match kind {
         InvKind::Device => DEVICE_COLUMNS,
@@ -413,6 +442,7 @@ fn table(kind: InvKind) -> &'static [Col] {
         InvKind::Rack => RACK_COLUMNS,
         InvKind::SecurityPolicy => SECURITY_POLICY_COLUMNS,
         InvKind::DhcpRelay => DHCP_RELAY_COLUMNS,
+        InvKind::Cable => CABLE_COLUMNS,
     }
 }
 
@@ -492,6 +522,7 @@ fn cells(g: &Graph, kind: InvKind, id: NodeId) -> Vec<String> {
                 Walk::Targets(e) => edge_targets(g, id, *e),
                 Walk::RouterId => routing_protocol_router_id(g, id),
                 Walk::Mounted => g.inn(id, EdgeKind::MountedIn).count().to_string(),
+                Walk::CableEnds => cable_ends(g, id),
             },
         })
         .collect()
@@ -583,6 +614,38 @@ fn edge_targets(g: &Graph, id: NodeId, kind: EdgeKind) -> String {
 /// re-deriving the join here and risking a second, different answer.
 fn unit_names(g: &Graph, id: NodeId) -> String {
     edge_targets(g, id, EdgeKind::HasUnit)
+}
+
+/// A cable's own row: each live `Terminates` end, `<host>:<port>` where the
+/// far device is known, the bare port label where it is not (`equipment::
+/// cabled_peer`'s "far end unmodelled" case), joined `↔`. `—` for a cable
+/// with no modelled end at all, which `19` §3.4 already says cannot outlive
+/// its own identity: an unlabelled, zero-ended `Cable` has no tier-1 tuple.
+///
+/// **Filtered by `absent_since`, not merely by existence** (ADR-0038 D8), for
+/// `equipment::cabled_peer`'s reason: `g.out` returns a cut edge as readily
+/// as a live one, and a cable this row still lists as terminating a port a
+/// cut has already released would be the same stale-fact defect that walk
+/// exists to stop, one row over.
+fn cable_ends(g: &Graph, cable: NodeId) -> String {
+    let ends: Vec<String> = g
+        .out(cable, EdgeKind::Terminates)
+        .filter(|e| e.absent_since.is_none())
+        .map(|e| e.to)
+        .filter(|q| q.kind == NodeKind::PhysicalPort)
+        .map(|port| {
+            let label = crate::element::display_name(g, port);
+            match equipment::port_device_hostname(g, port) {
+                Some(host) => format!("{host}:{label}"),
+                None => label,
+            }
+        })
+        .collect();
+    if ends.is_empty() {
+        UNKNOWN.to_owned()
+    } else {
+        ends.join(" ↔ ")
+    }
 }
 
 /// Traversal: `owner` Site -> `AtPremises` -> Premises `label`. `—` when the

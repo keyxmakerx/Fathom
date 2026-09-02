@@ -168,12 +168,27 @@ pub(crate) fn port_device_hostname(g: &Graph, port: NodeId) -> Option<String> {
 /// `itself` for a same-device peer. A cable with no second modelled port end
 /// reads `<cable label> · far end unmodelled`; no cable at all is `None`, and
 /// the caller renders `—`.
+///
+/// **Live, not merely present** (ADR-0038 D8). `Graph::tombstone` on a node
+/// cascades through containment only — `Terminates` is `class: reference` —
+/// so `OP_CABLE`'s cut tombstones the `Cable` node AND both `Terminates`
+/// edges itself, and this walk has to honour both marks: `g.inn`/`g.out`
+/// return every edge ever written, tombstoned or not, so a stale in-edge or a
+/// cut-but-still-live cable node would otherwise keep reporting *"cabled to"*
+/// after the cut. `cable.rs`'s `a_cut_cable_stops_reporting_as_cabled` is the
+/// regression this line exists to fail without.
 pub(crate) fn cabled_peer(g: &Graph, port: NodeId) -> Option<CabledPeer> {
-    let cable = g.inn(port, EdgeKind::Terminates).map(|e| e.from).next()?;
+    let cable = g
+        .inn(port, EdgeKind::Terminates)
+        .find(|e| e.absent_since.is_none())
+        .map(|e| e.from)
+        .filter(|c| g.node(*c).is_some_and(|n| n.absent_since.is_none()))?;
     let cable_label = value_cell(g, cable, key("Cable.label"));
 
-    let far = sorted_targets(g, cable, EdgeKind::Terminates)
-        .into_iter()
+    let far = g
+        .out(cable, EdgeKind::Terminates)
+        .filter(|e| e.absent_since.is_none())
+        .map(|e| e.to)
         .find(|q| *q != port && q.kind == NodeKind::PhysicalPort);
 
     let Some(q) = far else {

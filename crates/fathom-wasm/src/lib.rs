@@ -249,6 +249,47 @@ pub const OP_FINDINGS: u32 = 25;
 /// typed data, and every join and count happens in Rust.
 pub const OP_INSIDE: u32 = 26;
 
+/// Draw a cable between two ports by hand, or cut one (ADR-0038).
+///
+/// **Not `OP_LINK` one rung down.** `OP_LINK` chooses among reference edges
+/// the schema already admits between two live boxes; a cable is a THIRD node
+/// — `Cable`, with two `Terminates` edges out of it — so this opcode mints a
+/// node and up to two edges in one batch, the same shape `OP_EQUIP_ADD` uses
+/// for a device and its chassis, never a call into
+/// `fathom_weld::hand_link_candidates`. The only reference edge the schema
+/// admits directly between two `PhysicalPort`s is `PassThrough` — *"these two
+/// holes are the same hole"*, the ODF pass-through fact — and routing this
+/// gesture through `OP_LINK`'s one-candidate rule would silently write that
+/// instead of a cable.
+///
+/// # Ports are minted by the gesture (D1, D5)
+///
+/// A hand-added box has a `Chassis` and no ports; a pasted box has neither.
+/// So an end may name an existing port, or name a box and mint one — chassis
+/// included, silently, when the box has none — because refusing to cable a
+/// box with no port complement would refuse most of the estate.
+///
+/// # Why "unknown" is a one-ended cable and not a fourth kind
+///
+/// `Terminates` is `out: "0..2"`. An operator who knows a wire leaves a
+/// device and does not know where it goes has a real, incomplete fact, and
+/// the schema already has a shape for one: `Cable` with one `Terminates`
+/// edge. Inventing a placeholder far end would assert a port that does not
+/// exist; refusing would lose the fact the operator has.
+///
+/// # `virtual` is never offered
+///
+/// `Cable.media` declares a `virtual` variant for a plant that legitimately
+/// has one — a pasted or imported estate may carry it — but no hand gesture
+/// through this opcode ever writes it. *"No cable, these two just talk"* is
+/// `OP_LINK`'s sentence, not this one's.
+///
+/// It carries the same 24-byte host clock-and-entropy prefix every writing
+/// opcode does, for the same reason: the module has no clock and no RNG and
+/// must acquire neither (`wasmbin::IMPORT_ALLOWLIST` is empty and stays
+/// empty).
+pub const OP_CABLE: u32 = 27;
+
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and
 // `OP_INV_ROWS` already lists it. A bespoke opcode would have been a second

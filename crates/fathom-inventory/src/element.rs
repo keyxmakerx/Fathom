@@ -108,7 +108,22 @@ pub fn element_page(g: &Graph, id: NodeId) -> Option<ElementPage> {
 pub(crate) fn display_name(g: &Graph, id: NodeId) -> String {
     match id.kind {
         NodeKind::Device => value_cell(g, id, key("Device.hostname")),
-        NodeKind::PhysicalPort => value_cell(g, id, key("PhysicalPort.label")),
+        // ADR-0038 D11. `PhysicalPort.label` became legally absent at schema
+        // 0.4 (2026-08-28) so the port picker could mint a port with no
+        // silkscreen read yet — and until the cabling gesture minted the
+        // first one, nothing here had ever rendered that state: it fell
+        // through to the bare field read below and showed the em-dash
+        // `UNKNOWN` marker everywhere, indistinguishable from a second
+        // unlabelled port on the same box. `Cable`'s own arm three lines down
+        // already has this fallback; a port gets the same one.
+        NodeKind::PhysicalPort => {
+            let label = value_cell(g, id, key("PhysicalPort.label"));
+            if label == UNKNOWN {
+                "(unlabelled)".to_owned()
+            } else {
+                label
+            }
+        }
         NodeKind::Premises => value_cell(g, id, key("Premises.label")),
         // THE THIRD TIME THIS DEFECT HAS BEEN FIXED, and the comment below
         // records the first two. `Rack` shipped with ADR-0036 and no arm here,

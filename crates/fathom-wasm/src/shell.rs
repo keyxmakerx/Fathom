@@ -11,17 +11,17 @@ use fathom_corpus::{CorpusIndex, Section, SourceFile};
 use fathom_find::Finder;
 
 use crate::protocol::{
-    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_EQUIP_FRAME, ERR_EQUIP_STORE,
-    ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_LINK_CHOICE, ERR_NOTHING_UNDERSTOOD,
-    ERR_NOT_INITIALISED, ERR_NO_DICTIONARY, ERR_NO_ELEMENT, ERR_NO_LINK, ERR_PASTE_CHOICE,
-    ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
+    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CABLE_COUNT, ERR_CABLE_END, ERR_CORPUS_LOAD,
+    ERR_EQUIP_FRAME, ERR_EQUIP_STORE, ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_LINK_CHOICE,
+    ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED, ERR_NO_CABLE, ERR_NO_DICTIONARY, ERR_NO_ELEMENT,
+    ERR_NO_LINK, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
 #[cfg(feature = "demo-estate")]
 use crate::OP_ESTATE_DEMO;
 use crate::{
-    OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_FIELD_SET,
-    OP_FINDINGS, OP_INIT, OP_INSIDE, OP_INV_ROWS, OP_LINK, OP_PASTE, OP_PLACE, OP_QUERY,
-    OP_RACK_ELEVATION, OP_RACK_PLACE,
+    OP_CABLE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD,
+    OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE, OP_INV_ROWS, OP_LINK, OP_PASTE, OP_PLACE,
+    OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
 };
 
 pub struct Shell {
@@ -88,6 +88,7 @@ impl Shell {
             OP_ELEMENT_REMOVE => self.element_remove(req),
             OP_PLACE => self.place(req),
             OP_LINK => self.link(req),
+            OP_CABLE => self.cable(req),
             OP_DIAGRAM => self.diagram(req),
             OP_INV_ROWS => self.inv_rows(req),
             OP_ELEMENT => self.element(req),
@@ -1227,6 +1228,386 @@ impl Shell {
         }
     }
 
+    /// `OP_CABLE`: draw a cable between two ports by hand, or cut one
+    /// (ADR-0038).
+    ///
+    /// Frame — the usual 24-byte prefix, then:
+    ///
+    /// ```text
+    ///   24   1   mode    (u8) 0 = cut; any other value draws, `link`'s own
+    ///                     convention for the second word of a two-way switch
+    ///   25   1   count   (u8) must be 1 in this cut (D7) — refused otherwise
+    ///   26  ..   draw: near end spec, far end spec, label(len u8, utf8;
+    ///                  empty = unlabelled)
+    ///            cut:  cable(len u8, display id)
+    /// ```
+    ///
+    /// One end spec is `tag(u8)` then:
+    /// `0` an existing port (`len u8` + display id) · `1` mint a port on a
+    /// box (`len u8` + box display id, `len u8` + port label, empty =
+    /// unlabelled; the box may be a `Device` or a `Chassis` — a `Device`
+    /// with none gets one minted first, D5) · `2` unknown far end, no bytes,
+    /// legal only on the far end (D4) · `3` reserved for `ExternalPeer`,
+    /// refused in this cut.
+    ///
+    /// # Why this is not `OP_LINK` on two ports
+    ///
+    /// The only reference edge the schema admits directly between two
+    /// `PhysicalPort`s is `PassThrough` — *"these two holes are the same
+    /// hole"*, the ODF pass-through fact. `Cable` is a third, MINTED node
+    /// with two `Terminates` edges out of it, so this writes a compound
+    /// batch the way `OP_EQUIP_ADD` mints a device and its chassis together,
+    /// and never calls `fathom_weld::hand_link_candidates` — routing this
+    /// gesture through `OP_LINK`'s one-candidate rule would silently write
+    /// `PassThrough` instead of a cable (ADR-0038 D2).
+    ///
+    /// # Three words, like `OP_LINK`, plus what `1` carries
+    ///
+    /// `1` drew, `0` cut, `2` a live cable already terminates both named
+    /// ports and nothing was written — checked only when BOTH ends name an
+    /// existing port, because a freshly minted one can never already be
+    /// cabled to anything. With `1` the reply also carries the display ids
+    /// the batch minted, in the order it minted them: the cable, then the
+    /// near port if one was minted else empty, then the far port the same
+    /// way, then the near chassis if one was minted else empty, then the far
+    /// chassis the same way — so the page can journal what it just wrote and
+    /// select the new cable without a second call.
+    ///
+    /// # What refuses, and why the detail is empty
+    ///
+    /// `ERR_CABLE_COUNT` (count is not 1), `ERR_CABLE_END` (an end names
+    /// something that is not a live port or box, both ends name the same
+    /// port, tag `3`, or tag `2` on the near end), `ERR_NO_CABLE` (the cut
+    /// names nothing live). Every detail is empty: the page sent every id in
+    /// the frame and already knows what it sent — `ERR_NO_LINK`'s reason,
+    /// reused. `ERR_EQUIP_FRAME` and `ERR_BAD_UTF8` cover a malformed frame,
+    /// which is a page defect and not an operator's.
+    fn cable(&mut self, req: &[u8]) -> Vec<u8> {
+        use fathom_graph::{Actor, BatchId, ElementId, Timestamp, UserId};
+        use fathom_ir::generated::ir_types::{
+            CableEnd, CableField, EdgeKind, NodeKind, TerminatesField,
+        };
+
+        const PREFIX: usize = 26;
+        let Some(head) = req.get(..PREFIX) else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME);
+        };
+        let at = Timestamp(u64::from_le_bytes(le8(head, 0)));
+        let entropy = u128::from_le_bytes(le16(head, 8));
+        let mode = head[24];
+        let count = head[25];
+        if count != 1 {
+            return protocol::encode_error(ERR_CABLE_COUNT, "");
+        }
+        let body = req.get(PREFIX..).unwrap_or_default();
+        let actor = Actor::User(UserId::LOCAL);
+
+        // --- cut ---------------------------------------------------------
+        if mode == 0 {
+            let Some((idbytes, rest)) = take_len_bytes(body) else {
+                return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME);
+            };
+            if !rest.is_empty() {
+                return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME);
+            }
+            let Ok(display) = core::str::from_utf8(idbytes) else {
+                return protocol::encode_error(ERR_BAD_UTF8, "the cable id is not UTF-8");
+            };
+            let cable = match self.resolve_node(display) {
+                Some(n) if n.kind == NodeKind::Cable => n,
+                _ => return protocol::encode_error(ERR_NO_CABLE, NOTHING_TO_CUT_CABLE),
+            };
+
+            // Off the mint for the same reason `field_set`/`element_remove`
+            // are: two cuts in one millisecond must not collide on a
+            // `BatchId`.
+            let batch = match fathom_weld::Mint::new(at, entropy).and_then(|mut m| m.next()) {
+                Ok(b) => b,
+                Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
+            };
+            let Some(graph) = self.estate.as_mut() else {
+                return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+            };
+            if let Err(e) = graph.begin_batch(BatchId(batch), CUT_CABLE_LABEL) {
+                return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
+            }
+            // D8: tombstone the Cable AND both `Terminates` edges. Node
+            // tombstone cascades through containment only — `Terminates` is
+            // `class: reference` — so leaving this to a generic remove would
+            // strand two live reference edges pointing at a gone node, and
+            // `cabled_peer` would keep reporting the cut cable as live.
+            let cut = (|| -> Result<(), String> {
+                let edges: Vec<_> = graph
+                    .out(cable, EdgeKind::Terminates)
+                    .filter(|e| e.absent_since.is_none())
+                    .map(|e| e.id)
+                    .collect();
+                for id in edges {
+                    graph
+                        .tombstone(ElementId::Edge(id), at, actor)
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+                graph
+                    .tombstone(ElementId::Node(cable), at, actor)
+                    .map_err(|e| format!("{e:?}"))?;
+                Ok(())
+            })();
+            let closed = graph.end_batch();
+            return match (cut, closed) {
+                (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &e),
+                (Ok(()), Err(e)) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+                (Ok(()), Ok(_)) => cable_reply("0", display, "", "", "", ""),
+            };
+        }
+
+        // --- draw ----------------------------------------------------------
+        let (near_raw, rest) = match take_cable_end(body) {
+            Ok(v) => v,
+            Err(CableFrameErr::Short) => {
+                return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME)
+            }
+            Err(CableFrameErr::Utf8) => {
+                return protocol::encode_error(ERR_BAD_UTF8, "an end id or label is not UTF-8")
+            }
+        };
+        let (far_raw, rest) = match take_cable_end(rest) {
+            Ok(v) => v,
+            Err(CableFrameErr::Short) => {
+                return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME)
+            }
+            Err(CableFrameErr::Utf8) => {
+                return protocol::encode_error(ERR_BAD_UTF8, "an end id or label is not UTF-8")
+            }
+        };
+        let Some((lblbytes, rest)) = take_len_bytes(rest) else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME);
+        };
+        if !rest.is_empty() {
+            return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME);
+        }
+        let Ok(label) = core::str::from_utf8(lblbytes) else {
+            return protocol::encode_error(ERR_BAD_UTF8, "the cable label is not UTF-8");
+        };
+
+        // Near may not be unknown (D4: only the far end may be) or reserved.
+        let near = match self.resolve_cable_end(near_raw, false) {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let far = match self.resolve_cable_end(far_raw, true) {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+
+        // Both ends the same port is a false fact, not a legal cable: a wire
+        // has two ends and the operator has named one twice.
+        if let (FinalCableEnd::Port(a), FinalCableEnd::Port(b)) = (&near, &far) {
+            if a == b {
+                return protocol::encode_error(ERR_CABLE_END, "");
+            }
+        }
+
+        // ALREADY THERE — checked only when both ends already exist. A
+        // minted port cannot already be cabled to anything, so the check
+        // would always miss for a `1` tag and is skipped rather than run for
+        // nothing.
+        if let (FinalCableEnd::Port(a), FinalCableEnd::Port(b)) = (&near, &far) {
+            if let Some(g) = self.estate.as_ref() {
+                if let Some(existing) = live_cable_between(g, *a, *b) {
+                    return cable_reply(ALREADY_THERE, &existing.to_string(), "", "", "", "");
+                }
+            }
+        }
+
+        let mut mint = match fathom_weld::Mint::new(at, entropy) {
+            Ok(m) => m,
+            Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
+        };
+        let Ok(batch) = mint.next() else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
+        };
+        let Some(graph) = self.estate.as_mut() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        if let Err(e) = graph.begin_batch(BatchId(batch), DRAW_CABLE_LABEL) {
+            return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
+        }
+
+        // Write sequence, ADR-0038 §4: chassis (D5) and ports (D1) minted
+        // first — near, then far — then the `Cable`, root-owned and never
+        // carrying a `HasCable` EDGE (`11` §7.2: the workspace root is not a
+        // node, and `insert_edge` refuses a root-containment kind outright —
+        // `Graph::owner`'s own doc names `Cable` among the kinds that are
+        // roots for exactly this reason), then `Terminates` to A then B with
+        // `end` normalised by `NodeId` (D6), then the label if one was
+        // given.
+        let build = || -> Result<CableWrite, String> {
+            let (near_port, near_minted_port, near_minted_chassis) =
+                materialize_cable_end(graph, &mut mint, at, actor, near)?;
+            let far_materialized = match far {
+                FinalCableEnd::Unknown => None,
+                other => Some(materialize_cable_end(graph, &mut mint, at, actor, other)?),
+            };
+
+            let cable = graph
+                .insert_node(
+                    NodeKind::Cable,
+                    mint.next().map_err(|e| format!("{e:?}"))?,
+                    hand_record(&mut mint, at, actor)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+
+            let (far_port, far_minted_port, far_minted_chassis) = match far_materialized {
+                Some((p, mp, mc)) => (Some(p), mp, mc),
+                None => (None, None, None),
+            };
+
+            match far_port {
+                Some(fp) => {
+                    let (a, b) = if near_port < fp {
+                        (near_port, fp)
+                    } else {
+                        (fp, near_port)
+                    };
+                    let ea = graph
+                        .insert_edge(
+                            EdgeKind::Terminates,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            cable,
+                            a,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    graph
+                        .set_field(
+                            ElementId::Edge(ea),
+                            TerminatesField::End.key(),
+                            CableEnd::A,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    let eb = graph
+                        .insert_edge(
+                            EdgeKind::Terminates,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            cable,
+                            b,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    graph
+                        .set_field(
+                            ElementId::Edge(eb),
+                            TerminatesField::End.key(),
+                            CableEnd::B,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+                // A one-ended cable (D4): one `Terminates` edge, called A —
+                // there is no B to normalise against.
+                None => {
+                    let ea = graph
+                        .insert_edge(
+                            EdgeKind::Terminates,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            cable,
+                            near_port,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    graph
+                        .set_field(
+                            ElementId::Edge(ea),
+                            TerminatesField::End.key(),
+                            CableEnd::A,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+            }
+
+            if !label.is_empty() {
+                let v = fathom_inventory::parse_into_slot(CableField::Label.key(), label)
+                    .map_err(|e| author_text(e, label))?;
+                graph
+                    .set_field_boxed(
+                        ElementId::Node(cable),
+                        CableField::Label.key(),
+                        v,
+                        hand_record(&mut mint, at, actor)?,
+                    )
+                    .map_err(|e| format!("{e:?}"))?;
+            }
+
+            Ok(CableWrite {
+                cable,
+                near_port: near_minted_port,
+                far_port: far_minted_port,
+                near_chassis: near_minted_chassis,
+                far_chassis: far_minted_chassis,
+            })
+        };
+
+        let built = build();
+        // The batch closes either way — an open batch refuses every later
+        // write with `BatchOpen`, which turns one refused cable into a dead
+        // page.
+        let closed = graph.end_batch();
+        match (built, closed) {
+            (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &e),
+            (Ok(_), Err(e)) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+            (Ok(w), Ok(_)) => cable_reply(
+                "1",
+                &w.cable.to_string(),
+                &w.near_port.map(|n| n.to_string()).unwrap_or_default(),
+                &w.far_port.map(|n| n.to_string()).unwrap_or_default(),
+                &w.near_chassis.map(|n| n.to_string()).unwrap_or_default(),
+                &w.far_chassis.map(|n| n.to_string()).unwrap_or_default(),
+            ),
+        }
+    }
+
+    /// One end spec, resolved against the live estate: an existing live
+    /// `PhysicalPort`, a mint plan (an existing live `Chassis` or `Device` to
+    /// mint the port under — minting its own `Chassis` first when a `Device`
+    /// has none, D5), or `Unknown` where `allow_unknown` permits it (the far
+    /// end only, D4). Every refusal is `ERR_CABLE_END` with an empty detail —
+    /// the page sent the id and already knows what it sent.
+    fn resolve_cable_end(
+        &self,
+        raw: RawCableEnd,
+        allow_unknown: bool,
+    ) -> Result<FinalCableEnd, Vec<u8>> {
+        use fathom_ir::generated::ir_types::NodeKind;
+
+        match raw {
+            RawCableEnd::Unknown if allow_unknown => Ok(FinalCableEnd::Unknown),
+            RawCableEnd::Unknown | RawCableEnd::Reserved => {
+                Err(protocol::encode_error(ERR_CABLE_END, ""))
+            }
+            RawCableEnd::Port(id) => match self.resolve_node(&id) {
+                Some(n) if n.kind == NodeKind::PhysicalPort => Ok(FinalCableEnd::Port(n)),
+                _ => Err(protocol::encode_error(ERR_CABLE_END, "")),
+            },
+            RawCableEnd::Mint(box_id, label) => match self.resolve_node(&box_id) {
+                Some(n) if n.kind == NodeKind::Chassis => Ok(FinalCableEnd::Mint {
+                    chassis: ChassisSource::Existing(n),
+                    label,
+                }),
+                Some(n) if n.kind == NodeKind::Device => {
+                    let existing = self.estate.as_ref().and_then(|g| existing_chassis(g, n));
+                    let chassis = match existing {
+                        Some(c) => ChassisSource::Existing(c),
+                        None => ChassisSource::MintUnder(n),
+                    };
+                    Ok(FinalCableEnd::Mint { chassis, label })
+                }
+                _ => Err(protocol::encode_error(ERR_CABLE_END, "")),
+            },
+        }
+    }
+
     /// A display id to the LIVE NODE it names, or `None`.
     ///
     /// Both ends of a link are nodes and both must still be true. `insert_edge`
@@ -1879,6 +2260,17 @@ const FREE_LABEL: &str = "Let the layout place it again";
 const LINK_LABEL: &str = "Draw a link by hand";
 const CUT_LABEL: &str = "Cut a link";
 
+/// The undo labels for `OP_CABLE`'s two halves (ADR-0038), named the same way.
+const DRAW_CABLE_LABEL: &str = "Draw a cable by hand";
+const CUT_CABLE_LABEL: &str = "Cut a cable";
+
+/// `OP_CABLE`'s frame-malformed and nothing-to-cut sentences, on `OP_LINK`'s
+/// own precedent: a short frame is a page defect and gets a message an
+/// operator never needed to read; a cut with nothing there is a real,
+/// reachable state and gets one that says so.
+const SHORT_CABLE_FRAME: &str = "that cable request is malformed";
+const NOTHING_TO_CUT_CABLE: &str = "there is no such cable to cut";
+
 /// `OP_LINK`'s three fixed sentences.
 ///
 /// Constants rather than `format!` sites. Nothing in them varies — a short
@@ -2007,6 +2399,259 @@ fn link_refusal(
     // actionable. A `&'static str` costs nothing.
     let _ = kind;
     end
+}
+
+// --- OP_CABLE (ADR-0038) -----------------------------------------------------
+
+/// One end spec off the wire, before it is checked against the graph.
+enum RawCableEnd {
+    /// Tag 0: an existing port, by display id.
+    Port(String),
+    /// Tag 1: mint a port on this box, with this label (empty = unlabelled).
+    Mint(String, String),
+    /// Tag 2: the far end is not known. Legal only on the far end (D4).
+    Unknown,
+    /// Tag 3: `ExternalPeer`, reserved and refused in this cut.
+    Reserved,
+}
+
+/// Why `take_cable_end`/`take_len_bytes` could not read a value, so the
+/// caller can tell a truncated frame (`ERR_EQUIP_FRAME`) from bytes that are
+/// not UTF-8 (`ERR_BAD_UTF8`) without re-deriving it.
+enum CableFrameErr {
+    Short,
+    Utf8,
+}
+
+/// `[u8 len][len bytes]`, bounds-checked. Returns the bytes and what is left.
+fn take_len_bytes(b: &[u8]) -> Option<(&[u8], &[u8])> {
+    let (len, rest) = b.split_first()?;
+    let n = usize::from(*len);
+    Some((rest.get(..n)?, rest.get(n..)?))
+}
+
+/// One end spec: `tag(u8)` then the tag's own bytes, ADR-0038 §4. Reads
+/// exactly one spec and returns what is left of `b` for the next one.
+fn take_cable_end(b: &[u8]) -> Result<(RawCableEnd, &[u8]), CableFrameErr> {
+    let (tag, rest) = b.split_first().ok_or(CableFrameErr::Short)?;
+    match tag {
+        0 => {
+            let (idb, rest) = take_len_bytes(rest).ok_or(CableFrameErr::Short)?;
+            let id = core::str::from_utf8(idb).map_err(|_| CableFrameErr::Utf8)?;
+            Ok((RawCableEnd::Port(id.to_owned()), rest))
+        }
+        1 => {
+            let (boxb, rest) = take_len_bytes(rest).ok_or(CableFrameErr::Short)?;
+            let boxid = core::str::from_utf8(boxb).map_err(|_| CableFrameErr::Utf8)?;
+            let (lblb, rest) = take_len_bytes(rest).ok_or(CableFrameErr::Short)?;
+            let lbl = core::str::from_utf8(lblb).map_err(|_| CableFrameErr::Utf8)?;
+            Ok((RawCableEnd::Mint(boxid.to_owned(), lbl.to_owned()), rest))
+        }
+        2 => Ok((RawCableEnd::Unknown, rest)),
+        3 => Ok((RawCableEnd::Reserved, rest)),
+        // Not one of the four declared tags: a page defect, not a legal-but-
+        // refused choice, so it is a frame error rather than `ERR_CABLE_END`.
+        _ => Err(CableFrameErr::Short),
+    }
+}
+
+/// Where a minted port's `Chassis` comes from: one that already exists, or
+/// one to mint under a `Device` that has none (D5).
+enum ChassisSource {
+    Existing(fathom_graph::NodeId),
+    MintUnder(fathom_graph::NodeId),
+}
+
+/// One end spec, resolved against the live estate — [`Shell::resolve_cable_end`]
+/// is the only place that builds one.
+enum FinalCableEnd {
+    Port(fathom_graph::NodeId),
+    Mint {
+        chassis: ChassisSource,
+        label: String,
+    },
+    Unknown,
+}
+
+/// What one `OP_CABLE` draw minted, for the reply: the cable always, and
+/// each port/chassis only when this call minted it.
+struct CableWrite {
+    cable: fathom_graph::NodeId,
+    near_port: Option<fathom_graph::NodeId>,
+    far_port: Option<fathom_graph::NodeId>,
+    near_chassis: Option<fathom_graph::NodeId>,
+    far_chassis: Option<fathom_graph::NodeId>,
+}
+
+/// The first live `Chassis` a `Device` owns, smallest `NodeId` first
+/// (invariant 9) — `None` when it has none, which is every pasted device and
+/// D5's trigger to mint one.
+fn existing_chassis(
+    g: &fathom_graph::Graph,
+    device: fathom_graph::NodeId,
+) -> Option<fathom_graph::NodeId> {
+    use fathom_ir::generated::ir_types::EdgeKind;
+    g.out(device, EdgeKind::HasChassis)
+        .filter(|e| e.absent_since.is_none())
+        .map(|e| e.to)
+        .filter(|c| g.node(*c).is_some_and(|n| n.absent_since.is_none()))
+        .min()
+}
+
+/// Is there already a live `Cable` terminating both `a` and `b`? The
+/// "already there" check — asked only when both ends already exist, since a
+/// freshly minted port cannot already be cabled to anything.
+fn live_cable_between(
+    g: &fathom_graph::Graph,
+    a: fathom_graph::NodeId,
+    b: fathom_graph::NodeId,
+) -> Option<fathom_graph::NodeId> {
+    use fathom_ir::generated::ir_types::EdgeKind;
+    g.inn(a, EdgeKind::Terminates)
+        .filter(|e| e.absent_since.is_none())
+        .map(|e| e.from)
+        .filter(|c| g.node(*c).is_some_and(|n| n.absent_since.is_none()))
+        .find(|c| {
+            g.out(*c, EdgeKind::Terminates)
+                .any(|e| e.absent_since.is_none() && e.to == b)
+        })
+}
+
+/// Materialise one draw end inside the open batch: an existing port as-is,
+/// or a newly minted one — with its `Chassis` minted first when the named
+/// box had none (D5). Returns the port to terminate, and what this call
+/// minted so the reply and the journal can name it.
+///
+/// `Text::parse` cannot fail (`fathom_ir::scalar::Text::parse` returns
+/// `Ok` for every `&str`), so parsing a label here rather than before the
+/// batch opens does not risk leaving an orphan chassis or port behind a
+/// refusal the way a fallible parse would — `OP_RACK_PLACE`'s own comment
+/// names that risk for the case where it is real.
+fn materialize_cable_end(
+    graph: &mut fathom_graph::Graph,
+    mint: &mut fathom_weld::Mint,
+    at: fathom_graph::Timestamp,
+    actor: fathom_graph::Actor,
+    end: FinalCableEnd,
+) -> Result<
+    (
+        fathom_graph::NodeId,
+        Option<fathom_graph::NodeId>,
+        Option<fathom_graph::NodeId>,
+    ),
+    String,
+> {
+    use fathom_graph::ElementId;
+    use fathom_ir::generated::ir_types::{ChassisField, NodeKind, PhysicalPortField};
+
+    match end {
+        FinalCableEnd::Unknown => {
+            Err("an unknown end cannot be materialised: the caller filters it first".to_owned())
+        }
+        FinalCableEnd::Port(p) => Ok((p, None, None)),
+        FinalCableEnd::Mint { chassis, label } => {
+            let (chassis_id, minted_chassis) = match chassis {
+                ChassisSource::Existing(c) => (c, None),
+                ChassisSource::MintUnder(device) => {
+                    let c = graph
+                        .insert_node(
+                            NodeKind::Chassis,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            hand_record(mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    let edge = fathom_weld::containment_edge(NodeKind::Device, NodeKind::Chassis)
+                        .ok_or_else(|| {
+                        "the schema declares no containment edge Device -> Chassis".to_owned()
+                    })?;
+                    graph
+                        .insert_edge(
+                            edge,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            device,
+                            c,
+                            hand_record(mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    let zero =
+                        fathom_inventory::parse_into_slot(ChassisField::MemberIndex.key(), "0")
+                            .map_err(|e| author_text(e, "0"))?;
+                    graph
+                        .set_field_boxed(
+                            ElementId::Node(c),
+                            ChassisField::MemberIndex.key(),
+                            zero,
+                            hand_record(mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    (c, Some(c))
+                }
+            };
+            let port = graph
+                .insert_node(
+                    NodeKind::PhysicalPort,
+                    mint.next().map_err(|e| format!("{e:?}"))?,
+                    hand_record(mint, at, actor)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+            let edge = fathom_weld::containment_edge(NodeKind::Chassis, NodeKind::PhysicalPort)
+                .ok_or_else(|| {
+                    "the schema declares no containment edge Chassis -> PhysicalPort".to_owned()
+                })?;
+            graph
+                .insert_edge(
+                    edge,
+                    mint.next().map_err(|e| format!("{e:?}"))?,
+                    chassis_id,
+                    port,
+                    hand_record(mint, at, actor)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+            if !label.is_empty() {
+                let v = fathom_inventory::parse_into_slot(PhysicalPortField::Label.key(), &label)
+                    .map_err(|e| author_text(e, &label))?;
+                graph
+                    .set_field_boxed(
+                        ElementId::Node(port),
+                        PhysicalPortField::Label.key(),
+                        v,
+                        hand_record(mint, at, actor)?,
+                    )
+                    .map_err(|e| format!("{e:?}"))?;
+            }
+            Ok((port, Some(port), minted_chassis))
+        }
+    }
+}
+
+/// `OP_CABLE`'s reply: the word, then the display ids the batch minted.
+/// Reuses `encode_paste_reply`'s `FACE_PASTE` row exactly as
+/// `equip_reply_text` does — still one row of up to eight strings, not a new
+/// wire shape.
+fn cable_reply(
+    word: &str,
+    cable: &str,
+    near_port: &str,
+    far_port: &str,
+    near_chassis: &str,
+    far_chassis: &str,
+) -> Vec<u8> {
+    protocol::encode_paste_reply(&protocol::PasteReply {
+        summary: [
+            word,
+            cable,
+            near_port,
+            far_port,
+            near_chassis,
+            far_chassis,
+            "",
+            "",
+        ],
+        residue: &[],
+        unresolved: &[],
+        capture: "",
+        shape: "",
+    })
 }
 
 /// How many residue rows one reply carries. The summary always states the

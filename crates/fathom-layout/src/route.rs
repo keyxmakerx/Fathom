@@ -65,8 +65,8 @@
 //! that pretended it had no ceiling would be lying, so the number is written
 //! down.
 
-use fathom_graph::{EdgeId, Graph, NodeId};
-use fathom_ir::generated::ir_types::{EdgeClass, EdgeKind};
+use fathom_graph::{EdgeId, Graph, NodeId, Origin};
+use fathom_ir::generated::ir_types::{EdgeClass, EdgeKind, NodeKind};
 
 use crate::{Link, Node, RANK_GAP};
 
@@ -99,6 +99,9 @@ struct Pending<'a> {
     /// How many graph edges this one line stands for. Above 1 only after a
     /// node collapse merged coincident strokes — see [`route`].
     members: usize,
+    /// True for a line derived from a `Cable`, never a graph edge — see
+    /// [`crate::Link::cable`].
+    cable: bool,
 }
 
 fn centre(n: &Node) -> i32 {
@@ -127,6 +130,34 @@ fn resolve<'a>(a: &'a Node, b: &'a Node, id: EdgeId, kind: EdgeKind, hand: bool)
         },
         slot: 0,
         members: 1,
+        cable: false,
+    }
+}
+
+/// A device-to-device line derived from a two-ended `Cable`, never a graph
+/// edge itself (ADR-0038 D10). Built directly rather than through
+/// [`resolve`] because there is no [`EdgeKind`] to name: the line stands for
+/// `Cable -> Terminates -> PhysicalPort -> (owning Chassis) -> (owning
+/// Device)`, four hops and a node, not one edge.
+fn resolve_cable<'a>(a: &'a Node, b: &'a Node, id: EdgeId, hand: bool) -> Pending<'a> {
+    let (ay, by) = (centre(a), centre(b));
+    let left = if a.x <= b.x { a } else { b };
+    Pending {
+        a,
+        b,
+        id,
+        kind: "Cable",
+        hand,
+        containment: false,
+        wall: left.x + left.w,
+        span: if a.x != b.x && ay == by {
+            None
+        } else {
+            Some((ay.min(by), ay.max(by)))
+        },
+        slot: 0,
+        members: 1,
+        cable: true,
     }
 }
 
@@ -323,6 +354,60 @@ pub(crate) fn route(g: &Graph, nodes: &[Node], at: &[(NodeId, usize)]) -> (Vec<L
         }
     }
 
+    // Cable lines, ADR-0038 D10. Not reached by the loop above: `Cable` is not
+    // a box `at` maps (it is laid out nowhere of its own — `layers.rs`'s
+    // "drawn everywhere and counted" bucket), so its `Terminates` edges are
+    // never `g.out(*from, kind)` for any `from` in `at`. Derived here instead,
+    // one line per two-ended cable, walking the four hops down to the boxes
+    // that ARE drawn.
+    //
+    // **Not folded into the collapsed-group merge above.** A cable converging
+    // on a collapsed group therefore draws its own channel rather than one
+    // merged stroke with a count — a real gap against `59`'s coincident-stroke
+    // rule, filed rather than silently accepted: `NodeKind::Cable` carries no
+    // `EdgeKind` the `merged` bookkeeping's key can hold, and folding it in
+    // would mean inventing one. A one-ended cable (`Terminates.out: "0..2"`,
+    // an unknown far end) derives no line, by construction: `ports.len() < 2`
+    // never reaches `resolve_cable`.
+    for c in g.nodes_of_kind(NodeKind::Cable) {
+        if c.absent_since.is_some() {
+            continue;
+        }
+        let mut ports: Vec<(NodeId, EdgeId)> = Vec::new();
+        for e in g.out(c.id, EdgeKind::Terminates) {
+            if e.absent_since.is_none() {
+                ports.push((e.to, e.id));
+            }
+        }
+        let (Some(&(p1, id1)), Some(&(p2, _))) = (ports.first(), ports.get(1)) else {
+            continue;
+        };
+        let (Some(d1), Some(d2)) = (g.device_of(p1), g.device_of(p2)) else {
+            continue;
+        };
+        let (Some(ai), Some(bi)) = (box_of(d1), box_of(d2)) else {
+            continue;
+        };
+        if ai == bi {
+            // Both ports land in one box (a patch lead within one device, or
+            // both devices folded into one collapsed group). No line to draw
+            // between a box and itself, and something WAS hidden — counted
+            // exactly as the same-box arm above counts it.
+            if let Some(slot) = interior.get_mut(ai) {
+                *slot += 1;
+            }
+            continue;
+        }
+        let (Some(a), Some(b)) = (nodes.get(ai), nodes.get(bi)) else {
+            continue;
+        };
+        let hand = matches!(
+            g.provenance(c.existence).map(|p| p.origin),
+            Some(Origin::Hand)
+        );
+        pending.push(resolve_cable(a, b, id1, hand));
+    }
+
     // `56` §3.2 phase 8's order, transposed: band, then the source's position
     // along its own rank, then `EdgeId` — which the store carries per edge
     // (ADR-0007), so the document's tie-break is available literally rather
@@ -347,6 +432,7 @@ pub(crate) fn route(g: &Graph, nodes: &[Node], at: &[(NodeId, usize)]) -> (Vec<L
                 kind: e.kind,
                 hand: e.hand,
                 containment: e.containment,
+                cable: e.cable,
                 members: e.members,
                 points: shape(e, channel_x(e.wall, e.slot, count)),
             });

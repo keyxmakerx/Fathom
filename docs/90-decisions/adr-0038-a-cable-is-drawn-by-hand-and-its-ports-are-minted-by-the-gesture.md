@@ -147,8 +147,11 @@ before this had, and it gets its own test.**
 ## 7. Cost, measured
 
 Module size before and after, read off the `artifact_gates` run and recorded here by the
-proving session: **before 969,090 bytes** (2026-08-29, after WO-10). After: <!-- VERIFY: fill from
-the run -->. Reported, not gated (`49` §1).
+proving session: **before 969,090 bytes** (2026-08-29, after WO-10). **After: 988,540 bytes**
+(2026-08-29, module builder session — `OP_CABLE`, its three errors, the `cable` handler and its
+helpers, the `fathom-layout` device-to-device derivation, and the `fathom-inventory` `Cable` row
+and `cabled_peer`/`display_name` fixes) — **+19,450 bytes**. Schema unchanged (ADR-0008), so none
+of this is a schema-side cost. Reported, not gated (`49` §1).
 
 ## 8. Failure modes
 
