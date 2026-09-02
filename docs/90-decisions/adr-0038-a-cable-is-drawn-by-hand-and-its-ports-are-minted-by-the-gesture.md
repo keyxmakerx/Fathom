@@ -144,6 +144,61 @@ before this had, and it gets its own test.**
 | evidence | `docs/80-review/evidence/2026-08-29-cabling-drive.mjs` through a real reload: mint-on-empty-box, existing-port, unknown-far-end, cut, already-there, the pasted-device chassis mint, the unlabelled-port replay |
 | docs | this record; `57` §14.1 B3 closed; `57` §12.1 and §12.4 annotated; CLAUDE.md's state bullet |
 
+### As built, 2026-08-29 (the proving session)
+
+Three adversarial skeptics attacked the module build, the page build, and the journal/replay
+path independently. Two held with no defect found (module-truth, page-traps); the third
+(replay-truth) found two real gaps, both fixed in this pass, plus one pre-existing note. What
+follows is where the shipped code departs from this section's table and from §4's prose, and why.
+
+1. **§4's write-sequence names a mechanism that does not exist.** *"mint the `Cable` + `HasCable`
+   (root containment — reuse whatever the weld uses to attach a fresh root-owned node)"* is wrong:
+   `fathom_graph::Graph::insert_edge` unconditionally refuses any `RootContainment`-class edge
+   kind (`WriteError::RootContainment`), and `Graph::owner`'s own doc comment already lists
+   `Cable` among the kinds that are simply roots. **No `HasCable` edge is ever written by anything
+   in this tree, cable or otherwise.** The shipped handler mints the `Cable` node with
+   `insert_node` alone and writes no containment edge for it. This is a fact about the store, not
+   a decision this session made; §4's prose is left as filed (a decision record's history) and
+   corrected here rather than silently rewritten.
+2. **The reply's minted-id layout is fixed slots, not the ADR's "cable, then each port, then the
+   chassis if one was minted."** That phrasing assumes at most one chassis is ever minted, which
+   is false the moment *both* ends are chassis-less devices — cabling two freshly pasted boxes
+   together needs two. The shipped reply carries fixed slots (cable; near port; far port; near
+   chassis; far chassis — each empty when nothing was minted there), independent per end. Anyone
+   building a decoder from §4's prose alone would build the wrong one; this is now the tested,
+   floor-green contract.
+3. **The journal's `wrote` field, named in §4's binding record shape, shipped absent** in the
+   page-builder's commit — found by the replay-truth skeptic, fixed in this pass. `opCableDraw`
+   now carries `wrote: { cable, ports: [...], chassis: [...] }` off the same reply slots, with
+   `ports`/`chassis` as arrays (never a bare id) for the same both-ends-can-mint reason as item 2.
+   Replay itself is unaffected — it was already correctly built from the raw end specs alone, per
+   the same discipline `link`'s own journal arm states, and continues to ignore `wrote` on import.
+4. **A real, silent-guessing defect in the decoder, found and fixed in this pass.**
+   `cableEndSpec`/`cableEndBytes` decode a journal record, not only the picker's own output — and
+   the first cut folded any tag that was not literally `0` or `1` into `{tag: 2}` ("unknown far
+   end"). A hand-edited or corrupted record naming tag `3` (RESERVED, §9 item 3) therefore drew a
+   real one-ended cable nobody asked for, silently, and the module's own `ERR_CABLE_END` refusal
+   of tag 3 (`tag_three_is_refused` in `cable.rs`) could never be reached through the shipped
+   import path — a violation of §5's *"the page must never guess on the operator's behalf"* for a
+   record the operator did not draw. Fixed: every tag this sheet does not itself mint (`0`, `1`)
+   is forwarded to the module exactly as given, unexamined; the module is the only place that gets
+   to call a tag illegal. Proved by a new driver section (`2026-08-29-cabling-drive.mjs` §10):
+   importing a hand-tampered tag-3 record is now refused by name and aborts the whole import,
+   rather than drawing a wrong cable — 56/56 checks, up from 52.
+5. **D6's literal `Terminates.end` A/B assignment has no wire read path in this build** — `OP_
+   ELEMENT`/`node_request` resolves node display ids only, never edge ids, so no wire-level test
+   can assert the literal end letter. Coverage is a direct read of the write path (structurally
+   independent of draw order) plus a same-cable-detected-from-both-orders property test and the
+   native replay-determinism test. Disclosed, not hidden; §9 item 7 records what closing it
+   properly would need.
+6. **`dgRefocusRow(CSHEET_BOX)` after a draw, not "select the new cable."** §4's stated reason for
+   carrying minted ids in the reply is *"so the page journals by id and can select the new
+   cable"* — but D10 is explicit that a `Cable` is never drawn as its own box on the canvas, so
+   there is no picture row a "select the cable" could focus. The shipped page refocuses the box
+   whose Outline row just gained the new `cable to …` line, which is the row a person actually
+   looks at next; this is judged the correct reading of D10 rather than a gap, and is recorded
+   here rather than changed.
+
 ## 7. Cost, measured
 
 Module size before and after, read off the `artifact_gates` run and recorded here by the
@@ -178,6 +233,23 @@ of this is a schema-side cost. Reported, not gated (`49` §1).
 5. **Platform port complements** (`57` §12.3 route 3) — `platforms.yaml` carrying port data.
    *For the owner, with the engine question (`70` §18.4).*
 6. **A standalone *add a port* from the inventory**, outside the gesture. *For planning.*
+7. **D6's `Terminates.end` A/B letter has no wire read path** (as-built note 5, above) — closing
+   it needs either a new read opcode that resolves an edge id, or an internal `#[cfg(test)]`
+   module inside `fathom-wasm` that reads the graph directly, which would be a departure from this
+   codebase's established all-tests-through-the-wire style. *For planning; not blocking, the
+   property tests that stand in for it are real coverage of the same claim.*
+8. **`begin_batch`/mint failures render as raw Rust `Debug` text** (e.g. `BatchIdReused { id:
+   BatchId(Ulid(...)) }`) in `cable`'s handler — found by the replay-truth skeptic while attacking
+   this build, but the pattern is not this feature's: `equip_add`, `field_set`,
+   `element_remove`, `link` and `rack_place` all use the same `format!("{e:?}")` for a
+   `begin_batch` refusal, and CLAUDE.md's own English-error fix (2026-08-09) was scoped only to
+   `OP_PASTE`'s `apply_new_device` path. `cable` followed the existing precedent rather than
+   introducing a new gap; the rollback itself is correct (the whole batch is refused and undone,
+   proved by `no_refusal_leaves_the_store_wedged`). Reaching this in practice needs an entropy or
+   clock collision within the same millisecond, astronomically unlikely — but the message that
+   would reach an operator on that day is ugly across every opcode, not just this one. *For
+   planning: a single English-message pass across every `begin_batch`/`Mint` call site, not a
+   cable-only fix.*
 
 ## 10. Sources consulted
 

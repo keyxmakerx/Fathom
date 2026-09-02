@@ -14,7 +14,9 @@
 // "unknown" and "no cable" both real, distinct, honest doors — and that every
 // bit of it is graph data, not a picture: it survives a real reload.
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const ROOT = process.argv[2] || process.cwd();
 const FILE = 'file://' + ROOT + '/target/artifact/fathom-dev.html';
@@ -418,6 +420,48 @@ check('the pasted device\'s silently-minted chassis survived the round trip too'
   kidsP4.some(t => /made of/.test(t)), JSON.stringify(kidsP4));
 
 await page.screenshot({ path: OUT + '/2026-08-29-cabling-reopened.png' });
+
+// ---- 10. A HAND-TAMPERED RECORD IS NEVER GUESSED THROUGH --------------------
+//
+// `cableEndSpec`/`cableEndBytes` decode a JOURNAL RECORD, not just the
+// picker's own output — and the sheet itself never builds anything but tag
+// 0, 1 or 2. A record naming tag 3 (RESERVED for ExternalPeer, ADR-0038 §4;
+// refused module-side today, `tag_three_is_refused` in cable.rs) can only
+// arrive by a hand edit or corruption. The first cut of this decoder
+// silently folded any tag that was not literally 0 or 1 into `{tag:2}` —
+// turning a tampered or forward-declared tag-3 end into a legitimate-looking
+// "unknown far end" and drawing a real one-ended cable nobody asked for,
+// without the module's own tag-3 refusal ever getting a chance to fire. This
+// proves the fix: the tag is forwarded to the module as given, and a replay
+// that names an illegal tag is refused honestly, aborting the whole import,
+// rather than silently reinterpreted into something legal.
+
+console.log('\n10. A HAND-TAMPERED RECORD IS NEVER GUESSED THROUGH');
+const tamperedDoc = JSON.parse(JSON.stringify(doc));
+const drawOps = tamperedDoc.ops.filter(o => o.op === 'cable' && o.mode === 1);
+check('setup: the export has a draw op to tamper', drawOps.length > 0, drawOps.length);
+drawOps[0].far = { tag: 3, id: 'external-peer:doesnotexist' };
+const tamperedPath = join(tmpdir(), 'fathom-cable-tamper.json');
+writeFileSync(tamperedPath, JSON.stringify(tamperedDoc));
+
+await page.goto('about:blank');
+await page.goto(FILE);
+await page.waitForFunction(() => document.querySelector('#band button') !== null);
+await page.setInputFiles('#importFile', tamperedPath);
+await page.waitForTimeout(300);
+
+check('the tampered import is REFUSED, by name, not silently accepted',
+  /refused/.test(await footer()) && /nothing was opened/.test(await footer()),
+  await footer());
+check('and it left no estate at all — the illegal tag never became a drawn cable',
+  (await page.$$('.inv tbody tr')).length === 0);
+
+// The untampered original import (already proved to work in §9) still works
+// afterwards — this session did not lose the ability to import for real.
+await page.setInputFiles('#importFile', saved);
+await page.waitForFunction(() => document.querySelectorAll('.inv tbody tr').length > 0);
+check('a real, untampered import still works after the refusal',
+  (await page.$$('.inv tbody tr')).length > 0);
 
 // ---- invariants that hold whatever this feature does -----------------------
 

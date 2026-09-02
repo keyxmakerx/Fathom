@@ -185,14 +185,40 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   (schema 0.3 → 0.4, minor; owner's answer verbatim in `70` §18.3: *"absolutely, one of the
   main features is to be able to create essentially a lucid chart with no information"*).
   `57` §13.5's open decision 8 is answered and **everything in `57` §12–§13 — cabling mode,
-  drag-then-annotate, the port prompt — is now buildable.** The next question that work meets
-  is `57` §14.1 B3: nothing creates a `PhysicalPort` on a hand-built device yet, so cabling
-  shows an empty port list until an opcode or the catalogue populates ports. Three more
-  answers landed the same day (`70` §18): tenancy lives OUTSIDE the graph as server tables
-  (49 §22 decision 2, closed — and enterprise LDAP/AD arrived as a new phase-1 requirement);
-  key custody is delegated to an ADR-0034 survey of enterprise practice (decision 1, IN
-  PROGRESS); and general-purpose hosts get ENGINES, not a catch-all platform — the `proxmox`
+  drag-then-annotate, the port prompt — is now buildable.** **`57` §14.1 B3 — nothing creates a
+  `PhysicalPort` — is CLOSED too, by ADR-0038, 2026-08-29**: see the cabling-mode bullet below.
+  Three more answers landed the same day (`70` §18): tenancy lives OUTSIDE the graph as server
+  tables (49 §22 decision 2, closed — and enterprise LDAP/AD arrived as a new phase-1
+  requirement); key custody is delegated to an ADR-0034 survey of enterprise practice (decision 1,
+  IN PROGRESS); and general-purpose hosts get ENGINES, not a catch-all platform — the `proxmox`
   vendor row is registered, its platform row waiting on a `64`-style survey.
+- **You can cable two boxes by hand, and the ports mint themselves as the gesture needs them
+  — `OP_CABLE` (27), ADR-0038, 2026-08-29.** Before it, `Cable` and `PhysicalPort` existed only
+  in `schema/`: a hand-built device had a `Chassis` and zero ports, a pasted device had no
+  `Chassis` at all, and the port prompt `57` §12 asked for would have opened onto nothing. Now:
+  select a device (or a chassis in the rack elevation), press *cable from here* — a sheet lists
+  its ports plus *add a port* and *no cable — these just talk*; picking or minting a port holds
+  it; select the far box, press *cable them*, and the cable draws, minting whatever port or
+  `Chassis` the gesture needed in the same batch, marked `cable · by hand` on the canvas and in
+  the Outline. An unknown far end is a legal one-ended cable that lives under its device's
+  Outline row with no line on the canvas. Cutting is done from the Inventory, deliberately not a
+  third strip button — resolving a specific cable's id from two clicked ports has no honest,
+  non-guessing answer with what the module exposes today. Escape now releases a held link or
+  cable end, closing a gap that had stood since `OP_LINK` shipped on 2026-08-16. **This is what
+  `57` §14.1 B3's closure means**: the empty-port-list problem that stood between the owner's
+  2026-08-18 request and a buildable gesture is gone. **Module +19,450 bytes** (969,090 →
+  988,540, reported not gated, `49` §1); zero schema change (ADR-0008 — `Cable`, `Terminates`,
+  `PhysicalPort`, `HasPort` and `HasChassis` were already declared). Four browser drivers green
+  through a real reload: the new `2026-08-29-cabling-drive.mjs` (56/56, including a hand-tampered
+  journal record that must be refused rather than silently guessed through — a real defect found
+  and fixed during proving, ADR-0038's as-built note), plus both 2026-08-16 link drivers (31/31,
+  18/18) re-run with no regression. **What stays open, all in ADR-0038 §9**: range cabling and
+  bundles; the rung-3 faceplate (per-port drawing); `ExternalPeer` far ends (tag 3 — reserved on
+  the wire, refused by the module, and now refused honestly on replay too rather than silently
+  reinterpreted); type-to-link; platform port complements for `platforms.yaml`; a standalone
+  *add a port* from the Inventory; and, newly recorded, `Terminates.end`'s literal A/B letter
+  having no wire read path (property-tested instead) and `begin_batch` refusals still surfacing
+  as raw Rust `Debug` text across several opcodes, cable included, not just this one.
 - **The parse-server question is answered and the answer is no server — `38` §14, 2026-08-17.**
   Six designs, each attacked by an independent reviewer. The finding in one line: *we were about
   to move a customer's firewall config off his machine because a lookup table got compiled as a

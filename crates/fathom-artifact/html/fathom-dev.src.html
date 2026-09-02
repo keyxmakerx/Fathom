@@ -5510,11 +5510,25 @@ function buildCableForm() {
 /* One end spec off the wire's own shape — `{tag}` plus its own fields — never
    carrying the display extras (`portLabel`) the sheet attaches for its own
    sentences. Journalled and wired from this, always, so neither can drift
-   from the other. */
+   from the other.
+
+   THIS SHEET ONLY EVER BUILDS TAG 0, 1 OR 2 — but `cableEndBytes` is also
+   the decoder a REPLAYED journal record runs through (the import arm calls
+   it on `o.near`/`o.far` straight off parsed JSON), and a record that came
+   from a hand edit, a future build that writes tag 3 (D3/§9 item 3), or
+   simple corruption can name anything. The first cut of this function
+   collapsed every tag that was not literally 0 or 1 to `{tag:2}` — silently
+   turning a tampered or forward-declared tag-3 (reserved) end into a
+   legitimate "unknown far end" and drawing a real one-ended cable the
+   operator never asked for and the module's own `ERR_CABLE_END` refusal
+   (proved by `tag_three_is_refused` in `cable.rs`) could then never fire
+   through this path. Fixed: any tag this sheet did not itself mint is
+   forwarded to the module AS GIVEN, unexamined — the module is the only
+   place that gets to say a tag is legal, never this decoder. */
 function cableEndSpec(end) {
   if (end.tag === 0) return { tag: 0, id: end.id };
   if (end.tag === 1) return { tag: 1, boxId: end.boxId, label: end.label || '' };
-  return { tag: 2 };
+  return { tag: end.tag };
 }
 
 function cableEndBytes(end) {
@@ -5538,7 +5552,15 @@ function cableEndBytes(end) {
     out2.set(lblb, 3 + boxb.length);
     return out2;
   }
-  return new Uint8Array([2]);
+  /* Every other tag — 2 (unknown, no body), 3 (reserved), or anything not
+     built by this sheet at all — carries just the tag byte. A non-numeric
+     or out-of-byte-range value (garbage JSON) is coerced to 255, a value no
+     wire version has ever declared, so it fails the module's frame parser
+     honestly (`ERR_EQUIP_FRAME`) instead of being read as byte 0 of a
+     truncated tag-0/tag-1 record. */
+  var t = spec.tag;
+  if (typeof t !== 'number' || !(t >= 0 && t <= 255) || (t | 0) !== t) t = 255;
+  return new Uint8Array([t]);
 }
 
 /* One byte per length, ADR-0038 §4 — never guessed past 255. A display id
@@ -5604,11 +5626,27 @@ function opCableDraw(near, far, label) {
      nothing new. */
   var did = word !== '2';
   if (did) {
+    /* ADR-0038 §4's journal shape names a `wrote` field — "so the page
+       journals by id" — alongside the raw end specs replay actually uses.
+       Replay never reads it (the raw specs alone determine what a replay
+       re-mints, deliberately: see the import arm's own comment), so this is
+       informational only, but it is part of the binding record shape and
+       costs nothing to carry. `ports`/`chassis` are arrays because BOTH
+       ends can independently mint one — the reply's fixed near/far slots
+       (module contract) rather than the ADR prose's singular "the chassis
+       if one was minted". */
+    var s = row && row.s;
+    var wrote = {
+      cable: (s && s[1]) || '',
+      ports: [s && s[2], s && s[3]].filter(function (x) { return x; }),
+      chassis: [s && s[4], s && s[5]].filter(function (x) { return x; })
+    };
     jpush('cable', at, ent, {
       mode: 1,
       near: cableEndSpec(near),
       far: cableEndSpec(far),
-      label: label || ''
+      label: label || '',
+      wrote: wrote
     });
   }
   CABLE_HOLD = null;
