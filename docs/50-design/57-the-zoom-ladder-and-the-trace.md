@@ -354,6 +354,12 @@ So the dialog's shape is not *"pick a port, or unknown, or virtual"*. It is:
 The last row is one he did not ask for and will want: `Terminates` goes to
 `PhysicalPort | ExternalPeer`, so "this uplink goes to the ISP" is already expressible.
 
+**Annotation, 2026-08-29 (ADR-0038 §11.2).** The shipped schema declares `Cable.media.virtual`
+(`19` §3.4's list, verbatim), which this section did not notice. The argument above stands
+about the *gesture*: `OP_CABLE` never offers or writes it, and the sheet's "no cable — these
+just talk" redirects to the link gesture. The variant stays declared for plants that may
+legitimately state one; removing it would be a MAJOR bump for no safety gained.
+
 ### 12.2 A one-ended cable is legal, and the schema says so out loud
 
 `Terminates` is `out: "0..2"` at the cable end. A cable with **one** termination is a valid
@@ -403,6 +409,12 @@ Same muscle memory, same refusal-to-guess when several kinds are legal, same `by
 same keyboard path. It should also be drawable **from the rack elevation**, because that is
 where a person can see both boxes at once — which is the answer to §8's "one rack at a time
 with travel between them" meeting cabling.
+
+**Annotation, 2026-08-29 (ADR-0038 D2, §11.1).** "Same gesture" is true; "same mechanism" would
+be wrong. The only reference edge the schema admits between two `PhysicalPort`s is
+`PassThrough` — *these two holes are the same hole* — and `OP_LINK`'s one-candidate rule would
+write it without asking. A cable is a third, minted node with two `Terminates` edges, so
+`OP_CABLE` is its own compound write and never consults `hand_link_candidates`.
 
 ### 12.5 Breakout is modelled, and it will bite
 
@@ -613,7 +625,7 @@ which an execution session may take (`78` §5).
 |---|---|---|
 | B1 ✅ 2026-08-28 | **Does `PhysicalPort.label` become `0..1`?** — **ANSWERED YES** (*"absolutely, one of the main features is to be able to create essentially a lucid chart with no information"*, `70` §18.3) and executed the same day: schema 0.4 relaxes the card, `62` §16.2 prices it minor. | ~~hard blocker~~ **cleared.** Everything in §12 and §13 is now buildable; B3 is the next question those sections meet |
 | B2 | **Is a `Site` related to a `Premises`?** (§4) | a rack cannot be at a site. Invisible in one building, immediate at work |
-| B3 | **Where do `PhysicalPort`s come from?** (§12.3) | cabling shows an empty port list on every hand-built device until this is answered |
+| B3 ✅ 2026-08-29 | **Where do `PhysicalPort`s come from?** (§12.3) — **ANSWERED: route 2, minted inline by the cabling gesture** (ADR-0038 D1, under the owner's same-day delegation and his empty-chart principle, `70` §18.3). *Unknown* mints a port with no label. Route 3 stays open as ADR-0038 §9 item 5 | ~~cabling shows an empty port list~~ **cleared**; a pasted device also gets its missing `Chassis` minted (ADR-0038 D5) |
 | B4 | **Reopen the no-move refusal?** | drag-and-drop in a rack *is* a move, and `rack_place` refuses one on purpose |
 | B5 | **Is the trace a dedicated view?** | he said yes (§8.4); it takes one of six view slots, three of which are placeholders |
 
