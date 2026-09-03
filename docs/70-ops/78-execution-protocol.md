@@ -179,7 +179,7 @@ never the first run:
 | `./scripts/crate-cooldown.sh` | `cooldown: OK`, exit 0 |
 | `cargo fmt --all --check` | No output, exit 0 |
 | `cargo clippy --all-targets -- -D warnings` | Builds clean, exit 0 |
-| `cargo test --workspace --locked` | Every suite `ok`, zero failures |
+| `cargo test --workspace --locked` | Every suite `ok`, zero failures (792 as of 2026-09-03) |
 | `cargo run -p fathom-schema --bin fathom-schema-check` | Exit 0, `0 failure(s)` |
 | The work order's own acceptance gates | Exactly the output the work order states |
 
@@ -197,6 +197,12 @@ count going DOWN is.
 `cargo deny` and `cargo audit` are pinned, checksummed release binaries fetched by
 `scripts/ci/fetch-audit-tools.sh`, not `cargo install` builds: compiling either from source runs
 roughly two hundred crates' build scripts, which is the hazard they exist to gate.
+
+**Two gates in `docs/80-review/evidence/` need a running PostgreSQL and are therefore the
+executing order's, not the floor's** — `2026-09-03-the-server-is-honest-when-the-database-is-down.sh`
+(17 checks, WO-11 G5/G6/G8) and `2026-09-03-the-stack-comes-up-and-tls-is-in-front.sh` (20 checks,
+WO-11 G7). They are named here so a session touching `crates/fathom-server` knows they exist; both
+need `docker`, and neither runs in CI today.
 
 The schema checker's standing baseline is **no warnings at all**, since 2026-08-09. It was two
 `schema.identity.unexercised` against `Site` for the whole of the tree's life before that; `Site`

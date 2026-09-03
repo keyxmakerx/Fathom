@@ -60,3 +60,38 @@ strip = "symbols"
 debug = 0
 overflow-checks = true
 incremental = false
+
+# THE SERVER DOES NOT SHIP UNDER THE WASM PROFILE, AND THE REASON IS panic.
+#
+# `[profile.release]` above is tuned for one artifact: a WASM module that must
+# be small and whose panic is a trap at the host boundary (41 §3.9, 34 §7.5).
+# Three of its settings are actively wrong for a long-running server:
+#
+#   panic = "abort"   THE IMPORTANT ONE. tokio isolates a panicking task -- one
+#                     request fails and the runtime carries on -- but ONLY when
+#                     panics unwind. With abort, one panicking request takes the
+#                     whole process down, and every other connected user with
+#                     it. This is not hypothetical here: RUSTSEC-2026-0178, the
+#                     advisory tokio-postgres 0.7.18 is the patch for, is a
+#                     PANIC on a malformed DataRow. Patched or not, "a panic
+#                     somewhere in the driver ends the service" is the wrong
+#                     default for the process holding everyone's designs.
+#   opt-level = "z"   Optimising for size on a server trades throughput for
+#                     bytes nobody is paying for.
+#   lto = "fat" + codegen-units = 1
+#                     Minutes of link time per build, for a binary whose size
+#                     does not matter.
+#
+# Build the server with `--profile server`. Everything else -- overflow-checks
+# especially, 41 §2.5's "a wrapped length in a parser is the bug we are here to
+# avoid" -- is inherited unchanged.
+[profile.server]
+inherits = "release"
+panic = "unwind"
+opt-level = 2
+lto = "thin"
+codegen-units = 16
+strip = "symbols"
+debug = 0
+overflow-checks = true
+incremental = false

@@ -1,7 +1,9 @@
 # WO-11 — The server skeleton, and the gate that survives 109 crates
 
-> **Status: OPEN — unblocked by the owner 2026-09-03, and its step 0 replaced.** No
-> dependencies. **The first server-side work order and phase 1's first row.**
+> **Status: EXECUTED 2026-09-03. See §9 for the as-built note, including the four findings
+> the gates produced on real arrivals and the one escalation that leaves this order open as a
+> planning question.** No dependencies. **The first server-side work order and phase 1's first
+> row.**
 >
 > **WHAT CHANGED.** This order was authored blocked on an owner act: ADR-0032 §5 makes crate
 > approval undelegatable, and ~109 crates meant ~109 approvals. The owner lifted it the same
@@ -300,3 +302,125 @@ open question. Recorded here because the next order needs them:
 2. **With `49` §19's placement of "operational logging" late in phase 1.** `tracing` arrives with
    the skeleton because retrofitting structured logging means rewriting every call site. It is a
    deliverable here, not a phase-1 tail item.
+
+## 9. As built — 2026-09-03
+
+Executed in one session, in the order §5 sets out, with a commit per step.
+
+### 9.1 What the gates did on real arrivals
+
+**Every one of the five layers found something, and none of the findings was a fixture.**
+
+| layer | what it caught | what happened |
+|---|---|---|
+| 1 — `gate-zero` | fired on all four arrivals, and on each one correctly separated the **direct** dependency needing its own record from the transitive ones a closure may carry | the closure pattern's central distinction, exercised by real resolution |
+| 2 — `cargo deny` | **two duplicate pairs**: `wasi` 0.11 (via `mio`) beside 0.14 (via `whoami` → `wasite`); `syn` 2.0.119 (via `tracing-attributes`) beside 3.0.4 | each a `[[bans.skip]]` naming the **exact version** with its reason. `multiple-versions` was **not** relaxed to `warn` |
+| 3 — `cargo audit` | clean throughout — and the positive control proves it can fail, by rejecting a pinned advisory-bearing version and then accepting the patch | |
+| 4 — look-alikes | clean over 130 packages, and the graph now contains **`proc-macro2` itself**, the crate whose typosquat was the August 2026 vehicle | the check has its real target to sit beside |
+| 5 — the cooldown | **four young crates across two arrivals**: `mio 1.2.3` (one day old), `tinyvec 1.13.0` (**same day**), `libredox 0.1.23` (two days), `hyper 1.11.1` (six days) | three pinned back; one excepted with an expiry, see 9.2 |
+
+**Three of the four cooldown catches were crates nobody chose.** That is the argument for the
+layer in one line: a transitive dependency's fresh release arrives with no one looking at it.
+
+### 9.2 The finding that changed a control's design
+
+`hyper 1.11.1` was the one that could not simply be pinned back. It carries **four HTTP/1 parser
+fixes in exactly the area where a differential is a request-smuggling bug** — `TE: trailers`
+detected caselessly, `\n\r\n` recognised as a head terminator in the partial-read fast path,
+buffered bytes flushed before yielding, a pooled connection evicted on a request-side
+`Connection: close` (hyper's own CHANGELOG, read 2026-09-03). **None is a filed advisory**, which
+is why pinning back is not automatically the safe move: it would keep a web server on a
+known-worse set of head-terminator behaviours to avoid an unproven supply-chain risk in one of
+the most-watched crates in the ecosystem.
+
+Lowering `COOLDOWN_DAYS` globally to admit it was the obvious escape and the wrong one. So the
+cooldown grew **expiring per-version exceptions** (`deps/decisions/00-COOLDOWN-EXCEPTIONS.md`),
+with three properties, each tested: a row names a crate **and** a version; a row **expires**, and
+an expired row **fails the build** rather than lapsing quietly; and a row **dies with its reason**
+— once the version is old enough on its own, the script reports it as no longer needed and fails
+until it is removed. That third property is the answer to §5 step 0's own measurement, that the
+median `cargo vet` adopter carries 131 exemptions.
+
+### 9.3 The finding that corrected a record already committed
+
+`crates/fathom-server/Cargo.toml` turns `tracing`'s `attributes` feature off.
+`deps/decisions/tracing.md` was committed saying so. **It was false in effect within one commit**:
+`deadpool-postgres 0.14.2` declares `tracing` without `default-features = false`, so cargo's
+feature unification turns `attributes` back on across the graph — which is why a second `syn` is
+in the closure at all.
+
+Corrected in `tracing.md` rather than quietly edited, with the general lesson attached: **a
+feature disabled in your manifest is a request, not a guarantee.** Any claim of the form *"we do
+not compile X"* has to be checked against `cargo tree`, not against the manifest that asked.
+
+### 9.4 Trigger 4 — C7 — settled on the real manifest
+
+`49` §21 item 21 recorded that two scratch builds disagreed on whether `rustls` lands in the
+closure. **Settled:** `cargo tree -p fathom-server --target x86_64-unknown-linux-gnu` on
+2026-09-03 contains no `rustls`, no `ring`, no `aws-lc-sys`, no `openssl-sys` and no
+`native-tls`. The only C-adjacent crate is `libc`, which compiles no C. `deny.toml` bans all four
+carriers **by name**, so the decision cannot be undone by a transitive arrival without failing the
+build, and `deploy/Caddyfile` is the other half of it — the part that makes the ban survivable.
+
+### 9.5 A profile finding the order did not anticipate
+
+The workspace `[profile.release]` is tuned for the WASM module and sets **`panic = "abort"`**.
+tokio isolates a panicking task — one request fails, the runtime carries on — **but only when
+panics unwind**. Under `abort`, one panicking request ends the process and every connected user
+with it. That is not hypothetical here: **RUSTSEC-2026-0178, the advisory `tokio-postgres 0.7.18`
+is the patch for, is a panic on a malformed `DataRow`.** Patched or not, *"a panic somewhere in
+the driver ends the service"* is the wrong default for the process holding everyone's designs.
+
+`[profile.server]` inherits release, sets `panic = "unwind"`, and drops `opt-level = "z"` and
+`lto = "fat"` — size and link time are the WASM artifact's concerns, not a server's.
+`overflow-checks` stays on. `deploy/Dockerfile` builds with `--profile server`.
+
+### 9.6 Acceptance gates
+
+| gate | result |
+|---|---|
+| **G1** the floor, and the WASM module unchanged | green. **988,490 bytes after a forced rebuild — byte-identical to before this order.** Nothing leaked across the boundary |
+| **G2** gate-zero proved by making it fail | `scripts/tests/gate-zero-test.sh` 10/10. **The five new cases were written first and watched to fail against the old gate** (5 passed, 5 failed) before a line of the implementation existed |
+| **G3** `cargo audit` in CI, proved by a positive control | `scripts/tests/advisory-gate-test.sh` 3/3 — RUSTSEC-2025-0055 rejected at `tracing-subscriber` 0.3.19, accepted at 0.3.23. Without the second half, a gate that refuses everything would look identical to one that works |
+| **G4** every package recorded or in an approved closure, generated from tooling | green. `deps/decisions/00-CLOSURE-SERVER.md`, written by `scripts/closure-report.sh --write` from `cargo metadata`, the fetched source trees and `static.crates.io`. **115 in the lockfile, 91 compiling for the server, 6 direct, 7 running code at compile time.** Against `35` §5.1: 6 of ≤ 30 direct, both closure figures under ≤ 160 — **but see 9.7** |
+| **G5** `/health` after a real round trip, unhealthy when PostgreSQL is stopped | **17/17** in `docs/80-review/evidence/2026-09-03-the-server-is-honest-when-the-database-is-down.sh`, driven against a real PostgreSQL that is stopped and restarted mid-run |
+| **G6** no secret reaches a log | green at the type level (`tests/no_secret_in_logs.rs`, 7 tests) **and in the real process's own log output** in the G5 driver. The test found a real defect in the URL redactor — see 9.8 |
+| **G7** the stack from the compose file, health through Caddy over TLS | see `docs/80-review/evidence/2026-09-03-the-stack-comes-up-and-tls-is-in-front.sh` |
+| **G8** nothing is stored | green, twice: `tests/stores_nothing.rs` (4 tests, including driving its own reader over SQL it must flag) and, against the real database, `SELECT tablename FROM pg_tables` returning exactly `_fathom_migrations` |
+
+### 9.7 THE ESCALATION — trigger 3, raised rather than absorbed
+
+`49` §6 estimated the working server at *"roughly 109 crates"*. **Four of its sixteen rows are in
+and the lockfile is already at 115.** Still to come: sessions, password hashing (`argon2`, whose
+closure is already measured at 22), passkeys, TOTP, `openidconnect` (an HTTP client, JOSE and a
+JSON stack), mail, rate limiting, the audit chain and `tower-http`. A straight-line reading says
+phase 1 lands well past `35` §5.1's ≤ 160.
+
+Trigger 3 says to escalate the number rather than trim by removing a control. Three routes are
+named in `00-CLOSURE-SERVER.md` and **none is chosen here, because none is an execution session's
+to choose**: raise the cap with the reasoning written down; drop a row (`openidconnect` is the
+biggest and the most deferrable, and `70` §18 records enterprise LDAP/AD arriving as a separate
+phase-1 requirement anyway); or **split the cap** between the client and the server, which are
+different binaries with different threat models and never had a reason to share one number.
+
+### 9.8 Defects found while proving, and fixed
+
+1. **The URL redactor emitted a password.** `redact_database_url` split userinfo at `@`; the test
+   handed it `postgres://user:PASSWORD` — the `@` left out, an ordinary typo — and it printed the
+   password, because with no `@` there is no userinfo and the whole string parses as a host. What
+   is emitted is now **validated as well as parsed**. The one shape it still cannot catch is
+   asserted rather than assumed away: a password spelled like a hostname, in host position, is
+   indistinguishable from a hostname.
+2. **One of this order's own tests was tautological.** It asserted a `DbError`'s rendered text did
+   not contain a phrase that is *in* the static error message, so it could never have failed.
+   Fixed to use a canary in the value, with the note kept in the test.
+3. **`.claude/` was being shipped as Docker build context** — 1.2 GB on this checkout, turning a
+   short build into minutes of transfer before a line compiled. Added to `.dockerignore`, which
+   also fixes it for the existing root `Dockerfile`.
+
+### 9.9 What this order deliberately did NOT do
+
+Everything in §8, unchanged. No accounts, no sessions, no tenants, no tables beyond the migrations
+table, no API. The open decisions in §7's list are still the owner's: which key-management
+service, the self-hosted key story, and whether the audit log is phase 1 or phase 2. **The next
+order needs all three**, because the next order stores a row.
