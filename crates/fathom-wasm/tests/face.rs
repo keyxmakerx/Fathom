@@ -216,6 +216,30 @@ fn a_hand_typed_credential_saves_untouched_and_is_named_in_the_hints() {
         label_col.to_string(),
         "the label column is named in slot 7's hints half"
     );
+
+    // The finding that motivated this test: `OP_INV_ROWS`'s table row is not
+    // the only on-screen rendering of the value. `renderMeaningFace`'s field
+    // table (`OP_ELEMENT`) is a second one, reached from both the
+    // inventory's own details pane and the diagram's — and until this slot
+    // existed it never asked the detector at all, so the same typed PSK was
+    // marked on the table cell and silently plain two clicks away, in the
+    // same view, same session. `OP_ELEMENT`'s FACE_FIELD slot 5 is where that
+    // gets fixed: the SAME field, over the SAME element id, must carry the
+    // SAME mark.
+    let element_reply = shell.handle(OP_ELEMENT, pid.as_bytes());
+    let element_records = face(&element_reply);
+    let field = element_records
+        .iter()
+        .find(|r| r.role == FACE_FIELD && r.strings[0] == "label")
+        .expect("PhysicalPort declares a label field");
+    assert_eq!(
+        field.strings[1], PSK,
+        "the element face carries the identical typed value"
+    );
+    assert_eq!(
+        field.strings[5], "1",
+        "OP_ELEMENT's own field table must mark the value the inventory table marked"
+    );
 }
 
 /// The one sentence the key row exists to make true, pinned on the kind an
@@ -272,18 +296,23 @@ fn element_and_equipment_replies_mirror_the_crate() {
 
             for (rec, f) in records[1..].iter().zip(page.fields.iter()) {
                 assert_eq!(rec.role, FACE_FIELD);
-                // Five since 2026-08-11. Slots 3 and 4 -- the field's wire key
-                // and whether its type can be typed in -- were added so the page
-                // can offer an editor without keeping a name-to-key table of its
-                // own. A table like that in JavaScript is how a form ends up
-                // writing one field into another's slot, and it would be
-                // unpinned by anything.
-                assert_eq!(rec.slot_count, 5);
+                // Six since 2026-09-03 (ADR-0041). Slots 3 and 4 -- the field's
+                // wire key and whether its type can be typed in -- were added
+                // so the page can offer an editor without keeping a
+                // name-to-key table of its own. A table like that in
+                // JavaScript is how a form ends up writing one field into
+                // another's slot, and it would be unpinned by anything. Slot
+                // 5 is ADR-0041 D7's hint bit, for the same reason: this
+                // face's field table is a second on-screen rendering of the
+                // value (reached from both the inventory's details pane and
+                // the diagram's), and it must not re-decide the mark.
+                assert_eq!(rec.slot_count, 6);
                 assert_eq!(rec.strings[0], f.name);
                 assert_eq!(rec.strings[1], f.value);
                 assert_eq!(rec.strings[2], f.provenance);
                 assert_eq!(rec.strings[3], f.key.0.to_string());
                 assert_eq!(rec.strings[4], if f.editable { "1" } else { "" });
+                assert_eq!(rec.strings[5], if f.hint { "1" } else { "" });
             }
         }
     }

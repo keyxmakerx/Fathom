@@ -130,6 +130,31 @@ value's nature (D6):
 > **stored as typed** — this looks like it may be a password or key. Fathom does not redact
 > what you type, only what you paste, so it is saved and exported exactly as written.
 
+**Addendum, 2026-09-03 (a proving pass, same day).** The paragraph above undersold how many
+places a field's value is shown. `renderMeaningFace`'s field table — the inventory's own
+DETAILS pane, reached by selecting the same row this section marks in the table cell, AND the
+diagram's own details panel, `dgDetails`, which calls the identical function — is a second
+on-screen rendering of the value, and it inherited no mark: a skeptic drove it and found the
+PSK marked in the table and silently plain one click away, in the same view, session and row.
+`FieldRow.hint` (`fathom-inventory/src/element.rs`) and `FACE_FIELD`'s wire slot 5
+(`fathom-wasm/src/protocol.rs`) carry the identical detector result into that table too, and
+`fieldTable`'s cells wear the same `credMark()`. This was not a new decision — D7 already said
+"wherever it is shown" — it is the shape in §6 catching up to what the sentence already meant.
+Verified live: selecting the row the driver's section 5 marks, in `#ipaneDetails table.kv`,
+shows the identical `.credmark` beside the identical value; the diagram's `#ddetHead` panel,
+navigated to separately with the same node still selected, shows one `.credmark` too.
+`2026-09-03-the-gate-is-only-on-the-paste-box.mjs` §6 pins the inventory-details half; the
+diagram half was confirmed the same way, by hand, and is covered by code sharing rather than a
+second permanent driver (`fieldTable` and `credMark` are the one function each view calls).
+
+The same pass closed a second gap in D3/D4: `title` is mouse-hover-only in every shipping
+browser, so a sighted keyboard-only reader tabbing to the glyph got a focus ring and no
+readable word — `55` §1.4's own rule against exactly that kind of affordance, already argued
+elsewhere on this page for the diagram's line marks. The glyph's `aria-label` sentence is now
+also painted as real DOM text via `content: attr(data-tip)` on `:hover` and `:focus-visible`,
+never on hover alone. §9's driver §7 pins it against the COMPUTED style after a real keyboard
+`Tab`, not against the attribute merely existing.
+
 ## 7. What must stay true
 
 - **Nothing is refused, nothing is destroyed, nothing is blocked.** A marked value saves.
@@ -146,10 +171,10 @@ value's nature (D6):
 | layer | what |
 |---|---|
 | `fathom-ingest` | `looks_like_credential`, public, reusing the existing detectors; unit tests over real credential shapes and over prose that must NOT trip |
-| `fathom-inventory` | `Row.hints`, computed as rows are built |
-| `fathom-wasm` | slot 7 packing, and its wire test |
-| the page | the mark: inverted glyph, focusable, the sentence; rendered in the inventory cell |
-| evidence | `2026-09-03-the-gate-is-only-on-the-paste-box.mjs` extended — the key is still stored (unchanged), AND the mark is now beside it, reachable by keyboard, and the paste path is still clean |
+| `fathom-inventory` | `Row.hints`, computed as rows are built; `element::FieldRow.hint`, computed the same way for `renderMeaningFace`'s field table (the addendum above) |
+| `fathom-wasm` | `FACE_INV` slot 7 packing; `FACE_FIELD` slot 5, six slots now instead of five, and both wire tests |
+| the page | the mark: inverted glyph, focusable, the word painted as real DOM text on hover AND focus (not `title` alone); rendered in the inventory cell AND in `fieldTable` (inventory details pane, diagram details panel) |
+| evidence | `2026-09-03-the-gate-is-only-on-the-paste-box.mjs` extended — §5 the key is still stored (unchanged) and the mark beside it is keyboard-reachable; §6 the field table (D7's second surface) carries the same mark; §7 the word is visibly painted on real keyboard focus, not just announced |
 | docs | this record; `.context/conventions.md`'s invariant 3 annotated with what the gate does and does not cover; CLAUDE.md |
 
 ## Failure modes
@@ -174,6 +199,26 @@ value's nature (D6):
    credential inside a URL's userinfo (`redact.rs` records it as OPEN and says a name rule
    *"categorically cannot"* reach it), and twenty-three registered platforms of which two have
    dictionaries. These are steps 3 and 4 of the owner's approved five.
+4. **`looks_like_credential`'s delimiter requirement is a real recall gap, verified and left
+   as built, not fixed silently.** A proving pass showed `"password: R3dT3am!"` trips the
+   detector and `"password R3dT3am!"` — the same secret, typed with a space instead of a colon
+   — does not, nor does a sentence naming a live BGP MD5 key with no delimiter at all
+   (`"bgp neighbor md5 password R3dT3am!"`). `adjacent_secret_word`'s own doc comment
+   (`redact.rs`) already reasons about this trade-off — bare word-adjacency was deliberately
+   rejected because it flags ordinary sentences (`"replaced the key switch in rack 4"`), and a
+   sibling unit test pins that negative on purpose. D8 says false positives are the right
+   direction of error, which argues the other way; this record does not resolve that tension
+   in either direction, because doing so means either accepting more noise on ordinary prose
+   or accepting the missed recall as documented above, and that is a tuning call for whoever
+   owns the detector next, not something to decide by editing a test until it goes green.
+5. **The detector never sees the field's own name**, only the cell text. A bare weak value in
+   a column plainly labelled for it — `"public"`, `"private"`, `"s3cr3t"` in an SNMP-community
+   field — carries no adjacent secret word and no shape, so it is never hinted, even though the
+   column name alone would tell a person exactly what it is. Fixing this means threading the
+   field name into `looks_like_credential` or a sibling predicate at every call site
+   (`fathom-inventory`'s `credential_hints` over table cells, `element_page` over
+   `FieldRow`s) — a wider change than this record's shape (§6) asked for, and left here rather
+   than done without being asked.
 
 ## Sources consulted
 
@@ -197,3 +242,11 @@ value's nature (D6):
    for a yellow triangle. §5 gives the constraint, the CI check that enforces it, and the
    inversion precedent that answers it. The shape of what he asked for — a mark beside the
    value, explained on hover, present on every surface — is adopted entirely.
+3. **With the first cut of this record's own build, found by an adversarial proving pass the
+   same day.** §6's addendum and Open decision 4/5 record it in full; the short form is that
+   "present on every surface" was built as "present in the inventory table" and D7's own
+   words — *"it travels with the value, not with the view"* — were not yet true of the
+   inventory's own details pane or the diagram's. Fixed the same day, in the same record,
+   rather than reopening it: the fix is `FieldRow.hint` and `FACE_FIELD` slot 5, doing for
+   `renderMeaningFace` what `Row.hints` already did for the table. Recorded because a defect a
+   skeptic had to find is a defect the shape section should have named.

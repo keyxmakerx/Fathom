@@ -464,6 +464,47 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   table and a reload loses it. Three routes named there; the cheapest is binding
   `routing-instances`, which the routing view needs anyway. Every order carries its own plan,
   gates, and stop-and-escalate list; `78` governs.
+- **A hand-typed value that looks like a password now carries a small black `!` beside it,
+  and the value it sits beside is still stored and exported exactly as typed —
+  ADR-0041, 2026-09-03.** The owner asked whether the server holds his device passwords, was
+  told no, and a proving pass broke that answer: a PSK typed into an interface's `description`
+  cell never goes near the ingest gate (`OP_PASTE` is its only caller) and sits in the export
+  in plain text. His decision was to mark, never refuse — refusing is beaten by rewording and
+  protects only the typist, where a mark protects the colleague who opens the design next.
+  **What is NOT closed, on purpose:** the value is still stored and still exported unredacted.
+  That is the decision, not a bug — `.context/conventions.md` invariant 3 is annotated,
+  scope-only, to say so, and `2026-09-03-the-gate-is-only-on-the-paste-box.mjs`'s two original
+  checks (the key is not in the export; it is not on screen) are written to fail and still do.
+  What the mark covers: `fathom_ingest::redact::looks_like_credential` — one detector, reusing
+  the paste gate's own word list and value-shape checks, nothing new — runs over every
+  inventory cell and every field the inspector shows; a hit gets an inverted (`--ink`/`--page`,
+  never a reserved risk colour) focusable `!` whose accessible name and, since a same-day
+  proving pass found `title` is mouse-hover-only in every browser, whose VISIBLE text on
+  keyboard focus too, both read: *"stored as typed — this looks like it may be a password or
+  key. Fathom does not redact what you type, only what you paste, so it is saved and exported
+  exactly as written."* **The mark is on every surface that renders the value, not just the
+  inventory table** — the same proving pass found it missing from the inventory's own DETAILS
+  pane and the diagram's own details panel (both call the identical `renderMeaningFace`) and
+  that gap is closed the same day, in the same record: `FieldRow.hint` and a sixth `FACE_FIELD`
+  wire slot carry the identical detector result there too. No schema change (ADR-0008 — the
+  hint is an opinion, recomputed on every read, never written to the graph). `cargo test
+  --workspace` 751/751 (+7 over the 744 pre-record baseline). Wasm release build 988,490 bytes
+  (988,540 baseline, unchanged code path elsewhere in the module). Driven end to end:
+  `2026-09-03-the-gate-is-only-on-the-paste-box.mjs` 23/25 — the two hole-proving checks fail
+  by design, the other 23 (the mark's presence, wording, keyboard reach, the second-surface fix,
+  and the visible-on-focus fix) pass — plus six unrelated regression drivers (drag-to-connect
+  58/58, hand-placement 23/23, cabling 56/56, hand-link 31/31, the-cut-that-drew 18/18,
+  inventory-direction-a 42/42) re-run with zero regression. **Open, in ADR-0041's own Open
+  decisions:** the config viewer's rendering of the mark (the view does not exist yet); whether
+  a server recomputes the hint on read; a credential inside a URL's userinfo, and most
+  platforms still carrying no secret dictionary at all; and, added by the same-day proving
+  pass, two verified but deliberately unfixed limits of the detector itself — it needs a
+  `:`/`=` next to the secret word to fire, so `"password: X"` is marked and `"password X"` is
+  not, and it never sees a column's own name, so a bare weak value in a plainly-labelled field
+  (an SNMP community literally called `public`) passes unmarked. Both are judged real,
+  deliberate trade-offs already reasoned about in `redact.rs`'s own comments, not defects —
+  widening either risks flagging ordinary sentences the same reasoning was written to protect,
+  and is left for whoever tunes the detector next rather than decided by editing a test.
 - **Raised by the on-ramp (2026-08-09), all three now settled:** (a) the ceiling question
   is CLOSED — removed 2026-08-21 with the pivot, and the dictionary had already moved out of
   the module to the page on 2026-08-15; (b) `OP_PASTE` is ADDITIVE as of 2026-08-21, with the

@@ -529,7 +529,16 @@ button.tab:hover { color: var(--ink); }
    "stored as typed" and the sentence explaining it, so a screen reader and a
    sighted hover both get the same claim. D4: an ordinary `<button>`, so it is
    in the tab order and reads Enter/Space like every other control on this
-   page — hover is the convenience on top, not the only door. */
+   page — hover is the convenience on top, not the only door.
+
+   Two tables carry this mark, not one: `.inv` is the inventory's own table
+   and `.kv` is `fieldTable`'s (ADR-0041 D7) — reached from the inventory's
+   details pane AND from the diagram's own details panel (`dgDetails` calls
+   the same `renderMeaningFace`). A proving pass found the first without the
+   second: a typed value marked on the table cell and silently plain two
+   clicks away, in the same view. Both tables' selectors are written
+   together below so the two cannot drift apart again the way they already
+   did once. */
 /* `.inv td button` (474-485 above) already claims `display: block; width:
    100%` at specificity (0,1,2), so the mark's own rule is written at
    `.inv td button.credmark` — (0,2,2) — to actually win rather than being
@@ -537,23 +546,46 @@ button.tab:hover { color: var(--ink); }
    by looking at the rendered pixels, not by reading the cascade: the button
    existed, `aria-label` was correct, and it was invisible — 326px wide,
    `display: block`, stretched to the cell like every other cell button. */
-.inv td button.credmark {
+.inv td button.credmark, .kv td button.credmark {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 1.3em; height: 1.3em; width: auto; margin-left: var(--s1);
   padding: 0 .35em; background: var(--ink); color: var(--page); border: 0;
   border-radius: var(--radius); font: inherit; font-weight: 700;
   font-size: .9em; line-height: 1; cursor: help; vertical-align: middle;
-  flex: none;
+  flex: none; position: relative;
 }
-.inv td button.credmark:hover { opacity: .8; }
-.inv td button.credmark:focus-visible {
+.inv td button.credmark:hover, .kv td button.credmark:hover { opacity: .8; }
+.inv td button.credmark:focus-visible, .kv td button.credmark:focus-visible {
   outline: var(--focus-width) solid var(--focus-colour);
   outline-offset: var(--focus-offset-outset);
 }
+/* D3 read against a sighted KEYBOARD user, not only a screen reader or a
+   mouse: `title` is a native tooltip and shows on hover, never on focus, in
+   every shipping browser — so tabbing to the glyph produced a focus ring and
+   nothing else, which `55` §1.4's own rule already names for the diagram's
+   line marks ("a hover tooltip … is mouse-hover-only, the precise failure
+   listed as impossible"). The sentence is real DOM text on BOTH doors: a
+   `data-tip` attribute painted by `content: attr()`, inverted the same way
+   the glyph is, so it is never mistaken for a risk badge either. `aria-label`
+   still carries the words to a screen reader without duplicating them into
+   the accessible tree twice. */
+.inv td button.credmark::after, .kv td button.credmark::after {
+  content: attr(data-tip); position: absolute; z-index: 5;
+  bottom: calc(100% + var(--s1)); left: 0; width: max-content; max-width: 22em;
+  background: var(--ink); color: var(--page); padding: var(--s1) var(--s2);
+  border-radius: var(--radius); font-weight: 400; font-size: var(--t-micro);
+  line-height: var(--lh-micro); text-align: left; white-space: normal;
+  cursor: auto; display: none;
+}
+.inv td button.credmark:hover::after, .inv td button.credmark:focus-visible::after,
+.kv td button.credmark:hover::after, .kv td button.credmark:focus-visible::after {
+  display: block;
+}
 /* The value cell that carries a mark widens to hold both without the value's
    own button losing its full-width click target. */
-.inv td.hasmark { display: flex; align-items: center; }
+.inv td.hasmark, .kv td.hasmark { display: flex; align-items: center; }
 .inv td.hasmark button:not(.credmark) { width: auto; flex: 1 1 auto; min-width: 0; }
+.kv td.hasmark input.fedit { width: auto; flex: 1 1 auto; min-width: 0; }
 /* A refusal, in the cell, under the text that caused it. `.perr` is the page's
    one refusal idiom — the paste, equipment and placement sheets all wear it —
    and this only makes it fit in a cell whose default is `nowrap`. */
@@ -2681,13 +2713,19 @@ var CREDMARK_TEXT = 'stored as typed — this looks like it may be a password or
   + 'and exported exactly as written.';
 
 /* D2/D3/D4: an inverted, focusable glyph carrying the word in its accessible
-   name. `title` gives the same sentence to a mouse as convenience on top,
-   never as the only door — the button itself is what makes it reachable by
-   keyboard and announced by a screen reader without one. */
+   name AND, since a proving pass found a sighted-keyboard-only reader had no
+   door at all (title is mouse-hover-only in every shipping browser — `55`
+   §1.4's own rule against exactly that), in a real DOM sentence a CSS rule
+   paints on hover OR focus (`data-tip`, read by `content: attr()` beside
+   this function's own rule above). `aria-label` still carries the words to a
+   screen reader as the accessible name; `title` stays as the plain-mouse
+   fallback belt-and-suspenders. Three doors, one sentence, never guessed
+   three different ways. */
 function credMark() {
   var m = el('button', 'credmark', '!');
   m.type = 'button';
   m.setAttribute('aria-label', CREDMARK_TEXT);
+  m.setAttribute('data-tip', CREDMARK_TEXT);
   m.title = CREDMARK_TEXT;
   return m;
 }
@@ -4106,10 +4144,20 @@ function fieldTable(records) {
        typed in. Both come from the module with the row, so this page holds no
        name-to-key table of its own — which is what stops a form writing one
        field into another's slot. A field whose type the store cannot yet take
-       from text renders read-only rather than as an input that always fails. */
-    var key = r.s[3], editable = r.s[4] === '1' && S.sel;
+       from text renders read-only rather than as an input that always fails.
+
+       Slot 5 (ADR-0041 D7) is the SAME credential hint the inventory table
+       marks, carried here because this table is a SECOND rendering of the
+       value — the details pane's Fields section AND the diagram's own
+       details panel both call `renderMeaningFace`, and a skeptic proving
+       this record found the mark present on the table cell and silently
+       absent two clicks away from it, in the same view. It is not read any
+       further than the inventory's own `hintCols.indexOf` reads it: this
+       page still forms no opinion of its own about what trips it. */
+    var key = r.s[3], editable = r.s[4] === '1' && S.sel, hint = r.s[5] === '1';
     if (editable) {
       var cell = el('td');
+      if (hint) cell.className = 'hasmark';
       var inp = el('input');
       inp.type = 'text';
       inp.value = r.s[1] === '—' ? '' : r.s[1];
@@ -4119,9 +4167,12 @@ function fieldTable(records) {
       inp.setAttribute('data-key', key);
       inp.className = 'fedit';
       cell.appendChild(inp);
+      if (hint) cell.appendChild(credMark());
       tr.appendChild(cell);
     } else {
-      tr.appendChild(el('td', null, r.s[1]));
+      var vcell = el('td', null, r.s[1]);
+      if (hint) { vcell.className = 'hasmark'; vcell.appendChild(credMark()); }
+      tr.appendChild(vcell);
     }
 
     tr.appendChild(el('td', 'mu', r.s[2]));

@@ -66,6 +66,19 @@ pub struct FieldRow {
     /// (`crate::is_authorable`). The page hides the editor where this is false,
     /// so it never offers an input whose every value will be refused.
     pub editable: bool,
+    /// ADR-0041 D7: whether `fathom_ingest::redact::looks_like_credential` trips
+    /// on `value`. Computed HERE, beside `editable`, for the reason `editable`
+    /// is computed here and not on the page: a name-to-hint table in
+    /// JavaScript is the same defect as a name-to-key table, and this field's
+    /// whole reason to exist is that `renderMeaningFace`'s field table is not
+    /// the inventory table — it is a SECOND rendering of the same value,
+    /// reached from the inventory's own details pane and from the diagram's
+    /// (`dgDetails` calls `renderMeaningFace` too), and `credential_hints` in
+    /// `inventory.rs` only ever covered the first. A hint computed per view
+    /// is a hint the next view has to remember to add; a hint computed once,
+    /// here, where every reader of the element already asks for `editable`
+    /// the same way, is not.
+    pub hint: bool,
 }
 
 pub struct ElementPage {
@@ -92,12 +105,14 @@ pub fn element_page(g: &Graph, id: NodeId) -> Option<ElementPage> {
             .iter()
             .map(|k| {
                 let (value, provenance) = field_cell(g, id, *k);
+                let hint = fathom_ingest::redact::looks_like_credential(&value);
                 FieldRow {
                     name: field_name(*k),
                     value,
                     provenance,
                     key: *k,
                     editable: crate::is_authorable(*k),
+                    hint,
                 }
             })
             .collect(),
@@ -306,5 +321,90 @@ pub fn parse_display_id(g: &Graph, s: &str) -> Option<ElementId> {
         Some(resolved)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fathom_graph::{
+        Actor, BatchId, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId,
+    };
+    use fathom_ir::scalar;
+
+    fn prov() -> ProvenanceRecord {
+        ProvenanceRecord {
+            id: ProvenanceId(Ulid::from_parts(0, 1).expect("fits")),
+            origin: Origin::Hand,
+            asserted_at: Timestamp(0),
+            asserted_by: Actor::User(UserId(Ulid::from_parts(0, 2).expect("fits"))),
+            confidence: Confidence::Asserted,
+            supersedes: None,
+        }
+    }
+
+    fn one_interface(description: &str) -> (Graph, NodeId) {
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(Ulid::from_parts(0, 9).expect("fits")), "test")
+            .expect("a fresh graph has no open batch");
+        let id = g
+            .insert_node(
+                NodeKind::Interface,
+                Ulid::from_parts(0, 3).expect("fits"),
+                prov(),
+            )
+            .expect("insert");
+        g.set_field(
+            ElementId::Node(id),
+            key("Interface.name"),
+            scalar::InterfaceName("ge-0/0/3".to_owned()),
+            prov(),
+        )
+        .expect("name");
+        g.set_field(
+            ElementId::Node(id),
+            key("Interface.description"),
+            scalar::Text(description.to_owned()),
+            prov(),
+        )
+        .expect("description");
+        g.end_batch().expect("open");
+        (g, id)
+    }
+
+    /// ADR-0041 D7: `element_page`'s `FieldRow.hint` is what closes the hole a
+    /// skeptic found in the proving pass — `renderMeaningFace`'s field table
+    /// (reached from the inventory's own details pane AND from the diagram's,
+    /// `dgDetails`) is a second on-screen rendering of the same value that
+    /// `credential_hints` in `inventory.rs` never covered, because it only
+    /// ever ran over the TABLE's cells. This pins that `element_page` marks
+    /// the same field the table would have marked, and leaves an ordinary
+    /// field alone — the same two-sided shape
+    /// `credential_hints_names_only_the_tripped_column` pins for the table.
+    #[test]
+    fn element_page_hints_a_credential_shaped_field_and_leaves_an_ordinary_one_alone() {
+        let (g, id) = one_interface("IPsec PSK: n3JHwd82ka0ppwiVzLp7YXjLp2Qz3Rt5Uv1Wx2Yz3");
+        let page = element_page(&g, id).expect("a live node has a page");
+        let desc = page
+            .fields
+            .iter()
+            .find(|f| f.key == key("Interface.description"))
+            .expect("Interface.description is one of Interface's declared fields");
+        assert!(desc.hint, "a pasted-looking PSK must trip the hint");
+        let name = page
+            .fields
+            .iter()
+            .find(|f| f.key == key("Interface.name"))
+            .expect("Interface.name is declared");
+        assert!(!name.hint, "an interface name is not credential-shaped");
+
+        let (g2, id2) = one_interface("backup link to the Denver gateway");
+        let page2 = element_page(&g2, id2).expect("a live node has a page");
+        let desc2 = page2
+            .fields
+            .iter()
+            .find(|f| f.key == key("Interface.description"))
+            .expect("declared");
+        assert!(!desc2.hint, "ordinary prose is not hinted");
     }
 }

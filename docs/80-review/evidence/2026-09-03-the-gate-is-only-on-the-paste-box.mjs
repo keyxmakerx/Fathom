@@ -299,6 +299,89 @@ const pageSource = await readFile(ARTIFACT_PATH, 'utf8');
 check('D5: the page declares no secret word list of its own (the detector is Rust)',
   !pageSource.includes('SECRET_WORD_LIST') && !pageSource.includes('looksLikeCredential'));
 
+// ---- 6. THE SAME VALUE, RENDERED A SECOND TIME — a skeptic's finding -------
+//
+// D7 says the hint "travels with the value, not with the view." A proving
+// pass found that `renderMeaningFace`'s field table — the DETAILS pane's
+// "Fields" section, reached from THIS SAME ROW by the click section 5 just
+// made, and reused verbatim by the diagram's own details panel (`dgDetails`
+// calls the identical function) — was a second on-screen rendering of the
+// exact value section 5 marked, and it carried no mark at all: a colleague
+// who opened DETAILS instead of reading the table cell saw the PSK with
+// nothing beside it. `FieldRow.hint` / `FACE_FIELD` slot 5 exist to close
+// that, and this is driven against the DETAILS pane the click already
+// turned to (`ivPaneSet('details', true)` fires on every row selection) —
+// not a fresh click sequence invented for this section.
+
+console.log('\n6. THE SAME VALUE, IN THE DETAILS PANE (D7, closing a proving-pass finding)');
+const detailInfo = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('#ipaneDetails table.kv tbody tr')];
+  const row = rows.find((r) => {
+    const th = r.querySelector('th');
+    return th && th.textContent.trim() === 'description';
+  });
+  if (!row) return null;
+  const td = row.querySelector('td');
+  const mark = td ? td.querySelector('.credmark') : null;
+  const input = td ? td.querySelector('input.fedit') : null;
+  return {
+    found: true,
+    hasMark: !!mark,
+    ariaLabel: mark ? mark.getAttribute('aria-label') : null,
+    fieldText: input ? input.value : (td ? td.textContent : null),
+  };
+});
+check('the DETAILS pane\'s Fields section renders (the row selection is live)',
+  detailInfo && detailInfo.found, JSON.stringify(detailInfo));
+check('and it carries the identical typed value, untouched',
+  detailInfo && detailInfo.fieldText && detailInfo.fieldText.includes(PSK),
+  JSON.stringify(detailInfo));
+check('the SAME field is marked here too — not just in the inventory table cell',
+  detailInfo && detailInfo.hasMark, JSON.stringify(detailInfo));
+check('and it carries the same D6 wording',
+  detailInfo && /stored as typed/i.test(detailInfo.ariaLabel || ''), detailInfo && detailInfo.ariaLabel);
+
+// ---- 7. THE WORD IS VISIBLE ON FOCUS, NOT ONLY ANNOUNCED -------------------
+//
+// `title` is a native tooltip and shows on mouse hover only, in every
+// shipping browser — never on keyboard focus. `55` §1.4 already names this
+// exact failure for the diagram's own line marks ("a hover tooltip … is
+// mouse-hover-only, the precise failure listed as impossible") and a
+// skeptic pointed out the credential mark had the identical gap: a sighted
+// keyboard-only reader tabbing to the glyph got a focus ring and nothing
+// readable. This checks the real fix — a `content: attr(data-tip)`
+// pseudo-element the CSS turns on for `:focus-visible`, not a hover-only
+// affordance — by reading the COMPUTED style after a real keyboard focus,
+// not by trusting the attribute exists.
+
+console.log('\n7. THE MARK\'S WORD IS VISIBLE ON KEYBOARD FOCUS, NOT ONLY ANNOUNCED');
+await page.evaluate(() => {
+  const tr = [...document.querySelectorAll('.invwrap table.inv tbody tr')]
+    .find((r) => r.textContent.includes('ge-0/0/0'));
+  const valueBtn = tr.querySelectorAll('td')[2].querySelector('button:not(.credmark)');
+  if (valueBtn) valueBtn.focus();
+});
+await page.keyboard.press('Tab');
+const focusedTip = await page.evaluate(() => {
+  const m = document.activeElement;
+  if (!m || !m.classList.contains('credmark')) return null;
+  const after = window.getComputedStyle(m, '::after');
+  return {
+    display: after.display,
+    content: after.content,
+    dataTip: m.getAttribute('data-tip'),
+  };
+});
+check('the mark is still what Tab lands on',
+  focusedTip !== null, JSON.stringify(focusedTip));
+check('its focus-visible ::after is actually painted (display: block), not hover-only',
+  focusedTip && focusedTip.display === 'block', JSON.stringify(focusedTip));
+check('and the painted content IS the sentence, read off data-tip — real DOM text, not just an aria-label',
+  focusedTip && typeof focusedTip.content === 'string'
+    && focusedTip.content.includes('stored as typed')
+    && focusedTip.dataTip && /stored as typed/i.test(focusedTip.dataTip),
+  JSON.stringify(focusedTip));
+
 check('no page errors', errors.length === 0, errors.join(' | '));
 
 await browser.close();

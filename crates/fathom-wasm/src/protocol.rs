@@ -1025,18 +1025,25 @@ fn write_element(
         // Slot 3 is the field's wire key and slot 4 is whether it can be typed
         // in. Both travel WITH the row rather than being looked up on the page,
         // because a name-to-key table in JavaScript is how a form ends up
-        // writing one field into another's slot.
+        // writing one field into another's slot. Slot 5 is ADR-0041 D7's hint
+        // bit — `fathom_inventory::element::FieldRow.hint` — carried the same
+        // way and for the same reason `Row.hints` rides on `FACE_INV`'s slot
+        // 7: this face's own field table (`renderMeaningFace`, reached from
+        // both the inventory's details pane and the diagram's) is a second
+        // rendering of the value, and it inherits the mark rather than the
+        // page re-deciding it.
         let key = f.key.0.to_string();
         let rec = face_slots(
             blob,
             FACE_FIELD,
-            5,
+            6,
             &[
                 f.name,
                 f.value.as_str(),
                 f.provenance.as_str(),
                 key.as_str(),
                 if f.editable { "1" } else { "" },
+                if f.hint { "1" } else { "" },
             ],
         );
         write_face_record(records, &rec);
