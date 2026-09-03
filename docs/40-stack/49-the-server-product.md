@@ -310,8 +310,15 @@ evidence says its destination is customer-managed keys, not end-to-end. Never sa
 "zero-knowledge" or "we cannot read your data"; say what Fathom can say that no comparable
 can: **device credentials are protected by never arriving** — the ingest gate destroys them
 in the browser before upload, which is a stronger sentence about the most dangerous 2% of a
-config than any custody arrangement is about the rest. Awaiting the owner's ratification as
-the ADR this decision already requires.
+config than any custody arrangement is about the rest.
+
+> **RATIFIED 2026-09-03 as ADR-0040**, when the owner said *"start working on the server
+> version."* Invariant 4 is scoped rather than deleted in `.context/conventions.md`; `38`
+> §14's union rule is ratified alongside it; the custody switch has a named destination
+> (customer-managed keys) and a named trigger (**the first customer who is not the owner**);
+> and the sentences that may never be said until it is true are listed in ADR-0040 §6.
+> **This closes `49` §22 open decision 1 and with it the last DECISION item in §19's phase 0
+> — phase 0 is complete.**
 
 **Decision 5 — do not write the cryptography.**
 

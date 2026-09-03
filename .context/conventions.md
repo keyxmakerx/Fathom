@@ -65,6 +65,21 @@ looking. This does not apply to arithmetic or to a file already open.
 `78` §6's floor, which ADR-0034 §4 extends with a dependency-vulnerability scan, landing before the
 first external crate does.
 
+## The ingest gate only ever grows — ratified 2026-09-03
+
+> **Nothing arriving after the build may reduce what the ingest gate destroys, only increase
+> it. Union, never replace.**
+
+Proposed by `38` §14 on 2026-08-17 and cited as unratified for seventeen days; **ratified by
+ADR-0040 §5**. It applies to any dictionary, rule pack, corpus update, platform definition or
+client build that reaches a running Fathom. On a shared server it is what stops a stale or
+hostile client writing a credential into storage that everybody else's data sits next to.
+
+**It is not satisfied by intent.** ADR-0040 §5 requires the check in CI: load the shipped
+detector set, load the arriving one, and fail if the arriving set destroys less on any probe
+the shipped set destroys. CLAUDE.md rule 0 governs every probe written for it — a safety gate
+is tested against what a device accepts, never against what the detector needs.
+
 ## The residual-risk scale — exactly four values
 
 `none | bounded | material | total`. Pinned by ADR-0002 and already adopted by `31`, `32`, `34`,
@@ -109,10 +124,29 @@ first external crate does.
    reaches the encryptor (`14` §9.9). The secrets the application does hold are enumerated
    in `32` §21.3 and `33` §18.3, and that enumeration is exhaustive: adding one requires
    amending this invariant.
-4. **The server never holds secret key material.** Zero-knowledge. Ciphertext, public keys
-   and metadata only. No passphrase, no derived key, no root key, no unwrapped workspace
-   key, and no key-derivation input beyond the public salts carried in the clear inside
-   authenticated headers.
+4. **The server never holds secret key material — IN A ZERO-KNOWLEDGE DEPLOYMENT, WHICH THE
+   HOSTED MULTI-TENANT SERVER IS NOT.** Amended and scoped by **ADR-0040 (2026-09-03)**, the
+   written record `49` §3 decision 4 required before the server held its first byte. Where it
+   binds — the client artifact, and any future customer-managed-key or browser-held-key
+   deployment — it binds in full and unchanged: zero-knowledge; ciphertext, public keys and
+   metadata only; no passphrase, no derived key, no root key, no unwrapped workspace key, and
+   no key-derivation input beyond the public salts carried in the clear inside authenticated
+   headers.
+   **Where it does not bind — the hosted multi-tenant server — the server holds the keys and
+   says so.** A data key per tenant and per design, wrapped by a master key, from the first
+   stored byte, with the wrap point built so a customer-supplied master key can replace the
+   house key later without re-encrypting data (ADR-0040 D1, D2). **The words
+   *zero-knowledge*, *end-to-end*, and *we cannot read your data* may not be used about a
+   customer until customer-managed keys are live for that customer** (ADR-0040 §6) — they are
+   false under this scoping, and a false security sentence teaches a reader to discount the
+   next one.
+   **What does not change, and is the stronger claim anyway:** invariant 3 stands untouched.
+   No device credential reaches storage in either deployment, because the ingest gate destroys
+   it **in the browser, before upload** (ADR-0040 D5) and again on arrival — union, never
+   replace (ADR-0040 §5). *Fathom never touches your devices, and it destroys every password
+   before it stores anything. There is no credential to steal.* That sentence is true today,
+   earned fully on Juniper, and materially weaker on platforms with no dictionary — which
+   ADR-0040 D8 makes a CI gate on whether a platform is selectable at all.
 5. **Findings are data, not code.** One rule engine. Rules carry `platforms` and
    `versions` predicates. No per-vendor engines.
 6. **Emitters return `(line, provenance)` pairs, never strings.**
