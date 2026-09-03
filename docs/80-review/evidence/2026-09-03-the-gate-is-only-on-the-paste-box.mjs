@@ -148,9 +148,15 @@ const banner = await page.evaluate(() => document.body.innerText);
  * field, travelling with it to wherever it is sent. That is worse and it is
  * the point: the exported journal carries both the secret and a sentence
  * saying the secret is not there. */
-check('the exported file carries the promise, in its own warning field',
-  /pre-shared keys are NOT in it/.test(exported),
-  'the claim under test ships inside the artifact it is wrong about');
+/* The warning must be true of BOTH doors. It must still say the paste box
+ * destroys keys — that is real and an operator should rely on it — and it must
+ * say that a hand-typed value is stored as typed, which is the half that was
+ * missing and the half this file exists to prove. */
+check('the exported file still credits the paste gate, which really does work',
+  /destroys those at the paste box/.test(exported));
+check('AND it warns that a hand-typed value is stored exactly as typed',
+  /TYPED BY HAND IS STORED EXACTLY AS TYPED/.test(exported),
+  'the sentence now covers the door this file walks through');
 
 check('THE PRE-SHARED KEY IS NOT IN THE EXPORTED JOURNAL',
   !exported.includes(PSK),

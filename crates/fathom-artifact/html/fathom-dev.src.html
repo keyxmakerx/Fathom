@@ -9832,10 +9832,30 @@ function exportJournal() {
   var doc = {
     magic: EXPORT_MAGIC,
     version: EXPORT_VERSION,
+    /* THE WARNING SAYS WHAT IS TRUE OF BOTH DOORS, NOT JUST ONE (2026-09-03).
+       It used to end: "Device passwords and pre-shared keys are NOT in it —
+       Fathom destroys those when a config is pasted, before anything is
+       stored." Every clause of that is true OF A PASTE and none of it is true
+       of a value somebody typed. `fathom_ingest::ingest()` is the only caller
+       of the redaction gate and `OP_PASTE` is the only caller of that
+       (shell.rs), so `OP_FIELD_SET`, `OP_EQUIP_ADD`, the cable and port label
+       writes and rack placement all store exactly what arrived. The schema
+       declares nineteen free-text `notes` and `description` fields and a
+       person WILL eventually put a key in one.
+       Driven and proved, key read back out of this very export:
+       `docs/80-review/evidence/2026-09-03-the-gate-is-only-on-the-paste-box.mjs`.
+       Rule 0's lesson, and the gate's own source says it: a false claim of
+       protection is worse than a stated hole, because the hole gets closed and
+       the claim gets trusted. So the sentence now scopes itself to the door it
+       is about, and tells the operator the one thing they can act on. */
     warning: 'NOT ENCRYPTED. This file describes a network: hostnames, addresses, ' +
-             'interfaces, zones and tunnels. Device passwords and pre-shared keys are ' +
-             'NOT in it — Fathom destroys those when a config is pasted, before anything ' +
-             'is stored. Treat it as you would a network diagram.',
+             'interfaces, zones and tunnels. Device passwords and pre-shared keys ' +
+             'found in a PASTED CONFIG are not in it — Fathom destroys those at the ' +
+             'paste box, before anything is stored. BUT ANYTHING TYPED BY HAND IS ' +
+             'STORED EXACTLY AS TYPED: a value you put in a description, a note or ' +
+             'any other field never passes the gate, so do not type a password, a ' +
+             'pre-shared key or a community string into one. Treat this file as you ' +
+             'would a network diagram.',
     ops: S.journal
   };
   var text = JSON.stringify(doc, null, 2);
