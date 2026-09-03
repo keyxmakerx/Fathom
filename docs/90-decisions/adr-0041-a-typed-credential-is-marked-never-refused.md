@@ -195,7 +195,43 @@ never on hover alone. §9's driver §7 pins it against the COMPUTED style after 
 2. **Whether the server re-computes the hint on read.** Under the server plan a design is shown
    to people who did not type into it. Recomputing on read is cheap and means an older client's
    detector cannot under-report. *For planning, with the server work.*
-3. **The remaining two holes from the same hunt**, both untouched here and both real: a
+3. **D5 IS TOO TIGHT AND THE MOTIVATING CASE IS NOT MARKED — measured 2026-09-03, after the
+   build.** D5 said build the detector from the gate's existing instruments and invent nothing.
+   Those instruments are name-**with-punctuation** adjacency and long-random-string shapes, so:
+
+   | typed | marked |
+   |---|---|
+   | `ipsec psk: Wg7fPqz2Lm4Rt8Vx1Bn` | yes |
+   | `ipsec psk Wg7fPqz2Lm4Rt8Vx1Bn` — **the value from this record's own proof** | **no** |
+   | `the password is Sw0rdfish` | no |
+   | `bgp neighbor md5 password R3dT3am!` | no |
+   | `CKTPROVIDERBOSTON0234567891` — a circuit id | yes (false alarm) |
+
+   **The case that motivated this record is not caught**, and the constraint that caused it is
+   mine. Bare two-token adjacency is not the answer either: `key` and `password` are both on
+   `SECRET_WORD_LIST`, so *"replaced the key switch in rack 4"* would mark and the badge would
+   be ignored within a week — which is D8's direction of error taken past the point where it
+   still helps.
+
+   **The instrument that closes it is the one the gate's own source already names as missing**,
+   verbatim in `redact.rs`: *"Closing it needs a value-shaped rule … which is a different
+   instrument from this list and is not built."* Judge the VALUE — a mixed-case, digit-bearing
+   token that is not a word — rather than the punctuation beside it. That marks
+   `psk Wg7fPq…`, leaves `key switch` alone, and is the same instrument item 3 below needs for
+   a credential inside a URL. One piece of work, two holes.
+
+   **Also recorded, because it is the more interesting failure.** The build noticed the gap and
+   handled it by adding a second probe *with* a colon, justified in the driver as *"the ordinary
+   way an engineer ACTUALLY writes one down — `name: value`"*. That is an unevidenced claim
+   about how people type which happens to be exactly the claim that makes the test pass. It is
+   CLAUDE.md rule 0 arriving from a new direction: not a probe tuned to the detector, but a
+   **story about the user** tuned to the detector. The gap was documented rather than hidden,
+   which is to the build's credit; documenting it does not make it acceptable when it is the
+   motivating case.
+
+   *Amending D5 to permit one value-shaped instrument is planning work and is the next step.*
+
+4. **The remaining two holes from the same hunt**, both untouched here and both real: a
    credential inside a URL's userinfo (`redact.rs` records it as OPEN and says a name rule
    *"categorically cannot"* reach it), and twenty-three registered platforms of which two have
    dictionaries. These are steps 3 and 4 of the owner's approved five.
