@@ -37,8 +37,25 @@
 #
 # THE WINDOW IS A JUDGEMENT, NOT A CITATION. Seven days is two orders of
 # magnitude longer than the 107-minute window above and short enough that a real
-# security patch is not held back for long. Override it deliberately, in the
-# pull request, with the reason written down -- never by editing the default.
+# security patch is not held back for long.
+#
+# EXCEPTIONS EXPIRE. There is a real tension here and pretending otherwise is
+# how a gate gets switched off: sometimes the young release is the SAFER one,
+# because it carries a parser fix, and holding it back for a supply-chain window
+# trades a known hazard for an unproven one. So a single crate version can be
+# admitted early -- named, reasoned, and WITH AN EXPIRY DATE -- in
+# deps/decisions/00-COOLDOWN-EXCEPTIONS.md. Three properties make that safe:
+#
+#   * it is per crate AND version, so it cannot silently cover the next release;
+#   * it expires, and an expired row FAILS the build rather than lapsing quietly;
+#   * once the version is old enough on its own, the script says the row is dead
+#     and asks for it to be removed, so the file cannot accumulate.
+#
+# That last property is the one that matters. WO-11 §5 step 0 declined to adopt
+# `cargo vet` on the measurement that the median adopting project carries 131
+# manual exemptions. An exemption list with no expiry becomes 131 exemptions.
+# Lowering COOLDOWN_DAYS globally to admit one crate is the worse move and this
+# mechanism exists so nobody has to.
 #
 # HOW IT FAILS. It fails CLOSED. If the CDN cannot be reached, this script exits
 # non-zero and says so, because a gate that passes when it could not check is
@@ -58,6 +75,7 @@ set -eu
 LOCK="${COOLDOWN_LOCK:-Cargo.lock}"
 DAYS="${COOLDOWN_DAYS:-7}"
 CDN="${COOLDOWN_CDN:-https://static.crates.io/crates}"
+EXCEPTIONS="${COOLDOWN_EXCEPTIONS:-deps/decisions/00-COOLDOWN-EXCEPTIONS.md}"
 
 # age_days <HTTP-date> -> prints the whole days since it, or nothing on failure
 age_days() {
@@ -96,9 +114,37 @@ if [ -z "$pkgs" ]; then
     exit 0
 fi
 
+# `<crate> <version> <expiry> <reason...>`, one per row, from between the
+# markers. Anything outside them is prose and admits nothing.
+excepted=""
+if [ -f "$EXCEPTIONS" ]; then
+    excepted=$(awk '
+        /<!--[ \t]*cooldown:exceptions/ { inblk = 1; next }
+        /<!--[ \t]*cooldown:end/ { inblk = 0; next }
+        inblk && /^[ \t]*\|/ {
+            row = $0
+            sub(/^[ \t]*\|/, "", row)
+            n = split(row, cell, "|")
+            if (n < 3) next
+            c = cell[1]; v = cell[2]; e = cell[3]
+            gsub(/[ \t`]/, "", c); gsub(/[ \t`]/, "", v); gsub(/[ \t`]/, "", e)
+            if (c == "" || c ~ /^[-:]+$/) next
+            if (tolower(c) == "crate") next
+            print c " " v " " e
+        }
+    ' "$EXCEPTIONS")
+fi
+
+# is_excepted <name> <ver> -> prints the expiry date, or nothing
+is_excepted() {
+    printf '%s\n' "$excepted" | awk -v n="$1" -v v="$2" \
+        '$1 == n && $2 == v { print $3; exit }'
+}
+
 young=0
 unreachable=0
 checked=0
+stale=0
 oldest=""
 
 # A here-doc rather than a pipe: a pipe would run the loop in a subshell and
@@ -119,6 +165,24 @@ while IFS=' ' read -r name ver; do
     }
     checked=$((checked + 1))
     if [ -z "$oldest" ] || [ "$age" -lt "$oldest" ]; then oldest=$age; fi
+
+    expiry=$(is_excepted "$name" "$ver")
+    if [ -n "$expiry" ]; then
+        today=$(date -u +%Y-%m-%d)
+        if [ "$today" \> "$expiry" ]; then
+            echo "cooldown: FAIL  the exception for $name $ver EXPIRED on $expiry"
+            echo "                 an expired exception fails the build rather than lapsing quietly"
+            young=$((young + 1))
+        elif [ "$age" -ge "$DAYS" ]; then
+            echo "cooldown: note  $name $ver is now $age day(s) old and no longer needs its"
+            echo "                 exception -- remove the row from $EXCEPTIONS"
+            stale=$((stale + 1))
+        else
+            echo "cooldown: excepted  $name $ver is $age day(s) old, admitted until $expiry"
+        fi
+        continue
+    fi
+
     if [ "$age" -lt "$DAYS" ]; then
         echo "cooldown: FAIL  $name $ver was published $age day(s) ago ($when), under the $DAYS-day window"
         young=$((young + 1))
@@ -143,8 +207,21 @@ if [ "$young" -gt 0 ]; then
     echo "cooldown is the layer that catches that shape, because it does not"
     echo "depend on anyone having filed an advisory."
     echo
-    echo "Wait for the window, or override it in the pull request with the reason"
-    echo "written down: COOLDOWN_DAYS=<n> with an explanation beside it."
+    echo "Three ways out, in order of preference:"
+    echo "  1. wait for the window;"
+    echo "  2. pin back to the previous version, with the reason written down;"
+    echo "  3. add an EXPIRING row to $EXCEPTIONS naming the crate, the version,"
+    echo "     an expiry date, and why the young release is the safer one."
+    echo
+    echo "Lowering COOLDOWN_DAYS globally to admit one crate is not on that list."
+    exit 1
+fi
+
+if [ "$stale" -gt 0 ]; then
+    echo
+    echo "cooldown: FAIL  $stale exception(s) are no longer needed."
+    echo "An exception that has outlived its reason is how an exemption list grows"
+    echo "to 131 entries. Remove the row."
     exit 1
 fi
 

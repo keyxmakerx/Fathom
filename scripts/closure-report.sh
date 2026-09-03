@@ -2,48 +2,61 @@
 # Generate the closure table for deps/decisions/ from TOOLING OUTPUT.
 #
 # WO-11 §6 G4: "the closure document's contents were generated from tooling
-# output" -- not typed from memory. This is that tool. Its output is pasted into
-# a closure document between the gate-zero:closure markers, where
+# output" -- not typed from memory. This is that tool. Its output goes between
+# the gate-zero:closure markers of a closure document, where
 # scripts/gate-zero.sh reads the first column.
 #
 # WHAT EACH COLUMN IS MEASURED FROM, so a reader can check the measurement
 # rather than inherit it:
 #
-#   crate, version   `cargo metadata` resolve nodes, filtered to registry
-#                    sources (a path member has no source, same test gate-zero
-#                    uses)
+#   crate, version   `cargo metadata` packages, filtered to registry sources (a
+#                    path member has no source, the same test gate-zero uses)
 #   licence          the package's own `license` field
 #   direct           whether a workspace member names it in a manifest
 #   build.rs         whether the fetched source tree contains a build.rs, read
 #                    from ~/.cargo/registry/src. THIS IS THE COLUMN THE AUGUST
 #                    2026 ATTACK WAS ABOUT: `proc-macro1`'s build script
 #                    downloaded and executed a payload, so merely compiling was
-#                    enough.
-#   proc-macro       whether any of its targets has kind proc-macro. A proc
-#                    macro runs at compile time too, with the same privileges.
-#   published        the Last-Modified of its .crate file on static.crates.io,
+#                    enough (RUSTSEC-2026-0260, 2026-08-20)
+#   proc-macro       whether any target has kind proc-macro. A proc macro runs
+#                    at compile time too, with the same privileges
+#   published        the Last-Modified of the .crate file on static.crates.io,
 #                    the same figure scripts/crate-cooldown.sh gates on
 #
 # WHAT IT CANNOT MEASURE, stated rather than faked: the PUBLISHER. Neither
 # `cargo metadata` nor the sparse index carries crates.io ownership; only the
-# JSON API does. The `repository` field is printed instead and it is a proxy,
+# JSON API does. The `repository` field is printed instead and it is a PROXY,
 # not the answer -- a repository URL is written by the crate's author and proves
-# nothing about who holds the publish token. Fill the publisher in by hand where
-# it matters, and say where you looked.
+# nothing about who holds the publish token. Naming a publisher from one would
+# be exactly the confident guess ADR-0034 forbids.
 #
-# Usage: ./scripts/closure-report.sh [--no-dates]
+# Usage:
+#   ./scripts/closure-report.sh                 print the table
+#   ./scripts/closure-report.sh --write FILE    replace FILE's table in place,
+#                                               between its gate-zero:closure
+#                                               markers, leaving the prose alone
+#   ./scripts/closure-report.sh --no-dates      skip the CDN lookups
 
 set -eu
 
 DATES=1
-[ "${1:-}" = "--no-dates" ] && DATES=0
+WRITE=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --no-dates) DATES=0 ;;
+        --write) shift; WRITE="${1:-}" ;;
+        *) echo "closure-report: unknown argument $1"; exit 2 ;;
+    esac
+    shift
+done
 
 cargo metadata --format-version 1 --all-features 2>/dev/null |
-    DATES="$DATES" python3 -c '
+    DATES="$DATES" WRITE="$WRITE" python3 -c '
 import json, os, subprocess, sys, glob
 
 md = json.load(sys.stdin)
 want_dates = os.environ.get("DATES") == "1"
+write_to = os.environ.get("WRITE") or ""
 
 pkgs = {p["id"]: p for p in md["packages"]}
 members = set(md["workspace_members"])
@@ -92,23 +105,36 @@ for (name, version), p in sorted(registry.items()):
     })
 
 cols = ["crate", "version", "licence", "direct", "build.rs", "proc-macro", "published", "repository"]
-print("| " + " | ".join(cols) + " |")
-print("|" + "|".join("---" for _ in cols) + "|")
+out = []
+out.append("| " + " | ".join(cols) + " |")
+out.append("|" + "|".join("---" for _ in cols) + "|")
 for r in rows:
     cells = []
     for c in cols:
         v = r[c]
         cells.append(f"`{v}`" if c in ("crate", "version") and v else v)
-    print("| " + " | ".join(cells) + " |")
+    out.append("| " + " | ".join(cells) + " |")
 
 n = len(rows)
 d = sum(1 for r in rows if r["direct"] == "DIRECT")
 b = sum(1 for r in rows if r["build.rs"] == "yes")
 m = sum(1 for r in rows if r["proc-macro"] == "yes")
-print()
-print(f"<!-- measured: {n} external crates, {d} direct, {b} with a build.rs, {m} proc-macros -->")
-print(f"**{n} external crates**, of which **{d} direct**. "
-      f"**{b} carry a `build.rs`** and **{m} are proc-macros** — "
-      f"{b + m} of {n} run code at compile time. "
-      f"Against `35` §5.1: ≤ 30 direct ({d}), ≤ 160 in the closure ({n}).")
+out.append("")
+out.append(f"**{n} external crates**, of which **{d} direct**. "
+           f"**{b} carry a `build.rs`** and **{m} are proc-macros** — "
+           f"{b + m} of {n} run code at compile time, which is the number the "
+           f"August 2026 attack was about. Against `35` §5.1: **≤ 30 direct "
+           f"({d})**, **≤ 160 in the closure ({n})**.")
+table = "\n".join(out)
+
+if not write_to:
+    print(table)
+    raise SystemExit(0)
+
+doc = open(write_to).read()
+start = doc.index("<!-- gate-zero:closure")
+open_end = doc.index("-->", start) + 3
+end = doc.index("<!-- gate-zero:end", open_end)
+open(write_to, "w").write(doc[:open_end] + "\n\n" + table + "\n\n" + doc[end:])
+print(f"closure-report: rewrote the table in {write_to} — {n} crates, {d} direct")
 '

@@ -54,7 +54,7 @@ check fail "a 60-day window rejects the 30-day-old one" \
 # ---- a first-party-only lockfile is a pass, not a vacuous skip ----
 printf 'version = 4\n\n[[package]]\nname = "fathom-id"\nversion = "0.1.0"\n' > "$TMP/first-party.lock"
 check ok "a first-party-only lockfile passes" \
-      env COOLDOWN_LOCK="$TMP/first-party.lock" "$COOLDOWN"
+      env COOLDOWN_LOCK="$TMP/first-party.lock" COOLDOWN_EXCEPTIONS="$TMP/none.md" "$COOLDOWN"
 
 # ---- THE REAL LOOKUP. A version published years ago must be read and pass. ----
 # If the header were not being read, this would land in the UNREACHABLE path and
@@ -71,7 +71,8 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 EOF
-out=$(COOLDOWN_LOCK="$TMP/old.lock" "$COOLDOWN" 2>&1) && rc=0 || rc=$?
+out=$(COOLDOWN_LOCK="$TMP/old.lock" COOLDOWN_EXCEPTIONS="$TMP/none.md" \
+      "$COOLDOWN" 2>&1) && rc=0 || rc=$?
 case "$out" in
     *"1 external package(s) checked"*) read_it=1 ;;
     *) read_it=0 ;;
@@ -85,11 +86,93 @@ fi
 
 # ...and the same crate against a window wider than its whole life must FAIL,
 # which proves the date read above is a real date and not a constant.
-out=$(COOLDOWN_LOCK="$TMP/old.lock" COOLDOWN_DAYS=99999 "$COOLDOWN" 2>&1) && rc=0 || rc=$?
+out=$(COOLDOWN_LOCK="$TMP/old.lock" COOLDOWN_DAYS=99999 \
+      COOLDOWN_EXCEPTIONS="$TMP/none.md" "$COOLDOWN" 2>&1) && rc=0 || rc=$?
 if [ "$rc" -ne 0 ]; then
     pass=$((pass + 1)); echo "  ok    the date read from the CDN is a real date, not a constant"
 else
     fail=$((fail + 1)); echo "  FAIL  the date read from the CDN is a real date, not a constant"
+    echo "$out" | sed 's/^/        /'
+fi
+
+# ---- EXPIRING EXCEPTIONS ----
+# A young crate, and an exception file that admits it, expires it, or has
+# outlived it. Driven against a real young release rather than a fixture: the
+# lockfile below pins a version that IS young, so the window really is the thing
+# being overridden.
+cat > "$TMP/young.lock" <<'EOF'
+version = 4
+
+[[package]]
+name = "fathom-id"
+version = "0.1.0"
+
+[[package]]
+name = "cfg-if"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+EOF
+
+# cfg-if 1.0.0 is years old, so a 99999-day window makes it "young" on demand
+# without depending on some crate happening to have been published this week.
+wide() { env COOLDOWN_LOCK="$TMP/young.lock" COOLDOWN_DAYS=99999 \
+             COOLDOWN_EXCEPTIONS="$TMP/exceptions.md" "$COOLDOWN"; }
+
+: > "$TMP/exceptions.md"
+check fail "a young crate with no exception fails" wide
+
+cat > "$TMP/exceptions.md" <<EOF
+<!-- cooldown:exceptions -->
+| crate | version | expires | why |
+|---|---|---|---|
+| \`cfg-if\` | 1.0.0 | $(date -u -d "+30 days" +%Y-%m-%d) | fixture |
+<!-- cooldown:end -->
+EOF
+check ok "an unexpired exception admits it" wide
+
+cat > "$TMP/exceptions.md" <<EOF
+<!-- cooldown:exceptions -->
+| crate | version | expires | why |
+|---|---|---|---|
+| \`cfg-if\` | 1.0.0 | $(date -u -d "-1 day" +%Y-%m-%d) | fixture |
+<!-- cooldown:end -->
+EOF
+check fail "an EXPIRED exception fails rather than lapsing quietly" wide
+
+# The version is part of the key: an exception for one version must not cover
+# the next one. This is the property that stops a row silently outliving its
+# reason.
+cat > "$TMP/exceptions.md" <<EOF
+<!-- cooldown:exceptions -->
+| crate | version | expires | why |
+|---|---|---|---|
+| \`cfg-if\` | 0.9.0 | $(date -u -d "+30 days" +%Y-%m-%d) | fixture, wrong version |
+<!-- cooldown:end -->
+EOF
+check fail "an exception for a different version does not cover this one" wide
+
+# A row outside the markers is prose.
+cat > "$TMP/exceptions.md" <<EOF
+| \`cfg-if\` | 1.0.0 | $(date -u -d "+30 days" +%Y-%m-%d) | outside the markers |
+EOF
+check fail "an exception row outside the markers admits nothing" wide
+
+# ...and once the crate is old enough on its own, the row is DEAD and the
+# script says so rather than letting the file accumulate.
+cat > "$TMP/exceptions.md" <<EOF
+<!-- cooldown:exceptions -->
+| crate | version | expires | why |
+|---|---|---|---|
+| \`cfg-if\` | 1.0.0 | $(date -u -d "+30 days" +%Y-%m-%d) | fixture |
+<!-- cooldown:end -->
+EOF
+out=$(COOLDOWN_LOCK="$TMP/young.lock" COOLDOWN_EXCEPTIONS="$TMP/exceptions.md" \
+      "$COOLDOWN" 2>&1) && rc=0 || rc=$?
+case "$out" in *"no longer needs its"*) said=1 ;; *) said=0 ;; esac
+if [ "$rc" -ne 0 ] && [ "$said" -eq 1 ]; then
+    pass=$((pass + 1)); echo "  ok    an exception that has outlived its reason fails, and says to remove it"
+else
+    fail=$((fail + 1)); echo "  FAIL  an exception that has outlived its reason fails (exit $rc)"
     echo "$out" | sed 's/^/        /'
 fi
 
@@ -98,7 +181,8 @@ mkdir -p "$TMP/bin"
 printf '#!/bin/sh\nexit 7\n' > "$TMP/bin/curl"
 chmod +x "$TMP/bin/curl"
 
-out=$(PATH="$TMP/bin:$PATH" COOLDOWN_LOCK="$TMP/old.lock" "$COOLDOWN" 2>&1) && rc=0 || rc=$?
+out=$(PATH="$TMP/bin:$PATH" COOLDOWN_LOCK="$TMP/old.lock" \
+      COOLDOWN_EXCEPTIONS="$TMP/none.md" "$COOLDOWN" 2>&1) && rc=0 || rc=$?
 case "$out" in *UNREACHABLE*) said=1 ;; *) said=0 ;; esac
 if [ "$rc" -ne 0 ] && [ "$said" -eq 1 ]; then
     pass=$((pass + 1)); echo "  ok    an unreachable CDN FAILS rather than passes"
@@ -108,7 +192,8 @@ else
 fi
 
 out=$(PATH="$TMP/bin:$PATH" COOLDOWN_LOCK="$TMP/old.lock" \
-      COOLDOWN_ALLOW_UNREACHABLE=1 "$COOLDOWN" 2>&1) && rc=0 || rc=$?
+      COOLDOWN_EXCEPTIONS="$TMP/none.md" COOLDOWN_ALLOW_UNREACHABLE=1 \
+      "$COOLDOWN" 2>&1) && rc=0 || rc=$?
 if [ "$rc" -eq 0 ]; then
     pass=$((pass + 1)); echo "  ok    COOLDOWN_ALLOW_UNREACHABLE=1 turns the layer off"
 else

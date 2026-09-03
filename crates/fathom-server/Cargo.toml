@@ -28,3 +28,19 @@ tokio = { version = "1.53.1", default-features = false, features = [
     "signal",
     "time",
 ] }
+
+# axum 0.8.9. `41` §5.2 chose it and `49` §6 keeps the choice, with one standing
+# instruction: use its own `ws` feature when WebSockets arrive rather than
+# adding `tokio-tungstenite` separately, which would be two copies of the same
+# protocol code.
+#
+# default-features = false again, and the list is short because /health is the
+# only endpoint this order builds. Absent and deliberately so: `json` (nothing
+# serialises yet, and adding it drags serde in), `form`, `query`,
+# `original-uri`, `matched-path`, and `tracing` -- axum's own tracing feature,
+# which is not the same thing as depending on `tracing` and is not needed to log
+# from a handler.
+axum = { version = "0.8.9", default-features = false, features = [
+    "http1",
+    "tokio",
+] }
