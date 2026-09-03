@@ -172,7 +172,7 @@ never the first run:
 | `./scripts/lockfile-lookalikes.sh` | `lookalikes: OK`, exit 0 |
 | `./scripts/tests/gate-zero-test.sh` | 10 passed, 0 failed |
 | `./scripts/tests/lockfile-lookalikes-test.sh` | 10 passed, 0 failed |
-| `./scripts/tests/crate-cooldown-test.sh` | 11 passed, 0 failed |
+| `./scripts/tests/crate-cooldown-test.sh` | 12 passed, 0 failed |
 | `cargo deny check` | `advisories ok, bans ok, licenses ok, sources ok` |
 | `cargo audit --file Cargo.lock` | exit 0, no vulnerability |
 | `./scripts/tests/advisory-gate-test.sh` | 3 passed, 0 failed |

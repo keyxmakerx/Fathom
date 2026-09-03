@@ -19,50 +19,63 @@
 # publishes a poisoned version and waits out the window walks straight through
 # this. It is layer 5 of five for that reason, and the layer that would actually
 # have caught August is layer 4 -- a human reading the lockfile diff and seeing
-# a name one character from a name they know.
+# a name one character from a name they know (scripts/lockfile-lookalikes.sh
+# does the mechanical half).
+#
+# WHERE THE DATE COMES FROM, and why not the crates.io API. The publication time
+# is read as the `Last-Modified` header of the `.crate` file on
+# static.crates.io -- the same CDN cargo itself downloads from, with one HEAD
+# request per package, no API key and no rate limit. crates.io's JSON API would
+# also answer, and asks for about one request per second, which is two minutes
+# of CI for a hundred-crate graph.
+#
+# The honest caveat: `Last-Modified` is the object's last write, not a field
+# labelled "published". Crate files are immutable once published, so in practice
+# they are the same instant -- and if one ever were rewritten, the date would
+# move FORWARD and this gate would fail rather than pass. The imprecision leans
+# safe.
 #
 # THE WINDOW IS A JUDGEMENT, NOT A CITATION. Seven days is two orders of
 # magnitude longer than the 107-minute window above and short enough that a real
 # security patch is not held back for long. Override it deliberately, in the
 # pull request, with the reason written down -- never by editing the default.
 #
-# HOW IT FAILS. It fails CLOSED. If the registry cannot be reached, this script
-# exits non-zero and says so, because a gate that passes when it could not check
-# is decoration. Set COOLDOWN_ALLOW_UNREACHABLE=1 only in an environment that
+# HOW IT FAILS. It fails CLOSED. If the CDN cannot be reached, this script exits
+# non-zero and says so, because a gate that passes when it could not check is
+# decoration. Set COOLDOWN_ALLOW_UNREACHABLE=1 only in an environment that
 # genuinely has no egress, and know that you have turned the layer off.
 #
 # Usage:
-#   ./scripts/crate-cooldown.sh                 check every external package
+#   ./scripts/crate-cooldown.sh                     check every external package
 #   COOLDOWN_DAYS=14 ./scripts/crate-cooldown.sh
-#   ./scripts/crate-cooldown.sh --fixture F     check the arithmetic against a
-#                                               saved API response, no network
+#   ./scripts/crate-cooldown.sh --age "<HTTP-date>" print the age in days, and
+#                                                   exit non-zero if it is under
+#                                                   the window (the arithmetic,
+#                                                   testable with no network)
 
 set -eu
 
 LOCK="${COOLDOWN_LOCK:-Cargo.lock}"
 DAYS="${COOLDOWN_DAYS:-7}"
-UA="fathom-crate-cooldown (https://github.com/keyxmakerx/fathom)"
+CDN="${COOLDOWN_CDN:-https://static.crates.io/crates}"
 
-if [ "${1:-}" = "--fixture" ]; then
-    [ -n "${2:-}" ] || { echo "cooldown: --fixture needs a file"; exit 2; }
-    exec python3 - "$2" "$DAYS" "${3:-}" <<'PYEOF'
-import json, sys, datetime
-doc = json.load(open(sys.argv[1]))
-days = int(sys.argv[2])
-want = sys.argv[3] or None
-now = datetime.datetime.now(datetime.timezone.utc)
-bad = 0
-for v in doc.get("versions", []):
-    if want and v["num"] != want:
-        continue
-    ts = datetime.datetime.fromisoformat(v["created_at"].replace("Z", "+00:00"))
-    age = (now - ts).days
-    verdict = "TOO YOUNG" if age < days else "ok"
-    if age < days:
-        bad += 1
-    print(f"cooldown: {doc['crate']['name']} {v['num']}  published {ts.date()}  age {age}d  {verdict}")
-sys.exit(1 if bad else 0)
-PYEOF
+# age_days <HTTP-date> -> prints the whole days since it, or nothing on failure
+age_days() {
+    then=$(date -u -d "$1" +%s 2>/dev/null) || return 1
+    now=$(date -u +%s)
+    [ -n "$then" ] || return 1
+    echo $(((now - then) / 86400))
+}
+
+if [ "${1:-}" = "--age" ]; then
+    [ -n "${2:-}" ] || { echo "cooldown: --age needs an HTTP date"; exit 2; }
+    age=$(age_days "$2") || { echo "cooldown: unreadable date '$2'"; exit 2; }
+    if [ "$age" -lt "$DAYS" ]; then
+        echo "cooldown: $2 is $age day(s) old, under the $DAYS-day window"
+        exit 1
+    fi
+    echo "cooldown: $2 is $age day(s) old, at or over the $DAYS-day window"
+    exit 0
 fi
 
 [ -f "$LOCK" ] || { echo "cooldown: no $LOCK"; exit 1; }
@@ -72,10 +85,10 @@ fi
 pkgs=$(awk '
     /^\[\[package\]\]/ { name = ""; ver = ""; src = 0; next }
     /^name = / { name = $0; sub(/^name = "/, "", name); sub(/"$/, "", name); next }
-    /^version = / { ver = $0; sub(/^version = "/, "", ver); sub(/"$/, "", ver); next }
+    /^version = / { if (ver == "") { ver = $0; sub(/^version = "/, "", ver); sub(/"$/, "", ver) } next }
     /^source = / { src = 1; next }
-    /^[ \t]*$/ { if (name != "" && src) print name "@" ver; name = ""; ver = ""; src = 0; next }
-    END { if (name != "" && src) print name "@" ver }
+    /^[ \t]*$/ { if (name != "" && src) print name " " ver; name = ""; ver = ""; src = 0; next }
+    END { if (name != "" && src) print name " " ver }
 ' "$LOCK")
 
 if [ -z "$pkgs" ]; then
@@ -85,42 +98,34 @@ fi
 
 young=0
 unreachable=0
-for pv in $pkgs; do
-    name=${pv%@*}
-    ver=${pv##*@}
-    body=$(curl -sS --max-time 30 -A "$UA" \
-        "https://crates.io/api/v1/crates/$name/$ver" 2>/dev/null) || body=""
-    if [ -z "$body" ]; then
-        echo "cooldown: UNREACHABLE  could not read crates.io for $name $ver"
+checked=0
+oldest=""
+
+# A here-doc rather than a pipe: a pipe would run the loop in a subshell and
+# the counters below would all read zero at the end.
+while IFS=' ' read -r name ver; do
+    [ -n "$name" ] || continue
+    when=$(curl -fsSI --max-time 30 --retry 2 "$CDN/$name/$name-$ver.crate" </dev/null 2>/dev/null |
+           awk 'tolower($1) == "last-modified:" { sub(/^[^:]*:[ \t]*/, ""); sub(/\r$/, ""); print; exit }')
+    if [ -z "$when" ]; then
+        echo "cooldown: UNREACHABLE  no publication date for $name $ver"
         unreachable=$((unreachable + 1))
         continue
     fi
-    verdict=$(printf '%s' "$body" | python3 -c '
-import json, sys, datetime
-try:
-    v = json.load(sys.stdin)["version"]
-except Exception:
-    print("UNREADABLE"); raise SystemExit(0)
-ts = datetime.datetime.fromisoformat(v["created_at"].replace("Z", "+00:00"))
-age = (datetime.datetime.now(datetime.timezone.utc) - ts).days
-print(f"{age} {ts.date()}")
-')
-    case "$verdict" in
-        UNREADABLE)
-            echo "cooldown: UNREACHABLE  crates.io returned something unreadable for $name $ver"
-            unreachable=$((unreachable + 1))
-            continue
-            ;;
-    esac
-    age=${verdict%% *}
-    when=${verdict##* }
+    age=$(age_days "$when") || {
+        echo "cooldown: UNREACHABLE  unreadable date for $name $ver: $when"
+        unreachable=$((unreachable + 1))
+        continue
+    }
+    checked=$((checked + 1))
+    if [ -z "$oldest" ] || [ "$age" -lt "$oldest" ]; then oldest=$age; fi
     if [ "$age" -lt "$DAYS" ]; then
-        echo "cooldown: FAIL  $name $ver was published $when, $age day(s) ago, under the $DAYS-day window"
+        echo "cooldown: FAIL  $name $ver was published $age day(s) ago ($when), under the $DAYS-day window"
         young=$((young + 1))
     fi
-    # crates.io asks for about one request per second.
-    sleep 1
-done
+done <<PKGS
+$pkgs
+PKGS
 
 if [ "$unreachable" -gt 0 ] && [ "${COOLDOWN_ALLOW_UNREACHABLE:-0}" != "1" ]; then
     echo
@@ -143,4 +148,4 @@ if [ "$young" -gt 0 ]; then
     exit 1
 fi
 
-echo "cooldown: OK  every external package in $LOCK is at least $DAYS days old"
+echo "cooldown: OK  $checked external package(s) checked, youngest is $oldest day(s) old (window $DAYS)"
