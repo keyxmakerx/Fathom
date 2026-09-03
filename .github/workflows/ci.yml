@@ -1,4 +1,6 @@
-# The mechanical verification floor (78-execution-protocol.md §6: every PR, no exceptions).
+# The mechanical verification floor (78-execution-protocol.md §6: every PR, no exceptions),
+# plus the five-layer dependency gate WO-11 §5 step 0 designed.
+#
 # The toolchain is pinned by rust-toolchain.toml and rustup honours it — nothing here
 # chooses a version.
 #
@@ -6,19 +8,26 @@
 # it may rewrite Cargo.lock, so an earlier unlocked step silently repairs the lockfile the
 # later locked step was meant to catch: the gate passes and the drift ships. ADR-0032 §4.
 #
-# GATE ZERO IS NOW PRESENT (2026-08-15, scripts/gate-zero.sh): the build fails when
-# Cargo.lock gains a non-first-party package with no approval record in deps/decisions/.
-# ADR-0032 §6 requires it BEFORE any dependency lands, and the owner has approved the
-# first two crates, so it landed first — which is the whole substance of §6.
+# THE ORDERING IS THE CONTROL, and it is not cosmetic. ADR-0032 items 2 and 3 are the same
+# defect seen twice: a crate's build.rs executes on this runner before any gate produces a
+# result. So every check that can run without compiling anything runs first — gate zero,
+# the look-alike check, the three shell tests, then cargo-deny and cargo-audit, which read
+# `cargo metadata` and the lockfile and never invoke a build script. Only after all of them
+# does anything compile. A tripwire that runs after the code has already run is decoration.
 #
-# It runs FIRST, before any cargo command, because ADR-0032 item 2 and item 3 are the
-# same defect seen twice: a crate's build.rs executes on this runner before any gate
-# produces a result. A tripwire that runs after the code has already run is decoration.
+# THE FIVE LAYERS, and the honest gap (WO-11 §5 step 0):
 #
-# STILL NOT PRESENT: ADR-0034 §4's dependency-vulnerability scan. Gate zero checks that
-# a human wrote a record, not that the crate is free of known advisories. The advisory
-# check for the first two crates was done by hand and is recorded in their approval
-# records; it is not yet mechanical, and it should be.
+#   1. gate-zero               a crate arriving with no human approval record
+#   2. cargo-deny              an unexpected registry, a bad licence, a duplicate version,
+#                              a named-and-banned crate — see deny.toml
+#   3. cargo-audit             filed RustSec advisories and yanks
+#   4. --locked + a REVIEWED lockfile diff, plus scripts/lockfile-lookalikes.sh, which
+#                              makes the mechanical half of it mechanical
+#   5. scripts/crate-cooldown.sh   a release that lives ninety minutes
+#
+# NOTHING SANDBOXES A BUILD SCRIPT. Stable Rust has no equivalent of "install without
+# running scripts", which is exactly how the August 2026 payload ran. Layers 2, 4 and 5
+# are the mitigation — not a sandbox, because there is not one.
 name: gates
 on:
   push:
@@ -34,9 +43,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Before rustup, before cargo, before anything can execute a build script.
+      # ---- Layer 1, and everything else that needs no toolchain at all. ----
+
       - name: Gate zero — no unapproved dependency
         run: ./scripts/gate-zero.sh
+
+      - name: Layer 4 (mechanical half) — no look-alike crate names
+        run: ./scripts/lockfile-lookalikes.sh
+
+      # The gates' own tests. A gate nobody has watched fail is not known to work,
+      # so each of these drives its gate over fixtures and asserts it FAILS on the
+      # bad case — including the August 2026 shape, proc-macro1 beside proc-macro2.
+      - name: The gates' own tests
+        run: |
+          ./scripts/tests/gate-zero-test.sh
+          ./scripts/tests/lockfile-lookalikes-test.sh
+          ./scripts/tests/crate-cooldown-test.sh
+
+      # ---- Layers 2 and 3, still before anything compiles. ----
+
+      # Pinned, checksummed release binaries rather than `cargo install`: building
+      # either tool from source compiles ~200 crates and runs their build scripts,
+      # which is the hazard these tools exist to gate.
+      - name: Fetch cargo-deny and cargo-audit (pinned, checksummed)
+        run: |
+          ./scripts/ci/fetch-audit-tools.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Install the pinned toolchain (reads rust-toolchain.toml)
         run: rustup toolchain install
@@ -44,9 +76,29 @@ jobs:
       # ADR-0032 item 2: --locked on EVERY invocation, and a metadata check first.
       # Without this, an unlocked step re-resolves and writes a fresh Cargo.lock that
       # the next --locked step then reads and finds consistent, so the gate passes and
-      # the drift ships.
+      # the drift ships. cargo metadata does not run build scripts.
       - name: Lockfile is consistent and complete
         run: cargo metadata --locked --offline --format-version 1 > /dev/null
+
+      - name: Layer 2 — cargo-deny (sources, licences, bans, duplicates)
+        run: cargo-deny --manifest-path Cargo.toml --locked check
+
+      - name: Layer 3 — cargo-audit against the RustSec database
+        run: cargo-audit audit --file Cargo.lock
+
+      # G3's positive control: cargo-audit is handed a lockfile pinning a version
+      # with a real filed advisory and must reject it, then the patched version and
+      # must accept it. Without the second half, a gate that refuses everything
+      # would look identical to a gate that works.
+      - name: Layer 3's positive control
+        run: ./scripts/tests/advisory-gate-test.sh
+
+      # ---- Layer 5. Needs the crates.io API, so it is last of the five. ----
+
+      - name: Layer 5 — the version cooldown
+        run: ./scripts/crate-cooldown.sh
+
+      # ---- The verification floor (78 §6). Everything below this line compiles. ----
 
       - name: Format
         run: cargo fmt --all --check

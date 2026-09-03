@@ -163,16 +163,40 @@ right, because a guess in the tree is a decision made by whoever typed first.
 
 ## 6. The verification floor
 
-Every PR, before push, in this order, locally — CI is a backstop for the first four rows, never
-the first run:
+Every PR, before push, in this order, locally — CI is a backstop for every row but the last,
+never the first run:
 
 | Command | Expected |
 |---|---|
+| `./scripts/gate-zero.sh` | `gate-zero: OK`, exit 0 |
+| `./scripts/lockfile-lookalikes.sh` | `lookalikes: OK`, exit 0 |
+| `./scripts/tests/gate-zero-test.sh` | 10 passed, 0 failed |
+| `./scripts/tests/lockfile-lookalikes-test.sh` | 10 passed, 0 failed |
+| `./scripts/tests/crate-cooldown-test.sh` | 11 passed, 0 failed |
+| `cargo deny check` | `advisories ok, bans ok, licenses ok, sources ok` |
+| `cargo audit --file Cargo.lock` | exit 0, no vulnerability |
+| `./scripts/tests/advisory-gate-test.sh` | 3 passed, 0 failed |
+| `./scripts/crate-cooldown.sh` | `cooldown: OK`, exit 0 |
 | `cargo fmt --all --check` | No output, exit 0 |
 | `cargo clippy --all-targets -- -D warnings` | Builds clean, exit 0 |
 | `cargo test --workspace --locked` | Every suite `ok`, zero failures |
 | `cargo run -p fathom-schema --bin fathom-schema-check` | Exit 0, `0 failure(s)` |
 | The work order's own acceptance gates | Exactly the output the work order states |
+
+**The first nine rows are new on 2026-09-03 (WO-11 §5 steps 0–2) and they run BEFORE anything
+compiles.** That ordering is the control and not a preference: a crate's `build.rs` executes on
+the machine before any gate that runs after compilation can produce a result, so every check
+that can be made without compiling is made first. `gate-zero`, the look-alike check and the three
+shell tests need no toolchain at all; `cargo deny` and `cargo audit` read `cargo metadata` and the
+lockfile and never invoke a build script.
+
+The counts in the *Expected* column are the current ones, and **green is the gate, not the
+number** — a test added to one of those scripts moves its count and that is not a failure. A
+count going DOWN is.
+
+`cargo deny` and `cargo audit` are pinned, checksummed release binaries fetched by
+`scripts/ci/fetch-audit-tools.sh`, not `cargo install` builds: compiling either from source runs
+roughly two hundred crates' build scripts, which is the hazard they exist to gate.
 
 The schema checker's standing baseline is **no warnings at all**, since 2026-08-09. It was two
 `schema.identity.unexercised` against `Site` for the whole of the tree's life before that; `Site`
@@ -180,14 +204,21 @@ and `Device` now declare identity tuples and the mismatch is gone rather than su
 (`70` §16.3). Any change to the warning set that the work order does not predict is a red gate —
 which is now a sharper instrument than it was, because the baseline it is measured against is
 empty and `crates/fathom-schema/tests/shipped_tree.rs` pins it there. CI (`.github/workflows/ci.yml`, the `gates` job)
-enforces the first four rows mechanically on every PR and every push to `main`, so for those
-four a session's model tier never decides whether the gates ran. The fifth row has no CI
+enforces every row above except the last mechanically on every PR and every push to `main`, so
+for those a session's model tier never decides whether the gates ran. The last row has no CI
 backstop and cannot have one — acceptance gates vary per work order. It runs locally only, and
 it is re-verified in PR review against the work order's Acceptance gates section; that is why §3
 step 10 requires the PR body to list every gate run and its result, verbatim. Where the four
 commands here and `ci.yml` diverge, the stricter side binds; a divergence is an escalation (§5
 item 7 bars execution sessions from editing workflows, so the fix is always planning work). As
-shipped, the four commands and `ci.yml`'s four gate steps match verbatim. `45` §19 specifies the
+shipped, the commands above and `ci.yml`'s gate steps match verbatim.
+
+**One divergence is recorded rather than hidden: §5 item 7 bars an EXECUTION session from
+editing a workflow, and `ci.yml` was edited on 2026-09-03 by the session executing WO-11.** The
+authority is the owner's own instruction that day — *"idk how we want to manage this if we can
+have git have some sort of security checker"* — which is planning-layer direction, not an
+execution session deciding for itself. The bar in §5 item 7 stands unchanged for every other
+case; this is an exception with a named source, not a precedent. `45` §19 specifies the
 full eventual gate set (T1–T32); the floor above is T1 plus the format, lint and schema gates,
 which predate the T-numbering.
 
