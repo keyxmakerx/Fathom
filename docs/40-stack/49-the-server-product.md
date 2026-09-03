@@ -1493,12 +1493,19 @@ Each with the consequence, in plain language.
    schema validation — and you take on hand-building the sync protocol. *If the server:* the
    product is much cheaper and faster to build, and every marketing sentence changes. **Most of
    §5 to §13 assumes the server holds them.**
-   **IN PROGRESS 2026-08-28** (`70` §18.1): the owner delegated this to evidence — *"what is
-   the most secure but optimised way of handling this? … others should have made similar
-   secure products. This is enterprise level though keep in mind"* — the same delegation shape
-   that settled §16.2's login model. An ADR-0034-compliant survey of enterprise practice and
-   comparable products was commissioned the same day; the recommendation lands in §3 when the
-   owner ratifies it. Not open, not closed.
+   ~~**IN PROGRESS 2026-08-28**~~ **CLOSED 2026-09-03 — ADR-0040.** The owner delegated this
+   to evidence on 2026-08-28 (`70` §18.1: *"what is the most secure but optimised way of
+   handling this? … others should have made similar secure products. This is enterprise level
+   though keep in mind"*), the ADR-0034 survey ran the same day, and he ratified it today by
+   saying *"start working on the server version."* **The server holds the keys and says so:**
+   a data key per tenant and per design from the first stored byte, wrapped so a
+   customer-supplied master key can replace the house key later without re-encrypting data;
+   the switch's destination is customer-managed keys (the market's enterprise tier, which
+   Lucid itself sells) and its trigger is **the first customer who is not the owner**; the
+   words *zero-knowledge*, *end-to-end* and *we cannot read your data* are forbidden until
+   that is true for a given customer. Invariant 4 is **scoped, not deleted**, in
+   `.context/conventions.md`. `38` §14's union rule is ratified alongside it.
+   **With this, §19's phase 0 has no open item left — phase 0 is complete.**
 2. ~~**Do organisations, users and designs go inside `schema/` as node kinds, or outside it as
    ordinary server tables?**~~ **ANSWERED 2026-08-28: outside, as ordinary server tables**
    (`70` §18.2 — *"what does users and orgs have anything to do with the graph? … would be

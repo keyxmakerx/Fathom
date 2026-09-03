@@ -87,10 +87,13 @@ is tested against what a device accepts, never against what the detector needs.
 
 ## Hard invariants — every document must be consistent with these
 
-> **Standing note — read this before arguing from invariants 1 and 2 (added 2026-08-28).**
-> **The invariants below are unamended and every one of them still binds.** But the owner has
-> changed what two of them are understood to *scope*, and several documents in this corpus argue
-> from the old reading. On 2026-08-18 he said, of invariant 1: *"this would be after we were full
+> **Standing note — read this before arguing from invariants 1, 2 or 4 (added 2026-08-28,
+> revised 2026-09-03).**
+> **INVARIANT 4 IS NOW AMENDED — by ADR-0040, and its own text below carries the scoping.** It
+> is the first invariant in this file to be formally amended rather than merely re-read, and
+> ADR-0040 §4 pays ADR-0002's precedent cost in the open. **Invariants 1 and 2 remain unamended
+> and every other one still binds as written.** But the owner has changed what those two are
+> understood to *scope*, and several documents in this corpus argue from the old reading. On 2026-08-18 he said, of invariant 1: *"this would be after we were full
 > server solution, so it wouldn't be that main rule anymore, that main rule is only for demo mode
 > like it is currently."* On 2026-08-18/21 he took the pivot decisions in
 > `docs/40-stack/49-the-server-product.md` §1 — data on the server, live multi-user editing,
@@ -99,8 +102,10 @@ is tested against what a device accepts, never against what the detector needs.
 > intent, recorded in `48` §1 and `49` §16: monitoring, config pulls, and an SCP firmware
 > distribution path.
 >
-> **Nothing here amends anything.** Amending an invariant is `03`'s and the owner's
-> (`48` §1, open decision 1), and `48` deliberately declined to do it. What this note exists to
+> **Nothing in THIS NOTE amends anything** — invariant 4's amendment is in its own text below,
+> under ADR-0040. Amending invariant 1 is still `03`'s and the owner's (`48` §1, open decision
+> 1), and `48` deliberately declined to do it; ADR-0040 §9 item 3 deliberately does not touch
+> it either. What this note exists to
 > stop is a fresh session reading this file first — as CLAUDE.md rule 2 tells it to — and then
 > reasoning from *"the product can never connect to anything, permanently"* as a settled premise
 > when the owner has said it governs the client-only mode he calls the demo. **Two readings are
