@@ -428,8 +428,30 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 - **`00-PROGRAM-PLAN.md`** (Proposed) remains the long-term shape: eleven stages, the unwritten work
   orders, and the tier-ordered owner list. Its tier 1 is **overstated by 4×** — four of its five
   are already on disk. The queue below stays the operational truth; on disagreement the queue wins.
-- **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — **nine of ten DONE**;
-  WO-04 (the emitters) is the one open order. **WO-10 (DHCP relay + bootp) is DONE as of
+- **THE SERVER HAS STARTED — phase 0 is complete and phase 1 has its first work order,
+  2026-09-03.** ADR-0040 ratified key custody, closing `49` §22 decision 1 and the last DECISION
+  item in phase 0, when the owner said *"start working on the server version"*. **The server
+  holds the keys and says so**: a data key per tenant AND per design from the first stored byte,
+  the wrap point built so a customer-supplied master key replaces the house key later by
+  re-wrapping keys rather than re-encrypting data; destination named (customer-managed keys —
+  what Slack, Salesforce, Atlassian, Miro and Lucid itself all sell), trigger named (**the first
+  customer who is not the owner**). **Four sentences are forbidden in writing** until that is
+  true for a customer — *zero-knowledge*, *end-to-end*, *we cannot read your data*, *only you
+  hold the key* — and the one that is true stays: device credentials are protected by never
+  arriving. **Invariant 4 is SCOPED, NOT DELETED** in `.context/conventions.md` (the first
+  invariant in that file formally amended rather than merely re-read; ADR-0002's precedent cost
+  paid in ADR-0040 §4), and **`38` §14's union rule is RATIFIED** after seventeen days cited as
+  unratified — nothing arriving after the build may reduce what the ingest gate destroys, only
+  increase it, with a CI check that makes it more than intent. **WO-11 is the first server order
+  and it is BLOCKED ON ONE OWNER ACT** (§5 step 0): ADR-0032 §5 makes crate approval
+  undelegatable, and this is where zero external dependencies becomes ~109 crates in the month a
+  build-script supply-chain attack hit crates.io. The order builds the smallest server that
+  proves the stack and spends its effort on the gate — and its Disagreements §1 argues that 109
+  individual owner approvals would be a WEAKER control than the closure-document pattern
+  `deps/decisions/00-CLOSURE.md` already set on 2026-08-15, because the only way one person
+  finishes 109 is by skimming.
+- **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — **nine of eleven DONE**;
+  WO-04 (the emitters) and WO-11 (the server skeleton) are the open orders. **WO-10 (DHCP relay + bootp) is DONE as of
   2026-08-29** — schema 0.4 → 0.5: the `DhcpRelay` kind, `HasDhcpRelay`, `RelaysFor`, and
   `RelayServerIn`, the third edge the owner chose (*"1 now please"*, `70` §18.5) after the order
   stopped at its own Step 0 on 2026-08-28 because Juniper's grammar admits `routing-instance` on a
