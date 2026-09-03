@@ -72,3 +72,26 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
     "fmt",
     "std",
 ] }
+
+# tokio-postgres 0.7.18 with deadpool-postgres 0.14.2. `49` §6 chose this over
+# sqlx on a measurement: 58 crates in the build graph against sqlx's 124,
+# measured 2026-08-21. `35` §5.1's cap is 160 in the closure, so sqlx would have
+# spent 36 of the remaining budget on one convenience.
+#
+# NO TLS FEATURE, AND THAT IS TRIGGER 4 MADE CONCRETE. `49` §6 keeps C7 -- no C
+# or C++ in the shipped closure -- only if TLS is terminated IN FRONT of the
+# binary, because rustls's crypto provider (`ring` or `aws-lc-sys`) brings C and
+# assembly back in. `43` §5.4 already decided TLS in front by default. So no
+# `with-native-tls` and no `with-rustls`, and PostgreSQL sits on a Unix socket
+# or loopback where there is nothing to encrypt against. `deny.toml` bans all
+# four of the C carriers by name, so this cannot be undone by accident.
+#
+# tokio-postgres 0.7.18 is EXACTLY the patched version for RUSTSEC-2026-0178
+# (2026-06-12): a malicious or compromised server sending a DataRow with fewer
+# fields than its row description declares makes `Row::get` -- and the
+# supposedly non-panicking `try_get` -- panic on an out-of-bounds index. See
+# deps/decisions/tokio-postgres.md.
+tokio-postgres = { version = "0.7.18" }
+deadpool-postgres = { version = "0.14.2", default-features = false, features = [
+    "rt_tokio_1",
+] }

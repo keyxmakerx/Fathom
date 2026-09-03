@@ -8,7 +8,7 @@
 | **Licence** | MIT — compatible with ADR-0004, on `deny.toml`'s allow list |
 | **Ships or tooling** | **Ships.** Linked into the `fathom-server` binary, never into the WASM module |
 | **`build.rs`** | None in this crate, and none in `tracing-core` |
-| **Proc macros** | **None enabled.** `attributes` — the feature that brings `tracing-attributes`, a proc-macro crate, for `#[instrument]` — is deliberately OFF. Spans opened by hand cost a line each and cost no compile-time code execution |
+| **Proc macros** | **`tracing-attributes` IS in the closure, and this manifest did not ask for it.** See the correction below — the `attributes` feature is off in `crates/fathom-server/Cargo.toml` and cargo turns it back on anyway |
 | **Determinism** | A log line is an observation of the host, not a computation below the boundary. Invariant 9 is unaffected: nothing in `fathom-layout`, `fathom-emit` or the graph takes a subscriber |
 
 ## Why not first-party
@@ -29,6 +29,29 @@ print it, so the mistake has to be made deliberately rather than by writing `{:?
 
 This is the same shape as invariant 3 on the client: the protection is *not having the value
 where the mistake would print it*.
+
+## CORRECTION, 2026-09-03: a feature turned off here is turned back on by a sibling
+
+**Recorded rather than quietly fixed, because it is the more useful finding.** This record was
+written saying `attributes` — the feature that brings `tracing-attributes`, a proc-macro crate,
+for `#[instrument]` — is "deliberately OFF", and the manifest does say
+`default-features = false, features = ["std"]`. **That statement was false in effect within one
+commit.**
+
+`deadpool-postgres 0.14.2` declares `tracing = "0.1.37"` **without** `default-features = false`,
+and `tracing`'s defaults are `["std", "attributes"]`. Cargo unifies features across the graph, so
+`attributes` is on, `tracing-attributes` is in the closure, and it brings `syn 2.0.119` beside the
+`syn 3.0.4` that `async-trait` and `tokio-macros` use. That duplicate is why `deny.toml` carries
+two `[[bans.skip]]` entries with this explanation attached.
+
+**The general lesson, which outlives this crate:** a feature disabled in *your* manifest is a
+request, not a guarantee. It holds only while no other crate in the graph asks for it. Any claim
+of the form *"we do not compile X"* has to be checked against the resolved graph — `cargo tree`
+— and not against the manifest that asked. `00-CLOSURE.md`'s `default-features = false` argument
+for the crypto crates is safe from this only because nothing else in that graph depends on them.
+
+Neither copy of `syn` is linked into the binary; both are build-time. The cost is compile time and
+two more crates to keep an eye on, not shipped code.
 
 ## Advisories
 
