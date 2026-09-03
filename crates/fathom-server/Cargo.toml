@@ -1,0 +1,30 @@
+[package]
+name = "fathom-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The server: the thing that thinks, while the browser looks (49 §5). WO-11's skeleton — it starts, it answers a health check, and it stores nothing."
+
+[[bin]]
+name = "fathom-server"
+path = "src/main.rs"
+
+[dependencies]
+# ADDED ONE AT A TIME, each with its own deps/decisions record and the closure
+# document re-measured on arrival (WO-11 §5 step 3). Four commits, four green
+# gates -- deliberately not "add them all and reconcile afterwards", because the
+# point is that the gate is exercised on every arrival.
+#
+# default-features = false everywhere it is possible. It is not tidiness: 49 §6
+# keeps C7 (no C or C++ in the shipped closure) only if nothing drags in a
+# platform TLS stack, and a default feature is the usual way that happens
+# without anyone choosing it. deps/decisions/00-CLOSURE.md §"Why
+# default-features = false is a security control" is the precedent.
+tokio = { version = "1.53.1", default-features = false, features = [
+    "rt-multi-thread",
+    "net",
+    "macros",
+    "signal",
+    "time",
+] }

@@ -14,6 +14,7 @@ members = [
     "crates/fathom-layout",
     "crates/fathom-schema",
     "crates/fathom-schemagen",
+    "crates/fathom-server",
     "crates/fathom-wasm",
     "crates/fathom-weld",
     "crates/fathom-workspace",
@@ -27,10 +28,23 @@ edition = "2021"
 license = "Apache-2.0"
 publish = false
 
-# No external dependencies anywhere in the workspace yet. That is a position,
-# not an accident (35-supply-chain-and-builds.md): the schema toolchain parses
-# a deliberate YAML subset (62 §2.2) precisely so it does not need a general
-# YAML implementation, and fathom-id needs nothing but core.
+# THE CLIENT SIDE STILL HAS ZERO EXTERNAL DEPENDENCIES, and that is a position
+# rather than an accident (35-supply-chain-and-builds.md): the schema toolchain
+# parses a deliberate YAML subset (62 §2.2) precisely so it does not need a
+# general YAML implementation, and fathom-id needs nothing but core.
+#
+# The SERVER side spends that position deliberately, starting 2026-09-03 with
+# WO-11. Every external crate is declared in crates/fathom-server/Cargo.toml and
+# nowhere else, so nothing can reach the WASM module by accident:
+# fathom-wasm/tests/artifact_gates.rs and wasmbin.rs's empty IMPORT_ALLOWLIST
+# both fail if it does. 49 §20 is the framing -- "that is the project's greatest
+# current security advantage, and it is about to be spent. Spend it
+# deliberately." The five layers in .github/workflows/ci.yml are how.
+#
+# This table stays EMPTY on purpose. A workspace-wide dependency table would let
+# a crate be inherited with `workspace = true` from anywhere, including the
+# client crates; declaring each in the one crate that needs it keeps the blast
+# radius visible in the manifest itself.
 [workspace.dependencies]
 
 # 42 §8.1's release profile — the one the WASM artifact gates measure under.
