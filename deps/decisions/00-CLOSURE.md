@@ -3,13 +3,44 @@
 `cargo tree --edges normal` over `argon2 0.5` and `chacha20poly1305 0.10`, both with
 **`default-features = false`**, which is load-bearing rather than tidy — see below.
 
-    aead            base64ct       blake2         block-buffer   cfg-if
-    chacha20        cipher         cpufeatures    crypto-common  digest
-    generic-array   inout          opaque-debug   password-hash  poly1305
-    rand_core       subtle         typenum        universal-hash zeroize
-    argon2          chacha20poly1305
+<!-- gate-zero:closure approved-by="the owner" date="2026-08-15" -->
 
-**Twenty-two crates.** Against `35` §5.1's caps: C2 is ≤ 160 total (22 ✓).
+| crate | how it arrives |
+|---|---|
+| `argon2` | chosen — `deps/decisions/argon2.md` |
+| `chacha20poly1305` | chosen — `deps/decisions/chacha20poly1305.md` |
+| `aead` | transitive |
+| `base64ct` | transitive |
+| `blake2` | transitive |
+| `block-buffer` | transitive |
+| `cfg-if` | transitive |
+| `chacha20` | transitive |
+| `cipher` | transitive |
+| `cpufeatures` | transitive |
+| `crypto-common` | transitive |
+| `digest` | transitive |
+| `generic-array` | transitive |
+| `inout` | transitive |
+| `opaque-debug` | transitive |
+| `password-hash` | transitive |
+| `poly1305` | transitive |
+| `rand_core` | transitive |
+| `subtle` | transitive |
+| `typenum` | transitive |
+| `universal-hash` | transitive |
+| `zeroize` | transitive |
+
+<!-- gate-zero:end -->
+
+**Twenty-two crates.**
+
+> **The markers above are new (2026-09-03, WO-11 §5 step 1) and the list is not.** The names,
+> the measurement and the approval date are unchanged; what changed is that
+> `scripts/gate-zero.sh` can now READ them, so this document is a gate entry rather than a
+> record of one. The two crates marked *chosen* keep their individual records regardless —
+> the gate requires a record for every direct dependency and a closure never covers one.
+> Neither crate is vendored, so nothing here is currently admitting anything: this document
+> was made machine-readable while it was still inert, which is the only safe time to do it. Against `35` §5.1's caps: C2 is ≤ 160 total (22 ✓).
 
 ## Why `default-features = false` is a security control, not a preference
 
