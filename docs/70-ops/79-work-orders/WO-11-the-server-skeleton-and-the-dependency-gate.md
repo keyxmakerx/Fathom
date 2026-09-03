@@ -1,12 +1,30 @@
 # WO-11 — The server skeleton, and the gate that survives 109 crates
 
-> **Status: OPEN.** No dependencies. **This is the first server-side work order and phase 1's
-> first row.** Phase 0 completed 2026-09-03 when ADR-0040 closed `49` §22's decision 1; the
-> owner said *"start working on the server version"* the same day.
+> **Status: OPEN — unblocked by the owner 2026-09-03, and its step 0 replaced.** No
+> dependencies. **The first server-side work order and phase 1's first row.**
 >
-> **It carries ONE owner act that cannot be delegated and must happen before any code lands —
-> §5 step 0.** Read it first. If it has not happened, this order is BLOCKED on the owner and a
-> session must not begin.
+> **WHAT CHANGED.** This order was authored blocked on an owner act: ADR-0032 §5 makes crate
+> approval undelegatable, and ~109 crates meant ~109 approvals. The owner lifted it the same
+> day — *"Oh no you can use borrowed code, much of those original constraints are gone"* — and
+> asked for the better control instead: *"idk how we want to manage this if we can have git have
+> some sort of security checker, and have security in your like context at all times, but this
+> is intended to be an enterprise level thing."*
+>
+> So the objective is unchanged and the instrument is: **automated checking on every commit,
+> forever, instead of one meeting.** §5 step 0 is now the gate design rather than a signature,
+> and it is built from an ADR-0034 survey run 2026-09-03 with sources and dates.
+>
+> **THE SURVEY'S CENTRAL FINDING, which decides this order's shape: no scanner would have caught
+> the August 2026 attack.** The poisoned `arrayref`, `internment` and `append-only-vec` releases
+> depended on `proc-macro1`, a typosquat of `proc-macro2`, whose build script downloaded and ran
+> a payload — so merely compiling was enough. They were **deleted 86–107 minutes after
+> publication rather than yanked with an advisory**, so there is nothing in any advisory database
+> to match and `cargo audit` returns clean for anyone who built in that window. Every
+> advisory-keyed tool — `cargo audit`, Dependabot, GitHub's dependency review — is defeated by
+> construction by *publish, wait, delete*. The two controls that would have caught it are
+> `--locked` in CI (this project already has it) and **a human reading the `Cargo.lock` diff**,
+> because a new entry named `proc-macro1` beside `proc-macro2` is invisible to a scanner and
+> impossible to miss on sight.
 
 ## 0. Contents
 
@@ -81,6 +99,15 @@ Verified 2026-09-03 against the tree:
 1. **`scripts/gate-zero.sh` taught the closure pattern** — a crate satisfies the gate if it has
    its own record **or** is listed in an approved closure document. Individual records stay
    required for every **direct** dependency. §5 step 1.
+1b. **`deny.toml`** carrying the source allowlist, the licence policy, the ban list and
+   duplicate-version detection, with `cargo deny check` in CI. **The source allowlist is the
+   single most valuable line in it** — it is what a typosquat from an unexpected registry trips.
+1c. **A version cooldown**, refusing any crate version younger than the chosen window, with the
+   window and its reasoning recorded.
+1d. **The lockfile-diff rule, written down where a reviewer will see it**: any PR changing
+   `Cargo.lock` says so in its own description, listing every added crate by name. This is the
+   control that would have caught August and it is the only one that is a human habit rather
+   than a program.
 2. **`deps/decisions/00-CLOSURE-SERVER.md`** — the measured closure for this order's
    dependencies, one row per crate: name, version, publisher, licence, whether it ships or is
    build/test-only, whether it has a `build.rs` or is a proc-macro, and its advisory status.
@@ -100,18 +127,30 @@ Verified 2026-09-03 against the tree:
 
 ## 5. The plan
 
-**Step 0 — THE OWNER ACT, BEFORE ANY CODE. This step is not a session's to perform.**
+**Step 0 — THE GATE DESIGN, BEFORE ANY CRATE. Not a signature; a set of controls.**
 
-ADR-0032 §5 makes crate approval an owner act that may not be delegated. This order needs the
-owner to approve, in one sitting and in writing:
+Five layers, each catching what the others cannot. Versions and maintenance status verified
+2026-09-03; **re-verify before pinning** (ADR-0034).
 
-- **the closure-document pattern** as satisfying that requirement for transitive crates
-  (Disagreements 1 explains why 109 individual records is a worse control, not a better one);
-- **the direct dependency list** from `49` §6's table, each of which gets its own record.
+| layer | catches | does not catch |
+|---|---|---|
+| **`cargo deny`** — advisories, **licences**, a **ban list**, **duplicate versions**, and a **source allowlist** restricting which registries a crate may come from at all | a typosquat resolving from an unexpected source; a licence that cannot ship; two versions of one crate, which is how a typosquat hides beside the real one | anything undisclosed |
+| **`cargo audit`** — the RustSec database, updated near-daily | known, filed vulnerabilities and yanks | **the August attack** — deleted, never filed |
+| **`--locked` + the lockfile diff is REVIEWED** | exactly the August attack | nothing, if nobody looks |
+| **a version cooldown** — refuse any crate version younger than N days | a malicious release that lives 90 minutes | a patient attacker |
+| **GitHub secret scanning + push protection** | a crates.io token reaching a commit; crates.io auto-revokes one GitHub reports | code |
 
-A session that finds no such approval recorded **stops here and reports it**. It does not
-approve on the owner's behalf, and it does not start with "just the skeleton" — the skeleton is
-what brings the crates.
+**`cargo vet` is deliberately NOT in the first cut** and the reason is a measurement, not a
+preference: Mozilla, Google and the Bytecode Alliance publish ~7,000 audits over ~1,900 crates,
+every one of the 100 most-downloaded is covered — and an independent 2026 study found the median
+adopting project still carries **131 manual exemptions**. It is worth adopting later, with eyes
+open about that number; it is not a control this order can claim to have.
+
+**And one gap that is honest to state rather than paper over: NOTHING sandboxes a build script.**
+Stable Rust has no equivalent of *install without running scripts*, which is exactly how the
+August payload ran. The one tool that tries is Linux-only and experimental, and the Rust project
+itself still lists sandboxed build scripts as an open problem. The mitigation is the source
+allowlist plus the cooldown plus the lockfile diff — not a sandbox, because there is not one.
 
 **Step 1 — the gate first, while the lockfile is still clean.**
 
