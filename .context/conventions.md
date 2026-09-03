@@ -129,6 +129,17 @@ is tested against what a device accepts, never against what the detector needs.
    reaches the encryptor (`14` §9.9). The secrets the application does hold are enumerated
    in `32` §21.3 and `33` §18.3, and that enumeration is exhaustive: adding one requires
    amending this invariant.
+   **Annotated 2026-09-03 (ADR-0041), scope only — the sentence above is not amended.** The
+   redaction this invariant promises is the INGEST GATE's, and the gate has exactly one
+   caller: `OP_PASTE`. It covers a pasted capture. It does not cover a value typed by hand
+   into any of the schema's nineteen free-text `notes`/`description` fields — `OP_FIELD_SET`,
+   `OP_EQUIP_ADD`, the cable and port label writes, and rack placement all parse raw text
+   straight into a typed slot, ungated. That gap is real, is not closed by this note, and is
+   proved through the shipped artifact by
+   `docs/80-review/evidence/2026-09-03-the-gate-is-only-on-the-paste-box.mjs`. ADR-0041's
+   answer is not to gate that door — a hand-typed value still saves and exports exactly as
+   typed — but to MARK a value that looks like a credential wherever it is shown, via the one
+   Rust detector `fathom_ingest::redact::looks_like_credential`, never a refusal.
 4. **The server never holds secret key material — IN A ZERO-KNOWLEDGE DEPLOYMENT, WHICH THE
    HOSTED MULTI-TENANT SERVER IS NOT.** Amended and scoped by **ADR-0040 (2026-09-03)**, the
    written record `49` §3 decision 4 required before the server held its first byte. Where it

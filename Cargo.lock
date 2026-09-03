@@ -69,6 +69,7 @@ version = "0.1.0"
 dependencies = [
  "fathom-graph",
  "fathom-id",
+ "fathom-ingest",
  "fathom-inventory",
  "fathom-ir",
 ]

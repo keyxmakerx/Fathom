@@ -147,10 +147,19 @@ impl InvKind {
 /// (invariant 7). `opinions` is "—" in this build: no rule engine exists,
 /// and the column is structural (52 §3.7.1), so it renders empty rather
 /// than being dropped.
+///
+/// `hints` is ADR-0041's mark, D6/D7: a comma-separated list of 0-based
+/// indices into `cells` whose value `fathom_ingest::redact::looks_like_credential`
+/// flagged, empty when none. **Never a stored fact (ADR-0008) and never
+/// written to the graph** — it is recomputed every time a row is built, from
+/// whatever the cell currently reads, exactly like `opinions` would be if a
+/// rule engine existed. It is an OPINION about a value already in the graph,
+/// not a claim about what the value is.
 pub struct Row {
     pub id: String,
     pub cells: Vec<String>,
     pub opinions: &'static str,
+    pub hints: String,
 }
 
 /// The opinions cell in a build with no rule engine. The column stays.
@@ -491,12 +500,31 @@ pub fn rows(g: &Graph, kind: InvKind) -> Vec<Row> {
         // trust what it shows. Provenance and history are how you ask what USED
         // to be true, and both still hold the node.
         .filter(|n| n.absent_since.is_none())
-        .map(|n| Row {
-            id: n.id.to_string(),
-            cells: cells(g, kind, n.id),
-            opinions: NO_OPINION,
+        .map(|n| {
+            let cells = cells(g, kind, n.id);
+            let hints = credential_hints(&cells);
+            Row {
+                id: n.id.to_string(),
+                cells,
+                opinions: NO_OPINION,
+                hints,
+            }
         })
         .collect()
+}
+
+/// ADR-0041 D5/D6/D7: which cells, by 0-based index, look like a credential.
+/// Computed HERE, where every row set is built, so every row set inherits
+/// the mark rather than one surface reimplementing it. A hint, never a fact
+/// — nothing here writes to the graph, and nothing here refuses a value.
+fn credential_hints(cells: &[String]) -> String {
+    let mut hits = Vec::new();
+    for (i, cell) in cells.iter().enumerate() {
+        if fathom_ingest::redact::looks_like_credential(cell) {
+            hits.push(i.to_string());
+        }
+    }
+    hits.join(",")
 }
 
 /// One row's cells, in column order, straight off the same table `columns` and
@@ -767,5 +795,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// ADR-0041 D6/D7: `Row.hints` names the cell that trips
+    /// `fathom_ingest::redact::looks_like_credential` and leaves an
+    /// ordinary-looking neighbour alone — `looks_like_credential`'s own unit
+    /// tests (`fathom-ingest`) pin the detector itself; this pins that
+    /// `credential_hints` (and therefore `rows()`) wires the hit to the right
+    /// cell INDEX and does not fire on every cell of a row that happens to
+    /// hold one credential-shaped value.
+    #[test]
+    fn credential_hints_names_only_the_tripped_column() {
+        let cells = vec![
+            "ge-0/0/3".to_owned(),
+            "srx-branch-01".to_owned(),
+            "IPsec PSK: n3JHwd82ka0ppwiVzLp7YXjLp2Qz3Rt5Uv1Wx2Yz3".to_owned(),
+            "unit0, unit1".to_owned(),
+        ];
+        assert_eq!(credential_hints(&cells), "2");
+
+        let clean = vec![
+            "ge-0/0/4".to_owned(),
+            "srx-branch-01".to_owned(),
+            "backup link to the Denver PSK gateway".to_owned(),
+            "unit0".to_owned(),
+        ];
+        assert_eq!(credential_hints(&clean), "", "ordinary prose is not hinted");
     }
 }

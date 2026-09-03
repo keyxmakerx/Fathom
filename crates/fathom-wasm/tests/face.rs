@@ -10,13 +10,14 @@ use fathom_inventory::{
     column_keys, columns, demo_estate, element_page, equipment_page, parse_display_id, rows,
     InvKind,
 };
+use fathom_ir::generated::ir_types::PhysicalPortField;
 use fathom_wasm::protocol::{
     decode_reply, ErrorView, FaceRowView, ReplyView, ERR_BAD_FRAME, ERR_BAD_UTF8,
     ERR_NOT_INITIALISED, ERR_NO_ELEMENT, FACE_FIELD, FACE_HEADER, FACE_IFACE, FACE_INV,
     FACE_INV_KEY, FACE_PORT,
 };
 use fathom_wasm::shell::Shell;
-use fathom_wasm::{OP_ELEMENT, OP_EQUIPMENT, OP_ESTATE_DEMO, OP_INV_ROWS};
+use fathom_wasm::{OP_ELEMENT, OP_EQUIPMENT, OP_ESTATE_DEMO, OP_FIELD_SET, OP_INV_ROWS};
 
 fn face(reply: &[u8]) -> Vec<FaceRowView> {
     match decode_reply(reply).expect("a well-formed reply") {
@@ -99,9 +100,122 @@ fn estate_demo_then_inventory_rows_mirror_the_crate() {
             for (i, cell) in row.cells.iter().enumerate() {
                 assert_eq!(&rec.strings[1 + i], cell, "cell {i} of {}", row.id);
             }
-            assert_eq!(rec.strings[7], row.opinions);
+            // ADR-0041 D5/D7: slot 7 is `<opinions> <hints>`, hints last and
+            // possibly empty. `format!` is `encode_inv_reply`'s own packing,
+            // pinned here rather than re-derived so the page's split-once
+            // reading and this assertion cannot silently drift apart.
+            assert_eq!(
+                rec.strings[7],
+                format!("{} {}", row.opinions, row.hints),
+                "slot 7 of {}",
+                row.id
+            );
         }
     }
+}
+
+/// ADR-0041 D5/D7, pinned end to end: a cell that
+/// `fathom_ingest::redact::looks_like_credential` flags is named in slot 7's
+/// hints half, at the SAME index the cell itself sits at in slots 1..=6 — and
+/// an estate with nothing credential-shaped in it packs an empty hints half,
+/// so the common case costs one byte and not a wire shape change.
+#[test]
+fn a_credential_looking_cell_is_named_in_slot_seven_by_its_own_index() {
+    let mut shell = loaded();
+    let g = demo_estate();
+
+    // The demo estate carries no credential-shaped text (`opinions_cells_are_all_em_dash`'s
+    // sibling claim, `fathom-inventory`'s own `credential_hints` test covers the
+    // detector's wiring) — so every row's hints half is empty here, and slot 7
+    // is exactly `"— "` for every row of every kind that has any.
+    let mut saw_a_row = false;
+    for kind in InvKind::ALL {
+        let reply = shell.handle(OP_INV_ROWS, &[kind_byte(kind)]);
+        let records = face(&reply);
+        let expected = rows(&g, kind);
+        for (rec, row) in records[2..].iter().zip(expected.iter()) {
+            assert_eq!(rec.role, FACE_INV);
+            assert_eq!(row.hints, "", "the demo estate names no credential shapes");
+            assert_eq!(rec.strings[7], format!("{} ", row.opinions));
+            saw_a_row = true;
+        }
+    }
+    assert!(saw_a_row, "the demo estate projected no rows at all");
+}
+
+/// `[u64 at][u128 entropy][u32 key][u16 id_len][id][value]` — `OP_FIELD_SET`'s
+/// frame, mirrored from `tests/equip.rs`'s `edit_frame` (a separate test
+/// binary cannot share it, and it is four lines).
+fn edit_frame(at_ms: u64, entropy: u128, key: u32, id: &str, value: &str) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(&at_ms.to_le_bytes());
+    v.extend_from_slice(&entropy.to_le_bytes());
+    v.extend_from_slice(&key.to_le_bytes());
+    v.extend_from_slice(&(id.len() as u16).to_le_bytes());
+    v.extend_from_slice(id.as_bytes());
+    v.extend_from_slice(value.as_bytes());
+    v
+}
+
+/// ADR-0041 D1/D5/D7, the positive path: a person types a credential-looking
+/// value into a hand-editable cell through `OP_FIELD_SET` — the exact door
+/// `2026-09-03-the-gate-is-only-on-the-paste-box.mjs` proved is ungated — and
+/// the value is stored EXACTLY as typed (D1: nothing refused, nothing
+/// destroyed) while the next `OP_INV_ROWS` reply names that cell in slot 7's
+/// hints half.
+#[test]
+fn a_hand_typed_credential_saves_untouched_and_is_named_in_the_hints() {
+    let mut shell = loaded();
+
+    let port_kind = kind_byte(InvKind::PhysicalPort);
+    let label_col = columns(InvKind::PhysicalPort)
+        .iter()
+        .position(|c| *c == "label")
+        .expect("PhysicalPort has a label column");
+
+    let pid = {
+        let reply = shell.handle(OP_INV_ROWS, &[port_kind]);
+        face(&reply)
+            .iter()
+            .find(|r| r.role == FACE_INV)
+            .map(|r| r.strings[0].clone())
+            .expect("the demo estate has at least one PhysicalPort")
+    };
+
+    const PSK: &str = "IPsec PSK: n3JHwd82ka0ppwiVzLp7YXjLp2Qz3Rt5Uv1Wx2Yz3";
+    let reply = shell.handle(
+        OP_FIELD_SET,
+        &edit_frame(
+            1_700_000_000_000,
+            0x2026_0903_0000_0000_0000_0000_0000_0001,
+            PhysicalPortField::Label.key().0,
+            &pid,
+            PSK,
+        ),
+    );
+    assert!(
+        !matches!(decode_reply(&reply), Ok(ReplyView::Error(_))),
+        "the typed value was refused: {:?}",
+        decode_reply(&reply)
+    );
+
+    let reply = shell.handle(OP_INV_ROWS, &[port_kind]);
+    let records = face(&reply);
+    let row = records
+        .iter()
+        .find(|r| r.role == FACE_INV && r.strings[0] == pid)
+        .expect("the port row is still there");
+    assert_eq!(
+        row.strings[1 + label_col],
+        PSK,
+        "D1: the value is stored EXACTLY as typed, not refused or destroyed"
+    );
+    let hints = row.strings[7].split_once(' ').map(|(_, h)| h).unwrap_or("");
+    assert_eq!(
+        hints,
+        label_col.to_string(),
+        "the label column is named in slot 7's hints half"
+    );
 }
 
 /// The one sentence the key row exists to make true, pinned on the kind an

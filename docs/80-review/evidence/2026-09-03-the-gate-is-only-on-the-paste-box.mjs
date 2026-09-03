@@ -39,9 +39,11 @@
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
 import { fileURLToPath as __f } from 'node:url';
 import { dirname as __d, resolve as __r } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 const ROOT = process.argv[2] || __r(__d(__f(import.meta.url)), '..', '..', '..');
-const FILE = process.env.FATHOM_ARTIFACT || ('file://' + ROOT + '/target/artifact/fathom-dev.html');
+const ARTIFACT_PATH = process.env.FATHOM_ARTIFACT_PATH || (ROOT + '/target/artifact/fathom-dev.html');
+const FILE = process.env.FATHOM_ARTIFACT || ('file://' + ARTIFACT_PATH);
 
 const results = [];
 const check = (name, ok, detail) => {
@@ -185,6 +187,117 @@ const afterPaste = await page.evaluate(() => document.body.innerText);
 check('a PASTED pre-shared key is destroyed at the gate',
   !afterPaste.includes(PSK),
   'the gate works on the path it covers — the hole is that this is the only path');
+
+// ---- 5. THE MARK — ADR-0041: the same hole, marked rather than closed -----
+//
+// Sections 1-3 proved the hole and MUST STILL FAIL exactly as they did
+// before this record — the hole is not closed here, it is marked. What this
+// section proves is that the value section 2 typed and stored is now
+// FLAGGED, in the cell, beside itself, and that nothing about section 2's
+// save changed: the value is still there, untouched.
+
+console.log('\n5. THE MARK — ADR-0041 D1-D4, D6');
+await page.click('[data-view="inventory"]');
+await page.waitForTimeout(250);
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll('[data-kind]')].find((n) => /^interface$/i.test(n.textContent.trim()));
+  if (b) b.click();
+});
+await page.waitForTimeout(300);
+
+/* Section 2 typed `'ipsec psk ' + PSK` — no `:`/`=` beside the word `psk`,
+ * deliberately (that value's whole point, stated where PSK is defined
+ * above, is a 19-character secret chosen to defeat `base64ish`'s 24-
+ * character floor so section 4 proves the PASTE gate catches it by
+ * DICTIONARY PATH, not by shape). ADR-0041's detector has no dictionary and
+ * no path — by design (D5: built only from the word-adjacency rule and the
+ * three value shapes) — so it correctly declines to guess at a bare `word
+ * value` with nothing else to go on; that is the same restraint its own
+ * unit tests pin as `looks_like_credential_needs_the_delimiter_not_bare_adjacency`,
+ * and pinning it on the shipped page too is what keeps `"replaced the key
+ * switch in rack 4"` from lighting up every neighbouring cell.
+ *
+ * So this drives the ordinary way an engineer ACTUALLY writes one down —
+ * `name: value` — re-editing the same cell exactly as section 2 opened it. */
+const MARK_VALUE = 'ipsec psk: ' + PSK;
+await page.evaluate(() => {
+  const tr = [...document.querySelectorAll('.invwrap table.inv tbody tr')]
+    .find((r) => r.textContent.includes('ge-0/0/0'));
+  const b = tr && tr.querySelector('td button[data-icol="2"]');
+  if (b) b.focus();
+});
+await page.keyboard.press('Enter');
+await page.waitForTimeout(150);
+if (!(await page.$('.invwrap table.inv .iedit'))) {
+  await page.keyboard.press('Enter');
+}
+await page.waitForSelector('.invwrap table.inv .iedit', { timeout: 5000 });
+await page.evaluate(() => { document.querySelector('.invwrap table.inv .iedit').value = ''; });
+await page.keyboard.type(MARK_VALUE);
+await page.keyboard.press('Enter');
+await page.waitForTimeout(500);
+
+// Column 2 (description) is where the value went. `cells[i]` for i !== 2 is
+// every OTHER cell of the same row — the plainly innocent neighbours.
+const markInfo = await page.evaluate(() => {
+  const tr = [...document.querySelectorAll('.invwrap table.inv tbody tr')]
+    .find((r) => r.textContent.includes('ge-0/0/0'));
+  if (!tr) return null;
+  const cells = [...tr.querySelectorAll('td')];
+  const descTd = cells[2];
+  const mark = descTd ? descTd.querySelector('.credmark') : null;
+  return {
+    hasMark: !!mark,
+    tag: mark ? mark.tagName : null,
+    ariaLabel: mark ? mark.getAttribute('aria-label') : null,
+    descCellText: descTd ? descTd.textContent : null,
+    neighboursMarked: cells.some((td, i) => i !== 2 && td.querySelector('.credmark') !== null),
+    tableMarkCount: document.querySelectorAll('.invwrap table.inv .credmark').length,
+  };
+});
+check('the mark is present beside the marked cell (the description column)',
+  markInfo && markInfo.hasMark, JSON.stringify(markInfo));
+check('D1: the value still saves — the cell still holds it, nothing was refused or destroyed',
+  markInfo && markInfo.descCellText && markInfo.descCellText.includes(PSK));
+check('the mark is a real control (a <button>), not a decorative span',
+  markInfo && markInfo.tag === 'BUTTON');
+check('D6: the wording describes STORAGE, not the value\'s nature',
+  markInfo && /stored as typed/i.test(markInfo.ariaLabel || ''), markInfo && markInfo.ariaLabel);
+check('a plainly innocent neighbour cell in the SAME row is NOT marked',
+  markInfo && !markInfo.neighboursMarked, JSON.stringify(markInfo));
+check('only the one credential-looking cell is marked anywhere in the table',
+  markInfo && markInfo.tableMarkCount === 1, 'marks found: ' + (markInfo && markInfo.tableMarkCount));
+
+// D4: reached and read BY KEYBOARD — tab to it from the value, then read the
+// accessible name off whatever Tab actually landed on. Not hover, not a
+// direct .focus() call that would pass even if the mark sat outside tab
+// order.
+await page.evaluate(() => {
+  const tr = [...document.querySelectorAll('.invwrap table.inv tbody tr')]
+    .find((r) => r.textContent.includes('ge-0/0/0'));
+  const valueBtn = tr.querySelectorAll('td')[2].querySelector('button:not(.credmark)');
+  if (valueBtn) valueBtn.focus();
+});
+await page.keyboard.press('Tab');
+const tabbed = await page.evaluate(() => ({
+  isMark: document.activeElement.classList.contains('credmark'),
+  ariaLabel: document.activeElement.getAttribute('aria-label'),
+}));
+check('pressing Tab from the value reaches the mark next, in the normal tab order',
+  tabbed.isMark, JSON.stringify(tabbed));
+check('and its accessible name — read purely by keyboard, no hover involved — carries the sentence',
+  /stored as typed/i.test(tabbed.ariaLabel || ''), tabbed.ariaLabel);
+
+// D5: one detector, in Rust. A second copy in the page is exactly the drift
+// `49` §1 refused for the gate itself, for the same reason. Checked against
+// the Rust IDENTIFIER, not against individual dictionary words — this page
+// is annotated prose throughout and several already discuss the gate's own
+// history in English (`trap-group`, `simple-password` appear as topics of
+// conversation, not as a JS array), so a word-level substring check would
+// indict a comment for describing the feature it sits beside.
+const pageSource = await readFile(ARTIFACT_PATH, 'utf8');
+check('D5: the page declares no secret word list of its own (the detector is Rust)',
+  !pageSource.includes('SECRET_WORD_LIST') && !pageSource.includes('looksLikeCredential'));
 
 check('no page errors', errors.length === 0, errors.join(' | '));
 

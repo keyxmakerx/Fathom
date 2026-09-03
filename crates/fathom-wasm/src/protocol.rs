@@ -204,6 +204,19 @@ pub const FACE_RACK_CLASH: u8 = 14;
 /// neither is a field of the row, and the opinions column is a rule engine's,
 /// which this build does not have.
 ///
+/// **A row's own slot 7 is not always empty any more (ADR-0041 D5/D7).** It
+/// packs `<opinions> <hints>`, opinions first and hints last because hints is
+/// the one half that is usually empty — [`FACE_BOX`]'s own precedent for
+/// packing more than one fact into the slot [`FACE_SLOTS`] leaves spare, and
+/// for putting the possibly-empty field last so a trailing space is
+/// unambiguous on a `split_once(' ')`. `hints` is `fathom_inventory::Row`'s
+/// own field: a comma-separated list of 0-based cell indices that
+/// `fathom_ingest::redact::looks_like_credential` flagged, computed where the
+/// row was built and never stored in the graph (ADR-0008 — it is an opinion
+/// about a value, not a fact). This KEY row's own slot 7 stays plain empty:
+/// the opinions/hints packing is a property of a data row, and this row
+/// carries none.
+///
 /// Each column's slot holds `FieldKey` in decimal, or the empty string where
 /// the column cannot be typed into — because it is a walk, or because
 /// `fathom_inventory::is_authorable` says the schema's type for it cannot yet
@@ -976,7 +989,13 @@ pub fn encode_inv_reply(
         while slots.len() < FACE_SLOTS - 1 {
             slots.push("");
         }
-        slots.push(row.opinions);
+        // `<opinions> <hints>` (ADR-0041 D5/D7, this constant's own doc
+        // comment above [`FACE_INV_KEY`]). `hints` is the common-case-empty
+        // half and sits last for the same reason `FACE_BOX`'s group key
+        // does: a token appended after it is unambiguous on `split(' ')`
+        // where one inserted before it would not be.
+        let slot7 = format!("{} {}", row.opinions, row.hints);
+        slots.push(slot7.as_str());
         let rec = face_slots(&mut blob, FACE_INV, slot_count, &slots);
         write_face_record(&mut records, &rec);
     }

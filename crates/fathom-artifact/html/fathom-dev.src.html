@@ -519,6 +519,41 @@ button.tab:hover { color: var(--ink); }
    jump from one face to another. Scoped past `.fedit`, which is declared later
    and would otherwise win on equal specificity. */
 .inv td .iedit { font-family: var(--mono); font-size: var(--t-mono); }
+/* --- ADR-0041: a hand-typed value that looks like a credential --------------
+   D2: NOT a colour. The three risk inks are reserved (51 §1 R1) and
+   `tokens/reserved-colour` fails the build on reuse, so the mark is
+   INVERSION — `--ink` ground, `--page` text — the same device `.egress`
+   would have used for the same reason (51 §9's comparison table: "Inversion
+   is louder and costs nothing"). D3: the glyph is never bare — its accessible
+   name (`aria-label`, doubling as its `title` for a mouse) carries the word
+   "stored as typed" and the sentence explaining it, so a screen reader and a
+   sighted hover both get the same claim. D4: an ordinary `<button>`, so it is
+   in the tab order and reads Enter/Space like every other control on this
+   page — hover is the convenience on top, not the only door. */
+/* `.inv td button` (474-485 above) already claims `display: block; width:
+   100%` at specificity (0,1,2), so the mark's own rule is written at
+   `.inv td button.credmark` — (0,2,2) — to actually win rather than being
+   silently outranked by the generic cell-button rule it sits beside. Found
+   by looking at the rendered pixels, not by reading the cascade: the button
+   existed, `aria-label` was correct, and it was invisible — 326px wide,
+   `display: block`, stretched to the cell like every other cell button. */
+.inv td button.credmark {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.3em; height: 1.3em; width: auto; margin-left: var(--s1);
+  padding: 0 .35em; background: var(--ink); color: var(--page); border: 0;
+  border-radius: var(--radius); font: inherit; font-weight: 700;
+  font-size: .9em; line-height: 1; cursor: help; vertical-align: middle;
+  flex: none;
+}
+.inv td button.credmark:hover { opacity: .8; }
+.inv td button.credmark:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: var(--focus-offset-outset);
+}
+/* The value cell that carries a mark widens to hold both without the value's
+   own button losing its full-width click target. */
+.inv td.hasmark { display: flex; align-items: center; }
+.inv td.hasmark button:not(.credmark) { width: auto; flex: 1 1 auto; min-width: 0; }
 /* A refusal, in the cell, under the text that caused it. `.perr` is the page's
    one refusal idiom — the paste, equipment and placement sheets all wear it —
    and this only makes it fit in a cell whose default is `nowrap`. */
@@ -2616,6 +2651,47 @@ function invKeyRow(reply) {
   return null;
 }
 
+/* ------------------------------- ADR-0041 — a hand-typed value that looks
+   like a credential is MARKED, never refused ---------------------------- */
+/* Slot 7 of a data row is `<opinions> <hints>`, hints last and possibly
+   empty (`encode_inv_reply`'s own doc comment, the diagram box's slot 7
+   precedent for packing more than one fact where FACE_SLOTS leaves no room
+   for a ninth). `hints` is a comma-separated list of 0-based COLUMN indices
+   — never parsed further than that: this page forms no opinion of its own
+   about which shapes trip it, D5's whole point is that the one detector
+   lives in Rust. */
+function invHintCols(rowStrings) {
+  var slot = rowStrings[7] || '';
+  var sp = slot.indexOf(' ');
+  var hints = sp === -1 ? '' : slot.slice(sp + 1);
+  if (!hints) return [];
+  return hints.split(',').map(function (s) { return parseInt(s, 10); });
+}
+function invOpinionsText(rowStrings) {
+  var slot = rowStrings[7] || '';
+  var sp = slot.indexOf(' ');
+  return sp === -1 ? slot : slot.slice(0, sp);
+}
+
+/* D6: a HINT, worded about STORAGE — which is always true — and never about
+   the value's nature, which is a guess. D3: the word travels with the
+   glyph, not only the shape. */
+var CREDMARK_TEXT = 'stored as typed — this looks like it may be a password or key. '
+  + 'Fathom does not redact what you type, only what you paste, so it is saved '
+  + 'and exported exactly as written.';
+
+/* D2/D3/D4: an inverted, focusable glyph carrying the word in its accessible
+   name. `title` gives the same sentence to a mouse as convenience on top,
+   never as the only door — the button itself is what makes it reachable by
+   keyboard and announced by a screen reader without one. */
+function credMark() {
+  var m = el('button', 'credmark', '!');
+  m.type = 'button';
+  m.setAttribute('aria-label', CREDMARK_TEXT);
+  m.title = CREDMARK_TEXT;
+  return m;
+}
+
 function renderInventory(host) {
   /* DIRECTION A, ON THE VIEW IT WAS NEVER APPLIED TO (`57` §16).
      The whole view is one flex column so the split below can own the height
@@ -2724,6 +2800,9 @@ function renderInventory(host) {
   invRows(S.inv).forEach(function (r) {
     var tr = el('tr');
     if (S.sel === r.s[0]) { tr.setAttribute('data-tier', 'primary'); selRow = tr; }
+    /* ADR-0041 D5/D7: which cells `fathom_ingest::redact::looks_like_credential`
+       flagged, by column index — read once per row off slot 7's own half. */
+    var hintCols = invHintCols(r.s);
     for (var ci = 0; ci < cols; ci++) {
       var td = el('td');
       var k = colKey(ci);
@@ -2770,11 +2849,19 @@ function renderInventory(host) {
         }
         if (ci === 0) b.setAttribute('data-rove-item', '');
         td.appendChild(b);
+        /* The mark sits BESIDE the value, in the cell (ADR-0041 §6) — never
+           in the opinions column, which is a rule engine's and this build
+           has none. Omitted while the cell is open for editing: the person
+           typing into it already knows what they are typing. */
+        if (hintCols.indexOf(ci) !== -1) {
+          td.className = 'hasmark';
+          td.appendChild(credMark());
+        }
       }
       tr.appendChild(td);
     }
     var tdo = el('td', 'opcol');
-    tdo.appendChild(el('span', 'cell op', r.s[7]));
+    tdo.appendChild(el('span', 'cell op', invOpinionsText(r.s)));
     tr.appendChild(tdo);
     tb.appendChild(tr);
   });

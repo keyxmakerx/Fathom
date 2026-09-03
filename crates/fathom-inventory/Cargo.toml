@@ -10,6 +10,10 @@ description = "The inventory face's projections: row sets, the element page, the
 fathom-id = { path = "../fathom-id" }
 fathom-ir = { path = "../fathom-ir" }
 fathom-graph = { path = "../fathom-graph" }
+# ADR-0041 D5/D7: `looks_like_credential` is the ONE detector, in Rust, and
+# `Row.hints` is computed here, where rows are built, so a second surface
+# inherits it rather than reimplementing it.
+fathom-ingest = { path = "../fathom-ingest" }
 
 # The demo estate is a development fixture (`45` §9.1's `?fixture=demo-estate`),
 # not product code, and it was costing 35,272 bytes of the WASM module —
