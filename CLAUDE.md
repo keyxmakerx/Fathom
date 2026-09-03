@@ -112,7 +112,11 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   `fathom-corpus`, `fathom-find`). **As of 2026-08-08 the queue has run: six more crates exist** —
   `fathom-graph` (the typed store), `fathom-ingest` (junos-srx set-form, with the redaction gate),
   `fathom-emit`, `fathom-wasm`, `fathom-inventory`, `fathom-artifact`, plus `fathom-layout`.
-  **554 tests, zero external dependencies.** **Eight of nine work orders DONE** — WO-01, WO-02, WO-03, WO-05, WO-06, WO-07,
+  **792 tests. Zero external dependencies ON THE CLIENT SIDE, deliberately — the server spends
+  that position and nothing crosses: every external crate is declared in
+  `crates/fathom-server/Cargo.toml` and nowhere else, the workspace dependency table stays empty
+  so nothing can be inherited with `workspace = true`, and `fathom-wasm`'s empty
+  `IMPORT_ALLOWLIST` plus `artifact_gates.rs` fail if anything does.** **Eight of nine work orders DONE** — WO-01, WO-02, WO-03, WO-05, WO-06, WO-07,
   WO-08 and WO-09 (the fragment-to-store weld, which now exists as `fathom-weld`). **WO-04 is the
   only one open, and as of 2026-08-09 it is OPEN rather than BLOCKED** — both its blockers are
   answered (`IpsecVpn.mode` by looking Junos up; the `reth0.0` golden by the owner, `70` §16.1).
@@ -428,7 +432,36 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 - **`00-PROGRAM-PLAN.md`** (Proposed) remains the long-term shape: eleven stages, the unwritten work
   orders, and the tier-ordered owner list. Its tier 1 is **overstated by 4×** — four of its five
   are already on disk. The queue below stays the operational truth; on disagreement the queue wins.
-- **THE SERVER HAS STARTED — phase 0 is complete and phase 1 has its first work order,
+- **THE SERVER EXISTS AND IT STORES NOTHING — WO-11 DONE, 2026-09-03.** `crates/fathom-server`
+  starts, answers `/health` after a real PostgreSQL round trip, shuts down on SIGTERM, and
+  **creates exactly one table: the migrations table** (G8, and ADR-0040's key boundary is why —
+  the first row written before custody is decided is the retrofit that ADR exists to prevent).
+  Driven, not asserted: **17/17** against a real PostgreSQL stopped and restarted mid-run
+  (`docs/80-review/evidence/2026-09-03-the-server-is-honest-when-the-database-is-down.sh`) and
+  **20/20** against the composed stack over verified TLS (`…-the-stack-comes-up-and-tls-is-in-front.sh`,
+  which proves verification is real by requiring an unrelated CA to be rejected). `deploy/` holds
+  the compose file, a distroless Dockerfile and Caddy in front.
+  **The real work of that order was the gate, and all five layers found something on a real
+  arrival** — `gate-zero` (extended to know the closure pattern), `deny.toml` (source allowlist,
+  licences, bans, duplicates), `cargo audit`, `scripts/lockfile-lookalikes.sh` (one-edit crate
+  names — the August 2026 shape, mechanically) and `scripts/crate-cooldown.sh`. The cooldown
+  caught **four young crates, three of them crates nobody chose and one published the same day**.
+  **Zero external dependencies is spent: 115 in the lockfile, 91 compiling for the server, 6
+  direct, 7 running code at compile time.** The client is untouched and proved so — the WASM
+  module is byte-identical at **988,490 bytes** after a forced rebuild.
+  **Two records were CORRECTED by what the gates found**, which is the part worth carrying
+  forward: `deps/decisions/tracing.md` said a feature was "deliberately OFF" and that was false
+  within one commit, because `deadpool-postgres` declares `tracing` without
+  `default-features = false` and cargo unifies it back on — **a feature disabled in your manifest
+  is a request, not a guarantee, and any claim of the form "we do not compile X" must be checked
+  against `cargo tree`**; and the database-URL redactor printed a password when the `@` was left
+  out of the URL, found by its own canary test.
+  **ONE ESCALATION IS OPEN AND IT IS THE OWNER'S** (WO-11 §9.7): at 115 crates with four of
+  `49` §6's sixteen rows in, `35` §5.1's ≤ 160 will not survive phase 1. Three routes are named —
+  raise the cap, drop `openidconnect`, or split the cap between client and server, which are
+  different binaries with different threat models and never had a reason to share one number.
+  The trigger forbids exactly one thing: meeting the number by removing a control.
+- **Phase 0 is complete and phase 1's first order is executed,
   2026-09-03.** ADR-0040 ratified key custody, closing `49` §22 decision 1 and the last DECISION
   item in phase 0, when the owner said *"start working on the server version"*. **The server
   holds the keys and says so**: a data key per tenant AND per design from the first stored byte,
@@ -442,16 +475,15 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   invariant in that file formally amended rather than merely re-read; ADR-0002's precedent cost
   paid in ADR-0040 §4), and **`38` §14's union rule is RATIFIED** after seventeen days cited as
   unratified — nothing arriving after the build may reduce what the ingest gate destroys, only
-  increase it, with a CI check that makes it more than intent. **WO-11 is the first server order
-  and it is BLOCKED ON ONE OWNER ACT** (§5 step 0): ADR-0032 §5 makes crate approval
-  undelegatable, and this is where zero external dependencies becomes ~109 crates in the month a
-  build-script supply-chain attack hit crates.io. The order builds the smallest server that
-  proves the stack and spends its effort on the gate — and its Disagreements §1 argues that 109
-  individual owner approvals would be a WEAKER control than the closure-document pattern
-  `deps/decisions/00-CLOSURE.md` already set on 2026-08-15, because the only way one person
-  finishes 109 is by skimming.
-- **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — **nine of eleven DONE**;
-  WO-04 (the emitters) and WO-11 (the server skeleton) are the open orders. **WO-10 (DHCP relay + bootp) is DONE as of
+  increase it, with a CI check that makes it more than intent. **WO-11 was the first server order and it is DONE** —
+  the owner lifted ADR-0032 §5's undelegatable-approval constraint the same day (*"Oh no you can
+  use borrowed code"*) and asked for the better control instead (*"idk how we want to manage this
+  if we can have git have some sort of security checker"*), so the order's step 0 became a
+  five-layer gate design rather than 109 signatures. Its Disagreements §1 is now settled practice:
+  109 individual owner approvals would be a WEAKER control than one closure document, because the
+  only way one person finishes 109 is by skimming.
+- **Engineering:** the queue. `docs/70-ops/79-work-orders/00-INDEX.md` — **ten of eleven DONE**;
+  **WO-04 (the emitters) is the only open order.** **WO-10 (DHCP relay + bootp) is DONE as of
   2026-08-29** — schema 0.4 → 0.5: the `DhcpRelay` kind, `HasDhcpRelay`, `RelaysFor`, and
   `RelayServerIn`, the third edge the owner chose (*"1 now please"*, `70` §18.5) after the order
   stopped at its own Step 0 on 2026-08-28 because Juniper's grammar admits `routing-instance` on a
@@ -534,11 +566,42 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Verify before you trust
 
-The verification floor (`78` §6), in order — CI runs the first four on every PR:
+The verification floor (`78` §6) is **thirteen rows as of 2026-09-03**, and CI runs every one of
+them but the last. **The first nine run BEFORE anything compiles**, which is the control and not a
+preference: a crate's `build.rs` executes on the machine before any gate that runs after
+compilation can produce a result.
+
+The dependency gate — five layers, none of which subsumes another, all added by WO-11:
+
+- `./scripts/gate-zero.sh` — a crate with no approval record. It now knows the **closure pattern**:
+  a DIRECT dependency always needs its own `deps/decisions/<crate>.md`; a transitive one may be
+  carried by an approved closure document.
+- `./scripts/lockfile-lookalikes.sh` — two packages whose names are one edit apart, which is the
+  August 2026 attack's shape (`proc-macro1` beside `proc-macro2`) made mechanical.
+- `./scripts/crate-cooldown.sh` — any crate version published less than seven days ago. Reads the
+  publication date from `static.crates.io`. Exceptions live in
+  `deps/decisions/00-COOLDOWN-EXCEPTIONS.md` and **expire**.
+- `cargo deny check` — source allowlist, licences, the ban list (`proc-macro1`, and `ring` /
+  `aws-lc-sys` / `openssl-sys` / `native-tls`, which is C7 made mechanical), duplicate versions.
+- `cargo audit --file Cargo.lock` — the RustSec database.
+- The three gates' own tests: `scripts/tests/gate-zero-test.sh` (10),
+  `…/lockfile-lookalikes-test.sh` (10), `…/crate-cooldown-test.sh` (18), plus
+  `…/advisory-gate-test.sh` (3), which is `cargo audit`'s positive control.
+
+`cargo deny` and `cargo audit` are **pinned, checksummed release binaries**
+(`scripts/ci/fetch-audit-tools.sh`), never `cargo install`: building either from source compiles
+~200 crates and runs their build scripts, which is the hazard they exist to gate.
+
+**And the gap that is stated everywhere it applies rather than papered over: NOTHING SANDBOXES A
+BUILD SCRIPT.** Stable Rust has no equivalent of *install without running scripts*, which is
+exactly how the August 2026 payload ran. The source allowlist, the reviewed lockfile diff and the
+cooldown are the mitigation — not a sandbox, because there is not one.
+
+Then the four that predate it:
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 715 tests as of 2026-08-28; green is the gate, not the
+- `cargo test --workspace --locked` — 792 tests as of 2026-09-03; green is the gate, not the
   number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0, **0 failures and 0
   warnings** since 2026-08-09. The two standing `schema.identity.unexercised` warnings
@@ -553,6 +616,12 @@ The verification floor (`78` §6), in order — CI runs the first four on every 
   every `artifact_gates` run, not gated. Read the number off the run — do not quote one from
   a document, including this one; at least five ceiling-era totals are still in circulation.
 - The executing work order's own acceptance gates, exactly as written.
+
+**Two more gates need a running PostgreSQL and belong to the executing order rather than the
+floor**, both in `docs/80-review/evidence/`: `2026-09-03-the-server-is-honest-when-the-database-is-down.sh`
+(17 checks — it stops PostgreSQL and requires `/health` to say so) and
+`2026-09-03-the-stack-comes-up-and-tls-is-in-front.sh` (20 checks against the composed stack).
+Both need `docker`; neither runs in CI today.
 
 Interactive artifacts open from disk with zero network; the transcript face in
 `fathom-app.html` reads its own CSP from the live page.
