@@ -44,3 +44,31 @@ axum = { version = "0.8.9", default-features = false, features = [
     "http1",
     "tokio",
 ] }
+
+# tracing 0.1.44 and tracing-subscriber 0.3.23. WO-11 Disagreements 2 argues
+# these arrive WITH the skeleton rather than late in phase 1: retrofitting
+# structured logging means rewriting every call site.
+#
+# `ansi` IS OFF, and that is a security choice with a name. RUSTSEC-2025-0055
+# (2025-08-29, CVE-2025-58160) is exactly this: untrusted input logged with ANSI
+# escape sequences intact, which manipulates a terminal and has been chained
+# through terminal-emulator bugs. 0.3.23 escapes them, so this is belt and
+# braces -- but a server whose logs are read by a collector has no use for
+# colour, and the cheapest way not to emit an escape sequence is not to have the
+# code that writes one.
+#
+# `env-filter` IS OFF TOO, for a different reason: it pulls `regex`, which is
+# five crates (regex, regex-automata, regex-syntax, aho-corasick, memchr) to
+# parse a filter string. The skeleton reads one level from one environment
+# variable, which needs no regular expressions. Turn it on when per-target
+# filtering is actually wanted, and note the five crates when doing it.
+#
+# `json` is off as well: structured JSON output pulls `serde` and `serde_json`,
+# and there is nothing consuming the logs yet. It is the right feature to turn
+# on the day a collector exists -- with those two crates recorded in the closure
+# like everything else.
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = [
+    "fmt",
+    "std",
+] }

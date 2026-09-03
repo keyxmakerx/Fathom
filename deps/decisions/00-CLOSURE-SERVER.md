@@ -53,6 +53,7 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `axum` | `0.8.9` | MIT | DIRECT | no | no | Sun, 28 Jun 2026 18:07:52 GMT | https://github.com/tokio-rs/axum |
 | `axum-core` | `0.5.6` | MIT | transitive | no | no | Sun, 28 Jun 2026 17:11:24 GMT | https://github.com/tokio-rs/axum |
 | `bytes` | `1.12.1` | MIT | transitive | no | no | Wed, 08 Jul 2026 10:01:30 GMT | https://github.com/tokio-rs/bytes |
+| `cfg-if` | `1.0.4` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:58:08 GMT | https://github.com/rust-lang/cfg-if |
 | `errno` | `0.3.14` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:08:03 GMT | https://github.com/lambda-fairy/rust-errno |
 | `futures-channel` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:11 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-core` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:02 GMT | https://github.com/rust-lang/futures-rs |
@@ -66,34 +67,41 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `hyper` | `1.11.1` | MIT | transitive | no | no | Fri, 28 Aug 2026 12:22:32 GMT | https://github.com/hyperium/hyper |
 | `hyper-util` | `0.1.20` | MIT | transitive | no | no | Sun, 28 Jun 2026 16:55:10 GMT | https://github.com/hyperium/hyper-util |
 | `itoa` | `1.0.18` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:55:52 GMT | https://github.com/dtolnay/itoa |
+| `lazy_static` | `1.5.0` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:21:05 GMT | https://github.com/rust-lang-nursery/lazy-static.rs |
 | `libc` | `0.2.189` | MIT OR Apache-2.0 | transitive | yes | no | Tue, 21 Jul 2026 21:33:29 GMT | https://github.com/rust-lang/libc |
 | `matchit` | `0.8.4` | MIT AND BSD-3-Clause | transitive | no | no | Sun, 28 Jun 2026 14:48:04 GMT | https://github.com/ibraheemdev/matchit |
 | `memchr` | `2.8.3` | Unlicense OR MIT | transitive | no | no | Wed, 08 Jul 2026 00:49:55 GMT | https://github.com/BurntSushi/memchr |
 | `mime` | `0.3.17` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:18:11 GMT | https://github.com/hyperium/mime |
 | `mio` | `1.2.2` | MIT | transitive | no | no | Mon, 13 Jul 2026 15:39:11 GMT | https://github.com/tokio-rs/mio |
+| `once_cell` | `1.21.4` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:34:01 GMT | https://github.com/matklad/once_cell |
 | `percent-encoding` | `2.3.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 14:59:33 GMT | https://github.com/servo/rust-url/ |
 | `pin-project-lite` | `0.2.17` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 14:40:19 GMT | https://github.com/taiki-e/pin-project-lite |
 | `proc-macro2` | `1.0.107` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 19 Jul 2026 00:18:26 GMT | https://github.com/dtolnay/proc-macro2 |
 | `quote` | `1.0.47` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 19 Jul 2026 00:16:58 GMT | https://github.com/dtolnay/quote |
 | `serde_core` | `1.0.229` | MIT OR Apache-2.0 | transitive | yes | no | Sat, 18 Jul 2026 23:05:12 GMT | https://github.com/serde-rs/serde |
 | `serde_derive` | `1.0.229` | MIT OR Apache-2.0 | transitive | no | yes | Sat, 18 Jul 2026 23:05:08 GMT | https://github.com/serde-rs/serde |
+| `sharded-slab` | `0.1.7` | MIT | transitive | no | no | Sun, 28 Jun 2026 15:19:03 GMT | https://github.com/hawkw/sharded-slab |
 | `signal-hook-registry` | `1.4.8` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:11:53 GMT | https://github.com/vorner/signal-hook |
 | `slab` | `0.4.12` | MIT | transitive | no | no | Sun, 28 Jun 2026 17:09:00 GMT | https://github.com/tokio-rs/slab |
 | `smallvec` | `1.15.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 18:21:48 GMT | https://github.com/servo/rust-smallvec |
 | `socket2` | `0.6.5` | MIT OR Apache-2.0 | transitive | no | no | Mon, 13 Jul 2026 19:45:59 GMT | https://github.com/rust-lang/socket2 |
 | `syn` | `3.0.4` | MIT OR Apache-2.0 | transitive | no | no | Mon, 24 Aug 2026 00:39:55 GMT | https://github.com/dtolnay/syn |
 | `sync_wrapper` | `1.0.2` | Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:27:08 GMT | https://github.com/Actyx/sync_wrapper |
+| `thread_local` | `1.1.10` | MIT OR Apache-2.0 | transitive | no | no | Fri, 10 Jul 2026 21:20:30 GMT | https://github.com/Amanieu/thread_local-rs |
 | `tokio` | `1.53.1` | MIT | DIRECT | no | no | Mon, 20 Jul 2026 17:06:11 GMT | https://github.com/tokio-rs/tokio |
 | `tokio-macros` | `2.7.2` | MIT | transitive | no | yes | Wed, 29 Jul 2026 13:15:28 GMT | https://github.com/tokio-rs/tokio |
 | `tower` | `0.5.3` | MIT | transitive | no | no | Sun, 28 Jun 2026 16:05:58 GMT | https://github.com/tower-rs/tower |
 | `tower-layer` | `0.3.3` | MIT | transitive | no | no | Sun, 28 Jun 2026 16:09:52 GMT | https://github.com/tower-rs/tower |
 | `tower-service` | `0.3.3` | MIT | transitive | no | no | Sun, 28 Jun 2026 16:10:30 GMT | https://github.com/tower-rs/tower |
+| `tracing` | `0.1.44` | MIT | DIRECT | no | no | Sun, 28 Jun 2026 17:15:09 GMT | https://github.com/tokio-rs/tracing |
+| `tracing-core` | `0.1.36` | MIT | transitive | no | no | Sun, 28 Jun 2026 17:13:19 GMT | https://github.com/tokio-rs/tracing |
+| `tracing-subscriber` | `0.3.23` | MIT | DIRECT | no | no | Sun, 28 Jun 2026 17:52:18 GMT | https://github.com/tokio-rs/tracing |
 | `unicode-ident` | `1.0.24` | (MIT OR Apache-2.0) AND Unicode-3.0 | transitive | no | no | Sun, 28 Jun 2026 15:42:04 GMT | https://github.com/dtolnay/unicode-ident |
 | `wasi` | `0.11.1+wasi-snapshot-preview1` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 16:14:11 GMT | https://github.com/bytecodealliance/wasi |
 | `windows-link` | `0.2.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:12:27 GMT | https://github.com/microsoft/windows-rs |
 | `windows-sys` | `0.61.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:13:16 GMT | https://github.com/microsoft/windows-rs |
 
-**43 external crates**, of which **2 direct**. **5 carry a `build.rs`** and **2 are proc-macros** — 7 of 43 run code at compile time, which is the number the August 2026 attack was about. Against `35` §5.1: **≤ 30 direct (2)**, **≤ 160 in the closure (43)**.
+**51 external crates**, of which **4 direct**. **5 carry a `build.rs`** and **2 are proc-macros** — 7 of 51 run code at compile time, which is the number the August 2026 attack was about. Against `35` §5.1: **≤ 30 direct (4)**, **≤ 160 in the closure (51)**.
 
 <!-- gate-zero:end -->
 
@@ -135,3 +143,18 @@ point of the order is the gate, not the server.
   `smallvec`, `socket2` — and every one is patched below the pinned version. The two recent
   enough to name: RUSTSEC-2026-0007 against `bytes` (patched ≥ 1.11.1, in use 1.12.1) and
   RUSTSEC-2025-0047 against `slab` (patched ≥ 0.4.11, in use 0.4.12).
+
+### `tracing` and `tracing-subscriber` — 51 crates, 4 direct
+
+- **Eight new crates, and the cooldown was clean** — the first arrival that cost nothing at that
+  layer.
+- **What the feature flags saved is the interesting number.** `env-filter` would have added five
+  crates (`regex`, `regex-automata`, `regex-syntax`, `aho-corasick`, `memchr`) to parse a filter
+  string, and `json` would have added `serde` and `serde_json`. Both are off, with the cost of
+  turning them on written down in `tracing-subscriber.md` rather than left for a later session to
+  discover. Seven crates is 4% of `35` §5.1's whole ≤ 160 budget, spent on convenience.
+- **`ansi` is off too**, which is RUSTSEC-2025-0055 (ANSI escape sequences in logged user input)
+  handled twice: the pin is past the patch, and the code that writes an escape sequence is not
+  compiled in.
+- `tracing 0.1.42` and `tracing-subscriber 0.3.21` are **yanked** and neither is in use.
+  `deny.toml` sets `yanked = "deny"`, so landing on one would fail the build rather than proceed.

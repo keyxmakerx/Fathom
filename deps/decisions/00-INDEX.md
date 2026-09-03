@@ -10,6 +10,8 @@ approval is **an owner act**.
 | `argon2` | Passphrase → key (`32` D1) | 2026-08-15 | **No audit.** Mitigated by RFC 9106 test vectors |
 | `tokio` | The server's async runtime (`49` §6) | 2026-09-03 | Five advisories, all patched at or below 1.53.1 |
 | `axum` | The server's HTTP layer (`41` §5.2, `49` §6) | 2026-09-03 | Zero against axum itself; its closure's are all patched below the pins |
+| `tracing` | Structured logging and spans (`49` §6) | 2026-09-03 | RUSTSEC-2023-0078, patched ≥ 0.1.40, in use 0.1.44 |
+| `tracing-subscriber` | Writes the events somewhere | 2026-09-03 | RUSTSEC-2025-0055, patched ≥ 0.3.20, in use 0.3.23 — and `ansi` off as well |
 
 **Two closure documents, not one.** `00-CLOSURE.md` covers the twenty-two crypto crates
 (2026-08-15, neither vendored). `00-CLOSURE-SERVER.md` covers the server's closure and is
