@@ -2992,6 +2992,14 @@ Cross-cutting, and each one a way this record misleads if read in pieces.
    is correct only for the decision landing alone on 0.5. **D3 is major-class**: if it lands in the
    same bump as any of the others, the whole bump is major-class and `62` §16.4's three requirements
    apply to all of it. Sequencing is a planning session's (`78` §7), and this record does not do it.
+
+   **RESOLVED 2026-09-04:** `docs/70-ops/79-work-orders/00-SCHEMA-SEQUENCE-2026-09-04.md` assigns
+   versions and field keys in landing order from the registry's real tail (311): D1 (no bump) →
+   groups-and-tags 0.6, keys 312–314 → D4 0.7, keys 315–318 → D7 0.8 → D5 0.9 → D6 0.10, keys
+   319–371 → D3 0.11, alone, major-class, key 9 kept → E4 (no bump). Items 2 and 3 below are
+   resolved there too (its §6), item 4 fixes D1 before D3, and its §8 lists the substitutions every
+   number in §8–§14 other than §8's needs; the YAML blocks here are left as the skeptics reviewed
+   them.
 2. **D5 and groups-and-tags disagree about the `Placeable` drift test.** D5 switches its exclusion
    from the kind's name to its layer; §8 declares `Group` and `Tag` as `layer: config` and not
    `Placeable`, and names three exclusions by name. If both land, one of them changes: either
