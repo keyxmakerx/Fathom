@@ -75,7 +75,9 @@ different key holder later without touching a byte of customer ciphertext.**
 
 The second half is the objective. The first half is ordinary work.
 
-ADR-0040 D1 requires *"a data key per tenant and per design … from the first stored byte"* and
+ADR-0040 D1 requires *"Application-layer envelope encryption from the first stored byte — a data
+key per tenant and per design"* (quoted in D1's own order; §7 states the same requirement with the
+two halves reversed, and an ellipsis cannot reorder a source) and
 its §7 states the reason in one line: *"Retrofitting a key boundary means re-encrypting everything
 already held."* D2 requires that the destination — a customer-supplied master key — be reachable
 by *"a re-wrap of data keys, never a re-encryption of data."*
@@ -193,7 +195,8 @@ non-goal so that no later reader takes the blob's opacity for a claim about its 
   already excepts.) Excepting `config.rs` and `main.rs` would have excepted most of the crate to
   keep a rule that cannot say what it means, so the rule is redesigned in G11(ii) instead: it
   matches **query-issuing call sites** and **SQL-shaped phrases**, never a bare English word.
-  What the redesigned rule finds on the tree as it stands, verified across every `src/*.rs`:
+  What the redesigned rule finds on the tree as it stands, verified across every `src/**/*.rs`
+  (recursive; `src/keys/` does not exist yet, and will when §4.1 is built):
   - **Call sites — four, in two modules.** `health.rs:78` `client.query("SELECT 1::int4", &[])`
     inside `health::probe`, with the comment above it explaining that the handler checks the
     returned `1` rather than merely that the call did not error — that query is WO-11 G5's, so it
@@ -1608,7 +1611,7 @@ fail** before it is believed — CLAUDE.md rule 0, and WO-11 §6 G2/G3's shape.
   asserted by an API test and by G5's census.
   **(ii) SQL IS ISSUED ONLY FROM `store.rs`, AND THE RULE TESTS FOR SQL RATHER THAN FOR ENGLISH.**
   `store.rs` is the only module in the crate this order adds SQL to, asserted by a source-reading
-  test over `crates/fathom-server/src/*.rs` in G5's style.
+  test over `crates/fathom-server/src/**/*.rs` in G5's style — recursive, so `src/keys/` is read.
 
   **Two earlier drafts wrote this as twenty-one bare verbs** — `SELECT`, `INSERT`, `UPDATE`,
   `DELETE`, `MERGE`, `WITH`, `COPY`, `TRUNCATE`, `CREATE`, `ALTER`, `DROP`, `GRANT`, `REVOKE`,
@@ -1632,10 +1635,24 @@ fail** before it is believed — CLAUDE.md rule 0, and WO-11 §6 G2/G3's shape.
 
   **(ii-b) THE SQL-SHAPED LITERALS — a verb next to a SQL keyword, never a bare word.** Inside
   string literals only, case-insensitively, tolerating whitespace and `\`-continuation, in every
-  `src/*.rs` **except `migrate.rs`** (whose embedded DDL and bookkeeping statements are its whole
-  job) — **sixteen patterns, which is the list, and it is literal and exhaustive so that no
+  `src/**/*.rs` — every module under `src/`, `src/keys/` INCLUDED — **except `store.rs` and
+  `migrate.rs`**, the two modules whose embedded SQL is their whole job (`store.rs` is where §4.6.2
+  puts every statement this order writes; `migrate.rs` carries the DDL and its bookkeeping). **Both
+  exceptions are named here and nowhere else**: an earlier draft of this redesign excepted `store.rs`
+  from the call-site half and forgot it here, which would have turned the gate red at step 6 against
+  the very module the order tells the executor to write — the same failure class the redesign exists
+  to remove, reintroduced by splitting one rule into two. `src/**/*.rs` rather than `src/*.rs` for
+  the same reason: `src/keys/` is a DIRECTORY (§4.1), and a non-recursive glob would have granted it
+  a silent exception that nobody decided — G11(iii) already reads `keys/`, so the asymmetry was an
+  oversight, not a judgement — **sixteen patterns, which is the list, and it is literal and exhaustive so that no
   executor invents a narrow one that passes vacuously**:
   `SELECT`…`FROM`; `INSERT INTO`; `DELETE FROM`; `UPDATE`…`SET`; `MERGE INTO`; `WITH`…`AS (`;
+  **every `…` above is bounded to the SAME string literal and at most 120 characters**, and that
+  bound is part of the pattern rather than an implementation detail: unbounded, `COPY`…`FROM`/`TO`
+  and `GRANT`…`ON` can span ordinary prose, and a future message such as *"could not copy the key
+  file to the container"* would be a false positive — which would cost this rule the one property
+  it was redesigned to have. Nothing in the crate trips them today, bounded or not; the bound is
+  what keeps that true of messages nobody has written yet;
   `CREATE`/`ALTER`/`DROP` followed by `TABLE`, `INDEX`, `VIEW`, `SCHEMA`, `TYPE`, `EXTENSION`,
   `FUNCTION`, `ROLE`, `DATABASE`, `SEQUENCE`, `TRIGGER`, `POLICY`, `PUBLICATION` or `SUBSCRIPTION`
   (with an optional `UNIQUE`, `MATERIALIZED` or `OR REPLACE` between); `TRUNCATE`; `COPY`…`FROM`
@@ -1993,7 +2010,7 @@ None blocking this order. Recorded because the next one needs them, and every on
 | PostgreSQL documentation on MVCC, `VACUUM`, WAL and PITR | **NOT READ — UNESTABLISHED, and named here rather than dropped.** §4.6.1's claim that a `DELETE` marks a tuple dead and leaves the row image on the heap page until vacuum, and that the key's bytes are in the WAL, was written by the adversarial review of this order's draft and **no session here has opened a PostgreSQL page, named a section, or dated a read**. An earlier version of this row cited the documentation as though it had. The mechanism — which record carries the row image — is contested (§4.6.1) and this order settles none of it: **G9(e) measures the bytes instead of citing them.** A later session wanting the mechanism must open the documentation and give a page and a date | **not read** |
 | AWS KMS: `API_Decrypt` (`CiphertextBlob` 1–6144 bytes; `InvalidCiphertextException`), *Rotate AWS KMS keys*, *How to use on-demand rotation for AWS KMS imported keys*, and AWS re:Post *Resolve the AWS KMS decrypt error InvalidCiphertextException* | §4.2's 6144 ceiling, the in-place rotation that breaks a four-part primary key, and G10(b)'s point that a context mismatch and a corrupt ciphertext raise the **same** exception. Read by the adversarial review of this order's draft | 2026-09-04 |
 | HashiCorp Vault: Transit HTTP API, and *Re-wrapping data after encryption key rotation* | `vault:vN:` as a key **version** under an unchanged key name, `transit/rewrap`, and `min_decryption_version` — the second half of §4.2's primary-key argument. Read by the adversarial review of this order's draft | 2026-09-04 |
-| `docs/70-ops/OPEN-FOR-THE-OWNER.md` §A, §B | the open questions; §7's triggers are keyed to §A and §B1–§B5. **The page describes itself as twenty-seven — in its preamble and again in *How this list was built* — and it carries THIRTY-TWO numbered questions**: A1–A3, B1–B12, C1–C4, D1–D9, E1–E4, plus eleven unnumbered §F bullets. Counted on 2026-09-04. An earlier version of this row repeated the page's twenty-seven silently. **The discrepancy is inherited, not introduced here, and this order does not correct it** — its own §A1 correction (§3) is narrow and deliberate, and a count is planning's to reconcile | 2026-09-04 |
+| `docs/70-ops/OPEN-FOR-THE-OWNER.md` §A, §B | the open questions; §7's triggers are keyed to §A and §B1–§B5. **The page describes itself as twenty-seven — in its preamble and again in *How this list was built* — and it carries THIRTY-TWO numbered questions**: A1–A3, B1–B12, C1–C4, D1–D9, E1–E4, plus ten unnumbered §F bullets. Counted on 2026-09-04. An earlier version of this row repeated the page's twenty-seven silently. **The discrepancy is inherited, not introduced here, and this order does not correct it** — its own §A1 correction (§3) is narrow and deliberate, and a count is planning's to reconcile | 2026-09-04 |
 | `.context/conventions.md` | invariant 3 — **annotated by ADR-0041 on 2026-09-03, scope only, not untouched**, which is the whole of §2's note; invariant 4, scoped by ADR-0040; the union rule; precedence. An earlier version of this row said *"invariants 3 (untouched)"* and §2 spends a paragraph explaining that exactly that wording is false | 2026-09-04 |
 | `deps/decisions/chacha20poly1305.md`, `argon2.md`, `00-CLOSURE.md`, `00-CLOSURE-SERVER.md` | two owner approvals from 2026-08-15, and the closure pattern | 2026-09-04 |
 | `crates/fathom-server/` — `Cargo.toml`, `src/*.rs`, `migrations/0001_*.sql`, `tests/stores_nothing.rs` | prior state, read in full | 2026-09-04 |
@@ -2076,9 +2093,11 @@ None blocking this order. Recorded because the next one needs them, and every on
    `aad_ext_len`. Writing a second format is specification. **That specification is planning's is
    an INFERENCE from `78` §7, not a quotation of it, and an earlier draft of this entry stated it
    as §7's own words.** §7's judgment-shaped column does not contain the word *specification*;
-   what it lists is *"Authoring or re-scoping work orders"*, *"Authoring ADRs; reopening
+   four of its six rows are *"Authoring or re-scoping work orders"*, *"Authoring ADRs; reopening
    decisions"*, *"Schema design: new kinds, edges, scalars, identity tuples"* and *"Cryptography
-   choices (`32`)"*. The inference is drawn from those rows together with §7's tie-breaker, which
+   choices (`32`)"*. (The column has SIX rows, not four; the other two are the `75` capability
+   register and the owner-blocking items with licence and governance. An earlier draft wrote
+   *"what it lists is"* over four of six, which is exhaustive phrasing over a partial list.) The inference is drawn from those rows together with §7's tie-breaker, which
    **is** verbatim: *"if two reasonable people could do it differently and both be defensible, it
    is judgment-shaped. Escalate it."* Two reasonable people would not write the same 56-byte
    header. **Three things are true and all three are stated rather than one of them:** (a) the
@@ -2116,12 +2135,16 @@ None blocking this order. Recorded because the next one needs them, and every on
    and *unchanged*, and it is neither. **Why the change rather than the letter:** §6.4's first
    sentence requires that *"the **total envelope length** is a Padmé bucket"*, and under a 56-byte
    header the two rules cannot both hold — flooring the plaintext at 512 gives a total of
-   56 + 512 + 16 = 584, and `padme(584)` is 608, so 584 is not a bucket and §6.4's own stated goal
-   fails. Under `32`'s own 112-byte header the two happen to coincide at `aad_ext_len = 0`
-   (112 + 512 + 16 = 640, and `padme(640) = 640`), which is presumably why the tension was never
-   visible there. Flooring the total keeps both properties: every seal's stored length is a Padmé
+   56 + 4 + 512 + 16 = 588, and `padme(588)` is 608, so 588 is not a bucket and §6.4's own stated
+   goal fails. **The tension is not peculiar to a 56-byte header, and an earlier draft of this
+   paragraph said it was.** Under `32`'s own 112-byte header at `aad_ext_len = 0` the total is
+   112 + 4 + 512 + 16 = 644 and `padme(644) = 672`, so the two rules do not coincide there either;
+   the claim that they did rested on dropping the 4-byte length prefix, which §6.4's own
+   `pad_plaintext` puts inside the padded total (`padme((112 + aad_ext_len + 4 + body.len() + 16))`)
+   and which §4.1 of this order counts correctly twice. Flooring the total keeps both properties: every seal's stored length is a Padmé
    bucket, and nothing below 512 bytes is distinguishable. **What it costs:** a key seal is 512
-   bytes rather than 584, so 440 bytes of plaintext rather than 512 — irrelevant to a 32-byte key
+   bytes rather than 608, so 436 bytes of body rather than 512 — the same 436 §4.1 derives for the
+   identical quantity — irrelevant to a 32-byte key
    and its AAD, and the arithmetic is in §4.1's `KEY_SEAL_LEN` with a `const` assertion behind it.
    If planning rules for the letter, the change is two constants and two CHECK bounds.
 
