@@ -418,9 +418,13 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   2026-09-04.** Twenty-seven questions in plain English, ranked by what blocks the server, from a
   ten-reader sweep of the whole corpus in which **every candidate was adversarially checked
   against later documents: 93 found, 42 were STALE markers already answered elsewhere, 51
-  survived.** Its §A is the only part that blocks server work — key custody (including for a
-  customer with no cloud), whether the first release keeps an audit log, and the borrowed-code
-  ceiling. **Do not re-derive this list; add to it and mark items answered.** The owner-blocked
+  survived.** **Its §B is the most important thing on that page and it is new**: a final pass asked what a
+  server product needs decided that a single offline file never did, and found **twelve questions
+  nobody has ever put to the owner**, six of them blocking. The first is a **direct contradiction
+  the corpus has carried since the pivot** — an accepted decision record says the project will
+  never run a hosted service, and everything written since 2026-08-18 assumes it will. §A is the
+  three the corpus already knew about: key custody (including for a customer with no cloud),
+  whether the first release keeps an audit log, and the borrowed-code ceiling. **Do not re-derive this list; add to it and mark items answered.** The owner-blocked
   bullets scattered below and through `57` §14, `70` §10, `49` §22 and the ADRs are its sources
   and are now duplicative.
 
