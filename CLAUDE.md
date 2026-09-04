@@ -414,6 +414,16 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Next actions
 
+- **EVERY OPEN OWNER DECISION IS NOW ON ONE PAGE — `docs/70-ops/OPEN-FOR-THE-OWNER.md`,
+  2026-09-04.** Twenty-seven questions in plain English, ranked by what blocks the server, from a
+  ten-reader sweep of the whole corpus in which **every candidate was adversarially checked
+  against later documents: 93 found, 42 were STALE markers already answered elsewhere, 51
+  survived.** Its §A is the only part that blocks server work — key custody (including for a
+  customer with no cloud), whether the first release keeps an audit log, and the borrowed-code
+  ceiling. **Do not re-derive this list; add to it and mark items answered.** The owner-blocked
+  bullets scattered below and through `57` §14, `70` §10, `49` §22 and the ADRs are its sources
+  and are now duplicative.
+
 - **The three byte levers are RETIRED AS A PRIORITY** — the ceiling they existed to get
   under was removed on 2026-08-21 with the pivot (`49` §1). `47`'s measurements stand as
   history and one of the three still matters on its own merits: the generated dispatch as a
