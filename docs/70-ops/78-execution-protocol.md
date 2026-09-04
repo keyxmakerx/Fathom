@@ -170,9 +170,11 @@ never the first run:
 |---|---|
 | `./scripts/gate-zero.sh` | `gate-zero: OK`, exit 0 |
 | `./scripts/lockfile-lookalikes.sh` | `lookalikes: OK`, exit 0 |
+| `./scripts/forbidden-claims.sh` | `forbidden-claims: OK`, exit 0 |
 | `./scripts/tests/gate-zero-test.sh` | 10 passed, 0 failed |
 | `./scripts/tests/lockfile-lookalikes-test.sh` | 10 passed, 0 failed |
 | `./scripts/tests/crate-cooldown-test.sh` | 18 passed, 0 failed |
+| `./scripts/tests/forbidden-claims-test.sh` | 11 passed, 0 failed |
 | `cargo deny check` | `advisories ok, bans ok, licenses ok, sources ok` |
 | `cargo audit --file Cargo.lock` | exit 0, no vulnerability |
 | `./scripts/tests/advisory-gate-test.sh` | 3 passed, 0 failed |
@@ -183,8 +185,8 @@ never the first run:
 | `cargo run -p fathom-schema --bin fathom-schema-check` | Exit 0, `0 failure(s)` |
 | The work order's own acceptance gates | Exactly the output the work order states |
 
-**The first nine rows are new on 2026-09-03 (WO-11 §5 steps 0–2) and they run BEFORE anything
-compiles.** That ordering is the control and not a preference: a crate's `build.rs` executes on
+**The first eleven rows are new on 2026-09-03/04 (WO-11 §5 steps 0–2, plus ADR-0040 §6's claim
+check) and they run BEFORE anything compiles.** That ordering is the control and not a preference: a crate's `build.rs` executes on
 the machine before any gate that runs after compilation can produce a result, so every check
 that can be made without compiling is made first. `gate-zero`, the look-alike check and the three
 shell tests need no toolchain at all; `cargo deny` and `cargo audit` read `cargo metadata` and the

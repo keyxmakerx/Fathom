@@ -6,13 +6,28 @@ and the next actions.
 ## What this is
 
 A security-first network tool: one typed graph, six views over it, teaching and
-estate-of-record as co-equal goals. **The current artifact never connects to anything** — no
-device access, no credentials, no telemetry (invariants 1–3, `.context/conventions.md`;
-exceptions are priced in `docs/30-security/38-the-egress-question.md` and none is approved).
-**The product pivoted on 2026-08-18**: the destination is a server-hosted, multi-tenant,
-live-collaborative version (`docs/40-stack/49-the-server-product.md`), the single offline
-HTML file is being dropped, and invariant 1 is the owner's rule for the CLIENT-ONLY mode
-(`48` §1). Nothing server-side is built yet; what ships today is still the one file.
+estate-of-record as co-equal goals.
+
+**THIS IS A SERVER PRODUCT.** The pivot was taken on 2026-08-18 and the destination is
+server-hosted, multi-tenant and live-collaborative (`docs/40-stack/49-the-server-product.md`);
+the single offline HTML file is being dropped. **As of 2026-09-03 the server is no longer a
+plan** — `crates/fathom-server` exists, runs, and is proved against a real PostgreSQL and a
+real TLS stack (WO-11). It stores nothing yet, on purpose, and that is the next order's job.
+
+Two things follow, and getting them the wrong way round is the most likely way to misread this
+corpus:
+
+1. **Most documents here were written about the offline file**, some of them at length and
+   well. Their reasoning is sound *for the artifact they were written about*. **Do not carry a
+   conclusion across the pivot without re-checking its premise** — `48` §1 is the standing
+   warning, and `38` is the document it most applies to.
+2. **The client still exists and its rules still bind it.** The browser page makes no network
+   request, takes no credential and sends no telemetry (invariants 1–3,
+   `.context/conventions.md`; exceptions priced in `38`, none approved). Invariant 1 is the
+   owner's rule for **the client-only mode** (`48` §1) and it is not a claim about the server.
+   Invariant 4 was formally **scoped** rather than deleted on 2026-09-03 (ADR-0040): the
+   server holds the keys and says so. **Device credentials are still protected by never
+   arriving** — that one survives the pivot intact, and it is the sentence that stays true.
 
 ## Which kind of session is this?
 

@@ -1,18 +1,43 @@
 # Fathom — architecture corpus, schema, and first code
 
 The design corpus, declared schema and toolchain for a security-first network engineering
-tool. The current artifact is client-side — one HTML file, opens offline, connects to
-nothing; the destination since the 2026-08-18 pivot is a server-hosted version
-(`docs/40-stack/49-the-server-product.md`), not yet begun. Fifty-odd specification
-documents, thirty-plus decision records, six adversarial critiques, a seed content corpus, a
-declared `schema/` tree, sixteen Rust crates — parser, typed store, layout, views, and the
-redaction gate that destroys credentials at ingest — a full-application interactive mockup,
-and a work-order queue (`docs/70-ops/79-work-orders/`) that pre-decides the engineering line.
+tool. **Fathom is a server product** — server-hosted, multi-tenant and live-collaborative
+(`docs/40-stack/49-the-server-product.md`) since the 2026-08-18 pivot — with a client-side
+browser artifact that predates it and still runs offline. **The server exists as of
+2026-09-03** (`crates/fathom-server`, WO-11): it starts, answers a health check against a real
+PostgreSQL behind TLS, and deliberately stores nothing yet, because the key-custody boundary
+ADR-0040 defines has to be in place before the first row is written. Fifty-odd specification
+documents, forty-odd decision records, six adversarial critiques, a seed content corpus, a
+declared `schema/` tree, seventeen Rust crates — parser, typed store, layout, views, the
+redaction gate that destroys credentials at ingest, and the server — a full-application
+interactive mockup, and a work-order queue (`docs/70-ops/79-work-orders/`) that pre-decides the
+engineering line.
 
 Fathom models a network as one typed graph and projects it into a diagram, a configuration, a set
-of findings, an explanation, a verification ladder and an inventory. It never touches a device,
-never accepts a credential, and never opens a connection the user did not configure — permanently
-(`docs/30-security/38-the-egress-question.md` prices every future exception).
+of findings, an explanation, a verification ladder and an inventory.
+
+**On what it does not do, stated precisely rather than broadly, because the pivot changed one
+half of it and not the other:**
+
+- **It never touches a device.** No SSH, no SNMP, no polling, no discovery. Configuration
+  arrives because a person pastes it or types it. That holds on both sides of the pivot.
+- **Device credentials are protected by never arriving.** The ingest gate destroys passwords,
+  pre-shared keys and community strings at the paste box, before anything is stored or sent —
+  in Rust, in the browser, on the way in. **This is the strong claim and it survives the
+  pivot.** Its one honest limit is written down rather than glossed: a secret a person types by
+  hand into a description field is not pasted config, so the gate never sees it. Fathom
+  **marks** such a value and stores it as typed (ADR-0041) — the owner's decision, because
+  refusing is beaten by rewording and protects only the typist.
+- **The client makes no network request at all** — no telemetry, no fonts, no analytics
+  (`docs/30-security/38-the-egress-question.md` prices every future exception; none is
+  approved).
+- **The server holds keys, and says so.** ADR-0040: a data key per tenant and per design from
+  the first stored byte, wrapped so a customer-supplied master key can replace the house key
+  later. Until that is true for a real customer, **ADR-0040 §6 forbids four sentences in
+  writing** — *zero-knowledge*, *end-to-end encrypted*, *we cannot read your data*, *only you
+  hold the key* — because they are false, and a false security sentence teaches the reader to
+  discount the next one. `scripts/forbidden-claims.sh` enforces it on every user-facing
+  surface.
 
 > **Status: the product was redefined mid-corpus, deliberately.** The original corpus specifies a
 > teaching-and-modelling tool with the command finder as v1 (ADR-0006, `71`). The owner has since

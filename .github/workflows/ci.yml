@@ -51,6 +51,13 @@ jobs:
       - name: Layer 4 (mechanical half) — no look-alike crate names
         run: ./scripts/lockfile-lookalikes.sh
 
+      # ADR-0040 §6's four forbidden sentences, made mechanical. That record's own
+      # failure-mode table answers "marketing says zero-knowledge because it sounds
+      # better" with a policy, where the two rules either side of it in the same table
+      # got CI checks. This is that gap closed.
+      - name: No user-facing surface claims what ADR-0040 §6 forbids
+        run: ./scripts/forbidden-claims.sh
+
       # The gates' own tests. A gate nobody has watched fail is not known to work,
       # so each of these drives its gate over fixtures and asserts it FAILS on the
       # bad case — including the August 2026 shape, proc-macro1 beside proc-macro2.
@@ -59,6 +66,7 @@ jobs:
           ./scripts/tests/gate-zero-test.sh
           ./scripts/tests/lockfile-lookalikes-test.sh
           ./scripts/tests/crate-cooldown-test.sh
+          ./scripts/tests/forbidden-claims-test.sh
 
       # ---- Layers 2 and 3, still before anything compiles. ----
 
