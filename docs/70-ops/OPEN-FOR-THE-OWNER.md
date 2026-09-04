@@ -252,6 +252,12 @@ later paste its real config. A blank one cannot be matched automatically.
 > breath. **Still open beneath it:** the kind's name, whether a device may be in several groups,
 > whether groups nest, and whether one may span sites.
 >
+> **AND THE QUESTION WAS THE WRONG SHAPE.** It offered a named set *or* a typed word; you said
+> **"we also needed a tagging system as well"**, so it is **both**. They fail differently — a set
+> is for "the Q3 firewall refresh" where renaming must not fragment it, a tag is for when you do
+> not yet know what the set is. Whether that is two kinds or one is now a planning question larger
+> than this one asked.
+>
 > **And the second half below was answered on a different axis than it was asked.** See §D10.
 
 You asked to group and tag kit. Two shapes:

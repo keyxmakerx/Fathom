@@ -1865,6 +1865,17 @@ generation he asked for in the same message.
 be in several groups at once, whether groups nest, and whether a group can span sites. Those are
 `62`-grammar questions for a planning session, and §19.2 changes the frame they are answered in.
 
+> **CORRECTION, same day, and it matters: D2 WAS THE WRONG SHAPE OF QUESTION.** It offered a real
+> named set **or** a typed word, and this section first recorded the choice as if the typed word had
+> been rejected. He then said: **"We also needed a tagging system as well."** So the answer is
+> **both, and they are two mechanisms rather than one argued down to a winner** — a group is a named
+> set with its own identity, and a tag is a word you type. The reason both survive is that they fail
+> differently: a set is what you want for *"the Q3 firewall refresh"*, where renaming must not
+> fragment it; a tag is what you want when you do not yet know what the set is. **Anything designed
+> as "groups, and tags are just cheap groups" will be wrong**, and so will the reverse. Two kinds,
+> or one kind with an honest reason why one shape serves both — that is the planning question, and
+> it is now bigger than D2 asked.
+
 ### 19.2 The shape is Meraki's three tiers, and the question about private notes was the wrong axis
 
 Asked whether labels and notes should be shared with everyone who opens the drawing or whether
@@ -1938,6 +1949,57 @@ now, because the server stores nothing until WO-12 is executed and the offline a
 thing that actually works today. **It should be marked in the compose file as transitional, with
 the condition for deleting it written next to it**, or it will still be there in a year being
 explained to somebody.
+
+### 19.4 The views inside the tiers are the zoom ladder, and it is already written down
+
+Immediately after §19.2 he added:
+
+> **"we have views within the org/networks too. Ranging from per packet (how it traverses), to
+> building, to rack(s) to.. we had a lot of views planned out lol. And they are all optional. We
+> also needed a tagging system as well."**
+
+**They are planned out, they are not lost, and they are in `docs/50-design/57-the-zoom-ladder-and-
+the-trace.md`.** Read that before designing any of this again. Three things follow.
+
+**(a) He has now described ONE axis twice.** §19.2's Meraki tabs and this message's "views within
+the org/networks" are the same depth axis, and `57` §2 already tabulates it against real kinds:
+
+| his words | `57` §2 rung | kinds | state today |
+|---|---|---|---|
+| organisation | above the ladder | the tenant, server tables (§18.2) | not built |
+| *"building"* | 0 — Premises | `Premises` | no renderer |
+| network | 1 — Site | `Site → Device` | **live** |
+| *"rack(s)"* | 2 — Rack | `Rack ←MountedIn— Chassis` | **live** (2026-08-21) |
+| device | 3 — Chassis | `Chassis → PhysicalPort` | no renderer (the faceplate) |
+| — | 4 — inside the box | interfaces, zones, policies, routing | **live** (2026-08-22) |
+| *"per packet (how it traverses)"* | the trace, `57` §5 | `19` §6.5's `trace_step` | **specified, never written** |
+
+So the Meraki three tabs are **three rungs of one ladder plus the tenant above it**, not a separate
+navigation. `57` §2's own framing is the reason this is cheap: *"One canvas. Zoom is a depth axis,
+not a set of modes... the picture changes and nothing else does."* Pan, zoom and fit already work at
+every rung and cost no new viewport code.
+
+**And `57` §3 records something neither party knew: the ladder FORKS ONCE, at the box.** `HasRack`
+runs from `Premises`, `HasDevice` runs from `Site`, and the two chains meet at the `Chassis`. So
+*"building → rack"* and *"network → device"* are not competing hierarchies to choose between; they
+are the physical and logical halves of one ladder that rejoin at the metal. Any design that makes
+the user pick one loses the join.
+
+**(b) "They are all optional" is a new constraint and it has teeth.** It agrees with `57` §2's
+depth-axis framing — you never have to descend — but it also means **a rung with nothing behind it
+must not be offered**. An estate with no racks must not show an empty rack rung; a device whose path
+Fathom cannot trace must not offer a trace. That is `49` §16.1's rule arriving from a second
+direction: *an interface that offers a control it cannot honour is lying.* Stated once, it now binds
+both the firmware manager and the ladder.
+
+**(c) The per-packet view is the highest-value unbuilt thing in this list, and it needs no rules
+engine.** `19` §6.5 specifies `trace_step` completely — the cable walk, the sort orders, the
+`PassThrough` step, a 16-hop cap and seven named outcomes — and `57` §6.1's heading is exactly
+*"The trace is already specified, and nobody has written it."* `57` §6.3 adds the honest form:
+never say permitted or denied; from the ingress and egress interfaces the graph names the two
+zones, the policy set between them, and its policies **in the order the device reads them**, which
+turns four hundred policies into the twenty-seven pointing this way. Writing it is following a
+decision already taken.
 
 ## 15. Disagreements
 
