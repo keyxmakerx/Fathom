@@ -3,7 +3,7 @@
 > **Status: written for the owner, in plain English, after a day of research and review.** Fourteen
 > decisions were each researched by one agent and then attacked by a second; every attack struck
 > over-claims and bad citations and left the recommendation standing; the corrections are applied
-> in the technical companion, `RECOMMENDATIONS-2026-09-04.md` (landing in the commit after this one; it is being assembled). Three more I judged directly from
+> in the technical companion, `RECOMMENDATIONS-2026-09-04.md`. Three more I judged directly from
 > documents already on disk. I also looked at the actual product in a browser and read the
 > cryptography in WO-12 myself. **Sections 1 and 3 need nothing from you. Section 2 does.**
 

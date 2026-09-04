@@ -10,7 +10,7 @@
 > recommendation, and three more turned out to be already answered elsewhere. Read
 > `WHAT-I-RECOMMEND-2026-09-04.md` first — it is one page, in plain English, and ends with the eight
 > questions that are genuinely yours. The technical record behind it is
-> `RECOMMENDATIONS-2026-09-04.md` (lands in the commit after the one that carries this note).**
+> `RECOMMENDATIONS-2026-09-04.md`.**
 >
 > **Read sections A and B only, if you read nothing else.**
 >
