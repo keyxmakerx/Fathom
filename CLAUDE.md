@@ -414,6 +414,32 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Next actions
 
+- **HANDOVER, 2026-09-04 — read this bullet first; the session that wrote it was cut short.**
+  Everything is committed and pushed; the tree is clean. **The next server order is WO-12: the
+  key boundary and the first stored row — and it is NOT yet written.** The reasoning that lets
+  it proceed without the owner: ADR-0040 D1–D4 already decided the *architecture* of custody (a
+  data key per tenant and per design, wrapped by a master key, custody switched by re-wrapping
+  never re-encrypting). The one open part — `OPEN-FOR-THE-OWNER.md` §A1, *which service holds
+  the master key* — is a **provider behind an interface chosen by deployment config**, not a
+  storage format: AWS KMS wraps by RPC, Vault Transit returns a versioned string, a local file
+  wraps locally, and one provider-neutral wrapped-key column can hold all three. The local-file
+  provider is built first because self-hosted customers need it regardless (§B3). So WO-12 can
+  store its first row with every owner option open — which is exactly what WO-11 G8 stored
+  nothing to protect. **How to author it:** `docs/70-ops/79-work-orders/wo-12-authoring.workflow.js`
+  is a ready Workflow script — three designs from three angles, judged on six criteria,
+  synthesised into the order in WO-11's house style, then attacked by three skeptics (an
+  ADR-0040 auditor, a retrofit skeptic who reasons about each KMS concretely, a `78`-protocol
+  checker) with fixes applied. Its hard constraints are in the script and they are the point:
+  the order must decide nothing in `OPEN-FOR-THE-OWNER.md` §A/§B, must prove the custody switch
+  by re-wrapping (ciphertext byte-identical before and after), D4 by destroying a key, D7 at the
+  type level, and the provider boundary with a second trivial provider round-tripping the same
+  rows. It was started once and stopped at the design stage for usage reasons; nothing it wrote
+  survived, and it is about ten agents to re-run. **After it lands:** add the index row, run the
+  floor, and point this bullet at the file. **The two crypto crates it needs are already
+  owner-approved** — `deps/decisions/argon2.md` and `chacha20poly1305.md`, 2026-08-15, closure
+  22 — which takes the lockfile to ~137 of the 160 cap WO-11 §9.7 escalated. **The contradiction
+  in §B1 is confirmed and sourced**: ADR-0003, *Accepted*, *"no hosted service, no accounts we
+  run"*, against everything in `49`. That is the owner's, and it does not block WO-12.
 - **EVERY OPEN OWNER DECISION IS NOW ON ONE PAGE — `docs/70-ops/OPEN-FOR-THE-OWNER.md`,
   2026-09-04.** Twenty-seven questions in plain English, ranked by what blocks the server, from a
   ten-reader sweep of the whole corpus in which **every candidate was adversarially checked

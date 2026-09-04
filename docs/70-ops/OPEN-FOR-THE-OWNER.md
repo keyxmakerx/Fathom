@@ -98,8 +98,11 @@ Do you intend to **run Fathom yourself as a service other people log into over t
 **ship it as software each customer installs on their own server**?
 
 **The project's own accepted decision says you will never run one — and every word written since
-the pivot assumes you will.** That contradiction has been sitting there since 2026-08-18 and
-nobody has resolved it in writing.
+the pivot assumes you will.** Verified 2026-09-04: it is **ADR-0003**, still *Accepted*, titled
+*"Fathom is a tool, not a business, and there is no hosted service"*, whose first decision reads
+*"No hosted service, no accounts we run, no plan tiers."* `49` (2026-08-18) assumes hosted and
+multi-tenant throughout and never reopens it. Resolving it is an ADR that amends or supersedes
+0003 — planning work once you have answered, never an execution session's.
 
 It is the question underneath most of the rest of this section. Answer it first.
 
