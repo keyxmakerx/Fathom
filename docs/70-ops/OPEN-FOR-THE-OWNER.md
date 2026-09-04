@@ -245,6 +245,15 @@ later paste its real config. A blank one cannot be matched automatically.
 
 ### D2. Tags and groups — a real thing, or a typed word?
 
+> **ANSWERED 2026-09-04: a real named set.** Recorded verbatim in `70` §19.1. It is a schema
+> decision — a kind with its own identity, so renaming survives and "Q3 refresh" / "Q3-Refresh" /
+> "q3 refresh" are one thing. By ADR-0008 nothing "per group" can be built until that kind exists,
+> so the schema work is on the critical path for the SCP/SFTP generation asked for in the same
+> breath. **Still open beneath it:** the kind's name, whether a device may be in several groups,
+> whether groups nest, and whether one may span sites.
+>
+> **And the second half below was answered on a different axis than it was asked.** See §D10.
+
 You asked to group and tag kit. Two shapes:
 
 - **A real named set** you deliberately create and drop equipment into. Survives renaming. Stops
@@ -255,6 +264,20 @@ You asked to group and tag kit. Two shapes:
 **And a second half:** should every colleague who opens the drawing read your labels, or do you
 need some **private to you**? A private-notes layer is easy to build in from the start and
 painful to add once everything is shared by default.
+
+### D10. Is a group visible to everyone in the organisation? *(narrowed 2026-09-04)*
+
+Asked whether labels and notes should be shared or private to you, you answered on a different
+axis — **"think of the meraki dashboard right, you have a per organization tab, a per network tab,
+and then a per device tab"** (`70` §19.2). That is a scope hierarchy, and it is now the shape the
+equipment manager is being designed to, mapping onto tenant → `Site` → `Device`.
+
+**So the privacy question survives, smaller and better posed:** a group is now a real named set
+(§D2). **Can everyone in your organisation see one, or can a group be private to the person who
+made it?**
+
+The same applies to notes you type on equipment. It is cheap to decide now and painful to retrofit,
+because it touches every read path — which was the true half of the original question.
 
 ### D3. Can a box do more than one job?
 

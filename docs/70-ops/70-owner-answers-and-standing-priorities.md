@@ -1842,6 +1842,103 @@ session's. This is the owner's next decision on this thread, and the cheapest of
 (binding `routing-instances`, which is dictionary work the estate needs anyway) is the one that
 also makes the routing view truer.
 
+## 19. Groups, the Meraki three-tier shape, and a database question that found something — 2026-09-04
+
+Three answers, given while asking for a Docker setup and the SCP/SFTP work for equipment. His
+words are verbatim; the findings under them are this session's.
+
+### 19.1 D2 is ANSWERED: a group is a real named set
+
+Asked whether grouping kit should be **a real named set** you create and drop equipment into, or
+**a word you type onto a device**, he chose:
+
+> **A real named set.**
+
+**This closes `OPEN-FOR-THE-OWNER.md` §D2's first half and it is a schema decision, not a
+preference.** A real named set means a kind in `schema/` with an identity of its own, which
+survives renaming and makes *"Q3 refresh"*, *"Q3-Refresh"* and *"q3 refresh"* one thing rather
+than three. By ADR-0008 nothing can be built on it until that kind exists, so **the schema work
+comes first and it is on the critical path for anything "per group"** — including the SCP/SFTP
+generation he asked for in the same message.
+
+**What is NOT decided by this** and must not be smuggled in: the kind's name, whether a device may
+be in several groups at once, whether groups nest, and whether a group can span sites. Those are
+`62`-grammar questions for a planning session, and §19.2 changes the frame they are answered in.
+
+### 19.2 The shape is Meraki's three tiers, and the question about private notes was the wrong axis
+
+Asked whether labels and notes should be shared with everyone who opens the drawing or whether
+some should be private to him, he did not answer on that axis:
+
+> **"Well yes and no, think of the meraki dashboard right, you have a per organization tab, a per
+> network tab, and then a per device tab."**
+
+**Read this as a correction to the question.** The axis he cares about is not privacy, it is
+**scope level**: an organisation view, a network view, and a device view, each its own tab, each
+answering a different question. Privacy was the wrong thing to ask about first.
+
+**It maps onto what already exists, which is why it is cheap to adopt now and expensive to
+retrofit later:**
+
+| Meraki tier | Fathom today | Where it lives |
+|---|---|---|
+| Organisation | the tenant | server tables, OUTSIDE the graph (§18.2) |
+| Network | `Site` (and `Premises` on the physical fork) | `schema/` |
+| Device | `Device` | `schema/` |
+
+**Two consequences bind planning.** First, the equipment manager he asked for is **three views and
+not one**, and a firmware campaign reads naturally at the organisation tier while a device's
+readiness reads at the device tier. Second, **a group as decided in §19.1 cuts ACROSS the network
+tier** — *"the Q3 firewall refresh"* is not a site — so a group is a fourth thing beside the three
+tiers rather than a fifth tier under them. A design that makes a group a kind of site will be
+wrong the first time he groups two devices in different buildings.
+
+**Still open, and it is the half he did not answer:** whether any label, note or group is private
+to one person. §19.1's named set says nothing about who can see it. It stays on the open list,
+narrowed: the question is now *"is a group visible to everyone in the organisation?"*, which is a
+better question than the one asked.
+
+### 19.3 The database question found a decision that was made and then only half built
+
+He asked, of the Docker setup:
+
+> **"Product plus server, but are we sure that's the best DB server for this? Also, isn't this
+> becoming the same thing?"**
+
+**Both halves land, and the first one found a real gap.**
+
+**On the database.** PostgreSQL was not chosen carelessly — `49` §6 picked `tokio-postgres` over
+`sqlx` on a measurement (58 crates in the build graph against 124, measured 2026-08-21) against
+`35` §5.1's cap. But that is a driver choice inside an already-assumed PostgreSQL. **The engine
+itself was decided in `43` §6, and that decision has TWO backends, not one:**
+
+> *"one blob-store trait + one `trait IndexStore`, two implementations each: SQLite + local
+> filesystem for D2, PostgreSQL + S3-compatible object storage for D3."*
+
+with the reason stated in its own table:
+
+> *"A single-node install that requires an operator to run PostgreSQL is a single-node install
+> nobody runs. A cluster on SQLite is not a cluster."*
+
+**WO-11 built only the PostgreSQL half.** So the answer to *"are we sure that's the best DB server
+for this?"* is: **for the hosted multi-tenant destination, yes and it is reasoned; for the machine
+he is about to run it on, the corpus already says no, and the path it says to use does not exist
+yet.** `43` even predicted which one would rot — *"the bugs will be in the one that gets less
+traffic"* — and named SQLite as the one developers would use daily so it would not be neglected.
+It is currently the one that is not built at all.
+
+**This is a planning item, not an execution one**, and it is filed rather than acted on: WO-12
+writes the first stored row against PostgreSQL, and whether the single-node backend arrives before
+or after that is a sequencing decision with a real cost either way.
+
+**On "isn't this becoming the same thing?" — yes, and he is right.** The pivot (`49`) makes the
+browser a window onto the server, so in the destination the server serves the application AND holds
+the data, and a separate container that only serves the HTML is scaffolding. It is worth having
+now, because the server stores nothing until WO-12 is executed and the offline artifact is the only
+thing that actually works today. **It should be marked in the compose file as transitional, with
+the condition for deleting it written next to it**, or it will still be there in a year being
+explained to somebody.
+
 ## 15. Disagreements
 
 1. **Against the framing of the original questions.** Q3 and Q4 were put to the owner in project
