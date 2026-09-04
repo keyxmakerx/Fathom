@@ -629,8 +629,9 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Verify before you trust
 
-The verification floor (`78` §6) is **thirteen rows as of 2026-09-03**, and CI runs every one of
-them but the last. **The first nine run BEFORE anything compiles**, which is the control and not a
+The verification floor (`78` §6) is **sixteen rows as of 2026-09-04**, and CI runs every one of
+them but the last. (This line read *"thirteen"* until 2026-09-04; `78` §6's table has sixteen and it
+is the authority. Counted, not estimated.) **The first nine run BEFORE anything compiles**, which is the control and not a
 preference: a crate's `build.rs` executes on the machine before any gate that runs after
 compilation can produce a result.
 
@@ -647,9 +648,11 @@ The dependency gate — five layers, none of which subsumes another, all added b
 - `cargo deny check` — source allowlist, licences, the ban list (`proc-macro1`, and `ring` /
   `aws-lc-sys` / `openssl-sys` / `native-tls`, which is C7 made mechanical), duplicate versions.
 - `cargo audit --file Cargo.lock` — the RustSec database.
-- The three gates' own tests: `scripts/tests/gate-zero-test.sh` (10),
-  `…/lockfile-lookalikes-test.sh` (10), `…/crate-cooldown-test.sh` (18), plus
-  `…/advisory-gate-test.sh` (3), which is `cargo audit`'s positive control.
+- The gates' own tests: `scripts/tests/gate-zero-test.sh` (10),
+  `…/lockfile-lookalikes-test.sh` (10), `…/crate-cooldown-test.sh` (18),
+  `…/forbidden-claims-test.sh` (11), plus `…/advisory-gate-test.sh` (3), which is `cargo audit`'s
+  positive control. **There are five, not the four this line listed until 2026-09-04** —
+  `forbidden-claims-test.sh` was missing here while running in both `78` §6 and `ci.yml`.
 
 `cargo deny` and `cargo audit` are **pinned, checksummed release binaries**
 (`scripts/ci/fetch-audit-tools.sh`), never `cargo install`: building either from source compiles
