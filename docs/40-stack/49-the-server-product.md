@@ -1125,14 +1125,41 @@ confirmed nor refuted. **Do not repeat it to a customer as a vendor quotation un
 the page**, and treat any future session that reports it verified without naming a reachable host
 as the ADR-0034 failure it would be.
 
-**(ii) THE DESIGN-BREAKING FINDING: `file copy` has nowhere to put a key.** Established from
-Juniper's own YANG: the RPC's entire input surface on SRX, EX, MX and Junos Evolved is
-**source, destination, source-address, routing-instance**. No identity file, no username, no
-passphrase. **So a generated runbook step of the form "configure the device to use key K for the
-firmware pull" is unbuildable as written — there is no command to configure.** Whatever
-`file copy scp://` authenticates with is chosen by the box. This does not refute §16.2, whose
-decision is about the SERVER's accounts, but it does mean **the device half of that model is
-unestablished on the owner's primary platform**, and §16.5's manual half is larger than it looks.
+**(ii) `file copy` has nowhere to put a key — CONFIRMED, and it is NOT the only door. See (vi).**
+Established from Juniper's own YANG, and on 2026-09-04 re-read against the named module rather
+than a search: `junos-es-rpc-file-mgd@2025-01-01.yang` at 25.2R1 (repository `Juniper/yang`,
+commit `96ad7bad`) gives `rpc file-copy` exactly four input leaves — **source, destination,
+source-address, routing-instance**. No identity file, no username, no passphrase. So a runbook
+step of the form *"configure the device to use key K for `file copy`"* is unbuildable as written.
+**An earlier version of this paragraph then concluded that the device half of §16.2 was
+unestablished on the primary platform. That conclusion was drawn from one command and it was
+wrong by omission — (vi) below is the correction.**
+
+**(vi) CORRECTION, 2026-09-04, LATER THE SAME DAY: THE SRX HAS A DOWNLOAD COMMAND WITH A KEY SLOT,
+AND A COMMAND TO MINT THE KEY.** Found by a skeptic checking (ii), and then verified directly
+against the vendor's own model — `Juniper/yang` at commit `96ad7bad`, read 2026-09-04, blob
+fetched and grepped rather than searched:
+
+- `rpc request-system-download-start` — `junos-es-rpc-request@2025-01-01.yang`, 25.2R1, line 2787;
+  present again at 25.4R1, line 2875. Its input leaves, verbatim: `url` *"URL of file"*;
+  `max-rate`; `save-as`; **`login` — *"Login credentials (username:password)"*; `identity-file` —
+  *"Identity file for sftp pubic key authentication"*** [sic, Juniper's own spelling];
+  `passphrase` — *"Passphrase used to protect identity key pair"*; `delay`.
+- `rpc generate-ssh-key-pair` — same module, line 4630 — *"Generate SSH key pair identity"*, with a
+  mandatory `identity-name` and an optional `passphrase`.
+
+**So on the SRX, Juniper models both halves of §16.2's device side**: a command that mints a named
+SSH identity on the box, and an SFTP download command that accepts one. What is NOT established —
+and is exactly the bench test — is whether the `identity-name` the first command mints is what the
+second command's `identity-file` expects, and whether that path exists on MX and EX (their
+`junos-rpc-request` modules were not read). **Two consequences.** First, §16.2's device half is
+*documented but unproven* on the primary platform, which is a much better position than
+*unestablished*, and the test is thirty minutes on one real SRX or a vSRX. Second, **the `login`
+leaf is the shared-password path**, vendor-documented on the same command, and it is the one line
+a generated runbook must never emit — the rejection §16.2 made is now tied to a leaf by name.
+
+**Arista is unchanged by this: (iii) stands.** Nothing found establishes key authentication for an
+EOS image fetch.
 
 **(iii) The same question is open on Arista, and the only evidence points the wrong way.** No
 Arista source establishes passwordless key-based SCP as an outbound client, nor that a switch can
