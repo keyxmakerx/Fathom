@@ -274,6 +274,31 @@ pub struct WrapAad {
     pub aad_version: AadVersion,   // 1
 }
 impl WrapAad {
+    /// THE ENCODING, GIVEN IN FULL, because `78` §4's first trigger makes an
+    /// executor STOP rather than invent a field width — and two constants below
+    /// (`KEY_SEAL_LEN`, and `design.wrapped_key`'s CHECK) rest on this length.
+    /// An earlier draft named `WRAP_AAD_LEN` and `WrapAadBytes` once each and
+    /// defined neither. Fixed width, fixed order, no length prefixes, no
+    /// separators — 40 bytes, in exactly this order:
+    ///
+    ///     off len field
+    ///       0   1 aad_version      u8, = 1
+    ///       1   1 purpose          u8: TenantKey 1, DesignKey 2,
+    ///                                  DesignBlob 3, MasterKeyProbe 4
+    ///       2   1 tenant_present   u8, 0 or 1
+    ///       3  16 tenant_id        the ULID's u128, BIG-ENDIAN; all zero when
+    ///                              absent, which the presence byte disambiguates
+    ///      19   1 design_present   u8, 0 or 1
+    ///      20  16 design_id        as tenant_id
+    ///      36   4 key_epoch        u32, BIG-ENDIAN
+    ///
+    /// `pub const WRAP_AAD_LEN: usize = 40;` and a `const` assertion that the
+    /// offsets sum to it. Big-endian throughout so the bytes sort as the ULIDs
+    /// do; `AadVersion` is a `u8` here and a `smallint` in `0002` (§4.2), and
+    /// `KeyEpoch` a `u32` here and an `integer` there, both CHECKed positive.
+    /// The presence bytes are why an absent tenant can never be confused with a
+    /// tenant whose id encodes to zeros.
+    ///
     /// Canonical, fixed field order, fixed width. NEVER STORED AS A COLUMN:
     /// recomputed on every open from the row's own identifying fields —
     /// `tenant_id`, `design_id`, `key_epoch`, `purpose` — and compared against
@@ -282,8 +307,18 @@ impl WrapAad {
     /// `wrapping_id`: a wrapping id is which wrapping, not which key, and two
     /// wrappings of one key must produce the identical AAD or a custody switch
     /// becomes a re-encryption.
-    pub fn encode(&self) -> Vec<u8>;
+    pub fn encode(&self) -> WrapAadBytes;     // fixed width, never Vec<u8>
 }
+
+/// The 40 encoded bytes as a type — both what `encode()` returns and what
+/// `MasterKeyProvider::unwrap` recovers from inside the plaintext, so the two
+/// sides of `unwrap_and_check`'s comparison cannot be different shapes and a
+/// short read cannot silently compare a prefix.
+///
+/// **NO DERIVED `PartialEq`.** Equality is `ctutils::CtEq` only, so the
+/// comparison cannot accidentally become the short-circuiting one.
+pub struct WrapAadBytes([u8; WRAP_AAD_LEN]);   // WRAP_AAD_LEN = 40, above
+
 // THERE IS NO `as_context()`, AND ITS ABSENCE IS A DECISION (Disagreements 9).
 // An earlier draft carried one — the same fields as key/value pairs, for a
 // provider with an associated-data channel (AWS KMS encryption context, Vault
@@ -401,8 +436,29 @@ pub struct Wrapping<'a> {
 /// `Wrapping`, which is built `From<&TenantKeyRow>`, and `destroy_tenant_key`
 /// DELETEs every `tenant_key` row: after a real destroy there is no row, so this
 /// function is never entered and G9(b)'s `KeyDestroyed` was unreachable. The
-/// tombstone check therefore lives in the STORE's read path, ahead of the
-/// wrapping lookup — §4.6.2.
+/// tombstone check therefore lives one level out, in the store — §4.6.2.
+///
+/// **AND THE SECOND CHOKE POINT THAT MAKES THAT SAFE, which an earlier draft
+/// left open.** "The only unwrap path" says nothing about who may reach it, and
+/// with the tombstone check sitting at ONE call site — the store's read path —
+/// `custody::add_wrapping` unwrapped without ever reading
+/// `tenant.key_destroyed_at`. A tenant that had been destroyed but still had a
+/// surviving `tenant_key` row (G9(a)'s escrow case, or any partial delete)
+/// could therefore be RE-WRAPPED back into readability, and no gate drove it.
+/// So there is a second invariant beside this one, and it is structural rather
+/// than remembered:
+///
+///   **`store::tenant_wrappings(tx, tenant_id)` IS THE ONLY WAY A
+///   `TenantKeyRow` IS OBTAINED**, it does §4.6.2 step 1's tombstone read
+///   FIRST, in the same transaction, and it returns `WrapError::KeyDestroyed`
+///   rather than any row when `key_destroyed_at` is set.
+///
+/// `TenantKeyRow`'s fields are crate-private and it has no other constructor,
+/// so `add_wrapping` and `drop_wrapping` cannot get one without the check —
+/// they do not remember to call it, they cannot avoid it. `destroy_tenant_key`
+/// is the single exception, because it is the operation that sets the
+/// tombstone; it reads its rows through its own private query and says so.
+/// G9(b) drives the bypass directly.
 pub async fn unwrap_and_check(
     registry: &ProviderRegistry,
     wrapping: &Wrapping<'_>,
@@ -544,11 +600,13 @@ pub const MAX_PLAINTEXT_LEN: usize = 32 * 1024 * 1024;   // the DoS bound, §7 t
 /// drift and a plaintext at the accepted maximum can never be refused by the
 /// database instead of by the type.
 pub const MAX_SEALED_LEN: usize = seal_len(MAX_PLAINTEXT_LEN);
-/// seal_len of any key body. A key body is `aad.encode() || key`, and the 512
-/// floor holds for every `WrapAad` this order can construct: the floor admits a
-/// body of 512 - 56 - 4 - 16 = 436 bytes, and the fixed-width encoding of two
-/// ULIDs, two presence bytes, a purpose, an epoch and a version is well under
-/// that. `const { assert!(seal_len(WRAP_AAD_LEN + DATA_KEY_LEN) == 512) }` in
+/// seal_len of any key body. A key body is `aad.encode() || key`, which is
+/// WRAP_AAD_LEN + DATA_KEY_LEN = 40 + 32 = 72 bytes, and the 512 floor holds
+/// for every `WrapAad` this order can construct because the encoding is FIXED
+/// WIDTH (§4.1's table): the floor admits a body of 512 - 56 - 4 - 16 = 436,
+/// and 72 is well under it. Unpadded the seal would be 148 bytes and
+/// padme(148) = 160, so the floor is what makes every key seal 512.
+/// `const { assert!(seal_len(WRAP_AAD_LEN + DATA_KEY_LEN) == 512) }` in
 /// the sealer says so, rather than leaving it to arithmetic nobody redid.
 pub const KEY_SEAL_LEN: usize = 512;
 ```
@@ -698,7 +756,12 @@ chosen. `4096` in an earlier draft carried no derivation at all; this one does.
 `master_key_probe` carries no `tenant_id` and a single-column `PRIMARY KEY (wrapping_id)`: it
 belongs to the deployment, not to a tenant, and there is no tenant to scope its uniqueness to. That
 exception is named in the migration's own comment, in the table below, in G5's census and in §8's
-row-level-security non-goal, so that no reader takes *"every table"* literally. For the other four:
+row-level-security non-goal, so that no reader takes *"every table"* literally. For the other four
+the word is **leads with**, not *composite*: `tenant`'s primary key is the single column
+`tenant_id`, because `tenant_id` is its key and there is nothing to compose it with; the other
+three are composite — `(tenant_id, wrapping_id)`, `(tenant_id, design_id)` twice — plus
+`design_blob`'s composite foreign key. All four satisfy rule 4, which asks that no uniqueness
+constraint be global. §8 and the `00-INDEX.md` row say *leads with* for the same reason.
 `49` §11 rule 4, quoted in the migration and
 binding here: *"scope every uniqueness constraint to `(tenant_id, …)`, never globally"*, because
 *"referential integrity checks, such as unique or primary key constraints and foreign key
@@ -839,8 +902,8 @@ route by which a release binary reaches it — and G8 proves that by asserting
 
 | operation | what it does | what it proves |
 |---|---|---|
-| `add_wrapping(tenant, from: WrappingId, to_provider)` | unwraps the tenant key under the named wrapping and INSERTs a second row, with a **fresh `wrapping_id`**, wrapping the **same** key under the new provider | the switch has a verify-before-drop window: both wrappings are live at once |
-| `drop_wrapping(tenant, wrapping_id)` | DELETEs **one wrapping, addressed by its opaque id**, refusing if it is the last one for a tenant that is not being destroyed | the switch completes without a moment in which the tenant has no readable key |
+| `add_wrapping(tenant, from: WrappingId, to_provider)` | reads its rows through `store::tenant_wrappings`, **so a tombstoned tenant is `KeyDestroyed` before anything is unwrapped** (§4.1, §4.6.2); then unwraps the tenant key under the named wrapping and INSERTs a second row, with a **fresh `wrapping_id`**, wrapping the **same** key under the new provider | the switch has a verify-before-drop window: both wrappings are live at once — **and a destroyed tenant with a surviving escrow row cannot be re-wrapped back into readability**, which is G9(b)'s third case |
+| `drop_wrapping(tenant, wrapping_id)` | DELETEs **one wrapping, addressed by its opaque id**, refusing if it is the last one for a tenant that is not being destroyed — and enumerating through `store::tenant_wrappings`, so it too sees the tombstone first | the switch completes without a moment in which the tenant has no readable key |
 | `rewrap_probe(provider, key_id)` | INSERTs a second `master_key_probe` wrapping of the **same** 32 probe bytes under the provider's current key material, verifies it opens, then DELETEs the old one | that a routine provider-side rotation does not brick the server |
 | `destroy_tenant_key(tenant)` | DELETEs **every** `tenant_key` row for the tenant and sets `tenant.key_destroyed_at`, in one transaction | D4. The ciphertext is deliberately left in place, which is what makes G9 a proof rather than a demonstration |
 
@@ -929,14 +992,18 @@ makes is:
 ### 4.6.2 The read path — the tombstone first, then which wrapping
 
 **Two things an earlier draft left to the executor, and both decide whether a gate can pass.**
-`store.rs`'s read of a design runs in this order, and the order is the specification:
+`store.rs`'s read of a design runs in this order, and the order is the specification. **Steps 1 and
+2 are ONE function — `store::tenant_wrappings(tx, tenant_id, key_epoch)` — and it is the only way
+any caller anywhere obtains a `TenantKeyRow`** (§4.1): custody's operations go through it too, so
+the tombstone is not a rule the read path remembers but a thing no caller can get round.
 
 1. **`SELECT key_destroyed_at FROM tenant WHERE tenant_id = $1`. If it is not null, stop and return
    `WrapError::KeyDestroyed`.** This is D4's check and it happens BEFORE any wrapping is looked up,
    because `destroy_tenant_key` DELETEs every `tenant_key` row: a tombstone check made after the
    lookup could never run. `unwrap_and_check` cannot host it (§4.1) — it is handed a `Wrapping`,
    and after a destroy there is none to build. G9(b) requires `KeyDestroyed` by name, so this
-   sequencing is what makes G9(b) passable at all.
+   sequencing is what makes G9(b) passable at all. **In the same transaction as step 2**, or a
+   destroy interleaving between the two reads hands out a key that has just been erased.
 2. **Enumerate the tenant's wrappings** — `SELECT wrapping_id, wrap_provider, wrap_key_id, wrapped,
    aad_version FROM tenant_key WHERE tenant_id = $1 AND key_epoch = $2 ORDER BY wrapped_at,
    wrapping_id` — and **take the first whose `(wrap_provider, wrap_key_id)` pair resolves in the
@@ -1011,10 +1078,15 @@ delegated and what is not:
 
 **And put ONE escalation in the PR body before writing any code**, because it is a thing this order
 may not itself resolve (`78` §5 item 7): ADR-0040 §9 item 1's *"before the first migration"*
-sequencing, from the header block and Disagreements 5. Earlier drafts named a second — a
-floor-count discrepancy between CLAUDE.md and `78` §6 — and **it no longer exists**: planning
-corrected CLAUDE.md on 2026-09-04 and both now say sixteen (§3). Confirm that when you read §3;
-do not escalate a discrepancy that is not there.
+sequencing, from the header block and Disagreements 5.
+
+**THE PR BODY CARRIES TWO ESCALATIONS IN TOTAL, NOT ONE AND NOT THREE, AND THE COUNT IS STATED
+HERE BECAUSE TWO DRAFTS DISAGREED WITH THEMSELVES ABOUT IT.** This step raises the first; **step 1
+raises the second** — `78` §5 item 2's absolute against §5 item 7's verbatim-manifest exception —
+when it edits the manifest, and it is raised there rather than here because it is the step that
+depends on the answer. Earlier drafts named a third, a floor-count discrepancy between CLAUDE.md
+and `78` §6, and **it no longer exists**: planning corrected CLAUDE.md on 2026-09-04 and both now
+say sixteen (§3). Confirm that when you read §3; do not escalate a discrepancy that is not there.
 
 - **`deps/decisions/chacha20poly1305.md`** — owner-approved 2026-08-15, `0.10`,
   `default-features = false`, never vendored. This order takes **0.11.0** and step 1 carries the
@@ -1052,8 +1124,9 @@ than assumed:
 **`78` §5 item 2 and §2's table row are nonetheless still written as absolutes, and this order does
 not amend them** — `78` is one of §5 item 7's protected paths and a work order instructing an edit
 to it would be malformed. The tension between item 2 and item 7 is **escalated in the PR body as a
-planning item**, alongside step 0's other two. If planning rules that item 2's absolute wins over
-item 7's exception, this step is an escalation and the order stops here.
+planning item** — **the second of the PR's two escalations, and the last**; step 0 raises the
+first (ADR-0040 §9 item 1's sequencing) and names the count. If planning rules that item 2's
+absolute wins over item 7's exception, this step is an escalation and the order stops here.
 
 **The exact manifest edit, verbatim.** Append to `[dependencies]` in
 `crates/fathom-server/Cargo.toml`, in this order and one commit each:
@@ -1436,6 +1509,15 @@ fail** before it is believed — CLAUDE.md rule 0, and WO-11 §6 G2/G3's shape.
   Assert the tombstone read happens first by also running the case that separates them: **delete
   every wrapping row WITHOUT setting `key_destroyed_at`** and require `NoWrapping`. If both cases
   return the same error, the ordering is wrong and (b) is passing vacuously.
+  **AND THE THIRD CASE, WHICH DRIVES THE BYPASS RATHER THAN THE READ PATH — an earlier draft drove
+  only the store and left `custody::add_wrapping` able to undo D4.** With the tombstone set, INSERT
+  an escrow `tenant_key` row back by hand (SQL, not the API — this is the survivor a partial delete
+  or a restored backup leaves), then call **`custody::add_wrapping` naming that wrapping** and
+  require **`WrapError::KeyDestroyed`**, not a successful re-wrap and not `Refused`. Then call
+  `custody::drop_wrapping` against the same row and require `KeyDestroyed` too. Without this, a
+  destroyed tenant with one surviving wrapping is re-wrapped back into readability and D4 is a
+  promise the code does not keep. **Watched to fail:** point `add_wrapping` at the tenant's rows
+  through a query that skips `store::tenant_wrappings`, and require this case to fail; revert.
   **(c)** assert `design_blob.sealed` is byte-identical to before, because cryptographic erase is
   precisely **not** a rewrite.
   **(d)** assert the copied row cannot be read either, and — the sharpest half — that a `pg_dump`
@@ -1712,9 +1794,15 @@ trigger below says exactly what to do, and the answer is never *choose*.
    be worked around**. The advisory clone used for this design was 5a0ebedf, 2026-09-02, and is
    stale. Re-read everything; escalate rather than substituting a version on your own judgement —
    WO-11 §7 trigger 1, unchanged.
-9. **`rustls`, `ring`, `aws-lc-sys`, `openssl-sys` or `native-tls` appears in the closure.** WO-11
-   trigger 4, unchanged — and it is a second reason no KMS provider is built here, because every
-   cloud SDK brings a TLS stack and C7 is a decision, not a detail.
+9. **`rustls`, `ring`, `aws-lc-sys`, `openssl-sys` or `native-tls` appears in the closure.** This
+   is WO-11 §7 trigger 4 **WIDENED, not unchanged** — an earlier draft of this line said
+   *"unchanged"* and it is not. WO-11's trigger names **`rustls` alone** (*"`rustls` appears in
+   the shipped closure … if `rustls`'s crypto provider is in the closure, **stop** — C7 is a
+   decision, not a detail"*). The four added here are `deny.toml`'s own ban list, which WO-11
+   installed as the mechanical form of C7; naming them in the trigger as well means the stop
+   happens on a reading of the closure and not only on a `cargo deny` run. Widening a stop trigger
+   needs no permission — narrowing one would. It is also a second reason no KMS provider is built
+   here, because every cloud SDK brings a TLS stack.
 10. **A real design blob exceeds `MAX_PLAINTEXT_LEN` (32 MiB).** Note the constant: the bound on a
     *design* is the plaintext one, and `MAX_SEALED_LEN` is what the database stores (§4.1, G15).
     Raising it is a planning decision about memory per request and about whether the blob should be
@@ -1777,9 +1865,15 @@ This order deliberately does **not** build:
 - **Accounts, sessions, sign-in, roles, sharing, invitations or sign-up.** The next order, and it
   needs answers this order must not invent.
 - **Row-level security**, though every **tenant-scoped** table carries `tenant_id` **and every
-  primary and foreign key on those tables is composite on it** (`49` §11 rule 4), so it stays free
-  later, and the migration quotes `49` §11's four rules. **The exception, stated here because an
-  earlier draft wrote *"every table"* and §4.2's own table and G5 say otherwise:
+  primary and foreign key on those tables LEADS WITH it** (`49` §11 rule 4), so it stays free
+  later, and the migration quotes `49` §11's four rules. **Leads with, not "is composite on":** an
+  earlier draft wrote composite and §4.2 contradicts it — `tenant` has a single-column
+  `PRIMARY KEY (tenant_id)`, because `tenant_id` *is* its key and there is nothing to compose it
+  with. The three others are genuinely composite: `tenant_key (tenant_id, wrapping_id)`,
+  `design (tenant_id, design_id)`, `design_blob (tenant_id, design_id)` plus a composite foreign
+  key to `design`. What rule 4 asks for is that no uniqueness constraint is global, and all four
+  satisfy it. **And the exception, stated here because an earlier draft wrote *"every table"* and
+  §4.2's own table and G5 say otherwise:
   `master_key_probe` has no `tenant_id` and a single-column `PRIMARY KEY (wrapping_id)`** — it
   belongs to the deployment, not to a tenant, so there is no tenant to scope it to and no RLS
   policy it would ever carry. Four of the five tables are scoped; the fifth is named, in the
@@ -1842,6 +1936,7 @@ This order deliberately does **not** build:
 | customer plaintext lands in a column | G4's canary and its positive control; G5's census |
 | a length oracle returns on the server | **G11(iv)** — two plaintexts of different length in one Padmé bucket storing to equal `octet_length(sealed)`, watched to fail with the padding disabled. G5's `INTEGER_COLUMNS` rule and G11(i)–(iii) cannot see this one at all: the leaking value is a `bytea`'s own length, and there is no integer column and no `usize` parameter anywhere for them to catch |
 | D4 is claimed and a leftover escrow row defeats it | G9(a), which leaves one behind on purpose and demonstrates the failure before proving the fix |
+| D4 is honoured on the read path and quietly undone by a custody operation | **`store::tenant_wrappings` is the only way any caller obtains a `TenantKeyRow`** and it does the tombstone read first (§4.1, §4.6.2), so `add_wrapping` cannot re-wrap a destroyed tenant's surviving escrow row back into readability; **G9(b)'s third case drives exactly that**, watched to fail by routing `add_wrapping` around the choke point |
 | D4 is claimed and the deleted key is still on the disk | **G9(e)**, which greps `$PGDATA` and `pg_waldump` for the destroyed bytes and **requires them to be found**, so the boundary is measured rather than assumed. A logical `pg_dump` cannot see this and G9(d) passed *because* of that blindness |
 | a global `design_id` makes row-level security unfree and lets a mismatched pair be stored | `49` §11 rule 4 applied now: composite `(tenant_id, design_id)` primary keys and a composite foreign key from `design_blob` to `design` |
 | ADR-0040 D5's server-side gate is lost because the blob is opaque | §7 trigger 14 and §8's named non-goal — no arrival path exists, so the absence is recorded rather than mistaken for compliance |
@@ -1968,8 +2063,15 @@ None blocking this order. Recorded because the next one needs them, and every on
    fixed **112-byte** header, magic `FTHM\x1fREC`, `header_len`, `aad_ext_len`, and §7.2's
    field-by-field argument for each AAD field against a named attack. `FSL1` is a **second,
    narrower, server-side envelope**: 56 bytes, different magic, its own `info` string, no
-   `aad_ext_len`. Writing a second format is specification, and `78` §7 puts specification with
-   planning. **Three things are true and all three are stated rather than one of them:** (a) the
+   `aad_ext_len`. Writing a second format is specification. **That specification is planning's is
+   an INFERENCE from `78` §7, not a quotation of it, and an earlier draft of this entry stated it
+   as §7's own words.** §7's judgment-shaped column does not contain the word *specification*;
+   what it lists is *"Authoring or re-scoping work orders"*, *"Authoring ADRs; reopening
+   decisions"*, *"Schema design: new kinds, edges, scalars, identity tuples"* and *"Cryptography
+   choices (`32`)"*. The inference is drawn from those rows together with §7's tie-breaker, which
+   **is** verbatim: *"if two reasonable people could do it differently and both be defensible, it
+   is judgment-shaped. Escalate it."* Two reasonable people would not write the same 56-byte
+   header. **Three things are true and all three are stated rather than one of them:** (a) the
    *scheme* is unchanged — same AEAD, same KDF, same zero nonce, same commitment tag, same padding,
    all of it `32`'s; (b) the *framing* is new and this order wrote it; (c) `35` §5.1 C8 — one
    implementation per job — argues for one envelope, not two, and the counter-argument is that `32`
@@ -2045,13 +2147,22 @@ None blocking this order. Recorded because the next one needs them, and every on
     honoured either way. If planning rules for `subtle`, it is a one-line manifest change, a
     `deps/decisions/subtle.md`, and one more package.
 
-11. **With one detail of the review that produced this repair, recorded because the correction it
-    demanded was right and its reasoning was not.** The review said G1's crate list should be four
-    rather than six *"because `fathom-canon` is a `[dependencies]` entry of both `fathom-graph` and
-    `fathom-ir`; `fathom-schema` of both `fathom-corpus` and `fathom-ingest`; all four are direct
-    path dependencies of `fathom-wasm`"*. The count is right and G1 is corrected to four. The last
-    clause is not: `fathom-wasm`'s `[dependencies]` names nine crates — `fathom-corpus`,
+11. **WITHDRAWN. This entry rebutted a review clause that was correct, and the rebuttal was the
+    thing that was wrong.** It is kept rather than deleted because the mistake is instructive: a
+    misread pronoun produced a confidently-worded correction to a true sentence.
+    The review said G1's crate list should be four rather than six *"because `fathom-canon` is a
+    `[dependencies]` entry of both `fathom-graph` and `fathom-ir`; `fathom-schema` of both
+    `fathom-corpus` and `fathom-ingest`; all four are direct path dependencies of `fathom-wasm`"*.
+    This entry read *"all four"* as `fathom-canon` and `fathom-schema` and objected that neither is
+    a direct dependency of `fathom-wasm`. **`all four` means the four PARENT crates just named** —
+    `fathom-graph`, `fathom-ir`, `fathom-corpus`, `fathom-ingest` — **and all four ARE in
+    `crates/fathom-wasm/Cargo.toml`'s `[dependencies]`**, verified there on 2026-09-04 along with
+    the parent edges (`fathom-graph` and `fathom-ir` both name `fathom-canon`; `fathom-corpus` and
+    `fathom-ingest` both name `fathom-schema`). **Every clause of the review is true.** What
+    survives as a fact worth keeping, and it is the only part of this entry that was ever adding
+    anything: `fathom-wasm`'s `[dependencies]` names **nine** crates — `fathom-corpus`,
     `fathom-find`, `fathom-graph`, `fathom-id`, `fathom-ingest`, `fathom-inventory`,
-    `fathom-layout`, `fathom-ir`, `fathom-weld` — and neither `fathom-canon` nor `fathom-schema` is
-    among them. They are in the **tree**, transitively, which is what the gate is about; they are
-    not **direct** dependencies of it. `cargo tree -p fathom-wasm -e normal` shows both facts.
+    `fathom-layout`, `fathom-ir`, `fathom-weld` — and `fathom-canon` and `fathom-schema` are in the
+    **tree** transitively rather than being entries of it, which is what G1's *"Confirm the list
+    with `cargo tree -p fathom-wasm -e normal`"* is for. G1's count of four stands and was never in
+    dispute.
