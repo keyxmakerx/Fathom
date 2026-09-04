@@ -159,7 +159,7 @@ rank statistics over 200 iterations after 20 discarded warm-up iterations (§8.5
 | **B15** | unlock → first device interactive (TTI-a), 20 devices | 220 ms | **400 ms** | 900 ms | e2e, every PR |
 | **B16** | unlock → all findings settled, 20 devices | 500 ms | **900 ms** | 2,500 ms | e2e, every PR |
 | **B17** | A1 artifact size | — | — | **4.5 MB** | size gate, every PR |
-| **B18** | WASM core, uncompressed | 700 KB target | — | **900 KB** | twiggy gate, every PR |
+| **B18** | WASM core, uncompressed | 700 KB target | — | ~~**900 KB**~~ **removed 2026-08-21** | size REPORTED per run (`artifact_gates.rs`); `49` §1 retires the ceiling with the pivot |
 | **B19** | steady resident memory, 20-device workspace | — | **120 MB** | 250 MB | e2e memory probe, nightly |
 
 Two things to read out of this table before the rationale sections:
@@ -653,6 +653,30 @@ is a ceiling nobody checks.
 
 ### 5.2 The WASM core, by component
 
+> **THE 900 000-BYTE CEILING WAS REMOVED BY THE OWNER ON 2026-08-21. This document owns that
+> figure, so this is where the removal is recorded** (added 2026-08-28; the change had been noted
+> in `49` §1, in `CLAUDE.md` and in the test that enforced it, but not yet here, which under the
+> precedence rule is the only place that can retire it).
+>
+> **What was decided.** Offered *raise the ceiling*, *remove it and keep a size report*, or *hold
+> the work*, the owner chose **remove it and keep a size report**. `47` §11 had just refused the
+> config view for want of ~110 000 bytes — the first feature refusal in the project's history —
+> and the pivot to a server-hosted product (`49` §1) dropped the single offline HTML file that the
+> ceiling existed to keep openable. A limit whose purpose has gone is not a safety property; it is
+> whatever fitted last time, and enforcing it would have gone on costing features for a reason
+> that no longer applied.
+>
+> **What replaced it.** Nothing enforcing. `crates/fathom-wasm/tests/artifact_gates.rs` prints the
+> module size on every run and asserts nothing about it; `scripts/byte-census.sh` still says where
+> the bytes went. **A size report is not a budget** — the number is now evidence for a judgement,
+> and there is no number a build can fail against.
+>
+> **What this does NOT retire.** The measurements below and in `47` are unaffected and are still
+> the best account of where the module's bytes go; §5.1's latency budgets are untouched; and
+> `48` §5b's observation stands — the ceiling was a WASM constraint that never existed for a
+> native binary, so the server fork never inherited it. Everything below this block describes a
+> constraint that was real when it was written. **Read it as measurement, not as a limit.**
+
 > **Ownership (ADR-0017):** this document owns every size and budget figure. `41` §3.10's and
 > `43` §3.2's independent totals are deleted; `41`'s per-component *split* survives and its
 > numbers live here. One number is contested and decides everything: `41`/this document
@@ -731,7 +755,7 @@ did not have:
 | CBOR codec + packed writers | 40 KB | " |
 | `core::fmt`, panic strings, misc | 70 KB | " |
 | **Target total** | **≤ 700 KB** | `xtask size-gate` |
-| **Hard ceiling** | **≤ 900 KB** | fails the merge |
+| **Hard ceiling** | ~~**≤ 900 KB** — fails the merge~~ **REMOVED 2026-08-21**: the pivot (`49` §1) retires it; `artifact_gates.rs` reports the size on every run and carries the reasoning — removed rather than raised, so the number never stops meaning "we measured this" | — |
 | Brotli, for modes B–D | ≤ 260 KB | reported, not gated separately |
 
 **Per-component gating is the point.** A total-only gate lets the crypto stack grow 80 KB while the

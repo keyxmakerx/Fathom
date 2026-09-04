@@ -1,0 +1,43 @@
+# Caddy terminates TLS in front of fathom-server.
+#
+# THIS FILE IS WHY C7 SURVIVES. `49` §6 keeps "no C or C++ in the shipped
+# closure" only if TLS is terminated in front of the binary, because rustls's
+# crypto provider (`ring` or `aws-lc-sys`) brings C and assembly back in.
+# `deny.toml` bans all four carriers by name; this file is the other half of
+# that decision — the part that makes the ban survivable.
+#
+# `tls internal` uses Caddy's own CA, which is right for a local bring-up and
+# for the WO-11 §6 G7 drive. A real deployment replaces this block with a real
+# host name and lets Caddy get a certificate, or points at files.
+
+{
+	auto_https disable_redirects
+	admin off
+}
+
+# `localhost:8443`, not a bare `:8443`. With `tls internal` and no host name in
+# the site address, Caddy has no name to issue a certificate FOR, and the
+# handshake fails with a TLS internal error rather than anything that names the
+# cause -- found 2026-09-03 by running this file. A real deployment replaces
+# `localhost` with the real host name and drops `tls internal` so Caddy gets a
+# publicly trusted certificate.
+localhost:8443 {
+	tls internal
+
+	# One upstream, one path set. The server is not published to the host at
+	# all, so this is the only way in.
+	reverse_proxy server:8080
+
+	header {
+		# Nothing here serves HTML yet, but a proxy that grows an HTML
+		# response later should not have to remember to add these.
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

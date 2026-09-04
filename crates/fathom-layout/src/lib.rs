@@ -168,6 +168,14 @@ pub struct Link {
     /// A merged stroke (`members > 1`) is hand only when every edge under it
     /// is.
     pub hand: bool,
+    /// True when this line is not a graph edge at all but the picture of a
+    /// `Cable` — derived from `Cable -> Terminates -> PhysicalPort ->
+    /// (owning Chassis) -> (owning Device)` (ADR-0038 D10), never stored.
+    /// `59`'s reserved strokes (dashed for AI-proposed, dotted for
+    /// unanswered) are not this: a cable line is drawn solid, the same as a
+    /// link, and marked with its own word — *"cable · by hand"*, `hand` and
+    /// `cable` both true, because nothing but a hand gesture creates one yet.
+    pub cable: bool,
     /// How many graph edges this one line stands for. `1` is a plain line.
     ///
     /// Higher only when an end was folded into a collapsed group, at which

@@ -189,6 +189,7 @@ fn measure(out: &IngestOutput) -> (Vec<Row>, usize, usize) {
 /// |---|---|---|---|
 /// | 2026-08-15, before (42 entries) | 122 | 29 | 23.8% |
 /// | 2026-08-15, after (69 entries)  | 122 | 58 | 47.5% |
+/// | 2026-08-28, after (73 entries)  | 122 | 70 | 57.4% |
 ///
 /// The after-number is two lower than the widening alone produced. Binding
 /// the bare `security ike gateway <name>` stanza made `… gateway ike-gw
@@ -197,8 +198,16 @@ fn measure(out: &IngestOutput) -> (Vec<Row>, usize, usize) {
 /// residue list. `bind::bind_statement` now calls a partial match residue, so
 /// those two lines are counted as the misses they are. A coverage number that
 /// went up by lying would be worth less than no number.
+///
+/// 2026-08-28: `security-policies.yaml`'s four entries bind 12 of the 21
+/// `security policies` lines — the bare stanza, `match source-address any`,
+/// `match destination-address any` and `then permit` for each of the
+/// fixture's four zone pairs. The remaining 9 are `match application …`
+/// lines, which stay residue because `SecurityPolicy` has no
+/// `match_any_application` field and a real application name has nowhere to
+/// bind — see the dictionary file's own header comment.
 const STATEMENTS: usize = 122;
-const BOUND: usize = 58;
+const BOUND: usize = 70;
 
 #[test]
 fn branch_configuration_bind_rate_is_pinned() {

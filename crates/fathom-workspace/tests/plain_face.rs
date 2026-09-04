@@ -44,7 +44,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.3\n",
+    "schema 0.5\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -301,8 +301,12 @@ fn worked_example() -> Graph {
     .expect("rename");
     g.clear_field(ElementId::Node(zone_wan), ZoneField::Name.key(), prov(201))
         .expect("clear");
-    g.tombstone(ElementId::Edge(member_vpn), Timestamp(AT + 1))
-        .expect("tombstone");
+    g.tombstone(
+        ElementId::Edge(member_vpn),
+        Timestamp(AT + 1),
+        fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+    )
+    .expect("tombstone");
     g.end_batch().expect("close");
     g
 }

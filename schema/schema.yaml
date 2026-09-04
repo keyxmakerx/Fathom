@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.3"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.5"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -33,6 +33,30 @@ schema:
                     # form is the token, so if a later change ever does make the ordinal
                     # load-bearing, it fails a test rather than silently rewriting old
                     # exports.
+                    #
+                    # 0.4 relaxes ONE cardinality: PhysicalPort.label goes "1" → "0..1"
+                    # (owner, 2026-08-28, 70 §18 — closing 57 §13.5's open decision 8,
+                    # which was the hard blocker on all of cabling mode). Priced against
+                    # 62 §16.2: "Relaxed constraint / widened cardinality upper bound"
+                    # reads minor; a LOWERED lower bound is the same relaxation read from
+                    # the other end — every 0.3 export is a valid 0.4 export, and an old
+                    # build reading a new export meets a missing optional where it expected
+                    # a required, which is the tolerated direction. Nothing else moved: no
+                    # kind, no edge, no retype, no tuple reordered. Whole change = MINOR.
+                    #
+                    # 0.5 is WO-10 (2026-08-29): the DhcpRelay kind, three edge kinds
+                    # (HasDhcpRelay, RelaysFor, RelayServerIn), four fields all on the
+                    # new declarer, four field keys 308-311. Priced against 62 §16.2:
+                    # "New node kind | minor", "New edge kind | minor" three times, and
+                    # "New optional field" / fields on a new declarer are minor by the
+                    # same table. An old build reading a 0.5 export meets a kind it
+                    # does not declare and keeps it in `unknown`, which is the
+                    # forward-compatibility the table promises. Nothing existing moved:
+                    # no retype, no tuple, no containment restructured -- DhcpRelay
+                    # hangs off Device by a NEW containment edge, so no existing kind's
+                    # owner changes. Whole change = MINOR. RelayServerIn is the third
+                    # edge because the owner chose it (70 §18.5) over a string field
+                    # that would have been invariant 7's natural-key reference.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -202,6 +226,9 @@ classes:
       # hole in ADR-0035's capability. Being Placeable is about the DIAGRAM; it says nothing
       # about the elevation, where a rack is the frame rather than a box inside one.
       - Rack
+      # WO-10 (2026-08-29). A relay is drawn as a box like its NtpServer sibling; nothing
+      # about it argues for being the first deliberately-unplaceable kind (WO-10 §11 item 1).
+      - DhcpRelay
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
 
@@ -924,7 +951,13 @@ kinds:
       NOTE (form vs content): 62 §4.1's declaration sketch shows position: Identifier,
       card "1"; 19 §3.3's field table (PortPosition, 0..1) is the normative content and wins.
     fields:
-      - { name: label, type: Text, card: "1", emit: "—", doc: "The silkscreen: \"1\", \"PON 0/1\". Not the interface name." }
+      # card was "1" until 0.4 — the silkscreen, required. The owner answered 57 §13.5's
+      # open decision 8 on 2026-08-28 (70 §18): under 57 §12's drag-then-annotate capture,
+      # "there is a port and I do not know which" is the NORMAL state of a freshly drawn
+      # cable end, not an edge case, and a schema that cannot say it cannot record the
+      # primary gesture. Tier-2 identity simply does not fire when no label is held —
+      # exactly as tier-1 already behaves when position (0..1 since birth) is absent.
+      - { name: label, type: Text, card: "0..1", emit: "—", doc: "The silkscreen: \"1\", \"PON 0/1\". Not the interface name. Absent means: the port exists and nobody has read the faceplate yet." }
       - { name: position, type: PortPosition, card: "0..1", emit: "—", doc: "{ slot: Option<u8>, subslot: Option<u8>, index: u16 }." }
       - { name: connector, type: "enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, other }", card: "0..1", emit: "—" }
       - { name: service, type: "enum { ethernet, pon, rf, serial, console, management, other }", card: "0..1", emit: "—", doc: What the cage is for. }
@@ -1286,6 +1319,23 @@ kinds:
       # asks for it.
     identity:
       - [ owner(Premises), label ]    # tier 1 -- a physical coordinate, PassiveNode's precedent exactly
+  # WO-10 (2026-08-29). Appended at the tail because order is wire identity (62 §13).
+  - kind: DhcpRelay
+    layer: config
+    emits: true
+    doc: |
+      A DHCP/BOOTP relay agent's server target, as a device states it. One node per
+      configured server address; a server-group of several addresses is several nodes
+      sharing a group_name, because the reasoning in WO-10 §1 asks "is there a route to
+      THIS address" one address at a time.
+      Fathom never observes a lease. This is what the config SAYS, and the findings
+      view must never imply it watched a packet (WO-10 §1).
+    fields:
+      - { name: server, type: IpAddr, card: "1", emit: O, doc: "The grammar token is `address` on both Juniper pages read 2026-08-29 and neither offers a hostname alternative (WO-10 §5.4 item 2); a hostname here is ValueUnparsed, never a dropped server -- the NtpServer precedent." }
+      - { name: group_name, type: Identifier, card: "0..1", emit: O, doc: "The dhcp-relay server-group this address belongs to. Absent on the legacy helpers bootp form." }
+      - { name: maximum_hop_count, type: u32, card: "0..1", emit: O, doc: "`maximum-hop-count number` (Juniper, 2026-08-29). Units: hops. Range not established -- WO-10 §5.4 item 3; residue in the first cut." }
+      - { name: minimum_wait_time, type: u32, card: "0..1", emit: O, doc: "`minimum-wait-time seconds` (Juniper, 2026-08-29). Units: seconds. Range not established -- WO-10 §5.4 item 3; residue in the first cut." }
+    identity: []   # VERIFY: nothing in `11` states an identity tuple for a relay.
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -2376,6 +2426,57 @@ edges:
       are first-class and carry typed fields (ADR-0007); Link, Terminates and Occupies already
       do.
 
+  # WO-10 (2026-08-29). Three edges, appended at the tail (62 §13).
+  - edge: HasDhcpRelay
+    class: containment
+    from: [Device]
+    to: [DhcpRelay]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: The device that relays. `11` §7.2's containment shape.
+
+  - edge: RelaysFor
+    class: reference
+    from: [DhcpRelay]
+    to: [LogicalUnit]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      The units whose clients this relay serves. `0..n` at BOTH ends and deliberately:
+      a global relay serves every unit, and a unit can be named by more than one relay
+      when a group and the global stanza both cover it -- which is itself a finding worth
+      stating rather than a shape to forbid.
+
+  # The owner's route (i), 2026-08-29 (70 §18.5), closing WO-10 §5.4 item 4. A routing
+  # instance is a declared kind, so naming one by a string would be the natural-key
+  # reference invariant 7 forbids; an edge is what the rest of the schema does.
+  - edge: RelayServerIn
+    class: reference
+    from: [DhcpRelay]
+    to: [RoutingInstance]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      The routing instance in which this relay's server address is reached, when the
+      statement qualifies it. `0..1` out: the flattened grammar and Juniper's worked
+      example name one instance; the bracketed-list form (`routing-instance [ ... ]`,
+      seen on the `helpers` page 2026-08-29) is first-cut residue and would widen this
+      to `0..n`, a minor bump. Absent means the statement named none, which means the
+      DEFAULT instance -- and absent must never be rendered as "unknown": the config
+      stated a complete fact by saying nothing (19 §6.3's three states; do not collapse).
+
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load
   # and after every mutation batch (11 §3.5; 62 §11). produced_by is an InferenceRuleId.
@@ -2442,7 +2543,6 @@ derived_edges:
       Asserted EntersAt/ExitsAt/AttachesTo only — never through a resolved
       warp; one level deep per 11 §9.5 constraint 1. Under-reports across
       warps and its explainer must say so (19 §5.3).
-
 constraints:
   - id: ike-proposal.aead-excludes-hash
     kind: IkeProposal

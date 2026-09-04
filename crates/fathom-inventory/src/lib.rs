@@ -14,8 +14,10 @@
 //!
 //! `demo_estate()` is behind the off-by-default `demo-estate` feature and is
 //! **not in the shipping module**: it is a development fixture and it was
-//! costing 35,095 of `44` §5.2's 900,000 bytes. See this crate's Cargo.toml
-//! for why the feature is off by default and how the test targets still get it.
+//! costing 35,095 of `44` §5.2's 900,000 bytes. That ceiling was removed on
+//! 2026-08-21 (`49` §1) and it was never the main reason: the paste sheet gives
+//! a person a real estate in two seconds. See this crate's Cargo.toml for why
+//! the feature is off by default and how the test targets still get it.
 
 #![forbid(unsafe_code)]
 
@@ -24,6 +26,8 @@ mod author;
 mod demo;
 mod element;
 mod equipment;
+mod gaps;
+mod inside;
 mod inventory;
 mod rack;
 mod render;
@@ -33,5 +37,10 @@ pub use author::{is_authorable, parse_into_slot, AuthorError};
 pub use demo::demo_estate;
 pub use element::{element_page, parse_display_id, role_word, ElementPage, FieldRow};
 pub use equipment::{equipment_page, CabledPeer, EquipmentPage, IfaceRow, PortRow};
-pub use inventory::{columns, rows, InvKind, Row};
+pub use gaps::{findings, EmptyKind, Findings, Gap, GapExample, EXAMPLES_PER_GAP};
+pub use inside::{
+    inside, Inside, PolicyRow, ProtoRow, RouteBand, SetBand, TunnelBand, Unit, Way, ZoneBand,
+};
+pub use inventory::{column_keys, columns, rows, InvKind, Row};
 pub use rack::{elevation, rack_label, Elevation, Slot};
+pub use render::field_text;

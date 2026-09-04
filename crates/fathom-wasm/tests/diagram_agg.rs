@@ -29,9 +29,13 @@ const WINDOW: usize = 6;
 const UNITS: usize = 13;
 
 fn frame(text: &str) -> Vec<u8> {
-    let mut f = Vec::with_capacity(24 + text.len());
+    let mut f = Vec::with_capacity(25 + text.len());
     f.extend_from_slice(&TS.to_le_bytes());
     f.extend_from_slice(&ENTROPY.to_le_bytes());
+    // Confirm byte (2026-08-21): 0 = refuse on an identity match. This builder
+    // predates the 25-byte prefix and was silently eating the paste's first
+    // character as the flag.
+    f.push(0);
     f.extend_from_slice(text.as_bytes());
     f
 }

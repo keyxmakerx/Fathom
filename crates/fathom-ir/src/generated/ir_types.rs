@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.3";
+    pub const SCHEMA_VERSION: &str = "0.5";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -230,12 +230,19 @@ mod body {
         /// says which rack a box is in or at what height. Every Rack and every MountedIn is
         /// Origin::Hand, and that is a property of the world, not a gap in the ingest dictionary.
         Rack,
+        /// A DHCP/BOOTP relay agent's server target, as a device states it. One node per
+        /// configured server address; a server-group of several addresses is several nodes
+        /// sharing a group_name, because the reasoning in WO-10 §1 asks "is there a route to
+        /// THIS address" one address at a time.
+        /// Fathom never observes a lease. This is what the config SAYS, and the findings
+        /// view must never imply it watched a packet (WO-10 §1).
+        DhcpRelay,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 50;
+        pub const COUNT: usize = 51;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 50] = [
+        pub const ALL: [NodeKind; 51] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -286,6 +293,7 @@ mod body {
             NodeKind::PathSegment,
             NodeKind::LayoutPin,
             NodeKind::Rack,
+            NodeKind::DhcpRelay,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -342,6 +350,7 @@ mod body {
                 NodeKind::PathSegment => "PathSegment",
                 NodeKind::LayoutPin => "LayoutPin",
                 NodeKind::Rack => "Rack",
+                NodeKind::DhcpRelay => "DhcpRelay",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -396,7 +405,68 @@ mod body {
                 "PathSegment" => Some(NodeKind::PathSegment),
                 "LayoutPin" => Some(NodeKind::LayoutPin),
                 "Rack" => Some(NodeKind::Rack),
+                "DhcpRelay" => Some(NodeKind::DhcpRelay),
                 _ => None,
+            }
+        }
+        /// The declared identity tiers, tier 1 first (62 §4.5).
+        ///
+        /// Raw term strings as declared. Empty means the schema does NOT say
+        /// how to tell two of these apart — treat that as unanswerable, never
+        /// as "always distinct".
+        pub const fn identity_tiers(self) -> &'static [&'static [&'static str]] {
+            match self {
+                NodeKind::Site => &[&["code"], &["name"]],
+                NodeKind::Device => &[&["hostname", "platform"], &["platform", "management_address"]],
+                NodeKind::Chassis => &[],
+                NodeKind::RedundancyGroup => &[],
+                NodeKind::ExternalPeer => &[],
+                NodeKind::Interface => &[&["owner(Device)", "name.parsed"], &["owner(Device)", "name.raw"]],
+                NodeKind::AggregateInterface => &[],
+                NodeKind::RethInterface => &[],
+                NodeKind::TunnelInterface => &[],
+                NodeKind::LogicalUnit => &[&["owner(InterfaceLike)", "index"]],
+                NodeKind::Address => &[&["owner(LogicalUnit)", "value"]],
+                NodeKind::Vlan => &[],
+                NodeKind::RoutingInstance => &[],
+                NodeKind::StaticRoute => &[],
+                NodeKind::LearnedRoute => &[],
+                NodeKind::RoutingProtocol => &[],
+                NodeKind::ProtocolAdjacency => &[],
+                NodeKind::Zone => &[],
+                NodeKind::PolicySet => &[],
+                NodeKind::SecurityPolicy => &[&["owner(PolicySet)", "name"], &["owner(PolicySet)", "ordinal"]],
+                NodeKind::AddressObject => &[],
+                NodeKind::AddressSet => &[],
+                NodeKind::Application => &[],
+                NodeKind::ApplicationSet => &[],
+                NodeKind::NatRuleSet => &[],
+                NodeKind::NatRule => &[],
+                NodeKind::IkeProposal => &[],
+                NodeKind::IkePolicy => &[],
+                NodeKind::IkeGateway => &[&["owner(Device)", "name"], &["owner(Device)", "peer.address", "edge(ExternalInterface)"], &["edge_in(TunnelEndpoint via IpsecVpn)", "side"]],
+                NodeKind::IpsecProposal => &[],
+                NodeKind::IpsecPolicy => &[],
+                NodeKind::IpsecVpn => &[],
+                NodeKind::TrafficSelector => &[&["owner(IpsecVpn)", "name"], &["owner(IpsecVpn)", "local_ip", "remote_ip"]],
+                NodeKind::Tunnel => &[],
+                NodeKind::SecurityFlowSettings => &[],
+                NodeKind::SystemSettings => &[],
+                NodeKind::NtpServer => &[],
+                NodeKind::SyslogTarget => &[],
+                NodeKind::PhysicalPort => &[&["owner(PortHost)", "position"], &["owner(PortHost)", "label"]],
+                NodeKind::Cable => &[&["edge(Terminates:A)", "edge(Terminates:B)"], &["label"]],
+                NodeKind::PassiveNode => &[&["owner(Premises)", "label"]],
+                NodeKind::Premises => &[&["clli"], &["street"], &["label"]],
+                NodeKind::Tenant => &[&["code"], &["name"]],
+                NodeKind::Service => &[&["owner(Tenant)", "cid"], &["owner(Tenant)", "label"]],
+                NodeKind::ServiceType => &[&["builtin_id"], &["code"]],
+                NodeKind::ServiceEndpoint => &[&["owner(Service)", "uni_id"], &["owner(Service)", "ordinal"], &["owner(Service)", "edge(AttachesTo)"]],
+                NodeKind::ServicePath => &[&["owner(Service)", "ordinal"], &["owner(Service)", "label"]],
+                NodeKind::PathSegment => &[&["owner(ServicePath)", "ordinal"], &["owner(ServicePath)", "edge(EntersAt)", "edge(ExitsAt)"]],
+                NodeKind::LayoutPin => &[],
+                NodeKind::Rack => &[&["owner(Premises)", "label"]],
+                NodeKind::DhcpRelay => &[],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -452,6 +522,7 @@ mod body {
                 NodeKind::PathSegment => Layer::Service,
                 NodeKind::LayoutPin => Layer::Config,
                 NodeKind::Rack => Layer::Physical,
+                NodeKind::DhcpRelay => Layer::Config,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -508,6 +579,7 @@ mod body {
                 NodeKind::PathSegment => false,
                 NodeKind::LayoutPin => false,
                 NodeKind::Rack => false,
+                NodeKind::DhcpRelay => true,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -565,6 +637,7 @@ mod body {
                 NodeKind::PathSegment => &[crate::bag::FieldKey(273), crate::bag::FieldKey(274), crate::bag::FieldKey(275), crate::bag::FieldKey(276), crate::bag::FieldKey(277), crate::bag::FieldKey(278), crate::bag::FieldKey(279), crate::bag::FieldKey(280)],
                 NodeKind::LayoutPin => &[crate::bag::FieldKey(300), crate::bag::FieldKey(301)],
                 NodeKind::Rack => &[crate::bag::FieldKey(302), crate::bag::FieldKey(303), crate::bag::FieldKey(304)],
+                NodeKind::DhcpRelay => &[crate::bag::FieldKey(308), crate::bag::FieldKey(309), crate::bag::FieldKey(310), crate::bag::FieldKey(311)],
             }
         }
     }
@@ -796,12 +869,27 @@ mod body {
         /// are first-class and carry typed fields (ADR-0007); Link, Terminates and Occupies already
         /// do.
         MountedIn,
+        /// The device that relays. `11` §7.2's containment shape.
+        HasDhcpRelay,
+        /// The units whose clients this relay serves. `0..n` at BOTH ends and deliberately:
+        /// a global relay serves every unit, and a unit can be named by more than one relay
+        /// when a group and the global stanza both cover it -- which is itself a finding worth
+        /// stating rather than a shape to forbid.
+        RelaysFor,
+        /// The routing instance in which this relay's server address is reached, when the
+        /// statement qualifies it. `0..1` out: the flattened grammar and Juniper's worked
+        /// example name one instance; the bracketed-list form (`routing-instance [ ... ]`,
+        /// seen on the `helpers` page 2026-08-29) is first-cut residue and would widen this
+        /// to `0..n`, a minor bump. Absent means the statement named none, which means the
+        /// DEFAULT instance -- and absent must never be rendered as "unknown": the config
+        /// stated a complete fact by saying nothing (19 §6.3's three states; do not collapse).
+        RelayServerIn,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 84;
+        pub const COUNT: usize = 87;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 84] = [
+        pub const ALL: [EdgeKind; 87] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -886,6 +974,9 @@ mod body {
             EdgeKind::HasLayoutPin,
             EdgeKind::HasRack,
             EdgeKind::MountedIn,
+            EdgeKind::HasDhcpRelay,
+            EdgeKind::RelaysFor,
+            EdgeKind::RelayServerIn,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -976,6 +1067,9 @@ mod body {
                 EdgeKind::HasLayoutPin => "HasLayoutPin",
                 EdgeKind::HasRack => "HasRack",
                 EdgeKind::MountedIn => "MountedIn",
+                EdgeKind::HasDhcpRelay => "HasDhcpRelay",
+                EdgeKind::RelaysFor => "RelaysFor",
+                EdgeKind::RelayServerIn => "RelayServerIn",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1064,6 +1158,9 @@ mod body {
                 "HasLayoutPin" => Some(EdgeKind::HasLayoutPin),
                 "HasRack" => Some(EdgeKind::HasRack),
                 "MountedIn" => Some(EdgeKind::MountedIn),
+                "HasDhcpRelay" => Some(EdgeKind::HasDhcpRelay),
+                "RelaysFor" => Some(EdgeKind::RelaysFor),
+                "RelayServerIn" => Some(EdgeKind::RelayServerIn),
                 _ => None,
             }
         }
@@ -1154,6 +1251,9 @@ mod body {
                 EdgeKind::HasLayoutPin => EdgeClass::Containment,
                 EdgeKind::HasRack => EdgeClass::Containment,
                 EdgeKind::MountedIn => EdgeClass::Reference,
+                EdgeKind::HasDhcpRelay => EdgeClass::Containment,
+                EdgeKind::RelaysFor => EdgeClass::Reference,
+                EdgeKind::RelayServerIn => EdgeClass::Reference,
             }
         }
     }
@@ -1331,9 +1431,12 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis],
+                EdgeKind::HasDhcpRelay => &[NodeKind::Device],
+                EdgeKind::RelaysFor => &[NodeKind::DhcpRelay],
+                EdgeKind::RelayServerIn => &[NodeKind::DhcpRelay],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1423,6 +1526,9 @@ mod body {
                 EdgeKind::HasLayoutPin => &[NodeKind::LayoutPin],
                 EdgeKind::HasRack => &[NodeKind::Rack],
                 EdgeKind::MountedIn => &[NodeKind::Rack],
+                EdgeKind::HasDhcpRelay => &[NodeKind::DhcpRelay],
+                EdgeKind::RelaysFor => &[NodeKind::LogicalUnit],
+                EdgeKind::RelayServerIn => &[NodeKind::RoutingInstance],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -1512,6 +1618,9 @@ mod body {
                 EdgeKind::HasLayoutPin => EdgeCardBound { min: 0, max: Some(1) },
                 EdgeKind::HasRack => EdgeCardBound { min: 0, max: None },
                 EdgeKind::MountedIn => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::HasDhcpRelay => EdgeCardBound { min: 0, max: None },
+                EdgeKind::RelaysFor => EdgeCardBound { min: 0, max: None },
+                EdgeKind::RelayServerIn => EdgeCardBound { min: 0, max: Some(1) },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -1601,6 +1710,9 @@ mod body {
                 EdgeKind::HasLayoutPin => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasRack => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::MountedIn => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasDhcpRelay => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::RelaysFor => EdgeCardBound { min: 0, max: None },
+                EdgeKind::RelayServerIn => EdgeCardBound { min: 0, max: None },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -1691,6 +1803,9 @@ mod body {
                 EdgeKind::HasLayoutPin => false,
                 EdgeKind::HasRack => false,
                 EdgeKind::MountedIn => false,
+                EdgeKind::HasDhcpRelay => false,
+                EdgeKind::RelaysFor => false,
+                EdgeKind::RelayServerIn => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -1780,6 +1895,9 @@ mod body {
                 EdgeKind::HasLayoutPin => false,
                 EdgeKind::HasRack => false,
                 EdgeKind::MountedIn => false,
+                EdgeKind::HasDhcpRelay => false,
+                EdgeKind::RelaysFor => false,
+                EdgeKind::RelayServerIn => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -1869,6 +1987,9 @@ mod body {
                 EdgeKind::HasLayoutPin => &[],
                 EdgeKind::HasRack => &[],
                 EdgeKind::MountedIn => &[crate::bag::FieldKey(305), crate::bag::FieldKey(306), crate::bag::FieldKey(307)],
+                EdgeKind::HasDhcpRelay => &[],
+                EdgeKind::RelaysFor => &[],
+                EdgeKind::RelayServerIn => &[],
             }
         }
     }
@@ -6773,6 +6894,46 @@ mod body {
         }
     }
 
+    /// Fields of kind `DhcpRelay`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DhcpRelayField {
+        Server,
+        GroupName,
+        MaximumHopCount,
+        MinimumWaitTime,
+    }
+
+    impl DhcpRelayField {
+        pub const COUNT: usize = 4;
+        /// Every field, declaration order.
+        pub const ALL: [DhcpRelayField; 4] = [
+            DhcpRelayField::Server,
+            DhcpRelayField::GroupName,
+            DhcpRelayField::MaximumHopCount,
+            DhcpRelayField::MinimumWaitTime,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                DhcpRelayField::Server => "server",
+                DhcpRelayField::GroupName => "group_name",
+                DhcpRelayField::MaximumHopCount => "maximum_hop_count",
+                DhcpRelayField::MinimumWaitTime => "minimum_wait_time",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                DhcpRelayField::Server => crate::bag::FieldKey(308),
+                DhcpRelayField::GroupName => crate::bag::FieldKey(309),
+                DhcpRelayField::MaximumHopCount => crate::bag::FieldKey(310),
+                DhcpRelayField::MinimumWaitTime => crate::bag::FieldKey(311),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -7176,7 +7337,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 307] = [
+    pub const FIELD_KEYS: [(&str, u32); 311] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -7484,7 +7645,35 @@ mod body {
         ("MountedIn.position_u", 305),
         ("MountedIn.height_u", 306),
         ("MountedIn.face", 307),
+        ("DhcpRelay.server", 308),
+        ("DhcpRelay.group_name", 309),
+        ("DhcpRelay.maximum_hop_count", 310),
+        ("DhcpRelay.minimum_wait_time", 311),
     ];
+
+    /// Every field key the schema declares at `card: "1"`, packed one bit
+    /// per key, least-significant bit first. Read it through [`field_required`];
+    /// the array is public only so a test can pin its length.
+    pub const FIELD_REQUIRED_BITS: [u8; 39] = [
+        0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
+        0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13,
+    ];
+
+    /// Whether `schema/schema.yaml` declares this field `card: "1"` —
+    /// exactly one value, always, and no default (62 §4.3).
+    ///
+    /// A key outside the registry answers `false`, which is the only safe
+    /// direction: an unknown key is not a field this build can require
+    /// anything of, and claiming otherwise would report a gap against a
+    /// field that does not exist.
+    pub const fn field_required(key: crate::bag::FieldKey) -> bool {
+        let i = key.0 as usize / 8;
+        if i >= FIELD_REQUIRED_BITS.len() {
+            return false;
+        }
+        FIELD_REQUIRED_BITS[i] & (1 << (key.0 % 8)) != 0
+    }
 
     /// 62 §18.1 `schema.scalar.unbound`, compile-time half: every `impl:`
     /// path bound in the `scalars:` block is referenced here by its declared

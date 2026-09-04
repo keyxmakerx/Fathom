@@ -1,0 +1,97 @@
+[package]
+name = "fathom-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The server: the thing that thinks, while the browser looks (49 §5). WO-11's skeleton — it starts, it answers a health check, and it stores nothing."
+
+[[bin]]
+name = "fathom-server"
+path = "src/main.rs"
+
+[dependencies]
+# ADDED ONE AT A TIME, each with its own deps/decisions record and the closure
+# document re-measured on arrival (WO-11 §5 step 3). Four commits, four green
+# gates -- deliberately not "add them all and reconcile afterwards", because the
+# point is that the gate is exercised on every arrival.
+#
+# default-features = false everywhere it is possible. It is not tidiness: 49 §6
+# keeps C7 (no C or C++ in the shipped closure) only if nothing drags in a
+# platform TLS stack, and a default feature is the usual way that happens
+# without anyone choosing it. deps/decisions/00-CLOSURE.md §"Why
+# default-features = false is a security control" is the precedent.
+tokio = { version = "1.53.1", default-features = false, features = [
+    "rt-multi-thread",
+    "net",
+    "macros",
+    "signal",
+    "time",
+] }
+
+# axum 0.8.9. `41` §5.2 chose it and `49` §6 keeps the choice, with one standing
+# instruction: use its own `ws` feature when WebSockets arrive rather than
+# adding `tokio-tungstenite` separately, which would be two copies of the same
+# protocol code.
+#
+# default-features = false again, and the list is short because /health is the
+# only endpoint this order builds. Absent and deliberately so: `json` (nothing
+# serialises yet, and adding it drags serde in), `form`, `query`,
+# `original-uri`, `matched-path`, and `tracing` -- axum's own tracing feature,
+# which is not the same thing as depending on `tracing` and is not needed to log
+# from a handler.
+axum = { version = "0.8.9", default-features = false, features = [
+    "http1",
+    "tokio",
+] }
+
+# tracing 0.1.44 and tracing-subscriber 0.3.23. WO-11 Disagreements 2 argues
+# these arrive WITH the skeleton rather than late in phase 1: retrofitting
+# structured logging means rewriting every call site.
+#
+# `ansi` IS OFF, and that is a security choice with a name. RUSTSEC-2025-0055
+# (2025-08-29, CVE-2025-58160) is exactly this: untrusted input logged with ANSI
+# escape sequences intact, which manipulates a terminal and has been chained
+# through terminal-emulator bugs. 0.3.23 escapes them, so this is belt and
+# braces -- but a server whose logs are read by a collector has no use for
+# colour, and the cheapest way not to emit an escape sequence is not to have the
+# code that writes one.
+#
+# `env-filter` IS OFF TOO, for a different reason: it pulls `regex`, which is
+# five crates (regex, regex-automata, regex-syntax, aho-corasick, memchr) to
+# parse a filter string. The skeleton reads one level from one environment
+# variable, which needs no regular expressions. Turn it on when per-target
+# filtering is actually wanted, and note the five crates when doing it.
+#
+# `json` is off as well: structured JSON output pulls `serde` and `serde_json`,
+# and there is nothing consuming the logs yet. It is the right feature to turn
+# on the day a collector exists -- with those two crates recorded in the closure
+# like everything else.
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = [
+    "fmt",
+    "std",
+] }
+
+# tokio-postgres 0.7.18 with deadpool-postgres 0.14.2. `49` §6 chose this over
+# sqlx on a measurement: 58 crates in the build graph against sqlx's 124,
+# measured 2026-08-21. `35` §5.1's cap is 160 in the closure, so sqlx would have
+# spent 36 of the remaining budget on one convenience.
+#
+# NO TLS FEATURE, AND THAT IS TRIGGER 4 MADE CONCRETE. `49` §6 keeps C7 -- no C
+# or C++ in the shipped closure -- only if TLS is terminated IN FRONT of the
+# binary, because rustls's crypto provider (`ring` or `aws-lc-sys`) brings C and
+# assembly back in. `43` §5.4 already decided TLS in front by default. So no
+# `with-native-tls` and no `with-rustls`, and PostgreSQL sits on a Unix socket
+# or loopback where there is nothing to encrypt against. `deny.toml` bans all
+# four of the C carriers by name, so this cannot be undone by accident.
+#
+# tokio-postgres 0.7.18 is EXACTLY the patched version for RUSTSEC-2026-0178
+# (2026-06-12): a malicious or compromised server sending a DataRow with fewer
+# fields than its row description declares makes `Row::get` -- and the
+# supposedly non-panicking `try_get` -- panic on an out-of-bounds index. See
+# deps/decisions/tokio-postgres.md.
+tokio-postgres = { version = "0.7.18" }
+deadpool-postgres = { version = "0.14.2", default-features = false, features = [
+    "rt_tokio_1",
+] }

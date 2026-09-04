@@ -25,6 +25,13 @@
 >
 > **Owner:** this document owns the Junos coverage figure. Anything else quoting a coverage
 > percentage references it rather than restating it (conventions § *Precedence*).
+>
+> **Updated 2026-08-28.** `corpus/dict/junos-srx/security-policies.yaml` binds the bare
+> `security policies` stanza, `match source-address any`, `match destination-address any` and
+> `then permit` — 12 of the section's 21 lines, all without touching `PolicyScope`. The number
+> moved from 58/122 (47.5%) to **70/122 (57.4%)**. §1, §3 and §5.1 carry the new figures; §5.2's
+> claim that the section "is at zero and stays there" is corrected in place rather than restated
+> as still true, because it no longer is — see the note at the end of §5.2.
 
 ## 0. Contents
 
@@ -34,7 +41,7 @@
 | 2 | The configuration it is measured against | *and where every line came from* |
 | 3 | The by-section table | *where the misses are* |
 | 4 | What was widened, and why those sections | *the measurement chose them* |
-| 5 | What is still missed, in three kinds | *the important half* |
+| 5 | What is still missed, in four kinds | *the important half* |
 | 6 | The bytes | *the tightest constraint in the project* |
 | 7 | Three defects the widening exposed | *all fixed, all now tested* |
 | 8 | Failure modes of this measurement | |
@@ -49,7 +56,8 @@
 | | statements | bound | bind rate |
 |---|---|---|---|
 | **Before** — 42 dictionary entries | 122 | 29 | **23.8%** |
-| **After** — 81 dictionary entries (69 from this widening + 12 from the routing slice reconciled with it) | 122 | 58 | **47.5%** |
+| **After (2026-08-15)** — 81 dictionary entries (69 from this widening + 12 from the routing slice reconciled with it) | 122 | 58 | **47.5%** |
+| **After (2026-08-28)** — 85 dictionary entries (+4, `security policies`) | 122 | 70 | **57.4%** |
 
 Both figures are over the same file, `crates/fathom-ingest/tests/fixtures/junos-srx-branch-documented.txt`,
 and both are pinned by an assertion in `crates/fathom-ingest/tests/branch_coverage.rs` so that
@@ -63,6 +71,40 @@ read branch-srx — 39 understood, 64 lines not read, 7 secrets removed
 ```
 
 122 − 58 = 64. The page and the test are counting the same thing, from opposite ends.
+
+**That footer is the 2026-08-15 reading and the secrets figure has moved twice since.** It is
+kept as quoted evidence of that day rather than silently edited, because the two moves are worth
+carrying:
+
+| when | secrets removed | why |
+| --- | ---: | --- |
+| 2026-08-15 | 7 | as quoted above |
+| 2026-08-17 | 9 | `trap-group` joined `SECRET_WORD_LIST` so the SNMP trap community would have a second detector — correct in itself, and it **also armed an unbounded sweep** that destroyed every remaining token of the statement. On this fixture: `targets` and the trap destination address `192.0.2.20`. The +2 is the whole of the drift, and it was **not intended by that commit** |
+| 2026-08-29 | 8 | the sweep is bounded to one token past the modelled path (`crates/fathom-ingest/src/redact.rs`, see its comment). The community still dies; the destination address lives. `targets` still goes, which is the raw walk's deliberate two-token proximity window and not the defect |
+
+**The 7 → 9 move was flagged and re-pinned on 2026-08-28 without being explained**, in a session
+whose scope was elsewhere; it was chased down the next day. The lesson is `47` §9.3's, in a new
+place: a number that moves for an unknown reason is a finding, and re-pinning it to whatever the
+tree currently says makes the driver green and the claim hollow. The regression guard is
+`the_gate_destroys_the_trap_community_and_not_the_trap_destination`
+(`crates/fathom-ingest/tests/redaction_canary.rs`), which asserts both directions and pins that a
+longer tail does not destroy more.
+
+**Re-measured 2026-08-29 after WO-10 (DHCP relay + BOOTP) landed: unmoved at 70/122.** The
+fixture contains zero `forwarding-options` lines — its DHCP lines are `dhcp-local-server`, the
+DHCP *server*, which WO-10 §9 excludes by name — so the five new dictionary entries bind nothing
+in it. Recorded rather than "fixed": extending the measured fixture would move the documented
+baseline, and the right next measurement is a second fixture (§note above). The relay's own
+proof is `docs/80-review/evidence/2026-08-29-dhcp-relay-drive.mjs`, 25/25.
+
+**And the finding that matters to whoever pastes a bootp config (WO-10 G7).** Juniper's `bootp`
+statement page, read 2026-08-29: *"For supported SRX Series Firewalls, JDHCP or extended DHCP is
+the enhanced versions of the DHCP daemon (legacy DHCP) … The /forwarding-options/helpers/bootp
+command is deprecated."* Release information on the same page: *"Statement introduced before
+Junos OS Release 7.4."* The replacement is `forwarding-options dhcp-relay`, whose `server-group`
+form the dictionary binds beside the legacy one. A pasted `helpers bootp` line is not wrong and
+it works; it is the kind of thing the teaching half of the product exists to say, and carrying
+it INTO the estate (a `deprecated:` key, page copy) is unordered surface work — WO-10 §11 item 5.
 
 That run is reproducible rather than reported: `scripts/drive-branch-coverage.mjs` pastes the
 fixture into the real artifact and asserts **31 facts about the DOM** — one network request and
@@ -105,7 +147,7 @@ Sections are the operator's mental hierarchy, not the trie's: `security policies
 
 | section | before | after | miss after | why the miss (see §5) |
 |---|---|---|---|---|
-| security policies | 0 / 21 | 0 / 21 | **21** | B — `PolicyScope` is a reference-bearing stub |
+| security policies | 0 / 21 | **12 / 21** (2026-08-28; was 0/21 on 2026-08-15) | **9** | bare stanza / `match source-address any` / `match destination-address any` / `then permit` bind by literal capture, no reference needed — §5.2's correction. The 9 `match application` misses are a different reason: no `match_any_application` field, no path for a real name; escalation noted at the end of §5.2. |
 | access (DHCP pools) | 0 / 12 | 0 / 12 | **12** | C — no kind models an address pool |
 | security address-book | 0 / 6 | 0 / 6 | **6** | B — `AddressValue` stub; and the book has no home |
 | security nat | 0 / 4 | 0 / 4 | **4** | B — `NatScope` and `NatAction` are stubs |
@@ -123,7 +165,7 @@ Sections are the operator's mental hierarchy, not the trie's: `security policies
 | **security ipsec** | 5 / 6 | **6 / 6** | 0 | widened |
 | **security flow** | 0 / 2 | **2 / 2** | 0 | widened |
 | **system ntp** | 0 / 1 | **1 / 1** | 0 | widened |
-| **TOTAL** | **29 / 122** | **58 / 122** | **64** | |
+| **TOTAL** | **29 / 122** | **70 / 122** (was 58/122 on 2026-08-15) | **52** | |
 
 ## 4. What was widened, and why those sections
 
@@ -174,21 +216,25 @@ set, and a `const_bool` field spec. All six are scalars or closed enums the sche
 declares. **No stub value type was shaped and no schema field was added.** This was dictionary
 work, deliberately; §5.2 and §9 say what it would have taken to do otherwise.
 
-## 5. What is still missed, in three kinds
+## 5. What is still missed, in four kinds
 
-The 64 remaining misses are not one problem. They are three, and only one of them is a
-dictionary problem.
+The 52 remaining misses are not one problem. **Was three kinds on 2026-08-15; the
+2026-08-28 `security policies` widening removed 12 lines from kind B and left 9 behind that
+do not fit A, B or C — see the new kind E below.** Only A and E are dictionary/schema work; B
+and C are architecture and modelling decisions respectively, owner's or planning's to make
+(`78` §5).
 
 ### 5.1 The shape of the remaining misses
 
 | kind | lines | what it actually is |
 |---|---|---|
-| **B — a stub value type stands in the way** | 37 | the field exists in the schema and its type is an empty struct |
+| **B — a stub value type stands in the way** | 16 | the field exists in the schema and its type is an empty struct — down from 37 on 2026-08-15: the 21 `security policies` lines counted here were misclassified, see §5.2's correction |
 | **C — no kind models the thing at all** | 19 | DHCP pools (12), system services (3), SNMP (2), local users (2) |
 | **A — reachable dictionary work** | 7 | small, specific, listed in §5.3 |
-| **— fits none of the three** | 1 | `system root-authentication encrypted-password`, quarantined by the gate before any of this applies |
+| **E — the kind exists, the field/edge to hold this shape of match does not** (new, 2026-08-28) | 9 | `security policies … match application …` — `SecurityPolicy` has `match_any_source`/`match_any_destination` but no `match_any_application`, and a real application name has no edge this pass builds; see the escalation note at the end of §5.2 |
+| **— fits none of the four** | 1 | `system root-authentication encrypted-password`, quarantined by the gate before any of this applies |
 
-The four rows sum to 64. C was given as 20 in the first draft while the sections named for it sum
+The five rows sum to 52. C was given as 20 in the first draft while the sections named for it sum
 to 19; the unaccounted line is the redacted root-authentication line, which is not blocked by a
 stub type, a missing kind or a missing dictionary entry. It is now its own row rather than
 rounded into C.
@@ -224,9 +270,46 @@ So the honest statement of the largest gap in Junos coverage is not "the struct 
 > already can in an edge.**
 
 That is why `security policies` — 21 lines, the single biggest section of a real firewall
-config — is at zero and stays there in this change. Binding a `PolicySet` while dropping
-`from-zone trust to-zone vpn` on the floor would have raised the number and broken `14`'s one
-governing rule, `NOTHING PARSED IS SILENTLY LOST`. The number is not worth that.
+config — was at zero and stayed there in this (2026-08-15) change. Binding a `PolicySet` while
+dropping `from-zone trust to-zone vpn` on the floor would have raised the number and broken
+`14`'s one governing rule, `NOTHING PARSED IS SILENTLY LOST`. The number was not worth that.
+
+> **Corrected 2026-08-28.** The paragraph above conflated two different things: *resolving
+> `PolicyScope`* (which genuinely needs the reference mechanism this section describes and does
+> not exist yet) and *binding a `PolicySet`/`SecurityPolicy` node at all* (which does not — the
+> zone pair is not dropped on the floor, it becomes the node's KEY, a joined pair of literal
+> captured text, never a `NodeId` and never stored as a field value). `from-zone trust to-zone
+> vpn` is not lost; it is what tells the binder `trust→untrust` and `trust→vpn` are two different
+> `PolicySet`s rather than one, exactly the same way `corpus/dict/opnsense/firewall-rules.yaml`
+> already binds a fieldless `PolicySet` with no `PolicyScope` value at all (its own README §4,
+> "the empty-struct finding" — the same precedent this section should have generalised from on
+> 2026-08-15 and did not).
+>
+> `corpus/dict/junos-srx/security-policies.yaml` (2026-08-28) binds the bare stanza, both `match
+> …-address any` forms and `then permit` — 12 of the 21 lines — with `PolicySet.scope` left unset,
+> same as before. `SecurityPolicy.ordinal` needed a mechanism this document did not anticipate
+> either: assigned once, at first creation, by a new `ordinal_on_create` binder flag, because a
+> policy's several statement lines can name it first in any order. Neither mechanism touches
+> `schema/schema.yaml`.
+>
+> **What is still genuinely blocked, and what is a new, separate gap:**
+> - `PolicyScope` itself (`ZonePair`/`InterfaceDirection`/`Global`/`Vsys`, all reference-bearing)
+>   is exactly as unreachable as this section always said — a `PolicySet` binds with no scope
+>   recorded, so rung 4 still cannot draw the line between the zones band and the policy band
+>   (`57` §6.3; `crates/fathom-inventory/src/inside.rs` and the page both say so explicitly rather
+>   than leaving a reader to infer it from two bands sitting side by side).
+> - `match application …` (9 of the 21 lines, including the literal `any`) is blocked for a
+>   **different** reason that has nothing to do with `PolicyScope`: `SecurityPolicy` has
+>   `match_any_source` and `match_any_destination` but no `match_any_application`, so even the
+>   literal `any` has nowhere to bind. Whether to add that one bool field (cheap, ADR-0037-shaped)
+>   and whether a real application name should resolve a name-only `Application` node via
+>   `MatchApplication` (structurally legal — `Application.l4` is optional, unlike
+>   `AddressObject.value` — but a new pattern nothing else in this dictionary uses) are both
+>   open, flagged here rather than decided (`78` §5). See kind E in §5.1.
+> - `match source-address NAME` / `match destination-address NAME` for any real (non-`any`) name
+>   remain blocked for the reason `AddressValue` already was: it is a required, empty-struct
+>   field, and `AddressObject` cannot be honestly constructed at all — the OPNsense precedent
+>   again. This was already true and is unchanged.
 
 `AddressValue`, `L4Spec` and `NatAction` hold no references and are genuinely just unshaped; `11` §6.6 states
 both shapes (`Prefix / Range / Dns / Wildcard`, and `{ protocol, source_ports,
@@ -436,8 +519,11 @@ Escalated, not decided here (`78` §5).
 1. **What is the default `RoutingInstance` called?** Blocks `routing-options static route` and
    every future platform's default instance. §5.4.
 2. **How does a fragment express a pending reference in a *field value*?** This, not the empty
-   structs, is what blocks `security policies` (21), `security nat` (4) and
-   `next-hop st0.0` (1) — **26** of the 64 remaining misses. §5.2.
+   structs, is what blocks `security nat` (4) and `next-hop st0.0` (1) — **5** of the 52 remaining
+   misses. §5.2. (Corrected 2026-08-28: `security policies` is no longer in this list — 12 of its
+   21 lines bind without any reference mechanism, by keying `PolicySet` on the zone pair's literal
+   captured text rather than resolving it to a `NodeId`. The 9 lines still missed there
+   —`match application …`— are blocked by kind E, a missing field/edge, not by this decision.)
 3. **Shall `AddressValue`, `L4Spec` and `NatAction` be shaped from `11` §6.6?** Both shapes are stated; both
    are reference-free; together they unblock `address-book` (partly — see 4) and `applications`.
 4. **Where does an address book's *name* live?** `AddressObject`/`AddressSet` have no field for
@@ -450,6 +536,16 @@ Escalated, not decided here (`78` §5).
    in the same window. `00-ROUTE-TO-WORKABLE.md` §2 stage 1 already says the ceiling is an
    architecture question rather than a number to raise, and §6.2 is the first evidence that it
    is answerable as one: 29,999 bytes came back from two changes that removed no feature.
+   **Retired as a priority 2026-08-21** — `49` §1, the server-product pivot: the byte ceiling
+   this decision is about no longer gates the client build.
+7. **(new, 2026-08-28) Should `SecurityPolicy` grow a `match_any_application` field, mirroring
+   `match_any_source`/`match_any_destination`?** Cheap (one bool, ADR-0037-shaped) and would bind
+   2 of the fixture's 9 remaining `security policies` misses (the two literal
+   `match application any` lines). A companion, separate question: should a *named* application
+   (`junos-http`, the other 7 lines) resolve a `MatchApplication` edge to a name-only `Application`
+   node, the way nothing else in this dictionary does today? `Application.l4` is optional, unlike
+   `AddressObject.value`, so it is structurally legal — but it is a new pattern, not obviously the
+   right default, and not decided here. §5.2.
 
 ## 10. Sources consulted
 
@@ -485,7 +581,7 @@ verbatim into the dictionary file beside the entry that uses it, so the record s
 | `tcp-rst` | `security-edit-tcp-rst.html` | `Zone.tcp_rst` |
 | `application-tracking` | `security-edit-application-tracking.html` | `Zone.application_tracking` |
 | `address-book` | `security-edit-address-book.html` | §5.2's book-name finding |
-| `policies (Security)` | `security-edit-policies.html` | the fixture's policy lines |
+| `policies (Security)` | `security-edit-policies.html` | the fixture's policy lines; reused, not re-looked-up, by `corpus/dict/junos-srx/security-policies.yaml` (2026-08-28) per ADR-0034's "name the source and the date" rather than a fresh citation |
 | `vlan-id (VLANs)` | `vlan-id-edit-vlans-qfx-series.html` | `vlans <name> vlan-id` |
 | `l3-interface (VLAN)` | `l3-interface-edit-vlans-qfx-series.html` | `vlans <name> l3-interface` |
 | `vlan-id (logical interface)` | `vlan-id-edit-interfaces.html` | `interfaces … unit N vlan-id` |

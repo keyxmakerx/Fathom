@@ -14,6 +14,7 @@ members = [
     "crates/fathom-layout",
     "crates/fathom-schema",
     "crates/fathom-schemagen",
+    "crates/fathom-server",
     "crates/fathom-wasm",
     "crates/fathom-weld",
     "crates/fathom-workspace",
@@ -27,10 +28,23 @@ edition = "2021"
 license = "Apache-2.0"
 publish = false
 
-# No external dependencies anywhere in the workspace yet. That is a position,
-# not an accident (35-supply-chain-and-builds.md): the schema toolchain parses
-# a deliberate YAML subset (62 §2.2) precisely so it does not need a general
-# YAML implementation, and fathom-id needs nothing but core.
+# THE CLIENT SIDE STILL HAS ZERO EXTERNAL DEPENDENCIES, and that is a position
+# rather than an accident (35-supply-chain-and-builds.md): the schema toolchain
+# parses a deliberate YAML subset (62 §2.2) precisely so it does not need a
+# general YAML implementation, and fathom-id needs nothing but core.
+#
+# The SERVER side spends that position deliberately, starting 2026-09-03 with
+# WO-11. Every external crate is declared in crates/fathom-server/Cargo.toml and
+# nowhere else, so nothing can reach the WASM module by accident:
+# fathom-wasm/tests/artifact_gates.rs and wasmbin.rs's empty IMPORT_ALLOWLIST
+# both fail if it does. 49 §20 is the framing -- "that is the project's greatest
+# current security advantage, and it is about to be spent. Spend it
+# deliberately." The five layers in .github/workflows/ci.yml are how.
+#
+# This table stays EMPTY on purpose. A workspace-wide dependency table would let
+# a crate be inherited with `workspace = true` from anywhere, including the
+# client crates; declaring each in the one crate that needs it keeps the blast
+# radius visible in the manifest itself.
 [workspace.dependencies]
 
 # 42 §8.1's release profile — the one the WASM artifact gates measure under.
@@ -42,6 +56,41 @@ opt-level = "z"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+strip = "symbols"
+debug = 0
+overflow-checks = true
+incremental = false
+
+# THE SERVER DOES NOT SHIP UNDER THE WASM PROFILE, AND THE REASON IS panic.
+#
+# `[profile.release]` above is tuned for one artifact: a WASM module that must
+# be small and whose panic is a trap at the host boundary (41 §3.9, 34 §7.5).
+# Three of its settings are actively wrong for a long-running server:
+#
+#   panic = "abort"   THE IMPORTANT ONE. tokio isolates a panicking task -- one
+#                     request fails and the runtime carries on -- but ONLY when
+#                     panics unwind. With abort, one panicking request takes the
+#                     whole process down, and every other connected user with
+#                     it. This is not hypothetical here: RUSTSEC-2026-0178, the
+#                     advisory tokio-postgres 0.7.18 is the patch for, is a
+#                     PANIC on a malformed DataRow. Patched or not, "a panic
+#                     somewhere in the driver ends the service" is the wrong
+#                     default for the process holding everyone's designs.
+#   opt-level = "z"   Optimising for size on a server trades throughput for
+#                     bytes nobody is paying for.
+#   lto = "fat" + codegen-units = 1
+#                     Minutes of link time per build, for a binary whose size
+#                     does not matter.
+#
+# Build the server with `--profile server`. Everything else -- overflow-checks
+# especially, 41 §2.5's "a wrapped length in a parser is the bug we are here to
+# avoid" -- is inherited unchanged.
+[profile.server]
+inherits = "release"
+panic = "unwind"
+opt-level = 2
+lto = "thin"
+codegen-units = 16
 strip = "symbols"
 debug = 0
 overflow-checks = true

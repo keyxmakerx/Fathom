@@ -7,14 +7,17 @@
 //! no compiler checks (§9 item 9).
 
 use fathom_inventory::{
-    columns, demo_estate, element_page, equipment_page, parse_display_id, rows, InvKind,
+    column_keys, columns, demo_estate, element_page, equipment_page, parse_display_id, rows,
+    InvKind,
 };
+use fathom_ir::generated::ir_types::PhysicalPortField;
 use fathom_wasm::protocol::{
     decode_reply, ErrorView, FaceRowView, ReplyView, ERR_BAD_FRAME, ERR_BAD_UTF8,
-    ERR_NOT_INITIALISED, ERR_NO_ELEMENT, FACE_FIELD, FACE_HEADER, FACE_IFACE, FACE_INV, FACE_PORT,
+    ERR_NOT_INITIALISED, ERR_NO_ELEMENT, FACE_FIELD, FACE_HEADER, FACE_IFACE, FACE_INV,
+    FACE_INV_KEY, FACE_PORT,
 };
 use fathom_wasm::shell::Shell;
-use fathom_wasm::{OP_ELEMENT, OP_EQUIPMENT, OP_ESTATE_DEMO, OP_INV_ROWS};
+use fathom_wasm::{OP_ELEMENT, OP_EQUIPMENT, OP_ESTATE_DEMO, OP_FIELD_SET, OP_INV_ROWS};
 
 fn face(reply: &[u8]) -> Vec<FaceRowView> {
     match decode_reply(reply).expect("a well-formed reply") {
@@ -56,7 +59,8 @@ fn estate_demo_then_inventory_rows_mirror_the_crate() {
         let records = face(&reply);
         let cols = columns(kind);
         let expected = rows(&g, kind);
-        assert_eq!(records.len(), 1 + expected.len(), "{}", kind.label());
+        // Two chrome records now: the header, then the editable-column keys.
+        assert_eq!(records.len(), 2 + expected.len(), "{}", kind.label());
 
         let head = &records[0];
         assert_eq!(head.role, FACE_HEADER);
@@ -67,16 +71,204 @@ fn estate_demo_then_inventory_rows_mirror_the_crate() {
         }
         assert_eq!(head.strings[7], "opinions");
 
-        for (rec, row) in records[1..].iter().zip(expected.iter()) {
+        // The key row mirrors the header slot for slot, which is what lets the
+        // page read a column's key at the index it read that column's name.
+        let keys = &records[1];
+        assert_eq!(keys.role, FACE_INV_KEY);
+        assert_eq!(keys.slot_count, head.slot_count);
+        assert_eq!(
+            keys.strings[0],
+            "",
+            "{}: slot 0 is not a column",
+            kind.label()
+        );
+        for (i, k) in column_keys(kind).iter().enumerate() {
+            let want = k.map(|k| k.0.to_string()).unwrap_or_default();
+            assert_eq!(keys.strings[1 + i], want, "{} key {i}", kind.label());
+        }
+        assert_eq!(
+            keys.strings[7],
+            "",
+            "{}: the opinions column is never editable",
+            kind.label()
+        );
+
+        for (rec, row) in records[2..].iter().zip(expected.iter()) {
             assert_eq!(rec.role, FACE_INV);
             assert_eq!(rec.slot_count, head.slot_count);
             assert_eq!(rec.strings[0], row.id);
             for (i, cell) in row.cells.iter().enumerate() {
                 assert_eq!(&rec.strings[1 + i], cell, "cell {i} of {}", row.id);
             }
-            assert_eq!(rec.strings[7], row.opinions);
+            // ADR-0041 D5/D7: slot 7 is `<opinions> <hints>`, hints last and
+            // possibly empty. `format!` is `encode_inv_reply`'s own packing,
+            // pinned here rather than re-derived so the page's split-once
+            // reading and this assertion cannot silently drift apart.
+            assert_eq!(
+                rec.strings[7],
+                format!("{} {}", row.opinions, row.hints),
+                "slot 7 of {}",
+                row.id
+            );
         }
     }
+}
+
+/// ADR-0041 D5/D7, pinned end to end: a cell that
+/// `fathom_ingest::redact::looks_like_credential` flags is named in slot 7's
+/// hints half, at the SAME index the cell itself sits at in slots 1..=6 — and
+/// an estate with nothing credential-shaped in it packs an empty hints half,
+/// so the common case costs one byte and not a wire shape change.
+#[test]
+fn a_credential_looking_cell_is_named_in_slot_seven_by_its_own_index() {
+    let mut shell = loaded();
+    let g = demo_estate();
+
+    // The demo estate carries no credential-shaped text (`opinions_cells_are_all_em_dash`'s
+    // sibling claim, `fathom-inventory`'s own `credential_hints` test covers the
+    // detector's wiring) — so every row's hints half is empty here, and slot 7
+    // is exactly `"— "` for every row of every kind that has any.
+    let mut saw_a_row = false;
+    for kind in InvKind::ALL {
+        let reply = shell.handle(OP_INV_ROWS, &[kind_byte(kind)]);
+        let records = face(&reply);
+        let expected = rows(&g, kind);
+        for (rec, row) in records[2..].iter().zip(expected.iter()) {
+            assert_eq!(rec.role, FACE_INV);
+            assert_eq!(row.hints, "", "the demo estate names no credential shapes");
+            assert_eq!(rec.strings[7], format!("{} ", row.opinions));
+            saw_a_row = true;
+        }
+    }
+    assert!(saw_a_row, "the demo estate projected no rows at all");
+}
+
+/// `[u64 at][u128 entropy][u32 key][u16 id_len][id][value]` — `OP_FIELD_SET`'s
+/// frame, mirrored from `tests/equip.rs`'s `edit_frame` (a separate test
+/// binary cannot share it, and it is four lines).
+fn edit_frame(at_ms: u64, entropy: u128, key: u32, id: &str, value: &str) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(&at_ms.to_le_bytes());
+    v.extend_from_slice(&entropy.to_le_bytes());
+    v.extend_from_slice(&key.to_le_bytes());
+    v.extend_from_slice(&(id.len() as u16).to_le_bytes());
+    v.extend_from_slice(id.as_bytes());
+    v.extend_from_slice(value.as_bytes());
+    v
+}
+
+/// ADR-0041 D1/D5/D7, the positive path: a person types a credential-looking
+/// value into a hand-editable cell through `OP_FIELD_SET` — the exact door
+/// `2026-09-03-the-gate-is-only-on-the-paste-box.mjs` proved is ungated — and
+/// the value is stored EXACTLY as typed (D1: nothing refused, nothing
+/// destroyed) while the next `OP_INV_ROWS` reply names that cell in slot 7's
+/// hints half.
+#[test]
+fn a_hand_typed_credential_saves_untouched_and_is_named_in_the_hints() {
+    let mut shell = loaded();
+
+    let port_kind = kind_byte(InvKind::PhysicalPort);
+    let label_col = columns(InvKind::PhysicalPort)
+        .iter()
+        .position(|c| *c == "label")
+        .expect("PhysicalPort has a label column");
+
+    let pid = {
+        let reply = shell.handle(OP_INV_ROWS, &[port_kind]);
+        face(&reply)
+            .iter()
+            .find(|r| r.role == FACE_INV)
+            .map(|r| r.strings[0].clone())
+            .expect("the demo estate has at least one PhysicalPort")
+    };
+
+    const PSK: &str = "IPsec PSK: n3JHwd82ka0ppwiVzLp7YXjLp2Qz3Rt5Uv1Wx2Yz3";
+    let reply = shell.handle(
+        OP_FIELD_SET,
+        &edit_frame(
+            1_700_000_000_000,
+            0x2026_0903_0000_0000_0000_0000_0000_0001,
+            PhysicalPortField::Label.key().0,
+            &pid,
+            PSK,
+        ),
+    );
+    assert!(
+        !matches!(decode_reply(&reply), Ok(ReplyView::Error(_))),
+        "the typed value was refused: {:?}",
+        decode_reply(&reply)
+    );
+
+    let reply = shell.handle(OP_INV_ROWS, &[port_kind]);
+    let records = face(&reply);
+    let row = records
+        .iter()
+        .find(|r| r.role == FACE_INV && r.strings[0] == pid)
+        .expect("the port row is still there");
+    assert_eq!(
+        row.strings[1 + label_col],
+        PSK,
+        "D1: the value is stored EXACTLY as typed, not refused or destroyed"
+    );
+    let hints = row.strings[7].split_once(' ').map(|(_, h)| h).unwrap_or("");
+    assert_eq!(
+        hints,
+        label_col.to_string(),
+        "the label column is named in slot 7's hints half"
+    );
+
+    // The finding that motivated this test: `OP_INV_ROWS`'s table row is not
+    // the only on-screen rendering of the value. `renderMeaningFace`'s field
+    // table (`OP_ELEMENT`) is a second one, reached from both the
+    // inventory's own details pane and the diagram's — and until this slot
+    // existed it never asked the detector at all, so the same typed PSK was
+    // marked on the table cell and silently plain two clicks away, in the
+    // same view, same session. `OP_ELEMENT`'s FACE_FIELD slot 5 is where that
+    // gets fixed: the SAME field, over the SAME element id, must carry the
+    // SAME mark.
+    let element_reply = shell.handle(OP_ELEMENT, pid.as_bytes());
+    let element_records = face(&element_reply);
+    let field = element_records
+        .iter()
+        .find(|r| r.role == FACE_FIELD && r.strings[0] == "label")
+        .expect("PhysicalPort declares a label field");
+    assert_eq!(
+        field.strings[1], PSK,
+        "the element face carries the identical typed value"
+    );
+    assert_eq!(
+        field.strings[5], "1",
+        "OP_ELEMENT's own field table must mark the value the inventory table marked"
+    );
+}
+
+/// The one sentence the key row exists to make true, pinned on the kind an
+/// operator meets first: **the columns a cell editor is offered over are the
+/// device's own typeable fields, and `premises` is not one of them.**
+///
+/// `premises` is the case that matters. It is a traversal — Device -> Site ->
+/// Premises `label` — so it renders like every other cell and has nowhere to
+/// write, and a page that decided editability by looking at the column NAME
+/// would offer it. Named here rather than left to the generic loop above,
+/// because a loop that compares two derivations of the same table would still
+/// pass if both were wrong.
+#[test]
+fn the_device_row_set_offers_its_own_fields_and_not_the_walk() {
+    let mut shell = loaded();
+    let records = face(&shell.handle(OP_INV_ROWS, &[kind_byte(InvKind::Device)]));
+    let head = &records[0];
+    let keys = &records[1];
+    assert_eq!(keys.role, FACE_INV_KEY);
+
+    let offered: Vec<&str> = (0..columns(InvKind::Device).len())
+        .filter(|i| !keys.strings[1 + i].is_empty())
+        .map(|i| head.strings[1 + i].as_str())
+        .collect();
+    assert_eq!(
+        offered,
+        ["hostname", "platform", "os_version", "role"],
+        "the editable Device columns"
+    );
 }
 
 #[test]
@@ -104,18 +296,23 @@ fn element_and_equipment_replies_mirror_the_crate() {
 
             for (rec, f) in records[1..].iter().zip(page.fields.iter()) {
                 assert_eq!(rec.role, FACE_FIELD);
-                // Five since 2026-08-11. Slots 3 and 4 -- the field's wire key
-                // and whether its type can be typed in -- were added so the page
-                // can offer an editor without keeping a name-to-key table of its
-                // own. A table like that in JavaScript is how a form ends up
-                // writing one field into another's slot, and it would be
-                // unpinned by anything.
-                assert_eq!(rec.slot_count, 5);
+                // Six since 2026-09-03 (ADR-0041). Slots 3 and 4 -- the field's
+                // wire key and whether its type can be typed in -- were added
+                // so the page can offer an editor without keeping a
+                // name-to-key table of its own. A table like that in
+                // JavaScript is how a form ends up writing one field into
+                // another's slot, and it would be unpinned by anything. Slot
+                // 5 is ADR-0041 D7's hint bit, for the same reason: this
+                // face's field table is a second on-screen rendering of the
+                // value (reached from both the inventory's details pane and
+                // the diagram's), and it must not re-decide the mark.
+                assert_eq!(rec.slot_count, 6);
                 assert_eq!(rec.strings[0], f.name);
                 assert_eq!(rec.strings[1], f.value);
                 assert_eq!(rec.strings[2], f.provenance);
                 assert_eq!(rec.strings[3], f.key.0.to_string());
                 assert_eq!(rec.strings[4], if f.editable { "1" } else { "" });
+                assert_eq!(rec.strings[5], if f.hint { "1" } else { "" });
             }
         }
     }

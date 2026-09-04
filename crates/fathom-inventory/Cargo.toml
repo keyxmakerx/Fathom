@@ -10,6 +10,10 @@ description = "The inventory face's projections: row sets, the element page, the
 fathom-id = { path = "../fathom-id" }
 fathom-ir = { path = "../fathom-ir" }
 fathom-graph = { path = "../fathom-graph" }
+# ADR-0041 D5/D7: `looks_like_credential` is the ONE detector, in Rust, and
+# `Row.hints` is computed here, where rows are built, so a second surface
+# inherits it rather than reimplementing it.
+fathom-ingest = { path = "../fathom-ingest" }
 
 # The demo estate is a development fixture (`45` §9.1's `?fixture=demo-estate`),
 # not product code, and it was costing 35,272 bytes of the WASM module —
@@ -19,6 +23,10 @@ fathom-graph = { path = "../fathom-graph" }
 # The product has had a real input since the on-ramp landed: paste, hand entry
 # and correction all work, so the fixture no longer buys anything a person
 # cannot get in two seconds.
+#
+# (The ceiling named above was removed 2026-08-21, `49` §1 — but it was never the
+# main reason and nothing here changes: the fixture buys nothing the paste sheet
+# does not, and that argument is byte-independent.)
 #
 # The feature is OFF by default, deliberately. Default-on with
 # `default-features = false` on the `fathom-wasm` side would have been one line

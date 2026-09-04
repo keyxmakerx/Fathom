@@ -75,15 +75,21 @@ fn quarantine_destroys_unshaped_secret_line() {
             _ => None,
         })
         .expect("the clipped head is quarantined");
-    assert!(orig_len > 0, "the original length is recorded");
+    assert!(
+        orig_len > 0,
+        "the original length is recorded IN SESSION — `14` §9.5 allows that and \
+         forbids persisting it"
+    );
     let span = out.ledger.lines[idx].span;
     let sketch = &out.capture.text()[span.start as usize..span.end as usize];
     // The shape sketch: the first two tokens were not kept (`ecurity` is not
     // a known dictionary segment), so no character of any token survives.
-    assert_eq!(
-        sketch,
-        "<word:7> <word:3> <word:6> <word:7> <word:14> <word:10> <quoted:21>"
-    );
+    //
+    // AND NO LENGTH SURVIVES EITHER, as of 2026-08-21. This assertion used to
+    // read `<word:7> <word:3> ... <quoted:21>` and that string was the defect:
+    // the capture is welded into the workspace, so it persisted the exact byte
+    // length of a value the gate had just destroyed. See `redact::sketch`.
+    assert_eq!(sketch, "<word> <word> <word> <word> <word> <word> <quoted>");
     for token in ["ecurity", "IKE-POL", "pre-shared-key", "ascii-text", CANARY] {
         assert!(!sketch.contains(token), "`{token}` survived the sketch");
     }
@@ -604,4 +610,232 @@ fn an_snmp_trap_group_community_is_destroyed_because_of_its_name() {
          not the only thing standing between this value and the store: {:?}",
         out.drops.entries
     );
+}
+
+/// **THE GATE MUST NOT EAT THE STATEMENT AFTER THE SECRET.**
+///
+/// The companion to the canary above, and the defect that one CAUSED. Adding
+/// `trap-group` to `SECRET_WORD_LIST` on 2026-08-17 gave the community its
+/// second detector — correctly — and simultaneously armed an unbounded sweep
+/// that destroyed every remaining token on the line. Nobody saw it for twelve
+/// days because the canary above uses `set snmp trap-group NAME` with NOTHING
+/// AFTER IT, so the only shape that can show the defect was the one shape not
+/// tested.
+///
+/// **This is the tail half of rule 0.** That rule says to test against what a
+/// device accepts rather than what the detector needs, and the canary above
+/// obeyed it about the secret's LENGTH while quietly disobeying it about the
+/// statement's SHAPE: a real Junos trap-group is configured with `targets`,
+/// `categories` and `version` clauses after the name, and a probe with no
+/// tail is no more a real statement than a 28-character `simple-password`
+/// was a real one.
+///
+/// Both directions are asserted here, because each alone is satisfiable by
+/// breaking the other: the community still dies, AND the destination address
+/// still lives.
+///
+/// The statement form is Juniper's own, from the `trap-group` configuration
+/// statement page (juniper.net, Junos OS CLI reference, read 2026-08-29 while
+/// investigating this defect): the group takes `targets <address>`,
+/// `categories <category...>` and `version <v1|v2|all>` beneath its name.
+#[test]
+fn the_gate_destroys_the_trap_community_and_not_the_trap_destination() {
+    let secret = "Fath0mTG";
+    let target = "192.0.2.20";
+    // A full statement, in the form Juniper documents — not a probe trimmed to
+    // the one token under test.
+    let line = format!(
+        "set snmp trap-group {secret} targets {target} categories link routing version v2\n"
+    );
+    let out = ingest(line.as_bytes(), &dict()).expect("within the caps");
+    let serialised = format!("{out:?}");
+
+    // 1. The secret still dies. This half must never be traded for the other.
+    assert!(
+        !serialised.contains(secret),
+        "the trap-group community survived: {serialised}"
+    );
+
+    // 2. And the network survives. The trap DESTINATION is an address the
+    //    estate exists to record — `38` §14.4: the secrets are 2% of the file,
+    //    the other 98% is the network. Destroying it is not erring toward
+    //    safety, it is erring toward an estate that has lost what it is for.
+    assert!(
+        out.capture.text().contains(target),
+        "the trap destination address was destroyed with the community — the \
+         unbounded tail sweep is back. Capture: {:?}",
+        out.capture.text()
+    );
+
+    // 3. The bound, stated as a number rather than left to the two assertions
+    //    above to imply. Before the 2026-08-29 fix this line produced SIX drop
+    //    entries: the community plus every one of the five trailing tokens.
+    //    `targets` still goes, and that is `raw_walk`'s deliberate two-token
+    //    proximity window rather than this defect — it sits immediately after
+    //    the literal `trap-group`. Nothing beyond it may.
+    let destroyed = out.drops.entries.len();
+    assert!(
+        destroyed <= 2,
+        "the gate destroyed {destroyed} tokens on one trap-group line; only the \
+         community and the keyword adjacent to `trap-group` may go: {:?}",
+        out.drops.entries
+    );
+
+    // 4. Length is not a proxy for distance: a LONGER tail must not destroy
+    //    more. This is the assertion that actually pins "unbounded" as fixed,
+    //    because a fix that merely capped the sweep at five would pass 3.
+    let longer = format!(
+        "set snmp trap-group {secret} targets {target} categories link routing \
+         authentication chassis configuration remote-operations rmon-alarm \
+         services startup vrrp version v2\n"
+    );
+    let out2 = ingest(longer.as_bytes(), &dict()).expect("within the caps");
+    assert_eq!(
+        out2.drops.entries.len(),
+        destroyed,
+        "a longer tail on the same statement destroyed more tokens, so the \
+         sweep is still growing with the line: {:?}",
+        out2.drops.entries
+    );
+    assert!(
+        !format!("{out2:?}").contains(secret),
+        "the community survived on the longer form"
+    );
+}
+
+/// **THE SKETCH MUST NOT PUBLISH THE LENGTH OF WHAT THE GATE DESTROYED.**
+///
+/// Found 2026-08-21 by an adversarial review of the parse-server designs in
+/// `38` §14, and it had been shipping since the sketch was written.
+///
+/// `sketch` emitted `<word:{len}>` where `len` was the token's exact byte
+/// length. A quarantined line is by construction one the gate believes carries
+/// a secret, so `set snmp community <word:12>` published the exact length of
+/// that community string — and with `head_safe` keeping the first two tokens
+/// verbatim, the reader got the statement's identity beside it.
+///
+/// It is not a theoretical leak. The capture is welded into the workspace as
+/// `Origin::Parsed` provenance, so the number was written to the operator's own
+/// disk — while `RedactionEntry::orig_len`, declared fifty lines above `sketch`
+/// in the same file, carries `14` §9.5's rule that this exact quantity *"must
+/// not be stored"*. First-party code was breaking a first-party rule, in one
+/// file, in two places, for months.
+///
+/// This test is the guard. It uses secrets of THREE DIFFERENT LENGTHS in the
+/// same shape of statement and asserts the three sketches are **byte-identical**
+/// — which is the property that matters, and one no assertion on a fixed string
+/// can express. A bucketed length would fail this too, deliberately: a bucket is
+/// an oracle with fewer bits, not the absence of one.
+#[test]
+fn the_sketch_reveals_nothing_about_how_long_the_secret_was() {
+    // Three lengths spanning the range a real key takes: an 8-character Junos
+    // OSPF maximum, a 24-character passphrase, and a 63-character one — the
+    // WPA2 pre-shared-key maximum, which is why 63 is a length worth probing.
+    //
+    // EVERY PROBE HAS VARIED CHARACTERS, and that is not decoration. A first
+    // draft used `"F".repeat(63)` and the gate did not destroy it — correctly.
+    // `pre_redacted` treats a value of two or fewer distinct characters as a
+    // mask the operator typed themselves, which is what `xxxxxxxx` and
+    // `********` are. Sixty-three identical characters is a mask, not a
+    // secret, and a test that used one would be asserting against a value no
+    // person would ever set — the exact defect rule 0 in `CLAUDE.md` exists to
+    // prevent, arrived at from the opposite direction.
+    let sketches: Vec<String> = [
+        "Fath0m8x",
+        "Fa7h0m-Pr3Sh4r3d-K3y-24c",
+        "Fa7h0m-Pr3Sh4r3d-K3y-Th4t-Runs-To-Th3-WPA2-M4x1mum-0f-63-ch4rs",
+    ]
+    .iter()
+    .map(|secret| {
+        // NO `set` PREFIX, AND THAT ONE WORD IS THE WHOLE TEST. With it, the
+        // line SHAPES as a statement and the raw pre-shared-key detector
+        // destroys the value per-token (`<REDACTED:unknown>`) — a path that
+        // was already length-blind, so a first version of this test passed
+        // WITH THE DEFECT REINTRODUCED, proved by revert during the
+        // 2026-08-28 review. Without `set` the line is unshaped — the clipped
+        // head a real terminal paste produces, the same shape the fixture's
+        // quarantined line has — and goes to `sketch`, the function this test
+        // exists to guard. The assertion below the map pins that we actually
+        // arrived there, so the probe cannot silently drift back onto the
+        // other path.
+        let line = format!("ecurity ike policy IKE-POL pre-shared-key ascii-text \"{secret}\"\n");
+        let out = ingest(line.as_bytes(), &dict()).expect("within the caps");
+        let text = out.capture.text().to_string();
+        assert!(
+            !text.contains(&secret[..]),
+            "the secret itself survived: {text}"
+        );
+        assert!(
+            text.contains("<word") && text.contains("<quoted"),
+            "the probe no longer reaches the sketch path, so this test is \
+             guarding nothing: {text}"
+        );
+        text
+    })
+    .collect();
+
+    assert_eq!(
+        sketches[0], sketches[1],
+        "an 8-character secret and a 24-character secret produced different \
+         sketches, so the sketch is a length oracle:\n  {}\n  {}",
+        sketches[0], sketches[1]
+    );
+    assert_eq!(
+        sketches[1], sketches[2],
+        "a 24-character secret and a 63-character secret produced different \
+         sketches, so the sketch is a length oracle:\n  {}\n  {}",
+        sketches[1], sketches[2]
+    );
+    // AND NO MARKER ANYWHERE CARRIES A NUMBER. This is deliberately stated
+    // over the whole capture rather than over the sketch, because the gate has
+    // two ways to destroy a value and this line takes the one that was NOT
+    // changed today: `<REDACTED:unknown>` per token, rather than a whole-line
+    // sketch. Both must be length-blind, and asserting over the output rather
+    // than over the path means a future third mechanism is covered too.
+    //
+    // The colon itself is legal — `<REDACTED:unknown>` uses one to carry the
+    // label, which is a closed set of six words and reveals nothing. What must
+    // never appear is a DIGIT in a marker.
+    for text in &sketches {
+        for marker in text.split('<').skip(1) {
+            let marker = marker.split('>').next().unwrap_or_default();
+            assert!(
+                !marker.chars().any(|c| c.is_ascii_digit()),
+                "a marker carries a number, which is a bound on the value it \
+                 replaced: `<{marker}>` in `{text}`"
+            );
+        }
+    }
+}
+
+/// The same property, on the OTHER destruction path — the whole-line shape
+/// sketch, which is the one that carried the defect.
+///
+/// `quarantine_destroys_unshaped_secret_line` pins the sketch's exact text for
+/// one fixture line. This asserts the property that text was an instance of,
+/// so that a future change which alters the sketch's vocabulary cannot quietly
+/// reintroduce a length while still looking correct.
+#[test]
+fn the_shape_sketch_carries_no_numbers() {
+    let out = fixture_run();
+    let quarantined: Vec<_> = out
+        .ledger
+        .lines
+        .iter()
+        .filter(|e| matches!(e.outcome, LineOutcome::Quarantined { .. }))
+        .collect();
+    assert!(
+        !quarantined.is_empty(),
+        "the fixture no longer quarantines anything, so this test is vacuous"
+    );
+    for line in quarantined {
+        let sketch = &out.capture.text()[line.span.start as usize..line.span.end as usize];
+        for marker in sketch.split('<').skip(1) {
+            let marker = marker.split('>').next().unwrap_or_default();
+            assert!(
+                !marker.chars().any(|c| c.is_ascii_digit()),
+                "the shape sketch published a length: `<{marker}>` in `{sketch}`"
+            );
+        }
+    }
 }

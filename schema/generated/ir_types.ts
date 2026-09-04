@@ -52,7 +52,8 @@ export type NodeKind =
   | "ServicePath"
   | "PathSegment"
   | "LayoutPin"
-  | "Rack";
+  | "Rack"
+  | "DhcpRelay";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -104,6 +105,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "PathSegment",
   "LayoutPin",
   "Rack",
+  "DhcpRelay",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -191,7 +193,10 @@ export type EdgeKind =
   | "MustTraverse"
   | "HasLayoutPin"
   | "HasRack"
-  | "MountedIn";
+  | "MountedIn"
+  | "HasDhcpRelay"
+  | "RelaysFor"
+  | "RelayServerIn";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -277,6 +282,9 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasLayoutPin",
   "HasRack",
   "MountedIn",
+  "HasDhcpRelay",
+  "RelaysFor",
+  "RelayServerIn",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -410,6 +418,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   PathSegment: ["ordinal", "kind", "boundary_reason", "warp_technology", "max_hops", "note", "resolution", "corroboration"],
   LayoutPin: ["x", "y"],
   Rack: ["label", "height_u", "unit_numbering"],
+  DhcpRelay: ["server", "group_name", "maximum_hop_count", "minimum_wait_time"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -721,4 +730,8 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "MountedIn.position_u": 305,
   "MountedIn.height_u": 306,
   "MountedIn.face": 307,
+  "DhcpRelay.server": 308,
+  "DhcpRelay.group_name": 309,
+  "DhcpRelay.maximum_hop_count": 310,
+  "DhcpRelay.minimum_wait_time": 311,
 };

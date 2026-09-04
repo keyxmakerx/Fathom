@@ -1,0 +1,139 @@
+# cargo-deny — WO-11 §5 step 0, layer 1 of five.
+#
+# This file landed on 2026-09-03, BEFORE the first external crate, for the same
+# reason scripts/gate-zero.sh did: a policy written against an empty dependency
+# graph states what this project will accept, and a policy written afterwards
+# states what already arrived.
+#
+# THE FIVE LAYERS, and what each one cannot do (WO-11 §5 step 0's table):
+#
+#   1. gate-zero        a crate arriving with no human record
+#   2. THIS FILE        an unexpected registry, a bad licence, a duplicate
+#                       version, a named-and-banned crate
+#   3. cargo audit      filed RustSec advisories and yanks
+#   4. --locked + a REVIEWED lockfile diff   the August 2026 attack
+#   5. a version cooldown (scripts/crate-cooldown.sh)   a release that lives
+#                       ninety minutes
+#
+# THE MOST VALUABLE SECTION IN THIS FILE IS [sources]. The August 2026 attack
+# (RUSTSEC-2026-0260, 2026-08-20) worked by publishing a typosquat named
+# `proc-macro1` beside the near-universal `proc-macro2` and letting its build
+# script run at compile time. Nothing scans a crate for that. What trips it is a
+# registry allowlist plus a human reading the lockfile diff and seeing a name
+# one character from a name they know.
+#
+# AND THE GAP THIS FILE DOES NOT CLOSE, stated rather than papered over:
+# NOTHING SANDBOXES A BUILD SCRIPT. Stable Rust has no equivalent of "install
+# without running scripts", which is exactly how that payload ran. The
+# mitigation is the allowlist plus the cooldown plus the diff -- not a sandbox,
+# because there is not one.
+
+[graph]
+# All-targets so a Windows-only or wasm-only dependency cannot slip the checks
+# by not being in the host's graph.
+all-features = true
+
+[advisories]
+version = 2
+# A yanked crate in the lockfile fails the build. A yank is the registry's own
+# statement that a version should not be used, and it is the cheapest signal
+# there is.
+yanked = "deny"
+unmaintained = "workspace"
+# Empty, and it stays empty without a written reason beside each entry.
+# WO-11 §7 trigger 5: an advisory with no patched version is an ESCALATION, not
+# an ignore line. The 131-exemption figure in WO-11 §5 step 0 is what this list
+# turns into when nobody defends it.
+ignore = []
+
+[licenses]
+version = 2
+# ADR-0004 puts Apache-2.0 on this project's own code for its patent grant.
+# What may be linked INTO it is a narrower question than what it is licensed
+# under, and this list is the answer: permissive licences only. A copyleft
+# dependency is not a bug to work around silently -- it is a decision, and it
+# comes here to be made.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+]
+confidence-threshold = 0.93
+# An allowed licence that no crate in the graph uses is not a finding. With zero
+# dependencies EVERY entry is unencountered, and a check that shouts at its own
+# empty state is a check people learn to ignore.
+unused-allowed-license = "allow"
+# No per-crate licence exceptions. If one is ever needed it is written here with
+# the crate, the licence, and the reason -- never as a raised threshold.
+exceptions = []
+
+[bans]
+# Two versions of one crate is how a typosquat hides beside the real one, and it
+# is also ordinary in a large graph. It is DENY here so that every instance is
+# seen once; if the real graph produces duplicates that cannot be resolved, each
+# one is skipped BY NAME AND VERSION below with a reason, never by relaxing this
+# line to "warn".
+multiple-versions = "deny"
+# A wildcard version requirement means the lockfile is the only thing pinning a
+# dependency, which makes a reviewed lockfile diff the only control left.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+# Duplicates that are understood, named BY CRATE AND VERSION with a reason.
+# Never relax `multiple-versions` to "warn" to avoid writing one of these: an
+# unnamed duplicate is exactly how a typosquat hides beside the real crate, and
+# the point of the rule is that every instance is looked at once.
+#
+# Naming the exact versions matters. If a THIRD copy of `wasi` ever resolves,
+# these two entries do not cover it and the build fails again -- which is the
+# behaviour that makes this a decision rather than a permanent hole.
+[[bans.skip]]
+crate = "wasi@0.11.1"
+reason = "WASI preview 1, reached only through mio. Target-gated to wasm32-wasi* and never compiled for this server (x86_64-unknown-linux-gnu) or for the client (wasm32-unknown-unknown, which is not a WASI target). Verified with `cargo tree --target x86_64-unknown-linux-gnu` on 2026-09-03: absent."
+
+[[bans.skip]]
+crate = "wasi@0.14.7"
+reason = "WASI 0.2 / the component model, reached through whoami -> wasite. whoami is an UNCONDITIONAL dependency of tokio-postgres 0.7.18 -- no feature gate, checked in the crate's own manifest 2026-09-03 -- so this arrives with the database driver and cannot be turned off. Same target gating as the entry above; absent from the Linux graph."
+
+[[bans.skip]]
+crate = "syn@2.0.119"
+reason = "Reached only through tracing-attributes 0.1.31. THIS IS A FEATURE-UNIFICATION FINDING, recorded rather than smoothed over: crates/fathom-server/Cargo.toml turns tracing's `attributes` feature OFF, and deadpool-postgres 0.14.2 depends on tracing WITHOUT default-features = false, so cargo unifies `attributes` back on. A feature switched off in one manifest is switched on by a sibling. Both syn copies are build-time only (proc-macro dependencies) and neither is linked into the binary."
+
+[[bans.skip]]
+crate = "syn@3.0.4"
+reason = "Reached through async-trait 0.1.92 and tokio-macros 2.7.2, the current major. Build-time only. See the entry above for why a second copy exists at all."
+
+# Crates that may never appear in this workspace's graph, each with its reason.
+[[bans.deny]]
+name = "proc-macro1"
+reason = "The typosquat of proc-macro2 used in the August 2026 crates.io supply-chain attack (RUSTSEC-2026-0260, 2026-08-20). It has no legitimate use and its build script downloaded and executed a payload."
+
+[[bans.deny]]
+name = "openssl-sys"
+reason = "C7 -- no C or C++ in the shipped closure (49 §6). TLS is terminated in front of the binary (43 §5.4), so nothing here needs an OpenSSL binding."
+
+[[bans.deny]]
+name = "native-tls"
+reason = "C7. It resolves to a platform C TLS stack. Same reason as openssl-sys."
+
+[[bans.deny]]
+name = "ring"
+reason = "C7. ring carries C and assembly. WO-11 §7 trigger 4 says C7 is a decision and not a detail; this line is that trigger made mechanical, so a rustls crypto provider cannot arrive transitively without failing the build."
+
+[[bans.deny]]
+name = "aws-lc-sys"
+reason = "C7. rustls's other crypto provider, and the same reason as ring."
+
+[sources]
+# THE LINE THAT WOULD HAVE TRIPPED AUGUST. A crate from anywhere but crates.io
+# fails the build, and there are no git dependencies at all.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

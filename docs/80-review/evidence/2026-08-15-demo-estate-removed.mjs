@@ -53,8 +53,15 @@ const browser = await chromium.launch({
     JSON.stringify(text.slice(0, 400)),
   );
   ok(
-    'it names the cost, so the refusal is a reason and not an apology',
-    /35,272 bytes/.test(text) && /900,000-byte module ceiling/.test(text),
+    // The sentence named "35,272 bytes of the 900,000-byte ceiling" until
+    // 2026-08-28. The ceiling was removed 2026-08-21, so a byte cost quoted
+    // at an operator stopped being a reason and became a stale number — the
+    // exact class this repo names as its own failure mode. What must still
+    // hold is the PROPERTY: the sentence says what the fixture IS and points
+    // at both real doors, rather than apologising.
+    'it says what the fixture is and points at the two real doors',
+    /development fixture/.test(text) && /START HERE/.test(text) &&
+      /add equipment/.test(text),
   );
   ok(
     'it names the two doors that DO work',

@@ -409,7 +409,7 @@ mod tests {
             let render = |g: &Graph| {
                 crate::rows(g, kind)
                     .into_iter()
-                    .map(|r| format!("{}|{}|{}", r.id, r.cells.join("|"), r.opinions))
+                    .map(|r| format!("{}|{}|{}|{}", r.id, r.cells.join("|"), r.opinions, r.hints))
                     .collect::<Vec<_>>()
             };
             assert_eq!(render(&a), render(&b), "{}", kind.label());

@@ -1450,8 +1450,11 @@ and the remaining decision is `44`'s number, which is planning's under ADR-0001'
    declares its tiers, so a second paste of a box already in the workspace is *detectable*. What
    happens next is a UX question and is deliberately not decided in `schema/`: a tier-1 match is a
    **proposal to a human, not an automatic merge**, because two real branch sites may both run a
-   `core-01` SRX on the same platform. `53`/`54` own the surface. Until it is designed, `OP_PASTE`
-   replaces the held estate and says so, which is the behaviour that cannot silently merge two boxes.
+   `core-01` SRX on the same platform. `53`/`54` own the surface. *(Until it was designed, `OP_PASTE`
+   replaced the held estate — the behaviour that cannot silently merge two boxes. **The surface
+   was built 2026-08-21**: the paste is additive, and a tier-1 match refuses with
+   `ERR_PASTE_CHOICE`, names the existing box, and offers exactly one answer — "these are
+   different boxes". The merge half is still unbuilt and the refusal says so in words.)*
 21. **`Chassis` still declares `identity: []`** (§16.3). Not blocking and nobody has asked, so it is
    filed rather than decided — but the two obvious tiers are `[ owner(Device), member_index ]` and
    `[ owner(Device), serial ]`, and the second is the one that survives a re-slot. It matters the
@@ -1705,6 +1708,139 @@ policy for. That escrow decision is real and is his; it is not a reason to aband
 
 **What this does not change.** Invariant 2 stands untouched under every option: Fathom never logs
 into a device. Nothing in the enterprise direction weakens it, and `71` §13.1 should keep saying so.
+
+## 18. Four answers on one day — key custody, tenancy, the empty chart, and the box you zoom into — 2026-08-28
+
+`49` §22's decision list was put to the owner four rows at a time. He answered all four. His words
+are reproduced first, per this document's rule; what each answer decides and does not decide
+follows.
+
+### 18.1 Key custody (49 §22 decision 1) — delegated to evidence, with a constraint named
+
+> *"I have no idea, what is the most secure but optimised way of handling this? surely we aren't
+> coming up with anything unique, others should have made similar secure products. This is
+> enterprise level though keep in mind."*
+
+**This is a delegation, not an answer, and it has a shape he has used before**: the firmware
+login model (`49` §16.2) was settled the same way — *"i'll let you decide this, and if you are
+unsure please look up best practice."* The standing rule for executing such a delegation is
+ADR-0034: look it up, name the source and the date, and bring back what comparable products
+actually do rather than a preference. The constraint he DID state is load-bearing: **"enterprise
+level"** — the recommendation must survive an enterprise buyer's checklist (SOC 2 questions,
+customer-managed keys, SSO), not just a cryptographer's. The research was commissioned the same
+day; its findings and the resulting recommendation are recorded in `49` §3 when ratified, not
+here. **Until then decision 1 is IN PROGRESS, not open and not closed.**
+
+### 18.2 Tenancy tables (49 §22 decision 2) — ANSWERED: outside the graph
+
+> *"I don't understand this question, what does users and orgs have anything to do with the
+> graph? i would imagine users and their respected organization, cause they may use ldap or
+> Active directory for their users, would be seperated from graphs and networks?"*
+
+**Decided: organisations, users and designs are ordinary server tables, not schema kinds.** The
+question read as strange to him because the answer was obvious to him — which is itself the
+strongest form of the answer. ADR-0008's rule ("a field not in `schema/` does not exist") governs
+THE NETWORK'S data; accounts are not the network's data, and `49` §11's multi-tenancy design can
+now be built on server tables. **The answer also volunteers a requirement nothing had captured:
+enterprise customers may bring LDAP or Active Directory.** That goes to the phase-1 identity
+design (`49` §12) as an input: sign-in must be designable so that a customer's directory, not
+Fathom's own user table, can be the source of truth for who exists.
+
+### 18.3 The empty chart first (49 §22 decision 5) — ANSWERED: `PhysicalPort.label` is optional
+
+> *"absolutely, one of the main features is to be able to create essentially a lucid chart with
+> no information, then a user can go in and fill in info as needed."*
+
+**Decided, and executed the same day**: `PhysicalPort.label` is `0..1` (schema 0.3 → 0.4, minor
+per `62` §16.2; the version comment in `schema/schema.yaml` prices it). `57` §13.5's blocker is
+closed and everything in `57` §12–§13 — cabling mode, drag-then-annotate, the port prompt with
+its unknown option — is now buildable.
+
+**The answer is bigger than the field, and the bigger half is recorded here as a principle
+rather than silently executed**: *"a lucid chart with no information"* is a statement about the
+whole schema's posture — sparse-first, annotate-later, everywhere. Which OTHER required fields
+punish the empty-chart gesture is a per-field review (each `card: "1"` has its own reasons, some
+of them identity-bearing), and that review is planning work, not something to bulk-execute off
+one sentence. But the direction is now on the record in the owner's own words.
+
+### 18.4 The platform question was asked with a wrong example — and the answer settled two things anyway
+
+> *"I don't have a proxmox box? unless your just giving an example, but like yea i mean proxmox
+> would probably need to be an engine. If a box is labeled prox mox and imports all that
+> functionality, you'll be able to zoom in into mini boxes inside that box, because that's jjust
+> how that'd work. But all of it's connections and routes and stuff should be visible. It's just
+> a shame you can't copy and paste an entire config...unless that's a thing?"*
+
+**The correction first**: ADR-0037 §5's "a hand-added Proxmox box must still borrow `junos-srx`"
+was this corpus's illustration, not the owner's estate. He was right to flag it and the example
+should not be repeated as if it were his.
+
+**What the answer settles.** (1) **The route for general-purpose hosts is engines, not a generic
+platform row** — "proxmox would probably need to be an engine" chooses the shape ADR-0037 §5
+declined to: platforms earn registry rows and dictionaries the way network vendors do, rather
+than a catch-all `generic` platform absorbing everything unparsed. ADR-0037 §5 itself stays open
+on the narrow wart (what a hand-added box with NO engine declares as its platform), but the
+direction it must be answered within is now set. (2) **A virtualisation host is a container in
+the zoom ladder** — mini boxes inside the box, connections and routes visible — which is `57`'s
+rung-4 interior applied to VMs, and lands with a Proxmox engine, not before.
+
+**What the answer asks.** *"You can't copy and paste an entire config… unless that's a thing?"*
+is a vendor-behaviour question and ADR-0034 forbids answering it from memory; it was put to
+research the same day, `64`-style — where the config lives, what prints it as text, and, first
+in the owner's priority order, **which of its files carry secrets the ingest gate must learn
+before any dictionary work begins**. The `proxmox` vendor row in `schema/platforms.yaml` is
+registered per the registry's own precedent (*"a vendor is registered when the owner names it; a
+platform is declared only when a real config has been seen"*); the platform row waits on the
+survey landing in `64`.
+
+### 18.5 The DHCP relay's routing instance — route (i), the fullest one — 2026-08-29
+
+WO-10 stopped at its own Step 0 on 2026-08-28: `routing-instance` may legally qualify a DHCP
+relay's `server` statement, and `DhcpRelay` as modelled carried no edge for it. The escalation
+named three routes and, per `78` §5, an execution session may pick none of them. Put to the
+owner as a plain question — add a real link, add a flat field, or leave those lines
+unread for now — with a recommendation for the *cheapest* route (iii).
+
+**The answer, verbatim (2026-08-29):**
+
+> *"1 now please"*
+
+**He chose route (i) — a real `RoutingInstance` edge — against the recommendation, and he was
+right to.** The recommendation had argued from his own usage (*"you said you use BOOTP; you
+didn't say you use routing instances with it"*), which is a fair scheduling argument and a poor
+modelling one. Two things it undervalued:
+
+1. **A routing instance is a declared kind in this schema.** Naming one with a string field would
+   be a natural-key reference, which **invariant 7 forbids product-wide** — *"the graph contains
+   no natural-key references"*. Route (ii) was therefore never really available; it was an
+   invariant breach wearing a shortcut's clothes, and the question should have said so.
+2. **Route (iii) makes the estate quietly wrong rather than incomplete.** A `server 10.0.0.1
+   routing-instance mgmt` line read as `server 10.0.0.1` does not omit a fact — it records a
+   *different* fact, in the default instance, and the reasoning in `19` §1 (*"is there a route to
+   THIS address"*) would then be answered against the wrong routing table. `70` §16's doctrine is
+   that an incomplete path is drawn and **marked**, never silently completed; dropping the
+   qualifier completes it silently.
+
+**What it decides.** `RelayServerIn` (`DhcpRelay → RoutingInstance`, `0..1` out) is declared in
+WO-10 §4; §5.4 item 4 is closed; the order is OPEN with code the only thing remaining. A relay
+whose statement names no instance carries no edge, and **absent means the default instance, never
+"unknown"** — the config stated a complete fact by saying nothing, and `19` §6.3's three states
+must not be collapsed.
+
+**What it does not decide.** Nothing about the other four unbound `dhcp-relay` forms (`70` §18.4's
+neighbours in WO-10 §11 item 4), which stay named residue by the same section's standing decision.
+
+**Executed the same day, and execution found the next question.** WO-10 is DONE (schema 0.5, all
+seven gates, `2026-08-29-dhcp-relay-drive.mjs` 25/25). The edge the owner chose is written, and it
+is written as a PENDING reference every time, because no dictionary entry builds a
+`RoutingInstance` yet — and pending references are carried out of the weld, never stored (`14`
+§7.3). The paste shows `RoutingInstance c3 · RelayServerIn` in the inventory's pending table; a
+reload does not, because the journal replays what was stored. **So route (i) is half delivered:
+the fact is read, shown, and lost on save.** WO-10 §10 item 5 names the three routes — bind
+`routing-instances`, persist pending references, or replay the parser — and none is an execution
+session's. This is the owner's next decision on this thread, and the cheapest of the three
+(binding `routing-instances`, which is dictionary work the estate needs anyway) is the one that
+also makes the routing view truer.
 
 ## 15. Disagreements
 

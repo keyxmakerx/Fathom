@@ -62,13 +62,40 @@ const foot = await page.evaluate(() => document.body.innerText);
 const m = foot.match(/read branch-srx — (\d+) understood, (\d+) lines not read, (\d+) secrets removed/);
 check('the page reports a paste tally', !!m, m ? m[0] : 'no tally line');
 if (m) {
-  check('64 lines not read (122 statements - 58 bound)', m[2] === '64', 'got ' + m[2]);
+  // 2026-08-28: `security-policies.yaml`'s four entries moved this from 64.
+  // The footer counts LINES, `branch_coverage.rs` counts STATEMENTS after
+  // bracket expansion — the two have never been the same number and are not
+  // expected to move together; see doc 66 §1's own note on the distinction.
+  check('52 lines not read (widened by security policies)', m[2] === '52', 'got ' + m[2]);
   // EQUALITY, not `>= 5`. The inequality passed while the document and the
   // build report both quoted the footer as "6 secrets removed" and the page,
   // the committed screenshot and every rerun said 7. Nothing caught it,
   // because nothing was asked to. A tally this document calls re-runnable has
   // to be pinned to a number, and a number that moves has to fail here.
-  check('7 secrets destroyed', m[3] === '7', 'got ' + m[3]);
+  //
+  // 7 -> 9 -> 8, and every step of that is now explained. This pin has moved
+  // twice and the second move was a DEFECT, so the history is worth carrying:
+  //
+  //   7  before 2026-08-17.
+  //   9  after `trap-group` joined SECRET_WORD_LIST (2026-08-17). That change
+  //      was right — it gave the trap community the second detector every
+  //      other declared secret already had — but it also armed an unbounded
+  //      sweep in `redact.rs`'s entry walk, which destroyed EVERY remaining
+  //      token on the line. On this fixture that is `targets` and the trap
+  //      destination address `192.0.2.20`: +2, which is the whole of the
+  //      drift. Investigated 2026-08-29 after a session flagged it rather
+  //      than explaining it.
+  //   8  after the bound landed (2026-08-29, `redact.rs`, see its comment).
+  //      The community dies and the destination address lives. `targets`
+  //      still goes, and that is `raw_walk`'s deliberate two-token proximity
+  //      window rather than the defect — it sits immediately after the
+  //      literal `trap-group`.
+  //
+  // The regression guard is `the_gate_destroys_the_trap_community_and_not_the
+  // _trap_destination` in crates/fathom-ingest/tests/redaction_canary.rs,
+  // which asserts both directions and pins that a LONGER tail does not
+  // destroy more — the assertion that actually holds "unbounded" fixed.
+  check('8 secrets destroyed', m[3] === '8', 'got ' + m[3]);
 }
 
 // No credential text survives anywhere in the rendered page.
@@ -126,12 +153,15 @@ for (const line of [
   'set interfaces ge-0/0/4 disable',
   'set interfaces ge-0/0/1 unit 0 family ethernet-switching vlan members guests',
   'set security ipsec proposal standard',
+  // 2026-08-28: `security-policies.yaml`'s bare-stanza + `then permit`
+  // entries bind this line in full — it names a policy AND asserts
+  // `action = permit`, so nothing about it is left over.
+  'set security policies from-zone trust to-zone vpn policy trust-to-vpn then permit',
 ]) {
   check('no longer residue: ' + line, !residue.includes(line));
 }
 // The honest other half: what is still residue, and must be visible as such.
 for (const line of [
-  'set security policies from-zone trust to-zone vpn policy trust-to-vpn then permit',
   'set security nat source rule-set guests-to-untrust from zone guests',
   'set routing-options static route 0.0.0.0/0 next-hop 172.16.1.1',
   'set interfaces ge-0/0/5 mtu 1500',

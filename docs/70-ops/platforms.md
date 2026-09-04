@@ -265,7 +265,11 @@ Ordered against your stated priority — security, then usability for user and m
 
 **Gate A — the ingest gate must be extended first.** Every platform below brings secret shapes the current `junos-srx` gate does not know: SNMP communities, secrets inside shell command lines, secrets inside URLs, secrets with no type marker, symmetric "encryption" that a master key in the same file undoes. Section 4.1 is the specification. Security is priority one, so the gate leads and the dictionary follows — not the other way round.
 
-**Gate B — the module-size ceiling is the real constraint, and it is architectural.** The module is 820,967 bytes against a 900,000-byte ceiling: 79,033 bytes of headroom. **Every platform below is another embedded dictionary against that headroom.** The decision named in `00-ROUTE-TO-WORKABLE.md` §2 stage 1 — does the ceiling move, or does the page hand the dictionary in rather than compiling it in — must be made *before the second dictionary lands*, not after. Deciding it once is cheap; discovering it at platform four is not.
+**~~Gate B — the module-size ceiling is the real constraint, and it is architectural.~~ CLOSED, and it was answered in both of the ways it offered (struck 2026-08-28).** As written on 2026-08-10 this read: *"The module is 820,967 bytes against a 900,000-byte ceiling: 79,033 bytes of headroom. Every platform below is another embedded dictionary against that headroom. The decision named in `00-ROUTE-TO-WORKABLE.md` §2 stage 1 — does the ceiling move, or does the page hand the dictionary in rather than compiling it in — must be made before the second dictionary lands, not after."*
+
+It was a good gate and it fired correctly: the fork it named was real and both prongs have since been taken. **The dictionary moved out of the module to the page on 2026-08-15** (`fathom_ingest::dict::EMBEDDED_DICT_SOURCES`, which gave back 26,915 bytes), so a new platform's dictionary is no longer compiled in; and **the ceiling itself was removed on 2026-08-21** with the pivot to a server-hosted product (`49` §1 — the owner chose *remove the ceiling, keep a size report* over raising it, and `crates/fathom-wasm/tests/artifact_gates.rs` now reports the size and asserts nothing about it). **Adding a platform is no longer gated on bytes at all.** Gate A is untouched and still leads.
+
+Keep the number in mind for one reason only: **`48` §5b** records that the ceiling was a WASM constraint that never existed natively, so nothing here transfers to the server fork either.
 
 **Then, in order:**
 

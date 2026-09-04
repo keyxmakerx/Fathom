@@ -33,7 +33,7 @@ use fathom_ir::generated::ir_types::{EdgeClass, EdgeKind, NodeKind};
 use crate::field::{FieldHistory, FieldInfo, HistoryEntry, StoredPresence};
 use crate::id::{EdgeId, ElementId, NodeId};
 use crate::op::{Batch, BatchId, Op, LABEL_MAX_BYTES};
-use crate::prov::{Origin, ProvenanceId, ProvenanceRecord, Timestamp};
+use crate::prov::{Actor, Origin, ProvenanceId, ProvenanceRecord, Timestamp};
 
 /// One stored field. `Unknown` is not representable here: it *is* the absence
 /// of a slot (`11` §5.2).
@@ -966,7 +966,15 @@ impl Graph {
     /// per element, in `NodeId` order. Incident edges are not marked: an edge
     /// with a tombstoned endpoint is effectively absent, and views own its
     /// rendering.
-    pub fn tombstone(&mut self, element: ElementId, at: Timestamp) -> Result<(), WriteError> {
+    /// `by` is required rather than defaulted: a removal with no author is the
+    /// one gap an audit log can never fill in afterwards, so the type system
+    /// asks for it at every call site instead of trusting each one to remember.
+    pub fn tombstone(
+        &mut self,
+        element: ElementId,
+        at: Timestamp,
+        by: Actor,
+    ) -> Result<(), WriteError> {
         self.require_batch()?;
         if !self.exists(element) {
             return Err(WriteError::UnknownElement { element });
@@ -981,7 +989,7 @@ impl Graph {
         match element {
             ElementId::Edge(id) => {
                 self.edges.get_mut(&id).expect("checked").absent_since = Some(at);
-                self.record(Op::Tombstone { element, at });
+                self.record(Op::Tombstone { element, at, by });
             }
             ElementId::Node(id) => {
                 let mut subtree = vec![id];
@@ -1000,6 +1008,7 @@ impl Graph {
                     self.record(Op::Tombstone {
                         element: ElementId::Node(n),
                         at,
+                        by,
                     });
                 }
             }

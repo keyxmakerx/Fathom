@@ -1,0 +1,641 @@
+<title>Following a Flow</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+:root{color-scheme:light dark;
+ --ink:#14171A;--muted:#5C6772;--surface:#F2F4F6;--surface-2:#FAFBFC;--hairline:#D2D7DD;--page:#FFFFFF;
+ --safe:#1F6F4A;--safe-wash:#EEF5F1;--caution:#A8571B;--caution-wash:#FBF3EA;--danger:#8C2F2F;--danger-wash:#F8EFEF;
+ --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+ --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+ --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;--s7:48px;--s8:64px;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --ink:#DFE4E8;--muted:#8A95A0;--surface:#191C20;--surface-2:#141719;--hairline:#2B3138;--page:#0F1215;
+ --safe:#35A06E;--safe-wash:#132019;--caution:#D97328;--caution-wash:#29180E;--danger:#EA6260;--danger-wash:#271817;}}
+:root[data-theme="dark"]{
+ --ink:#DFE4E8;--muted:#8A95A0;--surface:#191C20;--surface-2:#141719;--hairline:#2B3138;--page:#0F1215;
+ --safe:#35A06E;--safe-wash:#132019;--caution:#D97328;--caution-wash:#29180E;--danger:#EA6260;--danger-wash:#271817;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--s7) var(--s5) var(--s8)}
+.mast{border-bottom:3px solid var(--ink);padding-bottom:var(--s4);margin-bottom:var(--s5)}
+.kick{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 var(--s3)}
+h1{font-family:var(--mono);font-weight:700;font-size:clamp(28px,4.4vw,44px);line-height:1.08;letter-spacing:-.02em;margin:0;text-wrap:balance}
+.dek{max-width:66ch;color:var(--muted);margin:var(--s4) 0 0;font-size:17px}
+h2{font-family:var(--mono);font-weight:700;font-size:20px;margin:var(--s8) 0 var(--s4);padding-bottom:var(--s2);border-bottom:1px solid var(--hairline);text-wrap:balance}
+h4{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 var(--s2)}
+p{max-width:70ch}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface);padding:1px 5px;border:1px solid var(--hairline)}
+.note{border-left:4px solid var(--caution);background:var(--caution-wash);padding:var(--s4) var(--s5);margin:var(--s5) 0}
+.note p{margin:0 0 var(--s2)}.note p:last-child{margin:0}
+.note b{font-family:var(--mono);font-size:13px}
+.dir{border:1px solid var(--hairline);margin:var(--s6) 0;background:var(--page)}
+.dir-h{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s4);flex-wrap:wrap;
+ padding:var(--s4) var(--s5);border-bottom:1px solid var(--hairline);background:var(--surface)}
+.dir-n{display:flex;gap:var(--s4);align-items:baseline}
+.num{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums}
+.dir h3{font-family:var(--mono);font-size:19px;font-weight:700;margin:0}
+.sub{font-family:var(--mono);font-size:11px;color:var(--muted);margin:2px 0 0;text-transform:uppercase;letter-spacing:.07em}
+.chips{display:flex;gap:var(--s2);flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border:1px solid currentColor;white-space:nowrap}
+.c-live{color:var(--safe);background:var(--safe-wash)}
+.c-part{color:var(--caution);background:var(--caution-wash)}
+.c-none{color:var(--danger);background:var(--danger-wash)}
+.lead{margin:var(--s5) var(--s5) var(--s4);font-size:17px;max-width:74ch}
+.canvas{border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);background:var(--surface-2);overflow-x:auto}
+.canvas svg{display:block;min-width:620px;width:100%;height:auto}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s5);padding:var(--s5)}
+.grid p{margin:0;font-size:14px;color:var(--muted);max-width:none}
+@media (max-width:820px){.grid{grid-template-columns:1fr}}
+details{border-top:1px solid var(--hairline);padding:var(--s4) var(--s5)}
+summary{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;cursor:pointer;color:var(--muted)}
+summary:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+details h4{margin-top:var(--s4)}
+.chk{font-size:13px;color:var(--muted);margin:var(--s3) 0 0;max-width:none}
+.tw{overflow-x:auto;border:1px solid var(--hairline);margin:var(--s4) 0}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
+th,td{text-align:left;padding:var(--s3) var(--s4);border-bottom:1px solid var(--hairline);vertical-align:top}
+th{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:none}
+td.mono{font-family:var(--mono);font-size:13px}
+</style>
+<div class="wrap">
+<header class="mast">
+  <p class="kick">Design renders &middot; five directions &middot; none built &middot; 2026-08-17</p>
+  <h1>Following a Flow</h1>
+  <p class="dek">Five ways to track a packet across devices, racks and buildings without leaving
+  the canvas. Each was designed against the real schema, then torn into by someone who did not
+  write it.</p>
+</header>
+
+<p>You asked to follow a TCP flow to another location, cross between racks without losing the
+thread, and descend into a box to see <em>why</em> it goes where it goes. Five directions below.
+The drawings are in the product&rsquo;s own palette &mdash; real hex values, square corners, no
+shadows &mdash; so you are judging the actual look.</p>
+
+<h2>What every direction agreed on</h2>
+
+<div class="note">
+  <p><b>Your trace is already specified, and nobody has written it.</b> The corpus defines
+  <code>trace_step</code> in full &mdash; the cable walk, the sort orders, the patch-panel
+  pass-through, a 16-hop cap, and seven named outcomes including <em>ambiguous</em> and
+  <em>horizon</em>. It has never been implemented. The design work here is mostly about how to
+  <em>draw</em> something that was decided long ago.</p>
+</div>
+
+<div class="note">
+  <p><b>But nothing can create a cable.</b> <code>Cable</code>, <code>Terminates</code> and
+  <code>PassThrough</code> are all declared &mdash; and no operation builds one. So the physical
+  trace is fully expressible and completely unbuildable on a hand-made estate. An
+  <code>OP_CABLE</code> is the prerequisite for the first two of your three asks, and it is not
+  optional in any of these five.</p>
+</div>
+
+<div class="note">
+  <p><b>And you can answer &ldquo;why here?&rdquo; honestly without a rules engine.</b> Four of the
+  five landed on the same move independently: never say <em>permitted</em> or <em>denied</em>.
+  Instead, from the interface the traffic came in on and the one it leaves by, name the two zones,
+  the policy set between them, and <em>that set&rsquo;s policies in the order the device reads
+  them</em>. Four hundred policies on the box become the twenty-seven pointing this direction &mdash;
+  exactly, not by guesswork. It is a narrowing rather than a verdict, and it is buildable now.</p>
+</div>
+
+<h2>The five</h2>
+
+<section class="dir" id="d0">
+  <div class="dir-h">
+    <div class="dir-n"><span class="num">1</span><div>
+      <h3>Rail and Seat</h3><p class="sub">the thread is fixed, the picture moves</p></div></div>
+    <div class="chips"><span class="chip c-live">viable</span><span class="chip c-live">no engine needed</span></div>
+  </div>
+  <p class="lead">The trace lives on a fixed rail along the bottom edge and the canvas is a window that flies to whichever hop the rail holds — so the thread never moves, only the picture does.</p>
+  <div class="canvas"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 416" width="620" height="416" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<rect x="0" y="0" width="620" height="416" fill="#FFFFFF"/>
+<text x="8" y="16" font-size="10" fill="#14171A">Fathom — network map</text>
+<text x="612" y="16" font-size="10" fill="#5C6772" text-anchor="end">one canvas · rung 3 chassis · holding hop 4 of 11</text>
+<line x1="8" y1="22" x2="612" y2="22" stroke="#D2D7DD" stroke-width="1.5"/>
+
+<rect x="8" y="30" width="416" height="266" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="18" y="45" font-size="9" fill="#5C6772">0 premises  →  1 site  →  2 rack  →</text>
+<rect x="214" y="36" width="68" height="13" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"/>
+<text x="219" y="45" font-size="9" fill="#14171A">3 CHASSIS</text>
+<text x="290" y="45" font-size="9" fill="#5C6772">the hop chose it</text>
+<line x1="8" y1="54" x2="424" y2="54" stroke="#D2D7DD" stroke-width="1.5"/>
+
+<text x="18" y="68" font-size="10" fill="#14171A">RVSD-EDGE-01 — faceplate</text>
+<text x="18" y="80" font-size="9" fill="#5C6772">an inside hop: the two lit cages are the way in and the way out</text>
+
+<rect x="18" y="88" width="396" height="64" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="30" y="98" width="22" height="2" fill="#14171A"/>
+<rect x="240" y="98" width="22" height="2" fill="#14171A"/>
+<rect x="30" y="104" width="22" height="20" fill="#F2F4F6" stroke="#14171A" stroke-width="2"/>
+<rect x="60" y="104" width="22" height="20" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="90" y="104" width="22" height="20" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="120" y="104" width="22" height="20" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="150" y="104" width="22" height="20" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="180" y="104" width="22" height="20" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="210" y="104" width="22" height="20" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="240" y="104" width="22" height="20" fill="#F2F4F6" stroke="#14171A" stroke-width="2"/>
+<rect x="270" y="104" width="22" height="20" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="300" y="104" width="22" height="20" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="330" y="104" width="22" height="20" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="360" y="104" width="22" height="20" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<line x1="41" y1="134" x2="245" y2="134" stroke="#14171A" stroke-width="2"/>
+<path d="M245 129 L257 134 L245 139 Z" fill="#14171A"/>
+<text x="30" y="148" font-size="8.5" fill="#5C6772">ge-0/0/1.10 in  →  reth0.10 out    enter on a cage opens its port row</text>
+
+<text x="18" y="166" font-size="9" fill="#5C6772">▲ one rung up — 2 rack · esc ascends</text>
+<text x="18" y="178" font-size="8.5" fill="#14171A">RVSD-R12 · 42U asc</text>
+<rect x="18" y="184" width="132" height="104" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+
+<text x="22" y="202" font-size="8" fill="#5C6772">U40</text>
+<rect x="44" y="192" width="100" height="14" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="48" y="202" font-size="8" fill="#14171A">RVSD-CORE-01</text>
+
+<text x="22" y="239" font-size="8" fill="#5C6772">U28</text>
+<rect x="44" y="224" width="100" height="24" fill="#F2F4F6" stroke="#14171A" stroke-width="2"/>
+<text x="48" y="236" font-size="8.5" fill="#14171A">RVSD-EDGE-01</text>
+<text x="48" y="245" font-size="8" fill="#5C6772">ge-0/0/1 → reth0.10</text>
+
+<text x="22" y="276" font-size="8" fill="#5C6772">U12</text>
+<rect x="44" y="266" width="100" height="14" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="48" y="276" font-size="8" fill="#14171A">RVSD-SW-02</text>
+
+<text x="160" y="190" font-size="8" fill="#5C6772">every cable that leaves</text>
+<text x="160" y="200" font-size="8" fill="#5C6772">the frame is drawn as a</text>
+<text x="160" y="210" font-size="8" fill="#5C6772">labelled stub. The one</text>
+<text x="160" y="220" font-size="8" fill="#5C6772">you follow is heavy.</text>
+<text x="160" y="232" font-size="8" fill="#5C6772">1 of 3 leaves this frame.</text>
+
+<line x1="144" y1="242" x2="250" y2="242" stroke="#14171A" stroke-width="2"/>
+<path d="M250 237 L262 242 L250 247 Z" fill="#14171A"/>
+<text x="290" y="234" font-size="8.5" fill="#14171A">→ MDTN-R04 · U18</text>
+<text x="290" y="246" font-size="8.5" fill="#5C6772">Midtown hut</text>
+<text x="290" y="258" font-size="8.5" fill="#5C6772">cable C-1187 · twinax</text>
+<rect x="290" y="264" width="72" height="14" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"/>
+<text x="295" y="274" font-size="8.5" fill="#14171A">jump   enter</text>
+<text x="160" y="286" font-size="8" fill="#5C6772">Jumping does not move the rail.</text>
+
+<path d="M209 296 L221 296 L215 288 Z" fill="#14171A"/>
+
+<rect x="432" y="30" width="180" height="266" fill="#F2F4F6" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="440" y="44" font-size="10" fill="#14171A">IN THE SEAT</text>
+<line x1="432" y1="50" x2="612" y2="50" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="440" y="63" font-size="9" fill="#5C6772">hop 4 of 11 · inside</text>
+<text x="440" y="75" font-size="9.5" fill="#14171A">RVSD-EDGE-01</text>
+<text x="440" y="87" font-size="9" fill="#14171A">ge-0/0/1.10 → reth0.10</text>
+<text x="440" y="101" font-size="9" fill="#5C6772">zone TRUST → zone WAN</text>
+<text x="440" y="113" font-size="9" fill="#5C6772">policyset zone-pair ·</text>
+<text x="440" y="125" font-size="9" fill="#5C6772">first_match · 27 of 412</text>
+<line x1="440" y1="131" x2="604" y2="131" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="440" y="145" font-size="9" fill="#14171A">10 permit dc-web</text>
+<text x="604" y="145" font-size="9" fill="#14171A" text-anchor="end">covers</text>
+<text x="440" y="158" font-size="9" fill="#14171A">30 permit any-log</text>
+<text x="604" y="158" font-size="9" fill="#14171A" text-anchor="end">unknown</text>
+<text x="440" y="171" font-size="9" fill="#14171A">20 deny  rfc1918-out</text>
+<text x="604" y="171" font-size="9" fill="#5C6772" text-anchor="end">excludes</text>
+<rect x="440" y="177" width="164" height="14" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="444" y="187" font-size="8.5" fill="#5C6772">+ 24 more in this pair   enter</text>
+<line x1="440" y1="198" x2="604" y2="198" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="440" y="211" font-size="9" fill="#5C6772">routing-instance default</text>
+<text x="440" y="223" font-size="9" fill="#14171A">3 of 812 routes bear on</text>
+<text x="440" y="235" font-size="9" fill="#14171A">10.60.1.0/24</text>
+<line x1="440" y1="242" x2="604" y2="242" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="440" y="256" font-size="8.5" fill="#5C6772">Fathom does not evaluate</text>
+<text x="440" y="267" font-size="8.5" fill="#5C6772">policy. This is what the</text>
+<text x="440" y="278" font-size="8.5" fill="#5C6772">graph puts in play, in the</text>
+<text x="440" y="289" font-size="8.5" fill="#5C6772">order the device reads it.</text>
+
+<line x1="8" y1="304" x2="612" y2="304" stroke="#14171A" stroke-width="1.5"/>
+<text x="8" y="318" font-size="10" fill="#14171A">TRACE</text>
+<text x="52" y="318" font-size="9" fill="#5C6772">svc CID-8841 · 11 hops · 3 places</text>
+<text x="612" y="318" font-size="9" fill="#5C6772" text-anchor="end">flow 10.20.4.7 → 10.60.1.9 tcp/443 · typed, never stored</text>
+
+<rect x="8" y="324" width="310" height="16" fill="#F2F4F6" stroke="#14171A" stroke-width="2"/>
+<text x="13" y="335" font-size="9" fill="#14171A">Riverside CO · 5 hops</text>
+<rect x="330" y="324" width="138" height="16" fill="#F2F4F6" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="335" y="335" font-size="9" fill="#14171A">Midtown hut · 4</text>
+<rect x="480" y="324" width="128" height="16" fill="#F2F4F6" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="485" y="335" font-size="9" fill="#14171A">Eastside CO · 2</text>
+
+<line x1="322" y1="320" x2="322" y2="394" stroke="#14171A" stroke-width="1.5"/>
+<line x1="326" y1="320" x2="326" y2="394" stroke="#14171A" stroke-width="1.5"/>
+<line x1="472" y1="320" x2="472" y2="394" stroke="#14171A" stroke-width="1.5"/>
+<line x1="476" y1="320" x2="476" y2="394" stroke="#14171A" stroke-width="1.5"/>
+
+<rect x="8" y="346" width="60" height="48" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="8" y="346" width="3" height="48" fill="#14171A"/>
+<text x="15" y="360" font-size="9" fill="#14171A">1 SW-02</text>
+<text x="15" y="373" font-size="8.5" fill="#5C6772">ge-0/0/5</text>
+<text x="15" y="386" font-size="8.5" fill="#5C6772">port</text>
+
+<rect x="72" y="346" width="34" height="48" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="78" y="366" font-size="9" fill="#14171A">+1</text>
+<text x="78" y="379" font-size="8.5" fill="#5C6772">hop</text>
+
+<rect x="110" y="346" width="62" height="48" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="110" y="346" width="3" height="48" fill="#14171A"/>
+<text x="117" y="360" font-size="9" fill="#14171A">3 EDGE01</text>
+<text x="117" y="373" font-size="8.5" fill="#5C6772">ge-0/0/1</text>
+<text x="117" y="386" font-size="8.5" fill="#5C6772">port</text>
+
+<rect x="176" y="346" width="78" height="48" fill="#F2F4F6" stroke="#14171A" stroke-width="2"/>
+<rect x="176" y="346" width="3" height="48" fill="#14171A"/>
+<path d="M209 346 L221 346 L215 354 Z" fill="#14171A"/>
+<text x="183" y="360" font-size="9" fill="#14171A">4 EDGE01</text>
+<text x="183" y="373" font-size="8.5" fill="#14171A">→ reth0.10</text>
+<text x="183" y="386" font-size="8.5" fill="#14171A">inside · 27</text>
+
+<rect x="258" y="346" width="60" height="48" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="258" y="346" width="3" height="48" fill="#14171A"/>
+<text x="265" y="360" font-size="9" fill="#14171A">5 ODF-A</text>
+<text x="265" y="373" font-size="8.5" fill="#5C6772">through</text>
+<text x="265" y="386" font-size="8.5" fill="#5C6772">panel</text>
+
+<rect x="330" y="346" width="84" height="48" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="330" y="346" width="3" height="48" fill="#14171A"/>
+<text x="337" y="360" font-size="9" fill="#14171A">6 L2 P2P</text>
+<text x="337" y="373" font-size="8.5" fill="#5C6772">warp · evpn</text>
+<text x="337" y="386" font-size="7.5" fill="#5C6772">3 hops inferred</text>
+
+<rect x="418" y="346" width="50" height="48" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="418" y="348" width="3" height="18" fill="#14171A"/>
+<rect x="418" y="374" width="3" height="18" fill="#14171A"/>
+<text x="425" y="360" font-size="9" fill="#14171A">7–9</text>
+<text x="425" y="373" font-size="8" fill="#5C6772">3 panels</text>
+<text x="425" y="386" font-size="8" fill="#5C6772">through</text>
+
+<rect x="480" y="346" width="60" height="48" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="480" y="346" width="3" height="48" fill="#14171A"/>
+<text x="487" y="360" font-size="9" fill="#14171A">10 AGG02</text>
+<text x="487" y="373" font-size="8.5" fill="#5C6772">xe-1/0/3</text>
+<text x="487" y="386" font-size="8.5" fill="#5C6772">port</text>
+
+<rect x="544" y="346" width="64" height="48" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="544" y="346" width="3" height="48" fill="#14171A"/>
+<rect x="605" y="346" width="3" height="48" fill="#14171A"/>
+<text x="551" y="360" font-size="8.5" fill="#14171A">11 BRAMBLE</text>
+<text x="551" y="373" font-size="8.5" fill="#5C6772">customer</text>
+<text x="551" y="386" font-size="8.5" fill="#5C6772">boundary</text>
+
+<text x="8" y="405" font-size="8" fill="#5C6772">t starts a trace · Tab reaches the rail once · ← → walk it · enter holds a hop and flies the canvas to that hop’s rung</text>
+<text x="8" y="414" font-size="8" fill="#5C6772">esc comes back one rung · [[ and ]] jump seam to seam · a double rule in the rail is a location change</text>
+</svg></div>
+  <div class="grid">
+    <div><h4>Crossing to another rack</h4><p>The rail is the fixed thing and the canvas is what moves. That single inversion is the whole answer, and it is why a ribbon beats a breadcrumb here.</p></div>
+    <div><h4>Why it goes here</h4><p>Requirement 3 gets an answer that is a *narrowing*, not a verdict, and the design says so in the panel at all times rather than in a footnote.</p></div>
+    <div><h4>Hundreds of things</h4><p>Two different scale problems, and conflating them is how this gets hand-waved. Both get a named rule, a named ranking and a named default.</p></div>
+    <div><h4>The argument against</h4><p>**A flow is a tree and the rail is a thread. That is the real argument against this, and it is not small.**</p></div>
+  </div>
+  <details><summary>What the checker said</summary><p class="chk">VERDICT: VIABLE, and the strongest of the ideas on the table — but it must not be built as costed, because its cost section is wrong in a way that would burn the last of the byte budget and still leave requirement 1 half-dead.  WHAT IS RIGHT, AND SHOULD SURVIVE ANY REWRITE. The core inversion is genuinely good: the thread is fixed and the canvas is what moves. That is why crossing a rack boundary is free — the rail simply does not move — and it answers the owner&#x27;s literal ask (&quot;an icon that takes you to another rack and highlights which connection you were looking at&quot;) with the edge stub, which is drawable entirely from Cable.label, Cable.media, Terminates{end,lane}, HasPort, MountedIn{position_u,face} and HasRack. All declared today. The two-way stub — the arriving rack drawing the door you came through — is the kind of detail that makes a tool feel finished. The rung-selection table (&quot;the hop picks the zoom, not the person&quot;) finally gives the agreed depth axis a driver, which is the best argument anyone has made for the one-canvas rule. And THE SEAT&#x27;S FRAMING IS THE BEST JUDGEMENT IN THE SUBMISSION: a narrowing, never a verdict, with &quot;Fathom does not evaluate policy. This is what the graph puts in play, in the order the device reads it.&quot; standing permanently in the panel. That is 56 §0&#x27;s silent-wrongness principle and 70 §16&#x27;s &quot;incomplete is drawn and marked, never refused&quot; a…</p>
+  <h4>Scale verdict</h4><p class="chk">REQUIREMENT 4 SURVIVES AS A MECHANISM AND IS UNTESTABLE AS A CLAIM.  (A) Rail length — the strongest part of the submission. A named keep-set (hop 1, last, held, held&#x27;s neighbours, every boundary/fan-out/warp/refusal chip, first hop of every new Premises), a fold, then middle-out elision ordered by distance from the held hop with ties by ordinal ascending. Deterministic, no hash iteration, invariant 9 satisfied. &quot;+4 hops&quot; as a counted number and never an ellipsis is exactly 12 §8.4 rule 1&#x27;s discipline. One defect: the fold threshold of three is fabricated (59 §3 says six) and must move to six or be argued on its own merits.  (B) Seat size — right mechanism, wrong arithmetic, and the design&#x27;s own example is unbuildable. THE DEFAULT IS NAMED, which is what the brief demanded: with no tuple typed, the zone-pair shortlist in the device&#x27;s own evaluation order, first 8, plus a count. Correct, …</p></details>
+</section>
+
+<section class="dir" id="d1">
+  <div class="dir-h">
+    <div class="dir-n"><span class="num">2</span><div>
+      <h3>Thread and Gutter</h3><p class="sub">the path is drawn on the picture and leaves it</p></div></div>
+    <div class="chips"><span class="chip c-live">viable</span><span class="chip c-live">no engine needed</span></div>
+  </div>
+  <p class="lead">The flow you are following is one lit line drawn on whatever the canvas is currently showing; where it runs off the edge it stops in a labelled marker pinned to the canvas boundary that names where it goes and which two ports it crosses on, and pressing that marker flies the canvas there with the same line still lit and the same hop number still counting.</p>
+  <div class="canvas"><svg viewBox="0 0 620 420" width="620" height="420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Fathom at the rack rung. One lit thread enters rack R12 from a marker on the left, crosses three mounted devices in turn, and leaves through a marker on the right into rack R09; both markers carry the same crossing badge, 6 to 7, and name the two ports the crossing runs on. Off-thread equipment is drawn muted and unlabelled. A because column on the left names the interfaces and zones for hop 4 and draws the route and policy cards empty with the reason printed on them."><rect x="0" y="0" width="620" height="420" fill="#FFFFFF"/><text x="10" y="15" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10" fill="#5C6772">fathom · diagram · rung 2 rack · thread lit</text><text x="610" y="15" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10" fill="#14171A">hop 4 of 9 · thread only</text><rect x="8" y="24" width="604" height="330" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/><rect x="36" y="52" width="548" height="268" fill="none" stroke="#D2D7DD" stroke-width="1"/><text x="40" y="45" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#5C6772">gutter · 28 px rail, pinned to the canvas · never zooms, never pans · tabs dock against it</text><text x="207" y="70" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10" fill="#14171A">RACK R12 · 42U · premises Main House</text><rect x="200" y="76" width="7" height="240" fill="none" stroke="#5C6772" stroke-width="1.5"/><rect x="393" y="76" width="7" height="240" fill="none" stroke="#5C6772" stroke-width="1.5"/><line x1="200" y1="88" x2="207" y2="88" stroke="#D2D7DD" stroke-width="1"/><line x1="200" y1="112" x2="207" y2="112" stroke="#D2D7DD" stroke-width="1"/><line x1="200" y1="136" x2="207" y2="136" stroke="#D2D7DD" stroke-width="1"/><line x1="200" y1="160" x2="207" y2="160" stroke="#D2D7DD" stroke-width="1"/><line x1="200" y1="184" x2="207" y2="184" stroke="#D2D7DD" stroke-width="1"/><line x1="200" y1="208" x2="207" y2="208" stroke="#D2D7DD" stroke-width="1"/><line x1="200" y1="232" x2="207" y2="232" stroke="#D2D7DD" stroke-width="1"/><line x1="200" y1="256" x2="207" y2="256" stroke="#D2D7DD" stroke-width="1"/><line x1="200" y1="280" x2="207" y2="280" stroke="#D2D7DD" stroke-width="1"/><line x1="200" y1="304" x2="207" y2="304" stroke="#D2D7DD" stroke-width="1"/><rect x="207" y="80" width="186" height="22" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1"/><rect x="207" y="266" width="186" height="22" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1"/><polyline points="393,277 404,277 404,294 430,294" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><rect x="207" y="108" width="186" height="38" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"/><text x="213" y="122" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10" fill="#14171A">srx-branch-01</text><text x="387" y="122" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#5C6772">U14</text><text x="213" y="133" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">ge-0/0/3.0 → ge-0/0/7.0</text><text x="387" y="133" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">4 · declared</text><rect x="207" y="164" width="186" height="38" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"/><text x="213" y="178" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10" fill="#14171A">sw-core-01</text><text x="387" y="178" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#5C6772">U20</text><text x="213" y="189" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">xe-0/1/2 → xe-0/1/9</text><text x="387" y="189" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">5 · cabled</text><rect x="207" y="220" width="186" height="38" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"/><text x="213" y="234" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10" fill="#14171A">pp-r12-01 · panel</text><text x="387" y="234" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#5C6772">U26</text><text x="213" y="245" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">p07 → p14 · PassThrough</text><text x="387" y="245" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">6 · by hand</text><polyline points="190,141 393,141 414,141 414,197 393,197 207,197 196,197 196,253 207,253 393,253 414,253 414,240 430,240" fill="none" stroke="#14171A" stroke-width="3"/><rect x="204" y="138" width="6" height="6" fill="#14171A"/><rect x="390" y="138" width="6" height="6" fill="#14171A"/><rect x="204" y="194" width="6" height="6" fill="#14171A"/><rect x="390" y="194" width="6" height="6" fill="#14171A"/><rect x="204" y="250" width="6" height="6" fill="#14171A"/><rect x="390" y="250" width="6" height="6" fill="#14171A"/><rect x="36" y="119" width="154" height="44" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"/><polygon points="36,133 36,149 22,141" fill="#14171A"/><rect x="40" y="123" width="32" height="14" fill="#14171A"/><text x="43" y="134" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#FFFFFF">3→4</text><text x="78" y="134" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10" fill="#14171A">← PREMISES Shed</text><text x="40" y="147" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">sw-edge-02 xe-1/0/1 → ge-0/0/3</text><text x="40" y="158" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">cabled · you came in here</text><rect x="430" y="218" width="154" height="44" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"/><polygon points="584,226 584,242 598,234" fill="#14171A"/><rect x="434" y="222" width="32" height="14" fill="#14171A"/><text x="437" y="233" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#FFFFFF">6→7</text><text x="472" y="233" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10" fill="#14171A">→ RACK R09 · U08</text><text x="434" y="246" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">pp-r12-01 p14 → pp-r09-01 p03</text><text x="434" y="257" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">declared · same badge both ends</text><rect x="430" y="272" width="154" height="44" fill="#F2F4F6" stroke="#5C6772" stroke-width="1.5"/><rect x="588" y="278" width="4" height="16" fill="#5C6772"/><rect x="434" y="276" width="26" height="14" fill="#5C6772"/><text x="437" y="287" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#FFFFFF">×5</text><text x="466" y="287" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#14171A">5 more flows leave here</text><text x="434" y="300" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">flat bar · it does not travel</text><text x="434" y="311" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">enter opens the list · no guess</text><rect x="36" y="176" width="154" height="140" fill="#F2F4F6" stroke="#D2D7DD" stroke-width="1.5"/><text x="42" y="191" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#5C6772">why · hop 4 · srx-branch-01</text><line x1="36" y1="197" x2="190" y2="197" stroke="#D2D7DD" stroke-width="1"/><text x="42" y="211" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#14171A">in   ge-0/0/3.0 · TRUST</text><text x="42" y="222" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">     ZoneMember · paste 08-16</text><text x="42" y="239" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#14171A">out  ge-0/0/7.0 · DMZ</text><text x="42" y="250" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">     ZoneMember · paste 08-16</text><rect x="42" y="258" width="142" height="26" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1"/><text x="48" y="268" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#5C6772">route — not recorded</text><text x="48" y="279" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">routing-options binds 0 of 3</text><rect x="42" y="288" width="142" height="26" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1"/><text x="48" y="298" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#5C6772">policy — not recorded</text><text x="48" y="309" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#5C6772">policies bind 0 of 21 lines</text><line x1="8" y1="358" x2="612" y2="358" stroke="#D2D7DD" stroke-width="1"/><text x="10" y="374" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#14171A">showing 9 of 412 · 403 off this thread, muted and unlabelled · 2 groups opened</text><text x="10" y="391" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#5C6772">hops · declared 6 · cabled 2 · by hand 1 — nothing computed: there is no rules engine</text><text x="10" y="406" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#5C6772">t thread   [ ] step, and a step across a boundary travels   m crossing rows in the Outline   esc drop</text></svg></div>
+  <div class="grid">
+    <div><h4>Crossing to another rack</h4><p>Two paths, and the keyboard one is primary.</p></div>
+    <div><h4>Why it goes here</h4><p>At the chassis rung the chart draws the faceplate and the thread is a short line across it, from the port it entered to the port it left. Beside it, docked in the canvas&#x27;s left gutter, is the **because column**: a stack of blocky hairline cards, one fact per card, produced by a fixed four-step walk over declared edges only — no evaluation anywhere.</p></div>
+    <div><h4>Hundreds of things</h4><p>Four named mechanisms, all deterministic, all page-side.</p></div>
+    <div><h4>The argument against</h4><p>**The thread has almost nothing to follow, and that is the strongest argument against building it next.**</p></div>
+  </div>
+  <details><summary>What the checker said</summary><p class="chk">VERDICT: viable — the right shape, second in line, and it needs three corrections before anyone builds it. What it gets right, and nothing else in this exploration does: the CROSSING is treated as a first-class object with two ends, a name and a hop ordinal, and that is a real answer to requirement 2. Requirement 1 falls out for free because the hop list is rung-agnostic — &quot;different location&quot; is a rendering case, not a traversal case, which is the correct insight. Zero schema changes for everything it draws, verified kind by kind against schema/schema.yaml on 2026-08-17. The one schema change it proposes (AppliesFrom/AppliesTo: PolicySet → Zone) is proposed in the open, correctly priced as a 62 §16.2 minor, and every piece of evidence behind it checks out — value.rs:189 really is an empty PolicyScope, and I re-ran the coverage measurement: security policies bind 0 of 21, total 58/122 = 47.5%. The provenance discipline (three words, none of them &quot;computed&quot;) is the most honest thing in the submission. THREE THINGS THAT MUST CHANGE. (1) The keyboard breaks a decision: `m` and `Enter` put focus on gutter markers inside the aria-hidden &lt;svg&gt;, which 55 §4.5.2 forbids and 55 §13 lists as failure mode 3 by name. Make the Outline&#x27;s crossing rows the focusable face; the markers stay pointer-only. Free. (2) The cost argument&#x27;s load-bearing claim is false. The page does not hold &quot;the whol…</p>
+  <h4>Scale verdict</h4><p class="chk">NO — requirement 4 does not survive, and it fails for a reason the design never mentions. Three findings, in order of weight. (1) THE DEFAULT PICTURE IS AGGREGATED AND THE THREAD LIVES AT EXACTLY THE GRANULARITY AGGREGATION REMOVES. fathom-wasm/src/shell.rs:1155 states that no view-preference bytes past the layer mask means the FOLDED picture, and fathom-layout/src/agg.rs THRESHOLD = 6: more than six like-kind siblings collapse into one box. A patch panel&#x27;s 24 ports, a device&#x27;s 40 units, a zone&#x27;s members — all collapsed by default. A collapsed box carries a GROUP KEY, not member ids (agg.rs: &quot;count == 1 is what makes Node::id postable&quot;), and worse, fathom-layout/src/route.rs:290 drops every edge INTERIOR to a collapsed box entirely — it increments a hidden counter and `continue`s. So on a real estate the thread&#x27;s hops frequently have no box to light and their edges are not on the wire at…</p></details>
+</section>
+
+<section class="dir" id="d2">
+  <div class="dir-h">
+    <div class="dir-n"><span class="num">3</span><div>
+      <h3>The Open Spine</h3><p class="sub">the path stays open, everything else folds</p></div></div>
+    <div class="chips"><span class="chip c-live">viable</span><span class="chip c-live">no engine needed</span></div>
+  </div>
+  <p class="lead">Pick a path and the estate folds around it — the two racks it crosses stand open, everything else closes to a box, and zoom decides how far along the thread you spend detail rather than which screen you are on.</p>
+  <div class="canvas"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 420" width="620" height="420" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"><rect x="0" y="0" width="620" height="420" fill="#FFFFFF"/><text x="10" y="15" font-size="10" fill="#14171A">THREAD  svc:web-01 / path 1 · working</text><text x="610" y="15" font-size="8" fill="#5C6772" text-anchor="end">focus seg 3 of 6 · depth 3 · reach 0 · 1 faceplate · 2 racks open</text><line x1="10" y1="24" x2="610" y2="24" stroke="#D2D7DD" stroke-width="1.5"/><rect x="10" y="34" width="226" height="212" fill="none" stroke="#5C6772" stroke-width="1.5"/><rect x="10" y="34" width="226" height="18" fill="#F2F4F6"/><text x="16" y="47" font-size="9" fill="#14171A">PREMISES  HQ · 412 Oak St</text><rect x="20" y="60" width="144" height="178" fill="none" stroke="#14171A" stroke-width="1.5"/><rect x="20" y="60" width="144" height="16" fill="#F2F4F6"/><text x="25" y="72" font-size="8" fill="#14171A">R12 · 24U · U16–U22 shown</text><rect x="38" y="82" width="120" height="38" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"/><text x="43" y="94" font-size="9" fill="#14171A">pp-a · patch · U22</text><text x="43" y="105" font-size="7" fill="#5C6772">A-14 → A-14r</text><text x="153" y="105" font-size="7" fill="#5C6772" text-anchor="end">PassThrough</text><rect x="40" y="110" width="8" height="8" fill="#14171A"/><rect x="148" y="110" width="8" height="8" fill="#14171A"/><rect x="38" y="128" width="120" height="50" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"/><text x="43" y="140" font-size="9" fill="#14171A">srx345-hq · U20</text><text x="153" y="140" font-size="7" fill="#5C6772" text-anchor="end">focus</text><text x="43" y="151" font-size="7" fill="#5C6772">ge-0/0/4 → ge-0/0/7</text><text x="153" y="151" font-size="7" fill="#5C6772" text-anchor="end">+46</text><rect x="43" y="158" width="10" height="10" fill="#14171A" stroke="#14171A" stroke-width="1"/><rect x="56" y="158" width="10" height="10" fill="#FFFFFF" stroke="#5C6772" stroke-width="1"/><rect x="69" y="158" width="10" height="10" fill="#FFFFFF" stroke="#5C6772" stroke-width="1"/><rect x="82" y="158" width="10" height="10" fill="#FFFFFF" stroke="#5C6772" stroke-width="1"/><rect x="95" y="158" width="10" height="10" fill="#FFFFFF" stroke="#5C6772" stroke-width="1"/><rect x="108" y="158" width="10" height="10" fill="#14171A" stroke="#14171A" stroke-width="1"/><rect x="38" y="186" width="108" height="18" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><text x="43" y="198" font-size="7" fill="#5C6772">sw-hq-01 · U16</text><rect x="38" y="210" width="108" height="18" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><text x="43" y="222" font-size="7" fill="#5C6772">+ 9 more mounted</text><rect x="172" y="60" width="56" height="42" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><text x="177" y="74" font-size="8" fill="#5C6772">R13</text><text x="177" y="88" font-size="7" fill="#5C6772">12U · 4 in</text><rect x="172" y="108" width="56" height="42" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><text x="177" y="122" font-size="8" fill="#5C6772">R14</text><text x="177" y="136" font-size="7" fill="#5C6772">42U · 18 in</text><text x="177" y="164" font-size="7" fill="#5C6772">closed ·</text><text x="177" y="175" font-size="7" fill="#5C6772">off thread</text><text x="177" y="222" font-size="7" fill="#5C6772">2 racks here</text><rect x="296" y="34" width="216" height="212" fill="none" stroke="#5C6772" stroke-width="1.5"/><rect x="296" y="34" width="216" height="18" fill="#F2F4F6"/><text x="302" y="47" font-size="9" fill="#14171A">PREMISES  DC-EAST · Colo 7</text><rect x="304" y="60" width="140" height="178" fill="none" stroke="#14171A" stroke-width="1.5"/><rect x="304" y="60" width="140" height="16" fill="#F2F4F6"/><text x="309" y="72" font-size="8" fill="#14171A">R04 · 42U · U26–U32 shown</text><rect x="322" y="82" width="116" height="46" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"/><text x="327" y="94" font-size="9" fill="#14171A">mx204-dc · U31</text><text x="433" y="94" font-size="7" fill="#5C6772" text-anchor="end">reach 1</text><text x="327" y="105" font-size="7" fill="#5C6772">xe-1/0/2.0 → ae0.90</text><text x="327" y="125" font-size="7" fill="#5C6772">+62 ports · closed</text><rect x="322" y="138" width="116" height="30" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><text x="327" y="150" font-size="8" fill="#5C6772">pve01 · U28 · server</text><text x="327" y="161" font-size="7" fill="#5C6772">off thread</text><rect x="322" y="176" width="104" height="18" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><text x="327" y="188" font-size="7" fill="#5C6772">sw-dc-02 · U26</text><rect x="322" y="200" width="104" height="18" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><text x="327" y="212" font-size="7" fill="#5C6772">+ 16 more mounted</text><rect x="452" y="60" width="56" height="42" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><text x="457" y="74" font-size="8" fill="#5C6772">R05</text><text x="457" y="88" font-size="7" fill="#5C6772">42U · 31 in</text><rect x="452" y="108" width="56" height="42" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><text x="457" y="122" font-size="8" fill="#5C6772">R06</text><text x="457" y="136" font-size="7" fill="#5C6772">42U · 28 in</text><rect x="522" y="34" width="86" height="212" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><rect x="522" y="34" width="86" height="18" fill="#F2F4F6"/><text x="527" y="47" font-size="7" fill="#5C6772">OFF THREAD</text><text x="527" y="66" font-size="8" fill="#14171A">6 premises</text><text x="527" y="82" font-size="7" fill="#5C6772">BR-NORTH  2</text><text x="527" y="94" font-size="7" fill="#5C6772">BR-WEST   1</text><text x="527" y="106" font-size="7" fill="#5C6772">LAB-3     4</text><text x="527" y="118" font-size="7" fill="#5C6772">CO-7      1</text><text x="527" y="130" font-size="7" fill="#5C6772">+ 2 more</text><line x1="527" y1="140" x2="603" y2="140" stroke="#D2D7DD" stroke-width="1"/><text x="527" y="154" font-size="7" fill="#5C6772">g  caret here</text><text x="527" y="165" font-size="7" fill="#5C6772">Enter opens</text><text x="527" y="176" font-size="7" fill="#5C6772">one onto the</text><text x="527" y="187" font-size="7" fill="#5C6772">canvas.</text><text x="527" y="205" font-size="7" fill="#5C6772">the thread</text><text x="527" y="216" font-size="7" fill="#5C6772">never moves</text><text x="527" y="227" font-size="7" fill="#5C6772">and nothing</text><text x="527" y="238" font-size="7" fill="#5C6772">navigates.</text><polyline points="10,114 20,114" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="28,114 40,114" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="48,114 94,114" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="104,114 148,114" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="156,114 162,114 162,124 32,124 32,163 43,163" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="48,168 48,173 76,173" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="86,173 113,173 113,168" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="118,163 158,163 162,163 162,200 236,200 240,200" fill="none" stroke="#14171A" stroke-width="2.5"/><polygon points="240,200 250,190 282,190 292,200 282,210 250,210" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/><text x="266" y="185" font-size="7" fill="#14171A" text-anchor="middle">seg 4 · warp</text><text x="266" y="198" font-size="8" fill="#14171A" text-anchor="middle">4</text><text x="266" y="207" font-size="7" fill="#5C6772" text-anchor="middle">evpn</text><text x="266" y="222" font-size="7" fill="#5C6772" text-anchor="middle">interior not</text><text x="266" y="232" font-size="7" fill="#5C6772" text-anchor="middle">modelled</text><polyline points="292,200 296,200 313,200 313,115 322,115" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="322,115 375,115" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="385,115 438,115" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="438,115 444,115 448,115 448,190 458,190" fill="none" stroke="#14171A" stroke-width="2.5"/><polyline points="468,190 480,190" fill="none" stroke="#14171A" stroke-width="2.5"/><line x1="480" y1="182" x2="480" y2="198" stroke="#14171A" stroke-width="2.5"/><text x="480" y="214" font-size="7" fill="#14171A" text-anchor="middle">boundary</text><text x="480" y="225" font-size="7" fill="#5C6772" text-anchor="middle">third_party</text><text x="480" y="235" font-size="7" fill="#5C6772" text-anchor="middle">carrier</text><text x="24" y="117" font-size="8" fill="#14171A" text-anchor="middle">1</text><text x="99" y="117" font-size="8" fill="#14171A" text-anchor="middle">2</text><text x="81" y="176" font-size="8" fill="#14171A" text-anchor="middle">3</text><text x="380" y="118" font-size="8" fill="#14171A" text-anchor="middle">5</text><text x="463" y="193" font-size="8" fill="#14171A" text-anchor="middle">6</text><rect x="10" y="254" width="502" height="146" fill="none" stroke="#5C6772" stroke-width="1.5"/><rect x="10" y="254" width="502" height="18" fill="#F2F4F6"/><text x="16" y="267" font-size="9" fill="#14171A">WHY  seg 3 · srx345-hq · trust → wan · first_match</text><text x="16" y="288" font-size="7" fill="#5C6772">ord  policy         action  source        destination   application</text><line x1="16" y1="293" x2="500" y2="293" stroke="#D2D7DD" stroke-width="1"/><text x="16" y="307" font-size="8" fill="#14171A">004  allow-mgmt     permit  net-mgmt      any           junos-ssh</text><text x="16" y="322" font-size="8" fill="#14171A">010  allow-web      permit  vlan20-users  web-farm      junos-http</text><text x="16" y="337" font-size="8" fill="#14171A">022  deny-lab       deny    lab-net       any           any</text><text x="16" y="356" font-size="7" fill="#5C6772">+ 214 more in this set · 220 on this device, 6 zones → 1 pair kept</text><text x="16" y="369" font-size="7" fill="#5C6772">ranked by SecurityPolicy.ordinal — first_match makes ordinal the evaluation order</text><text x="16" y="382" font-size="7" fill="#5C6772">these GOVERN the hop. no rules engine, so none of them claims to be the one that MATCHED.</text><text x="16" y="394" font-size="7" fill="#5C6772">and nothing parses them yet: PolicyScope is an empty struct, so this table is hand-built (66 §5.2).</text><rect x="522" y="254" width="86" height="146" fill="none" stroke="#D2D7DD" stroke-width="1.5"/><rect x="522" y="254" width="86" height="18" fill="#F2F4F6"/><text x="527" y="267" font-size="7" fill="#5C6772">ROUTES</text><text x="527" y="284" font-size="7" fill="#14171A">next_hop =</text><text x="527" y="295" font-size="7" fill="#14171A">ge-0/0/7.0</text><text x="527" y="313" font-size="7" fill="#5C6772">0.0.0.0/0</text><text x="527" y="324" font-size="7" fill="#5C6772">10.90.0.0/16</text><text x="527" y="342" font-size="7" fill="#5C6772">2 of 341 kept</text><text x="527" y="360" font-size="7" fill="#5C6772">filter is a</text><text x="527" y="371" font-size="7" fill="#5C6772">reference,</text><text x="527" y="382" font-size="7" fill="#5C6772">not math</text><text x="527" y="394" font-size="7" fill="#5C6772">0 parsed today</text><text x="10" y="412" font-size="7" fill="#5C6772">1 uni→pp-a A-14 · 2 pp-a A-14→A-14r PassThrough · 3 srx ge-0/0/4→ge-0/0/7 (focus) · 4 warp evpn · 5 mx204 xe-1/0/2→ae0.90 · 6 boundary</text></svg></div>
+  <div class="grid">
+    <div><h4>Crossing to another rack</h4><p>There is no crossing, because there is no jumping. Both racks are on the same canvas at the same time. The thread leaves rack R12&#x27;s open elevation through the frame edge and enters rack R04&#x27;s open elevation, and it is the same unbroken stroke — the thing requirement 2 asks you not to lose is never let go of.</p></div>
+    <div><h4>Why it goes here</h4><p>A gutter under the canvas, opened with `w`, keyed to the focus segment&#x27;s device. It is built entirely by graph walking, and it is careful about which question it is answering.</p></div>
+    <div><h4>Hundreds of things</h4><p>Four reductions, each with a named filter, a named ranking and a stated default. The worked numbers are for an SRX with 6 zones, 220 policies and 341 static routes — a shape the owner&#x27;s work estate plausibly has.</p></div>
+    <div><h4>The argument against</h4><p>The strongest argument against is aspect ratio, and it is not fixable by cleverness. An open 42U elevation is one box wide and forty units tall. Two of them side by side with a faceplate between makes a canvas roughly 900 units wide and 3,000 tall — a shape no screen has. The gradient caps the COUNT of open things at three, which is what makes the direction survivable, but it cannot cap their HEIGHT. In practice the user scrolls vertically to follow a thread that reads horizontally, which is the worst of both axes, and an owner documenting a home lab with two 24U racks will hit it on his first real path. The mitigations are honest but partial: draw only the occupied U-range plus two units of context and print `U1–U13 elided`, and auto-fit the viewport to the thread&#x27;s bounding box rather than the estate&#x27;s. Neither makes a 42U rack short.</p></div>
+  </div>
+  <details><summary>What the checker said</summary><p class="chk">VERDICT: viable. Build the spine and the gradient; do not build them first, and do not believe the cost sheet.  WHAT IS GOOD, and it is not a small amount. This is the most disciplined of the shapes I have checked. It names no kind, edge, field or enum variant that is not in schema/schema.yaml — I checked all of them, including the awkward ones (segment_kind&#x27;s three variants, boundary_reason&#x27;s four, warp_technology&#x27;s five, MountedIn.position_u, Cabled.via_passive, PolicySet.evaluation), and found zero inventions. It gets the central cost fork right, explicitly, in its own words: the thread is DECLARED, not computed, and nothing in it needs a rules engine. Its answer to requirement 4 — &quot;the parse is distance along the thread; you never choose what to hide, you choose where you are standing&quot; — is a real mechanism with a derived reach that caps drawn objects at one faceplate and three elevations independent of estate size, and every reduction states a filter, a ranking and a default and prints its own count. Its refusal to say &quot;this is why&quot; when it can only say &quot;these govern&quot; is the correct call and I would defend it against the owner if he pushed. Its `Shift`+`.`/`Shift`+`,` jump-to-the-next-place-knowledge-stops is the best single idea in the submission. And its accessible-tree section is written by someone who has read what the browser drivers actually assert.  WHY IT IS NOT &quot;S…</p>
+  <h4>Scale verdict</h4><p class="chk">Requirement 4 SURVIVES AS A MECHANISM AND FAILS AS A DELIVERABLE, and the two halves need separating.  THE MECHANISM IS THE BEST PART OF THE SUBMISSION. &quot;The parse is distance along the thread&quot; is a genuine answer, not a hand-wave: reach R derived from depth D (D=1→R=3, D=2→R=1, D=3→R=0), detail falling one rung per segment of distance with a floor of 1, so at most one faceplate and at most three elevations exist at any moment regardless of estate size. That is a hard cap on drawn objects that does not depend on the estate, which is what makes the layout tractable, and it is derived rather than being a second slider the user has to understand. Every reduction names a filter, a ranking and a default, and every one prints its own count — which satisfies 59 §3.6, verified: §3.6 is real and says a bare &quot;+#&quot; is the failure mode, not the fix. I would keep this mechanism even if the rest of the…</p></details>
+</section>
+
+<section class="dir" id="d3">
+  <div class="dir-h">
+    <div class="dir-n"><span class="num">4</span><div>
+      <h3>The Run Sheet</h3><p class="sub">the trace is a document the canvas illustrates</p></div></div>
+    <div class="chips"><span class="chip c-live">viable</span><span class="chip c-part">partly needs an engine</span></div>
+  </div>
+  <p class="lead">A trace is a numbered list of hops you can read, filter and paste into a ticket; the canvas is the illustration of whichever hop your cursor is standing on.</p>
+  <div class="canvas"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 420" width="620" height="420" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+<rect x="0" y="0" width="620" height="420" fill="#FFFFFF"/>
+
+<rect x="0" y="0" width="620" height="26" fill="#F2F4F6"/>
+<line x1="0" y1="26" x2="620" y2="26" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="8" y="17" font-size="10" font-weight="700" fill="#14171A">RUN SHEET</text>
+<text x="76" y="17" font-size="9" fill="#5C6772">svc BRAMBLE-DIA-4417 · path 1 · working</text>
+<text x="612" y="17" font-size="9" fill="#5C6772" text-anchor="end">22 hops · 3 premises</text>
+
+<line x1="372" y1="26" x2="372" y2="394" stroke="#D2D7DD" stroke-width="1.5"/>
+<line x1="0" y1="394" x2="620" y2="394" stroke="#D2D7DD" stroke-width="1.5"/>
+
+<text x="8" y="39" font-size="9" fill="#5C6772" letter-spacing="1">THE TRACE - READ DOWN</text>
+
+<text x="10" y="51" font-size="9" fill="#5C6772">...  hops 01-03 above · scrolled, not hidden</text>
+
+<text x="10" y="68" font-size="10" font-weight="700" fill="#14171A">04</text>
+<text x="30" y="68" font-size="10" fill="#14171A">srx-branch-01</text>
+<text x="126" y="68" font-size="10" fill="#5C6772">ge-0/0/1.0 → st0.0</text>
+<text x="34" y="81" font-size="9" fill="#5C6772">because  zone trust → zone vpn  (ZoneMember)</text>
+
+<line x1="8" y1="94" x2="26" y2="94" stroke="#14171A" stroke-width="1.5"/>
+<text x="32" y="97" font-size="9" font-weight="700" fill="#14171A">RVSDTX01 · Riverside CO · rack R12</text>
+<line x1="230" y1="94" x2="288" y2="94" stroke="#14171A" stroke-width="1.5"/>
+<text x="294" y="97" font-size="9" fill="#5C6772">ENTER · jump</text>
+
+<text x="10" y="114" font-size="10" font-weight="700" fill="#14171A">05</text>
+<text x="30" y="114" font-size="10" fill="#14171A">pp-rvsd-2</text>
+<text x="126" y="114" font-size="10" fill="#5C6772">port 14f → port 14r</text>
+<text x="262" y="114" font-size="9" fill="#5C6772">[PassThrough]</text>
+
+<text x="10" y="130" font-size="10" font-weight="700" fill="#14171A">06</text>
+<text x="30" y="130" font-size="10" fill="#14171A">cable A-14</text>
+<text x="126" y="130" font-size="10" fill="#5C6772">R12·U14 → R14·U03</text>
+<text x="262" y="130" font-size="9" fill="#5C6772">[smf·ours·Cabled]</text>
+
+<line x1="8" y1="143" x2="26" y2="143" stroke="#14171A" stroke-width="1.5"/>
+<text x="32" y="146" font-size="9" font-weight="700" fill="#14171A">EASTTX01 · Eastside CO · rack R14</text>
+<line x1="224" y1="143" x2="288" y2="143" stroke="#14171A" stroke-width="1.5"/>
+<text x="294" y="146" font-size="9" fill="#5C6772">ENTER · jump</text>
+
+<rect x="4" y="154" width="364" height="18" fill="#F2F4F6"/>
+<rect x="4" y="154" width="3" height="18" fill="#14171A"/>
+<text x="12" y="167" font-size="10" font-weight="700" fill="#14171A">07</text>
+<text x="32" y="167" font-size="10" font-weight="700" fill="#14171A">mx-core-01</text>
+<text x="126" y="167" font-size="10" font-weight="700" fill="#14171A">xe-0/1/0 → xe-0/1/3</text>
+<text x="292" y="167" font-size="9" fill="#5C6772">expanded</text>
+<text x="34" y="185" font-size="9" fill="#5C6772">because  static 10.30.5.0/24 → xe-0/1/3</text>
+<text x="34" y="197" font-size="9" fill="#5C6772">because  policy-set trust→vpn · 6 in scope of 214</text>
+<text x="34" y="209" font-size="9" fill="#5C6772">→        4 more citations, collapsed</text>
+
+<text x="10" y="227" font-size="10" font-weight="700" fill="#14171A">08</text>
+<text x="30" y="227" font-size="10" fill="#14171A">mx-core-01</text>
+<text x="126" y="227" font-size="10" fill="#5C6772">st0.1 · IpsecVpn TO-WACO</text>
+
+<text x="10" y="244" font-size="10" font-weight="700" fill="#5C6772">09</text>
+<text x="30" y="244" font-size="10" fill="#5C6772">warp · l2ptp</text>
+<text x="126" y="244" font-size="9" fill="#5C6772">4+ possible paths · not examined</text>
+
+<text x="10" y="262" font-size="9" fill="#5C6772">...  hops 10-21 folded by the filter · 12 hidden</text>
+
+<text x="10" y="280" font-size="10" font-weight="700" fill="#14171A">22</text>
+<text x="30" y="280" font-size="10" fill="#14171A">bramble-cpe-01</text>
+<text x="126" y="280" font-size="10" fill="#5C6772">ge-0/0/0.0</text>
+
+<line x1="8" y1="293" x2="364" y2="293" stroke="#14171A" stroke-width="1.5"/>
+<text x="10" y="306" font-size="9" font-weight="700" fill="#14171A">STOP · boundary · customer_premises</text>
+<text x="256" y="306" font-size="9" fill="#5C6772">path complete</text>
+
+<rect x="8" y="316" width="356" height="72" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="16" y="330" font-size="9" fill="#5C6772" letter-spacing="1">WHAT THIS SHEET DOES NOT CLAIM</text>
+<text x="16" y="345" font-size="9" fill="#14171A">Nothing is evaluated. 6 policies are IN SCOPE for</text>
+<text x="16" y="356" font-size="9" fill="#14171A">trust→vpn, in SecurityPolicy.ordinal order. Which</text>
+<text x="16" y="367" font-size="9" fill="#14171A">one MATCHED is not claimed, and not guessed.</text>
+<text x="16" y="381" font-size="9" fill="#5C6772">214 on the box · 6 in scope · 0 examined</text>
+
+<text x="382" y="39" font-size="9" fill="#5C6772" letter-spacing="1">CANVAS - RUNG 2 · RACK</text>
+<text x="382" y="54" font-size="10" font-weight="700" fill="#14171A">R14 · Eastside CO · 12U asc</text>
+
+<rect x="444" y="64" width="156" height="264" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+<line x1="444" y1="86" x2="600" y2="86" stroke="#D2D7DD" stroke-width="1"/>
+<line x1="444" y1="108" x2="600" y2="108" stroke="#D2D7DD" stroke-width="1"/>
+<line x1="444" y1="130" x2="600" y2="130" stroke="#D2D7DD" stroke-width="1"/>
+<line x1="444" y1="152" x2="600" y2="152" stroke="#D2D7DD" stroke-width="1"/>
+<line x1="444" y1="174" x2="600" y2="174" stroke="#D2D7DD" stroke-width="1"/>
+<line x1="444" y1="196" x2="600" y2="196" stroke="#D2D7DD" stroke-width="1"/>
+<line x1="444" y1="218" x2="600" y2="218" stroke="#D2D7DD" stroke-width="1"/>
+<line x1="444" y1="240" x2="600" y2="240" stroke="#D2D7DD" stroke-width="1"/>
+<line x1="444" y1="262" x2="600" y2="262" stroke="#D2D7DD" stroke-width="1"/>
+<line x1="444" y1="284" x2="600" y2="284" stroke="#D2D7DD" stroke-width="1"/>
+<line x1="444" y1="306" x2="600" y2="306" stroke="#D2D7DD" stroke-width="1"/>
+
+<text x="440" y="79" font-size="9" fill="#5C6772" text-anchor="end">12</text>
+<text x="440" y="101" font-size="9" fill="#5C6772" text-anchor="end">11</text>
+<text x="440" y="123" font-size="9" fill="#5C6772" text-anchor="end">10</text>
+<text x="440" y="145" font-size="9" fill="#5C6772" text-anchor="end">09</text>
+<text x="440" y="167" font-size="9" fill="#5C6772" text-anchor="end">08</text>
+<text x="440" y="189" font-size="9" fill="#5C6772" text-anchor="end">07</text>
+<text x="440" y="211" font-size="9" fill="#5C6772" text-anchor="end">06</text>
+<text x="440" y="233" font-size="9" fill="#5C6772" text-anchor="end">05</text>
+<text x="440" y="255" font-size="9" fill="#14171A" text-anchor="end">04</text>
+<text x="440" y="277" font-size="9" fill="#14171A" text-anchor="end">03</text>
+<text x="440" y="299" font-size="9" fill="#5C6772" text-anchor="end">02</text>
+<text x="440" y="321" font-size="9" fill="#5C6772" text-anchor="end">01</text>
+
+<rect x="446" y="88" width="152" height="20" fill="#F2F4F6" stroke="#D2D7DD" stroke-width="1"/>
+<text x="452" y="102" font-size="9" fill="#5C6772">pp-east-1       1U</text>
+
+<rect x="446" y="154" width="152" height="20" fill="#F2F4F6" stroke="#D2D7DD" stroke-width="1"/>
+<text x="452" y="168" font-size="9" fill="#5C6772">ex-agg-01       1U</text>
+
+<rect x="446" y="242" width="152" height="42" fill="#F2F4F6" stroke="#14171A" stroke-width="2"/>
+<rect x="446" y="242" width="3" height="42" fill="#14171A"/>
+<text x="454" y="257" font-size="10" font-weight="700" fill="#14171A">mx-core-01</text>
+<text x="454" y="270" font-size="9" fill="#5C6772">position_u 03 · 2U · router</text>
+<text x="454" y="281" font-size="9" fill="#14171A">xe-0/1/0 → xe-0/1/3</text>
+<rect x="572" y="248" width="10" height="10" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+<rect x="586" y="248" width="10" height="10" fill="#14171A"/>
+
+<path d="M 384 263 L 440 263" stroke="#14171A" stroke-width="1.5" fill="none"/>
+<path d="M 442 263 L 434 259 L 434 267 Z" fill="#14171A"/>
+<text x="382" y="252" font-size="9" fill="#5C6772">cable A-14</text>
+<text x="382" y="280" font-size="9" fill="#5C6772">from R12·U14</text>
+
+<rect x="382" y="330" width="4" height="11" fill="#14171A"/>
+<text x="392" y="339" font-size="9" font-weight="700" fill="#14171A">hop 07 - the reading position</text>
+<text x="382" y="352" font-size="9" fill="#5C6772">The list drives the picture. Down-arrow</text>
+<text x="382" y="363" font-size="9" fill="#5C6772">moves the hop and redraws this pane;</text>
+<text x="382" y="374" font-size="9" fill="#5C6772">ENTER on a stanza header re-rungs it and</text>
+<text x="382" y="385" font-size="9" fill="#5C6772">the cursor does not move.</text>
+
+<text x="8" y="411" font-size="9" font-weight="700" fill="#14171A">Ctrl+F 443</text>
+<text x="76" y="411" font-size="9" fill="#5C6772">10 of 22 hops · n/N walks matches</text>
+<text x="612" y="411" font-size="9" fill="#5C6772" text-anchor="end">depth Alt+\ · terse · [explained] · teaching</text>
+</svg></div>
+  <div class="grid">
+    <div><h4>Crossing to another rack</h4><p>A rack or premises change is a STANZA RULE drawn across the document — a hairline, the CLLI, the premises label, the rack label, and the word `jump`. It is inserted between hop N and hop N+1 whenever the premises of the hop&#x27;s chassis (via `HasChassis` → `MountedIn` → `Rack` → `HasRack` → `Premises`) differs from the previous hop&#x27;s. Computed once when the sheet is built, from asserted containment only, therefore deterministic.</p></div>
+    <div><h4>Why it goes here</h4><p>Requirement 3 is the because rows, and the design&#x27;s load-bearing refusal is that they CITE rather than DECIDE.</p></div>
+    <div><h4>Hundreds of things</h4><p>Five named mechanisms, and four of the five already exist in the product.</p></div>
+    <div><h4>The argument against</h4><p>HE ASKED FOR A CANVAS AND THIS ANSWERS WITH A LIST. Verbatim: &quot;the goal is I should be able to track a tcp all the way to a different location VIA THE CANVAS VIEWER.&quot; Direction 4 demotes the canvas to a passenger — it illustrates, it never leads — and that is not what the man said. Worse, it is plausibly the direction that gets built precisely BECAUSE it is cheapest, which means the cost argument could win a fight the product argument should lose. If it does, the owner receives a run sheet where he asked for a map, and a run sheet is uncomfortably close to what he can already assemble from `show route`, `show security flow session` and a spreadsheet. The reason to build this tool rather than keep the spreadsheet is that it DRAWS. A direction that makes drawing optional has quietly conceded the differentiator, and the four zoom rungs he has already seen and accepted end up with much less to do — the rack elevation he asked for by name becomes a thing you glance at rather than a place you work.</p></div>
+  </div>
+  <details><summary>What the checker said</summary><p class="chk">VERDICT: VIABLE. Build the sheet, but not as the answer — as the spine, with the canvas promoted from passenger to co-equal, and only after the blocker list is corrected.  WHAT IS GENUINELY GOOD, AND IT IS MORE THAN I EXPECTED. The schema claim holds: I checked every kind, edge, field and enum against schema/schema.yaml and the design needs NO change to schema/. That is rare and it is the strongest thing about this direction. The refusal of the rules engine is correct and well argued — citation-not-verdict is a sort over rows the graph already holds, and 47 §11&#x27;s refusal of the config view is the right precedent. And the structural argument for requirement 2 is the best answer any direction can give: a thread kept in a document cannot be lost by moving a picture, because the picture is not where the thread lives. Nothing has to be carried across the viewport change. That is not a mechanism, it is the absence of one, and absent mechanisms do not break.  THE THREE THINGS THAT KILL IT IF UNADDRESSED.  1. THE PREMISES STANZA CANNOT FIRE. NOTHING IN THE PRODUCT CREATES A Premises — no opcode, and OP_RACK_PLACE refuses to in its own doc comment (shell.rs:1236-1242). Premises exists only in the demo estate. So &quot;all the way to a different LOCATION&quot;, requirement 1&#x27;s second half and requirement 2&#x27;s whole point, has no data path. The design names OP_CABLE as the honest blocker and misses …</p>
+  <h4>Scale verdict</h4><p class="chk">SURVIVES FOR A DECLARED PATH. DOES NOT SURVIVE FOR THE WALK THE FREE SLICE ACTUALLY DOES. And requirement 4 does not bite yet for a reason worse than the design admits.  WHAT 40x THE REAL FIXTURE ACTUALLY SHOWS. The fixture is crates/fathom-ingest/tests/fixtures/junos-srx-branch-documented.txt, 123 lines, of which 21 are `security policies`. Scale it 40x — ~4,900 lines, ~840 policy lines — and run the design&#x27;s own six because-row classes against docs/60-content/66-junos-coverage-measurement.md §3&#x27;s measured table:    1 ZONE     security zones 18/18  -&gt; WORKS. `zone trust -&gt; zone vpn` is real today.   2 POLICY   security policies 0/21 -&gt; ZERO. Headline reads `0 in scope of 0`.   3 ROUTE    routing-options 0/3, ESCALATED (§5.4, blocked on &quot;what is the default              RoutingInstance called?&quot;) -&gt; ZERO. The design asserts this row works.              It does not. Only RoutingProtocol/Pr…</p></details>
+</section>
+
+<section class="dir" id="d4">
+  <div class="dir-h">
+    <div class="dir-n"><span class="num">5</span><div>
+      <h3>Facing Pages</h3><p class="sub">both ends on screen at once</p></div></div>
+    <div class="chips"><span class="chip c-part">check incomplete</span><span class="chip c-part">not checked</span></div>
+  </div>
+  <p class="lead">Two panes with the whole path running down the gutter between them: you always see two hops at full detail and every hop as a row on the spine, so crossing into another rack or another building isn&#x27;t a jump — the far side is already the pane on the right.</p>
+  <div class="canvas"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 420" width="620" height="420" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" shape-rendering="crispEdges">
+<rect x="0" y="0" width="620" height="420" fill="#FFFFFF"/>
+<text x="8" y="14" font-size="9" fill="#5C6772">FOLLOW &#8212; svc dia-hq-01 &#183; path 1 working &#183; tcp/443 &#8594; 10.20.8.0/24</text>
+<text x="612" y="14" font-size="9" fill="#5C6772" text-anchor="end">hop 4 of 9 &#183; 4 places</text>
+<line x1="0" y1="22" x2="620" y2="22" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="8" y="30" width="262" height="382" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="8" y="30" width="262" height="36" fill="#F2F4F6"/>
+<line x1="8" y1="66" x2="270" y2="66" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="16" y="44" font-size="8" fill="#5C6772">RUNG 3 &#183; CHASSIS</text>
+<text x="262" y="44" font-size="8" fill="#5C6772" text-anchor="end">HQ &#183; 412 OAK ST</text>
+<text x="16" y="59" font-size="11" fill="#14171A">srx-hq-1  node0</text>
+<text x="262" y="59" font-size="9" fill="#5C6772" text-anchor="end">R12 &#183; U14</text>
+<text x="16" y="84" font-size="7.5" fill="#5C6772">FROM HOP 3 &#8212; sw-core-2 xe-0/1/3</text>
+<line x1="8" y1="100" x2="42" y2="100" stroke="#14171A" stroke-width="2"/>
+<rect x="39" y="96" width="7" height="7" fill="#14171A"/>
+<text x="52" y="98" font-size="9" fill="#14171A">ge-0/0/0.0  10.10.4.2/24</text>
+<text x="52" y="110" font-size="7.5" fill="#5C6772">zone TRUST &#183; unit 0</text>
+<path d="M46 100 H112 V170 H222" fill="none" stroke="#14171A" stroke-width="2"/>
+<text x="262" y="150" font-size="9" fill="#14171A" text-anchor="end">ge-0/0/3.0  198.51.100.9/30</text>
+<text x="262" y="162" font-size="7.5" fill="#5C6772" text-anchor="end">zone DMZ &#183; unit 0</text>
+<rect x="219" y="166" width="7" height="7" fill="#14171A"/>
+<line x1="226" y1="170" x2="270" y2="170" stroke="#14171A" stroke-width="2"/>
+<line x1="8" y1="186" x2="270" y2="186" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="16" y="200" font-size="8.5" fill="#14171A">WHY &#8212; the doorway, not a verdict</text>
+<text x="16" y="213" font-size="8" fill="#5C6772">PolicySet TRUST&#8594;DMZ &#183; first_match &#183; 34</text>
+<rect x="16" y="220" width="238" height="15" fill="#F2F4F6" stroke="#D2D7DD" stroke-width="1"/>
+<text x="22" y="231" font-size="8" fill="#14171A">narrowed by tcp/443 &#8594; 10.20.8.0/24</text>
+<rect x="8" y="245" width="3" height="10" fill="#14171A"/>
+<text x="16" y="253" font-size="8.5" fill="#14171A">18</text>
+<text x="40" y="253" font-size="8.5" fill="#14171A">permit-web-dmz</text>
+<text x="254" y="253" font-size="8.5" fill="#14171A" text-anchor="end">permit</text>
+<text x="40" y="264" font-size="7.5" fill="#5C6772">first that CAN match &#183; app tcp/443</text>
+<text x="16" y="280" font-size="8.5" fill="#5C6772">+3</text>
+<text x="40" y="280" font-size="8.5" fill="#5C6772">cannot tell &#8212; match_any_source</text>
+<text x="16" y="296" font-size="8.5" fill="#5C6772">29</text>
+<text x="40" y="296" font-size="8.5" fill="#5C6772">cannot match &#8212; folded away</text>
+<text x="16" y="312" font-size="8.5" fill="#14171A">&#8212;</text>
+<text x="40" y="312" font-size="8.5" fill="#14171A">set default_action</text>
+<text x="254" y="312" font-size="8.5" fill="#14171A" text-anchor="end">deny</text>
+<text x="16" y="331" font-size="7.5" fill="#5C6772">order = SecurityPolicy.ordinal, never relevance</text>
+<line x1="8" y1="342" x2="270" y2="342" stroke="#D2D7DD" stroke-width="1"/>
+<text x="16" y="356" font-size="7.5" fill="#5C6772">WALKED &#8212; ALL DECLARED IN schema/ TODAY</text>
+<text x="16" y="369" font-size="7.5" fill="#14171A">ZoneMember &#183; InPolicySet &#183; MatchSource</text>
+<text x="16" y="381" font-size="7.5" fill="#14171A">MatchDestination &#183; MatchApplication</text>
+<text x="16" y="396" font-size="7.5" fill="#5C6772">0 new kinds &#183; 0 new edges &#183; no rules engine</text>
+<rect x="270" y="30" width="92" height="382" fill="#F2F4F6"/>
+<line x1="270" y1="30" x2="270" y2="412" stroke="#D2D7DD" stroke-width="1.5"/>
+<line x1="362" y1="30" x2="362" y2="412" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="316" y="45" font-size="8" fill="#5C6772" text-anchor="middle">THE SPINE</text>
+<text x="316" y="57" font-size="7.5" fill="#5C6772" text-anchor="middle">9 hops</text>
+<line x1="278" y1="63" x2="354" y2="63" stroke="#D2D7DD" stroke-width="1"/>
+<text x="278" y="76" font-size="7" fill="#5C6772">RIVERSIDE CO</text>
+<text x="278" y="94" font-size="8.5" fill="#5C6772">1 pe-riv-01</text>
+<text x="278" y="112" font-size="8.5" fill="#5C6772">2 odf-riv-a</text>
+<line x1="276" y1="120" x2="356" y2="120" stroke="#D2D7DD" stroke-width="1"/>
+<text x="278" y="130" font-size="7" fill="#5C6772">HQ &#183; OAK ST</text>
+<text x="278" y="146" font-size="8.5" fill="#5C6772">3 sw-core-2</text>
+<rect x="274" y="150" width="82" height="16" fill="#FFFFFF"/>
+<text x="278" y="162" font-size="8.5" fill="#14171A">4 srx-hq-1</text>
+<rect x="274" y="176" width="82" height="16" fill="#FFFFFF"/>
+<text x="278" y="188" font-size="8.5" fill="#14171A">5 fw-branch-1</text>
+<rect x="271" y="150" width="3" height="42" fill="#14171A"/>
+<text x="278" y="206" font-size="8.5" fill="#5C6772">6 sw-br-1</text>
+<text x="278" y="224" font-size="8.5" fill="#5C6772">7 ap-br-3</text>
+<line x1="276" y1="232" x2="356" y2="232" stroke="#D2D7DD" stroke-width="1"/>
+<text x="278" y="242" font-size="7" fill="#5C6772">SUITE 210</text>
+<text x="278" y="258" font-size="8.5" fill="#5C6772">8 pp-210-a</text>
+<text x="278" y="276" font-size="8.5" fill="#5C6772">9 nas-br-1</text>
+<rect x="280" y="292" width="3" height="9" fill="#14171A"/>
+<text x="289" y="300" font-size="7" fill="#5C6772">in a pane</text>
+<line x1="278" y1="310" x2="354" y2="310" stroke="#D2D7DD" stroke-width="1"/>
+<text x="280" y="323" font-size="7" fill="#5C6772">]     next hop</text>
+<text x="280" y="334" font-size="7" fill="#5C6772">[     prev hop</text>
+<text x="280" y="345" font-size="7" fill="#5C6772">Shift-] next place</text>
+<text x="280" y="356" font-size="7" fill="#5C6772">Enter why, here</text>
+<text x="280" y="367" font-size="7" fill="#5C6772">Esc   back one</text>
+<line x1="226" y1="170" x2="450" y2="170" stroke="#14171A" stroke-width="2"/>
+<rect x="286" y="161" width="60" height="17" fill="#FFFFFF" stroke="#14171A" stroke-width="1"/>
+<text x="316" y="173" font-size="7.5" fill="#14171A" text-anchor="middle">MILL RD</text>
+<rect x="362" y="30" width="250" height="382" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="1.5"/>
+<rect x="362" y="30" width="250" height="36" fill="#F2F4F6"/>
+<line x1="362" y1="66" x2="612" y2="66" stroke="#D2D7DD" stroke-width="1.5"/>
+<text x="370" y="44" font-size="8" fill="#5C6772">RUNG 2 &#183; RACK</text>
+<text x="604" y="44" font-size="8" fill="#5C6772" text-anchor="end">BRANCH &#183; MILL RD</text>
+<text x="370" y="59" font-size="11" fill="#14171A">R04</text>
+<text x="604" y="59" font-size="9" fill="#5C6772" text-anchor="end">42U &#183; U1 AT FLOOR</text>
+<text x="368" y="162" font-size="8" fill="#14171A">ge-0/0/1</text>
+<rect x="443" y="166" width="7" height="7" fill="#14171A"/>
+<rect x="450" y="80" width="155" height="268" fill="none" stroke="#D2D7DD" stroke-width="1.5"/>
+<line x1="450" y1="106" x2="605" y2="106" stroke="#D2D7DD" stroke-width="1"/>
+<text x="456" y="99" font-size="7.5" fill="#5C6772">U20</text>
+<text x="482" y="99" font-size="8.5" fill="#14171A">mx-edge-1</text>
+<line x1="450" y1="132" x2="605" y2="132" stroke="#D2D7DD" stroke-width="1"/>
+<text x="456" y="125" font-size="7.5" fill="#5C6772">U18</text>
+<text x="482" y="125" font-size="8.5" fill="#5C6772">&#8212; empty &#8212;</text>
+<line x1="450" y1="158" x2="605" y2="158" stroke="#D2D7DD" stroke-width="1"/>
+<text x="456" y="151" font-size="7.5" fill="#5C6772">U16</text>
+<text x="482" y="151" font-size="8.5" fill="#14171A">sw-br-1</text>
+<rect x="450" y="158" width="155" height="26" fill="#F2F4F6" stroke="#14171A" stroke-width="2"/>
+<text x="456" y="176" font-size="7.5" fill="#14171A">U14</text>
+<text x="482" y="176" font-size="8.5" fill="#14171A">fw-branch-1 node0</text>
+<line x1="450" y1="210" x2="605" y2="210" stroke="#D2D7DD" stroke-width="1"/>
+<text x="456" y="203" font-size="7.5" fill="#5C6772">U12</text>
+<text x="482" y="203" font-size="8.5" fill="#5C6772">pp-mill-a</text>
+<line x1="450" y1="236" x2="605" y2="236" stroke="#D2D7DD" stroke-width="1"/>
+<text x="456" y="229" font-size="7.5" fill="#5C6772">U10</text>
+<text x="482" y="229" font-size="8.5" fill="#5C6772">&#8212; empty &#8212;</text>
+<line x1="450" y1="262" x2="605" y2="262" stroke="#D2D7DD" stroke-width="1"/>
+<text x="456" y="255" font-size="7.5" fill="#5C6772">U08</text>
+<text x="482" y="255" font-size="8.5" fill="#14171A">nas-br-1</text>
+<line x1="450" y1="288" x2="605" y2="288" stroke="#D2D7DD" stroke-width="1"/>
+<text x="456" y="281" font-size="7.5" fill="#5C6772">U06</text>
+<text x="482" y="281" font-size="8.5" fill="#5C6772">&#8212; empty &#8212;</text>
+<line x1="450" y1="314" x2="605" y2="314" stroke="#D2D7DD" stroke-width="1"/>
+<text x="456" y="307" font-size="7.5" fill="#5C6772">U04</text>
+<text x="482" y="307" font-size="8.5" fill="#14171A">ups-br-1</text>
+<text x="456" y="333" font-size="7.5" fill="#5C6772">U02</text>
+<text x="482" y="333" font-size="8.5" fill="#5C6772">&#8212; empty &#8212;</text>
+<text x="366" y="368" font-size="7.5" fill="#5C6772">THE CONNECTION YOU WERE FOLLOWING</text>
+<text x="366" y="382" font-size="8" fill="#14171A">srx-hq-1 ge-0/0/3.0 &#8594; fw-branch-1 ge-0/0/1</text>
+<text x="366" y="395" font-size="7.5" fill="#5C6772">edge Link (by hand) &#183; no Cable modelled yet</text>
+<text x="366" y="407" font-size="7.5" fill="#5C6772">no jump &#8212; both ends were already on screen</text>
+</svg></div>
+  <div class="grid">
+    <div><h4>Crossing to another rack</h4><p>There is no jump, and that is the point. In a one-pane design, crossing a rack boundary means replacing what is on screen and hoping the user remembers what they were on. Facing Pages never replaces anything: the far side of the crossing is the right pane, already drawn, already at whatever depth makes it legible.</p></div>
+    <div><h4>Why it goes here</h4><p>This is the requirement most likely to be faked, so here is exactly what is shown and exactly what is refused.</p></div>
+    <div><h4>Hundreds of things</h4><p>Four reductions, applied in order, all deterministic. Named filter, named ranking, named default.</p></div>
+    <div><h4>The argument against</h4><p>The strongest argument against Facing Pages is that it spends half the canvas on the cheapest part of the problem.</p></div>
+  </div>
+  <details><summary>What the checker said</summary><p class="chk">unchecked</p>
+  <h4>Scale verdict</h4><p class="chk">unchecked</p></details>
+</section>
+<h2>How they compare</h2>
+<div class="tw"><table>
+ <thead><tr><th>Direction</th><th>Crossing a rack</th><th>Scale to hundreds</th><th>Needs</th></tr></thead>
+ <tbody>
+  <tr><td class="mono">Rail and Seat</td><td>free &mdash; the rail never moves</td><td>folds the rail middle-out around where you are</td><td class="mono">OP_CABLE</td></tr>
+  <tr><td class="mono">Thread and Gutter</td><td>edge markers you click through</td><td>weakest &mdash; the default picture folds away the detail the thread needs</td><td class="mono">OP_CABLE</td></tr>
+  <tr><td class="mono">The Open Spine</td><td>no crossing &mdash; both racks stay open</td><td>detail drops one rung per hop of distance</td><td class="mono">OP_CABLE</td></tr>
+  <tr><td class="mono">The Run Sheet</td><td>a line in the sheet</td><td>strongest &mdash; text filters in ways a picture cannot</td><td class="mono">OP_CABLE</td></tr>
+  <tr><td class="mono">Facing Pages</td><td>both ends already on screen</td><td>check did not finish</td><td class="mono">OP_CABLE</td></tr>
+ </tbody>
+</table></div>
+
+<h2>Where I would start</h2>
+<p><strong>Rail and Seat, with the Run Sheet&rsquo;s filtering folded into it.</strong> The rail
+gets your literal ask right &mdash; the thread is the fixed thing and the picture is what travels,
+so crossing a rack costs nothing and you never lose your place. The Run Sheet is better at the
+hundreds problem because text searches in ways a drawing does not; it works as the panel beside
+the rail rather than as a rival to it.</p>
+<p>Every checker flagged the same thing: <strong>scale is the part all five hand-wave</strong>.
+Each has a mechanism and none has been tested against an estate forty times your fixture. That is
+the first thing to prove, before any of it is built.</p>
+<p class="chk">Nothing here is built. No file in the repository changed.</p>
+</div>

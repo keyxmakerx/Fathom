@@ -11,16 +11,17 @@ use fathom_corpus::{CorpusIndex, Section, SourceFile};
 use fathom_find::Finder;
 
 use crate::protocol::{
-    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CORPUS_LOAD, ERR_EQUIP_FRAME, ERR_EQUIP_STORE,
-    ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_LINK_CHOICE, ERR_NOTHING_UNDERSTOOD,
-    ERR_NOT_INITIALISED, ERR_NO_DICTIONARY, ERR_NO_ELEMENT, ERR_NO_LINK, ERR_PASTE_FRAME,
-    ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
+    self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CABLE_COUNT, ERR_CABLE_END, ERR_CORPUS_LOAD,
+    ERR_EQUIP_FRAME, ERR_EQUIP_STORE, ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_LINK_CHOICE,
+    ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED, ERR_NO_CABLE, ERR_NO_DICTIONARY, ERR_NO_ELEMENT,
+    ERR_NO_LINK, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
 #[cfg(feature = "demo-estate")]
 use crate::OP_ESTATE_DEMO;
 use crate::{
-    OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD, OP_FIELD_SET,
-    OP_INIT, OP_INV_ROWS, OP_LINK, OP_PASTE, OP_PLACE, OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
+    OP_CABLE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD,
+    OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE, OP_INV_ROWS, OP_LINK, OP_PASTE, OP_PLACE,
+    OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
 };
 
 pub struct Shell {
@@ -87,12 +88,15 @@ impl Shell {
             OP_ELEMENT_REMOVE => self.element_remove(req),
             OP_PLACE => self.place(req),
             OP_LINK => self.link(req),
+            OP_CABLE => self.cable(req),
             OP_DIAGRAM => self.diagram(req),
             OP_INV_ROWS => self.inv_rows(req),
             OP_ELEMENT => self.element(req),
             OP_EQUIPMENT => self.equipment(req),
             OP_RACK_PLACE => self.rack_place(req),
             OP_RACK_ELEVATION => self.rack_elevation(req),
+            OP_FINDINGS => self.findings(req),
+            OP_INSIDE => self.inside(req),
             _ => protocol::encode_error(
                 ERR_UNKNOWN_OP,
                 &format!("opcode {op} is not implemented by this module"),
@@ -125,7 +129,7 @@ impl Shell {
 
     /// `OP_PASTE`: pasted text in, an estate out.
     ///
-    /// Frame — a fixed 24-byte prefix, then the paste:
+    /// Frame — a fixed 25-byte prefix (clock, entropy, confirm), then the paste:
     ///
     /// ```text
     ///   0   8   at_ms   (u64) the host's clock, once, for the whole apply
@@ -147,23 +151,31 @@ impl Shell {
     /// estate in place: a paste that Fathom could not read is not a reason to
     /// throw away the one it could.
     fn paste(&mut self, req: &[u8]) -> Vec<u8> {
-        const PREFIX: usize = 24;
+        // 25, not 24: the clock, the entropy, and one byte of CONFIRMATION.
+        //
+        // `confirm == 1` means the operator has been shown `ERR_PASTE_CHOICE`
+        // and has said the two boxes are different. It is not a mode and there
+        // is deliberately no "replace" flag beside it — see this function's
+        // own doc comment.
+        const PREFIX: usize = 25;
         let Some(head) = req.get(..PREFIX) else {
             return protocol::encode_error(
                 ERR_PASTE_FRAME,
                 &format!(
-                    "OP_PASTE needs a {PREFIX}-byte clock and entropy prefix; the frame is {} bytes",
+                    "OP_PASTE needs a {PREFIX}-byte clock, entropy and confirm prefix; the frame is {} bytes",
                     req.len()
                 ),
             );
         };
-        let (at_bytes, entropy_bytes) = head.split_at(8);
+        let (at_bytes, rest) = head.split_at(8);
+        let (entropy_bytes, confirm_bytes) = rest.split_at(16);
         let mut at = [0u8; 8];
         at.copy_from_slice(at_bytes);
         let mut entropy = [0u8; 16];
         entropy.copy_from_slice(entropy_bytes);
         let at = fathom_graph::Timestamp(u64::from_le_bytes(at));
         let entropy = u128::from_le_bytes(entropy);
+        let confirmed = confirm_bytes[0] == 1;
         let text = req.get(PREFIX..).unwrap_or_default();
 
         // Which grammar is this? The sniff is exact — the first non-blank line
@@ -227,13 +239,27 @@ impl Shell {
             return protocol::encode_error(ERR_NOTHING_UNDERSTOOD, &nothing_understood(&ingest));
         }
 
-        // The user and batch ids: the millisecond plus a fixed discriminator,
-        // the pattern `fathom-inventory`'s demo estate and the weld's own
-        // tests both use. Colliding with a minted element ULID is harmless —
-        // `by_ulid` covers nodes and edges only, and batch ids are checked
-        // against other batch ids, of which a fresh graph has none.
-        let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
-        let (Ok(user), Ok(batch)) = (ids(1), ids(2)) else {
+        // THE BATCH ID IS DERIVED FROM THE ENTROPY, NOT FROM A CONSTANT.
+        //
+        // It was `Ulid::from_parts(at.0, 2)` — the millisecond plus a fixed
+        // discriminator — and the comment here said colliding was harmless
+        // because "batch ids are checked against other batch ids, OF WHICH A
+        // FRESH GRAPH HAS NONE". That was true precisely because a paste threw
+        // the estate away. **Making the paste additive made it false**: a
+        // second paste into a held estate reuses the same batch id and the
+        // store refuses it with `BatchIdReused`, which reaches the operator as
+        // a Rust debug string about a ULID.
+        //
+        // Found by a test that pasted twice — not by reading this, which had a
+        // comment explaining why it was safe, written when it was.
+        //
+        // The entropy is fresh per call from the host's CSPRNG, so two pastes
+        // get two batches. Still deterministic in the sense invariant 9 needs:
+        // the same `(at, entropy)` produces the same bytes, which is what
+        // replay depends on. Colliding with a minted ELEMENT ulid remains
+        // harmless for the reason the old comment gave — `by_ulid` covers
+        // nodes and edges, and batches are checked only against batches.
+        let Ok(batch) = fathom_id::Ulid::from_parts(at.0, entropy) else {
             return protocol::encode_error(
                 ERR_PASTE_FRAME,
                 &format!(
@@ -245,21 +271,149 @@ impl Shell {
         let manifest = fathom_weld::Manifest {
             at,
             entropy,
-            actor: fathom_graph::Actor::User(fathom_graph::UserId(user)),
+            actor: fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
             batch: fathom_graph::BatchId(batch),
             label: PASTE_LABEL,
             platform: fathom_ir::scalar::PlatformId(dict.platform().to_owned()),
         };
 
-        let mut graph = fathom_graph::Graph::new();
-        let weld = match fathom_weld::apply_new_device(&mut graph, &ingest, &manifest) {
+        // ---- 1. THE DRY RUN, into a graph nobody will ever see -------------
+        //
+        // The weld runs twice on purpose. This first pass exists so that every
+        // refusal the weld can raise happens BEFORE the operator's estate is
+        // touched, and so the identity check below has a real typed `Device`
+        // to read terms from rather than a guess assembled from the ingest.
+        //
+        // `apply_new_device`'s own doc says why it must not be the pass that
+        // runs against a live estate first: "On any error the graph is left
+        // with the partial batch OPEN and the ops written so far recorded —
+        // `fathom-graph` has no rollback." Against a throwaway that costs
+        // nothing. Against a real design it would be the operator's work.
+        //
+        // The cost is one extra weld per paste. `49` §8 measured where the time
+        // actually goes and it is the layout, not the weld.
+        let mut dry = fathom_graph::Graph::new();
+        let dry_weld = match fathom_weld::apply_new_device(&mut dry, &ingest, &manifest) {
             Ok(w) => w,
             Err(e) => return protocol::encode_error(ERR_WELD_REFUSED, &format!("{e:?}")),
         };
 
-        let reply = paste_reply(&graph, &ingest, &weld, dict);
-        self.estate = Some(graph);
-        reply
+        // ---- 2. IS THIS A BOX THE DESIGN ALREADY HOLDS? --------------------
+        if !confirmed {
+            if let Some(existing) = self.estate.as_ref() {
+                if let Some(clash) = identity_clash(existing, &dry) {
+                    return protocol::encode_error(ERR_PASTE_CHOICE, &clash);
+                }
+            }
+        }
+
+        // ---- 2b. THE RANGE PRE-FLIGHT, read-only, so the real weld cannot
+        //          fail against the live estate at all -----------------------
+        //
+        // This was specified in the phase-0 brief as step 6 and NOT BUILT, and
+        // the 2026-08-28 review found the hazard it existed to prevent:
+        // `apply_new_device` opens its batch first and `fathom-graph` has no
+        // rollback, so an id collision mid-weld leaves the operator's estate
+        // holding a partial batch and partially-written nodes — while the
+        // error text claimed "nothing was added" and advised a retry that,
+        // with the same entropy, would fail identically forever.
+        //
+        // The dry run makes the check exact rather than probabilistic: the
+        // mint walks a contiguous 80-bit counter from `entropy & mask` with
+        // one shared timestamp, and `dry_weld.minted` is precisely how many
+        // ids the real weld will issue. So every id it will claim can be
+        // asked about, read-only, before anything is written. Elements and
+        // provenance records are separate namespaces in the store and both
+        // are asked; the batch id (derived from the same entropy) is scanned
+        // in the log. ~a hundred lookups per paste, against `49` §8's finding
+        // that layout, not weld, is where paste time actually goes.
+        if let Some(existing) = self.estate.as_ref() {
+            let base = entropy & ((1u128 << 80) - 1);
+            let collides = (0..u128::from(dry_weld.minted)).any(|i| {
+                let counter = (base + i) & ((1u128 << 80) - 1);
+                let Ok(ulid) = fathom_id::Ulid::from_parts(at.0, counter) else {
+                    return true;
+                };
+                existing.resolve_ref(fathom_id::NodeId(ulid)).is_some()
+                    || existing
+                        .provenance(fathom_graph::ProvenanceId(ulid))
+                        .is_some()
+            }) || existing
+                .log()
+                .iter()
+                .any(|b| b.id == fathom_graph::BatchId(batch));
+            if collides {
+                return protocol::encode_error(
+                    ERR_WELD_REFUSED,
+                    &format!(
+                        "this paste needs {} fresh identifiers and the ones it was given \
+                         overlap identifiers this design already uses, so nothing was \
+                         added. Nothing is wrong with the config or the design — paste \
+                         it again and it will be given different ones.",
+                        dry_weld.minted
+                    ),
+                );
+            }
+        }
+
+        // ---- 3. THE REAL WELD, into the estate that is held ----------------
+        //
+        // ADDITIVE. Until 2026-08-21 this line was `self.estate = Some(graph)`
+        // — a paste REPLACED the design, and `49` §10b calls that a bomb still
+        // in the room. On a server holding many designs of thousands of
+        // devices it is wrong in every case: pasting a second switch must not
+        // delete the first.
+        //
+        // `get_or_insert_with` is the pattern `equip_add` already uses, so an
+        // empty page and a populated one take the same path rather than the
+        // empty case being a special one somebody has to remember.
+        let graph = self.estate.get_or_insert_with(fathom_graph::Graph::new);
+        let weld = match fathom_weld::apply_new_device(graph, &ingest, &manifest) {
+            Ok(w) => w,
+            Err(e) => {
+                // THE STORE'S ID-COLLISION ERRORS MUST NOT REACH A PERSON AS
+                // RUST. `BatchIdReused`, `ProvenanceIdReused` and the element
+                // form were unreachable while a paste replaced the estate — it
+                // welded into a fresh graph every time, which by definition had
+                // nothing to collide with. Making the paste additive made all
+                // three reachable, and the first thing a test saw was
+                // `Store(ProvenanceIdReused { id: ProvenanceId(Ulid(01KZ…)) })`
+                // rendered at an operator.
+                //
+                // The cause is real and is not a bug in the store: the mint
+                // walks a counter from the host's entropy, so two pastes whose
+                // entropy happens to fall within `minted` of each other produce
+                // overlapping id ranges. With sixteen bytes from a CSPRNG that
+                // is vanishingly unlikely; it is not impossible, and "unlikely"
+                // is not a thing to render a debug string about.
+                //
+                // `dry_weld.minted` is the exact count the dry run just
+                // produced, so the sentence can say how much room was needed
+                // rather than guessing.
+                // With the pre-flight above, an id collision here should be
+                // unreachable. If one fires anyway, the estate MAY hold a
+                // partial batch — `fathom-graph` has no rollback — so the
+                // sentence must not claim nothing was added. (The first
+                // version of this branch did exactly that, and also matched
+                // only two of the three collision errors: `UlidReused` does
+                // not contain the substring "IdReused" — capital I — which the
+                // review caught by reading rather than running.)
+                let detail = format!("{e:?}");
+                if detail.contains("Reused") {
+                    return protocol::encode_error(
+                        ERR_WELD_REFUSED,
+                        "an identifier collision was hit part-way through writing this \
+                         paste, which the pre-flight should have made impossible. The \
+                         design may hold a partial copy of it: export what you have, \
+                         then reopen the export to get back to a clean state, and \
+                         please report this — it is a bug in Fathom, not in your config.",
+                    );
+                }
+                return protocol::encode_error(ERR_WELD_REFUSED, &detail);
+            }
+        };
+
+        paste_reply(graph, &ingest, &weld, dict)
     }
 
     /// `OP_EQUIP_ADD`: one piece of equipment, entered by hand.
@@ -391,8 +545,17 @@ impl Shell {
             }
         }
 
-        let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
-        let (Ok(user), Ok(batch)) = (ids(1), ids(2)) else {
+        // THE BATCH ID IS DERIVED FROM THE ENTROPY, exactly as the paste's is
+        // and for the same reason, found the same way: `Ulid(at, 2)` — the
+        // millisecond plus a fixed discriminator — was harmless while every
+        // write landed in a fresh graph, and became a collision the moment
+        // estates accumulate. Two hand edits in the same millisecond (an
+        // import replays dozens) would reuse one batch id and the second is
+        // refused as `BatchIdReused`. The paste hit this first (2026-08-21);
+        // the 2026-08-28 review found these two sites still on the old
+        // derivation. (The author half of the old `ids` story is `UserId::
+        // LOCAL` — see its doc.)
+        let Ok(batch) = fathom_id::Ulid::from_parts(at.0, entropy) else {
             return protocol::encode_error(
                 ERR_EQUIP_FRAME,
                 &format!(
@@ -401,7 +564,7 @@ impl Shell {
                 ),
             );
         };
-        let actor = Actor::User(UserId(user));
+        let actor = Actor::User(UserId::LOCAL);
         let mut mint = match fathom_weld::Mint::new(at, entropy) {
             Ok(m) => m,
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
@@ -547,11 +710,10 @@ impl Shell {
             Ok(m) => m,
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
         };
-        let (Ok(user), Ok(batch), Ok(prov)) = (
-            fathom_id::Ulid::from_parts(at.0, 1),
-            mint.next(),
-            mint.next(),
-        ) else {
+        // The author is UserId::LOCAL, a constant, so only the two mints can
+        // fail. It was `Ulid::from_parts(at.0, 1)` until 2026-08-21 — the host
+        // clock — which made every millisecond a different "user".
+        let (Ok(batch), Ok(prov)) = (mint.next(), mint.next()) else {
             return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
         };
 
@@ -565,7 +727,7 @@ impl Shell {
             id: fathom_graph::ProvenanceId(prov),
             origin: fathom_graph::Origin::Hand,
             asserted_at: at,
-            asserted_by: Actor::User(UserId(user)),
+            asserted_by: Actor::User(UserId::LOCAL),
             confidence: fathom_graph::Confidence::Asserted,
             supersedes: None,
         };
@@ -622,7 +784,11 @@ impl Shell {
         if let Err(e) = graph.begin_batch(BatchId(batch), REMOVE_LABEL) {
             return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
         }
-        let removed = graph.tombstone(element, at);
+        let removed = graph.tombstone(
+            element,
+            at,
+            fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+        );
         let closed = graph.end_batch();
         match (removed, closed) {
             (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
@@ -711,10 +877,13 @@ impl Shell {
             Ok(m) => m,
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
         };
-        let (Ok(user), Ok(batch)) = (fathom_id::Ulid::from_parts(at.0, 1), mint.next()) else {
+        // The author is a CONSTANT, so only the batch mint can fail here. It
+        // used to be `Ulid::from_parts(at.0, 1)` — the host clock — which made
+        // every millisecond a different "user". See `UserId::LOCAL`.
+        let Ok(batch) = mint.next() else {
             return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
         };
-        let actor = Actor::User(UserId(user));
+        let actor = Actor::User(UserId::LOCAL);
 
         let existing = self
             .estate
@@ -735,7 +904,7 @@ impl Shell {
                 // different and more honest claim than "it was never placed".
                 if let Some(pin) = existing {
                     graph
-                        .tombstone(ElementId::Node(pin), at)
+                        .tombstone(ElementId::Node(pin), at, actor)
                         .map_err(|e| format!("{e:?}"))?;
                 }
                 return Ok(());
@@ -972,10 +1141,13 @@ impl Shell {
             Ok(m) => m,
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
         };
-        let (Ok(user), Ok(batch)) = (fathom_id::Ulid::from_parts(at.0, 1), mint.next()) else {
+        // The author is a CONSTANT, so only the batch mint can fail here. It
+        // used to be `Ulid::from_parts(at.0, 1)` — the host clock — which made
+        // every millisecond a different "user". See `UserId::LOCAL`.
+        let Ok(batch) = mint.next() else {
             return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
         };
-        let actor = Actor::User(UserId(user));
+        let actor = Actor::User(UserId::LOCAL);
 
         let Some(graph) = self.estate.as_mut() else {
             return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
@@ -1029,7 +1201,7 @@ impl Shell {
                     return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
                 }
                 let mut w = if mode == 0 {
-                    cut(graph, from, to, chosen, at)
+                    cut(graph, from, to, chosen, at, Actor::User(UserId::LOCAL))
                 } else {
                     draw(graph, from, to, chosen, at, actor, &mut mint)
                 };
@@ -1053,6 +1225,386 @@ impl Shell {
             // will want the id and will have to pay for it then. Measured at
             // 127 bytes, against a budget of 5,117 for the whole feature.
             Ok(()) => equip_reply_text(chosen.name(), if mode == 0 { "0" } else { "1" }),
+        }
+    }
+
+    /// `OP_CABLE`: draw a cable between two ports by hand, or cut one
+    /// (ADR-0038).
+    ///
+    /// Frame — the usual 24-byte prefix, then:
+    ///
+    /// ```text
+    ///   24   1   mode    (u8) 0 = cut; any other value draws, `link`'s own
+    ///                     convention for the second word of a two-way switch
+    ///   25   1   count   (u8) must be 1 in this cut (D7) — refused otherwise
+    ///   26  ..   draw: near end spec, far end spec, label(len u8, utf8;
+    ///                  empty = unlabelled)
+    ///            cut:  cable(len u8, display id)
+    /// ```
+    ///
+    /// One end spec is `tag(u8)` then:
+    /// `0` an existing port (`len u8` + display id) · `1` mint a port on a
+    /// box (`len u8` + box display id, `len u8` + port label, empty =
+    /// unlabelled; the box may be a `Device` or a `Chassis` — a `Device`
+    /// with none gets one minted first, D5) · `2` unknown far end, no bytes,
+    /// legal only on the far end (D4) · `3` reserved for `ExternalPeer`,
+    /// refused in this cut.
+    ///
+    /// # Why this is not `OP_LINK` on two ports
+    ///
+    /// The only reference edge the schema admits directly between two
+    /// `PhysicalPort`s is `PassThrough` — *"these two holes are the same
+    /// hole"*, the ODF pass-through fact. `Cable` is a third, MINTED node
+    /// with two `Terminates` edges out of it, so this writes a compound
+    /// batch the way `OP_EQUIP_ADD` mints a device and its chassis together,
+    /// and never calls `fathom_weld::hand_link_candidates` — routing this
+    /// gesture through `OP_LINK`'s one-candidate rule would silently write
+    /// `PassThrough` instead of a cable (ADR-0038 D2).
+    ///
+    /// # Three words, like `OP_LINK`, plus what `1` carries
+    ///
+    /// `1` drew, `0` cut, `2` a live cable already terminates both named
+    /// ports and nothing was written — checked only when BOTH ends name an
+    /// existing port, because a freshly minted one can never already be
+    /// cabled to anything. With `1` the reply also carries the display ids
+    /// the batch minted, in the order it minted them: the cable, then the
+    /// near port if one was minted else empty, then the far port the same
+    /// way, then the near chassis if one was minted else empty, then the far
+    /// chassis the same way — so the page can journal what it just wrote and
+    /// select the new cable without a second call.
+    ///
+    /// # What refuses, and why the detail is empty
+    ///
+    /// `ERR_CABLE_COUNT` (count is not 1), `ERR_CABLE_END` (an end names
+    /// something that is not a live port or box, both ends name the same
+    /// port, tag `3`, or tag `2` on the near end), `ERR_NO_CABLE` (the cut
+    /// names nothing live). Every detail is empty: the page sent every id in
+    /// the frame and already knows what it sent — `ERR_NO_LINK`'s reason,
+    /// reused. `ERR_EQUIP_FRAME` and `ERR_BAD_UTF8` cover a malformed frame,
+    /// which is a page defect and not an operator's.
+    fn cable(&mut self, req: &[u8]) -> Vec<u8> {
+        use fathom_graph::{Actor, BatchId, ElementId, Timestamp, UserId};
+        use fathom_ir::generated::ir_types::{
+            CableEnd, CableField, EdgeKind, NodeKind, TerminatesField,
+        };
+
+        const PREFIX: usize = 26;
+        let Some(head) = req.get(..PREFIX) else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME);
+        };
+        let at = Timestamp(u64::from_le_bytes(le8(head, 0)));
+        let entropy = u128::from_le_bytes(le16(head, 8));
+        let mode = head[24];
+        let count = head[25];
+        if count != 1 {
+            return protocol::encode_error(ERR_CABLE_COUNT, "");
+        }
+        let body = req.get(PREFIX..).unwrap_or_default();
+        let actor = Actor::User(UserId::LOCAL);
+
+        // --- cut ---------------------------------------------------------
+        if mode == 0 {
+            let Some((idbytes, rest)) = take_len_bytes(body) else {
+                return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME);
+            };
+            if !rest.is_empty() {
+                return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME);
+            }
+            let Ok(display) = core::str::from_utf8(idbytes) else {
+                return protocol::encode_error(ERR_BAD_UTF8, "the cable id is not UTF-8");
+            };
+            let cable = match self.resolve_node(display) {
+                Some(n) if n.kind == NodeKind::Cable => n,
+                _ => return protocol::encode_error(ERR_NO_CABLE, NOTHING_TO_CUT_CABLE),
+            };
+
+            // Off the mint for the same reason `field_set`/`element_remove`
+            // are: two cuts in one millisecond must not collide on a
+            // `BatchId`.
+            let batch = match fathom_weld::Mint::new(at, entropy).and_then(|mut m| m.next()) {
+                Ok(b) => b,
+                Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
+            };
+            let Some(graph) = self.estate.as_mut() else {
+                return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+            };
+            if let Err(e) = graph.begin_batch(BatchId(batch), CUT_CABLE_LABEL) {
+                return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
+            }
+            // D8: tombstone the Cable AND both `Terminates` edges. Node
+            // tombstone cascades through containment only — `Terminates` is
+            // `class: reference` — so leaving this to a generic remove would
+            // strand two live reference edges pointing at a gone node, and
+            // `cabled_peer` would keep reporting the cut cable as live.
+            let cut = (|| -> Result<(), String> {
+                let edges: Vec<_> = graph
+                    .out(cable, EdgeKind::Terminates)
+                    .filter(|e| e.absent_since.is_none())
+                    .map(|e| e.id)
+                    .collect();
+                for id in edges {
+                    graph
+                        .tombstone(ElementId::Edge(id), at, actor)
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+                graph
+                    .tombstone(ElementId::Node(cable), at, actor)
+                    .map_err(|e| format!("{e:?}"))?;
+                Ok(())
+            })();
+            let closed = graph.end_batch();
+            return match (cut, closed) {
+                (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &e),
+                (Ok(()), Err(e)) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+                (Ok(()), Ok(_)) => cable_reply("0", display, "", "", "", ""),
+            };
+        }
+
+        // --- draw ----------------------------------------------------------
+        let (near_raw, rest) = match take_cable_end(body) {
+            Ok(v) => v,
+            Err(CableFrameErr::Short) => {
+                return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME)
+            }
+            Err(CableFrameErr::Utf8) => {
+                return protocol::encode_error(ERR_BAD_UTF8, "an end id or label is not UTF-8")
+            }
+        };
+        let (far_raw, rest) = match take_cable_end(rest) {
+            Ok(v) => v,
+            Err(CableFrameErr::Short) => {
+                return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME)
+            }
+            Err(CableFrameErr::Utf8) => {
+                return protocol::encode_error(ERR_BAD_UTF8, "an end id or label is not UTF-8")
+            }
+        };
+        let Some((lblbytes, rest)) = take_len_bytes(rest) else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME);
+        };
+        if !rest.is_empty() {
+            return protocol::encode_error(ERR_EQUIP_FRAME, SHORT_CABLE_FRAME);
+        }
+        let Ok(label) = core::str::from_utf8(lblbytes) else {
+            return protocol::encode_error(ERR_BAD_UTF8, "the cable label is not UTF-8");
+        };
+
+        // Near may not be unknown (D4: only the far end may be) or reserved.
+        let near = match self.resolve_cable_end(near_raw, false) {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let far = match self.resolve_cable_end(far_raw, true) {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+
+        // Both ends the same port is a false fact, not a legal cable: a wire
+        // has two ends and the operator has named one twice.
+        if let (FinalCableEnd::Port(a), FinalCableEnd::Port(b)) = (&near, &far) {
+            if a == b {
+                return protocol::encode_error(ERR_CABLE_END, "");
+            }
+        }
+
+        // ALREADY THERE — checked only when both ends already exist. A
+        // minted port cannot already be cabled to anything, so the check
+        // would always miss for a `1` tag and is skipped rather than run for
+        // nothing.
+        if let (FinalCableEnd::Port(a), FinalCableEnd::Port(b)) = (&near, &far) {
+            if let Some(g) = self.estate.as_ref() {
+                if let Some(existing) = live_cable_between(g, *a, *b) {
+                    return cable_reply(ALREADY_THERE, &existing.to_string(), "", "", "", "");
+                }
+            }
+        }
+
+        let mut mint = match fathom_weld::Mint::new(at, entropy) {
+            Ok(m) => m,
+            Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
+        };
+        let Ok(batch) = mint.next() else {
+            return protocol::encode_error(ERR_EQUIP_FRAME, "the clock is past the ULID ceiling");
+        };
+        let Some(graph) = self.estate.as_mut() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        if let Err(e) = graph.begin_batch(BatchId(batch), DRAW_CABLE_LABEL) {
+            return protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}"));
+        }
+
+        // Write sequence, ADR-0038 §4: chassis (D5) and ports (D1) minted
+        // first — near, then far — then the `Cable`, root-owned and never
+        // carrying a `HasCable` EDGE (`11` §7.2: the workspace root is not a
+        // node, and `insert_edge` refuses a root-containment kind outright —
+        // `Graph::owner`'s own doc names `Cable` among the kinds that are
+        // roots for exactly this reason), then `Terminates` to A then B with
+        // `end` normalised by `NodeId` (D6), then the label if one was
+        // given.
+        let build = || -> Result<CableWrite, String> {
+            let (near_port, near_minted_port, near_minted_chassis) =
+                materialize_cable_end(graph, &mut mint, at, actor, near)?;
+            let far_materialized = match far {
+                FinalCableEnd::Unknown => None,
+                other => Some(materialize_cable_end(graph, &mut mint, at, actor, other)?),
+            };
+
+            let cable = graph
+                .insert_node(
+                    NodeKind::Cable,
+                    mint.next().map_err(|e| format!("{e:?}"))?,
+                    hand_record(&mut mint, at, actor)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+
+            let (far_port, far_minted_port, far_minted_chassis) = match far_materialized {
+                Some((p, mp, mc)) => (Some(p), mp, mc),
+                None => (None, None, None),
+            };
+
+            match far_port {
+                Some(fp) => {
+                    let (a, b) = if near_port < fp {
+                        (near_port, fp)
+                    } else {
+                        (fp, near_port)
+                    };
+                    let ea = graph
+                        .insert_edge(
+                            EdgeKind::Terminates,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            cable,
+                            a,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    graph
+                        .set_field(
+                            ElementId::Edge(ea),
+                            TerminatesField::End.key(),
+                            CableEnd::A,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    let eb = graph
+                        .insert_edge(
+                            EdgeKind::Terminates,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            cable,
+                            b,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    graph
+                        .set_field(
+                            ElementId::Edge(eb),
+                            TerminatesField::End.key(),
+                            CableEnd::B,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+                // A one-ended cable (D4): one `Terminates` edge, called A —
+                // there is no B to normalise against.
+                None => {
+                    let ea = graph
+                        .insert_edge(
+                            EdgeKind::Terminates,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            cable,
+                            near_port,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    graph
+                        .set_field(
+                            ElementId::Edge(ea),
+                            TerminatesField::End.key(),
+                            CableEnd::A,
+                            hand_record(&mut mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+            }
+
+            if !label.is_empty() {
+                let v = fathom_inventory::parse_into_slot(CableField::Label.key(), label)
+                    .map_err(|e| author_text(e, label))?;
+                graph
+                    .set_field_boxed(
+                        ElementId::Node(cable),
+                        CableField::Label.key(),
+                        v,
+                        hand_record(&mut mint, at, actor)?,
+                    )
+                    .map_err(|e| format!("{e:?}"))?;
+            }
+
+            Ok(CableWrite {
+                cable,
+                near_port: near_minted_port,
+                far_port: far_minted_port,
+                near_chassis: near_minted_chassis,
+                far_chassis: far_minted_chassis,
+            })
+        };
+
+        let built = build();
+        // The batch closes either way — an open batch refuses every later
+        // write with `BatchOpen`, which turns one refused cable into a dead
+        // page.
+        let closed = graph.end_batch();
+        match (built, closed) {
+            (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &e),
+            (Ok(_), Err(e)) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
+            (Ok(w), Ok(_)) => cable_reply(
+                "1",
+                &w.cable.to_string(),
+                &w.near_port.map(|n| n.to_string()).unwrap_or_default(),
+                &w.far_port.map(|n| n.to_string()).unwrap_or_default(),
+                &w.near_chassis.map(|n| n.to_string()).unwrap_or_default(),
+                &w.far_chassis.map(|n| n.to_string()).unwrap_or_default(),
+            ),
+        }
+    }
+
+    /// One end spec, resolved against the live estate: an existing live
+    /// `PhysicalPort`, a mint plan (an existing live `Chassis` or `Device` to
+    /// mint the port under — minting its own `Chassis` first when a `Device`
+    /// has none, D5), or `Unknown` where `allow_unknown` permits it (the far
+    /// end only, D4). Every refusal is `ERR_CABLE_END` with an empty detail —
+    /// the page sent the id and already knows what it sent.
+    fn resolve_cable_end(
+        &self,
+        raw: RawCableEnd,
+        allow_unknown: bool,
+    ) -> Result<FinalCableEnd, Vec<u8>> {
+        use fathom_ir::generated::ir_types::NodeKind;
+
+        match raw {
+            RawCableEnd::Unknown if allow_unknown => Ok(FinalCableEnd::Unknown),
+            RawCableEnd::Unknown | RawCableEnd::Reserved => {
+                Err(protocol::encode_error(ERR_CABLE_END, ""))
+            }
+            RawCableEnd::Port(id) => match self.resolve_node(&id) {
+                Some(n) if n.kind == NodeKind::PhysicalPort => Ok(FinalCableEnd::Port(n)),
+                _ => Err(protocol::encode_error(ERR_CABLE_END, "")),
+            },
+            RawCableEnd::Mint(box_id, label) => match self.resolve_node(&box_id) {
+                Some(n) if n.kind == NodeKind::Chassis => Ok(FinalCableEnd::Mint {
+                    chassis: ChassisSource::Existing(n),
+                    label,
+                }),
+                Some(n) if n.kind == NodeKind::Device => {
+                    let existing = self.estate.as_ref().and_then(|g| existing_chassis(g, n));
+                    let chassis = match existing {
+                        Some(c) => ChassisSource::Existing(c),
+                        None => ChassisSource::MintUnder(n),
+                    };
+                    Ok(FinalCableEnd::Mint { chassis, label })
+                }
+                _ => Err(protocol::encode_error(ERR_CABLE_END, "")),
+            },
         }
     }
 
@@ -1167,6 +1719,27 @@ impl Shell {
         }
     }
 
+    /// `OP_FINDINGS`: what the estate does not know yet. No request bytes.
+    ///
+    /// Refuses with `ERR_NOT_INITIALISED` when no estate is held, like every
+    /// other face opcode. That is not the same answer as "nothing is missing",
+    /// and the two must never be rendered the same way: an empty page has no
+    /// gaps because it has nothing, and telling an operator their estate is
+    /// complete because they have not pasted anything yet would be the worst
+    /// sentence in the product.
+    fn findings(&mut self, req: &[u8]) -> Vec<u8> {
+        if !req.is_empty() {
+            return protocol::encode_error(
+                ERR_BAD_FRAME,
+                &format!("OP_FINDINGS takes no request; got {} bytes", req.len()),
+            );
+        }
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        protocol::encode_findings_reply(&fathom_inventory::findings(estate))
+    }
+
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {
         // The kind byte indexes `InvKind::ALL` — it is not a hand-written table.
         // It was one until 2026-08-10, and when the strip grew from three kinds
@@ -1200,7 +1773,8 @@ impl Shell {
         };
         protocol::encode_inv_reply(
             kind.label(),
-            fathom_inventory::columns(kind),
+            &fathom_inventory::columns(kind),
+            &fathom_inventory::column_keys(kind),
             &fathom_inventory::rows(estate, kind),
         )
     }
@@ -1451,8 +2025,17 @@ impl Shell {
         existing.sort();
         let found = existing.first().copied();
 
-        let ids = |n: u128| fathom_id::Ulid::from_parts(at.0, n);
-        let (Ok(user), Ok(batch)) = (ids(1), ids(2)) else {
+        // THE BATCH ID IS DERIVED FROM THE ENTROPY, exactly as the paste's is
+        // and for the same reason, found the same way: `Ulid(at, 2)` — the
+        // millisecond plus a fixed discriminator — was harmless while every
+        // write landed in a fresh graph, and became a collision the moment
+        // estates accumulate. Two hand edits in the same millisecond (an
+        // import replays dozens) would reuse one batch id and the second is
+        // refused as `BatchIdReused`. The paste hit this first (2026-08-21);
+        // the 2026-08-28 review found these two sites still on the old
+        // derivation. (The author half of the old `ids` story is `UserId::
+        // LOCAL` — see its doc.)
+        let Ok(batch) = fathom_id::Ulid::from_parts(at.0, entropy) else {
             return protocol::encode_error(
                 ERR_EQUIP_FRAME,
                 &format!(
@@ -1461,7 +2044,7 @@ impl Shell {
                 ),
             );
         };
-        let actor = Actor::User(UserId(user));
+        let actor = Actor::User(UserId::LOCAL);
         let mut mint = match fathom_weld::Mint::new(at, entropy) {
             Ok(m) => m,
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &format!("{e:?}")),
@@ -1543,6 +2126,18 @@ impl Shell {
         // `None` is the empty state, not an error — a rack whose height was
         // never stated cannot be drawn, and the page says so.
         protocol::encode_rack_reply(fathom_inventory::elevation(estate, node).as_ref())
+    }
+
+    /// Inside one box (`57` §7). A display id that names anything but a live
+    /// `Device` yields the empty reply, not an error: the page can descend
+    /// only from a device box today, and a stale id after a paste or an import
+    /// is a rung to climb out of rather than a fault to report.
+    fn inside(&mut self, req: &[u8]) -> Vec<u8> {
+        let (estate, node) = match self.node_request(req) {
+            Ok(pair) => pair,
+            Err(reply) => return reply,
+        };
+        protocol::encode_inside_reply(fathom_inventory::inside(estate, node).as_ref())
     }
 
     fn element(&mut self, req: &[u8]) -> Vec<u8> {
@@ -1665,6 +2260,17 @@ const FREE_LABEL: &str = "Let the layout place it again";
 const LINK_LABEL: &str = "Draw a link by hand";
 const CUT_LABEL: &str = "Cut a link";
 
+/// The undo labels for `OP_CABLE`'s two halves (ADR-0038), named the same way.
+const DRAW_CABLE_LABEL: &str = "Draw a cable by hand";
+const CUT_CABLE_LABEL: &str = "Cut a cable";
+
+/// `OP_CABLE`'s frame-malformed and nothing-to-cut sentences, on `OP_LINK`'s
+/// own precedent: a short frame is a page defect and gets a message an
+/// operator never needed to read; a cut with nothing there is a real,
+/// reachable state and gets one that says so.
+const SHORT_CABLE_FRAME: &str = "that cable request is malformed";
+const NOTHING_TO_CUT_CABLE: &str = "there is no such cable to cut";
+
 /// `OP_LINK`'s three fixed sentences.
 ///
 /// Constants rather than `format!` sites. Nothing in them varies — a short
@@ -1727,10 +2333,11 @@ fn cut(
     to: fathom_graph::NodeId,
     kind: fathom_ir::generated::ir_types::EdgeKind,
     at: fathom_graph::Timestamp,
+    by: fathom_graph::Actor,
 ) -> Result<(), &'static str> {
     while let Some(id) = live_link(graph, from, to, kind) {
         graph
-            .tombstone(fathom_graph::ElementId::Edge(id), at)
+            .tombstone(fathom_graph::ElementId::Edge(id), at, by)
             .map_err(|_| STORE_REFUSED_CUT)?;
     }
     Ok(())
@@ -1792,6 +2399,259 @@ fn link_refusal(
     // actionable. A `&'static str` costs nothing.
     let _ = kind;
     end
+}
+
+// --- OP_CABLE (ADR-0038) -----------------------------------------------------
+
+/// One end spec off the wire, before it is checked against the graph.
+enum RawCableEnd {
+    /// Tag 0: an existing port, by display id.
+    Port(String),
+    /// Tag 1: mint a port on this box, with this label (empty = unlabelled).
+    Mint(String, String),
+    /// Tag 2: the far end is not known. Legal only on the far end (D4).
+    Unknown,
+    /// Tag 3: `ExternalPeer`, reserved and refused in this cut.
+    Reserved,
+}
+
+/// Why `take_cable_end`/`take_len_bytes` could not read a value, so the
+/// caller can tell a truncated frame (`ERR_EQUIP_FRAME`) from bytes that are
+/// not UTF-8 (`ERR_BAD_UTF8`) without re-deriving it.
+enum CableFrameErr {
+    Short,
+    Utf8,
+}
+
+/// `[u8 len][len bytes]`, bounds-checked. Returns the bytes and what is left.
+fn take_len_bytes(b: &[u8]) -> Option<(&[u8], &[u8])> {
+    let (len, rest) = b.split_first()?;
+    let n = usize::from(*len);
+    Some((rest.get(..n)?, rest.get(n..)?))
+}
+
+/// One end spec: `tag(u8)` then the tag's own bytes, ADR-0038 §4. Reads
+/// exactly one spec and returns what is left of `b` for the next one.
+fn take_cable_end(b: &[u8]) -> Result<(RawCableEnd, &[u8]), CableFrameErr> {
+    let (tag, rest) = b.split_first().ok_or(CableFrameErr::Short)?;
+    match tag {
+        0 => {
+            let (idb, rest) = take_len_bytes(rest).ok_or(CableFrameErr::Short)?;
+            let id = core::str::from_utf8(idb).map_err(|_| CableFrameErr::Utf8)?;
+            Ok((RawCableEnd::Port(id.to_owned()), rest))
+        }
+        1 => {
+            let (boxb, rest) = take_len_bytes(rest).ok_or(CableFrameErr::Short)?;
+            let boxid = core::str::from_utf8(boxb).map_err(|_| CableFrameErr::Utf8)?;
+            let (lblb, rest) = take_len_bytes(rest).ok_or(CableFrameErr::Short)?;
+            let lbl = core::str::from_utf8(lblb).map_err(|_| CableFrameErr::Utf8)?;
+            Ok((RawCableEnd::Mint(boxid.to_owned(), lbl.to_owned()), rest))
+        }
+        2 => Ok((RawCableEnd::Unknown, rest)),
+        3 => Ok((RawCableEnd::Reserved, rest)),
+        // Not one of the four declared tags: a page defect, not a legal-but-
+        // refused choice, so it is a frame error rather than `ERR_CABLE_END`.
+        _ => Err(CableFrameErr::Short),
+    }
+}
+
+/// Where a minted port's `Chassis` comes from: one that already exists, or
+/// one to mint under a `Device` that has none (D5).
+enum ChassisSource {
+    Existing(fathom_graph::NodeId),
+    MintUnder(fathom_graph::NodeId),
+}
+
+/// One end spec, resolved against the live estate — [`Shell::resolve_cable_end`]
+/// is the only place that builds one.
+enum FinalCableEnd {
+    Port(fathom_graph::NodeId),
+    Mint {
+        chassis: ChassisSource,
+        label: String,
+    },
+    Unknown,
+}
+
+/// What one `OP_CABLE` draw minted, for the reply: the cable always, and
+/// each port/chassis only when this call minted it.
+struct CableWrite {
+    cable: fathom_graph::NodeId,
+    near_port: Option<fathom_graph::NodeId>,
+    far_port: Option<fathom_graph::NodeId>,
+    near_chassis: Option<fathom_graph::NodeId>,
+    far_chassis: Option<fathom_graph::NodeId>,
+}
+
+/// The first live `Chassis` a `Device` owns, smallest `NodeId` first
+/// (invariant 9) — `None` when it has none, which is every pasted device and
+/// D5's trigger to mint one.
+fn existing_chassis(
+    g: &fathom_graph::Graph,
+    device: fathom_graph::NodeId,
+) -> Option<fathom_graph::NodeId> {
+    use fathom_ir::generated::ir_types::EdgeKind;
+    g.out(device, EdgeKind::HasChassis)
+        .filter(|e| e.absent_since.is_none())
+        .map(|e| e.to)
+        .filter(|c| g.node(*c).is_some_and(|n| n.absent_since.is_none()))
+        .min()
+}
+
+/// Is there already a live `Cable` terminating both `a` and `b`? The
+/// "already there" check — asked only when both ends already exist, since a
+/// freshly minted port cannot already be cabled to anything.
+fn live_cable_between(
+    g: &fathom_graph::Graph,
+    a: fathom_graph::NodeId,
+    b: fathom_graph::NodeId,
+) -> Option<fathom_graph::NodeId> {
+    use fathom_ir::generated::ir_types::EdgeKind;
+    g.inn(a, EdgeKind::Terminates)
+        .filter(|e| e.absent_since.is_none())
+        .map(|e| e.from)
+        .filter(|c| g.node(*c).is_some_and(|n| n.absent_since.is_none()))
+        .find(|c| {
+            g.out(*c, EdgeKind::Terminates)
+                .any(|e| e.absent_since.is_none() && e.to == b)
+        })
+}
+
+/// Materialise one draw end inside the open batch: an existing port as-is,
+/// or a newly minted one — with its `Chassis` minted first when the named
+/// box had none (D5). Returns the port to terminate, and what this call
+/// minted so the reply and the journal can name it.
+///
+/// `Text::parse` cannot fail (`fathom_ir::scalar::Text::parse` returns
+/// `Ok` for every `&str`), so parsing a label here rather than before the
+/// batch opens does not risk leaving an orphan chassis or port behind a
+/// refusal the way a fallible parse would — `OP_RACK_PLACE`'s own comment
+/// names that risk for the case where it is real.
+fn materialize_cable_end(
+    graph: &mut fathom_graph::Graph,
+    mint: &mut fathom_weld::Mint,
+    at: fathom_graph::Timestamp,
+    actor: fathom_graph::Actor,
+    end: FinalCableEnd,
+) -> Result<
+    (
+        fathom_graph::NodeId,
+        Option<fathom_graph::NodeId>,
+        Option<fathom_graph::NodeId>,
+    ),
+    String,
+> {
+    use fathom_graph::ElementId;
+    use fathom_ir::generated::ir_types::{ChassisField, NodeKind, PhysicalPortField};
+
+    match end {
+        FinalCableEnd::Unknown => {
+            Err("an unknown end cannot be materialised: the caller filters it first".to_owned())
+        }
+        FinalCableEnd::Port(p) => Ok((p, None, None)),
+        FinalCableEnd::Mint { chassis, label } => {
+            let (chassis_id, minted_chassis) = match chassis {
+                ChassisSource::Existing(c) => (c, None),
+                ChassisSource::MintUnder(device) => {
+                    let c = graph
+                        .insert_node(
+                            NodeKind::Chassis,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            hand_record(mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    let edge = fathom_weld::containment_edge(NodeKind::Device, NodeKind::Chassis)
+                        .ok_or_else(|| {
+                        "the schema declares no containment edge Device -> Chassis".to_owned()
+                    })?;
+                    graph
+                        .insert_edge(
+                            edge,
+                            mint.next().map_err(|e| format!("{e:?}"))?,
+                            device,
+                            c,
+                            hand_record(mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    let zero =
+                        fathom_inventory::parse_into_slot(ChassisField::MemberIndex.key(), "0")
+                            .map_err(|e| author_text(e, "0"))?;
+                    graph
+                        .set_field_boxed(
+                            ElementId::Node(c),
+                            ChassisField::MemberIndex.key(),
+                            zero,
+                            hand_record(mint, at, actor)?,
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    (c, Some(c))
+                }
+            };
+            let port = graph
+                .insert_node(
+                    NodeKind::PhysicalPort,
+                    mint.next().map_err(|e| format!("{e:?}"))?,
+                    hand_record(mint, at, actor)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+            let edge = fathom_weld::containment_edge(NodeKind::Chassis, NodeKind::PhysicalPort)
+                .ok_or_else(|| {
+                    "the schema declares no containment edge Chassis -> PhysicalPort".to_owned()
+                })?;
+            graph
+                .insert_edge(
+                    edge,
+                    mint.next().map_err(|e| format!("{e:?}"))?,
+                    chassis_id,
+                    port,
+                    hand_record(mint, at, actor)?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+            if !label.is_empty() {
+                let v = fathom_inventory::parse_into_slot(PhysicalPortField::Label.key(), &label)
+                    .map_err(|e| author_text(e, &label))?;
+                graph
+                    .set_field_boxed(
+                        ElementId::Node(port),
+                        PhysicalPortField::Label.key(),
+                        v,
+                        hand_record(mint, at, actor)?,
+                    )
+                    .map_err(|e| format!("{e:?}"))?;
+            }
+            Ok((port, Some(port), minted_chassis))
+        }
+    }
+}
+
+/// `OP_CABLE`'s reply: the word, then the display ids the batch minted.
+/// Reuses `encode_paste_reply`'s `FACE_PASTE` row exactly as
+/// `equip_reply_text` does — still one row of up to eight strings, not a new
+/// wire shape.
+fn cable_reply(
+    word: &str,
+    cable: &str,
+    near_port: &str,
+    far_port: &str,
+    near_chassis: &str,
+    far_chassis: &str,
+) -> Vec<u8> {
+    protocol::encode_paste_reply(&protocol::PasteReply {
+        summary: [
+            word,
+            cable,
+            near_port,
+            far_port,
+            near_chassis,
+            far_chassis,
+            "",
+            "",
+        ],
+        residue: &[],
+        unresolved: &[],
+        capture: "",
+        shape: "",
+    })
 }
 
 /// How many residue rows one reply carries. The summary always states the
@@ -1965,10 +2825,17 @@ fn residue_reason(outcome: &fathom_ingest::frame::LineOutcome) -> String {
                  says a network."
             ),
         },
-        LineOutcome::Quarantined { label, orig_len } => format!(
-            "held back at the redaction gate: {} ({orig_len} bytes)",
-            label.token()
-        ),
+        // THE BYTE COUNT IS GONE, 2026-08-21, and for the same reason the
+        // shape sketch lost its per-token length: a quarantined line is one
+        // the gate believes carries a secret, so its exact length is a bound
+        // on that secret. `14` §9.5 already says `orig_len` is "for the
+        // in-session report only; the persistence layer must not store it" —
+        // and this string is journalled with the residue and travels wherever
+        // the export goes. The label says WHAT was held back, which is the
+        // part a person acts on; the length only ever helped a guesser.
+        LineOutcome::Quarantined { label, .. } => {
+            format!("held back at the redaction gate: {}", label.token())
+        }
         // Reachable only through `csv.rs`, and never as residue — a header is
         // understood, not left over. Named anyway, because the alternative is
         // the `{other:?}` arm below printing a Rust debug string at a person.
@@ -2046,6 +2913,23 @@ fn paste_reply(
     let secrets = ingest.drops.entries.len().to_string();
     let unresolved_total = weld.unresolved.len().to_string();
 
+    // WHAT THIS PASTE PRODUCED, in sixteen characters (`49` §19 phase 0, item 3).
+    //
+    // The journal records the redacted TEXT and a replay re-runs the parser over
+    // it, so a build whose dictionary has improved since — 23.8% to 47.5% line
+    // coverage in two days this month — rebuilds a DIFFERENT estate from the
+    // same file, with different ULIDs, and says nothing. This is the fact that
+    // lets the page notice. `fathom_graph::shape` argues what is in the digest,
+    // what is deliberately left out, and why it is drift detection and never a
+    // seal.
+    //
+    // It travels on the paste reply rather than as its own opcode because a
+    // paste is the only step whose output depends on a dictionary that changes
+    // underneath it; every other journalled op names its own ids explicitly.
+    // That is also 448 module bytes cheaper, which at 203 bytes of headroom is
+    // not a rounding error.
+    let shape = fathom_graph::shape_hex(graph);
+
     protocol::encode_paste_reply(&protocol::PasteReply {
         summary: [
             &nodes,
@@ -2060,6 +2944,7 @@ fn paste_reply(
         residue: &residue,
         unresolved: &unresolved,
         capture: text,
+        shape: &shape,
     })
 }
 
@@ -2183,6 +3068,7 @@ fn equip_reply_text(id: &str, written: &str) -> Vec<u8> {
         residue: &[],
         unresolved: &[],
         capture: "",
+        shape: "",
     })
 }
 
@@ -2353,4 +3239,123 @@ fn section_prefix(section: Section) -> &'static str {
         Section::Rules => "rules/",
         Section::Concepts => "concepts/",
     }
+}
+
+/// A read path into the held estate, **for tests only**.
+///
+/// The opcodes are the only door a browser has and they answer with rendered
+/// faces rather than with the graph — which is right, and which left no way to
+/// assert on provenance. That gap is why the clock-derived author survived: a
+/// test could see what a face SAID and never who a fact was ATTRIBUTED TO.
+///
+/// Gated behind `inspect`, which nothing but this crate's own dev-dependency
+/// enables. `artifact_gates.rs` proves it is absent from the shipping module
+/// rather than trusting the feature resolver.
+#[cfg(feature = "inspect")]
+impl Shell {
+    pub fn estate_for_test(&self) -> Option<&fathom_graph::Graph> {
+        self.estate.as_ref()
+    }
+}
+
+/// **IS THIS A BOX THE DESIGN ALREADY HOLDS?** — and the answer is never a
+/// merge, only a question or a no.
+///
+/// Returns the refusal text when a live `Device` in `estate` matches the
+/// freshly-welded `Device` in `dry` on any identity tier the SCHEMA declares,
+/// and `None` otherwise.
+///
+/// # The tiers come from `schema/`, not from here
+///
+/// `NodeKind::identity_tiers()` is generated from `schema/schema.yaml` (added
+/// the same day as this function, for this function). Hard-coding "hostname
+/// and platform" would have been three lines shorter and is the hand-written
+/// per-kind rule ADR-0008 forbids — it would also mean the owner editing
+/// `schema/schema.yaml` silently changed nothing. There was already one such
+/// rule in the tree (`rack_place`'s reuse-by-label); a second is the point at
+/// which a special case becomes a pattern.
+///
+/// # A tier only counts when every term in it is present
+///
+/// `Device` declares `[hostname, platform]` and `[platform,
+/// management_address]`. A config with no `set system host-name` leaves the
+/// first tier unevaluable, and **no junos-srx dictionary entry populates
+/// `management_address`** (checked: zero hits across `corpus/dict/`), so the
+/// second is unevaluable from a paste as well. Such a device can never be
+/// recognised and always welds as new — which the reply says out loud rather
+/// than letting an estate of record silently fill with duplicates.
+///
+/// A term this function cannot resolve to a field is treated the same way:
+/// unevaluable, never a match. `Interface`'s `owner(Device)` is the shape that
+/// forces this, and it is why every sub-device tier is unusable by
+/// construction — none can be evaluated until two devices are already known to
+/// be the same device, which is precisely the decision being refused.
+fn identity_clash(estate: &fathom_graph::Graph, dry: &fathom_graph::Graph) -> Option<String> {
+    use fathom_ir::generated::ir_types::{DeviceField, NodeKind};
+
+    // The paste's device. `apply_new_device` seeds exactly one.
+    let fresh = dry.nodes_of_kind(NodeKind::Device).next()?;
+
+    // Resolve each declared term to a field key. Only `Device`'s own fields
+    // are resolvable here; anything else leaves the tier unevaluable.
+    let term_key = |term: &str| -> Option<fathom_ir::bag::FieldKey> {
+        DeviceField::ALL
+            .iter()
+            .find(|f| f.name() == term)
+            .map(|f| f.key())
+    };
+
+    for tier in NodeKind::Device.identity_tiers() {
+        let mut wanted = Vec::new();
+        let mut evaluable = true;
+        for term in *tier {
+            match term_key(term).and_then(|k| fathom_inventory::field_text(dry, fresh.id, k)) {
+                Some(text) => wanted.push((term_key(term).expect("resolved above"), text)),
+                None => {
+                    evaluable = false;
+                    break;
+                }
+            }
+        }
+        if !evaluable || wanted.is_empty() {
+            continue;
+        }
+
+        // Ordered by NodeId so the device named in the refusal is the same one
+        // every time (invariant 9) rather than whichever the iterator reached
+        // first.
+        let mut hits: Vec<fathom_graph::NodeId> = estate
+            .nodes_of_kind(NodeKind::Device)
+            .filter(|n| {
+                n.absent_since.is_none()
+                    && wanted.iter().all(|(k, text)| {
+                        fathom_inventory::field_text(estate, n.id, *k).as_deref()
+                            == Some(text.as_str())
+                    })
+            })
+            .map(|n| n.id)
+            .collect();
+        hits.sort();
+        let Some(hit) = hits.first().copied() else {
+            continue;
+        };
+
+        let name = term_key("hostname")
+            .and_then(|k| fathom_inventory::field_text(estate, hit, k))
+            .unwrap_or_else(|| "that device".to_owned());
+        let terms: Vec<&str> = tier.to_vec();
+        return Some(format!(
+            "{name} is already in this design — the same {}. Fathom will not \
+             merge a second reading of a box it already has: it cannot yet, and \
+             guessing would put two half-true versions of one device in your \
+             estate of record. If this is a DIFFERENT box that happens to match, \
+             say so and it will be added as a second device. If it is the SAME \
+             box and this config is newer, there is no update yet — that is \
+             re-identification and nothing in this build implements it.|{}|{}",
+            terms.join(" and "),
+            fathom_graph::ElementId::Node(hit),
+            name
+        ));
+    }
+    None
 }

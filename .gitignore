@@ -8,3 +8,8 @@
 # Scoped to `worktrees/` rather than all of `.claude/`, so that if project
 # configuration ever lives beside them it is still tracked.
 .claude/worktrees/
+
+# Extra CA certificates for the container build (deploy/ca/README.md explains
+# why the mechanism exists). The certificates an organisation uses are its own;
+# a repository is the wrong place for them.
+deploy/ca/*.crt

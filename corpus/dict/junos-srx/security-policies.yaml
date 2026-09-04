@@ -1,0 +1,140 @@
+# corpus/dict/junos-srx/security-policies.yaml — `set security policies
+# from-zone X to-zone Y policy NAME …`.
+#
+# Read off Juniper's CLI reference page "policies (Security)" on
+# **2026-08-15** (ADR-0034 — the source AND the date; the URL is already cited
+# by `docs/60-content/66-junos-coverage-measurement.md` §10's own table,
+# reused here rather than re-derived):
+#
+#   https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/security-edit-policies.html
+#
+#   policies {
+#       from-zone zone-name to-zone zone-name {
+#           policy policy-name {
+#               match { source-address address; destination-address address;
+#                       application application; }
+#               then { permit; deny; reject; }
+#           }
+#       }
+#   }
+#
+#   Hierarchy Level: [edit security policies]
+#
+# Confirmed by the guided-setup worked example this project already sourced
+# and dated (`docs/60-content/66-junos-coverage-measurement.md` §10):
+# *Configure Secure Local Branch Connectivity*, which is where
+# `tests/fixtures/junos-srx-branch-documented.txt` lines 84-104 come from.
+#
+# `PolicySet.scope` (`PolicyScope`) is `docs/10-core/11-ir-schema.md`'s own
+# empty struct — nothing here can assert it, so a `PolicySet` binds with no
+# fields at all, exactly as `corpus/dict/opnsense/firewall-rules.yaml` leaves
+# it (see that file's README §4, "the empty-struct finding"). `evaluation` is
+# left unset for the same reason `70` §7's own reasoning would demand it be
+# sourced fresh before it is asserted as a vendor fact — not done this pass;
+# see the dictionary's git history / the work order for the note.
+#
+# `PolicySet` is keyed on the zone PAIR (`["$fz", "$tz"]`), not on either zone
+# alone: three of the four pairs in the reference fixture share `trust` as the
+# source and two share `untrust` as the destination, so a single-zone key
+# would silently merge distinct zone-pair policy lists into one, scrambling
+# the evaluation order rung 4 exists to show "exactly, not heuristically"
+# (`57` §6.3). `schema/schema.yaml`'s own `PolicySet` doc makes the same point:
+# "a Junos policy belongs to a zone *pair*, not to a zone."
+#
+# `SecurityPolicy.ordinal` is assigned once, at first creation, by
+# `ordinal_on_create` (`bind.rs`) — never re-derived from a statement's line
+# number, because a policy's four lines (bare stanza, two matches, `then`) can
+# appear in any order and only one of them is the line that happens to create
+# the node.
+#
+# WHAT STAYS RESIDUE, deliberately:
+#   - `match source-address NAME` / `match destination-address NAME` for any
+#     REAL name (not the literal `any`): `AddressObject.value` is
+#     `AddressValue`, an empty struct and a REQUIRED (card 1) field, so an
+#     `AddressObject` cannot be honestly constructed at all — the same wall
+#     `corpus/dict/opnsense/firewall-rules.yaml`'s README documents. Only the
+#     literal `any` binds, onto `match_any_source` / `match_any_destination`.
+#   - `match application ANY-VALUE`, including the literal `any`:
+#     `SecurityPolicy` has no `match_any_application` field mirroring the two
+#     source/destination flags (checked `schema/schema.yaml` in full), so
+#     there is nowhere for even the `any` literal to bind. Whether a real
+#     application name should resolve a `MatchApplication` edge to a
+#     name-only `Application` node is a judgment call this pass does not
+#     make — flagged as an escalation, not decided here.
+#   - `then permit tunnel ipsec-vpn NAME` (`TunnelsVia`, policy-based VPN):
+#     not exercised by the reference fixture; left for the day it is.
+#   - `then deny`, `then reject`, `description`, `deactivate … policy NAME`
+#     (`enabled = false`): plausible mirrors of the four entries below, but
+#     not personally verified against Juniper's page this session (ADR-0034
+#     rule 1) and not needed by the reference fixture, which carries only
+#     `then permit`. Left for the day the vendor page is opened and cited.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+entries:
+  # The bare stanza. `14` §7.1: "the second creates the node with no fields."
+  # `partial: true` because every entry below extends this same path with a
+  # `match` or `then` sub-statement.
+  - id: junos-srx/security.policies.policy
+    path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy"]
+    partial: true
+    binds:
+      nodes:
+        - { as: set, kind: PolicySet, key: ["$fz", "$tz"] }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$policy"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$policy", scalar: Identifier }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.policies.match-source-any
+    path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", match, source-address, any]
+    binds:
+      nodes:
+        - { as: set, kind: PolicySet, key: ["$fz", "$tz"] }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$policy"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$policy", scalar: Identifier }
+            - { field: match_any_source, const_bool: true }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.policies.match-destination-any
+    path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", match, destination-address, any]
+    binds:
+      nodes:
+        - { as: set, kind: PolicySet, key: ["$fz", "$tz"] }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$policy"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$policy", scalar: Identifier }
+            - { field: match_any_destination, const_bool: true }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.policies.then-permit
+    path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", then, permit]
+    binds:
+      nodes:
+        - { as: set, kind: PolicySet, key: ["$fz", "$tz"] }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$policy"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$policy", scalar: Identifier }
+            - { field: action, const_enum: "PolicyAction.permit" }
+    versions: "*"
+    reviewed_by: <named human>

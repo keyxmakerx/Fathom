@@ -15,8 +15,8 @@
 use fathom_inventory::InvKind;
 use fathom_wasm::protocol::{
     decode_reply, ErrorView, FaceRowView, ReplyView, ERR_BAD_FRAME, ERR_INGEST_REFUSED,
-    ERR_NOTHING_UNDERSTOOD, ERR_PASTE_FRAME, FACE_HEADER, FACE_PASTE, FACE_RESIDUE,
-    FACE_UNRESOLVED,
+    ERR_NOTHING_UNDERSTOOD, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, FACE_HEADER, FACE_INV, FACE_PASTE,
+    FACE_RESIDUE, FACE_UNRESOLVED,
 };
 use fathom_wasm::shell::Shell;
 use fathom_wasm::{OP_INV_ROWS, OP_PASTE};
@@ -28,11 +28,23 @@ mod common;
 /// 2026-08-08T00:00:00Z. A stored value, like every timestamp in this tree.
 const TS: u64 = 1_786_147_200_000;
 const ENTROPY: u128 = 0x0000_0000_0000_0000_2026;
+/// Two more entropy values, FAR APART from the first and from each other.
+///
+/// The mint walks a counter up from `entropy & (2^80 - 1)`, so two pastes whose
+/// bases sit within `minted` of one another produce overlapping id ranges and
+/// the second is refused. A real host draws sixteen bytes from a CSPRNG and
+/// never lands that close; a test that derives one constant from another very
+/// easily does, and an earlier draft of this file did it twice.
+const ENTROPY_2: u128 = 0x0000_0000_0000_0000_4000_0000;
+const ENTROPY_3: u128 = 0x0000_0000_0000_0000_8000_0000;
 
 /// Route-based IPsec on an SRX, in the set form a `show configuration
 /// | display set` produces. Deliberately mixed: statements the dictionary
-/// knows, statements it does not (the routing options and the policy), and one
-/// pre-shared key, which must never survive the call.
+/// knows, one it does not at all (the routing options), one it only half
+/// understands (the policy's `match source-address any` binds, its
+/// `match application any` does not — `SecurityPolicy` has no
+/// `match_any_application` field, see `corpus/dict/junos-srx/security-policies.yaml`),
+/// and one pre-shared key, which must never survive the call.
 const PASTE: &str = "\
 set system host-name srx-branch-01
 set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30
@@ -54,12 +66,23 @@ set security zones security-zone trust interfaces ge-0/0/0.0
 set security zones security-zone vpn interfaces st0.0
 set routing-options static route 10.10.0.0/16 next-hop st0.0
 set security policies from-zone trust to-zone vpn policy allow match source-address any
+set security policies from-zone trust to-zone vpn policy allow match application any
 ";
 
+/// The wire frame. 25 bytes of prefix since 2026-08-21: the clock, the
+/// entropy, and one CONFIRM byte. `0` is "refuse if this names a device the
+/// design already holds"; `1` is the operator having said they are different
+/// boxes. Every existing test sends `0`, which is the behaviour they were
+/// written against — a first paste into an empty estate cannot clash.
 fn frame(at: u64, entropy: u128, text: &str) -> Vec<u8> {
-    let mut f = Vec::with_capacity(24 + text.len());
+    frame_confirmed(at, entropy, text, false)
+}
+
+fn frame_confirmed(at: u64, entropy: u128, text: &str, confirm: bool) -> Vec<u8> {
+    let mut f = Vec::with_capacity(25 + text.len());
     f.extend_from_slice(&at.to_le_bytes());
     f.extend_from_slice(&entropy.to_le_bytes());
+    f.push(u8::from(confirm));
     f.extend_from_slice(text.as_bytes());
     f
 }
@@ -141,8 +164,10 @@ fn the_pre_shared_key_never_comes_back() {
 }
 
 /// `14`'s governing rule at the reply boundary: a line the parser did not bind
-/// is *named*, not dropped. The routing statement and the policy statement are
-/// outside the dictionary and both must be visible as residue.
+/// is *named*, not dropped. The routing statement is entirely outside the
+/// dictionary; the `match application any` policy line is only PARTIALLY
+/// understood (the policy it names is real, its application match is not) —
+/// both must still be visible as residue.
 #[test]
 fn what_was_not_understood_is_named() {
     let (_shell, rows) = pasted();
@@ -173,7 +198,7 @@ fn what_was_not_understood_is_named() {
     );
     assert!(
         text.iter().any(|t| t.contains("security policies")),
-        "the policy statement is outside the dictionary and must be named: {text:?}"
+        "the policy's unmodelled `match application` tail must be named: {text:?}"
     );
 }
 
@@ -203,9 +228,10 @@ fn the_inventory_face_renders_the_pasted_estate() {
     let hostname = summary(&rows).strings[6].clone();
 
     let devices = face(&shell.handle(OP_INV_ROWS, &[0]));
+    // Two chrome records to skip: the header and `FACE_INV_KEY`.
     let cells: Vec<String> = devices
         .iter()
-        .skip(1)
+        .skip(2)
         .flat_map(|r| r.strings.iter().cloned())
         .collect();
     assert!(
@@ -239,9 +265,12 @@ fn the_same_frame_gives_the_same_bytes() {
 #[test]
 fn a_short_frame_is_refused_by_code() {
     let mut shell = common::booted_shell();
-    let e = error(&shell.handle(OP_PASTE, &[0u8; 23]));
+    // 24 bytes was a COMPLETE frame until 2026-08-21 and is a short one now,
+    // which is the sharper probe: it is the length the previous protocol
+    // accepted, so it catches a module that quietly kept reading the old shape.
+    let e = error(&shell.handle(OP_PASTE, &[0u8; 24]));
     assert_eq!(e.code, ERR_PASTE_FRAME);
-    assert!(e.detail.contains("24"), "{}", e.detail);
+    assert!(e.detail.contains("25"), "{}", e.detail);
 }
 
 #[test]
@@ -322,10 +351,12 @@ fn kind_byte(kind: InvKind) -> u8 {
         .expect("a declared kind")
 }
 
+/// `skip(2)`, not `skip(1)`: an inventory reply opens with the header AND the
+/// editable-column key row (`FACE_INV_KEY`), and neither is a device.
 fn devices(shell: &mut Shell) -> Vec<[String; 8]> {
     face(&shell.handle(OP_INV_ROWS, &[kind_byte(InvKind::Device)]))
         .into_iter()
-        .skip(1)
+        .skip(2)
         .map(|r| r.strings)
         .collect()
 }
@@ -470,11 +501,12 @@ fn the_objects_a_config_builds_are_reachable_and_named() {
     for (kind, name, what) in want {
         let byte = kind_byte(kind);
         let rows = face(&shell.handle(OP_INV_ROWS, &[byte]));
-        assert!(rows.len() > 1, "{what} has no rows at kind byte {byte}");
+        assert!(rows.len() > 2, "{what} has no rows at kind byte {byte}");
 
+        // Two chrome records to skip: the header and `FACE_INV_KEY`.
         let cells: Vec<String> = rows
             .iter()
-            .skip(1)
+            .skip(2)
             .flat_map(|r| r.strings.iter().cloned())
             .collect();
         assert!(
@@ -557,11 +589,33 @@ fn a_rules_csv_is_read_as_opnsense() {
 #[test]
 fn one_shell_reads_both_grammars() {
     let mut shell = common::booted_shell();
+    // EACH PASTE GETS ITS OWN ENTROPY, because a real host draws fresh bytes
+    // per call and the batch id is derived from them. This test sent one value
+    // three times, which was harmless while a paste REPLACED the estate — the
+    // graph it collided with was thrown away every time — and is a genuine
+    // replay of one paste now that pastes accumulate.
     let junos = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE)));
     assert_eq!(summary(&junos).strings[7], "junos-srx");
-    let csv = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, RULES_CSV)));
+    let csv = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY_2, RULES_CSV)));
     assert_eq!(summary(&csv).strings[7], "opnsense");
-    let again = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE)));
+    // THE THIRD PASTE IS THE SAME JUNOS CONFIG AGAIN, and as of 2026-08-21
+    // that is a QUESTION rather than a silent replacement. This test passed
+    // before only because the estate was being destroyed and rebuilt each
+    // time — it was reading amnesia as if it were a re-read.
+    let refused = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE)));
+    assert_eq!(
+        refused.code, ERR_PASTE_CHOICE,
+        "re-pasting a box the design already holds must ask, not overwrite: {}",
+        refused.detail
+    );
+
+    // Confirmed, it welds as a second device — which is the honest outcome
+    // when a person says these are different boxes that happen to match.
+    // FRESH ENTROPY, because a real host supplies fresh entropy on every call
+    // and the batch id is derived from it. Re-sending the identical frame is a
+    // replay of one paste, not a second paste, and the store is right to refuse
+    // it — which is what an earlier draft of this test discovered the hard way.
+    let again = face(&shell.handle(OP_PASTE, &frame_confirmed(TS, ENTROPY_3, PASTE, true)));
     assert_eq!(summary(&again).strings[7], "junos-srx");
 }
 
@@ -579,11 +633,11 @@ fn the_rules_appear_in_the_inventory() {
     .expect("fewer than 256 kinds");
     let rows = face(&shell.handle(OP_INV_ROWS, &[byte]));
     assert_eq!(rows[0].role, FACE_HEADER);
-    assert_eq!(rows.len(), 5, "a header and four rules");
+    assert_eq!(rows.len(), 6, "a header, the column keys, and four rules");
 
     let cells: Vec<Vec<String>> = rows
         .iter()
-        .skip(1)
+        .skip(2)
         .map(|r| r.strings[1..7].to_vec())
         .collect();
     let by_ordinal = |n: &str| {
@@ -758,4 +812,116 @@ fn replaying_the_capture_rebuilds_the_same_estate() {
         "replaying the redacted capture produced a different estate than the \
          original paste did"
     );
+}
+
+/// **PASTING A BOX THE DESIGN ALREADY HOLDS IS A QUESTION.**
+///
+/// `70` §16.3 settled the collision question by deferring it, and named the
+/// thing that was standing in for the design: *"Until it is designed,
+/// `OP_PASTE` replaces the held estate and says so, which is the behaviour that
+/// cannot silently merge two boxes."* Making the paste additive removes that
+/// guard, so the proposal has to exist — this asserts it does.
+#[test]
+fn a_second_reading_of_the_same_box_is_refused_and_named() {
+    let mut shell = common::booted_shell();
+    let first = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
+    assert!(
+        matches!(decode_reply(&first), Ok(ReplyView::FaceRows(_))),
+        "the first paste should succeed: {:?}",
+        decode_reply(&first)
+    );
+
+    let again = shell.handle(OP_PASTE, &frame(TS, ENTROPY_2, PASTE));
+    let e = error(&again);
+    assert_eq!(
+        e.code, ERR_PASTE_CHOICE,
+        "a second reading of the same box must ask, got: {}",
+        e.detail
+    );
+    assert!(
+        e.detail.contains("srx-branch-01"),
+        "the refusal must name the box it found: {}",
+        e.detail
+    );
+    // The detail is `sentence|display-id|hostname` so the page can offer the
+    // answer without re-deriving any of it.
+    assert_eq!(
+        e.detail.split('|').count(),
+        3,
+        "the refusal carries the sentence, the id and the name: {}",
+        e.detail
+    );
+}
+
+/// And two DIFFERENT boxes accumulate, which is the whole point of the change.
+#[test]
+fn two_different_boxes_both_survive() {
+    let mut shell = common::booted_shell();
+    shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
+    let second = shell.handle(
+        OP_PASTE,
+        &frame(TS, ENTROPY_2, "set system host-name srx-branch-99\n"),
+    );
+    assert!(
+        matches!(decode_reply(&second), Ok(ReplyView::FaceRows(_))),
+        "a different box must weld: {:?}",
+        decode_reply(&second)
+    );
+    let byte = u8::try_from(
+        InvKind::ALL
+            .iter()
+            .position(|k| *k == InvKind::Device)
+            .expect("Device is a row set"),
+    )
+    .expect("fewer than 256 kinds");
+    let rows = face(&shell.handle(OP_INV_ROWS, &[byte]));
+    let devices = rows.iter().filter(|r| r.role == FACE_INV).count();
+    assert_eq!(
+        devices, 2,
+        "the first paste must survive the second — this is the defect the \
+         change exists to fix"
+    );
+}
+
+/// **AN ID COLLISION IS REFUSED BEFORE THE ESTATE IS TOUCHED.**
+///
+/// `apply_new_device` opens its batch first and `fathom-graph` has no
+/// rollback, so a collision hit MID-WELD leaves a partial batch in the
+/// operator's estate. The pre-flight makes that unreachable: the dry run says
+/// exactly which ids the real weld will claim, and every one is asked about,
+/// read-only, before anything is written.
+///
+/// The probe reuses one entropy value for two different boxes — which a real
+/// host never does, and which is therefore the exact hostile input the
+/// pre-flight exists for.
+#[test]
+fn an_id_collision_is_refused_with_nothing_written() {
+    let mut shell = common::booted_shell();
+    let ok = shell.handle(OP_PASTE, &frame(TS, ENTROPY, PASTE));
+    assert!(matches!(decode_reply(&ok), Ok(ReplyView::FaceRows(_))));
+
+    // Different hostname (so the identity check passes), SAME entropy (so the
+    // minted range overlaps the first paste's exactly).
+    let clash = shell.handle(
+        OP_PASTE,
+        &frame(TS, ENTROPY, "set system host-name srx-clash-99\n"),
+    );
+    let e = error(&clash);
+    assert!(
+        e.detail.contains("nothing was added"),
+        "the refusal must be the pre-flight's (before writing), not the \
+         mid-weld fallback: {}",
+        e.detail
+    );
+
+    // And nothing WAS added: the estate still holds exactly one device, and
+    // the log holds exactly one batch — no partial second batch.
+    let g = shell.estate_for_test().expect("an estate");
+    assert_eq!(
+        g.nodes_of_kind(fathom_ir::generated::ir_types::NodeKind::Device)
+            .count(),
+        1,
+        "a refused paste wrote a device"
+    );
+    assert_eq!(g.log().len(), 1, "a refused paste left a batch in the log");
 }

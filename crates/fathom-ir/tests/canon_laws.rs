@@ -63,7 +63,23 @@ fn schema_version_is_the_trees() {
     // and `device_role_declares_the_home_lab_variants` below drives exactly
     // that path, so the compatibility claim in the version comment is tested
     // rather than asserted.
-    assert_eq!(SCHEMA_VERSION, "0.3");
+    //
+    // 0.3 -> 0.4 on 2026-08-28: `PhysicalPort.label` relaxed `1` -> `0..1` —
+    // the owner's answer to 57 §13.5's open decision 8 (70 §18), the hard
+    // blocker on cabling mode. Under drag-then-annotate capture, "there is a
+    // port and I do not know which" is the normal state of a fresh cable end,
+    // and a schema that cannot say it cannot record the primary gesture.
+    // 62 §16.2 prices a relaxed cardinality MINOR: every 0.3 export is a
+    // valid 0.4 export. One bit cleared in FIELD_REQUIRED_BITS; no kind, no
+    // edge, no retype, no tuple reordered.
+    //
+    // 0.4 -> 0.5 on 2026-08-29: WO-10's `DhcpRelay` kind, its three edges
+    // (`HasDhcpRelay`, `RelaysFor`, and `RelayServerIn` -- the owner's route
+    // (i) for the routing-instance qualifier, 70 §18.5), four fields on the new
+    // declarer, keys 308-311. 62 §16.2 prices a new kind, a new edge kind and a
+    // field on a new declarer all MINOR: an old build keeps the unknown kind in
+    // `unknown` rather than refusing the file. Nothing existing moved.
+    assert_eq!(SCHEMA_VERSION, "0.5");
 }
 
 #[test]
@@ -551,7 +567,12 @@ fn dispatch_names_every_registry_key() {
     // append-only and a key is never reused, so this number only ever grows —
     // a SHRINK here is a retired key being recycled, which silently
     // reinterprets stored bytes, and that is the defect this guards.
-    assert_eq!(FIELD_KEYS.len(), 307, "the registry grew or shrank");
+    //
+    // 307 -> 311 on 2026-08-29: WO-10's four `DhcpRelay` keys (server,
+    // group_name, maximum_hop_count, minimum_wait_time) at 308-311, appended
+    // after `MountedIn.face`. Grew, never shrank; the loop below proves each
+    // new key reaches a generated arm.
+    assert_eq!(FIELD_KEYS.len(), 311, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

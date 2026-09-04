@@ -1,0 +1,180 @@
+# corpus/dict/junos-srx/forwarding-options.yaml — WO-10, executed 2026-08-29.
+#
+# DHCP relay and BOOTP: the first statements the estate could not hold, and the
+# first feature the owner asked for by name that the byte ceiling refused
+# (2026-08-17: "we need to make sure dhcp relay but also bootp is there. Since
+# we use bootp apparently, just discovered that.").
+#
+# EVERY SYNTAX CLAIM BELOW WAS READ OFF JUNIPER'S OWN PAGES ON 2026-08-29, not
+# recalled (ADR-0034). Their CLI-reference pages render the Syntax block
+# client-side, which is why four fetches on 2026-08-17 came back with empty
+# section bodies (WO-10 §5.4); the raw HTML carries it, and that is what was
+# read. Two pages, same site, so per ADR-0034 rule 2 this is ONE database read
+# twice plus Juniper's own worked example — a vendor-independent grammar source
+# was not obtained and is not claimed.
+#
+#   Juniper Networks, "helpers", Junos OS CLI reference,
+#   .../cli-reference/topics/ref/statement/helpers-edit-forwarding-options.html
+#   Juniper Networks, "bootp", Junos OS CLI reference,
+#   .../cli-reference/topics/ref/statement/bootp-edit-forwarding-options.html
+#   Juniper Networks, "dhcp-relay", Junos OS CLI reference,
+#   .../cli-reference/topics/ref/statement/dhcp-relay-edit-forwarding-options.html
+#
+# The `bootp` syntax block, verbatim from both of the first two pages:
+#
+#   bootp {
+#       client-response-ttl number;
+#       description text-description;
+#       interface (interface-name | interface-group) {
+#           client-response-ttl number;
+#           description text-description;
+#           maximum-hop-count number;
+#           minimum-wait-time seconds;
+#           no-listen;
+#           server address {
+#               logical-system logical-system-name <routing-instance [ <default> routing-instance-names ]>;
+#               routing-instance [ <default> routing-instance-names ];
+#           }
+#       }
+#       maximum-hop-count number;
+#       minimum-wait-time seconds;
+#       ...
+#   }
+#
+# and the flattened form the same page gives in its description:
+#   server address <logical-system logical-system-name> <routing-instance routing-instance-name>;
+# with its worked example `server 10.20.30.40;`.
+#
+# WO-10 §5.4, CLOSED BY THOSE READS:
+#   item 1 — the verbatim block above; `server`, `maximum-hop-count` and
+#            `minimum-wait-time` exist both globally and per `interface`.
+#   item 2 — the grammar token is `address`, on both pages, and NEITHER offers a
+#            hostname alternative — Juniper writes alternatives out where they
+#            exist (`interface (interface-name | interface-group)` on the same
+#            block; the NTP `server` page says "hostname" in terms). So
+#            `DhcpRelay.server` stays `IpAddr`, and a hostname on such a line is
+#            a `ValueUnparsed` diagnostic and never a silently dropped server —
+#            the `system.ntp.server` precedent in system.yaml.
+#   item 3 — units: `maximum-hop-count number` (hops), `minimum-wait-time
+#            seconds`. RANGES NOT ESTABLISHED: the two dedicated statement pages
+#            returned 404 on 2026-08-29. Both fields are `u32 0..1` and both
+#            forms are first-cut residue (WO-10 §11 item 4), so nothing here
+#            depends on the bound. VERIFY when either form is bound.
+#   item 4 — `routing-instance` may qualify a `server` (the block above; the
+#            owner chose a real edge, 70 §18.5). Note the block spells it as a
+#            LIST, `[ <default> routing-instance-names ]`; the flattened form and
+#            Juniper's DHCP User Guide example (`server 172.16.0.3
+#            routing-instance c3;`, read 2026-08-28) name ONE. The single-name
+#            set-form binds below; a bracketed list matches the shorter entry
+#            and is reported residue, never half-read.
+#
+# G7 — THE DEPRECATION, WHICH IS THE FINDING THAT MATTERS TO THE OWNER (WO-10
+# §5.1). Juniper's `bootp` page, read 2026-08-29, in terms: "For supported SRX
+# Series Firewalls, JDHCP or extended DHCP is the enhanced versions of the DHCP
+# daemon (legacy DHCP) ... The /forwarding-options/helpers/bootp command is
+# deprecated." Release information on the same page: "Statement introduced
+# before Junos OS Release 7.4." The replacement is `forwarding-options
+# dhcp-relay` (the JDHCP / extended DHCP relay), whose `server-group` form is
+# the last entry in this file. The owner's config is not wrong and it works;
+# this is what the teaching half of the product exists to say. Carrying it INTO
+# the estate (a `deprecated:` key, page copy) is unordered surface work per
+# WO-10 §11 item 5, so it lives here and in 66's re-measure note until then.
+#
+# FIRST-CUT SCOPE (WO-10 §11 item 4, decided): the three gated forms plus the
+# routing-instance-qualified server (the owner's route (i)). NAMED RESIDUE, by
+# decision and not neglect: `active-server-group` (both levels), `group <name>
+# interface <ifl>`, `maximum-hop-count`, `minimum-wait-time`. The group forms
+# connect through a name across lines, which the one-line binder cannot express
+# against address-keyed nodes; the two limits are stanza-global with no
+# per-address home. `dhcp-relay`'s `active-server-group server-group-name;` and
+# `group group-name { active-server-group ...; }` were read off the dhcp-relay
+# page the same day and are cited here so the residue is a known shape, not an
+# unknown one.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+entries:
+  # `set forwarding-options helpers bootp server <address>`
+  # `partial: true` because the routing-instance entry below extends this path;
+  # `14` §6.5's shadowing gate requires the shorter of a prefix pair to say so.
+  # A line that says more than this entry models (a bracketed instance list, a
+  # logical-system) still binds the relay and is reported residue.
+  - id: junos-srx/forwarding-options.helpers.bootp.server
+    path: [forwarding-options, helpers, bootp, server, "$a"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: DhcpRelay, owner: n0, key: "$a", fields: [ { field: server, from: "$a", scalar: IpAddr } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `set forwarding-options helpers bootp server <address> routing-instance <name>`
+  # The owner's route (i): a real edge to the RoutingInstance, resolved by name
+  # and carried Pending when no such instance is in the estate (the `reth0.0`
+  # behaviour). No dictionary entry builds a RoutingInstance yet, so today this
+  # edge is always Pending on a real paste — which is the honest state, and is
+  # what makes the instance appear the moment `routing-instances` is bound.
+  # Absent edge means the DEFAULT instance, never "unknown" (schema doc).
+  - id: junos-srx/forwarding-options.helpers.bootp.server.routing-instance
+    path: [forwarding-options, helpers, bootp, server, "$a", routing-instance, "$ri"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: DhcpRelay, owner: n0, key: "$a", fields: [ { field: server, from: "$a", scalar: IpAddr } ] }
+      edges:
+        - { kind: RelayServerIn, from: n1, to: { by_name: { kind: RoutingInstance, from: "$ri" } } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `set forwarding-options helpers bootp interface <ifl> server <address>`
+  # `RelaysFor` through the `interface_unit` resolver (security-zones.yaml's
+  # `ZoneMember` idiom). The grammar admits an interface GROUP name here too;
+  # a group name resolves to no unit and the edge stays Pending, named.
+  - id: junos-srx/forwarding-options.helpers.bootp.interface.server
+    path: [forwarding-options, helpers, bootp, interface, "$ifl", server, "$a"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: DhcpRelay, owner: n0, key: "$a", fields: [ { field: server, from: "$a", scalar: IpAddr } ] }
+      edges:
+        - { kind: RelaysFor, from: n1, to: { interface_unit: "$ifl" } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `set forwarding-options helpers bootp interface <ifl> server <address> routing-instance <name>`
+  - id: junos-srx/forwarding-options.helpers.bootp.interface.server.routing-instance
+    path: [forwarding-options, helpers, bootp, interface, "$ifl", server, "$a", routing-instance, "$ri"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: DhcpRelay, owner: n0, key: "$a", fields: [ { field: server, from: "$a", scalar: IpAddr } ] }
+      edges:
+        - { kind: RelaysFor, from: n1, to: { interface_unit: "$ifl" } }
+        - { kind: RelayServerIn, from: n1, to: { by_name: { kind: RoutingInstance, from: "$ri" } } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `set forwarding-options dhcp-relay server-group <name> <address>`
+  # The replacement Juniper recommends for the deprecated bootp helper. The
+  # `dhcp-relay` page's block, verbatim (2026-08-29):
+  #   server-group {
+  #       server-group-name {
+  #           server-ip-address;
+  #       }
+  #   }
+  # and "Statement introduced in Junos OS Release 8.3"; "Starting in Junos OS
+  # Release 18.4R1, you can configure up to 32 server IP addresses per group for
+  # DHCPv4 servers. In earlier releases, you can configure only up to 5". No
+  # routing-instance qualifier exists on this form (the block above; confirmed
+  # twice 2026-08-28). A group of three addresses is three lines, three nodes,
+  # one shared `group_name` (G4): the reasoning asks about each address alone.
+  - id: junos-srx/forwarding-options.dhcp-relay.server-group
+    path: [forwarding-options, dhcp-relay, server-group, "$g", "$a"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device }
+        - { as: n1, kind: DhcpRelay, owner: n0, key: "$a", fields: [ { field: server, from: "$a", scalar: IpAddr }, { field: group_name, from: "$g", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>

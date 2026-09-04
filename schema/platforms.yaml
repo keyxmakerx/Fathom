@@ -34,6 +34,18 @@ vendors:
                          # unrelated firmware stacks, so one row would be wrong for two of
                          # them. This needs a device on a desk, not more research.
 
+  proxmox:   {}          # Owner-named 2026-08-28 (`70` §18.4): *"proxmox would probably
+                         # need to be an engine"* — the first general-purpose host vendor,
+                         # and the sentence that set the direction for ADR-0037 §5's open
+                         # question (engines, not a catch-all platform). Vendor only: the
+                         # survey ran the same day and is `64` §7 — config is plain text
+                         # (colon-separated key/value, near family A), `qm config`/`pct
+                         # config`/`pvesh` print it, secrets sit apart in /etc/pve/priv/,
+                         # and the likely paste shape is an UNREDACTED pvereport, which the
+                         # gate must learn first. The platform row still waits on a real
+                         # capture being seen, per the precedent above — the survey read
+                         # manuals and pve-manager's source, not a config off a box.
+
 # Cisco Meraki has NO vendor entry of its own and NO platform row, and that is the
 # finding rather than an omission. `64` §2: Cisco's own FAQ states "The dashboard
 # configuration cannot be backed up or exported to a local copy" (checked 2026-08-10),

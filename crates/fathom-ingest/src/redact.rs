@@ -568,8 +568,54 @@ fn gate_statement(
             // `perfect-forward-secrecy keys group14` -- granted by review for
             // one statement form, and it cannot speak for tokens outside that
             // form, so it may not veto the raw walk.
+            //
+            // THE ENTRY WALK IS BOUNDED TO ONE TOKEN PAST THE PATH, AND THAT
+            // BOUND IS A DEFECT FIX (2026-08-29).
+            //
+            // `leaf_name_walk(path, at)` starts `path.iter().take(at)`, which
+            // for every `at >= path.len()` is the WHOLE path — so it returns
+            // the same answer for a token one past the entry as for a token
+            // twenty past it. It has no notion of distance once it leaves the
+            // modelled path, because the tokens out there are not IN the path
+            // to be counted.
+            //
+            // That was harmless while no short entry path carried a secret
+            // word. Adding `trap-group` to the word list on 2026-08-17 — to
+            // give `snmp.trap-group` the second detector every other declared
+            // secret already had — made it reachable, and it destroyed the
+            // whole tail of the statement:
+            //
+            //   set snmp trap-group branch-traps targets 192.0.2.20 \
+            //       categories link routing
+            //
+            // is one secret (`branch-traps`, which Juniper puts in the trap
+            // PDU as the community) followed by five tokens of ordinary
+            // configuration — and all six were destroyed, unbounded, because
+            // `[snmp, trap-group, $g]` is three segments long and every token
+            // past it looks equally adjacent to `trap-group`.
+            //
+            // **This reduces what the gate destroys, which is the dangerous
+            // direction**, so it is bounded as narrowly as the defect allows:
+            // the entry walk still runs for the token IMMEDIATELY past the
+            // modelled path, which is the only position the path's own leaf
+            // names can honestly speak about. Everything beyond that is judged
+            // by `raw_walk`, which reads the statement's real preceding tokens
+            // and has always had the two-token bound this one lacked. The
+            // union is unchanged in strength for every case the paragraphs
+            // above describe: the BGP key sits two past its entry and is
+            // caught by the raw walk on `authentication-key`; the zones hole
+            // is caught by the raw walk on `secret`; a bare
+            // `set snmp trap-group NAME` is at `path.len() - 1` and never
+            // reaches this arm at all.
+            //
+            // `14` §9.7 makes destruction the safe direction of error, and it
+            // still is — but destroying an unbounded run of the network is not
+            // erring toward safety, it is erring toward an estate that has
+            // lost the addresses it exists to record (`38` §14.4: the secrets
+            // are 2% of the file, the other 98% is the network).
             Some(e) if at >= e.path.len() => {
-                raw_walk(&segs, at) || (!e.secret_exempt && dict::leaf_name_walk(&e.path, at))
+                raw_walk(&segs, at)
+                    || (at == e.path.len() && !e.secret_exempt && dict::leaf_name_walk(&e.path, at))
             }
             Some(e) => {
                 // The suppression the field card's own `perfect-forward-secrecy
@@ -724,6 +770,95 @@ fn pieces(text: &str) -> impl Iterator<Item = &str> + '_ {
     std::iter::once(text).chain(text.split(['=', ':', ',']).filter(|p| !p.is_empty()))
 }
 
+// ---------------------------------------------------------------------------
+// ADR-0041 D5 — the hint, built from nothing the gate does not already have
+// ---------------------------------------------------------------------------
+
+/// **Does a hand-typed value LOOK like a credential? A HINT, never a fact.**
+///
+/// ADR-0041 answers the hole `2026-09-03-the-gate-is-only-on-the-paste-box.mjs`
+/// proved: every write path that is not `OP_PASTE` parses raw bytes straight
+/// into a typed slot, so the schema's nineteen free-text `notes` and
+/// `description` fields are ungated by construction. The owner's decision
+/// (ADR-0041 §2) is to MARK a value that looks like a credential wherever it
+/// is shown, never to refuse or destroy it — refusing is defeated by
+/// rewording and protects only the person typing, where the mark protects
+/// whoever reads the field next.
+///
+/// **Built from nothing new (D5).** Two instruments the gate already runs,
+/// and no third: the [`SECRET_WORD_LIST`] adjacency rule
+/// ([`adjacent_secret_word`], the same `key: value` / `key=value` shape
+/// [`key_names_a_secret`] already tests against Junos's own set-form) and the
+/// three value shapes the unshaped sweep already runs over free text —
+/// [`crypt_prefix`], [`long_hex`] and [`base64ish`], read through [`pieces`].
+/// A second, hand-tuned detector was refused for the gate itself for exactly
+/// this reason — `49` §1: *"a second implementation … maintained by one
+/// person, guaranteed to drift"* — and the reasoning is identical here.
+///
+/// **Never gates anything.** This function decides nothing about whether a
+/// value is kept; it is a pure predicate over already-typed text, called
+/// after the value has already been accepted and stored (D1). Whatever calls
+/// it may render a mark; nothing may call it to refuse a write.
+///
+/// **Direction of error, same as the gate's (D8).** A missed key costs a
+/// credential left unmarked; a false mark costs a glance. So a bare shape
+/// match (`crypt_prefix`/`long_hex`/`base64ish`) trips on its own, with no
+/// secret word required — the exact instrument the gate's own safety net
+/// uses for the same reason. What it does NOT do is flag a secret word on
+/// its own with no shape and no delimiter next to it: `"replaced the key
+/// switch in rack 4"` must read clean, and the unit tests below pin that
+/// prose alongside real credential shapes a device would actually accept.
+pub fn looks_like_credential(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    for token in text.split_whitespace() {
+        for piece in pieces(token) {
+            if crypt_prefix(piece) || long_hex(piece) || base64ish(piece) {
+                return true;
+            }
+        }
+    }
+    adjacent_secret_word(text)
+}
+
+/// The `SECRET_WORD_LIST` adjacency rule, over a whole hand-typed value
+/// rather than one pre-split token.
+///
+/// `key_names_a_secret`'s own caller (`gate_unshaped`) reads one WHITESPACE
+/// TOKEN at a time — right for Junos and NetworkManager-style
+/// `key=value`/`key:value` with no space around the separator. A person
+/// typing a description writes `"psk: hunter2"`, with a space after the
+/// colon, so the key and its value are two different tokens and neither
+/// alone carries both halves. This walks the text's own `=`/`:` positions
+/// instead of a pre-split token boundary, takes the word immediately before
+/// the separator and the text immediately after it, and asks the existing
+/// rule the same question `key_names_a_secret` already asks.
+///
+/// Deliberately NOT `raw_walk`'s bare-adjacency rule — a secret word found
+/// among the two preceding TOKENS with no separator required. That rule is
+/// right for the ingest gate, where `14` §9.7 fixes the direction of error
+/// as destruction and an over-triggered line costs a residue entry, not a
+/// sentence a person wrote. Run over free prose it flags `"replaced the KEY
+/// switch"` — `switch` sits one token after `key` — which is exactly the
+/// false positive this record's own unit tests pin against. The delimiter
+/// is what tells a credential's `name: value` apart from a sentence that
+/// merely mentions the name.
+fn adjacent_secret_word(text: &str) -> bool {
+    for (idx, ch) in text.char_indices() {
+        if ch != '=' && ch != ':' {
+            continue;
+        }
+        let before = text[..idx].trim_end();
+        let word = before.rsplit(char::is_whitespace).next().unwrap_or("");
+        let after = text[idx + ch.len_utf8()..].trim_start();
+        if !word.is_empty() && !after.is_empty() && key_names_a_secret(word) {
+            return true;
+        }
+    }
+    false
+}
+
 fn raw_walk(texts: &[String], at: usize) -> bool {
     texts
         .iter()
@@ -733,10 +868,47 @@ fn raw_walk(texts: &[String], at: usize) -> bool {
         .any(|t| dict::is_secret_word(t))
 }
 
-/// `14` §9.7's sketch, verbatim: the first two tokens are kept only if
-/// neither trips a detector and both are in the dictionary's known segment
-/// set; every other token becomes `<word:LEN>` or `<quoted:LEN>`; no
-/// character of any token beyond the second survives.
+/// `14` §9.7's sketch: the first two tokens are kept only if neither trips a
+/// detector and both are in the dictionary's known segment set; every other
+/// token becomes `<word>` or `<quoted>`; no character of any token beyond the
+/// second survives.
+///
+/// # THE LENGTH IS GONE, AND THAT IS A DELIBERATE DEVIATION FROM `14` §9.7
+///
+/// §9.7 specifies `<word:LEN>` and `<quoted:LEN>` with the token's exact byte
+/// length, and that is what this emitted until 2026-08-21. **It was a length
+/// oracle for every secret the gate destroys.**
+///
+/// A quarantined line is, by construction, one the gate believes carries a
+/// secret. So `set snmp community <word:12>` says: the community string on
+/// this box is exactly twelve characters. With `head_safe` keeping the first
+/// two tokens verbatim, the reader gets the statement's name *and* the
+/// secret's exact length — which is most of what a guesser wants and all of
+/// what a search-space calculation needs.
+///
+/// **The corpus already forbids this quantity being kept.** Fifty lines above,
+/// [`RedactionEntry::orig_len`] carries `14` §9.5's rule in its own doc
+/// comment — *"for the in-session report only; the persistence layer must not
+/// store it"*. The sketch is written into the capture, and the capture is
+/// welded into the workspace as `Origin::Parsed` provenance. So the sketch was
+/// persisting, on the operator's own disk, the exact quantity §9.5 says must
+/// not be persisted.
+///
+/// Survivable while nothing left the machine, which is why four reviews and a
+/// dedicated adversarial pass over `38` §14 did not catch it until one did.
+/// **It stops being survivable the moment a capture crosses a wire**, which is
+/// what `49` decided this product will do.
+///
+/// The number bought nothing it cost. What makes a quarantined line
+/// recognisable to the person who pasted it is its SHAPE — how many tokens,
+/// which were quoted, and the two head words when they are safe to keep. The
+/// length of the fifth token identifies nothing to a human and hands an
+/// attacker a bound. It is not bucketed or coarsened, because a bucket is
+/// still an oracle with fewer bits; it is removed.
+///
+/// The deviation follows the precedent set by `simple-password`'s addition to
+/// `SECRET_WORD_LIST`: where `14` and a live leak disagree, the leak wins and
+/// the reason is written down here rather than in a commit message.
 fn sketch(capture: &str, dict: &Dictionary, tokens: &[lex::Token], texts: &[String]) -> String {
     let text_at = |at: usize| -> String {
         texts
@@ -767,10 +939,11 @@ fn sketch(capture: &str, dict: &Dictionary, tokens: &[lex::Token], texts: &[Stri
             out.push_str(&text_at(at));
             continue;
         }
-        let len = token.span.end.saturating_sub(token.span.start);
+        // No length. See this function's doc comment: the byte count was a
+        // length oracle for the secret this line was quarantined to protect.
         match token.kind {
-            TokenKind::Quoted => out.push_str(&format!("<quoted:{len}>")),
-            _ => out.push_str(&format!("<word:{len}>")),
+            TokenKind::Quoted => out.push_str("<quoted>"),
+            _ => out.push_str("<word>"),
         }
     }
     out
@@ -920,5 +1093,70 @@ mod tests {
         assert!(dict::is_secret_word("Pre-Shared-Key"));
         assert!(dict::is_secret_word("pre_shared_key"));
         assert!(!dict::is_secret_word("ascii-text"));
+    }
+
+    // -----------------------------------------------------------------
+    // ADR-0041 D5 — looks_like_credential
+    //
+    // Rule 0 (CLAUDE.md) applies to these fixtures exactly as it does to the
+    // gate's own: pinned against what a device would actually accept and
+    // what a person would actually type, never against what the detector
+    // happens to need. A detector that marks everything is as useless as
+    // one that marks nothing (ADR-0041 §8) — so every test below is paired
+    // with a sibling that must come out the other way.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn looks_like_credential_catches_real_credential_shapes() {
+        // An IPsec PSK: 41 alphanumeric characters — base64ish on shape
+        // alone, no adjacency needed.
+        assert!(looks_like_credential(
+            "IPsec PSK: n3JHwd82ka0ppwiVzLp7YXjLp2Qz3Rt5Uv1Wx2Yz3"
+        ));
+        // An SNMP community: 13 characters, too short for any shape
+        // detector to reach (base64ish needs 24, long_hex needs 32). This
+        // one trips ONLY through the SECRET_WORD_LIST adjacency rule on
+        // `community:` — the same case `simple-password` (CLAUDE.md rule 0)
+        // exists to guard against for the gate itself.
+        assert!(looks_like_credential("snmp community: h4ckM3not2024"));
+        // A hex key: 32 lowercase hex characters — long_hex on shape alone.
+        assert!(looks_like_credential(
+            "backup key: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+        ));
+        // `pre-shared-key=value`, no space — the Junos-adjacent shape
+        // `key_names_a_secret` was built for, over a value with no shape of
+        // its own (mixed case, digits and punctuation, nothing base64ish or
+        // hex about it).
+        assert!(looks_like_credential("pre-shared-key=Str0ngP@ssw0rd!"));
+        // A $9$ Junos crypt hash, standalone — no secret word nearby at all,
+        // caught purely by `crypt_prefix`.
+        assert!(looks_like_credential("$9$EXAMPLEnotARealKey01234"));
+    }
+
+    #[test]
+    fn looks_like_credential_leaves_ordinary_prose_alone() {
+        // Each sentence carries a SECRET_WORD_LIST word — PSK, key,
+        // password — with nothing shaped and no `:`/`=` beside it, which is
+        // exactly the shape a hand-typed description actually has.
+        assert!(!looks_like_credential(
+            "backup link to the Denver PSK gateway"
+        ));
+        assert!(!looks_like_credential("replaced the key switch in rack 4"));
+        assert!(!looks_like_credential(
+            "password reset procedure documented in the wiki"
+        ));
+        assert!(!looks_like_credential("uplink to core-sw-2, port 24"));
+        assert!(!looks_like_credential(""));
+    }
+
+    #[test]
+    fn looks_like_credential_needs_the_delimiter_not_bare_adjacency() {
+        // `raw_walk`'s bare two-token lookback is deliberately NOT reused
+        // here (see `adjacent_secret_word`'s doc comment): a secret word one
+        // token before an ordinary word must not trip —
+        assert!(!looks_like_credential("the key switch failed over"));
+        // — only a secret word immediately followed by `:`/`=` and a value
+        // does.
+        assert!(looks_like_credential("key: aB3xR9"));
     }
 }

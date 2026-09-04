@@ -43,6 +43,10 @@ fn loaded() -> Shell {
     let mut f = Vec::new();
     f.extend_from_slice(&TS.to_le_bytes());
     f.extend_from_slice(&ENTROPY.to_le_bytes());
+    // Confirm byte (2026-08-21): 0 = refuse on an identity match. This builder
+    // predates the 25-byte prefix and was silently eating the paste's first
+    // character as the flag.
+    f.push(0);
     f.extend_from_slice(PASTE.as_bytes());
     let reply = shell.handle(OP_PASTE, &f);
     assert!(

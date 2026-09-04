@@ -194,6 +194,180 @@ pub const FACE_RACK_SLOT: u8 = 13;
 /// Reported, never resolved — this face has no basis for choosing which of two
 /// conflicting assertions is right.
 pub const FACE_RACK_CLASH: u8 = 14;
+/// The inventory's editable columns, one record per reply, immediately after
+/// the header and before the first row.
+///
+/// **It mirrors the header's slot layout exactly** — slot 0 is not a column,
+/// slots 1..=6 are the columns in order, slot 7 is the opinions column — so the
+/// page reads a column's key at the same index it read that column's name, and
+/// an off-by-one is not available to it. Slot 0 and slot 7 are always empty:
+/// neither is a field of the row, and the opinions column is a rule engine's,
+/// which this build does not have.
+///
+/// **A row's own slot 7 is not always empty any more (ADR-0041 D5/D7).** It
+/// packs `<opinions> <hints>`, opinions first and hints last because hints is
+/// the one half that is usually empty — [`FACE_BOX`]'s own precedent for
+/// packing more than one fact into the slot [`FACE_SLOTS`] leaves spare, and
+/// for putting the possibly-empty field last so a trailing space is
+/// unambiguous on a `split_once(' ')`. `hints` is `fathom_inventory::Row`'s
+/// own field: a comma-separated list of 0-based cell indices that
+/// `fathom_ingest::redact::looks_like_credential` flagged, computed where the
+/// row was built and never stored in the graph (ADR-0008 — it is an opinion
+/// about a value, not a fact). This KEY row's own slot 7 stays plain empty:
+/// the opinions/hints packing is a property of a data row, and this row
+/// carries none.
+///
+/// Each column's slot holds `FieldKey` in decimal, or the empty string where
+/// the column cannot be typed into — because it is a walk, or because
+/// `fathom_inventory::is_authorable` says the schema's type for it cannot yet
+/// be parsed from text. `fathom_inventory::column_keys` decides; nothing here
+/// forms an opinion about it.
+///
+/// A record rather than more slots on the header, because [`FACE_SLOTS`] is
+/// eight and the header already spends all eight. A record rather than a
+/// name-to-key table in the page, because the page must never hold one: that is
+/// how a form ends up writing one field into another's slot, and it is why
+/// `encode_element_reply` already sends the inspector's keys the same way.
+/// **29, not 15 — this was the third face-code collision in two days.**
+///
+/// 15 went to the shape digest, 16–19 to the findings view and 20–28 to rung 4,
+/// every one of them on a branch built in parallel with this one. The paragraph
+/// above warns that a face code is a wire discriminant and that a collision
+/// renders one record kind as another; three branches then demonstrated it in a
+/// row, which is the strongest argument available that the warning was not
+/// enough on its own.
+///
+/// `artifact.rs`'s `the_pages_face_codes_match_the_modules` is what catches it
+/// now, and it caught this one. Anyone adding a face should read the next free
+/// number out of this file rather than out of a memory of it.
+pub const FACE_INV_KEY: u8 = 29;
+
+// --- the shape reply (`49` §19 phase 0, item 3) -------------------------------
+
+/// The held estate's shape digest — one row, slot 0, 16 lowercase hex
+/// characters. [`fathom_graph::shape_hex`] defines what is in it.
+///
+/// One slot and no counts. The page already has the paste's four summary
+/// numbers from [`FACE_PASTE`] and journals them itself, so repeating them here
+/// would be a second place for the same fact to be written and a second place
+/// for it to be wrong.
+///
+/// **The value is opaque to the page.** It compares two of these for equality
+/// and never parses, truncates, orders or displays one. That is deliberate: the
+/// digest is drift detection and is NOT tamper-evidence — FNV-1a is
+/// non-cryptographic by its own specification (RFC 9923, February 2026) — so no
+/// surface may present it as a seal.
+pub const FACE_SHAPE: u8 = 15;
+
+// --- what the estate does not know yet (`57` §13.5.3) ------------------------
+//
+// Four more roles on the stride-72 face record, for the reason FACE_PASTE
+// gives: the reply is a list of labelled string rows, which is what
+// KIND_FACE_ROW already is.
+//
+// 16–19. Nothing below 16 is free: 0–4 are WO-08's, 5–8 the paste's, 9–11 the
+// diagram's, 12–14 the rack's and 15 the shape digest's. THESE WERE 15–18 UNTIL
+// THE MERGE ON 2026-08-21, when the shape digest and this view both claimed 15
+// from parallel branches — the exact collision the paragraph below warns about,
+// arriving within a day of being written down. A face code is a wire discriminant, so a
+// collision renders one record kind as another (see FACE_RACK's note, which
+// records that happening).
+//
+// NOT CALLED A FINDING ANYWHERE IN THE WIRE FORMAT. `.context/conventions.md`
+// reserves that word for "one rule firing against one node", and this build
+// has no rule engine. What these rows carry is a GAP: a `card: "1"` field with
+// no stored value. The view is named Findings because it is one of `52`'s six
+// views; its content is not findings and must not claim to be.
+
+/// The one summary row, always record 0: gap groups · unstated facts · live
+/// elements walked · kinds present · kinds the estate holds none of.
+pub const FACE_GAP_HEAD: u8 = 16;
+/// One gap group — a kind, a required field, and how many lack it:
+/// kind · field · missing · population · examples carried · the sentence ·
+/// `1` when a person can type this field's value today.
+///
+/// The sentence is composed in `fathom-inventory` and travels whole. The page
+/// renders strings and computes nothing, and "2 of 5" is a computation.
+///
+/// Slot 6 is the uncomfortable one, and being uncomfortable is why it is here:
+/// both gaps a real estate produces in this build are fields nothing can type
+/// in, so a row that reads as a job is not one yet. `Gap::authorable` carries
+/// the reasoning.
+pub const FACE_GAP: u8 = 17;
+/// One element under the group above it: display id · display name · kind ·
+/// the group's index as a decimal string.
+///
+/// The index rather than a nesting depth, because the page has to be able to
+/// reassemble the tree from a flat record list and record ORDER is not a
+/// contract anything else in this protocol relies on.
+pub const FACE_GAP_ITEM: u8 = 18;
+/// A kind the estate holds none of: kind · how many required fields went
+/// unchecked.
+///
+/// Emitted so the view can distinguish "zero because they are all complete"
+/// from "zero because there are none" — the second being the true state of
+/// `Cable` and `PhysicalPort`, which nothing in this build creates (`57`
+/// §6.2). A list that silently reported nothing for them would be telling an
+/// operator their cabling was finished.
+pub const FACE_GAP_EMPTY: u8 = 19;
+
+// --- inside the box, the ladder's fourth rung (`57` §7) ----------------------
+//
+// Eight roles on the same stride-72 record and no new record kind, for the
+// reason the paste reply's block already gives: a reply that is a list of
+// labelled string rows is exactly what `KIND_FACE_ROW` is.
+//
+// The bands are FLAT and each child names its parent by display id, rather
+// than the page reassembling them from record order. `FACE_GAP_ITEM` set that
+// precedent one block up and its reason holds here too — record order is not
+// a contract anything else in this protocol relies on, and a renderer that
+// depends on one breaks silently the day a band is emitted somewhere else.
+
+/// The head, always record 0: device display id · hostname · interfaces ·
+/// units · zones · policy sets · policies · `<routing instances> <tunnels>
+/// <unzoned units>`.
+///
+/// Slot 7 is three space-separated decimals, which is [`FACE_BOX`]'s own
+/// documented compromise and is taken here for the same reason: `FACE_SLOTS`
+/// is eight, widening the face record would change the stride of every face in
+/// the protocol, and three decimals in one slot is a much smaller thing to
+/// explain than that.
+///
+/// **Every number is a count of live elements this build actually walked.**
+/// The page prints them and computes none of them (ADR-0019).
+pub const FACE_INSIDE: u8 = 20;
+/// One interface: display id · name · schema kind word · unit count.
+pub const FACE_IN_IFACE: u8 = 21;
+/// One logical unit: display id · its interface's display id · label ·
+/// addresses joined `, ` · zone display id · zone name · tunnel name.
+///
+/// Slots 4–6 are empty rather than an em dash where there is nothing. The
+/// page owns how absence is said, so there is one convention for it and not
+/// two — see `Unit::zone`.
+pub const FACE_IN_UNIT: u8 = 22;
+/// One zone: display id · name · member units.
+pub const FACE_IN_ZONE: u8 = 23;
+/// One policy set: display id · what the graph can say about the zone pair it
+/// governs, **empty on every estate this build can produce** · policy count.
+///
+/// Slot 1's emptiness is the honest half of `57` §6.3 and is documented at
+/// `fathom_inventory::SetBand::scope`: `PolicyScope` is a unit struct, so a
+/// `PolicySet` cannot name the pair it sits between. The page says so in
+/// words and draws no edge into this band.
+pub const FACE_IN_SET: u8 = 24;
+/// One security policy: display id · its set's display id · ordinal · name ·
+/// action · `1`/`0`/empty for enabled · description.
+///
+/// Emitted in `ordinal` order, which is **the order the device reads them**
+/// and is the one clause of `57` §6.3 that is both exact and buildable.
+pub const FACE_IN_POLICY: u8 = 25;
+/// One routing instance: display id · name.
+pub const FACE_IN_ROUTE: u8 = 26;
+/// One routing protocol: display id · its instance's display id · protocol
+/// token · adjacency count.
+pub const FACE_IN_PROTO: u8 = 27;
+/// One ipsec vpn: display id · name · the unit it binds, or empty.
+pub const FACE_IN_TUNNEL: u8 = 28;
 
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
@@ -281,6 +455,57 @@ pub const ERR_NO_LINK: u16 = 15;
 /// pattern-matched an English sentence to decide whether to show a chooser
 /// would be guessing.
 pub const ERR_LINK_CHOICE: u16 = 16;
+
+/// The paste names a device the design already holds, and Fathom will not
+/// guess whether they are the same box.
+///
+/// **This code exists because the thing that used to stand in for it was
+/// removed.** `70` §16.3 settled the collision question by deferring it:
+///
+/// > a tier-1 match is a **proposal to a human, not an automatic merge**,
+/// > because two real branch sites may both run a `core-01` SRX on the same
+/// > platform. **Until it is designed, `OP_PASTE` replaces the held estate and
+/// > says so, which is the behaviour that cannot silently merge two boxes.**
+///
+/// Making the paste additive removes that guard, so the proposal has to exist.
+/// It cannot ship bare.
+///
+/// **What replacing was actually doing.** Pasting the same box twice yielded
+/// one device — because the second paste destroyed the first. That is not
+/// correlation; it is amnesia that happens to look like correlation from one
+/// angle. This code replaces it with a question, which is the truth about what
+/// Fathom knows.
+///
+/// The message carries the existing device's display id and hostname so the
+/// page can name it. The page turns it into buttons and **never picks** — the
+/// same contract `ERR_LINK_CHOICE` has, and for the same reason.
+///
+/// **There is exactly one button.** *"These are different boxes — add it"*
+/// re-posts the frame with `confirm = 1`. The other one a reader expects —
+/// *"same box, update it"* — is `11` §10.4's re-identification, which has no
+/// implementation anywhere in this tree, and the refusal says so in words
+/// rather than offering a control that would lie.
+pub const ERR_PASTE_CHOICE: u16 = 17;
+
+/// `OP_CABLE`'s frame carries a count byte and this build refuses any value
+/// but `1` (ADR-0038 D7). Not a limit on how many cables an estate may hold —
+/// a limit on how many one CALL may write, so a future range-cabling frame
+/// that sends more fails loudly on this build rather than silently
+/// truncating to the first record.
+pub const ERR_CABLE_COUNT: u16 = 18;
+
+/// `OP_CABLE`'s frame named an end spec that does not resolve: not a live
+/// port, not a live device or chassis, both ends naming the same port, tag
+/// `3` (`ExternalPeer`, reserved and unbuilt), or tag `2` (unknown) on the
+/// near end — an unknown end is legal only where the operator does not know
+/// the FAR one.
+///
+/// The detail is empty, deliberately, and for `ERR_NO_LINK`'s reason: the
+/// page sent both ends and already knows what it sent.
+pub const ERR_CABLE_END: u16 = 19;
+
+/// `OP_CABLE`'s cut named something that does not resolve to a live `Cable`.
+pub const ERR_NO_CABLE: u16 = 20;
 
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
@@ -722,6 +947,7 @@ fn face_reply(records: Vec<u8>, count: usize, blob: Blob) -> Vec<u8> {
 pub fn encode_inv_reply(
     kind_label: &str,
     columns: &[&str],
+    keys: &[Option<fathom_ir::bag::FieldKey>],
     rows: &[fathom_inventory::Row],
 ) -> Vec<u8> {
     let mut blob = Blob::default();
@@ -739,6 +965,23 @@ pub fn encode_inv_reply(
     let rec = face_slots(&mut blob, FACE_HEADER, slot_count, &header_slots);
     write_face_record(&mut records, &rec);
 
+    // [`FACE_INV_KEY`]: which columns a person may type into, at the same slot
+    // index the header put their names. Written from `keys` verbatim — this
+    // function decides nothing about editability, it carries what
+    // `fathom_inventory::column_keys` said.
+    let decimals: Vec<String> = keys
+        .iter()
+        .map(|k| k.map(|k| k.0.to_string()).unwrap_or_default())
+        .collect();
+    let mut key_slots: Vec<&str> = Vec::with_capacity(FACE_SLOTS);
+    key_slots.push("");
+    key_slots.extend(decimals.iter().map(String::as_str));
+    while key_slots.len() < FACE_SLOTS {
+        key_slots.push("");
+    }
+    let rec = face_slots(&mut blob, FACE_INV_KEY, slot_count, &key_slots);
+    write_face_record(&mut records, &rec);
+
     for row in rows {
         let mut slots: Vec<&str> = Vec::with_capacity(FACE_SLOTS);
         slots.push(row.id.as_str());
@@ -746,12 +989,19 @@ pub fn encode_inv_reply(
         while slots.len() < FACE_SLOTS - 1 {
             slots.push("");
         }
-        slots.push(row.opinions);
+        // `<opinions> <hints>` (ADR-0041 D5/D7, this constant's own doc
+        // comment above [`FACE_INV_KEY`]). `hints` is the common-case-empty
+        // half and sits last for the same reason `FACE_BOX`'s group key
+        // does: a token appended after it is unambiguous on `split(' ')`
+        // where one inserted before it would not be.
+        let slot7 = format!("{} {}", row.opinions, row.hints);
+        slots.push(slot7.as_str());
         let rec = face_slots(&mut blob, FACE_INV, slot_count, &slots);
         write_face_record(&mut records, &rec);
     }
 
-    face_reply(records, 1 + rows.len(), blob)
+    // 2 = the header and the key row. Both are chrome; neither is a row.
+    face_reply(records, 2 + rows.len(), blob)
 }
 
 fn write_element(
@@ -775,18 +1025,25 @@ fn write_element(
         // Slot 3 is the field's wire key and slot 4 is whether it can be typed
         // in. Both travel WITH the row rather than being looked up on the page,
         // because a name-to-key table in JavaScript is how a form ends up
-        // writing one field into another's slot.
+        // writing one field into another's slot. Slot 5 is ADR-0041 D7's hint
+        // bit — `fathom_inventory::element::FieldRow.hint` — carried the same
+        // way and for the same reason `Row.hints` rides on `FACE_INV`'s slot
+        // 7: this face's own field table (`renderMeaningFace`, reached from
+        // both the inventory's details pane and the diagram's) is a second
+        // rendering of the value, and it inherits the mark rather than the
+        // page re-deciding it.
         let key = f.key.0.to_string();
         let rec = face_slots(
             blob,
             FACE_FIELD,
-            5,
+            6,
             &[
                 f.name,
                 f.value.as_str(),
                 f.provenance.as_str(),
                 key.as_str(),
                 if f.editable { "1" } else { "" },
+                if f.hint { "1" } else { "" },
             ],
         );
         write_face_record(records, &rec);
@@ -953,6 +1210,8 @@ pub struct PasteReply<'a> {
     /// The post-redaction text, for the page's journal. Empty for replies that
     /// are not a paste.
     pub capture: &'a str,
+    /// The shape digest of the estate this paste built — [`FACE_SHAPE`].
+    pub shape: &'a str,
 }
 
 /// The diagram, as face rows. Numbers travel as decimal strings for the same
@@ -1053,15 +1312,17 @@ pub fn encode_diagram(
             pts.push_str(&y.to_string());
         }
         let members = l.members.to_string();
-        // Slot 6 is APPENDED, after the five that were already on the wire. The
-        // page reads slots by index, so inserting anywhere else would have
-        // silently reinterpreted every existing row rather than rejected it —
-        // the same reasoning ADR-0035's placed flag records for the box row,
-        // where the flag went before the only possibly-empty token.
+        // Slot 6 (`hand`) was APPENDED after the five that were already on the
+        // wire; slot 7 (`cable`, ADR-0038) is APPENDED after that, and is the
+        // last one `FACE_SLOTS = 8` allows. The page reads slots by index, so
+        // inserting anywhere else would have silently reinterpreted every
+        // existing row rather than rejected it — the same reasoning
+        // ADR-0035's placed flag records for the box row, where the flag went
+        // before the only possibly-empty token.
         let rec = face_slots(
             &mut blob,
             FACE_LINE,
-            7,
+            8,
             &[
                 l.from.as_str(),
                 l.to.as_str(),
@@ -1070,12 +1331,255 @@ pub fn encode_diagram(
                 pts.as_str(),
                 members.as_str(),
                 if l.hand { "1" } else { "" },
+                if l.cable { "1" } else { "" },
             ],
         );
         write_face_record(&mut records, &rec);
     }
 
     face_reply(records, 1 + d.nodes.len() + d.links.len(), blob)
+}
+
+/// What the estate does not know yet: the head row, every gap group with its
+/// examples, then every kind the estate holds none of.
+///
+/// An estate with nothing missing is `record_count = 1` — the head row alone,
+/// with zeros in it. It is never an error and never an empty reply, because
+/// "nothing is missing" is an answer the view has to be able to state plainly
+/// and a caller cannot tell an empty reply from a call that did not happen.
+///
+/// Counts arrive as decimal strings for the reason `encode_rack_reply` gives:
+/// the page prints them, and a string cannot be read at the wrong width by a
+/// `DataView`.
+pub fn encode_findings_reply(f: &fathom_inventory::Findings) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+
+    let groups = f.gaps.len().to_string();
+    let facts = f.total_missing().to_string();
+    let checked = f.checked.to_string();
+    let kinds = f.kinds_present.to_string();
+    let empties = f.empty.len().to_string();
+    let rec = face_slots(
+        &mut blob,
+        FACE_GAP_HEAD,
+        5,
+        &[
+            groups.as_str(),
+            facts.as_str(),
+            checked.as_str(),
+            kinds.as_str(),
+            empties.as_str(),
+        ],
+    );
+    write_face_record(&mut records, &rec);
+    let mut count = 1usize;
+
+    for (i, gap) in f.gaps.iter().enumerate() {
+        let index = i.to_string();
+        let missing = gap.missing.to_string();
+        let population = gap.population.to_string();
+        let carried = gap.examples.len().to_string();
+        let rec = face_slots(
+            &mut blob,
+            FACE_GAP,
+            7,
+            &[
+                gap.kind_word,
+                gap.field,
+                missing.as_str(),
+                population.as_str(),
+                carried.as_str(),
+                gap.sentence.as_str(),
+                if gap.authorable { "1" } else { "" },
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for ex in &gap.examples {
+            let rec = face_slots(
+                &mut blob,
+                FACE_GAP_ITEM,
+                4,
+                &[
+                    ex.id.as_str(),
+                    ex.name.as_str(),
+                    gap.kind_word,
+                    index.as_str(),
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
+    }
+
+    for e in &f.empty {
+        let n = e.required_fields.to_string();
+        let rec = face_slots(&mut blob, FACE_GAP_EMPTY, 2, &[e.kind_word, n.as_str()]);
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    face_reply(records, count, blob)
+}
+
+/// Inside one box, as records (`57` §7).
+///
+/// `None` is the empty state and not an error, the convention
+/// [`encode_rack_reply`] and `encode_equipment_reply` already use: the display
+/// id named something that is not a live `Device`, and the page says so rather
+/// than showing a diagnostic.
+///
+/// Counts arrive as decimal strings for the reason [`encode_rack_reply`]
+/// gives: the page prints them, and a string cannot be read at the wrong width
+/// by a `DataView`.
+pub fn encode_inside_reply(i: Option<&fathom_inventory::Inside>) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let Some(i) = i else {
+        return face_reply(records, 0, blob);
+    };
+
+    let ifaces = i.ways.len().to_string();
+    let units = i.unit_count().to_string();
+    let zones = i.zones.len().to_string();
+    let sets = i.sets.len().to_string();
+    let policies = i.policy_count().to_string();
+    let tail = format!("{} {} {}", i.routes.len(), i.tunnels.len(), i.unzoned());
+    let rec = face_slots(
+        &mut blob,
+        FACE_INSIDE,
+        8,
+        &[
+            i.device.as_str(),
+            i.name.as_str(),
+            ifaces.as_str(),
+            units.as_str(),
+            zones.as_str(),
+            sets.as_str(),
+            policies.as_str(),
+            tail.as_str(),
+        ],
+    );
+    write_face_record(&mut records, &rec);
+    let mut count = 1usize;
+
+    for w in &i.ways {
+        let n = w.units.len().to_string();
+        let rec = face_slots(
+            &mut blob,
+            FACE_IN_IFACE,
+            4,
+            &[w.id.as_str(), w.name.as_str(), w.kind_word, n.as_str()],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for u in &w.units {
+            // Joined here rather than in the page: `55` §1.4 the other way
+            // round — a string a reader is shown is a string this side
+            // composed. Two addresses on one unit is ordinary (inet plus
+            // inet6) and the join is the only computation in the band.
+            let addrs = u.addresses.join(", ");
+            let rec = face_slots(
+                &mut blob,
+                FACE_IN_UNIT,
+                7,
+                &[
+                    u.id.as_str(),
+                    w.id.as_str(),
+                    u.label.as_str(),
+                    addrs.as_str(),
+                    u.zone.as_str(),
+                    u.zone_name.as_str(),
+                    u.tunnel.as_str(),
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
+    }
+
+    for z in &i.zones {
+        let n = z.members.to_string();
+        let rec = face_slots(
+            &mut blob,
+            FACE_IN_ZONE,
+            3,
+            &[z.id.as_str(), z.name.as_str(), n.as_str()],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    for s in &i.sets {
+        let n = s.policies.len().to_string();
+        let rec = face_slots(
+            &mut blob,
+            FACE_IN_SET,
+            3,
+            &[s.id.as_str(), s.scope.as_str(), n.as_str()],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for p in &s.policies {
+            let rec = face_slots(
+                &mut blob,
+                FACE_IN_POLICY,
+                7,
+                &[
+                    p.id.as_str(),
+                    s.id.as_str(),
+                    p.ordinal.as_str(),
+                    p.name.as_str(),
+                    p.action.as_str(),
+                    p.enabled.as_str(),
+                    p.description.as_str(),
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
+    }
+
+    for r in &i.routes {
+        let rec = face_slots(
+            &mut blob,
+            FACE_IN_ROUTE,
+            2,
+            &[r.id.as_str(), r.name.as_str()],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for p in &r.protocols {
+            let n = p.adjacencies.to_string();
+            let rec = face_slots(
+                &mut blob,
+                FACE_IN_PROTO,
+                4,
+                &[
+                    p.id.as_str(),
+                    r.id.as_str(),
+                    p.protocol.as_str(),
+                    n.as_str(),
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
+    }
+
+    for t in &i.tunnels {
+        let rec = face_slots(
+            &mut blob,
+            FACE_IN_TUNNEL,
+            3,
+            &[t.id.as_str(), t.name.as_str(), t.unit.as_str()],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+
+    face_reply(records, count, blob)
 }
 
 pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
@@ -1096,11 +1600,20 @@ pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
         }
     }
 
+    // Two optional tail rows, each present only when its string is. The
+    // arithmetic counts what was written rather than assuming, because
+    // `equip_reply_text` reuses this encoder for replies that are not pastes and
+    // have neither.
     let mut extra = 0;
     if !reply.capture.is_empty() {
         let rec = face_slots(&mut blob, FACE_CAPTURE, 1, &[reply.capture]);
         write_face_record(&mut records, &rec);
-        extra = 1;
+        extra += 1;
+    }
+    if !reply.shape.is_empty() {
+        let rec = face_slots(&mut blob, FACE_SHAPE, 1, &[reply.shape]);
+        write_face_record(&mut records, &rec);
+        extra += 1;
     }
 
     face_reply(

@@ -28,9 +28,13 @@ const ENTROPY: u128 = 0x0000_0000_0000_0000_2026;
 const PASTE: &str = "set system host-name srx-branch-01\n";
 
 fn paste_frame(text: &str) -> Vec<u8> {
-    let mut f = Vec::with_capacity(24 + text.len());
+    // 25: the clock, the entropy, and the confirm byte (2026-08-21). `0` means
+    // "refuse if this names a device the design already holds" — the default,
+    // and the only value a first paste should ever send.
+    let mut f = Vec::with_capacity(25 + text.len());
     f.extend_from_slice(&TS.to_le_bytes());
     f.extend_from_slice(&ENTROPY.to_le_bytes());
+    f.push(0);
     f.extend_from_slice(text.as_bytes());
     f
 }

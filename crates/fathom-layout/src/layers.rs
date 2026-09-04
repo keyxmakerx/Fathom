@@ -333,6 +333,10 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         | NodeKind::SystemSettings
         | NodeKind::NtpServer
         | NodeKind::SyslogTarget
+        //     WO-10 (2026-08-29): a relay is a per-device setting with no
+        //     geometry of its own. `56` §4.1 has no row for it, so it is drawn
+        //     UNTABLED beside its `NtpServer` sibling rather than hidden.
+        | NodeKind::DhcpRelay
         // (f) `56` §1.3 puts learned routes out of scope as runtime state, and
         //     `11` §6.9 keeps them out of the graph — but the kind exists, so
         //     something could hold one, and hiding it on the strength of a

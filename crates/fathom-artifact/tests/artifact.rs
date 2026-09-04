@@ -155,6 +155,180 @@ fn shell_source_carries_no_egress_and_no_sinks() {
 /// meaningful. No test can. That is a review question and ADR-0033 is where it
 /// is asked; this function's job is to make the two mechanical halves
 /// impossible to skip.
+/// **A JOURNAL ENTRY IS MADE IN EXACTLY ONE PLACE.**
+///
+/// Until 2026-08-21 there were seven independent push sites, each remembering
+/// on its own to write the entry's fields. `seq` and `by` landed that day and
+/// would have had to be added seven times — and an eighth push site written
+/// next month would silently have neither, producing entries that cannot be
+/// ordered or attributed. That is not a hypothetical: the rack op shipped
+/// without an import arm and an export dropped every rack in silence, which is
+/// the same class of omission one file over.
+///
+/// So the shape is enforced rather than remembered: `jpush` is the only
+/// constructor, and this test fails if a direct push comes back.
+#[test]
+fn the_page_makes_journal_entries_in_exactly_one_place() {
+    let source = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+    assert!(
+        !source.contains("S.journal.push({"),
+        "a journal entry is being built at a call site instead of in `jpush`, \
+         so it will not carry `seq` or `by`"
+    );
+    assert_eq!(
+        source.matches("function jpush(").count(),
+        1,
+        "there must be exactly one journal-entry constructor"
+    );
+    // And every op the page can write goes through it. The list is the seven
+    // op tags; a new op that forgets `jpush` fails here rather than shipping a
+    // journal that cannot be ordered.
+    for op in [
+        "'field'", "'remove'", "'place'", "'link'", "'paste'", "'equip'", "'rack'",
+    ] {
+        assert!(
+            source.contains(&format!("jpush({op}")),
+            "op {op} does not go through `jpush`"
+        );
+    }
+}
+
+/// The importer must read the version that existed before `seq` and `by`.
+///
+/// A workspace file is a file an operator KEEPS. Bumping the export version
+/// without teaching the importer the old one turns an upgrade into a silent
+/// destruction of his saved work — he opens last month's estate and is told it
+/// was written by a different version of Fathom.
+#[test]
+fn the_importer_still_reads_the_version_before_the_envelope() {
+    let source = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+    // THE PROPERTY, NOT THE NUMBER. This asserted `EXPORT_VERSION = 2` for a
+    // day and broke the moment the paste-shape work made it 3 — which is the
+    // test being wrong, not the change: pinning the current version tests
+    // nothing, because the version SHOULD move whenever the entry shape does.
+    // What must hold is that EVERY VERSION BELOW THE CURRENT ONE IS STILL
+    // READ, since each is a workspace an operator already keeps.
+    let current: u32 = source
+        .split("var EXPORT_VERSION = ")
+        .nth(1)
+        .and_then(|t| t.split(';').next())
+        .and_then(|t| t.trim().parse().ok())
+        .expect("the page declares an export version");
+    assert!(current >= 2, "the export version went backwards");
+    for old in 1..current {
+        assert!(
+            source.contains(&format!("doc.version !== {old} &&")),
+            "the importer refuses v{old} workspaces, which are files people \
+             already have — an upgrade must not destroy saved work"
+        );
+    }
+}
+
+/// **THE PAGE'S FACE CODES MUST EQUAL THE MODULE'S.**
+///
+/// A face code is a wire discriminant: the module tags each reply record with
+/// one and the page switches on it. If the two files disagree, a record of one
+/// kind is rendered as another — silently, with plausible-looking output,
+/// because both sides are reading the same bytes with different meanings.
+///
+/// This is not hypothetical and it is not old. `protocol.rs` carries a
+/// paragraph warning that a collision does exactly that, and **within a day of
+/// it being written two parallel branches both claimed code 15** — the shape
+/// digest and the findings view — and the merge on 2026-08-21 had to renumber
+/// one of them. Two files that must be edited together will eventually not be.
+///
+/// So the agreement is asserted rather than maintained by care.
+#[test]
+fn the_pages_wire_constants_match_the_modules() {
+    let page = std::fs::read_to_string(workspace_root().join(SHELL_SOURCE))
+        .expect("the shell source is checked in");
+    let proto =
+        std::fs::read_to_string(workspace_root().join("crates/fathom-wasm/src/protocol.rs"))
+            .expect("the protocol source is checked in");
+    let ops = std::fs::read_to_string(workspace_root().join("crates/fathom-wasm/src/lib.rs"))
+        .expect("the wasm lib source is checked in");
+
+    // FACE_* was the original scope, and the 2026-08-28 review found the gap:
+    // the page also duplicates ERR_* and OP_* literals, and nothing checked
+    // them — so a renumbered ERR_PASTE_CHOICE would have silently turned every
+    // duplicate-device question into a raw "the module refused: code 18". Same
+    // defect class, one prefix over. All three families are scraped now, and
+    // module-side VALUE UNIQUENESS is asserted per family, because both
+    // face-code collisions this month landed the duplicate in BOTH files at
+    // once — a page-vs-module comparison alone cannot see that.
+    let mut checked = 0usize;
+    for (src, prefix, ty) in [
+        (&proto, "FACE_", ": u8 = "),
+        (&proto, "ERR_", ": u16 = "),
+        (&ops, "OP_", ": u32 = "),
+    ] {
+        let mut seen: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for line in src.lines() {
+            let line = line.trim();
+            let Some(rest) = line.strip_prefix("pub const ") else {
+                continue;
+            };
+            let Some(rest) = rest.strip_prefix(prefix) else {
+                continue;
+            };
+            let Some((name, value)) = rest.split_once(ty) else {
+                continue;
+            };
+            let Some(value) = value.strip_suffix(';') else {
+                continue;
+            };
+            let name = format!("{prefix}{name}");
+            seen.entry(value.trim().to_owned())
+                .or_default()
+                .push(name.clone());
+
+            // The page declares its copies as `var NAME = value` — singly or
+            // in a comma list. Restricting the needle to `NAME = value` with a
+            // terminator keeps a comment quoting the constant from satisfying
+            // it, and keeps `= 1` from matching a page that says `= 15`.
+            // "Declared", not "mentioned": the page's prose QUOTES constant
+            // names (a comment explains ERR_NOT_INITIALISED without declaring
+            // it), and the first run of this test failed on exactly that. A
+            // declaration is `var NAME =` or a `, NAME =` continuation of one.
+            let declared =
+                page.contains(&format!("var {name} =")) || page.contains(&format!(", {name} ="));
+            if !declared {
+                continue; // not every module constant is read by the page
+            }
+            checked += 1;
+            let ok = [
+                format!("var {name} = {value};"),
+                format!("{name} = {value};"),
+                format!("{name} = {value},"),
+            ]
+            .iter()
+            .any(|n| page.contains(n.as_str()));
+            assert!(
+                ok,
+                "the page and the module disagree about {name}: the module \
+                 says {value}. These are wire discriminants — a mismatch \
+                 renders one thing as another rather than failing."
+            );
+        }
+        for (value, names) in &seen {
+            assert!(
+                names.len() == 1,
+                "{prefix} value {value} is claimed by more than one constant: \
+                 {names:?}. Both collisions this month landed in BOTH files at \
+                 once, which the page-vs-module check alone cannot see."
+            );
+        }
+    }
+    assert!(
+        checked >= 30,
+        "only {checked} wire constants were cross-checked, so this test is \
+         not reading the declarations it thinks it is (the floor was 8 when \
+         only FACE_* was scraped; 30 FACE codes alone exist now)"
+    );
+}
 fn motion_is_priced_not_banned(source: &str) {
     let mut animated = 0usize;
     // BLOCK-COMMENT STATE, not a per-line prefix test. This file's own prose

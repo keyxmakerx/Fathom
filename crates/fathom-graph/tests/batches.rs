@@ -96,7 +96,11 @@ fn write_outside_batch_refused() {
         Err(WriteError::NoOpenBatch) => {}
         other => panic!("expected NoOpenBatch, got {other:?}"),
     }
-    match fx.g.tombstone(ElementId::Node(site), Timestamp(AT)) {
+    match fx.g.tombstone(
+        ElementId::Node(site),
+        Timestamp(AT),
+        fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+    ) {
         Err(WriteError::NoOpenBatch) => {}
         other => panic!("expected NoOpenBatch, got {other:?}"),
     }
@@ -214,8 +218,12 @@ fn tombstone_cascades_containment_subtree() {
 
     fx.g.begin_batch(BatchId(ulid(500)), "delete srx-a-01")
         .expect("open");
-    fx.g.tombstone(ElementId::Node(device), Timestamp(AT + 1))
-        .expect("tombstone");
+    fx.g.tombstone(
+        ElementId::Node(device),
+        Timestamp(AT + 1),
+        fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+    )
+    .expect("tombstone");
     fx.g.end_batch().expect("close");
 
     // 11 §3.4: deleting the owner deletes the target — applied to the
@@ -241,6 +249,7 @@ fn tombstone_cascades_containment_subtree() {
         match op {
             Op::Tombstone {
                 element: ElementId::Node(n),
+                by: _,
                 at,
             } => {
                 assert_eq!(*at, Timestamp(AT + 1));
@@ -255,7 +264,11 @@ fn tombstone_cascades_containment_subtree() {
 
     // Idempotence is not silent.
     fx.g.begin_batch(BatchId(ulid(501)), "again").expect("open");
-    match fx.g.tombstone(ElementId::Node(device), Timestamp(AT + 2)) {
+    match fx.g.tombstone(
+        ElementId::Node(device),
+        Timestamp(AT + 2),
+        fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+    ) {
         Err(WriteError::AlreadyTombstoned { element }) => {
             assert_eq!(element, ElementId::Node(device));
         }
@@ -283,8 +296,12 @@ fn tombstoned_edges_leave_cardinality_counts() {
         other => panic!("expected InBoundExceeded while the first is live, got {other:?}"),
     }
 
-    fx.g.tombstone(ElementId::Edge(first), Timestamp(AT + 1))
-        .expect("tombstone the binding");
+    fx.g.tombstone(
+        ElementId::Edge(first),
+        Timestamp(AT + 1),
+        fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+    )
+    .expect("tombstone the binding");
     let replacement = fx.edge(EdgeKind::BindsInterface, vpn_b, unit);
     assert_eq!(
         fx.g.edge(replacement).expect("stored").from,
@@ -301,7 +318,11 @@ fn tombstoned_edges_leave_cardinality_counts() {
 
     // A tombstoned endpoint has the same effect as a tombstoned edge.
     let vpn_c = fx.node(NodeKind::IpsecVpn);
-    fx.g.tombstone(ElementId::Node(vpn_b), Timestamp(AT + 2))
-        .expect("tombstone the VPN");
+    fx.g.tombstone(
+        ElementId::Node(vpn_b),
+        Timestamp(AT + 2),
+        fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+    )
+    .expect("tombstone the VPN");
     fx.edge(EdgeKind::BindsInterface, vpn_c, unit);
 }

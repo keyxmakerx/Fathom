@@ -1,19 +1,57 @@
 # WO-10 — DHCP relay and BOOTP: the first statements the estate cannot hold
 
-> **Status:** READY, BLOCKED ON BYTES — authored 2026-08-17 at the owner's request
-> (*"that's fine if we can't build it currently then can you prepare it to be added later"*).
-> Nothing in this order is waiting on a decision about **what** to build or **how**; the modelling,
-> the field keys, the dictionary entries and the gates are all written below and can be executed as
-> they stand. It is waiting on **room in the module**, and the block is measured rather than
-> asserted: see §2. Flip to OPEN the moment `47`'s finder lever (or an equivalent) has landed and
-> `cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm` reports at least
-> 1,200 bytes of headroom.
+> **Status: DONE — executed 2026-08-29.** Authored 2026-08-17 at the owner's request, held
+> BLOCKED ON BYTES until the ceiling was removed (2026-08-21), flipped OPEN 2026-08-28, stopped
+> the same day at Step 0 when §10 item 3 fired as written (`routing-instance` may qualify a
+> `server`; `DhcpRelay` carried no edge for it), unblocked 2026-08-29 when the owner chose route
+> (i) — a real `RoutingInstance` edge, `70` §18.5 — and executed the same day. **Schema 0.4 →
+> 0.5.** Every gate in §8 is green and the numbers are below, read off the runs and not off a
+> document.
 >
-> **This order is also the first proof that the ceiling costs the product a feature the owner asked
-> for by name**, which is why §2 is written as a measurement report rather than a caveat.
+> **RUN 2026-08-29 — ALL SEVEN GATES PASS.**
+>
+> | gate | result | evidence |
+> | --- | --- | --- |
+> | G1 floor | green — fmt, clippy, 727 tests (up 7), schema-check, gate-zero, wasm | **module 967,884 → 969,090 bytes: +1,206** for the kind, three edges, four fields and every arm (dictionary bytes are page-side). Reported, not gated — there is no number to hit |
+> | G2 schema-check | **0 failures, 0 warnings** — 51 kinds · 95 edges · 61 scalars · 10 enums | `identity: []` raised nothing: the unexercised warning fires only from ImportScope tier claims |
+> | G3 bootp server | a `helpers bootp server` line builds ONE `DhcpRelay` owned by the Device, `server` bound, **not on the residue list** | `dhcp_relay.rs::g3_…` at the fragment; `2026-08-29-dhcp-relay-drive.mjs` at the DOM — the row, the `HasDhcpRelay` child under the device in the Outline, and the line absent from the paste's residue table |
+> | G4 server-group | three addresses → **three nodes, one `group_name`**, distinct servers; the bootp rows carry NO group | `g4_…`; the driver's inventory rows `[10.0.0.5/6/7, relay-01, DHCP-GRP]` |
+> | G5 round trip | five relay rows after export → reload → import, group and addresses byte-identical, by kind name | the driver's §4. **With one caveat, recorded and escalated — see §10 item 5** |
+> | G6 gate unmoved | `git diff HEAD -- crates/fathom-ingest/tests/redaction_canary.rs` is **empty**; the canary suite is green | rule 0 was not tempted: no relay statement carries a credential |
+> | G7 deprecation | stated where a person reads it, with source and date | `forwarding-options.yaml`'s header quotes Juniper's `bootp` page (read 2026-08-29): *"The /forwarding-options/helpers/bootp command is deprecated"*; `66` carries the paragraph |
+>
+> **Beyond the gates.** §5.4 items 1–3 are CLOSED in the dictionary file's header with the verbatim
+> syntax blocks pulled from the raw HTML of Juniper's `helpers`, `bootp` and `dhcp-relay` pages
+> (2026-08-29; the markdown converter drops them, which is why 2026-08-17's fetches came back
+> empty). The owner's route (i) binds: a qualified `server` line writes `RelayServerIn` to the
+> named instance, an unqualified one writes nothing (absent is the default instance, never
+> "unknown"), and both directions are pinned at the fragment
+> (`a_qualified_server_links_to_its_routing_instance_and_an_unqualified_one_does_not`). The
+> `interface` form writes a REAL `RelaysFor` when the unit is declared in the paste and a Pending
+> one when it is not. The five undecided forms are named residue by §11 item 4 and a test says so
+> byte-for-byte. Six fragment tests, two browser drivers (25/25 new; the 2026-08-28 policies
+> driver's relay section flipped from "residue" to "understood" and is 17/17). Coverage on the
+> measured fixture is **unmoved at 70/122** because it contains zero `forwarding-options` lines —
+> re-measured, not assumed; extending the fixture is not this order's to do.
+>
+> **What executing it found (§10 item 5, new).** `RelayServerIn` is ALWAYS pending today — no
+> dictionary entry builds a `RoutingInstance` — and pending references are *carried out, not
+> written* (`14` §7.3; `fathom-weld` step 9). The paste reply shows them once, in the inventory's
+> pending table (the driver asserts `RoutingInstance c3 · RelayServerIn` there); the import path
+> replays the PRODUCT and reports none. **So the relay survives a reload and its routing-instance
+> qualifier does not.** The driver pins that as the current truth rather than hiding it. It is a
+> planning decision with three routes and none is an execution session's: bind
+> `routing-instances` so the target exists; persist pending references (reopening `14` §7.3);
+> or replay the parser rather than the product. The owner's route (i) is only fully delivered
+> once one of them is taken.
+>
+> **§2 is kept verbatim as history**, not as a live block. It is the measurement that proved the
+> ceiling cost the product a feature the owner asked for by name — the evidence behind the decision
+> to remove it — and deleting it would erase the reasoning while keeping the outcome.
 
-Depends on: **the byte decision** (owner; `47` §11, `00-ROUTE-TO-WORKABLE.md` §2 stage 1). No code
-dependency — `fathom-ingest`, `fathom-weld` and `fathom-graph` are all DONE and all sufficient.
+Depends on: **nothing.** `fathom-ingest`, `fathom-weld` and `fathom-graph` are all DONE and all
+sufficient; the byte decision this order once waited on (`47` §11,
+`00-ROUTE-TO-WORKABLE.md` §2 stage 1) was taken by the owner on 2026-08-21.
 
 The owner's words, 2026-08-17: *"we need to make sure dhcp relay but also bootp is there. Since we
 use bootp apparently, just discovered that."* And, on where it should live: *"make sure it's to the
@@ -220,6 +258,29 @@ must not ship it to save 356 bytes.
       a global relay serves every unit, and a unit can be named by more than one relay
       when a group and the global stanza both cover it — which is itself a finding worth
       stating rather than a shape to forbid.
+
+  # Added 2026-08-29 by the owner's route (i) decision (70 §18.5), closing §5.4 item 4.
+  # `routing-instance` may qualify an individual `server` statement — established from two
+  # independent dated Juniper sources, cited in this order's status block. A flat field was
+  # offered and refused: a routing instance is a declared kind in this schema (schema.yaml
+  # `- kind: RoutingInstance`), so naming one by a string would be the natural-key reference
+  # invariant 7 forbids product-wide. An edge is what the rest of the schema does.
+  - edge: RelayServerIn
+    class: reference
+    from: [DhcpRelay]
+    to: [RoutingInstance]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      The routing instance in which this relay's server address is reached, when the
+      statement qualifies it. `0..1` out: a `server` statement names at most one
+      routing-instance. Absent means the statement named none, which means the default
+      instance — and absent must never be rendered as "unknown": the config stated a
+      complete fact by saying nothing (19 §6.3's three states; do not collapse them).
 ```
 
 **`RelaysFor` is a reference edge, so `hand_link_candidates` will offer it** the moment it exists
@@ -298,9 +359,12 @@ their dates:
    a host union in §4;
 3. the units and bounds of `maximum-hop-count` and `minimum-wait-time`, which decide the scalar
    types and whether either needs a validity rule;
-4. whether `routing-instance` may qualify a server, which decides whether `RelaysFor` is enough or a
-   second edge to `RoutingInstance` is needed. **If it is needed, re-measure §2**: the byte figures
-   there are for two edges, not three.
+4. ~~whether `routing-instance` may qualify a server~~ — **CLOSED 2026-08-28/29.** It may:
+   `server address { routing-instance [...]; }` per the Junos OS CLI Reference `helpers` page and
+   `server 172.16.0.3 routing-instance c3;` per the Junos OS DHCP User Guide's worked example, both
+   fetched 2026-08-28 and independently re-confirmed the same day. `RelaysFor` was NOT enough; the
+   owner chose a third edge (route (i), `70` §18.5) and §4 declares `RelayServerIn`. The clause
+   *"if it is needed, re-measure §2"* is retired with the ceiling, not obeyed — see the status block.
 
 Juniper's CLI Explorer, the SRX administration guide PDF, and a second vendor-independent source are
 the routes; the KB article on relaying across an IPsec tunnel is a worked example rather than a
@@ -340,9 +404,14 @@ assigning, because `47`'s lever or another order may have taken them.
 
 ## 8. Acceptance gates
 
-* G1 — the floor (`78` §6) green, including the byte gate. **The build must come in under 900,000
-  with the kind in it.** If it does not, the lever this order was unblocked on was not enough:
-  stop, and escalate rather than trimming the modelling.
+* G1 — the floor (`78` §6) green. **This gate was rewritten 2026-08-28 and the old text would now
+  send a session looking for something that is not there.** It used to read *"including the byte
+  gate — the build must come in under 900,000 with the kind in it … stop, and escalate rather than
+  trimming the modelling."* There is no byte gate: `crates/fathom-wasm/tests/artifact_gates.rs`
+  reports the module size and asserts nothing about it, by the owner's decision of 2026-08-21
+  (*remove the ceiling, keep a size report*). **Record the size this order adds** — the report
+  prints it and `scripts/byte-census.sh` says where it went — and do not trim the modelling to hit
+  any number. There is no number to hit.
 * G2 — `fathom-schema-check` 0 failures **and 0 warnings**. A new kind with `identity: []` has
   raised `schema.identity.unexercised` before; `crates/fathom-schema/tests/shipped_tree.rs` pins
   the empty warning set, so this fails a test rather than printing.
@@ -370,9 +439,66 @@ assigning, because `47`'s lever or another order may have taken them.
 ## 10. Stop and escalate
 
 1. §5.4 cannot be closed from two independent sources. Do not guess a grammar; `78` §4.
-2. The build exceeds 900,000 with §4 in it (G1).
+2. ~~The build exceeds 900,000 with §4 in it (G1).~~ **Retired 2026-08-28** — this trigger cannot
+   fire, because the ceiling it names was removed on 2026-08-21 and G1 no longer asserts a size.
+   Struck rather than deleted so nobody re-derives it from §2's measurements, which are history.
 3. §5.4 item 4 turns out to need a `RoutingInstance` edge — re-measure and re-escalate before
-   writing it.
+   writing it. **Fired 2026-08-28** — see the status block above; the two sources are named there.
 4. A second platform's relay form (PAN-OS, Nexus, Meraki) turns out not to fit `DhcpRelay`'s
    fields. The kind is meant to be cross-vendor; if it is not, that is a modelling decision and
    planning work, not an execution session's.
+5. **Fired 2026-08-29, at execution.** `RelayServerIn` is always a pending reference (nothing
+   builds a `RoutingInstance`) and pending references do not survive an export and an import
+   (`14` §7.3: carried out, not written). The relay round-trips; its routing-instance qualifier
+   is lost on reload. Routes: bind `routing-instances` so the target node exists; persist pending
+   references in the store (reopens `14` §7.3 — planning); or make the journal replay the parser
+   rather than the product (reopens phase 0's §10a decision — planning). Escalated, not chosen.
+
+## 11. Companion edits and first-cut scope — authorized 2026-08-28, before execution
+
+Added by the planning pass that re-verified this order against the tree at schema 0.4 (50
+kinds / 92 edges / 307 field keys), under the owner's same-day delegation (*"i'll trust your
+judgements"*). `78` §4 makes any schema declaration or pinned-test change not spelled out in
+the order a stop trigger; this section spells them out so the executing session does not stall
+on edits whose content the tree itself forces. Nothing here changes what §4 builds.
+
+1. **`DhcpRelay` joins the `Placeable` class** (`schema/schema.yaml`, the ADR-0035 members
+   list). `shipped_tree.rs::every_kind_but_the_pin_itself_is_placeable` pins that every kind
+   but `LayoutPin` is placeable; a relay is drawn as a box like `NtpServer` and there is no
+   reason to make it the first deliberately-unplaceable kind. Add it with a one-line comment
+   naming this order.
+2. **Schema version `0.4` → `0.5`**, priced in the file's own version comment per `62` §16.2:
+   one new kind (minor), two new edge kinds (minor), four fields all on the new declarer
+   (minor) — whole change MINOR. The four pins move together, as they did for 0.4:
+   `schema.yaml`'s comment, `canon_laws.rs`, `shipped_tree.rs`, and `plain_face.rs`'s PINNED
+   line 3 (retype the line, leave the payload alone).
+3. **`shipped_tree_declaration_counts_hold` re-pins**: 51 kinds, **95 edges (87 + 8 derived —
+   THREE new edge kinds, not two, since the owner's 2026-08-29 route (i) decision added
+   `RelayServerIn`)**, 311 field keys, version `Some("0.5")`; scalars/enums/classes/scopes
+   unmoved. **Read the real counts off `fathom-schema-check` rather than trusting these
+   numbers** — they are stated to show what should move, and the tool is the authority.
+   Update with the customary explanatory paragraph — the ADR-0036/0037 paragraphs in that
+   function are the template. This is the test's designed maintenance path, not a weakening.
+4. **First-cut statement scope, decided** — **and widened 2026-08-29 by the owner's route (i)
+   choice**: a `server` line carrying `routing-instance <name>` now BINDS (writing
+   `RelayServerIn` to the named instance, left Pending if that instance is not in the estate,
+   exactly as `reth0.0` behaves) rather than staying residue. Excluding it was route (iii)
+   and the owner refused it. Otherwise as written: this order's gates test exactly three forms —
+   `helpers bootp server`, `helpers bootp interface … server`, and `dhcp-relay server-group`
+   — and the first cut binds exactly those three. The other five §5.3 statements
+   (`active-server-group` both forms, `group … interface`, `maximum-hop-count`,
+   `minimum-wait-time`) stay **named residue**: the group-name indirection crosses lines the
+   one-line binder cannot express against address-keyed nodes, and the stanza-global values
+   have no per-address home. Binding them is a follow-up planning item, not an improvisation;
+   residue is the honest first cut and every gate passes without them.
+5. **G7 is satisfied by its literal text**: a sourced, dated comment block on the bootp
+   entries in `forwarding-options.yaml` plus a sourced paragraph in the `66` re-measure note.
+   Carrying the deprecation INTO the estate (a dictionary `deprecated:` key, page copy) is
+   unordered surface work — do not invent it here.
+6. **Inventory columns for the relay row** follow the sibling-kind precedent (`NtpServer`'s
+   shape) within the pinned six-slot limit. Public names, chosen by precedent, recorded in
+   the executing commit.
+
+§5.4 is untouched by this section: it still must be closed from two independent dated sources
+BEFORE `schema/schema.yaml` is edited, because item 2 (hostname legality) decides
+`server`'s type, and §10 item 1 still governs if it cannot be closed.

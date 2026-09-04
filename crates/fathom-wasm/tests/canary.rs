@@ -62,9 +62,14 @@ fn fixture_bytes() -> Vec<u8> {
 }
 
 fn frame(text: &[u8]) -> Vec<u8> {
-    let mut f = Vec::with_capacity(24 + text.len());
+    let mut f = Vec::with_capacity(25 + text.len());
     f.extend_from_slice(&TS.to_le_bytes());
     f.extend_from_slice(&ENTROPY.to_le_bytes());
+    // The confirm byte (2026-08-21): 0 = refuse on an identity match. An
+    // earlier migration bumped this builder's CAPACITY from 24 to 25 without
+    // pushing the byte, so the module ate the fixture's first character as the
+    // flag — invisible only because that character was a '#' comment.
+    f.push(0);
     f.extend_from_slice(text);
     f
 }

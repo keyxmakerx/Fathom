@@ -65,12 +65,53 @@ looking. This does not apply to arithmetic or to a file already open.
 `78` §6's floor, which ADR-0034 §4 extends with a dependency-vulnerability scan, landing before the
 first external crate does.
 
+## The ingest gate only ever grows — ratified 2026-09-03
+
+> **Nothing arriving after the build may reduce what the ingest gate destroys, only increase
+> it. Union, never replace.**
+
+Proposed by `38` §14 on 2026-08-17 and cited as unratified for seventeen days; **ratified by
+ADR-0040 §5**. It applies to any dictionary, rule pack, corpus update, platform definition or
+client build that reaches a running Fathom. On a shared server it is what stops a stale or
+hostile client writing a credential into storage that everybody else's data sits next to.
+
+**It is not satisfied by intent.** ADR-0040 §5 requires the check in CI: load the shipped
+detector set, load the arriving one, and fail if the arriving set destroys less on any probe
+the shipped set destroys. CLAUDE.md rule 0 governs every probe written for it — a safety gate
+is tested against what a device accepts, never against what the detector needs.
+
 ## The residual-risk scale — exactly four values
 
 `none | bounded | material | total`. Pinned by ADR-0002 and already adopted by `31`, `32`, `34`,
 `36` and `37`. Not extended, not reordered, not renamed.
 
 ## Hard invariants — every document must be consistent with these
+
+> **Standing note — read this before arguing from invariants 1, 2 or 4 (added 2026-08-28,
+> revised 2026-09-03).**
+> **INVARIANT 4 IS NOW AMENDED — by ADR-0040, and its own text below carries the scoping.** It
+> is the first invariant in this file to be formally amended rather than merely re-read, and
+> ADR-0040 §4 pays ADR-0002's precedent cost in the open. **Invariants 1 and 2 remain unamended
+> and every other one still binds as written.** But the owner has changed what those two are
+> understood to *scope*, and several documents in this corpus argue from the old reading. On 2026-08-18 he said, of invariant 1: *"this would be after we were full
+> server solution, so it wouldn't be that main rule anymore, that main rule is only for demo mode
+> like it is currently."* On 2026-08-18/21 he took the pivot decisions in
+> `docs/40-stack/49-the-server-product.md` §1 — data on the server, live multi-user editing,
+> multi-tenant — and accepted their consequence: **the single offline HTML file is dropped.** And
+> invariant 2's *"permanent product boundary"* sentence is contradicted by his stated long-term
+> intent, recorded in `48` §1 and `49` §16: monitoring, config pulls, and an SCP firmware
+> distribution path.
+>
+> **Nothing in THIS NOTE amends anything** — invariant 4's amendment is in its own text below,
+> under ADR-0040. Amending invariant 1 is still `03`'s and the owner's (`48` §1, open decision
+> 1), and `48` deliberately declined to do it; ADR-0040 §9 item 3 deliberately does not touch
+> it either. What this note exists to
+> stop is a fresh session reading this file first — as CLAUDE.md rule 2 tells it to — and then
+> reasoning from *"the product can never connect to anything, permanently"* as a settled premise
+> when the owner has said it governs the client-only mode he calls the demo. **Two readings are
+> live and only the owner closes the gap.** Where a document's conclusion depends on which reading
+> is right, say so rather than picking; `38` §14 is the worked example, and its finding stands on
+> its own merits for the client artifact regardless of how the invariant is finally scoped.
 
 1. **No egress by default.** The application never opens a connection the user did not
    configure. Enforced by `default-src 'none'` with a per-directive allowlist —
@@ -88,10 +129,40 @@ first external crate does.
    reaches the encryptor (`14` §9.9). The secrets the application does hold are enumerated
    in `32` §21.3 and `33` §18.3, and that enumeration is exhaustive: adding one requires
    amending this invariant.
-4. **The server never holds secret key material.** Zero-knowledge. Ciphertext, public keys
-   and metadata only. No passphrase, no derived key, no root key, no unwrapped workspace
-   key, and no key-derivation input beyond the public salts carried in the clear inside
-   authenticated headers.
+   **Annotated 2026-09-03 (ADR-0041), scope only — the sentence above is not amended.** The
+   redaction this invariant promises is the INGEST GATE's, and the gate has exactly one
+   caller: `OP_PASTE`. It covers a pasted capture. It does not cover a value typed by hand
+   into any of the schema's nineteen free-text `notes`/`description` fields — `OP_FIELD_SET`,
+   `OP_EQUIP_ADD`, the cable and port label writes, and rack placement all parse raw text
+   straight into a typed slot, ungated. That gap is real, is not closed by this note, and is
+   proved through the shipped artifact by
+   `docs/80-review/evidence/2026-09-03-the-gate-is-only-on-the-paste-box.mjs`. ADR-0041's
+   answer is not to gate that door — a hand-typed value still saves and exports exactly as
+   typed — but to MARK a value that looks like a credential wherever it is shown, via the one
+   Rust detector `fathom_ingest::redact::looks_like_credential`, never a refusal.
+4. **The server never holds secret key material — IN A ZERO-KNOWLEDGE DEPLOYMENT, WHICH THE
+   HOSTED MULTI-TENANT SERVER IS NOT.** Amended and scoped by **ADR-0040 (2026-09-03)**, the
+   written record `49` §3 decision 4 required before the server held its first byte. Where it
+   binds — the client artifact, and any future customer-managed-key or browser-held-key
+   deployment — it binds in full and unchanged: zero-knowledge; ciphertext, public keys and
+   metadata only; no passphrase, no derived key, no root key, no unwrapped workspace key, and
+   no key-derivation input beyond the public salts carried in the clear inside authenticated
+   headers.
+   **Where it does not bind — the hosted multi-tenant server — the server holds the keys and
+   says so.** A data key per tenant and per design, wrapped by a master key, from the first
+   stored byte, with the wrap point built so a customer-supplied master key can replace the
+   house key later without re-encrypting data (ADR-0040 D1, D2). **The words
+   *zero-knowledge*, *end-to-end*, and *we cannot read your data* may not be used about a
+   customer until customer-managed keys are live for that customer** (ADR-0040 §6) — they are
+   false under this scoping, and a false security sentence teaches a reader to discount the
+   next one.
+   **What does not change, and is the stronger claim anyway:** invariant 3 stands untouched.
+   No device credential reaches storage in either deployment, because the ingest gate destroys
+   it **in the browser, before upload** (ADR-0040 D5) and again on arrival — union, never
+   replace (ADR-0040 §5). *Fathom never touches your devices, and it destroys every password
+   before it stores anything. There is no credential to steal.* That sentence is true today,
+   earned fully on Juniper, and materially weaker on platforms with no dictionary — which
+   ADR-0040 D8 makes a CI gate on whether a platform is selectable at all.
 5. **Findings are data, not code.** One rule engine. Rules carry `platforms` and
    `versions` predicates. No per-vendor engines.
 6. **Emitters return `(line, provenance)` pairs, never strings.**

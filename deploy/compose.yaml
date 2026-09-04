@@ -1,0 +1,133 @@
+# compose.yaml — WO-11 §4 deliverable 7, following `43` §5.4.
+#
+# WHAT THIS IS AND IS NOT. It brings up the WO-11 skeleton: PostgreSQL, the
+# server, and Caddy terminating TLS in front. There are no accounts, no tenants
+# and no data — WO-11 §6 G8 forbids any table but the migrations table until
+# ADR-0040's key boundary is decided.
+#
+# `43` §5.4 was written for `fathom-sync`, the zero-knowledge blob service that
+# the 2026-08-18 pivot replaced (`49`). Its SHAPE is carried over line for line
+# and its variables are not, because they described a different program.
+#
+# THE LINES THAT ARE DECISIONS RATHER THAN BOILERPLATE, per `43` §5.4's table:
+#
+#   image: ...@sha256:   never a tag. The digest is the artifact; the tag is a
+#                        pointer (`35` §7.4). Digests read 2026-09-03.
+#   read_only: true      the server writes nothing. If it ever needs a writable
+#                        path that is a design change, not a compose change.
+#   cap_drop: [ALL]      it binds a port above 1024 and opens a socket. Nothing
+#                        else.
+#   no-new-privileges    a setuid binary in the image could not gain anything;
+#                        there is no shell to run one from either.
+#   user: 65532          distroless's nonroot.
+#   tmpfs /tmp noexec    nothing in /tmp is ever executed.
+#   healthcheck: the binary
+#                        distroless has no shell and no curl (`43` §5.4).
+#   logging caps         `43` §6.12 — logs are a metadata store, and an uncapped
+#                        one grows forever.
+#
+# AND THE ONE THAT MATTERS MOST HERE: **the server is not published to the
+# host.** Only Caddy is. `49` §6 keeps C7 — no C or C++ in the shipped closure —
+# only because TLS terminates in front of the binary; a server reachable
+# directly would be a plaintext HTTP endpoint on the network, and it would work,
+# which is how that kind of mistake survives.
+
+name: fathom
+
+services:
+  db:
+    image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    restart: unless-stopped
+    # NOT published to the host. Nothing outside this network talks to the
+    # database, which is also what lets the driver run without TLS.
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_USER: fathom
+      POSTGRES_DB: fathom
+      # Compose reads this from the environment or a .env file. There is no
+      # default: a default database password is a password everyone has.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      # /var/lib/postgresql, NOT /var/lib/postgresql/data. PostgreSQL 18's
+      # image changed this: a single mount one level up puts the data in a
+      # version-named subdirectory, so `pg_upgrade --link` can see both versions
+      # without crossing a mount boundary. Mounting the old path against an 18
+      # image starts, refuses, and reports an incompatible data directory --
+      # found 2026-09-03 by running this file rather than reading it.
+      - db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fathom -d fathom"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    # In a real deployment this is a digest, exactly like the two above:
+    #   image: ghcr.io/<org>/fathom-server@sha256:<64 hex>
+    # `build:` is here so the stack can be brought up from a clean checkout
+    # before any image has been published.
+    image: fathom-server:wo-11
+    restart: unless-stopped
+    read_only: true
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8080"
+    environment:
+      # 0.0.0.0 INSIDE the container, which is reachable only from this
+      # network. The BINARY's default is loopback, deliberately, so that a
+      # server started outside a container cannot serve the world by accident.
+      FATHOM_BIND: "0.0.0.0:8080"
+      DATABASE_URL: "postgres://fathom:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/fathom"
+      FATHOM_LOG: "info"
+      FATHOM_HEALTH_TIMEOUT_MS: "2000"
+      FATHOM_DB_POOL_SIZE: "8"
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+    healthcheck:
+      # distroless has no shell and no curl. The binary is its own health check.
+      test: ["CMD", "/fathom-server", "healthcheck", "--addr", "127.0.0.1:8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  caddy:
+    image: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "${FATHOM_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+volumes:
+  db:
+  caddy_data:
+  caddy_config:

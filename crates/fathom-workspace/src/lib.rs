@@ -427,13 +427,23 @@ fn op_to_json(op: &Op) -> Json {
                 ("prov", ulid_json(prov.0)),
             ]),
         ),
-        Op::Tombstone { element, at } => tagged(
-            "tombstone",
-            obj(vec![
-                ("at", Json::Int(at.0 as i64)),
-                ("element", Json::Str(element.to_string())),
-            ]),
-        ),
+        // `by` was added 2026-08-21. A tombstone writes no ProvenanceRecord, so
+        // before this the removal of a fact was the one operation in the whole
+        // product that recorded nobody — and a removal is exactly the operation
+        // an audit is asked about. Serialised as a bare ULID under `by`,
+        // matching `provenance_to_json`'s treatment of `asserted_by`, because a
+        // second spelling for the same idea is a second thing to keep in step.
+        Op::Tombstone { element, at, by } => {
+            let Actor::User(UserId(user)) = by;
+            tagged(
+                "tombstone",
+                obj(vec![
+                    ("at", Json::Int(at.0 as i64)),
+                    ("by", ulid_json(*user)),
+                    ("element", Json::Str(element.to_string())),
+                ]),
+            )
+        }
     }
 }
 
@@ -761,6 +771,18 @@ fn read_op(j: &Json, path: &str) -> Result<Op, PlainError> {
         "tombstone" => Ok(Op::Tombstone {
             element: ElementId::parse(get_str(key_or(p, "element", path)?, path)?)?,
             at: Timestamp(get_u64(key_or(p, "at", path)?, path)?),
+            // `by` is OPTIONAL ON READ, required on write. A file written
+            // before 2026-08-21 has no author on its tombstones, and a workspace
+            // file is a file an operator keeps — hard-requiring the key would
+            // make the envelope upgrade destroy saved work, which is the exact
+            // failure the page's importer already refuses (it synthesises
+            // `local` for a v1 journal). Same repair, same honesty: `LOCAL`
+            // means "made by a build that had no accounts", which is the true
+            // statement about that file.
+            by: match p.get("by") {
+                Some(v) => Actor::User(UserId(read_ulid(v, path)?)),
+                None => Actor::User(UserId::LOCAL),
+            },
         }),
         _ => Err(shape(path, "one of the four op tags")),
     }

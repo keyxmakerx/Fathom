@@ -15,6 +15,13 @@ out/
 .github/
 .gitignore
 
+# Agent and tool scratch. `.claude/` had reached 1.2 GB on this checkout and was
+# being shipped as build context on every `docker build` -- found 2026-09-03
+# while bringing up deploy/compose.yaml, where it turned a short build into
+# minutes of context transfer before a line compiled. It is an input to nothing.
+.claude/
+.context/
+
 # Documentation and review material — thousands of files, none of them compiled.
 # `corpus/` is NOT here: it holds the statement dictionary the parser embeds.
 docs/
