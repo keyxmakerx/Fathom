@@ -249,12 +249,85 @@ pub(crate) fn display_name(g: &Graph, id: NodeId) -> String {
         NodeKind::SystemSettings => "system settings".to_owned(),
         NodeKind::SecurityFlowSettings => "security flow settings".to_owned(),
 
-        // Deliberately last and deliberately a ULID: a kind with no arm is a
-        // kind nobody has decided how to name, and showing its id says so
-        // rather than inventing a label. Adding a kind here is cheap; guessing
-        // is what produced the defect above.
-        _ => id.to_string(),
+        // A ULID, DELIBERATELY, AND THIS ARM EXISTS TO SAY WHY. Seen in
+        // Chromium on 2026-09-04: the findings view listing *"4 of 4 PolicySet
+        // nodes have no scope"* with every row reading the ULID twice, as
+        // both the label and the id. It looks like the 2026-08-10 defect — a
+        // Junos policy set IS keyed on its zone pair, so `trust → untrust`
+        // reads as the obvious name — and it is not, because THE PAIR IS NOT
+        // IN THE GRAPH. `corpus/dict/junos-srx/security-policies.yaml` keys
+        // the set on `["$fz", "$tz"]` and `bind.rs` says what that key is for
+        // in as many words: *"used only as the fragment's dedup key."* Then
+        // it is dropped. `PolicySet.scope` is the field that would carry it,
+        // `11` §6.6 specifies its shape (`ZonePair{from,to}` and three more
+        // variants), and `fathom_ir::value::PolicyScope` is `pub struct
+        // PolicyScope;` — a unit struct. No edge from `PolicySet` to `Zone` is
+        // declared either. So the row that says the set has no scope is the
+        // row that says why it has no name: they are the same fact.
+        //
+        // Reading the policies' names for the pair (`trust-to-untrust` is
+        // right there) is refused for the reason `inside.rs`'s module doc
+        // gives — that is a naming convention, not a record, and it would put
+        // a confident wrong zone pair on a security surface. Giving the type
+        // its shape is a WO: the IR enum, its canonical form, a dictionary
+        // grammar for a reference-carrying scalar field (nothing in ingest or
+        // the weld resolves one today — `NextHop` is declared and unbuilt),
+        // and the weld's pending-reference path. Not an arm here.
+        NodeKind::PolicySet => id.to_string(),
+
+        // THE FOURTH TIME THIS CLASS OF DEFECT HAS BEEN FIXED, and the arm is
+        // written so there is not a fifth. 2026-08-10: seven security kinds.
+        // 2026-08-15: the routing and VLAN kinds. ADR-0036's `Rack`. And on
+        // 2026-09-04, `SecurityPolicy` — `name` is `card: "1"`, the
+        // dictionary has bound it since 2026-08-28, rung 4 read it directly
+        // and was fine, and the inspector's heading over a policy picked from
+        // the inventory said `security-policy:01M1…` for a week. Fifteen more
+        // kinds declare a `name` or `label` and had no arm — sixteen offenders
+        // when `tests/projection.rs` first ran against this file unmodified:
+        // `TrafficSelector`, which the dictionary builds; `ExternalPeer`,
+        // `Tunnel`, `PassiveNode`, `Tenant`, `ServiceType`, `Service`,
+        // `ServiceEndpoint`, `ServicePath`, and the NAT, address and
+        // application kinds, which nothing builds yet.
+        //
+        // Each fix above added arms and a comment saying "remember". This one
+        // asks the generated field table instead (ADR-0008, and the same
+        // reasoning `gaps.rs` gives for the required half): if the kind
+        // declares a field whose bare name is `name`, `label` or `hostname`
+        // and the graph holds a value under it, that value is the name. A
+        // kind added to `schema/` tomorrow with a `name` field is shown by it
+        // with no change here. The explicit arms above stay because each is a
+        // DECISION this cannot make — a composed name, a fallback word, a
+        // field that is not called `name` — and because their comments are
+        // the record of how this crate learned the rule.
+        //
+        // What stays a ULID after this is exactly what the test in
+        // `tests/projection.rs` permits: a kind the graph holds no name for.
+        _ => match schema_named(g, id) {
+            Some(name) => name,
+            None => id.to_string(),
+        },
     }
+}
+
+/// The bound value of the first field the kind declares under the bare name
+/// `name`, `label` or `hostname`, in declaration order — or `None` when the
+/// kind declares none, or holds no value under any.
+///
+/// Declaration order is the tie-break, which today never fires: no kind in
+/// schema 0.5 declares two of the three (`DhcpRelay` has `label` and an
+/// explicit arm that chose `server` over it, WO-10 §7.3). A `for` loop and
+/// three comparisons rather than an iterator chain, for the byte reason the
+/// rest of this crate gives (`47` §3).
+fn schema_named(g: &Graph, id: NodeId) -> Option<String> {
+    for k in id.kind.fields() {
+        let n = field_name(*k);
+        if n == "name" || n == "label" || n == "hostname" {
+            if let Some(v) = bound(g, id, *k) {
+                return Some(v);
+            }
+        }
+    }
+    None
 }
 
 /// WO-08 §4.6's context lines. Roots have none; the `Device` line elides the

@@ -498,3 +498,169 @@ fn a_bound_name_is_never_rendered_as_a_ulid() {
          instead — the 2026-08-10 defect, returning: {offenders:#?}"
     );
 }
+
+/// **THE RULE ABOVE, ASKED OF THE SCHEMA INSTEAD OF THE DEMO ESTATE.**
+///
+/// `a_bound_name_is_never_rendered_as_a_ulid` walks `InvKind::ALL` over the
+/// demo estate, and the demo estate holds no `SecurityPolicy`, no `PolicySet`
+/// and no `TrafficSelector` — so on 2026-09-04 it was green while a policy
+/// picked from the inventory of a real paste titled its inspector
+/// `security-policy:01M1…`, with `trust-to-untrust` bound on the node since
+/// 2026-08-28. Rule 0: a gate tested against what its fixture happens to hold
+/// is a gate tested against what the assertion needs.
+///
+/// This one names no kind. For EVERY kind `schema/` declares, for every field
+/// of it whose bare name is `name`, `label` or `hostname`, it builds a fresh
+/// graph, inserts one bare node, writes the field through the same
+/// `parse_into_slot` + `set_field_boxed` path the inventory's own cell editor
+/// uses, and requires the element page's name to be that field's rendered
+/// value. Run against `display_name` without the schema-driven arm it failed
+/// on SIXTEEN kinds (2026-09-04, `SecurityPolicy` among them); with it, the
+/// only way to fail is a kind whose bound name is not shown — which is the
+/// defect, exactly.
+///
+/// The count of fields exercised is pinned to at least the number measured
+/// on schema 0.5, so the test cannot go vacuous by every field becoming
+/// unauthorable or by the walk finding nothing.
+#[test]
+fn every_kind_whose_schema_names_it_shows_that_name() {
+    use fathom_graph::{
+        Actor, BatchId, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId,
+    };
+    use fathom_id::Ulid;
+    use fathom_inventory::{is_authorable, parse_into_slot};
+
+    const TS0: u64 = 1_785_456_000_000;
+    let ulid = |k: u128| Ulid::from_parts(TS0, k).expect("TS0 fits 48 bits");
+    let prov = |k: u128| ProvenanceRecord {
+        id: ProvenanceId(ulid(9000 + k)),
+        origin: Origin::Hand,
+        asserted_at: Timestamp(TS0),
+        asserted_by: Actor::User(UserId(ulid(1))),
+        confidence: Confidence::Asserted,
+        supersedes: None,
+    };
+    // One spelling per grammar the three field names are declared under:
+    // `Identifier` and `Text` take the first, `InterfaceName` the second.
+    // The first that parses is written; a field none parses is a FAILURE,
+    // not a skip, because a silently skipped kind is the whole point.
+    const TOKENS: [&str; 2] = ["trust-to-untrust", "ge-0/0/7"];
+
+    let mut exercised = 0usize;
+    let mut offenders: Vec<String> = Vec::new();
+    let mut k_seed: u128 = 100;
+
+    for kind in NodeKind::ALL {
+        for key in kind.fields() {
+            let (wire, _) = FIELD_KEYS
+                .iter()
+                .find(|(_, v)| *v == key.0)
+                .expect("a registered key");
+            let bare = wire.split_once('.').expect("Kind.field").1;
+            if bare != "name" && bare != "label" && bare != "hostname" {
+                continue;
+            }
+            assert!(
+                is_authorable(*key),
+                "{wire} is a name field nobody can type — widen TOKENS or the parser"
+            );
+            let parsed = TOKENS
+                .iter()
+                .find_map(|t| parse_into_slot(*key, t).ok())
+                .unwrap_or_else(|| panic!("no token in TOKENS parses as {wire}"));
+
+            let mut g = Graph::new();
+            k_seed += 1;
+            g.begin_batch(BatchId(ulid(k_seed)), "name test")
+                .expect("a fresh batch");
+            let id = g
+                .insert_node(kind, ulid(k_seed + 1), prov(k_seed))
+                .expect("any kind is insertable bare (11 §9.1)");
+            g.set_field_boxed(ElementId::Node(id), *key, parsed, prov(k_seed + 2))
+                .expect("the parsed slot matches the declared type");
+            g.end_batch().expect("the batch closes");
+
+            let page = element_page(&g, id).expect("a live node has a page");
+            let rendered = page
+                .fields
+                .iter()
+                .find(|f| f.name == bare)
+                .map(|f| f.value.clone())
+                .expect("the field is on its own page");
+            exercised += 1;
+            if page.name != rendered {
+                offenders.push(format!(
+                    "{wire} is bound as `{rendered}` and the page is named `{}`",
+                    page.name
+                ));
+            }
+        }
+    }
+
+    assert!(
+        exercised >= 35,
+        "only {exercised} name fields were exercised — schema 0.5 declares 35; \
+         a walk that finds fewer is not covering the class"
+    );
+    assert!(
+        offenders.is_empty(),
+        "a kind whose name IS in the graph is showing a ULID instead: {offenders:#?}"
+    );
+}
+
+/// The one kind the graph holds NOTHING to name, and the arm that says so.
+///
+/// A `PolicySet` is keyed on its zone pair at ingest and the pair is dropped
+/// with the fragment; `PolicyScope` is a unit struct; no `PolicySet → Zone`
+/// edge is declared. Its display name is therefore its id — deliberately,
+/// and the arm in `display_name` records why. This pins that state so the
+/// day the type grows a shape and somebody writes the arm, this test fails
+/// and is rewritten to assert the pair, rather than the ULID going on
+/// showing over a scope nobody noticed had become readable.
+#[test]
+fn a_policy_set_is_its_id_because_the_graph_holds_no_scope() {
+    use fathom_graph::{
+        Actor, BatchId, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId,
+    };
+    use fathom_id::Ulid;
+
+    const TS0: u64 = 1_785_456_000_000;
+    let ulid = |k: u128| Ulid::from_parts(TS0, k).expect("TS0 fits 48 bits");
+    let prov = ProvenanceRecord {
+        id: ProvenanceId(ulid(9001)),
+        origin: Origin::Hand,
+        asserted_at: Timestamp(TS0),
+        asserted_by: Actor::User(UserId(ulid(1))),
+        confidence: Confidence::Asserted,
+        supersedes: None,
+    };
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(ulid(500)), "policy set")
+        .expect("a fresh batch");
+    let id = g
+        .insert_node(NodeKind::PolicySet, ulid(2), prov)
+        .expect("a bare policy set");
+    g.end_batch().expect("the batch closes");
+
+    let page = element_page(&g, id).expect("a page");
+    assert_eq!(page.name, id.to_string());
+    assert!(
+        !NodeKind::PolicySet.fields().iter().any(|k| {
+            let (wire, _) = FIELD_KEYS
+                .iter()
+                .find(|(_, v)| *v == k.0)
+                .expect("registered");
+            matches!(
+                wire.split_once('.').map(|p| p.1),
+                Some("name" | "label" | "hostname")
+            )
+        }),
+        "PolicySet grew a name field; give display_name an arm and rewrite this test"
+    );
+    assert_eq!(
+        core::mem::size_of::<fathom_ir::value::PolicyScope>(),
+        0,
+        "PolicyScope has a shape now — the zone pair is storable, and the \
+         PolicySet arm in display_name should render it rather than the id"
+    );
+}
