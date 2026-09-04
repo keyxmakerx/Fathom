@@ -1105,6 +1105,74 @@ needs installing.
 If a box can only do TFTP, that is a *finding Fathom records about the box*, not a service it
 runs.
 
+### 16.1a WHAT A 2026-09-04 RE-CHECK FOUND, INCLUDING ABOUT §16.1 ITSELF
+
+> **Read this before quoting anything in §16.1.** A session was asked to write the missing Arista
+> row and to re-verify the Juniper sentences above, under ADR-0034. It could open neither vendor's
+> documentation: **`arista.com`, `docs.arista.com`, `juniper.net` and `supportportal.juniper.net`
+> are all refused by that environment's egress policy**, and so is `web.archive.org`. Everything
+> below therefore comes from **vendor-authored code and models** — Arista's own GitHub
+> organisations, Juniper's published YANG — a DISA benchmark, or named third-party automation.
+> Search-engine snippets of the blocked pages were deliberately NOT recorded as established, which
+> is the rule working.
+
+**(i) §16.1's headline Juniper quotation is UNCORROBORATED, and that is not the same as wrong.**
+The sentence *"Do not use the scp protocol in the request system software add command…"* could not
+be confirmed: juniper.net is unreachable, and **a GitHub-wide code search for the exact phrase
+returns exactly one hit in the entire index — this file.** §16.1 says it was found on two
+independent Juniper pages; nothing outside this corpus corroborates that today. It is neither
+confirmed nor refuted. **Do not repeat it to a customer as a vendor quotation until someone opens
+the page**, and treat any future session that reports it verified without naming a reachable host
+as the ADR-0034 failure it would be.
+
+**(ii) THE DESIGN-BREAKING FINDING: `file copy` has nowhere to put a key.** Established from
+Juniper's own YANG: the RPC's entire input surface on SRX, EX, MX and Junos Evolved is
+**source, destination, source-address, routing-instance**. No identity file, no username, no
+passphrase. **So a generated runbook step of the form "configure the device to use key K for the
+firmware pull" is unbuildable as written — there is no command to configure.** Whatever
+`file copy scp://` authenticates with is chosen by the box. This does not refute §16.2, whose
+decision is about the SERVER's accounts, but it does mean **the device half of that model is
+unestablished on the owner's primary platform**, and §16.5's manual half is larger than it looks.
+
+**(iii) The same question is open on Arista, and the only evidence points the wrong way.** No
+Arista source establishes passwordless key-based SCP as an outbound client, nor that a switch can
+generate its own client key pair. The one real-world example found — third-party, and flagged as
+such — answers an interactive `Password:` prompt with a stored password. **If EOS can only
+authenticate with a password, `fw-pull` on an Arista estate is a shared password in the
+automation, which is exactly what §16.2 rejected.** Write the Arista row as OPEN on this point and
+make it the first question asked of a real switch.
+
+**(iv) The Arista row, marked with its provenance rather than pretending to §16.1's confidence.**
+Established from Arista-authored files: `copy` takes `scp:` and `http://` sources and `flash:`,
+`extension:` and `certificate:` destinations; the boot pointer is `/mnt/flash/boot-config`
+containing `SWI=flash:/<image>`; and `management ssh` → `hostkey client strict-checking` exists.
+**Four things are UNESTABLISHED and belong on the face of the row: client keys, any RSA size
+floor, RSA/SHA-2 capability, and whether HTTPS with a private CA works at all.**
+
+Three traps in it are worth more than the established facts:
+
+- **The obvious two-step flow is the OLD one.** Every current Arista tool opened uses one verb,
+  `install source <url>`, and never issues `boot system`; the `copy` + `boot system` example is
+  from an EOS 4.15-era repository. §16.1 tells us to generate Juniper's own two-step flow because
+  Juniper says so — **for Arista the finding is the mirror image: generate Arista's one-step flow**,
+  falling back only where `install source` is absent. Which releases have it is unestablished.
+- **Three incompatible command spellings, all from Arista's own material** — `copy scp:user@server/path`
+  (no double slash), `copy scp://user@host/path`, and a bare `scp user@host:/path`. A generator must
+  emit one, and the vendor's own documents disagree. **And real automation puts a VRF token BETWEEN
+  source and destination** (`copy scp://…/img vrf mgmt flash:/img`), so a generator that omits it
+  fails on any estate with management in a VRF, which is most of them.
+- **CloudVision already does this job.** Its change-control actions download by URL and set the
+  image, skipping by SHA-512. **An Arista estate running CloudVision has image distribution solved
+  and centrally recorded**, so the row should ask whether CVP is present before offering anything —
+  the same honesty the Meraki row already applies by saying the feature does not apply.
+
+**(v) One more, which decides how an operator checks an image.** From EOS 4.27.2 a single SWI can
+CONTAIN MULTIPLE IMAGES, and Arista's signing tool prints a SHA-256 per contained optimisation as
+well as a whole-file one, while CloudVision compares SHA-512. *"Publish a SHA-256 beside every
+image"* is therefore ambiguous on modern EOS: **name the algorithm and say which number it is.**
+And on EOS as on Junos, the tamper defence is the **signature**, not the checksum — the checksum
+catches a truncated download, which is the common failure and not the attack.
+
 ### 16.3 Three corrections the review found, and they are not cosmetic
 
 **(a) The elegant read-only mechanism probably does not work for Juniper, and it is not a
@@ -1124,9 +1192,18 @@ authorized keys."* Turn on verbose logging and the server records the key finger
 authentication; Fathom generates the file, so Fathom holds the fingerprint-to-device map.
 No wrapper needed.
 
-**(c) The HTTPS door has no documented escape hatch on his boxes.** `file copy`'s
-`no-check-certificate` option exists **only on Junos Evolved (added 23.1R1)** — SRX, MX and EX
-run classic Junos, where it is absent. So if a private certificate authority cannot be trusted
+**(c) The HTTPS door has no documented escape hatch on his boxes.** <!-- CORRECTED 2026-09-04:
+the CONCLUSION below stands and the REASON was backwards. See §16.1a. --> `file copy`'s
+`no-check-certificate` option was said here to exist **only on Junos Evolved (added 23.1R1)**, with
+classic Junos lacking it. **Juniper's own YANG says the reverse mapping**, read 2026-09-04: the
+option is ABSENT from Junos Evolved's `file-copy` at 24.4R2 and 25.2R1, ABSENT from SRX/EX/M-MX
+`file-copy` at 24.4R2 and 25.4R1, and PRESENT on classic Junos NFX's `file-mgd-copy` from 23.2
+through 25.4. **The operative consequence for SRX, MX and EX is unchanged and confirmed** — no
+certificate-check bypass on the primary platform — but the stated reason was wrong, and the
+corrected reason must not be read as quietly reopening the door. A related trap: the same
+`no-check-certificate` NAME appears inside the large rpc-request modules as a `type string` beside
+`cert-file`, where it belongs to event-options archive-site uploads. **A grep that finds the string
+and concludes the platform supports skipping the check on file copy will be wrong.** So if a private certificate authority cannot be trusted
 *and* validation cannot be bypassed, **the HTTPS door does not open on his primary platform at
 all.** Test this on a real SRX before declaring HTTPS the primary door.
 
