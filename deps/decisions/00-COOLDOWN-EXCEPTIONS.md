@@ -29,9 +29,13 @@ months.
 
 | crate | version | expires | why the young release is the safer one |
 |---|---|---|---|
-| `hyper` | 1.11.1 | 2026-09-10 | **Four HTTP/1 parser fixes, in the area where a differential is a request-smuggling bug.** 1.11.1 (published 2026-08-28, six days before this row) fixes: `TE: trailers` detected caselessly and alongside other values; `\n\r\n` recognised as a head terminator in the partial-read fast path (#4145); bytes buffered by the write re-check flushed before yielding; a pooled connection evicted on a request-side `Connection: close`. Read from hyper's own CHANGELOG on 2026-09-03. None is a filed advisory — that is exactly why holding the version back is not the safe default: pinning to 1.11.0 keeps a server on a *known* set of head-terminator and transfer-encoding parsing behaviours in order to avoid an unproven supply-chain risk in one of the most-watched crates in the ecosystem. The exception is six days long, not open-ended: 1.11.1 clears the window on its own on 2026-09-04. |
 
 <!-- cooldown:end -->
+
+**Retired rows** (the table is empty on purpose; this is the record the prose below refers to):
+`hyper` 1.11.1, admitted 2026-09-03 for four HTTP/1 parser fixes, cleared the seven-day window on
+its own on 2026-09-04 and the gate reported the row stale that day. Removed the same day, as rule
+3 requires. The row's full reasoning is in this file's history at `3ca19b9`.
 
 ## What was NOT excepted, on the same day, and why
 

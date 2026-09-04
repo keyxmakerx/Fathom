@@ -440,6 +440,14 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   22 — which takes the lockfile to ~137 of the 160 cap WO-11 §9.7 escalated. **The contradiction
   in §B1 is confirmed and sourced**: ADR-0003, *Accepted*, *"no hosted service, no accounts we
   run"*, against everything in `49`. That is the owner's, and it does not block WO-12.
+  **WHERE THIS WORK LIVES, added 2026-09-04 by the session that picked this up:** none of it is on
+  `main`. PR #17 merged on 2026-08-17 and every commit since — the pivot, ADR-0038 to 0041, WO-10,
+  WO-11, this page — sits on a branch with **no pull request open and no CI run**. A session that
+  starts from `main` sees none of it; this one did, and had to fast-forward. The floor was run
+  locally on the whole branch the same day: 792 tests, every gate green **except two that fired on
+  the calendar** — the hyper cooldown exception expired as designed (row removed), and the
+  offline lockfile check cannot pass on a cache-less runner now that the lockfile has 115 external
+  crates (a locked fetch now precedes it in `ci.yml`). Both are in the commit that carries this line.
 - **EVERY OPEN OWNER DECISION IS NOW ON ONE PAGE — `docs/70-ops/OPEN-FOR-THE-OWNER.md`,
   2026-09-04.** Twenty-seven questions in plain English, ranked by what blocks the server, from a
   ten-reader sweep of the whole corpus in which **every candidate was adversarially checked

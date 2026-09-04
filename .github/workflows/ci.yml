@@ -85,6 +85,16 @@ jobs:
       # Without this, an unlocked step re-resolves and writes a fresh Cargo.lock that
       # the next --locked step then reads and finds consistent, so the gate passes and
       # the drift ships. cargo metadata does not run build scripts.
+      # `--offline` below needs the crate sources on disk, and a fresh runner has none.
+      # This step passed on every PR up to #17 only because the lockfile then held zero
+      # external crates; with 115 it fails on a cache-less machine ("no matching package
+      # named `deadpool-postgres` found"), reproduced 2026-09-04 with an empty CARGO_HOME.
+      # `cargo fetch --locked` downloads exactly the locked set, refuses to touch
+      # Cargo.lock, and runs no build script — so the control the next step exists for
+      # is intact.
+      - name: Fetch the locked crate set (no build scripts run)
+        run: cargo fetch --locked
+
       - name: Lockfile is consistent and complete
         run: cargo metadata --locked --offline --format-version 1 > /dev/null
 
