@@ -6,6 +6,12 @@
 > markers already answered elsewhere and were dropped. 51 survived**, and are consolidated below
 > into 27 real questions — several documents ask the same thing in different words.
 >
+> **2026-09-04, later: fourteen of these now carry a researched, attacked and validated
+> recommendation, and three more turned out to be already answered elsewhere. Read
+> `WHAT-I-RECOMMEND-2026-09-04.md` first — it is one page, in plain English, and ends with the eight
+> questions that are genuinely yours. The technical record behind it is
+> `RECOMMENDATIONS-2026-09-04.md` (lands in the commit after the one that carries this note).**
+>
 > **Read sections A and B only, if you read nothing else.**
 >
 > **A** is three questions the corpus already knew it was waiting on. **B is more important and

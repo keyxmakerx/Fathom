@@ -1147,6 +1147,12 @@ fetched and grepped rather than searched:
   `passphrase` — *"Passphrase used to protect identity key pair"*; `delay`.
 - `rpc generate-ssh-key-pair` — same module, line 4630 — *"Generate SSH key pair identity"*, with a
   mandatory `identity-name` and an optional `passphrase`.
+- **The CLI spellings, verified later the same day** from the `rpc-with-extensions` variant of the
+  same module (`.../junos-es/rpc-with-extensions/models/junos-es-rpc-request@2025-01-01.yang`,
+  25.2R1): `junos:command "request system download start"` and
+  `junos:command "request security ssh key-pair-identity generate"`. **The bench test is written:
+  `docs/80-review/evidence/2026-09-04-firmware-bench-test.md`**, precise for the SRX, exploratory
+  and labelled so for EOS; the owner confirmed he has both boxes (`70` §20.3).
 
 **So on the SRX, Juniper models both halves of §16.2's device side**: a command that mints a named
 SSH identity on the box, and an SFTP download command that accepts one. What is NOT established —

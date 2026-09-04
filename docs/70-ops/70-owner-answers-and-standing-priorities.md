@@ -2052,6 +2052,227 @@ before anything is stored. In a room worried about what a new tool will exfiltra
 network request, and here is the browser's own network panel showing that"* is a stronger opening
 than any feature.
 
+## 20. Four answers to the first four questions — 2026-09-04, evening
+
+Asked in plain English after a day of research (`WHAT-I-RECOMMEND-2026-09-04.md` §2). His words
+verbatim; what each decides and does not decide follows.
+
+### 20.1 B1 is ANSWERED, and it resolves the ADR-0003 contradiction the other way round
+
+> **"It's going to be fully opensource, BUT the intent is to run it either internally or have a
+> secure reverse proxy solution"**
+
+**Three decisions in one sentence.** (a) **The software is open source.** That is a `74`
+governance-and-licensing decision and it is now made; the licence itself is not named and is his
+to name. (b) **It is run by the adopting organisation**, on their infrastructure — *"internally"*.
+(c) **It may be reachable from outside through a hardened front door** — *"a secure reverse proxy
+solution"* — which is the deployment shape `deploy/` already has (Caddy terminating TLS in front,
+the server publishing no port) and which C1's egress rule and the reverse proxy's own hardening
+now have to be written for.
+
+**What this does to the contradiction `OPEN-FOR-THE-OWNER.md` §B1 named.** ADR-0003, *Accepted*,
+says *"No hosted service, no accounts we run, no plan tiers."* `49` assumed a Fathom-operated,
+multi-tenant, hosted product throughout. **The owner's answer sides with ADR-0003.** Open-source,
+self-hosted software that an organisation runs for itself is exactly what ADR-0003 permits and
+exactly what it forbade Fathom from becoming — a service Fathom runs. **So the document to amend is
+`49`, not ADR-0003**: its hosted-SaaS framing (Fathom as operator, plan tiers, sign-up by strangers)
+is withdrawn; its multi-tenancy survives only as *an organisation may have several departments*,
+which is a smaller thing. §B5 (strangers signing up: **no**), §B9 (the contract: **none, it is
+software**), §B10 (who pays for vendor knowledge: **the adopting organisation, or nobody**) and the
+licence half of A1 (a BSL-licensed vault sidecar in an open-source compose file: **avoid it; OpenBao
+is MPL**) all follow. Planning writes the ADR that records this; it is not execution work.
+
+### 20.2 A1 is PUSHED BACK ON, and the pushback is right about the thing that matters
+
+> **"i don't like master keys. Is there not a better solution here, which there may just not be. I
+> also do not want to overcomplicate this either. Thoughts?"**
+
+**Recorded as a question, answered in the next round, and the substance of the answer recorded here
+so it is not lost.** Every scheme for encrypting stored data has ONE thing at its root that unlocks
+everything — the disk's key, the database's key, or an application master key. There is no scheme
+without one; the only real choice is *where it sits and who can use it*. His instinct is therefore
+not wrong, it is aimed at the wrong target: the objection to *"a master key"* is really an
+objection to *a single secret sitting on the server*, and that objection applies equally to the
+database password `deploy/compose.yaml` already requires. **The simplest honest option for an
+internal, open-source deployment is the one Grafana ships by default** (A1 research, read
+2026-09-04: a `secret_key` in configuration by default, a key-management service only in the paid
+tier): the master key is a file the server's operating system protects, and the design WO-12
+already carries — a provider behind an interface, custody switched by re-wrapping keys — is the door
+to a vault later, *without re-encrypting anything stored*. That is not overcomplicating; it is
+declining to build the vault integration until an auditor asks for it. Whether he takes that,
+takes the vault now, or reopens ADR-0040 D1 and relies on disk and database encryption alone, is
+put to him as the first question of the next round.
+
+### 20.3 The bench test is possible on REAL hardware, and the estate is wider than the registry
+
+> **"They'll be both, because we have F5's, Ciscos, Arista, Juniper, etc. However, the ones i'm
+> upgrading currently is arista and juniper SRX bare metal"**
+
+**Decided: the bench test runs on real boxes, one SRX and one Arista.** That converts §16.2's
+device half from *documented, untested* to a fact within thirty minutes of someone having the
+commands, and the commands are the next deliverable on that thread.
+
+**Recorded as a gap, not decided: F5.** `schema/platforms.yaml` registers juniper, palo-alto,
+cisco, arista, fortinet, calix, nokia, adtran, ciena, opnsense, tp-link, sodola and proxmox as
+vendors. **F5 is not among them**, and it is on his estate. A device with no vendor row cannot be
+recorded honestly (`Device.platform` is required and a foreign key). Not demo-blocking — the demo
+is Arista and SRX — but it is the first vendor his own words have named that the registry does
+not know, and it goes on E1's list.
+
+### 20.4 Hosts in the demo: none — the demo is the Docker deployment
+
+> **"Docker container only please"**
+
+**Read as scope, and re-asked to be sure.** The question offered VMware, Linux, Windows and a NAS
+as host types Fathom might learn first; his answer names none of them. The reading adopted until he
+corrects it: **the demo runs as the Docker stack in `deploy/` and no host type is modelled for it.**
+What still lands regardless is D1's *blank platform* change, so that a server drawn by hand no
+longer has to be filed as a Juniper firewall — that defect is on the first screen and does not
+depend on any host engine. The alternative reading — that a Docker host and its containers should
+be the first host *kind* Fathom learns — is put back to him as a one-line question.
+
+### 20.5 A1 is ANSWERED — a vault from the start — and a question comes back that must not be lost
+
+> **"Why are we having grafana...? sorry i need to have more information, but looking at your
+> options here i'd want a vault from the start. I thought we were doing some sort of cryptkey
+> thing as well? did we toss that?"**
+
+**Decided: a vault from the start.** Combined with §20.1 (open source), that is OpenBao or Vault
+Transit as the FIRST shipped `MasterKeyProvider`, with OpenBao preferred because it is MPL-licensed
+and a BSL binary in an open-source compose file is the licence question A1's research flagged.
+WO-12's file provider stays what §4.4 already says it is — development and test.
+
+**Two corrections to how the question was put, recorded so the next question is better.** First,
+*"Why are we having grafana"*: Grafana was named as a COMPARISON — another tool, what it ships by
+default — and to a reader who is not a programmer that read as a dependency. **Rule for questions
+to the owner: never name another product without saying "another tool, for comparison" in the same
+breath.** Second, and this is the one that matters: *"I thought we were doing some sort of cryptkey
+thing as well? did we toss that?"* He is remembering the ORIGINAL design — the browser encrypts,
+the server stores ciphertext it cannot read (invariant 4 before ADR-0040; `33`, `43` D2/D3; his own
+§8 answer about Docker storage). **That design WAS changed, deliberately, by ADR-0040 on
+2026-09-03** — *"the server holds the keys and says so"* — ratified when he said *"start working on
+the server version."* The reason is `49` §2: a server that cannot read the data cannot do live
+multi-user editing, cannot run a schema check, cannot search. **It is not gone; it is the
+destination** — customer-managed keys, reached by the vault plus the re-wrap design without
+re-encrypting anything — and until a customer holds their own key, ADR-0040 §6 forbids four
+sentences in writing. **He did not know that trade had been made in those terms, and he must
+confirm it knowingly**; it is put to him as the next question, with the cost of reversing it stated.
+
+### 20.6 Fathom runs in Docker; engines are the brains; no host engine for the demo
+
+> **"So keep in mind, Fathom will have engines, those engines are what house the brains of most of
+> this. Fathom itself will be hosted in a docker though."**
+
+**Confirms §20.4's reading.** Fathom the application runs as the Docker stack. *"Engines"* is his
+word from §18.4 for the per-platform brains — parsers, dictionaries, command knowledge — and a host
+type, when one is taught, is an engine like any vendor's. **No host engine is in scope for the
+demo.** D1's blank-platform change lands regardless (§20.4).
+
+### 20.7 The word "group" collided, and the collision answered B4 instead
+
+> **"We already discussed this, there should be groups, some read only, write, share, and then
+> even some who can send invites to join, vs admins who can do practically anything. Probably even
+> ways of sending logs to a server."**
+
+**The question asked about groups OF EQUIPMENT (D2, D10). He answered about groups OF PEOPLE
+(B4).** That is the questioner's fault — one word, two meanings, and *"we already discussed this"*
+is a fair complaint. **Both readings are recorded, and the second is the more valuable.**
+
+**B4 is now substantially ANSWERED, in his own list: roles are `read-only`, `write`, `share`,
+`invite`, and `admin` ("practically anything").** Five roles. That is the permission model `49` §12
+and `48` §5 have been waiting for, and it is a server-table design (§18.2: accounts are not the
+network's data), not a schema kind. *"Ways of sending logs to a server"* is A2's deferred SIEM
+export, now wanted rather than merely deferred.
+
+**D10 (equipment-group privacy) is answered BY IMPLICATION, and the implication is recorded rather
+than assumed silently:** he did not ask for anything private to one person; he asked for
+role-based access. **So visibility follows role, not per-item privacy** — an equipment group is
+visible to whoever can open the drawing, and what they may DO with it is their role's business.
+The workflow's D2 design (two kinds, everything visible) is consistent with this.
+
+### 20.8 Permissions are scoped by place and by the drawing's state — a model, not a switch
+
+> **"I mean i think that is dependent on the state. Maybe we'll have a Draft mode, Planning
+> mode, Production mode, etc, probably not those specifically unless you think so, but you get what
+> i mean. Some can be collabed on, but i mean like someone who is the headend engineer at new yorrk
+> shouldn't have write access to sanfransisco location."**
+
+**Two structural facts, both new, both bind the permission design.**
+
+**(a) A DRAWING has a lifecycle state, and what people may do depends on it.** *Draft / Planning /
+Production* are his placeholder names. **This is a design-level state and it is NOT D6.** D6 —
+decided by the workflow as a per-BOX word, `planned`, saved with the box — is about one piece of
+equipment inside a drawing. His state is about the whole drawing, it governs permissions, and it
+lives where designs live: in server tables, not the graph. **Both exist and they must not be
+conflated**: a production drawing may contain a box marked planned. Whether approval-before-access
+(B2's second person) is required is *"dependent on the state"* — so B2's answer is *told plus
+recorded* in draft and planning, and something stricter in production, which is exactly the shape
+Customer Lockbox-style products use and which A2's record must therefore carry the state in.
+
+**(b) Permissions are scoped by PLACE.** *"the headend engineer at new york shouldn't have write
+access to sanfransisco location."* That is the network tier of his Meraki model (§19.2) becoming a
+permission boundary: **a role is granted per Site (or per group of Sites), not per organisation.**
+`Site` is a schema kind; the grant is a server table joining an account, a role, and a Site. The
+consequence for D2's equipment groups: **a group that spans sites (which he required, §19.4) can
+contain equipment its viewer may not WRITE**, so a group is never itself a write grant — it is a
+saved selection, exactly as the workflow's design said — and bulk edits over a group are filtered
+by the actor's per-site grants at write time.
+
+**Put back to him:** the three state names (he asked *"unless you think so"*), and the ADR-0040
+confirmation from §20.5. Nothing else in this round needs him.
+
+### 20.9 ADR-0040 is CONFIRMED KNOWINGLY, with one condition, one requirement, and one question handed back
+
+> **"As long as this is the securest path. Just if there is any passwords for this in compose
+> make sure it's in env files that can be restricted please. Then yes server holds keys vault
+> from the start. I think the only other thing i mentioned was maybe a seperate database, if that
+> is secure that would hold the keys vs the configs. So in case the configs are compromise dand
+> such. but i'll let you think on that if it's truely worth it."**
+
+**Decided: the server holds the keys, a vault from the start. ADR-0040 stands, and now stands
+with the owner having been told in plain words what it traded away** (§20.5) — which it had not
+been before today.
+
+**The condition, recorded with the qualifier it needs.** *"As long as this is the securest
+path."* ADR-0034 forbids answering that from memory, so here is the exact claim and no more: it
+is the securest path **that keeps the four properties he decided in `49` §1** — live multi-user
+editing, server-side rule checks, search, thousands of devices — and the vault is what makes it
+so, because the master key never sits on the Fathom host and every use of it is logged by a
+system Fathom does not control. The browser-encrypts design is a stronger *privacy claim* and a
+weaker *product*; he chose the product with the claim's four forbidden sentences left forbidden.
+Both halves are true and neither is "securest" without the other half said.
+
+**The requirement, and it is already met — verified, not assumed.** *"if there is any passwords
+for this in compose make sure it's in env files that can be restricted."* `deploy/compose.yaml`
+reads `POSTGRES_PASSWORD` from the environment with no default (`${POSTGRES_PASSWORD:?set
+POSTGRES_PASSWORD}`), and `deploy/README.md` §2 has the operator write it into `deploy/.env`.
+What this answer adds: **the `.env` file is a rule now, not a convenience** — it must be
+git-ignored, created with owner-only permissions, and the vault's own credential (A1 research:
+Vault Proxy's auto-auth needs a role id and secret id on the host — *secret zero*) goes in the
+same file under the same rule. Checked this session: see the commit that carries this section.
+
+**The question handed back, thought about, and answered: a separate database for the keys is
+NOT worth it, and here is why in one paragraph.** With a vault, the MASTER key is already in a
+separate system — the vault — and never in any database. What Postgres holds is `tenant_key.wrapped`:
+the data keys, *encrypted under the master key*, useless without the vault. So the separation he
+wants — keys away from configs, so a compromised config store yields nothing — **is delivered by
+the vault, not by a second database.** An attacker with the config database gets ciphertext plus
+wrapped keys and still needs the vault; an attacker with the vault credential gets everything
+however many databases there are. A second Postgres therefore adds two things to back up, two
+connection strings, and two things to fail, against a threat the vault already answers. **What IS
+worth doing, and costs almost nothing:** put `tenant_key` in its own PostgreSQL *schema* with its
+own grants, so the application role can read it and a reporting or read-replica role cannot —
+that answers the *lesser-credential* compromise he is picturing, inside one database. That is an
+execution detail for WO-12's migration, recorded there rather than decided here.
+
+### 20.10 The drawing's states are Draft, Planning, Production
+
+> **"Draft, Planning, Production (Recommended)"**
+
+**Decided.** Three design-level states, server-table data, governing permissions per §20.8: told
+plus recorded suffices for an admin opening a Draft or Planning drawing; Production needs the
+stricter check. Separate from the per-box word `planned` (D6), and both may coexist.
+
 ## 15. Disagreements
 
 1. **Against the framing of the original questions.** Q3 and Q4 were put to the owner in project

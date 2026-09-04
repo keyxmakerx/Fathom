@@ -13,3 +13,4 @@
 # why the mechanism exists). The certificates an organisation uses are its own;
 # a repository is the wrong place for them.
 deploy/ca/*.crt
+deploy/.env

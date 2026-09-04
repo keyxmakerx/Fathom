@@ -26,9 +26,16 @@ This matters for what you claim in the room. See §4.
 
 ```sh
 cd deploy
+umask 077                                                    # the file is created owner-only
 echo "POSTGRES_PASSWORD=$(openssl rand -base64 24)" > .env   # no default, on purpose
+chmod 600 .env                                               # and stays owner-only
 docker compose up --build
 ```
+
+**Every secret this stack needs lives in `deploy/.env` and nowhere else** — the owner's rule,
+2026-09-04 (`70` §20.9): never inline in `compose.yaml`, never with a default, and the file is
+git-ignored (`.gitignore` carries `deploy/.env`) and owner-only. When the vault arrives, its
+credential goes in the same file under the same rule.
 
 Then open **https://localhost:8443**.
 
