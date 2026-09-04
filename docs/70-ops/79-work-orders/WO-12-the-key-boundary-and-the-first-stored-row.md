@@ -116,7 +116,7 @@ is what bounds the worst failure this design cannot otherwise prevent.
 | `49` §11 | multi-tenancy and row-level security — the four PostgreSQL rules, and why `tenant_id` goes on every table **now** even though RLS is a non-goal |
 | `49` §19 | phase 1's ordering, which this order disagrees with — see Disagreements 1 |
 | `49` §22 decisions 1 and 2 | closed: the server holds the keys; tenancy lives outside the graph |
-| `70` §18.2 | the owner's words: organisations, users and designs are ordinary server tables, not schema kinds |
+| `70` §18.2 | that organisations, users and designs are ordinary server tables and not schema kinds. **That sentence is the corpus's decision, not the owner's words** — an earlier version of this row called it verbatim and it is a paraphrase. §18.2's actual verbatim quotation is *"what does users and orgs have anything to do with the graph? … would be seperated from graphs and networks?"* |
 | `32` §5.2, §5.3, §5.4, §5.6 | the AEAD, the derivation, the nonce argument and the key-commitment tag. **`32` owns the scheme and this order changes none of it** |
 | `32` §5.4's rule table | all three rules, not two: the platform CSPRNG per seal, **the startup sanity check** (§4.1, G15) and the 10⁶-salt CI test |
 | `32` §6.4 — and `31` §7.6 behind it | **Padmé padding on the total envelope length, and a flat 512-byte floor below it.** Both are DECISIONS already taken, not options. The two are **not** the same document's: `31` §7.6's decision is *"Padmé padding on by default"* and the string `512` does not appear anywhere in `31`; the flat floor is `32` §6.4's own second addition — *"Plaintexts below 512 bytes are padded to 512 flat"* — moved there from `17` §5.7 per ADR-0012. §4.1 applies the padding verbatim and the floor to a **different quantity**, which is Disagreements 8 |
@@ -125,7 +125,7 @@ is what bounds the worst failure this design cannot otherwise prevent.
 | `deps/decisions/chacha20poly1305.md`, `argon2.md` | two crates already owner-approved on 2026-08-15, neither vendored — §5 step 0 |
 | `deps/decisions/00-CLOSURE.md`, `00-CLOSURE-SERVER.md` | the closure pattern: a crate Fathom **names in a manifest** always needs its own record |
 | `35` §5.1 C1–C5 and **§5.2** | the caps, and §5.2's DECISION that **C3 — distinct publishing identities, ≤ 25 — is the primary metric**. G2 measures C3, C4 and C5, not only C1 and C2 |
-| `OPEN-FOR-THE-OWNER.md` §A, §B | what is genuinely undecided. **This order decides none of it** — §7 carries a trigger per question |
+| `OPEN-FOR-THE-OWNER.md` §A, §B | what is genuinely undecided. **This order decides none of it.** §7 carries a trigger for **every §A question and for §B1–§B5** — A1 (triggers 1 and 13), A2 (6), A3 (11), B1 (2), B2 (3), B3 (4), B4 and B5 (5) — which are the ones this order's work can reach. **§B6–§B12 have no trigger and that is stated rather than glossed**: the browser version's growth, exit data, uptime promises, who the first customer contracts with, who pays for vendor knowledge, what live editing means, and firmware images are outside everything this order builds. An earlier version of this row claimed a trigger per question |
 | `.context/conventions.md` | the invariants; invariant 4 is **scoped** by ADR-0040 and invariant 3 is **scoped** by ADR-0041 — see the note below |
 | `78` §5 items 2 and 7, §7, §8 | the execution protocol governing this order, including the two clauses this order is in tension with and says so: §5 item 2 (no dependency, ever) against §5 item 7's verbatim-manifest exception, and §7's judgment-shaped column against §4.1's envelope |
 
@@ -179,16 +179,35 @@ non-goal so that no later reader takes the blob's opacity for a claim about its 
   edit is **malformed** under §8: escalate it, do not execute it"*, and that bar stands whatever the
   number says. Read both, confirm they still agree, and if they have drifted again, escalate rather
   than edit.
-- **`crates/fathom-server/src/health.rs` already holds a SQL verb in a string literal**, and G11(ii)
-  is written against that fact rather than around it: `health.rs:78` reads
-  `client.query("SELECT 1::int4", &[])`, inside `health::probe`, with the comment above it
-  explaining that the handler checks the returned `1` rather than merely that the call did not
-  error. That query is WO-11 G5's — `/health` answers only after a real round trip — so it is a
-  **third named exception** in G11(ii)'s test, alongside `migrate.rs` and the migration files, and
-  not a defect to clean up. `migrate.rs` holds two more (`SELECT byte_len FROM _fathom_migrations …`
-  at line 108, `INSERT INTO _fathom_migrations …` at line 130, plus three in its own `#[cfg(test)]`
-  checksum tests). **No other module in the crate contains one**, verified by grepping every
-  `src/*.rs` for the twenty-one verbs G11(ii) lists.
+- **WHERE SQL ACTUALLY IS IN THIS CRATE TODAY — recounted from the tree on 2026-09-04, and it is
+  why G11(ii) is a call-site-and-phrase rule rather than a word list.** Two earlier drafts wrote
+  G11(ii) as twenty-one bare SQL verbs matched case-insensitively inside string literals. **That
+  rule is RED on the unmodified tree, in two modules no draft excepted**, because `WITH` and `SET`
+  are ordinary English words:
+  - `config.rs:99` — *"DATABASE_URL is not **set**. There is no default: …"*
+  - `config.rs:104` — *"{variable} is **set** to something this program cannot parse. …"*
+  - `main.rs:36` — *"… `healthcheck [--addr HOST:PORT]`; **with** no arguments it runs the server"*
+  - `main.rs:122` — *"stopped **with** an error"*
+
+  (`migrate.rs:78` holds a fifth, *"forward **with** a new migration"*, inside a module the rule
+  already excepts.) Excepting `config.rs` and `main.rs` would have excepted most of the crate to
+  keep a rule that cannot say what it means, so the rule is redesigned in G11(ii) instead: it
+  matches **query-issuing call sites** and **SQL-shaped phrases**, never a bare English word.
+  What the redesigned rule finds on the tree as it stands, verified across every `src/*.rs`:
+  - **Call sites — four, in two modules.** `health.rs:78` `client.query("SELECT 1::int4", &[])`
+    inside `health::probe`, with the comment above it explaining that the handler checks the
+    returned `1` rather than merely that the call did not error — that query is WO-11 G5's, so it
+    is a **named exception and not a defect to clean up**. And `migrate.rs`: `.query_opt(` at 107,
+    `.batch_execute(` at 127, `.execute(` at 129.
+  - **SQL-shaped literals — four, all in `migrate.rs`.** `SELECT byte_len FROM _fathom_migrations
+    WHERE version = $1` (108), `INSERT INTO _fathom_migrations …` (130), and `CREATE TABLE a ();`
+    / `CREATE TABLE b ();` in its own `#[cfg(test)]` checksum tests (164, 165). **That block holds
+    FOUR verb-bearing literals, not three** — an earlier draft said three: the other two are
+    `"SELECT 1"` and `"SELECT  1"` on line 169, which the redesigned rule does **not** match,
+    having no `FROM`. `health.rs`'s `SELECT 1::int4` does not match it either, which is why
+    `health.rs` needs an exception from the call-site half and none from the phrase half.
+  - **`db.rs` has neither a call site nor a SQL-shaped literal**, which is what makes it the honest
+    home for G11(ii)'s watched-to-fail fixtures.
 - **`OPEN-FOR-THE-OWNER.md` §A1 states a constraint this order breaks, and that page IS correctable
   here.** Its preamble reads *"Nothing can be saved on the server until A1 is answered"* and its
   *Why it cannot wait* line reads *"changing this after data is stored means unlocking and
@@ -641,7 +660,7 @@ CREATE INDEX master_key_probe_by_wrapping ON master_key_probe (wrap_provider, wr
 | **`tenant`** | The tenant's existence, which data key epoch is current, and its D4 tombstone. **A display name is customer data and would be the first plaintext column**; it is not stored here, and when it is, it is sealed or excepted in writing. No natural key at all, which also sidesteps `49` §11 rule 4's covert channel — a *"that name is taken"* error naming a tenant you may not see |
 | **`tenant_key`** | **The opaque `wrapping_id` is the most important line in this migration**, and it replaces the four-part `(tenant_id, key_epoch, wrap_provider, wrap_key_id)` primary key an earlier draft called by that name. What it buys is the same thing: ONE data key carrying SEVERAL wrappings at once, so rotation, escrow and D2's custody switch collapse into one additive operation — INSERT the new wrapping, verify it by unwrapping, DELETE the old. What the four-part key could not survive is in the note below. It is the only table a provider ever touches and the only one a custody switch rewrites |
 | **`design`** | The design key, sealed under the **tenant** key, so a provider is called once per tenant and not once per design. `key_epoch` names which tenant epoch sealed it, so a later tenant-key rotation is detectable rather than a silent failure. **Deliberately absent**: the design's name, owner, share list, schema version, device count. **512** is `KEY_SEAL_LEN` — the padded FSL1 length of any key body, per §4.1's flat floor — and it replaces the `104` an unpadded draft carried; the range rather than an equality is what keeps a second suite additive |
-| **`design_blob`** | The whole of what this order stores as customer data: one opaque blob per design, which **the server never parses**. `49` §7's node/edge/field/provenance tables and the generated projections are a later order's, and nothing here depends on the blob's contents, so nothing here forecloses them. 32 MiB of plaintext is a denial-of-service bound with a stop-and-escalate behind it (§7 trigger 10), not a format assumption. Its floor is 512 and not 72 because every seal is padded (§4.1) |
+| **`design_blob`** | The whole of what this order stores as customer data: one opaque blob per design, which **the server never parses**. `49` §7's node/edge/field/provenance tables and the generated projections are a later order's, and nothing here depends on the blob's contents, so nothing here forecloses them. 32 MiB of plaintext is a denial-of-service bound with a stop-and-escalate behind it (§7 trigger 10), not a format assumption. Its floor is 512 and not **76** because every seal is padded (§4.1): 76 is the unpadded length of a seal with an empty body — 56 header + 4 length prefix + 16 tag — and §4.1's own arithmetic says so twice. An earlier draft of this row wrote 72, which is the same off-by-four §4.1 corrects |
 | **`master_key_probe`** | 32 wrapped random bytes whose plaintext is stored nowhere, so there is no known-plaintext pair. It lets the server answer *"is this the right key file?"* **at boot** and refuse to start, rather than starting and failing every request: a process that starts is a process an orchestrator will send traffic to, and `crates/fathom-server/src/health.rs`'s own comment says why that matters — 503 is *"do not send me traffic yet"*, and a server that starts with the wrong key file would answer 200. (An earlier draft put that reasoning in quotation marks. It was not a quotation of anything; the sentence appears nowhere in this repository.) It carries the **same opaque `wrapping_id`** as `tenant_key` and for the same reason, plus one of its own: §4.6's fourth custody operation re-wraps it, and two probe wrappings must be able to coexist for the same provider and key id while that happens. **This is the one table with no `tenant_id`**, because it belongs to the deployment and not to a tenant; the census (G5) carries it as a named exception with that reason, not a silent one |
 
 **Why the four-part primary key had to go, and it is a provider fact rather than a preference.**
@@ -862,11 +881,24 @@ the next order can overturn it cheaply:
 ### 4.6.1 What a `DELETE` does not do, and D4's real boundary
 
 **A PostgreSQL `DELETE` does not remove the tuple.** It marks it dead; the row image stays on the
-heap page until `VACUUM`, the page is not overwritten even then, the full row image is written to
-the WAL, and the WAL is shipped to every streaming replica and every PITR archive and stays there
-until it is recycled. So immediately after `destroy_tenant_key`, **the wrapped tenant key is still
-physically present** — in `$PGDATA`, in `pg_wal/`, on every replica, and in every base backup and
-archive that covers the moment before the delete.
+heap page until `VACUUM`, and the page is not overwritten even then. The wrapped key's bytes are
+also in the write-ahead log, and the WAL is shipped to every streaming replica and every PITR
+archive and stays there until it is recycled. So immediately after `destroy_tenant_key`, **the
+wrapped tenant key is still physically present** — in `$PGDATA`, in `pg_wal/`, on every replica,
+and in every base backup and archive that covers the moment before the delete.
+
+**BY WHICH WAL RECORD IS NOT ESTABLISHED HERE, AND THE ORDER SAYS SO RATHER THAN GUESSING.** An
+earlier draft of this paragraph asserted that *"the full row image is written to the WAL"* by the
+`DELETE`. **No session here has opened the PostgreSQL documentation to check that**, and a review
+of this order argued the opposite — that a delete record carries the tuple identifier and the full
+image reaches the WAL from the original `INSERT`, or from a delete only under `REPLICA IDENTITY
+FULL` with logical decoding. **This order establishes neither claim**: both are mechanism, both
+are unread, and ADR-0034 forbids picking one from memory. What this order needs is not the
+mechanism but whether the bytes are *findable*, and **G9(e) settles that by looking**: it greps
+`$PGDATA/base/` and runs `pg_waldump` over the segments covering **the write and the delete**, and
+requires the bytes to be found. If they are not, the gate fails and this paragraph is what gets
+corrected. A later session that wants the mechanism must open the PostgreSQL documentation, name
+the page and the read date, and only then write it.
 
 This is not a defect in D4 and it is not a reason to weaken it; it is D4's boundary. **What ADR-0040
 D4 actually establishes, and it is less than an earlier draft of this order claimed:** NIST SP
@@ -927,9 +959,10 @@ for exactly as long as it takes to verify it.
 
 ### 4.7 The rest
 
-- **`store.rs`** — the only module in the crate this order ADDS a SQL verb to, and G11(ii) names
-  `migrate.rs` and `health.rs` as the two that already have one. Its read path is §4.6.2's, in that
-  order.
+- **`store.rs`** — the only module in the crate this order ADDS SQL to. G11(ii) names `migrate.rs`
+  and `health.rs` as the two that already issue some: `migrate.rs` for both halves of the rule,
+  `health.rs` for the call-site half only and narrowed to one statement. Its read path is §4.6.2's,
+  in that order.
 - **`examples/write_one_design.rs`** and **`examples/read_one_design.rs`** — two separate
   processes for G6. **Examples and not `src/bin`**, so the runtime image cannot ship them:
   `deploy/Dockerfile` builds with `cargo build --locked --profile server -p fathom-server`, which
@@ -1065,7 +1098,8 @@ than honouring its intent. `deny.toml`'s `multiple-versions = "deny"` is not rel
 either choice — WO-11 §9.1's rule.
 
 **And the versions above are not this order's invention: `32` §15.1's pinned-primitives table
-already names four of them.** It lists `chacha20poly1305` **`0.11.0`**, `hkdf` **`0.13.0`**, `sha2`
+already names five of them** — an earlier draft of this sentence said four and then listed five.
+It lists `chacha20poly1305` **`0.11.0`**, `hkdf` **`0.13.0`**, `sha2`
 **`0.11.0`**, `getrandom` **`0.4.3`** and `zeroize` **`1.9.0`** — five of the seven direct crates in
 the manifest block above, at the exact versions taken here. `32` owns the cryptography (`78` §7),
 so where its table and an older `deps/decisions/` record disagree about a version, this order takes
@@ -1103,7 +1137,10 @@ tree: `ctutils` 0.4.2 is already resolved in `Cargo.lock` and `subtle` is not (�
 §15.1's letter adds a package to avoid using one already present. Whether `ctutils` is the same
 project under another name is **not established here** — what is established is that the closure
 document's own generated table records its repository as `github.com/RustCrypto/utils`, the same
-proxy column it records for `chacha20`, `digest` and `hmac`. Recorded as Disagreements 10.
+proxy value it records for `cmov`, `block-buffer` and `cpufeatures`. It is **not** the value that
+table gives `chacha20` (`RustCrypto/stream-ciphers`), `digest` (`RustCrypto/traits`) or `hmac`
+(`RustCrypto/MACs`), which an earlier draft of this sentence named — all three read off
+`00-CLOSURE-SERVER.md` on 2026-09-04. Recorded as Disagreements 10.
 `async-trait` 0.1.92 — already a proc macro in this build, so no **new** compile-time code
 execution; the alternative is a hand-written `Pin<Box<dyn Future + Send>>` signature, which is six
 lines and no record, and either is defensible.
@@ -1181,9 +1218,11 @@ polices it arrive together, and the two watched-to-fail fixtures are written and
 tombstone before wrapping lookup, then the first wrapping whose `(provider, key_id)` resolves —
 because both halves are load-bearing for a gate: the first makes G9(b)'s `KeyDestroyed` reachable at
 all, and the second is what stops an ordinary read failing in the middle of G7's custody switch.
-G11's source rule is enforced from the first line rather than retrofitted: if a SQL verb appears in
-a module that is not `store.rs`, `migrate.rs` or `health.rs`, the test that says so is already in
-the tree.
+G11's source rule is enforced from the first line rather than retrofitted: if a query-issuing call
+site appears in a module that is not `store.rs`, `migrate.rs` or `health.rs`, or a SQL-shaped
+literal in one that is not `store.rs` or `migrate.rs`, the test that says so is already in the
+tree — **and it was written to pass on the tree as it stands, with `config.rs`'s and `main.rs`'s
+English-word literals named as non-matches** (§3, G11(ii)).
 
 **Step 7 — the two examples and the first evidence script** (G4, G6). The script prints and asserts
 an exact check count.
@@ -1438,6 +1477,13 @@ fail** before it is believed — CLAUDE.md rule 0, and WO-11 §6 G2/G3's shape.
   specifically**, not a generic decrypt failure — this is what proves the binding lives inside the
   wrapped plaintext rather than in a provider's context channel, and it is what lets a provider
   with no associated-data channel still be bindable.
+  **THE PRECONDITION, WHICH THE GATE MUST SET UP AND AN EARLIER DRAFT LEFT UNSTATED: A's row and
+  B's row must carry the SAME `(wrap_provider, wrap_key_id)` pair.** The test creates both tenants
+  against one configured provider and one key id, and asserts the pair is equal before it moves the
+  bytes. If the pairs differ, §4.6.2's read resolves B's row against a different provider or none
+  at all and the answer is `Refused` or `UnknownProvider` — a real refusal, and not this one. The
+  point of (b) is the case where the unwrap **succeeds** and only the recovered AAD is wrong, so
+  everything except the AAD has to be right for it to be reached.
   **This gate is reachable only because of §4.1's construction, and TWO earlier drafts made it
   unreachable in two different ways.** In the first the AAD was used *only* as AEAD associated data:
   a swapped row then does not open at all — it fails the Poly1305 tag, indistinguishably from a
@@ -1470,30 +1516,69 @@ fail** before it is believed — CLAUDE.md rule 0, and WO-11 §6 G2/G3's shape.
   **(i)** `Store`'s public write API takes **no integer parameter at all** — only `TenantId`,
   `DesignId`, `KeyEpoch`, `ProviderName`, `WrapKeyId`, `WrappedKey`, `Sealed` and `AadVersion` —
   asserted by an API test and by G5's census.
-  **(ii)** `store.rs` is the only module in the crate this order adds a SQL verb to, asserted by a
-  source-reading test in G5's style. **The verb list is literal and exhaustive, so that no executor
-  invents a narrow one that passes vacuously**: case-insensitive whole-word matches, inside string
-  literals only, for `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `WITH`, `COPY`, `TRUNCATE`,
-  `CREATE`, `ALTER`, `DROP`, `GRANT`, `REVOKE`, `VACUUM`, `ANALYZE`, `BEGIN`, `COMMIT`, `ROLLBACK`,
-  `SET`, `LISTEN`, `NOTIFY`.
-  **THREE named exceptions in the test itself, each with its reason, and the third is not optional
-  — it is red before this order begins.** `migrate.rs` and the migration files are the two an
-  earlier draft named. The third is **`health.rs`**, which at line 78 already reads
-  `client.query("SELECT 1::int4", &[])` inside `health::probe`: that query is WO-11 G5's — `/health`
-  answers only after a real round trip and checks the returned `1` — so a rule that does not except
-  it fails on the tree as it stands (§3). Except it by **module and by content**: `health.rs` may
-  contain `SELECT 1::int4` and nothing else, so the exception cannot quietly widen into a second
-  query path.
-  **Watched to fail — and NOT in `health.rs`.** An earlier draft patched `"SELECT 1"` into a string
-  literal in `health.rs`, which is a fixture indistinguishable from the pre-existing state: the
-  literal is already there, so the patched tree and the unpatched tree fail or pass together and the
-  fixture proves nothing. That is CLAUDE.md rule 0's anti-pattern exactly — a gate tested against
-  what the assertion needs rather than against what the world does. **Use `db.rs` instead**, which
-  contains no SQL verb in any string literal today (verified across every `src/*.rs` for all
-  twenty-one verbs): add `let _ = "INSERT INTO tenant (tenant_id) VALUES ($1)";` to it, require the
-  test to fail **naming `db.rs` and the verb `INSERT`**, and revert. A second fixture is worth the
-  line it costs: put `SELECT tenant_id FROM tenant` in `health.rs` and require the content half of
-  its exception to fail too.
+  **(ii) SQL IS ISSUED ONLY FROM `store.rs`, AND THE RULE TESTS FOR SQL RATHER THAN FOR ENGLISH.**
+  `store.rs` is the only module in the crate this order adds SQL to, asserted by a source-reading
+  test over `crates/fathom-server/src/*.rs` in G5's style.
+
+  **Two earlier drafts wrote this as twenty-one bare verbs** — `SELECT`, `INSERT`, `UPDATE`,
+  `DELETE`, `MERGE`, `WITH`, `COPY`, `TRUNCATE`, `CREATE`, `ALTER`, `DROP`, `GRANT`, `REVOKE`,
+  `VACUUM`, `ANALYZE`, `BEGIN`, `COMMIT`, `ROLLBACK`, `SET`, `LISTEN`, `NOTIFY` — matched
+  case-insensitively as whole words inside string literals. **That rule is red on the unmodified
+  tree in `config.rs` and `main.rs`** (§3 lists the four literals), because `WITH` and `SET` are
+  ordinary English words. Adding those two modules as further exceptions is the wrong fix: it
+  excepts most of the crate to keep a rule that cannot express what it means. What the rule cares
+  about is **SQL being issued outside the store**, so that is what it matches, in two halves that
+  are ANDed, not alternatives:
+
+  **(ii-a) THE CALL SITES — where SQL is actually issued.** No module other than `store.rs`,
+  `migrate.rs` and `health.rs` may contain a query-issuing method call: `.query(`, `.query_one(`,
+  `.query_opt(`, `.query_raw(`, `.query_typed(`, `.execute(`, `.execute_raw(`, `.batch_execute(`,
+  `.simple_query(`, `.prepare(`, `.prepare_typed(`, `.copy_in(`, `.copy_out(`. (`.transaction()`,
+  `.commit()` and `.rollback()` are deliberately not on the list: they carry no SQL text.) A false
+  positive here fails the gate, which is the safe direction. **`health.rs`'s exception is narrowed
+  by content**: it may hold exactly one call site and its statement argument must be the literal
+  `"SELECT 1::int4"` — that query is WO-11 G5's, `/health` answering only after a real round trip
+  and checking the returned `1` — so the exception cannot quietly widen into a second query path.
+
+  **(ii-b) THE SQL-SHAPED LITERALS — a verb next to a SQL keyword, never a bare word.** Inside
+  string literals only, case-insensitively, tolerating whitespace and `\`-continuation, in every
+  `src/*.rs` **except `migrate.rs`** (whose embedded DDL and bookkeeping statements are its whole
+  job) — **fifteen patterns, which is the list, and it is literal and exhaustive so that no
+  executor invents a narrow one that passes vacuously**:
+  `SELECT`…`FROM`; `INSERT INTO`; `DELETE FROM`; `UPDATE`…`SET`; `MERGE INTO`; `WITH`…`AS (`;
+  `CREATE`/`ALTER`/`DROP` followed by `TABLE`, `INDEX`, `VIEW`, `SCHEMA`, `TYPE`, `EXTENSION`,
+  `FUNCTION`, `ROLE`, `DATABASE`, `SEQUENCE`, `TRIGGER`, `POLICY`, `PUBLICATION` or `SUBSCRIPTION`
+  (with an optional `UNIQUE`, `MATERIALIZED` or `OR REPLACE` between); `TRUNCATE`; `COPY`…`FROM`
+  or `TO`; `GRANT`/`REVOKE`…`ON`, `TO` or `FROM`; `VACUUM`; `ANALYZE`; `ROW LEVEL SECURITY`; a
+  literal that is *entirely* `BEGIN`, `COMMIT` or `ROLLBACK` (with an optional `TRANSACTION`/`WORK`
+  and an optional `;`); a literal that *begins* `SET LOCAL` or `SET SESSION` — which is `49` §11
+  rule 3's statement and the only `SET` a server of ours has business writing; and a literal that
+  *begins* `LISTEN <identifier>` or `NOTIFY <identifier>`.
+  **All twenty-one verbs are still reached**; seven of them (`WITH`, `SET`, `BEGIN`, `COMMIT`,
+  `ROLLBACK`, `LISTEN`, `NOTIFY`) are reachable only in a phrase or as a whole literal, which is
+  precisely the difference between the two rules. **`health.rs` is NOT excepted from (ii-b)**, and
+  does not need to be: `SELECT 1::int4` has no `FROM`, so it is not SQL-shaped. That is deliberate
+  — it means the day someone widens the health probe to a real query, (ii-b) catches it even though
+  (ii-a) excepts the module.
+
+  **Watched to fail — three fixtures, all in `db.rs` or `health.rs`, none of them the anti-pattern
+  an earlier draft shipped.** That draft patched `"SELECT 1"` into a string literal in `health.rs`,
+  where the literal already existed: the patched tree and the unpatched tree failed or passed
+  together and the fixture proved nothing — CLAUDE.md rule 0's anti-pattern exactly. Instead:
+  1. **(ii-a):** add a query-issuing call site to `db.rs`; require the test to fail **naming
+     `db.rs` and the method**; revert. `db.rs` has no call site today (§3).
+  2. **(ii-b):** add `let _ = "INSERT INTO tenant (tenant_id) VALUES ($1)";` to `db.rs`; require
+     the test to fail **naming `db.rs` and the pattern `INSERT INTO`**; revert. `db.rs` has no
+     SQL-shaped literal today (§3).
+  3. **`health.rs`'s narrowed exception:** change its statement argument to
+     `"SELECT 1::int4 FROM (SELECT 1) t"`; require **both** halves to fail — (ii-a) on the content
+     clause and (ii-b) on `SELECT`…`FROM`; revert.
+
+  **And the negative control the word-list rule never had, which is the reason this gate was
+  rewritten at all: the test must pass on the unmodified tree**, and it carries the four
+  English-word literals `config.rs:99`, `config.rs:104`, `main.rs:36` and `main.rs:122` **by file
+  and line as named non-matches**. If a later session widens the rule back toward bare verbs, that
+  assertion fails here rather than being excepted around.
   **(iii)** `WrappedKey` and `Sealed` expose no `len()`, and no type named for a plaintext length
   exists anywhere in the crate — asserted by a source-reading test over `keys/` and `store.rs`,
   with a literal rule rather than a described one: **no `pub fn len`, `pub fn is_empty`,
@@ -1795,15 +1880,15 @@ None blocking this order. Recorded because the next one needs them, and every on
 | `docs/90-decisions/adr-0040-*.md` | D1–D8, §6's forbidden sentences, §7's must-stay-true list, §9's open items | 2026-09-04 |
 | `docs/70-ops/79-work-orders/WO-11-*.md` §6, §8, §9 | the house style, the gate discipline, G8 which this supersedes, §9.7's escalation | 2026-09-04 |
 | `docs/40-stack/49-the-server-product.md` §7, §11, §19, §22 | the storage shape not built here, RLS's four rules, phase ordering, the closed decisions | 2026-09-04 |
-| `docs/70-ops/70-owner-answers-and-standing-priorities.md` §18.1, §18.2 | the delegation of key custody, verbatim; tenancy outside the graph, verbatim | 2026-09-04 |
+| `docs/70-ops/70-owner-answers-and-standing-priorities.md` §18.1, §18.2 | the delegation of key custody (§18.1 carries the owner's words verbatim); tenancy outside the graph — **§18.2's decision sentence is the corpus's paraphrase, not the owner's, and §2's row now says so**; his verbatim words there are *"what does users and orgs have anything to do with the graph? … would be seperated from graphs and networks?"* | 2026-09-04 |
 | `docs/30-security/32-cryptography.md` §5.2–§5.6 | the AEAD decision, the salt/zero-nonce construction, the nonce-uniqueness argument **and all three rules of §5.4's table**, the commitment tag. **`32` owns the scheme** | 2026-09-04 |
 | `docs/30-security/32-cryptography.md` §6.4, §6.5, §7.1, §7.2, §15.1, §16.1 | Padmé on the total envelope length and the flat 512-byte floor — **both `32` §6.4's, not `31` §7.6's**; the honest-accounting table's *"total ciphertext size, to a Padmé bucket"* residual; the 112-byte header whose `header_len` field §4.1 copies the reasoning for; §15.1's pinned primitive versions; and §16.1's `05-padme.json`, *"~200 (input, output) length pairs"*, which is where the padding vectors live and which does not yet exist in the tree | 2026-09-04 |
 | `docs/30-security/31-threat-model.md` §7.6 | the decision Padmé rests on — *"Padmé padding on by default"* — **and nothing about 512: the string does not occur anywhere in `31`.** Earlier drafts cited §7.6 for the flat floor in four places | 2026-09-04 |
 | `docs/90-decisions/adr-0041-*.md` and `.context/conventions.md` invariant 3's annotation | that a hand-typed credential is marked, not refused, and is stored and exported as typed — §2's note and §8's last non-goal | 2026-09-04 |
-| PostgreSQL documentation on MVCC, `VACUUM`, WAL and PITR | that a `DELETE` marks a tuple dead and leaves the row image on the heap page until vacuum, in the WAL until recycling, and on every replica and archive — §4.6.1 and G9(e). Raised by the adversarial review of this order's draft | 2026-09-04 |
+| PostgreSQL documentation on MVCC, `VACUUM`, WAL and PITR | **NOT READ — UNESTABLISHED, and named here rather than dropped.** §4.6.1's claim that a `DELETE` marks a tuple dead and leaves the row image on the heap page until vacuum, and that the key's bytes are in the WAL, was written by the adversarial review of this order's draft and **no session here has opened a PostgreSQL page, named a section, or dated a read**. An earlier version of this row cited the documentation as though it had. The mechanism — which record carries the row image — is contested (§4.6.1) and this order settles none of it: **G9(e) measures the bytes instead of citing them.** A later session wanting the mechanism must open the documentation and give a page and a date | **not read** |
 | AWS KMS: `API_Decrypt` (`CiphertextBlob` 1–6144 bytes; `InvalidCiphertextException`), *Rotate AWS KMS keys*, *How to use on-demand rotation for AWS KMS imported keys*, and AWS re:Post *Resolve the AWS KMS decrypt error InvalidCiphertextException* | §4.2's 6144 ceiling, the in-place rotation that breaks a four-part primary key, and G10(b)'s point that a context mismatch and a corrupt ciphertext raise the **same** exception. Read by the adversarial review of this order's draft | 2026-09-04 |
 | HashiCorp Vault: Transit HTTP API, and *Re-wrapping data after encryption key rotation* | `vault:vN:` as a key **version** under an unchanged key name, `transit/rewrap`, and `min_decryption_version` — the second half of §4.2's primary-key argument. Read by the adversarial review of this order's draft | 2026-09-04 |
-| `docs/70-ops/OPEN-FOR-THE-OWNER.md` §A, §B | the twenty-seven open questions; §7's triggers are keyed to them | 2026-09-04 |
+| `docs/70-ops/OPEN-FOR-THE-OWNER.md` §A, §B | the open questions; §7's triggers are keyed to §A and §B1–§B5. **The page describes itself as twenty-seven — in its preamble and again in *How this list was built* — and it carries THIRTY-TWO numbered questions**: A1–A3, B1–B12, C1–C4, D1–D9, E1–E4, plus eleven unnumbered §F bullets. Counted on 2026-09-04. An earlier version of this row repeated the page's twenty-seven silently. **The discrepancy is inherited, not introduced here, and this order does not correct it** — its own §A1 correction (§3) is narrow and deliberate, and a count is planning's to reconcile | 2026-09-04 |
 | `.context/conventions.md` | invariant 3 — **annotated by ADR-0041 on 2026-09-03, scope only, not untouched**, which is the whole of §2's note; invariant 4, scoped by ADR-0040; the union rule; precedence. An earlier version of this row said *"invariants 3 (untouched)"* and §2 spends a paragraph explaining that exactly that wording is false | 2026-09-04 |
 | `deps/decisions/chacha20poly1305.md`, `argon2.md`, `00-CLOSURE.md`, `00-CLOSURE-SERVER.md` | two owner approvals from 2026-08-15, and the closure pattern | 2026-09-04 |
 | `crates/fathom-server/` — `Cargo.toml`, `src/*.rs`, `migrations/0001_*.sql`, `tests/stores_nothing.rs` | prior state, read in full | 2026-09-04 |
