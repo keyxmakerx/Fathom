@@ -414,35 +414,54 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Next actions
 
-- **HANDOVER, 2026-09-04 — read this bullet first; the session that wrote it was cut short.**
-  Everything is committed and pushed; the tree is clean. **The next server order is WO-12: the
-  key boundary and the first stored row — and it is NOT yet written.** The reasoning that lets
-  it proceed without the owner: ADR-0040 D1–D4 already decided the *architecture* of custody (a
-  data key per tenant and per design, wrapped by a master key, custody switched by re-wrapping
-  never re-encrypting). The one open part — `OPEN-FOR-THE-OWNER.md` §A1, *which service holds
-  the master key* — is a **provider behind an interface chosen by deployment config**, not a
-  storage format: AWS KMS wraps by RPC, Vault Transit returns a versioned string, a local file
-  wraps locally, and one provider-neutral wrapped-key column can hold all three. The local-file
-  provider is built first because self-hosted customers need it regardless (§B3). So WO-12 can
-  store its first row with every owner option open — which is exactly what WO-11 G8 stored
-  nothing to protect. **How to author it:** `docs/70-ops/79-work-orders/wo-12-authoring.workflow.js`
-  is a ready Workflow script — three designs from three angles, judged on six criteria,
-  synthesised into the order in WO-11's house style, then attacked by three skeptics (an
-  ADR-0040 auditor, a retrofit skeptic who reasons about each KMS concretely, a `78`-protocol
-  checker) with fixes applied. Its hard constraints are in the script and they are the point:
-  the order must decide nothing in `OPEN-FOR-THE-OWNER.md` §A/§B, must prove the custody switch
-  by re-wrapping (ciphertext byte-identical before and after), D4 by destroying a key, D7 at the
-  type level, and the provider boundary with a second trivial provider round-tripping the same
-  rows. It was started once and stopped at the design stage for usage reasons; nothing it wrote
-  survived, and it is about ten agents to re-run. **After it lands:** add the index row, run the
-  floor, and point this bullet at the file. **The two crypto crates it needs are already
-  owner-approved** — `deps/decisions/argon2.md` and `chacha20poly1305.md`, 2026-08-15, closure
-  22 — which takes the lockfile to ~137 of the 160 cap WO-11 §9.7 escalated. **The contradiction
-  in §B1 is confirmed and sourced**: ADR-0003, *Accepted*, *"no hosted service, no accounts we
-  run"*, against everything in `49`. That is the owner's, and it does not block WO-12.
+- **HANDOVER, 2026-09-04 (second revision, written after the work below landed).**
+  **WO-12 IS WRITTEN.** `docs/70-ops/79-work-orders/WO-12-the-key-boundary-and-the-first-stored-row.md`
+  is on disk, its index row is in `00-INDEX.md` as row 12, and its status is **OPEN** — the next
+  order, not executed work. **Read its header block and Disagreements before executing it, and read
+  the paragraph below before trusting it.**
+  Why it could be written with key custody still undecided: ADR-0040 D1–D4 already fixed the
+  *architecture* (a data key per tenant and per design, wrapped by a master key, custody switched by
+  re-wrapping keys and never re-encrypting data), and `OPEN-FOR-THE-OWNER.md` §A1's open part —
+  *which service holds the master key* — is a **provider behind an interface chosen by deployment
+  config**, not a storage format. A cloud key service, a vault and a protected local file are all
+  opaque bytes in one provider-neutral column. The order is shaped backwards from one test: re-wrap
+  a tenant's key under a second, differently-shaped provider and assert the stored ciphertext is
+  byte-identical before and after. It **supersedes WO-11 G8** (*"nothing is stored"*) and repurposes
+  that test into a column census rather than deleting it.
+  **IT WAS ATTACKED FOUR TIMES AND EVERY ROUND FOUND REAL DEFECTS.** Round 1: 41 findings, all three
+  skeptics refuted. Round 2: two errors unreachable behind gates that therefore could not pass, and
+  **eleven invented citations** — a NIST sentence that exists nowhere, a wrong section cited inside a
+  migration comment that ships in the tree. Round 3: a gate red on the unmodified tree, and a
+  constant the whole binding rests on that was never defined. Round 4: the gate redesign red on the
+  tree the order itself produces, and padding arithmetic short by four bytes in three places.
+  **Three lessons generalise beyond this order and are worth carrying:**
+  **(a) a fix can be a fix in name only** — sealing the binding inside the wrapped plaintext was
+  meant to make a row moved between tenants report as *misbound*, and could not, because the same
+  bytes were left in the KDF info and the AEAD associated data, so a swap failed authentication
+  exactly like a wrong key. The binding had to MOVE, not be duplicated. A reviewer caught it by
+  tracing the construction; no reading of the prose would have.
+  **(b) rule 0 has a third instance, and it is in a gate nobody thought of as a safety gate.** The
+  SQL-containment gate forbade twenty-one verbs inside string literals, two of which — `WITH` and
+  `SET` — are ordinary English. Four error messages tripped it, so it was red before step 1.
+  **(c) the redesign then reintroduced the same class of fault**, by splitting one rule into two
+  ANDed halves and dropping `store.rs` from one of them, turning the gate red against the very
+  module the order tells the executor to write. Splitting a rule is where its exceptions get lost.
+  **The final audit found ZERO invented citations**, having opened every source the repair touched
+  plus the lockfile, the crates.io index and the advisory database. Its verification is worth
+  reading before adding to the order.
+  **SO: this order wants a human read before anyone executes it.** Four rounds converging is not the
+  same as done, and it says so in its own text. `wo-12-authoring.workflow.js` beside it is the script
+  that produced it, kept for the record and for re-running a stage.
+  **The two crypto crates it needs are already owner-approved** — `deps/decisions/argon2.md` and
+  `chacha20poly1305.md`, 2026-08-15. Note the order does **not** take `subtle`: `ctutils` is already
+  in the lockfile and `subtle` is not, and its Disagreements records the divergence from `32` §15.1.
+  **The contradiction in §B1 is confirmed and sourced**: ADR-0003, *Accepted*, *"no hosted service,
+  no accounts we run"*, against everything in `49`. That is the owner's, and it does not block WO-12.
   **WHERE THIS WORK LIVES, added 2026-09-04 by the session that picked this up:** none of it is on
-  `main`. PR #17 merged on 2026-08-17 and every commit since — the pivot, ADR-0038 to 0041, WO-10,
-  WO-11, this page — sits on a branch with **no pull request open and no CI run**. A session that
+  `main` YET, but it is no longer unreviewed. PR #17 merged on 2026-08-17 and every commit since —
+  the pivot, ADR-0038 to 0041, WO-10, WO-11, WO-12, this page — sat on a branch with **no pull
+  request and no CI run at all** until 2026-09-04, when **PR #18 was opened and CI went green on
+  every commit**. A session that
   starts from `main` sees none of it; this one did, and had to fast-forward. The floor was run
   locally on the whole branch the same day: 792 tests, every gate green **except two that fired on
   the calendar** — the hyper cooldown exception expired as designed (row removed), and the
