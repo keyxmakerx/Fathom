@@ -1942,6 +1942,15 @@ It is currently the one that is not built at all.
 writes the first stored row against PostgreSQL, and whether the single-node backend arrives before
 or after that is a sequencing decision with a real cost either way.
 
+> **AND THE RECOMMENDATION ABOVE WAS WRONG FOR HIS ACTUAL GOAL — corrected the same day, §19.5.**
+> Told that `43` §6 wants SQLite for a single-node install, he answered: **"Well no i want a
+> seperate DB."** He is right and the reasoning above missed the point. `43`'s sentence — *"a
+> single-node install that requires an operator to run PostgreSQL is a single-node install nobody
+> runs"* — is about **lowering the barrier for a stranger installing it**. That is not this
+> machine's job. **The finding stands** (the two-backend decision exists and only half is built,
+> which is worth knowing before someone promises a single-binary install); **the recommendation
+> does not**, and PostgreSQL as its own service is correct for what he is doing.
+
 **On "isn't this becoming the same thing?" — yes, and he is right.** The pivot (`49`) makes the
 browser a window onto the server, so in the destination the server serves the application AND holds
 the data, and a separate container that only serves the HTML is scaffolding. It is worth having
@@ -2000,6 +2009,48 @@ never say permitted or denied; from the ingress and egress interfaces the graph 
 zones, the policy set between them, and its policies **in the order the device reads them**, which
 turns four hundred policies into the twenty-seven pointing this way. Writing it is following a
 decision already taken.
+
+### 19.5 THE GOAL, stated plainly for the first time: a demo to his employer
+
+Asked to choose a database, he gave the reason underneath every request in this section:
+
+> **"again the goal is to use this to demo to my boss to see about implementing this solution to
+> an enterprise environment"**
+
+**This is the most load-bearing sentence in §19 and it should be read before any of the others.**
+Every request in this conversation — Docker, SCP/SFTP per group, an equipment manager, Arista and
+Juniper — is in service of one demo to one audience, and that audience is an employer deciding
+whether to adopt this. Three consequences:
+
+**(a) It settles the database and it settles the shape.** A separate database service is what an
+enterprise architecture review expects to see, and an embedded single-file database reads as a toy
+in that room whatever its technical merits. `43` §6's single-node reasoning is about a stranger
+installing it with the least ceremony; that is a different goal from this one and it does not
+govern here. **The deployment already had the right shape** — PostgreSQL as its own service, the
+server binding no host port, TLS in front — and the work was making it runnable rather than
+changing it.
+
+**(b) The demo must not claim what is not built, and the corpus already enforces this.** ADR-0040
+§6 forbids four sentences in writing until a customer holds their own key, with a CI check behind
+it. That protection was written for the product's surfaces; **it now applies to what is said in a
+room**, which is not something a script can check. `deploy/README.md` §4 therefore carries the
+three questions an enterprise reviewer asks first — key custody, audit log, can-you-read-our-data
+— each with the honest answer and its open-question reference, so the demo is armed rather than
+ambushed. Two of the three are `OPEN-FOR-THE-OWNER.md` §A1 and §A2, which have been open for
+weeks. **They are now demo-blocking rather than merely open.**
+
+**(c) It re-ranks the open list.** The questions that matter to an adopting enterprise are not
+evenly spread across §A–§F. **§A1 (key custody), §A2 (audit log), §B2 (may you read a customer's
+map) and §B4 (who inside a company sees what) are the ones asked in the first meeting**, and §A3
+(the borrowed-code ceiling) is the one asked by whoever reviews the dependency list afterwards.
+That is a different ordering from "what blocks the server", and both orderings are now live.
+
+**One thing to say out loud, because it is the strongest card and it is easy to undersell:** the
+tool never had to connect to anything to be useful. A pasted configuration becomes an estate, every
+line it did not understand is named rather than dropped, and credentials are destroyed at the gate
+before anything is stored. In a room worried about what a new tool will exfiltrate, *"it makes no
+network request, and here is the browser's own network panel showing that"* is a stronger opening
+than any feature.
 
 ## 15. Disagreements
 

@@ -111,7 +111,15 @@ services:
       options: { max-size: "20m", max-file: "5" }
 
   caddy:
-    image: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    # Built, not pulled, because the product is baked in — see the `web` stage
+    # in deploy/Dockerfile, whose BASE is still the digest that used to be on
+    # this line. One origin serves the page and the API, which is the shape the
+    # pivot (`49`) is heading for rather than a convenience.
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: web
+    image: fathom-web:wo-11
     restart: unless-stopped
     depends_on:
       - server

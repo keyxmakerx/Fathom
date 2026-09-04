@@ -62,6 +62,42 @@ RUN pinned=$(grep -E '^channel' rust-toolchain.toml | sed 's/.*"\(.*\)".*/\1/') 
 # the workspace Cargo.toml.
 RUN cargo build --locked --profile server -p fathom-server
 
+# ---- artifact -------------------------------------------------------------
+# The browser product: one self-contained HTML file with the WASM module inside
+# it. This is what a demo actually shows — the server stores nothing until WO-12
+# is executed, so without this the stack serves a health endpoint and nothing a
+# person can look at.
+#
+# THIS STAGE DELIBERATELY DOES WHAT THE SERVER STAGE DELIBERATELY AVOIDS. The
+# comment on RUSTUP_TOOLCHAIN above explains that pinning it stops rustup
+# fetching a wasm32 target "this image will never build". That is true of the
+# server stage and false here: the artifact EMBEDS the WASM module, so the
+# target is required and the network call is unavoidable rather than accidental.
+# It is in its own stage so the server image is unaffected either way.
+FROM build AS artifact
+
+RUN rustup target add wasm32-unknown-unknown && \
+    cargo build --locked --release --target wasm32-unknown-unknown -p fathom-wasm && \
+    cargo run --locked -p fathom-artifact
+
+# ---- web ------------------------------------------------------------------
+# Caddy with the product baked in, so ONE ORIGIN serves both the page and the
+# API. That is not a convenience: the pivot (`49`) makes the browser a window
+# onto the server, so the destination has one origin, and standing a second
+# container up beside it to serve static files would be scaffolding pretending
+# to be architecture.
+#
+# WHEN TO DELETE THIS STAGE: when the server serves the application itself.
+# Then `caddy` goes back to the digest-pinned upstream image with no COPY, and
+# the Caddyfile loses its `file_server` block. Written down because scaffolding
+# with no removal condition is still there in a year being explained to someone.
+#
+# The base is the same digest the compose file pinned before this stage existed,
+# so `35` §7.4 still holds — the digest is the artifact, the tag is a pointer.
+FROM caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS web
+
+COPY --from=artifact /src/target/artifact/fathom-dev.html /srv/index.html
+
 # ---- run ------------------------------------------------------------------
 FROM gcr.io/distroless/cc-debian12@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 

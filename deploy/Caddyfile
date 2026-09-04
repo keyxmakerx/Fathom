@@ -24,17 +24,38 @@
 localhost:8443 {
 	tls internal
 
-	# One upstream, one path set. The server is not published to the host at
-	# all, so this is the only way in.
-	reverse_proxy server:8080
+	# TWO HANDLERS, AND THE SPLIT IS TEMPORARY. `/health` is the server's only
+	# route today (`crates/fathom-server/src/lib.rs`: "The router. One
+	# endpoint."). Everything else is the browser product, baked into this
+	# image by the Dockerfile's `web` stage.
+	#
+	# As the server grows routes, they move from the second handler to the
+	# first. When it serves the application itself, the second handler and the
+	# `web` stage both go, and this file returns to a single reverse_proxy.
+	handle /health {
+		# The server is not published to the host at all, so this is the only
+		# way in.
+		reverse_proxy server:8080
+	}
+
+	handle {
+		root * /srv
+		file_server
+	}
 
 	header {
-		# Nothing here serves HTML yet, but a proxy that grows an HTML
-		# response later should not have to remember to add these.
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		-Server
 	}
+
+	# NO Content-Security-Policy HEADER HERE, DELIBERATELY. The artifact is one
+	# self-contained file with inline script and style, and it carries its own
+	# CSP in a meta tag — the transcript face reads that CSP off the live page
+	# and shows it. A header set here would either duplicate that or silently
+	# override it, and the page would break in a way whose cause is invisible.
+	# If a CSP belongs at the edge, it has to be reconciled with the artifact's
+	# own, which is a decision and not a header.
 
 	log {
 		output stdout
