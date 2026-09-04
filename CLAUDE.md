@@ -457,12 +457,12 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   in the lockfile and `subtle` is not, and its Disagreements records the divergence from `32` §15.1.
   **The contradiction in §B1 is confirmed and sourced**: ADR-0003, *Accepted*, *"no hosted service,
   no accounts we run"*, against everything in `49`. That is the owner's, and it does not block WO-12.
-  **WHERE THIS WORK LIVES, added 2026-09-04 by the session that picked this up:** none of it is on
-  `main` YET, but it is no longer unreviewed. PR #17 merged on 2026-08-17 and every commit since —
-  the pivot, ADR-0038 to 0041, WO-10, WO-11, WO-12, this page — sat on a branch with **no pull
-  request and no CI run at all** until 2026-09-04, when **PR #18 was opened and CI went green on
-  every commit**. A session that
-  starts from `main` sees none of it; this one did, and had to fast-forward. The floor was run
+  **WHERE THIS WORK LIVES — ALL OF IT IS ON `main` as of 2026-09-04.** PR #18 merged at `427757e`.
+  This matters because for eighteen days it was not: PR #17 merged on 2026-08-17 and every commit
+  since — the pivot, ADR-0038 to 0041, WO-10, WO-11, WO-12, this page — sat on a branch with **no
+  pull request and no CI run at all**, so a session starting from `main` saw none of it. One did,
+  on 2026-09-04, and had to go looking. **If this page ever again describes work you cannot find
+  from `main`, check the branches before concluding it was never done.** The floor was run
   locally on the whole branch the same day: 792 tests, every gate green **except two that fired on
   the calendar** — the hyper cooldown exception expired as designed (row removed), and the
   offline lockfile check cannot pass on a cache-less runner now that the lockfile has 115 external
