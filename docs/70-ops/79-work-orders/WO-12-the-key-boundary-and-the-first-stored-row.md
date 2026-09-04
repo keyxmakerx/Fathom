@@ -1297,8 +1297,12 @@ literal in one that is not `store.rs` or `migrate.rs`, the test that says so is 
 tree — **and it was written to pass on the tree as it stands, with `config.rs`'s and `main.rs`'s
 English-word literals named as non-matches** (§3, G11(ii)).
 
-**Step 7 — the two examples and the first evidence script** (G4, G6). The script prints and asserts
-an exact check count.
+**Step 7 — the two examples and the first evidence script** (**G4, G6, G12** — §4.7's list for
+`<date>-two-processes-write-and-read-one-sealed-design.sh`, and an earlier draft of this step said
+only G4 and G6). G12's refusals are *built* at steps 4 and 8; this script is what *drives* them,
+which is why it carries the gate. Five of the six are reachable now; **the sixth, the unopenable
+`master_key_probe` row, only exists after step 8, so it is added to this script there and the
+check count moves with it.** The script prints and asserts an exact check count.
 
 **Step 8 — `keys/custody.rs`, the probe row, and the boot check.** All **four** operations —
 `add_wrapping`, `drop_wrapping`, `rewrap_probe`, `destroy_tenant_key`; `master_key_probe` written on
@@ -1310,8 +1314,12 @@ the same step**, or the first provider-side key rotation is an outage with no do
 **Step 9 — the mock provider and the provider-boundary tests** (G8). This is the step the order
 exists for; if anything earlier has made it awkward, that is a finding about the earlier step.
 
-**Step 10 — the misbinding gates, the log gate, and the second evidence script** (G7, G9, G10,
-G13). The misbinding gates edit **real rows in SQL**, not fixtures in Rust.
+**Step 10 — the misbinding gates, the log gate, and the second evidence script** (**G7, G8, G9,
+G10, G13** — §4.7's list for `<date>-the-custody-switch-does-not-touch-the-ciphertext.sh`, and an
+earlier draft of this step dropped G8). G8's tests are *written* at step 9; this script is what
+carries them into the evidence file, including G8(b)'s cross-provider switch, which is the one
+assertion the whole order is shaped backwards from and must not live only in `cargo test`. The
+misbinding gates edit **real rows in SQL**, not fixtures in Rust.
 
 **Step 11 — the floor, the measured numbers, the as-built note, the index status.** Record the
 closure's real size against `35` §5.1 C1–C5, re-run the WASM build **forced** and record the byte
@@ -1625,7 +1633,7 @@ fail** before it is believed — CLAUDE.md rule 0, and WO-11 §6 G2/G3's shape.
   **(ii-b) THE SQL-SHAPED LITERALS — a verb next to a SQL keyword, never a bare word.** Inside
   string literals only, case-insensitively, tolerating whitespace and `\`-continuation, in every
   `src/*.rs` **except `migrate.rs`** (whose embedded DDL and bookkeeping statements are its whole
-  job) — **fifteen patterns, which is the list, and it is literal and exhaustive so that no
+  job) — **sixteen patterns, which is the list, and it is literal and exhaustive so that no
   executor invents a narrow one that passes vacuously**:
   `SELECT`…`FROM`; `INSERT INTO`; `DELETE FROM`; `UPDATE`…`SET`; `MERGE INTO`; `WITH`…`AS (`;
   `CREATE`/`ALTER`/`DROP` followed by `TABLE`, `INDEX`, `VIEW`, `SCHEMA`, `TYPE`, `EXTENSION`,
@@ -1636,9 +1644,11 @@ fail** before it is believed — CLAUDE.md rule 0, and WO-11 §6 G2/G3's shape.
   and an optional `;`); a literal that *begins* `SET LOCAL` or `SET SESSION` — which is `49` §11
   rule 3's statement and the only `SET` a server of ours has business writing; and a literal that
   *begins* `LISTEN <identifier>` or `NOTIFY <identifier>`.
-  **All twenty-one verbs are still reached**; seven of them (`WITH`, `SET`, `BEGIN`, `COMMIT`,
-  `ROLLBACK`, `LISTEN`, `NOTIFY`) are reachable only in a phrase or as a whole literal, which is
-  precisely the difference between the two rules. **`health.rs` is NOT excepted from (ii-b)**, and
+  **All twenty-one of the old list's verbs are still reached, and only three of them —
+  `TRUNCATE`, `VACUUM`, `ANALYZE` — still match as a bare word**, because those three are not
+  words an error message writes. Every other verb needs a neighbouring SQL keyword, or must be the
+  whole literal, or must begin it. That is the entire difference between this rule and the one it
+  replaces. **`health.rs` is NOT excepted from (ii-b)**, and
   does not need to be: `SELECT 1::int4` has no `FROM`, so it is not SQL-shaped. That is deliberate
   — it means the day someone widens the health probe to a real query, (ii-b) catches it even though
   (ii-a) excepts the module.
