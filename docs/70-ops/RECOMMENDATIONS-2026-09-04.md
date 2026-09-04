@@ -77,6 +77,8 @@ skeptic's — recorded in `docs/40-stack/49-the-server-product.md` §16.1a(vi). 
 and those facts; where the skeptic's version differs it is not restated in the body and is noted
 under *Disagreements*.
 
+> **Marker count, corrected 2026-09-04.** This record carries **6 `<!-- VERIFY: … -->` markers** (the seventh occurrence of the string is §0's own description of the convention), plus 2 bare `VERIFY:` notes in prose. The commit that added this file said *"twenty remain"*; that figure was a count of every occurrence of the word *verify*, including *verified*, and was wrong. Counted with `grep -c '<!-- *VERIFY'`, minus one.
+
 ## 1. How this record was produced
 
 1. **Two workflows, run 2026-09-04.** The security workflow (`w3aotk1sm`, 12 agents) researched
