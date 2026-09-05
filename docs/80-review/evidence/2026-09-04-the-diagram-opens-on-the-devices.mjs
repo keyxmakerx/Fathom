@@ -35,6 +35,19 @@
 // the folded picture to draw it device-to-device, once, marked by hand. §7
 // does the first open again after a real reload, from the exported journal.
 //
+// FOUR MORE, ADDED 2026-09-05 AFTER A SKEPTIC ATTACKED THE FOLD and measured
+// four defects in Chromium, each with a check here that FAILS on the build
+// that shipped the fold (069896c) and passes after the repair: (1) §3 — at
+// rung 4, and at the rack rung, the band read `46 inside the boxes, not
+// drawn` over the very view that draws them; (2) §3 — `show what is inside`
+// was on offer at both rungs and did nothing there; (3) §2 — with the control
+// pressed the device's Outline row still carried `46 inside` and
+// `data-dinside` while the picture's own mark was gone; (4) §5b — remove the
+// device with the control pressed and the strip stayed `showing what is
+// inside`, pressed, over a lab with nothing inside it. §5b's last check is
+// the invariant that makes the repair honest: a later paste brings the
+// control back pressed AND the picture agrees with it.
+//
 // Playwright and Chromium are the ones already on this machine; neither is a
 // dependency of the product and neither is in Cargo.lock (gate zero).
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
@@ -92,6 +105,38 @@ const toDiagram = async () => {
   await page.click('#band button:has-text("diagram")');
   await page.waitForSelector('.dcanvas');
 };
+// A box put in a rack through the equipment sheet, exactly as
+// `2026-08-21-rack-is-a-rung.mjs` does it: the sheet's `put a box in a rack`
+// door, the form read by its labels, the chassis picked by its host's name.
+// Placing a box lands the reader in that rack's rung (that driver's §4).
+const placeInRack = async (rack, host, pos) => {
+  await page.click('#tabEquip');
+  await page.click('#rAdd');
+  const map = await page.locator('#mform label').evaluateAll(
+    ls => Object.fromEntries(ls.map(
+      l => [l.textContent.replace(/ — required$/, '').trim(), l.getAttribute('for')])));
+  await page.fill('#' + map['rack name'], rack);
+  await page.fill('#' + map['rack height in units'], '10');
+  await page.selectOption('#' + map['unit numbering'], 'ascending');
+  await page.fill('#' + map['position — lowest unit the box occupies'], String(pos));
+  const opts = await page.locator('#mfChassis option').evaluateAll(
+    os => os.map(o => ({ v: o.value, t: o.textContent })));
+  await page.selectOption('#mfChassis', (opts.find(o => o.t.includes(host)) || opts[0]).v);
+  await page.click('#mRun');
+};
+// What a depth rung shows of the band and of the two canvas controls: the
+// band's words, and the COMPUTED display of `show what is inside` and of the
+// zoom group — both are built and then taken off screen by two adjacent CSS
+// rules of one shape, so presence in the DOM is not the fact a reader sees.
+const atDepth = () => page.evaluate(() => {
+  const shown = sel => {
+    const n = document.querySelector(sel);
+    return n ? getComputedStyle(n).display !== 'none' : null;
+  };
+  return { depth: document.querySelector('.dview').getAttribute('data-depth'),
+           band: document.querySelector('.dband').textContent,
+           inside: shown('[data-inside]'), zoom: shown('.dzoomctl') };
+});
 // What the picture and its furniture say, read off the DOM the way a person
 // reads it. The zoom is the readout in the strip, parsed.
 const snap = () => page.evaluate(() => ({
@@ -249,6 +294,20 @@ check('the control says what IS: `showing what is inside`, pressed',
   JSON.stringify(s.toggle));
 check('the count under the box is gone — it marked a fold', s.insideMarks.length === 0,
   JSON.stringify(s.insideMarks));
+// Added 2026-09-05, from a skeptic's attack on the fold: with the control
+// pressed the device row still carried `46 inside` as a `.docnt` span and
+// `data-dinside="46"` — the idiom `N collapsed` / `N chassis` use for FOLDED
+// things — while the picture's own mark was gone and the 46 were level-1 rows
+// the disclosure no longer listed. dgOutline read the count with no `applied`
+// test; dgExpand and the svg mark had one. This fails on that build.
+const shownRow = await page.evaluate(id => {
+  const r = document.querySelector('[data-drow="' + id + '"]');
+  return { inside: r.getAttribute('data-dinside'),
+           counts: [...r.querySelectorAll('.docnt')].map(n => n.textContent) };
+}, deviceId);
+check('and the device ROW agrees with the picture: no `46 inside`, no data-dinside, while the 46 are rows of their own (the row kept both)',
+  shownRow.inside === null && !shownRow.counts.some(t => /inside/.test(t)),
+  JSON.stringify(shownRow));
 check('the band no longer says anything is not drawn', !/not drawn/.test(s.band), s.band);
 check('the note flips to say the 46 are drawn beside their device',
   /showing the 46 objects inside the device boxes beside them/.test(s.note), s.note.slice(0, 160));
@@ -308,11 +367,51 @@ check('and still offers the way down to rung 4',
 await page.click('[data-dinto]');
 check('rung 4 opens as before', (await page.$$('#ibody')).length === 1 &&
   (await page.$eval('.dview', n => n.getAttribute('data-depth'))) === 'device');
+// Added 2026-09-05, from the same attack, both measured at rung 4: (1) the
+// band read `1 object · 0 links · 46 inside the boxes, not drawn · inside a
+// box — escape comes back out` over the one view that draws exactly those
+// 46 — dgBand gated its `labels off` clauses on `away` for precisely this,
+// and the fold clause was not; (2) `show what is inside` sat in the strip,
+// pressing it changed nothing on screen (#ibody 101 → 101 nodes), the footer
+// said `drawing what is inside the boxes beside them`, and the change showed
+// only after Escape. Now off screen by the rule that takes `.dzoomctl` off
+// there, and measured the way that rule works: computed display, both
+// controls, one answer. Both checks fail on that build.
+const r4 = await atDepth();
+check('at rung 4 the band does not say `46 inside the boxes, not drawn` over the view that draws them (it did)',
+  r4.depth === 'device' && /inside a box — escape comes back out/.test(r4.band) &&
+  !/inside the boxes, not drawn/.test(r4.band), r4.band);
+check('and `show what is inside` is off screen there, by the rule that takes the zoom controls off (it was in the strip)',
+  r4.inside === false && r4.zoom === false, JSON.stringify(r4));
 await page.keyboard.press('Escape');
 await page.waitForFunction(() => document.querySelector('.dview').getAttribute('data-depth') === 'site');
 s = await snap();
 check('and Escape comes back out to the one box', s.boxes.length === 1 && s.depth === 'site',
   s.boxes.length + ' at ' + s.depth);
+// And the rack rung, the other depth the same gate and the same rule cover
+// (added 2026-09-05 with the two above). A box added by hand and put in a
+// rack, which lands the reader in that rack; the pasted firewall is still on
+// the estate with its 46 inside, so the band and the strip have the same two
+// things to get wrong here. Both fail on the build the two above fail on.
+await addDevice('sw-rack-01', 'switch');
+await placeInRack('R1', 'sw-rack-01', 1);
+await page.waitForFunction(() => document.querySelector('.dview') &&
+  document.querySelector('.dview').getAttribute('data-depth') === 'rack');
+const rk = await atDepth();
+check('at the rack rung the band says `inside a rack` and never `inside the boxes, not drawn` (it said both)',
+  rk.depth === 'rack' && /inside a rack — escape comes back out/.test(rk.band) &&
+  !/inside the boxes, not drawn/.test(rk.band), rk.band);
+check('and `show what is inside` is off screen there too, with the zoom controls (it was offered)',
+  rk.inside === false && rk.zoom === false, JSON.stringify(rk));
+await page.keyboard.press('Escape');
+await page.waitForFunction(() => document.querySelector('.dview').getAttribute('data-depth') === 'site');
+s = await snap();
+// 47, not 46: the box just placed has a rack-mounted chassis, which the
+// chassis fold declines (its mount line would vanish) and rung 1's fold
+// takes, with the mount line re-homed — 069896c's own note. A true count.
+check('and back at the site rung the band says it again — 47 now, the rack-mounted chassis included — and the control is back',
+  /\b47 inside the boxes, not drawn\b/.test(s.band) && s.toggle.length === 1 &&
+  (await atDepth()).inside === true, s.band);
 
 // ---- 4. THE FINDING, MEASURED: THE LAYERS COULD NOT HAVE DONE THIS ----------
 await showInside();
@@ -342,6 +441,46 @@ check('no control is offered, because nothing is behind it (`70` §19.4b)',
   s.toggle.length === 0 && s.insideMarks.length === 0 && !/inside/.test(s.band),
   JSON.stringify(s.toggle) + ' ' + s.band);
 check('and the fit is the one this lab always had', s.zoom >= 1, s.zoom + '×');
+
+// ---- 5b. A PRESSED CONTROL WITH NOTHING BEHIND IT ---------------------------
+// Added 2026-09-05, from the same attack: paste the SRX, press `show what is
+// inside`, remove the device, and the strip still read `showing what is
+// inside`, aria-pressed=true, over a hand-added switch with nothing inside
+// it. The build test was `objects > 0 || S.inside`, the second half "so that
+// what it did can be undone" — and with nothing folded there is nothing to
+// undo. Now `objects > 0` only. `S.inside` stays true in session state, and
+// the last check is the invariant that makes that honest: a later paste
+// brings the control back PRESSED and the picture already agrees with it.
+// The "no control" check fails on that build.
+await open();
+await paste(FIXTURE);
+await addDevice('sw-core-01', 'switch');
+await toDiagram();
+await showInside();
+s = await snap();
+const srxRow = s.rows.find(r => r.name === 'branch-srx');
+check('a firewall shown beside a hand-added switch: 48 boxes, the control pressed',
+  s.boxes.length === 48 && s.toggle.length === 1 && s.toggle[0].pressed === 'true' && !!srxRow,
+  s.boxes.length + ' boxes, ' + JSON.stringify(s.toggle));
+await objects();
+await page.click('[data-drow="' + srxRow.id + '"]');
+await page.click('[data-remove]');
+await page.waitForFunction(() => document.querySelectorAll('.dbox').length === 1);
+s = await snap();
+check('removing the firewall leaves the switch alone — one box, nothing inside it',
+  s.boxes.length === 1 && s.boxes[0].name === 'sw-core-01' && s.insideMarks.length === 0,
+  s.boxes.map(b => b.name).join(', '));
+check('and no control is offered over it (it stayed: `showing what is inside`, pressed, over nothing)',
+  s.toggle.length === 0 && !/inside/.test(s.band) && !/inside/.test(s.note),
+  JSON.stringify(s.toggle) + ' · ' + s.band);
+await paste(SECOND);
+await toDiagram();
+s = await snap();
+check('a later paste brings insides: the control comes back pressed and the picture agrees — the 3 drawn beside their device, no fold mark',
+  s.toggle.length === 1 && s.toggle[0].text === 'showing what is inside' &&
+  s.toggle[0].pressed === 'true' && s.boxes.length === 5 && s.insideMarks.length === 0 &&
+  /showing the 3 objects inside the device boxes beside them/.test(s.note),
+  s.boxes.length + ' boxes, ' + JSON.stringify(s.toggle) + ' · ' + s.note.slice(0, 160));
 
 // ---- 6. A LINK BETWEEN TWO INSIDES IS DRAWN BETWEEN THE TWO BOXES ------------
 await open();
@@ -439,9 +578,9 @@ await page.screenshot({ path: OUT + '/2026-09-04-the-diagram-opens-on-the-device
 
 // ---- the floor every driver here stands on --------------------------------
 check('no page errors', errors.length === 0, errors.join(' | '));
-// Four real loads of the page in this file (§1, §5, §6, §7), and nothing else.
-check('every network request is the file itself, once per load — four loads, four requests',
-  requests.length === 4 && requests.every(u => u === FILE), requests.join(' '));
+// Five real loads of the page in this file (§1, §5, §5b, §6, §7), and nothing else.
+check('every network request is the file itself, once per load — five loads, five requests',
+  requests.length === 5 && requests.every(u => u === FILE), requests.join(' '));
 
 await browser.close();
 const failed = results.filter(r => !r.ok).length;

@@ -1096,6 +1096,21 @@ button.tab:hover { color: var(--ink); }
 .dview[data-depth="rack"] .dmovectl,
 .dview[data-depth="device"] .dzoomctl,
 .dview[data-depth="device"] .dmovectl { display: none; }
+/* AND RUNG 1'S FOLD CONTROL (`show what is inside`, dgFoldInside), by the same
+   rule and for the same reason: it changes what the site-rung CANVAS draws
+   beside each device, and at rack depth or inside a box that canvas is not
+   what the chart area is drawing. MEASURED 2026-09-05 by a skeptic against
+   the build before this rule: at rung 4 the button sat in the strip; pressing
+   it changed nothing on screen (#ibody 101 -> 101 nodes), the footer announced
+   `drawing what is inside the boxes beside them`, and the change appeared only
+   after Escape -- a control answering to a picture one rung up. It does move
+   an `inside` row to level 1 in the Outline, which is on screen at every
+   depth, but every one of those objects is listed there at either setting and
+   what a reader at rung 4 is looking at is the inside of ONE box, which this
+   control does not touch. Built and then hidden, exactly as `.dzoomctl` is
+   -- one mechanism for the three controls that drive the canvas. */
+.dview[data-depth="rack"] [data-inside],
+.dview[data-depth="device"] [data-inside] { display: none; }
 /* `show the picture` is the narrow width's disclosure for the canvas, and the
    third control that drives a surface the depth axis has taken off screen —
    pressing it at rung 2 does nothing a reader can see. Its counts are not lost:
@@ -4868,12 +4883,29 @@ function dgBand() {
      the gesture. */
   var shut = DG.view && DG.view.getAttribute('data-open') === '0' &&
              $('sheet').getAttribute('data-width') === 'narrow';
+  /* `shut || DG_DEPTH`: a suppression count is a fact about a drawing, and at
+     rung 2 the drawing it is about is one rung up. Naming "14 labels off" over
+     an elevation that has every one of its names in the document would be the
+     band describing the wrong picture. Computed HERE, above the fold clause,
+     since 2026-09-05: it used to sit beside the `labels off` clauses it was
+     written for, and the fold clause added between them was never gated by
+     it -- the defect below. */
+  var away = shut || !!DG_DEPTH;
   var bits = [plural(String(DG.drawn), 'object', 'objects'),
               plural(String(DG.drawnLinks), 'link', 'links')];
   /* WHAT RUNG 1 FOLDED, with its cardinal, right after the two counts it
      qualifies: `1 object` over a firewall with 46 things inside it is a true
-     sentence that teaches a false one. `59`'s governing rule. */
-  if (DG.inside && DG.inside.applied && DG.inside.objects > 0) {
+     sentence that teaches a false one. `59`'s governing rule.
+
+     AND NOT WHILE THE READER IS `away` FROM THAT PICTURE. Measured 2026-09-05
+     by a skeptic, in Chromium: with the site picture folded, `go inside this
+     box` showed a band reading `1 object · 0 links · 46 inside the boxes, not
+     drawn · inside a box — escape comes back out` over the one view that
+     draws exactly those 46 -- the wrong-picture defect `away`'s own note
+     names, one clause up from where it was guarded. The same at the rack
+     rung; and at narrow width with the picture collapsed the count is about
+     a drawing that is not on screen, where the Outline rows carry it. */
+  if (!away && DG.inside && DG.inside.applied && DG.inside.objects > 0) {
     bits.push(DG.inside.objects + ' inside the boxes, not drawn');
   }
   /* A zoom reading for a picture that is not on screen is a number about
@@ -4904,11 +4936,9 @@ function dgBand() {
      a second one that could drift from it. */
   bits.push(DG_DEPTH ? 'the whole diagram is one rung up'
           : shut ? 'picture collapsed at this width' : 'zoom ' + dgZoomWords());
-  /* `shut || DG_DEPTH`: a suppression count is a fact about a drawing, and at
-     rung 2 the drawing it is about is one rung up. Naming "14 labels off" over
-     an elevation that has every one of its names in the document would be the
-     band describing the wrong picture. */
-  var away = shut || !!DG_DEPTH;
+  /* `away` -- computed beside `shut` above, since it gates the fold clause up
+     there as well as the two suppression counts here: one variable, so the
+     three clauses about a picture that is not on screen cannot drift apart. */
   if (!away && lod === '1') bits.push(plural(String(DG.drawn), 'kind label off', 'kind labels off'));
   if (!away && lod === '0') bits.push(plural(String(DG.drawn * 2), 'label off', 'labels off'));
   /* The refusal, restated for as long as it applies. A decline the user only
@@ -6400,8 +6430,17 @@ function dgOutline(boxes, noSetKinds, agg) {
        box, inside an aria-hidden <svg>. `data-dinside` carries the number for
        a driver. It is an OBJECT count, summed from every folded box's own
        count, so a collapsed run inside the fold counts its members and not
-       its one box -- the same arithmetic the band's `collapsed` clause uses. */
-    var insN = (DG.inside && DG.inside.count[id]) || 0;
+       its one box -- the same arithmetic the band's `collapsed` clause uses.
+
+       ONLY WHILE THE FOLD IS APPLIED, since 2026-09-05. `N inside` is the
+       idiom `N collapsed` and `N chassis` use for things that are FOLDED, and
+       a skeptic measured the row with `show what is inside` pressed: it still
+       carried `46 inside` and `data-dinside="46"` while the picture's own mark
+       was gone and the 46 were level-1 rows the disclosure no longer listed
+       (dgExpand and the svg mark both tested `applied`; this line did not).
+       The row now agrees with the picture; with the insides drawn the details
+       pane is where the count lives, saying "drawn beside it". */
+    var insN = (DG.inside && DG.inside.applied && DG.inside.count[id]) || 0;
     if (insN) {
       row.setAttribute('data-dinside', String(insN));
       row.appendChild(el('span', 'docnt', insN + ' inside'));
@@ -7121,7 +7160,18 @@ function dgFoldInside(boxes, lines, apply) {
    channel `route.rs` uses for a same-rank pair and the space the folded ranks
    vacated. Different columns: across the gap between them with one jog, again
    spaced per line. Integers, because every other coordinate the page draws
-   is one. */
+   is one.
+
+   THE DIFFERENT-COLUMN BRANCH IS UNEXERCISED BY ANY DRIVER AND UNREACHABLE
+   TODAY -- recorded 2026-09-05, not built. Rank is containment depth only
+   (`fathom-layout`: "Ranks come from the containment tree"), every `Device`
+   hangs off the same root at the same depth, and nothing on this page creates
+   a `Site`, so two device boxes never land in different columns and no driver
+   reaches the `else` below. It is kept because a missing branch would draw
+   nothing at all; but the midpoint jog crosses the gap at one x, and if two
+   Devices ever landed two or more columns apart it would run straight through
+   the boxes of every column between. When a Site exists this branch needs a
+   channel the way the same-column one has, and a driver, before it is trusted. */
 function dgRehome(A, B, lane) {
   var ay = A.y + A.h / 2, by = B.y + B.h / 2, pts;
   if (A.x === B.x) {
@@ -7402,9 +7452,24 @@ function renderDiagram(host) {
      OFFERED ONLY WHEN THERE IS SOMETHING BEHIND IT. `70` §19.4b: "a rung with
      nothing behind it must not be offered". A lab of hand-added boxes has
      nothing inside them the picture would draw, so the button is absent
-     rather than present and inert -- and it stays while it is pressed, so
-     that what it did can be undone. */
-  if (DG.inside && (DG.inside.objects > 0 || S.inside)) {
+     rather than present and inert.
+
+     `objects > 0` AND NOTHING ELSE, since 2026-09-05. The first cut also
+     offered it while `S.inside` was on, "so that what it did can be undone",
+     and a skeptic measured what that meant: paste the SRX, press the control,
+     remove the device, and the strip still read `showing what is inside`,
+     aria-pressed=true, over a hand-added switch with nothing inside it. With
+     nothing folded there is nothing to undo, and a pressed control over
+     nothing is the inert button this test exists to refuse. `S.inside` stays
+     true in session state, as `layers` and `whole` do; when a later paste
+     brings insides the control reappears pressed and the picture already
+     agrees with it, because the fold is applied only while `S.inside` is off.
+     THAT is the invariant: the label and the canvas never disagree, and the
+     button is on screen only while it has something to show.
+
+     AT RACK DEPTH AND INSIDE A BOX it is built and the CSS takes it off
+     screen, by the rule that hides `.dzoomctl` and `.dmovectl` there. */
+  if (DG.inside && DG.inside.objects > 0) {
     var ins = el('button', null,
       S.inside ? 'showing what is inside' : 'show what is inside');
     ins.type = 'button';
