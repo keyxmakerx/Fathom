@@ -48,6 +48,20 @@
 // the invariant that makes the repair honest: a later paste brings the
 // control back pressed AND the picture agrees with it.
 //
+// AND THE NOTE, ADDED 2026-09-05 AFTER A SKEPTIC ATTACKED THAT REPAIR (ad6f36c)
+// and found the same class one panel over: at rung 4 and at the rack rung the
+// Outline NOTE still ended "… 46 objects are inside the device boxes and not
+// drawn beside them, with 14 links among them — press show what is inside to
+// draw every one, or open a box's row for the list" (47 at the rack rung)
+// beside a band that had just stopped saying so, and at 390×800 with the
+// picture collapsed it named a control 069896c's rule had taken off screen.
+// §3 reads the note the way a reader does — innerText, which leaves out what
+// CSS has taken off screen — at both rungs; §3c does the same at 390×800
+// collapsed, then opens the picture and requires the clause back in the band
+// AND the note, so the gate is shown to be the collapsed state and not the
+// width. The three depth/collapsed checks fail on ad6f36c; the open one
+// passes on both, as a control must.
+//
 // Playwright and Chromium are the ones already on this machine; neither is a
 // dependency of the product and neither is in Cargo.lock (gate zero).
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
@@ -124,19 +138,28 @@ const placeInRack = async (rack, host, pos) => {
   await page.selectOption('#mfChassis', (opts.find(o => o.t.includes(host)) || opts[0]).v);
   await page.click('#mRun');
 };
-// What a depth rung shows of the band and of the two canvas controls: the
-// band's words, and the COMPUTED display of `show what is inside` and of the
-// zoom group — both are built and then taken off screen by two adjacent CSS
-// rules of one shape, so presence in the DOM is not the fact a reader sees.
+// What a depth rung (or a collapsed picture) shows of the band, the two canvas
+// controls and the Outline note: the band's words, the COMPUTED display of
+// `show what is inside` and of the zoom group — both are built and then taken
+// off screen by two adjacent CSS rules of one shape, so presence in the DOM is
+// not the fact a reader sees — and the note as a READER sees it: innerText,
+// which leaves out what CSS has taken off screen, where snap().note's
+// textContent (right for the site rung's checks) would still carry it.
 const atDepth = () => page.evaluate(() => {
   const shown = sel => {
     const n = document.querySelector(sel);
     return n ? getComputedStyle(n).display !== 'none' : null;
   };
+  const note = document.querySelector('.dout .note');
   return { depth: document.querySelector('.dview').getAttribute('data-depth'),
+           open: document.querySelector('.dview').getAttribute('data-open'),
+           width: document.getElementById('sheet').getAttribute('data-width'),
            band: document.querySelector('.dband').textContent,
-           inside: shown('[data-inside]'), zoom: shown('.dzoomctl') };
+           inside: shown('[data-inside]'), zoom: shown('.dzoomctl'),
+           note: note ? note.innerText : '' };
 });
+// The note's body as seen, without its lead line; for a check's detail.
+const noteBody = n => n.split('\n').pop().slice(0, 170);
 // What the picture and its furniture say, read off the DOM the way a person
 // reads it. The zoom is the readout in the strip, parsed.
 const snap = () => page.evaluate(() => ({
@@ -382,7 +405,20 @@ check('at rung 4 the band does not say `46 inside the boxes, not drawn` over the
   r4.depth === 'device' && /inside a box — escape comes back out/.test(r4.band) &&
   !/inside the boxes, not drawn/.test(r4.band), r4.band);
 check('and `show what is inside` is off screen there, by the rule that takes the zoom controls off (it was in the strip)',
-  r4.inside === false && r4.zoom === false, JSON.stringify(r4));
+  r4.inside === false && r4.zoom === false, JSON.stringify({ inside: r4.inside, zoom: r4.zoom }));
+// Added 2026-09-05, after a skeptic attacked THAT repair (ad6f36c) and found
+// the same class one panel over: with the band and the strip honest at rung 4
+// the Outline note beside them still ended "… 46 objects are inside the device
+// boxes and not drawn beside them, with 14 links among them — press show what
+// is inside to draw every one, or open a box's row for the list" — a count for
+// the picture one rung up, naming a control the rule above had just hidden.
+// The band drops that whole clause at depth; the note now does too, whole, by
+// the same CSS rule that hides the control. Read as a reader reads it
+// (innerText); the note's own first clause is the proof it is still on screen
+// and the check is not vacuous. Fails on ad6f36c.
+check('and the Outline NOTE beside them drops its fold clause too — no count of what one rung up folds, no `press show what is inside` (it kept both)',
+  /standing for/.test(r4.note) && !/inside the device boxes/.test(r4.note) &&
+  !/show what is inside/.test(r4.note), noteBody(r4.note));
 await page.keyboard.press('Escape');
 await page.waitForFunction(() => document.querySelector('.dview').getAttribute('data-depth') === 'site');
 s = await snap();
@@ -402,7 +438,13 @@ check('at the rack rung the band says `inside a rack` and never `inside the boxe
   rk.depth === 'rack' && /inside a rack — escape comes back out/.test(rk.band) &&
   !/inside the boxes, not drawn/.test(rk.band), rk.band);
 check('and `show what is inside` is off screen there too, with the zoom controls (it was offered)',
-  rk.inside === false && rk.zoom === false, JSON.stringify(rk));
+  rk.inside === false && rk.zoom === false, JSON.stringify({ inside: rk.inside, zoom: rk.zoom }));
+// The note at the rack rung, the same way (added 2026-09-05 with the rung-4
+// check above): it read "… 47 objects are inside the device boxes … press show
+// what is inside …" over an elevation. Fails on ad6f36c.
+check('and the Outline NOTE at the rack rung drops its fold clause as well — no `47 … inside the device boxes`, no `press show what is inside` (it kept both)',
+  /standing for/.test(rk.note) && !/inside the device boxes/.test(rk.note) &&
+  !/show what is inside/.test(rk.note), noteBody(rk.note));
 await page.keyboard.press('Escape');
 await page.waitForFunction(() => document.querySelector('.dview').getAttribute('data-depth') === 'site');
 s = await snap();
@@ -412,6 +454,47 @@ s = await snap();
 check('and back at the site rung the band says it again — 47 now, the rack-mounted chassis included — and the control is back',
   /\b47 inside the boxes, not drawn\b/.test(s.band) && s.toggle.length === 1 &&
   (await atDepth()).inside === true, s.band);
+
+// ---- 3c. 390×800, THE PICTURE COLLAPSED: THE NOTE AGREES WITH THE BAND ------
+// Added 2026-09-05 with the two note checks above. At narrow width the canvas
+// is collapsed to a summary line until `show the picture` is pressed (`55`
+// §6.3); 069896c's rule takes `show what is inside` off screen while it is,
+// and ad6f36c made the band drop its fold clause there (`shut`). The note kept
+// it — a count for a drawing that is not on screen, naming a control that is
+// not on screen. The Outline row still carries the count (`data-dinside`),
+// which is why the clause can go whole rather than lose only its instruction.
+// Then the picture is opened and the clause must come BACK on both surfaces:
+// the gate is the collapsed state, not the width. The first check fails on
+// ad6f36c; the second passes on both, as a control must. The viewport goes
+// back to 1400×900 afterwards, so §4 onward measures what it always did.
+await page.setViewportSize({ width: 390, height: 800 });
+await page.waitForFunction(() => document.getElementById('sheet').getAttribute('data-width') === 'narrow');
+const nw = await atDepth();
+// The rows, summed: the band's 47 is 46 under branch-srx plus the rack-mounted
+// switch's chassis under ITS row, so no one row says 47 and the sum is the
+// fact (the first cut of this check read one row and failed on its own
+// arithmetic, 2026-09-05 — recorded so nobody "fixes" it back).
+const nwRows = await page.$$eval('[data-drow]', rs => rs.reduce(
+  (t, r) => t + (+r.getAttribute('data-dinside') || 0), 0));
+check('at 390×800 with the picture collapsed the note drops its fold clause as the band does — the control it names is off screen, and the rows still carry the 47 between them (the note kept the clause)',
+  nw.width === 'narrow' && nw.open === '0' && nw.inside === false &&
+  /picture collapsed at this width/.test(nw.band) && !/not drawn/.test(nw.band) &&
+  /standing for/.test(nw.note) && !/inside the device boxes/.test(nw.note) &&
+  !/show what is inside/.test(nw.note) && nwRows === 47,
+  JSON.stringify({ band: nw.band, note: noteBody(nw.note), rowsInside: nwRows, inside: nw.inside }));
+await page.click('[data-dexpand]');
+await page.waitForFunction(() => document.querySelector('.dview').getAttribute('data-open') === '1');
+const nwOpen = await atDepth();
+check('and opening the picture brings the clause back on BOTH surfaces — band `47 inside the boxes, not drawn`, note `press show what is inside`, control on screen — so the gate is the collapsed state, not the width',
+  nwOpen.open === '1' && nwOpen.inside === true &&
+  /\b47 inside the boxes, not drawn\b/.test(nwOpen.band) &&
+  /47 objects are inside the device boxes and not drawn beside them/.test(nwOpen.note) &&
+  /press show what is inside/.test(nwOpen.note),
+  JSON.stringify({ band: nwOpen.band, inside: nwOpen.inside, note: noteBody(nwOpen.note) }));
+await page.click('[data-dexpand]');
+await page.waitForFunction(() => document.querySelector('.dview').getAttribute('data-open') === '0');
+await page.setViewportSize({ width: 1400, height: 900 });
+await page.waitForFunction(() => document.getElementById('sheet').getAttribute('data-width') === 'wide');
 
 // ---- 4. THE FINDING, MEASURED: THE LAYERS COULD NOT HAVE DONE THIS ----------
 await showInside();

@@ -1108,9 +1108,21 @@ button.tab:hover { color: var(--ink); }
    depth, but every one of those objects is listed there at either setting and
    what a reader at rung 4 is looking at is the inside of ONE box, which this
    control does not touch. Built and then hidden, exactly as `.dzoomctl` is
-   -- one mechanism for the three controls that drive the canvas. */
+   -- one mechanism for the three controls that drive the canvas.
+
+   AND `.dfoldnote`, THE COUNT NOTE'S SENTENCE ABOUT THAT CONTROL, in the same
+   selector list since 2026-09-05. The rule above took the control off screen
+   at both rungs and left the note beside it ending "… press show what is
+   inside to draw every one" over a count of what the SITE picture folds --
+   the same class of defect one panel over, measured by a skeptic against the
+   commit that added this rule (ad6f36c). dgBand drops its whole fold clause
+   at depth (`away`); the note's goes by this rule, whole, because the note is
+   composed once per render and the band is not (see renderDiagram). One list,
+   so the control and the sentence that names it cannot be hidden separately. */
 .dview[data-depth="rack"] [data-inside],
-.dview[data-depth="device"] [data-inside] { display: none; }
+.dview[data-depth="device"] [data-inside],
+.dview[data-depth="rack"] .dfoldnote,
+.dview[data-depth="device"] .dfoldnote { display: none; }
 /* `show the picture` is the narrow width's disclosure for the canvas, and the
    third control that drives a surface the depth axis has taken off screen —
    pressing it at rung 2 does nothing a reader can see. Its counts are not lost:
@@ -1129,8 +1141,18 @@ button.tab:hover { color: var(--ink); }
    the first Outline row past the bottom of the fact column — "a line of strip
    is a row of the estate", arriving for the fourth time, and caught by
    `2026-08-15-diagram-surface-edges.mjs`. It comes back the moment the reader
-   opens the picture, which is when it changes something they can see. */
-.sheet[data-width="narrow"] .dview[data-open="0"] [data-inside] { display: none; }
+   opens the picture, which is when it changes something they can see.
+
+   AND THE NOTE'S SENTENCE THAT NAMES IT (`.dfoldnote`), since 2026-09-05, for
+   the reason dgBand already drops its `N inside the boxes, not drawn` clause
+   while the picture is collapsed (`shut`): the count is about a drawing that
+   is not on screen, and the Outline row carries it. Measured at 390×800
+   against ad6f36c: band `1 object · 0 links · picture collapsed at this
+   width`, note "… press show what is inside …" beside it, the control hidden
+   by the line above. The toggle does not re-render (dgToggleOpen), so this is
+   the only mechanism that keeps the note right one press later. */
+.sheet[data-width="narrow"] .dview[data-open="0"] [data-inside],
+.sheet[data-width="narrow"] .dview[data-open="0"] .dfoldnote { display: none; }
 /* The rung you are on, and the rung out. `.dladder` is in the LOOKING group
    beside the layer toggles, because changing depth is the same task as changing
    zoom: it changes what you see and never what is recorded. */
@@ -3669,11 +3691,21 @@ function renderResidue(host) {
      which is stronger than asserting it in four sentences. */
 }
 
+/* `body` is a string, or an array of strings and elements laid end to end.
+   The array form is for ONE caller (renderDiagram's count note, 2026-09-05)
+   whose fold clause has to be taken off screen by the same CSS rule that takes
+   the control it names off screen — a text node cannot be selected, a span
+   can. Every other note passes a string and gets a text node, as before. An
+   empty string is skipped rather than appended as an empty text node. */
 function note(host, lead, body) {
   var n = el('div', 'note');
   n.appendChild(el('b', null, lead));
   n.appendChild(document.createElement('br'));
-  n.appendChild(document.createTextNode(body));
+  var parts = typeof body === 'string' ? [body] : body;
+  for (var i = 0; i < parts.length; i++) {
+    if (parts[i] === '') continue;
+    n.appendChild(typeof parts[i] === 'string' ? document.createTextNode(parts[i]) : parts[i]);
+  }
   host.appendChild(n);
 }
 
@@ -8344,7 +8376,52 @@ function renderDiagram(host) {
      degraded — boxes, objects, collapsed, lines, swallowed, hidden objects,
      hidden links, placed and hand-drawn all still print, which is 59 §6.2's
      defect avoided. What is gone is the prose between the numbers. */
-  note(DG.out, 'This is a rendering, not a record',
+  /* RUNG 1'S FOLD, with its cardinal and the two ways to the objects it
+     holds. Both clauses are numbers about THIS estate and the second names
+     the next action, which is this note's own test for a clause that stays.
+     When the reader has pressed the control the clause flips to say so,
+     because "46 objects inside" over a picture that draws all 46 beside their
+     device would be a count describing the wrong picture.
+
+     IN A SPAN OF ITS OWN, `.dfoldnote`, AND NOT IN THE TEXT NODE WITH THE
+     REST, since 2026-09-05 -- so that the two CSS rules that take `show what
+     is inside` off screen (`.dview[data-depth=…] [data-inside]` and
+     `.sheet[data-width="narrow"] .dview[data-open="0"] [data-inside]`) take
+     this sentence off with it, in the same selector list. MEASURED by a
+     skeptic against ad6f36c, the commit that had just made the band and the
+     strip honest at depth: at rung 4 and at the rack rung this note still
+     ended "… 46 objects are inside the device boxes and not drawn beside
+     them, with 14 links among them — press show what is inside to draw every
+     one, or open a box's row for the list" (47 at the rack rung) beside a
+     band reading `inside a box — escape comes back out · the whole diagram is
+     one rung up`, and at 390×800 with the picture collapsed it named a
+     control 069896c's rule had already hidden. The band drops the WHOLE
+     clause when the reader is `away` (dgBand): the count is about a drawing
+     that is not on screen and the Outline row carries it (`46 inside`,
+     `data-dinside`). This clause goes the same way -- whole, and both
+     branches, because "showing the 46 … beside them" over rung 4 is as much a
+     description of the picture one rung up as "not drawn" is. Keeping only
+     "open a box's row for the list" would be true and would be an orphan.
+
+     CSS rather than a test on DG_DEPTH here, although a descent does
+     re-render: the narrow toggle (dgToggleOpen) flips one attribute and does
+     not, so a JS gate would be right at the moment of rendering and wrong one
+     press later. The same reason the control itself is hidden by rule. */
+  var foldNote = DG.inside && DG.inside.applied
+    ? ' · ' + DG.inside.objects + ' objects are inside the device boxes and ' +
+      'not drawn beside them' +
+      (DG.inside.links ? ', with ' + DG.inside.links + ' links among them' : '') +
+      (DG.inside.rehomed
+        ? '; ' + plural(String(DG.inside.rehomed), 'line', 'lines') +
+          ' from inside a box drawn to the box instead'
+        : '') +
+      ' — press show what is inside to draw every one, or open a box\'s row ' +
+      'for the list'
+    : (DG.inside && DG.inside.objects
+        ? ' · showing the ' + DG.inside.objects + ' objects inside the device ' +
+          'boxes beside them'
+        : '');
+  note(DG.out, 'This is a rendering, not a record', [
     /* Through plural(), as the band's counts are: rung 1's fold (dgFoldInside)
        made ONE box the ordinary first picture, and the note read "1 boxes
        standing for 1 objects" over it — seen in the fold driver's own
@@ -8368,27 +8445,12 @@ function renderDiagram(host) {
     (fold.left > 0
       ? ' · ' + fold.left + ' chassis still drawn beside its device, because ' +
         'something other than that device points at it — a rack mount, usually'
-      : '') +
-    /* RUNG 1'S FOLD, with its cardinal and the two ways to the objects it
-       holds. Both clauses are numbers about THIS estate and the second names
-       the next action, which is this note's own test for a clause that stays.
-       When the reader has pressed the control the clause flips to say so,
-       because "46 objects inside" over a picture that draws all 46 beside their
-       device would be a count describing the wrong picture. */
-    (DG.inside && DG.inside.applied
-      ? ' · ' + DG.inside.objects + ' objects are inside the device boxes and ' +
-        'not drawn beside them' +
-        (DG.inside.links ? ', with ' + DG.inside.links + ' links among them' : '') +
-        (DG.inside.rehomed
-          ? '; ' + plural(String(DG.inside.rehomed), 'line', 'lines') +
-            ' from inside a box drawn to the box instead'
-          : '') +
-        ' — press show what is inside to draw every one, or open a box\'s row ' +
-        'for the list'
-      : (DG.inside && DG.inside.objects
-          ? ' · showing the ' + DG.inside.objects + ' objects inside the device ' +
-            'boxes beside them'
-          : '')) + ' · ' +
+      : ''),
+    /* The fold clause, composed above; a span so the depth and narrow rules
+       can reach it, and no element at all on an estate with nothing inside its
+       boxes (note() skips the empty string). */
+    foldNote ? el('span', 'dfoldnote', foldNote) : '',
+    ' · ' +
     lines.length + ' lines' +
     (swallowed > 0 ? ' · ' + swallowed + ' links inside a collapsed box, drawn ' +
      'nowhere' : '') +
@@ -8439,7 +8501,7 @@ function renderDiagram(host) {
        person who cannot use a mouse learns the arrows here or nowhere.
        `role="tree"` implies arrow navigation to assistive technology and
        implies nothing at all to a sighted keyboard user. */
-    'The arrow keys walk this list; Alt with an arrow moves the selected box.');
+    'The arrow keys walk this list; Alt with an arrow moves the selected box.']);
 
   /* `59` §3.7 asks an expanded group to state its own state IN THE PICTURE —
      "in a reserved band on the owning device: `st0 · 6 of 40 shown`" — and §3.9
