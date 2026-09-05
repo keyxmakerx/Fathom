@@ -317,6 +317,13 @@ await zoomed.close();
 // --- the estate changes under the view ----------------------------------------
 await page.setViewportSize({ width: 1400, height: 900 });
 await page.waitForSelector('.dcanvas svg');
+// 2026-09-05: rung 1 now folds the zones into their device (dgFoldInside, `57`
+// §2), so a Zone has no level-1 row until `show what is inside` is pressed.
+// Pressed here, once the width is back to wide (the control is hidden while
+// the narrow picture is collapsed), so the removal below is measured on the
+// picture this section was written against.
+await page.click('[data-inside][aria-pressed="false"]');
+await page.waitForSelector('.dcanvas svg');
 const before = await page.$$eval('.dbox', n => n.length);
 const zoneId = await page.evaluate(() => {
   const r = Array.from(document.querySelectorAll('[data-drow]'))

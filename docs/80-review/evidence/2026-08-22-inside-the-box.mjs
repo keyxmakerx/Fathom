@@ -207,6 +207,13 @@ check('the door names the box it opens, not the current selection',
 
 // The door is a DEVICE's. Nothing else on this picture offers one — an
 // interface, a zone and a tunnel are all drawn as boxes too.
+// 2026-09-05: rung 1 now folds those into their device (dgFoldInside, `57`
+// §2), so this check — which fails rather than passing vacuously when no
+// such box is drawn, and did — presses `show what is inside` to draw them,
+// and folds them back after, leaving the rest of this file the picture it
+// passed on.
+await page.click('[data-inside][aria-pressed="false"]');
+await page.waitForTimeout(120);
 const otherRow = await page.evaluate(() => {
   const r = [...document.querySelectorAll('[data-drow]')]
     .find(x => /Zone|Interface|IpsecVpn/.test(x.textContent));
@@ -216,6 +223,8 @@ if (otherRow) {
   await selectRow(otherRow);
   check('a box that is not a device offers no way in',
     await page.locator('[data-dinto]').count() === 0);
+  await page.click('[data-inside][aria-pressed="true"]');
+  await page.waitForTimeout(120);
   await selectDevice(HOST);
 } else {
   check('a box that is not a device offers no way in', false,

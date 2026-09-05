@@ -190,8 +190,13 @@ check('the view is still the diagram, not a seventh view',
 check('the masthead is still here', await page.locator('#mTitle').isVisible());
 check('the side panel is still here, with its two tabs',
   await page.locator('.dpanel [role="tab"]').count() === 2);
+// 2026-09-05: was `>= 3` — the rack, the device and the rack-mounted chassis the
+// chassis fold declined. Rung 1 now folds that chassis into its device as well
+// (dgFoldInside, `57` §2), so the whole estate at level 1 is the rack and the
+// device: "not just the rack" is a row that is not the rack.
 check('the Outline still lists the whole estate, not just the rack',
-  await page.locator('[data-drow]').count() >= 3,
+  await page.locator('[data-drow]').count() >= 2 &&
+  await page.locator('[data-drow]:not([data-drow="' + r12 + '"])').count() >= 1,
   String(await page.locator('[data-drow]').count()));
 check('the band below is still here', await page.locator('.dband').isVisible());
 check('the layer toggles are still here — they change what the Outline lists',

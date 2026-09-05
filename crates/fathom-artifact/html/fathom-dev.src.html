@@ -1104,6 +1104,18 @@ button.tab:hover { color: var(--ink); }
    to give. */
 .sheet[data-width="narrow"] .dview[data-depth="rack"] .dsum,
 .sheet[data-width="narrow"] .dview[data-depth="device"] .dsum { display: none; }
+/* RUNG 1'S FOLD CONTROL (`show what is inside`, dgFoldInside) AT NARROW WIDTH,
+   while the picture is collapsed to its summary line: hidden, for the reason
+   the zoom controls are and one more. With the canvas collapsed there is
+   nothing drawn for it to change, and every object it would draw is already a
+   row under its device in the Outline (dgExpand's `inside` rows), which is on
+   screen. MEASURED 2026-09-04 at 360×740 and 320×800 against the build before
+   this rule: the button was one more strip line, 32 px, and that line pushed
+   the first Outline row past the bottom of the fact column — "a line of strip
+   is a row of the estate", arriving for the fourth time, and caught by
+   `2026-08-15-diagram-surface-edges.mjs`. It comes back the moment the reader
+   opens the picture, which is when it changes something they can see. */
+.sheet[data-width="narrow"] .dview[data-open="0"] [data-inside] { display: none; }
 /* The rung you are on, and the rung out. `.dladder` is in the LOOKING group
    beside the layer toggles, because changing depth is the same task as changing
    zoom: it changes what you see and never what is recorded. */
@@ -1366,6 +1378,13 @@ button.iitem:hover { background: var(--surface); }
    aria-hidden. */
 .dpin { fill: none; stroke: var(--ink); stroke-width: 2; }
 .dplaced { font-size: var(--t-micro); fill: var(--ink); }
+/* THE INSIDE COUNT (rung 1's fold, dgFoldInside). Under the box and outside
+   it: the two right-hand slots inside a box are spent on the role and the
+   placed word, and a device can carry both at once. `--ink`, and NO
+   level-of-detail rule hides it: `59` §3.6 makes a count the one label that
+   may never be demoted, and a box standing for a whole firewall's insides is
+   exactly the box that rule was written for. */
+.dinside { font-size: var(--t-micro); fill: var(--ink); }
 /* `Device.role` in the picture (ADR-0037), right-aligned on the kind's line.
    `--ink`, not the kind's `--muted`: on a hand-drawn lab every box says
    `Device` and the role is the fact that distinguishes them, so it is the
@@ -1518,6 +1537,9 @@ svg[data-lod="0"] .dplaced { display: none; }
                 overflow-wrap: anywhere; text-transform: none; letter-spacing: 0;
                 font-weight: 700; }
 .ddet .colhead { border-left-width: var(--rule-accent); }
+/* What rung 1 folded into the selected box, by kind (dgFoldInside), read in
+   the same voice as the notes under the Outline. */
+.ddet .dinsidesum { font-size: var(--t-micro); color: var(--muted); margin: var(--s1) 0 var(--s2); }
 /* ONE KEY AND ONE CLICK BACK. The key is Escape, which unwinds exactly one
    level and keeps the selection (press it again and the selection clears — the
    same ladder `53` §3.7 already runs). The click is this. */
@@ -2375,6 +2397,14 @@ var S = {
      and cannot be recomputed, so it does not follow from this. */
   open: [],
   whole: false,
+  /* RUNG 1 DRAWS THE DEVICES (`57` §2: `Site → Device`). `inside` is whether the
+     reader has asked for what is inside those boxes to be drawn BESIDE them as
+     well -- every interface, unit, address, zone and policy the module lays
+     out. Session state, exactly like `layers` and `whole` and for the same
+     reason: which rung you are reading at is not a fact about the network.
+     Default off, and the reason is measured in dgFoldInside's note: one pasted
+     firewall drew 47 boxes at 0.29× before this existed. */
+  inside: false,
   sel: null,
   face: 'meaning',
   inv: null,
@@ -4698,6 +4728,14 @@ var DG = {
   boxes: null,               /* id -> { x, y, w, h, g, kind, label } */
   conn: null,                /* id -> [ { far, kind, out } ] */
   drawn: 0, drawnLinks: 0,
+  /* Rung 1's fold (dgFoldInside): which folded object belongs to which device
+     box, the counts, and whether the fold was applied on this render. */
+  inside: null,
+  /* What the fit is to. Null means the canvas the module reported (`w`/`h`),
+     which is every render until the fold above takes something away; then it
+     is the extent of what is actually drawn. See renderDiagram, where it is
+     set, for why the two differ. */
+  ext: null,
   focus: null,
   /* The kind of the current selection when the inventory has no row set for it.
      Held so the band keeps saying so for as long as that selection stands --
@@ -4737,9 +4775,32 @@ function dgZoomWords() { return DG.k.toFixed(2) + '×'; }
    the pan path would be a forced layout on a frame that `44` §4.7.1 budgets at
    one attribute write. */
 function dgHold(r) {
-  var w = DG.w * DG.k, h = DG.h * DG.k;
-  DG.tx = Math.min(Math.max(DG.tx, DG_KEEP - w), r.width - DG_KEEP);
-  DG.ty = Math.min(Math.max(DG.ty, DG_KEEP - h), r.height - DG_KEEP);
+  /* Against what is DRAWN, not the module's canvas, for the same reason dgFit
+     fits to it: with rung 1's fold applied the one box on screen stands in a
+     corner of a canvas 46 boxes wide, and a clamp to that canvas let the box
+     be panned clean off the picture while the paper it stood on was still
+     "on screen". Found by `2026-08-15-diagram-surface-drive.mjs` within the
+     hour of the fold existing. With `ext` null the arithmetic is the old one.
+
+     AND AGAINST THE BOXES, NOT THE PAPER AROUND THEM. `DG.ext` carries
+     DG_PAD of margin on every side because dgFit wants it; the hold does not,
+     because the 48 px it keeps on screen is meant to be picture. The same
+     driver found the second half on 2026-09-05, re-run after the fold
+     landed: at the fold's first-open fit of 3.55× the scaled margin alone is
+     85 px, so a clamp to the padded extent kept 48 px of blank paper and let
+     six full-width drags push the one box clean off the canvas -- the exact
+     defect, one rectangle over. The inset is DG_PAD, which is what dgExtent
+     added and nothing else. (The `ext` null branch keeps the module's canvas
+     and its own margin, as it always has; that margin is not this page's to
+     know, and at a fit low enough to need the whole canvas it is under 48 px.) */
+  var e = DG.ext
+    ? { x: DG.ext.x + DG_PAD, y: DG.ext.y + DG_PAD,
+        w: DG.ext.w - 2 * DG_PAD, h: DG.ext.h - 2 * DG_PAD }
+    : { x: 0, y: 0, w: DG.w, h: DG.h };
+  var x0 = e.x * DG.k, x1 = (e.x + e.w) * DG.k;
+  var y0 = e.y * DG.k, y1 = (e.y + e.h) * DG.k;
+  DG.tx = Math.min(Math.max(DG.tx, DG_KEEP - x1), r.width - DG_KEEP - x0);
+  DG.ty = Math.min(Math.max(DG.ty, DG_KEEP - y1), r.height - DG_KEEP - y0);
 }
 
 /* THE PAN PATH. One attribute write, on one element, per frame.
@@ -4784,6 +4845,12 @@ function dgBand() {
              $('sheet').getAttribute('data-width') === 'narrow';
   var bits = [plural(String(DG.drawn), 'object', 'objects'),
               plural(String(DG.drawnLinks), 'link', 'links')];
+  /* WHAT RUNG 1 FOLDED, with its cardinal, right after the two counts it
+     qualifies: `1 object` over a firewall with 46 things inside it is a true
+     sentence that teaches a false one. `59`'s governing rule. */
+  if (DG.inside && DG.inside.applied && DG.inside.objects > 0) {
+    bits.push(DG.inside.objects + ' inside the boxes, not drawn');
+  }
   /* A zoom reading for a picture that is not on screen is a number about
      nothing. At this width the canvas is a summary line (`55` §6.3) and the
      band says so instead. */
@@ -4835,10 +4902,17 @@ function dgFit(announce) {
   if (!DG.canvas || !DG.w || !DG.h) return;
   var r = DG.canvas.getBoundingClientRect();
   if (!r.width || !r.height) return;
-  DG.k = dgClamp(Math.min((r.width - 2 * DG_PAD) / DG.w,
-                          (r.height - 2 * DG_PAD) / DG.h));
-  DG.tx = (r.width - DG.w * DG.k) / 2;
-  DG.ty = (r.height - DG.h * DG.k) / 2;
+  /* To what is DRAWN, when rung 1's fold has taken something away, and to the
+     module's canvas otherwise -- the same arithmetic over a different
+     rectangle. The union canvas is kept as the coordinate space so no box
+     moves (`56` §3.6); the fit is what has to change, because a fit to the
+     union over a folded picture is a fit to the blank paper where 46 boxes
+     used to be. Measured before this line existed: one device at 0.29×. */
+  var e = DG.ext || { x: 0, y: 0, w: DG.w, h: DG.h };
+  DG.k = dgClamp(Math.min((r.width - 2 * DG_PAD) / e.w,
+                          (r.height - 2 * DG_PAD) / e.h));
+  DG.tx = (r.width - e.w * DG.k) / 2 - e.x * DG.k;
+  DG.ty = (r.height - e.h * DG.k) / 2 - e.y * DG.k;
   DG.touched = false;
   dgApply(); dgLod(); dgReadout();
   if (announce) say('fit to view, zoom ' + dgZoomWords());
@@ -5011,6 +5085,11 @@ function dgSelect(id, toDetails) {
      for it — without this the kind strip would stay on Device while the
      inspector showed a Chassis, and the footer would read out a raw ulid. */
   if (!b && DG.fold && DG.fold.of[id]) b = { kind: 'Chassis', label: dgFoldName(id) };
+  /* AND SO HAS AN OBJECT RUNG 1 FOLDED INTO ITS DEVICE (dgFoldInside): reached
+     from the `inside` row under the device, and answered from the rows the
+     module sent, so the kind strip follows it where it can and declines
+     visibly where it cannot -- exactly as a drawn box of that kind would. */
+  if (!b && DG.inside && DG.inside.meta[id]) b = DG.inside.meta[id];
   DG.declined = null;
   if (b) {
     var ki = KINDS.indexOf(b.kind);
@@ -5389,8 +5468,16 @@ function dgHoldEnd() {
   if (!b) {
     /* A folded chassis IS selected and is not a box, so "select a box first"
        would be telling a reader to do the thing he just did. */
+    /* AND SO IS AN OBJECT RUNG 1 FOLDED INTO ITS DEVICE (dgFoldInside), with
+       the same test: "select a box first" over a selection the reader just
+       made from the Outline is an instruction to do the thing he just did.
+       The honest sentence names the control that draws the object as a box
+       and the device as the other way to hold something here. */
     foot(S.sel && DG.fold && DG.fold.of[S.sel]
       ? 'a chassis is part of the device it is in — hold the device instead'
+      : S.sel && DG.inside && DG.inside.applied && DG.inside.of[S.sel]
+      ? 'that ' + DG.inside.meta[S.sel].kind + ' is inside a box at this rung — ' +
+        'press show what is inside to connect from it, or hold the device instead'
       : 'select a box first — a link needs two ends');
     renderShell();
     return;
@@ -6032,7 +6119,13 @@ function dgExpand(row, open) {
       });
     }
   }
-  var kids = folded.length + conns.length + oneEnded.length;
+  /* WHAT RUNG 1 FOLDED INTO THIS BOX (dgFoldInside), listed after the chassis
+     it is made of and before the things it is joined to, for the same reason
+     the chassis comes first: these are parts of the box, not neighbours of it.
+     Only while the fold is applied -- drawn beside the device, each has a row
+     of its own at level 1. */
+  var insideIds = (DG.inside && DG.inside.applied && DG.inside.into[id]) || [];
+  var kids = folded.length + insideIds.length + conns.length + oneEnded.length;
   var at = row;
   folded.forEach(function (cid, i) {
     var f = (DG.chassis && DG.chassis[cid]) || null;
@@ -6074,13 +6167,39 @@ function dgExpand(row, open) {
     at.parentNode.insertBefore(cr, at.nextSibling);
     at = cr;
   });
+  insideIds.forEach(function (cid, i) {
+    var m = DG.inside.meta[cid];
+    var ir = el('div', 'dolink dofold doinside');
+    ir.setAttribute('role', 'treeitem');
+    ir.setAttribute('aria-level', '2');
+    ir.setAttribute('aria-setsize', String(kids));
+    ir.setAttribute('aria-posinset', String(folded.length + i + 1));
+    ir.setAttribute('tabindex', '-1');
+    ir.setAttribute('data-rove-item', '');
+    ir.setAttribute('data-dparent', id);
+    /* Selectable, exactly as a chassis row is: folding a node out of the
+       picture must never fold it out of reach. A COLLAPSED GROUP inside the
+       fold is the one exception -- its id is a group key and not an element,
+       so there is nothing to post; it says its count and waits for `show what
+       is inside`, where it is a disclosure again. */
+    if (m.n === 1) {
+      ir.setAttribute('data-dlink', cid);
+      ir.setAttribute('data-did', cid);
+    }
+    ir.appendChild(el('span', 'dorel', 'inside'));
+    ir.appendChild(el('span', 'doname', m.label));
+    ir.appendChild(el('span', 'dokind', m.kind));
+    if (m.n > 1) ir.appendChild(el('span', 'docnt', m.n + ' collapsed'));
+    at.parentNode.insertBefore(ir, at.nextSibling);
+    at = ir;
+  });
   conns.forEach(function (c, i) {
     var far = DG.boxes[c.far];
     var lr = el('div', 'dolink');
     lr.setAttribute('role', 'treeitem');
     lr.setAttribute('aria-level', '2');
     lr.setAttribute('aria-setsize', String(kids));
-    lr.setAttribute('aria-posinset', String(folded.length + i + 1));
+    lr.setAttribute('aria-posinset', String(folded.length + insideIds.length + i + 1));
     lr.setAttribute('tabindex', '-1');
     lr.setAttribute('data-rove-item', '');
     lr.setAttribute('data-dparent', id);
@@ -6136,7 +6255,8 @@ function dgExpand(row, open) {
     er.setAttribute('role', 'treeitem');
     er.setAttribute('aria-level', '2');
     er.setAttribute('aria-setsize', String(kids));
-    er.setAttribute('aria-posinset', String(folded.length + conns.length + i + 1));
+    er.setAttribute('aria-posinset',
+      String(folded.length + insideIds.length + conns.length + i + 1));
     er.setAttribute('tabindex', '-1');
     er.setAttribute('data-rove-item', '');
     er.setAttribute('data-dparent', id);
@@ -6249,6 +6369,17 @@ function dgOutline(boxes, noSetKinds, agg) {
       });
       if (models.length) row.appendChild(el('span', 'dokind', models.join(' · ')));
       row.appendChild(el('span', 'docnt', foldIn.length + ' chassis'));
+    }
+    /* THE INSIDE COUNT ON THE ROW (dgFoldInside), in words, on the tree
+       assistive technology reads: the picture's own `46 inside` is under the
+       box, inside an aria-hidden <svg>. `data-dinside` carries the number for
+       a driver. It is an OBJECT count, summed from every folded box's own
+       count, so a collapsed run inside the fold counts its members and not
+       its one box -- the same arithmetic the band's `collapsed` clause uses. */
+    var insN = (DG.inside && DG.inside.count[id]) || 0;
+    if (insN) {
+      row.setAttribute('data-dinside', String(insN));
+      row.appendChild(el('span', 'docnt', insN + ' inside'));
     }
     /* A collapsed box stands for many objects and the row must SHOW so, not
        only announce it. `59` §3.6 makes the cardinal the one label that may
@@ -6460,6 +6591,10 @@ function dgDetails() {
      a hostname is an identifier and `SW-CORE-01` is not what the operator
      typed (the same argument `.dokind` already makes for CamelCase kinds). */
   var b = DG.boxes && DG.boxes[S.sel];
+  /* A FOLDED OBJECT HAS NO BOX AND IS STILL A SELECTION (dgFoldInside): its
+     name and kind come from the rows the module sent, never from the raw id,
+     which is what this heading would otherwise print. */
+  if (!b && DG.inside && DG.inside.meta[S.sel]) b = DG.inside.meta[S.sel];
   var head = el('div', 'colhead');
   var h2 = el('h2');
   h2.id = 'ddetHead';
@@ -6491,6 +6626,19 @@ function dgDetails() {
      `data-dinto` carries the id rather than the handler reading `S.sel`,
      because a delegated listener that reads global state is one selection
      change away from opening the wrong box. */
+  /* WHAT IS INSIDE, BY KIND, above the door that opens it (dgFoldInside).
+     `59`'s rule asks a collapse to name WHAT it hid as well as how many; the
+     box and the row carry the number, and this is where the kinds fit. Said
+     whichever way the fold is set, because it is true either way and the
+     clause says which. */
+  if (b && b.kind === 'Device' && DG.inside && DG.inside.count[S.sel]) {
+    var kt = DG.inside.kinds[S.sel] || [], ks = [];
+    for (var ki2 = 0; ki2 < kt.length; ki2++) ks.push(kt[ki2][1] + ' ' + kt[ki2][0]);
+    DG.det.appendChild(el('div', 'dinsidesum',
+      DG.inside.count[S.sel] + ' inside' +
+      (DG.inside.applied ? ', not drawn beside it' : ', drawn beside it') +
+      ': ' + ks.join(' · ')));
+  }
   if (b && b.kind === 'Device' && b.n === 1) {
     var into = el('button', 'dback', 'go inside this box');
     into.type = 'button';
@@ -6782,7 +6930,214 @@ function dgFoldName(cid) {
    itself is NOT rewritten: the inspector still shows the chassis, because the
    chassis is what was picked. */
 function dgBoxOf(id) {
-  return (DG.fold && DG.fold.of[id]) || id;
+  /* Rung 1's fold maps an object to its device ONLY WHILE APPLIED. `of` is
+     planned on every render so the counts can be said either way, but with
+     `show what is inside` pressed the interface has a box of its own, and
+     the first cut of this line sent the ring, `.dsel` and `aria-selected`
+     to the device instead -- found 2026-09-05 by
+     `2026-08-15-diagram-surface-drive.mjs` ("the ring follows the focused
+     row", "the far object is now selected in the picture"), which walks the
+     drawn picture. */
+  return (DG.fold && DG.fold.of[id]) ||
+         (DG.inside && DG.inside.applied && DG.inside.of[id]) || id;
+}
+
+/* --- RUNG 1 DRAWS THE DEVICES, AND WHAT IS INSIDE THEM IS ONE PRESS AWAY ---
+
+   THE FINDING, 2026-09-04, measured in Chromium at 1400×900 against the shipped
+   artifact: one pasted SRX branch config drew 47 boxes and 60 lines, five
+   columns wide, auto-fitted to 0.29× with 94 labels off -- one `Device` and 46
+   things that live inside it: 8 interfaces, 8 units, 4 addresses, 3 VLANs,
+   5 zones, 4 policy sets, 4 policies, 6 IKE/IPsec objects, 3 per-device
+   settings. The view said `data-depth="site"` and `57` §2 says rung 1 is
+   `Site → Device`; nothing behind the attribute enforced it.
+
+   WHY, in the order it was suspected:
+
+   1. NOT the five layers. `56` §4.1 gives every kind a layer and the mask is
+      applied after layout, so all five on draws every kind -- but no mask
+      reaches `Site → Device` either: physical alone still draws `Interface`
+      (its one row) plus the seven untabled kinds `layers.rs` draws at every
+      layer on purpose. A toggle can thin the picture; it cannot fold it.
+   2. NOT a missing like-kind fold. `59` §3 fires on a run of MORE THAN SIX
+      siblings with IDENTICAL edge signatures. The SRX's eight interfaces carry
+      eight signatures -- one has a DHCP unit, three carry VLAN members, one is
+      disabled, one is the loopback -- so no run forms, and the module reported
+      0 collapsed. That fold does exactly what `59` says; it is the wrong fold
+      for this.
+   3. THE RUNG. `56` §4.1 draws an interface as a "port stub on the device
+      edge", a unit as a "stub", an address as a "label on the unit", a zone as
+      a "bracket" -- marks ON the device, not boxes BESIDE it -- and this build
+      draws every treatment as a full box (`layers.rs`: "This build draws a box
+      regardless"), one column deeper per containment hop. `57` §2 puts all of
+      that at rung 4, "inside the box", which has been built since 2026-08-22
+      (`go inside this box`). So the site rung was drawing rung 4's contents
+      beside every device, and the fit was to a picture five columns wide.
+
+   WHAT THIS DOES. At rung 1, every box whose containment chain passes through
+   a `Device` is folded into that device -- the move `dgFoldChassis` makes for
+   one kind, made for the rest of the chain, and for the reason that fold
+   gives: a sub-row is geometry, geometry is the module's, and what a page may
+   honestly do on its own is decline to draw a box. The device box carries the
+   count under it; the Outline row carries it and lists every folded object one
+   level down, selectable; the details pane says what kinds they are; the band
+   says how many are not drawn. `59`'s governing rule is why each of those
+   exists: a collapse that does not name what it hid and how many is a lie
+   with fewer elements.
+
+   NOTHING IS HIDDEN AND NOTHING IS DELETED. `show what is inside` in the strip
+   draws the picture exactly as it was drawn before this fold existed -- every
+   box, every line, the module's own routes -- and it is offered only while
+   something is folded (`70` §19.4b: a rung with nothing behind it must not be
+   offered). `go inside this box` still opens rung 4. The layer toggles and
+   `show every one` are untouched and compose with this.
+
+   LINES. A containment line inside a fold is structure, and the count says it.
+   A reference line with both ends inside one device is counted (`links`) and
+   not drawn, as the module's own `interior` count treats a line inside a
+   collapsed group. A line with ONE end inside a device is RE-HOMED to the
+   device box -- what `route.rs` does when an end falls inside a collapsed
+   group -- and coincident re-homed lines between one pair of boxes merge into
+   one stroke carrying the member count, which is `59` failure mode 16 avoided
+   from this side. That stroke's geometry is the one thing here the page draws
+   on its own account (dgRehome), because the module's polyline ends where the
+   folded box WAS, in empty paper: the module has no rung to route for, and a
+   line to nowhere is worse than a page-drawn line to the right box. It is
+   orthogonal, it leaves the face the module's own same-rank lines leave, and
+   it runs in the channel the folded ranks vacated, so it crosses no box that
+   is drawn.
+
+   POSITIONS DO NOT MOVE. Every surviving box keeps the coordinate the module
+   gave it in the union layout, so `show what is inside` adds boxes around the
+   ones on screen and moves none of them -- `56` §3.6's rule for a layer
+   toggle, kept for this one. The FIT changes (`DG.ext`), because a fit to the
+   union's canvas over a folded picture is a fit to blank paper.
+
+   Slot 0 is the OWNER on a containment line: `route.rs` walks `g.out(owner,
+   kind)` and the weld builds a containment edge owner → child. A node has one
+   parent, so the first such line wins and a second would be a module defect
+   rather than a choice this page makes. */
+function dgFoldInside(boxes, lines, apply) {
+  var kind = {}, geo = {}, meta = {}, parent = {}, i, l, p, b, id;
+  for (i = 0; i < boxes.length; i++) {
+    b = boxes[i]; id = b.s[0];
+    kind[id] = b.s[1];
+    p = (b.s[7] || '1 0 0 - ').split(' ');
+    meta[id] = { kind: b.s[1], label: b.s[2], n: parseInt(p[0], 10) || 1 };
+    geo[id] = { x: parseInt(b.s[3], 10), y: parseInt(b.s[4], 10),
+                w: parseInt(b.s[5], 10), h: parseInt(b.s[6], 10) };
+  }
+  for (i = 0; i < lines.length; i++) {
+    l = lines[i];
+    if (l.s[3] === '1' && !parent[l.s[1]]) parent[l.s[1]] = l.s[0];
+  }
+  var of = {}, into = {}, count = {}, kinds = {}, objects = 0, nBoxes = 0;
+  for (i = 0; i < boxes.length; i++) {
+    id = boxes[i].s[0];
+    if (kind[id] === 'Device') continue;
+    var up = parent[id], hops = 0, dev = '';
+    while (up && hops < 64) {
+      if (kind[up] === 'Device') { dev = up; break; }
+      up = parent[up]; hops++;
+    }
+    if (!dev) continue;
+    of[id] = dev;
+    (into[dev] || (into[dev] = [])).push(id);
+    count[dev] = (count[dev] || 0) + meta[id].n;
+    /* Kinds in the order the module first drew them -- a list of pairs and not
+       an object, so the order is the module's and not the engine's. */
+    var kt = kinds[dev] || (kinds[dev] = []), kj = -1;
+    for (var kx = 0; kx < kt.length; kx++) if (kt[kx][0] === kind[id]) { kj = kx; break; }
+    if (kj < 0) kt.push([kind[id], meta[id].n]); else kt[kj][1] += meta[id].n;
+    objects += meta[id].n;
+    nBoxes++;
+  }
+  var res = { of: of, into: into, count: count, kinds: kinds, meta: meta,
+              objects: objects, boxes: nBoxes, links: 0, rehomed: 0, applied: false };
+  if (!apply || !nBoxes) return { boxes: boxes, lines: lines, inside: res };
+  res.applied = true;
+  var keptB = [], keptL = [], pair = {}, order = [];
+  for (i = 0; i < boxes.length; i++) if (!of[boxes[i].s[0]]) keptB.push(boxes[i]);
+  for (i = 0; i < lines.length; i++) {
+    l = lines[i];
+    var a = of[l.s[0]] || l.s[0], c = of[l.s[1]] || l.s[1];
+    if (a === l.s[0] && c === l.s[1]) { keptL.push(l); continue; }
+    if (l.s[3] === '1') continue;
+    if (a === c) { res.links++; continue; }
+    var key = a < c ? a + '\n' + c : c + '\n' + a;
+    var m = pair[key];
+    if (!m) {
+      m = pair[key] = { a: a, b: c, kinds: [], n: 0, hand: true, cable: true };
+      order.push(key);
+    }
+    if (m.kinds.indexOf(l.s[2]) < 0) m.kinds.push(l.s[2]);
+    m.n += parseInt(l.s[5], 10) || 1;
+    m.hand = m.hand && l.s[6] === '1';
+    m.cable = m.cable && l.s[7] === '1';
+  }
+  /* The same eight slots a FACE_LINE row carries, so nothing downstream learns
+     a second shape. Several kinds merged into one stroke are named together --
+     `Link + Cabled` -- rather than reduced to one of them, because the Outline
+     row prints this word and a row that named one kind for two would be the
+     silent-count defect one word over. */
+  for (i = 0; i < order.length; i++) {
+    var m2 = pair[order[i]];
+    keptL.push({ role: FACE_LINE, s: [m2.a, m2.b, m2.kinds.join(' + '), '',
+      dgRehome(geo[m2.a], geo[m2.b], i), String(m2.n),
+      m2.hand ? '1' : '', m2.cable ? '1' : ''] });
+  }
+  res.rehomed = order.length;
+  return { boxes: keptB, lines: keptL, inside: res };
+}
+
+/* An orthogonal route between two DRAWN boxes for a line whose real end was
+   folded -- see dgFoldInside. Same column: out of both right faces into a
+   lane to the right, one lane per line so two never coincide, which is the
+   channel `route.rs` uses for a same-rank pair and the space the folded ranks
+   vacated. Different columns: across the gap between them with one jog, again
+   spaced per line. Integers, because every other coordinate the page draws
+   is one. */
+function dgRehome(A, B, lane) {
+  var ay = A.y + A.h / 2, by = B.y + B.h / 2, pts;
+  if (A.x === B.x) {
+    var lx = Math.max(A.x + A.w, B.x + B.w) + 12 + 8 * lane;
+    pts = [[A.x + A.w, ay], [lx, ay], [lx, by], [B.x + B.w, by]];
+  } else {
+    var L = A.x < B.x ? A : B, R = A.x < B.x ? B : A;
+    var ly = L.y + L.h / 2, ry = R.y + R.h / 2;
+    var mx = Math.round((L.x + L.w + R.x) / 2) + 4 * (lane % 8);
+    pts = [[L.x + L.w, ly], [mx, ly], [mx, ry], [R.x, ry]];
+  }
+  var out = [];
+  for (var i = 0; i < pts.length; i++) {
+    out.push(Math.round(pts[i][0]) + ',' + Math.round(pts[i][1]));
+  }
+  return out.join(' ');
+}
+
+/* The extent of what is drawn: boxes, the count under a folded box, and every
+   point of every surviving line, with the margin the module's own canvas
+   carries. Null when nothing is drawn. */
+function dgExtent(boxes, lines, count) {
+  var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, i, j;
+  for (i = 0; i < boxes.length; i++) {
+    var b = boxes[i], bx = parseInt(b.s[3], 10), by = parseInt(b.s[4], 10);
+    var bw = parseInt(b.s[5], 10), bh = parseInt(b.s[6], 10);
+    x0 = Math.min(x0, bx); y0 = Math.min(y0, by);
+    x1 = Math.max(x1, bx + bw);
+    y1 = Math.max(y1, by + bh + (count[b.s[0]] ? 18 : 0));
+  }
+  for (i = 0; i < lines.length; i++) {
+    var pts = (lines[i].s[4] || '').split(' ');
+    for (j = 0; j < pts.length; j++) {
+      var xy = pts[j].split(',');
+      if (xy.length < 2) continue;
+      x0 = Math.min(x0, +xy[0]); y0 = Math.min(y0, +xy[1]);
+      x1 = Math.max(x1, +xy[0]); y1 = Math.max(y1, +xy[1]);
+    }
+  }
+  if (x0 === Infinity) return null;
+  return { x: x0 - DG_PAD, y: y0 - DG_PAD, w: x1 - x0 + 2 * DG_PAD, h: y1 - y0 + 2 * DG_PAD };
 }
 
 
@@ -6803,6 +7158,7 @@ function renderDiagram(host) {
   DG.panel = DG.tabs = DG.tabObj = DG.tabDet = DG.det = null;
   DG.boxes = null; DG.conn = null; DG.focus = null;
   DG.fold = null; DG.chassis = null;
+  DG.inside = null; DG.ext = null;
 
   if (!S.loaded) {
     var p0 = el('div', 'pad');
@@ -6849,6 +7205,25 @@ function renderDiagram(host) {
   lines = fold.lines;
   DG.fold = fold;
   DG.chassis = fold.n ? chassisFacts() : {};
+
+  /* RUNG 1 (`57` §2: `Site → Device`) -- see dgFoldInside. PLANNED on every
+     render, so the strip, the row and the details pane can say how many
+     objects a box holds whichever way the control is set; APPLIED only while
+     `S.inside` is off, which is the default and the reason this view now
+     opens on the devices. After the chassis fold, so a chassis that fold
+     already put under its device is not counted a second time here. */
+  var inf = dgFoldInside(boxes, lines, !S.inside);
+  boxes = inf.boxes;
+  lines = inf.lines;
+  DG.inside = inf.inside;
+  /* A rack-mounted chassis the chassis fold DECLINED -- its mount line would
+     have vanished with it -- folds here, with the mount line re-homed to its
+     device, so `left` is recounted over what survived both folds or the note
+     below would name a chassis as "still drawn beside its device" that is not. */
+  if (inf.inside.applied) {
+    fold.left = 0;
+    for (var lf = 0; lf < boxes.length; lf++) if (boxes[lf].s[1] === 'Chassis') fold.left++;
+  }
 
 
   /* The module reports the mask it actually applied, and the page prints THAT
@@ -6994,6 +7369,24 @@ function renderDiagram(host) {
   whole.setAttribute('data-whole', '1');
   whole.setAttribute('aria-pressed', String(!!S.whole));
   look.appendChild(whole);
+  /* RUNG 1'S OTHER CONTROL (dgFoldInside), beside `show every one` because it
+     is the same shape of thing -- a reader who does not believe a count is
+     entitled to see the objects -- and in the same register: the label says
+     what IS, `aria-pressed` says it again in the machine's words.
+
+     OFFERED ONLY WHEN THERE IS SOMETHING BEHIND IT. `70` §19.4b: "a rung with
+     nothing behind it must not be offered". A lab of hand-added boxes has
+     nothing inside them the picture would draw, so the button is absent
+     rather than present and inert -- and it stays while it is pressed, so
+     that what it did can be undone. */
+  if (DG.inside && (DG.inside.objects > 0 || S.inside)) {
+    var ins = el('button', null,
+      S.inside ? 'showing what is inside' : 'show what is inside');
+    ins.type = 'button';
+    ins.setAttribute('data-inside', '1');
+    ins.setAttribute('aria-pressed', String(!!S.inside));
+    look.appendChild(ins);
+  }
   view.appendChild(strip);
   maskLabel.textContent = 'layers · ' + layerWords() + ' · ' + hidObjects + ' hidden' +
     (maskBack === String(S.layers) ? '' : ' · MASK MISMATCH ' + maskBack);
@@ -7012,6 +7405,14 @@ function renderDiagram(host) {
   DG.h = parseInt(canvasRow ? canvasRow.s[1] : '0', 10) || 0;
   DG.drawn = boxes.length;
   DG.drawnLinks = lines.length;
+  /* THE FIT'S EXTENT. The module's canvas is the UNION scene's, and it stays
+     the coordinate space so a toggle moves nothing (`56` §3.6). But while
+     rung 1's fold has taken boxes away, a fit to that canvas is a fit to the
+     paper they used to stand on -- 46 boxes' worth below one device, at 0.29×,
+     which is the measured defect the fold exists to remove. So the fit is to
+     what is DRAWN, and only then; otherwise null, and dgFit reads the canvas
+     exactly as it always has. */
+  DG.ext = DG.inside.applied ? dgExtent(boxes, lines, DG.inside.count) : null;
   DG.boxes = {};
   /* The links each box touches, grouped. This is the same class of work as
      `pasteRows` -- sorting rows the module sent into the buckets a face needs --
@@ -7698,6 +8099,18 @@ function renderDiagram(host) {
       pl.textContent = 'placed';
       g.appendChild(pl);
     }
+    /* THE INSIDE COUNT, under the box (dgFoldInside). Drawn only while the
+       fold is applied, because it marks a fold the way `N collapsed` marks a
+       stack; with everything drawn beside the box it would be a count of
+       things the reader can see. Never demoted by level of detail -- see the
+       `.dinside` rule -- because it is a count. */
+    var insHere = DG.inside && DG.inside.applied ? (DG.inside.count[b.s[0]] || 0) : 0;
+    if (insHere) {
+      var it = sEl('text', { x: bx + bw - 10, y: by + bh + 14, class: 'dinside',
+        'text-anchor': 'end' });
+      it.textContent = insHere + ' inside';
+      g.appendChild(it);
+    }
     var name2 = sEl('text', { x: bx + 10, y: by + 34, class: 'dname' });
     /* Truncate in the renderer, never in the model: the full name is in the
        Outline row and in the inspector, so nothing is lost by clipping the
@@ -7842,7 +8255,13 @@ function renderDiagram(host) {
      hidden links, placed and hand-drawn all still print, which is 59 §6.2's
      defect avoided. What is gone is the prose between the numbers. */
   note(DG.out, 'This is a rendering, not a record',
-    boxes.length + ' boxes standing for ' + stood + ' objects' +
+    /* Through plural(), as the band's counts are: rung 1's fold (dgFoldInside)
+       made ONE box the ordinary first picture, and the note read "1 boxes
+       standing for 1 objects" over it — seen in the fold driver's own
+       screenshot, 2026-09-05. A count that cannot agree with its noun is
+       read as a count nobody looked at. */
+    plural(String(boxes.length), 'box', 'boxes') + ' standing for ' +
+    plural(String(stood), 'object', 'objects') +
     (collapsed > 0 ? ' · ' + collapsed + ' collapsed' : '') +
     /* FOLDED IS NOT COLLAPSED AND IS NOT HIDDEN, so it is counted on its own
        clause and never added into `stood`. A collapsed box stands for many
@@ -7859,7 +8278,27 @@ function renderDiagram(host) {
     (fold.left > 0
       ? ' · ' + fold.left + ' chassis still drawn beside its device, because ' +
         'something other than that device points at it — a rack mount, usually'
-      : '') + ' · ' +
+      : '') +
+    /* RUNG 1'S FOLD, with its cardinal and the two ways to the objects it
+       holds. Both clauses are numbers about THIS estate and the second names
+       the next action, which is this note's own test for a clause that stays.
+       When the reader has pressed the control the clause flips to say so,
+       because "46 objects inside" over a picture that draws all 46 beside their
+       device would be a count describing the wrong picture. */
+    (DG.inside && DG.inside.applied
+      ? ' · ' + DG.inside.objects + ' objects are inside the device boxes and ' +
+        'not drawn beside them' +
+        (DG.inside.links ? ', with ' + DG.inside.links + ' links among them' : '') +
+        (DG.inside.rehomed
+          ? '; ' + plural(String(DG.inside.rehomed), 'line', 'lines') +
+            ' from inside a box drawn to the box instead'
+          : '') +
+        ' — press show what is inside to draw every one, or open a box\'s row ' +
+        'for the list'
+      : (DG.inside && DG.inside.objects
+          ? ' · showing the ' + DG.inside.objects + ' objects inside the device ' +
+            'boxes beside them'
+          : '')) + ' · ' +
     lines.length + ' lines' +
     (swallowed > 0 ? ' · ' + swallowed + ' links inside a collapsed box, drawn ' +
      'nowhere' : '') +
@@ -7869,8 +8308,12 @@ function renderDiagram(host) {
        an object with no row in 56 §4.1's projection table is drawn at EVERY
        layer, so it does not disappear when you toggle one off, and a reader
        toggling layers will otherwise think the mask is broken. */
-    (untabled === '0' ? '' : ' · ' + untabled + ' objects have no layer and are ' +
-     'drawn at every one') +
+    /* Worded so it is true whether or not rung 1's fold has these inside a
+       box: "are drawn at every one" over seven objects the fold holds was the
+       count describing the wrong picture. What is true either way is what the
+       LAYER controls cannot do to them. */
+    (untabled === '0' ? '' : ' · ' + untabled + ' objects have no layer, so no ' +
+     'layer toggle takes them away') +
     '. ' +
     (placedCount === 0
       ? 'Drag a box to place it by hand. '
@@ -8170,8 +8613,11 @@ document.addEventListener('focusin', function (ev) {
   var n = seekAttr(ev.target, 'data-did');
   if (!n || !DG.out.contains(n)) return;
   var id = n.getAttribute('data-did');
-  dgRing(id);
-  dgReveal(id);
+  /* dgBoxOf, not the id: a chassis row or an `inside` row names an object
+     that is drawn as part of its device, so the device's box is what the
+     ring lands on. Without this the walk into a disclosure rang nothing. */
+  dgRing(dgBoxOf(id));
+  dgReveal(dgBoxOf(id));
 });
 
 /* Tree keys. `↑ ↓ Home End` are already the page's roving contract (53 §8.3)
@@ -9163,6 +9609,16 @@ document.addEventListener('click', function (ev) {
      independent of the order they sit in here. */
   if ((n = seekAttr(ev.target, 'data-group'))) {
     diagramOpen(n.getAttribute('data-group'));
+    return;
+  }
+  /* Rung 1's fold, on or off (dgFoldInside). A rebuild and a refit: the box
+     count changes, so the signature test at the foot of renderDiagram refits,
+     and every box that was on screen keeps its coordinates. */
+  if (seekAttr(ev.target, 'data-inside')) {
+    S.inside = !S.inside;
+    foot(S.inside ? 'drawing what is inside the boxes beside them'
+                  : 'folding what is inside the boxes back into them');
+    render();
     return;
   }
   if (seekAttr(ev.target, 'data-whole')) {

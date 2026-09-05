@@ -163,6 +163,12 @@ check('the routing-instance qualifier is a visible PENDING reference: RoutingIns
 console.log('\n3. OUTLINE');
 await page.click('[data-view="diagram"]');
 await page.waitForTimeout(150);
+// 2026-09-05: rung 1 now folds the relays into their device (dgFoldInside,
+// `57` §2), so a DhcpRelay has no level-1 row and no RelaysFor row of its own
+// until `show what is inside` is pressed — which draws the picture this
+// section was written against.
+await page.click('[data-inside][aria-pressed="false"]');
+await page.waitForTimeout(150);
 await objects();
 const dev = await rowFor(HOST);
 check('the device is a box in the picture', dev !== null);

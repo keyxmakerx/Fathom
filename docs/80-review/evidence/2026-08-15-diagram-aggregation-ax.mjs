@@ -45,6 +45,11 @@ await page.waitForFunction(() => document.querySelector('#band button') !== null
 await page.click('#tabPaste'); await page.fill('#pta', units(13)); await page.click('#pRun');
 await page.waitForFunction(() => document.querySelectorAll('.inv tbody tr').length > 0);
 await page.click('[data-view="diagram"]'); await page.waitForSelector('.dcanvas svg');
+// 2026-09-05: rung 1 now folds the 13 units into their device (dgFoldInside,
+// `57` §2), so the like-kind collapse this file tests is drawn only once
+// `show what is inside` is pressed — which restores the picture it was written
+// against. The fold's own contract is `2026-09-04-the-diagram-opens-on-the-devices.mjs`.
+await page.click('[data-inside][aria-pressed="false"]'); await page.waitForSelector('.dcanvas svg');
 
 const results = [];
 const check = (n, ok, d) => { results.push(ok); console.log((ok ? 'PASS  ' : 'FAIL  ') + n + (d ? '   ' + d : '')); };

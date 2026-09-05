@@ -70,6 +70,13 @@ await page.click('#pRun');
 await page.waitForFunction(() => document.querySelectorAll('.inv tbody tr').length > 0);
 await page.click('[data-view="diagram"]');
 await page.waitForSelector('.dcanvas svg');
+// 2026-09-05: rung 1 now folds `hq-vpn` and `st0.0` into their device
+// (dgFoldInside, `57` §2) and refuses to hold a folded end, naming this
+// control; pressed, so the ambiguous pair is on the canvas as when this file
+// was written. The refusal itself is driven in
+// `2026-09-04-the-diagram-opens-on-the-devices.mjs` §6.
+await page.click('[data-inside][aria-pressed="false"]');
+await page.waitForSelector('.dcanvas svg');
 await page.waitForTimeout(400);
 
 // ---- helpers, reading the DOM and nothing else --------------------------------

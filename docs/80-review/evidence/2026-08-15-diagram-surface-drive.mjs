@@ -63,6 +63,14 @@ const STRIP = await page.$$eval('[data-kind]', ns => ns.map(n => n.textContent))
 // ---- into the diagram -------------------------------------------------------
 await page.click('[data-view="diagram"]');
 await page.waitForSelector('.dcanvas svg');
+// 2026-09-05: rung 1 now opens on the one device and folds its 14 objects into
+// it (dgFoldInside, `57` §2). This file walks, selects and pans the fifteen-box
+// picture — six of whose kinds the strip cannot reach — so it presses `show
+// what is inside` first, which draws exactly the picture it was written
+// against. The folded first open has its own driver,
+// `2026-09-04-the-diagram-opens-on-the-devices.mjs`.
+await page.click('[data-inside][aria-pressed="false"]');
+await page.waitForSelector('.dcanvas svg');
 
 const objects = await page.$$eval('.dbox', n => n.length);
 const rows = await page.$$eval('[data-drow]', n => n.length);
