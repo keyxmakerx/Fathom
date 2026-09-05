@@ -2097,9 +2097,25 @@ var ERR_EQUIP_STORE = 13;
    a network engineer and its note said "The name the box calls itself."; the
    ones that remain are an example he can pattern-match against, or a fact about
    where the value goes. */
+/* Slot 3 is whether THE FORM demands the field, which is not the same question
+   as the schema's `card`. `platform` is `card: "1"` in schema/schema.yaml and
+   this form stopped demanding it on 2026-09-05: schema/platforms.yaml
+   registers network operating systems and nothing else, so a Proxmox host, a
+   NAS or a plain Linux box had to be filed as a Juniper firewall to get onto
+   the picture at all, and the owner will demo this estate to people who know
+   it (`70` §19.5, §20.4). Left blank, the module stores nothing for the field —
+   the graph's UNKNOWN state, `11` §9.1's "a hole, never a refusal" — the
+   inventory shows `—`, the findings view lists it under "Device nodes have no
+   platform", and a later paste of that box's real config ASKS whether it is
+   the same box rather than welding a second one beside it. `hostname` is
+   still demanded: it is the one thing that later paste can recognise the box
+   by. RECOMMENDATIONS-2026-09-04 §15 (D1). */
 var EQUIP_FIELDS = [
   [6,  'hostname',           'text', true,  ''],
-  [7,  'platform',           'plat', true,  'Which config language it speaks.'],
+  [7,  'platform',           'plat', false,
+       'Which config language it speaks. Leave it blank for a box Fathom cannot ' +
+       'read yet — a Linux host, a NAS, a hypervisor — and the findings view lists ' +
+       'it as not known until you fill it in.'],
   [9,  'role',               'role', false, ''],
   [19, 'model',              'text', false, 'SRX345, MX204, C9300-48P.'],
   [20, 'serial',             'text', false, 'Never leaves this page.'],
@@ -3399,7 +3415,14 @@ function commitCell(input) {
     foot('refused — ' + why);
     render();
   };
-  if (!value) { refuse('a blank is not a value — clear is not built yet'); return; }
+  /* A BLANK IS A CLEAR, since 2026-09-05. This line refused it with "clear is
+     not built yet" until the equipment form stopped demanding a platform,
+     which left every box already drawn as a borrowed `junos-srx` with no way
+     back. An empty value goes to the module as it is; the module clears the
+     slot to UNKNOWN (`11` §8.5, never `absent`) and refuses, in its own words,
+     when there was nothing there to clear — so pressing Enter on an already
+     empty cell records no claim. Escape is still the way to leave a cell
+     without writing. */
 
   var ent = hostEntropy();
   if (!ent) { refuse('this browser exposes no cryptographic randomness'); return; }
@@ -3432,7 +3455,7 @@ function commitCell(input) {
      test rather than a convention. */
   jpush('field', at, ent, { id: id, key: key, value: value });
   S.edit = null;
-  foot('changed');
+  foot(value ? 'changed' : 'cleared — now unset');
   postElement(id);
   loadKind(S.invKind);
   render();
@@ -4222,7 +4245,9 @@ function commitField(input) {
   if (!wasm || !S.sel) return;
   var key = parseInt(input.getAttribute('data-key'), 10);
   var value = input.value.trim();
-  if (!value) { foot('a blank is not a value — clear is not built yet'); renderShell(); return; }
+  /* A blank is a clear — the same rule `commitCell` states, on the second
+     surface that writes a field. Two editors with two different answers to an
+     empty box would be the drift this page exists to avoid. */
 
   var ent = hostEntropy();
   if (!ent) { foot('this browser exposes no cryptographic randomness'); renderShell(); return; }
@@ -4243,7 +4268,7 @@ function commitField(input) {
   var bad = replyProblem(reply);
   if (bad) { foot(bad); renderShell(); return; }
   jpush('field', at, ent, { id: S.sel, key: key, value: value });
-  foot('changed');
+  foot(value ? 'changed' : 'cleared — now unset');
   postElement(S.sel);
   loadKind(S.invKind);
   render();
@@ -9840,7 +9865,17 @@ function setPaste(open) {
        What replaces it is the honest limit, which has not changed: Fathom still
        cannot MERGE two readings of one box. It adds a second device and asks
        first. The two security facts a person is entitled to before pasting a
-       firewall config into anything stay verbatim. */
+       firewall config into anything stay verbatim.
+
+       "WILL ASK" WAS FALSE FOR ONE KIND OF BOX BETWEEN THE DOOR OPENING AND
+       THE RULE CATCHING UP. The equipment form stopped demanding a platform on
+       2026-09-05, and a box with no platform matched nothing term by term, so
+       a paste of its real config welded a second box beside it while this
+       sentence promised a question. The fix is in the module's identity rule
+       (a required field nobody has filled in is a question, not a mismatch),
+       not in this wording — the words were right and the behaviour was wrong,
+       and it is the behaviour that moved. Driven by
+       2026-09-04-a-server-is-not-a-juniper-firewall.mjs. */
     $('pHint').textContent = S.loaded
       ? 'This ADDS to what is held — ' + heldSummary() + ' stays. Fathom still ' +
         'cannot merge two readings of the same box, so a config naming a device ' +
@@ -10237,9 +10272,11 @@ function buildEquipForm() {
     if (f[2] === 'plat' || f[2] === 'role') {
       var opts = f[2] === 'plat' ? PLATFORMS : ROLES;
       input = el('select');
-      /* A blank first option only where the field is optional. On a required
-         field an empty choice is a trap: it looks like a valid answer and is
-         refused on submit. */
+      /* A blank first option only where the FORM does not demand the field.
+         On a demanded field an empty choice is a trap: it looks like a valid
+         answer and is refused on submit. On `platform` the blank is the whole
+         point (see EQUIP_FIELDS) and it is first, so a box with no platform is
+         the default rather than a Juniper firewall being the default. */
       if (!f[3]) input.appendChild(el('option', null, ''));
       for (var j = 0; j < opts.length; j++) {
         var o = el('option', null, opts[j]);

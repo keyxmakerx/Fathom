@@ -14,7 +14,8 @@
 
 use fathom_ir::generated::ir_types::{ChassisField, DeviceField};
 use fathom_wasm::protocol::{
-    decode_reply, ReplyView, ERR_EQUIP_FRAME, ERR_FIELD_VALUE, ERR_NOT_INITIALISED, FACE_INV,
+    decode_reply, ReplyView, ERR_EQUIP_FRAME, ERR_FIELD_VALUE, ERR_NOT_INITIALISED, FACE_HEADER,
+    FACE_INV,
 };
 use fathom_wasm::shell::Shell;
 use fathom_wasm::{OP_EQUIP_ADD, OP_INV_ROWS};
@@ -194,18 +195,80 @@ fn a_refused_value_writes_nothing() {
     );
 }
 
-/// Both identity tuples need `platform`, and the schema declares it required.
-/// A device without one can never be reconciled with a later paste of the same
-/// box, so it is refused at the door.
+/// The value one column of the one device row shows, found BY HEADER LABEL.
+///
+/// The inventory's columns are `fathom_inventory::columns`' order, and reading
+/// `strings[2]` as "platform" would be the same position trick `kind_byte`
+/// above exists to refuse.
+fn device_cell(shell: &mut Shell, hostname: &str, column: &str) -> String {
+    let reply = shell.handle(OP_INV_ROWS, &[DEVICE_KIND_BYTE]);
+    let Ok(ReplyView::FaceRows(rows)) = decode_reply(&reply) else {
+        panic!("the inventory must answer with a face table")
+    };
+    let head = rows
+        .iter()
+        .find(|r| r.role == FACE_HEADER)
+        .expect("a header row");
+    let ci = head
+        .strings
+        .iter()
+        .position(|h| h == column)
+        .unwrap_or_else(|| panic!("no `{column}` column in {:?}", head.strings));
+    let hi = head
+        .strings
+        .iter()
+        .position(|h| h == "hostname")
+        .expect("a hostname column");
+    rows.iter()
+        .find(|r| r.role == FACE_INV && r.strings[hi] == hostname)
+        .unwrap_or_else(|| panic!("no row for {hostname}"))
+        .strings[ci]
+        .clone()
+}
+
+/// **A SERVER IS NOT A JUNIPER FIREWALL.** Until 2026-09-05 this test asserted
+/// the opposite of what it asserts now: a device without a platform was
+/// refused at the door, so every host, NAS and hypervisor the owner drew
+/// borrowed `junos-srx` and was filed as one. `Device.platform` is still
+/// `card: "1"` (no schema change); what the store holds for it is `Unknown`,
+/// which the inventory renders as `—` and the findings view lists as a gap
+/// (`11` §9.1: a hole, never a refusal).
 #[test]
-fn a_device_without_a_platform_is_refused() {
+fn a_device_without_a_platform_is_stored_with_it_unset() {
     let mut shell = Shell::new();
     let reply = shell.handle(
         OP_EQUIP_ADD,
         &frame(
             1_700_000_000_000,
             7,
-            &[(DeviceField::Hostname.key().0, "srx-hq-01")],
+            &[
+                (DeviceField::Hostname.key().0, "proxmox-01"),
+                (DeviceField::Role.key().0, "server"),
+            ],
+        ),
+    );
+    assert_eq!(is_error(&reply), None, "the add was refused: {reply:?}");
+    assert_eq!(rows_for(&mut shell, DEVICE_KIND_BYTE), 1);
+    assert_eq!(
+        device_cell(&mut shell, "proxmox-01", "platform"),
+        "—",
+        "an unstated platform reads as unset, not as a borrowed one"
+    );
+    assert_eq!(device_cell(&mut shell, "proxmox-01", "role"), "server");
+}
+
+/// The hostname door stays. It is the one term a paste always carries, and a
+/// box with neither name nor platform is one no later paste could ever put a
+/// question to.
+#[test]
+fn a_device_without_a_hostname_is_refused() {
+    let mut shell = Shell::new();
+    let reply = shell.handle(
+        OP_EQUIP_ADD,
+        &frame(
+            1_700_000_000_000,
+            7,
+            &[(DeviceField::Platform.key().0, "junos-srx")],
         ),
     );
     assert_eq!(is_error(&reply), Some(ERR_EQUIP_FRAME));
@@ -415,6 +478,77 @@ fn correcting_an_unknown_element_is_refused() {
         ),
     );
     assert!(is_error(&reply).is_some(), "an unknown id must be refused");
+}
+
+/// **A STORED PLATFORM CAN BE CLEARED, AND THE CLEAR IS `Unknown`.**
+///
+/// Every box the owner added before 2026-09-05 borrowed `junos-srx` because
+/// the form made him pick one. Opening the door does nothing for those unless
+/// something can take the borrowed value back out — `RECOMMENDATIONS-2026-09-04`
+/// §15.1 fix 3 promoted the clear from "verify" to a deliverable for exactly
+/// that reason. An empty `OP_FIELD_SET` value is the clear, and `11` §8.5 says
+/// what it must produce: `Unknown` (the inventory's `—`), never `Absent`.
+#[test]
+fn an_empty_value_clears_the_field_to_unset() {
+    let mut shell = Shell::new();
+    add_one(&mut shell, 1_700_000_000_000, "truenas-01");
+    let id = only_device_id(&mut shell);
+    assert_eq!(
+        device_cell(&mut shell, "truenas-01", "platform"),
+        "junos-srx"
+    );
+
+    let reply = shell.handle(
+        OP_FIELD_SET,
+        &edit_frame(1_700_000_000_001, 9, DeviceField::Platform.key().0, &id, ""),
+    );
+    assert_eq!(is_error(&reply), None, "the clear was refused: {reply:?}");
+    assert_eq!(
+        device_cell(&mut shell, "truenas-01", "platform"),
+        "—",
+        "a cleared field is unset — `11` §8.5: Unknown, never Absent"
+    );
+    assert_eq!(rows_for(&mut shell, DEVICE_KIND_BYTE), 1);
+
+    // And it can be filled in again afterwards: a clear is not a tombstone.
+    let reply = shell.handle(
+        OP_FIELD_SET,
+        &edit_frame(
+            1_700_000_000_002,
+            10,
+            DeviceField::Platform.key().0,
+            &id,
+            "panos",
+        ),
+    );
+    assert_eq!(is_error(&reply), None, "refilling was refused: {reply:?}");
+    assert_eq!(device_cell(&mut shell, "truenas-01", "platform"), "panos");
+}
+
+/// Clearing a field that holds nothing is refused. A provenance record saying
+/// "I do not know this" over a slot nobody ever wrote would be a claim in the
+/// estate with nobody's assertion behind it.
+#[test]
+fn clearing_a_field_that_holds_nothing_is_refused() {
+    let mut shell = Shell::new();
+    add_one(&mut shell, 1_700_000_000_000, "srx-hq-01");
+    let id = only_device_id(&mut shell);
+    // `os_version` was never stated by `add_one`.
+    let reply = shell.handle(
+        OP_FIELD_SET,
+        &edit_frame(
+            1_700_000_000_001,
+            9,
+            DeviceField::OsVersion.key().0,
+            &id,
+            "",
+        ),
+    );
+    assert_eq!(
+        is_error(&reply),
+        Some(ERR_FIELD_VALUE),
+        "a clear of nothing must be refused, got {reply:?}"
+    );
 }
 
 /// Removing a device removes it from the inventory. `Graph::tombstone` cascades

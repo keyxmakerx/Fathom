@@ -480,21 +480,41 @@ impl Shell {
             Err(e) => return protocol::encode_error(ERR_EQUIP_FRAME, &e),
         };
 
-        // Both `Device` identity tuples need `platform`, and the schema declares
-        // hostname and platform `card: "1"`. A device missing either can never
-        // be re-identified or merged with a later paste of the same box, so it
-        // is refused at the door rather than stored as an orphan nobody can
-        // reconcile. Nothing else is demanded.
-        for (key, name) in [
-            (DeviceField::Hostname.key(), "hostname"),
-            (DeviceField::Platform.key(), "platform"),
-        ] {
-            if !fields.iter().any(|(k, _)| *k == key) {
-                return protocol::encode_error(
-                    ERR_EQUIP_FRAME,
-                    &format!("a device needs a {name}: the schema declares it required, and both identity tuples use platform"),
-                );
-            }
+        // ONE FIELD IS DEMANDED AT THE DOOR, AND IT IS THE HOSTNAME.
+        //
+        // Until 2026-09-05 this loop demanded `platform` too, and the reason it
+        // gave was true: both `Device` identity tuples use it, so a box without
+        // one could not be recognised by a later paste of its config. What the
+        // door did with that truth was wrong. `schema/platforms.yaml` registers
+        // network operating systems and nothing else, so every server, NAS and
+        // hypervisor the owner drew was filed as a Juniper firewall — a stored
+        // assertion, with his name on it, that anyone who knows the estate spots
+        // on the first screen (`70` §19.5, §20.4).
+        //
+        // `Device.platform` stays `card: "1"` — no schema change (ADR-0008). A
+        // required field the store holds no value for is the `Unknown` state
+        // `fathom-graph` already has, and `11` §9.1 says what that is: *"holes
+        // are the normal state and the UI lists them"*, *"a hole, never a
+        // refusal"*. The findings view walks exactly `card: "1"` + `Unknown`
+        // and reports it as `Device nodes have no platform`. So a blank here is
+        // not a device nobody can reconcile; it is a gap the operator is told
+        // about, and — the half that made the door safe to open — a gap the
+        // paste treats as a QUESTION rather than a mismatch: `identity_clash`
+        // below asks when a pasted hostname matches a box whose platform was
+        // never filled in, instead of welding a second box beside it.
+        //
+        // `hostname` stays demanded. It is the one term a paste always carries,
+        // and a box with neither name nor platform is one nothing could ever
+        // put a question to.
+        if !fields
+            .iter()
+            .any(|(k, _)| *k == DeviceField::Hostname.key())
+        {
+            return protocol::encode_error(
+                ERR_EQUIP_FRAME,
+                "a device needs a hostname: it is the one thing a later paste of its \
+                 config can recognise it by",
+            );
         }
 
         // Route every field to the kind that declares it, from the generated
@@ -650,6 +670,27 @@ impl Shell {
     ///
     /// The value is parsed **before** the batch opens, so a refusal cannot leave
     /// a batch open or a slot half-written.
+    ///
+    /// # An empty value is a CLEAR, since 2026-09-05
+    ///
+    /// Until then a zero-length value was refused by `parse_into_slot`, and the
+    /// page said *"clear is not built yet"* in two places. It is built now,
+    /// because opening `OP_EQUIP_ADD`'s platform door created a state nothing
+    /// could get back to: every box the owner had already drawn borrowed
+    /// `junos-srx` because the form made him, and without a clear those boxes
+    /// stayed Juniper firewalls forever (`RECOMMENDATIONS-2026-09-04` §15.1,
+    /// fix 3).
+    ///
+    /// A clear runs `Graph::clear_field`, which `11` §8.5 specifies as
+    /// producing `Unknown` and never `Absent`: the slot is removed, the clear's
+    /// own provenance goes into the history and the op log, and the findings
+    /// view lists the field as a gap again if it is `card: "1"`. It journals
+    /// as an ordinary `field` entry whose value is empty, so `importJournal`
+    /// replays it through this same frame with no page-side special case.
+    ///
+    /// A clear of a field that already holds nothing is refused. Recording
+    /// *"I do not know this"* over a slot that never said anything would put
+    /// a provenance record in the estate with nobody's claim behind it.
     fn field_set(&mut self, req: &[u8]) -> Vec<u8> {
         use fathom_graph::{Actor, BatchId, ElementId, Timestamp, UserId};
 
@@ -687,16 +728,38 @@ impl Shell {
             );
         };
 
-        // Parse first. A refused value must not open a batch.
-        let parsed = match fathom_inventory::parse_into_slot(key, value) {
-            Ok(v) => v,
-            Err(e) => return protocol::encode_error(ERR_FIELD_VALUE, &author_text(e, value)),
+        // Parse first. A refused value must not open a batch. `None` is a
+        // clear — see the doc comment — and is not parsed at all.
+        let parsed = if value.is_empty() {
+            None
+        } else {
+            match fathom_inventory::parse_into_slot(key, value) {
+                Ok(v) => Some(v),
+                Err(e) => return protocol::encode_error(ERR_FIELD_VALUE, &author_text(e, value)),
+            }
         };
 
         let element = match self.resolve(display) {
             Ok(e) => e,
             Err(reply) => return reply,
         };
+
+        // A clear needs something to clear. Read before the batch opens, for
+        // the same reason the parse runs before it: a refusal writes nothing.
+        if parsed.is_none() {
+            let holds_nothing = self.estate.as_ref().is_none_or(|g| {
+                matches!(
+                    g.presence(element, key),
+                    Ok(info) if info.presence == fathom_graph::StoredPresence::Unknown
+                )
+            });
+            if holds_nothing {
+                return protocol::encode_error(
+                    ERR_FIELD_VALUE,
+                    "nothing to clear: this field holds no value",
+                );
+            }
+        }
 
         // The batch and provenance ids come off the MINT, not from the clock
         // plus a fixed discriminator the way `OP_PASTE` derives its two. That
@@ -731,7 +794,10 @@ impl Shell {
             confidence: fathom_graph::Confidence::Asserted,
             supersedes: None,
         };
-        let wrote = graph.set_field_boxed(element, key, parsed, record);
+        let wrote = match parsed {
+            Some(value) => graph.set_field_boxed(element, key, value, record),
+            None => graph.clear_field(element, key, record),
+        };
         let closed = graph.end_batch();
         match (wrote, closed) {
             (Err(e), _) => protocol::encode_error(ERR_EQUIP_STORE, &format!("{e:?}")),
@@ -3275,7 +3341,7 @@ impl Shell {
 /// rule in the tree (`rack_place`'s reuse-by-label); a second is the point at
 /// which a special case becomes a pattern.
 ///
-/// # A tier only counts when every term in it is present
+/// # A tier only counts when every term in it is present ON THE PASTE'S SIDE
 ///
 /// `Device` declares `[hostname, platform]` and `[platform,
 /// management_address]`. A config with no `set system host-name` leaves the
@@ -3290,8 +3356,41 @@ impl Shell {
 /// forces this, and it is why every sub-device tier is unusable by
 /// construction — none can be evaluated until two devices are already known to
 /// be the same device, which is precisely the decision being refused.
+///
+/// # On the ESTATE's side, a required term nobody has filled in is a question
+///
+/// Since 2026-09-05 `OP_EQUIP_ADD` no longer demands a platform, so a
+/// hand-drawn server holds `hostname` and an `Unknown` platform. Compared term
+/// by term, that box never matched anything — `field_text` answers `None` for
+/// `Unknown` — and a later paste of its real config welded a second box beside
+/// it, silently, with the page's own hint still promising *"a config naming a
+/// device you already have will ask before it adds a second one"*. A skeptic
+/// found that before it shipped.
+///
+/// So a term is now compatible in two ways: the estate's value equals the
+/// paste's, or the estate holds **no value at all** for a field the schema
+/// declares `card: "1"`. The second is exactly the state the findings view
+/// reports as a gap — a fact the record has not stated yet — and a question the
+/// estate has not answered cannot be the evidence that two boxes differ. A tier
+/// still needs at least one term to actually be EQUAL; a tier that is nothing
+/// but unfilled terms says nothing about anything.
+///
+/// Why `card: "1"` and not any `Unknown` (the rule is read from the generated
+/// `field_required`, never hand-listed): `management_address` is `0..1` and
+/// unset on nearly every device. Were an optional `Unknown` compatible too,
+/// the day a dictionary binds a management address every paste on that
+/// platform would ask about every box on it — a question on every paste is a
+/// warning nobody reads, which CLAUDE.md's 2026-08-21 lesson already priced.
+/// `Absent` — somebody asserted there is none — is a stored value that differs,
+/// and stays a mismatch.
+///
+/// The sentence says which it was. The all-equal case reads exactly as it did
+/// (*"the same hostname and platform"*); the unfilled case adds *", and its
+/// platform was never filled in, so this may be that box"* so the operator is
+/// told why the question exists and what would settle it.
 fn identity_clash(estate: &fathom_graph::Graph, dry: &fathom_graph::Graph) -> Option<String> {
-    use fathom_ir::generated::ir_types::{DeviceField, NodeKind};
+    use fathom_graph::{ElementId, StoredPresence};
+    use fathom_ir::generated::ir_types::{self, DeviceField, NodeKind};
 
     // The paste's device. `apply_new_device` seeds exactly one.
     let fresh = dry.nodes_of_kind(NodeKind::Device).next()?;
@@ -3306,11 +3405,11 @@ fn identity_clash(estate: &fathom_graph::Graph, dry: &fathom_graph::Graph) -> Op
     };
 
     for tier in NodeKind::Device.identity_tiers() {
-        let mut wanted = Vec::new();
+        let mut wanted: Vec<(&str, fathom_ir::bag::FieldKey, String)> = Vec::new();
         let mut evaluable = true;
         for term in *tier {
             match term_key(term).and_then(|k| fathom_inventory::field_text(dry, fresh.id, k)) {
-                Some(text) => wanted.push((term_key(term).expect("resolved above"), text)),
+                Some(text) => wanted.push((term, term_key(term).expect("resolved above"), text)),
                 None => {
                     evaluable = false;
                     break;
@@ -3321,38 +3420,67 @@ fn identity_clash(estate: &fathom_graph::Graph, dry: &fathom_graph::Graph) -> Op
             continue;
         }
 
-        // Ordered by NodeId so the device named in the refusal is the same one
-        // every time (invariant 9) rather than whichever the iterator reached
-        // first.
-        let mut hits: Vec<fathom_graph::NodeId> = estate
-            .nodes_of_kind(NodeKind::Device)
-            .filter(|n| {
-                n.absent_since.is_none()
-                    && wanted.iter().all(|(k, text)| {
-                        fathom_inventory::field_text(estate, n.id, *k).as_deref()
-                            == Some(text.as_str())
-                    })
-            })
-            .map(|n| n.id)
-            .collect();
-        hits.sort();
-        let Some(hit) = hits.first().copied() else {
+        // The lowest NodeId that fits, so the device named in the refusal is
+        // the same one every time (invariant 9) rather than whichever the
+        // iterator reached first. Kept as a running minimum rather than a
+        // collected-and-sorted list: no second `sort` monomorphisation for a
+        // comparator this walk can do itself.
+        let mut hit: Option<(fathom_graph::NodeId, Vec<&str>, Vec<&str>)> = None;
+        for n in estate.nodes_of_kind(NodeKind::Device) {
+            if n.absent_since.is_some() {
+                continue;
+            }
+            let mut equal: Vec<&str> = Vec::new();
+            let mut unfilled: Vec<&str> = Vec::new();
+            let mut fits = true;
+            for (term, key, text) in &wanted {
+                if fathom_inventory::field_text(estate, n.id, *key).as_deref()
+                    == Some(text.as_str())
+                {
+                    equal.push(term);
+                } else if ir_types::field_required(*key)
+                    && matches!(
+                        estate.presence(ElementId::Node(n.id), *key),
+                        Ok(info) if info.presence == StoredPresence::Unknown
+                    )
+                {
+                    unfilled.push(term);
+                } else {
+                    fits = false;
+                    break;
+                }
+            }
+            if !fits || equal.is_empty() {
+                continue;
+            }
+            if hit.as_ref().is_none_or(|(id, _, _)| n.id < *id) {
+                hit = Some((n.id, equal, unfilled));
+            }
+        }
+        let Some((hit, equal, unfilled)) = hit else {
             continue;
         };
 
         let name = term_key("hostname")
             .and_then(|k| fathom_inventory::field_text(estate, hit, k))
             .unwrap_or_else(|| "that device".to_owned());
-        let terms: Vec<&str> = tier.to_vec();
+        let because = if unfilled.is_empty() {
+            format!("the same {}", equal.join(" and "))
+        } else {
+            format!(
+                "the same {}, and its {} was never filled in, so this may be that box",
+                equal.join(" and "),
+                unfilled.join(" and ")
+            )
+        };
         return Some(format!(
-            "{name} is already in this design — the same {}. Fathom will not \
+            "{name} is already in this design — {because}. Fathom will not \
              merge a second reading of a box it already has: it cannot yet, and \
              guessing would put two half-true versions of one device in your \
              estate of record. If this is a DIFFERENT box that happens to match, \
              say so and it will be added as a second device. If it is the SAME \
              box and this config is newer, there is no update yet — that is \
              re-identification and nothing in this build implements it.|{}|{}",
-            terms.join(" and "),
             fathom_graph::ElementId::Node(hit),
             name
         ));

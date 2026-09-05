@@ -2977,6 +2977,26 @@ consequences the owner accepts by approving; the door removal presented as pendi
 - The decision itself: approving the door removal, with the two cautions (silent duplicate on a
   later paste; existing Juniper-tagged boxes stay so until the clear control exists).
 
+### 15.8 As built, 2026-09-05
+
+The door was opened as §15.1 specifies — `Device.platform` at `card: "1"`, no schema change, the
+form's demand removed, `hostname` still demanded — and **both cautions in §15.7 were built out rather
+than accepted.** (1) The "silent duplicate" cost of fix 1 is gone: `identity_clash` treats a
+`card: "1"` term the estate holds as `Unknown` as compatible (read from the generated
+`field_required`, never any `Unknown` — `management_address` at `0..1` would otherwise make every
+same-platform paste ask once a dictionary binds one), requires at least one term EQUAL, and asks
+through the existing `ERR_PASTE_CHOICE` path with a sentence that says which term matched and which
+was never filled in. So the paste-hint sentence of fix 2 was **not** reworded: its words were right
+and the behaviour was wrong, and the behaviour moved. (2) The clear of fix 3 exists: an empty
+`OP_FIELD_SET` value maps to `Graph::clear_field` (`11` §8.5's `Unknown`), journals as a `field`
+entry with an empty value, replays through the same frame, and refuses when the slot already holds
+nothing. §15.4 item 4 is therefore withdrawn as written. Not done: the `doc:` note of §15.1 (it
+moves the generated content hash for a comment; the reasoning lives at the door in `shell.rs`), the
+`proxmox-ve` row (its trigger is unchanged), and fix 8's "answered" mark — the owner has not spoken;
+§D1 carries a dated BUILT note instead. Driven:
+`docs/80-review/evidence/2026-09-04-a-server-is-not-a-juniper-firewall.mjs`, 33/33, nine checks red
+on the build before it.
+
 ---
 
 ## Failure modes

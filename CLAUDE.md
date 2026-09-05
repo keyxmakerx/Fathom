@@ -83,7 +83,9 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   **The blocker is one field to the left and it is NOT closed:** `Device.platform` is card 1 and a
   foreign key into `schema/platforms.yaml`, which registers no general-purpose host, so a hand-added
   Proxmox box must still borrow `junos-srx`. ADR-0037 §5 prices three routes and chooses none —
-  owner work. Driven in Chromium from an **empty page**, five boxes added by hand through the real
+  owner work. **(Annotated 2026-09-05: the form no longer forces the borrow — see the "a server is
+  not a Juniper firewall" bullet below. The REGISTRY question, a `proxmox-ve` row, is still the
+  owner's.)** Driven in Chromium from an **empty page**, five boxes added by hand through the real
   form: `docs/80-review/evidence/2026-08-16-server-role-drive.mjs`, 23/23.
 - **You can connect two boxes, so a hand-built estate is a network — `OP_LINK` (24), 2026-08-16.**
   Before it, a person could add a box, name it, correct it, move it, rack it and remove it, and
@@ -619,6 +621,45 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   deliberate trade-offs already reasoned about in `redact.rs`'s own comments, not defects —
   widening either risks flagging ordinary sentences the same reasoning was written to protect,
   and is left for whoever tunes the detector next rather than decided by editing a test.
+- **A server is not a Juniper firewall — the equipment form's platform door is open, 2026-09-05.**
+  Seen in Chromium 2026-09-04: the add-equipment form demanded `platform`, the dropdown offered only
+  network operating systems with `junos-srx` pre-selected, so a VMware or Linux host was filed as a
+  Juniper firewall and showed as one in the inventory — on the first screen of the estate the owner
+  will demo (`70` §19.5, §20.4). `RECOMMENDATIONS-2026-09-04` §15 (D1) is the design and it is
+  built: **`Device.platform` stays `card: "1"` — no schema change** (ADR-0008) — and the FORM submits
+  with it blank (a blank is now the first option), so the store holds `Unknown`, the inventory shows
+  `—`, and the findings view's existing gaps walk (card 1 + Unknown) lists *"1 of 1 Device nodes has
+  no platform"* as work the inventory can take. `hostname` is still demanded at the door. **The trap
+  the skeptic found is closed in the same change**: with the platform Unknown a later paste of that
+  box's real config matched nothing term by term (`field_text` is `None` for `Unknown`) and welded a
+  SECOND box silently, under the paste hint's promise that *"a config naming a device you already
+  have will ask before it adds a second one"*. `identity_clash` now treats a **required** term the
+  estate holds as `Unknown` as a question, not a mismatch — read from the generated
+  `field_required`, never hand-listed, and deliberately not any `Unknown`: `management_address` is
+  `0..1` and unset nearly everywhere, and the day a dictionary binds one every same-platform paste
+  would otherwise ask about every box. A tier still needs one term actually EQUAL. The sentence says
+  which: *"the same hostname, and its platform was never filled in, so this may be that box"*; the
+  all-equal sentence is unchanged to the character and a test pins it. The hint's words did not
+  move — the behaviour they describe did. **A CLEAR IS BUILT** (§15.1 fix 3 promoted it from
+  "verify" to a deliverable): an empty `OP_FIELD_SET` value runs `Graph::clear_field` — `11` §8.5's
+  `Unknown`, never `Absent` — journalled as an ordinary `field` entry with an empty value and
+  replayed through the same frame; clearing a slot that holds nothing is refused (*"nothing to
+  clear"*) so an Enter on an empty cell records no claim. Both page editors (the inventory cell and
+  the details pane) that said *"clear is not built yet"* now send the blank. Boxes already added as
+  `junos-srx` are NOT rewritten (a `Set` value is a stored assertion); the clear is how the owner
+  takes the borrowed value out by hand. **Module 988,825 → 990,109 bytes (+1,284)**, read off the
+  build. `2026-09-04-a-server-is-not-a-juniper-firewall.mjs` **33/33** through a real export →
+  reload → import. Run against the build before this change it is 9 red and then a timeout: the
+  blank option, the required mark, the hint, the `junos-srx` in the cell, the three findings checks,
+  the sentence, the drawn box's platform — and the blank cell commit never returns because the page
+  refused it. The silent second box itself cannot be driven on that build (its form could not
+  submit a blank), so it is pinned in Rust instead — `paste.rs`'s
+  `a_platform_less_hand_added_box_with_the_pasted_hostname_asks` fails with the wildcard branch
+  neutered, checked by neutering it. What is NOT done, on purpose: no `proxmox-ve` registry row
+  (its trigger is a real capture off a box — `platforms.yaml`'s own rule), no `doc:` edit to the
+  schema file (it would move the generated content hash for a comment; the reasoning is in
+  `shell.rs` at the door), and no hostname-only re-identification — the one answer offered is still
+  *"different boxes"*, and *"same box, newer config"* is still remove-and-paste-again.
 - **Raised by the on-ramp (2026-08-09), all three now settled:** (a) the ceiling question
   is CLOSED — removed 2026-08-21 with the pivot, and the dictionary had already moved out of
   the module to the page on 2026-08-15; (b) `OP_PASTE` is ADDITIVE as of 2026-08-21, with the

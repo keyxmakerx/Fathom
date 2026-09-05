@@ -33,7 +33,9 @@ use fathom_wasm::protocol::{
     FACE_GAP_HEAD, FACE_GAP_ITEM, FACE_INV,
 };
 use fathom_wasm::shell::Shell;
-use fathom_wasm::{OP_ELEMENT_REMOVE, OP_EQUIP_ADD, OP_FINDINGS, OP_INV_ROWS, OP_PASTE};
+use fathom_wasm::{
+    OP_ELEMENT_REMOVE, OP_EQUIP_ADD, OP_FIELD_SET, OP_FINDINGS, OP_INV_ROWS, OP_PASTE,
+};
 
 fn equip_frame(at_ms: u64, entropy: u128, fields: &[(u32, &str)]) -> Vec<u8> {
     let mut v = Vec::new();
@@ -277,15 +279,16 @@ fn the_biggest_gap_is_first_and_the_order_never_moves() {
 /// shrinks the same gap, and the numbers are never carried over from the last
 /// answer.
 ///
-/// **Removal, not a field write, and that is a finding in itself.** The
-/// property this test wanted was *"state the fact and the gap goes"*, and no
-/// route through the shell can produce it: `OP_EQUIP_ADD` refuses a device
-/// without `hostname` or `platform`, fills `Chassis.member_index` with `"0"`
-/// when the form omits it, and the two required fields that remain unstated —
-/// `Device.name_conformance` and `Interface.form` — are both refused by
-/// `OP_FIELD_SET` as not authorable. So the fill-it round trip is exercised
-/// against a real `Graph` in `fathom-inventory`'s own tests, where a value can
-/// be written, and what is asserted HERE is the half the browser can reach.
+/// **Removal, not a field write, and that was a finding in itself.** The
+/// property this test wanted was *"state the fact and the gap goes"*, and
+/// until 2026-09-05 no route through the shell could produce it: `OP_EQUIP_ADD`
+/// refused a device without `hostname` or `platform`, fills
+/// `Chassis.member_index` with `"0"` when the form omits it, and the two
+/// required fields that remained unstated — `Device.name_conformance` and
+/// `Interface.form` — are both refused by `OP_FIELD_SET` as not authorable.
+/// The platform door is open now and
+/// `a_platform_left_blank_is_a_gap_until_it_is_filled_in` below drives the
+/// fill-it round trip through the shell; this test keeps the removal half.
 #[test]
 fn the_list_moves_with_the_graph() {
     let mut shell = Shell::new();
@@ -321,9 +324,11 @@ fn the_list_moves_with_the_graph() {
 /// A row that cannot be acted on says so, rather than reading as a job.
 ///
 /// This is the least comfortable assertion in the file and it is the one worth
-/// keeping: **both** gaps this build can produce are fields nothing can type
-/// in. A view that quietly presented them as work would send an operator
-/// looking for an editor that is not there.
+/// keeping: both gaps a fully-formed hand add can produce are fields nothing
+/// can type in (a blank platform, admitted since 2026-09-05, is the third gap
+/// and the one that CAN be — see the test below). A view that quietly
+/// presented the first two as work would send an operator looking for an
+/// editor that is not there.
 #[test]
 fn a_gap_says_whether_it_can_be_typed_in() {
     let mut shell = Shell::new();
@@ -338,6 +343,101 @@ fn a_gap_says_whether_it_can_be_typed_in() {
     assert!(
         !g.authorable,
         "name_conformance has no parser, and the row must not pretend otherwise"
+    );
+}
+
+/// `[u64 at][u128 entropy][u32 key][u16 id_len][id][value]` — `OP_FIELD_SET`'s
+/// frame, duplicated from `equip.rs` for the same reason `equip_frame` is.
+fn edit_frame(at_ms: u64, entropy: u128, key: u32, id: &str, value: &str) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(&at_ms.to_le_bytes());
+    v.extend_from_slice(&entropy.to_le_bytes());
+    v.extend_from_slice(&key.to_le_bytes());
+    v.extend_from_slice(&(id.len() as u16).to_le_bytes());
+    v.extend_from_slice(id.as_bytes());
+    v.extend_from_slice(value.as_bytes());
+    v
+}
+
+/// **A BLANK PLATFORM IS A GAP, AND THE GAP IS WORK YOU CAN DO.** The whole
+/// round trip `the_list_moves_with_the_graph` could not drive: a box added
+/// with no platform is listed under `Device nodes have no platform`, marked as
+/// typeable; filling it in from the inventory takes the row away; clearing it
+/// again (an empty `OP_FIELD_SET`, `11` §8.5's `Unknown`) brings it back.
+///
+/// Before 2026-09-05 this test fails at the add: the door refused it.
+#[test]
+fn a_platform_left_blank_is_a_gap_until_it_is_filled_in() {
+    let mut shell = Shell::new();
+    let reply = shell.handle(
+        OP_EQUIP_ADD,
+        &equip_frame(
+            1_700_000_000_000,
+            0x5eed,
+            &[
+                (DeviceField::Hostname.key().0, "proxmox-01"),
+                (DeviceField::Role.key().0, "server"),
+            ],
+        ),
+    );
+    assert_eq!(is_error(&reply), None, "a box with no platform: {reply:?}");
+    let rows = shell.handle(OP_INV_ROWS, &[kind_byte("Device")]);
+    let Ok(ReplyView::FaceRows(rows)) = decode_reply(&rows) else {
+        panic!("the device inventory must answer with a face table")
+    };
+    let id = rows
+        .iter()
+        .find(|r| r.role == FACE_INV && r.strings[1] == "proxmox-01")
+        .expect("the row")
+        .strings[0]
+        .clone();
+
+    let blank = read(&mut shell);
+    let g = blank
+        .gap("Device", "platform")
+        .expect("a device with no platform is a gap");
+    assert_eq!(g.missing, 1);
+    assert_eq!(g.sentence, "1 of 1 Device nodes has no platform");
+    assert!(g.authorable, "and it is work the inventory can take");
+    assert_eq!(g.items, vec![id.clone()], "and it names the box");
+
+    let filled = shell.handle(
+        OP_FIELD_SET,
+        &edit_frame(
+            1_700_000_000_001,
+            0x5eee,
+            DeviceField::Platform.key().0,
+            &id,
+            "junos-srx",
+        ),
+    );
+    assert_eq!(
+        is_error(&filled),
+        None,
+        "filling the platform in: {filled:?}"
+    );
+    assert!(
+        read(&mut shell).gap("Device", "platform").is_none(),
+        "state the fact and the gap goes"
+    );
+
+    let cleared = shell.handle(
+        OP_FIELD_SET,
+        &edit_frame(
+            1_700_000_000_002,
+            0x5eef,
+            DeviceField::Platform.key().0,
+            &id,
+            "",
+        ),
+    );
+    assert_eq!(is_error(&cleared), None, "clearing it again: {cleared:?}");
+    assert_eq!(
+        read(&mut shell)
+            .gap("Device", "platform")
+            .map(|g| g.missing),
+        Some(1),
+        "a cleared field is Unknown, and Unknown is a gap"
     );
 }
 

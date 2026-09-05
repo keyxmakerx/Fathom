@@ -249,6 +249,18 @@ hosts as a different kind of thing entirely.**
 The catch with blank: that field is half of how Fathom recognises the same box again when you
 later paste its real config. A blank one cannot be matched automatically.
 
+> **BUILT 2026-09-05, on the "let the field be blank" route, pending your word on the decision
+> itself** (`RECOMMENDATIONS-2026-09-04` §15, D1). You can now leave platform empty on the
+> add-equipment form; the box goes on the picture as a server and the findings view lists it under
+> "Device nodes have no platform" until you fill it in from the inventory. **The catch above is
+> closed rather than reworded:** pasting that box's real config later now ASKS "is this that box?"
+> — the same question it asks for any duplicate — instead of silently adding a second one. And a
+> platform you already picked can be cleared again (blank the cell, press Enter), so the boxes you
+> filed as Juniper firewalls because the form made you can be un-filed by hand. Still yours: whether
+> this is the route you want, and which host (Proxmox, VMware, plain Linux, Windows Server, a NAS)
+> gets the first real engine — nothing was added to the platform list. Cross-references: `49` §22
+> item 7; ADR-0037 §9 item 1.
+
 ### D2. Tags and groups — a real thing, or a typed word?
 
 > **ANSWERED 2026-09-04: a real named set.** Recorded verbatim in `70` §19.1. It is a schema

@@ -19,7 +19,7 @@ use fathom_wasm::protocol::{
     FACE_RESIDUE, FACE_UNRESOLVED,
 };
 use fathom_wasm::shell::Shell;
-use fathom_wasm::{OP_INV_ROWS, OP_PASTE};
+use fathom_wasm::{OP_EQUIP_ADD, OP_INV_ROWS, OP_PASTE};
 
 /// The dictionary is handed in over `OP_DICT` since 2026-08-15, so every shell
 /// below is booted rather than merely new. See `common/mod.rs`.
@@ -849,6 +849,150 @@ fn a_second_reading_of_the_same_box_is_refused_and_named() {
         e.detail.split('|').count(),
         3,
         "the refusal carries the sentence, the id and the name: {}",
+        e.detail
+    );
+}
+
+// --- a hand-drawn box with no platform, and the paste of its real config -----
+
+/// `OP_EQUIP_ADD`'s frame — the 24-byte prefix, then `[u8 count]` and `count`
+/// x `[u16 key][u16 len][utf8]` — duplicated from `equip.rs` because
+/// integration tests cannot share helpers without a module and `common/` is
+/// the dictionary boot, not a frame kit.
+fn equip_frame(at_ms: u64, entropy: u128, fields: &[(u32, &str)]) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(&at_ms.to_le_bytes());
+    v.extend_from_slice(&entropy.to_le_bytes());
+    v.push(fields.len() as u8);
+    for (key, text) in fields {
+        v.extend_from_slice(&(*key as u16).to_le_bytes());
+        v.extend_from_slice(&(text.len() as u16).to_le_bytes());
+        v.extend_from_slice(text.as_bytes());
+    }
+    v
+}
+
+/// Live device rows in the inventory.
+fn device_rows(shell: &mut Shell) -> usize {
+    let device = InvKind::ALL
+        .iter()
+        .position(|k| k.label() == "Device")
+        .expect("a Device inventory kind") as u8;
+    face(&shell.handle(OP_INV_ROWS, &[device]))
+        .iter()
+        .filter(|r| r.role == FACE_INV)
+        .count()
+}
+
+/// Add one box by hand, exactly as the form sends it after 2026-09-05: a
+/// hostname, a role, and — when `platform` is `None` — no platform at all.
+fn hand_add(shell: &mut Shell, entropy: u128, hostname: &str, platform: Option<&str>) {
+    use fathom_ir::generated::ir_types::DeviceField;
+    let mut fields = vec![
+        (DeviceField::Hostname.key().0, hostname),
+        (DeviceField::Role.key().0, "server"),
+    ];
+    if let Some(p) = platform {
+        fields.push((DeviceField::Platform.key().0, p));
+    }
+    let reply = shell.handle(OP_EQUIP_ADD, &equip_frame(TS, entropy, &fields));
+    assert!(
+        matches!(decode_reply(&reply), Ok(ReplyView::FaceRows(_))),
+        "the hand add was refused: {:?}",
+        decode_reply(&reply)
+    );
+}
+
+/// **THE TRAP THE DOOR OPENED, CLOSED.** A box drawn by hand with no platform
+/// — the state `OP_EQUIP_ADD` admits since 2026-09-05 — and then a paste of
+/// that box's real config. Term by term the two never matched (`field_text`
+/// answers `None` for `Unknown`), so the paste welded a SECOND box beside the
+/// first, silently, under a page hint that promised it would ask. It asks.
+///
+/// Before the fix this test fails at the first assertion: the paste succeeds
+/// and the design holds two `srx-branch-01`s.
+#[test]
+fn a_platform_less_hand_added_box_with_the_pasted_hostname_asks() {
+    let mut shell = common::booted_shell();
+    hand_add(&mut shell, ENTROPY, "srx-branch-01", None);
+    assert_eq!(device_rows(&mut shell), 1);
+
+    let refused = shell.handle(OP_PASTE, &frame(TS, ENTROPY_2, PASTE));
+    let e = error(&refused);
+    assert_eq!(
+        e.code, ERR_PASTE_CHOICE,
+        "a paste naming a platform-less box must ask, not weld a second: {}",
+        e.detail
+    );
+    assert!(
+        e.detail.contains("srx-branch-01"),
+        "the question names the box: {}",
+        e.detail
+    );
+    assert!(
+        e.detail
+            .contains("the same hostname, and its platform was never filled in"),
+        "the question says WHY it exists — which term matched and which was never \
+         stated: {}",
+        e.detail
+    );
+    assert_eq!(
+        e.detail.split('|').count(),
+        3,
+        "the detail is still `sentence|display-id|hostname`: {}",
+        e.detail
+    );
+    assert_eq!(device_rows(&mut shell), 1, "a refused paste writes nothing");
+
+    // The one answer that exists still works: these are different boxes.
+    let again = face(&shell.handle(OP_PASTE, &frame_confirmed(TS, ENTROPY_3, PASTE, true)));
+    assert_eq!(summary(&again).strings[7], "junos-srx");
+    assert_eq!(device_rows(&mut shell), 2);
+}
+
+/// The question is asked about the box the hostname names, not about every
+/// platform-less box in the design. A hand-drawn `proxmox-01` with no platform
+/// says nothing about a pasted `srx-branch-01`.
+#[test]
+fn a_platform_less_box_with_another_hostname_does_not_ask() {
+    let mut shell = common::booted_shell();
+    hand_add(&mut shell, ENTROPY, "proxmox-01", None);
+    let rows = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY_2, PASTE)));
+    assert_eq!(summary(&rows).strings[7], "junos-srx");
+    assert_eq!(device_rows(&mut shell), 2, "two boxes, two rows");
+}
+
+/// And the rule did not widen: a box whose platform IS stated and differs is a
+/// different box, exactly as `schema/schema.yaml`'s identity comment says (*"a
+/// `core-01` SRX and a `core-01` Nexus are two boxes"*). Only a platform nobody
+/// has filled in is a question.
+#[test]
+fn a_stated_platform_that_differs_is_still_a_different_box() {
+    let mut shell = common::booted_shell();
+    hand_add(&mut shell, ENTROPY, "srx-branch-01", Some("panos"));
+    let rows = face(&shell.handle(OP_PASTE, &frame(TS, ENTROPY_2, PASTE)));
+    assert_eq!(summary(&rows).strings[7], "junos-srx");
+    assert_eq!(device_rows(&mut shell), 2);
+}
+
+/// The all-equal sentence is unchanged to the character. The 2026-08-21
+/// driver reads it by regex, so a wording drift there would pass every driver
+/// and still be a different sentence than the one the record cites.
+#[test]
+fn the_all_equal_question_reads_as_it_did() {
+    let mut shell = common::booted_shell();
+    hand_add(&mut shell, ENTROPY, "srx-branch-01", Some("junos-srx"));
+    let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY_2, PASTE)));
+    assert_eq!(e.code, ERR_PASTE_CHOICE);
+    assert!(
+        e.detail
+            .starts_with("srx-branch-01 is already in this design — the same hostname and platform. Fathom will not"),
+        "{}",
+        e.detail
+    );
+    assert!(
+        !e.detail.contains("never filled in"),
+        "an all-equal match must not claim a term was unfilled: {}",
         e.detail
     );
 }
