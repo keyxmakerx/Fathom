@@ -31,6 +31,11 @@
  *
  * On the parent commit (0733288) section 1's "no note" check is red, section
  * 2's wording and its clean re-export are red, and section 3's note is absent.
+ * Sections 2b and 2c were added 2026-09-05 after a skeptic attacked the first
+ * cut (3761364): against THAT build they read 21/24, the three reds being the
+ * gate note claiming "opened exactly as saved" over a drift, telling the
+ * operator to export-and-replace over an export holding only the replayed
+ * paste, and stating a hand-edited record's number as the gate's own act.
  *
  * Playwright and Chromium are the ones already on this machine; neither is a
  * dependency of the product and neither is in Cargo.lock (gate zero).
@@ -174,6 +179,59 @@ await importFrom(saved3);
 const n3 = await notes();
 check('and reopening THAT export is clean — the warning can be cleared', n3.length === 0,
   n3.map(n => n.text.slice(0, 120)).join(' | '));
+
+// ---- 2b. the PSK put back AND a drift: the two notes must not contradict -------
+//
+// The skeptic's case, 2026-09-05, against the first cut of this fix: with the
+// parse ALSO reading differently, the gate note sat directly above a drift
+// alert saying the saved file had not been touched, while it said "opened
+// exactly as saved" and "export and replace the old file" — over an export that
+// holds only what was replayed. The drift is produced the way
+// 2026-08-21-a-paste-records-what-it-produced.mjs produces one: the recorded
+// count is edited so the parser's answer no longer matches the record.
+
+const both = JSON.parse(readFileSync(saved1, 'utf8'));
+const bpp = pasteOf(both);
+bpp.text = bpp.text.replace('<REDACTED:psk>', PSK_LITERAL);
+bpp.things = String(Number(bpp.things) - 1);
+const bothPath = SCRATCH + '/round-trip-psk-back-and-drift.json';
+writeFileSync(bothPath, JSON.stringify(both, null, 2));
+
+await fresh();
+await importFrom(bothPath);
+const n2b = await notes();
+const gate2b = n2b.find(n => n.gate), drift2b = n2b.find(n => !n.gate);
+check('a leaking file whose record also drifted gets BOTH notes, the gate’s first',
+  n2b.length === 2 && n2b[0].gate && !!drift2b,
+  JSON.stringify(n2b.map(n => [n.gate, n.text.slice(0, 80)])));
+check('and the gate note no longer claims the design opened exactly as saved — it did not',
+  !!gate2b && !/opened exactly as saved/.test(gate2b.text), gate2b && gate2b.text.slice(0, 160));
+check('nor tells the operator to export and replace the old file — that export holds only the replayed paste',
+  !!gate2b && !/export and replace/.test(gate2b.text) && /see the note below/.test(gate2b.text),
+  gate2b && gate2b.text.slice(-220));
+check('while the drift note still says the saved file has not been touched',
+  !!drift2b && /has not been touched/.test(drift2b.text), drift2b && drift2b.text.slice(0, 120));
+
+// ---- 2c. a hand-edited record: the file’s number is the file’s, not the gate’s --
+//
+// The record is the operator's file and says whatever it says. The first cut
+// read "when the file was written the gate destroyed 3" over a record edited
+// to 3 — an unverifiable number stated as the gate's own act.
+
+const forged = JSON.parse(readFileSync(saved1, 'utf8'));
+const fp = pasteOf(forged);
+fp.text = fp.text.replace('<REDACTED:psk>', PSK_LITERAL);
+fp.secrets = '3';
+const forgedPath = SCRATCH + '/round-trip-forged-count.json';
+writeFileSync(forgedPath, JSON.stringify(forged, null, 2));
+
+await fresh();
+await importFrom(forgedPath);
+const n2c = await notes();
+const gate2c = n2c.find(n => n.gate);
+check('a hand-edited secrets count is quoted as the FILE’s number, never as the gate’s own act',
+  !!gate2c && /the saved file recorded 3 destroyed/.test(gate2c.text) && !/the gate destroyed 3/.test(gate2c.text),
+  gate2c && gate2c.text.slice(0, 260));
 
 // ---- 3. the blind case: a shape-caught value on a residue line ---------------
 

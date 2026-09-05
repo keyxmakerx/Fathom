@@ -10,7 +10,7 @@
 //! output, and exactly the number of plaintext values the saved text still
 //! held when the gate has learned since.
 //!
-//! Red on 0733288 (`"7"` in the second slot); green after.
+//! Red on 0733288 (`"7"` in the fourth slot, `summary[3]`); green after.
 
 mod common;
 

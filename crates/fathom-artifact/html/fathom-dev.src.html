@@ -10699,8 +10699,9 @@ function checkDrift(o, reply, step, total) {
      gate that learned are independent facts about one file, and `renderDrift`
      has always drawn both, the gate note first. */
   var learned = is[3] !== undefined && Number(is[3]) > 0;
-  if (learned) noteGateLearned(o, reply, was[3], is[3]);
-  if (now === o.shape && !grew) return null;
+  var drifted = !(now === o.shape && !grew);
+  if (learned) noteGateLearned(o, reply, was[3], is[3], drifted);
+  if (!drifted) return null;
 
   var left = total - step;
   var note =
@@ -10749,24 +10750,42 @@ function checkDrift(o, reply, step, total) {
    a reply without one leaves the text alone and the note still stands.
    Driven: `2026-09-05-a-round-trip-is-not-a-drift.mjs`, which puts a PSK back
    into a saved file by hand, opens it, and reads the export. */
-function noteGateLearned(o, reply, wasN, isN) {
+function noteGateLearned(o, reply, wasN, isN, drifted) {
   var k, cap = null;
   for (k = 0; k < reply.rows.length; k++) {
     if (reply.rows[k].role === FACE_CAPTURE) { cap = reply.rows[k].s[0]; break; }
   }
   if (cap !== null) o.text = cap;
   o.secrets = String((Number(wasN) || 0) + Number(isN));
+  /* TWO WORDINGS, 2026-09-05, both from the skeptic that attacked the first cut:
+     (1) `wasN` is the number the FILE recorded, and a hand-edited file records
+     whatever it likes, so the sentence attributes it to the file ("the saved
+     file recorded 3") and never states it as the gate's own act ("the gate
+     destroyed 3"), which the first cut did. (2) When the parse ALSO read
+     differently this note sits directly above the drift note, which says the
+     saved file has not been touched and to keep it; so here "opened exactly as
+     saved" is dropped (it did not) and "export and replace the old file" is
+     dropped too (an export from here holds only what was replayed, and the
+     drift note is the one that knows what the old file still holds). The
+     text swap above stays in both cases: an export from here must not carry
+     the credential out again whatever else it holds. */
   S.gateNote =
-    'The design opened exactly as saved. But Fathom\u2019s redaction gate has ' +
-    'learned since this file was written: reading the saved config again, it ' +
-    'destroyed ' + plural(isN, 'value', 'values') + ' that the SAVED FILE holds ' +
-    'in plain text' +
-    (wasN !== undefined ? ' \u2014 when the file was written the gate destroyed ' +
-      wasN + ' and let ' + (String(isN) === '1' ? 'this one' : 'these') + ' through' : '') +
-    '. That means the old file itself holds something today\u2019s gate treats as ' +
-    'a credential. What is loaded here is clean, and so is what you export from ' +
-    'here: export and replace the old file, then treat wherever the old file has ' +
-    'been \u2014 disks, backups, mail \u2014 as having held a secret.';
+    (drifted ? '' : 'The design opened exactly as saved. But ') +
+    'Fathom\u2019s redaction gate has learned since this file was written: reading ' +
+    'the saved config again, it destroyed ' + plural(isN, 'value', 'values') +
+    ' that the SAVED FILE holds in plain text' +
+    (wasN !== undefined ? ' \u2014 the saved file recorded ' + wasN + ' destroyed when ' +
+      'it was written, and ' + (String(isN) === '1' ? 'this one was' : 'these were') +
+      ' not among them' : '') +
+    '. That means the old file itself holds something today\u2019s gate treats as a ' +
+    'credential. Treat wherever the old file has been \u2014 disks, backups, mail \u2014 ' +
+    'as having held a secret. ' +
+    (drifted
+      ? 'What is loaded here is clean, but the parse also read differently \u2014 see ' +
+        'the note below before replacing the old file, because an export from here ' +
+        'holds only what was replayed.'
+      : 'What is loaded here is clean, and so is what you export from here: export ' +
+        'and replace the old file.');
 }
 
 /* Write today's answer onto a paste entry, after the operator has been told it
