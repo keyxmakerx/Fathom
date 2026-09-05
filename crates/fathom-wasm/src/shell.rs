@@ -3092,7 +3092,18 @@ fn paste_reply(
     let edges = (weld.edges.len() + weld.containment.len()).to_string();
     let nodes = weld.nodes.len().to_string();
     let residue_total = ingest.residue.len().to_string();
-    let secrets = ingest.drops.entries.len().to_string();
+    // `destroyed()`, NOT `entries.len()` (2026-09-05). A replay pastes the
+    // REDACTED capture back through this opcode, and on that text the gate
+    // writes each of its own markers over itself — one entry apiece, nothing
+    // destroyed. Counting entries made the tally say "7 secrets removed" over
+    // a file from which nothing was removed, and the page's drift check, which
+    // compared that 7 with the 8 recorded at the paste, told the operator his
+    // own same-build export had drifted. On a raw paste the two numbers are
+    // equal, because raw text carries no marker to write over; on a replay
+    // this one is 0 unless today's gate destroyed something the saved file
+    // held in PLAIN TEXT — which is exactly the case the page must report.
+    // `DropManifest::destroyed` carries the account.
+    let secrets = ingest.drops.destroyed().to_string();
     let unresolved_total = weld.unresolved.len().to_string();
 
     // WHAT THIS PASTE PRODUCED, in sixteen characters (`49` §19 phase 0, item 3).

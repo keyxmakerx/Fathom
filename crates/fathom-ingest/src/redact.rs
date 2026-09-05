@@ -45,6 +45,50 @@ pub struct DropManifest {
     pub already_redacted: Vec<LineOrdinal>,
 }
 
+impl DropManifest {
+    /// **How many values this run actually destroyed** — the entries whose
+    /// write changed the capture. This, and not `entries.len()`, is the number
+    /// a tally may call *secrets removed*.
+    ///
+    /// The two differ only on text that has already been through this gate.
+    /// A journalled paste stores the REDACTED capture and a replay runs the
+    /// gate over it again (`fathom-wasm/src/shell.rs`, `OP_PASTE`; the page's
+    /// `importJournal`). On that second run every detector that fired the
+    /// first time fires again on the marker it left — `<REDACTED:psk>` sits
+    /// in the secret position, the leaf name before it is still `pre-shared-
+    /// key` — and [`pre_redacted`] does not recognise the gate's own marker
+    /// (the `:` fails its `^<[A-Za-z_ -]+>$` clause), so an edit is proposed
+    /// and the marker is written over itself. Byte-identical capture, one
+    /// entry per marker, nothing destroyed.
+    ///
+    /// Found 2026-09-05 because the shipped page compared `entries.len()`
+    /// across a same-build export → import of
+    /// `junos-srx-branch-documented.txt` and told the operator his own file had
+    /// drifted: 8 at the paste, 7 on the replay. The 8th was `read-only` on
+    /// `set snmp community EXAMPLE-READ-ONLY-COMMUNITY authorization
+    /// read-only` — collateral, not a secret: [`raw_walk`] looks two tokens
+    /// back and the synthetic VALUE `EXAMPLE-READ-ONLY-COMMUNITY` carries the
+    /// component `community`, so the token after `authorization` went too. On
+    /// the redacted text that predecessor is `<REDACTED:snmp-community>`,
+    /// whose components are `<redacted:snmp` and `community>`, and the slot
+    /// does not re-fire. Its marker is already there; nothing is lost. The
+    /// count was over two different inputs, and a difference of two such
+    /// counts could not say anything true: a PSK put back into the saved file
+    /// took its own marker's slot and read 7 as well — the same sentence for a
+    /// clean file and a leaking one — and a shape-caught value on a residue
+    /// line read 7 + 1 = 8, equal to the paste's own, and the comparison said
+    /// *no change* over a file holding a credential.
+    /// `crates/fathom-ingest/tests/round_trip.rs` pins all four cases.
+    ///
+    /// **This changes no redaction.** The edits are proposed, kept and written
+    /// exactly as before; only the tally reads a different field. The union
+    /// rule (`38` §14, ratified 2026-09-03) is untouched: nothing here reduces
+    /// what the gate destroys.
+    pub fn destroyed(&self) -> usize {
+        self.entries.iter().filter(|e| !e.unchanged).count()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RedactionEntry {
     pub ordinal: LineOrdinal,
@@ -54,6 +98,11 @@ pub struct RedactionEntry {
     /// 14 §9.5: for the in-session report only; the persistence layer must
     /// not store it. Enforced by doc comment now, by the store weld later.
     pub orig_len: u32,
+    /// The bytes written were the bytes already there: the token was this
+    /// gate's own marker (or the line already its own sketch), so the edit was
+    /// a no-op and nothing was destroyed. See [`DropManifest::destroyed`].
+    /// False on every token of a raw paste, which has no markers to find.
+    pub unchanged: bool,
 }
 
 /// Ingest-side labels. The first five mirror fathom_ir's SecretLabel
@@ -353,6 +402,16 @@ pub(crate) fn gate(
             },
         ));
         let new_start = rebuilt.len() as u32;
+        // Read BEFORE the write lands: `capture` is still the pre-redaction
+        // text here, and this is the only moment both texts are in hand.
+        let before = crate::frame::slice(
+            capture,
+            ByteSpan {
+                start: edit.start,
+                end: edit.end,
+            },
+        );
+        let unchanged = before == edit.text;
         rebuilt.push_str(&edit.text);
         entries.push(RedactionEntry {
             ordinal: edit.ordinal,
@@ -363,6 +422,7 @@ pub(crate) fn gate(
             label: edit.label,
             detectors: DetectorSet(edit.detectors),
             orig_len: edit.end.saturating_sub(edit.start),
+            unchanged,
         });
         cursor = edit.end;
     }
@@ -859,6 +919,21 @@ fn adjacent_secret_word(text: &str) -> bool {
     false
 }
 
+/// **Not a fixed point of its own output, and deliberately left so
+/// (2026-09-05).** `is_secret_word` matches by component, so a VALUE that
+/// happens to carry a secret word — the branch fixture's synthetic community
+/// `EXAMPLE-READ-ONLY-COMMUNITY` — reads as a leaf name to the token two
+/// after it, and `read-only` on that line is destroyed as collateral. Once the
+/// value is `<REDACTED:snmp-community>` its components are `<redacted:snmp`
+/// and `community>`, neither a member, and the same slot does not fire. So a
+/// second pass over the gate's own output proposes one edit fewer than the
+/// first — with nothing lost, because the slot already holds a marker. This is
+/// why a tally must count [`DropManifest::destroyed`] and never
+/// `entries.len()`; it is NOT a reason to widen or narrow the walk. Widening
+/// it to see inside a marker would re-destroy nothing; narrowing it to ignore
+/// values would reduce what the gate destroys, which the union rule forbids.
+/// No gate marker is itself a secret word, so a marker never causes a NEW
+/// fire on the token after it — pinned by `no_marker_is_a_secret_word` below.
 fn raw_walk(texts: &[String], at: usize) -> bool {
     texts
         .iter()
@@ -982,6 +1057,21 @@ fn base64ish(text: &str) -> bool {
 
 /// `14` §9.6: the value consists of ≤ 2 distinct characters, or matches
 /// `^<[A-Za-z_ -]+>$`, or equals a placeholder our own emitter writes.
+///
+/// **It does not recognise THIS gate's own marker, and that is recorded rather
+/// than changed (2026-09-05).** `<REDACTED:psk>` fails the bracket clause on
+/// its `:`, so on a second pass over a redacted capture every detector that
+/// fired the first time proposes an edit again and the marker is written over
+/// itself — byte-identical, and counted in `entries` as if something had been
+/// destroyed. §9.6's third clause arguably means the marker should land in
+/// `already_redacted` instead. It is left as-is on purpose: an edit re-points
+/// the tree node's segment and sets its `redacted` flag, and skipping it would
+/// change what `bind` sees on a replay against what it saw at the paste,
+/// which is a digest change on every import. The tally is corrected where the
+/// count is read — [`DropManifest::destroyed`] — and this function's answer
+/// for the marker is pinned in `no_marker_is_a_secret_word` so that teaching
+/// it the marker later is a deliberate act, re-checked against
+/// `tests/round_trip.rs`, and never a drive-by.
 fn pre_redacted(text: &str) -> bool {
     if text.is_empty() {
         return true;
@@ -1093,6 +1183,33 @@ mod tests {
         assert!(dict::is_secret_word("Pre-Shared-Key"));
         assert!(dict::is_secret_word("pre_shared_key"));
         assert!(!dict::is_secret_word("ascii-text"));
+    }
+
+    /// The gate's own marker trips no detector as a NEIGHBOUR — so a second
+    /// pass over redacted text can fire only where the first did, never on a
+    /// token the first pass left alone because its predecessor has since
+    /// become a marker. And it is pinned NOT to be a pre-redaction, so the
+    /// day somebody teaches `pre_redacted` about it, this fails and sends them
+    /// to `DropManifest::destroyed` and `tests/round_trip.rs` first.
+    #[test]
+    fn no_marker_is_a_secret_word() {
+        for label in [
+            RedactLabel::Psk,
+            RedactLabel::CertKey,
+            RedactLabel::SnmpCommunity,
+            RedactLabel::TacacsKey,
+            RedactLabel::Password,
+            RedactLabel::Unknown,
+        ] {
+            let m = marker(label);
+            assert!(!dict::is_secret_word(&m), "{m} reads as a secret word");
+            assert!(!key_names_a_secret(&m), "{m} reads as a secret key");
+            assert!(!crypt_prefix(&m) && !long_hex(&m) && !base64ish(&m), "{m}");
+            assert!(
+                !pre_redacted(&m),
+                "{m} is now a pre-redaction — re-read pre_redacted's doc comment"
+            );
+        }
     }
 
     // -----------------------------------------------------------------

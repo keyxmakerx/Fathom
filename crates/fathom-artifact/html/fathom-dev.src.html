@@ -10662,7 +10662,7 @@ function checkDrift(o, reply, step, total) {
   var is = [sum.s[0], sum.s[1], sum.s[2], sum.s[3]];
   var grew = was[0] !== is[0] || was[1] !== is[1] || was[2] !== is[2];
 
-  /* THE SECRETS COUNT IS COMPARED SEPARATELY, AND IT DOES NOT STOP THE REPLAY.
+  /* THE SECRETS COUNT IS READ SEPARATELY, AND IT DOES NOT STOP THE REPLAY.
      was[3]/is[3] were collected and never read until 2026-08-28 — so the one
      drift case that matters MOST was reported as "no drift": a gate that has
      since gained a detector destroying a credential the old build let through
@@ -10676,21 +10676,31 @@ function checkDrift(o, reply, step, total) {
      It does not stop the replay, because it must not: the digest matching
      means every minted id is identical, so the hand ops replay safely — and a
      stop would leave the operator with LESS than the file holds. What he
-     needs is the warning about the file on his disk. */
-  var secretsMoved = was[3] !== undefined && is[3] !== undefined && was[3] !== is[3];
-  if (now === o.shape && !grew) {
-    if (secretsMoved) {
-      S.gateNote =
-        'The design opened exactly as saved. But Fathom\u2019s redaction gate has ' +
-        'learned since this file was written: it now destroys ' + is[3] + ' ' +
-        'secrets in this config where the saved file recorded ' + was[3] + '. ' +
-        'That means the SAVED FILE itself holds, in plain text, something ' +
-        'today\u2019s gate treats as a credential. What is loaded here is clean. ' +
-        'Export from here and replace the old file, then treat wherever the old ' +
-        'file has been \u2014 disks, backups, mail \u2014 as having held a secret.';
-    }
-    return null;
-  }
+     needs is the warning about the file on his disk.
+
+     IT IS NOT A COMPARISON ANY MORE, 2026-09-05. Until this date the test was
+     `was[3] !== is[3]`, and on a same-build export → import of the branch
+     fixture it fired: "destroys 7 where the saved file recorded 8". Nothing
+     had learned anything. The two numbers were counts over two different
+     texts — `was` over the raw paste, `is` over the redacted capture the file
+     holds — and the module counted gate EDITS, of which a replay makes one per
+     marker (each written over itself) minus one piece of collateral that only
+     fires on the raw text (`fathom_ingest::redact::DropManifest::destroyed`
+     names it). A difference of two such counts could say nothing true: a PSK
+     put back into the saved file by hand took its own marker's slot and read
+     7 as well — the same sentence over a clean file and a leaking one — and a
+     shape-caught value on a residue line read 7 + 1 = 8, equal to the paste's
+     own, so the sentence stayed silent over a file holding a credential.
+
+     The module now reports what THIS run destroyed — bytes that changed — so
+     on a replay `is[3]` is 0 unless the gate found plain text to destroy in
+     the saved file, and the recorded `was[3]` is context, never the test. It
+     is reported in BOTH branches below: a parser that reads differently and a
+     gate that learned are independent facts about one file, and `renderDrift`
+     has always drawn both, the gate note first. */
+  var learned = is[3] !== undefined && Number(is[3]) > 0;
+  if (learned) noteGateLearned(o, reply, was[3], is[3]);
+  if (now === o.shape && !grew) return null;
 
   var left = total - step;
   var note =
@@ -10726,6 +10736,39 @@ function checkDrift(o, reply, step, total) {
   return note;
 }
 
+/* THE GATE FOUND PLAIN TEXT IN THE SAVED FILE. Say so, and make the sentence's
+   own instruction true: "export from here and replace the old file" is only
+   advice worth giving if the export from here is clean, so the entry's `text`
+   is replaced with the capture the module just wrote — the same text, with the
+   value destroyed — and `secrets` becomes the running total of what the gate
+   has destroyed from this capture (the paste's count plus today's). Without
+   the text swap the next export would carry the credential out again and the
+   note would fire on every open, forever, over a file the operator had been
+   told was fixed (the 2026-08-21 lesson: a warning that cannot be cleared is a
+   warning he learns to ignore). The capture row is the module's own output;
+   a reply without one leaves the text alone and the note still stands.
+   Driven: `2026-09-05-a-round-trip-is-not-a-drift.mjs`, which puts a PSK back
+   into a saved file by hand, opens it, and reads the export. */
+function noteGateLearned(o, reply, wasN, isN) {
+  var k, cap = null;
+  for (k = 0; k < reply.rows.length; k++) {
+    if (reply.rows[k].role === FACE_CAPTURE) { cap = reply.rows[k].s[0]; break; }
+  }
+  if (cap !== null) o.text = cap;
+  o.secrets = String((Number(wasN) || 0) + Number(isN));
+  S.gateNote =
+    'The design opened exactly as saved. But Fathom\u2019s redaction gate has ' +
+    'learned since this file was written: reading the saved config again, it ' +
+    'destroyed ' + plural(isN, 'value', 'values') + ' that the SAVED FILE holds ' +
+    'in plain text' +
+    (wasN !== undefined ? ' \u2014 when the file was written the gate destroyed ' +
+      wasN + ' and let ' + (String(isN) === '1' ? 'this one' : 'these') + ' through' : '') +
+    '. That means the old file itself holds something today\u2019s gate treats as ' +
+    'a credential. What is loaded here is clean, and so is what you export from ' +
+    'here: export and replace the old file, then treat wherever the old file has ' +
+    'been \u2014 disks, backups, mail \u2014 as having held a secret.';
+}
+
 /* Write today's answer onto a paste entry, after the operator has been told it
    differs from the one in the file.
 
@@ -10735,14 +10778,21 @@ function checkDrift(o, reply, step, total) {
    that reports drift against itself, every time it is opened, forever. It is
    not silent — renderDrift is on the page saying exactly what changed — and it
    does NOT touch `text`, which is the operator's own capture and the only thing
-   in the entry he ever gave us. */
+   in the entry he ever gave us.
+
+   NOR `secrets`, since 2026-09-05. On a replay the module's count is what
+   TODAY'S run destroyed from the saved text, not what the paste destroyed, and
+   the two are different facts: the paste's 8 are gone from the text already.
+   `noteGateLearned` is the one place that moves the recorded number, and it
+   adds to it. Stamping the replay's figure here would have written `0` over a
+   true `8` on every drift. */
 function restampPaste(o, reply) {
   var sum = reply.rows[0], k;
   for (k = 0; k < reply.rows.length; k++) {
     if (reply.rows[k].role === FACE_SHAPE) { o.shape = reply.rows[k].s[0]; break; }
   }
   o.things = sum.s[0]; o.connections = sum.s[1];
-  o.unread = sum.s[2]; o.secrets = sum.s[3];
+  o.unread = sum.s[2];
 }
 
 /* Replay. Each op goes back through the SAME opcode that made it, with its

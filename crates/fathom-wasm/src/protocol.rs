@@ -100,6 +100,13 @@ pub const FACE_IFACE: u8 = 4;
 /// The one summary row, always record 0. Slots, all decimal strings except the
 /// last three: nodes · edges · residue lines · secrets redacted · unresolved ·
 /// device display id · hostname · platform.
+///
+/// *Secrets redacted* is what THIS run destroyed — values whose bytes changed
+/// — and not the number of gate edits: pasting an already-redacted capture
+/// (every replay does) writes each marker over itself and destroys nothing,
+/// so the slot reads `0` there and `N` only when today's gate destroyed
+/// something the text still held in plain text. `fathom_ingest::redact::
+/// DropManifest::destroyed` is the authority (2026-09-05).
 pub const FACE_PASTE: u8 = 5;
 /// One line the parser did not bind: line number · the line as stored (post
 /// redaction) · why.
