@@ -505,16 +505,17 @@ impl Shell {
         //
         // `hostname` stays demanded. It is the one term a paste always carries,
         // and a box with neither name nor platform is one nothing could ever
-        // put a question to.
-        if !fields
-            .iter()
-            .any(|(k, _)| *k == DeviceField::Hostname.key())
-        {
-            return protocol::encode_error(
-                ERR_EQUIP_FRAME,
-                "a device needs a hostname: it is the one thing a later paste of its \
-                 config can recognise it by",
-            );
+        // put a question to. The demand is READ FROM `DOOR_DEMANDS` and not
+        // written here, because since 2026-09-05 a second reader depends on
+        // it being the same list: `field_set`'s clear refuses to blank what
+        // this door requires, and two hand-written lists would drift.
+        for (kind, key, field, why) in DOOR_DEMANDS {
+            if *kind == NodeKind::Device && !fields.iter().any(|(k, _)| k == key) {
+                return protocol::encode_error(
+                    ERR_EQUIP_FRAME,
+                    &format!("a device needs a {field}: {why}"),
+                );
+            }
         }
 
         // Route every field to the kind that declares it, from the generated
@@ -691,6 +692,37 @@ impl Shell {
     /// A clear of a field that already holds nothing is refused. Recording
     /// *"I do not know this"* over a slot that never said anything would put
     /// a provenance record in the estate with nobody's claim behind it.
+    ///
+    /// # What a clear refuses, and in what order — repaired 2026-09-05
+    ///
+    /// The clear shipped with three holes a value could never fall through,
+    /// all of one shape: `parse_into_slot` is where a set is gated, and a
+    /// clear skipped it because there was nothing to parse. A skeptic found
+    /// them the same day. So a clear now runs, in this order and all BEFORE
+    /// the batch opens:
+    ///
+    /// 1. **The authorability test a set runs**, with the same sentence. A
+    ///    journal `field` entry with an empty value on `SecurityPolicy.action`
+    ///    replayed — *"3 steps replayed"* — and blanked a value the parser had
+    ///    set, which no editor in the product could refill, where the same
+    ///    entry with a value was refused *"cannot be typed in yet"*. The
+    ///    journal is the file an operator keeps, and ADR-0038's as-built note
+    ///    is the rule: a tampered record is REFUSED, never guessed through.
+    /// 2. **Is the key a field of this element's kind at all** — on both
+    ///    paths. The store answers this from inside the batch as
+    ///    `UndeclaredField`, and the frame surfaced that as Rust `Debug` text
+    ///    (code 13) and then pushed the EMPTY batch into the log. It is asked
+    ///    here first, in English, and the sentence below the frame layout —
+    ///    *a refused value must not open a batch* — is true again.
+    /// 3. **What the add door demands** (`DOOR_DEMANDS`, the door's own list
+    ///    and not a second one). A box the door would have refused — no
+    ///    hostname and no platform — was two steps away: add it, clear its
+    ///    name. And a hostname-less `junos-srx` box matched EVERY junos-srx
+    ///    paste on its platform alone, which is the question-on-every-paste
+    ///    that `identity_clash` was shaped to avoid, reachable through the
+    ///    other term. The sentence names the field and says what to do
+    ///    instead; both page editors get it through this one path.
+    /// 4. Nothing to clear, as above.
     fn field_set(&mut self, req: &[u8]) -> Vec<u8> {
         use fathom_graph::{Actor, BatchId, ElementId, Timestamp, UserId};
 
@@ -729,8 +761,13 @@ impl Shell {
         };
 
         // Parse first. A refused value must not open a batch. `None` is a
-        // clear — see the doc comment — and is not parsed at all.
+        // clear — see the doc comment — and is not parsed, but it IS gated:
+        // the same authorability test a set runs, before anything else is
+        // looked at, giving the same sentence the set would have given.
         let parsed = if value.is_empty() {
+            if let Err(e) = fathom_inventory::authorability(key) {
+                return protocol::encode_error(ERR_FIELD_VALUE, &author_text(e, value));
+            }
             None
         } else {
             match fathom_inventory::parse_into_slot(key, value) {
@@ -744,9 +781,40 @@ impl Shell {
             Err(reply) => return reply,
         };
 
-        // A clear needs something to clear. Read before the batch opens, for
-        // the same reason the parse runs before it: a refusal writes nothing.
+        // The key must be a field of THIS element's kind, and that is decided
+        // here on both paths. The store decides it too (ADR-0008 at the write
+        // boundary), but from inside the batch, and the refusal it gives is a
+        // `WriteError` this frame printed as Rust debug text after
+        // `begin_batch` had already run — so the log gained an empty batch
+        // for a key that was never a field of the box.
+        if !declares(element, key) {
+            return protocol::encode_error(
+                ERR_FIELD_VALUE,
+                &format!(
+                    "field key {} is not a field of a {} (ADR-0008)",
+                    key.0,
+                    kind_name(element)
+                ),
+            );
+        }
+
         if parsed.is_none() {
+            // What the add door demands, the clear may not take away. Read
+            // from the door's own list, so the two cannot disagree.
+            if let Some((_, _, field, _)) = DOOR_DEMANDS.iter().find(|(kind, k, _, _)| {
+                *k == key && matches!(element, ElementId::Node(n) if n.kind == *kind)
+            }) {
+                return protocol::encode_error(
+                    ERR_FIELD_VALUE,
+                    &format!("a box needs a {field} — type a new one instead of clearing it"),
+                );
+            }
+
+            // A clear needs something to clear. Read before the batch opens,
+            // for the same reason the parse runs before it: a refusal writes
+            // nothing. `presence` can no longer answer `UndeclaredField` here
+            // — the check above ran — which is what let an undeclared key
+            // read as "something to clear" until 2026-09-05.
             let holds_nothing = self.estate.as_ref().is_none_or(|g| {
                 matches!(
                     g.presence(element, key),
@@ -2298,6 +2366,54 @@ const EQUIP_LABEL: &str = "Add equipment by hand";
 /// The undo labels for the two edit gestures (`53` §7.2). Named for what the
 /// person did, not for the opcode.
 const EDIT_LABEL: &str = "Correct a field";
+
+/// WHAT THE ADD DOOR DEMANDS, BY KIND — and, since 2026-09-05, what a clear
+/// therefore refuses to take away.
+///
+/// One list, two readers. `OP_EQUIP_ADD` refuses a form that omits any of
+/// these; `OP_FIELD_SET`'s clear refuses to blank any of them. The second
+/// reader exists because the first was found to have a back door: a box the
+/// door would never admit — no hostname and no platform — could be made in
+/// two steps, add it and then clear its name. A hostname-less box is one no
+/// later paste can put a question to, and a hostname-less `junos-srx` box is
+/// worse: `identity_clash` matched it against EVERY junos-srx paste on the
+/// platform term alone, so the question-on-every-paste that rule was shaped
+/// to avoid was reachable through the other term.
+///
+/// Each row: the kind, the key, the field's name for a sentence, and why the
+/// door wants it. The key is the generated one, never a number written here.
+/// Adding a row is a product decision, not a convenience: everything in it
+/// becomes both un-omittable and un-clearable.
+const DOOR_DEMANDS: &[(
+    fathom_ir::generated::ir_types::NodeKind,
+    fathom_ir::bag::FieldKey,
+    &str,
+    &str,
+)] = &[(
+    fathom_ir::generated::ir_types::NodeKind::Device,
+    fathom_ir::generated::ir_types::DeviceField::Hostname.key(),
+    "hostname",
+    "it is the one thing a later paste of its config can recognise it by",
+)];
+
+/// Does this element's kind declare `key`? `fathom_graph` asks the same
+/// question at the write boundary (ADR-0008) and answers `UndeclaredField`
+/// from inside a batch; asking it here first is what keeps a refusal from
+/// opening one.
+fn declares(element: fathom_graph::ElementId, key: fathom_ir::bag::FieldKey) -> bool {
+    match element {
+        fathom_graph::ElementId::Node(n) => n.kind.fields().contains(&key),
+        fathom_graph::ElementId::Edge(e) => e.kind.fields().contains(&key),
+    }
+}
+
+/// The schema's name for an element's kind, for a sentence.
+fn kind_name(element: fathom_graph::ElementId) -> &'static str {
+    match element {
+        fathom_graph::ElementId::Node(n) => n.kind.name(),
+        fathom_graph::ElementId::Edge(e) => e.kind.name(),
+    }
+}
 const REMOVE_LABEL: &str = "Remove equipment";
 /// ADR-0036. Named for the gesture, not the opcode: the person put a box in a
 /// rack, and that is what the undo stack should offer to take back.

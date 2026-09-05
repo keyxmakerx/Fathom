@@ -32,7 +32,7 @@ mod inventory;
 mod rack;
 mod render;
 
-pub use author::{is_authorable, parse_into_slot, AuthorError};
+pub use author::{authorability, is_authorable, parse_into_slot, AuthorError};
 #[cfg(feature = "demo-estate")]
 pub use demo::demo_estate;
 pub use element::{element_page, parse_display_id, role_word, ElementPage, FieldRow};

@@ -215,3 +215,36 @@ fn no_derived_field_is_hand_editable() {
         );
     }
 }
+
+/// `authorability` is `is_authorable` with the reason attached, and the
+/// reason is the error the value path gives — so a caller turning it into a
+/// sentence cannot say something different from what a typed value would
+/// have been told. Added 2026-09-05 for the clear in `OP_FIELD_SET`, which
+/// had been skipping the test because it had no value to parse.
+#[test]
+fn authorability_agrees_with_is_authorable_and_with_the_value_path() {
+    use fathom_inventory::{authorability, is_authorable};
+    use fathom_ir::bag::FieldKey;
+    let mut refused = 0;
+    for raw in 1..=400u32 {
+        let key = FieldKey(raw);
+        let verdict = authorability(key);
+        assert_eq!(verdict.is_ok(), is_authorable(key), "key {raw}");
+        if let Err(e) = verdict {
+            refused += 1;
+            assert!(
+                matches!(
+                    e,
+                    AuthorError::UnsupportedType { .. } | AuthorError::UnknownKey(_)
+                ),
+                "key {raw}: a parse refusal is not a verdict on the field"
+            );
+            assert_eq!(
+                parse_into_slot(key, "anything").err(),
+                Some(e),
+                "key {raw}: the reason must be the one a value gets"
+            );
+        }
+    }
+    assert!(refused > 0, "the range must include a key nothing can type");
+}

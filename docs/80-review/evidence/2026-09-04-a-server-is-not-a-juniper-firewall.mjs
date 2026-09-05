@@ -42,8 +42,36 @@
 // The estate: one box added by hand with no platform, whose hostname is the
 // one the documented SRX branch fixture carries — read out of the fixture,
 // never typed here, so the two cannot drift apart.
+//
+// REPAIRED 2026-09-05, THE SAME DAY. A skeptic attacked the clear that
+// 1e0465a shipped and found it bypassed the gates a SET runs, because the only
+// place `is_authorable` was enforced (`parse_into_slot`) never saw an empty
+// value. §7b, §7c and §8b below are the checks: 46/46 here, 32/46 on an
+// artifact built from 1e0465a in a detached worktree — and the file now runs
+// to its count on that build instead of timing out, because a refusal that
+// does not come is read as '' rather than waited for:
+//   §7b  blanking the HOSTNAME cell — the one field the add door demands —
+//        was accepted ("cleared — now unset"), leaving a box the door would
+//        have refused, and a hostname-less junos-srx box makes EVERY junos-srx
+//        paste ask "this may be that box". Now refused, naming the field.
+//   §7c  the details-pane editor (`commitField`) sends the same blank and was
+//        never driven; its three answers are driven here, and the floor too.
+//        (On 1e0465a its three answers fail only as a CASCADE of §7b — the
+//        cleared hostname leaves the pane on a nameless box — not because
+//        that build's pane clear was broken; the floor check is its own red.)
+//   §8b  a hand-edited journal carrying a `field` op with an EMPTY value on
+//        `SecurityPolicy.action` — a key nothing in the product can type —
+//        replayed ("opened a workspace — N steps replayed") and blanked what
+//        the parser set, where the same op WITH a value was refused. The
+//        journal is the file an operator keeps; ADR-0038's rule is that a
+//        tampered record is refused, never guessed through. Modelled on
+//        `2026-08-29-cabling-drive.mjs` §10.
+// Field keys are read out of `schema/field-keys.yaml`, never typed here.
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 
 const ROOT = process.argv[2] || process.cwd();
 const FILE = 'file://' + ROOT + '/target/artifact/fathom-dev.html';
@@ -52,6 +80,11 @@ const FIXTURE = readFileSync(
   ROOT + '/crates/fathom-ingest/tests/fixtures/junos-srx-branch-documented.txt', 'utf8');
 const HOST = (/^set system host-name (\S+)/m.exec(FIXTURE) || [])[1];
 if (!HOST) { console.error('the fixture carries no host-name line'); process.exit(2); }
+// `Kind.field: N` lines of the registry — the same table the module's wire keys
+// come from, so a key here cannot be a number somebody remembered.
+const KEYS = {};
+for (const m of readFileSync(ROOT + '/schema/field-keys.yaml', 'utf8').matchAll(/^\s+([A-Za-z]+\.[a-z_]+):\s*(\d+)\s*$/gm)) KEYS[m[1]] = parseInt(m[2], 10);
+const KEY = name => { if (!(name in KEYS)) throw new Error('no key for ' + name); return KEYS[name]; };
 
 const results = [];
 function check(name, ok, detail) {
@@ -82,17 +115,47 @@ page.on('request', r => requests.push(r.url()));
 // on this file's first run — 2 devices and 56 residue lines — which is exactly
 // the kind of count that passes for the wrong reason.
 const ROWSET = '.invwrap table.inv';
-// The inventory, on the Device row set — picked BY LABEL from the kind strip,
-// never by position.
-const inventory = async () => {
+// The inventory, on one row set — picked BY LABEL from the kind strip, never
+// by position.
+const inventoryOf = async label => {
   await page.click('[data-view="inventory"]');
   await page.waitForSelector(ROWSET);
-  await page.evaluate(() => {
+  await page.evaluate(label => {
     const strip = [...document.querySelectorAll('#factBody .strip [data-kind]')]
-      .find(n => n.textContent.trim() === 'Device');
+      .find(n => n.textContent.trim() === label);
     if (strip) strip.click();
-  });
+  }, label);
   await page.waitForTimeout(150);
+};
+const inventory = () => inventoryOf('Device');
+const footer = () => page.$eval('#fMsg', n => n.textContent);
+// The refusal the cell editor shows, or '' when none came within a moment —
+// so a build that ACCEPTS what should be refused fails the check instead of
+// hanging the file on a selector that never appears.
+const cellErr = async () => {
+  try {
+    await page.waitForSelector(ROWSET + ' .cellerr', { timeout: 1500 });
+    return await page.textContent(ROWSET + ' .cellerr');
+  } catch (e) { return ''; }
+};
+// The details pane's own editor for one field, by the field's name — the
+// SECOND surface that writes a field (`commitField`). Unset fields sit behind
+// a <details> that states its own count, opened here as the direction-a
+// driver opens it. Returns the footer sentence after Enter.
+const paneCommit = async (field, text) => {
+  await page.evaluate(() => {
+    const d = document.querySelector('#ipaneDetails details.unsetfields');
+    if (d && !d.open) d.open = true;
+  });
+  const inp = await page.$('#ipaneDetails .fedit[aria-label="' + field + '"]');
+  if (!inp) return null;
+  // A short timeout, and null rather than a throw: on a build where the
+  // previous step left the pane on something else (1e0465a, after it cleared
+  // the hostname), the check must FAIL, not hang the file.
+  try { await inp.fill(text, { timeout: 2000 }); } catch (e) { return null; }
+  await inp.press('Enter');
+  await page.waitForTimeout(250);
+  return footer();
 };
 const headers = () => page.$eval(ROWSET, t =>
   [...t.querySelectorAll('thead th')].map(n => n.textContent.trim()));
@@ -280,6 +343,42 @@ check('clearing an already-empty cell is refused rather than journalled',
 await page.keyboard.press('Escape');
 await editorGone();
 
+// ---- 7b. THE FLOOR: what the door demands cannot be cleared ------------------
+// On 1e0465a this blank is ACCEPTED: the cell reads "—", the footer says
+// "cleared — now unset", and the estate holds a box with neither hostname nor
+// platform — one the add door would have refused.
+await inventory();
+const hostCol = await colIndex('hostname');
+await editCell(drawnId, hostCol, '');
+const floorErr = await cellErr();
+check('BLANKING THE HOSTNAME IS REFUSED, and the refusal names the field and the way out',
+  /needs a hostname/.test(floorErr) && /instead of clearing/.test(floorErr),
+  floorErr || ('no refusal; footer: ' + await footer()));
+await page.screenshot({ path: OUT + '/2026-09-05-what-the-door-demands-cannot-be-cleared.png' });
+await page.keyboard.press('Escape');
+await editorGone();
+rows = await deviceRows();
+check('and the cell still holds the name',
+  rows.find(r => r.id === drawnId).hostname === HOST, rows.find(r => r.id === drawnId).hostname);
+
+// ---- 7c. THE SAME THREE ANSWERS THROUGH THE DETAILS PANE --------------------
+// `commitField` is the second editor that sends a blank, and 1e0465a drove
+// only the cell. The row is still selected from 7b, so the pane is on it.
+await page.click('#ipaneDetails [data-face="meaning"]').catch(() => {});
+check('the details pane is on the drawn box', await page.$eval('#ipaneDetails', (n, host) => n.textContent.includes(host), HOST));
+check('pane: typing a platform says "changed"',
+  await paneCommit('platform', 'junos-srx') === 'changed', await footer());
+check('pane: a blank says "cleared — now unset"',
+  await paneCommit('platform', '') === 'cleared — now unset', await footer());
+check('pane: a second blank is refused with "nothing to clear"',
+  /nothing to clear/.test(await paneCommit('platform', '') || ''), await footer());
+const paneFloor = await paneCommit('hostname', '');
+check('pane: BLANKING THE HOSTNAME IS REFUSED with the same sentence the cell got',
+  /needs a hostname/.test(paneFloor || '') && /instead of clearing/.test(paneFloor || ''), paneFloor);
+rows = await deviceRows();
+check('and the name is still in the table',
+  rows.find(r => r.id === drawnId).hostname === HOST, rows.find(r => r.id === drawnId).hostname);
+
 // ---- 8. EXPORT → RELOAD → IMPORT replays all of it -------------------------
 const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#tabExport')]);
 let exported = '';
@@ -288,9 +387,12 @@ const journal = JSON.parse(exported);
 const fieldOps = (journal.ops || journal.journal || journal).filter
   ? (journal.ops || journal.journal || journal).filter(o => o.op === 'field')
   : [];
-check('the journal holds the fill and the clear as two field ops, the clear with an empty value',
-  fieldOps.length === 2 && fieldOps[0].value === 'junos-srx' && fieldOps[1].value === '',
+check('the journal holds the two fills and the two clears as four field ops, the clears with an empty value',
+  fieldOps.length === 4 && JSON.stringify(fieldOps.map(o => o.value)) === '["junos-srx","","junos-srx",""]',
   JSON.stringify(fieldOps.map(o => o.value)));
+check('and the two refused hostname blanks left NO op — every field op names the platform key',
+  fieldOps.every(o => o.key === KEY('Device.platform')),
+  JSON.stringify(fieldOps.map(o => o.key)) + ' vs platform ' + KEY('Device.platform'));
 await page.reload();
 await page.waitForFunction(() => document.querySelector('#band button') !== null);
 await page.evaluate(text => {
@@ -312,6 +414,49 @@ check('reopened: two devices, the drawn one unset again (the clear replayed), th
 check('and no duplicate question is standing after the import', !/already in this design/.test(await question()));
 gap = await platformGap();
 check('and findings lists the one gap again', gap && gap.n === 1, gap ? gap.what : 'none');
+
+// ---- 8b. A HAND-EDITED JOURNAL CLEARING WHAT NOTHING CAN TYPE IS REFUSED -----
+// The op appended here is exactly the record a `field` op takes, with the one
+// value no editor in the product can produce for this key: an empty one on
+// `SecurityPolicy.action`, which the parser set from `then permit` and which
+// `author.rs` has no parser for. On 1e0465a it replays — the footer reads
+// "opened a workspace — N steps replayed", findings reports a policy with no
+// action, and nothing can refill it. Here the whole import is refused by
+// step and by sentence, and the estate is left empty rather than half-built.
+await inventoryOf('SecurityPolicy');
+const policyId = await page.$eval(ROWSET, t => {
+  const b = t.querySelector('tbody tr td button[data-post]');
+  return b ? b.getAttribute('data-post') : null;
+});
+check('setup: the reopened estate has a security policy to tamper with', !!policyId, policyId);
+const tampered = JSON.parse(exported);
+tampered.ops.push({
+  seq: tampered.ops.length + 1, by: 'local', op: 'field', at: Date.now(),
+  ent: randomBytes(16).toString('base64'),
+  id: policyId, key: KEY('SecurityPolicy.action'), value: '',
+});
+const tamperedPath = join(tmpdir(), 'fathom-clear-tamper-' + process.pid + '.json');
+const honestPath = join(tmpdir(), 'fathom-clear-honest-' + process.pid + '.json');
+writeFileSync(tamperedPath, JSON.stringify(tampered));
+writeFileSync(honestPath, exported);
+await page.goto('about:blank');
+await page.goto(FILE);
+await page.waitForFunction(() => document.querySelector('#band button') !== null);
+await page.setInputFiles('#importFile', tamperedPath);
+await page.waitForTimeout(1500);
+const verdict = await footer();
+check('THE TAMPERED IMPORT IS REFUSED — by step, in the sentence a typed value gets, and nothing is opened',
+  new RegExp('step ' + tampered.ops.length + ' of ' + tampered.ops.length + ' was refused').test(verdict) &&
+  /cannot be typed in yet/.test(verdict) && /nothing was opened/.test(verdict),
+  verdict);
+check('and it left no estate at all', (await page.$$('.inv tbody tr')).length === 0,
+  (await page.$$('.inv tbody tr')).length + ' row(s)');
+await page.setInputFiles('#importFile', honestPath);
+await page.waitForTimeout(1500);
+await inventory();
+rows = await deviceRows();
+check('the honest journal still opens afterwards — two devices, as before',
+  rows.length === 2 && rows.filter(r => r.hostname === HOST).length === 2, rows.length + ' rows');
 
 // ---- 9. THE INVARIANTS -------------------------------------------------------
 check('one network request, the file itself (invariant 1)',

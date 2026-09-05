@@ -314,10 +314,17 @@ pub(crate) fn display_name(g: &Graph, id: NodeId) -> String {
 /// kind declares none, or holds no value under any.
 ///
 /// Declaration order is the tie-break, which today never fires: no kind in
-/// schema 0.5 declares two of the three (`DhcpRelay` has `label` and an
-/// explicit arm that chose `server` over it, WO-10 §7.3). A `for` loop and
-/// three comparisons rather than an iterator chain, for the byte reason the
-/// rest of this crate gives (`47` §3).
+/// schema 0.5 declares two of the three. The explicit arms above are not made
+/// redundant by this rule, because each carries a decision it cannot make:
+/// `RoutingInstance` declares `name`, and its arm answers *"routing instance
+/// (unnamed)"* where this would answer `None` and the caller would print a
+/// ULID. (Until 2026-09-05 this comment cited `DhcpRelay` as declaring
+/// `label`, with an arm that chose `server` over it. It declares no `label` —
+/// `server`, `group_name`, `maximum_hop_count`, `minimum_wait_time` — and its
+/// arm chooses the server address because WO-10 §7.3 says a relay's name is
+/// its server, not because a `label` was in the way.) A `for` loop and three
+/// comparisons rather than an iterator chain, for the byte reason the rest of
+/// this crate gives (`47` §3).
 fn schema_named(g: &Graph, id: NodeId) -> Option<String> {
     for k in id.kind.fields() {
         let n = field_name(*k);

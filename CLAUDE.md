@@ -660,6 +660,23 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   schema file (it would move the generated content hash for a comment; the reasoning is in
   `shell.rs` at the door), and no hostname-only re-identification — the one answer offered is still
   *"different boxes"*, and *"same box, newer config"* is still remove-and-paste-again.
+  **Repaired 2026-09-05, the same day, after a skeptic attacked the clear:** it bypassed the gates a
+  SET runs, because the only place `is_authorable` was enforced (`parse_into_slot`) never saw an
+  empty value. **The clear now has a floor and runs the gate, all before any batch opens.** (1) A
+  `field` op with an empty value on a key nothing can type — a hand-edited journal blanking
+  `SecurityPolicy.action` — is refused with the sentence a typed value gets (*"cannot be typed in
+  yet"*) instead of replaying as *"opened a workspace — 6 steps replayed"*; the journal is the file
+  an operator keeps, and ADR-0038's rule holds: refused, never guessed through. (2) A key the
+  element's kind does not declare is refused in English, code 11, on both paths — it used to open a
+  batch, surface `UndeclaredField { … }` as Rust debug text, and leave an EMPTY batch in the log.
+  (3) **What the add door demands cannot be cleared**: `DOOR_DEMANDS` in `shell.rs` is the one list
+  the door and the clear both read (today `Device.hostname`), so blanking a hostname is refused —
+  *"a box needs a hostname — type a new one instead of clearing it"* — through the one refusal path
+  both page editors already use, with no page change. Before, two steps produced a box the door would
+  have refused, and a hostname-less `junos-srx` box made EVERY junos-srx paste ask *"this may be that
+  box"*. Module 990,109 → 991,123 bytes (+1,014), read off the build. `crates/fathom-wasm/tests/
+  clear.rs` (four tests, three red on 1e0465a) and the driver 33 → **46/46**, **32/46 on an artifact
+  built from 1e0465a**, now driving the details-pane editor as well as the cell.
 - **Raised by the on-ramp (2026-08-09), all three now settled:** (a) the ceiling question
   is CLOSED — removed 2026-08-21 with the pivot, and the dictionary had already moved out of
   the module to the page on 2026-08-15; (b) `OP_PASTE` is ADDITIVE as of 2026-08-21, with the

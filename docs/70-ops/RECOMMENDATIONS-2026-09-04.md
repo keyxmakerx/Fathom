@@ -2997,6 +2997,18 @@ moves the generated content hash for a comment; the reasoning lives at the door 
 `docs/80-review/evidence/2026-09-04-a-server-is-not-a-juniper-firewall.mjs`, 33/33, nine checks red
 on the build before it.
 
+**Repaired 2026-09-05.** The clear above shipped without the gates a set runs — `parse_into_slot`
+was the only place `is_authorable` was enforced, and an empty value never reached it. Now, before
+any batch opens: the authorability test with the set's own sentence (a hand-edited journal blanking
+`SecurityPolicy.action` is refused, not replayed); a key the element's kind does not declare refused
+in English rather than as `UndeclaredField` debug text over an empty batch; and **a floor** — a field
+the add door demands (`DOOR_DEMANDS` in `shell.rs`, the door's own list; today `Device.hostname`)
+cannot be cleared: *"a box needs a hostname — type a new one instead of clearing it"*, because a
+hostname-less box is one the door would have refused and, on `junos-srx`, one every junos-srx paste
+would ask about. The details-pane editor is driven as well as the inventory cell. Module 990,109 →
+991,123 bytes (+1,014); the driver 33 → 46/46, 32/46 on an artifact built from 1e0465a;
+`crates/fathom-wasm/tests/clear.rs` carries the Rust half.
+
 ---
 
 ## Failure modes

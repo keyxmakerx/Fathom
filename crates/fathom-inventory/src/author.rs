@@ -177,16 +177,30 @@ pub fn parse_into_slot(key: FieldKey, text: &str) -> Result<Box<dyn Any>, Author
     Err(AuthorError::UnsupportedType { key, declared })
 }
 
+/// Is this field editable by hand today, and if not, why not?
+///
+/// `Ok(())` for a field the table can parse — including one whose probe text
+/// fails to parse, because a *parse* refusal means the field is editable and
+/// the text was wrong. `Err` carries the one refusal that means *no text would
+/// do*: `UnsupportedType` or `UnknownKey`. It is the same error
+/// `parse_into_slot` returns for that key with any value, so a caller that
+/// turns it into a sentence gets the sentence the value path gives.
+///
+/// Added 2026-09-05 for `OP_FIELD_SET`'s clear, which needed the reason and
+/// not only the verdict. Until then `is_authorable` was enforced by exactly
+/// one caller, `parse_into_slot`, and only when there was a value to parse —
+/// so a journal `field` entry with an EMPTY value on a key nothing can type
+/// replayed as a clear, where the same entry with a value was refused.
+pub fn authorability(key: FieldKey) -> Result<(), AuthorError> {
+    match parse_into_slot(key, "\u{0}\u{0}unparseable\u{0}\u{0}") {
+        Err(e @ (AuthorError::UnsupportedType { .. } | AuthorError::UnknownKey(_))) => Err(e),
+        _ => Ok(()),
+    }
+}
+
 /// Is this field editable by hand today? The page asks before offering an
 /// input, so a field the table cannot take is never presented as one — the
 /// alternative is a form that accepts a value and then refuses it.
 pub fn is_authorable(key: FieldKey) -> bool {
-    parse_into_slot(key, "\u{0}\u{0}unparseable\u{0}\u{0}")
-        .err()
-        .is_none_or(|e| {
-            !matches!(
-                e,
-                AuthorError::UnsupportedType { .. } | AuthorError::UnknownKey(_)
-            )
-        })
+    authorability(key).is_ok()
 }
