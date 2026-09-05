@@ -416,6 +416,174 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
 
 ## Next actions
 
+- **HANDOVER, 2026-09-05 — the owner answered everything asked, three demo defects are fixed, and
+  the next work is planning, not code.** Read this bullet, then `docs/70-ops/WHAT-I-RECOMMEND-2026-09-04.md`
+  (the owner's page, two screens) and `docs/70-ops/70-owner-answers-and-standing-priorities.md`
+  §19–§20 (his words, verbatim) before anything else on this page.
+  **WHAT WAS DECIDED, 2026-09-04.** Fourteen security and schema decisions were each researched
+  by one agent and attacked by a second; every attack struck over-claims and bad citations and left
+  the direction standing; the technical record with every correction applied is
+  `docs/70-ops/RECOMMENDATIONS-2026-09-04.md` (3,398 lines, 6 `VERIFY` markers and 2 bare — a
+  previous line said 21, counted by grepping the word). Three governance items were judged
+  directly from documents already on disk. The owner then answered ten questions in one evening
+  (`70` §20.1–§20.10) and five the afternoon before (`70` §19.1–§19.5). The ones that bind code:
+  **open source, run by the employer, optionally behind a hardened reverse proxy** — which means
+  ADR-0003's *"no hosted service, no accounts we run"* stays TRUE and it is `49`'s customer
+  language that needs amending, the opposite of what `OPEN-FOR-THE-OWNER.md` §B1 feared;
+  **a vault from the start and the server holds the keys, confirmed knowingly** (OpenBao Transit,
+  MPL, as one more container; ADR-0040 unchanged); **secrets in compose live in env files that can
+  be restricted, never inline and never with a default** — `deploy/.env` is git-ignored as of
+  2026-09-04 and the README makes it `chmod 600`; **five people-roles — read-only, write, share,
+  invite, admin — granted PER SITE** (the New York head-end engineer has no write on San
+  Francisco), and **a drawing is Draft, Planning or Production** (server tables, distinct from the
+  per-box `planned` word); **groups AND tags are two kinds**, a group a real named set that spans
+  sites and does not nest, a tag a typed word Fathom reuses; **the demo runs in Docker only**;
+  **a separate database for the keys was handed back to me and I recommend against it** —
+  `tenant_key` in its own PostgreSQL schema is the cheap middle, `70` §20.9 says why in one
+  paragraph; **the firmware bench test is on** — the owner has a real SRX and a real Arista, and
+  `docs/80-review/evidence/2026-09-04-firmware-bench-test.md` is the thirty-minute script, its
+  Juniper half verified line by line against `Juniper/yang` `96ad7bad` (the SRX has `request
+  system download start … identity-file` and `request security ssh key-pair-identity generate`,
+  now in `49` §16.1a(vi); `file copy` has no key leaf, confirmed in the `file-mgd` model), its
+  Arista half exploratory because arista.com is unreachable from here and no Arista-authored
+  material shows a client key. **Two mistakes of mine worth not repeating**: naming another
+  product in a question read as a dependency (*"Why are we having grafana…?"*), and using the
+  word *group* for equipment when it also means people. Both recorded in `WHAT-I-RECOMMEND` §2.
+  **SIX SCHEMA DECISIONS EACH CLAIMED 0.6; THE ORDER THEY LAND IN IS WRITTEN** —
+  `docs/70-ops/79-work-orders/00-SCHEMA-SEQUENCE-2026-09-04.md`: D1 no bump → D2 0.6 (keys
+  312–314) → D4 0.7 (315–318) → D7 0.8 → D5 0.9 → D6 0.10 (319–371) → D3 0.11, the major-class
+  change alone → E4 no bump. The real tail of `field-keys.yaml` is 311; read it off the file.
+  **THREE DEMO DEFECTS, FOUND BY OPENING THE PRODUCT, ARE FIXED — each implemented by one agent,
+  driven in Chromium through a real reload, and attacked by a second agent.**
+  (1) **The findings view showed a ULID where a name exists** — commit `8481632`. My premise was
+  wrong and the agent corrected it: I said a `PolicySet` had its zone pair "right there", and it
+  does not — `fathom_ir::value::PolicyScope` is `pub struct PolicyScope;`, a unit struct, the zone
+  pair is a dictionary dedup key only, and no `PolicySet → Zone` edge exists; **the same class as
+  `57` §14(b)'s `trace_step`: fully specified in `19`, never implemented**, already recorded in
+  `fathom-inventory/src/inside.rs`'s module doc and pinned by a `size_of` tripwire in
+  `tests/projection.rs` that fires the day `PolicyScope` grows a shape. So a `PolicySet` stays its
+  id, honestly, and the real defect was sixteen kinds whose `name`/`label`/`hostname` field the
+  projection never rendered; driver `2026-09-04-the-name-the-graph-holds.mjs` 16/16.
+  (2) **The diagram opened unreadable** — one pasted SRX drew 47 boxes and 60 lines at 0.29× with
+  94 labels off. Established, not assumed, in `dgFoldInside`'s comment: not the five layers (a
+  mask thins, it cannot fold), not a missing like-kind fold (`59` §3 needs more than six IDENTICAL
+  siblings and the SRX's eight interfaces carry eight edge signatures), **the rung** — `56` §4.1's
+  stubs, labels and brackets are all drawn as full boxes one column deeper per containment hop, so
+  the site rung drew rung 4's contents beside every device. Now every box whose containment chain
+  passes through a `Device` folds into it at rung 1; the box carries `46 inside`, the Outline row
+  carries the count and lists every folded object one level down, selectable; the details pane
+  says which kinds; the band and note say how many are not drawn; `show what is inside` in the
+  strip draws the picture exactly as before and is offered only when something is folded (`70`
+  §19.4b). A reference line with one end inside a device is re-homed to the device box
+  (`dgRehome`, the one geometry the page draws on its own account, because the module's polyline
+  ends where the folded box was). Positions do not move (`56` §3.6); the FIT does (`DG.ext`).
+  First open is now one box at 3.55×, 0 labels off. Page-only; module bytes unchanged at
+  988,825. Commit `069896c`; driver `2026-09-04-the-diagram-opens-on-the-devices.mjs` 55/55
+  through a real reload, plus twenty-six diagram drivers re-run — eight of them changed to press
+  `show what is inside` first, each with a dated note at the point of change, because they were
+  written against interface boxes the site rung no longer draws. Finishing it found two more
+  page regressions and fixed them in the same commit: `dgHold` clamped against the padded extent
+  (six drags pushed the one box off-canvas at 3.55×) and `dgBoxOf` consulting the fold map while
+  the fold was not applied. **Its skeptic then found four consistency defects — the band false
+  at rung 4, the control offered at depth where it does nothing, the Outline row still saying
+  `46 inside` while shown, a pressed control surviving the removal of everything it governed —
+  repaired in `ad6f36c`: the band clause gated on the same `away` test as `labels off`, the control
+  hidden at depth by a CSS rule beside `.dzoomctl`'s, the row count only while the fold is applied,
+  the control offered only when something is behind it; driver 55 → 65/65, 59/65 on the parent.
+  Its skeptic held on all four and found one more of the same class one panel over — the Outline
+  NOTE at rung 4 still said *"press show what is inside"* over a strip where that control is hidden
+  — polished in `0733288`: the whole fold clause is a span hidden by the SAME two CSS rules that hide
+  the control, so the two can never be hidden separately; driver 65 → 69/69, 66/69 on `ad6f36c`.
+  That skeptic held, and listed four more of the class as pre-existing and out of remit: at rung 4
+  and the rack rung the note still carries site-picture counts and instructions (*"1 box standing
+  for 1 object"*, *"Drag a box to place it by hand"*), the rack rung's note says *"1 rack is drawn —
+  select one"* over that rack's own elevation, the details pane's `46 inside` summary reads at rung
+  4, and `N lines` bypasses `plural()`. All four are one polish, not four. Its message says *805 passed*; the count on that tree was 804, corrected here and
+  in the polish commit rather than by rewriting history (the `a5555ad` precedent).**
+  (3) **A server had to be filed as a Juniper firewall** — commit `1e0465a`, the design in
+  `RECOMMENDATIONS-2026-09-04` §15 (D1) built as specified: `Device.platform` stays `card: "1"`,
+  the FORM stops demanding it (a blank is the first option), the store holds `Unknown`, the
+  inventory shows `—`, findings lists *"1 of 1 Device nodes has no platform"*, and the trap the
+  skeptic found is closed rather than reworded — `identity_clash` treats a REQUIRED term the estate
+  holds as `Unknown` as a question, read from the generated `field_required`, so pasting that
+  box's real config later ASKS instead of welding a second box. A CLEAR is built: an empty
+  `OP_FIELD_SET` value runs `Graph::clear_field`. Module 988,825 → 990,109 (+1,284); 804 tests;
+  driver `2026-09-04-a-server-is-not-a-juniper-firewall.mjs` 33/33, nine red and a timeout on
+  the build before. The state bullet above (*"the equipment form's platform door is open"*) is
+  that commit's own record. **Its skeptic found the clear path bypassed the authorability gate
+  (a hand-edited journal could empty a parser-set `SecurityPolicy.action` that no editor can
+  refill), leaked a raw Rust `Debug` refusal and an empty batch on an undeclared key, and had no
+  floor (a Device's `hostname` — the one field the add door demands — could be cleared, and a
+  hostname-less box then makes every same-platform paste ask). Decided by me, 2026-09-05: what
+  the door demands cannot be cleared. Repaired in `aa7bab9`, which I read myself as the security-class change of the day: the clear runs
+  `fathom_inventory::authorability(key)` — `is_authorable` with the reason attached, and
+  `is_authorable` is now defined as its `is_ok()` so the two cannot disagree — and gets the SAME
+  sentence a set gets; `declares(element, key)` is asked BEFORE any batch on both paths (the value
+  path had the same hole for a parseable key on the wrong kind); `DOOR_DEMANDS` in `shell.rs` is the
+  one list the add door and the clear both read, today `Device.hostname`, refused as *"a box needs a
+  hostname — type a new one instead of clearing it"*. Module 990,109 → 991,123 (+1,014); 809 tests;
+  `crates/fathom-wasm/tests/clear.rs` four tests, three red on `1e0465a`; driver 33 → 46/46, 32/46 on
+  the parent, now driving the details-pane editor too. Its skeptic ran a day late (the session limit cut the
+  first one off) and **held with zero defects**: 46/46 on HEAD, 32/46 on the parent, three of the
+  four `clear.rs` tests red on the parent, and its own 46-check probe 46/46 against 19/46.**
+  (4) **Importing your own export said the gate had learned since the file was written** — *"it
+  now destroys 7 secrets in this config where the saved file recorded 8"* on a same-build round
+  trip of the documented SRX fixture, pre-existing (reproduced on `8481632`'s parent), found by
+  fix 1's skeptic and confirmed by fix 3's. The replay re-runs the gate over already-redacted text
+  and compared that count with the one recorded over the original. **Established, not assumed,
+  in `3761364`**: the fourth summary slot was `drops.entries.len()`, gate EDITS; on the raw fixture
+  the gate makes eight (two encrypted-passwords, the PSK, and on the two SNMP lines the community,
+  the trap-group name and three pieces of `raw_walk` collateral); on the redacted text seven fire
+  again and write their own marker over themselves byte for byte — `pre_redacted` does not know the
+  gate's own marker, the `:` fails its bracket clause — and the eighth, `read-only`, fired only
+  because the synthetic VALUE `EXAMPLE-READ-ONLY-COMMUNITY` carries the component `community`. So
+  the comparison could say nothing true: a PSK put back into the file by hand also read 7, and a
+  base64 blob on a residue line read 7 + 1 = 8 — silence over a credential. **Decision (b), taken
+  by the agent and confirmed by my own read: the module reports what THIS run destroyed** —
+  `RedactionEntry.unchanged` (bytes written == bytes there), `DropManifest::destroyed()`, computed
+  at the one moment both texts are in hand. **This changes no redaction**: edits are proposed, kept
+  and written as before, and the union rule is untouched; `pre_redacted` is deliberately left not
+  knowing the marker, with the reason beside it (skipping the edit would change what `bind` sees
+  and move the digest on every import). A same-build round trip now shows NO note; a file with a
+  value put back shows the gate note and the export from there is clean; the record totals 8 + 1.
+  Module 991,123 → 991,301 (+178); 817 tests; driver `2026-09-05-a-round-trip-is-not-a-drift.mjs`
+  19/19, 12/19 on the parent. Its skeptic found three wording defects — the gate note said *"opened
+  exactly as saved"* above a DRIFT alert saying the file had not been touched, told the operator
+  to export-and-replace over an export holding only the replayed paste, and stated a hand-edited
+  record's number as the gate's own act — **fixed by me in `5d68193`**, driver 19 → 24/24,
+  21/24 on `3761364`; and one observation left open: **after any import the page renders no tally
+  at all** (`S.paste` is null), so an imported workspace says neither 8 nor 0 on screen — the
+  recorded number survives only in the export.
+  **TWO PROCESS DEFECTS FOUND WHILE DOING THIS, NEITHER FIXED:** (a) **every browser driver in
+  `docs/80-review/evidence/` overwrites its own PNGs when re-run**, so re-running twenty-two old
+  drivers as regression checks modified twenty-two historical evidence screenshots in the working
+  tree; they were restored with `git checkout HEAD -- <paths>` and the fix-2 stage was told to do
+  the same. A driver's PNG is evidence of the day it was taken; the drivers should write to a
+  scratch path unless asked to refresh their evidence. (b) `2026-08-21-findings-first-job.mjs`
+  had one pre-existing failing check (*"the long list of names is behind a disclosure with the
+  count in the heading"*, its line ~303, 40/41) before any of today's work — re-run it before
+  blaming a change for it. (c) **Something pushed `1e0465a` from this container** while every
+  agent was told not to push and this session had not: the remote-tracking reflog records it as
+  a push from here. Harmless — those commits were going to be pushed — but the instruction was
+  not followed and nobody knows by whom. (d) **An interrupted skeptic left `skeptic_probe.rs`
+  untracked inside `crates/fathom-wasm/tests/`**, where the next `cargo test` would have compiled
+  it; a probe belongs under the scratchpad and is gone before the verdict. Both are now in the
+  house rules the workflow scripts carry; neither is in `78`.
+  **DOCKER: BUILT, NOT RUN.** `deploy/Dockerfile` has an `artifact` stage and a `web` stage
+  (Caddy serving `fathom-dev.html` as the front page, `/health` proxied to the server);
+  `deploy/README.md` is the quickstart with the secrets rule and three questions an enterprise
+  reviewer will ask. The registry pull returns 403 at this environment's egress proxy, so the
+  stack has not come up here and the README says NOT RUN; the owner runs it first.
+  **F5 IS NOT IN `schema/platforms.yaml`** — thirteen vendors and ten platforms are (grep it, the
+  list above has lagged before), and the owner named F5 alongside Cisco, Arista and Juniper on
+  2026-09-04. A vendor row is a `64`-style survey; not urgent, not forgotten.
+  **NEXT — PLANNING, IN THIS ORDER, NONE OF IT EXECUTION WORK:** an ADR amending `49` for
+  open-source-and-employer-run (B1) and scoping invariant 1 to the client-only mode (C3, the
+  ADR-0040 precedent); WO-13 the OpenBao Transit `MasterKeyProvider` behind WO-12's interface;
+  WO-14 groups and tags at schema 0.6; WO-15 the firmware manager page, gated on the bench test;
+  WO-16 the audit record; the roles-per-site permission design (`48` §5 is the reasoning, five
+  roles and Draft/Planning/Production are the owner's words); and, someday, `PolicyScope` and
+  `trace_step` in one order because they are the same shape of gap. Then execute WO-12.
 - **HANDOVER, 2026-09-04 (second revision, written after the work below landed).**
   **WO-12 IS WRITTEN.** `docs/70-ops/79-work-orders/WO-12-the-key-boundary-and-the-first-stored-row.md`
   is on disk, its index row is in `00-INDEX.md` as row 12, and its status is **OPEN** — the next
@@ -744,8 +912,8 @@ Then the four that predate it:
 
 - `cargo fmt --all --check` — no output.
 - `cargo clippy --all-targets -- -D warnings` — clean.
-- `cargo test --workspace --locked` — 792 tests as of 2026-09-03; green is the gate, not the
-  number. Zero ignored, zero filtered: no test was weakened to reach it.
+- `cargo test --workspace --locked` — 817 tests as of 2026-09-05 (792 on 2026-09-03; the day's
+  four fixes and three repairs added 25); green is the gate, not the number. Zero ignored, zero filtered: no test was weakened to reach it.
 - `cargo run -p fathom-schema --bin fathom-schema-check` — exit 0, **0 failures and 0
   warnings** since 2026-08-09. The two standing `schema.identity.unexercised` warnings
   against `Site` are gone because `Site` and `Device` now declare identity tuples
