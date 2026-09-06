@@ -25,6 +25,11 @@ what a planning session made of it.
 | 10 | The graph and the diagram — owner observations | *three observations, then the structure of the picture* |
 | 11 | Questions still outstanding | *re-asked in plain language* |
 | 16 | Incomplete paths, devices, and engines as separate files | *three answers, 2026-08-09/10* |
+| 17 | The local file is a bridge, not the destination | *2026-08-11* |
+| 18 | Four answers on one day — key custody, tenancy, the empty chart, the box you zoom into | *2026-08-28* |
+| 19 | Groups, the Meraki three-tier shape, and a database question | *2026-09-04* |
+| 20 | Four answers to the first four questions | *2026-09-04, evening* |
+| 21 | The demo IS the use | *2026-09-06 — corrects §19.5's reading of the goal* |
 | 12 | Failure modes |  |
 | 13 | Open decisions |  |
 | 14 | Sources consulted |  |
@@ -2010,7 +2015,7 @@ zones, the policy set between them, and its policies **in the order the device r
 turns four hundred policies into the twenty-seven pointing this way. Writing it is following a
 decision already taken.
 
-### 19.5 THE GOAL, stated plainly for the first time: a demo to his employer
+### 19.5 THE GOAL, stated plainly for the first time: a demo to his employer *(read with §21, 2026-09-06: the demo is the use, not a lesser build)*
 
 Asked to choose a database, he gave the reason underneath every request in this section:
 
@@ -2272,6 +2277,49 @@ execution detail for WO-12's migration, recorded there rather than decided here.
 **Decided.** Three design-level states, server-table data, governing permissions per §20.8: told
 plus recorded suffices for an admin opening a Draft or Planning drawing; Production needs the
 stricter check. Separate from the per-box word `planned` (D6), and both may coexist.
+
+## 21. The demo IS the use — 2026-09-06
+
+Asked how close the product was to being installed on a server and functional, and told *"a demo
+you can click through: close; the server product: not close"*, the owner corrected the frame:
+
+> **"Wait why do we have a demo? This should be fully functional, not just a demo? The "i'm
+> going to build out my network in this tool" is the demo i'm planning on showing my boss"**
+
+### 21.1 What it corrects
+
+§19.5 read the goal as *a demo to his employer*, and every request since has been weighed against
+a demo. That reading was too narrow. The demo is not a rehearsal of the product; it is the owner
+**using** the product on his own network, over days and weeks, and then showing the result. There
+is no demo build and there never was — *"demo"* was the assistant's word for *the half that exists
+today*, and it was the wrong word. One product: the browser half is built, the server half is not.
+
+### 21.2 What "fully functional" means for this plan, concretely
+
+Three things the server does not do today, in the order they must land:
+
+1. **Store designs.** ADR-0040's key boundary first (WO-12, written and attacked, awaiting a human
+   read), with the vault provider the owner chose from the first stored byte (§20.5; WO-13,
+   unwritten).
+2. **Store the BUILT network, not only the pasted text.** Today a saved file holds the config text
+   plus the hand ops, and reopening it re-runs the parser; a dictionary improvement can change what
+   reopens, and the file warns when it does (`49` §19 phase 0 item 3; the 2026-09-05 round-trip
+   finding). That is the right behaviour for a file and the wrong foundation for weeks of
+   hand-built work: the server must hold the graph the owner built, so that no parser improvement
+   ever un-builds it. `00-ROUTE-TO-WORKABLE.md` §5b priced *saving the expanded model* at
+   +239,964 bytes **as a WASM cost**; natively that ceiling does not exist (`48` finding (b)).
+3. **Logins.** None exists.
+
+Then roles per site and Draft / Planning / Production (§20.8, §20.10). Live editing by several
+people at once is not needed for the owner to build his network and show it, and comes after.
+
+### 21.3 What it does not change
+
+The standing priority order — security, then usability, then dynamic ability — is unchanged, and
+storage still waits on the key boundary. Nothing in §19–§20 is reversed; §19.5's consequences
+(a)–(c) still hold, because an employer deciding whether to adopt this will see it in use. What
+moves is emphasis: storage and login ahead of every cosmetic item, and the word *demo* never again
+used in this corpus to mean a lesser build.
 
 ## 15. Disagreements
 

@@ -577,6 +577,16 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   **F5 IS NOT IN `schema/platforms.yaml`** — thirteen vendors and ten platforms are (grep it, the
   list above has lagged before), and the owner named F5 alongside Cisco, Arista and Juniper on
   2026-09-04. A vendor row is a `64`-style survey; not urgent, not forgotten.
+  **CORRECTED 2026-09-06 — THE DEMO IS THE USE (`70` §21).** Asked how close the server was to
+  functional and told *"a demo: close; the server product: not close"*, the owner replied that
+  there should be no demo — *"the 'i'm going to build out my network in this tool' is the demo
+  i'm planning on showing my boss"*. There is no demo build and never was; *demo* was this
+  page's wrong word for the half that exists. The order below therefore leads with storage and
+  login, not polish: WO-12, WO-13, then designs stored as the BUILT graph and not only the pasted
+  text (a saved file re-runs the parser on open and a dictionary improvement can un-build hand
+  work — right for a file, wrong for weeks of building; natively the +239,964-byte cost of
+  storing the expanded model does not exist), then logins, then roles per site. Live multi-user
+  editing comes after; it is not needed to build a network and show it.
   **NEXT — PLANNING, IN THIS ORDER, NONE OF IT EXECUTION WORK:** an ADR amending `49` for
   open-source-and-employer-run (B1) and scoping invariant 1 to the client-only mode (C3, the
   ADR-0040 precedent); WO-13 the OpenBao Transit `MasterKeyProvider` behind WO-12's interface;
