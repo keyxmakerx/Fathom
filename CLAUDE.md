@@ -587,6 +587,18 @@ items are listed in `78` §7; when in doubt, `78` §7's test decides.
   work — right for a file, wrong for weeks of building; natively the +239,964-byte cost of
   storing the expanded model does not exist), then logins, then roles per site. Live multi-user
   editing comes after; it is not needed to build a network and show it.
+  **THREE MORE REQUIREMENTS, 2026-09-06 (`70` §22): the newest PostgreSQL, backups built into the
+  app, and upgrade readiness.** Established with ONE reachable source (the official image's own
+  manifest; postgresql.org is blocked from here): **18.6 is the newest stable release, 19 is at
+  beta 3.** Two findings: `deploy/compose.yaml` pins the database by digest and **no record says
+  which 18.x that digest is**; the WO-11 evidence script uses a floating `18-alpine` tag against the
+  compose file's own rule. The five-minute fix needs a machine that can pull images (§22.1). The
+  backup design has a security edge that is now written down: a database backup holds ciphertext
+  and WRAPPED keys — safe to store, useless without the vault, whose own backup never travels in
+  the same bundle — while an application archive is plaintext the moment the server decrypts it,
+  so a download is sealed under something the admin types (the two crates are already approved),
+  admin-only, audited, and restore-drilled on a schedule with the result in `/health`. Queued as a
+  work order immediately behind WO-12 (§22.5), because its shape depends on WO-12's tables.
   **NEXT — PLANNING, IN THIS ORDER, NONE OF IT EXECUTION WORK:** an ADR amending `49` for
   open-source-and-employer-run (B1) and scoping invariant 1 to the client-only mode (C3, the
   ADR-0040 precedent); WO-13 the OpenBao Transit `MasterKeyProvider` behind WO-12's interface;

@@ -30,6 +30,7 @@ what a planning session made of it.
 | 19 | Groups, the Meraki three-tier shape, and a database question | *2026-09-04* |
 | 20 | Four answers to the first four questions | *2026-09-04, evening* |
 | 21 | The demo IS the use | *2026-09-06 — corrects §19.5's reading of the goal* |
+| 22 | The database version, backups, and the upgrades to come | *2026-09-06 — three requirements, queued behind WO-12* |
 | 12 | Failure modes |  |
 | 13 | Open decisions |  |
 | 14 | Sources consulted |  |
@@ -2320,6 +2321,145 @@ storage still waits on the key boundary. Nothing in §19–§20 is reversed; §1
 (a)–(c) still hold, because an employer deciding whether to adopt this will see it in use. What
 moves is emphasis: storage and login ahead of every cosmetic item, and the word *demo* never again
 used in this corpus to mean a lesser build.
+
+## 22. The database is decided; now its version, its backups, and the upgrades to come — 2026-09-06
+
+Asked whether PostgreSQL was the best long-term choice over other database systems and told yes,
+with the one exception of an employer standard, the owner set the next requirement:
+
+> **"Then the question now is, we need to make sure we are on the most recent version, and that
+> backups/archives are built into the app securely stored locally and available securely to
+> downwload. Maybe even some other things that would be good to have in case of future post
+> upgrades?"**
+
+Three requirements. Each is analysed below; none is built; the work order is queued behind WO-12
+(§22.5) because a backup's shape depends on the tables WO-12 creates.
+
+### 22.1 The version — what was established today, and what was not
+
+**Facts, one source, read 2026-09-06.** The official Docker image's own manifest
+(`docker-library/postgres`, `versions.json`, and the `official-images` library file — one
+organisation, so ONE source, not the two ADR-0034 wants) lists **18.6 as the newest stable
+release**, with 17.11, 16.15, 15.19 and 14.24 behind it, and **19 at beta 3 — not released**.
+`www.postgresql.org` and `apt.postgresql.org` are unreachable from the environment that wrote
+this (403 at the proxy), and the PostgreSQL source mirror on GitHub is outside this session's
+repository scope. **Confirm 18.6 against `postgresql.org/versions.json` before pinning it**; that
+is a thirty-second check on any machine that can reach the site.
+
+**A finding.** `deploy/compose.yaml` pins the database by digest
+(`postgres@sha256:d3e1620b…`), which is the right practice — and **no record says which 18.x that
+digest is.** WO-11 pinned it on 2026-09-03 and wrote *"PostgreSQL 18's image"* beside it, nothing
+more. So today nobody can say whether the stack runs 18.6 without pulling the image, which this
+environment cannot do. A second, smaller finding: the WO-11 evidence script
+`2026-09-03-the-server-is-honest-when-the-database-is-down.sh` starts its throwaway database as
+`postgres:18-alpine`, a floating tag, against the compose file's own *"never a tag"* rule.
+
+**What "most recent" should mean, proposed:** the newest minor of the newest **released** major —
+never a beta, and a new major only after a stated waiting period, the same reasoning as the
+seven-day crate cooldown (`scripts/crate-cooldown.sh`): the first weeks of a major are when the
+regressions surface, and a network estate of record is not the place to find them. The period is
+the owner's number; thirty days is the suggestion. Minors carry security fixes and should be taken
+promptly. **Mechanism:** the digest stays the pin; beside it a comment carries the version, the
+date, and the source it was read from, so the next reader does not repeat today's search; and a
+CI check compares the pinned version with the current minor and fails when it falls behind (CI on
+GitHub can reach the registry; this environment cannot).
+
+**To do on a machine that can reach the registry**, and it is a five-minute task:
+
+```
+docker pull postgres:18.6
+docker image inspect --format '{{index .RepoDigests 0}}' postgres:18.6
+```
+
+then pin that digest in `deploy/compose.yaml` with `# 18.6 — pinned <date> from <source>` beside
+it, and change the evidence script's floating tag to the same pin.
+
+### 22.2 Backups — two kinds, and the security edge between them
+
+The owner asked for backups *"built into the app, securely stored locally and available securely
+to download."* Two different things answer that, and both are needed:
+
+**(a) A database backup — disaster recovery.** Everything in PostgreSQL: the tenant and user
+tables, the audit record, and every stored design. Under ADR-0040 a stored design is ciphertext
+under a per-design key, and that key is stored WRAPPED under the master key that lives in the
+vault (§20.5, OpenBao). So **a database backup contains ciphertext and wrapped keys and nothing
+that opens either**: safe to store on a local volume, safe to copy off the machine, and **useless
+without the vault**. That is the property that makes it storable, and it has a consequence that
+must be written down where the operator will read it: **restoring a database backup requires the
+vault to be restored too**, and the vault's own backup — its snapshot and its unseal or recovery
+material — is the crown jewel. It is taken separately, stored separately, and **never travels in
+the same bundle as the data backup**; a bundle that holds both is a plaintext-equivalent copy of
+every design.
+
+**(b) An application archive — portability and upgrade insurance.** A design, or a whole tenant,
+exported in Fathom's own versioned format, the way the browser's export already works for one
+design. This is what survives a PostgreSQL major upgrade, a move to another host, or (should the
+day come) a different database engine. **It is the opposite of (a) on the security axis**: the
+server decrypts the design to produce it, so it is plaintext network data — addressing, zones,
+tunnel endpoints, the map `38` §14.4 priced as *"the other 98%"* — from the moment it exists.
+
+**Design constraints that follow, proposed as the work order's acceptance gates:**
+
+1. **A download is encrypted under something the admin types at download time**, never under a
+   key stored beside the file. The two crates for that are already owner-approved:
+   `deps/decisions/argon2.md` (passphrase → key) and `chacha20poly1305.md` (the seal), 2026-08-15.
+   A stored backup file on the local volume is encrypted the same way under a key the server
+   holds through the vault, so a copied volume is not a copied estate.
+2. **Admin role only, over TLS, and every download is an audit event** (§20.7's roles; the audit
+   record is WO-16 and it starts on day one — `WHAT-I-RECOMMEND-2026-09-04.md` §1). The audit
+   record is itself inside the database backup, so a restore carries its own history.
+3. **A backup that has never been restored is not a backup.** The server restores the latest
+   backup into a scratch database on a schedule, verifies it (row counts, the migration version,
+   one design decrypted and its digest compared), and reports the last successful restore in
+   `/health` beside the last successful backup. This is the check an enterprise reviewer asks for
+   and almost nobody has.
+4. **Local storage is a dedicated volume with a retention rule** (the owner's numbers; a
+   suggestion is seven dailies and four weeklies), an integrity manifest (a SHA-256 per file), and
+   nothing else in it — never `.env`, never the vault material, never the master key.
+5. **The server image is distroless (WO-11) and carries no `pg_dump`.** The database backup is
+   therefore a sidecar container in the compose file running the PostgreSQL client tools at the
+   pinned version, writing to the backup volume; the server reads that volume to serve downloads
+   and to run the restore drill. The application archive needs no sidecar: it is the server's own
+   code path.
+
+### 22.3 "In case of future post[gres] upgrades" — what to have in place before the first one
+
+1. **The pin carries its version** (§22.1). Without it an upgrade cannot even be described.
+2. **The backup IS the upgrade path.** A PostgreSQL major upgrade in Docker is: verified backup,
+   new image, restore, verify — exactly §22.2's drill. The compose file already anticipates the
+   alternative: its data volume is mounted at `/var/lib/postgresql` rather than one level down,
+   *"so `pg_upgrade --link` can see both versions without crossing a mount boundary"* (WO-11 found
+   this by running it). Either path works; the drill is what makes both safe.
+3. **The server refuses to start on what it has not been tested with**: a PostgreSQL major
+   outside its tested set, and a schema newer than the migrations it knows (the migrations table
+   exists since WO-11 and is the right place to record both). A server that starts against an
+   unknown database and "works" is the failure that survives.
+4. **`/health` reports versions**: PostgreSQL's, the schema's, the server's, and §22.2's two
+   timestamps. One line an operator reads before an upgrade and after it.
+5. **Fathom's OWN schema migrates too, and stored designs are encrypted.** `schema/migrations/`
+   already exists for the vocabulary; once designs are stored as the built graph (§21.2 item 2),
+   a schema bump means the server must decrypt each design to migrate it — with the design's key,
+   which it holds. Whether that runs lazily on first open or as a batch is a design decision for
+   the storage order, and it must be taken before the first stored row, because it decides what
+   a stored design's version stamp looks like. Recorded here so WO-12's successor does not
+   discover it.
+6. **The archive format is versioned from its first byte**, and every future build reads every
+   past version. The browser export already records what the paste produced and says when a
+   replay diverges (`49` §19 phase 0 item 3); the server archive inherits that discipline.
+
+### 22.4 What this does not decide
+
+The waiting period for a new major, the retention numbers, and whether the restore drill runs
+daily or weekly are the owner's numbers and are asked as three plain questions when the order is
+written. Whether backups also copy off the machine (to object storage, `43` D3's S3-compatible
+target) is a deployment choice for the employer's IT, not a product decision.
+
+### 22.5 Where it goes
+
+**A work order, queued immediately behind WO-12** — the backup's shape depends on the tables
+WO-12 creates, and the archive's on the storage format that follows it. Its acceptance gates are
+§22.2's five and §22.3's first four, driven against a real PostgreSQL the way WO-11's were. The
+five-minute pin task in §22.1 does not wait for the order.
 
 ## 15. Disagreements
 
