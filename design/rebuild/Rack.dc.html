@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .u { display: grid; grid-template-columns: 34px 1fr; border-bottom: 1px solid #D2D7DD; height: 17px; }
+    .un { font-size: 10px; color: #5C6772; text-align: right; padding-right: 8px; font-variant-numeric: tabular-nums; line-height: 16px; border-right: 1px solid #D2D7DD; }
+    .empty { background: repeating-linear-gradient(135deg, #D2D7DD 0 1px, transparent 1px 5px); }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 16px; gap: 24px; flex-shrink: 0;">
+    <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="display: flex; align-self: stretch; align-items: stretch;">
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Diagram</div>
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Inventory</div>
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; border-bottom: 4px solid #14171A; font-weight: 700;">Rack</div>
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Findings</div>
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Walkthrough</div>
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Config</div>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 4px;">
+      <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center;">RK</div>
+      <div style="width: 24px; height: 24px; background: #1F6F4A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center;">JT</div>
+      <div style="font-size: 10px; color: #5C6772; margin-left: 4px; letter-spacing: 0.10em; text-transform: uppercase;">in this view</div>
+    </div>
+  </div>
+
+  <div style="height: 28px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 8px; font-size: 11px; color: #5C6772; background: #FAFBFC; flex-shrink: 0;">
+    <span>Northwind Logistics</span><span style="color: #D2D7DD;">/</span>
+    <span>Core Network</span><span style="color: #D2D7DD;">/</span>
+    <span>HQ &mdash; Building A</span><span style="color: #D2D7DD;">/</span>
+    <span style="color: #14171A; font-weight: 700;">Rack A-04</span>
+    <span style="flex-grow: 1;"></span>
+    <span>42U &middot; 14 occupied &middot; 28 free</span>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- rack list -->
+    <div style="width: 176px; border-right: 1px solid #D2D7DD; background: #F2F4F6; flex-shrink: 0;">
+      <div style="padding: 10px 12px 8px; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; border-bottom: 1px solid #D2D7DD;">Racks here</div>
+      <div style="font-size: 12px;">
+        <div style="padding: 6px 12px; background: #FFFFFF; border-left: 4px solid #14171A; display: flex; justify-content: space-between; border-bottom: 1px solid #D2D7DD;"><span>A-04</span><span style="color: #5C6772; font-variant-numeric: tabular-nums;">14</span></div>
+        <div style="padding: 6px 16px; display: flex; justify-content: space-between; border-bottom: 1px solid #D2D7DD;"><span>A-05</span><span style="color: #5C6772; font-variant-numeric: tabular-nums;">9</span></div>
+        <div style="padding: 6px 16px; display: flex; justify-content: space-between; border-bottom: 1px solid #D2D7DD;"><span>A-06</span><span style="color: #5C6772; font-variant-numeric: tabular-nums;">0</span></div>
+      </div>
+    </div>
+
+    <!-- elevation -->
+    <div style="flex-grow: 1; display: flex; justify-content: center; padding: 20px 0; overflow: hidden; background: #FFFFFF;">
+      <div style="width: 520px;">
+        <div style="border: 1px solid #14171A; border-bottom: none;">
+          <div class="u"><div class="un">42</div><div class="empty"></div></div>
+          <div class="u"><div class="un">41</div><div class="empty"></div></div>
+          <div class="u"><div class="un">40</div><div class="empty"></div></div>
+          <div style="display: grid; grid-template-columns: 34px 1fr; border-bottom: 1px solid #D2D7DD; height: 34px;">
+            <div style="font-size: 10px; color: #5C6772; text-align: right; padding: 1px 8px 0 0; font-variant-numeric: tabular-nums; line-height: 16px; border-right: 1px solid #D2D7DD;">39<br>38</div>
+            <div style="background: #FFFFFF; outline: 2px solid #14171A; outline-offset: -2px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px;">
+              <span style="font-weight: 700;">hq-fw-01</span><span style="font-size: 10px; color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase;">firewall &middot; 2U</span>
+            </div>
+          </div>
+          <div class="u"><div class="un">37</div><div class="empty"></div></div>
+          <div class="u"><div class="un">36</div><div style="background: #F2F4F6; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 12px; line-height: 16px;"><span>hq-core-01</span><span style="font-size: 10px; color: #5C6772;">switch</span></div></div>
+          <div class="u"><div class="un">35</div><div style="background: #F2F4F6; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 12px; line-height: 16px;"><span>hq-core-02</span><span style="font-size: 10px; color: #5C6772;">switch</span></div></div>
+          <div class="u"><div class="un">34</div><div class="empty"></div></div>
+          <div class="u"><div class="un">33</div><div style="background: #F2F4F6; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 12px; line-height: 16px;"><span>hq-acc-01</span><span style="font-size: 10px; color: #5C6772;">switch</span></div></div>
+          <div class="u"><div class="un">32</div><div style="background: #F2F4F6; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 12px; line-height: 16px;"><span>hq-acc-02</span><span style="font-size: 10px; color: #5C6772;">switch</span></div></div>
+          <div class="u"><div class="un">31</div><div style="background: #F2F4F6; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 12px; line-height: 16px;"><span>patch-a04-01</span><span style="font-size: 10px; color: #5C6772;">chassis &middot; 24 port</span></div></div>
+          <div class="u"><div class="un">30</div><div class="empty"></div></div>
+          <div class="u"><div class="un">29</div><div class="empty"></div></div>
+          <div class="u"><div class="un">28</div><div class="empty"></div></div>
+          <div class="u"><div class="un">27</div><div class="empty"></div></div>
+          <div class="u"><div class="un">26</div><div class="empty"></div></div>
+          <div class="u"><div class="un">25</div><div class="empty"></div></div>
+          <div class="u"><div class="un">24</div><div class="empty"></div></div>
+          <div class="u"><div class="un">23</div><div class="empty"></div></div>
+          <div class="u"><div class="un">22</div><div class="empty"></div></div>
+          <div class="u"><div class="un">21</div><div class="empty"></div></div>
+          <div class="u"><div class="un">20</div><div class="empty"></div></div>
+          <div class="u"><div class="un">19</div><div class="empty"></div></div>
+          <div class="u"><div class="un">18</div><div class="empty"></div></div>
+          <div style="display: grid; grid-template-columns: 34px 1fr; border-bottom: 1px solid #D2D7DD; height: 68px;">
+            <div style="font-size: 10px; color: #5C6772; text-align: right; padding: 1px 8px 0 0; font-variant-numeric: tabular-nums; line-height: 16px; border-right: 1px solid #D2D7DD;">17<br>16<br>15<br>14</div>
+            <div style="background: #F2F4F6; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 12px;"><span>vm-host-01</span><span style="font-size: 10px; color: #5C6772;">server &middot; 4U</span></div>
+          </div>
+          <div style="display: grid; grid-template-columns: 34px 1fr; border-bottom: 1px solid #D2D7DD; height: 68px;">
+            <div style="font-size: 10px; color: #5C6772; text-align: right; padding: 1px 8px 0 0; font-variant-numeric: tabular-nums; line-height: 16px; border-right: 1px solid #D2D7DD;">13<br>12<br>11<br>10</div>
+            <div style="background: #F2F4F6; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 12px;"><span>vm-host-02</span><span style="font-size: 10px; color: #5C6772;">server &middot; 4U</span></div>
+          </div>
+          <div class="u"><div class="un">9</div><div class="empty"></div></div>
+          <div class="u"><div class="un">8</div><div style="background: #F2F4F6; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 12px; line-height: 16px;"><span>nas-01</span><span style="font-size: 10px; color: #5C6772;">server</span></div></div>
+          <div class="u"><div class="un">7</div><div class="empty"></div></div>
+          <div class="u"><div class="un">6</div><div class="empty"></div></div>
+          <div class="u"><div class="un">5</div><div class="empty"></div></div>
+          <div class="u"><div class="un">4</div><div class="empty"></div></div>
+          <div class="u"><div class="un">3</div><div class="empty"></div></div>
+          <div class="u"><div class="un">2</div><div style="background: #F2F4F6; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 12px; line-height: 16px;"><span>ups-a04</span><span style="font-size: 10px; color: #5C6772;">power</span></div></div>
+          <div class="u" style="border-bottom: 1px solid #14171A;"><div class="un">1</div><div style="background: #F2F4F6; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 12px; line-height: 16px;"><span>ups-a04</span><span style="font-size: 10px; color: #5C6772;">power</span></div></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding-top: 8px; font-size: 10px; color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase;">
+          <span>Rack A-04 &mdash; front</span><span>Hatched = free</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- details -->
+    <div style="width: 300px; border-left: 1px solid #D2D7DD; background: #FAFBFC; flex-shrink: 0; display: flex; flex-direction: column;">
+      <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">hq-fw-01</span>
+        <span style="font-size: 10px; color: #5C6772;">Chassis</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <div style="display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px;"><span style="width: 88px; font-size: 11px; color: #5C6772; flex-shrink: 0;">position</span><span style="font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums;">U38 &ndash; U39</span></div>
+        <div style="display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px;"><span style="width: 88px; font-size: 11px; color: #5C6772; flex-shrink: 0;">height</span><span style="font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px;">2U</span></div>
+        <div style="display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px;"><span style="width: 88px; font-size: 11px; color: #5C6772; flex-shrink: 0;">ports</span><span style="font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums;">6 &middot; 4 cabled</span></div>
+      </div>
+      <div style="padding: 10px 12px 6px; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; border-top: 1px solid #D2D7DD; margin-top: 12px;">Cables &middot; 4</div>
+      <div style="font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px;">
+        <div style="padding: 5px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between;"><span>ge-0/0/0</span><span style="color: #5C6772;">&rarr; wan-handoff</span></div>
+        <div style="padding: 5px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between;"><span>ge-0/0/1</span><span style="color: #5C6772;">&rarr; core-01 xe-0/0/0</span></div>
+        <div style="padding: 5px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between;"><span>ge-0/0/2</span><span style="color: #5C6772;">&rarr; core-02 xe-0/0/0</span></div>
+        <div style="padding: 5px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between;"><span>fxp0</span><span style="color: #5C6772;">&rarr; patch-a04-01 p12</span></div>
+      </div>
+      <div style="padding: 8px 12px; font-size: 11px; color: #5C6772;">2 ports free</div>
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 16px;">Cable &middot; by hand &middot; 29 Aug</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

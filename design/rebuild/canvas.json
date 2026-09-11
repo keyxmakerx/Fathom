@@ -1,0 +1,14 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html",          "x": 0,    "y": 0,    "w": 1440, "h": 900, "title": "Diagram — drag and drop, live cursors" },
+    { "file": "Inventory.dc.html",     "x": 1560, "y": 0,    "w": 1440, "h": 900, "title": "Inventory — editable, credential mark" },
+    { "file": "Rack.dc.html",          "x": 3120, "y": 0,    "w": 1440, "h": 900, "title": "Rack elevation" },
+    { "file": "Vault.dc.html",         "x": 0,    "y": 1080, "w": 1440, "h": 900, "title": "Credential vault — three modes" },
+    { "file": "ConfigChecker.dc.html", "x": 1560, "y": 1080, "w": 1440, "h": 900, "title": "Config checker — explains, never judges" }
+  ],
+  "annotations": [
+    { "id": "note-brief", "x": 0, "y": -180, "w": 600, "text": "Fathom — rebuilt UI, first pass\n\nBuilt on the real tokens in design/tokens.css: no rounded corners, no shadows, 1px hairlines, the small type ramp, tabular numerals. The three risk colours are used only for risk.\n\nStatic mockups — nothing is clickable. They exist to settle layout and density before React." },
+    { "id": "note-canvas", "x": 3120, "y": 1080, "w": 480, "text": "Open questions these raise:\n\n1. Is the left palette the right way to add devices, or should it be a search-and-place command?\n\n2. The diagram shows presence avatars top-right and cursors on canvas. Enough, or do you want a participant list?\n\n3. The config checker tone is explanatory, not pass/fail. Is that the teaching voice you want?" }
+  ],
+  "launch": { "view": "canvas" }
+}
