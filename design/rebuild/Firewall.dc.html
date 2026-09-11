@@ -1,0 +1,249 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; }
+    .row { display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px; }
+    .row .k { width: 78px; font-size: 11px; color: #5C6772; flex-shrink: 0; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0;">
+    <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+      <span>IDF-2</span><span style="color: #D2D7DD;">&rsaquo;</span><span>Rack A-04</span><span style="color: #D2D7DD;">&rsaquo;</span><span>U40&ndash;41 hq-fw-01</span><span style="color: #D2D7DD;">&rsaquo;</span><span style="color: #14171A; font-weight: 700;">inside</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="font-size: 11px; color: #5C6772;">SRX340 &middot; 3 zones &middot; 6 zone pairs configured &middot; 27 policies</div>
+  </div>
+
+  <div style="height: 28px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 10px; font-size: 11px; background: #FAFBFC;">
+    <span style="color: #14171A; font-weight: 700;">Fathom never says permitted or denied.</span>
+    <span style="color: #5C6772;">It names the zones, the policy set between them, and the policies in the order the device reads them. The verdict is yours.</span>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+    <div style="flex-grow: 1; position: relative; overflow: hidden;">
+      <svg width="1120" height="828" viewBox="0 0 1120 828" style="position: absolute; inset: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+
+        <!-- band headers -->
+        <text x="24" y="26" font-size="10" fill="#5C6772" letter-spacing="1">INTERFACES</text>
+        <text x="250" y="26" font-size="10" fill="#5C6772" letter-spacing="1">ZONES</text>
+        <text x="470" y="26" font-size="10" fill="#5C6772" letter-spacing="1">POLICY SETS &mdash; one per ordered pair</text>
+        <text x="880" y="26" font-size="10" fill="#5C6772" letter-spacing="1">ROUTING</text>
+        <line x1="236" y1="12" x2="236" y2="800" stroke="#D2D7DD"/>
+        <line x1="456" y1="12" x2="456" y2="800" stroke="#D2D7DD"/>
+        <line x1="866" y1="12" x2="866" y2="800" stroke="#D2D7DD"/>
+
+        <!-- ===== INTERFACES ===== -->
+        <g>
+          <rect x="24" y="44" width="196" height="46" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="34" y="62" font-size="11" font-weight="700" font-family="'DejaVu Sans Mono', Menlo, monospace">ge-0/0/1.20</text>
+          <text x="34" y="78" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">10.10.20.1/24 &middot; vlan 20</text>
+        </g>
+        <g>
+          <rect x="24" y="100" width="196" height="46" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="34" y="118" font-size="11" font-weight="700" font-family="'DejaVu Sans Mono', Menlo, monospace">ge-0/0/1.30</text>
+          <text x="34" y="134" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">10.10.30.1/24 &middot; vlan 30</text>
+        </g>
+        <g>
+          <rect x="24" y="156" width="196" height="46" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="34" y="174" font-size="11" font-weight="700" font-family="'DejaVu Sans Mono', Menlo, monospace">reth0.0</text>
+          <text x="34" y="190" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">10.10.99.1/24 &middot; mgmt</text>
+        </g>
+        <g>
+          <rect x="24" y="240" width="196" height="46" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="34" y="258" font-size="11" font-weight="700" font-family="'DejaVu Sans Mono', Menlo, monospace">ge-0/0/0.0</text>
+          <text x="34" y="274" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">203.0.113.2/30</text>
+        </g>
+        <g>
+          <rect x="24" y="340" width="196" height="46" fill="#FAFBFC" stroke="#5C6772" stroke-dasharray="3 2"/>
+          <text x="34" y="358" font-size="11" font-weight="700" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">st0.0</text>
+          <text x="34" y="374" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">ipsec &middot; to branch-07</text>
+        </g>
+
+        <!-- ===== ZONES ===== -->
+        <g>
+          <rect x="252" y="44" width="188" height="102" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+          <text x="264" y="66" font-size="14" font-weight="700">trust</text>
+          <text x="428" y="66" font-size="10" fill="#5C6772" text-anchor="end">2 interfaces</text>
+          <line x1="264" y1="76" x2="428" y2="76" stroke="#D2D7DD"/>
+          <text x="264" y="94" font-size="10" fill="#5C6772">host-inbound: ping, ssh</text>
+          <text x="264" y="112" font-size="10" fill="#5C6772">screens: none set</text>
+          <text x="264" y="134" font-size="10" fill="#14171A">61 hosts &middot; 2 subnets</text>
+        </g>
+        <g>
+          <rect x="252" y="156" width="188" height="58" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="264" y="178" font-size="14" font-weight="700">mgmt</text>
+          <text x="428" y="178" font-size="10" fill="#5C6772" text-anchor="end">1 interface</text>
+          <text x="264" y="200" font-size="10" fill="#5C6772">host-inbound: ssh, https</text>
+        </g>
+        <g>
+          <rect x="252" y="240" width="188" height="58" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+          <text x="264" y="262" font-size="14" font-weight="700">untrust</text>
+          <text x="428" y="262" font-size="10" fill="#5C6772" text-anchor="end">1 interface</text>
+          <text x="264" y="284" font-size="10" fill="#5C6772">host-inbound: none</text>
+        </g>
+        <g fill="none" stroke="#14171A" stroke-width="1.2">
+          <path d="M220 67 L252 78"/><path d="M220 123 L252 90"/>
+          <path d="M220 179 L252 182"/>
+          <path d="M220 263 L252 266"/>
+          <path d="M220 363 L252 290" stroke="#5C6772" stroke-dasharray="3 2"/>
+        </g>
+
+        <!-- ===== POLICY SETS ===== -->
+        <!-- the selected pair -->
+        <g>
+          <rect x="472" y="44" width="376" height="254" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+          <rect x="470" y="42" width="380" height="258" fill="none" stroke="#14171A" stroke-width="1.5" stroke-dasharray="4 3"/>
+          <rect x="472" y="44" width="376" height="34" fill="#F2F4F6" stroke="#14171A"/>
+          <text x="484" y="66" font-size="13" font-weight="700">trust &rarr; untrust</text>
+          <text x="836" y="66" font-size="10" fill="#5C6772" text-anchor="end">3 policies &middot; read top down</text>
+
+          <!-- policy 1, matches first -->
+          <g>
+            <rect x="484" y="90" width="352" height="56" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+            <text x="494" y="108" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">1</text>
+            <text x="512" y="108" font-size="12" font-weight="700" font-family="'DejaVu Sans Mono', Menlo, monospace">outbound</text>
+            <text x="826" y="108" font-size="10" fill="#14171A" text-anchor="end" font-weight="700">matches your traffic first</text>
+            <text x="512" y="124" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">source any &middot; dest any &middot; application any</text>
+            <text x="512" y="138" font-size="10" fill="#14171A" font-family="'DejaVu Sans Mono', Menlo, monospace">then permit</text>
+          </g>
+          <!-- unreachable ones -->
+          <g opacity="0.45">
+            <rect x="484" y="156" width="352" height="46" fill="#FFFFFF" stroke="#5C6772"/>
+            <text x="494" y="174" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">2</text>
+            <text x="512" y="174" font-size="12" font-family="'DejaVu Sans Mono', Menlo, monospace">block-torrent</text>
+            <text x="512" y="190" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">app junos-bittorrent &middot; then deny</text>
+          </g>
+          <g opacity="0.45">
+            <rect x="484" y="212" width="352" height="46" fill="#FFFFFF" stroke="#5C6772"/>
+            <text x="494" y="230" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">3</text>
+            <text x="512" y="230" font-size="12" font-family="'DejaVu Sans Mono', Menlo, monospace">log-everything-else</text>
+            <text x="512" y="246" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">any &middot; then permit log</text>
+          </g>
+          <!-- the teaching line -->
+          <rect x="484" y="268" width="352" height="20" fill="#FBF3EA" stroke="#A8571B"/>
+          <text x="494" y="282" font-size="10" fill="#A8571B">Policies 2 and 3 are never reached. Policy 1 matches everything above them.</text>
+        </g>
+
+        <!-- other pairs, collapsed -->
+        <g>
+          <rect x="472" y="316" width="376" height="30" fill="#FFFFFF" stroke="#D2D7DD"/>
+          <text x="484" y="336" font-size="12">untrust &rarr; trust</text>
+          <text x="836" y="336" font-size="10" fill="#5C6772" text-anchor="end">1 policy &middot; allow-web</text>
+        </g>
+        <g>
+          <rect x="472" y="352" width="376" height="30" fill="#FFFFFF" stroke="#D2D7DD"/>
+          <text x="484" y="372" font-size="12">trust &rarr; mgmt</text>
+          <text x="836" y="372" font-size="10" fill="#5C6772" text-anchor="end">2 policies</text>
+        </g>
+        <g>
+          <rect x="472" y="388" width="376" height="30" fill="#FAFBFC" stroke="#D2D7DD" stroke-dasharray="3 2"/>
+          <text x="484" y="408" font-size="12" fill="#5C6772">mgmt &rarr; untrust</text>
+          <text x="836" y="408" font-size="10" fill="#5C6772" text-anchor="end">no policy set &mdash; implicit deny</text>
+        </g>
+        <g>
+          <rect x="472" y="424" width="376" height="30" fill="#FFFFFF" stroke="#D2D7DD"/>
+          <text x="484" y="444" font-size="12">trust &rarr; vpn</text>
+          <text x="836" y="444" font-size="10" fill="#5C6772" text-anchor="end">21 policies</text>
+        </g>
+
+        <!-- zone -> policy set links -->
+        <g fill="none" stroke="#14171A" stroke-width="1.4">
+          <path d="M440 95 C 456 95, 456 60, 472 60"/>
+          <path d="M440 269 C 456 269, 456 70, 472 70"/>
+        </g>
+
+        <!-- ===== ROUTING ===== -->
+        <g>
+          <rect x="882" y="44" width="214" height="74" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="894" y="64" font-size="11" font-weight="700">default route</text>
+          <text x="894" y="82" font-size="10" font-family="'DejaVu Sans Mono', Menlo, monospace">0.0.0.0/0</text>
+          <text x="894" y="98" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">via 203.0.113.1</text>
+          <text x="894" y="112" font-size="9" fill="#5C6772">static &middot; out ge-0/0/0.0</text>
+        </g>
+        <g>
+          <rect x="882" y="130" width="214" height="86" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="894" y="150" font-size="11" font-weight="700">ospf area 0.0.0.0</text>
+          <text x="894" y="168" font-size="10" fill="#5C6772">2 adjacencies</text>
+          <text x="894" y="184" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">core-01, core-02</text>
+          <text x="894" y="202" font-size="9" fill="#A8571B">authentication: simple-password</text>
+        </g>
+        <g>
+          <rect x="882" y="228" width="214" height="60" fill="#FAFBFC" stroke="#5C6772" stroke-dasharray="3 2"/>
+          <text x="894" y="248" font-size="11" font-weight="700" fill="#5C6772">routing-instance</text>
+          <text x="894" y="266" font-size="10" fill="#5C6772">not modelled yet</text>
+          <text x="894" y="280" font-size="9" fill="#5C6772">1 reference is pending</text>
+        </g>
+
+        <!-- the trace overlay: one path through all four bands -->
+        <g fill="none" stroke-linecap="round">
+          <path d="M 220 67 C 236 67, 236 78, 252 78" stroke="#D2D7DD" stroke-width="8"/>
+          <path d="M 440 95 C 456 95, 456 60, 472 60" stroke="#D2D7DD" stroke-width="8"/>
+          <path d="M 836 118 C 860 118, 860 80, 882 80" stroke="#D2D7DD" stroke-width="8"/>
+          <path d="M 220 67 C 236 67, 236 78, 252 78" stroke="#14171A" stroke-width="2.2"/>
+          <path d="M 440 95 C 456 95, 456 60, 472 60" stroke="#14171A" stroke-width="2.2"/>
+          <path d="M 836 118 C 860 118, 860 80, 882 80" stroke="#14171A" stroke-width="2.2"/>
+        </g>
+
+        <!-- the explanation strip -->
+        <rect x="24" y="470" width="1072" height="120" fill="#FAFBFC" stroke="#D2D7DD"/>
+        <text x="40" y="494" font-size="10" fill="#5C6772" letter-spacing="1">WHAT THIS BOX WILL DO WITH A PACKET FROM 10.10.20.40 TO THE INTERNET</text>
+        <text x="40" y="518" font-size="13" fill="#14171A">It arrives on <tspan font-family="'DejaVu Sans Mono', Menlo, monospace" font-weight="700">ge-0/0/1.20</tspan>, which is in zone <tspan font-weight="700">trust</tspan>. Its route is the default, out <tspan font-family="'DejaVu Sans Mono', Menlo, monospace" font-weight="700">ge-0/0/0.0</tspan>, which is in zone <tspan font-weight="700">untrust</tspan>.</text>
+        <text x="40" y="540" font-size="13" fill="#14171A">So the set that decides is <tspan font-weight="700">trust &rarr; untrust</tspan>, and within it the device reads top down and stops at the first match.</text>
+        <text x="40" y="566" font-size="13" fill="#14171A">The first match is policy 1, <tspan font-family="'DejaVu Sans Mono', Menlo, monospace" font-weight="700">outbound</tspan>. <tspan fill="#5C6772">What happens after that is what policy 1 says, and you can read it above.</tspan></text>
+
+        <!-- what is not known -->
+        <rect x="24" y="606" width="1072" height="62" fill="#FFFFFF" stroke="#A8571B"/>
+        <text x="40" y="628" font-size="10" fill="#A8571B" letter-spacing="1">WHAT FATHOM DOES NOT KNOW ABOUT THIS BOX</text>
+        <text x="40" y="650" font-size="12" fill="#14171A">Screens, NAT rules and IDP are not in the pasted config, so they are not drawn. <tspan fill="#5C6772">Absent is shown as absent &mdash; never as "none configured".</tspan></text>
+
+        <text x="24" y="700" font-size="10" fill="#5C6772">Four bands, left to right: where traffic enters, what it is called, what decides, and where it leaves. Every trace crosses them in that order.</text>
+      </svg>
+    </div>
+
+    <div style="width: 320px; border-left: 1px solid #D2D7DD; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">outbound</span>
+        <span style="font-size: 10px; color: #5C6772;">Policy 1 of 3</span>
+      </div>
+      <div class="row"><span class="k">set</span><span class="mono">trust &rarr; untrust</span></div>
+      <div class="row"><span class="k">ordinal</span><span class="mono">1 &middot; read first</span></div>
+      <div class="row"><span class="k">source</span><span class="mono">any</span></div>
+      <div class="row"><span class="k">dest</span><span class="mono">any</span></div>
+      <div class="row"><span class="k">application</span><span class="mono">any</span></div>
+      <div class="row"><span class="k">then</span><span class="mono">permit</span></div>
+
+      <div style="margin: 12px; border: 1px solid #A8571B; background: #FBF3EA; padding: 10px; font-size: 12px; line-height: 17px;">
+        <strong>This policy makes the two below it unreachable.</strong>
+        <span style="color: #5C6772;"> It matches any source, any destination and any application, and the device stops at the first match. <span class="mono" style="font-size: 11px;">block-torrent</span> will never run.</span>
+      </div>
+
+      <div class="lbl" style="padding: 6px 12px; border-top: 1px solid #D2D7DD;">Source lines</div>
+      <div style="padding: 6px 12px; font-size: 11px; color: #5C6772; line-height: 17px;" class="mono">
+        <div>38 &middot; set security policies from-zone trust to-zone untrust policy outbound match source-address any</div>
+        <div style="margin-top: 4px;">39 &middot; &hellip; then permit</div>
+      </div>
+      <div style="padding: 8px 12px;">
+        <div style="border: 1px solid #D2D7DD; padding: 5px 0; text-align: center; font-size: 12px; color: #5C6772;">Open in the config viewer</div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Ordinal is assigned once, at first read, and kept. Re-pasting the same config does not renumber your policies.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,232 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; }
+    .row { display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px; }
+    .row .k { width: 84px; font-size: 11px; color: #5C6772; flex-shrink: 0; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0;">
+    <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+      <span>IDF-2</span><span style="color: #D2D7DD;">&rsaquo;</span><span>Rack A-04</span><span style="color: #D2D7DD;">&rsaquo;</span><span>U14&ndash;17 vm-host-01</span><span style="color: #D2D7DD;">&rsaquo;</span><span style="color: #14171A; font-weight: 700;">inside</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="lbl">Show</span>
+      <span style="border: 1px solid #14171A; padding: 2px 10px; font-size: 11px;">&#10003; Guests</span>
+      <span style="border: 1px solid #14171A; padding: 2px 10px; font-size: 11px;">&#10003; Bridges</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Storage</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Containers</span>
+    </div>
+  </div>
+
+  <div style="height: 28px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 12px; font-size: 11px; background: #FAFBFC; color: #5C6772;">
+    <span style="color: #14171A; font-weight: 700;">Going inside a box is the same gesture as going inside a rack.</span>
+    <span>The physical ports on the left are the same ports you cabled in the rack &mdash; this is the other side of them.</span>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+    <div style="flex-grow: 1; position: relative; overflow: hidden;">
+      <svg width="1120" height="828" viewBox="0 0 1120 828" style="position: absolute; inset: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+
+        <!-- the boundary of the box -->
+        <rect x="24" y="24" width="1072" height="700" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+        <text x="40" y="46" font-size="13" font-weight="700" fill="#14171A">vm-host-01</text>
+        <text x="132" y="46" font-size="11" fill="#5C6772">Proxmox VE &middot; 4U &middot; 2 &times; Xeon &middot; 256 GB &middot; 12 guests, 9 running</text>
+
+        <!-- ===== BAND 1: physical ports. The wall of the box. ===== -->
+        <rect x="24" y="60" width="150" height="664" fill="#F2F4F6" stroke="#D2D7DD"/>
+        <text x="36" y="78" font-size="10" fill="#5C6772" letter-spacing="1">PHYSICAL</text>
+
+        <g>
+          <rect x="40" y="100" width="118" height="42" fill="#FFFFFF" stroke="#14171A"/>
+          <rect x="48" y="112" width="9" height="11" fill="#14171A"/>
+          <text x="64" y="116" font-size="10" font-weight="700" class="mono" font-family="'DejaVu Sans Mono', Menlo, monospace">enp1s0f0</text>
+          <text x="64" y="130" font-size="9" fill="#5C6772">10G &middot; cabled</text>
+          <text x="48" y="138" font-size="8" fill="#5C6772">&rarr; core-01 ge-0/0/6</text>
+        </g>
+        <g>
+          <rect x="40" y="152" width="118" height="42" fill="#FFFFFF" stroke="#14171A"/>
+          <rect x="48" y="164" width="9" height="11" fill="#14171A"/>
+          <text x="64" y="168" font-size="10" font-weight="700" class="mono" font-family="'DejaVu Sans Mono', Menlo, monospace">enp1s0f1</text>
+          <text x="64" y="182" font-size="9" fill="#5C6772">10G &middot; cabled</text>
+          <text x="48" y="190" font-size="8" fill="#5C6772">&rarr; core-02 ge-0/0/6</text>
+        </g>
+        <g>
+          <rect x="40" y="204" width="118" height="30" fill="#FAFBFC" stroke="#D2D7DD"/>
+          <rect x="48" y="214" width="9" height="11" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="64" y="220" font-size="10" class="mono" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">enp2s0</text>
+          <text x="64" y="230" font-size="9" fill="#5C6772">1G &middot; free</text>
+        </g>
+        <g>
+          <rect x="40" y="244" width="118" height="34" fill="#FFFFFF" stroke="#14171A"/>
+          <rect x="48" y="256" width="9" height="11" fill="#14171A"/>
+          <text x="64" y="260" font-size="10" font-weight="700" class="mono" font-family="'DejaVu Sans Mono', Menlo, monospace">ipmi</text>
+          <text x="64" y="272" font-size="9" fill="#5C6772">out of band</text>
+        </g>
+        <!-- power, as the rack draws it -->
+        <g>
+          <rect x="40" y="640" width="118" height="44" fill="#FFFFFF" stroke="#14171A"/>
+          <path d="M56 660 L60 656 L74 656 L78 660 L78 668 L74 672 L60 672 L56 668 Z" fill="#14171A"/>
+          <path d="M92 660 L96 656 L110 656 L114 660 L114 668 L110 672 L96 672 L92 668 Z" fill="#14171A"/>
+          <text x="48" y="682" font-size="8" fill="#5C6772">PSU 1&middot;2 &rarr; pdu-a04 o5, o6</text>
+        </g>
+
+        <!-- ===== BAND 2: the bond ===== -->
+        <text x="200" y="78" font-size="10" fill="#5C6772" letter-spacing="1">AGGREGATION</text>
+        <g>
+          <rect x="200" y="112" width="128" height="82" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="212" y="132" font-size="12" font-weight="700" class="mono" font-family="'DejaVu Sans Mono', Menlo, monospace">bond0</text>
+          <text x="212" y="148" font-size="10" fill="#5C6772">LACP 802.3ad</text>
+          <text x="212" y="162" font-size="10" fill="#5C6772">layer3+4 hash</text>
+          <text x="212" y="182" font-size="10" fill="#14171A">2 up &middot; 20 Gb</text>
+        </g>
+        <g fill="none" stroke="#14171A" stroke-width="1.4">
+          <path d="M158 121 L200 130"/>
+          <path d="M158 173 L200 160"/>
+        </g>
+
+        <!-- ===== BAND 3: bridges / virtual switches ===== -->
+        <text x="368" y="78" font-size="10" fill="#5C6772" letter-spacing="1">BRIDGES</text>
+        <g>
+          <rect x="368" y="100" width="150" height="70" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+          <text x="380" y="120" font-size="12" font-weight="700" class="mono" font-family="'DejaVu Sans Mono', Menlo, monospace">vmbr0</text>
+          <text x="380" y="136" font-size="10" fill="#5C6772">VLAN aware &middot; trunk</text>
+          <text x="380" y="152" font-size="10" fill="#5C6772">tags 20, 30, 99</text>
+          <text x="380" y="165" font-size="9" fill="#5C6772">7 guests attached</text>
+        </g>
+        <g>
+          <rect x="368" y="200" width="150" height="58" fill="#FAFBFC" stroke="#5C6772" stroke-dasharray="3 2"/>
+          <text x="380" y="220" font-size="12" font-weight="700" class="mono" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">vmbr1</text>
+          <text x="380" y="235" font-size="10" fill="#5C6772">isolated &middot; no uplink</text>
+          <text x="380" y="250" font-size="9" fill="#5C6772">2 guests &middot; host-only</text>
+        </g>
+        <path d="M328 150 L368 135" stroke="#14171A" stroke-width="1.4" fill="none"/>
+        <text x="330" y="176" font-size="9" fill="#5C6772">trunk</text>
+
+        <!-- ===== BAND 4: guests ===== -->
+        <text x="560" y="78" font-size="10" fill="#5C6772" letter-spacing="1">GUESTS</text>
+
+        <!-- the selected VM -->
+        <g>
+          <rect x="560" y="96" width="252" height="70" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+          <rect x="558" y="94" width="256" height="74" fill="none" stroke="#14171A" stroke-width="1.5" stroke-dasharray="4 3"/>
+          <circle cx="574" cy="114" r="3.5" fill="#14171A"/>
+          <text x="586" y="118" font-size="12" font-weight="700">dc-01</text>
+          <text x="800" y="118" font-size="9" fill="#5C6772" text-anchor="end">VM 101 &middot; running</text>
+          <text x="572" y="136" font-size="10" class="mono" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">net0 &middot; virtio &middot; vmbr0 tag 30</text>
+          <text x="572" y="152" font-size="10" class="mono" font-family="'DejaVu Sans Mono', Menlo, monospace">10.10.30.10/24</text>
+          <text x="800" y="152" font-size="9" fill="#5C6772" text-anchor="end">4 vCPU &middot; 16 GB</text>
+        </g>
+        <g>
+          <rect x="560" y="180" width="252" height="52" fill="#FFFFFF" stroke="#14171A"/>
+          <circle cx="574" cy="198" r="3.5" fill="#14171A"/>
+          <text x="586" y="202" font-size="12" font-weight="700">file-01</text>
+          <text x="572" y="220" font-size="10" class="mono" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">net0 &middot; vmbr0 tag 30 &middot; 10.10.30.11</text>
+        </g>
+        <g>
+          <rect x="560" y="246" width="252" height="52" fill="#FFFFFF" stroke="#14171A"/>
+          <circle cx="574" cy="264" r="3.5" fill="#14171A"/>
+          <text x="586" y="268" font-size="12" font-weight="700">app-01</text>
+          <text x="572" y="286" font-size="10" class="mono" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">net0 &middot; vmbr0 tag 20 &middot; 10.10.20.40</text>
+        </g>
+        <!-- a guest with TWO nics, one on each bridge — the interesting case -->
+        <g>
+          <rect x="560" y="312" width="252" height="66" fill="#FFFFFF" stroke="#14171A"/>
+          <circle cx="574" cy="330" r="3.5" fill="#14171A"/>
+          <text x="586" y="334" font-size="12" font-weight="700">jump-01</text>
+          <text x="800" y="334" font-size="9" fill="#5C6772" text-anchor="end">2 vNIC</text>
+          <text x="572" y="352" font-size="10" class="mono" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">net0 &middot; vmbr0 tag 99 &middot; 10.10.99.5</text>
+          <text x="572" y="368" font-size="10" class="mono" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">net1 &middot; vmbr1 &middot; 192.168.99.1</text>
+        </g>
+        <g>
+          <rect x="560" y="392" width="252" height="48" fill="#FAFBFC" stroke="#5C6772" stroke-dasharray="3 2"/>
+          <circle cx="574" cy="410" r="3.5" fill="#FFFFFF" stroke="#5C6772"/>
+          <text x="586" y="414" font-size="12" font-weight="700" fill="#5C6772">lab-old</text>
+          <text x="800" y="414" font-size="9" fill="#5C6772" text-anchor="end">stopped</text>
+          <text x="572" y="430" font-size="10" class="mono" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">net0 &middot; vmbr1 &middot; no address</text>
+        </g>
+        <text x="560" y="466" font-size="10" fill="#5C6772">+ 7 more guests &middot; scroll</text>
+
+        <!-- links bridge -> guests, sagging like cables because they are still links -->
+        <g fill="none" stroke="#14171A" stroke-width="1.2">
+          <path d="M518 128 C 540 120, 540 122, 560 126"/>
+          <path d="M518 134 C 540 160, 540 190, 560 200"/>
+          <path d="M518 140 C 542 200, 542 250, 560 266"/>
+          <path d="M518 146 C 544 240, 544 320, 560 336"/>
+        </g>
+        <g fill="none" stroke="#5C6772" stroke-width="1.2" stroke-dasharray="3 2">
+          <path d="M518 224 C 540 280, 540 350, 560 362"/>
+          <path d="M518 232 C 540 320, 540 400, 560 414"/>
+        </g>
+
+        <!-- ===== THE PATH OUT: this is the point of the whole view ===== -->
+        <g fill="none" stroke-linecap="round">
+          <path d="M 560 126 C 540 118, 530 118, 518 128" stroke="#D2D7DD" stroke-width="8"/>
+          <path d="M 368 128 C 348 140, 340 140, 328 144" stroke="#D2D7DD" stroke-width="8"/>
+          <path d="M 200 130 C 180 124, 172 122, 158 121" stroke="#D2D7DD" stroke-width="8"/>
+          <path d="M 560 126 C 540 118, 530 118, 518 128" stroke="#14171A" stroke-width="2.2"/>
+          <path d="M 368 128 C 348 140, 340 140, 328 144" stroke="#14171A" stroke-width="2.2"/>
+          <path d="M 200 130 C 180 124, 172 122, 158 121" stroke="#14171A" stroke-width="2.2"/>
+        </g>
+
+        <!-- exit portal: the path continues into the rack -->
+        <g>
+          <rect x="24" y="738" width="1072" height="34" fill="#FAFBFC" stroke="#14171A" stroke-width="1.5"/>
+          <path d="M44 762 L44 748 M39 753 L44 748 L49 753" stroke="#14171A" stroke-width="1.25" fill="none"/>
+          <text x="58" y="760" font-size="11" fill="#14171A">dc-01's path leaves this box &rarr; <tspan font-family="'DejaVu Sans Mono', Menlo, monospace">enp1s0f0</tspan> &rarr; core-01 <tspan font-family="'DejaVu Sans Mono', Menlo, monospace">ge-0/0/6</tspan> &rarr; VLAN 30 &rarr; gateway on hq-fw-01</text>
+          <text x="1080" y="760" font-size="10" fill="#5C6772" text-anchor="end">click to follow into the rack</text>
+        </g>
+
+        <text x="24" y="800" font-size="10" fill="#5C6772">A guest is a node in the same graph as a switch. Its vNIC is a port. That is why a trace can start on a VM and end at the internet without changing view.</text>
+      </svg>
+    </div>
+
+    <div style="width: 320px; border-left: 1px solid #D2D7DD; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">dc-01</span>
+        <span style="font-size: 10px; color: #5C6772;">Guest &middot; VM 101</span>
+      </div>
+      <div class="row"><span class="k">host</span><span class="mono">vm-host-01</span></div>
+      <div class="row"><span class="k">vnic</span><span class="mono">net0 &middot; virtio</span></div>
+      <div class="row"><span class="k">bridge</span><span class="mono">vmbr0 &middot; tag 30</span></div>
+      <div class="row"><span class="k">address</span><span class="mono">10.10.30.10/24</span></div>
+      <div class="row"><span class="k">gateway</span><span class="mono">10.10.30.1 &middot; hq-fw-01</span></div>
+      <div class="row"><span class="k">mac</span><span class="mono">BC:24:11:3A:9F:02</span></div>
+
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; margin-top: 8px;">Physical path out &middot; 4 hops</div>
+      <div style="font-size: 12px; line-height: 18px;">
+        <div style="padding: 4px 12px; display: flex; gap: 8px;"><span class="mono" style="color: #5C6772; width: 14px;">1</span><span>net0 &rarr; vmbr0</span></div>
+        <div style="padding: 4px 12px; display: flex; gap: 8px;"><span class="mono" style="color: #5C6772; width: 14px;">2</span><span>vmbr0 &rarr; bond0 <span style="color: #5C6772;">(LACP)</span></span></div>
+        <div style="padding: 4px 12px; display: flex; gap: 8px;"><span class="mono" style="color: #5C6772; width: 14px;">3</span><span>enp1s0f0 <span style="color: #5C6772;">or f1</span></span></div>
+        <div style="padding: 4px 12px; display: flex; gap: 8px; background: #FFFFFF; border-left: 4px solid #14171A;"><span class="mono" style="color: #5C6772; width: 14px;">4</span><span>core-01 <span class="mono">ge-0/0/6</span></span></div>
+      </div>
+      <div style="padding: 6px 12px 10px; font-size: 11px; color: #5C6772; line-height: 16px;">
+        Hop 3 is a <strong style="color: #14171A;">choice, not a fact</strong> &mdash; a bond hashes per flow. Fathom says both and never guesses which one a given packet took.
+      </div>
+
+      <div style="padding: 8px 12px; border-top: 1px solid #D2D7DD;">
+        <div style="border: 1px solid #14171A; padding: 5px 0; text-align: center; font-size: 12px;">Trace dc-01 &rarr; internet</div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Read from a pasted <span class="mono">qm config</span> &middot; 6 Sep. Nothing here was discovered; a person gave it to Fathom.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

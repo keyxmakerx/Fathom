@@ -323,25 +323,26 @@
         </g>
 
         <!-- ===================== CABLES ===================== -->
-        <!-- Colour is by cable TYPE by default (copper blue, OM4 aqua, OS2 yellow, power black) and overridable per cable with your real lead colour.
-             The phantom effect is unchanged: every cable not on the selected path sits at 28%; the selected path gets a pale halo. -->
+        <!-- COLOUR IS THE REAL SHEATH. What you see here is the colour of the lead in your hand, so a cable
+             you are holding in the rack can be found on screen and vice versa. Type is NOT carried by hue —
+             fibre is a pair of strokes, copper is one, power is one heavy. The phantom effect is unchanged. -->
         <g opacity="0.28" fill="none" stroke-linecap="round">
           <!-- copper -->
-          <path d="M 108 117 C 130 126, 130 140, 162 132" stroke="#2F5D8A" stroke-width="1.6"/>
-          <path d="M 119 117 C 150 132, 150 160, 162 148" stroke="#2F5D8A" stroke-width="1.6"/>
-          <path d="M 175 135 C 200 150, 200 172, 153 180" stroke="#2F5D8A" stroke-width="6"/>
+          <path d="M 108 117 C 130 126, 130 140, 162 132" stroke="#A33A3A" stroke-width="1.8"/>
+          <path d="M 119 117 C 150 132, 150 160, 162 148" stroke="#A33A3A" stroke-width="1.8"/>
+          <path d="M 175 135 C 200 150, 200 172, 153 180" stroke="#8A8F94" stroke-width="6"/>
           <path d="M 130 195 C 150 205, 190 200, 195 180" stroke="#2F5D8A" stroke-width="6"/>
-          <path d="M 160 211 C 190 225, 200 160, 173 117" stroke="#2F5D8A" stroke-width="1.6"/>
-          <path d="M 296 559 C 380 520, 360 220, 206 132" stroke="#2F5D8A" stroke-width="1.6"/>
-          <path d="M 296 623 C 400 600, 380 240, 206 148" stroke="#2F5D8A" stroke-width="1.6"/>
+          <path d="M 160 211 C 190 225, 200 160, 173 117" stroke="#3E8E5A" stroke-width="1.8"/>
+          <path d="M 296 559 C 380 520, 360 220, 206 132" stroke="#14171A" stroke-width="1.8"/>
+          <path d="M 296 623 C 400 600, 380 240, 206 148" stroke="#14171A" stroke-width="1.8"/>
           <!-- multimode fibre inside the rack: aqua, drawn as a pair -->
-          <path d="M 249 135 C 300 160, 300 250, 173 260" stroke="#2A9FA5" stroke-width="2.8"/>
-          <path d="M 249 135 C 300 160, 300 250, 173 260" stroke="#FFFFFF" stroke-width="0.9"/>
-          <path d="M 249 151 C 310 180, 310 262, 187 260" stroke="#2A9FA5" stroke-width="2.8"/>
-          <path d="M 249 151 C 310 180, 310 262, 187 260" stroke="#FFFFFF" stroke-width="0.9"/>
+          <path d="M 249 135 C 300 160, 300 250, 173 260" stroke="#C9A227" stroke-width="3.2"/>
+          <path d="M 249 135 C 300 160, 300 250, 173 260" stroke="#FFFFFF" stroke-width="1.1"/>
+          <path d="M 249 151 C 310 180, 310 262, 187 260" stroke="#C9A227" stroke-width="3.2"/>
+          <path d="M 249 151 C 310 180, 310 262, 187 260" stroke="#FFFFFF" stroke-width="1.1"/>
           <!-- single-mode to the carrier, across the gap: yellow, and it sags the most -->
-          <path d="M 249 151 C 360 230, 470 200, 619 108" stroke="#C9A227" stroke-width="2.8"/>
-          <path d="M 249 151 C 360 230, 470 200, 619 108" stroke="#FFFFFF" stroke-width="0.9"/>
+          <path d="M 249 151 C 360 230, 470 200, 619 108" stroke="#6B4C8A" stroke-width="3.2"/>
+          <path d="M 249 151 C 360 230, 470 200, 619 108" stroke="#FFFFFF" stroke-width="1.1"/>
         </g>
 
         <!-- bundle badges -->
@@ -358,8 +359,8 @@
           <path d="M 130 195 C 165 215, 185 200, 195 180" stroke="#D2D7DD" stroke-width="9"/>
           <path d="M 195 180 C 260 150, 260 80, 214 54" stroke="#D2D7DD" stroke-width="9"/>
           <!-- core -->
-          <path d="M 130 195 C 165 215, 185 200, 195 180" stroke="#2F5D8A" stroke-width="2.4"/>
-          <path d="M 195 180 C 260 150, 260 80, 214 54" stroke="#2F5D8A" stroke-width="2.4" stroke-dasharray="6 3"/>
+          <path d="M 130 195 C 165 215, 185 200, 195 180" stroke="#2F5D8A" stroke-width="2.6"/>
+          <path d="M 195 180 C 260 150, 260 80, 214 54" stroke="#2F5D8A" stroke-width="2.6" stroke-dasharray="6 3"/>
         </g>
         <!-- lit ports on the chain -->
         <rect x="127" y="191" width="7" height="10" fill="#2F5D8A" stroke="#FFFFFF" stroke-width="1"/>
@@ -374,16 +375,18 @@
         </g>
 
         <!-- legend -->
-        <g transform="translate(400,778)" font-size="9" fill="#5C6772">
-          <rect x="0" y="0" width="420" height="22" fill="#FFFFFF" stroke="#D2D7DD"/>
-          <line x1="10" y1="11" x2="30" y2="11" stroke="#2F5D8A" stroke-width="2"/><text x="36" y="14">copper</text>
-          <line x1="80" y1="11" x2="100" y2="11" stroke="#2A9FA5" stroke-width="3"/><line x1="80" y1="11" x2="100" y2="11" stroke="#FFFFFF" stroke-width="1"/><text x="106" y="14">OM4 fibre</text>
-          <line x1="164" y1="11" x2="184" y2="11" stroke="#C9A227" stroke-width="3"/><line x1="164" y1="11" x2="184" y2="11" stroke="#FFFFFF" stroke-width="1"/><text x="190" y="14">OS2 fibre</text>
-          <line x1="246" y1="11" x2="266" y2="11" stroke="#14171A" stroke-width="2"/><text x="272" y="14">power</text>
-          <text x="316" y="14" fill="#5C6772">&middot; default by type, override per lead</text>
+        <g transform="translate(372,772)" font-size="9" fill="#5C6772">
+          <rect x="0" y="0" width="448" height="34" fill="#FFFFFF" stroke="#D2D7DD"/>
+          <text x="8" y="13" font-size="9" fill="#5C6772" letter-spacing="1">THE LEAD YOU ACTUALLY USED</text>
+          <g><rect x="8" y="20" width="14" height="7" fill="#8A8F94"/><rect x="26" y="20" width="14" height="7" fill="#2F5D8A"/><rect x="44" y="20" width="14" height="7" fill="#A33A3A"/><rect x="62" y="20" width="14" height="7" fill="#C9A227"/><rect x="80" y="20" width="14" height="7" fill="#3E8E5A"/><rect x="98" y="20" width="14" height="7" fill="#C4762A"/><rect x="116" y="20" width="14" height="7" fill="#6B4C8A"/><rect x="134" y="20" width="14" height="7" fill="#14171A"/><rect x="152" y="20" width="14" height="7" fill="#FFFFFF" stroke="#D2D7DD"/></g>
+          <line x1="184" y1="9" x2="184" y2="30" stroke="#D2D7DD"/>
+          <text x="194" y="13" font-size="9" fill="#5C6772" letter-spacing="1">TYPE IS THE LINE, NOT THE COLOUR</text>
+          <line x1="196" y1="24" x2="214" y2="24" stroke="#5C6772" stroke-width="1.8"/><text x="220" y="27">copper</text>
+          <line x1="262" y1="24" x2="280" y2="24" stroke="#5C6772" stroke-width="3.2"/><line x1="262" y1="24" x2="280" y2="24" stroke="#FFFFFF" stroke-width="1.1"/><text x="286" y="27">fibre (a pair)</text>
+          <line x1="356" y1="24" x2="374" y2="24" stroke="#5C6772" stroke-width="3.6"/><text x="380" y="27">power</text>
         </g>
         <!-- canvas hint -->
-        <text x="60" y="816" font-size="10" fill="#5C6772">Drag a port to a port to cable. Hover any cable to light its whole path. Click a portal to follow it.</text>
+        <text x="60" y="816" font-size="10" fill="#5C6772">Drag a port to a port to cable. Hover any cable to light its whole path. Colours are the real leads, so what you hold in the rack is what you find on screen.</text>
       </svg>
     </div>
 
@@ -397,7 +400,7 @@
       <div class="row"><span class="k">to</span><span class="mono">patch-01 &middot; p7 front</span></div>
       <div class="row"><span class="k">label</span><span>uplink</span></div>
       <div class="row"><span class="k">length</span><span class="mono">0.5 m</span></div>
-      <div class="row"><span class="k">lead</span><span style="display: flex; gap: 6px; align-items: center;"><span style="width: 12px; height: 12px; border: 1px solid #14171A; background: #2F5D8A;"></span><span>blue &middot; copper default</span><span style="color: #5C6772; font-size: 11px;">&middot; change to the lead you actually used</span></span></div>
+      <div class="row"><span class="k">sheath</span><span style="display: flex; gap: 6px; align-items: center;"><span style="width: 12px; height: 12px; border: 1px solid #D2D7DD; background: #2F5D8A;"></span><span>blue</span><span style="color: #5C6772; font-size: 11px;">&middot; set it to the lead you really used</span></span></div>
 
       <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; margin-top: 8px;">The whole path &middot; 5 hops</div>
       <div style="font-size: 12px; line-height: 18px;">

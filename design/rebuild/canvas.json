@@ -1,33 +1,227 @@
 {
   "pages": [
-    { "id": "page-1", "name": "Rack first" },
-    { "id": "page-2", "name": "Rejected directions (A–H)" },
-    { "id": "page-3", "name": "First pass (detail)" }
+    {
+      "id": "page-1",
+      "name": "Rack first"
+    },
+    {
+      "id": "page-2",
+      "name": "Rejected directions (A\u2013H)"
+    },
+    {
+      "id": "page-3",
+      "name": "First pass (detail)"
+    }
   ],
   "artboards": [
-    { "file": "Main.dc.html",      "page": "page-1", "x": 0,    "y": 0,    "w": 1440, "h": 900, "title": "The shell — racks, ports, sagging cables, one path lit" },
-    { "file": "Faceplate.dc.html", "page": "page-1", "x": 1560, "y": 0,    "w": 1440, "h": 900, "title": "Zoomed in — the faceplate, a cable mid-drag" },
-    { "file": "Crossings.dc.html", "page": "page-1", "x": 0,    "y": 1080, "w": 1440, "h": 900, "title": "Forty cables, still readable" },
-    { "file": "Motion.dc.html",    "page": "page-1", "x": 1560, "y": 1080, "w": 1440, "h": 900, "title": "Motion that means something" },
-
-    { "file": "DirectionA.dc.html", "page": "page-2", "x": 0,    "y": 0,    "w": 1440, "h": 900, "title": "A — Lenses over one map" },
-    { "file": "DirectionB.dc.html", "page": "page-2", "x": 1560, "y": 0,    "w": 1440, "h": 900, "title": "B — The workbench" },
-    { "file": "DirectionC.dc.html", "page": "page-2", "x": 0,    "y": 1080, "w": 1440, "h": 900, "title": "C — One canvas, all the way down" },
-    { "file": "DirectionD.dc.html", "page": "page-2", "x": 1560, "y": 1080, "w": 1440, "h": 900, "title": "D — Ask, then look" },
-    { "file": "DirectionE.dc.html", "page": "page-2", "x": 0,    "y": 2160, "w": 1440, "h": 900, "title": "E — Follow the wire" },
-    { "file": "DirectionF.dc.html", "page": "page-2", "x": 1560, "y": 2160, "w": 1440, "h": 900, "title": "F — The building is the map" },
-    { "file": "DirectionG.dc.html", "page": "page-2", "x": 0,    "y": 3240, "w": 1440, "h": 900, "title": "G — Two truths, one selection" },
-    { "file": "DirectionH.dc.html", "page": "page-2", "x": 1560, "y": 3240, "w": 1440, "h": 900, "title": "H — The estate as it changes" },
-
-    { "file": "Inventory.dc.html",     "page": "page-3", "x": 0,    "y": 0,    "w": 1440, "h": 900, "title": "Inventory (first pass)" },
-    { "file": "Rack.dc.html",          "page": "page-3", "x": 1560, "y": 0,    "w": 1440, "h": 900, "title": "Rack (first pass)" },
-    { "file": "Vault.dc.html",         "page": "page-3", "x": 0,    "y": 1080, "w": 1440, "h": 900, "title": "Vault (first pass)" },
-    { "file": "ConfigChecker.dc.html", "page": "page-3", "x": 1560, "y": 1080, "w": 1440, "h": 900, "title": "Config checker (first pass)" }
+    {
+      "file": "Main.dc.html",
+      "page": "page-1",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "The shell \u2014 racks, ports, sagging cables, one path lit"
+    },
+    {
+      "file": "Faceplate.dc.html",
+      "page": "page-1",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Zoomed in \u2014 the faceplate, a cable mid-drag"
+    },
+    {
+      "file": "Crossings.dc.html",
+      "page": "page-1",
+      "x": 0,
+      "y": 1080,
+      "w": 1440,
+      "h": 900,
+      "title": "Forty cables, still readable"
+    },
+    {
+      "file": "Motion.dc.html",
+      "page": "page-1",
+      "x": 1560,
+      "y": 1080,
+      "w": 1440,
+      "h": 900,
+      "title": "Motion that means something"
+    },
+    {
+      "file": "DirectionA.dc.html",
+      "page": "page-2",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "A \u2014 Lenses over one map"
+    },
+    {
+      "file": "DirectionB.dc.html",
+      "page": "page-2",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "B \u2014 The workbench"
+    },
+    {
+      "file": "DirectionC.dc.html",
+      "page": "page-2",
+      "x": 0,
+      "y": 1080,
+      "w": 1440,
+      "h": 900,
+      "title": "C \u2014 One canvas, all the way down"
+    },
+    {
+      "file": "DirectionD.dc.html",
+      "page": "page-2",
+      "x": 1560,
+      "y": 1080,
+      "w": 1440,
+      "h": 900,
+      "title": "D \u2014 Ask, then look"
+    },
+    {
+      "file": "DirectionE.dc.html",
+      "page": "page-2",
+      "x": 0,
+      "y": 2160,
+      "w": 1440,
+      "h": 900,
+      "title": "E \u2014 Follow the wire"
+    },
+    {
+      "file": "DirectionF.dc.html",
+      "page": "page-2",
+      "x": 1560,
+      "y": 2160,
+      "w": 1440,
+      "h": 900,
+      "title": "F \u2014 The building is the map"
+    },
+    {
+      "file": "DirectionG.dc.html",
+      "page": "page-2",
+      "x": 0,
+      "y": 3240,
+      "w": 1440,
+      "h": 900,
+      "title": "G \u2014 Two truths, one selection"
+    },
+    {
+      "file": "DirectionH.dc.html",
+      "page": "page-2",
+      "x": 1560,
+      "y": 3240,
+      "w": 1440,
+      "h": 900,
+      "title": "H \u2014 The estate as it changes"
+    },
+    {
+      "file": "Hypervisor.dc.html",
+      "page": "page-1",
+      "x": 0,
+      "y": 2160,
+      "w": 1440,
+      "h": 900,
+      "title": "Inside a server \u2014 bridges, guests, the path out"
+    },
+    {
+      "file": "Firewall.dc.html",
+      "page": "page-1",
+      "x": 1560,
+      "y": 2160,
+      "w": 1440,
+      "h": 900,
+      "title": "Inside a firewall \u2014 interfaces, zones, policy order, routing"
+    },
+    {
+      "file": "Config.dc.html",
+      "page": "page-1",
+      "x": 0,
+      "y": 3240,
+      "w": 1440,
+      "h": 900,
+      "title": "Config \u2014 viewer, checker, assistant"
+    },
+    {
+      "file": "Building.dc.html",
+      "page": "page-1",
+      "x": 1560,
+      "y": 3240,
+      "w": 1440,
+      "h": 900,
+      "title": "Building \u2014 optional, and the crossings fixed"
+    },
+    {
+      "file": "Inventory.dc.html",
+      "page": "page-3",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Inventory (first pass)"
+    },
+    {
+      "file": "Rack.dc.html",
+      "page": "page-3",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Rack (first pass)"
+    },
+    {
+      "file": "Vault.dc.html",
+      "page": "page-3",
+      "x": 0,
+      "y": 1080,
+      "w": 1440,
+      "h": 900,
+      "title": "Vault (first pass)"
+    }
   ],
   "annotations": [
-    { "id": "note-rack", "page": "page-1", "x": 0, "y": -250, "w": 760, "text": "RACK FIRST — one direction, done properly.\n\nThe rack, its faceplates, real ports from the engine's catalogue, and cables that sag between them are the product. Everything else hangs off that.\n\nWhat I took from Homelable: the slack-loop cable (bows right and down, more on longer runs), real RJ45/SFP jack shapes at a fixed size, patch-facing gear always shows ports and everything else reveals on hover, one cable per port, copper-or-fibre decided by the port you start from.\n\nWhat I took from elsewhere: Patchdocs lights the WHOLE physical path on one hover — that is the answer to your crossing complaint. Device42 keeps power and data cabling on separate toggles. Meraki/Mist put L2/L3 facts on the port, so you never leave the rack to read them.\n\nWhat I dropped: the building view (not necessary — you said so), the black triangle cursors (presence is now a dashed ring on the device someone is editing plus a name chip on the rail; a held port gets a dashed ring too), and the six-tab bar." },
-    { "id": "note-open", "page": "page-1", "x": 3120, "y": 0, "w": 520, "text": "Answered 2026-09-11:\n\u2713 Colour: by cable type by default (copper blue, OM4 aqua, OS2 yellow, power black), overridable per lead. The phantom effect \u2014 off-path cables at 28%, on-path haloed \u2014 is unchanged.\n\u2713 Ports: RJ45, SFP+ (bail), LC (two ferrules) and C14 (power) are now four distinct glyphs.\n\u2713 PSUs: dual/single PSU inlets notated on the left rail at rack scale; the rear face shows them in place when zoomed, with the PDU outlet that feeds each. A single-fed device is marked.\n\u2713 Rear view: proposed as front-over-rear stacked at faceplate zoom, a flip at rack scale.\n\nStill open:\n\u2022 Portal styling \u2014 dashed trays, or a cable that visibly runs off the edge?\n\u2022 Presence without cursors \u2014 enough?" },
-    { "id": "note-rejected", "page": "page-2", "x": 0, "y": -180, "w": 640, "text": "Kept for the record. You rejected all eight on 2026-09-11 — the rack was not the centrepiece in any of them, and the building view hid crossings. Nothing here is in play." }
+    {
+      "id": "note-rack",
+      "page": "page-1",
+      "x": 0,
+      "y": -250,
+      "w": 760,
+      "text": "RACK FIRST \u2014 one direction, done properly.\n\nThe rack, its faceplates, real ports from the engine's catalogue, and cables that sag between them are the product. Everything else hangs off that.\n\nWhat I took from Homelable: the slack-loop cable (bows right and down, more on longer runs), real RJ45/SFP jack shapes at a fixed size, patch-facing gear always shows ports and everything else reveals on hover, one cable per port, copper-or-fibre decided by the port you start from.\n\nWhat I took from elsewhere: Patchdocs lights the WHOLE physical path on one hover \u2014 that is the answer to your crossing complaint. Device42 keeps power and data cabling on separate toggles. Meraki/Mist put L2/L3 facts on the port, so you never leave the rack to read them.\n\nWhat I dropped: the building view (not necessary \u2014 you said so), the black triangle cursors (presence is now a dashed ring on the device someone is editing plus a name chip on the rail; a held port gets a dashed ring too), and the six-tab bar."
+    },
+    {
+      "id": "note-rejected",
+      "page": "page-2",
+      "x": 0,
+      "y": -180,
+      "w": 640,
+      "text": "Kept for the record. You rejected all eight on 2026-09-11 \u2014 the rack was not the centrepiece in any of them, and the building view hid crossings. Nothing here is in play."
+    },
+    {
+      "id": "note-open",
+      "page": "page-1",
+      "x": 3120,
+      "y": 0,
+      "w": 560,
+      "text": "Answered 2026-09-11:\n\u2713 COLOUR IS THE REAL SHEATH. The hue on screen is the lead in your hand, so a cable you are holding can be found here and the reverse. Type is carried by the LINE, not the colour \u2014 copper one stroke, fibre a pair, power heavy. Grey, blue, red, yellow, green, orange, purple, black, white are stock lead colours, set per cable.\n\u2713 Four port glyphs: RJ45, SFP+ (bail), LC (two ferrules), C14 (power).\n\u2713 PSUs, PDU, and power on its own rail lane.\n\u2713 Rear view: stacked under the front when zoomed.\n\nONE COLLISION, WORTH KNOWING: red, green and orange are also the reserved risk colours. The rule that keeps them apart is LOCATION \u2014 the canvas shows sheath colours only, and risk never appears as colour on the canvas, only in panels and badges. If that feels too subtle, the alternative is a restricted lead palette that avoids those three hues. Your call.\n\nStill open:\n\u2022 Portal trays, or a cable that visibly runs off the edge?\n\u2022 Presence with no cursors \u2014 enough?"
+    },
+    {
+      "id": "note-inside",
+      "page": "page-1",
+      "x": 3120,
+      "y": 2160,
+      "w": 540,
+      "text": "GOING INSIDE A BOX\n\nSame gesture as going inside a rack. The physical ports on the left edge are the far side of the ports you cabled in the rack, so a trace crosses the boundary without changing view.\n\nA guest is a node in the same graph as a switch, and its vNIC is a port. That is why a trace can start on a VM and end at the internet.\n\nThe firewall board is the teaching one: four bands left to right \u2014 where traffic enters, what it is called, what decides, where it leaves. It shows the policies in the order the device reads them and marks the two that can never be reached. It never says permitted or denied.\n\nThe config board carries the assistant. Its six rules are printed ON the screen, not in a help page: it reads this config and this graph only, cites a line for every claim, cannot see credentials because they were destroyed at the gate, never says permitted or denied, says 'I could not establish this' rather than guessing, and never changes the estate."
+    }
   ],
-  "launch": { "view": "canvas", "page": "page-1" }
+  "launch": {
+    "view": "canvas",
+    "page": "page-1"
+  }
 }
