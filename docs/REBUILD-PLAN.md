@@ -86,6 +86,56 @@ vulnerability check across every dependency and record what it finds.
 
 ---
 
+## Owner decisions, 2026-09-11
+
+Three answers that change the shape of the work.
+
+### 1. What the product is for — reordered
+
+**Drawing comes first, not parsing.** The priority order is now:
+
+1. **Drag-and-drop diagramming**, the way Lucidchart does it. This is the product.
+2. **Teaching and learning**, including a configuration checker that explains *dynamically why
+   something is failing* — not just that it is.
+3. **Inventory.**
+4. Monitoring and integration with live systems. **Beyond alpha and beta.** Noted, not scheduled.
+
+**Pasting a config is no longer a core feature.** Keep it only because it already exists and costs
+little to carry.
+
+**What this changes, and it is not small:** the parsing pipeline was built to construct an estate
+from pasted configs. That is no longer its job. But it is not wasted — **it is the foundation of
+priority 2.** A configuration checker that explains why a config fails needs exactly what ingest
+already does: read the config, understand its structure, and know what it means. The work moves
+from *building the drawing* to *explaining the config*. Keep all of it.
+
+The schema's role changes too. It was the vocabulary for parsed estates; it is now the vocabulary
+for things people draw by hand. Same schema, different primary caller.
+
+### 2. Live collaboration — scoped, not global
+
+Real-time, with cursors, **but scoped to what you are looking at.**
+
+The estate is a hierarchy: organisation → network → building → rack. Two people in the same rack
+elevation see each other's cursors live. Two people in different racks — or different networks —
+do not know the other is there at all.
+
+This is a better design than broadcasting everything, and cheaper to build: presence follows the
+view, so the traffic is proportional to how many people share a scope, not to the size of the
+estate.
+
+A chat system is wanted eventually. Not now.
+
+### 3. Hosting — Docker, and security is the headline requirement
+
+Fathom ships as Docker containers. **The old decision saying Fathom would never run accounts or a
+service is retired** — there are accounts, there is a server, there is stored data.
+
+"Incredibly secure" is the stated bar. What that means concretely is in the storage section above
+and gets its own hard review in Phase 2.
+
+---
+
 ## Phases
 
 ### Phase 0 — Cut the running cost
@@ -114,38 +164,62 @@ Also: what Homelable (the reference project) solves that we should adopt rather 
 
 ### Phase 2 — Foundation
 
-- Database schema and the encrypted, chained history.
-- Server endpoints the client will need.
-- The redaction gate compiled for use in the browser.
+The stocktake found the two halves of this codebase are not connected at all: the server compiles
+against no Fathom crate. That gets fixed first, because nothing else can be saved until it is.
 
-**Done when:** the server stores a design, hands it back, and the history verifies.
+- Wire the server to the engine — graph, schema, identifiers.
+- Database tables, encryption, and the tamper-evident change history.
+- Accounts, organisations, and the scope hierarchy (organisation → network → building → rack),
+  because live presence is scoped to it and retrofitting a hierarchy is expensive.
+- The endpoints the client needs to open, change and save a design.
 
-### Phase 3 — The client shell
+**Security gets a hard adversarial review in this phase.** It is the stated bar and the one thing
+here that is expensive to fix later.
 
-- New web app, connected to the server.
-- The look and feel we already chose — our colours, our typography.
-- Diagram canvas with the ready-made tool: boxes, lines, pan, zoom.
+**Done when:** the server stores a design, hands it back, and the history verifies as unaltered.
 
-**Done when:** you can open a design in a browser, move things, and it saves.
+### Phase 3 — The canvas
 
-### Phase 4 — The views
+**This is the product.** Drag-and-drop diagramming, the way Lucidchart does it.
 
-Rebuilt in this order, each usable before the next starts:
+- New web app talking to the server.
+- Our existing look — colours, typography.
+- Canvas with the ready-made diagram tool: drag boxes from a palette, drop them, connect them,
+  move them, pan and zoom.
+- The gestures already proven in the old client, reimplemented properly: place, link, cable,
+  drag-to-connect.
 
-1. Diagram — the main view
-2. Inventory — the table of everything
-3. Rack — physical layout
-4. Findings — what is missing or wrong
-5. Walkthrough — the teaching view, never built before
-6. Config — never built before
+**Done when:** you can build a network diagram from nothing, by dragging, and it saves.
 
-### Phase 5 — The parts never designed properly
+### Phase 4 — Working together
 
-- **Engine manager** — how equipment types are registered and kept current.
-- **Learning mode** — the teaching half of the product, which has always been a stated goal and
-  never had a mechanism.
+Scoped live presence: cursors and live changes for people in the same view, invisible across
+different ones.
 
-Both need design work before building. Neither is blocked by anything above.
+**Done when:** two browsers in the same rack see each other, and two in different racks do not.
+
+### Phase 5 — Inventory
+
+The table of everything, editable in place.
+
+### Phase 6 — Teaching and the config checker
+
+The second priority, and the largest genuinely new design in the project.
+
+- **Learning mode** — the teaching half, a stated goal since the beginning with no mechanism
+  behind it.
+- **A configuration checker that explains why something fails.** Not a pass/fail. It should say
+  *which* line, *why* it does not do what was intended, and what the device will actually do.
+
+This is where the existing parsing work gets its second life. It was built to construct estates
+from configs; it is better used explaining them.
+
+**Design comes before building here.** Neither has ever been specified properly.
+
+### Later — beyond alpha and beta
+
+Monitoring live systems, and integrating securely with them. Recorded so it is not designed out,
+not scheduled.
 
 ---
 
@@ -182,10 +256,17 @@ is used instead, because helpers cannot spawn their own helpers.
 
 ## Open questions
 
-- Does the first release keep an audit log? (Carried over, still unanswered.)
-- Key custody for a customer with no cloud. (Carried over.)
-- Whether live multi-user editing lands in the first release or later.
-- Whether network scanning — which the reference project does well — is in scope at all.
+Answered 2026-09-11: live editing (scoped, real-time), hosting (Docker, accounts, secure),
+discovery (not now — drawing first).
+
+Still open:
+
+- Does the first release keep an audit log?
+- Key custody for a customer with no cloud.
+- **Within one scope, what happens when two people change the same device at the same instant?**
+  Scoped presence answers who sees whom; it does not answer who wins. Needed before Phase 4.
+- Whether pasting a config survives at all once the checker exists, or whether the checker
+  becomes the only reason to paste.
 
 ---
 
