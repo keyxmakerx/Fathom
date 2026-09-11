@@ -1,0 +1,186 @@
+# Fathom — Rebuild Plan
+
+**Status:** Draft, 2026-09-11
+**Supersedes:** `00-ROUTE-TO-WORKABLE.md` and `00-PROGRAM-PLAN.md` as the operative plan.
+
+---
+
+## Why we are doing this
+
+Three things went wrong, and none of them is that the work was bad.
+
+1. **The product changed and the client didn't.** On 2026-08-18 we decided the data lives on a
+   server and the browser is just a window onto it. The browser side was never rebuilt to match,
+   so it still carries an architecture we retired three weeks ago.
+2. **Everything on screen was hand-built.** Dragging boxes, drawing lines, zoom, the diagram
+   layout — all written from scratch. Each one took weeks and its own round of testing. Ready-made
+   tools for this exist and are better than what we wrote.
+3. **Running the project got expensive.** The notes file is read before every single instruction,
+   and it has grown into a changelog. Most of what we spent was paid before any work started.
+
+The engine is fine. The thinking is fine. The problem is the layer people see and the cost of
+touching it.
+
+---
+
+## What we are keeping
+
+| Kept | Why |
+|---|---|
+| The whole Rust engine — schema, graph, config reading, redaction | Hard, correct, tested. Nothing to replace it. |
+| The server | Already runs, already proved against a real database. |
+| The redaction gate | Passwords are protected by never arriving. That stays. |
+| Key handling (ADR-0040) | Already decided and ratified. |
+| The reasoning in the docs | Moved to an archive, not deleted. |
+
+## What we are replacing
+
+| Replaced | With |
+|---|---|
+| The single offline HTML file | A proper web app talking to the server |
+| The hand-written diagram | A ready-made diagram tool |
+| The hand-written layout engine | A standard layout algorithm |
+| A notes file that costs money to read | A short pointer page plus an archive |
+
+**Nothing needs migrating.** There is no stored data anywhere, so we are free to change
+everything about how things are stored.
+
+---
+
+## The stack
+
+Decided. Not reopening without a reason.
+
+**Engine and server — Rust.** Unchanged. This is where speed actually matters.
+
+**Screen — React with Vite, plain CSS.** Checked September 2026: no framework is being abandoned
+or rewritten, nothing new has broken through, and React is the least likely of any option to
+disappear. Rust-for-the-screen was considered and rejected — there is no mature diagram tool for
+it, so we would hand-build the canvas again, which is the mistake we are correcting.
+
+**Diagram — React Flow.** Purpose-built for exactly this: draggable boxes, lines between them,
+pan and zoom, thousands of nodes. Replaces months of our own code.
+
+**Storage — PostgreSQL, encrypted, with a tamper-evident history.** Every change is recorded in a
+chain where each entry is sealed against the one before it. Alter any past entry and the chain
+visibly breaks. That is the useful half of what blockchain offers, without running a chain.
+
+**No Tailwind.** Plain CSS suits our existing colour system better.
+
+### Version policy
+
+Pin to the latest stable release that has been published **at least seven days**. This matches the
+cooldown rule already applied to Rust packages, and it exists because of the August 2026
+supply-chain attack. A package published this morning has been reviewed by nobody.
+
+The cooldown check gets extended to cover web packages, which it does not today.
+
+---
+
+## Phases
+
+### Phase 0 — Cut the running cost
+
+The notes file is read before every instruction. Shrinking it makes every phase after this one
+cheaper, so it goes first.
+
+- Cut the main notes file to a short pointer page — what this is, the rules that bind, where to
+  look. Not a changelog.
+- Create one current-state page, read only when needed.
+- Move the existing corpus into an archive with a standing rule: *do not read unless a task names
+  a specific file.*
+- Give each helper a restricted toolset so it cannot wander through the archive.
+
+**Done when:** a fresh session costs a fraction of what it does today, and nothing has been lost.
+
+### Phase 1 — Take stock
+
+One pass to establish what is actually built versus what is only written down. We know from
+experience this list will be shorter than the documents suggest — a previous sweep found nearly
+half of all flagged items were already stale.
+
+Also: what Homelable (the reference project) solves that we should adopt rather than invent.
+
+**Done when:** one page says what exists, what is stale, and what order to rebuild in.
+
+### Phase 2 — Foundation
+
+- Database schema and the encrypted, chained history.
+- Server endpoints the client will need.
+- The redaction gate compiled for use in the browser.
+
+**Done when:** the server stores a design, hands it back, and the history verifies.
+
+### Phase 3 — The client shell
+
+- New web app, connected to the server.
+- The look and feel we already chose — our colours, our typography.
+- Diagram canvas with the ready-made tool: boxes, lines, pan, zoom.
+
+**Done when:** you can open a design in a browser, move things, and it saves.
+
+### Phase 4 — The views
+
+Rebuilt in this order, each usable before the next starts:
+
+1. Diagram — the main view
+2. Inventory — the table of everything
+3. Rack — physical layout
+4. Findings — what is missing or wrong
+5. Walkthrough — the teaching view, never built before
+6. Config — never built before
+
+### Phase 5 — The parts never designed properly
+
+- **Engine manager** — how equipment types are registered and kept current.
+- **Learning mode** — the teaching half of the product, which has always been a stated goal and
+  never had a mechanism.
+
+Both need design work before building. Neither is blocked by anything above.
+
+---
+
+## Who does the work
+
+Roles, not running processes. Each is spawned only when needed.
+
+| Role | Used for |
+|---|---|
+| Lead | Holds the plan, decides, delegates. |
+| Builder | Does the work, one task at a time. |
+| Checker | Attacks the work independently. Never shares the builder's context. |
+| Bookkeeper | Re-checks numbers and corrects documents. Cheap. |
+| Security | Anything touching credentials, encryption or dependencies. |
+| Designer | Draws a screen from a closed brief. Expensive, so used narrowly. |
+
+**Rule:** helpers coordinate with each other about the work. They do not renegotiate the plan.
+Decisions come back to the lead.
+
+For adversarial review — several independent checkers attacking the same thing — a scripted run
+is used instead, because helpers cannot spawn their own helpers.
+
+---
+
+## Rules that keep this cheap
+
+1. Never read the archive unless a task names a file in it.
+2. Cheap helpers read; expensive ones decide.
+3. Ask a closed question, get a short answer. No open-ended exploration.
+4. The notes file is a pointer page. If it starts becoming a changelog again, cut it.
+5. One task at a time unless two are genuinely independent.
+
+---
+
+## Open questions
+
+- Does the first release keep an audit log? (Carried over, still unanswered.)
+- Key custody for a customer with no cloud. (Carried over.)
+- Whether live multi-user editing lands in the first release or later.
+- Whether network scanning — which the reference project does well — is in scope at all.
+
+---
+
+## Deliberately not decided here
+
+Anything in `docs/70-ops/OPEN-FOR-THE-OWNER.md` that this plan does not touch. That page remains
+the register of owner decisions, and this plan does not answer any of them on the owner's behalf.
