@@ -1,0 +1,201 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .panel { border: 1px solid #D2D7DD; background: #FFFFFF; }
+    .cap { padding: 8px 10px; border-top: 1px solid #D2D7DD; font-size: 11px; line-height: 16px; background: #FAFBFC; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="padding: 14px 20px 10px; border-bottom: 3px solid #14171A;">
+    <div style="font-size: 21px; font-weight: 700; line-height: 24px;">Forty cables, and you can still read it</div>
+    <div style="color: #5C6772; font-size: 13px; margin-top: 4px;">Your complaint with the building view was a single line crossing others and hiding that it was many. These four techniques, together, are how the rack never gets there. Same six devices in every panel.</div>
+  </div>
+
+  <div style="flex-grow: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 16px 20px; min-height: 0;">
+
+    <!-- 1. Bundles -->
+    <div class="panel" style="display: flex; flex-direction: column;">
+      <div style="padding: 8px 10px; display: flex; justify-content: space-between; align-items: baseline;"><span class="lbl" style="color: #14171A;">1 &middot; Bundles</span><span style="font-size: 10px; color: #5C6772;">at rest</span></div>
+      <svg width="100%" height="420" viewBox="0 0 320 420" style="flex-shrink: 0;">
+        <g font-size="9" fill="#14171A" font-weight="700">
+          <rect x="30" y="30" width="260" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="43">core-01</text>
+          <rect x="30" y="60" width="260" height="20" fill="#F2F4F6" stroke="#14171A"/><text x="36" y="73">patch-01</text>
+          <rect x="30" y="150" width="260" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="163">acc-01</text>
+          <rect x="30" y="180" width="260" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="193">acc-02</text>
+          <rect x="30" y="300" width="260" height="40" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="315">vm-host-01</text>
+        </g>
+        <!-- ports -->
+        <g fill="#14171A">
+          <rect x="120" y="36" width="4" height="8"/><rect x="126" y="36" width="4" height="8"/><rect x="132" y="36" width="4" height="8"/><rect x="138" y="36" width="4" height="8"/><rect x="144" y="36" width="4" height="8"/><rect x="150" y="36" width="4" height="8"/>
+          <rect x="120" y="66" width="4" height="8"/><rect x="126" y="66" width="4" height="8"/><rect x="132" y="66" width="4" height="8"/><rect x="138" y="66" width="4" height="8"/><rect x="144" y="66" width="4" height="8"/><rect x="150" y="66" width="4" height="8"/>
+          <rect x="200" y="66" width="4" height="8"/><rect x="206" y="66" width="4" height="8"/><rect x="212" y="66" width="4" height="8"/><rect x="218" y="66" width="4" height="8"/><rect x="224" y="66" width="4" height="8"/><rect x="230" y="66" width="4" height="8"/><rect x="236" y="66" width="4" height="8"/><rect x="242" y="66" width="4" height="8"/>
+          <rect x="120" y="156" width="4" height="8"/><rect x="126" y="156" width="4" height="8"/><rect x="132" y="156" width="4" height="8"/><rect x="138" y="156" width="4" height="8"/><rect x="144" y="156" width="4" height="8"/><rect x="150" y="156" width="4" height="8"/><rect x="156" y="156" width="4" height="8"/><rect x="162" y="156" width="4" height="8"/>
+          <rect x="200" y="186" width="4" height="8"/><rect x="206" y="186" width="4" height="8"/><rect x="212" y="186" width="4" height="8"/><rect x="218" y="186" width="4" height="8"/>
+          <rect x="260" y="36" width="4" height="8"/><rect x="266" y="36" width="4" height="8"/>
+          <rect x="270" y="330" width="4" height="8"/>
+        </g>
+        <!-- six parallel cables core->patch: drawn as ONE band -->
+        <g fill="none" stroke="#14171A" stroke-linecap="round">
+          <path d="M 138 44 C 150 52, 150 60, 138 68" stroke-width="7"/>
+          <path d="M 220 74 C 260 100, 260 130, 160 158" stroke-width="9"/>
+          <path d="M 210 194 C 240 170, 250 90, 222 74" stroke-width="5"/>
+          <path d="M 272 338 C 320 300, 320 60, 268 44" stroke-width="1.6"/>
+        </g>
+        <g font-size="9" font-family="'DejaVu Sans Mono', Menlo, monospace" text-anchor="middle">
+          <rect x="156" y="49" width="22" height="12" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><text x="167" y="58" fill="#14171A">&times;6</text>
+          <rect x="248" y="110" width="22" height="12" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><text x="259" y="119" fill="#14171A">&times;8</text>
+          <rect x="248" y="150" width="22" height="12" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><text x="259" y="159" fill="#14171A">&times;4</text>
+        </g>
+        <text x="30" y="390" font-size="10" fill="#5C6772">Cables sharing both ends draw as one band.</text>
+        <text x="30" y="404" font-size="10" fill="#5C6772">Width and the badge say how many.</text>
+      </svg>
+      <div class="cap">Nineteen cables. Four lines. Nothing crosses that you cannot count.</div>
+    </div>
+
+    <!-- 2. Fan on hover -->
+    <div class="panel" style="display: flex; flex-direction: column;">
+      <div style="padding: 8px 10px; display: flex; justify-content: space-between; align-items: baseline;"><span class="lbl" style="color: #14171A;">2 &middot; Fan on hover</span><span style="font-size: 10px; color: #5C6772;">pointer over the &times;8 band</span></div>
+      <svg width="100%" height="420" viewBox="0 0 320 420" style="flex-shrink: 0;">
+        <g font-size="9" fill="#14171A" font-weight="700">
+          <rect x="30" y="30" width="260" height="20" fill="#FFFFFF" stroke="#14171A" opacity="0.4"/><text x="36" y="43" opacity="0.4">core-01</text>
+          <rect x="30" y="60" width="260" height="20" fill="#F2F4F6" stroke="#14171A"/><text x="36" y="73">patch-01</text>
+          <rect x="30" y="150" width="260" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="163">acc-01</text>
+          <rect x="30" y="180" width="260" height="20" fill="#FFFFFF" stroke="#14171A" opacity="0.4"/><text x="36" y="193" opacity="0.4">acc-02</text>
+          <rect x="30" y="300" width="260" height="40" fill="#FFFFFF" stroke="#14171A" opacity="0.4"/><text x="36" y="315" opacity="0.4">vm-host-01</text>
+        </g>
+        <g fill="#14171A">
+          <rect x="200" y="66" width="4" height="8"/><rect x="206" y="66" width="4" height="8"/><rect x="212" y="66" width="4" height="8"/><rect x="218" y="66" width="4" height="8"/><rect x="224" y="66" width="4" height="8"/><rect x="230" y="66" width="4" height="8"/><rect x="236" y="66" width="4" height="8"/><rect x="242" y="66" width="4" height="8"/>
+          <rect x="120" y="156" width="4" height="8"/><rect x="126" y="156" width="4" height="8"/><rect x="132" y="156" width="4" height="8"/><rect x="138" y="156" width="4" height="8"/><rect x="144" y="156" width="4" height="8"/><rect x="150" y="156" width="4" height="8"/><rect x="156" y="156" width="4" height="8"/><rect x="162" y="156" width="4" height="8"/>
+        </g>
+        <!-- everything else dimmed -->
+        <g fill="none" stroke="#14171A" stroke-linecap="round" opacity="0.18">
+          <path d="M 138 44 C 150 52, 150 60, 138 68" stroke-width="7"/>
+          <path d="M 210 194 C 240 170, 250 90, 222 74" stroke-width="5"/>
+          <path d="M 272 338 C 320 300, 320 60, 268 44" stroke-width="1.6"/>
+        </g>
+        <!-- the band fans into 8 individual sagging cables -->
+        <g fill="none" stroke="#14171A" stroke-width="1.4" stroke-linecap="round">
+          <path d="M 202 74 C 236 100, 236 130, 122 158"/>
+          <path d="M 208 74 C 242 102, 242 132, 128 158"/>
+          <path d="M 214 74 C 248 104, 248 134, 134 158"/>
+          <path d="M 220 74 C 254 106, 254 136, 140 158"/>
+          <path d="M 226 74 C 260 108, 260 138, 146 158"/>
+          <path d="M 232 74 C 266 110, 266 140, 152 158"/>
+          <path d="M 238 74 C 272 112, 272 142, 158 158"/>
+          <path d="M 244 74 C 278 114, 278 144, 164 158"/>
+        </g>
+        <!-- pair labels -->
+        <g font-size="8" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">
+          <text x="256" y="90">p13&rarr;ge-0/0/0</text>
+          <text x="262" y="102">p14&rarr;1</text>
+          <text x="268" y="114">p15&rarr;2</text>
+          <text x="274" y="126">&hellip;</text>
+          <text x="280" y="138">p20&rarr;7</text>
+        </g>
+        <!-- pointer -->
+        <g transform="translate(258,118)">
+          <circle r="7" fill="none" stroke="#14171A" stroke-width="1.5"/>
+          <line x1="-10" y1="0" x2="-7" y2="0" stroke="#14171A" stroke-width="1.5"/><line x1="7" y1="0" x2="10" y2="0" stroke="#14171A" stroke-width="1.5"/>
+          <line x1="0" y1="-10" x2="0" y2="-7" stroke="#14171A" stroke-width="1.5"/><line x1="0" y1="7" x2="0" y2="10" stroke="#14171A" stroke-width="1.5"/>
+        </g>
+        <text x="30" y="390" font-size="10" fill="#5C6772">The band opens into its members, 150 ms,</text>
+        <text x="30" y="404" font-size="10" fill="#5C6772">each with its pair. Everything else fades.</text>
+      </svg>
+      <div class="cap">Which of the eight is port 15? Now you can see. Move away and it folds back.</div>
+    </div>
+
+    <!-- 3. Light the whole chain -->
+    <div class="panel" style="display: flex; flex-direction: column;">
+      <div style="padding: 8px 10px; display: flex; justify-content: space-between; align-items: baseline;"><span class="lbl" style="color: #14171A;">3 &middot; Light the whole path</span><span style="font-size: 10px; color: #5C6772;">hover one segment</span></div>
+      <svg width="100%" height="420" viewBox="0 0 320 420" style="flex-shrink: 0;">
+        <!-- portal above -->
+        <rect x="30" y="4" width="260" height="18" fill="#FAFBFC" stroke="#14171A" stroke-width="1.5"/>
+        <text x="40" y="16" font-size="9" fill="#14171A">&uarr; MDF A-01 &middot; patch p7 &rarr; core-a01 xe-0/0/12</text>
+        <g font-size="9" fill="#14171A" font-weight="700">
+          <rect x="30" y="30" width="260" height="20" fill="#FFFFFF" stroke="#14171A" opacity="0.3"/><text x="36" y="43" opacity="0.3">core-01</text>
+          <rect x="30" y="60" width="260" height="20" fill="#F2F4F6" stroke="#14171A"/><text x="36" y="73">patch-01</text>
+          <rect x="30" y="150" width="260" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="163">acc-01</text>
+          <rect x="30" y="180" width="260" height="20" fill="#FFFFFF" stroke="#14171A" opacity="0.3"/><text x="36" y="193" opacity="0.3">acc-02</text>
+          <rect x="30" y="300" width="260" height="40" fill="#FFFFFF" stroke="#14171A" opacity="0.3"/><text x="36" y="315" opacity="0.3">vm-host-01</text>
+        </g>
+        <!-- dimmed rest -->
+        <g fill="none" stroke="#14171A" stroke-linecap="round" opacity="0.14">
+          <path d="M 138 44 C 150 52, 150 60, 138 68" stroke-width="7"/>
+          <path d="M 220 74 C 260 100, 260 130, 160 158" stroke-width="9"/>
+          <path d="M 210 194 C 240 170, 250 90, 222 74" stroke-width="5"/>
+          <path d="M 272 338 C 320 300, 320 60, 268 44" stroke-width="1.6"/>
+        </g>
+        <!-- the lit chain: acc-01 p7 -> patch p7 (patch cord) -> rear -> riser (dashed) -> portal -->
+        <g fill="none" stroke-linecap="round">
+          <path d="M 144 158 C 170 170, 175 90, 124 74" stroke="#D2D7DD" stroke-width="9"/>
+          <path d="M 124 66 C 124 50, 110 30, 100 22" stroke="#D2D7DD" stroke-width="9"/>
+          <path d="M 144 158 C 170 170, 175 90, 124 74" stroke="#14171A" stroke-width="2.4"/>
+          <path d="M 124 66 C 124 50, 110 30, 100 22" stroke="#14171A" stroke-width="2.4" stroke-dasharray="5 3"/>
+        </g>
+        <rect x="121" y="63" width="6" height="12" fill="#14171A" stroke="#FFFFFF"/>
+        <rect x="141" y="153" width="6" height="12" fill="#14171A" stroke="#FFFFFF"/>
+        <g transform="translate(150,110)">
+          <rect x="0" y="0" width="60" height="13" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/>
+          <text x="30" y="10" font-size="8" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">1 &middot; patch cord</text>
+        </g>
+        <g transform="translate(130,36)">
+          <rect x="0" y="0" width="56" height="13" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/>
+          <text x="28" y="10" font-size="8" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">2 &middot; riser 40 m</text>
+        </g>
+        <text x="30" y="376" font-size="10" fill="#5C6772">Hover the patch cord. The cord, the panel</text>
+        <text x="30" y="390" font-size="10" fill="#5C6772">port, the riser run and the portal all light,</text>
+        <text x="30" y="404" font-size="10" fill="#5C6772">numbered in order. One object, not one segment.</text>
+      </svg>
+      <div class="cap">A cable is never "a line". It is a path, and the path is what you point at.</div>
+    </div>
+
+    <!-- 4. Layers you toggle, colour you choose -->
+    <div class="panel" style="display: flex; flex-direction: column;">
+      <div style="padding: 8px 10px; display: flex; justify-content: space-between; align-items: baseline;"><span class="lbl" style="color: #14171A;">4 &middot; Toggle by kind, colour by lead</span><span style="font-size: 10px; color: #5C6772;">power on, sheath colours on</span></div>
+      <svg width="100%" height="420" viewBox="0 0 320 420" style="flex-shrink: 0;">
+        <g font-size="9" fill="#14171A" font-weight="700">
+          <rect x="30" y="30" width="260" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="43">core-01</text>
+          <rect x="30" y="60" width="260" height="20" fill="#F2F4F6" stroke="#14171A"/><text x="36" y="73">patch-01</text>
+          <rect x="30" y="150" width="260" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="163">acc-01</text>
+          <rect x="30" y="180" width="260" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="193">acc-02</text>
+          <rect x="30" y="300" width="260" height="40" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="315">vm-host-01</text>
+          <rect x="30" y="360" width="260" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="36" y="373">pdu-a04</text>
+        </g>
+        <!-- data cables in the user's real lead colours (content, not chrome) -->
+        <g fill="none" stroke-linecap="round">
+          <path d="M 138 44 C 150 52, 150 60, 138 68" stroke="#2F5D8A" stroke-width="7"/>
+          <path d="M 220 74 C 260 100, 260 130, 160 158" stroke="#2F5D8A" stroke-width="9"/>
+          <path d="M 210 194 C 240 170, 250 90, 222 74" stroke="#7A7A7A" stroke-width="5"/>
+          <!-- fibre: double line -->
+          <path d="M 272 338 C 320 300, 320 60, 268 44" stroke="#C9A227" stroke-width="3"/>
+          <path d="M 272 338 C 320 300, 320 60, 268 44" stroke="#FFFFFF" stroke-width="1"/>
+        </g>
+        <!-- POWER: its own layer, always drawn as a thick muted line on the LEFT side so it never competes with data on the right -->
+        <g fill="none" stroke="#5C6772" stroke-width="3" stroke-linecap="round" opacity="0.9">
+          <path d="M 44 368 C 14 340, 14 60, 44 48"/>
+          <path d="M 52 368 C 20 340, 22 180, 44 166"/>
+          <path d="M 60 368 C 26 350, 26 330, 44 320"/>
+        </g>
+        <g fill="#5C6772"><rect x="42" y="364" width="4" height="8"/><rect x="50" y="364" width="4" height="8"/><rect x="58" y="364" width="4" height="8"/></g>
+        <text x="30" y="404" font-size="10" fill="#5C6772">Power runs the left side; data the right.</text>
+        <text x="30" y="418" font-size="10" fill="#5C6772">They never share a lane, so they never tangle.</text>
+      </svg>
+      <div class="cap">Copper, fibre and power toggle independently. Lead colour is yours to set per cable &mdash; it is data, like Homelable does it &mdash; and off by default, so the tokens stay clean.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

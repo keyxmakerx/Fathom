@@ -11,237 +11,383 @@
     body { margin: 0; }
     a { color: #14171A; } a:hover { color: #5C6772; }
     * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; }
+    .tog { border: 1px solid #14171A; padding: 2px 10px; font-size: 11px; }
+    .tog.off { border-color: #D2D7DD; color: #5C6772; }
+    .row { display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px; }
+    .row .k { width: 80px; font-size: 11px; color: #5C6772; flex-shrink: 0; }
   </style>
 </helmet>
 <div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
 
   <!-- masthead -->
-  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 16px; gap: 24px; flex-shrink: 0;">
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0;">
     <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
-    <div style="display: flex; gap: 0; align-self: stretch; align-items: stretch;">
-      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; border-bottom: 4px solid #14171A; font-weight: 700;">Diagram</div>
-      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Inventory</div>
-      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Rack</div>
-      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Findings</div>
-      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Walkthrough</div>
-      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Config</div>
-    </div>
-    <div style="flex-grow: 1;"></div>
-    <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #5C6772; font-variant-numeric: tabular-nums;">
-      <div style="border: 1px solid #D2D7DD; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 13px;">&minus;</div>
-      <div style="min-width: 44px; text-align: center;">100%</div>
-      <div style="border: 1px solid #D2D7DD; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 13px;">+</div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+      <span>Northwind</span><span style="color: #D2D7DD;">&rsaquo;</span><span>HQ</span><span style="color: #D2D7DD;">&rsaquo;</span><span>Building A</span><span style="color: #D2D7DD;">&rsaquo;</span><span style="color: #14171A; font-weight: 700;">IDF-2</span>
     </div>
     <div style="width: 1px; height: 24px; background: #D2D7DD;"></div>
-    <div style="display: flex; align-items: center; gap: 4px;">
-      <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center; letter-spacing: 0.05em;">RK</div>
-      <div style="width: 24px; height: 24px; background: #1F6F4A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center; letter-spacing: 0.05em;">JT</div>
-      <div style="width: 24px; height: 24px; background: #A8571B; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center; letter-spacing: 0.05em;">MP</div>
-      <div style="font-size: 10px; color: #5C6772; margin-left: 4px; letter-spacing: 0.10em; text-transform: uppercase;">in this view</div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="lbl">Cables</span>
+      <span class="tog">&#10003; Copper</span>
+      <span class="tog">&#10003; Fibre</span>
+      <span class="tog off">Power</span>
+      <span style="width: 1px; height: 18px; background: #D2D7DD; margin: 0 4px;"></span>
+      <span class="lbl">Colour ports by</span>
+      <span class="tog">Link</span>
+      <span class="tog off">VLAN</span>
+      <span class="tog off">Subnet</span>
+      <span class="tog off">Owner</span>
     </div>
-  </div>
-
-  <!-- scope breadcrumb -->
-  <div style="height: 28px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 8px; font-size: 11px; color: #5C6772; background: #FAFBFC; flex-shrink: 0;">
-    <span>Northwind Logistics</span><span style="color: #D2D7DD;">/</span>
-    <span>Core Network</span><span style="color: #D2D7DD;">/</span>
-    <span>HQ &mdash; Building A</span><span style="color: #D2D7DD;">/</span>
-    <span style="color: #14171A; font-weight: 700;">Rack A-04</span>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #5C6772;">
+      <span>2 others here</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 8px;">Jordan T.</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 8px;">Maria P.</span>
+    </div>
+    <div style="width: 1px; height: 24px; background: #D2D7DD;"></div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772; font-variant-numeric: tabular-nums;">
+      <span style="border: 1px solid #D2D7DD; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;">&minus;</span>
+      <span style="min-width: 36px; text-align: center;">72%</span>
+      <span style="border: 1px solid #D2D7DD; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;">+</span>
+    </div>
   </div>
 
   <div style="flex-grow: 1; display: flex; min-height: 0;">
 
-    <!-- palette -->
-    <div style="width: 200px; border-right: 1px solid #D2D7DD; background: #F2F4F6; display: flex; flex-direction: column; flex-shrink: 0;">
-      <div style="padding: 12px 12px 8px; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; border-bottom: 1px solid #D2D7DD;">Drag onto canvas</div>
-      <div style="display: flex; flex-direction: column; gap: 0;">
-        <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF; display: flex; align-items: center; gap: 8px;">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1.25"><rect x="1.5" y="4.5" width="13" height="7"/><path d="M4 8h8"/></svg>
-          <span>Firewall</span>
-        </div>
-        <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF; display: flex; align-items: center; gap: 8px;">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1.25"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11M2.5 8h11"/></svg>
-          <span>Router</span>
-        </div>
-        <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF; display: flex; align-items: center; gap: 8px;">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1.25"><rect x="1.5" y="5.5" width="13" height="5"/><path d="M4 5.5v5M7 5.5v5M10 5.5v5"/></svg>
-          <span>Switch</span>
-        </div>
-        <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF; display: flex; align-items: center; gap: 8px;">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1.25"><rect x="2.5" y="2.5" width="11" height="4"/><rect x="2.5" y="9.5" width="11" height="4"/></svg>
-          <span>Server</span>
-        </div>
-        <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF; display: flex; align-items: center; gap: 8px;">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1.25"><path d="M8 13V8"/><path d="M4 7a4 4 0 018 0"/><path d="M1.5 6a6.5 6.5 0 0113 0"/></svg>
-          <span>Access point</span>
-        </div>
-        <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF; display: flex; align-items: center; gap: 8px;">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1.25"><rect x="1.5" y="3.5" width="13" height="9"/></svg>
-          <span>Load balancer</span>
-        </div>
+    <!-- LEFT RAIL: racks + equipment from the engine -->
+    <div style="width: 224px; border-right: 1px solid #D2D7DD; background: #F2F4F6; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div class="lbl" style="padding: 10px 12px 6px; border-bottom: 1px solid #D2D7DD;">Racks in this closet</div>
+      <div style="font-size: 12px;">
+        <div style="padding: 5px 12px; background: #FFFFFF; border-left: 4px solid #14171A; display: flex; justify-content: space-between;"><span>A-04</span><span style="color: #5C6772;" class="mono">42U &middot; 14 used</span></div>
+        <div style="padding: 5px 16px; display: flex; justify-content: space-between;"><span>A-05</span><span style="color: #5C6772;" class="mono">24U &middot; landlord</span></div>
+        <div style="padding: 5px 16px; color: #5C6772; border-top: 1px dashed #D2D7DD;">+ add a rack</div>
       </div>
-      <div style="padding: 12px 12px 8px; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; border-bottom: 1px solid #D2D7DD; border-top: 1px solid #D2D7DD; margin-top: 16px;">Containers</div>
-      <div style="display: flex; flex-direction: column;">
-        <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;">Site</div>
-        <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;">Rack</div>
-        <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;">Zone</div>
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; border-bottom: 1px solid #D2D7DD; margin-top: 8px;">Other closets</div>
+      <div style="font-size: 12px; color: #5C6772;">
+        <div style="padding: 4px 12px;">MDF &mdash; ground &middot; 2 racks</div>
+        <div style="padding: 4px 12px;">IDF-3 &middot; 1 rack</div>
+        <div style="padding: 4px 12px;">Denver NOC &middot; 14 racks</div>
+      </div>
+
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; border-bottom: 1px solid #D2D7DD; margin-top: 8px;">Equipment &mdash; drag onto a rack</div>
+      <div style="font-size: 12px;">
+        <div style="padding: 6px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;"><div>Juniper EX4300-48P</div><div class="mono" style="font-size: 10px; color: #5C6772;">1U &middot; 48&times;RJ45 &middot; 4&times;SFP+</div></div>
+        <div style="padding: 6px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;"><div>Juniper SRX340</div><div class="mono" style="font-size: 10px; color: #5C6772;">1U &middot; 8&times;RJ45 &middot; 8&times;SFP</div></div>
+        <div style="padding: 6px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;"><div>24-port patch panel</div><div class="mono" style="font-size: 10px; color: #5C6772;">1U &middot; 24&times;RJ45 front &middot; rear punchdown</div></div>
+        <div style="padding: 6px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;"><div>12-port fibre panel</div><div class="mono" style="font-size: 10px; color: #5C6772;">1U &middot; 12&times;LC duplex</div></div>
+        <div style="padding: 6px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;"><div>PDU &middot; 8 outlet</div><div class="mono" style="font-size: 10px; color: #5C6772;">1U &middot; 8&times;C13</div></div>
+        <div style="padding: 6px 12px; border-bottom: 1px solid #D2D7DD; color: #5C6772;">Generic server, blank, shelf, cable manager&hellip;</div>
       </div>
       <div style="flex-grow: 1;"></div>
-      <div style="padding: 12px; font-size: 10px; color: #5C6772; border-top: 1px solid #D2D7DD; line-height: 16px;">Drag to place. Drag from a box edge to cable it.</div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Port counts and positions come from the engine's equipment catalogue, not typed by hand.</div>
     </div>
 
-    <!-- canvas -->
-    <div style="flex-grow: 1; position: relative; background: #FFFFFF; overflow: hidden;">
+    <!-- CENTRE: the racks -->
+    <div style="flex-grow: 1; position: relative; overflow: hidden; background: #FFFFFF;">
+      <svg width="880" height="828" viewBox="0 0 880 828" style="position: absolute; left: 0; top: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+        <defs>
+          <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><line x1="0" y1="0" x2="0" y2="6" stroke="#D2D7DD" stroke-width="1"/></pattern>
+          <pattern id="hatchOwner" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><line x1="0" y1="0" x2="0" y2="6" stroke="#5C6772" stroke-width="0.8"/></pattern>
+        </defs>
 
-      <!-- links -->
-      <svg style="position: absolute; inset: 0;" width="100%" height="100%">
-        <path d="M300 150 L300 196" stroke="#14171A" stroke-width="1" fill="none"/>
-        <path d="M300 268 L300 300 L180 300 L180 340" stroke="#14171A" stroke-width="1" fill="none"/>
-        <path d="M300 268 L300 300 L420 300 L420 340" stroke="#14171A" stroke-width="1" fill="none"/>
-        <path d="M180 412 L180 448 L120 448 L120 490" stroke="#14171A" stroke-width="1" fill="none"/>
-        <path d="M180 412 L180 448 L248 448 L248 490" stroke="#14171A" stroke-width="1" fill="none"/>
-        <path d="M420 412 L420 490" stroke="#14171A" stroke-width="1" fill="none"/>
-        <path d="M560 230 L640 230" stroke="#14171A" stroke-width="1" fill="none" stroke-dasharray="3 3"/>
+        <!-- ===== PORTAL TRAY above A-04 ===== -->
+        <g>
+          <rect x="60" y="24" width="300" height="30" fill="#FAFBFC" stroke="#5C6772" stroke-dasharray="3 2"/>
+          <path d="M74 45 L74 33 M70 37 L74 33 L78 37" stroke="#14171A" stroke-width="1.25" fill="none"/>
+          <text x="86" y="43" font-size="11" fill="#14171A">up the riser &rarr; MDF A-01</text>
+          <text x="352" y="43" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">3 fibre &middot; 1 copper</text>
+        </g>
+
+        <!-- ===== RACK A-04 (42U, 16px per U) ===== -->
+        <g transform="translate(60,64)">
+          <rect x="0" y="0" width="300" height="672" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+          <!-- left rail with U numbers -->
+          <rect x="0" y="0" width="28" height="672" fill="#F2F4F6" stroke="#D2D7DD"/>
+          <rect x="272" y="0" width="28" height="672" fill="#F2F4F6" stroke="#D2D7DD"/>
+          <g font-size="8" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="22" y="12">42</text><text x="22" y="44">40</text><text x="22" y="76">38</text><text x="22" y="108">36</text><text x="22" y="140">34</text><text x="22" y="172">32</text><text x="22" y="204">30</text><text x="22" y="236">28</text><text x="22" y="268">26</text><text x="22" y="300">24</text><text x="22" y="332">22</text><text x="22" y="364">20</text><text x="22" y="396">18</text><text x="22" y="428">16</text><text x="22" y="460">14</text><text x="22" y="492">12</text><text x="22" y="524">10</text><text x="22" y="556">8</text><text x="22" y="588">6</text><text x="22" y="620">4</text><text x="22" y="652">2</text>
+          </g>
+          <!-- free U hatched -->
+          <rect x="28" y="0" width="244" height="32" fill="url(#hatch)"/>
+          <rect x="28" y="112" width="244" height="16" fill="url(#hatch)"/>
+          <rect x="28" y="192" width="244" height="240" fill="url(#hatch)"/>
+          <rect x="28" y="576" width="244" height="64" fill="url(#hatch)"/>
+
+          <!-- U40-41: hq-fw-01 SRX340 (2U) -->
+          <g transform="translate(28,32)">
+            <rect x="0" y="0" width="244" height="32" fill="#FFFFFF" stroke="#14171A"/>
+            <circle cx="9" cy="9" r="2.5" fill="#14171A"/>
+            <text x="16" y="12" font-size="9" fill="#14171A" font-weight="700">hq-fw-01</text>
+            <text x="238" y="12" font-size="8" fill="#5C6772" text-anchor="end">SRX340 &middot; firewall</text>
+            <!-- 8 RJ45 -->
+            <g transform="translate(16,17)">
+              <rect x="0" y="0" width="8" height="9" fill="#14171A"/><rect x="11" y="0" width="8" height="9" fill="#14171A"/><rect x="22" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><rect x="33" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><rect x="44" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><rect x="55" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><rect x="66" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><rect x="77" y="0" width="8" height="9" fill="#14171A"/>
+            </g>
+            <!-- 8 SFP -->
+            <g transform="translate(120,18)">
+              <rect x="0" y="0" width="11" height="7" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><rect x="14" y="0" width="11" height="7" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><rect x="28" y="0" width="11" height="7" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/><rect x="42" y="0" width="11" height="7" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/>
+            </g>
+          </g>
+
+          <!-- U38: core-01 EX4300 (1U) — Jordan is editing this: dashed ring + chip -->
+          <g transform="translate(28,64)">
+            <rect x="0" y="0" width="244" height="16" fill="#FFFFFF" stroke="#14171A"/>
+            <rect x="-2" y="-2" width="248" height="20" fill="none" stroke="#14171A" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <circle cx="9" cy="8" r="2.5" fill="#14171A"/>
+            <text x="16" y="11" font-size="9" fill="#14171A" font-weight="700">core-01</text>
+            <!-- 24 RJ45 as a bank (overview scale: a dot each) -->
+            <g transform="translate(70,4)">
+              <rect x="0" y="0" width="5" height="8" fill="#14171A"/><rect x="6" y="0" width="5" height="8" fill="#14171A"/><rect x="12" y="0" width="5" height="8" fill="#14171A"/><rect x="18" y="0" width="5" height="8" fill="#14171A"/><rect x="24" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="30" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="36" y="0" width="5" height="8" fill="#14171A"/><rect x="42" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="48" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="54" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="60" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="66" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+              <rect x="78" y="0" width="5" height="8" fill="#14171A"/><rect x="84" y="0" width="5" height="8" fill="#14171A"/><rect x="90" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="96" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="102" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="108" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="114" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="120" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="126" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="132" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="138" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="144" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+              <!-- 4 SFP+ -->
+              <rect x="156" y="1" width="9" height="6" fill="#14171A"/><rect x="167" y="1" width="9" height="6" fill="#14171A"/><rect x="178" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="189" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+            </g>
+          </g>
+
+          <!-- U37: core-02 -->
+          <g transform="translate(28,80)">
+            <rect x="0" y="0" width="244" height="16" fill="#FFFFFF" stroke="#14171A"/>
+            <circle cx="9" cy="8" r="2.5" fill="#14171A"/>
+            <text x="16" y="11" font-size="9" fill="#14171A" font-weight="700">core-02</text>
+            <g transform="translate(70,4)">
+              <rect x="0" y="0" width="5" height="8" fill="#14171A"/><rect x="6" y="0" width="5" height="8" fill="#14171A"/><rect x="12" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="18" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="24" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="30" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="36" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="42" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="48" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="54" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="60" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="66" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+              <rect x="78" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="84" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="90" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="96" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="102" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="108" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="114" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="120" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="126" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="132" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="138" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="144" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+              <rect x="156" y="1" width="9" height="6" fill="#14171A"/><rect x="167" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="178" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="189" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+            </g>
+          </g>
+
+          <!-- U35: patch-01 (24 port panel) -->
+          <g transform="translate(28,112)">
+            <rect x="0" y="0" width="244" height="16" fill="#F2F4F6" stroke="#14171A"/>
+            <text x="6" y="11" font-size="9" fill="#14171A" font-weight="700">patch-01</text>
+            <g transform="translate(60,4)">
+              <rect x="0" y="0" width="5" height="8" fill="#14171A"/><rect x="7" y="0" width="5" height="8" fill="#14171A"/><rect x="14" y="0" width="5" height="8" fill="#14171A"/><rect x="21" y="0" width="5" height="8" fill="#14171A"/><rect x="28" y="0" width="5" height="8" fill="#14171A"/><rect x="35" y="0" width="5" height="8" fill="#14171A"/><rect x="42" y="0" width="5" height="8" fill="#14171A"/><rect x="49" y="0" width="5" height="8" fill="#14171A"/><rect x="56" y="0" width="5" height="8" fill="#14171A"/><rect x="63" y="0" width="5" height="8" fill="#14171A"/><rect x="70" y="0" width="5" height="8" fill="#14171A"/><rect x="77" y="0" width="5" height="8" fill="#14171A"/>
+              <rect x="88" y="0" width="5" height="8" fill="#14171A"/><rect x="95" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="102" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="109" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="116" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="123" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="130" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="137" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="144" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="151" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="158" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="165" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+            </g>
+          </g>
+
+          <!-- U34: acc-01 -->
+          <g transform="translate(28,128)">
+            <rect x="0" y="0" width="244" height="16" fill="#FFFFFF" stroke="#14171A"/>
+            <circle cx="9" cy="8" r="2.5" fill="#14171A"/>
+            <text x="16" y="11" font-size="9" fill="#14171A" font-weight="700">acc-01</text>
+            <g transform="translate(70,4)">
+              <rect x="0" y="0" width="5" height="8" fill="#14171A"/><rect x="6" y="0" width="5" height="8" fill="#14171A"/><rect x="12" y="0" width="5" height="8" fill="#14171A"/><rect x="18" y="0" width="5" height="8" fill="#14171A"/><rect x="24" y="0" width="5" height="8" fill="#14171A"/><rect x="30" y="0" width="5" height="8" fill="#14171A"/><rect x="36" y="0" width="5" height="8" fill="#14171A"/><rect x="42" y="0" width="5" height="8" fill="#14171A"/><rect x="48" y="0" width="5" height="8" fill="#14171A"/><rect x="54" y="0" width="5" height="8" fill="#14171A"/><rect x="60" y="0" width="5" height="8" fill="#14171A"/><rect x="66" y="0" width="5" height="8" fill="#14171A"/>
+              <rect x="78" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="84" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="90" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="96" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="102" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="108" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="114" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="120" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="126" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="132" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="138" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="144" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+              <rect x="156" y="1" width="9" height="6" fill="#14171A"/><rect x="167" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+            </g>
+          </g>
+
+          <!-- U33: acc-02 — Maria is holding a port here mid-drag -->
+          <g transform="translate(28,144)">
+            <rect x="0" y="0" width="244" height="16" fill="#FFFFFF" stroke="#14171A"/>
+            <circle cx="9" cy="8" r="2.5" fill="#14171A"/>
+            <text x="16" y="11" font-size="9" fill="#14171A" font-weight="700">acc-02</text>
+            <g transform="translate(70,4)">
+              <rect x="0" y="0" width="5" height="8" fill="#14171A"/><rect x="6" y="0" width="5" height="8" fill="#14171A"/><rect x="12" y="0" width="5" height="8" fill="#14171A"/><rect x="18" y="0" width="5" height="8" fill="#14171A"/><rect x="24" y="0" width="5" height="8" fill="#14171A"/><rect x="30" y="0" width="5" height="8" fill="#14171A"/><rect x="36" y="0" width="5" height="8" fill="#14171A"/><rect x="42" y="0" width="5" height="8" fill="#14171A"/><rect x="48" y="0" width="5" height="8" fill="#14171A"/><rect x="54" y="0" width="5" height="8" fill="#14171A"/><rect x="60" y="0" width="5" height="8" fill="#14171A"/><rect x="66" y="0" width="5" height="8" fill="#14171A"/>
+              <rect x="78" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="84" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="90" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="96" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+              <!-- Maria's held port: hollow with a dashed ring -->
+              <rect x="102" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+              <rect x="99.5" y="-2.5" width="10" height="13" fill="none" stroke="#14171A" stroke-width="1.2" stroke-dasharray="2 1.5"/>
+              <rect x="108" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="114" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="120" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="126" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="132" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="138" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="144" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+            </g>
+          </g>
+
+          <!-- U30: fibre-01 (12 LC) -->
+          <g transform="translate(28,192)">
+            <rect x="0" y="0" width="244" height="16" fill="#F2F4F6" stroke="#14171A"/>
+            <text x="6" y="11" font-size="9" fill="#14171A" font-weight="700">fibre-01</text>
+            <g transform="translate(80,4)">
+              <rect x="0" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><line x1="5" y1="0" x2="5" y2="8" stroke="#14171A" stroke-width="0.8"/>
+              <rect x="14" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><line x1="19" y1="0" x2="19" y2="8" stroke="#14171A" stroke-width="0.8"/>
+              <rect x="28" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><line x1="33" y1="0" x2="33" y2="8" stroke="#14171A" stroke-width="0.8"/>
+              <rect x="42" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"/><line x1="47" y1="0" x2="47" y2="8" stroke="#D2D7DD" stroke-width="0.8"/>
+              <rect x="56" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"/><line x1="61" y1="0" x2="61" y2="8" stroke="#D2D7DD" stroke-width="0.8"/>
+              <rect x="70" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"/><line x1="75" y1="0" x2="75" y2="8" stroke="#D2D7DD" stroke-width="0.8"/>
+            </g>
+          </g>
+
+          <!-- U14-17 vm-host-01 (4U) -->
+          <g transform="translate(28,432)">
+            <rect x="0" y="0" width="244" height="64" fill="#FFFFFF" stroke="#14171A"/>
+            <circle cx="9" cy="9" r="2.5" fill="#14171A"/>
+            <text x="16" y="12" font-size="9" fill="#14171A" font-weight="700">vm-host-01</text>
+            <text x="238" y="12" font-size="8" fill="#5C6772" text-anchor="end">proxmox &middot; 4U</text>
+            <rect x="8" y="22" width="228" height="34" fill="#F2F4F6" stroke="#D2D7DD"/>
+            <rect x="200" y="56" width="5" height="6" fill="#14171A"/><rect x="207" y="56" width="5" height="6" fill="#14171A"/>
+          </g>
+          <!-- U10-13 vm-host-02 -->
+          <g transform="translate(28,496)">
+            <rect x="0" y="0" width="244" height="64" fill="#FFFFFF" stroke="#14171A"/>
+            <circle cx="9" cy="9" r="2.5" fill="#14171A"/>
+            <text x="16" y="12" font-size="9" fill="#14171A" font-weight="700">vm-host-02</text>
+            <text x="238" y="12" font-size="8" fill="#5C6772" text-anchor="end">proxmox &middot; 4U</text>
+            <rect x="8" y="22" width="228" height="34" fill="#F2F4F6" stroke="#D2D7DD"/>
+            <rect x="200" y="56" width="5" height="6" fill="#14171A"/><rect x="207" y="56" width="5" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+          </g>
+          <!-- U9 nas-01 -->
+          <g transform="translate(28,560)">
+            <rect x="0" y="0" width="244" height="16" fill="#FFFFFF" stroke="#14171A"/>
+            <circle cx="9" cy="8" r="2.5" fill="#14171A"/>
+            <text x="16" y="11" font-size="9" fill="#14171A" font-weight="700">nas-01</text>
+          </g>
+          <!-- U1-2 ups -->
+          <g transform="translate(28,640)">
+            <rect x="0" y="0" width="244" height="32" fill="#FFFFFF" stroke="#14171A"/>
+            <circle cx="9" cy="9" r="2.5" fill="#14171A"/>
+            <text x="16" y="12" font-size="9" fill="#14171A" font-weight="700">ups-a04</text>
+            <text x="238" y="12" font-size="8" fill="#5C6772" text-anchor="end">2U</text>
+          </g>
+
+          <!-- who is here, on the rail, not a cursor -->
+          <g transform="translate(300,64)">
+            <rect x="4" y="-2" width="74" height="16" fill="#14171A"/>
+            <text x="41" y="9" font-size="9" fill="#FFFFFF" text-anchor="middle">Jordan T. &middot; editing</text>
+          </g>
+          <g transform="translate(300,144)">
+            <rect x="4" y="-2" width="80" height="16" fill="#FFFFFF" stroke="#14171A"/>
+            <text x="44" y="9" font-size="9" fill="#14171A" text-anchor="middle">Maria P. &middot; holding p17</text>
+          </g>
+        </g>
+
+        <!-- ===== PORTAL TRAY below A-04 ===== -->
+        <g>
+          <rect x="60" y="746" width="300" height="30" fill="#FAFBFC" stroke="#5C6772" stroke-dasharray="3 2"/>
+          <path d="M74 755 L74 767 M70 763 L74 767 L78 763" stroke="#14171A" stroke-width="1.25" fill="none"/>
+          <text x="86" y="765" font-size="11" fill="#14171A">down to floor 2 desks</text>
+          <text x="352" y="765" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">24 copper</text>
+        </g>
+
+        <!-- ===== RACK A-05 (24U, landlord) ===== -->
+        <g transform="translate(470,64)">
+          <rect x="0" y="0" width="240" height="384" fill="#FFFFFF" stroke="#5C6772" stroke-width="1.5"/>
+          <rect x="0" y="0" width="240" height="384" fill="url(#hatchOwner)" opacity="0.35"/>
+          <rect x="0" y="0" width="24" height="384" fill="#F2F4F6" stroke="#D2D7DD"/>
+          <rect x="216" y="0" width="24" height="384" fill="#F2F4F6" stroke="#D2D7DD"/>
+          <g font-size="8" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="19" y="12">24</text><text x="19" y="76">20</text><text x="19" y="140">16</text><text x="19" y="204">12</text><text x="19" y="268">8</text><text x="19" y="332">4</text>
+          </g>
+          <text x="120" y="-8" font-size="9" fill="#5C6772" text-anchor="middle" letter-spacing="1">A-05 &middot; 24U &middot; LANDLORD &middot; not ours</text>
+          <!-- carrier handoff U22 -->
+          <g transform="translate(24,32)">
+            <rect x="0" y="0" width="192" height="16" fill="#FFFFFF" stroke="#5C6772"/>
+            <text x="6" y="11" font-size="9" fill="#5C6772" font-weight="700">Lumen handoff</text>
+            <g transform="translate(120,4)">
+              <rect x="0" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><line x1="5" y1="0" x2="5" y2="8" stroke="#14171A" stroke-width="0.8"/>
+              <rect x="14" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><line x1="19" y1="0" x2="19" y2="8" stroke="#14171A" stroke-width="0.8"/>
+              <rect x="28" y="0" width="5" height="8" fill="#14171A"/>
+            </g>
+          </g>
+          <!-- patch-a05 U20 -->
+          <g transform="translate(24,64)">
+            <rect x="0" y="0" width="192" height="16" fill="#F2F4F6" stroke="#5C6772"/>
+            <text x="6" y="11" font-size="9" fill="#5C6772" font-weight="700">patch-a05</text>
+            <g transform="translate(70,4)">
+              <rect x="0" y="0" width="5" height="8" fill="#14171A"/><rect x="7" y="0" width="5" height="8" fill="#14171A"/><rect x="14" y="0" width="5" height="8" fill="#14171A"/><rect x="21" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="28" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="35" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="42" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="49" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="56" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="63" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="70" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/><rect x="77" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"/>
+            </g>
+          </g>
+          <rect x="24" y="96" width="192" height="288" fill="url(#hatch)"/>
+        </g>
+
+        <!-- ===================== CABLES ===================== -->
+        <!-- Convention: dimmed cables are the ones not on the selected chain. Sag bows right and down, more on longer runs. -->
+        <g opacity="0.28" stroke="#14171A" fill="none" stroke-linecap="round">
+          <!-- fw p1 -> core-01 p1 -->
+          <path d="M 108 117 C 130 126, 130 140, 162 132" stroke-width="1.6"/>
+          <!-- fw p2 -> core-02 p1 -->
+          <path d="M 119 117 C 150 132, 150 160, 162 148" stroke-width="1.6"/>
+          <!-- core-01 SFP+ 1 -> fibre-01 LC1 (fibre = double line) -->
+          <path d="M 249 135 C 300 160, 300 250, 173 260" stroke-width="2.6"/>
+          <path d="M 249 135 C 300 160, 300 250, 173 260" stroke="#FFFFFF" stroke-width="0.9"/>
+          <!-- core-02 SFP+ 1 -> fibre-01 LC2 -->
+          <path d="M 249 151 C 310 180, 310 262, 187 260" stroke-width="2.6"/>
+          <path d="M 249 151 C 310 180, 310 262, 187 260" stroke="#FFFFFF" stroke-width="0.9"/>
+          <!-- core-01 p3..p6 -> patch-01 p2..p5 as a BUNDLE (drawn once, thick, with a count) -->
+          <path d="M 175 135 C 200 150, 200 172, 153 180" stroke-width="6"/>
+          <!-- core-02 SFP+ 2 -> A-05 Lumen handoff LC (cross-rack, long, sags most) -->
+          <path d="M 249 151 C 360 230, 470 200, 619 108" stroke-width="2.6"/>
+          <path d="M 249 151 C 360 230, 470 200, 619 108" stroke="#FFFFFF" stroke-width="0.9"/>
+          <!-- acc-01 p1..p12 -> patch-01 p13..p24: bundle -->
+          <path d="M 130 195 C 150 205, 190 200, 195 180" stroke-width="6"/>
+          <!-- acc-02 p1 .. -> fw p8 -->
+          <path d="M 160 211 C 190 225, 200 160, 173 117" stroke-width="1.6"/>
+          <!-- vm-host-01 -> core-01 p7 -->
+          <path d="M 296 559 C 380 520, 360 220, 206 132" stroke-width="1.6"/>
+          <!-- vm-host-02 -> core-02 p7 -->
+          <path d="M 296 623 C 400 600, 380 240, 206 148" stroke-width="1.6"/>
+          <!-- fw p3 -> patch-01 p1 -> (chain continues below in the lit group) -->
+        </g>
+
+        <!-- bundle badges -->
+        <g font-size="9" font-family="'DejaVu Sans Mono', Menlo, monospace">
+          <rect x="196" y="150" width="26" height="13" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8" opacity="0.7"/>
+          <text x="209" y="160" fill="#14171A" text-anchor="middle" opacity="0.7">&times;4</text>
+          <rect x="160" y="196" width="28" height="13" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8" opacity="0.7"/>
+          <text x="174" y="206" fill="#14171A" text-anchor="middle" opacity="0.7">&times;12</text>
+        </g>
+
+        <!-- ===== THE SELECTED CHAIN: acc-01 p7 -> patch-01 p7 -> (portal up) -> MDF. Lit end to end, halo, everything else dimmed. ===== -->
+        <g fill="none" stroke-linecap="round">
+          <!-- halo -->
+          <path d="M 130 195 C 165 215, 185 200, 195 180" stroke="#D2D7DD" stroke-width="9"/>
+          <path d="M 195 180 C 260 150, 260 80, 214 54" stroke="#D2D7DD" stroke-width="9"/>
+          <!-- core -->
+          <path d="M 130 195 C 165 215, 185 200, 195 180" stroke="#14171A" stroke-width="2.4"/>
+          <path d="M 195 180 C 260 150, 260 80, 214 54" stroke="#14171A" stroke-width="2.4" stroke-dasharray="6 3"/>
+        </g>
+        <!-- lit ports on the chain -->
+        <rect x="127" y="191" width="7" height="10" fill="#14171A" stroke="#FFFFFF" stroke-width="1"/>
+        <rect x="192" y="175" width="7" height="10" fill="#14171A" stroke="#FFFFFF" stroke-width="1"/>
+        <!-- chain continues at the portal: the tray lights up -->
+        <rect x="60" y="24" width="300" height="30" fill="none" stroke="#14171A" stroke-width="1.5"/>
+        <text x="214" y="16" font-size="9" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">continues &rarr; MDF A-01 patch p7 &rarr; core-a01 xe-0/0/12</text>
+        <!-- midpoint label plate -->
+        <g transform="translate(150,214)">
+          <rect x="0" y="0" width="76" height="14" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"/>
+          <text x="38" y="10" font-size="9" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">uplink &middot; 0.5 m</text>
+        </g>
+
+        <!-- canvas hint -->
+        <text x="60" y="816" font-size="10" fill="#5C6772">Drag a port to a port to cable. Hover any cable to light its whole path. Click a portal to follow it.</text>
       </svg>
-
-      <!-- internet -->
-      <div style="position: absolute; left: 232px; top: 100px; width: 136px; border: 1px solid #D2D7DD; background: #F2F4F6; padding: 8px 10px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline;">
-          <span style="font-weight: 700;">Internet</span>
-        </div>
-        <div style="font-size: 10px; color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase; margin-top: 2px;">External</div>
-      </div>
-
-      <!-- selected firewall -->
-      <div style="position: absolute; left: 220px; top: 196px; width: 160px; border: 1px solid #14171A; outline: 2px solid #14171A; outline-offset: 2px; background: #FFFFFF; padding: 8px 10px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
-          <span style="font-weight: 700;">hq-fw-01</span>
-          <span style="font-size: 10px; color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase;">firewall</span>
-        </div>
-        <div style="font-size: 10px; color: #5C6772; margin-top: 2px;">Device &middot; junos-srx</div>
-        <div style="display: flex; gap: 4px; margin-top: 6px;">
-          <span style="font-size: 10px; background: #EEF5F1; color: #1F6F4A; padding: 1px 4px; letter-spacing: 0.05em;">trust</span>
-          <span style="font-size: 10px; background: #FBF3EA; color: #A8571B; padding: 1px 4px; letter-spacing: 0.05em;">untrust</span>
-        </div>
-      </div>
-
-      <!-- core switches -->
-      <div style="position: absolute; left: 100px; top: 340px; width: 160px; border: 1px solid #14171A; background: #FFFFFF; padding: 8px 10px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
-          <span style="font-weight: 700;">hq-core-01</span>
-          <span style="font-size: 10px; color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase;">switch</span>
-        </div>
-        <div style="font-size: 10px; color: #5C6772; margin-top: 2px;">Device &middot; ex4300</div>
-      </div>
-      <div style="position: absolute; left: 340px; top: 340px; width: 160px; border: 1px solid #14171A; background: #FFFFFF; padding: 8px 10px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
-          <span style="font-weight: 700;">hq-core-02</span>
-          <span style="font-size: 10px; color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase;">switch</span>
-        </div>
-        <div style="font-size: 10px; color: #5C6772; margin-top: 2px;">Device &middot; ex4300</div>
-      </div>
-
-      <!-- access -->
-      <div style="position: absolute; left: 48px; top: 490px; width: 144px; border: 1px solid #14171A; background: #FFFFFF; padding: 8px 10px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
-          <span style="font-weight: 700;">hq-acc-01</span>
-          <span style="font-size: 10px; color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase;">switch</span>
-        </div>
-        <div style="font-size: 10px; color: #5C6772; margin-top: 2px;">Device &middot; ex2300</div>
-      </div>
-      <div style="position: absolute; left: 212px; top: 490px; width: 144px; border: 1px solid #14171A; background: #FFFFFF; padding: 8px 10px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
-          <span style="font-weight: 700;">hq-acc-02</span>
-          <span style="font-size: 10px; color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase;">switch</span>
-        </div>
-        <div style="font-size: 10px; color: #5C6772; margin-top: 2px;">Device &middot; ex2300</div>
-      </div>
-      <div style="position: absolute; left: 340px; top: 490px; width: 160px; border: 1px solid #14171A; background: #FFFFFF; padding: 8px 10px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
-          <span style="font-weight: 700;">vm-host-01</span>
-          <span style="font-size: 10px; color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase;">server</span>
-        </div>
-        <div style="font-size: 10px; color: #5C6772; margin-top: 2px;">Device &middot; proxmox</div>
-      </div>
-
-      <!-- unplaced / pending, drawn dotted per the rule that incomplete is marked not refused -->
-      <div style="position: absolute; left: 640px; top: 196px; width: 160px; border: 1px dotted #5C6772; background: #FAFBFC; padding: 8px 10px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
-          <span style="font-weight: 700; color: #5C6772;">branch-rtr-07</span>
-          <span style="font-size: 10px; color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase;">router</span>
-        </div>
-        <div style="font-size: 10px; color: #5C6772; margin-top: 2px;">Unanswered &middot; far end unknown</div>
-      </div>
-
-      <!-- other people's cursors -->
-      <div style="position: absolute; left: 520px; top: 372px;">
-        <svg width="12" height="16" viewBox="0 0 12 16" fill="#1F6F4A"><path d="M0 0 L0 13 L3.5 9.5 L6 15 L8 14 L5.5 8.5 L10.5 8.5 Z"/></svg>
-        <div style="background: #1F6F4A; color: #FFFFFF; font-size: 10px; padding: 1px 5px; margin-left: 10px; margin-top: -2px; display: inline-block;">Jordan T.</div>
-      </div>
-      <div style="position: absolute; left: 176px; top: 262px;">
-        <svg width="12" height="16" viewBox="0 0 12 16" fill="#A8571B"><path d="M0 0 L0 13 L3.5 9.5 L6 15 L8 14 L5.5 8.5 L10.5 8.5 Z"/></svg>
-        <div style="background: #A8571B; color: #FFFFFF; font-size: 10px; padding: 1px 5px; margin-left: 10px; margin-top: -2px; display: inline-block;">Maria P.</div>
-      </div>
-
-      <!-- legend -->
-      <div style="position: absolute; left: 16px; bottom: 16px; display: flex; gap: 16px; font-size: 10px; color: #5C6772; background: #FFFFFF; border: 1px solid #D2D7DD; padding: 6px 10px;">
-        <span><svg width="20" height="6" style="vertical-align: middle;"><line x1="0" y1="3" x2="20" y2="3" stroke="#14171A" stroke-width="1"/></svg> read from config</span>
-        <span><svg width="20" height="6" style="vertical-align: middle;"><line x1="0" y1="3" x2="20" y2="3" stroke="#14171A" stroke-width="1" stroke-dasharray="3 3"/></svg> proposed</span>
-        <span><svg width="20" height="6" style="vertical-align: middle;"><line x1="0" y1="3" x2="20" y2="3" stroke="#5C6772" stroke-width="1" stroke-dasharray="1 3"/></svg> unanswered</span>
-      </div>
     </div>
 
-    <!-- details -->
-    <div style="width: 300px; border-left: 1px solid #D2D7DD; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
+    <!-- RIGHT: inspector for the selected cable -->
+    <div style="width: 316px; border-left: 1px solid #D2D7DD; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
       <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
-        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">hq-fw-01</span>
-        <span style="font-size: 10px; color: #5C6772;">Device</span>
+        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">Cable</span>
+        <span style="font-size: 10px; color: #5C6772;">copper &middot; by hand &middot; 29 Aug</span>
       </div>
-      <div style="display: flex; flex-direction: column;">
-        <div style="display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px;">
-          <span style="width: 88px; font-size: 11px; color: #5C6772; flex-shrink: 0;">name</span>
-          <span style="font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px;">hq-fw-01</span>
-        </div>
-        <div style="display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px;">
-          <span style="width: 88px; font-size: 11px; color: #5C6772; flex-shrink: 0;">role</span>
-          <span style="font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px;">firewall</span>
-        </div>
-        <div style="display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px;">
-          <span style="width: 88px; font-size: 11px; color: #5C6772; flex-shrink: 0;">platform</span>
-          <span style="font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px;">junos-srx</span>
-        </div>
-        <div style="display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px;">
-          <span style="width: 88px; font-size: 11px; color: #5C6772; flex-shrink: 0;">mgmt ip</span>
-          <span style="font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums;">10.10.0.1</span>
-        </div>
-        <div style="display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px; background: #FBF3EA;">
-          <span style="width: 88px; font-size: 11px; color: #5C6772; flex-shrink: 0;">serial</span>
-          <span style="font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; color: #A8571B;">&mdash; required, not set</span>
-        </div>
+      <div class="row"><span class="k">from</span><span class="mono">acc-01 &middot; ge-0/0/7</span></div>
+      <div class="row"><span class="k">to</span><span class="mono">patch-01 &middot; p7 front</span></div>
+      <div class="row"><span class="k">label</span><span>uplink</span></div>
+      <div class="row"><span class="k">length</span><span class="mono">0.5 m</span></div>
+      <div class="row"><span class="k">sheath</span><span style="display: flex; gap: 6px; align-items: center;"><span style="width: 12px; height: 12px; border: 1px solid #14171A; background: #14171A;"></span><span>black</span><span style="color: #5C6772; font-size: 11px;">&middot; your real lead colour, optional</span></span></div>
+
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; margin-top: 8px;">The whole path &middot; 5 hops</div>
+      <div style="font-size: 12px; line-height: 18px;">
+        <div style="padding: 4px 12px; display: flex; gap: 8px;"><span class="mono" style="color: #5C6772; width: 16px;">1</span><span>acc-01 <span class="mono">ge-0/0/7</span></span></div>
+        <div style="padding: 4px 12px; display: flex; gap: 8px; background: #FFFFFF; border-left: 4px solid #14171A;"><span class="mono" style="color: #5C6772; width: 16px;">2</span><span>patch-01 <span class="mono">p7</span> &middot; <span style="color: #5C6772;">this cable</span></span></div>
+        <div style="padding: 4px 12px; display: flex; gap: 8px;"><span class="mono" style="color: #5C6772; width: 16px;">3</span><span style="color: #5C6772;">riser &uarr; &middot; punchdown, 40 m</span></div>
+        <div style="padding: 4px 12px; display: flex; gap: 8px;"><span class="mono" style="color: #5C6772; width: 16px;">4</span><span>MDF A-01 patch <span class="mono">p7</span></span></div>
+        <div style="padding: 4px 12px; display: flex; gap: 8px;"><span class="mono" style="color: #5C6772; width: 16px;">5</span><span>core-a01 <span class="mono">xe-0/0/12</span></span></div>
+      </div>
+      <div style="padding: 8px 12px;">
+        <div style="border: 1px solid #14171A; padding: 5px 0; text-align: center; font-size: 12px;">Follow to MDF A-01</div>
       </div>
 
-      <div style="padding: 10px 12px 6px; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; border-top: 1px solid #D2D7DD; margin-top: 12px;">Interfaces &middot; 4</div>
-      <div style="display: flex; flex-direction: column; font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px;">
-        <div style="display: flex; justify-content: space-between; padding: 5px 12px; border-bottom: 1px solid #D2D7DD;"><span>ge-0/0/0</span><span style="color: #5C6772;">untrust</span></div>
-        <div style="display: flex; justify-content: space-between; padding: 5px 12px; border-bottom: 1px solid #D2D7DD;"><span>ge-0/0/1</span><span style="color: #5C6772;">trust</span></div>
-        <div style="display: flex; justify-content: space-between; padding: 5px 12px; border-bottom: 1px solid #D2D7DD;"><span>ge-0/0/2</span><span style="color: #5C6772;">trust</span></div>
-        <div style="display: flex; justify-content: space-between; padding: 5px 12px; border-bottom: 1px solid #D2D7DD;"><span>reth0.0</span><span style="color: #5C6772;">trust</span></div>
-      </div>
-
-      <div style="padding: 10px 12px 6px; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; border-top: 1px solid #D2D7DD; margin-top: 12px;">Credentials &middot; 2</div>
-      <div style="display: flex; flex-direction: column; font-size: 12px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 12px; border-bottom: 1px solid #D2D7DD;">
-          <span style="font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px;">cred_8f3a</span>
-          <span style="font-size: 10px; border: 1px solid #1F6F4A; color: #1F6F4A; padding: 0 4px; letter-spacing: 0.05em;">only you</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 12px; border-bottom: 1px solid #D2D7DD;">
-          <span style="font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px;">cred_c104</span>
-          <span style="font-size: 10px; border: 1px solid #A8571B; color: #A8571B; padding: 0 4px; letter-spacing: 0.05em;">server can read</span>
-        </div>
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; margin-top: 4px;">What this port carries</div>
+      <div class="row"><span class="k">vlan</span><span class="mono">20 &middot; staff (access)</span></div>
+      <div class="row"><span class="k">subnet</span><span class="mono">10.10.20.0/24</span></div>
+      <div class="row"><span class="k">gateway</span><span class="mono">10.10.20.1 &middot; hq-fw-01</span></div>
+      <div style="padding: 8px 12px;">
+        <div style="border: 1px solid #D2D7DD; padding: 5px 0; text-align: center; font-size: 12px; color: #5C6772;">Trace from here &rarr; internet</div>
       </div>
 
       <div style="flex-grow: 1;"></div>
-      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 16px;">Placed by hand &middot; edited 4 minutes ago by you</div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Layer 2 and 3 live on the port. You never leave the rack to read them.</div>
     </div>
   </div>
 </div>
