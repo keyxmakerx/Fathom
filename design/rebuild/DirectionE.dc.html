@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; }
+    .hop { border: 1px solid #14171A; background: #FFFFFF; padding: 6px 8px; font-size: 12px; line-height: 16px; min-height: 44px; display: flex; flex-direction: column; justify-content: center; }
+    .span { border: 1px solid #5C6772; background: #F2F4F6; padding: 6px 8px; font-size: 12px; line-height: 16px; min-height: 44px; display: flex; flex-direction: column; justify-content: center; }
+    .portal { border: 1px dashed #5C6772; background: #FAFBFC; padding: 6px 8px; font-size: 11px; line-height: 16px; min-height: 44px; display: flex; flex-direction: column; justify-content: center; color: #5C6772; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="padding: 14px 20px 12px; border-bottom: 3px solid #14171A;">
+    <div style="font-size: 21px; font-weight: 700; line-height: 24px;">E &mdash; Follow the wire</div>
+    <div style="color: #5C6772; font-size: 13px; margin-top: 4px;">The primary object is not a place or a layer. It is a <em>path</em>. Pick two ends and Fathom lays every hop out in a strip, physical over Layer 2 over Layer 3, lined up so you can see the exact column where a cable becomes a VLAN becomes a route.</div>
+  </div>
+
+  <!-- endpoint bar -->
+  <div style="padding: 12px 20px; border-bottom: 1px solid #D2D7DD; background: #FAFBFC; display: flex; align-items: center; gap: 12px;">
+    <span class="lbl">From</span>
+    <span style="border: 1px solid #14171A; background: #FFFFFF; padding: 4px 12px; font-size: 13px;">Desk 2-114 &middot; floor 2</span>
+    <svg width="24" height="12" viewBox="0 0 24 12" fill="none" stroke="#14171A" stroke-width="1.25"><path d="M0 6h22M17 1l5 5-5 5"/></svg>
+    <span class="lbl">To</span>
+    <span style="border: 1px solid #14171A; background: #FFFFFF; padding: 4px 12px; font-size: 13px;">Internet</span>
+    <span style="flex-grow: 1;"></span>
+    <span style="font-size: 11px; color: #5C6772;">7 hops &middot; 3 zones crossed &middot; 1 policy decides</span>
+    <span style="border: 1px solid #D2D7DD; padding: 3px 10px; font-size: 11px; color: #5C6772;">Reverse</span>
+    <span style="border: 1px solid #D2D7DD; padding: 3px 10px; font-size: 11px; color: #5C6772;">Save path</span>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+    <div style="flex-grow: 1; padding: 20px; overflow: hidden;">
+
+      <!-- column headers -->
+      <div style="display: grid; grid-template-columns: 90px repeat(8, 1fr); gap: 6px; margin-bottom: 6px;">
+        <div></div>
+        <div class="lbl">desk</div>
+        <div class="lbl">patch</div>
+        <div class="lbl">access</div>
+        <div class="lbl">riser</div>
+        <div class="lbl">core</div>
+        <div class="lbl">firewall</div>
+        <div class="lbl">carrier</div>
+        <div class="lbl">beyond</div>
+      </div>
+
+      <!-- PHYSICAL row -->
+      <div style="display: grid; grid-template-columns: 90px repeat(8, 1fr); gap: 6px; align-items: stretch;">
+        <div style="display: flex; align-items: center;"><span class="lbl" style="color: #14171A;">Physical</span></div>
+        <div class="hop"><span>jack 2-114</span><span class="mono" style="color: #5C6772; font-size: 11px;">copper</span></div>
+        <div class="hop"><span>patch-idf2 p07</span><span class="mono" style="color: #5C6772; font-size: 11px;">copper</span></div>
+        <div class="hop"><span>hq-acc-01</span><span class="mono" style="color: #5C6772; font-size: 11px;">ge-0/0/7</span></div>
+        <div class="portal"><span>&uarr; riser to MDF</span><span>fibre pair 3</span></div>
+        <div class="hop"><span>hq-core-01</span><span class="mono" style="color: #5C6772; font-size: 11px;">xe-0/0/12</span></div>
+        <div class="hop" style="outline: 2px solid #14171A; outline-offset: 2px;"><span>hq-fw-01</span><span class="mono" style="color: #5C6772; font-size: 11px;">ge-0/0/1 &rarr; ge-0/0/0</span></div>
+        <div class="hop"><span>Lumen handoff</span><span class="mono" style="color: #5C6772; font-size: 11px;">A-05 p1</span></div>
+        <div class="portal"><span>&rarr; leaves the estate</span></div>
+      </div>
+
+      <!-- LAYER 2 row -->
+      <div style="display: grid; grid-template-columns: 90px repeat(8, 1fr); gap: 6px; align-items: stretch; margin-top: 6px;">
+        <div style="display: flex; align-items: center;"><span class="lbl" style="color: #14171A;">Layer 2</span></div>
+        <div class="span" style="grid-column: 2 / 5;"><span>VLAN 20 &middot; staff</span><span style="color: #5C6772; font-size: 11px;">access on acc-01, trunked up the riser</span></div>
+        <div class="span" style="grid-column: 5 / 7;"><span>VLAN 20 &middot; trunk</span><span style="color: #5C6772; font-size: 11px;">tagged, core-01 &rarr; fw-01</span></div>
+        <div class="span" style="grid-column: 7 / 9;"><span>untagged</span><span style="color: #5C6772; font-size: 11px;">fw-01 ge-0/0/0 &rarr; carrier</span></div>
+        <div class="portal" style="grid-column: 9 / 10;"><span>&mdash;</span></div>
+      </div>
+
+      <!-- LAYER 3 row -->
+      <div style="display: grid; grid-template-columns: 90px repeat(8, 1fr); gap: 6px; align-items: stretch; margin-top: 6px;">
+        <div style="display: flex; align-items: center;"><span class="lbl" style="color: #14171A;">Layer 3</span></div>
+        <div class="span" style="grid-column: 2 / 7;"><span class="mono">10.10.20.0/24</span><span style="color: #5C6772; font-size: 11px;">gateway 10.10.20.1 on fw-01 ge-0/0/1.20 &middot; zone <strong style="color: #1F6F4A;">trust</strong></span></div>
+        <div class="span" style="grid-column: 7 / 8; border-color: #14171A; background: #FFFFFF;"><span>route 0.0.0.0/0</span><span style="color: #5C6772; font-size: 11px;">next-hop 203.0.113.1</span></div>
+        <div class="span" style="grid-column: 8 / 9;"><span class="mono">203.0.113.0/30</span><span style="color: #5C6772; font-size: 11px;">zone <strong style="color: #A8571B;">untrust</strong></span></div>
+        <div class="portal" style="grid-column: 9 / 10;"><span>&rarr; default</span></div>
+      </div>
+
+      <!-- POLICY row: where the picture becomes a teaching tool -->
+      <div style="display: grid; grid-template-columns: 90px repeat(8, 1fr); gap: 6px; align-items: stretch; margin-top: 6px;">
+        <div style="display: flex; align-items: center;"><span class="lbl" style="color: #14171A;">Policy</span></div>
+        <div style="grid-column: 2 / 7;"></div>
+        <div style="grid-column: 7 / 8; border: 1px solid #14171A; background: #FBF3EA; padding: 6px 8px; font-size: 11px; line-height: 16px;">
+          <div style="font-weight: 700;">trust &rarr; untrust</div>
+          <div>policy <span class="mono">outbound</span> matches first</div>
+          <div style="color: #5C6772;">3 of 27 policies point this way</div>
+        </div>
+        <div style="grid-column: 8 / 10;"></div>
+      </div>
+
+      <!-- explanation strip -->
+      <div style="margin-top: 20px; border-top: 1px solid #D2D7DD; padding-top: 14px; display: flex; gap: 24px;">
+        <div style="flex: 1; font-size: 12px; line-height: 18px;">
+          <div class="lbl" style="margin-bottom: 4px;">Read across, then down</div>
+          The cable from jack 2-114 carries VLAN 20, which lives in 10.10.20.0/24, whose gateway is the firewall. The firewall is the only place the path changes zone, so it is the only place a policy decides anything. Everything to the left is switching; everything to the right is routing.
+        </div>
+        <div style="flex: 1; font-size: 12px; line-height: 18px; color: #5C6772;">
+          <div class="lbl" style="margin-bottom: 4px;">What Fathom will not say</div>
+          It does not say <em>permitted</em> or <em>denied</em>. It names the zones, the policy set between them, and the policies in the order the device reads them. The verdict is yours; the evidence is laid out.
+        </div>
+      </div>
+    </div>
+
+    <div style="width: 280px; border-left: 1px solid #D2D7DD; background: #FAFBFC; padding: 16px;">
+      <div class="lbl">What this gets you</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">The question engineers actually ask &mdash; <em>why does this go there</em> &mdash; answered in one picture, with physical, L2 and L3 aligned instead of on three screens. The trace is already fully specified in the engine; this is the first face that draws it.</div>
+      <div class="lbl" style="margin-top: 20px;">What it costs</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">It is a way of <em>reading</em> an estate, not building one. On its own it cannot be the whole product &mdash; it needs a drawing surface underneath to pick endpoints from.</div>
+      <div class="lbl" style="margin-top: 20px;">Where I would put it</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Not as the shell. As <em>the</em> teaching mode inside whichever shell wins &mdash; and the thing the config checker opens when you click a flagged policy.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

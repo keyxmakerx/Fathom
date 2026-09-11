@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; }
+    .u { height: 16px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding-left: 8px; font-size: 11px; }
+    .ghost { background: repeating-linear-gradient(135deg, #D2D7DD 0 1px, transparent 1px 5px); }
+    .node { border: 1px solid #14171A; background: #FFFFFF; padding: 6px 8px; font-size: 12px; line-height: 16px; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="padding: 14px 20px 12px; border-bottom: 3px solid #14171A;">
+    <div style="font-size: 21px; font-weight: 700; line-height: 24px;">G &mdash; Two truths, one selection</div>
+    <div style="color: #5C6772; font-size: 13px; margin-top: 4px;">Never make the engineer choose between physical and logical. Always show two panes. Click a port on the left, its interface lights up on the right with its VLAN, IP and zone. Drag a cable on the left, watch the adjacency appear on the right. <em>The selection is the bridge between the layers.</em></div>
+  </div>
+
+  <div style="height: 34px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 20px; gap: 8px; background: #FAFBFC; font-size: 11px;">
+    <span>Northwind</span><span style="color: #D2D7DD;">&rsaquo;</span><span>HQ</span><span style="color: #D2D7DD;">&rsaquo;</span><span>Building A</span><span style="color: #D2D7DD;">&rsaquo;</span><span style="font-weight: 700;">IDF-2</span>
+    <span style="flex-grow: 1;"></span>
+    <span class="lbl">Selected</span>
+    <span class="mono" style="border: 1px solid #14171A; padding: 1px 8px;">hq-fw-01 &middot; ge-0/0/1</span>
+    <span style="color: #5C6772;">&mdash; shown in both panes</span>
+  </div>
+
+  <div style="flex-grow: 1; display: grid; grid-template-columns: 1fr 44px 1fr; min-height: 0;">
+
+    <!-- LEFT: physical -->
+    <div style="display: flex; flex-direction: column; min-width: 0; border-right: 1px solid #D2D7DD;">
+      <div style="height: 32px; display: flex; align-items: center; padding: 0 16px; gap: 8px; border-bottom: 1px solid #D2D7DD;">
+        <span class="lbl">Left pane</span>
+        <span style="border: 1px solid #14171A; background: #14171A; color: #FFFFFF; padding: 2px 10px; font-size: 11px;">Physical</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">L2</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">L3</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Power</span>
+      </div>
+      <div style="flex-grow: 1; padding: 20px; display: flex; gap: 20px; overflow: hidden;">
+        <!-- rack -->
+        <div style="width: 200px;">
+          <div class="lbl" style="margin-bottom: 6px;">Rack A-04</div>
+          <div style="border: 1px solid #14171A;">
+            <div class="u ghost"></div>
+            <div class="u ghost"></div>
+            <div style="height: 32px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding-left: 8px; font-size: 11px; outline: 2px solid #14171A; outline-offset: -2px;">hq-fw-01</div>
+            <div class="u ghost"></div>
+            <div class="u" style="background: #F2F4F6;">core-01</div>
+            <div class="u" style="background: #F2F4F6;">core-02</div>
+            <div class="u ghost"></div>
+            <div class="u" style="background: #F2F4F6;">acc-01</div>
+            <div class="u" style="background: #F2F4F6;">acc-02</div>
+            <div class="u" style="background: #F2F4F6;">patch-01</div>
+            <div class="u ghost"></div>
+            <div class="u ghost"></div>
+            <div class="u ghost"></div>
+            <div style="height: 64px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding-left: 8px; font-size: 11px; background: #F2F4F6;">vm-host-01</div>
+            <div class="u ghost"></div>
+            <div class="u ghost"></div>
+          </div>
+        </div>
+        <!-- faceplate -->
+        <div style="flex-grow: 1;">
+          <div class="lbl" style="margin-bottom: 6px;">hq-fw-01 &mdash; front</div>
+          <div style="border: 1px solid #14171A; padding: 12px; background: #FFFFFF;">
+            <div style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px;">
+              <div style="height: 22px; background: #14171A; border: 1px solid #14171A;"></div>
+              <div style="height: 22px; background: #FFFFFF; border: 3px solid #14171A;"></div>
+              <div style="height: 22px; background: #14171A; border: 1px solid #14171A;"></div>
+              <div style="height: 22px; border: 1px solid #D2D7DD;"></div>
+              <div style="height: 22px; border: 1px solid #D2D7DD;"></div>
+              <div style="height: 22px; border: 1px solid #D2D7DD;"></div>
+              <div style="height: 22px; border: 1px solid #D2D7DD;"></div>
+              <div style="height: 22px; background: #14171A; border: 1px solid #14171A;"></div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-top: 3px; font-size: 9px; color: #5C6772; text-align: center;">
+              <span>0/0</span><span style="color: #14171A; font-weight: 700;">0/1</span><span>0/2</span><span>0/3</span><span>0/4</span><span>0/5</span><span>0/6</span><span>0/7</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-top: 12px; width: 90px;">
+              <div style="height: 22px; border: 1px solid #1F6F4A; background: #EEF5F1;"></div>
+              <div style="height: 22px; border: 1px solid #D2D7DD;"></div>
+            </div>
+            <div style="font-size: 9px; color: #5C6772; margin-top: 3px;">xe-0/0/0 &nbsp; xe-0/0/1 &nbsp;&middot; sfp+</div>
+          </div>
+          <div style="margin-top: 10px; font-size: 11px; line-height: 16px;">
+            <div><span class="mono">ge-0/0/1</span> <span style="color: #5C6772;">&rarr; copper &rarr; core-01 xe-0/0/12</span></div>
+            <div style="color: #5C6772; margin-top: 2px;">cabled by hand &middot; 29 Aug</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- the bridge -->
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: #F2F4F6;">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#14171A" stroke-width="1.25"><path d="M2 10h16M14 6l4 4-4 4M6 6l-4 4 4 4"/></svg>
+      <div style="writing-mode: vertical-rl; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772;">selection synced</div>
+      <div style="border: 1px solid #D2D7DD; background: #FFFFFF; padding: 2px 4px; font-size: 9px; color: #5C6772; margin-top: 8px;">swap</div>
+    </div>
+
+    <!-- RIGHT: logical -->
+    <div style="display: flex; flex-direction: column; min-width: 0;">
+      <div style="height: 32px; display: flex; align-items: center; padding: 0 16px; gap: 8px; border-bottom: 1px solid #D2D7DD;">
+        <span class="lbl">Right pane</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Physical</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">L2</span>
+        <span style="border: 1px solid #14171A; background: #14171A; color: #FFFFFF; padding: 2px 10px; font-size: 11px;">L3</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Power</span>
+      </div>
+      <div style="flex-grow: 1; position: relative; padding: 20px; overflow: hidden;">
+        <svg style="position: absolute; inset: 0; pointer-events: none;" width="100%" height="100%">
+          <path d="M240 80 L240 130" stroke="#14171A" stroke-width="1"/>
+          <path d="M240 190 L240 230 L140 230 L140 270" stroke="#14171A" stroke-width="2"/>
+          <path d="M240 190 L240 230 L340 230 L340 270" stroke="#14171A" stroke-width="1"/>
+          <path d="M140 330 L140 370" stroke="#14171A" stroke-width="1"/>
+          <path d="M340 330 L340 370" stroke="#14171A" stroke-width="1"/>
+        </svg>
+        <div class="node" style="position: absolute; left: 180px; top: 40px; width: 120px; background: #F2F4F6; border-color: #5C6772;"><span>Internet</span><br><span class="mono" style="color: #5C6772; font-size: 11px;">0.0.0.0/0</span></div>
+
+        <!-- the selected interface, lit -->
+        <div class="node" style="position: absolute; left: 150px; top: 130px; width: 180px; outline: 2px solid #14171A; outline-offset: 2px;">
+          <div style="display: flex; justify-content: space-between;"><span style="font-weight: 700;">hq-fw-01</span><span style="font-size: 10px; color: #5C6772;">firewall</span></div>
+          <div style="margin-top: 4px; border-top: 1px solid #D2D7DD; padding-top: 4px;">
+            <div style="display: flex; justify-content: space-between; background: #F2F4F6; margin: 0 -8px; padding: 2px 8px;"><span class="mono" style="font-weight: 700;">ge-0/0/1.20</span><span style="font-size: 10px; color: #1F6F4A; font-weight: 700;">trust</span></div>
+            <div class="mono" style="font-size: 11px; color: #5C6772; padding: 2px 0;">10.10.20.1/24 &middot; vlan 20</div>
+            <div style="display: flex; justify-content: space-between; padding: 2px 0;"><span class="mono" style="font-size: 11px; color: #5C6772;">ge-0/0/0.0</span><span style="font-size: 10px; color: #A8571B;">untrust</span></div>
+          </div>
+        </div>
+
+        <div class="node" style="position: absolute; left: 60px; top: 270px; width: 160px;"><span>hq-core-01</span><br><span class="mono" style="color: #5C6772; font-size: 11px;">10.10.0.2 &middot; vlan 20 svi</span></div>
+        <div class="node" style="position: absolute; left: 260px; top: 270px; width: 160px;"><span>hq-core-02</span><br><span class="mono" style="color: #5C6772; font-size: 11px;">10.10.0.3</span></div>
+        <div class="node" style="position: absolute; left: 60px; top: 370px; width: 160px; background: #F2F4F6; border-color: #5C6772;"><span>10.10.20.0/24</span><br><span style="color: #5C6772; font-size: 11px;">staff &middot; 61 hosts</span></div>
+        <div class="node" style="position: absolute; left: 260px; top: 370px; width: 160px; background: #F2F4F6; border-color: #5C6772;"><span>10.10.30.0/24</span><br><span style="color: #5C6772; font-size: 11px;">servers &middot; 12 hosts</span></div>
+
+        <div style="position: absolute; right: 20px; bottom: 20px; width: 260px; border: 1px solid #D2D7DD; background: #FAFBFC; padding: 10px; font-size: 11px; line-height: 16px;">
+          <div class="lbl" style="margin-bottom: 4px;">Because you selected a port</div>
+          Left shows where the copper goes. Right shows what the interface <em>means</em>: VLAN 20, gateway for 10.10.20.0/24, zone trust. The thick line is the same cable, drawn as a Layer 3 hop.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="border-top: 1px solid #D2D7DD; background: #FAFBFC; padding: 12px 20px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; font-size: 12px; line-height: 18px;">
+    <div><div class="lbl" style="margin-bottom: 4px;">What this gets you</div>The physical-versus-logical problem stops being a mode switch. You see the cable and the route at once, and the thing that joins them &mdash; the port &mdash; is what you click. Teaching falls out of it for free: the right pane <em>explains</em> the left.</div>
+    <div><div class="lbl" style="margin-bottom: 4px;">What it costs</div>Half a screen each. Three layers means one is always hidden, and on a laptop both panes are cramped. Needs a strong "swap" and "maximise one" gesture.</div>
+    <div><div class="lbl" style="margin-bottom: 4px;">Best if</div>The daily question is "what does this port do" or "where does this subnet physically live". That is a lot of network engineering.</div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
