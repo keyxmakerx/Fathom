@@ -63,7 +63,7 @@
 
 set -eu
 
-ALLOW="${CLAIMS_ALLOW:-docs/90-decisions/adr-0040-the-server-holds-the-keys-and-says-so.md}"
+ALLOW="${CLAIMS_ALLOW:-docs/decisions/adr-0040-the-server-holds-the-keys-and-says-so.md}"
 
 # The surfaces a reader actually sees. Add to this list when a new one appears --
 # a marketing site, a landing page, a product help file.

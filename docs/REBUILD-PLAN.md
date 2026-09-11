@@ -69,11 +69,20 @@ visibly breaks. That is the useful half of what blockchain offers, without runni
 
 ### Version policy
 
-Pin to the latest stable release that has been published **at least seven days**. This matches the
-cooldown rule already applied to Rust packages, and it exists because of the August 2026
-supply-chain attack. A package published this morning has been reviewed by nobody.
+**Take the latest stable release of everything.** Owner decision, 2026-09-11, overruling a
+recommendation to apply the existing seven-day cooldown to web packages. The reasoning: nothing is
+in production, no data exists anywhere, and versions pinned at the start of a rebuild are stale by
+the time it ships.
 
-The cooldown check gets extended to cover web packages, which it does not today.
+Two things hold regardless:
+
+- **Install with scripts disabled** (`npm ci --ignore-scripts`). The danger in a fresh package is
+  code that runs during installation, which is how the August 2026 attack worked. Disabling it
+  costs nothing and removes the reason the cooldown existed.
+- **The Rust cooldown gate is unchanged.** This decision covers web packages only.
+
+**Revisit trigger:** before the first release to anyone who is not the owner, run a full
+vulnerability check across every dependency and record what it finds.
 
 ---
 
