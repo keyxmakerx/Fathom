@@ -32,7 +32,7 @@
       <span class="lbl">Cables</span>
       <span class="tog">&#10003; Copper</span>
       <span class="tog">&#10003; Fibre</span>
-      <span class="tog off">Power</span>
+      <span class="tog">&#10003; Power</span>
       <span style="width: 1px; height: 18px; background: #D2D7DD; margin: 0 4px;"></span>
       <span class="lbl">Colour ports by</span>
       <span class="tog">Link</span>
@@ -109,11 +109,33 @@
           <g font-size="8" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">
             <text x="22" y="12">42</text><text x="22" y="44">40</text><text x="22" y="76">38</text><text x="22" y="108">36</text><text x="22" y="140">34</text><text x="22" y="172">32</text><text x="22" y="204">30</text><text x="22" y="236">28</text><text x="22" y="268">26</text><text x="22" y="300">24</text><text x="22" y="332">22</text><text x="22" y="364">20</text><text x="22" y="396">18</text><text x="22" y="428">16</text><text x="22" y="460">14</text><text x="22" y="492">12</text><text x="22" y="524">10</text><text x="22" y="556">8</text><text x="22" y="588">6</text><text x="22" y="620">4</text><text x="22" y="652">2</text>
           </g>
+          <!-- PSU inlets: notated on the left rail beside each device. Two hexagons = dual PSU. Filled = fed. -->
+          <g stroke="#14171A" stroke-width="0.7">
+            <path d="M3 37 L4 36 L8 36 L9 37 L9 41 L8 42 L4 42 L3 41 Z" fill="#14171A"/><path d="M13 37 L14 36 L18 36 L19 37 L19 41 L18 42 L14 42 L13 41 Z" fill="#14171A"/>
+            <path d="M3 69 L4 68 L8 68 L9 69 L9 73 L8 74 L4 74 L3 73 Z" fill="#14171A"/><path d="M13 69 L14 68 L18 68 L19 69 L19 73 L18 74 L14 74 L13 73 Z" fill="#14171A"/>
+            <path d="M3 85 L4 84 L8 84 L9 85 L9 89 L8 90 L4 90 L3 89 Z" fill="#14171A"/><path d="M13 85 L14 84 L18 84 L19 85 L19 89 L18 90 L14 90 L13 89 Z" fill="#FFFFFF"/>
+            <path d="M3 133 L4 132 L8 132 L9 133 L9 137 L8 138 L4 138 L3 137 Z" fill="#14171A"/>
+            <path d="M3 149 L4 148 L8 148 L9 149 L9 153 L8 154 L4 154 L3 153 Z" fill="#14171A"/>
+            <path d="M3 437 L4 436 L8 436 L9 437 L9 441 L8 442 L4 442 L3 441 Z" fill="#14171A"/><path d="M13 437 L14 436 L18 436 L19 437 L19 441 L18 442 L14 442 L13 441 Z" fill="#14171A"/>
+            <path d="M3 501 L4 500 L8 500 L9 501 L9 505 L8 506 L4 506 L3 505 Z" fill="#14171A"/><path d="M13 501 L14 500 L18 500 L19 501 L19 505 L18 506 L14 506 L13 505 Z" fill="#FFFFFF"/>
+            <path d="M3 565 L4 564 L8 564 L9 565 L9 569 L8 570 L4 570 L3 569 Z" fill="#14171A"/>
+          </g>
+          <!-- power leads: their own lane, up the left rail, from the PDU outlets. Black, thick, never in the data lane. -->
+          <g fill="none" stroke="#14171A" stroke-width="1.8" stroke-linecap="round" opacity="0.55">
+            <path d="M 98 637 C 60 640, 22 600, 12 76"/>
+            <path d="M 112 637 C 70 640, 26 560, 14 92"/>
+            <path d="M 126 637 C 80 640, 30 500, 8 140"/>
+            <path d="M 140 637 C 90 640, 34 460, 8 156"/>
+            <path d="M 154 637 C 100 640, 36 520, 12 444"/>
+            <path d="M 168 637 C 110 640, 40 560, 8 508"/>
+            <path d="M 98 637 C 58 640, 20 300, 10 44"/>
+            <path d="M 112 637 C 66 640, 24 300, 16 44"/>
+          </g>
           <!-- free U hatched -->
           <rect x="28" y="0" width="244" height="32" fill="url(#hatch)"/>
           <rect x="28" y="112" width="244" height="16" fill="url(#hatch)"/>
           <rect x="28" y="192" width="244" height="240" fill="url(#hatch)"/>
-          <rect x="28" y="576" width="244" height="64" fill="url(#hatch)"/>
+          <rect x="28" y="576" width="244" height="48" fill="url(#hatch)"/>
 
           <!-- U40-41: hq-fw-01 SRX340 (2U) -->
           <g transform="translate(28,32)">
@@ -200,12 +222,12 @@
             <rect x="0" y="0" width="244" height="16" fill="#F2F4F6" stroke="#14171A"/>
             <text x="6" y="11" font-size="9" fill="#14171A" font-weight="700">fibre-01</text>
             <g transform="translate(80,4)">
-              <rect x="0" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><line x1="5" y1="0" x2="5" y2="8" stroke="#14171A" stroke-width="0.8"/>
-              <rect x="14" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><line x1="19" y1="0" x2="19" y2="8" stroke="#14171A" stroke-width="0.8"/>
-              <rect x="28" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><line x1="33" y1="0" x2="33" y2="8" stroke="#14171A" stroke-width="0.8"/>
-              <rect x="42" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"/><line x1="47" y1="0" x2="47" y2="8" stroke="#D2D7DD" stroke-width="0.8"/>
-              <rect x="56" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"/><line x1="61" y1="0" x2="61" y2="8" stroke="#D2D7DD" stroke-width="0.8"/>
-              <rect x="70" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"/><line x1="75" y1="0" x2="75" y2="8" stroke="#D2D7DD" stroke-width="0.8"/>
+              <rect x="0" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><circle cx="3" cy="4" r="1.5" fill="#14171A"/><circle cx="7" cy="4" r="1.5" fill="#14171A"/>
+              <rect x="14" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><circle cx="17" cy="4" r="1.5" fill="#14171A"/><circle cx="21" cy="4" r="1.5" fill="#14171A"/>
+              <rect x="28" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><circle cx="31" cy="4" r="1.5" fill="#14171A"/><circle cx="35" cy="4" r="1.5" fill="#14171A"/>
+              <rect x="42" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"/><circle cx="45" cy="4" r="1.5" fill="#D2D7DD"/><circle cx="49" cy="4" r="1.5" fill="#D2D7DD"/>
+              <rect x="56" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"/><circle cx="59" cy="4" r="1.5" fill="#D2D7DD"/><circle cx="63" cy="4" r="1.5" fill="#D2D7DD"/>
+              <rect x="70" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"/><circle cx="73" cy="4" r="1.5" fill="#D2D7DD"/><circle cx="77" cy="4" r="1.5" fill="#D2D7DD"/>
             </g>
           </g>
 
@@ -232,6 +254,15 @@
             <rect x="0" y="0" width="244" height="16" fill="#FFFFFF" stroke="#14171A"/>
             <circle cx="9" cy="8" r="2.5" fill="#14171A"/>
             <text x="16" y="11" font-size="9" fill="#14171A" font-weight="700">nas-01</text>
+          </g>
+          <!-- U3: pdu-a04 — 8 x C13 outlets drawn as the real hexagonal socket -->
+          <g transform="translate(28,624)">
+            <rect x="0" y="0" width="244" height="16" fill="#F2F4F6" stroke="#14171A"/>
+            <text x="6" y="11" font-size="9" fill="#14171A" font-weight="700">pdu-a04</text>
+            <g transform="translate(70,3)" stroke="#14171A" stroke-width="0.8">
+              <path d="M0 2 L2 0 L8 0 L10 2 L10 8 L8 10 L2 10 L0 8 Z" fill="#14171A"/><path d="M14 2 L16 0 L22 0 L24 2 L24 8 L22 10 L16 10 L14 8 Z" fill="#14171A"/><path d="M28 2 L30 0 L36 0 L38 2 L38 8 L36 10 L30 10 L28 8 Z" fill="#14171A"/><path d="M42 2 L44 0 L50 0 L52 2 L52 8 L50 10 L44 10 L42 8 Z" fill="#14171A"/><path d="M56 2 L58 0 L64 0 L66 2 L66 8 L64 10 L58 10 L56 8 Z" fill="#14171A"/><path d="M70 2 L72 0 L78 0 L80 2 L80 8 L78 10 L72 10 L70 8 Z" fill="#14171A"/><path d="M84 2 L86 0 L92 0 L94 2 L94 8 L92 10 L86 10 L84 8 Z" fill="#FFFFFF"/><path d="M98 2 L100 0 L106 0 L108 2 L108 8 L106 10 L100 10 L98 8 Z" fill="#FFFFFF"/>
+            </g>
+            <text x="238" y="11" font-size="8" fill="#5C6772" text-anchor="end">6 of 8 used &middot; fed by ups-a04</text>
           </g>
           <!-- U1-2 ups -->
           <g transform="translate(28,640)">
@@ -275,8 +306,8 @@
             <rect x="0" y="0" width="192" height="16" fill="#FFFFFF" stroke="#5C6772"/>
             <text x="6" y="11" font-size="9" fill="#5C6772" font-weight="700">Lumen handoff</text>
             <g transform="translate(120,4)">
-              <rect x="0" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><line x1="5" y1="0" x2="5" y2="8" stroke="#14171A" stroke-width="0.8"/>
-              <rect x="14" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><line x1="19" y1="0" x2="19" y2="8" stroke="#14171A" stroke-width="0.8"/>
+              <rect x="0" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><circle cx="3" cy="4" r="1.5" fill="#14171A"/><circle cx="7" cy="4" r="1.5" fill="#14171A"/>
+              <rect x="14" y="0" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.8"/><circle cx="17" cy="4" r="1.5" fill="#14171A"/><circle cx="21" cy="4" r="1.5" fill="#14171A"/>
               <rect x="28" y="0" width="5" height="8" fill="#14171A"/>
             </g>
           </g>
@@ -292,32 +323,25 @@
         </g>
 
         <!-- ===================== CABLES ===================== -->
-        <!-- Convention: dimmed cables are the ones not on the selected chain. Sag bows right and down, more on longer runs. -->
-        <g opacity="0.28" stroke="#14171A" fill="none" stroke-linecap="round">
-          <!-- fw p1 -> core-01 p1 -->
-          <path d="M 108 117 C 130 126, 130 140, 162 132" stroke-width="1.6"/>
-          <!-- fw p2 -> core-02 p1 -->
-          <path d="M 119 117 C 150 132, 150 160, 162 148" stroke-width="1.6"/>
-          <!-- core-01 SFP+ 1 -> fibre-01 LC1 (fibre = double line) -->
-          <path d="M 249 135 C 300 160, 300 250, 173 260" stroke-width="2.6"/>
+        <!-- Colour is by cable TYPE by default (copper blue, OM4 aqua, OS2 yellow, power black) and overridable per cable with your real lead colour.
+             The phantom effect is unchanged: every cable not on the selected path sits at 28%; the selected path gets a pale halo. -->
+        <g opacity="0.28" fill="none" stroke-linecap="round">
+          <!-- copper -->
+          <path d="M 108 117 C 130 126, 130 140, 162 132" stroke="#2F5D8A" stroke-width="1.6"/>
+          <path d="M 119 117 C 150 132, 150 160, 162 148" stroke="#2F5D8A" stroke-width="1.6"/>
+          <path d="M 175 135 C 200 150, 200 172, 153 180" stroke="#2F5D8A" stroke-width="6"/>
+          <path d="M 130 195 C 150 205, 190 200, 195 180" stroke="#2F5D8A" stroke-width="6"/>
+          <path d="M 160 211 C 190 225, 200 160, 173 117" stroke="#2F5D8A" stroke-width="1.6"/>
+          <path d="M 296 559 C 380 520, 360 220, 206 132" stroke="#2F5D8A" stroke-width="1.6"/>
+          <path d="M 296 623 C 400 600, 380 240, 206 148" stroke="#2F5D8A" stroke-width="1.6"/>
+          <!-- multimode fibre inside the rack: aqua, drawn as a pair -->
+          <path d="M 249 135 C 300 160, 300 250, 173 260" stroke="#2A9FA5" stroke-width="2.8"/>
           <path d="M 249 135 C 300 160, 300 250, 173 260" stroke="#FFFFFF" stroke-width="0.9"/>
-          <!-- core-02 SFP+ 1 -> fibre-01 LC2 -->
-          <path d="M 249 151 C 310 180, 310 262, 187 260" stroke-width="2.6"/>
+          <path d="M 249 151 C 310 180, 310 262, 187 260" stroke="#2A9FA5" stroke-width="2.8"/>
           <path d="M 249 151 C 310 180, 310 262, 187 260" stroke="#FFFFFF" stroke-width="0.9"/>
-          <!-- core-01 p3..p6 -> patch-01 p2..p5 as a BUNDLE (drawn once, thick, with a count) -->
-          <path d="M 175 135 C 200 150, 200 172, 153 180" stroke-width="6"/>
-          <!-- core-02 SFP+ 2 -> A-05 Lumen handoff LC (cross-rack, long, sags most) -->
-          <path d="M 249 151 C 360 230, 470 200, 619 108" stroke-width="2.6"/>
+          <!-- single-mode to the carrier, across the gap: yellow, and it sags the most -->
+          <path d="M 249 151 C 360 230, 470 200, 619 108" stroke="#C9A227" stroke-width="2.8"/>
           <path d="M 249 151 C 360 230, 470 200, 619 108" stroke="#FFFFFF" stroke-width="0.9"/>
-          <!-- acc-01 p1..p12 -> patch-01 p13..p24: bundle -->
-          <path d="M 130 195 C 150 205, 190 200, 195 180" stroke-width="6"/>
-          <!-- acc-02 p1 .. -> fw p8 -->
-          <path d="M 160 211 C 190 225, 200 160, 173 117" stroke-width="1.6"/>
-          <!-- vm-host-01 -> core-01 p7 -->
-          <path d="M 296 559 C 380 520, 360 220, 206 132" stroke-width="1.6"/>
-          <!-- vm-host-02 -> core-02 p7 -->
-          <path d="M 296 623 C 400 600, 380 240, 206 148" stroke-width="1.6"/>
-          <!-- fw p3 -> patch-01 p1 -> (chain continues below in the lit group) -->
         </g>
 
         <!-- bundle badges -->
@@ -334,12 +358,12 @@
           <path d="M 130 195 C 165 215, 185 200, 195 180" stroke="#D2D7DD" stroke-width="9"/>
           <path d="M 195 180 C 260 150, 260 80, 214 54" stroke="#D2D7DD" stroke-width="9"/>
           <!-- core -->
-          <path d="M 130 195 C 165 215, 185 200, 195 180" stroke="#14171A" stroke-width="2.4"/>
-          <path d="M 195 180 C 260 150, 260 80, 214 54" stroke="#14171A" stroke-width="2.4" stroke-dasharray="6 3"/>
+          <path d="M 130 195 C 165 215, 185 200, 195 180" stroke="#2F5D8A" stroke-width="2.4"/>
+          <path d="M 195 180 C 260 150, 260 80, 214 54" stroke="#2F5D8A" stroke-width="2.4" stroke-dasharray="6 3"/>
         </g>
         <!-- lit ports on the chain -->
-        <rect x="127" y="191" width="7" height="10" fill="#14171A" stroke="#FFFFFF" stroke-width="1"/>
-        <rect x="192" y="175" width="7" height="10" fill="#14171A" stroke="#FFFFFF" stroke-width="1"/>
+        <rect x="127" y="191" width="7" height="10" fill="#2F5D8A" stroke="#FFFFFF" stroke-width="1"/>
+        <rect x="192" y="175" width="7" height="10" fill="#2F5D8A" stroke="#FFFFFF" stroke-width="1"/>
         <!-- chain continues at the portal: the tray lights up -->
         <rect x="60" y="24" width="300" height="30" fill="none" stroke="#14171A" stroke-width="1.5"/>
         <text x="214" y="16" font-size="9" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">continues &rarr; MDF A-01 patch p7 &rarr; core-a01 xe-0/0/12</text>
@@ -349,6 +373,15 @@
           <text x="38" y="10" font-size="9" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">uplink &middot; 0.5 m</text>
         </g>
 
+        <!-- legend -->
+        <g transform="translate(400,778)" font-size="9" fill="#5C6772">
+          <rect x="0" y="0" width="420" height="22" fill="#FFFFFF" stroke="#D2D7DD"/>
+          <line x1="10" y1="11" x2="30" y2="11" stroke="#2F5D8A" stroke-width="2"/><text x="36" y="14">copper</text>
+          <line x1="80" y1="11" x2="100" y2="11" stroke="#2A9FA5" stroke-width="3"/><line x1="80" y1="11" x2="100" y2="11" stroke="#FFFFFF" stroke-width="1"/><text x="106" y="14">OM4 fibre</text>
+          <line x1="164" y1="11" x2="184" y2="11" stroke="#C9A227" stroke-width="3"/><line x1="164" y1="11" x2="184" y2="11" stroke="#FFFFFF" stroke-width="1"/><text x="190" y="14">OS2 fibre</text>
+          <line x1="246" y1="11" x2="266" y2="11" stroke="#14171A" stroke-width="2"/><text x="272" y="14">power</text>
+          <text x="316" y="14" fill="#5C6772">&middot; default by type, override per lead</text>
+        </g>
         <!-- canvas hint -->
         <text x="60" y="816" font-size="10" fill="#5C6772">Drag a port to a port to cable. Hover any cable to light its whole path. Click a portal to follow it.</text>
       </svg>
@@ -364,7 +397,7 @@
       <div class="row"><span class="k">to</span><span class="mono">patch-01 &middot; p7 front</span></div>
       <div class="row"><span class="k">label</span><span>uplink</span></div>
       <div class="row"><span class="k">length</span><span class="mono">0.5 m</span></div>
-      <div class="row"><span class="k">sheath</span><span style="display: flex; gap: 6px; align-items: center;"><span style="width: 12px; height: 12px; border: 1px solid #14171A; background: #14171A;"></span><span>black</span><span style="color: #5C6772; font-size: 11px;">&middot; your real lead colour, optional</span></span></div>
+      <div class="row"><span class="k">lead</span><span style="display: flex; gap: 6px; align-items: center;"><span style="width: 12px; height: 12px; border: 1px solid #14171A; background: #2F5D8A;"></span><span>blue &middot; copper default</span><span style="color: #5C6772; font-size: 11px;">&middot; change to the lead you actually used</span></span></div>
 
       <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; margin-top: 8px;">The whole path &middot; 5 hops</div>
       <div style="font-size: 12px; line-height: 18px;">
@@ -387,7 +420,7 @@
       </div>
 
       <div style="flex-grow: 1;"></div>
-      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Layer 2 and 3 live on the port. You never leave the rack to read them.</div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Layer 2 and 3 live on the port. Power lives on the rail. You never leave the rack to read either.</div>
     </div>
   </div>
 </div>
