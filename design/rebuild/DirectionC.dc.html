@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .ghost { border: 1px dashed #D2D7DD; background: #FAFBFC; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="padding: 14px 20px 12px; border-bottom: 3px solid #14171A;">
+    <div style="font-size: 21px; font-weight: 700; line-height: 24px;">C &mdash; One canvas, all the way down</div>
+    <div style="color: #5C6772; font-size: 13px; margin-top: 4px;">No views and no tabs. You zoom: campus &rarr; building &rarr; closet &rarr; rack &rarr; device &rarr; port. Where you are <em>is</em> how far in you have zoomed.</div>
+  </div>
+
+  <div style="flex-grow: 1; position: relative; overflow: hidden; background: #FFFFFF;">
+
+    <!-- the depth ladder, floating -->
+    <div style="position: absolute; left: 20px; top: 20px; border: 1px solid #14171A; background: #FFFFFF; z-index: 5;">
+      <div style="padding: 6px 12px; font-size: 11px; color: #5C6772; border-bottom: 1px solid #D2D7DD;">Campus</div>
+      <div style="padding: 6px 12px; font-size: 11px; color: #5C6772; border-bottom: 1px solid #D2D7DD;">Building A</div>
+      <div style="padding: 6px 12px; font-size: 11px; color: #5C6772; border-bottom: 1px solid #D2D7DD;">Floor 2</div>
+      <div style="padding: 6px 12px; font-size: 12px; font-weight: 700; background: #14171A; color: #FFFFFF; border-bottom: 1px solid #D2D7DD;">IDF-2 closet</div>
+      <div style="padding: 6px 12px; font-size: 11px; color: #5C6772; border-bottom: 1px solid #D2D7DD;">Rack A-04</div>
+      <div style="padding: 6px 12px; font-size: 11px; color: #5C6772; border-bottom: 1px solid #D2D7DD;">hq-fw-01</div>
+      <div style="padding: 6px 12px; font-size: 11px; color: #5C6772;">Ports</div>
+    </div>
+
+    <!-- floating layer pills -->
+    <div style="position: absolute; left: 50%; transform: translateX(-50%); top: 20px; display: flex; gap: 6px; z-index: 5;">
+      <span style="border: 1px solid #14171A; background: #14171A; color: #FFFFFF; padding: 4px 14px; font-size: 12px;">Physical</span>
+      <span style="border: 1px solid #14171A; background: #FFFFFF; padding: 4px 14px; font-size: 12px; color: #5C6772;">L2</span>
+      <span style="border: 1px solid #14171A; background: #FFFFFF; padding: 4px 14px; font-size: 12px; color: #5C6772;">L3</span>
+      <span style="border: 1px solid #14171A; background: #FFFFFF; padding: 4px 14px; font-size: 12px; color: #5C6772;">Power</span>
+    </div>
+
+    <div style="position: absolute; right: 20px; top: 20px; z-index: 5; border: 1px solid #D2D7DD; background: #FFFFFF; padding: 4px 12px; font-size: 11px; color: #5C6772;">
+      zoom to go deeper &middot; 62%
+    </div>
+
+    <!-- the zoom illusion: outer context faded, current level sharp, inner level previewed -->
+    <div style="position: absolute; inset: 0; padding: 80px 60px 40px;">
+
+      <!-- outer: the floor, faded, still visible -->
+      <div style="position: absolute; left: 40px; top: 70px; right: 40px; bottom: 30px; border: 1px solid #D2D7DD; opacity: 0.35;">
+        <div class="lbl" style="padding: 6px 10px;">Floor 2 &mdash; Building A</div>
+        <div class="ghost" style="position: absolute; left: 20px; top: 40px; width: 150px; height: 90px;"></div>
+        <div class="ghost" style="position: absolute; left: 190px; top: 40px; width: 150px; height: 90px;"></div>
+        <div class="ghost" style="position: absolute; right: 20px; top: 40px; width: 200px; height: 240px;"></div>
+        <div class="ghost" style="position: absolute; left: 20px; bottom: 30px; width: 320px; height: 80px;"></div>
+      </div>
+
+      <!-- current: the closet, sharp -->
+      <div style="position: absolute; left: 300px; top: 130px; width: 620px; border: 1px solid #14171A; background: #FFFFFF; padding: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
+          <span style="font-weight: 700;">IDF-2 &mdash; networking closet</span>
+          <span class="lbl">2 racks &middot; 1 ours, 1 landlord</span>
+        </div>
+        <div style="display: flex; gap: 16px;">
+          <div style="flex: 1; border: 1px solid #14171A; padding: 8px;">
+            <div class="lbl" style="margin-bottom: 6px;">A-04 &middot; 42U</div>
+            <div style="border: 1px solid #5C6772; height: 20px; margin-bottom: 2px; display: flex; align-items: center; padding-left: 6px; font-size: 11px;">hq-fw-01</div>
+            <div style="border: 1px solid #5C6772; height: 14px; margin-bottom: 2px;"></div>
+            <div style="border: 1px solid #5C6772; height: 14px; margin-bottom: 2px;"></div>
+            <div class="ghost" style="height: 44px; margin-bottom: 2px;"></div>
+            <div style="border: 1px solid #5C6772; height: 28px; margin-bottom: 2px;"></div>
+            <div class="ghost" style="height: 60px;"></div>
+          </div>
+          <div style="flex: 1; border: 1px solid #A8571B; background: #FBF3EA; padding: 8px;">
+            <div class="lbl" style="margin-bottom: 6px; color: #A8571B;">A-05 &middot; landlord</div>
+            <div style="border: 1px solid #A8571B; height: 14px; margin-bottom: 2px;"></div>
+            <div style="border: 1px solid #A8571B; height: 14px; margin-bottom: 2px;"></div>
+            <div class="ghost" style="height: 130px;"></div>
+          </div>
+          <!-- next level down, previewed -->
+          <div style="flex: 1.1; border: 1px dashed #5C6772; padding: 8px; opacity: 0.6;">
+            <div class="lbl" style="margin-bottom: 6px;">keep zooming &rarr; faceplate</div>
+            <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px;">
+              <div style="height: 12px; background: #14171A;"></div>
+              <div style="height: 12px; background: #14171A;"></div>
+              <div style="height: 12px; border: 1px solid #1F6F4A;"></div>
+              <div style="height: 12px; border: 1px solid #D2D7DD;"></div>
+              <div style="height: 12px; border: 1px solid #D2D7DD;"></div>
+              <div style="height: 12px; border: 1px solid #D2D7DD;"></div>
+            </div>
+            <div style="font-size: 10px; color: #5C6772; margin-top: 8px; line-height: 14px;">Ports appear when you are close enough for them to be useful.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- portals as edges of the canvas -->
+      <div style="position: absolute; left: 300px; top: 90px; width: 620px; border-top: 3px solid #5C6772; display: flex; justify-content: center;">
+        <span style="background: #FFFFFF; padding: 0 12px; font-size: 11px; color: #5C6772; margin-top: -10px;">&uarr; 3 fibre to MDF</span>
+      </div>
+      <div style="position: absolute; left: 300px; top: 470px; width: 620px; border-bottom: 3px solid #5C6772; display: flex; justify-content: center;">
+        <span style="background: #FFFFFF; padding: 0 12px; font-size: 11px; color: #5C6772; margin-bottom: -10px;">&darr; 24 copper to desks</span>
+      </div>
+    </div>
+
+    <div style="position: absolute; right: 20px; bottom: 20px; width: 300px; border: 1px solid #D2D7DD; background: #FAFBFC; padding: 14px;">
+      <div class="lbl">What this gets you</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 6px;">Almost no chrome. One mental model: everything is somewhere, and you go there. Scales to any depth &mdash; campus, NOC, closet, port &mdash; without new screens.</div>
+      <div class="lbl" style="margin-top: 14px;">What it costs</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 6px;">The hardest to build and the easiest to get lost in. Comparing two distant things is awkward. Needs excellent "where am I" cues or it feels like falling.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

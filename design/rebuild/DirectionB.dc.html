@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .tree { font-size: 12px; line-height: 22px; }
+    .tree div { padding-left: 0; }
+    .box { border: 1px solid #5C6772; background: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+    .ghost { border: 1px dashed #D2D7DD; background: #FAFBFC; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #5C6772; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="padding: 14px 20px 12px; border-bottom: 3px solid #14171A;">
+    <div style="font-size: 21px; font-weight: 700; line-height: 24px;">B &mdash; The workbench</div>
+    <div style="color: #5C6772; font-size: 13px; margin-top: 4px;">The whole estate is always in the left rail. You open things into tabs and keep several open at once. Built like a tool you live in all day.</div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- estate rail -->
+    <div style="width: 260px; border-right: 1px solid #D2D7DD; background: #F2F4F6; flex-shrink: 0; display: flex; flex-direction: column;">
+      <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD; display: flex; gap: 10px;">
+        <span class="lbl" style="color: #14171A; border-bottom: 2px solid #14171A; padding-bottom: 4px;">Estate</span>
+        <span class="lbl">Search</span>
+        <span class="lbl">Findings</span>
+      </div>
+      <div class="tree" style="padding: 8px 0;">
+        <div style="padding: 2px 12px; font-weight: 700;">&minus; Northwind Logistics</div>
+        <div style="padding: 2px 12px 2px 24px;">&minus; HQ Campus</div>
+        <div style="padding: 2px 12px 2px 36px;">&minus; Building A</div>
+        <div style="padding: 2px 12px 2px 48px;">&minus; MDF &mdash; ground</div>
+        <div style="padding: 2px 12px 2px 60px; color: #5C6772;">Rack A-01 &middot; A-02</div>
+        <div style="padding: 2px 12px 2px 48px; background: #FFFFFF; border-left: 4px solid #14171A;">&minus; IDF-2 &mdash; floor 2</div>
+        <div style="padding: 2px 12px 2px 60px;">Rack A-04</div>
+        <div style="padding: 2px 12px 2px 60px; color: #5C6772;">Rack A-05</div>
+        <div style="padding: 2px 12px 2px 36px;">+ Building B</div>
+        <div style="padding: 2px 12px 2px 36px;">+ Building C</div>
+        <div style="padding: 2px 12px 2px 24px;">&minus; NOC &mdash; Denver</div>
+        <div style="padding: 2px 12px 2px 36px; color: #5C6772;">14 racks</div>
+        <div style="padding: 2px 12px 2px 24px;">+ Branch sites (23)</div>
+        <div style="padding: 2px 12px 2px 24px;">+ Cloud &amp; carriers</div>
+      </div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px;">
+        <div class="lbl">Filter by owner</div>
+        <div style="font-size: 12px; line-height: 20px; margin-top: 4px;">
+          <div>&#10003; Us</div>
+          <div style="color: #5C6772;">&#9633; Landlord</div>
+          <div style="color: #5C6772;">&#9633; Carrier &mdash; Lumen</div>
+          <div style="color: #5C6772;">&#9633; Tenant &mdash; floor 3</div>
+        </div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+    </div>
+
+    <!-- tabbed workspace -->
+    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+      <div style="height: 32px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: stretch; background: #FAFBFC; flex-shrink: 0;">
+        <div style="padding: 0 14px; display: flex; align-items: center; font-size: 12px; background: #FFFFFF; border-right: 1px solid #D2D7DD; border-bottom: 2px solid #14171A; font-weight: 700;">Rack A-04</div>
+        <div style="padding: 0 14px; display: flex; align-items: center; font-size: 12px; color: #5C6772; border-right: 1px solid #D2D7DD;">L3 &mdash; HQ Campus</div>
+        <div style="padding: 0 14px; display: flex; align-items: center; font-size: 12px; color: #5C6772; border-right: 1px solid #D2D7DD;">Trace: desk 2-114 &rarr; internet</div>
+        <div style="padding: 0 14px; display: flex; align-items: center; font-size: 12px; color: #5C6772; border-right: 1px solid #D2D7DD;">hq-fw-01 config</div>
+        <div style="padding: 0 10px; display: flex; align-items: center; font-size: 14px; color: #5C6772;">+</div>
+      </div>
+
+      <div style="height: 32px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 8px; flex-shrink: 0;">
+        <span class="lbl">View as</span>
+        <span style="border: 1px solid #14171A; background: #14171A; color: #FFFFFF; padding: 2px 10px; font-size: 11px;">Elevation</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Faceplate</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Table</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Logical</span>
+        <span style="flex-grow: 1;"></span>
+        <span class="lbl">Racks in this closet</span>
+        <span style="border: 1px solid #14171A; padding: 2px 10px; font-size: 11px;">A-04</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">A-05</span>
+        <span style="border: 1px dashed #5C6772; padding: 2px 10px; font-size: 11px; color: #5C6772;">+ add rack</span>
+      </div>
+
+      <div style="flex-grow: 1; display: flex; padding: 20px; gap: 28px; overflow: hidden;">
+        <!-- grouped racks -->
+        <div>
+          <div class="lbl" style="margin-bottom: 6px;">A-04 &middot; 42U &middot; ours</div>
+          <div style="border: 1px solid #14171A; padding: 6px; width: 190px;">
+            <div class="box" style="height: 26px; margin-bottom: 2px;">hq-fw-01 &nbsp;<span style="color:#5C6772; font-size:10px;">2U</span></div>
+            <div class="box" style="height: 15px; margin-bottom: 2px;">core-01</div>
+            <div class="box" style="height: 15px; margin-bottom: 2px;">core-02</div>
+            <div class="ghost" style="height: 50px; margin-bottom: 2px;">free 8U</div>
+            <div class="box" style="height: 40px; margin-bottom: 2px;">vm-host-01 &nbsp;<span style="color:#5C6772; font-size:10px;">4U</span></div>
+            <div class="ghost" style="height: 130px;">free 20U</div>
+          </div>
+        </div>
+        <div>
+          <div class="lbl" style="margin-bottom: 6px;">A-05 &middot; 24U &middot; <span style="color: #A8571B;">landlord</span></div>
+          <div style="border: 1px solid #A8571B; padding: 6px; width: 190px; background: #FBF3EA;">
+            <div class="box" style="height: 15px; margin-bottom: 2px;">carrier handoff</div>
+            <div class="box" style="height: 15px; margin-bottom: 2px;">patch-a05</div>
+            <div class="ghost" style="height: 100px;">free</div>
+          </div>
+        </div>
+
+        <div style="flex-grow: 1;">
+          <div class="lbl" style="margin-bottom: 6px;">Cabling between them</div>
+          <div style="border: 1px solid #D2D7DD; padding: 12px; font-size: 12px; line-height: 22px;">
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #D2D7DD; padding-bottom: 4px;"><span>core-01 xe-0/0/0</span><span style="color: #5C6772;">fibre &rarr; A-05 handoff p1</span></div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #D2D7DD; padding: 4px 0;"><span>core-02 xe-0/0/0</span><span style="color: #5C6772;">fibre &rarr; A-05 handoff p2</span></div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #D2D7DD; padding: 4px 0;"><span>fw-01 ge-0/0/7</span><span style="color: #5C6772;">copper &rarr; patch-a05 p12</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 4px 0; color: #5C6772;"><span>ups-a04 out-1</span><span>power &rarr; PDU-B</span></div>
+          </div>
+          <div style="margin-top: 16px; border: 1px dashed #5C6772; padding: 10px; font-size: 12px; color: #5C6772;">
+            <strong style="color: #14171A;">3 cables leave this closet.</strong> They go up to MDF. Click to follow.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width: 280px; border-left: 1px solid #D2D7DD; background: #FAFBFC; padding: 16px;">
+      <div class="lbl">What this gets you</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Several things open at once &mdash; a rack beside a trace beside a config. Arbitrary depth: campus, building, closet, NOC, carrier, all in one tree. Ownership is a filter, not a separate screen.</div>
+      <div class="lbl" style="margin-top: 20px;">What it costs</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Looks like a developer tool. Denser and less immediately friendly than a canvas. More chrome, less picture.</div>
+      <div class="lbl" style="margin-top: 20px;">Best if</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Engineers live in this for hours and juggle several questions at once.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

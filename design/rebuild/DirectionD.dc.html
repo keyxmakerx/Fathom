@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; }
+    .ghost { border: 1px dashed #D2D7DD; background: #FAFBFC; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="padding: 14px 20px 12px; border-bottom: 3px solid #14171A;">
+    <div style="font-size: 21px; font-weight: 700; line-height: 24px;">D &mdash; Ask, then look</div>
+    <div style="color: #5C6772; font-size: 13px; margin-top: 4px;">You say what you want to see and Fathom draws it. A "view" is just a question you saved. The picture is the answer, not the destination.</div>
+  </div>
+
+  <!-- the question bar -->
+  <div style="padding: 18px 20px; border-bottom: 1px solid #D2D7DD; background: #FAFBFC;">
+    <div style="border: 1px solid #14171A; background: #FFFFFF; padding: 10px 14px; display: flex; align-items: center; gap: 10px;">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5C6772" stroke-width="1.25"><circle cx="7" cy="7" r="5"/><path d="M11 11l4 4"/></svg>
+      <span style="font-size: 15px;">show me <strong>layer 3</strong> between <strong>HQ Campus</strong> and <strong>Denver NOC</strong>, ours only</span>
+      <span style="width: 1px; height: 18px; background: #14171A; margin-left: 2px;"></span>
+    </div>
+    <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; align-items: center;">
+      <span class="lbl" style="margin-right: 4px;">Saved</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Rack A-04, physical</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">All fibre between buildings</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Landlord-owned kit</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Everything with no owner set</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Desk 2-114 &rarr; internet</span>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- refine rail -->
+    <div style="width: 230px; border-right: 1px solid #D2D7DD; background: #F2F4F6; padding: 14px 0; flex-shrink: 0;">
+      <div class="lbl" style="padding: 0 14px 8px;">Narrow it</div>
+      <div style="font-size: 12px; line-height: 24px;">
+        <div style="padding: 0 14px;">&#10003; Layer 3</div>
+        <div style="padding: 0 14px; color: #5C6772;">&#9633; Layer 2</div>
+        <div style="padding: 0 14px; color: #5C6772;">&#9633; Physical</div>
+        <div style="padding: 0 14px; color: #5C6772;">&#9633; Power</div>
+      </div>
+      <div class="lbl" style="padding: 14px 14px 8px;">Owner</div>
+      <div style="font-size: 12px; line-height: 24px;">
+        <div style="padding: 0 14px;">&#10003; Us</div>
+        <div style="padding: 0 14px; color: #5C6772;">&#9633; Lumen</div>
+        <div style="padding: 0 14px; color: #5C6772;">&#9633; Landlord</div>
+      </div>
+      <div class="lbl" style="padding: 14px 14px 8px;">Link type</div>
+      <div style="font-size: 12px; line-height: 24px;">
+        <div style="padding: 0 14px;">&#10003; Fibre</div>
+        <div style="padding: 0 14px;">&#10003; Copper</div>
+        <div style="padding: 0 14px; color: #5C6772;">&#9633; Wireless</div>
+        <div style="padding: 0 14px; color: #5C6772;">&#9633; Carrier circuit</div>
+      </div>
+      <div style="border-top: 1px solid #D2D7DD; margin-top: 14px; padding: 10px 14px; font-size: 11px; color: #5C6772; line-height: 16px;">
+        Every tick rewrites the question above.
+      </div>
+    </div>
+
+    <!-- answer -->
+    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+      <div style="height: 30px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 14px; font-size: 11px; color: #5C6772;">
+        <span style="color: #14171A; font-weight: 700;">9 devices &middot; 11 links</span>
+        <span>Draw as</span>
+        <span style="border-bottom: 2px solid #14171A; color: #14171A; padding: 5px 0;">Map</span>
+        <span>Table</span>
+        <span>Rack</span>
+        <span>Path</span>
+        <span style="flex-grow: 1;"></span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px;">Save this question</span>
+      </div>
+
+      <div style="flex-grow: 1; position: relative; padding: 30px;">
+        <!-- HQ group -->
+        <div style="position: absolute; left: 50px; top: 50px; width: 290px; border: 1px solid #14171A; padding: 12px;">
+          <div class="lbl" style="margin-bottom: 8px;">HQ Campus &mdash; Building A</div>
+          <div style="border: 1px solid #5C6772; padding: 6px 10px; font-size: 12px; margin-bottom: 6px; display: flex; justify-content: space-between;"><span>hq-fw-01</span><span class="mono" style="color: #5C6772;">10.10.0.1</span></div>
+          <div style="border: 1px solid #5C6772; padding: 6px 10px; font-size: 12px; margin-bottom: 6px; display: flex; justify-content: space-between;"><span>hq-core-01</span><span class="mono" style="color: #5C6772;">10.10.0.2</span></div>
+          <div style="border: 1px solid #5C6772; padding: 6px 10px; font-size: 12px; display: flex; justify-content: space-between;"><span>hq-core-02</span><span class="mono" style="color: #5C6772;">10.10.0.3</span></div>
+        </div>
+
+        <!-- carrier, dimmed because filtered out -->
+        <div style="position: absolute; left: 420px; top: 120px; width: 180px; border: 1px dashed #D2D7DD; background: #FAFBFC; padding: 10px; opacity: 0.55;">
+          <div style="font-size: 12px;">Lumen circuit</div>
+          <div style="font-size: 10px; color: #5C6772; margin-top: 2px;">hidden by owner filter</div>
+        </div>
+
+        <!-- NOC group -->
+        <div style="position: absolute; right: 60px; top: 50px; width: 290px; border: 1px solid #14171A; padding: 12px;">
+          <div class="lbl" style="margin-bottom: 8px;">Denver NOC</div>
+          <div style="border: 1px solid #5C6772; padding: 6px 10px; font-size: 12px; margin-bottom: 6px; display: flex; justify-content: space-between;"><span>noc-edge-01</span><span class="mono" style="color: #5C6772;">10.80.0.1</span></div>
+          <div style="border: 1px solid #5C6772; padding: 6px 10px; font-size: 12px; margin-bottom: 6px; display: flex; justify-content: space-between;"><span>noc-core-01</span><span class="mono" style="color: #5C6772;">10.80.0.2</span></div>
+          <div style="border: 1px solid #5C6772; padding: 6px 10px; font-size: 12px; display: flex; justify-content: space-between;"><span>noc-core-02</span><span class="mono" style="color: #5C6772;">10.80.0.3</span></div>
+        </div>
+
+        <svg style="position: absolute; inset: 0; pointer-events: none;" width="100%" height="100%">
+          <path d="M340 110 L1000 110" stroke="#14171A" stroke-width="1.5" fill="none"/>
+          <path d="M340 150 L1000 150" stroke="#14171A" stroke-width="1.5" fill="none"/>
+        </svg>
+        <div style="position: absolute; left: 620px; top: 78px; background: #FFFFFF; padding: 0 8px; font-size: 11px; color: #5C6772;">ospf area 0 &middot; 2 adjacencies</div>
+
+        <div style="position: absolute; left: 50px; bottom: 40px; right: 60px; border: 1px solid #D2D7DD; padding: 12px; font-size: 12px; line-height: 18px; color: #5C6772;">
+          <strong style="color: #14171A;">This is the same graph the rack view draws.</strong> Changing the question changes what is drawn, never what is stored. Nothing here is a separate "view" that can drift out of date.
+        </div>
+      </div>
+    </div>
+
+    <div style="width: 280px; border-left: 1px solid #D2D7DD; background: #FAFBFC; padding: 16px;">
+      <div class="lbl">What this gets you</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Scales to any number of dimensions without new screens &mdash; layer, owner, site, link type, IP range are all just parts of the question. Answers things no fixed view anticipated.</div>
+      <div class="lbl" style="margin-top: 20px;">What it costs</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">A blank box is intimidating. Needs the tick-boxes on the left to be genuinely complete, or people will not find what they want. Weakest of the four for <em>drawing</em>, which is your first priority.</div>
+      <div class="lbl" style="margin-top: 20px;">Best if</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">The estate is large and mostly read, not drawn.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
