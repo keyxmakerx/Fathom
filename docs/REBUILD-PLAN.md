@@ -61,7 +61,13 @@ it, so we would hand-build the canvas again, which is the mistake we are correct
 **Diagram — React Flow.** Purpose-built for exactly this: draggable boxes, lines between them,
 pan and zoom, thousands of nodes. Replaces months of our own code.
 
-**Storage — PostgreSQL, encrypted, with a tamper-evident history.** Every change is recorded in a
+**Storage — PostgreSQL 19 (beta now, GA when it ships), encrypted, with a tamper-evident history.**
+Checked September 2026: the "Postgres needs cleaning yearly" concern is dated — modern versions
+handle it automatically. Every alternative was worse here: SQLite serialises writers, MariaDB lacks
+tenant isolation, CockroachDB retired its free self-hosted tier (a licensing trap when customers run
+it), and no graph database survives scrutiny — Kuzu was bought by Apple and archived, its forks are
+unproven, CozoDB has an unresolved data-corruption report, and the rest carry restrictive licences.
+Develop against 19 beta; pin GA before any real data exists. Every change is recorded in a
 chain where each entry is sealed against the one before it. Alter any past entry and the chain
 visibly breaks. That is the useful half of what blockchain offers, without running a chain.
 
@@ -169,6 +175,9 @@ against no Fathom crate. That gets fixed first, because nothing else can be save
 
 - Wire the server to the engine — graph, schema, identifiers.
 - Database tables, encryption, and the tamper-evident change history.
+- **The credential vault (ADR-0042).** Separate storage, separate keys, tokens in the design.
+  Built in Phase 2 because retrofitting a vault into a live schema is the kind of migration this
+  project exists to avoid.
 - Accounts, organisations, and the scope hierarchy (organisation → network → building → rack),
   because live presence is scoped to it and retrofitting a hierarchy is expensive.
 - The endpoints the client needs to open, change and save a design.
