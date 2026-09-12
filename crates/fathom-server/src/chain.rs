@@ -285,11 +285,20 @@ pub enum EntryType {
     /// This deployment started. The site chain's first entry, and one more on
     /// every start after that.
     ///
-    /// §7.2 lists thirty-odd site entry types. This is the one this order
-    /// writes; the rest arrive with the surfaces that cause them, because an
-    /// entry type nothing emits is a column in a `CHECK` constraint pretending
-    /// to be a control.
+    /// §7.2 lists thirty-odd site entry types. This is one of the four this
+    /// order writes; the rest arrive with the surfaces that cause them,
+    /// because an entry type nothing emits is a name in a `CHECK` constraint
+    /// pretending to be a control.
     DeploymentStarted,
+    /// **The audit destination has not taken anything for a while** — §9's
+    /// `shipper_gap`, written when the spool's oldest unshipped entry passes
+    /// one of §9's escalation points (the first hour, the sixth hour, and the
+    /// age bound itself). See `audit::SpoolBounds`.
+    ShipperGap,
+    /// **The spool has passed a bound** — §9's `spool_pressure`. Written when
+    /// the spool passes its age bound or its size bound, which is the point at
+    /// which §9's degrade table stops design writes and keeps reads serving.
+    SpoolPressure,
 
     // ---- Organisation chain (§7.2) ---------------------------------------
     /// The first entry on an organisation's chain.
@@ -303,6 +312,14 @@ pub enum EntryType {
     /// changes bytes; re-wrap changes no bytes at all, so without this entry
     /// the operation that changes *who can decrypt everything* would be the
     /// only key operation in the product with no audit trail.
+    ///
+    /// **The one type filed on two kinds.** A re-wrap is deployment-wide,
+    /// because the master key is: one summary entry lands on the site chain
+    /// naming both master identities and how many tenants moved, and one entry
+    /// lands on each affected organisation's chain naming that tenant's own
+    /// epochs. §7.2 puts the record of the fact on the tenant-level chain and
+    /// leaves room for the site-level summary; `keys::rewrap_master_key`
+    /// writes both, in one transaction, or neither.
     Rewrap,
 }
 
@@ -313,6 +330,8 @@ impl EntryType {
             Self::Update => "update",
             Self::Reencrypt => "reencrypt",
             Self::DeploymentStarted => "deployment_started",
+            Self::ShipperGap => "shipper_gap",
+            Self::SpoolPressure => "spool_pressure",
             Self::OrgGenesis => "org_genesis",
             Self::Rewrap => "rewrap",
         }
@@ -324,23 +343,39 @@ impl EntryType {
             "update" => Some(Self::Update),
             "reencrypt" => Some(Self::Reencrypt),
             "deployment_started" => Some(Self::DeploymentStarted),
+            "shipper_gap" => Some(Self::ShipperGap),
+            "spool_pressure" => Some(Self::SpoolPressure),
             "org_genesis" => Some(Self::OrgGenesis),
             "rewrap" => Some(Self::Rewrap),
             _ => None,
         }
     }
 
-    /// The one chain this type may be filed on.
+    /// Which chains this type may be filed on — **plural, because `rewrap` is
+    /// filed on two.**
     ///
     /// Mirrored by `chain_entries_type_belongs_to_kind` in
-    /// `migrations/0009_chains_at_three_levels.sql`, so the rule holds for a
-    /// statement this code never issued as well as for one it did.
-    pub fn chain_kind(self) -> ChainKind {
+    /// `migrations/0010_entry_type_belongs_to_kind.sql`, so the rule holds for
+    /// a statement this code never issued as well as for one it did.
+    ///
+    /// **Corrected 2026-09-12.** This read `chain_kind(self) -> ChainKind`
+    /// and its doc said the constraint was in
+    /// `0009_chains_at_three_levels.sql`. It was not: 0009 dropped 0007's
+    /// `CHECK (entry_type IN (...))` and added nothing in its place, so
+    /// `entry_type` was free text and the runtime role could insert one no
+    /// verifier could parse. 0010 adds the constraint this now mirrors.
+    pub fn kinds(self) -> &'static [ChainKind] {
         match self {
-            Self::Create | Self::Update | Self::Reencrypt => ChainKind::Design,
-            Self::DeploymentStarted => ChainKind::Site,
-            Self::OrgGenesis | Self::Rewrap => ChainKind::Org,
+            Self::Create | Self::Update | Self::Reencrypt => &[ChainKind::Design],
+            Self::DeploymentStarted | Self::ShipperGap | Self::SpoolPressure => &[ChainKind::Site],
+            Self::OrgGenesis => &[ChainKind::Org],
+            Self::Rewrap => &[ChainKind::Site, ChainKind::Org],
         }
+    }
+
+    /// Whether this type may appear on that chain kind.
+    pub fn may_be_filed_on(self, kind: ChainKind) -> bool {
+        self.kinds().contains(&kind)
     }
 
     /// Whether an entry of this type binds a stored payload version.
@@ -348,7 +383,70 @@ impl EntryType {
     /// False for every site and organisation type: they record an act. See
     /// [`absent_content_binding`].
     pub fn binds_a_payload(self) -> bool {
-        self.chain_kind() == ChainKind::Design
+        self.kinds() == [ChainKind::Design]
+    }
+}
+
+/// An entry's type **as the row actually carries it**.
+///
+/// `entry_type` is a text column. Until `0010` there was no constraint on it
+/// at all, and even with one a row can be forced in by whoever can disable a
+/// trigger — which `0009`'s own header rates a tier-3 move and
+/// `tests/support::tamper` performs in the open. So the verifier has to have
+/// somewhere to put a value it cannot parse.
+///
+/// **It may not be an error.** §11.2 gives verification exactly three
+/// outcomes, and *"this chain cannot be read at all"* is not one of them: an
+/// `Err` return says nothing about the entries before the bad row, which is
+/// precisely the claim a tamper-evident log exists to make. One junk type
+/// inserted by the runtime role would otherwise make a chain permanently
+/// unverifiable, which is a denial of the control rather than a detection of
+/// it. So it is [`BreakReason::EntryTypeNotRecognised`] at that row, with
+/// everything before it reported verified.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StoredEntryType {
+    /// A type this build knows.
+    Known(EntryType),
+    /// Text no [`EntryType`] parses. **Carried, not discarded**, so the break
+    /// report can name what was actually in the column.
+    Unparsed(String),
+}
+
+impl StoredEntryType {
+    /// Parse from the column. Never fails: unknown text is carried.
+    pub fn from_column(text: &str) -> Self {
+        match EntryType::parse(text) {
+            Some(t) => Self::Known(t),
+            None => Self::Unparsed(text.to_string()),
+        }
+    }
+
+    /// The text as stored — what the seal covers.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Known(t) => t.as_str(),
+            Self::Unparsed(text) => text,
+        }
+    }
+
+    /// The parsed type, or `None` for text this build does not know.
+    pub fn known(&self) -> Option<EntryType> {
+        match self {
+            Self::Known(t) => Some(*t),
+            Self::Unparsed(_) => None,
+        }
+    }
+}
+
+impl From<EntryType> for StoredEntryType {
+    fn from(t: EntryType) -> Self {
+        Self::Known(t)
+    }
+}
+
+impl fmt::Display for StoredEntryType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -662,7 +760,10 @@ fn seal_message(facts: &SealFacts<'_>) -> Vec<u8> {
 #[derive(Clone, Debug)]
 pub struct StoredEntry {
     pub seq: i64,
-    pub entry_type: EntryType,
+    /// **The column, parsed or carried** — see [`StoredEntryType`]. A type
+    /// this build cannot parse is a break at this entry, never an error that
+    /// silences the whole chain.
+    pub entry_type: StoredEntryType,
     pub chain_key_epoch: i32,
     /// `Some` on a design chain, `None` on a site or organisation chain —
     /// where an entry records an act and there is no version to bind. The
@@ -764,6 +865,25 @@ pub enum BreakReason {
     /// **decrypted** value disagrees with the binding — which the writer's own
     /// key would have had to produce.
     MetadataBindingMismatch,
+    /// **The metadata will not open under this row's own associated data.**
+    /// Deep runs only, and deliberately distinct from
+    /// [`Self::MetadataBindingMismatch`]: a binding mismatch means the
+    /// plaintext came back and is not what was committed to, this means no
+    /// plaintext came back at all.
+    ///
+    /// The AEAD's associated data is
+    /// `LP(tag) ‖ LP(chain_kind) ‖ LP(chain_id) ‖ u64(seq) ‖ u32(key_epoch)`
+    /// ([`metadata_aad`]), so a blob lifted from one entry to another of the
+    /// same chain does not decrypt even for someone who recomputed the seal
+    /// over it — which a tier-2 attacker holding the chain key can do. Without
+    /// the AAD, that move would decrypt into the wrong entry's report and both
+    /// a links-only and a deep run would pass it.
+    MetadataDoesNotOpenUnderItsOwnAad,
+    /// **The `entry_type` column holds text no `EntryType` parses.** See
+    /// [`StoredEntryType`]: it is reported here, at the row, with everything
+    /// before it still verified, rather than as an error that makes the whole
+    /// chain unreadable for ever.
+    EntryTypeNotRecognised,
 }
 
 impl BreakReason {
@@ -792,6 +912,14 @@ impl BreakReason {
             }
             Self::MetadataBindingMismatch => {
                 "the entry's metadata is not what its metadata_binding committed to"
+            }
+            Self::MetadataDoesNotOpenUnderItsOwnAad => {
+                "the entry's metadata does not decrypt under this entry's own position and key \
+                 epoch -- the blob belongs to a different row"
+            }
+            Self::EntryTypeNotRecognised => {
+                "the entry_type column holds text this build does not know, so nothing can say \
+                 what this entry records"
             }
         }
     }
@@ -860,8 +988,10 @@ pub enum Outcome {
         /// holds ciphertext, and saying so beats printing it.
         metadata: EntryMetadata,
         /// The failing entry's type, always in the clear, so a break on an
-        /// encrypted chain still names what kind of act it was.
-        entry_type: Option<EntryType>,
+        /// encrypted chain still names what kind of act it was — **including
+        /// when the column holds text nothing parses**, which is the one case
+        /// where naming it is the whole report.
+        entry_type: Option<StoredEntryType>,
         /// The failing entry's chain key epoch, always in the clear.
         chain_key_epoch: Option<i32>,
         /// The design version involved, when there is one.
@@ -933,11 +1063,26 @@ impl Report {
                 reason,
                 verified_before,
                 design_version,
+                entry_type,
                 ..
             } => {
                 let version = match design_version {
                     Some(v) => format!(" (design version {v})"),
                     None => String::new(),
+                };
+                // The text itself, quoted, for the one break whose whole
+                // content is what somebody put in the column. Truncated and
+                // escaped by `Debug`, so a value chosen to forge a log line
+                // cannot.
+                let version = match (reason, entry_type) {
+                    (
+                        BreakReason::EntryTypeNotRecognised,
+                        Some(StoredEntryType::Unparsed(text)),
+                    ) => {
+                        let shown: String = text.chars().take(64).collect();
+                        format!("{version} (the column holds {shown:?})")
+                    }
+                    _ => version,
                 };
                 if *seq == 0 {
                     format!(
@@ -1049,6 +1194,17 @@ pub struct DeepInputs<'a> {
     /// stored column **is** the canonical plaintext and the verifier reads it
     /// directly.
     pub metadata: &'a [(i64, Vec<u8>)],
+    /// The `seq`s whose metadata the caller **held the key for and could not
+    /// open**.
+    ///
+    /// Absence from `metadata` alone cannot say this. An entry can be missing
+    /// from that list for two reasons that must not read alike: the run held
+    /// no key for its epoch (§11.2's fourth sub-state — *content not
+    /// re-bound*, not a failure), or the key was right and the AEAD refused
+    /// (a break, [`BreakReason::MetadataDoesNotOpenUnderItsOwnAad`]). Only the
+    /// caller that tried the decryption knows which, so it says so here rather
+    /// than leaving the verifier to guess the kinder of the two.
+    pub refused_metadata: &'a [i64],
 }
 
 /// Verify a chain.
@@ -1141,7 +1297,7 @@ pub fn verify(
                 reason,
                 verified_before: verified,
                 metadata: reportable_metadata(),
-                entry_type: Some(entry.entry_type),
+                entry_type: Some(entry.entry_type.clone()),
                 chain_key_epoch: Some(entry.chain_key_epoch),
                 design_version: entry.design_version,
             },
@@ -1151,6 +1307,16 @@ pub fn verify(
         };
 
         // ---- What needs no key -------------------------------------------
+        //
+        // The type is read before anything else is claimed about this entry.
+        // It is in the seal input, so a run that carried on would be sealing
+        // over text it could not name -- and a verifier that returned an ERROR
+        // here would let one junk value, insertable by the runtime role
+        // before `0010`, make a whole chain permanently unverifiable. §11.2
+        // has three outcomes and "unreadable" is not one of them.
+        let Some(entry_type) = entry.entry_type.known() else {
+            return broke(BreakReason::EntryTypeNotRecognised, content);
+        };
         if entry.seq != expected_seq {
             return broke(BreakReason::SequenceSkippedOrRepeated, content);
         }
@@ -1199,7 +1365,7 @@ pub fn verify(
             chain,
             prev_seal: &sealed_over,
             content_hash: &entry.content_hash,
-            entry_type: entry.entry_type,
+            entry_type,
             metadata_stored: &entry.metadata_stored,
             metadata_binding: &entry.metadata_binding,
         };
@@ -1235,6 +1401,16 @@ pub fn verify(
                 {
                     return broke(BreakReason::MetadataBindingMismatch, content);
                 }
+            }
+            // Held the key and the AEAD refused. That is not "could not
+            // check": it is a blob that does not belong at this position under
+            // this key epoch, and the associated data is what says so. A
+            // tier-2 attacker holding the chain key can move a ciphertext to
+            // another `seq` and recompute that row's seal over it, so nothing
+            // ELSE in this verifier objects -- which is exactly why the AEAD's
+            // associated data is not decoration.
+            None if deep.is_some_and(|d| d.refused_metadata.contains(&entry.seq)) => {
+                return broke(BreakReason::MetadataDoesNotOpenUnderItsOwnAad, content);
             }
             None if deep.is_some() => {
                 // Asked for a deep run and this entry's metadata could not be
@@ -1284,7 +1460,7 @@ pub fn verify(
                 let superseded = entries.iter().any(|later| {
                     later.seq > entry.seq
                         && later.design_version == Some(version)
-                        && later.entry_type == EntryType::Reencrypt
+                        && later.entry_type == StoredEntryType::Known(EntryType::Reencrypt)
                 });
                 if !superseded {
                     return broke(BreakReason::StorageBindingMismatchUnexplained, content);
@@ -1480,7 +1656,7 @@ mod tests {
         );
         StoredEntry {
             seq,
-            entry_type: EntryType::Update,
+            entry_type: StoredEntryType::Known(EntryType::Update),
             chain_key_epoch: 1,
             design_version: Some(version),
             prev_seal: prev,
@@ -1539,6 +1715,7 @@ mod tests {
         let deep = DeepInputs {
             payloads: &plaintexts,
             metadata: &[],
+            refused_metadata: &[],
         };
         let report = verify(TD, &entries, &payloads, &keys, Some(&deep));
         assert_eq!(report.depth, Depth::Deep);
@@ -1948,7 +2125,7 @@ mod tests {
         );
         entries.push(StoredEntry {
             seq: 2,
-            entry_type: EntryType::Reencrypt,
+            entry_type: StoredEntryType::Known(EntryType::Reencrypt),
             chain_key_epoch: 1,
             design_version: Some(1),
             prev_seal: prev,

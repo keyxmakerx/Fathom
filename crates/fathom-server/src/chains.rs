@@ -185,7 +185,7 @@ pub async fn append_site(
     entry_type: EntryType,
     metadata: &[u8],
 ) -> Result<Appended, ChainStoreError> {
-    debug_assert_eq!(entry_type.chain_kind(), ChainKind::Site);
+    debug_assert!(entry_type.may_be_filed_on(ChainKind::Site));
     let chain = ChainRef::Site { deployment };
     let metadata_key = MetadataKey::Derived(chain::site_metadata_key(
         ring.chain_master(),
@@ -209,13 +209,39 @@ pub async fn append_org(
     entry_type: EntryType,
     metadata: &[u8],
 ) -> Result<Appended, ChainStoreError> {
-    debug_assert_eq!(entry_type.chain_kind(), ChainKind::Org);
-    let organisation = ctx.tenant().to_string();
-    let chain = ChainRef::Org {
-        organisation: &organisation,
-    };
+    append_org_as(
+        tx,
+        ring,
+        &ctx.tenant().to_string(),
+        &ctx.actor().to_string(),
+        tenant_key,
+        entry_type,
+        metadata,
+    )
+    .await
+}
 
-    let content = keys::org_content_key(tx, ctx, tenant_key).await?;
+/// The half of [`append_org`] that takes the organisation and the actor
+/// directly, for the one act that has neither a tenant context nor an account:
+/// `keys::rewrap_master_key`, which is deployment-wide because the master key
+/// is, and enumerates its organisations rather than being handed one.
+///
+/// `pub(crate)`, deliberately. See `keys::tenant_key_for` for the same
+/// argument: nothing outside this crate gains a way to name a tenant that did
+/// not come from `repo::TenantContext`.
+pub(crate) async fn append_org_as(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    organisation: &str,
+    actor: &str,
+    tenant_key: &DataKey,
+    entry_type: EntryType,
+    metadata: &[u8],
+) -> Result<Appended, ChainStoreError> {
+    debug_assert!(entry_type.may_be_filed_on(ChainKind::Org));
+    let chain = ChainRef::Org { organisation };
+
+    let content = keys::org_content_key_for(tx, organisation, tenant_key).await?;
     let metadata_key = MetadataKey::Wrapped {
         key: Key32::from_bytes(*content.key.expose()),
         epoch: content.epoch,
@@ -228,7 +254,7 @@ pub async fn append_org(
     lock(tx, chain).await?;
 
     if entry_type != EntryType::OrgGenesis && tip(tx, chain).await?.is_none() {
-        let genesis_metadata = genesis_metadata(&organisation, ctx);
+        let genesis_metadata = genesis_metadata(organisation, actor);
         append_locked(
             tx,
             ring,
@@ -243,9 +269,9 @@ pub async fn append_org(
     append_locked(tx, ring, chain, entry_type, metadata, &metadata_key).await
 }
 
-fn genesis_metadata(organisation: &str, ctx: &TenantContext) -> Vec<u8> {
+fn genesis_metadata(organisation: &str, actor: &str) -> Vec<u8> {
     let mut map = BTreeMap::new();
-    map.insert("actor".to_string(), Json::Str(ctx.actor().to_string()));
+    map.insert("actor".to_string(), Json::Str(actor.to_string()));
     map.insert(
         "entry_type".to_string(),
         Json::Str(EntryType::OrgGenesis.as_str().to_string()),
@@ -377,6 +403,22 @@ async fn append_locked(
     )
     .await?;
 
+    // One AEAD message under the organisation content key: the metadata seal
+    // above. §12.3's birthday bound is per key, so the key that seals an entry
+    // on every organisation append is the one most likely to reach the budget
+    // first -- and organisation entries are append-only, so they can never be
+    // re-encrypted under a fresh one. A detector, never the nonce source.
+    //
+    // Nothing to count on the site chain: its metadata key is DERIVED from
+    // `chain_master` per epoch, so it has no row to count in and no wrap to
+    // age. That asymmetry is §7.3's, not this function's.
+    if let MetadataKey::Wrapped { epoch, .. } = metadata_key {
+        let organisation = chain.organisation().ok_or(ChainStoreError::Corrupt(
+            "organisation chain with no tenant",
+        ))?;
+        keys::count_write_under_org_content_key(tx, organisation, *epoch).await?;
+    }
+
     // **The same transaction.** An act that cannot queue its audit line does
     // not commit, which is what makes "stopping the log stops the act"
     // mechanical rather than aspirational. See `audit`'s module doc.
@@ -415,11 +457,16 @@ pub async fn read_entries(
 
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
+        // **Carried, never refused.** A type this build cannot parse is a
+        // break AT THAT ROW (`BreakReason::EntryTypeNotRecognised`), with
+        // everything before it still reported verified. Returning an error
+        // here -- which is what this did until 2026-09-12 -- let one junk
+        // value make a whole chain unverifiable for ever, and before `0010`
+        // the runtime role could insert one.
         let entry_type: String = row.get(1);
         out.push(chain::StoredEntry {
             seq: row.get(0),
-            entry_type: EntryType::parse(&entry_type)
-                .ok_or(ChainStoreError::Corrupt("chain entry type"))?,
+            entry_type: chain::StoredEntryType::from_column(&entry_type),
             chain_key_epoch: row.get(2),
             design_version: row.get(3),
             prev_seal: row.get(4),
@@ -490,21 +537,29 @@ pub async fn verify_site(
 
     let metadata = if deep {
         let mut out = Vec::new();
+        let mut refused = Vec::new();
         for framing in read_metadata_framing(tx, chain).await? {
             let key = chain::site_metadata_key(ring.chain_master(), &deployment, framing.key_epoch);
-            if let Some(bytes) = open_metadata(&key, chain, &framing)? {
-                out.push((framing.seq, bytes));
+            match open_metadata(&key, chain, &framing)? {
+                Some(bytes) => out.push((framing.seq, bytes)),
+                // The key for this entry's epoch was in hand and the AEAD
+                // still refused. Reported as a REFUSAL rather than as an
+                // absence -- see `chain::DeepInputs::refused_metadata`.
+                None => refused.push(framing.seq),
             }
         }
-        Some(out)
+        Some((out, refused))
     } else {
         None
     };
 
-    let deep_inputs = metadata.as_ref().map(|metadata| chain::DeepInputs {
-        payloads: &[],
-        metadata,
-    });
+    let deep_inputs = metadata
+        .as_ref()
+        .map(|(metadata, refused)| chain::DeepInputs {
+            payloads: &[],
+            metadata,
+            refused_metadata: refused,
+        });
 
     Ok(chain::verify(
         chain,
@@ -538,22 +593,27 @@ pub async fn verify_org(
     let metadata = if deep {
         let tenant_key = keys::tenant_key(tx, ring, ctx).await?;
         let mut out = Vec::new();
+        let mut refused = Vec::new();
         for framing in read_metadata_framing(tx, chain).await? {
             let key =
                 keys::org_content_key_at_epoch(tx, ctx, &tenant_key, framing.key_epoch).await?;
-            if let Some(bytes) = open_metadata(&key, chain, &framing)? {
-                out.push((framing.seq, bytes));
+            match open_metadata(&key, chain, &framing)? {
+                Some(bytes) => out.push((framing.seq, bytes)),
+                None => refused.push(framing.seq),
             }
         }
-        Some(out)
+        Some((out, refused))
     } else {
         None
     };
 
-    let deep_inputs = metadata.as_ref().map(|metadata| chain::DeepInputs {
-        payloads: &[],
-        metadata,
-    });
+    let deep_inputs = metadata
+        .as_ref()
+        .map(|(metadata, refused)| chain::DeepInputs {
+            payloads: &[],
+            metadata,
+            refused_metadata: refused,
+        });
 
     Ok(chain::verify(
         chain,
@@ -566,11 +626,15 @@ pub async fn verify_org(
 
 /// Decrypt one entry's metadata, or report that it could not be.
 ///
-/// **A refusal is `None`, not an error**, and that distinction is §11.2's
-/// fourth sub-state made mechanical: an entry whose metadata will not open is
-/// reported as *content not re-bound*, never as verified and never as a break.
-/// Failing the whole run would let one unreadable entry hide every real break
-/// after it.
+/// **A refusal is `None`, not an error**: failing the whole run would let one
+/// unreadable entry hide every real break after it. What the caller does with
+/// that `None` is the part that matters, and it is not "nothing" — the key for
+/// the entry's own epoch was in hand here, so a refusal means the blob does
+/// not belong at this position. The callers collect those `seq`s into
+/// `chain::DeepInputs::refused_metadata` and the verifier reports
+/// `MetadataDoesNotOpenUnderItsOwnAad` at that row. §11.2's fourth sub-state
+/// — *content not re-bound* — is for the entry whose key epoch this run was
+/// never given, which is a different thing and is decided one level up.
 fn open_metadata(
     key: &Key32,
     chain: ChainRef<'_>,

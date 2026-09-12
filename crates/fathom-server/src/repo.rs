@@ -485,6 +485,71 @@ pub async fn open_tenant_context(
 }
 
 // ---------------------------------------------------------------------------
+// The one context that is not built from a membership row
+// ---------------------------------------------------------------------------
+
+/// Turn on `app.key_custody` for the rest of this transaction, so
+/// `tenant_keys` can be **enumerated** deployment-wide.
+///
+/// `migrations/0010_entry_type_belongs_to_kind.sql` §F carries the full
+/// reasoning; the short version is that there is one active master key per
+/// database, so a re-wrap is deployment-wide whether anyone wanted it to be,
+/// and re-wrapping the tenants you happened to name leaves the rest openable
+/// under neither key. To re-wrap every tenant you must first know which
+/// tenants there are, and every key table is behind `FORCE ROW LEVEL
+/// SECURITY` keyed on `app.tenant_id` — which with no tenant set returns zero
+/// rows, silently. That is invariant 11's failure at runtime.
+///
+/// **The only caller is `keys::rewrap_master_key`**, which is not reachable
+/// from any request path, and the policy it unlocks is `FOR SELECT` on one
+/// table. `set_config(..., true)` scopes the setting to this transaction, so
+/// it is gone at commit or rollback and is never visible to whatever the pool
+/// hands this connection to next — the same mechanism, and the same argument,
+/// as `app.design_capability`.
+///
+/// **This is not a second way to read a tenant's designs.** It unlocks
+/// `tenant_keys` and nothing else, every row it exposes is a wrapped key whose
+/// wrapping key is not in this database, and `app.design_capability` stays at
+/// its refusal.
+pub(crate) async fn enter_key_custody(tx: &Transaction<'_>) -> Result<(), RepoError> {
+    tx.execute(
+        "SELECT set_config('app.design_capability', 'no', true)",
+        &[],
+    )
+    .await?;
+    tx.execute("SELECT set_config('app.key_custody', 'yes', true)", &[])
+        .await?;
+    Ok(())
+}
+
+/// Point the tenant-scoped policies at one organisation during a
+/// deployment-wide key custody change.
+///
+/// **No membership is checked and none exists to check**, which is why this is
+/// a separate function with its own name rather than a flag on
+/// [`open_tenant_context`]. A re-wrap is an operator act on the deployment's
+/// own key material; there is no account that is a member of every
+/// organisation, and inventing one — or borrowing some steward's identity to
+/// sign the entry — would put a false actor in the one record that must not
+/// contain any. The organisation id comes from the enumeration in
+/// [`enter_key_custody`], inside the same transaction, and never from a
+/// request.
+///
+/// `app.account_id` is set to the empty string, which every policy that reads
+/// it already treats as a refusal, so nothing an account may do becomes
+/// possible here.
+pub(crate) async fn set_custody_tenant(
+    tx: &Transaction<'_>,
+    tenant: &str,
+) -> Result<(), RepoError> {
+    tx.execute("SELECT set_config('app.account_id', '', true)", &[])
+        .await?;
+    tx.execute("SELECT set_config('app.tenant_id', $1, true)", &[&tenant])
+        .await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Accounts
 // ---------------------------------------------------------------------------
 

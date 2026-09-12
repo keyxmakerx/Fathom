@@ -30,7 +30,35 @@
 //! - **The witness challenge-back, anchors, and startup quarantine (§7.6).**
 //! - **§9's escalating banners and the `unwitnessed` marking in every session.**
 //!   Those need surfaces that do not exist. What exists instead is an honest
-//!   startup log line and a warning when the spool is not draining.
+//!   startup log line, a warning when the spool is not draining, and the sealed
+//!   `shipper_gap` and `spool_pressure` entries below — which are what a banner
+//!   would be drawn from when there is somewhere to draw it.
+//!
+//! # What of §9 remains deferred after the bounds landed (2026-09-12)
+//!
+//! [`SpoolBounds`] and [`record_spool_thresholds`] implement §9's *"bounded by
+//! time first, size second"*, its threshold entries, and the row of its degrade
+//! table that stops design writes past the bound. **Exactly these parts of §9
+//! are still absent, and none of them is improved by a stub:**
+//!
+//! 1. **Banners.** §9 escalates *"to operators from the first hour and to
+//!    stewards from the sixth"*. The entries that would feed those banners are
+//!    written; there is no session, no operator page and no organisation page
+//!    to draw them on.
+//! 2. **The `unwitnessed` marking in every session** (§9, §7.4). Same reason: a
+//!    startup log line exists, a session does not.
+//! 3. **Gated changes queueing without a receipt** (§9's second row, §5.4's
+//!    interlock). Settings, contact changes, enrolments and break-glass do not
+//!    exist yet, so there is nothing to gate.
+//! 4. **Collapsing `payload_decrypted` roll-ups when the spool is physically
+//!    full** (§9's fourth row). The per-design read chain is not built (§7.2,
+//!    §15.6), so there are no roll-ups to collapse; past the bound this
+//!    deployment goes straight to *writes stop, reads continue*.
+//! 5. **Dual-shipping a shipper endpoint change for the delay window** (§9).
+//!    That needs the delay window and the receipt that closes it.
+//! 6. **The air-gapped cadence and the removable-media export** (§9).
+//! 7. **Receipts, the witness and anchors** (§7.4, §7.6), as above — which is
+//!    why nothing here is called an anchor.
 //!
 //! A deployment running this is `unwitnessed` in §9's sense, permanently, until
 //! receipts land.
@@ -167,6 +195,344 @@ pub async fn spool(
     )
     .await?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// The bounds — §9
+// ---------------------------------------------------------------------------
+
+/// §9's two bounds on the spool: **time first, size second.**
+///
+/// > *"Bounded by time first, size second. Default 72 hours or 1 GiB,
+/// > whichever comes first."*
+///
+/// Both are configurable, because a deployment that ships to a SIEM over a
+/// satellite link and one that ships to the box next door do not have the same
+/// answer, and a hard-coded bound is a bound an operator works around by
+/// turning the shipper off.
+///
+/// **A bound is not a deletion.** Nothing here drops a spooled entry, ever:
+/// past the bound the deployment stops accepting design *writes* and keeps
+/// serving *reads*, which is §9's degrade table. §9 is explicit about why the
+/// stronger rule is wrong — *"a documentation tool that refuses to show the
+/// rack diagram during somebody else's SIEM outage is the control that gets
+/// removed from the compose file"*, and a fail-closed read rule would hand
+/// whoever points the shipper at a black hole a one-click site-wide outage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpoolBounds {
+    /// How old the **oldest unshipped** entry may get. `FATHOM_AUDIT_SPOOL_MAX_AGE`,
+    /// in seconds.
+    pub max_age: Duration,
+    /// How many bytes the spool may hold. `FATHOM_AUDIT_SPOOL_MAX_BYTES`.
+    pub max_bytes: i64,
+}
+
+impl SpoolBounds {
+    /// §9's default: 72 hours.
+    pub const DEFAULT_MAX_AGE: Duration = Duration::from_secs(72 * 60 * 60);
+    /// §9's default: 1 GiB.
+    pub const DEFAULT_MAX_BYTES: i64 = 1024 * 1024 * 1024;
+
+    /// §9's defaults, both of them.
+    pub fn defaults() -> Self {
+        Self {
+            max_age: Self::DEFAULT_MAX_AGE,
+            max_bytes: Self::DEFAULT_MAX_BYTES,
+        }
+    }
+
+    /// Parse both from a lookup, exactly as `config::Config` parses everything
+    /// else. `Err` names the variable and never its value.
+    pub fn from_lookup<F>(get: F) -> Result<Self, &'static str>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let max_age = match get("FATHOM_AUDIT_SPOOL_MAX_AGE").filter(|v| !v.trim().is_empty()) {
+            None => Self::DEFAULT_MAX_AGE,
+            Some(v) => v
+                .trim()
+                .parse::<u64>()
+                .ok()
+                .filter(|s| *s > 0)
+                .map(Duration::from_secs)
+                .ok_or("FATHOM_AUDIT_SPOOL_MAX_AGE")?,
+        };
+        let max_bytes = match get("FATHOM_AUDIT_SPOOL_MAX_BYTES").filter(|v| !v.trim().is_empty()) {
+            None => Self::DEFAULT_MAX_BYTES,
+            Some(v) => v
+                .trim()
+                .parse::<i64>()
+                .ok()
+                .filter(|b| *b > 0)
+                .ok_or("FATHOM_AUDIT_SPOOL_MAX_BYTES")?,
+        };
+        Ok(Self { max_age, max_bytes })
+    }
+
+    /// The same two variables, read from this process's environment.
+    ///
+    /// **Used by the design write path**, which has no configuration handle to
+    /// reach for: there is no request surface for a design write yet, so
+    /// nothing carries a `Config` down to it. A malformed value cannot reach
+    /// here — `config::Config::from_lookup` refuses one at startup, so a
+    /// server that is running has already been checked — and the fallback is
+    /// the documented default rather than a refusal, because failing a write
+    /// over a typo in an unrelated variable is not a safety property.
+    pub fn from_env() -> Self {
+        Self::from_lookup(|k| std::env::var(k).ok()).unwrap_or_else(|_| Self::defaults())
+    }
+}
+
+/// Which bound the spool has passed. §9: *"whichever comes first"*.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bound {
+    /// The oldest unshipped entry is older than [`SpoolBounds::max_age`].
+    Age,
+    /// The spool holds more than [`SpoolBounds::max_bytes`].
+    Size,
+}
+
+impl fmt::Display for Bound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Age => "age",
+            Self::Size => "size",
+        })
+    }
+}
+
+/// §9's escalation points, in the order they are crossed.
+///
+/// §9 names the hours: *"banners to operators from the first hour and to
+/// stewards from the sixth, escalating; `shipper_gap` and `spool_pressure`
+/// entries at each threshold."* So the first two are absolute — one hour and
+/// six hours of unshipped backlog — and the last two are the bounds
+/// themselves. **The two hour marks are clamped to the configured age bound**:
+/// a deployment that sets a one-hour bound gets the bound's entry and not a
+/// six-hour banner it can never reach.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Threshold {
+    /// One hour of unshipped backlog — §9's operator banner. `shipper_gap`.
+    GapFirstHour,
+    /// Six hours — §9's steward banner. `shipper_gap`.
+    GapSixthHour,
+    /// Past [`SpoolBounds::max_age`]. `spool_pressure`, and the point at which
+    /// design writes stop.
+    PastAgeBound,
+    /// Past [`SpoolBounds::max_bytes`]. `spool_pressure`, same consequence.
+    PastSizeBound,
+}
+
+impl Threshold {
+    /// Which entry type records this threshold (§7.2's names).
+    pub fn entry_type(self) -> EntryType {
+        match self {
+            Self::GapFirstHour | Self::GapSixthHour => EntryType::ShipperGap,
+            Self::PastAgeBound | Self::PastSizeBound => EntryType::SpoolPressure,
+        }
+    }
+
+    /// The name that goes in the entry's metadata.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GapFirstHour => "first_hour",
+            Self::GapSixthHour => "sixth_hour",
+            Self::PastAgeBound => "past_age_bound",
+            Self::PastSizeBound => "past_size_bound",
+        }
+    }
+}
+
+/// What the spool looks like right now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpoolState {
+    /// How many entries are waiting.
+    pub entries: i64,
+    /// How many bytes they occupy, summed with `pg_column_size` over the rows
+    /// themselves rather than read off the relation — a table's physical size
+    /// does not shrink when rows are deleted, and a bound that only ever went
+    /// up would stop design writes for ever after one outage.
+    pub bytes: i64,
+    /// How long the **oldest unshipped** entry has been waiting.
+    pub oldest: Duration,
+}
+
+impl SpoolState {
+    /// Which bound, if any, has been passed. **Age first**, because §9 says
+    /// *"time first, size second"* and an operator told "the spool is full"
+    /// when the real problem is three days of silence would go looking at
+    /// disk.
+    pub fn beyond(&self, bounds: &SpoolBounds) -> Option<Bound> {
+        if self.entries == 0 {
+            return None;
+        }
+        if self.oldest > bounds.max_age {
+            return Some(Bound::Age);
+        }
+        if self.bytes > bounds.max_bytes {
+            return Some(Bound::Size);
+        }
+        None
+    }
+
+    /// Every threshold this state has crossed, in order.
+    pub fn crossed(&self, bounds: &SpoolBounds) -> Vec<Threshold> {
+        let mut out = Vec::new();
+        if self.entries == 0 {
+            return out;
+        }
+        let hour = Duration::from_secs(60 * 60);
+        // Clamped to the bound: a threshold above the bound is unreachable,
+        // and an entry announcing a banner nobody will ever see is noise in
+        // the one log that must stay readable.
+        if self.oldest >= hour && hour <= bounds.max_age {
+            out.push(Threshold::GapFirstHour);
+        }
+        if self.oldest >= 6 * hour && 6 * hour <= bounds.max_age {
+            out.push(Threshold::GapSixthHour);
+        }
+        if self.oldest > bounds.max_age {
+            out.push(Threshold::PastAgeBound);
+        }
+        if self.bytes > bounds.max_bytes {
+            out.push(Threshold::PastSizeBound);
+        }
+        out
+    }
+}
+
+/// Read the spool's age and size in one query.
+pub async fn spool_state<C>(
+    client: &C,
+    _bounds: &SpoolBounds,
+) -> Result<SpoolState, tokio_postgres::Error>
+where
+    C: tokio_postgres::GenericClient,
+{
+    let row = client
+        .query_one(
+            "SELECT count(*)::bigint, \
+                    coalesce(sum(pg_column_size(s.*)), 0)::bigint, \
+                    coalesce(extract(epoch FROM now() - min(s.queued_at)), 0)::double precision \
+             FROM audit_spool s",
+            &[],
+        )
+        .await?;
+    let entries: i64 = row.get(0);
+    let bytes: i64 = row.get(1);
+    let seconds: f64 = row.get(2);
+    Ok(SpoolState {
+        entries,
+        bytes,
+        // A clock that went backwards gives a negative age. Read as zero
+        // rather than as a saturating enormity: §9's bound is a reason to stop
+        // writing, and "the host clock stepped" is not one.
+        oldest: Duration::from_secs_f64(seconds.max(0.0)),
+    })
+}
+
+/// Which thresholds have already been recorded by **this process**.
+///
+/// In memory, deliberately, and the cost is stated rather than hidden: a
+/// restart re-announces a threshold that is still crossed. The alternative —
+/// deriving it from the site chain — would mean reading the chain on every
+/// drain attempt and deciding whether an old entry still refers to *this*
+/// backlog, and a duplicate sealed entry is a far smaller problem than a
+/// missing one. §9 asks for an entry at each threshold; it does not ask for
+/// exactly one for ever.
+#[derive(Clone, Debug, Default)]
+pub struct ThresholdsSeen(Vec<Threshold>);
+
+impl ThresholdsSeen {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Called when the spool drains to empty: the next backlog is a new
+    /// incident and gets its own entries.
+    pub fn reset(&mut self) {
+        self.0.clear();
+    }
+}
+
+/// Write a sealed site-chain entry for every threshold this spool has newly
+/// crossed, and return them.
+///
+/// # Why this can always be written, even when the spool is past its bound
+///
+/// **The bound stops design writes and nothing else.** It is checked in exactly
+/// one place — `designs::write_version` — and never inside [`spool`], which is
+/// an unconditional `INSERT`. So the site chain accepts these entries however
+/// full the spool is, and each one spools in the same transaction like any
+/// other. A bound that refused the entry recording the bound would be a
+/// condition that cannot be recorded, which is the one thing an audit trail
+/// may not have.
+///
+/// Nothing is deleted to make room, either: §9's *"collapse the oldest
+/// `payload_decrypted` roll-ups"* has nothing to collapse, because the read
+/// chain is not built. See this module's deferred list.
+pub async fn record_spool_thresholds(
+    tx: &Transaction<'_>,
+    ring: &crate::keys::KeyRing,
+    deployment: &str,
+    bounds: &SpoolBounds,
+    seen: &mut ThresholdsSeen,
+) -> Result<Vec<Threshold>, crate::chains::ChainStoreError> {
+    let state = spool_state(&**tx, bounds).await?;
+    if state.entries == 0 {
+        seen.reset();
+        return Ok(Vec::new());
+    }
+
+    let mut written = Vec::new();
+    for threshold in state.crossed(bounds) {
+        if seen.0.contains(&threshold) {
+            continue;
+        }
+        let metadata = threshold_metadata(threshold, &state, bounds);
+        crate::chains::append_site(tx, ring, deployment, threshold.entry_type(), &metadata).await?;
+        seen.0.push(threshold);
+        written.push(threshold);
+    }
+    Ok(written)
+}
+
+/// What a threshold entry says. Counts and seconds, no addresses: the
+/// destination is in the startup log line and a sealed entry naming a host is
+/// a sealed entry that ages badly.
+fn threshold_metadata(threshold: Threshold, state: &SpoolState, bounds: &SpoolBounds) -> Vec<u8> {
+    use fathom_canon::Json;
+    let mut map = std::collections::BTreeMap::new();
+    map.insert(
+        "entry_type".to_string(),
+        Json::Str(threshold.entry_type().as_str().to_string()),
+    );
+    map.insert(
+        "threshold".to_string(),
+        Json::Str(threshold.as_str().to_string()),
+    );
+    map.insert("spooled_entries".to_string(), Json::Int(state.entries));
+    map.insert("spooled_bytes".to_string(), Json::Int(state.bytes));
+    map.insert(
+        "oldest_seconds".to_string(),
+        Json::Int(state.oldest.as_secs() as i64),
+    );
+    map.insert(
+        "max_age_seconds".to_string(),
+        Json::Int(bounds.max_age.as_secs() as i64),
+    );
+    map.insert("max_bytes".to_string(), Json::Int(bounds.max_bytes));
+    map.insert(
+        "design_writes".to_string(),
+        Json::Str(
+            match state.beyond(bounds) {
+                Some(_) => "refused: the spool is past its bound; reads continue",
+                None => "unaffected",
+            }
+            .to_string(),
+        ),
+    );
+    Json::Obj(map).to_canonical_bytes()
 }
 
 // ---------------------------------------------------------------------------
@@ -502,8 +868,17 @@ where
 /// destination that accepts connections and never reads stalls this task and
 /// nothing else, which is §9's requirement rather than an accident of the
 /// implementation.
-pub fn spawn(pool: Pool, target: SyslogTarget, interval: Duration) -> tokio::task::JoinHandle<()> {
+pub fn spawn(
+    pool: Pool,
+    target: SyslogTarget,
+    interval: Duration,
+    bounds: SpoolBounds,
+    ring: std::sync::Arc<crate::keys::KeyRing>,
+    deployment: String,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        // Per process, and it says so: see `ThresholdsSeen`.
+        let mut seen = ThresholdsSeen::new();
         // Logged on transitions only. A destination that is down for a day at
         // a five-second cadence would otherwise write seventeen thousand
         // identical lines, and an operator who has learned to filter them out
@@ -516,6 +891,36 @@ pub fn spawn(pool: Pool, target: SyslogTarget, interval: Duration) -> tokio::tas
                 Ok(c) => c,
                 Err(_) => continue,
             };
+
+            // The thresholds are recorded whether or not the drain worked --
+            // a destination that accepts a connection and never reads leaves
+            // the spool growing with no error to notice.
+            let mut client_mut = client;
+            if let Ok(tx) = client_mut.transaction().await {
+                match record_spool_thresholds(&tx, &ring, &deployment, &bounds, &mut seen).await {
+                    Ok(written) if !written.is_empty() => {
+                        if tx.commit().await.is_ok() {
+                            for threshold in written {
+                                tracing::warn!(
+                                    threshold = threshold.as_str(),
+                                    entry_type = threshold.entry_type().as_str(),
+                                    "the audit spool passed a bound named by §9; a sealed entry                                      was written on the site chain. Past a BOUND, design writes                                      are refused and reads continue."
+                                );
+                            }
+                        }
+                    }
+                    Ok(_) => {
+                        let _ = tx.commit().await;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "could not record the audit spool's threshold on the site chain"
+                        );
+                    }
+                }
+            }
+            let client = client_mut;
 
             match drain_once(&**client, &target).await {
                 Ok(drained) => {
@@ -565,6 +970,109 @@ mod tests {
             seal_hex: "ab".repeat(32),
             occurred_at: "2026-09-12T10:11:12.123456Z".to_string(),
         }
+    }
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |key| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| (*v).to_string())
+        }
+    }
+
+    #[test]
+    fn the_spool_bounds_are_ninety_nines_defaults_and_are_configurable() {
+        // §9: *"default 72 hours or 1 GiB, whichever comes first"*, and both
+        // configurable -- a bound an operator cannot move is a bound they work
+        // around by turning the shipper off.
+        let defaults = SpoolBounds::from_lookup(env(&[])).expect("no variables set");
+        assert_eq!(defaults.max_age, Duration::from_secs(72 * 60 * 60));
+        assert_eq!(defaults.max_bytes, 1024 * 1024 * 1024);
+        assert_eq!(defaults, SpoolBounds::defaults());
+
+        let configured = SpoolBounds::from_lookup(env(&[
+            ("FATHOM_AUDIT_SPOOL_MAX_AGE", "3600"),
+            ("FATHOM_AUDIT_SPOOL_MAX_BYTES", "1048576"),
+        ]))
+        .expect("both set");
+        assert_eq!(configured.max_age, Duration::from_secs(3600));
+        assert_eq!(configured.max_bytes, 1024 * 1024);
+
+        // Refused rather than silently defaulted: a deployment that believes
+        // it is bounded at a number it is not is worse off than one that
+        // failed to start.
+        for (variable, value) in [
+            ("FATHOM_AUDIT_SPOOL_MAX_AGE", "72 hours"),
+            ("FATHOM_AUDIT_SPOOL_MAX_AGE", "0"),
+            ("FATHOM_AUDIT_SPOOL_MAX_AGE", "-1"),
+            ("FATHOM_AUDIT_SPOOL_MAX_BYTES", "1GiB"),
+            ("FATHOM_AUDIT_SPOOL_MAX_BYTES", "0"),
+        ] {
+            assert_eq!(
+                SpoolBounds::from_lookup(env(&[(variable, value)])),
+                Err(variable),
+                "{variable}={value} was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn the_thresholds_are_the_ones_section_nine_names_and_are_clamped_to_the_bound() {
+        let bounds = SpoolBounds::defaults();
+        let state = |secs: u64, bytes: i64| SpoolState {
+            entries: 1,
+            bytes,
+            oldest: Duration::from_secs(secs),
+        };
+
+        // An empty spool crosses nothing, whatever the bounds say.
+        let empty = SpoolState {
+            entries: 0,
+            bytes: 0,
+            oldest: Duration::from_secs(0),
+        };
+        assert!(empty.crossed(&bounds).is_empty());
+        assert_eq!(empty.beyond(&bounds), None);
+
+        assert!(state(59 * 60, 10).crossed(&bounds).is_empty());
+        assert_eq!(
+            state(60 * 60, 10).crossed(&bounds),
+            vec![Threshold::GapFirstHour]
+        );
+        assert_eq!(
+            state(6 * 60 * 60, 10).crossed(&bounds),
+            vec![Threshold::GapFirstHour, Threshold::GapSixthHour]
+        );
+        assert_eq!(
+            state(73 * 60 * 60, 10).crossed(&bounds),
+            vec![
+                Threshold::GapFirstHour,
+                Threshold::GapSixthHour,
+                Threshold::PastAgeBound
+            ]
+        );
+        assert_eq!(state(73 * 60 * 60, 10).beyond(&bounds), Some(Bound::Age));
+
+        // Time first, size second -- §9's words, and an operator told "full"
+        // when the real problem is three days of silence goes looking at disk.
+        let both = state(73 * 60 * 60, i64::MAX);
+        assert_eq!(both.beyond(&bounds), Some(Bound::Age));
+
+        // Clamped: a deployment with a one-hour bound is never told about a
+        // six-hour banner it can never reach.
+        let tight = SpoolBounds {
+            max_age: Duration::from_secs(60 * 60),
+            max_bytes: 1,
+        };
+        assert_eq!(
+            state(2 * 60 * 60, 10).crossed(&tight),
+            vec![
+                Threshold::GapFirstHour,
+                Threshold::PastAgeBound,
+                Threshold::PastSizeBound
+            ]
+        );
     }
 
     #[test]

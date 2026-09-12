@@ -13,7 +13,7 @@
 use core::fmt;
 use core::time::Duration;
 
-use crate::audit::SyslogTarget;
+use crate::audit::{SpoolBounds, SyslogTarget};
 use crate::keyprovider::KeySource;
 use crate::secret::{redact_database_url, Secret};
 
@@ -142,6 +142,18 @@ pub struct Config {
     /// listener binds rather than at the first entry. A scheme is REFUSED
     /// rather than stripped: see `audit::TargetError::HasScheme`.
     pub audit_syslog: Option<SyslogTarget>,
+
+    /// §9's two bounds on the audit spool. `FATHOM_AUDIT_SPOOL_MAX_AGE`
+    /// (seconds, default 72 hours) and `FATHOM_AUDIT_SPOOL_MAX_BYTES`
+    /// (default 1 GiB), *whichever comes first*.
+    ///
+    /// Parsed here so a mistyped bound fails at startup rather than silently
+    /// falling back to a default and letting a deployment believe it is
+    /// bounded at a number it is not. `audit::SpoolBounds::from_env` reads the
+    /// same two variables on the design write path, which has no configuration
+    /// handle; the two must agree because they are the same parser, and this
+    /// one is what refuses a malformed value.
+    pub audit_spool_bounds: SpoolBounds,
 }
 
 /// ADR-0043 §9's path, in the operator's register and therefore in the code
@@ -352,6 +364,13 @@ impl Config {
             ),
         };
 
+        // Both bounds, or the §9 defaults. A malformed value is refused here
+        // and nowhere else: the design write path falls back to the default
+        // rather than failing a write, on the argument that a server which is
+        // running has already passed this check.
+        let audit_spool_bounds = SpoolBounds::from_lookup(&get)
+            .map_err(|variable| ConfigError::Unparseable { variable })?;
+
         // Trailing newline trimmed: the file is written by a shell script and
         // a newline is what a shell script writes. Only the ends are trimmed
         // — a password is otherwise taken exactly as generated.
@@ -400,6 +419,7 @@ impl Config {
             master_key,
             chain_key,
             audit_syslog,
+            audit_spool_bounds,
         })
     }
 

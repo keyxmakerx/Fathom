@@ -64,6 +64,16 @@ the tenant key in the same shape as design keys; they encrypt the metadata of or
 entries. Organisation names and scope paths are still plaintext — storage §11.3's name encryption is
 not built.
 
+**Migration 0010 and the checker round of 2026-09-12.** A checker attacking 0009 found the re-wrap
+retiring the deployment-wide master key while re-wrapping one tenant, an entry-type constraint that
+0009's header promised and never created, an unbounded spool, and the seal and associated-data
+constructions pinned by no test. All fixed: the re-wrap is deployment-wide in one transaction with
+a `rewrap` entry on the site chain and on every organisation chain; 0010 adds
+`chain_entries_type_belongs_to_kind`, and an unparseable type reads as *broken at* rather than as
+an error; the spool is bounded per admin §9 and past the bound design writes stop while reads
+continue; `tests/chain_vectors.rs` holds golden values produced by an independent Python assembly
+of the §11.2 messages (`tests/vectors/gen_chain_vectors.py`), so the two must agree.
+
 **The server can read design data, and says so** (`docs/PHASE-2-STORAGE-DESIGN.md` §2a).
 Encryption protects the database, the backups and the disk — not the running process.
 

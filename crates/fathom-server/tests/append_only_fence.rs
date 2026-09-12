@@ -224,20 +224,89 @@ async fn an_organisation_chain_cannot_be_erased_through_its_parent() {
     tx.commit().await.expect("commit");
 
     let su = support::superuser_client_on_test_database().await;
+
+    // ---- The constraint itself, off the catalogue -------------------------
+    //
+    // **Asserting the SQLSTATE alone proved nothing.** Deleting the whole
+    // `chain_entries_organisation_fkey` block from `0009` left this test
+    // passing: the refusal it saw came from `org_content_keys`'s own reference
+    // to `organisations`, which `append_org` creates on the way past, and an
+    // organisation chain was left with no parent fence at all. So the
+    // constraint is named, and so is its referential action -- a fence with
+    // `ON DELETE CASCADE` is not a fence, it is the erasure this test exists
+    // to refuse.
+    let fence = su
+        .query_opt(
+            "SELECT c.confdeltype::text \
+               FROM pg_constraint c \
+              WHERE c.conname = 'chain_entries_organisation_fkey' \
+                AND c.conrelid = 'chain_entries'::regclass \
+                AND c.confrelid = 'organisations'::regclass \
+                AND c.contype = 'f'",
+            &[],
+        )
+        .await
+        .expect("read pg_constraint")
+        .map(|row| row.get::<_, String>(0));
+    assert_eq!(
+        fence.as_deref(),
+        Some("r"),
+        "`chain_entries.organisation_id` must carry its OWN reference to `organisations` with \
+         ON DELETE RESTRICT ('r'). Without it an organisation chain has no parent fence: a \
+         cascade is subject to no policy and no privilege check at any level, and the refusal \
+         this test sees would be coming from some other table that happens to exist."
+    );
+
+    // ---- And it is the constraint that actually refuses -------------------
+    //
+    // Which foreign key fires first is PostgreSQL's business: the referential
+    // triggers run in creation order, and `org_content_keys`' own RESTRICT on
+    // `organisations` was created earlier in `0009` than this one -- which is
+    // exactly why asserting the SQLSTATE proved nothing. So the earlier one is
+    // lifted for the length of one statement, leaving `chain_entries` as the
+    // only thing between a `DELETE` and a sealed history, and then put back.
+    //
+    // Dropping a constraint needs ownership -- the same tier-3 move
+    // `support::tamper` makes visible for the append-only trigger. It is
+    // restored before anything is asserted, so a failure here cannot leave the
+    // schema short of a fence.
+    su.batch_execute(
+        "ALTER TABLE org_content_keys DROP CONSTRAINT org_content_keys_organisation_id_fkey",
+    )
+    .await
+    .expect("lift the earlier RESTRICT for one statement");
+
     let err = su
         .execute(
             "DELETE FROM organisations WHERE id = $1",
             &[&org.id.to_string()],
         )
-        .await
-        .expect_err(
-            "deleting an organisation that has a sealed chain must be refused -- a cascade \
-             bypasses row-level security entirely and would have erased the history",
-        );
+        .await;
+
+    su.batch_execute(
+        "ALTER TABLE org_content_keys ADD CONSTRAINT org_content_keys_organisation_id_fkey \
+         FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE RESTRICT",
+    )
+    .await
+    .expect("put it back");
+
+    let err = err.expect_err(
+        "deleting an organisation that has a sealed chain must be refused -- a cascade \
+         bypasses row-level security entirely and would have erased the history",
+    );
     assert_eq!(
         err.code(),
         Some(&SqlState::FOREIGN_KEY_VIOLATION),
         "expected referential integrity to refuse it, got: {err}"
+    );
+    assert_eq!(
+        err.as_db_error().and_then(|e| e.constraint()),
+        Some("chain_entries_organisation_fkey"),
+        "the refusal must come from the chain's OWN parent fence. Before 2026-09-12 this test \
+         asserted only the SQLSTATE, and deleting the whole \
+         `chain_entries_organisation_fkey` block from `0009` left it green: the refusal it saw \
+         came from `org_content_keys_organisation_id_fkey`, and an organisation chain had no \
+         parent fence at all. Got: {err}"
     );
 
     // The positive control: the history is still there.

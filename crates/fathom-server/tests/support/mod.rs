@@ -242,6 +242,9 @@ const SITE_CHAIN_LOCK: i64 = 0x5f17_e0a1_7a11_0001u64 as i64;
 /// The advisory lock key that serialises access to the shared audit spool.
 const SPOOL_LOCK: i64 = 0x5f17_e0a1_7a11_0002u64 as i64;
 
+/// The advisory lock key that serialises [`tamper`].
+const TAMPER_LOCK: i64 = 0x5f17_e0a1_7a11_0003u64 as i64;
+
 /// Hold the site chain against every other test, in this binary and in every
 /// other one.
 ///
@@ -309,8 +312,45 @@ pub async fn lock_the_spool() -> tokio_postgres::Client {
 /// Not a weakening of anything: every assertion those tests made about what
 /// the verifier reports is unchanged. What changed is the cost of getting
 /// there, which is now visible in the test body.
+///
+/// # Serialised across every test binary, and that is not optional
+///
+/// `ALTER TABLE ... DISABLE TRIGGER USER` is **table-wide, not row-wide**. Two
+/// tests tampering with `chain_entries` at once — and `design_storage.rs`,
+/// `audit_chains.rs` and `append_only_fence.rs` are three separate processes
+/// against one PostgreSQL — interleave as: A disables, B disables, A
+/// re-enables, B performs its `UPDATE` **with the fence back on** and the
+/// statement is refused. The observed symptom was a test failing with the
+/// append-only exception, at random, in whichever binary lost the race.
+///
+/// A session-level advisory lock on its own connection is what spans
+/// processes, exactly as [`lock_the_site_chain`] does; it needs no privilege,
+/// and it is released when this function's own connection drops at the end of
+/// the call. Taken and released inside one `tamper`, so it cannot deadlock
+/// against [`lock_the_site_chain`] or [`lock_the_spool`] however a test
+/// orders them.
 #[allow(dead_code)]
 pub async fn tamper(
+    client: &tokio_postgres::Client,
+    table: &str,
+    sql: &str,
+    params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+) -> u64 {
+    let gate = superuser_client_on_test_database().await;
+    gate.execute("SELECT pg_advisory_lock($1)", &[&TAMPER_LOCK])
+        .await
+        .expect("take the tamper lock");
+    let result = tamper_locked(client, table, sql, params).await;
+    // Explicit, rather than relying on the connection dropping: the lock must
+    // be gone before the next `tamper` in this same test tries to take it.
+    let _ = gate
+        .execute("SELECT pg_advisory_unlock($1)", &[&TAMPER_LOCK])
+        .await;
+    drop(gate);
+    result
+}
+
+async fn tamper_locked(
     client: &tokio_postgres::Client,
     table: &str,
     sql: &str,
@@ -331,6 +371,157 @@ pub async fn tamper(
         .await
         .expect("re-enable the append-only trigger");
     result.expect("the tampering statement itself must succeed once the trigger is off")
+}
+
+/// A migrated pool against **a database of this test's own**, for the one
+/// operation that is deployment-wide.
+///
+/// `keys::rewrap_master_key` retires the deployment's active master key and
+/// activates another, for every tenant, and commits. There is one active
+/// master key per database (ADR-0043 §4, 0007's `master_keys_one_active_idx`),
+/// so running it against the shared test database would change the key every
+/// other test in every other binary has configured — and the symptom would be
+/// `MasterKeyError::Mismatch` in whichever test happened to be running. The
+/// old per-organisation re-wrap tests avoided that by rolling back, which is
+/// no longer available: the fix for the defect is precisely that the function
+/// owns its transaction and commits it.
+///
+/// So a deployment-wide operation gets a deployment of its own: a database
+/// created for this test, migrated from nothing, dropped and recreated on the
+/// next run. It also makes "no entry was written anywhere" a statement about
+/// the whole database rather than about the rows this test happens to know
+/// about.
+///
+/// `tag` must be unique per test and a bare identifier — it becomes part of a
+/// database name.
+#[allow(dead_code)]
+pub async fn isolated_deployment(tag: &str) -> Pool {
+    assert!(
+        tag.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+        "an isolated deployment's tag becomes a database name: {tag:?}"
+    );
+    let database = isolated_database_name(tag);
+
+    let su = superuser_client().await;
+    let owner: tokio_postgres::Config = migrate_test_database_url()
+        .parse()
+        .expect("the migration URL must parse");
+    let owner_role = owner.get_user().expect("a migration role").to_string();
+
+    // Dropped at the START of the run rather than the end: a previous run's
+    // process is gone, so its connections are too, and a test that fails part
+    // way through leaves its database behind to be looked at.
+    su.batch_execute(&format!(
+        "DROP DATABASE IF EXISTS \"{database}\" WITH (FORCE)"
+    ))
+    .await
+    .expect("drop any database left by a previous run");
+    su.batch_execute(&format!(
+        "CREATE DATABASE \"{database}\" OWNER \"{owner_role}\""
+    ))
+    .await
+    .expect("create this test's own database");
+
+    let migrate_url = url_for_database(&migrate_test_database_url(), &database);
+    let app_url = url_for_database(&test_database_url(), &database);
+
+    let migrate_config =
+        Config::from_lookup(|k| (k == "DATABASE_URL").then(|| migrate_url.clone()))
+            .expect("a DATABASE_URL-only config must always parse");
+    let migrate_pool = fathom_server::db::pool(&migrate_config).expect("pool");
+    let mut client = migrate_pool.get().await.expect("connect as the owner");
+    fathom_server::migrate::run(&mut client)
+        .await
+        .expect("migrate this test's own database");
+
+    let app_config = Config::from_lookup(|k| (k == "DATABASE_URL").then(|| app_url.clone()))
+        .expect("a DATABASE_URL-only config must always parse");
+    let runtime_role =
+        fathom_server::db::runtime_role(&app_config).expect("the runtime URL must name a user");
+
+    // **A role is cluster-wide and an advisory lock is not.** `ALTER ROLE
+    // fathom_app ... PASSWORD` touches `pg_authid`, which every database in
+    // this cluster shares, so it races with `migrated_pool`'s identical
+    // statement and PostgreSQL reports "tuple concurrently updated". The lock
+    // `migrated_pool` already takes lives in the SHARED test database, so this
+    // takes it there too -- taking it in this test's own database would lock
+    // nothing anybody else can see.
+    let gate = migration_lock_on_the_shared_database().await;
+    let provisioned = fathom_server::db::provision_runtime_login(
+        &client,
+        &runtime_role,
+        password_in(&app_url).as_deref(),
+    )
+    .await;
+    drop(gate);
+    provisioned.expect("provision the runtime role's login");
+    drop(client);
+
+    fathom_server::db::pool(&app_config).expect("pool")
+}
+
+/// Hold `migrate::MIGRATION_LOCK_KEY` in the shared test database, for the
+/// length of a statement that changes something the whole cluster shares.
+async fn migration_lock_on_the_shared_database() -> tokio_postgres::Client {
+    let (client, connection) = tokio_postgres::connect(&migrate_test_database_url(), NoTls)
+        .await
+        .expect("connect to the shared test database");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+        .execute(
+            "SELECT pg_advisory_lock($1)",
+            &[&fathom_server::migrate::MIGRATION_LOCK_KEY],
+        )
+        .await
+        .expect("take the migration lock");
+    client
+}
+
+/// What [`isolated_deployment`] calls its database.
+#[allow(dead_code)]
+pub fn isolated_database_name(tag: &str) -> String {
+    format!("fathom_isolated_{tag}")
+}
+
+/// A superuser connection to one isolated deployment's own database -- for the
+/// tamper and the catalogue reads that have to see past every policy.
+#[allow(dead_code)]
+pub async fn superuser_on_isolated(tag: &str) -> tokio_postgres::Client {
+    let mut config: tokio_postgres::Config = superuser_database_url()
+        .parse()
+        .expect("the superuser database URL must parse");
+    config.dbname(isolated_database_name(tag));
+    let (client, connection) = config
+        .connect(NoTls)
+        .await
+        .expect("connect as superuser to the isolated database");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+}
+
+/// The same connection string, pointed at another database.
+///
+/// Rebuilt from the driver's own parse rather than by string surgery, for the
+/// same reason `superuser_client_on_test_database` does it that way. Test
+/// credentials only: a password with a `@` or a `/` in it would need
+/// percent-encoding, and these are `fathom_test_pw` and `fathom_app_pw`.
+#[allow(dead_code)]
+fn url_for_database(url: &str, database: &str) -> String {
+    let parsed: tokio_postgres::Config = url.parse().expect("the URL must parse");
+    let user = parsed.get_user().expect("a user");
+    let password = parsed
+        .get_password()
+        .map(|p| format!(":{}", String::from_utf8_lossy(p)))
+        .unwrap_or_default();
+    let (host, port) = match (parsed.get_hosts().first(), parsed.get_ports().first()) {
+        (Some(tokio_postgres::config::Host::Tcp(host)), Some(port)) => (host.clone(), *port),
+        _ => ("127.0.0.1".to_string(), 5432),
+    };
+    format!("postgres://{user}{password}@{host}:{port}/{database}")
 }
 
 /// A raw connection authenticated as the PostgreSQL bootstrap superuser --

@@ -263,8 +263,12 @@ async fn main() -> ExitCode {
     // 9c02...' rather than surfacing as an AEAD tag failure that reads like
     // corruption. Without it the most common operator error produces the most
     // alarming possible symptom."*
+    // `Arc` because the shipper holds it too: `audit::spawn`'s threshold
+    // entries are sealed site-chain entries like any other, so the background
+    // task needs the chain master. It is one allocation and it is the only
+    // thing that makes "the spool passed a bound" recordable.
     let ring = match keys::KeyRing::load(&config.master_key, &config.chain_key, true) {
-        Ok(r) => r,
+        Ok(r) => Arc::new(r),
         Err(e) => {
             tracing::error!(
                 error = %e,
@@ -395,6 +399,9 @@ async fn main() -> ExitCode {
                 pool.clone(),
                 target.clone(),
                 fathom_server::audit::DEFAULT_INTERVAL,
+                config.audit_spool_bounds,
+                Arc::clone(&ring),
+                deployment.clone(),
             );
         }
         None => {

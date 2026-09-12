@@ -28,6 +28,7 @@ use deadpool_postgres::{Pool, PoolError, Transaction};
 
 use fathom_canon::Json;
 
+use crate::audit;
 use crate::chain::{self, EntryType};
 use crate::crypto::{self};
 use crate::keys::{self, DataKey, KeyRing, KeyStoreError};
@@ -134,6 +135,24 @@ pub enum DesignError {
     PayloadTooLarge {
         bytes: usize,
     },
+    /// **The audit spool is past one of §9's bounds, so design writes stop and
+    /// reads continue.**
+    ///
+    /// §9's degrade table, third row. This is the only refusal in this file
+    /// that is not about the design being written, and it is deliberately a
+    /// typed error rather than a generic failure: a surface has to be able to
+    /// say *which* bound, *how long* the trail has been unshipped, and that
+    /// reading still works — because "save failed" with no reason is what gets
+    /// the audit destination removed from the compose file.
+    AuditSpoolBeyondBounds {
+        bound: audit::Bound,
+        /// How long the oldest unshipped entry has been waiting, in seconds.
+        oldest_seconds: u64,
+        /// How many entries are waiting.
+        entries: i64,
+        /// How many bytes they occupy.
+        bytes: i64,
+    },
     /// The stored row did not decrypt. **This is the sentence that must not be
     /// reached by a wrong master key**: `keys::register_master_key` runs
     /// before any key is used precisely so that the wrong-key case reports
@@ -159,6 +178,21 @@ impl fmt::Display for DesignError {
                 f,
                 "that payload is {bytes} bytes; one design version may be at most \
                  {MAX_PAYLOAD_BYTES}"
+            ),
+            Self::AuditSpoolBeyondBounds {
+                bound,
+                oldest_seconds,
+                entries,
+                bytes,
+            } => write!(
+                f,
+                "this design was NOT saved: the audit trail has not reached its destination and \
+                 the spool has passed its {bound} bound ({entries} entries, {bytes} bytes, \
+                 oldest {oldest_seconds}s). Reading designs still works and nothing has been \
+                 lost -- every queued entry is still here. Writes resume as soon as the \
+                 destination accepts them, or when an operator raises \
+                 FATHOM_AUDIT_SPOOL_MAX_AGE / FATHOM_AUDIT_SPOOL_MAX_BYTES having understood \
+                 that the window of unwitnessed history grows with it."
             ),
             Self::Refused => f.write_str(
                 "the stored payload did not authenticate under the key this design is filed \
@@ -275,6 +309,13 @@ pub async fn create_design(
 
 /// Encrypt a payload, store it as the next version, and seal a chain entry for
 /// it — **one transaction, or none of it**.
+/// Write a new version, under §9's spool bounds as this process's environment
+/// configures them.
+///
+/// See [`write_version_under`] for the bounds themselves. This is the entry
+/// point everything but a test uses, and it reads the bounds rather than being
+/// handed them because nothing carries a `Config` this far down yet — there is
+/// no request surface for a design write.
 pub async fn write_version(
     pool: &Pool,
     ring: &KeyRing,
@@ -284,6 +325,46 @@ pub async fn write_version(
     payload: &[u8],
     payload_schema_version: i32,
 ) -> Result<i64, DesignError> {
+    write_version_under(
+        pool,
+        ring,
+        tenant,
+        actor,
+        design,
+        payload,
+        payload_schema_version,
+        audit::SpoolBounds::from_env(),
+    )
+    .await
+}
+
+/// The same, with §9's spool bounds named explicitly.
+///
+/// # The one row of §9's degrade table this enforces
+///
+/// > *"Beyond bounds — design **writes** stop; design **reads** continue and
+/// > keep spooling; the deployment is marked `unwitnessed` in every session."*
+///
+/// The check is here and in no other function, which is what makes the rest of
+/// that table true by construction: reads do not consult it, the site chain
+/// does not consult it, and `audit::spool` is an unconditional `INSERT`, so
+/// the entries that record the condition can always be written. **Nothing is
+/// deleted to make room and no entry is ever dropped.**
+///
+/// It is checked inside the write's own transaction and before any key is
+/// touched, so a refusal costs one aggregate query and leaves nothing
+/// half-done.
+#[allow(clippy::too_many_arguments)]
+pub async fn write_version_under(
+    pool: &Pool,
+    ring: &KeyRing,
+    tenant: OrganisationId,
+    actor: AccountId,
+    design: DesignId,
+    payload: &[u8],
+    payload_schema_version: i32,
+    bounds: audit::SpoolBounds,
+) -> Result<i64, DesignError> {
     if payload.len() > MAX_PAYLOAD_BYTES {
         return Err(DesignError::PayloadTooLarge {
             bytes: payload.len(),
@@ -292,6 +373,17 @@ pub async fn write_version(
 
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
+
+    let spool = audit::spool_state(&*tx, &bounds).await?;
+    if let Some(bound) = spool.beyond(&bounds) {
+        return Err(DesignError::AuditSpoolBeyondBounds {
+            bound,
+            oldest_seconds: spool.oldest.as_secs(),
+            entries: spool.entries,
+            bytes: spool.bytes,
+        });
+    }
+
     let ctx = repo::open_tenant_context(&tx, tenant, actor).await?;
 
     let tenant_text = ctx.tenant().to_string();
@@ -685,6 +777,9 @@ pub async fn verify_design(
     let deep_inputs = deep_payloads.as_ref().map(|payloads| chain::DeepInputs {
         payloads,
         metadata: &[],
+        // Nothing to refuse: a design chain's metadata column is the
+        // canonical plaintext, so there is no AEAD to open at all.
+        refused_metadata: &[],
     });
 
     let report = chain::verify(
@@ -915,11 +1010,14 @@ async fn read_entries(
 
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
+        // Carried, never refused -- see `chain::StoredEntryType`. A type this
+        // build cannot parse breaks AT that row and leaves everything before
+        // it verified, rather than making the design's whole history
+        // unreadable.
         let entry_type: String = row.get(1);
         out.push(chain::StoredEntry {
             seq: row.get(0),
-            entry_type: EntryType::parse(&entry_type)
-                .ok_or(DesignError::Corrupt("chain entry type"))?,
+            entry_type: chain::StoredEntryType::from_column(&entry_type),
             chain_key_epoch: row.get(2),
             design_version: row.get(3),
             prev_seal: row.get(4),
