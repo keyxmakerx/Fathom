@@ -227,6 +227,8 @@ their data, including **how quickly you must tell them if it leaks**?
 > **ANSWERED BY THE OWNER 2026-09-12 — self-funded, as they go.** Recorded as the known risk it is:
 > content grows at the pace of spare time. Consequence: keep what Fathom teaches small and vouched-for
 > rather than broad — E1–E3 deferred to Phase 6 on exactly this ground.
+> *Mitigated the same day by the engines direction (ADR-0044): vendor knowledge is separable, signed
+> and contributable, so the owner funds the Juniper engine and not every vendor's.*
 
 Writing and re-checking what Fathom teaches is a near-full-time job. Is anyone funding it — an
 employer who gets the tool as internal kit, a vendor, or nobody?
@@ -409,6 +411,11 @@ Only the middle one travels with the equipment record into exports and onto coll
 
 ### D7. A DHCP relay pointing into a named routing instance
 
+> **DECIDED 2026-09-12 — never throw away what was read.** Route 2 now: keep the dangling
+> routing-instance reference by name, so a reload cannot silently move the relay into the default
+> table. Route 1 — reading routing-instance blocks properly — lands with the config checker in Phase
+> 6, where the routing view needs it anyway.
+
 Fathom reads that detail, shows it once, and **throws it away when the design is saved.** So a
 reloaded relay silently looks like it lives in the default routing table — and any later "can
 this reach that" answer would be worked out against the wrong table.
@@ -419,6 +426,11 @@ up, or **re-read your original pasted text every time.**
 
 ### D8. Your naming scheme
 
+> **ANSWERED BY THE OWNER 2026-09-12 — *"not everyone will use name formatting; lay the groundwork,
+> but for the moment it is a WIP."*** So: name formatting is an **optional per-organisation template**,
+> never a global constant, and the meaning of the part before the CLLI code is a field in that template.
+> Groundwork only; nothing is stamped by default.
+
 In the equipment names you build, does the part in front of the CLLI code mean **the state or
 province**, or **the kind of site** (central office, hut, cabinet, customer premises)?
 
@@ -426,6 +438,11 @@ Whichever you mean is what the tool stamps onto every name it generates. If it g
 fix it by relabelling boxes in the field, not by changing a setting.
 
 ### D9. LTE backup and voice
+
+> **DECIDED 2026-09-12 — the second way a site is reached, not a service.** Modelling LTE as its own
+> service is exactly what makes "which circuits have a backup path" unanswerable. A site's connectivity
+> is an ordered list of paths, each with a role (primary, backup). With E3 answered — fibre-access is
+> inventory in v1 — this is a data-model note for the inventory, not a parser.
 
 Is an LTE card at a customer site **a service in its own right**, like an E-Line or an E-LAN — or
 **just the second way that site gets reached**?
@@ -438,6 +455,10 @@ has to link by hand, and you cannot ask the system which circuits actually have 
 ## E. Needs your time, not just your answer
 
 ### E1. Which vendors next — and one release each
+
+> **REFRAMED 2026-09-12 by the engines direction (ADR-0044, being written).** "Which vendors next"
+> becomes "which engines exist". The owner's own kit first: Juniper (exists), then Cisco and Palo
+> Alto. One pinned release per family stays a requirement — it becomes a field in the engine manifest.
 
 > **DEFERRED 2026-09-12 to Phase 6, deliberately.** Teaching is priority 2, after the canvas;
 > pasting a config is no longer core; and B10 says content is self-funded. Choosing vendors before the
@@ -455,6 +476,11 @@ name to a claim that broad.
 
 ### E2. Will you put your name on the guidance?
 
+> **ANSWERED BY THE OWNER 2026-09-12 — show them, clearly labelled *unreviewed*.** The 330 Juniper
+> items ship as the first engine. Each carries its own `reviewed_by`; until a named person is in it,
+> the item shows with an *unreviewed* label. The label clears per item, never per pack. That is
+> invariant 10 made visible rather than a new rule.
+
 About **330 Juniper command write-ups, rules and explanations** would be shown to other
 engineers. Until a real person vouches for them, none can honestly be shown as guidance. Every
 week it goes unanswered the pile gets bigger.
@@ -463,6 +489,14 @@ Also: **do you actually have Calix and Nokia gear** to check that part on, or sh
 to the Juniper, Cisco and Palo Alto kit you named as yours?
 
 ### E3. Is the fibre-access world the same job? *(asked twice)*
+
+> **ANSWERED BY THE OWNER 2026-09-12.** No access to Calix or Nokia. Calix was used through its GUI
+> only — so there is no config text to read, and **Calix stays a vendor row with hand-entered
+> inventory; no platform row on that evidence.** Nokia 7210 SAS has a CLI; the owner asked for what
+> can be established from public documentation. **The platform rule holds — a platform row waits for a
+> real config** — so the deliverable is an ADR-0034-style survey, URL and date on every claim, at
+> `docs/surveys/nokia-7210-sas.md`. Consequence: the fibre-access world is **inventory in v1**, not a
+> parsing track.
 
 The Calix and Nokia gear, the CLLI-coded sites, the DIA / E-Line / E-LAN services — **the same
 job as the Juniper boxes you configure, seen from the other end, or a genuinely separate second

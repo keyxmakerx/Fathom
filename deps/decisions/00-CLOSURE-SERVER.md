@@ -12,6 +12,11 @@
 > PostgreSQL driver, and each now carries its own record because this workspace names it.
 > 115 → 123 crates, against `35` §5.1's cap of 160.
 >
+> **Cap split 2026-09-12 (OPEN-QUESTIONS A3).** The browser side stays at zero external crates,
+> enforced by `fathom-wasm`'s tests. The server's ceiling is now **200, revisit at 180** — a
+> ceiling, not a budget; every crate still needs its own record here. `scripts/closure-report.sh`
+> prints the new figure.
+>
 > **Regenerate it, do not edit it.** Every arrival of a dependency re-runs the script and the
 > table below is replaced wholesale. A hand-edited row is a row nobody measured.
 
