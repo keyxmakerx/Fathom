@@ -8,6 +8,10 @@
 >
 > **Read sections A and B only, if you read nothing else.**
 >
+> **2026-09-12: the owner answered B1, B5 and B10 and asked for the rest to be decided. Every
+> other entry now carries a decision, a deferral with its reason, or is dissolved by B1. Each is
+> reversible and the owner's to overrule on sight.**
+>
 > **A** is three questions the corpus already knew it was waiting on. **B is more important and
 > newer**: a final pass asked *"what does a server product need decided that a single offline
 > file never did — and has anyone actually asked it?"* It found twelve questions **nobody has
@@ -62,6 +66,11 @@ this door open.)*
 
 ### A2. Does the first release keep an audit log?
 
+> **DECIDED 2026-09-12 — yes, in the first release.** Forced rather than chosen: *"an administrator
+> cannot take over"* only holds if what an administrator did is visible, and the admin design (§7)
+> makes the trail a gate rather than a log — no administrative change applies until it is sealed. A
+> record started later can never cover the period before it. Pushed off the box (REBUILD-PLAN item 2).
+
 The record an employer's security review asks for: **who opened, changed or exported which
 network drawing, and when.**
 
@@ -69,6 +78,12 @@ Either it is in the first release, or it is not — and a record started later *
 the period before it existed.** That is the whole of the trade. *(ADR-0040 §9 item 4.)*
 
 ### A3. The borrowed-code limit is about to be broken
+
+> **DECIDED 2026-09-12 — split the limit (way 3).** The browser side stays at **zero** outside
+> packages — a real security property, already enforced by `fathom-wasm`'s tests, and it never had a
+> reason to share a number with the server. The server gets its own ceiling: **200, revisit at 180.**
+> Today 123; the admin design projects 139. Every package still needs its own written record — this
+> is a ceiling, not a budget to spend. Not met by removing a safety check.
 
 The project promised to keep the amount of other people's code inside Fathom under a fixed
 ceiling (160 packages). The server is at **115** with only four of the sixteen planned pieces in.
@@ -100,6 +115,11 @@ decided it or merely never raised it. Every one below is the second.
 
 ### B1. ⛔ Are you running this, or shipping it? *(and the corpus contradicts itself)*
 
+> **ANSWERED BY THE OWNER 2026-09-12 — customers install it themselves.** So ADR-0003 (*no hosted
+> service*) **stands and is reaffirmed**; the corpus's post-pivot "hosted" language was the error, not
+> the ADR. Multi-tenancy stays — it is a capability of the shipped server (an MSP customer runs it for
+> their clients), not a service the owner operates. B7, B8 and B9 largely dissolve; see each.
+
 Do you intend to **run Fathom yourself as a service other people log into over the internet**, or
 **ship it as software each customer installs on their own server**?
 
@@ -114,6 +134,12 @@ It is the question underneath most of the rest of this section. Answer it first.
 
 ### B2. ⛔ May you read a customer's network map?
 
+> **DECIDED 2026-09-12 — no, and structurally rather than by policy.** The admin design makes
+> administration *sightless*: the operator's database role has no read permission on design data, and
+> a third fence inside the payload table's own rule refuses on the operator path. The only way in is
+> break-glass (§8) — announced before it issues, bannered while it runs, vetoable, expiring, sealed.
+> "You" here is the customer's own operator: the owner runs nothing.
+
 The server can now decrypt every customer's drawings. So: **may you, or whoever operates the
 server, actually open one** — to chase a fault, or to let a locked-out customer back in?
 
@@ -123,6 +149,11 @@ This is the question an enterprise buyer asks in the first meeting. There is no 
 
 ### B3. ⛔ Backups — who, how often, how long, and where is the key?
 
+> **DECIDED 2026-09-12 — Fathom's half is done; the rest is the customer's policy.** The key is never
+> in a database backup, lives in its own volume, is stamped so a wrong-key restore says so, and retired
+> keys are kept forever (ADR-0043 §4). Who takes backups, how often, how long — the operator's call, and
+> Fathom's documentation states the one rule: never the key and a dump in the same archive.
+
 Four parts, all unanswered: **who takes them**, **how much work may be lost if the server dies**,
 **how long a backup is kept**, and **where the key that unlocks a restored backup sits**.
 
@@ -130,6 +161,12 @@ That last part is the one that interacts with A1 — a backup you cannot decrypt
 and a backup anyone can decrypt is a second copy of the problem.
 
 ### B4. ⛔ Inside one customer's company, who sees what?
+
+> **DECIDED 2026-09-12 — you see what you are a member of.** Visibility follows scope membership in
+> the organisation → network → building → rack tree, already built and attacked. A new drawing is
+> visible to the members of the scope it is created in; "private until shared" is a scope with one
+> member. Jobs: operator (the machine), steward (the data, per scope), and among stewards the existing
+> admin/member split. No separate per-drawing permissions in v1 — that would be a second system.
 
 Is a new drawing **private to whoever made it until it is shared**, or **visible to the whole
 company by default**?
@@ -139,11 +176,18 @@ product depends on this, which is why it is expensive to add late.
 
 ### B5. ⛔ Can a stranger sign themselves up?
 
+> **ANSWERED BY THE OWNER 2026-09-12 — invite only.** The operator creates the first account;
+> everyone else is invited by someone already in. Closes the open-registration abuse surface and
+> matches the admin design's bootstrap (§6).
+
 On a Fathom you run, can someone on the internet **make themselves an account and a brand-new
 company workspace** — or does a company only exist because **you** set it up and invite the first
 person in?
 
 ### B6. ⛔ Does the browser version keep growing while the server is built?
+
+> **DECIDED 2026-09-12 — it freezes.** REBUILD-PLAN already retired it. Fixes only; no new
+> gestures, because every one would be built twice.
 
 The server is months of work. Meanwhile the single-file version you use today is the one that
 actually works.
@@ -153,20 +197,36 @@ every new gesture added to it has to be built a second time against the server.
 
 ### B7. What does a customer get back when they leave?
 
+> **DECIDED 2026-09-12 — dissolved by B1, with one piece left.** Their server, their database: they
+> hold the data and delete it. Fathom's one obligation is an **export in an open format** — the engine's
+> existing JSON emitters — which becomes a Phase 5 item.
+
 **In what form**, **how long do you keep their data before destroying it**, and **who is allowed
 to ask you to destroy it**?
 
 ### B8. What are you promising about it staying up?
+
+> **DECIDED 2026-09-12 — dissolved by B1.** It is their machine; there is no promise from the owner.
+> Fathom's obligation is to restart without ceremony (ADR-0043) and to run as two interchangeable
+> containers (REBUILD-PLAN item 1).
 
 Best effort with no promise at all, or a stated target — and **who gets woken at three in the
 morning** when it is not?
 
 ### B9. Who does the first customer have a contract with?
 
+> **DECIDED 2026-09-12 — dissolved by B1.** No service, so no service contract and no data-processing
+> agreement — the owner never holds a customer's data. The code is Apache-2.0 (ADR-0004). Breach
+> notification is the customer's own duty on their own system.
+
 **You personally, or a company you have set up** — and what are you agreeing to in writing about
 their data, including **how quickly you must tell them if it leaks**?
 
 ### B10. Who pays for the vendor knowledge?
+
+> **ANSWERED BY THE OWNER 2026-09-12 — self-funded, as they go.** Recorded as the known risk it is:
+> content grows at the pace of spare time. Consequence: keep what Fathom teaches small and vouched-for
+> rather than broad — E1–E3 deferred to Phase 6 on exactly this ground.
 
 Writing and re-checking what Fathom teaches is a near-full-time job. Is anyone funding it — an
 employer who gets the tool as internal kit, a vendor, or nobody?
@@ -176,12 +236,20 @@ answer before this stage.** It never got one.
 
 ### B11. What does "live multi-user editing" actually mean?
 
+> **DECIDED 2026-09-12 — presence plus a soft lock, not two people in one box in the same second.**
+> The approved design already draws it: a dashed ring on the device someone is editing, a chip on the
+> rail. Simultaneous character-level editing is the enormous version and nothing asked for needs it.
+> Same-instant edits: last write wins, the loser is told, both versions are in the sealed history.
+
 Is it satisfied by **seeing who else has the drawing open, plus a soft lock saying "Dana is
 editing this box"** — or must **two people type into the same box in the same second**?
 
 The gap between those two is enormous in engineering terms and they sound identical when spoken.
 
 ### B12. Should Fathom ever hold vendor firmware images?
+
+> **DECIDED 2026-09-12 — no.** Licence risk only the owner can read, storage cost, no benefit to a
+> documentation tool. Fathom may generate the configuration for a firmware server the customer runs.
 
 The recommendation on file is **no** — only generate the setup for a firmware server your
 customer runs. But it turns on **licence agreements only you can read.**
@@ -191,6 +259,11 @@ customer runs. But it turns on **licence agreements only you can read.**
 ## C. Cheap now, expensive later — the shape of the server
 
 ### C1. What is the server allowed to dial out to?
+
+> **DECIDED 2026-09-12 — write the short list.** The server may dial out to: the mail relay; a
+> directory or single-sign-on server if one is configured; the `command://` key provider; the audit
+> witness or syslog destination; a certificate authority. **Nothing else.** Anything this blocks is a
+> fault to report, never routed around. Lives in the operator's documentation and in `config.rs`.
 
 The promise that "this software never phones home" was only ever written about the page in the
 browser. The server has no such rule written down.
@@ -202,6 +275,11 @@ not.
 
 ### C2. May people sign in with their device password?
 
+> **DECIDED 2026-09-12 — no, permanently.** Fathom never receives a device password as a login
+> credential. Invariant 4 and the whole vault design rest on credentials never arriving; a device
+> password through the login path would make Fathom a TACACS+ proxy and the first place an attacker
+> looks. Sign-in is Fathom's own accounts, later company single sign-on.
+
 If Fathom lets you log in with the same username and password you type into your switches, then
 **Fathom receives that device password and passes it to your TACACS+ or RADIUS server on every
 login.**
@@ -212,6 +290,9 @@ handles device credentials for the first time in its life.
 
 ### C3. Your own rulebook says the tool never connects to anything
 
+> **DECIDED 2026-09-12 — rewrite it to cover the standalone copy.** The rule was true of the offline
+> file and remains true of it. The server has C1 instead.
+
 That rule was written for the offline copy and reads as absolute. The hosted version you have
 asked for is, on paper, permanently in breach of it.
 
@@ -220,6 +301,10 @@ exception every time it comes up.** *(`48` open decision 1. The equivalent rule 
 already formally scoped by ADR-0040; this one has not been.)*
 
 ### C4. May Fathom call itself the record of your network?
+
+> **DECIDED 2026-09-12 — "here is where each fact came from, and when."** The authoritative-record
+> claim needs monitoring to keep it honest, and monitoring is beyond alpha and beta. Every fact carries
+> provenance — the engine already does this. The stronger claim stays available later, not now.
 
 Two very different products:
 
@@ -239,6 +324,10 @@ history.**
 
 ### D1. Servers, NAS boxes and hypervisors *(asked four separate ways in the corpus)*
 
+> **DECIDED 2026-09-12 — hosts are a different kind of thing (route 3).** The approved design already
+> treats a server as its own object: lid off, bond, bridges, guests. The blank-field worry (cannot be
+> matched on a pasted config) is moot — pasting a config is no longer a core feature. Schema, Phase 5.
+
 When you hand-draw a Proxmox box, Fathom still makes you pick which **network vendor's operating
 system** it runs, and only offers firewall/router/switch platforms. So today your Proxmox box is
 filed as a Juniper firewall.
@@ -250,6 +339,10 @@ The catch with blank: that field is half of how Fathom recognises the same box a
 later paste its real config. A blank one cannot be matched automatically.
 
 ### D2. Tags and groups — a real thing, or a typed word?
+
+> **DECIDED 2026-09-12 — real named sets, plus a private-notes layer.** Named sets survive renaming
+> and stop three spellings becoming three things. Private notes are cheap now and painful later, so
+> they exist from the first schema that carries notes at all.
 
 You asked to group and tag kit. Two shapes:
 
@@ -264,10 +357,18 @@ painful to add once everything is shared by default.
 
 ### D3. Can a box do more than one job?
 
+> **DECIDED 2026-09-12 — yes.** A box carries a set of jobs, not one. Schema, Phase 5.
+
 A home gateway routes, firewalls, switches and serves Wi-Fi. Today you pick the single word that
 fits best and the other three facts go unrecorded — on every box, from now on.
 
 ### D4. Racks — five small ones that travel together
+
+> **DECIDED 2026-09-12 — yes to all five.** Drag to the right slot keeping cables and history — the
+> premise of the approved design. Height is a fact about the box, from the catalogue. A rack names its
+> building through the hierarchy it already sits in. Power strips and UPSs are nameable — the design
+> draws the PDU with its outlets. Shelves, desks and walls arrive with the building view, which is
+> parked.
 
 - If you record a switch at U7 and it is really at U9, should you be able to **drag it to the
   right slot**, or must you delete it and add it again, losing its cables and its history?
@@ -282,6 +383,9 @@ fits best and the other three facts go unrecorded — on every box, from now on.
 
 ### D5. Where you dragged a box on the picture
 
+> **DECIDED 2026-09-12 — yes, a fourth heading: the drawing.** Where you dragged a box is a fact
+> about the picture, not the device. Cheap now; prevents a real confusion in every future export.
+
 Fathom files every fact under one of three headings: how a device is **configured**, how it is
 physically **built**, or what **service** it carries. "Where you dragged this box" is currently
 filed under *configured*, for want of anywhere better.
@@ -290,6 +394,10 @@ Do you want a fourth heading for facts about the drawing itself — so no future
 filter can mistake your hand-placed box for something the device actually does?
 
 ### D6. Draft and planned work
+
+> **DECIDED 2026-09-12 — a status on the device (the middle one), with a personal filter as a view
+> over it.** Only the status travels into exports and onto colleagues' screens. A screen-wide switch
+> and a private colour are both views and can sit on top.
 
 When you sketch a change you have not made yet, is that:
 
@@ -331,6 +439,10 @@ has to link by hand, and you cannot ask the system which circuits actually have 
 
 ### E1. Which vendors next — and one release each
 
+> **DEFERRED 2026-09-12 to Phase 6, deliberately.** Teaching is priority 2, after the canvas;
+> pasting a config is no longer core; and B10 says content is self-funded. Choosing vendors before the
+> canvas exists spends the scarcest resource on the later phase.
+
 **Today Fathom truly reads Juniper SRX and nothing else.** A Palo Alto, FortiGate, Nexus, Arista
 or OPNsense config pasted in comes back mostly as unread text **with far weaker password
 stripping** — and under the rule just ratified, no other brand can be switched on until someone
@@ -362,6 +474,9 @@ as inventory you fill in by hand is enough.
 
 ### E4. Reading and writing a vendor's language
 
+> **DECIDED 2026-09-12 — one file.** The rule that reads a line carries the rule that writes it.
+> Two halves with a comparison test is two things to keep in step for no gain.
+
 When Fathom learns a vendor's config language, should the one file that teaches it to **read** a
 line also carry the rule for **writing** that line back out — or stay two separately-maintained
 halves with a test comparing them? Worth settling before a second vendor is taught.
@@ -369,6 +484,18 @@ halves with a test comparing them? Worth settling before a second vendor is taug
 ---
 
 ## F. Can wait
+
+> **SWEPT 2026-09-12.** Most of these were already answered by the approved design and the tokens:
+> **default theme is auto** (the correction at the foot of this page already says so; the three
+> warning colours have dark variants in `tokens.css`) · **themeable later, on the stated condition** —
+> the three warning colours are frozen, and the tokens already keep them apart · **corners are
+> dead-square** (`--radius: 0`, decided) · **ten 10-gig runs draw as one band with a ×n badge**
+> (UI-SPEC), and a port-channel is a different object never inferred from a bundle · **following a
+> connection lights it on the drawing you are looking at**, far end panned into view (UI-SPEC), no
+> separate screen · **named lists spanning sites are D2's named sets** and may span scopes · **the
+> floor plan is parked with the building view** · **version bug lists: no** — stale is worse than none
+> and B10 says nobody is funded to keep one fresh · the two checker heuristics (gibberish values, the
+> IKE warning's scope) **defer to Phase 6** with the checker itself.
 
 - **Dark or light by default?** Whatever ships is what everyone sees before they touch a setting
   — and the green/amber/red you rely on for "safe / careful / danger" are different inks on a
