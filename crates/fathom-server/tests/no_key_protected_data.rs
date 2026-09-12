@@ -67,6 +67,24 @@ const ALLOWED_TABLES: &[(&str, &str)] = &[
          the file header on `docs/OPEN-QUESTIONS.md` V2). No design payload lives on a scope; \
          designs attach to a scope in a later, still-gated table.",
     ),
+    (
+        "principals",
+        "identity, and the narrowest form of it: an opaque 26-character id, a `kind` that is \
+         either `steward` or `operator`, and a creation time. It exists so that every row \
+         expressing authority can reference `principals (id, kind)` with its own `kind` column \
+         generated and fixed -- see `migrations/0004_principals.sql`. Nothing is stored here \
+         that a design, a credential or a key could be hidden in: there is no free-text column \
+         at all.",
+    ),
+    (
+        "operators",
+        "the machine-side principals -- an opaque id, a display name, a creation time. Carries \
+         no authentication secret: `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §4.5 gives the \
+         operator surface no password path, so there is nothing to hold, and this task writes \
+         no crypto. An operator is by construction sightless -- §1.3 withholds every privilege \
+         on design data from its database role -- so no design payload or wrapped key can \
+         reach this table either.",
+    ),
 ];
 
 /// Object kinds a migration may create that are not themselves a place to
@@ -76,7 +94,12 @@ const ALLOWED_TABLES: &[(&str, &str)] = &[
 /// by name, so a `CREATE INDEX`/`CREATE POLICY` on a table that is not on
 /// [`ALLOWED_TABLES`] is still visible in a diff, just not failed here --
 /// there would be no table for it to index or govern in the first place.
-const NON_STORAGE_KINDS: &[&str] = &["index", "policy"];
+///
+/// `role` joined the list with `migrations/0005_planes.sql`: a database role
+/// is a principal a connection authenticates as, not a relation, and it holds
+/// no rows at all. Which roles exist and what they may read is checked by
+/// `tests/planes.rs`, table by table, off the live schema.
+const NON_STORAGE_KINDS: &[&str] = &["index", "policy", "role"];
 
 /// Every migration file on disk, read from the directory rather than from
 /// the `MIGRATIONS` constant -- so a file added and not yet wired in is
@@ -280,6 +303,13 @@ fn the_checker_itself_detects_what_it_is_looking_for() {
     assert!(created_objects(index)
         .iter()
         .any(|(k, n)| k == "index" && n == "idx"));
+    // ...and a role, which `migrations/0005_planes.sql` creates inside a
+    // `DO $$ ... $$` block. If the reader stopped seeing it, a `CREATE TABLE`
+    // in the same block would stop being seen too.
+    let role = "DO $$ BEGIN CREATE ROLE fathom_operator NOLOGIN; END $$;";
+    assert!(created_objects(role)
+        .iter()
+        .any(|(k, n)| k == "role" && n == "fathom_operator"));
 }
 
 #[test]

@@ -41,6 +41,16 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0003_write_side_isolation.sql",
         sql: include_str!("../migrations/0003_write_side_isolation.sql"),
     },
+    Migration {
+        version: 4,
+        name: "0004_principals.sql",
+        sql: include_str!("../migrations/0004_principals.sql"),
+    },
+    Migration {
+        version: 5,
+        name: "0005_planes.sql",
+        sql: include_str!("../migrations/0005_planes.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

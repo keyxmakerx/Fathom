@@ -80,6 +80,46 @@ pub fn superuser_database_url() -> String {
         .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5432/postgres".to_string())
 }
 
+/// A raw connection as the bootstrap superuser, but to the **test
+/// database** rather than to the superuser's own.
+///
+/// `migrations/0004_principals.sql` builds a fence out of composite foreign
+/// keys precisely because a constraint binds at every privilege level:
+/// PostgreSQL exempts superusers from row security, but not from referential
+/// integrity. Proving that needs the most privileged role available pointed
+/// at the schema the migrations built, which is neither of the two
+/// connections above -- [`migrated_pool`] is deliberately restricted, and
+/// [`superuser_client`] is deliberately connected elsewhere.
+///
+/// Built by parsing both URLs with the driver's own parser and moving the
+/// database name across, rather than by string surgery on a URL that may
+/// carry a password.
+///
+/// `#[allow(dead_code)]`: `mod support;` compiles into every test binary in
+/// this crate, and only the plane and principal fence tests need this one.
+#[allow(dead_code)]
+pub async fn superuser_client_on_test_database() -> tokio_postgres::Client {
+    let test: tokio_postgres::Config = test_database_url()
+        .parse()
+        .expect("the test DATABASE_URL must parse");
+    let mut config: tokio_postgres::Config = superuser_database_url()
+        .parse()
+        .expect("the superuser database URL must parse");
+    config.dbname(test.get_dbname().expect("a database name"));
+
+    let (client, connection) = config.connect(NoTls).await.unwrap_or_else(|e| {
+        panic!(
+            "could not reach a PostgreSQL superuser on the test database ({e}). Set \
+             SUPERUSER_DATABASE_URL to a bootstrap superuser on the same cluster as \
+             DATABASE_URL -- see `.github/workflows/ci.yml`."
+        )
+    });
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+}
+
 /// A raw connection authenticated as the PostgreSQL bootstrap superuser --
 /// deliberately not a pool, because the only thing this is ever used for is
 /// proving `rls::assert_rls_binds` refuses it.

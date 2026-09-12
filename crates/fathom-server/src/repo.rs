@@ -398,19 +398,32 @@ async fn authorise(
 
 /// Creates an account. Not tenant-scoped -- an account belongs to zero or
 /// more organisations through [`Membership`], not to one.
+///
+/// **Two rows, one transaction, and the order is fixed by a foreign key.**
+/// `migrations/0004_principals.sql` makes every account a *steward* principal
+/// through a composite key onto `principals (id, kind)` whose `kind` half is
+/// a generated constant, so the principal row must exist before the account
+/// row can. That is the fence that makes an operator id unrepresentable in a
+/// membership; the cost is this transaction, and it is the whole cost.
 pub async fn create_account(
     pool: &Pool,
     email: &str,
     display_name: &str,
 ) -> Result<Account, RepoError> {
-    let client = pool.get().await?;
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
     let id = AccountId::new();
-    client
-        .execute(
-            "INSERT INTO accounts (id, email, display_name) VALUES ($1, $2, $3)",
-            &[&id.to_string(), &email, &display_name],
-        )
-        .await?;
+    tx.execute(
+        "INSERT INTO principals (id, kind) VALUES ($1, 'steward')",
+        &[&id.to_string()],
+    )
+    .await?;
+    tx.execute(
+        "INSERT INTO accounts (id, email, display_name) VALUES ($1, $2, $3)",
+        &[&id.to_string(), &email, &display_name],
+    )
+    .await?;
+    tx.commit().await?;
     Ok(Account {
         id,
         email: email.to_string(),

@@ -69,9 +69,17 @@ pub fn pool(config: &Config) -> Result<Pool, DbError> {
     cfg.pool = Some(deadpool_postgres::PoolConfig::new(config.pool_size));
     cfg.dbname = pg.get_dbname().map(ToOwned::to_owned);
     cfg.user = pg.get_user().map(ToOwned::to_owned);
-    cfg.password = pg
-        .get_password()
-        .map(|p| String::from_utf8_lossy(p).into_owned());
+    // The file wins over the URL. `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`
+    // §1.4: the application's database password is generated at first start
+    // into the key volume, so in the shipped deployment `DATABASE_URL`
+    // carries a user and a host and no password at all. The URL branch
+    // remains for a developer running against a local database by hand.
+    cfg.password = match &config.database_password {
+        Some(password) => Some(password.expose().clone()),
+        None => pg
+            .get_password()
+            .map(|p| String::from_utf8_lossy(p).into_owned()),
+    };
     cfg.host = pg.get_hosts().iter().find_map(|h| match h {
         tokio_postgres::config::Host::Tcp(h) => Some(h.clone()),
         #[cfg(unix)]
@@ -110,6 +118,23 @@ mod tests {
         for rendered in [format!("{err:?}"), format!("{err}")] {
             assert!(!rendered.contains("K4NaRY"), "{rendered}");
         }
+    }
+
+    #[test]
+    fn a_url_with_no_password_still_builds_a_pool_when_the_file_supplies_one() {
+        // The shipped deployment's shape: `DATABASE_URL` carries a user, a
+        // host and a database, and the password comes from the key volume
+        // (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §1.4).
+        let config = ServerConfig::from_lookup_and_files(
+            |k| match k {
+                "DATABASE_URL" => Some("postgres://fathom@db:5432/fathom".to_string()),
+                "FATHOM_DB_PASSWORD_FILE" => Some("/keys/db_app.pw".to_string()),
+                _ => None,
+            },
+            |_| Some("from-the-key-volume".to_string()),
+        )
+        .unwrap();
+        assert!(pool(&config).is_ok());
     }
 
     #[test]

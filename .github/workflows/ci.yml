@@ -71,10 +71,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # CREATEROLE, and only that, on top of NOSUPERUSER:
+      # `crates/fathom-server/migrations/0005_planes.sql` creates the second
+      # database role -- the sightless operator plane -- inside the migration
+      # chain, so that "run the chain from an empty database" produces the
+      # whole fence rather than half of it. `deploy/init-db/10-app-role.sh`
+      # grants the deployment's `fathom` role the same attribute, for the
+      # same reason and with the same accounting written out there. It is NOT
+      # superuser and NOT BYPASSRLS, which is what
+      # `fathom_server::rls::assert_rls_binds` checks and what makes every
+      # isolation assertion in this suite mean something.
       - name: Provision a non-superuser test role (RLS does not bind to a superuser)
         run: |
           PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
-            "CREATE ROLE fathom_test LOGIN PASSWORD 'fathom_test_pw' NOSUPERUSER;"
+            "CREATE ROLE fathom_test LOGIN PASSWORD 'fathom_test_pw' NOSUPERUSER CREATEROLE;"
           PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
             "CREATE DATABASE fathom_test OWNER fathom_test;"
 

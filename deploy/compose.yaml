@@ -41,6 +41,17 @@
 # connected role turns out to be a superuser or carry BYPASSRLS, so this
 # cannot silently regress to the bootstrap role again.
 #
+# THE APPLICATION'S DATABASE PASSWORD IS NOT IN THIS FILE, added 2026-09-12
+# (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1 and §1.4). Whoever writes a
+# compose file holds the Docker socket, and is therefore a host-level
+# attacker -- so a credential typed here proves nothing about what a lesser
+# credential can reach. `deploy/init-db/10-app-role.sh` generates it at first
+# start into the `keys` volume, beside where the master key will live, and
+# the server reads it through `FATHOM_DB_PASSWORD_FILE`. What remains in this
+# file is the BOOTSTRAP superuser's password, which is what it has to be:
+# the postgres image needs it to initialise the cluster at all, and it is the
+# credential the server must never use.
+#
 # AND THE ONE THAT MATTERS MOST HERE: **the server is not published to the
 # host.** Only Caddy is. `49` §6 keeps C7 — no C or C++ in the shipped closure —
 # only because TLS terminates in front of the binary; a server reachable
@@ -68,13 +79,14 @@ services:
       # Compose reads these from the environment or a .env file. Neither has
       # a default: a default database password is a password everyone has.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      # Read by deploy/init-db/10-app-role.sh, which runs as the bootstrap
-      # role above and uses this to create the restricted `fathom` role the
-      # server actually connects as (see FATHOM_DB_PASSWORD on `server`
-      # below). A different secret from POSTGRES_PASSWORD on purpose: the
-      # bootstrap role's password and the server's own are not the same
-      # credential and a leak of one must not be a leak of the other.
-      FATHOM_DB_PASSWORD: ${FATHOM_DB_PASSWORD:?set FATHOM_DB_PASSWORD}
+      # THERE IS NO FATHOM_DB_PASSWORD HERE ANY MORE, AND ITS ABSENCE IS THE
+      # POINT. `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1: whoever writes
+      # this file holds the Docker socket and is therefore a host-level
+      # attacker, so a password typed here proves nothing about what any
+      # other credential can reach. §1.4: the application's own database
+      # password is generated at first start, by
+      # `deploy/init-db/10-app-role.sh`, into the key volume mounted below --
+      # never into this file and never into the environment.
     volumes:
       # /var/lib/postgresql, NOT /var/lib/postgresql/data. PostgreSQL 18's
       # image changed this: a single mount one level up puts the data in a
@@ -83,6 +95,12 @@ services:
       # image starts, refuses, and reports an incompatible data directory --
       # found 2026-09-03 by running this file rather than reading it.
       - db:/var/lib/postgresql
+      # The key volume. `deploy/init-db/10-app-role.sh` generates the
+      # application role's password into it at first start, and it is where
+      # `master.key` will live once `docs/OPEN-QUESTIONS.md` A1 is answered.
+      # Read-write here because this is the container that writes it;
+      # read-only on `server`, which only reads it.
+      - keys:/var/lib/fathom/keys
       # Runs once, only against a freshly created (empty) data directory --
       # the image's own entrypoint convention. See the file header and the
       # script itself for what it creates and why.
@@ -134,10 +152,22 @@ services:
       # superuser or carry BYPASSRLS (`src/rls.rs`), so a compose file that
       # pointed this back at the bootstrap role would fail loudly at startup
       # rather than silently ship broken tenant isolation again.
-      DATABASE_URL: "postgres://fathom:${FATHOM_DB_PASSWORD:?set FATHOM_DB_PASSWORD}@db:5432/fathom"
+      # NO PASSWORD IN THIS URL -- see §1.4 and the `db` service's comment.
+      # The password comes from the key volume, by way of the variable below.
+      DATABASE_URL: "postgres://fathom@db:5432/fathom"
+      # The file `deploy/init-db/10-app-role.sh` generated at first start.
+      # `fathom-server` refuses to start if this is set and the file cannot
+      # be read: a silent fall back to a password from somewhere else is how
+      # the credential this design moves out of the environment creeps back
+      # into it.
+      FATHOM_DB_PASSWORD_FILE: "/var/lib/fathom/keys/db_app.pw"
       FATHOM_LOG: "info"
       FATHOM_HEALTH_TIMEOUT_MS: "2000"
       FATHOM_DB_POOL_SIZE: "8"
+    volumes:
+      # Read-only: the server reads the generated database password and, later,
+      # the master key. It writes neither.
+      - keys:/var/lib/fathom/keys:ro
     tmpfs:
       - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
     healthcheck:
@@ -170,5 +200,10 @@ services:
 
 volumes:
   db:
+  # Holds the application role's generated database password, and will hold
+  # the master key. Anything that can read this volume is a tier-3 attacker
+  # in `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1's terms: if you copy it
+  # off the machine, you have copied both.
+  keys:
   caddy_data:
   caddy_config:
