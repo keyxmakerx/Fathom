@@ -4,8 +4,9 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use fathom_server::config::Config;
+use fathom_server::engine::EngineState;
 use fathom_server::health::HealthState;
-use fathom_server::{db, log_startup, migrate, router};
+use fathom_server::{db, log_startup, migrate, router, AppState};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -45,6 +46,20 @@ async fn main() -> ExitCode {
         Err(e) => {
             eprintln!("fathom-server: {e}");
             return ExitCode::from(2);
+        }
+    };
+
+    // The schema tree, same shape as the config it sits beside: read before
+    // logging, fail on stderr, no subscriber to blame for having missed it.
+    // A schema that failed to parse is as fundamental a startup problem as a
+    // missing DATABASE_URL, and for the same reason gets no default — see
+    // `engine::EngineState::load`.
+    let engine = match EngineState::load(std::path::Path::new(fathom_server::engine::DEFAULT_ROOT))
+    {
+        Ok(e) => Arc::new(e),
+        Err(e) => {
+            eprintln!("fathom-server: {e}");
+            return ExitCode::from(7);
         }
     };
 
@@ -94,7 +109,7 @@ async fn main() -> ExitCode {
         }
     }
 
-    let state = Arc::new(HealthState {
+    let health = Arc::new(HealthState {
         pool,
         timeout: config.health_timeout,
     });
@@ -109,7 +124,7 @@ async fn main() -> ExitCode {
 
     tracing::info!(bind = %config.bind, "listening");
 
-    let served = axum::serve(listener, router(state))
+    let served = axum::serve(listener, router(AppState { health, engine }))
         .with_graceful_shutdown(shutdown())
         .await;
 

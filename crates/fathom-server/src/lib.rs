@@ -31,6 +31,7 @@
 
 pub mod config;
 pub mod db;
+pub mod engine;
 pub mod health;
 pub mod healthcheck;
 pub mod migrate;
@@ -38,10 +39,13 @@ pub mod secret;
 
 use std::sync::Arc;
 
+use axum::extract::FromRef;
 use axum::routing::get;
 use axum::Router;
 
 use crate::config::Config;
+use crate::engine::EngineState;
+use crate::health::HealthState;
 
 /// The one startup line the server logs about its own configuration.
 ///
@@ -56,9 +60,37 @@ pub fn log_startup(config: &Config) {
     );
 }
 
-/// The router. One endpoint.
-pub fn router(state: Arc<health::HealthState>) -> Router {
+/// Everything the router hands handlers via `State`.
+///
+/// Two independent pieces held together only because axum wants one state
+/// type per router: `HealthState` reads the database and never the schema;
+/// `EngineState` reads the schema and never the database. `FromRef` below is
+/// what lets `health::handler` and `engine::kinds_handler` keep asking for
+/// their own piece (`State<Arc<HealthState>>`, `State<Arc<EngineState>>`)
+/// rather than this struct.
+#[derive(Clone)]
+pub struct AppState {
+    pub health: Arc<HealthState>,
+    pub engine: Arc<EngineState>,
+}
+
+impl FromRef<AppState> for Arc<HealthState> {
+    fn from_ref(app: &AppState) -> Self {
+        app.health.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<EngineState> {
+    fn from_ref(app: &AppState) -> Self {
+        app.engine.clone()
+    }
+}
+
+/// The router. `/health` (WO-11's), and `/schema/kinds` (this order's) —
+/// still read-only, still nothing stored.
+pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health::handler))
+        .route("/schema/kinds", get(engine::kinds_handler))
         .with_state(state)
 }
