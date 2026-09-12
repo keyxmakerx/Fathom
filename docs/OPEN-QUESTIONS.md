@@ -497,6 +497,16 @@ to the Juniper, Cisco and Palo Alto kit you named as yours?
 > real config** — so the deliverable is an ADR-0034-style survey, URL and date on every claim, at
 > `docs/surveys/nokia-7210-sas.md`. Consequence: the fibre-access world is **inventory in v1**, not a
 > parsing track.
+>
+> **Survey done 2026-09-12 — `docs/surveys/nokia-7210-sas.md`.** Every Nokia-authored source was
+> denied at the proxy; the document says so first and tiers every claim. Established from real
+> captures on public repositories: the 7210 SAS is SR OS classic CLI, `admin display-config` is the
+> capture, the file shape is known for the *family*, and the secret keywords seen in the wild include
+> `password "…" hash2`, `community "…" hash2`, `secret "…" hash2` — and `notify-community` **in the
+> clear, unmarked**. **No 7210 config body was seen, so no platform row and no dictionary.** Two traps
+> recorded for whoever writes the engine: RANCID's password regex misses the real `hash2` form (do
+> not copy it), and the published password-length limits are 7750 figures — rule 2 forbids building a
+> gate test on them until confirmed on a 7210.
 
 The Calix and Nokia gear, the CLLI-coded sites, the DIA / E-Line / E-LAN services — **the same
 job as the Juniper boxes you configure, seen from the other end, or a genuinely separate second
