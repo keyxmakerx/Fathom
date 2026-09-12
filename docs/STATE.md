@@ -25,6 +25,12 @@ detection, a publication cooldown, licence and source allowlisting, and a vulner
 check. 115 external crate versions in the lockfile after the server landed (the lockfile
 holds 132 entries; 17 of them are our own workspace crates, which no gate reviews).
 
+**The engine seam.** As of 2026-09-12 the server depends on `fathom-schema`, `fathom-graph` and
+`fathom-id`. It loads the `schema/` tree once at startup and serves `GET /schema/kinds` off the
+loaded tree. Before this, the two halves of the codebase shared nothing. It still stores nothing:
+`tests/stores_nothing.rs` is unchanged and still passes. `fathom-graph` and `fathom-id` have no
+caller yet.
+
 **Key handling.** Decided and ratified: a data key per tenant and per design, wrapped by a master
 key, custody switched by re-wrapping keys rather than re-encrypting data.
 
@@ -53,6 +59,12 @@ replaced with a standard algorithm.
 ---
 
 ## Known limits worth remembering
+
+**The production image cannot boot the server as of 2026-09-12.** `deploy/Dockerfile`'s runtime
+stage is distroless and copies only the compiled binary — it does not copy `schema/`. The engine
+seam loads that tree at startup and exits 7 when it cannot, so the image fails immediately. Found by
+the builder that added the seam, confirmed by reading the Dockerfile. Fix before anything is
+deployed: bake `schema/` into the runtime stage, or embed it in the binary.
 
 - **Typed values are not redacted.** The gate runs on paste only. A password typed by hand into a
   field is stored and exported as written — it gets a warning mark beside it, and that is the
