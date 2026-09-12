@@ -31,6 +31,14 @@ security. A six-lens adversarial review of the first cut reproduced a cross-tena
 escalation against a live database; migration 0003 closes it by splitting every policy by command,
 so the branch that lets an account see its own memberships can never be used for a write.
 
+**Two custodies, as of 0004 and 0005.** Operators hold the machine; stewards hold the data. A
+composite key onto `principals (id, kind)` makes an operator **unrepresentable** in an authority row
+— proved by a test that connects as a full-privilege superuser and still cannot do it, because this
+is a constraint rather than a policy. The operator database role has `SELECT` on five tables and
+nothing else, and every policy added for it is `FOR SELECT`, never `FOR ALL`. The application's
+database password is generated at first start into the key volume and appears in neither the compose
+file nor the environment.
+
 **The engine seam.** As of 2026-09-12 the server depends on `fathom-schema`, `fathom-graph` and
 `fathom-id`. It loads the `schema/` tree once at startup and serves `GET /schema/kinds` off the
 loaded tree. Before this, the two halves of the codebase shared nothing. `fathom-graph` and
