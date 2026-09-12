@@ -164,6 +164,20 @@ same stack object, collapsed, with their ordinals on the rail). The `Legend` boa
 - The firewall board no longer says *implicit deny* for a zone pair with no policy set. Fathom draws
   the absence and does not say what the device does about it. That is the rule applied, not a loss.
 
+## Not yet drawn — vault surfaces, 2026-09-12
+
+Three surfaces the vault design (storage §13) needs and this page does not have. They are designer
+work from a closed brief, in this page's language, before they are built:
+
+- **The share dialog** — the full sorted recipient set rendered before the authenticator touch, each
+  with a nine-word fingerprint phrase and its trust state; the mode marker and its sentence in the
+  same dialog.
+- **The four fingerprint states** — `unpinned` (acknowledge once), `pinned` (quiet), `rotated`
+  (inline, no red, one-click accept), `unexplained` (loud; the recipient is dropped and the wrap is
+  not produced; no "proceed anyway"; wording names both explanations).
+- **The mode-change consent screen** — the full statement rendered before the touch, in the
+  register §12.6 of the storage design already uses.
+
 ## Parked
 
 The building / floor-plan view. Owner: *"can be kinda cool, but not necessary."* Board is on page 3

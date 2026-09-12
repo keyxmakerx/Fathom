@@ -2,7 +2,8 @@
 
 **Status:** REVISED AFTER ATTACK, 2026-09-11. Majors 1, 4 and 7 resolved 2026-09-12 (§11);
 major 5 and the primitives settled 2026-09-12 (§12).
-**Not accepted. Not built.** Two majors remain open in §10: 2 and 3. Major 6 is presentation, not schema.
+**Not accepted. Not built.** All seven majors resolved (§§11–13). Major 6 is presentation. The vault
+migration is blocked on one lookup — the per-recipient wrap primitive, §13.7.
 **Review:** `PHASE-2-ATTACK-REPORT.md` — 6 lenses, 36 findings, 20 survived verification, 16
 refuted. 5 blockers, all addressed below. 7 majors, tracked in §10.
 **Binding inputs:** ADR-0040 (key custody), ADR-0042 (the credential vault), the owner's answers
@@ -325,10 +326,10 @@ From `PHASE-2-ATTACK-REPORT.md`. Each survived independent verification; none bl
    random vault master key; that wraps per-entry keys. Carry the parameters per entry in the schema
    from day one so they can be raised later. Compile a refusal floor into the client so a hostile
    server cannot serve weak ones.
-2. **The server chooses the public keys** in per-recipient sharing, so it can insert itself as a
+2. **The server chooses the public keys** **RESOLVED 2026-09-12 — see §13.2–13.3.** in per-recipient sharing, so it can insert itself as a
    reader invisibly. Minimum: show fingerprints at share time, pin trust-on-first-use in local
    browser state, warn loudly on change.
-3. **The vault audit log is unsealed**, while the lower-ranked design history gets a keyed seal.
+3. **The vault audit log is unsealed** **RESOLVED 2026-09-12 — see §13.4–13.5.**, while the lower-ranked design history gets a keyed seal.
    ADR-0042 makes mode-B access logging the sole compensating control. Extend §6's construction to a
    per-tenant vault audit chain. Make mode changes first-class sealed events, and write the rule
    nobody has written: who may change a credential's mode, with re-consent on A→B.
@@ -807,6 +808,223 @@ its current status.
 
 Also unestablished: whether XChaCha20-Poly1305 has been standardised since its draft — relevant only
 if per-design keys are ever relaxed and §12.3's fallback is taken.
+
+---
+## 13. Majors 2 and 3 — resolved 2026-09-12, and they are one fix
+
+§10 wrote major 2 as *"pin trust-on-first-use in local browser state"* because there was no shared,
+sealed place to pin anything. The organisation chain now exists. **Recipient public keys are sealed
+entries on the organisation chain; TOFU drops from mechanism to fallback.** Everything below follows.
+
+### 13.1 Five constraints on the vault build, worst first
+
+1. **A `mode` column that is authoritative is a one-`UPDATE` disclosure.** `UPDATE vault_entries SET
+   mode='B'` needs only a database credential (tier 2). The mode resolver must not read a column: it
+   reads the sealed chain exactly as the admin design's settings resolver does (§5.4) — candidates
+   with `sealed_seq IS NOT NULL`, seal verified, newest survivor, and an incident on any failing
+   candidate. **A `vault_mode_changed` row with `sealed_seq NULL` is not in force.** Without this,
+   every consent signature below is decoration.
+2. **Build order: `account_keys` and enrolment land before the vault's sharing keypair.** Verified
+   2026-09-12: no `account_keys`, `scope_grants` or `sessions` table exists yet. If the vault ships
+   first, the server mints recipient keys, and enrolment records written that way carry no assertion
+   to re-verify — the length-prefix lesson in another costume. Fallback if sequencing is impossible:
+   ship the vault **with sharing disabled** rather than with an unsigned keyring.
+3. **Sign the recipient *set*, never only the members.** Fingerprints of the recipients you chose say
+   nothing about one you did not: the server stores an extra wrap to a key it holds, and no symptom
+   exists for anyone. Construction in 13.3.
+4. **"The owner left, so the Mode B credential is locked" is false**, and the interface will imply it
+   unless told not to. Offboarding gains a vault step — 13.5.
+5. **Org-chain and site-chain `metadata` must be AEAD ciphertext.** The design chain's plaintext
+   canonical bytes (`0007` line 405) are correct there and wrong here. The seal is over plaintext
+   `canon(metadata)` either way, so only the column changes — but only before rows exist. Sent to the
+   builder mid-build. `entry_type` and ids stay in the clear: a dump reveals *that* `cred_…` was read
+   forty times last Tuesday, with no key. Belongs in §11.3's disclosure paragraph.
+
+### 13.2 Major 2 — a signed keyring, not a trusted response
+
+The vault sharing keypair is generated in the browser at enrolment; its public half is
+**self-certified by a WebAuthn assertion** from `account_keys`, over length-prefixed bytes:
+
+```
+vault_key_bytes = LP("fathom/vault/pubkey/v1") ‖ LP(organisation_id) ‖ LP(account_id)
+    ‖ LP(vault_pub) ‖ u16(vault_alg) ‖ LP(signing_account_key_fpr) ‖ u64(enrolled_at)
+vault_key_fpr   = H("fathom/vault/key/fpr/v1" ‖ LP(vault_pub))
+```
+
+Sealed as `vault_key_enrolled`. **The server cannot fabricate a recipient key at all** — a fabricated
+key has no assertion. Residuals, honestly: a stale-but-genuine key (closed by chain-current +
+`succession_sig`), an extra genuine recipient (closed by 13.3), withholding (admitted), and a hostile
+bundle (13.6).
+
+**Shown at share time:** a word phrase first (Bitwarden ships EFF-wordlist fingerprint phrases for
+exactly this; Signal shows numbers plus a QR), hex underneath because that is what gets pasted into
+chat. **Nine words ≈ 116 bits**, not six ≈ 77 — six is grindable offline. The full sorted recipient
+set rendered before the touch; the mode marker and its sentence in the same dialog.
+
+**Pinned in three places, and local browser state is the weakest:** it does not survive the new
+laptop ADR-0043 makes routine, it is per-browser so nothing correlates, and IndexedDB is reachable by
+the served script. So — **tier A, the organisation chain** (authoritative, shared, receipted); **tier
+B, the browser's remembered tip** extended to `(account → fpr, first_seen_seq)`, so a change *without*
+a superseding entry is not a soft warning but §11.2's ***broken at entry N***; **tier C, out-of-band
+comparison.** This is Keybase's shape (client-remembered Merkle root, server must prove consistency
+or be refused — verified in `merkle_client.go`) and where Signal has gone (key transparency shipped,
+manual comparison retained as *"added security"* — verified in their strings). TOFU-only in 2026 is
+building what the reference implementation already moved past.
+
+**Four states, one loud:** `unpinned` → acknowledge once, not a comparison every time (that is the
+friction that gets the control disabled) · `pinned` → quiet · `rotated`, a `vault_key_superseded`
+signed by the old key accounts for it → inline, non-modal, **no red**, one-click accept — a benign
+operation rendered as an attack teaches operators to dismiss the alarm · `unexplained` → loud.
+
+**What `unexplained` does is not a dialog you dismiss: the recipient is dropped and the wrap is not
+produced.** OpenSSH's shipped behaviour, verified in `sshconnect.c`: on a changed host key it does not
+warn-and-continue, it *withdraws the capabilities the substitution would exploit*. Here that capability
+is being wrapped a new content key. Reading what Alice already holds is unaffected. **There is no
+"proceed anyway"** — Bitwarden ships one and labels it *"(not recommended)"* in its own UI strings.
+The banner re-verifies before drawing (admin §7.4), and its wording names both explanations, as
+Signal's does, and omits Signal's *"This is optional."* — deliberately.
+
+**Four things a user can do:** verify out of band and **sign an attestation** sealed as
+`vault_key_attested`, which turns a per-browser pin into an organisational fact Carol can see · ask
+Bob to re-enrol through Fathom · share by another route and rotate the device password · and
+whether or not she acts, a sealed `vault_key_unexplained` entry with notification to every steward —
+the cheapest item and the one most likely to be dropped.
+
+### 13.3 The signed recipient set
+
+```
+share_bytes = LP("fathom/vault/share/v1") ‖ LP(organisation_id) ‖ LP(credential_id)
+    ‖ u32(content_key_epoch)
+    ‖ LP(canon(sorted [(recipient_account_id, recipient_vault_key_fpr, wrapped_key_digest)]))
+    ‖ LP(sharer_account_id) ‖ LP(sharer_key_fpr) ‖ u64(at)
+```
+
+Signed by the sharer's authenticator, sealed as `vault_shared`. **A wrap row no `vault_shared` entry
+covers is not a recipient** — the client refuses it (the server is the adversary here), the read path
+refuses to serve it. `wrapped_key_digest` binds each recipient's ciphertext so wraps cannot be
+swapped. One touch per share. This also answers ADR-0042 §8 open decision 2 — a shared Mode A
+credential can exist — with a construction.
+
+### 13.4 Major 3 — vault events on the organisation chain, and what re-consent is
+
+**Why the organisation chain, not §10's separate vault chain:** a vault event and the authority event
+that permitted it must be ordered relative to each other. `grant_revoked` for Bob at 4,100 and
+`vault_read` by Bob at another chain's 812 says nothing about which came first; on one chain,
+`prev_seal` says it. Cost: vault volume contends with grant writes for one tip per organisation —
+measure, do not assume.
+
+**Entry types:** `vault_key_enrolled` · `vault_key_superseded` · `vault_key_attested` ·
+`vault_key_unexplained` · `vault_entry_created` · `vault_shared` · `vault_share_revoked` (with
+`remediation ∈ {none, content_key_rotated, device_password_rotated_claimed}`) · `vault_read` —
+**Mode B only** · `vault_mode_changed` · `vault_owner_transferred` / `_succeeded` ·
+`vault_content_key_rotated` · `vault_entry_deleted` (tombstone; `RESTRICT`, never cascade) ·
+`vault_recipient_enrolment_refused` (so *"we quietly fell back to Mode B"* is falsifiable).
+
+**Mode A reads are not in this trail and cannot be.** A Mode A read is the browser fetching ciphertext
+it may fetch and decrypting locally; the server sees a `GET`. **There is no `vault_read` for Mode A and
+there must not be a fake one** — an entry rendered as *"Alice read this"* when it means *"ciphertext
+was delivered"* is a false statement in an audit trail, which is worse than a gap. What can honestly be
+recorded is `vault_ciphertext_served`, in those words, with the limit stated: a user who fetched once
+can decrypt offline forever. The verifier prints this as a standing line, visually separate from
+outcomes. ADR-0042 §4 item 5 is correctly scoped to Mode B already; its §3 line *"a stolen server
+yields nothing"* is overclaimed against §2a and is corrected.
+
+**The verifier gains four failure kinds** under §12.6a's ordering (verify everything first; gaps
+alongside, never instead): a `vault_read` for a credential the chain had in Mode A at that seq — **the
+strongest single detector here** · a `vault_shared` recipient no enrolment accounts for · an A→B
+consent that does not verify under the owner's chain-current key · a wrap row no entry names —
+entry-driven *and* row-driven, so an added row is a break, not a skip.
+
+**Re-consent for A→B is a WebAuthn assertion by the owner plus a live vault unlock in the same
+browser.** The vault key cannot be the consent token — it is a symmetric secret the server must never
+see. The unlock is not extra ceremony: the owner must decrypt the secret to hand it over, so it *is*
+the operation. **The server cannot perform A→B by itself** — it cannot read the plaintext — so the
+policy question is narrower than §10 implied.
+
+```
+mode_change_bytes = LP("fathom/vault/mode/v1") ‖ LP(organisation_id) ‖ LP(credential_id)
+    ‖ LP(from_mode) ‖ LP(to_mode) ‖ u32(content_key_epoch_before) ‖ u32(content_key_epoch_after)
+    ‖ LP(owner_account_id) ‖ LP(owner_key_fpr) ‖ LP(canon(sorted recipient set now))
+    ‖ LP(server_wrapping_key_id) ‖ u64(at) ‖ u64(org_chain_seq_at_request)
+```
+
+Each field earns its place: `server_wrapping_key_id` so consent names *which* key may read (else it
+is major 2 one layer down) · `org_chain_seq_at_request` so a captured consent cannot replay months
+later against a changed set — bind the window to `auth_epoch` rather than guessing a count · the
+recipient set, so *"who else could read this when you consented"* is in the signed statement ·
+`epoch_after > before`, because A→B rotates the content key so readers are re-established
+explicitly rather than silently inheriting a now-server-readable secret.
+
+Rendered in full before the touch, in §12.6's register: *After this change, Fathom's server can read
+this credential — in normal operation, in memory, in every backup from now on, and to anyone who can
+read files as the `fathom` user. It cannot be undone for the period it is in force.*
+
+**B→A needs an entry, no consent, and its own sentence** — the safe direction must never require the
+owner, or a departed owner leaves a credential permanently server-readable. But it un-discloses
+nothing: *Anyone holding a backup from while it was in Mode B, with the master key from that time,
+can still read it. To revoke that, change the password on the device.*
+
+**A↔C is a delete plus a create**, never `UPDATE … SET mode='C'` — the Mode A secret is destroyed,
+not migrated, and the trail must say so.
+
+**Sole-owner deadlock is solved by physics.** If the owner is gone, A→B is impossible — nobody can
+decrypt. Recovery is ADR-0043 §6's break-glass recipient. Consequence: **a credential with one
+recipient says at creation that it dies with that person's vault**, at the moment of choosing, and
+the create flow offers a break-glass recipient there.
+
+### 13.5 Who may change a mode
+
+- **R1 — only a principal who can currently decrypt it.** A consequence, not a policy; write it as
+  the primary rule so nobody implements a permission check and believes it is the fence.
+- **R2 — of those, only the owner may consent to A→B.** A recipient holds a wrap, not authority.
+  Ownership transfers by `vault_owner_transferred`, signed by the current owner, to an existing
+  recipient. A steward countersignature is additionally required **when the credential is shared with
+  anyone besides the owner** — friction scales with blast radius; reversible, the owner's to overrule.
+- **R3 — stewards: authority to deny is cheap and widely held; to grant, narrow.** B→A, suspend,
+  delete: any steward of the scope. A→B: never, unless they are also the owner.
+- **R4 — never an operator, and it falls out of the foreign keys only if the vault migration carries
+  them.** `owner_kind GENERATED ALWAYS AS ('account')` plus the composite FK onto `principals`, on
+  every owner, recipient, consenter, attester and transferee column, **in the same migration that
+  creates the tables.** Two things it does not give: it does not stop an operator driving the server
+  (13.1 item 1 does), and it does not stop tier 3 (admin §12, verbatim). Also: admin §1.3's `REVOKE`
+  names `vault_entries` and should name every vault table — better, an explicit read allowlist so a
+  table added next year is denied by default.
+- **R5 — the owner leaves.** *(a)* Mode A with other recipients: they still decrypt; ownership
+  succeeds to one of them by steward quorum `min(2, live)`, sealed, notified, delayed. *(b)* Mode A,
+  sole recipient: unrecoverable, said at creation. *(c)* **Mode B: the departure removes nothing.**
+  Every account with the capability, every job, the server, tier 3, and any backup-plus-master-key
+  from the period can still use it. Say it in those words — the intuition is the opposite and the
+  mistake is expensive. Revocation by a steward stops Fathom serving it and stops nobody who already
+  has it; **the real revocation is changing the password on the device.** So offboarding gains a vault
+  step: the interface generates the list of every credential the leaver owned or could read — a
+  rotation worklist for Mode B, an *"unrecoverable"* notice for sole-recipient Mode A. Plus a standing
+  `vault_owner_absent` state on any credential whose owner is disabled or de-granted.
+- **R6 — Mode C.** Fathom's trail says nothing about who read a Mode C secret; a verifier must not
+  render a clean Mode C credential as *"no reads"* when it means *"no visibility."*
+
+### 13.6 What none of this defends against
+
+The same server serves the JavaScript. Every control above is executed by code the server delivered
+seconds earlier; a hostile bundle can render sentence X and sign bytes Y, because WebAuthn binds
+origin and challenge, not human-readable meaning. Fingerprints, pinning, attestations and the chain
+defend against a server that lies in its API. **They do not defend against a server that lies in its
+client.** The honest gain: the residual becomes **time-bounded and prospective** — a hostile bundle
+compromises shares made while it runs, cannot rewrite entries the witness already holds, and cannot
+make an uncompromised browser accept a substituted key. The attack becomes: hold the server, keep
+holding it, and hope no second laptop ever checks. Describe it in those words and no stronger.
+
+### 13.7 The one lookup that now blocks the vault schema
+
+**The per-recipient wrap primitive is not decided and is not being decided from memory.** RFC 9180
+(HPKE) is unread. Open: X25519+HKDF+ChaCha20-Poly1305 versus RSA-OAEP versus HPKE; whether X25519 is
+in WebCrypto across the browsers Fathom supports today; what either costs against §12.4's budget and
+`multiple-versions = "deny"`; and its advisory status against a working control. **This blocks the
+vault migration because `vault_alg` and the wrap format go into sealed bytes.** Also unread: SP 800-57
+Part 1 (the 112-bit strength the nine-word fingerprint aims at), and IACR 2026/058 — precisely major
+2's attacker, and the one piece of outside work most likely to contradict something above.
+
+**`docs/UI-SPEC.md` has no vault surface.** The share dialog, the four fingerprint states and the
+mode-change consent screen are new surfaces and land there before they are built.
 
 ---
 ## 9. Questions for the attackers

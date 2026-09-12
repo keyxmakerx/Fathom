@@ -33,6 +33,12 @@ recommended: *"maybe c and d... or if it's on its own it can do both, but recomm
 The secret is encrypted in the browser with a key derived from the user's own credentials. The
 server stores bytes it cannot read. A stolen server yields nothing.
 
+> **CORRECTED 2026-09-12 (storage design §13.4).** *"A stolen server yields nothing"* is overclaimed
+> against §2a of the storage design: a running or imaged server holds the served bundle, and Mode A
+> survives only until the next unlock under a substituted bundle. The claim that holds is narrower —
+> a stolen *database* yields nothing for Mode A. §4 item 5's audit rule is correctly scoped to Mode B
+> and must not be read as covering Mode A, whose reads the server cannot see at all.
+
 - **Cost:** Fathom itself can never use the credential. No automated config pull.
 - **Cost:** a forgotten master password means those entries are unrecoverable. This must be said
   plainly at the moment of choosing, not buried.

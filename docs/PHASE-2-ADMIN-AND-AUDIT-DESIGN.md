@@ -865,6 +865,12 @@ that would hand a permanent instant-SMTP-change power to exactly the attacker th
 
 ### 6.4 Everything after genesis
 
+> **EXTENDED 2026-09-12 (storage design §13.5 R5).** Offboarding does not end at *"operator disables
+> the account, steward revokes the grants."* It gains a vault step: the interface generates the list
+> of every credential the leaver owned or could read — a rotation worklist for Mode B entries,
+> because the departure removes none of the server's ability to serve them, and an *unrecoverable*
+> notice for sole-recipient Mode A entries. Plus a standing `vault_owner_absent` state.
+
 - **New scopes:** created by a steward of the parent; stewardship inherits down the path, so no new
   signature.
 - **New members:** a steward signs a grant naming a subject who **already has a registered key**.
