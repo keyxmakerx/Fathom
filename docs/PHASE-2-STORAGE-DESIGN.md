@@ -1,7 +1,8 @@
 # Phase 2 — Storage, keys and the vault
 
-**Status:** REVISED AFTER ATTACK, 2026-09-11. Majors 1, 4 and 7 resolved 2026-09-12 (§11).
-**Not accepted. Not built.** Four majors remain open in §10: 2, 3, 5 and 6.
+**Status:** REVISED AFTER ATTACK, 2026-09-11. Majors 1, 4 and 7 resolved 2026-09-12 (§11);
+major 5 and the primitives settled 2026-09-12 (§12).
+**Not accepted. Not built.** Two majors remain open in §10: 2 and 3. Major 6 is presentation, not schema.
 **Review:** `PHASE-2-ATTACK-REPORT.md` — 6 lenses, 36 findings, 20 survived verification, 16
 refuted. 5 blockers, all addressed below. 7 majors, tracked in §10.
 **Binding inputs:** ADR-0040 (key custody), ADR-0042 (the credential vault), the owner's answers
@@ -336,7 +337,7 @@ From `PHASE-2-ATTACK-REPORT.md`. Each survived independent verification; none bl
    blob survives a cheap check. Define it, and make verification report three outcomes: verified,
    broken at entry N, or cannot verify under key epoch K. Retired chain keys are kept forever with an
    epoch id on every entry.
-5. **Re-wrap changes custody, not exposure.** Anyone holding the old master key and a pre-switch
+5. **Re-wrap changes custody, not exposure.** **RESOLVED 2026-09-12 — see §12.6.** Anyone holding the old master key and a pre-switch
    snapshot keeps reading data written after the switch. Distinguish re-wrap from rotation in §4, put
    the re-encryption runbook in §8, and make the custody-switch interface say which happened.
 6. **Mode is invisible** at the token, the export and the point of use. Show it beside every
@@ -579,6 +580,203 @@ Blocked this session and therefore **unestablished**:
 
 ---
 
+## 12. Primitives — decided 2026-09-12
+
+Settled by the security role so the foundation could be written. **Every dependency fact below was
+re-verified by the lead against `Cargo.lock`, `deny.toml` and a local clone of the advisory
+databases** — not taken on report. The proxy blocked the IETF, NIST and OWASP sites again this
+session; §12.6 lists what that leaves unread.
+
+### 12.1 The chain MAC — HMAC-SHA-256, and it costs nothing
+
+`hmac 0.13.0` and `sha2 0.11.0` are **already in the lockfile**, arriving with SCRAM-SHA-256
+authentication in the PostgreSQL driver (`hmac → postgres-protocol → postgres-types →
+tokio-postgres → deadpool-postgres → fathom-server`, verified). The seal therefore adds **no crate,
+no build script, no C, no assembly.**
+
+Tag comparison is constant-time and this was read rather than assumed: `digest 0.11.3`'s `Mac` trait
+compares through `ctutils::CtEq`, and both HMAC and keyed BLAKE2 would verify through that same
+path. So on the property that matters they are identical, and the tiebreakers decide: HMAC-SHA-256
+is in NIST's validated algorithm set (ACVP lists `HMAC-SHA2-256`; "blake" appears nowhere in it),
+BLAKE2 would cost one crate, and **KMAC is not available at all** — RustCrypto ships no KMAC and the
+`kmac` name on crates.io is an empty placeholder. Hand-rolling it is forbidden.
+
+Poly1305 stays disqualified as a repeatedly-keyed MAC, per §11.2.
+
+**KDF: HKDF-SHA-256, Expand-only** (`hkdf 0.13.0`, **+1 crate**). The chain key is already uniform,
+so extract is skipped — `from_prk`, not `new`.
+
+### 12.2 Two fixes to §11.2, both cheap now and impossible later
+
+**The KDF labels are renamed**, because §11.2 used the same two literals as both the HKDF `info` and
+the domain tag inside the MAC input. Not a weakness — different functions, different keys — but
+someone will later tidy one occurrence and silently change the other:
+
+```
+K_seal    = HKDF-Expand(chain_key_epoch_e, info = "fathom/chain/kdf/seal/v1",    32)
+K_content = HKDF-Expand(chain_key_epoch_e, info = "fathom/chain/kdf/content/v1", 32)
+```
+
+The in-MAC prefixes in §11.2 are unchanged.
+
+**The per-design chain key gets its derivation named, with length prefixes.** §6's B5 fix said the
+chain key is scoped per design; §11.2 then started from it as a given. Without length-prefixing the
+identity inputs, tenant `ab` + design `c` and tenant `a` + design `bc` derive the **same chain key** —
+the identical splice §11.2 closed one layer up:
+
+```
+chain_key_epoch_e = HKDF-Expand(chain_master,
+    info = LP("fathom/chain/key/v1") ‖ LP(tenant_id) ‖ LP(design_id) ‖ u32(chain_key_epoch), 32)
+```
+
+### 12.3 Nonces — §4's "fresh random 96-bit nonce" survives, but only because keys are per design
+
+**This was the sharpest finding and it changes a stated rule.** The implementer documentation that
+could be reached does **not** list "random" among the safe nonce choices for ChaCha20-Poly1305-IETF,
+and the CFRG's own usage-limits draft encourages counters. The AEAD itself has no per-key message
+limit with distinct nonces; the whole limit under random nonces is the birthday bound on 96 bits:
+**2^32 messages ≈ 2^-33**, 2^24 ≈ 2^-49. A collision is not gradual — two messages under one
+(key, nonce) leak the XOR of the plaintexts *and* the Poly1305 one-time key, so it is forgery too.
+
+Three options were on the table: switch to XChaCha20-Poly1305 (192-bit nonce, random documented-safe,
+zero extra crates, but not an RFC), move to counter nonces, or keep random with a budget.
+
+**Decision: keep RFC 8439 ChaCha20-Poly1305 with random 96-bit nonces, and make per-design data keys
+mandatory rather than merely preferred.**
+
+Reasoning, and the counter option is rejected on an operational ground rather than a cryptographic
+one. **A counter nonce is safe only while the key never moves backwards — and restoring a backup
+moves it backwards.** A self-hosted product shipped as Docker containers to network engineers will
+have its database restored from a snapshot; that is routine, not exceptional. A restore resets the
+counter while the key stays the same, and the next writes reuse nonces already spent. Silent,
+catastrophic, and triggered by the most normal operation an operator performs.
+
+**Random nonces have no such failure mode** — a restored deployment simply draws fresh random values,
+and the birthday bound is unchanged. The cost is the bound itself, and per-design keys make it
+irrelevant: 2^24 writes is 16.7 million versions **of one design**, which is not a number this
+product reaches. Per-design keys were already what §4 wanted for blast radius and the B1 binding;
+this makes them load-bearing, so they may not be relaxed to per-tenant without revisiting this
+section. Write that in the key table's own comment.
+
+**A `writes_under_key` counter column is still added — as a detector, never as the nonce source.**
+It alarms if any key approaches the budget; it does not feed the nonce. If per-design keys are ever
+relaxed, the fallback is XChaCha20-Poly1305, which the same crate already ships at no extra
+dependency.
+
+### 12.4 Crates — and one that would have failed the build
+
+| Role | Crate | New crates | C/asm |
+|---|---|---|---|
+| AEAD | `chacha20poly1305 0.11.0`, `default-features = false` | +6 (+7 with `zeroize`, which is enabled) | none |
+| Chain MAC | `hmac 0.13.0` + `sha2 0.11.0` | **0 — already in the lock** | none |
+| KDF | `hkdf 0.13.0` | +1 | none |
+| CSPRNG | `getrandom 0.4.3` — the OS RNG directly, not `rand` | **0 — already in the lock** | none |
+
+**`deps/decisions/chacha20poly1305.md` records version `0.10`, and that version cannot be used.**
+`chacha20poly1305 0.10.1` wants `chacha20 ^0.9`; the lockfile already carries `chacha20 0.10.2`
+(via `rand` ← `postgres-protocol`), and `deny.toml` sets `multiple-versions = "deny"`. Pinning 0.10
+puts two `chacha20` majors in the graph and fails the gate. **0.11.0 unifies with what is there.**
+The record is corrected.
+
+**Watch `cipher 0.5.0` — it is yanked**, and `deny.toml` sets `yanked = "deny"`. The lock must
+resolve to 0.5.1 or later; check the lockfile diff explicitly rather than assuming.
+
+`getrandom` rather than `rand`: no userspace generator state and no reseeding path, which is the
+surface the 2026 `rand` advisory concerns. `hmac` and `sha2` become directly named for the first
+time, so each needs its own `deps/decisions/` record — a crate this workspace names in a manifest
+always needs one, whatever the closure already contains.
+
+Budget: 115 external crates today, roughly 123 after all four roles, against a recorded cap of 160.
+
+### 12.5 A gap in the dependency gate, found by accident
+
+**CVE-2026-50185 / GHSA-3rjw-m598-pq24** (2026-07-02): `cmov` on aarch64 can produce wrong results
+when high register bits are set, because the backend assumes a zero-extension the Rust reference does
+not guarantee. Fixed in 0.5.4.
+
+Fathom locks `cmov 0.5.4`, so **it is not exposed** — verified. Two things make it worth recording
+anyway:
+
+1. **`cmov` is on the chain MAC's path** — `digest` → `ctutils::CtEq` → `cmov`. Tag comparison
+   inherits whatever it does. Pin `>= 0.5.4` explicitly.
+2. **RustSec does not carry this advisory.** `cargo audit` and `cargo deny advisories` read RustSec,
+   so layer 3 of the five-layer gate would not have raised it. "Filed advisories" has quietly meant
+   "filed at RustSec". **Add the crates.io subset of the GitHub Advisory Database as a gate input** —
+   1,571 JSON files, cheap to check against `Cargo.lock`.
+
+Both databases were queried with working controls, so "nothing found" is distinguishable from
+"could not reach". Nothing was found for any proposed crate. **That is a result, not a clean bill of
+health, and it goes stale immediately — re-run before merge.**
+
+Unrelated correction: `deny.toml` attributes the `proc-macro1` typosquat to RUSTSEC-2026-0260; that
+id is a different advisory from the same incident. The `proc-macro1` one is **RUSTSEC-2026-0265**.
+The control is unaffected; only the citation was wrong.
+
+**Environment note:** `static.crates.io` and the crates.io API return 403 through this session's
+proxy, and `scripts/closure-report.sh` and `scripts/crate-cooldown.sh` read publish dates from
+exactly those hosts. Check where CI actually runs before relying on the cooldown gate for these
+arrivals.
+
+### 12.6 Major 5 — re-wrap is not rotation, and only one of them revokes anything
+
+**Re-wrap** changes custody, not exposure. The data key is unchanged; only its wrapping changes.
+Ciphertext, nonce, tag, `content_hash` and `storage_binding` are all byte-identical. Seconds.
+**Anyone holding the old master key and a copy of the key rows from before the switch still decrypts
+everything, including data written afterwards** — because the data keys never changed.
+
+**Rotation** re-encrypts. New data key, fresh nonce, new ciphertext, new `storage_binding` —
+but `plaintext_binding` carries across unchanged, which is the proof the content did not change when
+the bytes did. Hours, I/O-bound. **This is the only operation that revokes anything.** Retired data
+keys are kept forever, exactly as retired chain keys are, or old versions become unreadable.
+
+**Columns.** Re-wrap touches only the key tables (`wrapped_key`, `wrap_nonce`, `master_key_id`,
+`master_key_epoch`, `wrap_version`, the B1 `aad` inputs, `rewrapped_at`, `rewrapped_by`) and **must
+not** touch `key_epoch` or the payload table at all. If a re-wrap moves `key_epoch`, the two
+operations are conflated in the schema and no interface can separate them afterwards. Rotation adds
+`key_epoch` (monotonic, never overwritten), `retired_at`, `retired_reason`, `status ∈ {active,
+retired, compromised}` — `compromised` is what tells an operator a re-wrap was not enough — plus
+`key_epoch` **stored** on the payload row, not merely fed into the MAC, so a verifier need not
+trial-decrypt to find the key. Rotation is long, so it needs a resumable job record: **a
+half-finished rotation with no record is indistinguishable from tampering at verification time.**
+
+**The asymmetry is the trap.** Rotation writes a `reencrypt` chain entry per version. Re-wrap writes
+nothing, because nothing it does is visible to the chain. So the operation that changes *custody*
+leaves no trace, while the one that changes *bytes* leaves one everywhere. **Re-wrap therefore gets
+its own sealed `rewrap` entry on the tenant-level chain**, recording old and new master identity,
+which key rows moved, who ran it, and explicitly that no payload was re-encrypted. Otherwise the one
+security-relevant key operation has no audit trail in a system whose integrity story is an
+append-only sealed log.
+
+**What the interface must report**, in these words and not interchangeable ones: the operation named
+`rewrap` or `rotate`, never a shared verb; counts rather than a boolean; old and new master identity;
+what verification will say afterwards; whether old key material was retained or destroyed. And for a
+re-wrap, this, as a statement of fact requiring explicit acknowledgement:
+
+> *Anyone who holds the previous master key and a copy of the key rows taken before this switch can
+> still decrypt all data, including data written after it. This changed custody, not exposure. To
+> revoke that access, run a rotation.*
+
+**One refusal:** no config field, flag or parameter may accept "rotate" as a synonym for "re-wrap".
+A deployment with a single `master_key` setting that silently re-wraps when changed leaves the
+operator believing they revoked something.
+
+### 12.7 Still unread, and therefore unestablished
+
+The proxy blocked the IETF, NIST, OWASP, IACR and docs.rs. Reached instead: the sparse registry
+index directly, and both advisory databases by clone.
+
+**Not read, and any figure attributed to them is second-hand:** RFC 8439 (including `P_MAX` and the
+nonce construction), RFC 5869 §3.3, RFC 9106, FIPS 198-1, FIPS 180-4, SP 800-38D §8.3 — the closest
+NIST analogue to the nonce question — SP 800-185, SP 800-57, and the NCC Group audit of the
+RustCrypto AEADs. The approved-set conclusion in §12.1 rests on NIST's ACVP algorithm list, which is
+strong evidence of what NIST validates but is not the standards text. The CFRG usage-limits draft was
+read from the research group's own source repository, which is authoritative for content but not for
+its current status.
+
+Also unestablished: whether XChaCha20-Poly1305 has been standardised since its draft — relevant only
+if per-design keys are ever relaxed and §12.3's fallback is taken.
+
+---
 ## 9. Questions for the attackers
 
 1. §3's whole-payload encryption — is giving up server-side search the right trade, and does
