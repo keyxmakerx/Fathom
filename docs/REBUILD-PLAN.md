@@ -243,6 +243,9 @@ the same.
 
 ### Phase 3 — The canvas
 
+**Depends on ADR-0044:** ports are drawn from the engine's equipment catalogue, so the catalogue
+format and a Juniper catalogue for the models on the approved boards land here, not in Phase 5.
+
 **This is the product.** Drag-and-drop diagramming, the way Lucidchart does it.
 
 **The design is settled: `docs/UI-SPEC.md`, approved 2026-09-11.** Rack-first — the rack, its
@@ -268,6 +271,10 @@ different ones.
 ### Phase 5 — Inventory
 
 The table of everything, editable in place.
+
+**Plus the engine manager (ADR-0044):** the engine table, the one-file bundle, the operator page to
+install, enable, disable and export engines, the sealed entries for each, and the loader change from
+`corpus/dict` on disk to bundles in the database.
 
 ### Phase 6 — Teaching and the config checker
 
