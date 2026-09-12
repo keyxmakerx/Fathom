@@ -222,6 +222,21 @@ Two honest corrections to phrasing that has appeared in earlier drafts:
 
 ## 3. Grants: the thing an administrator cannot forge
 
+> **CORRECTED 2026-09-12 — §3.3 had two errors, see §15.**
+>
+> **`second_bytes` must not bind `H(granter_sig)`.** ECDSA signatures are malleable two ways at once
+> — the `(r, s)`/`(r, −s)` pair, and non-canonical DER encodings of the same values — so one
+> authority can produce several byte-distinct `granter_sig` values over one `grant_bytes`, each
+> yielding a different `second_bytes`. A seconding signature would be bound to an encoding rather
+> than to a fact. **Bind `LP(H(grant_bytes)) ‖ LP(granter_key_fpr)` instead** and drop
+> `H(granter_sig)`. Costs nothing; the granter is already pinned by fingerprint.
+>
+> **The verification-step list is incomplete.** It omits `rpIdHash`, the **UP** bit (mandatory,
+> unlike UV), `C.type`, and that the signature is over the binary concatenation
+> `authData ‖ SHA-256(clientDataJSON)`. It also says "checks the origin" — **that must not be a
+> suffix match**; shipping one is exactly the `webauthn-rs` bug in §15.5. The challenge comparison is
+> against the **base64url** form of the issued challenge, not the raw digest.
+
 ### 3.1 Capabilities, not a role
 
 `memberships.role` stays as the organisation-level distinction it already is. It no longer decides
@@ -1636,6 +1651,165 @@ standing gates:
 
 ---
 
+## 15. Primitives and proportionality — decided 2026-09-12
+
+§11.3 flagged every primitive claim here as not looked up. They are now looked up, against both
+advisory databases cloned locally with working controls, and against seven comparable products read
+in their own repositories. **Two design errors were found in the process and are corrected in §3.3.**
+
+### 15.1 Hardware authenticators are NOT required for v1. Software keys are the default.
+
+**This is the biggest change to the design and it is a deliberate downgrade.** The evidence:
+
+| Product | Second factor | Fallback |
+|---|---|---|
+| NetBox | **none at all** | — |
+| Nautobot | **none** (SSO only) | — |
+| LibreNMS | TOTP only | — |
+| Passbolt CE | TOTP, Duo, YubiKey — **no WebAuthn** | — |
+| phpIPAM | passkeys, **off by default**, behind an optional library | password |
+| Vaultwarden | TOTP, Duo, WebAuthn | **printed recovery code, every enrolment** |
+| authentik | TOTP, WebAuthn, Duo | **static backup codes** |
+
+Three tools in this market require no second factor at all. NetBox's own threat model says outright
+that infrastructure operators and superusers are *trusted* — which is less than this design attempts
+with software keys alone. The only network tool here with passkeys ships them off by default. Both
+products that *can* require WebAuthn ship a printed fallback as standard equipment.
+
+**A design that opens with "buy two security keys per person before you can create your first rack"
+does not get evaluated on a Friday afternoon. A design nobody deploys protects nothing.**
+
+**What software keys keep — which is nearly everything structural:** the composite `principals
+(id, kind)` foreign keys, so an operator is unrepresentable in any authority row at every privilege
+level including `psql` as superuser; grants as signatures over canonical bytes verified at use;
+`organisation_auth_head`; the organisation id derived from the root public key; two database roles
+and withheld `GRANT`s; `app.design_capability`; the app password out of the compose file; the
+execution interlock.
+
+**What it gives up, and §11.3 understated this.** §2's table row *"produce a grant signature —
+Signature — tier 3"* becomes **"tier 3 until the next unlock under a substituted bundle"** — the
+same caveat §2 already attaches to the vault row, for the same reason. One bundle substitution plus
+one unlock mints grants for that steward indefinitely, where hardware would have required catching a
+real steward at a real touch, one grant at a time. **At tier 1 and tier 2 a software key is exactly
+as strong as hardware.** Set against what §12 already concedes — tier 3 reads every design directly
+with `psql` — what hardware buys is narrow: it stops the minting of durable authority, not reading.
+
+**Shipped as `FATHOM_REQUIRE_HARDWARE_STEWARD=false`**, same shape and honesty as
+`FATHOM_SINGLE_OPERATOR`, with a sealed entry at startup recording which mode is in force.
+**Deferring it costs no migration at all** — it is policy on top of `0005`, which is exactly why it
+can wait. It is a very good trade at v2, as an opt-in.
+
+**§4.5 stays hard even so: the operator surface has no password path.** With software keys, operator
+`A1` means "signed a challenge with a key protected by both ADR-0043 secrets" rather than "touched
+hardware" — and that still closes the route, because the server can re-issue a password and cannot
+re-issue the vault key. **Keep the rule; relax the factor.**
+
+### 15.2 Shamir is staged last, and its shape is reconsidered
+
+HashiCorp Vault's own documentation, on the most widely deployed use of Shamir in the industry:
+*"For most users, auto unseal provides a better experience"* — and *"if the seal mechanism or its
+keys are permanently deleted, then the Vault cluster cannot be recovered, even from backups."* The
+3 a.m. reboot failure does not transfer, because Fathom's split is not a startup gate. **The other
+one does: shares get lost, and Vault's remedy was to replace the mechanism rather than improve share
+custody.**
+
+With software keys the organisation root private key can instead be wrapped to each named recovery
+holder's account key, so any one of *k* named holders recovers alone. **That is weaker on paper and
+must be said so** — but every recovery is still announced before it issues, bannered for its
+duration, vetoable and expiring per §8.2, and it removes the artefact that must survive years in a
+safe and work exactly once under pressure. If the split stays: **`vsss-rs 6.0.1`, and `sharks` is
+refused by name** — it carries RUSTSEC-2024-0398 with **no patched version**, and `deny.toml`'s own
+policy is that an advisory with no fix is an escalation, not an ignore line.
+
+### 15.3 The signature primitive: ES256, `p256 0.14.0` + `ecdsa 0.17.0`
+
+EdDSA would have been ten crates cheaper and was the better primitive on paper. **It was rejected
+because FIDO's metadata service was unreachable, so which authenticators support EdDSA could not be
+established** — choosing it would have meant betting on an unverified belief, which rule 1 forbids.
+ES256 is the choice that does not need the lookup that could not be done. Revisit if that service
+becomes reachable.
+
+One family covers all three signing roles: WebAuthn assertions, §4.2's browser session key, and
+§6.1's organisation root key. Closure: 113 external crates today → 139 with ES256 (160 cap). Exactly
+one duplicate in the projected graph, `syn` 2.x/3.x, already skipped. No C carriers. Advisory sweep
+over all 93 projected crates in both databases: every hit is against a version below what resolves.
+
+**Constant-time is barely relevant to the server here and the design must not claim it is.** The
+server only verifies; there is no secret scalar in this process on this path. It matters for
+browser-side reconstruction and nothing else new.
+
+### 15.4 WebAuthn verification is hand-written, and that is allowed
+
+**No Rust crate passes this project's bar.** `webauthn-rs 0.5.5` depends on `openssl` and
+`openssl-sys`, both banned by name in `deny.toml` on C7 grounds — not negotiable by feature flags.
+`webauthn-rs 0.6.1-dev` is worse: a pinned prerelease pulling `rsa`, which carries the Marvin Attack
+advisory **with no fixed version**. `passkey-*` pins five crates a major behind the lockfile.
+
+**Hand-writing does not break the "never hand-roll a primitive" rule, because assertion verification
+is not a primitive.** It decomposes into a fixed-layout binary parse, a byte comparison, one
+SHA-256, and one signature verification. Only the last two are primitives and both are crates.
+This is the same category as the sealed chain this project already writes itself.
+
+**And the specification makes it cheaper than this document assumed.** WebAuthn Level 3's Limited
+Verification Algorithm gives a byte-prefix comparison for `clientDataJSON`, explicitly for verifiers
+that cannot support a full JSON parser. **So the assertion path needs no JSON parser and no CBOR
+parser** — `serde_json`, `ciborium` and `coset` all come off the closure. CBOR is needed only at
+registration, for a small fixed COSE_Key map, parsed by hand rather than trusting the browser's
+`getPublicKey()` output, since §12 already says the bundle can be substituted.
+
+**Require ES256 (-7). Refuse RS256 (-257)** — supporting it means taking `rsa` and its unfixed
+advisory. That excludes some older TPM-backed Windows Hello credentials; say so in the register
+rather than letting it be discovered. ES256 assertion signatures are DER-encoded, so a DER parse of
+attacker-supplied bytes sits on the verification path: **fuzz it.**
+
+### 15.5 A second instance of the gate gap, and two stale reasons
+
+`GHSA-22w3-693w-x895`: `webauthn-rs-core`'s origin check used a suffix match without requiring a dot,
+so `hermit-crab.example` was accepted for RP ID `crab.example`. **It is not in RustSec** — the second
+such case after the `cmov` finding in `PHASE-2-STORAGE-DESIGN.md` §12.5, and this one is in an origin
+check. The GitHub Advisory Database is not optional as a gate input.
+
+Separately, `deny.toml`'s two `[[bans.skip]]` entries name the wrong reachers — other crates reach
+both `syn` majors now — and they pin exact versions, so any `cargo update` trips the gate until the
+skip is edited. Correct behaviour; wrong recorded reason, in a file whose entire value is that a
+human read the reason.
+
+Also settled in passing: **`argon2` and `chacha20poly1305` are clean in both databases** as of
+2026-09-12, closing ADR-0043 §11's open item.
+
+### 15.6 The order to build in
+
+**Load-bearing — these deliver the owner's sentence:**
+
+1. **`0004 principals`** — the composite-kind foreign keys. Pure schema, no friction, no crate, and
+   the strongest fence in this document. **On its own it delivers "an administrator cannot take over
+   the site."**
+2. **`0009 planes`** — two roles, withheld grants, read-only admin pool, `app.design_capability`, and
+   the app password out of the compose file. Closes tier-2 crudeness. No friction.
+3. **`0005 authority`** — take the tables and the signature columns **now**, fill them with software
+   keys. §11.5 is right that retrofitting means invalidating every grant or accepting a permanently
+   unsigned tail. Take the schema; defer only the factor.
+4. **`0006 sessions`** — the highest value per unit of friction in the document, and it needs no
+   WebAuthn: a non-extractable browser keypair costs the user **zero** extra steps and defeats the
+   copied-assertion attack of §4.1, which works at tier 2, not merely tier 3.
+
+**Stageable:** `0008 chains` (reuses the storage construction wholesale; no friction, ship early
+anyway), then `0007 admin_surface` and the interlock, then receipts and witness, then break-glass.
+
+### 15.7 Before any of this merges
+
+Nothing above was run against the repository's own gates — the reviewer has no write tools, and the
+closure figures come from an isolated probe, so several crates resolved one patch above what the repo
+pins. **Re-run `cargo tree`, `cargo deny` and `cargo audit` in-repo with `--locked`, and re-run both
+advisory sweeps, immediately before merge.** Both results go stale from the moment they were taken.
+Crates.io publish dates were unreachable, so cooldown was checked against git tag dates as a proxy —
+`der 0.8.2` is on the seven-day boundary and `hybrid-array 0.4.15` is four days old, which bites only
+if anything is added without `--locked`.
+
+New `deps/decisions/` records are needed for `p256`, `ecdsa`, `elliptic-curve`, `crypto-bigint`,
+`der`, `sec1`, `signature`, `subtle`, `zeroize`, `vsss-rs`, and the already-flagged `hmac` and `sha2`.
+
+---
 ## Disagreements
 
 None with `.context/conventions.md`.
