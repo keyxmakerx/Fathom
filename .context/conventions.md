@@ -195,6 +195,14 @@ is tested against what a device accepts, never against what the detector needs.
 10. **The corpus is human-authored and reviewed.** No model output ships in the corpus
     without a named human reviewer recorded in the entry's `reviewed_by`.
 
+11. **A migration that reads an existing table must handle forced row-level security, and say so.**
+    Added 2026-09-12, after it was nearly shipped. A migration runs with no tenant context, so a
+    `SELECT` against a table behind `FORCE ROW LEVEL SECURITY` returns **zero rows, silently** — a
+    backfill that reports success and copies nothing. **On an empty database the bug is invisible**,
+    and an empty database is exactly where migrations get tested, so it surfaces on the first
+    deployment that has data. Wrap such a read in `NO FORCE` / `FORCE`, and comment that the pair is
+    load-bearing so nobody tidies it away.
+
 ## The risk enum — exactly three values, everywhere
 
 ```
