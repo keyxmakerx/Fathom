@@ -765,7 +765,34 @@ re-wrap, this, as a statement of fact requiring explicit acknowledgement:
 A deployment with a single `master_key` setting that silently re-wraps when changed leaves the
 operator believing they revoked something.
 
-### 12.7 Still unread, and therefore unestablished
+### 12.6a Two gaps in §11.2 itself, found by building it — corrected 2026-09-12
+
+An adversarial review of the implementation reproduced both against running code. **Neither was a
+builder deviation: the code follows §11.2 exactly, and §11.2 was wrong.**
+
+**The seal omits `design_version`, so the entry→payload link is unauthenticated.** Delete a version's
+ciphertext, re-point its entry at another version, and routine verification returns **verified** — a
+version destroyed and the history endorsing it. Deep verification catches it, but §11.2 makes the
+links-only run the routine check and the only one an operator holding just the chain key can do.
+
+**The fix is not to change the seal** — that would invalidate every seal ever written, for a gap that
+closes without it. **Make the storage pass entry-driven:** for each entry, check its `storage_binding`
+against the payload it names, rather than iterating payloads and searching for an entry. The tamper is
+then caught with the seal unchanged, and deleting the entry instead breaks the next entry's
+`prev_seal`. Recorded here so the seal input is not "corrected" later by someone reading only §11.2.
+
+**"Cannot verify under key epoch K" must never pre-empt verification.** §11.2 lists it as one of three
+outcomes without saying where it sits in the order, and the implementation reasonably returned it
+first. That makes it a switch: **one `UPDATE` of any entry's `chain_key_epoch` turns a detected
+forgery into "a coverage gap, not a failure"**, complete with a summary claiming the earlier entries
+verify — over entries nothing examined. The operator is sent to find a retired key that does not exist
+while the tamper goes unnamed.
+
+**The rule, and it is the general one:** verify everything verifiable first and report every break
+found; a coverage gap is an **additional fact reported alongside**, never an early return. Any count
+of what verified must come from verification, never from a position in a list. And an epoch beyond
+what this deployment ever wrote is not a coverage gap at all — it is an anomaly, and must read as one.
+
 
 The proxy blocked the IETF, NIST, OWASP, IACR and docs.rs. Reached instead: the sparse registry
 index directly, and both advisory databases by clone.
