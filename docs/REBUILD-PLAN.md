@@ -191,6 +191,10 @@ here that is expensive to fix later.
 
 **This is the product.** Drag-and-drop diagramming, the way Lucidchart does it.
 
+**The design is settled: `docs/UI-SPEC.md`, approved 2026-09-11.** Rack-first — the rack, its
+faceplates, its ports and the cables between them are the product. Build against that page; open the
+picture canvas only when building the surface it shows.
+
 - New web app talking to the server.
 - Our existing look — colours, typography.
 - Canvas with the ready-made diagram tool: drag boxes from a palette, drop them, connect them,

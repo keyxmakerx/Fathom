@@ -20,6 +20,7 @@ This file is a pointer page. It is loaded before every instruction, so it stays 
 |---|---|
 | The plan | `docs/REBUILD-PLAN.md` |
 | What is actually built right now | `docs/STATE.md` |
+| **What the interface looks like** | `docs/UI-SPEC.md` — approved. Pictures linked from it; open those only when building a surface. |
 | Rules you must not break | `.context/conventions.md` |
 | Decisions already made | `docs/decisions/` |
 | Questions waiting on the owner | `docs/OPEN-QUESTIONS.md` |
@@ -53,7 +54,7 @@ Decided 2026-09-11. See `docs/REBUILD-PLAN.md` for reasoning.
 
 - **Engine and server:** Rust. Unchanged.
 - **Client:** React + Vite, plain CSS. No Tailwind.
-- **Diagram:** React Flow.
+- **Diagram:** React Flow. The interface is rack-first — see `docs/UI-SPEC.md`.
 - **Storage:** PostgreSQL, encrypted, with a tamper-evident change history.
 - **Redaction gate:** stays in Rust, compiled for the browser. Never reimplemented in JavaScript.
 
