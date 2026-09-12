@@ -26,6 +26,21 @@
 #   logging caps         `43` §6.12 — logs are a metadata store, and an uncapped
 #                        one grows forever.
 #
+# THE DATABASE ROLE, added 2026-09-12 (`docs/REBUILD-PLAN.md` Phase 2
+# §"Operational foundations" item 4). `POSTGRES_USER` on the `db` service
+# below is the postgres image's bootstrap role, and PostgreSQL ALWAYS makes
+# that role a superuser regardless of the name given it -- a superuser
+# bypasses row-level security unconditionally, `FORCE` or not
+# (`crates/fathom-server/migrations/0002_identity_and_scope.sql`). So the
+# server must never connect as `fathom_bootstrap`. `deploy/init-db/10-app-role.sh`
+# runs once, as that bootstrap role, purely to create the `fathom` role the
+# server actually connects as below -- deliberately NOT a superuser, and owner
+# of its own database rather than granted piecemeal privileges (see that
+# script's own comment for why ownership is what lets it run migrations).
+# `fathom_server::rls::assert_rls_binds` then refuses to start at all if the
+# connected role turns out to be a superuser or carry BYPASSRLS, so this
+# cannot silently regress to the bootstrap role again.
+#
 # AND THE ONE THAT MATTERS MOST HERE: **the server is not published to the
 # host.** Only Caddy is. `49` §6 keeps C7 — no C or C++ in the shipped closure —
 # only because TLS terminates in front of the binary; a server reachable
@@ -43,11 +58,23 @@ services:
     expose:
       - "5432"
     environment:
-      POSTGRES_USER: fathom
-      POSTGRES_DB: fathom
-      # Compose reads this from the environment or a .env file. There is no
-      # default: a default database password is a password everyone has.
+      # The BOOTSTRAP role. PostgreSQL always makes this one a superuser --
+      # see the file header. Named `fathom_bootstrap`, not `fathom`, so
+      # nothing here reads like it is safe for the server to connect as.
+      # Nothing outside `deploy/init-db/` ever uses it again after the first
+      # startup that creates the volume.
+      POSTGRES_USER: fathom_bootstrap
+      POSTGRES_DB: fathom_bootstrap
+      # Compose reads these from the environment or a .env file. Neither has
+      # a default: a default database password is a password everyone has.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      # Read by deploy/init-db/10-app-role.sh, which runs as the bootstrap
+      # role above and uses this to create the restricted `fathom` role the
+      # server actually connects as (see FATHOM_DB_PASSWORD on `server`
+      # below). A different secret from POSTGRES_PASSWORD on purpose: the
+      # bootstrap role's password and the server's own are not the same
+      # credential and a leak of one must not be a leak of the other.
+      FATHOM_DB_PASSWORD: ${FATHOM_DB_PASSWORD:?set FATHOM_DB_PASSWORD}
     volumes:
       # /var/lib/postgresql, NOT /var/lib/postgresql/data. PostgreSQL 18's
       # image changed this: a single mount one level up puts the data in a
@@ -56,8 +83,16 @@ services:
       # image starts, refuses, and reports an incompatible data directory --
       # found 2026-09-03 by running this file rather than reading it.
       - db:/var/lib/postgresql
+      # Runs once, only against a freshly created (empty) data directory --
+      # the image's own entrypoint convention. See the file header and the
+      # script itself for what it creates and why.
+      - ./init-db:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fathom -d fathom"]
+      # The bootstrap role/db, not `fathom` -- they exist the instant
+      # PostgreSQL itself is up, before `deploy/init-db/10-app-role.sh` has
+      # necessarily run, so checking them can never race the app role's own
+      # creation.
+      test: ["CMD-SHELL", "pg_isready -U fathom_bootstrap -d fathom_bootstrap"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -93,7 +128,13 @@ services:
       # network. The BINARY's default is loopback, deliberately, so that a
       # server started outside a container cannot serve the world by accident.
       FATHOM_BIND: "0.0.0.0:8080"
-      DATABASE_URL: "postgres://fathom:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/fathom"
+      # `fathom`, not `fathom_bootstrap` -- the restricted, non-superuser
+      # role `deploy/init-db/10-app-role.sh` creates. `fathom-server` itself
+      # refuses to start if the role it connects as turns out to be a
+      # superuser or carry BYPASSRLS (`src/rls.rs`), so a compose file that
+      # pointed this back at the bootstrap role would fail loudly at startup
+      # rather than silently ship broken tenant isolation again.
+      DATABASE_URL: "postgres://fathom:${FATHOM_DB_PASSWORD:?set FATHOM_DB_PASSWORD}@db:5432/fathom"
       FATHOM_LOG: "info"
       FATHOM_HEALTH_TIMEOUT_MS: "2000"
       FATHOM_DB_POOL_SIZE: "8"

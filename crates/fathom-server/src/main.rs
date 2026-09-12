@@ -6,7 +6,7 @@ use std::sync::Arc;
 use fathom_server::config::Config;
 use fathom_server::engine::EngineState;
 use fathom_server::health::HealthState;
-use fathom_server::{db, log_startup, migrate, router, AppState};
+use fathom_server::{db, log_startup, migrate, rls, router, AppState};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -87,18 +87,35 @@ async fn main() -> ExitCode {
         }
     };
 
-    // Migrations before the listener binds. A server that accepts requests
-    // while its schema is half-applied is a server answering from a state
-    // nobody designed.
+    // The tenant-isolation gate, before migrations and before the listener
+    // binds. `migrations/0002_identity_and_scope.sql` FORCEs row-level
+    // security, but that binds for nothing if the role this server connected
+    // as is a superuser or carries BYPASSRLS -- Postgres exempts both
+    // unconditionally. Found 2026-09-12: the shipped `deploy/compose.yaml`
+    // connected as exactly such a role, so every isolation policy was inert
+    // in production while the tests, which provision a restricted role on
+    // purpose, kept passing. This asks the database what the connected role
+    // actually is and refuses to start rather than warn -- the same shape as
+    // `EngineState::load`'s schema gate above.
     match pool.get().await {
-        Ok(mut client) => match migrate::run(&mut client).await {
-            Ok(0) => tracing::info!("schema is up to date"),
-            Ok(n) => tracing::info!(applied = n, "migrations applied"),
-            Err(e) => {
-                tracing::error!(error = %e, "migrations failed");
-                return ExitCode::from(4);
+        Ok(mut client) => {
+            if let Err(e) = rls::assert_rls_binds(&client).await {
+                tracing::error!(error = %e, "refusing to start");
+                return ExitCode::from(8);
             }
-        },
+
+            // Migrations before the listener binds. A server that accepts
+            // requests while its schema is half-applied is a server
+            // answering from a state nobody designed.
+            match migrate::run(&mut client).await {
+                Ok(0) => tracing::info!("schema is up to date"),
+                Ok(n) => tracing::info!(applied = n, "migrations applied"),
+                Err(e) => {
+                    tracing::error!(error = %e, "migrations failed");
+                    return ExitCode::from(4);
+                }
+            }
+        }
         Err(e) => {
             // deadpool's error Display does not carry the password (the pool
             // was built from parsed parts, not the URL), but it is not this

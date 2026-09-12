@@ -18,6 +18,7 @@
 //! database for exactly this reason; the default below matches it.
 
 use deadpool_postgres::Pool;
+use tokio_postgres::NoTls;
 
 use fathom_server::config::Config;
 
@@ -58,4 +59,52 @@ pub async fn migrated_pool() -> Pool {
         .expect("migrations must apply cleanly against a fresh or already-migrated database");
 
     pool
+}
+
+/// Where to find PostgreSQL's bootstrap superuser -- the role
+/// `src/rls.rs`'s startup gate must refuse, and the role
+/// `.github/workflows/ci.yml`'s `postgres` service already runs as.
+///
+/// `SUPERUSER_DATABASE_URL`, if set, otherwise the fixed default the CI
+/// service container's own `POSTGRES_USER`/`POSTGRES_PASSWORD` matches.
+/// **Not a production credential** -- exactly like `test_database_url`'s
+/// `fathom_test_pw`, this exists only inside an ephemeral CI service
+/// container or a local developer's own throwaway database.
+///
+/// `#[allow(dead_code)]`: `mod support;` is compiled fresh into every test
+/// binary in this crate, and only `tests/rls_startup.rs` calls this one --
+/// the others have no reason to hold a superuser connection at all.
+#[allow(dead_code)]
+pub fn superuser_database_url() -> String {
+    std::env::var("SUPERUSER_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5432/postgres".to_string())
+}
+
+/// A raw connection authenticated as the PostgreSQL bootstrap superuser --
+/// deliberately not a pool, because the only thing this is ever used for is
+/// proving `rls::assert_rls_binds` refuses it.
+///
+/// Panics with a message naming what to do, rather than silently skipping,
+/// for the same reason `migrated_pool` does: this crate's tests answer to a
+/// brief that requires a real database, not a mock.
+#[allow(dead_code)]
+pub async fn superuser_client() -> tokio_postgres::Client {
+    let url = superuser_database_url();
+    let (client, connection) = tokio_postgres::connect(&url, NoTls)
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "could not reach a real PostgreSQL superuser at {url:?} ({e}). Set \
+             SUPERUSER_DATABASE_URL to point at one, or see `.github/workflows/ci.yml` for the \
+             bootstrap `postgres` role this default expects."
+            )
+        });
+    // The connection object drives the actual I/O; it must be polled for the
+    // client to do anything. Spawned and deliberately dropped rather than
+    // held: this connection lives exactly as long as the test that asked for
+    // it, and there is no pool here to outlive it.
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
 }
