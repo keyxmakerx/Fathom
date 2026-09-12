@@ -677,9 +677,17 @@ three chain levels are the admin design's §7.1; the migration is `0009_chains_a
 | `fathom/chain/metadata/v1` | in-MAC tag of `metadata_binding` | §11.2, corrected 2026-09-12 |
 | `fathom/chain/nocontent/v1` | in-MAC tag of the binding both slots carry on an entry that binds no payload — every site and organisation entry | 0009 |
 | `fathom/chain/genesis/v1` | hash tag of the genesis value | §11.2 |
+| `fathom/chain/metadata/aead/v1` | associated-data tag for encrypted chain metadata: `LP(tag) ‖ LP(chain_kind) ‖ LP(chain_id) ‖ u64(seq) ‖ u32(key_epoch)`, where `key_epoch` is `metadata_key_epoch` on the organisation chain and `chain_key_epoch` on the site chain | 0009 |
+| `fathom/key/aad/org-content/v1` | wrap binding of the per-organisation content key under the tenant key, in the design-key shape | 0009 |
 
-**Which key encrypts chain metadata, per level.** Design chain: none, the canonical plaintext is
-stored (§11.3 says what that discloses). Organisation chain: a per-organisation content key — a
+**Which key encrypts chain metadata, per level.** As built in 0009 (2026-09-12): `metadata` keeps
+its name and holds the bytes as stored — canonical plaintext on `design`, ciphertext with the tag on
+`site` and `org` — beside `metadata_binding` (32 bytes, clear), `metadata_nonce` (12 bytes, site and
+org), `metadata_aead_alg_id` (site and org) and `metadata_key_epoch` (org only, naming
+`org_content_keys`). The primary key is `(chain_kind, chain_id, seq)`; the seal's two identity slots
+are site `("", deployment_id)`, org `(organisation_id, "")`, design `(organisation_id, design_id)`,
+so the design case is byte-identical to §11.2. Design chain: no encryption, the canonical plaintext
+is stored (§11.3 says what that discloses). Organisation chain: a per-organisation content key — a
 random data key wrapped under the tenant key in the same shape as a design key, with epochs, retired
 epochs kept forever, re-wrapped on tenant re-wrap. Not the chain key, because the routine verifier
 holds that and must not be able to read organisation metadata; not the tenant key directly, which

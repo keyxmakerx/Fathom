@@ -964,7 +964,7 @@ organisation chain; the site chain covers everything organisation-independent.
 `password_changed`, `authenticator_registered|removed`, `enrolment_token_issued|redeemed|expired`,
 `contact_change_requested|seconded|applied|cancelled`,
 `setting_requested|seconded|applied|cancelled`, `setting_unresolvable`, `single_operator_mode`,
-`org_shell_created`, `backup_taken`, `restore_performed`, `rewrap`, `rotate_started|finished`,
+`org_shell_created`, `backup_taken`, `restore_performed`, `rotate_started|finished`,
 `shipper_config_changed`, `shipper_gap`, `spool_pressure`, `clock_step`, `epoch_opened`,
 `witness_receipt`, `verification_run`, `heartbeat`.
 
@@ -972,7 +972,10 @@ organisation chain; the site chain covers everything organisation-independent.
 `grant_seconded`, `grant_suspended|unsuspended`, `grant_revoked`, `auth_head_advanced`,
 `scope_created`, `scope_moved`, `scope_deleted`, `devices_reparented`, `recovery_holders_set`,
 `break_glass_opened|vetoed|used|closed`, `design_created`, `design_deleted`, `member_added|removed`,
-`authority_rollback`, `heartbeat`.
+`authority_rollback`, `heartbeat`, and **`rewrap`** — moved here from the site list on 2026-09-12:
+storage §12.6 requires a re-wrap to be recorded on a tenant-level chain, one entry per organisation
+whose keys were re-wrapped, and 0009 builds it that way. A site-level summary entry for the
+operator's act may be added later; it is not the record of the fact.
 
 **Per-design read chain** — `payload_decrypted`, carrying account id, session id, scope id, design
 version, and the id of the request signature that authorised it. Separate from the edit chain because
