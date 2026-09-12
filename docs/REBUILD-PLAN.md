@@ -266,6 +266,10 @@ is used instead, because helpers cannot spawn their own helpers.
 3. Ask a closed question, get a short answer. No open-ended exploration.
 4. The notes file is a pointer page. If it starts becoming a changelog again, cut it.
 5. One task at a time unless two are genuinely independent.
+6. **Never `git add -A` while a helper is working.** It sweeps that helper's half-written files into
+   whatever the lead is committing, and the commit message then describes none of it. Done once on
+   2026-09-12: a dependency change landed in a commit about a documentation number. Stage explicit
+   paths.
 
 ---
 
