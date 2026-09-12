@@ -338,6 +338,31 @@ pub async fn write_version(
     .await
 }
 
+/// §9's degrade table, third row, factored into one place so the two
+/// call sites — [`write_version_under`] and [`rotate_design`] — cannot drift
+/// apart on what "beyond bounds" means.
+///
+/// Refuses with [`DesignError::AuditSpoolBeyondBounds`] once the spool has
+/// passed [`audit::SpoolBounds::max_age`] or [`audit::SpoolBounds::max_bytes`],
+/// and does nothing otherwise. Callers run it inside their own transaction and
+/// before any key is touched, so a refusal costs one aggregate query and
+/// leaves nothing half-done.
+async fn refuse_if_spool_beyond_bounds(
+    tx: &Transaction<'_>,
+    bounds: &audit::SpoolBounds,
+) -> Result<(), DesignError> {
+    let spool = audit::spool_state(&**tx, bounds).await?;
+    if let Some(bound) = spool.beyond(bounds) {
+        return Err(DesignError::AuditSpoolBeyondBounds {
+            bound,
+            oldest_seconds: spool.oldest.as_secs(),
+            entries: spool.entries,
+            bytes: spool.bytes,
+        });
+    }
+    Ok(())
+}
+
 /// The same, with §9's spool bounds named explicitly.
 ///
 /// # The one row of §9's degrade table this enforces
@@ -345,11 +370,16 @@ pub async fn write_version(
 /// > *"Beyond bounds — design **writes** stop; design **reads** continue and
 /// > keep spooling; the deployment is marked `unwitnessed` in every session."*
 ///
-/// The check is here and in no other function, which is what makes the rest of
-/// that table true by construction: reads do not consult it, the site chain
-/// does not consult it, and `audit::spool` is an unconditional `INSERT`, so
-/// the entries that record the condition can always be written. **Nothing is
-/// deleted to make room and no entry is ever dropped.**
+/// The check is [`refuse_if_spool_beyond_bounds`], shared with
+/// [`rotate_design`] — a rotation re-encrypts every version and appends one
+/// `reencrypt` entry per version, so it grows the very backlog this bound
+/// exists to cap, and §9 draws no line between a write growing the spool one
+/// entry at a time and a rotation growing it a thousand at once. Between the
+/// two of them the rest of the degrade table holds true by construction:
+/// reads do not consult it, the site chain does not consult it, and
+/// `audit::spool` is an unconditional `INSERT`, so the entries that record the
+/// condition can always be written. **Nothing is deleted to make room and no
+/// entry is ever dropped.**
 ///
 /// It is checked inside the write's own transaction and before any key is
 /// touched, so a refusal costs one aggregate query and leaves nothing
@@ -374,15 +404,7 @@ pub async fn write_version_under(
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
 
-    let spool = audit::spool_state(&*tx, &bounds).await?;
-    if let Some(bound) = spool.beyond(&bounds) {
-        return Err(DesignError::AuditSpoolBeyondBounds {
-            bound,
-            oldest_seconds: spool.oldest.as_secs(),
-            entries: spool.entries,
-            bytes: spool.bytes,
-        });
-    }
+    refuse_if_spool_beyond_bounds(&tx, &bounds).await?;
 
     let ctx = repo::open_tenant_context(&tx, tenant, actor).await?;
 
@@ -545,6 +567,13 @@ pub async fn read_version(
 /// `content_hash` and `storage_binding` byte-identical, revokes nothing, and
 /// is not implemented here; see `keys::rotate_design_key`'s doc for why its
 /// audit trail must land with it.
+///
+/// **Also under §9's spool bounds** (see [`refuse_if_spool_beyond_bounds`]):
+/// a rotation appends one `reencrypt` entry per version, so a design with a
+/// thousand versions adds a thousand unshippable spool rows in the one
+/// transaction a plain design write adds one. What §9 bounds is the growth of
+/// unshipped sealed entries, not the shape of the write that grows them, so
+/// the same refusal applies here.
 pub async fn rotate_design(
     pool: &Pool,
     ring: &KeyRing,
@@ -552,6 +581,30 @@ pub async fn rotate_design(
     actor: AccountId,
     design: DesignId,
     reason: &str,
+) -> Result<RotationReport, DesignError> {
+    rotate_design_under(
+        pool,
+        ring,
+        tenant,
+        actor,
+        design,
+        reason,
+        audit::SpoolBounds::from_env(),
+    )
+    .await
+}
+
+/// The same, with §9's spool bounds named explicitly — see
+/// [`write_version_under`] for why a bounds-explicit twin exists at all.
+#[allow(clippy::too_many_arguments)]
+pub async fn rotate_design_under(
+    pool: &Pool,
+    ring: &KeyRing,
+    tenant: OrganisationId,
+    actor: AccountId,
+    design: DesignId,
+    reason: &str,
+    bounds: audit::SpoolBounds,
 ) -> Result<RotationReport, DesignError> {
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
@@ -567,6 +620,13 @@ pub async fn rotate_design(
     // stranded under a key nothing re-encrypts. Both paths take this lock
     // first, so one waits for the other's transaction to commit.
     lock_design(&tx, &design_text, &tenant_text).await?;
+
+    // Same bound, same reason: see this function's own doc. Checked after the
+    // lock so a rotation waiting on a concurrent write sees the spool state as
+    // of when it actually runs, and before any key is touched so a refusal
+    // costs one aggregate query and leaves nothing half-done — no key
+    // retired, no version re-encrypted.
+    refuse_if_spool_beyond_bounds(&tx, &bounds).await?;
 
     let tenant_key = keys::tenant_key(&tx, ring, &ctx).await?;
     let rotation = keys::rotate_design_key(&tx, &ctx, &tenant_key, design, reason).await?;

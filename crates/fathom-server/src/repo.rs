@@ -511,6 +511,10 @@ pub async fn open_tenant_context(
 /// `tenant_keys` and nothing else, every row it exposes is a wrapped key whose
 /// wrapping key is not in this database, and `app.design_capability` stays at
 /// its refusal.
+///
+/// `migrations/0010_entry_type_belongs_to_kind.sql` §F refers to this
+/// function under the name `repo::open_key_custody_context`, which was never
+/// used — this is that function, for anyone grepping from the migration.
 pub(crate) async fn enter_key_custody(tx: &Transaction<'_>) -> Result<(), RepoError> {
     tx.execute(
         "SELECT set_config('app.design_capability', 'no', true)",

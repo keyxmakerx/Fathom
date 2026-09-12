@@ -2241,3 +2241,127 @@ async fn past_the_bound_a_design_write_is_refused_and_a_read_still_succeeds() {
         b"the estate, saved while the trail was flowing"
     );
 }
+
+#[tokio::test]
+async fn past_the_bound_a_rotation_is_refused_and_drains_to_succeed() {
+    // The same row of §9's degrade table as the write above, but for
+    // `rotate_design`: a rotation re-encrypts every version and appends one
+    // `reencrypt` entry per version, so it grows the unshipped backlog the
+    // bound exists to cap -- a thousand-version design adds a thousand at
+    // once, where a plain write adds one. §9 draws no line between the two.
+    let pool = support::migrated_pool().await;
+    let su = support::superuser_client_on_test_database().await;
+    let ring = keyring(77);
+    let (account, org, design) = a_design(&pool).await;
+
+    designs::write_version_under(
+        &pool,
+        &ring,
+        org,
+        account,
+        design,
+        b"version one, saved while the trail was flowing",
+        1,
+        audit::SpoolBounds::defaults(),
+    )
+    .await
+    .expect("a write inside the bounds must apply");
+    designs::write_version_under(
+        &pool,
+        &ring,
+        org,
+        account,
+        design,
+        b"version two, saved while the trail was flowing",
+        1,
+        audit::SpoolBounds::defaults(),
+    )
+    .await
+    .expect("a write inside the bounds must apply");
+
+    let before: Vec<(i64, Vec<u8>)> = su
+        .query(
+            "SELECT design_version, ciphertext FROM design_payload WHERE design_id = $1 \
+             ORDER BY design_version",
+            &[&design.to_string()],
+        )
+        .await
+        .expect("ciphertexts before")
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    let reencrypt_before: i64 = su
+        .query_one(
+            "SELECT count(*) FROM chain_entries \
+             WHERE chain_kind = 'design' AND chain_id = $1 AND entry_type = 'reencrypt'",
+            &[&design.to_string()],
+        )
+        .await
+        .expect("count")
+        .get(0);
+    assert_eq!(reencrypt_before, 0);
+
+    // Past the bound: the same tight `max_bytes` the write-side test above
+    // uses, tripped by the same real spool rows the two writes just queued.
+    let beyond = audit::SpoolBounds {
+        max_age: audit::SpoolBounds::DEFAULT_MAX_AGE,
+        max_bytes: 1,
+    };
+    let err = designs::rotate_design_under(&pool, &ring, org, account, design, "test", beyond)
+        .await
+        .expect_err("past the bound a rotation must be refused");
+    match err {
+        designs::DesignError::AuditSpoolBeyondBounds { bound, entries, .. } => {
+            assert_eq!(bound, audit::Bound::Size);
+            assert!(entries > 0);
+        }
+        other => panic!("expected the typed refusal a surface can render, got {other:?}"),
+    }
+
+    // Nothing moved: no ciphertext changed and no `reencrypt` entry landed.
+    let after: Vec<(i64, Vec<u8>)> = su
+        .query(
+            "SELECT design_version, ciphertext FROM design_payload WHERE design_id = $1 \
+             ORDER BY design_version",
+            &[&design.to_string()],
+        )
+        .await
+        .expect("ciphertexts after the refusal")
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    assert_eq!(
+        before, after,
+        "a refused rotation must not touch a single stored ciphertext"
+    );
+    let reencrypt_after: i64 = su
+        .query_one(
+            "SELECT count(*) FROM chain_entries \
+             WHERE chain_kind = 'design' AND chain_id = $1 AND entry_type = 'reencrypt'",
+            &[&design.to_string()],
+        )
+        .await
+        .expect("count")
+        .get(0);
+    assert_eq!(
+        reencrypt_after, 0,
+        "a refused rotation must append no reencrypt entry"
+    );
+
+    // The spool drains -- modelled here, as the write-side test models it, by
+    // the bound relaxing back to §9's real defaults -- and the same rotation
+    // then succeeds.
+    let report = designs::rotate_design_under(
+        &pool,
+        &ring,
+        org,
+        account,
+        design,
+        "test",
+        audit::SpoolBounds::defaults(),
+    )
+    .await
+    .expect("once the spool is within bounds the rotation must apply");
+    assert_eq!(report.versions_reencrypted, 2);
+    assert_eq!(report.chain_entries_written, 2);
+}
