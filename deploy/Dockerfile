@@ -67,6 +67,22 @@ FROM gcr.io/distroless/cc-debian12@sha256:9dac0a79194e45a7da0158a9c6da57b217585a
 
 COPY --from=build /src/target/server/fathom-server /fathom-server
 
+# The schema/ tree, at a fixed absolute path — NOT embedded in the binary.
+# `main.rs` loaded it from `"schema"`, relative to the working directory; this
+# stage copies only the binary, so a container run from anywhere but a
+# checkout crash-looped on exit 7 with no `schema/` beside it and no override
+# to point elsewhere (Finding 1). Copied from the build stage's checkout
+# rather than the host context directly, so it is exactly the tree that was
+# built against, byte for byte — the same reason the binary itself is copied
+# `--from=build` rather than rebuilt here.
+#
+# Not compiled in: the crates that embed a tree in the binary are external
+# dependencies, and 49 §20's dependency budget is guarded deliberately (see
+# `crates/fathom-server/Cargo.toml`'s own comments on that budget) — a schema
+# update should not require a new binary.
+COPY --from=build /src/schema /schema
+ENV FATHOM_SCHEMA_ROOT=/schema
+
 # 65532:65532 is distroless's `nonroot`. The compose file says so as well; both
 # say it so that neither alone is load-bearing.
 USER 65532:65532

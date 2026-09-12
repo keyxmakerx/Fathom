@@ -41,6 +41,18 @@ pub struct Config {
 
     /// Maximum pooled connections. `FATHOM_DB_POOL_SIZE`, default 8.
     pub pool_size: usize,
+
+    /// Where the `schema/` tree lives. `FATHOM_SCHEMA_ROOT`, default
+    /// `schema` (`engine::DEFAULT_ROOT`), relative to the process's working
+    /// directory.
+    ///
+    /// **Every other startup input already had a `FATHOM_*` override; this
+    /// one did not.** `deploy/Dockerfile`'s runtime stage copies only the
+    /// binary, so a default resolved against the working directory left an
+    /// operator with no way to point the server at a tree living anywhere
+    /// else, and the production container crash-looped on exit 7 for want of
+    /// it.
+    pub schema_root: String,
 }
 
 /// The five levels `tracing` has, parsed by hand.
@@ -160,12 +172,17 @@ impl Config {
             )?,
         };
 
+        let schema_root = get("FATHOM_SCHEMA_ROOT")
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| crate::engine::DEFAULT_ROOT.to_string());
+
         Ok(Self {
             bind,
             database_url: Secret::new(database_url),
             log_level,
             health_timeout,
             pool_size,
+            schema_root,
         })
     }
 
@@ -199,6 +216,32 @@ mod tests {
         assert_eq!(c.log_level, LogLevel::Info);
         assert_eq!(c.health_timeout, Duration::from_millis(2000));
         assert_eq!(c.pool_size, 8);
+        assert_eq!(c.schema_root, "schema");
+    }
+
+    #[test]
+    fn a_schema_root_override_is_read_from_the_environment() {
+        // Finding 1: the distroless runtime stage copies only the binary, so
+        // a default resolved against the working directory left an operator
+        // with no way to point the server at a `schema/` tree living
+        // anywhere else. Every other startup input already has a `FATHOM_*`
+        // override; this is the one that did not, until now.
+        let c = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_SCHEMA_ROOT", "/schema"),
+        ]))
+        .unwrap();
+        assert_eq!(c.schema_root, "/schema");
+    }
+
+    #[test]
+    fn a_blank_schema_root_override_falls_back_to_the_default() {
+        let c = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_SCHEMA_ROOT", "   "),
+        ]))
+        .unwrap();
+        assert_eq!(c.schema_root, "schema");
     }
 
     #[test]

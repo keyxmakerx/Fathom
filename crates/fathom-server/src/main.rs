@@ -51,11 +51,11 @@ async fn main() -> ExitCode {
 
     // The schema tree, same shape as the config it sits beside: read before
     // logging, fail on stderr, no subscriber to blame for having missed it.
-    // A schema that failed to parse is as fundamental a startup problem as a
-    // missing DATABASE_URL, and for the same reason gets no default — see
-    // `engine::EngineState::load`.
-    let engine = match EngineState::load(std::path::Path::new(fathom_server::engine::DEFAULT_ROOT))
-    {
+    // A schema that failed to parse — or failed one of its own gates, see
+    // `engine::EngineState::load` — is as fundamental a startup problem as a
+    // missing DATABASE_URL, and for the same reason gets no default beyond
+    // `config.schema_root`'s own (`FATHOM_SCHEMA_ROOT`, `config.rs`).
+    let engine = match EngineState::load(std::path::Path::new(&config.schema_root)) {
         Ok(e) => Arc::new(e),
         Err(e) => {
             eprintln!("fathom-server: {e}");

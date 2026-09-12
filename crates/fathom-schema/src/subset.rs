@@ -319,7 +319,20 @@ fn parse_block(
     indent: usize,
     profile: Profile,
 ) -> Result<Node, SubsetError> {
-    let first = &lines[*cursor];
+    // Every other call site guards `*cursor < lines.len()` before calling in
+    // (`parse_seq`'s nested-block arm, `map_entry_value`'s), so this branch is
+    // reached only from `parse_profile`'s top-level call — which is exactly
+    // where a zero-byte, whitespace-only, or comments-only source lexes to no
+    // `Line`s at all. Indexing `lines[*cursor]` there panicked
+    // ("index out of bounds: the len is 0 but the index is 0"); a typed error
+    // is what every other malformed input in this parser produces instead.
+    let Some(first) = lines.get(*cursor) else {
+        return Err(SubsetError::new(
+            1,
+            "empty document: no content (the source is empty, all blank lines, or all \
+             comments) — a schema file must declare at least one top-level key",
+        ));
+    };
     if first.text == "-" || first.text.starts_with("- ") {
         parse_seq(lines, cursor, indent, profile)
     } else {
@@ -945,5 +958,38 @@ mod tests {
             n.get("keys").unwrap().get("Site.name").unwrap().as_int(),
             Some(1)
         );
+    }
+
+    // ---- Finding 3: a document with no content must error, never panic ----
+    //
+    // `parse_block` used to index `lines[*cursor]` with no bounds check, and
+    // all three of these lex to zero `Line`s: `panicked at ... index out of
+    // bounds: the len is 0 but the index is 0`, which took the server down
+    // with it (exit 101, a backtrace, no clean failure). Each must now come
+    // back as an ordinary `Err`.
+
+    #[test]
+    fn empty_source_is_a_typed_error_not_a_panic() {
+        let e = parse("").expect_err("a zero-byte document must not parse to a value");
+        assert!(!e.message.is_empty());
+    }
+
+    #[test]
+    fn whitespace_only_source_is_a_typed_error_not_a_panic() {
+        // Spaces and blank lines only — no tabs, which are already refused
+        // earlier in the lexer (`refusals`'s `"\ta: 1\n"` case) and would
+        // never reach `parse_block` at all.
+        for src in ["   \n", "  \n\n   \n", "\n\n\n"] {
+            let e = parse(src).expect_err("a whitespace-only document must not parse to a value");
+            assert!(!e.message.is_empty(), "{src:?}");
+        }
+    }
+
+    #[test]
+    fn comments_only_source_is_a_typed_error_not_a_panic() {
+        for src in ["# just a comment\n", "# one\n# two\n# three\n"] {
+            let e = parse(src).expect_err("a comments-only document must not parse to a value");
+            assert!(!e.message.is_empty(), "{src:?}");
+        }
     }
 }

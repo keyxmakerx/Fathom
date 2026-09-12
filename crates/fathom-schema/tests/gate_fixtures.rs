@@ -257,6 +257,42 @@ fn unknown_vendor_fires() {
 }
 
 #[test]
+fn kind_name_with_control_character_fires() {
+    // Finding 6: the subset parser's double-quoted scalars accept `\n`
+    // escapes, and `GET /schema/kinds` is `names.join("\n")` with no
+    // validation — so a kind named `"Device\nZZInjected"` would smuggle an
+    // extra line onto the wire. The gate must catch it at load.
+    let f = run_with(|d| {
+        let p = d.join("schema.yaml");
+        let s = fs::read_to_string(&p).unwrap().replacen(
+            "- kind: Device",
+            r#"- kind: "Device\nZZInjected""#,
+            1,
+        );
+        fs::write(&p, s).unwrap();
+    });
+    assert!(
+        codes(&f).contains(&"proposed:schema.kind.invalid-name"),
+        "{f:?}"
+    );
+}
+
+#[test]
+fn empty_kind_name_fires() {
+    let f = run_with(|d| {
+        let p = d.join("schema.yaml");
+        let s = fs::read_to_string(&p)
+            .unwrap()
+            .replacen("- kind: Device", r#"- kind: """#, 1);
+        fs::write(&p, s).unwrap();
+    });
+    assert!(
+        codes(&f).contains(&"proposed:schema.kind.invalid-name"),
+        "{f:?}"
+    );
+}
+
+#[test]
 fn unexercised_tier_warns() {
     let f = run_with(|d| {
         let p = d.join("schema.yaml");

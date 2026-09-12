@@ -166,6 +166,31 @@ pub fn run(tree: &SchemaTree) -> Vec<Finding> {
         }
     }
 
+    // ---- schema.kind.invalid-name (Finding 6, 2026-09) ---------------------
+    // `GET /schema/kinds` (fathom-server's `render_kinds`) is one kind name
+    // per line, `names.join("\n")`, and the subset parser's double-quoted
+    // scalars accept `\n`/`\r`/`\t` escapes — so a kind named e.g.
+    // `"Site\nZZInjected"` smuggles an extra, non-existent kind onto the
+    // wire. The record separator between `schema/` and the wire must hold, so
+    // a kind name carrying any control character (or none at all) fails here,
+    // at load, rather than at the endpoint.
+    for k in &tree.kinds {
+        if k.name.is_empty() || k.name.chars().any(|c| c.is_control()) {
+            push(
+                "proposed:schema.kind.invalid-name",
+                Severity::Failure,
+                sp,
+                k.line,
+                format!(
+                    "kind name {:?} is empty or contains a control character (newline, \
+                     carriage return, tab, or other C0) — not a valid kind name \
+                     (code not named by 62 §18.1)",
+                    k.name
+                ),
+            );
+        }
+    }
+
     let kind_names: BTreeSet<&str> = tree.kinds.iter().map(|k| k.name.as_str()).collect();
     let class_names: BTreeSet<&str> = tree.classes.iter().map(|c| c.name.as_str()).collect();
     let edge_by_name: BTreeMap<&str, &EdgeDecl> =

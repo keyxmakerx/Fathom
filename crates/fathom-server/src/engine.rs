@@ -32,11 +32,19 @@ use axum::response::IntoResponse;
 
 use fathom_schema::model::LoadError;
 use fathom_schema::SchemaTree;
+use fathom_schema::{check, Finding, Severity};
 
 /// Where the schema tree lives relative to the process's working directory,
 /// absent a caller-supplied root. `fathom-schema-check` (`src/bin/
 /// fathom-schema-check.rs`) defaults to the same literal for the same reason:
 /// this binary, like that one, is normally run from the workspace root.
+///
+/// `main.rs` does not read this constant directly — it reads
+/// `config::Config::schema_root`, which falls back to this same literal when
+/// `FATHOM_SCHEMA_ROOT` is unset (`config.rs`). It stays here, rather than
+/// moving to `config.rs`, because it is this module's own fallback for every
+/// caller that does not go through `Config` — the tests in this file and in
+/// `tests/schema_endpoint.rs` included.
 pub const DEFAULT_ROOT: &str = "schema";
 
 /// The loaded schema tree, held for the life of the process.
@@ -50,34 +58,78 @@ pub struct EngineState {
     schema: SchemaTree,
 }
 
-/// Why the schema failed to load. A thin wrapper over
-/// `fathom_schema::model::LoadError` rather than a re-derived copy of it, so
-/// the two error sets cannot drift apart.
+/// Why the schema failed to load or pass its own gates. A thin wrapper over
+/// `fathom_schema::model::LoadError` and `fathom_schema::Finding` rather than
+/// re-derived copies of either, so the error sets cannot drift apart.
 #[derive(Debug)]
-pub struct EngineError(LoadError);
+pub enum EngineError {
+    /// The tree did not even parse: `schema.yaml` is missing, or an I/O error
+    /// reading the tree.
+    Load(LoadError),
+    /// The tree parsed but failed one or more of its own 62 §18 gates — a
+    /// `schema.yaml.subset` violation anywhere in the tree (including a
+    /// corrupt `enums/*.yaml`, and an empty/whitespace/comments-only
+    /// `schema.yaml`), an invalid kind name, or any other gate this crate
+    /// runs. **The server refuses to start on a broken schema.** Before this,
+    /// `SchemaTree::load` swallowed a subset parse error into
+    /// `tree.subset_errors` and returned `Ok`, and nothing here inspected it:
+    /// the server started, logged nothing, answered `/health` 200, and served
+    /// `/schema/kinds` 200 with an empty body against a corrupt tree.
+    /// Refusing to serve a broken vocabulary is correct for an
+    /// estate-of-record product.
+    Failed(Vec<Finding>),
+}
 
 impl fmt::Display for EngineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "the schema tree did not load: {}. Its value is not shown here beyond the path fathom-schema reports.",
-            self.0
-        )
+        match self {
+            EngineError::Load(e) => write!(
+                f,
+                "the schema tree did not load: {e}. Its value is not shown here beyond the path fathom-schema reports."
+            ),
+            EngineError::Failed(findings) => {
+                writeln!(
+                    f,
+                    "the schema tree failed {} of its own gate(s):",
+                    findings.len()
+                )?;
+                for finding in findings {
+                    writeln!(
+                        f,
+                        "  {}  {}:{}  {}",
+                        finding.code,
+                        finding.file.display(),
+                        finding.line,
+                        finding.message
+                    )?;
+                }
+                Ok(())
+            }
+        }
     }
 }
 
 impl std::error::Error for EngineError {}
 
 impl EngineState {
-    /// Parse the schema tree rooted at `root`.
+    /// Parse the schema tree rooted at `root` and run every gate this crate
+    /// implements over it (`fathom_schema::check`) — the same call
+    /// `fathom-schema-check` makes, never a hand-rolled subset of it.
     ///
     /// Called once, at startup. `main.rs` treats a failure here exactly like
     /// a bad `Config`: print a clear message to stderr and refuse to start,
     /// before anything could serve a request against a schema that never
-    /// loaded (`Config::from_env`'s failure path is the precedent this
-    /// mirrors).
+    /// loaded, or loaded but is broken (`Config::from_env`'s failure path is
+    /// the precedent this mirrors).
     pub fn load(root: &Path) -> Result<Self, EngineError> {
-        let schema = SchemaTree::load(root).map_err(EngineError)?;
+        let (schema, findings) = check(root).map_err(EngineError::Load)?;
+        let failures: Vec<Finding> = findings
+            .into_iter()
+            .filter(|f| f.severity == Severity::Failure)
+            .collect();
+        if !failures.is_empty() {
+            return Err(EngineError::Failed(failures));
+        }
         Ok(Self { schema })
     }
 
