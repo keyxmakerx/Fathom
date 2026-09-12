@@ -1653,6 +1653,33 @@ standing gates:
 
 ## 15. Primitives and proportionality — decided 2026-09-12
 
+### 15.0 Two naming and privilege calls, decided 2026-09-12
+
+**The operator database role is `fathom_operator`, not §1.3's `fathom_admin`.** `memberships.role`
+already carries the value `admin`, and an `admin` there is a **steward** — the exact confusion this
+document's whole vocabulary exists to prevent. §1.3 is amended rather than the code. `operator` is
+also the word §0 already uses for the machine side, so the code now matches the design's own language
+instead of cutting across it.
+
+**The migration role and the runtime role are separated.** Until now one role owned the tables, ran
+the migrations and served requests — and building `0005` added `CREATEROLE` to it, because roles are
+created inside the migration chain.
+
+*Roles stay in the migration chain.* The alternative, provisioning them in the container's init
+script, runs **once, at database creation**: a role added by a later migration would silently never
+appear on an existing deployment. That is invariant 11's failure shape exactly — works on an empty
+database, fails where there is data — and it is worse than the privilege it saves.
+
+*But the runtime role must not carry that privilege.* A role that owns every table, can issue DDL and
+can create roles, used to serve every request, is the one-credential-does-everything pattern this
+whole design exists to refuse. **Two roles: a migration role that owns the schema and holds
+`CREATEROLE`, used once at startup and then dropped; and a runtime role with data privileges only —
+no DDL, no `CREATEROLE`, no ownership.** An injection at runtime then cannot reshape the database or
+mint a role, and the cost is one extra connection string.
+
+Both decisions are reversible and the owner's to overrule.
+
+
 §11.3 flagged every primitive claim here as not looked up. They are now looked up, against both
 advisory databases cloned locally with working controls, and against seven comparable products read
 in their own repositories. **Two design errors were found in the process and are corrected in §3.3.**
