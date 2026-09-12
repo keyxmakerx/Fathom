@@ -425,9 +425,18 @@ and passive plant. **Treat them as unknown, not closed.** They are cheap to re-c
 ## V. The vault — raised 2026-09-12
 
 Three calls the security review surfaced while resolving majors 1, 4 and 7 of
-`docs/PHASE-2-STORAGE-DESIGN.md`. All three are yours, not ours, and all three block building the
-credential vault. Everything technical around them is already decided and written up in §11 of that
-page.
+`docs/PHASE-2-STORAGE-DESIGN.md`. Everything technical around them is already decided and written
+up in §11 of that page.
+
+> **HANDED BACK 2026-09-12.** The owner: *"I can not answer those, you will need to research those
+> yourself."* So these are no longer waiting on a preference — they are ours to research, decide and
+> defend, and A1 above moves with them. **Every decision recorded below is reversible and is the
+> owner's to overrule on sight.** Each one says what it gives up, so overruling it is a short
+> conversation rather than a re-derivation.
+>
+> Status: **V1** under research together with A1 — they are the same question (who holds a key, and
+> what does holding it cost an operator). **V2** decided in principle below. **V3** deliberately
+> deferred until A1 lands, because deciding it first would be deciding the same thing twice.
 
 ### V1. A passphrase you choose, or a key Fathom generates for you?
 
@@ -447,6 +456,32 @@ becomes an honest printed artefact instead of a memory test.
 **Our recommendation: the generated key.** But it is your product's feel, so you decide.
 
 ### V2. Should the names of your sites and designs be encrypted?
+
+> **DECIDED IN PRINCIPLE 2026-09-12 — yes, and the rule binds from today even though the column does
+> not exist yet.**
+>
+> **The rule:** a design or scope name is encrypted at rest, and any server-side surface that needs
+> to show one renders it from an id rather than keeping a readable copy. No audit row, notification,
+> export filename, error message or support diagnostic may carry a plaintext name.
+>
+> **Why it can be decided now and built later.** The expensive half is the scope *path*, and that is
+> already settled and landing today as opaque ids — a path cannot be reshaped once data exists, a
+> name column can. The cheap half is the column itself.
+>
+> **Why the rule binds before the column exists.** The cost that decides this question is not the
+> queries, it is that every server surface naming a design has to render it client-side. None of
+> those surfaces exist yet — no notifications, no audit log (A2 is open), no exports. Binding the
+> rule while the count is zero costs nothing; binding it after they are written means auditing every
+> one. This is the whole reason the review said it could not wait.
+>
+> **What it gives up:** sorting and searching by name move into the browser; the database can no
+> longer enforce that two designs have different names; and an operator restoring a backup cannot
+> tell which design is which without the key. That last one is the real cost and the most likely
+> reason to overrule this.
+>
+> **What it does not buy:** Fathom's server can still read these names while it is running. This
+> protects a stolen dump or backup tape, nothing more.
+
 
 **Today they would not be.** Anyone with a copy of the database — a backup file, a stolen dump, no
 key needed — reads your organisation's name, every building, every rack, every design name, who
@@ -480,8 +515,19 @@ survive.
 be changed without every user re-entering their passphrase; and if that file is ever lost, every
 credential in the vault is gone permanently.
 
-**Our recommendation: record it as an option, do not build it in this phase.** Answer only if you
-disagree.
+**Our recommendation was: record it as an option, do not build it in this phase.**
+
+> **DEFERRED 2026-09-12, pending A1 — and the reason matters.** A server-held pepper is the same
+> shape of question as A1: a secret sitting beside the application, protecting a stolen database and
+> nothing else. If A1 answers "a protected file on the Fathom server", then Fathom already has that
+> mechanism, its custody story and its backup story — and a pepper becomes either redundant with it
+> or a second file with the same hazards. If A1 answers otherwise, the pepper is a different
+> proposition. Deciding this before A1 would be deciding the same thing twice and risks two
+> mechanisms where one belongs.
+>
+> Revisit the moment A1 is recorded. The three costs already established stand either way: it does
+> nothing against a compromised running server, it cannot be changed without every user re-deriving,
+> and losing the file destroys every Mode A entry permanently.
 
 ---
 
