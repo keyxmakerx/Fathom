@@ -1,0 +1,26 @@
+# Advisory allow-list for scripts/osv-gate.sh
+#
+# scripts/osv-gate.sh queries OSV.dev's batch endpoint for every (name, version)
+# pair in Cargo.lock. OSV.dev aggregates RustSec AND GitHub-reviewed advisories, closing
+# the gap recorded in docs/PHASE-2-STORAGE-DESIGN.md §12.5: cargo deny and cargo audit
+# both read RustSec only, and two real advisories (GHSA-3rjw-m598-pq24 against `cmov`,
+# GHSA-22w3-693w-x895 against `webauthn-rs`) were absent from it when they mattered.
+#
+# Every finding OSV.dev returns must appear here, or the gate fails the build. A row
+# is a decision that a specific finding, against a specific crate, is understood and
+# accepted -- never a way to quieten the gate. Unlike scripts/crate-cooldown.sh's
+# exceptions, a row here does not expire on its own: an advisory does not stop applying
+# with time. Remove a row only when the dependency is fixed, replaced, or removed, and
+# say which in the reason.
+#
+# Format, one entry per line, three fields separated by `|`:
+#
+#     <advisory-id> | <YYYY-MM-DD the row was added> | <reason>
+#
+# Every entry needs all three: an id (so a fixed dependency's row is easy to find and
+# remove), a reason (so the next reader can check the judgement rather than inherit
+# it), and a date (so staleness is visible). Lines starting with `#` and blank lines
+# are ignored.
+#
+# This list is currently empty, and that is the correct state: every dependency this
+# workspace carries today is clean against OSV.dev as of the gate's own last clean run.

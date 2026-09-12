@@ -767,6 +767,9 @@ Both databases were queried with working controls, so "nothing found" is disting
 "could not reach". Nothing was found for any proposed crate. **That is a result, not a clean bill of
 health, and it goes stale immediately — re-run before merge.**
 
+**Gate built 2026-09-12: `scripts/osv-gate.sh`**, wired into CI as Layer 6, queries OSV.dev's
+`querybatch` endpoint for this gap directly — see `deps/decisions/00-CLOSURE-SERVER.md`.
+
 Unrelated correction: `deny.toml` attributes the `proc-macro1` typosquat to RUSTSEC-2026-0260; that
 id is a different advisory from the same incident. The `proc-macro1` one is **RUSTSEC-2026-0265**.
 The control is unaffected; only the citation was wrong.

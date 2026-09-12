@@ -163,7 +163,21 @@ jobs:
       - name: Layer 3's positive control
         run: ./scripts/tests/advisory-gate-test.sh
 
-      # ---- Layer 5. Needs the crates.io API, so it is last of the five. ----
+      # Layer 6 — closes the gap in docs/PHASE-2-STORAGE-DESIGN.md §12.5. cargo-deny
+      # and cargo-audit above both read RustSec only; OSV.dev also carries advisories
+      # GitHub reviewed and RustSec never received (GHSA-3rjw-m598-pq24 against `cmov`
+      # was one). Needs the OSV.dev API, so it runs alongside layer 5, not before it.
+      - name: Layer 6 — OSV.dev advisory gate (RustSec + GitHub-reviewed)
+        run: ./scripts/osv-gate.sh
+
+      # A local fixture server, no network needed: the vulnerable pin must fail and
+      # name the advisory, the patched pin must pass, an allow-listed finding must
+      # pass, and an unreachable endpoint must fail closed. Same reasoning as Layer
+      # 3's positive control just above.
+      - name: Layer 6's positive control
+        run: ./scripts/tests/osv-gate-test.sh
+
+      # ---- Layer 5. Needs the crates.io API, so it is last, because it needs the crates.io API. ----
 
       - name: Layer 5 — the version cooldown
         run: ./scripts/crate-cooldown.sh

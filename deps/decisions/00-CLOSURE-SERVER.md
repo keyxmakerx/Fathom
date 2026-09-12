@@ -313,3 +313,14 @@ Three routes, none chosen here because none is an execution session's to choose:
    took.
 
 The one thing the trigger forbids is meeting the number by removing a control.
+
+## The §12.5 gap — closed 2026-09-12
+
+`docs/PHASE-2-STORAGE-DESIGN.md` §12.5 recorded that `cargo deny advisories` and `cargo audit`
+both read RustSec only, and that GHSA-3rjw-m598-pq24 (`cmov`, CVE-2026-50185) was not there when it
+mattered. `scripts/osv-gate.sh` now queries OSV.dev's `querybatch` endpoint for every
+`(name, version)` in `Cargo.lock` — OSV.dev aggregates RustSec and GitHub-reviewed advisories, so
+this closes the gap rather than moving it. It fails closed on a network problem rather than passing
+silently, and every accepted finding must be named in `deps/osv-allow.txt`, which starts empty.
+Wired into CI as Layer 6, with its own positive control (`scripts/tests/osv-gate-test.sh`, a local
+fixture server, no network needed), in `.github/workflows/ci.yml`.
