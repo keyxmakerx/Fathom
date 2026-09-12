@@ -107,3 +107,60 @@ deadpool-postgres = { version = "0.14.2", default-features = false, features = [
 fathom-graph = { path = "../fathom-graph" }
 fathom-id = { path = "../fathom-id" }
 fathom-schema = { path = "../fathom-schema" }
+
+# ---------------------------------------------------------------------------
+# PHASE 2's KEY HIERARCHY. Every version below is `docs/PHASE-2-STORAGE-DESIGN.md`
+# §12.4's table, and each has its own `deps/decisions/` record because this
+# workspace names it in a manifest (gate-zero's rule for a DIRECT dependency).
+# ---------------------------------------------------------------------------
+
+# The AEAD. ChaCha20-Poly1305, RFC 8439, 96-bit nonce, 128-bit tag.
+#
+# 0.11.0 AND NOT 0.10, AND THE REASON IS THE LOCKFILE, NOT TASTE. §12.4:
+# `chacha20poly1305 0.10.1` wants `chacha20 ^0.9`; this lockfile already
+# carries `chacha20 0.10.2` through `rand` <- `postgres-protocol`, and
+# `deny.toml` sets `multiple-versions = "deny"`, so pinning 0.10 would put two
+# `chacha20` majors in the graph and fail the gate. 0.11.0 unifies with what
+# is already there. `deps/decisions/chacha20poly1305.md` carried `0.10` and is
+# corrected in the same commit as this line.
+#
+# `alloc` is the one feature the vector-returning `Aead::encrypt`/`decrypt`
+# need; `getrandom` is OFF because nonces are drawn through the `getrandom`
+# crate directly below, at one place in this crate, rather than through the
+# AEAD's convenience constructor. `zeroize` is ON: §12.4's table says so, and
+# it is what wipes the expanded ChaCha state and the key inside the cipher on
+# drop.
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = [
+    "alloc",
+    "zeroize",
+] }
+
+# HKDF-SHA-256, Expand-only (`from_prk`, never `new`): §12.1, because the
+# chain key is already uniform and there is nothing for Extract to do. The one
+# genuinely new crate of the four roles.
+hkdf = { version = "0.13.0", default-features = false }
+
+# The chain MAC: HMAC-SHA-256 (§12.1). BOTH OF THESE WERE ALREADY IN
+# `Cargo.lock` -- they arrive with SCRAM-SHA-256 in the PostgreSQL driver
+# (`hmac` -> `postgres-protocol` -> ... -> `fathom-server`) -- so naming them
+# here adds no crate to the closure. They are named anyway, and each gets its
+# own decision record, because a crate this workspace calls directly is one it
+# chose: gate-zero draws that line and it is the right line.
+#
+# Poly1305 is NOT the chain MAC and may never become one (§11.2): it is a
+# one-time authenticator, sound only inside the AEAD where it gets a fresh
+# one-time key per message.
+hmac = { version = "0.13.0", default-features = false }
+sha2 = { version = "0.11.0", default-features = false }
+
+# The CSPRNG: the OS generator directly, not `rand` (§12.4). No userspace
+# generator state and no reseeding path -- which is the surface the 2026
+# `rand` advisory concerns. Already in the lockfile; named here because this
+# crate now calls it for every nonce and every fresh data key.
+getrandom = { version = "0.4.3", default-features = false }
+
+# Canonical bytes for the metadata a chain seal covers (§11.2's `canon`). A
+# first-party path member: it adds nothing to the dependency closure, and it
+# means the seal input has ONE spelling per value rather than whatever a
+# formatter happened to emit.
+fathom-canon = { path = "../fathom-canon" }

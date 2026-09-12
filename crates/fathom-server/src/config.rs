@@ -13,6 +13,7 @@
 use core::fmt;
 use core::time::Duration;
 
+use crate::keyprovider::KeySource;
 use crate::secret::{redact_database_url, Secret};
 
 /// Everything the server needs to start.
@@ -98,7 +99,43 @@ pub struct Config {
     /// else, and the production container crash-looped on exit 7 for want of
     /// it.
     pub schema_root: String,
+
+    /// Where the **master key** comes from. `FATHOM_MASTER_KEY`, default
+    /// `file:///var/lib/fathom/keys/master.key`.
+    ///
+    /// ADR-0043 §1 and §3: 32 bytes in a file on the Fathom server, owned by
+    /// the Fathom process user, mode 0400, **in its own volume -- not the
+    /// PostgreSQL volume, and not in any database backup**. `command://` is
+    /// how every key service on the market plugs in without an SDK reaching
+    /// `Cargo.lock`; `env://` is supported and documented as discouraged, in
+    /// that order, on OWASP's *"avoid storing keys in environment variables,
+    /// as these can be accidentally exposed."*
+    ///
+    /// Parsed here, at startup, so a mistyped scheme fails before the
+    /// listener binds rather than at the first write.
+    pub master_key: KeySource,
+
+    /// Where the **chain master** comes from. `FATHOM_CHAIN_KEY`, default
+    /// `file:///var/lib/fathom/keys/chain.key`.
+    ///
+    /// `docs/PHASE-2-STORAGE-DESIGN.md` §6's B5 fix: the chain key is
+    /// distinct from the master hierarchy, sits behind the same provider
+    /// interface, and never lives in PostgreSQL. Separate from the master key
+    /// so that handing someone the ability to verify a history is not handing
+    /// them the designs.
+    pub chain_key: KeySource,
 }
+
+/// ADR-0043 §9's path, in the operator's register and therefore in the code
+/// that reads it: *"the key that unlocks the per-tenant keys is 32 bytes in
+/// `/var/lib/fathom/keys/master.key`, readable only by the `fathom` user. It
+/// is not in the database, not in an environment variable, and not in any
+/// backup Fathom takes."*
+pub const DEFAULT_MASTER_KEY: &str = "file:///var/lib/fathom/keys/master.key";
+
+/// The chain master's default path, beside the master key in the same volume
+/// and deliberately not the same file.
+pub const DEFAULT_CHAIN_KEY: &str = "file:///var/lib/fathom/keys/chain.key";
 
 /// The five levels `tracing` has, parsed by hand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -266,6 +303,24 @@ impl Config {
             .filter(|v| !v.trim().is_empty())
             .unwrap_or_else(|| crate::engine::DEFAULT_ROOT.to_string());
 
+        let master_key = KeySource::parse(
+            &get("FATHOM_MASTER_KEY")
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| DEFAULT_MASTER_KEY.to_string()),
+        )
+        .map_err(|_| ConfigError::Unparseable {
+            variable: "FATHOM_MASTER_KEY",
+        })?;
+
+        let chain_key = KeySource::parse(
+            &get("FATHOM_CHAIN_KEY")
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| DEFAULT_CHAIN_KEY.to_string()),
+        )
+        .map_err(|_| ConfigError::Unparseable {
+            variable: "FATHOM_CHAIN_KEY",
+        })?;
+
         // Trailing newline trimmed: the file is written by a shell script and
         // a newline is what a shell script writes. Only the ends are trimmed
         // — a password is otherwise taken exactly as generated.
@@ -311,6 +366,8 @@ impl Config {
             health_timeout,
             pool_size,
             schema_root,
+            master_key,
+            chain_key,
         })
     }
 

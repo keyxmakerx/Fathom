@@ -56,6 +56,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0006_runtime_role.sql",
         sql: include_str!("../migrations/0006_runtime_role.sql"),
     },
+    Migration {
+        version: 7,
+        name: "0007_key_hierarchy_and_designs.sql",
+        sql: include_str!("../migrations/0007_key_hierarchy_and_designs.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

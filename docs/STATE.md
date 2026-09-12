@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-11. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-12. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -16,12 +16,31 @@ dependencies on the client side, deliberately.
 the actual numbers off `fathom-schema-check`; this line has been wrong before.
 
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL,
-shuts down cleanly, and runs behind TLS in a composed stack. **It now stores identity and
-structure** — accounts, organisations, memberships and the organisation → network → building → rack
-tree — and **nothing the master key protects.** That boundary is enforced by
-`tests/no_key_protected_data.rs`, an allowlist in which every admitted table must say why it carries
-no design payload, credential or wrapped key. Designs and credentials wait on the tables that
-encrypt them, now unblocked by ADR-0043.
+shuts down cleanly, and runs behind TLS in a composed stack. It stores identity and structure —
+accounts, organisations, memberships and the organisation → network → building → rack tree — and,
+as of migration 0007, **encrypted designs**.
+
+**Encrypted design storage, as of 2026-09-12.** A master key from a file (or `command://`, or
+`env://` — ADR-0043 §3) wraps a random per-tenant key, which wraps a random per-design key, which
+encrypts the payload whole with ChaCha20-Poly1305 and a fresh random 96-bit nonce. Per-design keys
+are **mandatory rather than preferred**: the birthday bound on a random nonce is the entire safety
+margin, and one key per design is what makes it irrelevant. The master key's non-secret id is
+stamped into the database, so restoring beside the wrong key file reports *"this database was
+encrypted under master key a41f…, the configured key is 9c02…"* instead of an AEAD failure that
+reads like corruption. Every version appends an HMAC-SHA-256 sealed chain entry binding both the
+plaintext and the stored bytes; verification reports **verified**, **broken at entry N**, or
+**cannot verify under key epoch K**, and a links-only run says *content not re-bound* rather than
+anything that could be read as "content verified". Rotation re-encrypts and writes `reencrypt`
+entries; re-wrap is deliberately **not** implemented yet, because §12.6 requires it to write a
+sealed entry on a tenant-level chain that does not exist.
+
+**The server can read design data, and says so** (`docs/PHASE-2-STORAGE-DESIGN.md` §2a).
+Encryption protects the database, the backups and the disk — not the running process.
+
+`tests/no_key_protected_data.rs` changed shape with this and is now the stronger gate: every table
+declares whether it holds key-protected material and under which key, and a marker written through
+the real write path must appear in **no column of any table** — with a positive control proving the
+sweep can find a value that is deliberately in the clear. The credential vault is still not built.
 
 **Tenant isolation holds at two layers**, and both were attacked before being trusted. An
 application filter in every repository function, and PostgreSQL row-level security driven by a
@@ -46,11 +65,14 @@ loaded tree. Before this, the two halves of the codebase shared nothing. `fathom
 
 **The dependency gate.** Five layers, none redundant: approval records per crate, lookalike-name
 detection, a publication cooldown, licence and source allowlisting, and a vulnerability database
-check. 115 external crate versions in the lockfile after the server landed (the lockfile
-holds 132 entries; 17 of them are our own workspace crates, which no gate reviews).
+check. 123 external crate versions in the lockfile after the key hierarchy landed — read the
+number off `./scripts/gate-zero.sh`, not off this line. `cargo deny` and `cargo audit` were both
+run in-repo on 2026-09-12: 0 vulnerabilities, 0 warnings.
 
-**Key handling.** Decided and ratified: a data key per tenant and per design, wrapped by a master
-key, custody switched by re-wrapping keys rather than re-encrypting data.
+**Key handling.** Decided, ratified and now built: a data key per tenant and per design, wrapped by
+a master key, custody switched by re-wrapping keys rather than re-encrypting data. Re-wrap and
+rotation have separate columns and separate words, and no setting accepts one as a synonym for the
+other.
 
 ---
 

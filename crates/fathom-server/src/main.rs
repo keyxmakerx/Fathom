@@ -6,7 +6,7 @@ use std::sync::Arc;
 use fathom_server::config::Config;
 use fathom_server::engine::EngineState;
 use fathom_server::health::HealthState;
-use fathom_server::{db, log_startup, migrate, rls, router, AppState};
+use fathom_server::{db, keys, log_startup, migrate, rls, router, AppState};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -250,6 +250,58 @@ async fn main() -> ExitCode {
             // was built from parsed parts, not the URL), but it is not this
             // binary's guarantee to make, so it is summarised rather than
             // printed whole.
+            tracing::error!(kind = %summarise(&e), "could not reach the database at startup");
+            return ExitCode::from(5);
+        }
+    }
+
+    // ---- The keys, and the one check that must run before any read -------
+    //
+    // ADR-0043 §4, and it is the whole reason this block is here rather than
+    // at the first write: *"a restore with the wrong key must report 'this
+    // database was encrypted under master key a41f...; the configured key is
+    // 9c02...' rather than surfacing as an AEAD tag failure that reads like
+    // corruption. Without it the most common operator error produces the most
+    // alarming possible symptom."*
+    let ring = match keys::KeyRing::load(&config.master_key, &config.chain_key, true) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                master_key = %config.master_key.describe(),
+                chain_key = %config.chain_key.describe(),
+                "refusing to start: the key material could not be loaded"
+            );
+            return ExitCode::from(10);
+        }
+    };
+
+    {
+        let (master_source, chain_source) = ring.describe_sources();
+        // ADR-0043 §10: "the key file gets its own named volume, a startup log
+        // line naming the volume that must never be archived with the
+        // database, and that sentence repeated in the backup documentation."
+        // The standard self-hosted backup recipe is "tar all the volumes",
+        // which would otherwise put both halves in one archive.
+        tracing::info!(
+            master_key_id = %ring.master_key_id(),
+            master_key_source = %master_source,
+            chain_key_id = %ring.chain_key_id(),
+            chain_key_source = %chain_source,
+            "keys loaded. The key volume must never be archived with a database backup: \
+             together they are both halves. Copy it off the machine, somewhere the database \
+             backups are not, and test a restore with it."
+        );
+    }
+
+    match pool.get().await {
+        Ok(client) => {
+            if let Err(e) = keys::register_master_key(&client, &ring).await {
+                tracing::error!(error = %e, "refusing to start");
+                return ExitCode::from(11);
+            }
+        }
+        Err(e) => {
             tracing::error!(kind = %summarise(&e), "could not reach the database at startup");
             return ExitCode::from(5);
         }

@@ -1,21 +1,34 @@
 //! The Fathom server.
 //!
 //! **WO-11's skeleton**, plus Phase 2's foundation: accounts, organisations,
-//! membership, and the scope hierarchy (`repo`, `ids`).
+//! membership and the scope hierarchy (`repo`, `ids`), and now the key
+//! hierarchy and encrypted design storage (`keyprovider`, `crypto`, `keys`,
+//! `designs`, `chain`).
 //!
-//! # Why identity and structure may be stored, and nothing else may be yet
+//! # The key boundary, which is no longer open
 //!
-//! `docs/OPEN-QUESTIONS.md` A1 -- where the master key lives -- is still
-//! open, and ADR-0040 requires a data key per tenant **and** per design from
-//! the first stored byte of a design or a credential. That gate has not
-//! lifted. What changed is that `docs/PHASE-2-STORAGE-DESIGN.md` §1 names two
-//! things that are **not** behind it: "Identity" (accounts, organisations,
-//! membership) and "Structure" (the scope hierarchy), both "Low -- must be
-//! queryable", as distinct from "Designs" and "Vault", which stay gated.
-//! `tests/no_key_protected_data.rs` (successor to `tests/stores_nothing.rs`)
-//! enforces the narrowed line: an explicit table allowlist, so a design
-//! payload, a credential or a wrapped key still cannot appear here without
-//! someone deliberately widening that list and saying why.
+//! `docs/OPEN-QUESTIONS.md` A1 -- where the master key lives -- was the reason
+//! nothing key-protected could be stored. **ADR-0043 answered it**: 32 bytes
+//! in a file on the Fathom server, with `command://` and `env://` behind the
+//! same interface. `docs/PHASE-2-STORAGE-DESIGN.md` §12 settled every
+//! primitive. So the hierarchy exists:
+//!
+//! ```text
+//! master key (a file PostgreSQL cannot read)
+//!   └─ wraps → tenant key (one per organisation)
+//!        └─ wraps → design key (one per design, MANDATORY -- §12.3)
+//!             └─ encrypts → the design payload, whole
+//! ```
+//!
+//! **And the server can read all of it** (§2a). The client sends plaintext
+//! over TLS; this process encrypts, seals and stores. Encryption protects the
+//! database, the backups and the disk -- not the running process. Nothing
+//! customer-facing may describe design data as unreadable by Fathom.
+//!
+//! `tests/no_key_protected_data.rs` changed shape with this: the gate is no
+//! longer "no table holds key-protected data" but "every table that does says
+//! which column holds it, and a marker written through the real write path
+//! appears in no stored byte of any table".
 //!
 //! # What the order this crate arrived under was actually about
 //!
@@ -33,12 +46,17 @@
 //! order's. Design tables and the credential vault need the key boundary
 //! first (WO-11 §8, ADR-0040 §9 items 1 and 2).
 
+pub mod chain;
 pub mod config;
+pub mod crypto;
 pub mod db;
+pub mod designs;
 pub mod engine;
 pub mod health;
 pub mod healthcheck;
 pub mod ids;
+pub mod keyprovider;
+pub mod keys;
 pub mod migrate;
 pub mod repo;
 pub mod rls;

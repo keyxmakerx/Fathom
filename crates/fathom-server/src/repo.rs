@@ -3,11 +3,12 @@
 //!
 //! `docs/PHASE-2-STORAGE-DESIGN.md` §1 calls this half "Identity" and
 //! "Structure" -- low sensitivity, must be queryable -- as distinct from
-//! "Designs" and "Vault", which stay behind the master-key boundary
-//! `docs/OPEN-QUESTIONS.md` A1 has not yet answered. Nothing in this file
-//! writes a design payload, a credential, or a wrapped key; see
-//! `migrations/0002_identity_and_scope.sql`'s header for why that is what
-//! lets it land while A1 is still open.
+//! "Designs" and "Vault", which sit behind the master key. **That boundary is
+//! no longer an open question**: ADR-0043 answered A1 and the hierarchy is
+//! built in `keys` and `designs`. Nothing in *this* file writes a design
+//! payload, a credential or a wrapped key; what it now also provides is
+//! [`TenantContext`], the pinned tenant those modules take instead of a bare
+//! organisation id (§4: *"never taken from the row being read"*).
 //!
 //! # Tenant isolation, done twice
 //!
@@ -66,7 +67,10 @@ macro_rules! ulid_id {
         pub struct $name(pub Ulid);
 
         impl $name {
-            fn new() -> Self {
+            // `pub(crate)`, not private: `designs` mints a `DesignId` and
+            // must not reach past this macro to `ids::new_ulid` to do it --
+            // every id in this server is minted in exactly one place.
+            pub(crate) fn new() -> Self {
                 Self(new_ulid())
             }
         }
@@ -104,6 +108,13 @@ ulid_id!(
     /// A scope node's id -- one row in the `organisation -> network ->
     /// building -> rack` hierarchy.
     ScopeId
+);
+ulid_id!(
+    /// A design's id. Opaque, and the ONLY way a design is addressed
+    /// server-side: `migrations/0007_key_hierarchy_and_designs.sql` gives
+    /// `designs` no name column at all, because a plaintext one would be the
+    /// side door `docs/PHASE-2-STORAGE-DESIGN.md` §11.3 cost 3 names.
+    DesignId
 );
 
 // ---------------------------------------------------------------------------
@@ -390,6 +401,87 @@ async fn authorise(
     )
     .await?;
     Ok(role)
+}
+
+/// **The pinned tenant.** `docs/PHASE-2-STORAGE-DESIGN.md` §4: *"the tenant
+/// key is pinned from the authenticated request context for the request's
+/// lifetime, and never taken from the row being read. This is what actually
+/// preserves cross-tenant separation."*
+///
+/// That sentence is a rule about code, so it is made into a type. Nothing
+/// outside this module can build one — the fields are private and
+/// [`open_tenant_context`] is the only constructor — and everything in `keys`
+/// and `designs` takes one instead of an `OrganisationId`. There is therefore
+/// no signature anywhere in the key hierarchy that could be handed an
+/// organisation id read out of a row.
+#[derive(Clone, Copy, Debug)]
+pub struct TenantContext {
+    tenant: OrganisationId,
+    actor: AccountId,
+    role: Role,
+}
+
+impl TenantContext {
+    /// The organisation every query in this transaction is scoped to.
+    pub fn tenant(&self) -> OrganisationId {
+        self.tenant
+    }
+
+    /// The account the caller said is acting. See the module doc: there is no
+    /// authentication layer yet, and this is not a defence against a caller
+    /// that lies about that.
+    pub fn actor(&self) -> AccountId {
+        self.actor
+    }
+
+    /// The acting account's role in this organisation.
+    pub fn role(&self) -> Role {
+        self.role
+    }
+}
+
+/// Open a tenant context: [`authorise`], then the design capability, then a
+/// value the key hierarchy will accept.
+///
+/// **`app.design_capability` is set from a verified authorisation and nothing
+/// else** (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §11.1). It is set to `no`
+/// *before* anything is examined, so a code path that returns early, panics or
+/// simply forgets leaves the setting at a refusal — the empty string is
+/// already a refusal too, so the failure direction is closed either way. Only
+/// a membership row read back through the database's own policy turns it into
+/// `yes`, and `design_payload`'s policies in
+/// `migrations/0007_key_hierarchy_and_designs.sql` require that exact string.
+///
+/// **What this capability means today, stated so it is not over-read:**
+/// membership of the organisation, and nothing finer. Scope grants
+/// (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`'s `0005 authority`) do not exist
+/// yet; when they do, the narrower check goes here, at this one line, and
+/// every query written against `design_payload` in the meantime inherits it
+/// without being edited.
+pub async fn open_tenant_context(
+    tx: &Transaction<'_>,
+    tenant: OrganisationId,
+    actor: AccountId,
+) -> Result<TenantContext, RepoError> {
+    tx.execute(
+        "SELECT set_config('app.design_capability', 'no', true)",
+        &[],
+    )
+    .await?;
+
+    let role = authorise(tx, tenant, actor).await?;
+
+    tx.execute(
+        "SELECT set_config('app.design_capability', 'yes', true)",
+        &[],
+    )
+    .await?;
+
+    Ok(TenantContext {
+        tenant,
+        actor,
+        role,
+    })
 }
 
 // ---------------------------------------------------------------------------
