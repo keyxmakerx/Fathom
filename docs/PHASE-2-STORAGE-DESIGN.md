@@ -466,10 +466,27 @@ storage_binding   = MAC(K_content, LP("fathom/chain/storage/v1")
 content_hash      = MAC(K_content, LP("fathom/chain/content/v1")
     ‖ LP(plaintext_binding) ‖ LP(storage_binding))
 
+metadata_binding  = MAC(K_content, LP("fathom/chain/metadata/v1") ‖ LP(canon(metadata_n)))
+
 seal_n            = MAC(K_seal, LP("fathom/chain/seal/v1")
     ‖ u32(chain_key_epoch) ‖ u64(seq_n) ‖ LP(tenant_id) ‖ LP(design_id)
-    ‖ LP(seal_{n-1}) ‖ LP(content_hash_n) ‖ LP(entry_type) ‖ LP(canon(metadata_n)))
+    ‖ LP(seal_{n-1}) ‖ LP(content_hash_n) ‖ LP(entry_type)
+    ‖ LP(metadata_stored_n) ‖ LP(metadata_binding_n))
 ```
+
+**Corrected 2026-09-12 — the seal covers the metadata as stored, plus a keyed binding of its
+plaintext.** The first draft sealed `LP(canon(metadata_n))` directly. That held while every chain's
+metadata was plaintext, and broke the moment the organisation and site chains stored theirs as
+ciphertext (admin design §7.3, §13.1 item 5): a routine check holding only the chain key could no
+longer recompute a single seal on those chains, which is the one property routine verification exists
+for. The builder caught it mid-build. The fix is the shape the payload already has. `metadata_stored_n`
+is the column as written — canonical plaintext on a design chain, the AEAD blob on an organisation
+or site chain — so a links-only run recomputes every seal from stored columns, and a corrupted or
+swapped ciphertext breaks the seal. `metadata_binding_n` is keyed under `K_content` over the
+plaintext, stored in the clear beside the seal, so a deep run decrypts, recomputes it and compares;
+it is not a confirmation oracle for the same reason `content_hash` is not. One construction at all
+three levels, no fork. This invalidated every seal written before it; nothing had shipped, so nothing
+was migrated and the labels stay at `v1`.
 
 Genesis is `LP(H("fathom/chain/genesis/v1" ‖ tenant_id ‖ design_id))`. `canon` is `fathom-canon`'s
 canonical bytes. `chain_key_epoch` is stored on **every** entry and retired chain keys are kept
@@ -497,10 +514,12 @@ teaching operators to dismiss the alarm.
 
 - **verified** — every seal recomputes, `seq` is contiguous, and the stored blob's storage binding
   matches directly or via a `reencrypt` chain. No decryption. This is the routine check.
-- **broken at entry N** — N is the **first** index where any of four things fail: the seal does not
-  recompute, the sequence skips or repeats, the storage binding mismatches unexplained, or
-  `prev_seal` does not match N−1. Report N, its metadata, and which of the four. Everything before N
-  is still verified and is reported as such.
+- **broken at entry N** — N is the **first** index where any of these fail: the seal does not
+  recompute, the sequence skips or repeats, the storage binding mismatches unexplained, `prev_seal`
+  does not match N−1, or — deep runs only — a plaintext or metadata binding does not recompute.
+  Report N, its metadata (the plaintext where the run holds it, otherwise position, type and epoch —
+  never ciphertext rendered as text), and which of them. Everything before N is still verified and
+  is reported as such.
 - **cannot verify under key epoch K** — a coverage gap, not a failure. Report the contiguous ranges
   affected and the epochs missing.
 
@@ -509,8 +528,8 @@ key was unavailable or deep verification was not requested. *"Content not checke
 the same as "content verified."*
 
 Routine verification is links plus storage bindings, no decryption, runnable by an operator holding
-only the chain key. Deep verification additionally decrypts and recomputes the plaintext binding.
-**Both must name which they ran.**
+only the chain key. Deep verification additionally decrypts and recomputes the plaintext binding and,
+on every chain, the metadata binding. **Both must name which they ran.**
 
 ### 11.3 Plaintext metadata — major 7
 
@@ -546,7 +565,10 @@ work identically on opaque tokens, so the materialised-path design is unaffected
 6. **What stays disclosed regardless:** tenant identity, the shape and size of the tree, node ids,
    authorship, timestamps, activity volumes, per-version size. Encrypting names narrows the
    disclosure from the estate's map legend to its silhouette — say that, so the change is not read
-   as making the metadata safe.
+   as making the metadata safe. **The audit chains add to this list** (2026-09-12, §13.1 item 5):
+   on the organisation and site chains the metadata is ciphertext but `entry_type`, ids, `seq` and
+   timestamps are not, so a dump with no key still shows *that* a given credential id was read
+   forty times last Tuesday — not which credential, nor by whom.
 
 ### 11.4 Sent to the owner, not decided here
 
@@ -634,6 +656,37 @@ the identical splice §11.2 closed one layer up:
 chain_key_epoch_e = HKDF-Expand(chain_master,
     info = LP("fathom/chain/key/v1") ‖ LP(tenant_id) ‖ LP(design_id) ‖ u32(chain_key_epoch), 32)
 ```
+
+**Every label, in one table (2026-09-12).** Code and this table must agree, and the table wins. The
+three chain levels are the admin design's §7.1; the migration is `0009_chains_at_three_levels.sql`.
+
+| Label | What it is | Where |
+|---|---|---|
+| `fathom/chain/key/v1` | HKDF `info` from `chain_master` → per-design chain key, above | §12.2 |
+| `fathom/chain/key/site/v1` | HKDF `info` from `chain_master` → site chain key, `LP(label) ‖ LP(deployment_id) ‖ u32(epoch)` | 0009 |
+| `fathom/chain/key/org/v1` | HKDF `info` from `chain_master` → organisation chain key, `LP(label) ‖ LP(organisation_id) ‖ u32(epoch)` | 0009 |
+| `fathom/chain/key/site-metadata/v1` | HKDF `info` from `chain_master` → the AEAD key for site-chain metadata, `LP(label) ‖ LP(deployment_id) ‖ u32(epoch)` | 0009 |
+| `fathom/chain/key/read/v1` | **Reserved. Nothing writes it.** The per-design read chain of admin §7.2 is not built | — |
+| `fathom/chain/kdf/seal/v1` | HKDF `info` from a chain key → `K_seal` | §12.2 |
+| `fathom/chain/kdf/content/v1` | HKDF `info` from a chain key → `K_content` | §12.2 |
+| `fathom/chain/seal/v1` | in-MAC tag of the seal | §11.2 |
+| `fathom/chain/content/v1` | in-MAC tag of `content_hash` | §11.2 |
+| `fathom/chain/plaintext/v1` | in-MAC tag of `plaintext_binding` | §11.2 |
+| `fathom/chain/storage/v1` | in-MAC tag of `storage_binding` | §11.2 |
+| `fathom/chain/metadata/v1` | in-MAC tag of `metadata_binding` | §11.2, corrected 2026-09-12 |
+| `fathom/chain/nocontent/v1` | in-MAC tag of the binding both slots carry on an entry that binds no payload — every site and organisation entry | 0009 |
+| `fathom/chain/genesis/v1` | hash tag of the genesis value | §11.2 |
+
+**Which key encrypts chain metadata, per level.** Design chain: none, the canonical plaintext is
+stored (§11.3 says what that discloses). Organisation chain: a per-organisation content key — a
+random data key wrapped under the tenant key in the same shape as a design key, with epochs, retired
+epochs kept forever, re-wrapped on tenant re-wrap. Not the chain key, because the routine verifier
+holds that and must not be able to read organisation metadata; not the tenant key directly, which
+`writes_under_key` exists to forbid; not a derived key, because append-only rows cannot be
+re-encrypted on rotation, so the key needs epochs. Site chain: the `site-metadata` key above, derived
+from `chain_master` per epoch, as admin §7.3 specifies — which means a routine verifier holding
+`chain_master` **can** read site metadata. That is acceptable because the site chain holds no tenant
+data, and it is deliberately not true of the organisation chain.
 
 ### 12.3 Nonces — §4's "fresh random 96-bit nonce" survives, but only because keys are per design
 
@@ -835,9 +888,12 @@ entries on the organisation chain; TOFU drops from mechanism to fallback.** Ever
 4. **"The owner left, so the Mode B credential is locked" is false**, and the interface will imply it
    unless told not to. Offboarding gains a vault step — 13.5.
 5. **Org-chain and site-chain `metadata` must be AEAD ciphertext.** The design chain's plaintext
-   canonical bytes (`0007` line 405) are correct there and wrong here. The seal is over plaintext
-   `canon(metadata)` either way, so only the column changes — but only before rows exist. Sent to the
-   builder mid-build. `entry_type` and ids stay in the clear: a dump reveals *that* `cred_…` was read
+   canonical bytes (`0007` line 405) are correct there and wrong here. Sent to the builder mid-build.
+   **The finding's mechanism was wrong and the builder caught it:** the seal *was* over plaintext
+   `canon(metadata)`, which is exactly why "only the column changes" did not hold — a routine check
+   holding only the chain key could no longer recompute a seal on those chains. The seal now covers
+   the stored bytes plus a keyed binding of the plaintext; see §11.2's dated correction and §12.2's
+   label table. Nothing had shipped. `entry_type` and ids stay in the clear: a dump reveals *that* `cred_…` was read
    forty times last Tuesday, with no key. Belongs in §11.3's disclosure paragraph.
 
 ### 13.2 Major 2 — a signed keyring, not a trusted response

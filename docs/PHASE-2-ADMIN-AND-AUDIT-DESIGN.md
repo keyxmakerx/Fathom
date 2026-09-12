@@ -941,16 +941,26 @@ today"* exact and *"how many times"* approximate. The alternative — one entry 
 honest maximum and costs roughly two orders of magnitude more rows. Whichever ships must be written
 in the operator's register, because an auditor will ask.
 
-### 7.3 Metadata is encrypted; the seal is over plaintext
+### 7.3 Metadata is encrypted; the seal covers the stored bytes and a keyed binding of the plaintext
 
 `PHASE-2-STORAGE-DESIGN.md` §11.3 cost 3 says it exactly: *"a plaintext copy in the audit log is the
-leak returning through a side door."* So entry metadata is stored as AEAD ciphertext — under the
-organisation key for organisation and read chains, under a site metadata key derived from
-`chain_master` for the site chain — and the seal is computed over `canon(metadata)` in plaintext
-exactly as storage §11.2 specifies. In the clear: `seq`, `entry_type`, ids, timestamps, `chain_key_epoch` and
-the seal. Routine verification — links plus bindings, no decryption — works on a dump with the chain
-key alone. Deep verification decrypts. The two-tier shape storage §11.2 already requires is what makes this
-free.
+leak returning through a side door."* So entry metadata is stored as AEAD ciphertext — under a
+per-organisation content key (a wrapped data key in the design-key shape, storage §12.2) for
+organisation and read chains, under a site metadata key derived from `chain_master` for the site
+chain. In the clear: `seq`, `entry_type`, ids, timestamps, `chain_key_epoch`, the seal, and a
+`metadata_binding` keyed under `K_content` over the plaintext.
+
+**Corrected 2026-09-12.** This section first said the seal is computed over `canon(metadata)` in
+plaintext "exactly as storage §11.2 specifies", and that §11.2's two-tier shape made the routine
+check free. Both halves were wrong: §11.2's two tiers were over the *payload*, and sealing the
+plaintext metadata meant a routine check holding only the chain key could not recompute a single seal
+on a chain whose metadata column is ciphertext. The builder found it. §11.2 is corrected: the seal
+covers the metadata **as stored** plus the keyed binding, so routine verification — links plus
+bindings, no decryption — recomputes every seal from stored columns with the chain key alone, and a
+swapped or corrupted ciphertext breaks the seal; deep verification decrypts and re-checks the
+binding. One construction at all three levels. A routine verifier holding `chain_master` can read
+site metadata (its key is derived from `chain_master`) and cannot read organisation metadata; the
+site chain holds no tenant data, so that asymmetry is intended.
 
 ### 7.4 Off the box means countersigned, not sent
 
