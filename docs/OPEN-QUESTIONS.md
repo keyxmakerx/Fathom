@@ -38,6 +38,11 @@
 
 ### A1. Where does the master key live?
 
+> **ANSWERED 2026-09-12 — ADR-0043. A file on the Fathom server**, with `command://` as the escape
+> hatch that supports every cloud key service without Fathom taking a dependency on any of them.
+> Seven comparable self-hosted products were read in their own repositories; every one holds its key
+> in a file or a config value by default. **This was the last thing blocking stored data.**
+
 Every customer's network drawings get locked with their own key. Something has to hold the one
 master key that unlocks those keys. The realistic options:
 
@@ -439,6 +444,12 @@ up in §11 of that page.
 > deferred until A1 lands, because deciding it first would be deciding the same thing twice.
 
 ### V1. A passphrase you choose, or a key Fathom generates for you?
+
+> **ANSWERED 2026-09-12 — ADR-0043 §6. Neither: both, and both required.** A generated 128-bit key
+> plus a passphrase, combined in the derivation rather than offered as two doors. Two doors means an
+> attacker picks the cheaper one, which put the passphrase back as the bound — the thing the
+> generated key existed to remove. The key is remembered by the browser, so day to day you type only
+> the passphrase.
 
 **The problem.** The vault's whole strength against a stolen backup is that one secret. The standard
 (NIST) says a password used on its own must be at least 15 characters — but NIST's own appendix says

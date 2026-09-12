@@ -424,6 +424,11 @@ compiled constants and there is no code path that accepts parameters from the se
    parameter *reduction* is visible as an event that should never appear.
 3. **At or above target:** proceed, and display the parameters where a user can see them, so a change
    between sessions is observable at all.
+4. **Above a hard ceiling** — added 2026-09-12. A floor alone is half the control: a hostile or
+   broken server can serve absurdly *high* parameters and lock the browser tab solid, which is a
+   denial of service and a timing surface. Bound both ends, as shipped password managers do —
+   Bitwarden bounds memory, parallelism and iterations with explicit ranges, verified in their
+   client source. Refuse above the ceiling with the same tamper wording as below the floor.
 
 Pin the parameters in local browser state (trust on first use) beside the public-key fingerprints,
 and bind `algo‖version‖m‖t‖p‖salt‖kek_params_id` into the AEAD associated data of the master-key
