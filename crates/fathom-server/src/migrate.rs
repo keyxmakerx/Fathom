@@ -25,11 +25,18 @@ pub struct Migration {
 }
 
 /// Every migration, in order. **Adding one here is the only way to add one.**
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "0001_migrations_table.sql",
-    sql: include_str!("../migrations/0001_migrations_table.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "0001_migrations_table.sql",
+        sql: include_str!("../migrations/0001_migrations_table.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "0002_identity_and_scope.sql",
+        sql: include_str!("../migrations/0002_identity_and_scope.sql"),
+    },
+];
 
 /// A cheap checksum over a migration's bytes.
 ///
@@ -89,11 +96,33 @@ impl From<tokio_postgres::Error> for MigrateError {
     }
 }
 
+/// A fixed advisory-lock key, arbitrary but stable, so two processes racing to
+/// migrate a fresh database serialise instead of both attempting the same
+/// `CREATE TABLE`. Only matters the first time a database is migrated: once
+/// `_fathom_migrations` records a version, every later caller sees it recorded
+/// and skips straight past. Spelled out because the repository layer's tests
+/// are the first thing in this crate to run several process-separate test
+/// binaries against one freshly created database at once.
+const MIGRATION_LOCK_KEY: i64 = 0x4641_5448_4d47_5231; // "FATHMGR1", read as bytes
+
 /// Apply every migration that has not been applied, in order.
 ///
 /// Migration 1 is special and has to be: it creates the table the others are
 /// recorded in, so it runs before the table can be read.
 pub async fn run(client: &mut Client) -> Result<u32, MigrateError> {
+    client
+        .execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK_KEY])
+        .await?;
+    let result = run_locked(client).await;
+    // Released whether or not migration succeeded -- an error here must not
+    // wedge every other process waiting on this lock.
+    let _ = client
+        .execute("SELECT pg_advisory_unlock($1)", &[&MIGRATION_LOCK_KEY])
+        .await;
+    result
+}
+
+async fn run_locked(client: &mut Client) -> Result<u32, MigrateError> {
     let mut applied = 0;
 
     for m in MIGRATIONS {

@@ -1,17 +1,21 @@
 //! The Fathom server.
 //!
-//! **WO-11's skeleton, and deliberately almost nothing.** It starts, it answers
-//! a health check, it shuts down cleanly, and **it stores nothing at all**.
+//! **WO-11's skeleton**, plus Phase 2's foundation: accounts, organisations,
+//! membership, and the scope hierarchy (`repo`, `ids`).
 //!
-//! # Why it stores nothing
+//! # Why identity and structure may be stored, and nothing else may be yet
 //!
-//! WO-11 §6 G8 forbids any table but the migrations table, and
-//! `tests/stores_nothing.rs` enforces it. ADR-0040 decided the server holds a
-//! data key per tenant **and** per design from the first stored byte, and
-//! ADR-0040 §9 items 1 and 2 leave the key-management service undecided —
-//! including for self-hosted deployments with no cloud KMS. WO-11 §7 trigger 2:
-//! *the first row written before custody is decided is exactly the retrofit
-//! ADR-0040 exists to prevent.*
+//! `docs/OPEN-QUESTIONS.md` A1 -- where the master key lives -- is still
+//! open, and ADR-0040 requires a data key per tenant **and** per design from
+//! the first stored byte of a design or a credential. That gate has not
+//! lifted. What changed is that `docs/PHASE-2-STORAGE-DESIGN.md` §1 names two
+//! things that are **not** behind it: "Identity" (accounts, organisations,
+//! membership) and "Structure" (the scope hierarchy), both "Low -- must be
+//! queryable", as distinct from "Designs" and "Vault", which stay gated.
+//! `tests/no_key_protected_data.rs` (successor to `tests/stores_nothing.rs`)
+//! enforces the narrowed line: an explicit table allowlist, so a design
+//! payload, a credential or a wrapped key still cannot appear here without
+//! someone deliberately widening that list and saying why.
 //!
 //! # What the order this crate arrived under was actually about
 //!
@@ -25,16 +29,18 @@
 //!
 //! # What is NOT here, and where it goes
 //!
-//! Accounts, sessions, sign-in, tenants, graph tables, the HTTP API,
-//! WebSockets and opcodes are all the next order's, and every one of them needs
-//! the key boundary first (WO-11 §8).
+//! Sessions, sign-in, the HTTP API, WebSockets and opcodes are all a later
+//! order's. Design tables and the credential vault need the key boundary
+//! first (WO-11 §8, ADR-0040 §9 items 1 and 2).
 
 pub mod config;
 pub mod db;
 pub mod engine;
 pub mod health;
 pub mod healthcheck;
+pub mod ids;
 pub mod migrate;
+pub mod repo;
 pub mod secret;
 
 use std::sync::Arc;

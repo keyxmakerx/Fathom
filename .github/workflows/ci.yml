@@ -40,8 +40,43 @@ permissions:
 jobs:
   gates:
     runs-on: ubuntu-latest
+
+    # `crates/fathom-server`'s repository-layer tests (Phase 2: accounts,
+    # organisations, the scope hierarchy) run against a real PostgreSQL, not
+    # a mock. `POSTGRES_USER` here is the image's initdb bootstrap role,
+    # which the official image always creates as a SUPERUSER regardless of
+    # the name given it -- and Postgres exempts superusers from row-level
+    # security unconditionally, `FORCE ROW LEVEL SECURITY` or not. Testing
+    # the tenant-isolation policies in
+    # `migrations/0002_identity_and_scope.sql` through THIS role would make
+    # every isolation assertion pass whether or not the policies actually
+    # work. So the step below this service provisions a second, deliberately
+    # non-superuser role and database, and only that second role's
+    # connection string is ever handed to `cargo test` as `DATABASE_URL`.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Provision a non-superuser test role (RLS does not bind to a superuser)
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE ROLE fathom_test LOGIN PASSWORD 'fathom_test_pw' NOSUPERUSER;"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE DATABASE fathom_test OWNER fathom_test;"
 
       # ---- Layer 1, and everything else that needs no toolchain at all. ----
 
@@ -123,6 +158,12 @@ jobs:
       - name: Clippy, warnings are errors
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Tests
+        # The non-superuser role/database the step above provisioned -- see
+        # its comment, and `crates/fathom-server/tests/support/mod.rs`,
+        # which reads this same variable and falls back to this exact value
+        # for a developer running the suite locally.
+        env:
+          DATABASE_URL: postgres://fathom_test:fathom_test_pw@127.0.0.1:5432/fathom_test
         run: cargo test --workspace --locked
       - name: Schema gates
         run: cargo run --locked -p fathom-schema --bin fathom-schema-check
