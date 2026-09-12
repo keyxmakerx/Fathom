@@ -489,7 +489,11 @@ it is not a confirmation oracle for the same reason `content_hash` is not. One c
 three levels, no fork. This invalidated every seal written before it; nothing had shipped, so nothing
 was migrated and the labels stay at `v1`.
 
-Genesis is `LP(H("fathom/chain/genesis/v1" ‖ tenant_id ‖ design_id))`. `canon` is `fathom-canon`'s
+Genesis is `H(LP("fathom/chain/genesis/v1") ‖ LP(id_1) ‖ LP(id_2))`, entering the first seal
+through the seal's own `LP(seal_{n-1})` slot — **corrected 2026-09-12 to what `chain.rs` builds**:
+the first draft wrote `LP(H(tag ‖ tenant_id ‖ design_id))`, which length-prefixed the genesis
+value twice and nothing else once, and concatenated the identity bare, the exact splice the rule
+above forbids. `(id_1, id_2)` are the chain's two identity slots (§12.2). `canon` is `fathom-canon`'s
 canonical bytes. `chain_key_epoch` is stored on **every** entry and retired chain keys are kept
 forever.
 
@@ -677,6 +681,10 @@ three chain levels are the admin design's §7.1; the migration is `0009_chains_a
 | `fathom/chain/metadata/v1` | in-MAC tag of `metadata_binding` | §11.2, corrected 2026-09-12 |
 | `fathom/chain/nocontent/v1` | in-MAC tag of the binding both slots carry on an entry that binds no payload — every site and organisation entry | 0009 |
 | `fathom/chain/genesis/v1` | hash tag of the genesis value | §11.2 |
+| `fathom/key/aad/tenant/v1` | wrap binding of a tenant key under the master key | 0007, `keys.rs` |
+| `fathom/key/aad/design/v1` | wrap binding of a design key under the tenant key | 0007, `keys.rs` |
+| `fathom/key/id/v1` | the non-secret key-id stamp derived from a key (ADR-0043 §4) | `crypto.rs` |
+| `fathom/payload/v1` | associated-data tag of an encrypted design payload | 0007, `designs.rs` |
 | `fathom/chain/metadata/aead/v1` | associated-data tag for encrypted chain metadata: `LP(tag) ‖ LP(chain_kind) ‖ LP(chain_id) ‖ u64(seq) ‖ u32(key_epoch)`, where `key_epoch` is `metadata_key_epoch` on the organisation chain and `chain_key_epoch` on the site chain | 0009 |
 | `fathom/key/aad/org-content/v1` | wrap binding of the per-organisation content key under the tenant key, in the design-key shape | 0009 |
 
@@ -817,6 +825,13 @@ its own sealed `rewrap` entry on the tenant-level chain**, recording old and new
 which key rows moved, who ran it, and explicitly that no payload was re-encrypted. Otherwise the one
 security-relevant key operation has no audit trail in a system whose integrity story is an
 append-only sealed log.
+
+**Clarified 2026-09-12, after a checker broke the first build:** a re-wrap is **deployment-wide**,
+because the master key is. Retiring the active master and re-wrapping one tenant's keys left every
+other tenant unopenable under either key. So one transaction retires the old master, activates the
+new, re-wraps every row wrapped directly under the master — tenant keys and chain master keys alike,
+whatever their status or epoch — and writes one `rewrap` entry on the site chain for the act and
+one on each organisation chain for that tenant's fact. Nothing commits unless all of it does.
 
 **What the interface must report**, in these words and not interchangeable ones: the operation named
 `rewrap` or `rotate`, never a shared verb; counts rather than a boolean; old and new master identity;
