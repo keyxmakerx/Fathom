@@ -36,6 +36,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0002_identity_and_scope.sql",
         sql: include_str!("../migrations/0002_identity_and_scope.sql"),
     },
+    Migration {
+        version: 3,
+        name: "0003_write_side_isolation.sql",
+        sql: include_str!("../migrations/0003_write_side_isolation.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
@@ -67,6 +72,8 @@ pub enum MigrateError {
         version: i32,
         recorded_len: i32,
         embedded_len: i32,
+        recorded_checksum: i64,
+        embedded_checksum: i64,
     },
 }
 
@@ -78,10 +85,13 @@ impl fmt::Display for MigrateError {
                 version,
                 recorded_len,
                 embedded_len,
+                recorded_checksum,
+                embedded_checksum,
             } => write!(
                 f,
-                "migration {version} was applied from a file of {recorded_len} bytes and the \
-                 embedded one is {embedded_len}. An applied migration has been edited. Fix it \
+                "migration {version} was applied from a file of {recorded_len} bytes with \
+                 checksum {recorded_checksum}, and the embedded one is {embedded_len} bytes with \
+                 checksum {embedded_checksum}. An applied migration has been edited. Fix it \
                  forward with a new migration; do not edit this one back."
             ),
         }
@@ -103,7 +113,12 @@ impl From<tokio_postgres::Error> for MigrateError {
 /// and skips straight past. Spelled out because the repository layer's tests
 /// are the first thing in this crate to run several process-separate test
 /// binaries against one freshly created database at once.
-const MIGRATION_LOCK_KEY: i64 = 0x4641_5448_4d47_5231; // "FATHMGR1", read as bytes
+///
+/// **Public so a test can hold it.** `pg_advisory_lock` is session-level and
+/// re-entrant within one session, so a test that takes this lock on the very
+/// client it then passes to [`run`] serialises itself against every other
+/// session's migration attempt without deadlocking against its own.
+pub const MIGRATION_LOCK_KEY: i64 = 0x4641_5448_4d47_5231; // "FATHMGR1", read as bytes
 
 /// Apply every migration that has not been applied, in order.
 ///
@@ -125,27 +140,50 @@ pub async fn run(client: &mut Client) -> Result<u32, MigrateError> {
 async fn run_locked(client: &mut Client) -> Result<u32, MigrateError> {
     let mut applied = 0;
 
+    // Migration 1 creates the table the others are recorded in, so on a fresh
+    // database there is no bookkeeping to read and it must simply run. On
+    // every LATER run there is, and it is checked like any other migration.
+    // Asking once, here, is what makes that distinction: version 1 used to be
+    // re-executed and re-counted unconditionally, so `run` never returned
+    // `Ok(0)` and a server whose schema was already current logged
+    // "migrations applied" on every start, for ever.
+    let bookkeeping_exists: bool = client
+        .query_one("SELECT to_regclass('_fathom_migrations') IS NOT NULL", &[])
+        .await?
+        .get(0);
+
     for m in MIGRATIONS {
         // Each migration and its bookkeeping in ONE transaction. Without this a
         // crash between the two leaves a migration applied and unrecorded,
         // which the next start would apply again.
         let tx = client.transaction().await?;
 
-        if m.version > 1 {
+        if bookkeeping_exists || m.version > 1 {
             let existing = tx
                 .query_opt(
-                    "SELECT byte_len FROM _fathom_migrations WHERE version = $1",
+                    "SELECT byte_len, checksum FROM _fathom_migrations WHERE version = $1",
                     &[&m.version],
                 )
                 .await?;
             if let Some(row) = existing {
-                let recorded: i32 = row.get(0);
-                let embedded = i32::try_from(m.sql.len()).unwrap_or(i32::MAX);
-                if recorded != embedded {
+                let recorded_len: i32 = row.get(0);
+                let recorded_checksum: i64 = row.get(1);
+                let embedded_len = i32::try_from(m.sql.len()).unwrap_or(i32::MAX);
+                let embedded_checksum = checksum(m.sql);
+                // THE CHECKSUM, not only the length. The gate exists to
+                // notice an applied migration having been EDITED, and an edit
+                // that leaves the byte count alone -- swapping two characters,
+                // changing a `<` to a `>`, renaming a column to another name
+                // of the same width -- is exactly the edit a length
+                // comparison cannot see. The length is kept as well only
+                // because it makes the message say which of the two moved.
+                if recorded_len != embedded_len || recorded_checksum != embedded_checksum {
                     return Err(MigrateError::Changed {
                         version: m.version,
-                        recorded_len: recorded,
-                        embedded_len: embedded,
+                        recorded_len,
+                        embedded_len,
+                        recorded_checksum,
+                        embedded_checksum,
                     });
                 }
                 tx.commit().await?;

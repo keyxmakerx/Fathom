@@ -14,12 +14,36 @@
 //! `docs/PHASE-2-STORAGE-DESIGN.md` §7: row-level security **and**
 //! application filtering, neither alone. Every function that touches
 //! `organisations`, `memberships` or `scopes` opens its own transaction,
-//! calls [`set_tenant_context`] -- a transaction-scoped `SET LOCAL`, per
+//! calls [`authorise`] -- which sets two transaction-scoped settings, per
 //! `src/db.rs`'s standing rule that nothing may depend on which pooled
 //! connection a request gets -- and *also* names the tenant explicitly in
 //! every `WHERE` clause. RLS is the backstop for the day one of those clauses
 //! is missing; it is deliberately not the only thing standing between two
 //! tenants' rows.
+//!
+//! ## What that second layer is, and what it is not
+//!
+//! **Both layers rest on a `tenant` and an `actor` this module is handed.
+//! There is no authentication layer yet** (`docs/OPEN-QUESTIONS.md` B1-B9,
+//! C2), so whoever calls these functions is trusted, by construction, to say
+//! truthfully which account is acting. Nothing below changes that, and this
+//! file must not be read as if something did.
+//!
+//! What [`authorise`] does buy, and the reason the order of its three steps
+//! is not arbitrary: `app.tenant_id` is set **after** the membership row has
+//! been found, never before. So the setting every policy reads is not a
+//! restatement of the caller's own argument -- it is a value the database
+//! agreed to, because a real membership row was read back under the acting
+//! account's own identity first. That read is itself policy-governed:
+//! `memberships_readable` (migration 0003) shows an account its own rows in
+//! any organisation, which is exactly the branch this needs and exactly the
+//! branch no write may use. A caller naming a tenant it has no membership in
+//! never opens a tenant context at all.
+//!
+//! So RLS is an independent filter against *the clause that goes missing*,
+//! which is the failure §7 names. It is not, and must not be described as, a
+//! defence against a caller that lies about who is acting. That defence is
+//! authentication, and it does not exist yet.
 
 use core::fmt;
 use core::str::FromStr;
@@ -209,6 +233,14 @@ pub enum RepoError {
     /// in. Application-layer filtering, on top of the RLS that would also
     /// have hidden the rows -- §7's "both, neither alone".
     NotAMember,
+    /// The acting account is a member, but the operation is one only an
+    /// administrator of the organisation may perform.
+    NotAnAdmin,
+    /// A row this transaction read and then wrote was changed underneath it
+    /// by another transaction, and the write matched nothing as a result.
+    /// **Returned rather than `Ok(())`**: a caller told an estate-of-record
+    /// change succeeded when it did not is worse than a caller told to retry.
+    ConcurrentModification,
     /// A scope of this kind may not sit under a parent of the kind given (or
     /// under no parent at all, if `expected` is `None`).
     WrongKindForParent {
@@ -246,6 +278,13 @@ impl fmt::Display for RepoError {
             Self::NotAMember => {
                 f.write_str("the acting account is not a member of this organisation")
             }
+            Self::NotAnAdmin => {
+                f.write_str("only an administrator of this organisation may do that")
+            }
+            Self::ConcurrentModification => f.write_str(
+                "another transaction changed this part of the hierarchy while this one was \
+                 working on it; nothing was changed. Read it again and retry.",
+            ),
             Self::WrongKindForParent { expected: None } => {
                 f.write_str("this kind of scope may not have a parent")
             }
@@ -271,7 +310,14 @@ impl std::error::Error for RepoError {}
 // ---------------------------------------------------------------------------
 
 /// Sets the two transaction-local settings every RLS policy in
-/// `0002_identity_and_scope.sql` reads.
+/// `0002_identity_and_scope.sql` and `0003_write_side_isolation.sql` reads.
+///
+/// **Only [`create_organisation`] may use this.** Everything else goes
+/// through [`authorise`], which will not open a tenant context until a
+/// membership row says it may. Creating an organisation is the one case where
+/// no such row can exist yet -- the organisation being contextualised does
+/// not exist until this transaction creates it -- so the check [`authorise`]
+/// makes has nothing to read.
 ///
 /// **`SELECT set_config(name, value, true)`, never `SET LOCAL name = value`.**
 /// The two are equivalent for the third argument `true` (`is_local`), but
@@ -301,21 +347,49 @@ async fn set_tenant_context(
     Ok(())
 }
 
-/// Application-layer half of §7's "both, neither alone": confirm the acting
-/// account actually holds a membership row in this tenant, rather than
-/// relying only on the RLS policy having hidden anything it should not see.
-async fn require_membership(
+/// Application-layer half of §7's "both, neither alone", and the thing that
+/// makes the other half mean something: confirm the acting account really
+/// holds a membership row in this tenant, and only then open the tenant
+/// context the policies read.
+///
+/// **The order is the point.** Setting `app.tenant_id` first would make the
+/// policies' view of the world a copy of the caller's own argument -- see the
+/// module doc. Instead:
+///
+/// 1. `app.account_id` is set, and nothing else. The only rows visible now
+///    are the ones `memberships_readable` shows an account about itself.
+/// 2. The membership is read *through* that policy. No row, no context.
+/// 3. `app.tenant_id` is set, from a tenant a stored row just vouched for.
+///
+/// Returns the role, so a caller that needs more than membership -- see
+/// [`add_member`] -- can ask for it without a second query.
+async fn authorise(
     tx: &Transaction<'_>,
     tenant: OrganisationId,
-    account: AccountId,
-) -> Result<(), RepoError> {
+    actor: AccountId,
+) -> Result<Role, RepoError> {
+    tx.execute(
+        "SELECT set_config('app.account_id', $1, true)",
+        &[&actor.to_string()],
+    )
+    .await?;
+
     let row = tx
         .query_opt(
-            "SELECT 1 FROM memberships WHERE organisation_id = $1 AND account_id = $2",
-            &[&tenant.to_string(), &account.to_string()],
+            "SELECT role FROM memberships WHERE organisation_id = $1 AND account_id = $2",
+            &[&tenant.to_string(), &actor.to_string()],
         )
-        .await?;
-    row.map(|_| ()).ok_or(RepoError::NotAMember)
+        .await?
+        .ok_or(RepoError::NotAMember)?;
+    let role_str: String = row.get(0);
+    let role = Role::parse(&role_str).ok_or(RepoError::Corrupt("membership role"))?;
+
+    tx.execute(
+        "SELECT set_config('app.tenant_id', $1, true)",
+        &[&tenant.to_string()],
+    )
+    .await?;
+    Ok(role)
 }
 
 // ---------------------------------------------------------------------------
@@ -380,8 +454,20 @@ pub async fn create_organisation(
     })
 }
 
-/// Adds `member` to `tenant` with `role`. `actor` must already be a member --
-/// enforced by [`require_membership`], not merely by RLS.
+/// Adds `member` to `tenant` with `role`.
+///
+/// **`actor` must be an admin of `tenant`, not merely a member.** This gated
+/// only on membership until 2026-09-12, which meant any plain member could
+/// add anyone at any role -- including admin, including itself a second time
+/// were the primary key not in the way. The two roles exist precisely to
+/// "distinguish who may administer an organisation from who may use it"
+/// (the brief), and adding members is administering one.
+///
+/// Row-level security cannot supply this half: the `memberships` policies
+/// separate one tenant from another, and this is a question about two
+/// accounts inside the *same* tenant. It is an application-layer check by
+/// nature, which is why it is written here and stated plainly rather than
+/// assumed to be covered.
 pub async fn add_member(
     pool: &Pool,
     tenant: OrganisationId,
@@ -391,8 +477,9 @@ pub async fn add_member(
 ) -> Result<Membership, RepoError> {
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
-    set_tenant_context(&tx, tenant, Some(actor)).await?;
-    require_membership(&tx, tenant, actor).await?;
+    if authorise(&tx, tenant, actor).await? != Role::Admin {
+        return Err(RepoError::NotAnAdmin);
+    }
 
     tx.execute(
         "INSERT INTO memberships (account_id, organisation_id, role) VALUES ($1, $2, $3)",
@@ -416,8 +503,7 @@ pub async fn list_members(
 ) -> Result<Vec<Membership>, RepoError> {
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
-    set_tenant_context(&tx, tenant, Some(actor)).await?;
-    require_membership(&tx, tenant, actor).await?;
+    authorise(&tx, tenant, actor).await?;
 
     let rows = tx
         .query(
@@ -499,6 +585,27 @@ struct ParentInfo {
     kind: Option<ScopeKind>,
 }
 
+/// Reads a prospective parent **and holds it still**.
+///
+/// # Why `FOR SHARE` and not a plain `SELECT`
+///
+/// The caller is about to build a path out of `path`, so between reading it
+/// and writing the row that embeds it, that text must not change. At READ
+/// COMMITTED -- the default, and what this connection uses -- an unlocked
+/// read sees the last committed version and nothing stops a `move_subtree`
+/// of this very row committing a microsecond later. The child then stores a
+/// path built from a prefix that no longer exists, `path` and
+/// `parent_scope_id` disagree, and **no constraint catches it and no later
+/// operation repairs it**. Reproduced against a real PostgreSQL 2026-09-12;
+/// `tests/repo.rs` interleaves the two transactions that produce it.
+///
+/// `FOR SHARE` is the exact amount of lock that fixes it: every path change
+/// to a row is an `UPDATE` of that row, and `FOR SHARE` conflicts with an
+/// `UPDATE` while still letting two children be created under one parent at
+/// the same time. (A plain `SELECT`'s implicit `FOR KEY SHARE` -- what the
+/// foreign key on `parent_scope_id` takes -- is NOT enough: PostgreSQL's
+/// `UPDATE` of a non-key column takes `FOR NO KEY UPDATE`, which does not
+/// conflict with it. That is precisely how the bug got in.)
 async fn fetch_scope_for_parent(
     tx: &Transaction<'_>,
     tenant: OrganisationId,
@@ -506,7 +613,7 @@ async fn fetch_scope_for_parent(
 ) -> Result<ParentInfo, RepoError> {
     let row = tx
         .query_opt(
-            "SELECT path, kind FROM scopes WHERE id = $1 AND organisation_id = $2",
+            "SELECT path, kind FROM scopes WHERE id = $1 AND organisation_id = $2 FOR SHARE",
             &[&id.to_string(), &tenant.to_string()],
         )
         .await?
@@ -553,8 +660,7 @@ pub async fn create_scope(
 ) -> Result<Scope, RepoError> {
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
-    set_tenant_context(&tx, tenant, Some(actor)).await?;
-    require_membership(&tx, tenant, actor).await?;
+    authorise(&tx, tenant, actor).await?;
 
     let parent_info = match parent {
         Some(p) => Some(fetch_scope_for_parent(&tx, tenant, p).await?),
@@ -611,8 +717,7 @@ pub async fn list_subtree(
 ) -> Result<Vec<Scope>, RepoError> {
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
-    set_tenant_context(&tx, tenant, Some(actor)).await?;
-    require_membership(&tx, tenant, actor).await?;
+    authorise(&tx, tenant, actor).await?;
 
     let root_row = tx
         .query_opt(
@@ -650,12 +755,30 @@ pub async fn move_subtree(
 ) -> Result<(), RepoError> {
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
-    set_tenant_context(&tx, tenant, Some(actor)).await?;
-    require_membership(&tx, tenant, actor).await?;
+    authorise(&tx, tenant, actor).await?;
 
+    // `FOR UPDATE`, and the whole correctness of this function rests on it.
+    // The `UPDATE` at the end re-matches this row by the path text read
+    // here. Every operation that can change that text is an `UPDATE` of this
+    // same row -- a move of ANY ancestor rewrites its descendants, this row
+    // among them -- so locking it is what makes read-then-write safe without
+    // raising the isolation level. Under READ COMMITTED a blocked
+    // `SELECT ... FOR UPDATE` re-reads the committed version once the other
+    // transaction ends, so what comes back here is the current path, never a
+    // stale one.
+    //
+    // Without it: a concurrent ancestor move made the final `UPDATE` match
+    // zero rows, and this function **returned `Ok(())` having done nothing**
+    // -- a caller told the estate of record changed when it had not.
+    // Reproduced against a real PostgreSQL 2026-09-12.
+    //
+    // Two moves racing can now deadlock instead (each holding a row the
+    // other wants). PostgreSQL detects that and aborts one with an error,
+    // which surfaces as `RepoError::Db`: a loud failure the caller can
+    // retry, which is the outcome a silent one was traded for.
     let node = tx
         .query_opt(
-            "SELECT kind, path FROM scopes WHERE id = $1 AND organisation_id = $2",
+            "SELECT kind, path FROM scopes WHERE id = $1 AND organisation_id = $2 FOR UPDATE",
             &[&scope_id.to_string(), &tenant.to_string()],
         )
         .await?
@@ -706,20 +829,31 @@ pub async fn move_subtree(
     // prefix. `depth` is untouched: it is a pure function of `kind`
     // (network=1, building=2, rack=3, enforced by the migration's `CHECK`),
     // and a move never changes any row's `kind`, only where it sits.
-    tx.execute(
-        "UPDATE scopes \
-         SET path = $1 || substring(path from char_length($2) + 1), \
-             parent_scope_id = CASE WHEN id = $3 THEN $4 ELSE parent_scope_id END \
-         WHERE organisation_id = $5 AND (path = $2 OR path LIKE $2 || '.%')",
-        &[
-            &new_path,
-            &old_path,
-            &scope_id.to_string(),
-            &new_parent.map(|p| p.to_string()),
-            &tenant.to_string(),
-        ],
-    )
-    .await?;
+    let changed = tx
+        .execute(
+            "UPDATE scopes \
+             SET path = $1 || substring(path from char_length($2) + 1), \
+                 parent_scope_id = CASE WHEN id = $3 THEN $4 ELSE parent_scope_id END \
+             WHERE organisation_id = $5 AND (path = $2 OR path LIKE $2 || '.%')",
+            &[
+                &new_path,
+                &old_path,
+                &scope_id.to_string(),
+                &new_parent.map(|p| p.to_string()),
+                &tenant.to_string(),
+            ],
+        )
+        .await?;
+
+    // The row lock above should make this unreachable: this statement must
+    // match at least the node itself, whose path was read under that lock.
+    // Kept because the alternative to checking is returning `Ok(())` for a
+    // write that did nothing, and that is the failure this function actually
+    // had. A guard that never fires costs one integer comparison; the bug it
+    // guards against cost a silently unmoved subtree.
+    if changed == 0 {
+        return Err(RepoError::ConcurrentModification);
+    }
 
     tx.commit().await?;
     Ok(())
