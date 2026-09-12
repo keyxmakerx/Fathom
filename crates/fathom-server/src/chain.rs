@@ -15,6 +15,17 @@
 //! verification additionally decrypts and recomputes the plaintext binding.
 //! **Both must name which they ran** — see [`Report::summary`].
 //!
+//! # The order of the checks is itself a control (§12.6a)
+//!
+//! **Everything verifiable is verified first, and a coverage gap is an extra
+//! fact reported alongside — never an early return.** Returning the gap first
+//! made it a switch: one `UPDATE` of any entry's `chain_key_epoch` turned a
+//! detected forgery into *"a coverage gap, not a failure"*, with a summary
+//! claiming the earlier entries verified over entries nothing had examined.
+//! Any count of what verified comes from verification and never from a
+//! position in a list, and an epoch above what this deployment ever wrote is
+//! an anomaly rather than a gap, because there is no retired key to find.
+//!
 //! # What the chain does not do
 //!
 //! Each seal binds backwards only. Deleting the last three entries leaves the
@@ -319,7 +330,9 @@ pub enum ContentState {
     NotRebound,
 }
 
-/// Which of the four things failed first (§11.2).
+/// Which of the four things failed first (§11.2), plus the three this
+/// implementation adds because a verifier that cannot say them would have to
+/// stay silent about a real tamper.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BreakReason {
     /// The seal does not recompute from what the entry says it covers.
@@ -339,6 +352,17 @@ pub enum BreakReason {
     PlaintextBindingMismatch,
     /// The entry names a payload version that is not in the database.
     PayloadMissing,
+    /// **A stored payload version that no entry in the history names.** The
+    /// other direction of [`Self::PayloadMissing`], and it has to be checked
+    /// separately: walking entries can only ever find a row an entry points
+    /// at. An inserted payload row is invisible to that walk, verifies as
+    /// nothing, and — carrying the highest `design_version` — is what a read
+    /// of "the latest version" then refuses on.
+    PayloadNotNamedByAnyEntry,
+    /// **The entry names a chain key epoch this deployment has never
+    /// written.** Not a coverage gap: there is no retired key to go and find,
+    /// because no such epoch was ever minted. Someone changed the column.
+    ChainKeyEpochNeverWritten,
 }
 
 impl BreakReason {
@@ -358,6 +382,13 @@ impl BreakReason {
                 "the decrypted payload does not match the sealed plaintext binding"
             }
             Self::PayloadMissing => "the entry names a payload version that is not stored",
+            Self::PayloadNotNamedByAnyEntry => {
+                "a stored payload version is named by no entry in the history"
+            }
+            Self::ChainKeyEpochNeverWritten => {
+                "the entry names a chain key epoch this deployment has never written, so there \
+                 is no retired key to find -- the column was changed"
+            }
         }
     }
 }
@@ -366,26 +397,55 @@ impl BreakReason {
 /// else can say something nobody has to act on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
-    /// Every seal recomputes, `seq` is contiguous, and every storage binding
-    /// matches directly or via a `reencrypt` chain.
+    /// Every seal recomputes, `seq` is contiguous, every entry's storage
+    /// binding matches the payload it names directly or via a `reencrypt`
+    /// chain, and no stored payload is unaccounted for.
     Verified { entries: usize },
-    /// N is the **first** index where one of the four things fails.
-    /// Everything before N is still verified and is reported as such.
+    /// N is the **first** index where one of the checks fails. Everything
+    /// before N that was actually verified is reported as such.
     BrokenAt {
+        /// The failing entry's `seq`, or `0` when the break is not at an entry
+        /// at all — a stored payload no entry names has no `seq` to report,
+        /// and inventing one would send an operator to an entry that verifies.
         seq: i64,
         reason: BreakReason,
+        /// **Counted by verification, never by a position in a list.** An
+        /// entry that could not be checked — no key for its epoch — does not
+        /// count towards this, so the number never claims more than was done.
         verified_before: usize,
         /// The failing entry's own metadata, so a reader has something to act
-        /// on rather than an index.
+        /// on rather than an index. Empty when the break is not at an entry.
         metadata: Vec<u8>,
+        /// The design version involved, when there is one.
+        design_version: Option<i64>,
     },
-    /// **A coverage gap, not a failure.** The entries name a chain key epoch
-    /// this verifier was not given.
+    /// **A coverage gap, not a failure.** Some entries name a chain key epoch
+    /// this verifier was not given — **and everything that could be checked
+    /// was checked first, and nothing was broken.** This outcome can only be
+    /// reached after a full pass.
     CannotVerifyUnderKeyEpoch {
         epochs: Vec<i32>,
         ranges: Vec<(i64, i64)>,
         verified_before: usize,
     },
+}
+
+/// The entries a run could not check, reported **alongside** an outcome rather
+/// than instead of one.
+///
+/// §12.6a: *"verify everything verifiable first and report every break found;
+/// a coverage gap is an additional fact reported alongside, never an early
+/// return."* Before that rule, one `UPDATE` of any entry's `chain_key_epoch`
+/// turned a detected forgery into a coverage gap and sent the operator to look
+/// for a retired key that does not exist.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Coverage {
+    /// The epochs no key was given for.
+    pub epochs: Vec<i32>,
+    /// The contiguous `seq` ranges those entries occupy.
+    pub ranges: Vec<(i64, i64)>,
+    /// How many entries went unchecked.
+    pub entries: usize,
 }
 
 /// What a verification run says. **The depth and the content state travel with
@@ -397,13 +457,18 @@ pub struct Report {
     pub outcome: Outcome,
     pub depth: Depth,
     pub content: ContentState,
+    /// `Some` when some entries could not be checked at all. **Present
+    /// whatever the outcome is**, including beside a break: "I could not check
+    /// these" and "this one is broken" are both true at once and the second
+    /// must not be swallowed by the first.
+    pub coverage: Option<Coverage>,
 }
 
 impl Report {
     /// One line an operator can act on. Never says "verified" without saying
     /// in the same breath what was and was not checked.
     pub fn summary(&self) -> String {
-        match &self.outcome {
+        let mut out = match &self.outcome {
             Outcome::Verified { entries } => match (self.depth, self.content) {
                 (Depth::Deep, ContentState::Rebound) => format!(
                     "verified: {entries} entries, links and content \
@@ -419,11 +484,27 @@ impl Report {
                 seq,
                 reason,
                 verified_before,
+                design_version,
                 ..
-            } => format!(
-                "BROKEN AT ENTRY {seq}: {}. The {verified_before} entries before it verify.",
-                reason.describe()
-            ),
+            } => {
+                let version = match design_version {
+                    Some(v) => format!(" (design version {v})"),
+                    None => String::new(),
+                };
+                if *seq == 0 {
+                    format!(
+                        "BROKEN: {}{version}. {verified_before} entries verify, and the stored \
+                         data does not match what they say is there.",
+                        reason.describe()
+                    )
+                } else {
+                    format!(
+                        "BROKEN AT ENTRY {seq}: {}{version}. The {verified_before} entries \
+                         before it verify.",
+                        reason.describe()
+                    )
+                }
+            }
             Outcome::CannotVerifyUnderKeyEpoch {
                 epochs,
                 ranges,
@@ -433,14 +514,31 @@ impl Report {
                 let ranges: Vec<String> = ranges.iter().map(|(a, b)| format!("{a}-{b}")).collect();
                 format!(
                     "cannot verify under chain key epoch(s) {}: entries {} are not covered by \
-                     the key this run was given. That is a coverage gap, not a failure -- the \
-                     {verified_before} entries before it verify. Retired chain keys are kept \
-                     forever; find the one for that epoch.",
+                     the key this run was given. That is a coverage gap and not a failure -- \
+                     everything else was checked FIRST and {verified_before} entries verify. \
+                     Retired chain keys are kept forever; find the one for that epoch.",
                     epochs.join(", "),
                     ranges.join(", ")
                 )
             }
+        };
+
+        // The additional fact, never the headline. Suppressed for the gap
+        // outcome, which is already this sentence said in full.
+        if let (Some(coverage), false) = (
+            self.coverage.as_ref(),
+            matches!(self.outcome, Outcome::CannotVerifyUnderKeyEpoch { .. }),
+        ) {
+            let epochs: Vec<String> = coverage.epochs.iter().map(i32::to_string).collect();
+            out.push_str(&format!(
+                " Separately, {} entr{} could not be checked at all: chain key epoch(s) {} were \
+                 not given to this run. That is a coverage gap and is not what is reported above.",
+                coverage.entries,
+                if coverage.entries == 1 { "y" } else { "ies" },
+                epochs.join(", ")
+            ));
         }
+        out
     }
 }
 
@@ -454,9 +552,31 @@ impl fmt::Display for Report {
 pub struct AvailableKeys {
     /// `(epoch, subkeys)`, every epoch this run can check.
     pub by_epoch: Vec<(i32, Subkeys)>,
+    /// The highest chain key epoch this deployment has ever written, when the
+    /// caller knows it.
+    ///
+    /// **An epoch above it is an anomaly, not a coverage gap** (§12.6a): no
+    /// such key was ever minted, so there is nothing to go and find. A caller
+    /// that genuinely does not know — an offline verifier handed an exported
+    /// chain — passes `None` and gets the coverage reading.
+    pub written_through: Option<i32>,
 }
 
 impl AvailableKeys {
+    /// Keys with no claim about what this deployment ever wrote.
+    pub fn new(by_epoch: Vec<(i32, Subkeys)>) -> Self {
+        Self {
+            by_epoch,
+            written_through: None,
+        }
+    }
+
+    /// The same, from a caller that knows the highest epoch ever written here.
+    pub fn written_through(mut self, epoch: i32) -> Self {
+        self.written_through = Some(epoch);
+        self
+    }
+
     fn get(&self, epoch: i32) -> Option<&Subkeys> {
         self.by_epoch
             .iter()
@@ -471,6 +591,15 @@ impl AvailableKeys {
 /// is every stored version. `plaintexts` is `Some` only for a deep run, and
 /// carries the decrypted bytes by version — this module never decrypts
 /// anything itself, because it holds no data key and should not.
+///
+/// # The order, which is the control
+///
+/// Everything checkable is checked **first**, in one pass, in `seq` order, and
+/// the first break found is the one reported. `seq` and `prev_seal` need no
+/// key at all, so they are checked even for an entry whose epoch this run
+/// cannot open. A coverage gap is collected as it is met and reported
+/// alongside; it never returns early and it never contributes to
+/// `verified_before`.
 pub fn verify(
     tenant: &str,
     design: &str,
@@ -490,86 +619,77 @@ pub fn verify(
         ContentState::NotRebound
     };
 
-    // A coverage gap is reported BEFORE anything else, because "I cannot
-    // check this" and "this is broken" are different answers and the second
-    // must never be given for the first.
-    let mut missing: Vec<i32> = Vec::new();
-    for e in entries {
-        if keys.get(e.chain_key_epoch).is_none() && !missing.contains(&e.chain_key_epoch) {
-            missing.push(e.chain_key_epoch);
-        }
-    }
-    if !missing.is_empty() {
-        let first_uncovered = entries
-            .iter()
-            .position(|e| missing.contains(&e.chain_key_epoch))
-            .unwrap_or(0);
-        let mut ranges = Vec::new();
-        let mut run: Option<(i64, i64)> = None;
-        for e in entries
-            .iter()
-            .filter(|e| missing.contains(&e.chain_key_epoch))
-        {
-            match run {
-                Some((start, last)) if e.seq == last + 1 => run = Some((start, e.seq)),
-                Some(r) => {
-                    ranges.push(r);
-                    run = Some((e.seq, e.seq));
-                }
-                None => run = Some((e.seq, e.seq)),
-            }
-        }
-        if let Some(r) = run {
-            ranges.push(r);
-        }
-        return Report {
-            outcome: Outcome::CannotVerifyUnderKeyEpoch {
-                epochs: missing,
-                ranges,
-                verified_before: first_uncovered,
-            },
-            depth,
-            content,
-        };
-    }
+    // **The coverage gap is collected before the pass and reported with
+    // whatever the pass finds** -- never instead of it (§12.6a). Working it
+    // out first costs one key lookup per entry and means a break found at
+    // entry 1 still carries the fact that entry 3 could not be checked;
+    // collecting it as the pass went would lose that, because the pass stops
+    // at the break.
+    //
+    // An epoch above what this deployment ever wrote is deliberately NOT
+    // counted here: there is no retired key to find, so it is an anomaly and
+    // the pass reports it as a break.
+    let uncovered: Vec<(i32, i64)> = entries
+        .iter()
+        .filter(|e| {
+            keys.get(e.chain_key_epoch).is_none()
+                && keys
+                    .written_through
+                    .is_none_or(|highest| e.chain_key_epoch <= highest)
+        })
+        .map(|e| (e.chain_key_epoch, e.seq))
+        .collect();
+    let coverage = coverage_of(&uncovered);
 
-    let broke = |seq: i64, reason: BreakReason, before: usize, metadata: &[u8]| Outcome::BrokenAt {
-        seq,
-        reason,
-        verified_before: before,
-        metadata: metadata.to_vec(),
-    };
+    // Counted by verification and by nothing else.
+    let mut verified: usize = 0;
 
     let mut prev_seal = genesis(tenant, design).to_vec();
     let mut expected_seq: i64 = 1;
 
-    for (index, entry) in entries.iter().enumerate() {
-        let subkeys = keys.get(entry.chain_key_epoch).expect("checked above");
+    for entry in entries {
+        let broke = |reason: BreakReason| Report {
+            outcome: Outcome::BrokenAt {
+                seq: entry.seq,
+                reason,
+                verified_before: verified,
+                metadata: entry.metadata.clone(),
+                design_version: Some(entry.design_version),
+            },
+            depth,
+            content,
+            coverage: coverage.clone(),
+        };
 
+        // ---- What needs no key -------------------------------------------
         if entry.seq != expected_seq {
-            return Report {
-                outcome: broke(
-                    entry.seq,
-                    BreakReason::SequenceSkippedOrRepeated,
-                    index,
-                    &entry.metadata,
-                ),
-                depth,
-                content,
-            };
+            return broke(BreakReason::SequenceSkippedOrRepeated);
         }
         if entry.prev_seal != prev_seal {
-            return Report {
-                outcome: broke(
-                    entry.seq,
-                    BreakReason::PrevSealMismatch,
-                    index,
-                    &entry.metadata,
-                ),
-                depth,
-                content,
-            };
+            return broke(BreakReason::PrevSealMismatch);
         }
+        let sealed_over = prev_seal.clone();
+        prev_seal = entry.seal.clone();
+        expected_seq += 1;
+
+        // An epoch beyond anything this deployment ever wrote is a changed
+        // column, not a key somebody else holds -- checked before the key
+        // lookup so that it reads as the anomaly it is even when a key for
+        // that epoch happens to be derivable.
+        if keys
+            .written_through
+            .is_some_and(|highest| entry.chain_key_epoch > highest)
+        {
+            return broke(BreakReason::ChainKeyEpochNeverWritten);
+        }
+
+        // ---- What needs the key for this entry's epoch --------------------
+        let Some(subkeys) = keys.get(entry.chain_key_epoch) else {
+            // Not verified, and so not counted. The links either side of it
+            // were checked above; nothing sealed under a key this run does not
+            // hold is claimed to be anything.
+            continue;
+        };
 
         // The entry's own two bindings must combine to the content_hash it
         // carries — otherwise a seal could cover a content_hash that is not
@@ -581,16 +701,7 @@ pub fn verify(
             &to32(&entry.storage_binding),
         );
         if recomputed.as_slice() != entry.content_hash.as_slice() {
-            return Report {
-                outcome: broke(
-                    entry.seq,
-                    BreakReason::ContentHashMismatch,
-                    index,
-                    &entry.metadata,
-                ),
-                depth,
-                content,
-            };
+            return broke(BreakReason::ContentHashMismatch);
         }
 
         let facts = SealFacts {
@@ -598,134 +709,160 @@ pub fn verify(
             seq: entry.seq,
             tenant,
             design,
-            prev_seal: &prev_seal,
+            prev_seal: &sealed_over,
             content_hash: &entry.content_hash,
             entry_type: entry.entry_type,
             metadata: &entry.metadata,
         };
         if !seal_verifies(&subkeys.seal, &facts, &entry.seal) {
-            return Report {
-                outcome: broke(
-                    entry.seq,
-                    BreakReason::SealDoesNotRecompute,
-                    index,
-                    &entry.metadata,
-                ),
-                depth,
-                content,
-            };
+            return broke(BreakReason::SealDoesNotRecompute);
         }
 
-        prev_seal = entry.seal.clone();
-        expected_seq += 1;
-    }
-
-    // The stored bytes. For each version, the LAST entry that spoke about it
-    // is the one whose storage binding the blob must match — a `reencrypt`
-    // entry supersedes the `create`/`update` before it, which is exactly
-    // §11.2's *"a verifier meeting a storage-binding mismatch looks for a
-    // reencrypt entry accounting for it: found, routine; absent, broken."*
-    for payload in payloads {
-        // The LAST entry that spoke about this version: `rfind`, because a
-        // `reencrypt` supersedes the `create`/`update` before it.
-        let Some(entry) = entries
+        // ---- The stored bytes, ENTRY-DRIVEN (§12.6a) ----------------------
+        //
+        // For each entry, the payload it names. Driving this from the entries
+        // rather than from the payload rows is what closes the gap the seal
+        // itself leaves: the seal does not cover `design_version`, so an entry
+        // re-pointed at another version is unauthenticated — but the storage
+        // binding it carries is over the bytes of the version it was written
+        // for, and those are not the bytes of the version it now names.
+        // Deleting the entry instead breaks the next entry's `prev_seal`.
+        let Some(payload) = payloads
             .iter()
-            .rfind(|e| e.design_version == payload.design_version)
+            .find(|p| p.design_version == entry.design_version)
         else {
-            continue;
+            return broke(BreakReason::PayloadMissing);
         };
-        let subkeys = keys.get(entry.chain_key_epoch).expect("checked above");
-        let facts = StorageFacts {
-            key_id: payload.key_id,
-            key_epoch: payload.key_epoch,
-            wrap_version: payload.wrap_version,
-            aead_alg_id: payload.aead_alg_id,
-            nonce: &payload.nonce,
-            ciphertext: &payload.ciphertext,
-        };
-        if storage_binding(&subkeys.content, &facts).as_slice() != entry.storage_binding.as_slice()
-        {
-            let index = entries.iter().position(|e| e.seq == entry.seq).unwrap_or(0);
-            return Report {
-                outcome: broke(
-                    entry.seq,
-                    BreakReason::StorageBindingMismatchUnexplained,
-                    index,
-                    &entry.metadata,
-                ),
-                depth,
-                content,
-            };
-        }
-    }
-
-    // Every entry must have the payload it names, or the history describes
-    // versions that are not there.
-    for (index, entry) in entries.iter().enumerate() {
-        if !payloads
-            .iter()
-            .any(|p| p.design_version == entry.design_version)
-        {
-            return Report {
-                outcome: broke(
-                    entry.seq,
-                    BreakReason::PayloadMissing,
-                    index,
-                    &entry.metadata,
-                ),
-                depth,
-                content,
-            };
-        }
-    }
-
-    if let Some(plaintexts) = plaintexts {
-        for (index, entry) in entries.iter().enumerate() {
-            let Some((_, bytes)) = plaintexts.iter().find(|(v, _)| *v == entry.design_version)
-            else {
-                // Asked for a deep run and one version could not be
-                // decrypted: the links still verified, and saying "verified"
-                // here would be the exact conflation §11.2 forbids.
-                content = ContentState::NotRebound;
-                continue;
-            };
-            let subkeys = keys.get(entry.chain_key_epoch).expect("checked above");
-            let payload_schema_version = payloads
-                .iter()
-                .find(|p| p.design_version == entry.design_version)
-                .map(|p| p.payload_schema_version)
-                .unwrap_or_default();
-            let facts = PlaintextFacts {
-                tenant,
-                design,
-                design_version: entry.design_version,
-                payload_schema_version,
-                payload: bytes,
-            };
-            if plaintext_binding(&subkeys.content, &facts).as_slice()
-                != entry.plaintext_binding.as_slice()
-            {
-                return Report {
-                    outcome: broke(
-                        entry.seq,
-                        BreakReason::PlaintextBindingMismatch,
-                        index,
-                        &entry.metadata,
-                    ),
-                    depth,
-                    content,
-                };
+        let stored = storage_binding(
+            &subkeys.content,
+            &StorageFacts {
+                key_id: payload.key_id,
+                key_epoch: payload.key_epoch,
+                wrap_version: payload.wrap_version,
+                aead_alg_id: payload.aead_alg_id,
+                nonce: &payload.nonce,
+                ciphertext: &payload.ciphertext,
+            },
+        );
+        if stored.as_slice() != entry.storage_binding.as_slice() {
+            // §11.2: *"a verifier meeting a storage-binding mismatch looks for
+            // a reencrypt entry accounting for it: found, routine; absent,
+            // broken."* A later `reencrypt` on this same version is exactly
+            // that account -- it supersedes this entry's storage binding, and
+            // is itself checked when the pass reaches it.
+            let superseded = entries.iter().any(|later| {
+                later.seq > entry.seq
+                    && later.design_version == entry.design_version
+                    && later.entry_type == EntryType::Reencrypt
+            });
+            if !superseded {
+                return broke(BreakReason::StorageBindingMismatchUnexplained);
             }
         }
+
+        // ---- Deep only: the plaintext ------------------------------------
+        if let Some(plaintexts) = plaintexts {
+            match plaintexts.iter().find(|(v, _)| *v == entry.design_version) {
+                Some((_, bytes)) => {
+                    let facts = PlaintextFacts {
+                        tenant,
+                        design,
+                        design_version: entry.design_version,
+                        payload_schema_version: payload.payload_schema_version,
+                        payload: bytes,
+                    };
+                    if plaintext_binding(&subkeys.content, &facts).as_slice()
+                        != entry.plaintext_binding.as_slice()
+                    {
+                        return broke(BreakReason::PlaintextBindingMismatch);
+                    }
+                }
+                None => {
+                    // Asked for a deep run and one version could not be
+                    // decrypted: the links still verified, and saying
+                    // "verified" here would be the exact conflation §11.2
+                    // forbids.
+                    content = ContentState::NotRebound;
+                }
+            }
+        }
+
+        verified += 1;
     }
 
-    Report {
-        outcome: Outcome::Verified {
-            entries: entries.len(),
+    // The other direction, and it cannot be folded into the loop above: an
+    // inserted payload row is named by no entry, so no entry-driven walk can
+    // reach it. It is a break and not a skip -- being the highest
+    // `design_version`, it is what a read of "the latest version" lands on.
+    for payload in payloads {
+        if !entries
+            .iter()
+            .any(|e| e.design_version == payload.design_version)
+        {
+            return Report {
+                outcome: Outcome::BrokenAt {
+                    seq: 0,
+                    reason: BreakReason::PayloadNotNamedByAnyEntry,
+                    verified_before: verified,
+                    metadata: Vec::new(),
+                    design_version: Some(payload.design_version),
+                },
+                depth,
+                content,
+                coverage,
+            };
+        }
+    }
+
+    let outcome = match &coverage {
+        Some(c) => Outcome::CannotVerifyUnderKeyEpoch {
+            epochs: c.epochs.clone(),
+            ranges: c.ranges.clone(),
+            verified_before: verified,
         },
+        None => Outcome::Verified { entries: verified },
+    };
+
+    Report {
+        outcome,
         depth,
         content,
+        coverage,
     }
+}
+
+/// The uncovered entries, folded into the epochs they name and the contiguous
+/// `seq` ranges they occupy.
+fn coverage_of(uncovered: &[(i32, i64)]) -> Option<Coverage> {
+    if uncovered.is_empty() {
+        return None;
+    }
+    let mut epochs: Vec<i32> = Vec::new();
+    for (epoch, _) in uncovered {
+        if !epochs.contains(epoch) {
+            epochs.push(*epoch);
+        }
+    }
+    let mut ranges: Vec<(i64, i64)> = Vec::new();
+    let mut run: Option<(i64, i64)> = None;
+    for (_, seq) in uncovered {
+        match run {
+            Some((start, last)) if *seq == last + 1 => run = Some((start, *seq)),
+            Some(r) => {
+                ranges.push(r);
+                run = Some((*seq, *seq));
+            }
+            None => run = Some((*seq, *seq)),
+        }
+    }
+    if let Some(r) = run {
+        ranges.push(r);
+    }
+    Some(Coverage {
+        epochs,
+        ranges,
+        entries: uncovered.len(),
+    })
 }
 
 /// A stored 32-byte binding. A column shorter than 32 cannot occur — the
@@ -746,9 +883,15 @@ mod tests {
     fn keys_for(epoch: i32) -> AvailableKeys {
         let master = Key32::from_bytes([9u8; 32]);
         let ck = chain_key(&master, "T", "D", epoch);
-        AvailableKeys {
-            by_epoch: vec![(epoch, Subkeys::derive(&ck))],
-        }
+        AvailableKeys::new(vec![(epoch, Subkeys::derive(&ck))])
+    }
+
+    /// **Different bytes per version, which is what the real table holds.**
+    /// A helper that gave every version the same ciphertext would make the
+    /// entry-driven storage pass untestable: an entry re-pointed at another
+    /// version would match the wrong row's binding by accident.
+    fn ciphertext_of(version: i64) -> Vec<u8> {
+        format!("ciphertext-of-version-{version}").into_bytes()
     }
 
     fn entry(seq: i64, version: i64, prev: Vec<u8>, keys: &AvailableKeys) -> StoredEntry {
@@ -771,7 +914,7 @@ mod tests {
                 wrap_version: 1,
                 aead_alg_id: 1,
                 nonce: &[2u8; 12],
-                ciphertext: b"ciphertext",
+                ciphertext: &ciphertext_of(version),
             },
         );
         let ch = content_hash(&sub.content, &pb, &sb);
@@ -811,7 +954,7 @@ mod tests {
             wrap_version: 1,
             aead_alg_id: 1,
             nonce: vec![2u8; 12],
-            ciphertext: b"ciphertext".to_vec(),
+            ciphertext: ciphertext_of(version),
             payload_schema_version: 1,
         }
     }
@@ -928,9 +1071,10 @@ mod tests {
         // §6's B5 fix: per-design chain keys are what make grafting fail.
         let (keys, entries, payloads) = three();
         let master = Key32::from_bytes([9u8; 32]);
-        let other = AvailableKeys {
-            by_epoch: vec![(1, Subkeys::derive(&chain_key(&master, "T", "OTHER", 1)))],
-        };
+        let other = AvailableKeys::new(vec![(
+            1,
+            Subkeys::derive(&chain_key(&master, "T", "OTHER", 1)),
+        )]);
         assert!(matches!(
             verify("T", "OTHER", &entries, &payloads, &other, None).outcome,
             Outcome::BrokenAt { seq: 1, .. }
@@ -959,5 +1103,276 @@ mod tests {
         // ...and the same for genesis, which this module length-prefixes
         // where §11.2 wrote a bare concatenation. See `genesis`.
         assert_ne!(genesis("ab", "c"), genesis("a", "bc"));
+    }
+
+    // -----------------------------------------------------------------------
+    // §12.6a: a coverage gap is a fact reported alongside, never a switch
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn one_update_of_an_epoch_column_cannot_silence_a_forgery() {
+        // Reproduced against bb04ccb: forge entry 1, then set UNRELATED entry
+        // 3's `chain_key_epoch` to an epoch this run holds no key for, and the
+        // whole report became "a coverage gap, not a failure -- the 2 entries
+        // before it verify", over entries nothing had examined. The forgery
+        // was never named.
+        let (keys, mut entries, payloads) = three();
+        entries[0].metadata = br#"{"who":"someone else"}"#.to_vec();
+        entries[2].chain_key_epoch = 2;
+
+        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        match &report.outcome {
+            Outcome::BrokenAt {
+                seq,
+                reason,
+                verified_before,
+                ..
+            } => {
+                assert_eq!(*seq, 1);
+                assert_eq!(*reason, BreakReason::SealDoesNotRecompute);
+                assert_eq!(*verified_before, 0);
+            }
+            other => panic!("the forgery must be reported, got {other:?}"),
+        }
+        let summary = report.summary();
+        assert!(summary.starts_with("BROKEN AT ENTRY 1"), "{summary}");
+        // The gap is still stated -- as an additional fact, not the headline.
+        assert!(summary.contains("coverage gap"), "{summary}");
+        assert_eq!(report.coverage.as_ref().map(|c| c.entries), Some(1));
+    }
+
+    #[test]
+    fn verified_before_counts_only_entries_that_were_actually_verified() {
+        // Entry 2 cannot be checked at all; entry 3 is forged. One entry
+        // verified, and the number must say one -- not "the two before it",
+        // which is what a `position()` in a list would have said.
+        let (keys, mut entries, payloads) = three();
+        entries[1].chain_key_epoch = 2;
+        entries[2].metadata = br#"{"who":"someone else"}"#.to_vec();
+
+        match verify("T", "D", &entries, &payloads, &keys, None).outcome {
+            Outcome::BrokenAt {
+                seq,
+                verified_before,
+                ..
+            } => {
+                assert_eq!(seq, 3);
+                assert_eq!(verified_before, 1);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_epoch_on_every_entry_claims_nothing_verified() {
+        let (keys, mut entries, payloads) = three();
+        for e in &mut entries {
+            e.chain_key_epoch = 2;
+        }
+        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        match &report.outcome {
+            Outcome::CannotVerifyUnderKeyEpoch {
+                verified_before, ..
+            } => assert_eq!(*verified_before, 0),
+            other => panic!("{other:?}"),
+        }
+        let summary = report.summary();
+        assert!(summary.contains("0 entries verify"), "{summary}");
+    }
+
+    #[test]
+    fn an_epoch_this_deployment_never_wrote_is_an_anomaly_and_not_a_gap() {
+        // The verifier holds the key for epoch 2 -- a chain master derives any
+        // epoch -- and knows this deployment has only ever written epoch 1. So
+        // there is no retired key to go and find; the column was changed.
+        let (keys, mut entries, payloads) = three();
+        entries[2].chain_key_epoch = 2;
+        let master = Key32::from_bytes([9u8; 32]);
+        let mut both = keys.by_epoch;
+        both.push((2, Subkeys::derive(&chain_key(&master, "T", "D", 2))));
+        let keys = AvailableKeys::new(both).written_through(1);
+
+        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        match &report.outcome {
+            Outcome::BrokenAt { seq, reason, .. } => {
+                assert_eq!(*seq, 3);
+                assert_eq!(*reason, BreakReason::ChainKeyEpochNeverWritten);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(!report.summary().contains("coverage gap"), "{report}");
+    }
+
+    // -----------------------------------------------------------------------
+    // §12.6a: the storage pass is entry-driven, and it runs per entry
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn an_entry_repointed_at_another_version_is_caught_with_the_seal_unchanged() {
+        // The seal does not cover `design_version`, so this edit leaves every
+        // seal recomputing. Against bb04ccb it returned `Verified` -- a
+        // version destroyed and the history endorsing it. The entry-driven
+        // storage pass catches it because entry 2's storage binding is over
+        // version 2's bytes and those are not version 3's.
+        let (keys, mut entries, mut payloads) = three();
+        payloads.retain(|p| p.design_version != 2);
+        entries[1].design_version = 3;
+
+        match verify("T", "D", &entries, &payloads, &keys, None).outcome {
+            Outcome::BrokenAt { seq, reason, .. } => {
+                assert_eq!(seq, 2);
+                assert_eq!(reason, BreakReason::StorageBindingMismatchUnexplained);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_first_break_is_the_first_break_and_not_the_first_link_break() {
+        // A storage break at entry 1 and a link break at entry 3. Checking all
+        // the links first and the stored bytes afterwards -- which is what
+        // bb04ccb did -- reports entry 3 and claims two entries verified.
+        let (keys, mut entries, mut payloads) = three();
+        payloads[0].ciphertext = b"someone else's bytes".to_vec();
+        entries[2].metadata = br#"{"who":"someone else"}"#.to_vec();
+
+        match verify("T", "D", &entries, &payloads, &keys, None).outcome {
+            Outcome::BrokenAt {
+                seq,
+                reason,
+                verified_before,
+                ..
+            } => {
+                assert_eq!(seq, 1);
+                assert_eq!(reason, BreakReason::StorageBindingMismatchUnexplained);
+                assert_eq!(verified_before, 0);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_payload_row_no_entry_names_is_a_break_and_not_a_skip() {
+        let (keys, entries, mut payloads) = three();
+        payloads.push(payload(9));
+
+        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        match &report.outcome {
+            Outcome::BrokenAt {
+                seq,
+                reason,
+                verified_before,
+                design_version,
+                ..
+            } => {
+                assert_eq!(*seq, 0, "there is no entry to blame, and none is invented");
+                assert_eq!(*reason, BreakReason::PayloadNotNamedByAnyEntry);
+                assert_eq!(*verified_before, 3);
+                assert_eq!(*design_version, Some(9));
+            }
+            other => panic!("{other:?}"),
+        }
+        let summary = report.summary();
+        assert!(summary.starts_with("BROKEN"), "{summary}");
+        assert!(summary.contains("design version 9"), "{summary}");
+    }
+
+    #[test]
+    fn a_design_whose_whole_chain_was_deleted_does_not_report_verified() {
+        // The ciphertext is still there; every entry is gone. "verified: 0
+        // entries" was the old answer.
+        let (keys, _entries, payloads) = three();
+        let report = verify("T", "D", &[], &payloads, &keys, None);
+        assert!(
+            matches!(
+                report.outcome,
+                Outcome::BrokenAt {
+                    reason: BreakReason::PayloadNotNamedByAnyEntry,
+                    ..
+                }
+            ),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn an_entry_naming_a_version_that_is_not_stored_is_still_a_break() {
+        let (keys, entries, mut payloads) = three();
+        payloads.retain(|p| p.design_version != 3);
+        match verify("T", "D", &entries, &payloads, &keys, None).outcome {
+            Outcome::BrokenAt { seq, reason, .. } => {
+                assert_eq!(seq, 3);
+                assert_eq!(reason, BreakReason::PayloadMissing);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_reencrypt_entry_still_accounts_for_the_bytes_it_changed() {
+        // The routine case, kept here because the entry-driven pass is what
+        // now decides it: entry 1's storage binding no longer matches the
+        // stored bytes, and the later `reencrypt` on the same version is the
+        // account §11.2 asks a verifier to look for.
+        let keys = keys_for(1);
+        let sub = keys.get(1).unwrap();
+        let mut entries = vec![entry(1, 1, genesis("T", "D").to_vec(), &keys)];
+
+        // The bytes as a rotation would leave them.
+        let rotated = b"re-encrypted bytes".to_vec();
+        let sb = storage_binding(
+            &sub.content,
+            &StorageFacts {
+                key_id: Key32::from_bytes([1u8; 32]).id(),
+                key_epoch: 2,
+                wrap_version: 1,
+                aead_alg_id: 1,
+                nonce: &[3u8; 12],
+                ciphertext: &rotated,
+            },
+        );
+        let pb = entries[0].plaintext_binding.clone();
+        let ch = content_hash(&sub.content, &to32(&pb), &sb);
+        let metadata = br#"{"entry_type":"reencrypt"}"#.to_vec();
+        let prev = entries[0].seal.clone();
+        let s = seal(
+            &sub.seal,
+            &SealFacts {
+                chain_key_epoch: 1,
+                seq: 2,
+                tenant: "T",
+                design: "D",
+                prev_seal: &prev,
+                content_hash: &ch,
+                entry_type: EntryType::Reencrypt,
+                metadata: &metadata,
+            },
+        );
+        entries.push(StoredEntry {
+            seq: 2,
+            entry_type: EntryType::Reencrypt,
+            chain_key_epoch: 1,
+            design_version: 1,
+            prev_seal: prev,
+            plaintext_binding: pb,
+            storage_binding: sb.to_vec(),
+            content_hash: ch.to_vec(),
+            seal: s.to_vec(),
+            metadata,
+        });
+
+        let payloads = vec![StoredPayload {
+            design_version: 1,
+            key_id: Key32::from_bytes([1u8; 32]).id(),
+            key_epoch: 2,
+            wrap_version: 1,
+            aead_alg_id: 1,
+            nonce: vec![3u8; 12],
+            ciphertext: rotated,
+            payload_schema_version: 1,
+        }];
+
+        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        assert_eq!(report.outcome, Outcome::Verified { entries: 2 }, "{report}");
     }
 }

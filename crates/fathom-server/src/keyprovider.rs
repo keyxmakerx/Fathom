@@ -138,10 +138,21 @@ pub enum KeyError {
     CommandFailedToStart,
     /// The program ran and exited non-zero, or wrote nothing.
     CommandFailed,
+    /// The program did not finish inside [`COMMAND_TIMEOUT`] and was killed.
+    /// **A startup that hangs forever is worse than one that fails**: the
+    /// orchestrator's own restart and alerting never fire.
+    CommandTimedOut,
+    /// The program wrote more than [`COMMAND_OUTPUT_LIMIT`] bytes. A key is
+    /// 32 bytes or 64 hex characters; this is not a key.
+    CommandOutputTooLarge,
     /// What arrived was not 32 raw bytes and not 64 hex characters.
     NotAKey,
     /// The OS CSPRNG refused. There is no fallback and there must not be one.
     NoRandomness,
+    /// **The master key and the chain master are the same 32 bytes.** §6's B5
+    /// fix says they are different keys; one key in both places collapses
+    /// that separation and nothing downstream would ever notice.
+    RootsIdentical,
 }
 
 impl fmt::Display for KeyError {
@@ -166,6 +177,21 @@ impl fmt::Display for KeyError {
             Self::CommandFailed => {
                 f.write_str("the key command exited non-zero or produced no key")
             }
+            Self::CommandTimedOut => write!(
+                f,
+                "the key command did not finish within {} seconds and was killed. Nothing was \
+                 read from it. A key command that blocks -- an unreachable KMS endpoint, a \
+                 prompt on a terminal that is not there -- would otherwise hold startup open \
+                 forever.",
+                COMMAND_TIMEOUT.as_secs()
+            ),
+            Self::CommandOutputTooLarge => write!(
+                f,
+                "the key command wrote more than {COMMAND_OUTPUT_LIMIT} bytes. A key is \
+                 {KEY_LEN} raw bytes or {} hexadecimal characters; whatever that program is \
+                 printing, it is not a key.",
+                KEY_LEN * 2
+            ),
             Self::NotAKey => write!(
                 f,
                 "a key must be exactly {KEY_LEN} raw bytes or {} hexadecimal characters. It is \
@@ -173,6 +199,13 @@ impl fmt::Display for KeyError {
                 KEY_LEN * 2
             ),
             Self::NoRandomness => f.write_str("the operating system's random generator refused"),
+            Self::RootsIdentical => f.write_str(
+                "the master key and the chain key are the same 32 bytes. They are deliberately \
+                 different keys (`docs/PHASE-2-STORAGE-DESIGN.md` §6's B5 fix): the chain key \
+                 is what an operator hands someone to verify a history, and it must not also \
+                 open the designs. Check whether both settings name the same file or the same \
+                 value.",
+            ),
         }
     }
 }
@@ -190,6 +223,25 @@ fn decode(raw: &[u8]) -> Result<RootKey, KeyError> {
         out.copy_from_slice(raw);
         return Ok(RootKey::from_bytes(out));
     }
+
+    // **One trailing line ending, stripped before anything else is tried.**
+    // `head -c 32 /dev/urandom > k; echo >> k` and every editor that ends a
+    // file with a newline produce 33 bytes. Trimming whitespace from both ends
+    // handles that only while the key's own last byte is not itself
+    // whitespace — and one byte in nine of a random key is (0x09, 0x0a, 0x0b,
+    // 0x0c, 0x0d, 0x20 out of 256, plus the same at the front). A key file
+    // that works for one random key and is rejected for the next is the worst
+    // shape a loader can have: it looks like a bad file, not like a bug.
+    let without_newline: &[u8] = raw
+        .strip_suffix(b"\r\n")
+        .or_else(|| raw.strip_suffix(b"\n"))
+        .unwrap_or(raw);
+    if without_newline.len() == KEY_LEN {
+        let mut out = [0u8; KEY_LEN];
+        out.copy_from_slice(without_newline);
+        return Ok(RootKey::from_bytes(out));
+    }
+
     let trimmed: &[u8] = {
         let mut start = 0;
         let mut end = raw.len();
@@ -271,19 +323,95 @@ fn create_file(path: &Path) -> Result<RootKey, KeyError> {
     Ok(RootKey::from_bytes(bytes))
 }
 
+/// How long a key command may take before it is killed.
+///
+/// **This is the load-bearing provider** — ADR-0043 §3 makes every KMS, Vault
+/// and HSM integration a `command://` wrapper — so it is also the one that
+/// talks to a network. A wrapper whose endpoint is unreachable blocks in
+/// `read()` forever, and `std::process::Command::output()` has no timeout, so
+/// the server never reaches its listener and never logs why. Ten seconds is
+/// far above a local `cat` or a signed KMS call and far below a startup an
+/// orchestrator will wait through.
+const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How much of a key command's standard output is read.
+///
+/// A key is 32 bytes or 64 hex characters. Anything past this is not a key
+/// being mis-formatted, it is a program streaming, and reading it unbounded
+/// puts an attacker-or-accident-controlled length into this process's memory.
+const COMMAND_OUTPUT_LIMIT: usize = 4096;
+
 fn load_command(path: &Path) -> Result<RootKey, KeyError> {
+    load_command_within(path, COMMAND_TIMEOUT, COMMAND_OUTPUT_LIMIT)
+}
+
+/// The body of [`load_command`], with the two bounds as parameters so a test
+/// can drive them without waiting [`COMMAND_TIMEOUT`] of real seconds.
+fn load_command_within(
+    path: &Path,
+    timeout: std::time::Duration,
+    limit: usize,
+) -> Result<RootKey, KeyError> {
+    use std::io::Read;
+
     // Inherited stderr, captured stdout: the operator's wrapper may need to
     // say why it failed, and that belongs in the server's own error stream
     // rather than being swallowed. No shell: the path is executed directly,
     // so nothing in it is word-split or expanded.
-    let out = std::process::Command::new(path)
+    let mut child = std::process::Command::new(path)
         .stdin(std::process::Stdio::null())
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .spawn()
         .map_err(|_| KeyError::CommandFailedToStart)?;
-    if !out.status.success() || out.stdout.is_empty() {
+
+    // The read runs on its own thread because a bounded read is not a
+    // non-blocking one: a program that writes nothing leaves `read` parked,
+    // and the only way to get out of that without a new crate is to have
+    // something else holding the clock. One byte past the limit is read
+    // deliberately, so "exactly the limit" and "more than the limit" are
+    // distinguishable.
+    let mut stdout = child.stdout.take().expect("stdout was piped");
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.by_ref().take(limit as u64 + 1).read_to_end(&mut buf);
+        buf
+    });
+
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(_) => return Err(KeyError::CommandFailed),
+        }
+        if std::time::Instant::now() >= deadline {
+            // Killed rather than left running: a wrapper holding a key open
+            // is exactly the process not to leak.
+            let _ = child.kill();
+            let _ = child.wait();
+            // **The reader is deliberately NOT joined here.** Killing
+            // `/bin/sh` does not kill what it started, and a grandchild that
+            // inherited this pipe keeps it open -- so joining would wait for
+            // the very hang the timeout exists to end. The thread finishes
+            // when the last writer closes the pipe; nothing downstream reads
+            // what it collected.
+            drop(reader);
+            return Err(KeyError::CommandTimedOut);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+
+    let stdout = reader.join().map_err(|_| KeyError::CommandFailed)?;
+    // **The bound is checked before the exit status.** A program cut off at
+    // the limit usually then dies on a closed pipe, and reporting that as
+    // "exited non-zero" would send an operator to debug the wrong thing.
+    if stdout.len() > limit {
+        return Err(KeyError::CommandOutputTooLarge);
+    }
+    if !status.success() || stdout.is_empty() {
         return Err(KeyError::CommandFailed);
     }
-    decode(&out.stdout)
+    decode(&stdout)
 }
 
 #[cfg(test)]
@@ -457,5 +585,90 @@ mod tests {
             KeySource::File(PathBuf::from("/k/master.key")).describe(),
             "file:///k/master.key"
         );
+    }
+
+    #[test]
+    fn a_trailing_newline_is_stripped_even_when_the_key_ends_in_whitespace() {
+        // `head -c 32 /dev/urandom > k; echo >> k`, and the key's last byte is
+        // 0x0a. Trimming whitespace from both ends eats the key's own byte and
+        // leaves 31, so the file is refused -- for one key in nine, and not
+        // for the next one, which is the worst way for a loader to fail.
+        let mut key = [7u8; KEY_LEN];
+        key[KEY_LEN - 1] = b'\n';
+        let mut file = key.to_vec();
+        file.push(b'\n');
+        assert_eq!(decode(&file).unwrap().expose(), &key);
+
+        // The same at the front, where the trim is just as greedy.
+        let mut key = [7u8; KEY_LEN];
+        key[0] = b' ';
+        let mut file = key.to_vec();
+        file.push(b'\n');
+        assert_eq!(decode(&file).unwrap().expose(), &key);
+
+        // CRLF too, because a key file can arrive from a Windows editor.
+        let key = [7u8; KEY_LEN];
+        let mut file = key.to_vec();
+        file.extend_from_slice(b"\r\n");
+        assert_eq!(decode(&file).unwrap().expose(), &key);
+
+        // And none of this loosens what a key is: 30 bytes and a newline is
+        // still not a key, and never becomes one by padding.
+        let mut short = vec![7u8; KEY_LEN - 2];
+        short.push(b'\n');
+        assert_eq!(decode(&short).unwrap_err(), KeyError::NotAKey);
+    }
+
+    #[test]
+    fn a_key_command_that_never_finishes_is_killed_rather_than_holding_startup_open() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("fathom-hangtest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        // A wrapper whose KMS endpoint is unreachable, in one line.
+        let hangs = dir.join("hangs.sh");
+        let mut f = std::fs::File::create(&hangs).unwrap();
+        writeln!(f, "#!/bin/sh\nsleep 60").unwrap();
+        drop(f);
+        std::fs::set_permissions(&hangs, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let started = std::time::Instant::now();
+        assert_eq!(
+            load_command_within(&hangs, std::time::Duration::from_millis(200), 4096).unwrap_err(),
+            KeyError::CommandTimedOut
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "the load did not give up"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_key_command_that_streams_is_bounded_rather_than_read_whole() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("fathom-streamtest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let streams = dir.join("streams.sh");
+        let mut f = std::fs::File::create(&streams).unwrap();
+        // Far more than any key, and nothing this process should hold.
+        writeln!(f, "#!/bin/sh\nyes AAAAAAAAAAAAAAAA | head -c 200000").unwrap();
+        drop(f);
+        std::fs::set_permissions(&streams, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        assert_eq!(
+            load_command_within(&streams, std::time::Duration::from_secs(5), 4096).unwrap_err(),
+            KeyError::CommandOutputTooLarge
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

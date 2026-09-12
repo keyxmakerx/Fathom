@@ -61,6 +61,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0007_key_hierarchy_and_designs.sql",
         sql: include_str!("../migrations/0007_key_hierarchy_and_designs.sql"),
     },
+    Migration {
+        version: 8,
+        name: "0008_append_only_fence_and_chain_master.sql",
+        sql: include_str!("../migrations/0008_append_only_fence_and_chain_master.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

@@ -404,30 +404,43 @@ pub fn unwrap_key(
     wrapped: &Wrapped,
     expected_aad: &[u8],
 ) -> Result<Key32, UnwrapError> {
-    let plaintext = open(wrapping_key, &wrapped.nonce, &wrapped.ciphertext, b"")
+    let mut plaintext = open(wrapping_key, &wrapped.nonce, &wrapped.ciphertext, b"")
         .map_err(|_| UnwrapError::Refused)?;
 
-    let Some((recovered_aad, rest)) = read_lp(&plaintext) else {
-        return Err(UnwrapError::Malformed);
-    };
-    if rest.len() != KEY_LEN {
-        return Err(UnwrapError::Malformed);
-    }
+    // **This buffer is `LP(aad) ‖ key` — it holds the data key in the clear**,
+    // exactly as `wrap_key`'s does, and it is wiped on every path out for the
+    // same reason and with the same caveat: best-effort, a compiler fence
+    // around a plain overwrite, see `Key32`'s own doc for what is and is not
+    // claimed. `wrap_key` zeroed the identical buffer and this one was left
+    // on the heap until the allocator happened to reuse it.
+    let outcome = (|| {
+        let Some((recovered_aad, rest)) = read_lp(&plaintext) else {
+            return Err(UnwrapError::Malformed);
+        };
+        if rest.len() != KEY_LEN {
+            return Err(UnwrapError::Malformed);
+        }
 
-    // Constant-time, though the tag has already authenticated both sides:
-    // belt to that braces, and it costs one loop.
-    if !ct_eq(recovered_aad, expected_aad) {
-        return Err(UnwrapError::Misbound);
-    }
+        // Constant-time, though the tag has already authenticated both sides:
+        // belt to that braces, and it costs one loop.
+        if !ct_eq(recovered_aad, expected_aad) {
+            return Err(UnwrapError::Misbound);
+        }
 
-    let mut bytes = [0u8; KEY_LEN];
-    bytes.copy_from_slice(rest);
-    Ok(Key32::from_bytes(bytes))
+        let mut bytes = [0u8; KEY_LEN];
+        bytes.copy_from_slice(rest);
+        Ok(Key32::from_bytes(bytes))
+    })();
+
+    plaintext.fill(0);
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+
+    outcome
 }
 
 /// Equality that does not return early. Not a substitute for
 /// [`mac_verify`] — that one goes through `digest`'s own constant-time path.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

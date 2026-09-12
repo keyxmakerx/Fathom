@@ -300,6 +300,14 @@ async fn main() -> ExitCode {
                 tracing::error!(error = %e, "refusing to start");
                 return ExitCode::from(11);
             }
+            // The same stamp for the other root. Without it a lost chain key
+            // file -- which `KeyRing::load(..., true)` above silently recreates
+            // -- makes every history in this database report "broken at entry
+            // 1", which is an operator error rendered as an attack.
+            if let Err(e) = keys::register_chain_master_key(&client, &ring).await {
+                tracing::error!(error = %e, "refusing to start");
+                return ExitCode::from(11);
+            }
         }
         Err(e) => {
             tracing::error!(kind = %summarise(&e), "could not reach the database at startup");

@@ -875,3 +875,546 @@ async fn a_design_cannot_be_hung_on_another_tenants_scope() {
         .expect_err("a scope in another organisation must not accept a design");
     assert!(matches!(err, DesignError::NoSuchScope), "{err:?}");
 }
+
+// ---------------------------------------------------------------------------
+// §12.6a -- the two reproductions that made verification silenceable
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn setting_an_unrelated_entrys_key_epoch_cannot_hide_a_forgery() {
+    // Reproduced against bb04ccb: tamper with entry 1, then set entry 3's
+    // `chain_key_epoch` to 2, and the report became "cannot verify under chain
+    // key epoch(s) 2 ... a coverage gap, not a failure -- the 2 entries before
+    // it verify", over entries nothing had examined. One UPDATE, and the
+    // verifier stopped naming the tamper.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(60);
+    let (account, org, design) = a_design(&pool).await;
+    for n in 1..=3 {
+        designs::write_version(
+            &pool,
+            &ring,
+            org,
+            account,
+            design,
+            format!("v{n}").as_bytes(),
+            1,
+        )
+        .await
+        .unwrap();
+    }
+
+    let su = support::superuser_client_on_test_database().await;
+    su.execute(
+        "UPDATE chain_entries SET metadata = $2 WHERE design_id = $1 AND seq = 1",
+        &[
+            &design.to_string(),
+            &br#"{"actor":"someone else"}"#.to_vec(),
+        ],
+    )
+    .await
+    .expect("forge entry 1");
+    su.execute(
+        "UPDATE chain_entries SET chain_key_epoch = 2 WHERE design_id = $1 AND seq = 3",
+        &[&design.to_string()],
+    )
+    .await
+    .expect("switch entry 3's epoch");
+
+    let report = designs::verify_design(&pool, &ring, org, account, design, false)
+        .await
+        .unwrap();
+    match report.outcome {
+        Outcome::BrokenAt {
+            seq,
+            verified_before,
+            ..
+        } => {
+            assert_eq!(seq, 1, "the forgery must be named: {report}");
+            assert_eq!(verified_before, 0);
+        }
+        other => panic!("expected the forgery to be reported, got {other:?}"),
+    }
+    assert!(
+        report.summary().starts_with("BROKEN AT ENTRY 1"),
+        "{report}"
+    );
+}
+
+#[tokio::test]
+async fn an_epoch_this_server_never_wrote_reads_as_an_anomaly_not_a_missing_key() {
+    // The server derives any epoch from the chain master, so there is no
+    // "epoch I cannot check" here at all -- and it knows it has only ever
+    // written epoch 1, so the operator is not sent to look for a retired key
+    // that was never minted.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(62);
+    let (account, org, design) = a_design(&pool).await;
+    designs::write_version(&pool, &ring, org, account, design, b"one", 1)
+        .await
+        .unwrap();
+
+    let su = support::superuser_client_on_test_database().await;
+    su.execute(
+        "UPDATE chain_entries SET chain_key_epoch = 7 WHERE design_id = $1",
+        &[&design.to_string()],
+    )
+    .await
+    .unwrap();
+
+    let report = designs::verify_design(&pool, &ring, org, account, design, false)
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            report.outcome,
+            Outcome::BrokenAt {
+                reason: BreakReason::ChainKeyEpochNeverWritten,
+                ..
+            }
+        ),
+        "{report}"
+    );
+    assert!(!report.summary().contains("coverage gap"), "{report}");
+}
+
+#[tokio::test]
+async fn an_entry_repointed_at_another_version_does_not_verify() {
+    // §12.6a's first gap: the seal does not cover `design_version`, so this
+    // edit leaves every seal recomputing. Against bb04ccb routine verification
+    // returned `Verified { entries: 3 }` -- a version destroyed and the
+    // history endorsing it.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(64);
+    let (account, org, design) = a_design(&pool).await;
+    for n in 1..=3 {
+        designs::write_version(
+            &pool,
+            &ring,
+            org,
+            account,
+            design,
+            format!("version {n}").as_bytes(),
+            1,
+        )
+        .await
+        .unwrap();
+    }
+
+    let su = support::superuser_client_on_test_database().await;
+    su.execute(
+        "DELETE FROM design_payload WHERE design_id = $1 AND design_version = 2",
+        &[&design.to_string()],
+    )
+    .await
+    .expect("destroy version 2");
+    su.execute(
+        "UPDATE chain_entries SET design_version = 3 WHERE design_id = $1 AND seq = 2",
+        &[&design.to_string()],
+    )
+    .await
+    .expect("re-point entry 2");
+
+    let report = designs::verify_design(&pool, &ring, org, account, design, false)
+        .await
+        .unwrap();
+    match report.outcome {
+        Outcome::BrokenAt { seq, reason, .. } => {
+            assert_eq!(seq, 2);
+            assert_eq!(reason, BreakReason::StorageBindingMismatchUnexplained);
+        }
+        other => panic!("a destroyed version must not verify, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_payload_row_no_entry_names_is_reported_and_not_skipped() {
+    // An INSERTED payload row: the entry-driven pass cannot reach it, so the
+    // other direction has to be checked too. Against bb04ccb this reported
+    // `Verified` -- and, carrying the highest `design_version`, it is what a
+    // read of the latest version then refuses on.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(66);
+    let (account, org, design) = a_design(&pool).await;
+    designs::write_version(&pool, &ring, org, account, design, b"the real one", 1)
+        .await
+        .unwrap();
+
+    let su = support::superuser_client_on_test_database().await;
+    su.execute(
+        "INSERT INTO design_payload (design_id, organisation_id, design_version, ciphertext, \
+             nonce, key_epoch, wrap_version, aead_alg_id, payload_schema_version, created_by) \
+         VALUES ($1, $2, 2, $3, $4, 1, 1, 1, 1, $5)",
+        &[
+            &design.to_string(),
+            &org.to_string(),
+            &b"bytes nobody sealed".to_vec(),
+            &vec![7u8; 12],
+            &account.to_string(),
+        ],
+    )
+    .await
+    .expect("insert a payload row");
+
+    let report = designs::verify_design(&pool, &ring, org, account, design, false)
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            report.outcome,
+            Outcome::BrokenAt {
+                reason: BreakReason::PayloadNotNamedByAnyEntry,
+                ..
+            }
+        ),
+        "{report}"
+    );
+
+    // ...and the symptom that made it more than a reporting gap: the highest
+    // version is the one a read with no version lands on.
+    assert!(
+        designs::read_version(&pool, &ring, org, account, design, None)
+            .await
+            .is_err(),
+        "the inserted row was readable as the latest version"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The append-only fence, which one DELETE used to walk through
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn deleting_a_design_cannot_erase_its_sealed_history() {
+    // Reproduced against bb04ccb: `designs_deletable` plus ON DELETE CASCADE
+    // let the RUNTIME role erase a design's entire history, payloads and keys
+    // with one statement -- through three tables that have no DELETE policy of
+    // their own, because a referential action is not subject to row-level
+    // security. 0008 takes both fences: no DELETE policy on `designs`, and
+    // RESTRICT on all three children, which binds for the owner and a
+    // superuser too.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(68);
+    let (account, org, design) = a_design(&pool).await;
+    designs::write_version(&pool, &ring, org, account, design, b"payload", 1)
+        .await
+        .unwrap();
+
+    let client = pool.get().await.unwrap();
+    client
+        .execute(
+            "SELECT set_config('app.tenant_id', $1, false)",
+            &[&org.to_string()],
+        )
+        .await
+        .unwrap();
+    let deleted = client
+        .execute("DELETE FROM designs WHERE id = $1", &[&design.to_string()])
+        .await;
+    assert!(
+        matches!(&deleted, Ok(0) | Err(_)),
+        "the runtime role deleted a design and with it its sealed history: {deleted:?}"
+    );
+
+    // And the fence that binds at every privilege level, including the one
+    // row-level security never binds for.
+    let su = support::superuser_client_on_test_database().await;
+    assert!(
+        su.execute("DELETE FROM designs WHERE id = $1", &[&design.to_string()])
+            .await
+            .is_err(),
+        "a superuser erased a sealed history with one DELETE"
+    );
+    // ...and the same one level up, which is where the cascade started.
+    assert!(
+        su.execute(
+            "DELETE FROM organisations WHERE id = $1",
+            &[&org.to_string()]
+        )
+        .await
+        .is_err(),
+        "deleting the organisation cascaded through the history"
+    );
+
+    // The history is still there, and still verifies.
+    let report = designs::verify_design(&pool, &ring, org, account, design, false)
+        .await
+        .unwrap();
+    assert_eq!(report.outcome, Outcome::Verified { entries: 1 }, "{report}");
+}
+
+#[tokio::test]
+async fn the_runtime_role_cannot_rewrite_or_delete_the_master_key_stamp() {
+    // `master_keys` has no row-level security -- it is not tenant data -- so
+    // for this table the GRANT is the only fence. 0006's default privileges
+    // handed the runtime role UPDATE and DELETE on it; neither is earned by
+    // any code path, and an UPDATE is ADR-0043 §4's wrong-key check rewritten
+    // to agree with whatever key is now configured.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(70);
+    let (account, org, design) = a_design(&pool).await;
+    designs::write_version(&pool, &ring, org, account, design, b"x", 1)
+        .await
+        .unwrap();
+
+    let client = pool.get().await.unwrap();
+
+    // **The grant itself, asked of the database.** Attempting the statements
+    // is not enough and would have passed against the unfenced schema for the
+    // wrong reason: `tenant_keys.master_key_id` references this table, so an
+    // UPDATE or DELETE of the active row fails on referential integrity
+    // whether or not the privilege was ever withheld.
+    for (table, verb) in [
+        ("master_keys", "UPDATE"),
+        ("master_keys", "DELETE"),
+        ("chain_master_keys", "UPDATE"),
+        ("chain_master_keys", "DELETE"),
+    ] {
+        let held: bool = client
+            .query_one(
+                "SELECT has_table_privilege(current_user, $1, $2)",
+                &[&table, &verb],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert!(!held, "the runtime role holds {verb} on {table}");
+    }
+    for (table, verb) in [
+        ("master_keys", "SELECT"),
+        ("master_keys", "INSERT"),
+        ("chain_master_keys", "SELECT"),
+        ("chain_master_keys", "INSERT"),
+    ] {
+        let held: bool = client
+            .query_one(
+                "SELECT has_table_privilege(current_user, $1, $2)",
+                &[&table, &verb],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert!(
+            held,
+            "the runtime role cannot {verb} {table}, which it must"
+        );
+    }
+
+    let updated = client
+        .execute(
+            "UPDATE master_keys SET retired_reason = 'nothing' WHERE status = 'active'",
+            &[],
+        )
+        .await;
+    assert!(
+        updated.is_err(),
+        "the runtime role rewrote the master key stamp: {updated:?}"
+    );
+    let deleted = client.execute("DELETE FROM master_keys", &[]).await;
+    assert!(
+        deleted.is_err(),
+        "the runtime role deleted the master key stamp: {deleted:?}"
+    );
+
+    // The positive control: it can still read and stamp, which is all
+    // `register_master_key` needs.
+    keys::register_master_key(&client, &ring)
+        .await
+        .expect("reading and stamping is still allowed");
+}
+
+#[tokio::test]
+async fn a_design_cannot_name_a_scope_belonging_to_another_tenant_at_all() {
+    // `designs.scope_id` was the only cross-table reference in 0007 that was
+    // not tenant-bound. `create_design` checked it in application code; this
+    // is the schema fact, and it binds for a superuser too.
+    let pool = support::migrated_pool().await;
+    let (account, org, own_rack) = a_tenant(&pool).await;
+    let (_, _, other_rack) = a_tenant(&pool).await;
+
+    let design = designs::create_design(&pool, org, account, own_rack.id)
+        .await
+        .unwrap();
+
+    // The application check is already tested above; this one goes round it
+    // entirely, as the connection row-level security never binds for.
+    let su = support::superuser_client_on_test_database().await;
+    let moved = su
+        .execute(
+            "UPDATE designs SET scope_id = $2 WHERE id = $1",
+            &[&design.to_string(), &other_rack.id.to_string()],
+        )
+        .await;
+    assert!(
+        moved.is_err(),
+        "a design was filed on another organisation's scope: {moved:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The chain master's stamp, and the counter that could never count
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_lost_chain_key_reports_the_wrong_key_and_not_a_forged_history() {
+    // ADR-0043 §4's stamp, applied to the root 0007 missed. `main.rs` creates
+    // a missing key file at startup, so a lost `chain.key` comes back as 32
+    // fresh random bytes -- and without this every history in the database
+    // reported BROKEN AT ENTRY 1, which is an operator error rendered as an
+    // attack.
+    let pool = support::migrated_pool().await;
+    let client = pool.get().await.unwrap();
+
+    // The only test that touches this table, so the id it stamps is the one
+    // the whole test database carries.
+    let sealed_under = keyring(77);
+    keys::register_chain_master_key(&client, &sealed_under)
+        .await
+        .expect("first start stamps it");
+    keys::register_chain_master_key(&client, &sealed_under)
+        .await
+        .expect("the same key again is a no-op");
+
+    let regenerated = keyring(78);
+    let err = keys::register_chain_master_key(&client, &regenerated)
+        .await
+        .expect_err("a different chain master must be refused");
+    assert!(
+        matches!(err, keys::MasterKeyError::ChainMismatch { .. }),
+        "{err:?}"
+    );
+    let message = err.to_string();
+    assert!(
+        message.contains(&sealed_under.chain_key_id().to_string()),
+        "{message}"
+    );
+    assert!(
+        message.contains(&regenerated.chain_key_id().to_string()),
+        "{message}"
+    );
+    assert!(
+        message.contains("NOT a forged history"),
+        "a wrong key must not read like an attack: {message}"
+    );
+}
+
+#[tokio::test]
+async fn the_tenant_keys_write_counter_actually_counts() {
+    // §12.3's detector is per key, and the tenant key seals a wrap every time
+    // a design key is minted or rotated. Nothing incremented this column, so
+    // it read zero forever -- a counter that cannot count is worse than no
+    // column, because it reads as evidence.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(72);
+    let (account, org, rack) = a_tenant(&pool).await;
+    let one = designs::create_design(&pool, org, account, rack.id)
+        .await
+        .unwrap();
+    let two = designs::create_design(&pool, org, account, rack.id)
+        .await
+        .unwrap();
+    designs::write_version(&pool, &ring, org, account, one, b"one", 1)
+        .await
+        .unwrap();
+    designs::write_version(&pool, &ring, org, account, two, b"two", 1)
+        .await
+        .unwrap();
+    designs::rotate_design(&pool, &ring, org, account, one, "test")
+        .await
+        .unwrap();
+
+    let client = pool.get().await.unwrap();
+    client
+        .execute(
+            "SELECT set_config('app.tenant_id', $1, false)",
+            &[&org.to_string()],
+        )
+        .await
+        .unwrap();
+    let count: i64 = client
+        .query_one(
+            "SELECT writes_under_key FROM tenant_keys WHERE organisation_id = $1",
+            &[&org.to_string()],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    // Two design keys minted, one rotation minting a third.
+    assert_eq!(count, 3, "the tenant key's write counter did not count");
+}
+
+#[tokio::test]
+async fn a_rotation_waits_for_a_concurrent_write_rather_than_racing_it() {
+    // `write_version` reads `max(design_version) + 1` and `max(seq) + 1`;
+    // `rotate_design` retires the active key and walks every stored version.
+    // Interleaved, a version can be written under a key the rotation has
+    // already walked past, and is then stranded under an epoch nothing
+    // re-encrypts -- which the next rotation refuses as `Corrupt`. Both paths
+    // now take the design's own row first.
+    //
+    // Driven by holding that row from a third transaction rather than by
+    // racing two calls and hoping, which is what makes this deterministic.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(74);
+    let (account, org, design) = a_design(&pool).await;
+    designs::write_version(&pool, &ring, org, account, design, b"one", 1)
+        .await
+        .unwrap();
+
+    let mut holder = pool.get().await.unwrap();
+    let tx = holder.transaction().await.unwrap();
+    tx.execute(
+        "SELECT set_config('app.tenant_id', $1, false)",
+        &[&org.to_string()],
+    )
+    .await
+    .unwrap();
+    // **`FOR NO KEY UPDATE`, and the weaker mode is the point.** Inserting a
+    // key row or a payload row takes `FOR KEY SHARE` on this design through
+    // the foreign key, all by itself -- so a holder taking `FOR UPDATE` would
+    // block a write path that takes no lock of its own, and the test would
+    // pass against code that has none. `FOR NO KEY UPDATE` is compatible with
+    // that incidental `FOR KEY SHARE` and conflicts only with a deliberate
+    // `FOR UPDATE`, which is the thing being tested.
+    tx.query_one(
+        "SELECT 1 FROM designs WHERE id = $1 FOR NO KEY UPDATE",
+        &[&design.to_string()],
+    )
+    .await
+    .expect("hold the design row");
+
+    let waited = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        designs::rotate_design(&pool, &ring, org, account, design, "test"),
+    )
+    .await;
+    assert!(
+        waited.is_err(),
+        "the rotation did not wait for a transaction holding the design: {waited:?}"
+    );
+
+    let waited = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        designs::write_version(&pool, &ring, org, account, design, b"two", 1),
+    )
+    .await;
+    assert!(
+        waited.is_err(),
+        "the write did not wait for a transaction holding the design: {waited:?}"
+    );
+
+    // Released: both go through, and the history is intact afterwards.
+    tx.rollback().await.unwrap();
+    drop(holder);
+    designs::write_version(&pool, &ring, org, account, design, b"two", 1)
+        .await
+        .expect("the write proceeds once the lock is released");
+    designs::rotate_design(&pool, &ring, org, account, design, "test")
+        .await
+        .expect("the rotation proceeds once the lock is released");
+
+    let report = designs::verify_design(&pool, &ring, org, account, design, true)
+        .await
+        .unwrap();
+    assert_eq!(report.outcome, Outcome::Verified { entries: 4 }, "{report}");
+}

@@ -57,14 +57,28 @@ impl KeyRing {
     ///
     /// `create_if_missing` is ADR-0043 §1's *"generated at first start"* and
     /// applies to `file://` only.
+    /// **Two sources that resolve to the same 32 bytes are refused**, and that
+    /// is not tidiness. §6's B5 fix makes the chain master a *different* key
+    /// from the master hierarchy so that an operator who must hand someone the
+    /// chain key to verify a history has not handed them every design in the
+    /// database. One key in both places collapses that separation silently:
+    /// nothing downstream fails, nothing logs, and the two ids printed at
+    /// startup are identical in a line nobody reads twice. The most likely way
+    /// in is a copy-paste in a deployment file or both variables pointing at
+    /// one path.
     pub fn load(
         master: &KeySource,
         chain: &KeySource,
         create_if_missing: bool,
     ) -> Result<Self, KeyError> {
+        let master_key = master.load(create_if_missing)?;
+        let chain_master = chain.load(create_if_missing)?;
+        if crypto::ct_eq(master_key.expose(), chain_master.expose()) {
+            return Err(KeyError::RootsIdentical);
+        }
         Ok(Self {
-            master: master.load(create_if_missing)?,
-            chain_master: chain.load(create_if_missing)?,
+            master: master_key,
+            chain_master,
             master_source: master.describe(),
             chain_source: chain.describe(),
         })
@@ -133,6 +147,16 @@ pub enum MasterKeyError {
         stored: KeyId,
         configured: KeyId,
     },
+    /// **The configured chain master is not the one this history was sealed
+    /// under.** The same control as [`Self::Mismatch`], for the other root,
+    /// and the symptom it replaces is worse: a lost `chain.key` is recreated
+    /// at startup (ADR-0043 §1's *"generated at first start"*), so without
+    /// this every design in the database reported *broken at entry 1* — a
+    /// forgery alarm for an operator error.
+    ChainMismatch {
+        stored: KeyId,
+        configured: KeyId,
+    },
 }
 
 impl fmt::Display for MasterKeyError {
@@ -146,6 +170,16 @@ impl fmt::Display for MasterKeyError {
                  not corruption: point the server at the key file that belongs with this \
                  database, or restore the database that belongs with this key. Retired master \
                  keys are kept forever precisely so that an older backup stays readable."
+            ),
+            Self::ChainMismatch { stored, configured } => write!(
+                f,
+                "this database's history was sealed under chain master key {stored}, the \
+                 configured chain key is {configured}. Nothing has been read or written. This \
+                 is a wrong-key error and NOT a forged history: the chain key file is missing \
+                 or is the wrong one, and a missing one is recreated at startup, which is why \
+                 this check exists. Point the server at the chain key that belongs with this \
+                 database. Retired chain keys are kept forever precisely so that an older \
+                 history still verifies."
             ),
         }
     }
@@ -203,6 +237,64 @@ where
                 // against an all-zero id rather than ignored: the one thing
                 // that must not happen is carrying on.
                 None => Err(MasterKeyError::Mismatch {
+                    stored: KeyId::parse("0000000000000000").expect("sixteen zeroes is hex"),
+                    configured,
+                }),
+            }
+        }
+    }
+}
+
+/// Stamp the configured **chain master's** id into `chain_master_keys`, or
+/// refuse — ADR-0043 §4's stamp, applied to the root 0007 missed.
+///
+/// The three cases are `register_master_key`'s exactly: no active row (stamp
+/// it), the same id (carry on), a different id
+/// ([`MasterKeyError::ChainMismatch`], and the caller stops).
+///
+/// **Why the wording matters more here than for the master key.** A missing
+/// master key file and a missing chain key file both come back as 32 fresh
+/// random bytes, because ADR-0043 §1 creates one at first start. For the
+/// master key the symptom was an AEAD tag failure that read like corruption.
+/// For the chain master the symptom is every history in the database
+/// reporting *broken at entry 1* — an operator error rendered as an attack,
+/// which is the one thing a tamper-evident log must not do.
+///
+/// **Called at startup and not on the write path**, which is where this
+/// differs from `register_master_key`. The master key is checked again on
+/// every key use because it is unwrapped on every key use. The chain master
+/// is a derivation root: nothing reads it back to compare, so the only place
+/// a swap can be caught is against this stamp, and a restart is what a key
+/// file change means in practice. Recorded rather than left as an omission.
+pub async fn register_chain_master_key<C>(client: &C, ring: &KeyRing) -> Result<(), MasterKeyError>
+where
+    C: deadpool_postgres::GenericClient + Sync,
+{
+    let configured = ring.chain_key_id();
+    let row = client
+        .query_opt(
+            "SELECT key_id FROM chain_master_keys WHERE status = 'active'",
+            &[],
+        )
+        .await?;
+
+    match row {
+        None => {
+            client
+                .execute(
+                    "INSERT INTO chain_master_keys (key_id, status) VALUES ($1, 'active') \
+                     ON CONFLICT (key_id) DO NOTHING",
+                    &[&configured.to_string()],
+                )
+                .await?;
+            Ok(())
+        }
+        Some(row) => {
+            let stored_text: String = row.get(0);
+            match KeyId::parse(&stored_text) {
+                Some(stored) if stored == configured => Ok(()),
+                Some(stored) => Err(MasterKeyError::ChainMismatch { stored, configured }),
+                None => Err(MasterKeyError::ChainMismatch {
                     stored: KeyId::parse("0000000000000000").expect("sixteen zeroes is hex"),
                     configured,
                 }),
@@ -471,6 +563,9 @@ pub async fn design_key_under(
     )
     .await?;
 
+    // One message sealed under the tenant key: the wrap above.
+    count_write_under_tenant_key(tx, &tenant, tenant_key.epoch).await?;
+
     Ok(DataKey { key, epoch, id })
 }
 
@@ -549,10 +644,53 @@ pub async fn rotate_design_key(
     )
     .await?;
 
+    // And one more: the new epoch's key was wrapped under the tenant key too.
+    count_write_under_tenant_key(tx, &tenant, tenant_key.epoch).await?;
+
     Ok(Rotation {
         previous: current,
         current: DataKey { key, epoch, id },
     })
+}
+
+/// Count one AEAD message under a **tenant** key — the same detector, for the
+/// layer that had none.
+///
+/// §12.3's birthday bound is per key, not per table: the tenant key seals a
+/// wrap with a fresh random 96-bit nonce every time a design key is minted or
+/// rotated, and those are messages under one key exactly as payload writes
+/// are. `tenant_keys.writes_under_key` existed from 0007 and nothing ever
+/// incremented it, so the column read zero forever and the detector could
+/// never fire for this layer — a counter that cannot count is worse than no
+/// column, because it reads as evidence.
+///
+/// **A detector, never the nonce source** (§12.3), and the same sentence binds
+/// here as one layer down: nothing in the write path consults this to build a
+/// nonce, and nothing may be added that does.
+pub async fn count_write_under_tenant_key(
+    tx: &Transaction<'_>,
+    tenant: &str,
+    epoch: i32,
+) -> Result<i64, KeyStoreError> {
+    let row = tx
+        .query_one(
+            "UPDATE tenant_keys SET writes_under_key = writes_under_key + 1 \
+             WHERE organisation_id = $1 AND key_epoch = $2 RETURNING writes_under_key",
+            &[&tenant, &epoch],
+        )
+        .await?;
+    let count: i64 = row.get(0);
+    if count >= crypto::WRITES_UNDER_KEY_BUDGET {
+        tracing::warn!(
+            organisation = %tenant,
+            key_epoch = epoch,
+            writes = count,
+            budget = crypto::WRITES_UNDER_KEY_BUDGET,
+            "a tenant key has passed its random-nonce write budget; rotate it. This counter is \
+             a detector and is not the nonce source."
+        );
+    }
+    Ok(count)
 }
 
 /// Count one write under a design key — **a detector, never the nonce source**
@@ -689,5 +827,43 @@ mod tests {
             text.contains("wrong-key error and not corruption"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn two_key_sources_that_resolve_to_the_same_bytes_are_refused() {
+        // §6's B5 fix makes the chain master a DIFFERENT key from the master
+        // hierarchy, so that handing someone the chain key to verify a
+        // history does not hand them every design. Both settings naming one
+        // file is a copy-paste away, and nothing downstream would fail.
+        let dir = std::env::temp_dir().join(format!("fathom-rootstest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let one = KeySource::File(dir.join("master.key"));
+        let two = KeySource::File(dir.join("chain.key"));
+        assert_eq!(
+            KeyRing::load(&one, &one, true).err(),
+            Some(KeyError::RootsIdentical)
+        );
+        // Two different files: fine, and the ids differ.
+        let ring = KeyRing::load(&one, &two, true).expect("two distinct keys");
+        assert_ne!(ring.master_key_id(), ring.chain_key_id());
+
+        // ...and the same 32 bytes reached through two different paths is
+        // still the same key, which is the case a path comparison would miss.
+        let copy = dir.join("copy.key");
+        std::fs::copy(dir.join("master.key"), &copy).unwrap();
+        let mut perms = std::fs::metadata(&copy).unwrap().permissions();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(0o400);
+        }
+        std::fs::set_permissions(&copy, perms).unwrap();
+        assert_eq!(
+            KeyRing::load(&one, &KeySource::File(copy), false).err(),
+            Some(KeyError::RootsIdentical)
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

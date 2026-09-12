@@ -34,6 +34,17 @@ anything that could be read as "content verified". Rotation re-encrypts and writ
 entries; re-wrap is deliberately **not** implemented yet, because §12.6 requires it to write a
 sealed entry on a tenant-level chain that does not exist.
 
+**Migration 0008 closed four fences 0007 claimed and did not have**, all found by an adversarial
+review on 2026-09-12 and each reproduced. Verification now checks everything checkable **first** and
+reports a coverage gap alongside the result rather than instead of it — one `UPDATE` of an entry's
+`chain_key_epoch` used to turn a detected forgery into *"a coverage gap, not a failure"* (§12.6a).
+The storage pass is entry-driven and checks both directions, so a version destroyed and its entry
+re-pointed no longer verifies, and a payload row no entry names is a break rather than a skip. A
+design carrying a sealed history, a stored version or a key **cannot be deleted at all** — by the
+runtime role, the table owner or a superuser — where one `DELETE FROM designs` used to cascade the
+whole history away. The chain master now carries the same stamped key id the master key does, so a
+lost chain key reports the wrong key instead of reporting every history as forged.
+
 **The server can read design data, and says so** (`docs/PHASE-2-STORAGE-DESIGN.md` §2a).
 Encryption protects the database, the backups and the disk — not the running process.
 

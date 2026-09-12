@@ -141,6 +141,16 @@ const TABLES: &[TableClaim] = &[
               forever and nothing deletes from this table.",
     },
     TableClaim {
+        name: "chain_master_keys",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "ADR-0043 §4's stamp for the OTHER root, added by \
+              `0008_append_only_fence_and_chain_master.sql`, and it holds NO KEY for the same \
+              reason `master_keys` does not: a `key_id` is HMAC-SHA-256(chain master, \
+              \"fathom/key/id/v1\") truncated to 8 bytes. It exists so that a lost chain key \
+              file -- which startup recreates -- reports the wrong key rather than reporting \
+              every history in the database as forged.",
+    },
+    TableClaim {
         name: "designs",
         protection: Protection::NoKeyProtectedMaterial,
         why: "a design's id, its tenant, its scope, who created it and when. Deliberately NO \

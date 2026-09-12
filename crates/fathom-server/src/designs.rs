@@ -50,13 +50,37 @@ const CHAIN_KEY_EPOCH: i32 = 1;
 /// that threatens the process.
 pub const MAX_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
-/// One stored version, decrypted.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// One stored version, **decrypted** — so the `payload` field is the estate
+/// map in the clear, and the only one in this file.
+#[derive(Clone, PartialEq, Eq)]
 pub struct DesignVersion {
     pub design: DesignId,
     pub version: i64,
     pub payload_schema_version: i32,
     pub payload: Vec<u8>,
+}
+
+/// **Hand-written, and that is the whole point.** A derived `Debug` prints the
+/// decrypted payload, so any `{:?}`, any `tracing` field holding one of these,
+/// any `unwrap` on a `Result` carrying one, and any panic message puts the
+/// estate map into a log — which is the place least likely to be encrypted.
+/// §3 encrypts the payload whole to keep it out of the database; printing it
+/// into a log file is the same disclosure through a different door.
+///
+/// The length is printed because it is already disclosed: §11.3 lists
+/// per-version size among what a dump reveals regardless.
+impl fmt::Debug for DesignVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DesignVersion")
+            .field("design", &self.design)
+            .field("version", &self.version)
+            .field("payload_schema_version", &self.payload_schema_version)
+            .field(
+                "payload",
+                &format_args!("<{} bytes, not shown>", self.payload.len()),
+            )
+            .finish()
+    }
 }
 
 /// What a rotation did, in the words §12.6 requires — **counts rather than a
@@ -270,9 +294,11 @@ pub async fn write_version(
     let tx = client.transaction().await?;
     let ctx = repo::open_tenant_context(&tx, tenant, actor).await?;
 
-    let key = keys::design_key(&tx, ring, &ctx, design).await?;
     let tenant_text = ctx.tenant().to_string();
     let design_text = design.to_string();
+    lock_design(&tx, &design_text, &tenant_text).await?;
+
+    let key = keys::design_key(&tx, ring, &ctx, design).await?;
 
     let version: i64 = tx
         .query_one(
@@ -439,11 +465,19 @@ pub async fn rotate_design(
     let tx = client.transaction().await?;
     let ctx = repo::open_tenant_context(&tx, tenant, actor).await?;
 
-    let tenant_key = keys::tenant_key(&tx, ring, &ctx).await?;
-    let rotation = keys::rotate_design_key(&tx, &ctx, &tenant_key, design, reason).await?;
-
     let tenant_text = ctx.tenant().to_string();
     let design_text = design.to_string();
+    // **Before the old key is retired, not after.** A `write_version` running
+    // concurrently reads the active design key, encrypts under it, and inserts
+    // — and a rotation that retires that key in between leaves a payload row
+    // under an epoch the rotation has already walked past, so the next
+    // rotation refuses with `Corrupt("payload key epoch")` and the version is
+    // stranded under a key nothing re-encrypts. Both paths take this lock
+    // first, so one waits for the other's transaction to commit.
+    lock_design(&tx, &design_text, &tenant_text).await?;
+
+    let tenant_key = keys::tenant_key(&tx, ring, &ctx).await?;
+    let rotation = keys::rotate_design_key(&tx, &ctx, &tenant_key, design, reason).await?;
 
     let rows = tx
         .query(
@@ -594,22 +628,28 @@ pub async fn verify_design(
     let entries = read_entries(&tx, &design_text, &tenant_text).await?;
     let payloads = read_payload_facts(&tx, &design_text, &tenant_text).await?;
 
-    // Every chain key epoch the entries name, derived from the chain master
-    // this server holds. An epoch it cannot derive is a coverage gap, and the
-    // verifier says so rather than calling it broken.
+    // **Every chain key epoch the entries name, derived.** `chain::chain_key`
+    // takes the epoch as an input and the chain master in hand produces any of
+    // them, so there is nothing here this server cannot check. Refusing to
+    // derive anything but `CHAIN_KEY_EPOCH` -- which is what this did until
+    // 2026-09-12 -- turned one `UPDATE` of an entry's `chain_key_epoch` into a
+    // guaranteed way to make that entry unverifiable, which was half of the
+    // switch §12.6a closed.
+    //
+    // `written_through` is the other half: this server has only ever written
+    // `CHAIN_KEY_EPOCH`, so an entry naming anything above it is a changed
+    // column and not a retired key somebody else holds. When retired chain key
+    // epochs become a table, this becomes a query against it.
     let mut by_epoch = Vec::new();
     for epoch in entries
         .iter()
         .map(|e| e.chain_key_epoch)
         .collect::<std::collections::BTreeSet<_>>()
     {
-        if epoch != CHAIN_KEY_EPOCH {
-            continue;
-        }
         let ck = chain::chain_key(ring.chain_master(), &tenant_text, &design_text, epoch);
         by_epoch.push((epoch, chain::Subkeys::derive(&ck)));
     }
-    let keys_available = chain::AvailableKeys { by_epoch };
+    let keys_available = chain::AvailableKeys::new(by_epoch).written_through(CHAIN_KEY_EPOCH);
 
     let plaintexts = if deep {
         let mut out: Vec<(i64, Vec<u8>)> = Vec::new();
@@ -767,6 +807,31 @@ async fn append_entry(
     )
     .await?;
 
+    Ok(())
+}
+
+/// Take the design's own row as the lock for everything that writes under it.
+///
+/// **One writer per design at a time**, which is what both `write_version` and
+/// `rotate_design` need and neither had: the version number comes from
+/// `max(design_version) + 1` and the chain's `seq` from `max(seq) + 1`, and
+/// two transactions reading either at once produce two rows claiming the same
+/// number — the primary key refuses one of them, which is the good case, and
+/// the bad case is a rotation walking a version list another transaction is
+/// still adding to.
+///
+/// `FOR UPDATE` on the `designs` row rather than an advisory lock: it is
+/// scoped to the transaction, released on commit or rollback with no `unlock`
+/// to forget, and it is the row every one of these operations already has to
+/// exist for. A design id from another tenant locks nothing and reads as
+/// absent, which is the same answer every other path here gives.
+async fn lock_design(tx: &Transaction<'_>, design: &str, tenant: &str) -> Result<(), DesignError> {
+    tx.query_opt(
+        "SELECT 1 FROM designs WHERE id = $1 AND organisation_id = $2 FOR UPDATE",
+        &[&design, &tenant],
+    )
+    .await?
+    .ok_or(DesignError::NoSuchDesign)?;
     Ok(())
 }
 
@@ -1028,5 +1093,27 @@ mod tests {
             payload_aad("ab", "c", 1, 1, 1),
             payload_aad("a", "bc", 1, 1, 1)
         );
+    }
+
+    #[test]
+    fn debugging_a_decrypted_version_does_not_print_the_design() {
+        // A derived `Debug` puts the estate map into any log line, tracing
+        // field or panic message that happens to carry one of these. §3
+        // encrypts the payload whole to keep it out of the database; a log
+        // file is the same disclosure through a different door.
+        let version = DesignVersion {
+            design: DesignId::new(),
+            version: 4,
+            payload_schema_version: 1,
+            payload: br#"{"devices":[{"name":"core-fw-01","address":"10.1.1.0/24"}]}"#.to_vec(),
+        };
+        let rendered = format!("{version:?}");
+        assert!(!rendered.contains("core-fw-01"), "{rendered}");
+        assert!(!rendered.contains("10.1.1.0/24"), "{rendered}");
+        assert!(!rendered.contains("devices"), "{rendered}");
+        // What it does say is what is already disclosed by a dump (§11.3):
+        // which version, and how big.
+        assert!(rendered.contains("version: 4"), "{rendered}");
+        assert!(rendered.contains("59 bytes"), "{rendered}");
     }
 }
