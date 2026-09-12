@@ -9,7 +9,7 @@ This page records what exists. It is not a changelog — history lives in `docs/
 ## Working and keeping
 
 **The Rust engine.** Schema toolchain, typed graph store, config ingest with the redaction gate,
-the fragment-to-store weld, the finder, emitters, layout. Around 792 tests passing. Zero external
+the fragment-to-store weld, the finder, emitters, layout. 985 tests passing as of 2026-09-12. Zero external
 dependencies on the client side, deliberately.
 
 **The schema.** Real and enforced — roughly 51 kinds, 95 edges, 61 scalars at version 0.5. Read
@@ -18,7 +18,15 @@ the actual numbers off `fathom-schema-check`; this line has been wrong before.
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL,
 shuts down cleanly, and runs behind TLS in a composed stack. It stores identity and structure —
 accounts, organisations, memberships and the organisation → network → building → rack tree — and,
-as of migration 0007, **encrypted designs**.
+as of migration 0007, **encrypted designs**. As of migration 0009, the server also maintains
+encrypted audit chains at the site and organisation levels, and a spool that ships sealed entries
+for external custody.
+
+**Migration 0006 separates migration and runtime roles.** The migration role owns the schema and
+runs migrations with `CREATEROLE`; the runtime role (`fathom_app`) has data privileges only — no
+ownership, no DDL, no `CREATEROLE` — and serves every application request. The server refuses to
+start if its role is a superuser or bypasses row-level security (decided 2026-09-12, §15.0 of
+`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`).
 
 **Encrypted design storage, as of 2026-09-12.** A master key from a file (or `command://`, or
 `env://` — ADR-0043 §3) wraps a random per-tenant key, which wraps a random per-design key, which
@@ -44,6 +52,17 @@ design carrying a sealed history, a stored version or a key **cannot be deleted 
 runtime role, the table owner or a superuser — where one `DELETE FROM designs` used to cascade the
 whole history away. The chain master now carries the same stamped key id the master key does, so a
 lost chain key reports the wrong key instead of reporting every history as forged.
+
+**Migration 0009 adds chains at three levels:** site (cluster-wide audit), organisation (tenant
+audit), and design (edit history, already in 0007). The `chains` module appends to them, reads them
+back, and verifies them — every seal, binding and ordering rule decided in `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.
+The `audit` module (first cut, §9) ships sealed entries as RFC 5424 syslog over TCP to an operator-configured
+destination, spooling in PostgreSQL when that destination is unavailable. The append-only fence on the
+audit trail is enforced by trigger, not by policy, and binds even a superuser (proved as one by
+`tests/append_only_fence.rs`). The `keys` module now holds **organisation content keys**, wrapped under
+the tenant key in the same shape as design keys; they encrypt the metadata of organisation-chain
+entries. Organisation names and scope paths are still plaintext — storage §11.3's name encryption is
+not built.
 
 **The server can read design data, and says so** (`docs/PHASE-2-STORAGE-DESIGN.md` §2a).
 Encryption protects the database, the backups and the disk — not the running process.
@@ -74,11 +93,14 @@ file nor the environment.
 loaded tree. Before this, the two halves of the codebase shared nothing. `fathom-graph` and
 `fathom-id` have no caller yet.
 
-**The dependency gate.** Five layers, none redundant: approval records per crate, lookalike-name
-detection, a publication cooldown, licence and source allowlisting, and a vulnerability database
-check. 123 external crate versions in the lockfile after the key hierarchy landed — read the
-number off `./scripts/gate-zero.sh`, not off this line. `cargo deny` and `cargo audit` were both
-run in-repo on 2026-09-12: 0 vulnerabilities, 0 warnings.
+**The dependency gate.** Six layers, none redundant: approval records per crate, licence and source
+allowlisting with duplicate-version bans, the RustSec check, lookalike-name detection, a publication
+cooldown, and — new on 2026-09-12 — `scripts/osv-gate.sh`, which sends every (name, version) pair in
+the lockfile to OSV.dev, where RustSec and the GitHub-reviewed advisories are aggregated, because
+two real advisories were missing from RustSec alone (`docs/PHASE-2-STORAGE-DESIGN.md` §12.5). It
+fails closed when the API is unreachable, which it is from this environment. Read the crate count
+off `./scripts/gate-zero.sh`, not off this line. `cargo deny` and `cargo audit` were both run
+in-repo on 2026-09-12: 0 vulnerabilities, 0 warnings.
 
 **Key handling.** Decided, ratified and now built: a data key per tenant and per design, wrapped by
 a master key, custody switched by re-wrapping keys rather than re-encrypting data. Re-wrap and
