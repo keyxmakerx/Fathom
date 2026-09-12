@@ -28,6 +28,11 @@ suggestions. Count, compare, correct, report.
 - Rewrite prose for style. Correct facts; leave the voice alone.
 - Decide anything. If a number is wrong because a decision changed, report it — do not pick the
   new one.
+- **Resolve an ambiguous number by picking a reading.** This is the one that has actually bitten:
+  "115 crates in the lockfile" can mean entries, unique names, or external-only, and they are three
+  different numbers. Counting a different thing than the sentence meant turns a correct document
+  into a wrong one that now looks freshly checked — worse than leaving it alone. When a claim does
+  not say which metric it means, report the ambiguity and every candidate count. Do not edit it.
 
 ## Reporting back
 
