@@ -206,7 +206,11 @@ log that only lives on the machine the attacker took is evidence they control. T
 answer to the enterprise question ADR-0043 §8 names as its own weakest point: without it, nothing in
 the product can say who decrypted what.
 
-**3. An administrator must not be able to take over the site.** The owner's words: *"we don't want an
+**3. An administrator must not be able to take over the site.** **Designed 2026-09-12 —
+`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`.** Four independent designs, judged, the leader attacked by
+three adversaries (all three broke it), then one design synthesised closing or admitting all 25
+routes. Not accepted, not built: §11.3's primitives are flagged as not looked up, so nothing in it is
+buildable until they are. The owner's words: *"we don't want an
 admin to be able to take over the site type situation."*
 
 Half of this is already closed by ADR-0043: an administrator who resets someone's password still
