@@ -79,6 +79,126 @@ async fn main() -> ExitCode {
     // that G6's test drives this exact line rather than a copy of it.
     log_startup(&config);
 
+    // ---- The migration role, used once, then dropped -------------------
+    //
+    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0: the migration role owns
+    // the schema and holds `CREATEROLE`. It applies any outstanding
+    // migrations and provisions the runtime role's ability to log in
+    // (`migrations/0006_runtime_role.sql` creates that role `NOLOGIN`;
+    // `db::provision_runtime_login` is the `ALTER ROLE ... LOGIN PASSWORD`
+    // that turns it into one the runtime pool can actually connect as) --
+    // and then this pool and its one connection go out of scope. Nothing
+    // past this block holds the migration credential.
+    //
+    // `FATHOM_MIGRATE_DATABASE_URL` unset is a supported shape, not a partial
+    // failure: the owner's call is that a deployment that never hands the
+    // server this credential still starts and serves, PROVIDED the schema is
+    // already at the version this binary expects -- checked below, against
+    // the runtime connection, by `migrate::verify_current`.
+    match db::migration_pool(&config) {
+        Ok(Some(migrate_pool)) => {
+            if let Some(migrate_url) = config.migrate_database_for_logging() {
+                tracing::info!(migrate_database = %migrate_url, "migrating");
+            }
+
+            let mut migrate_client = match migrate_pool.get().await {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!(
+                        kind = %summarise(&e),
+                        "could not reach the database as the migration role"
+                    );
+                    return ExitCode::from(5);
+                }
+            };
+
+            // Same gate as the runtime role's below, and for the same
+            // reason: `FORCE ROW LEVEL SECURITY` does not bind for a
+            // superuser or for `BYPASSRLS`, and the migration role owns
+            // every table in this database, so a mistake here is at least as
+            // dangerous as the same mistake on the runtime role.
+            if let Err(e) = rls::assert_rls_binds(&migrate_client).await {
+                tracing::error!(error = %e, "refusing to start (migration role)");
+                return ExitCode::from(8);
+            }
+
+            // `migrate::run`'s own advisory lock only covers `run` itself,
+            // and `provision_runtime_login` below is a second write against
+            // shared, cluster-wide state (`pg_authid`) that two migrating
+            // processes racing at startup could otherwise both touch at
+            // once. Held across both calls -- `pg_advisory_lock` is
+            // session-level and re-entrant, so `run`'s own acquisition on
+            // this same session nests inside it without deadlocking.
+            if let Err(e) = migrate_client
+                .execute(
+                    "SELECT pg_advisory_lock($1)",
+                    &[&migrate::MIGRATION_LOCK_KEY],
+                )
+                .await
+            {
+                tracing::error!(error = %e, "could not take the migration lock");
+                return ExitCode::from(4);
+            }
+
+            // Migrations before the listener binds. A server that accepts
+            // requests while its schema is half-applied is a server
+            // answering from a state nobody designed.
+            let migration_result = migrate::run(&mut migrate_client).await;
+
+            // Determined (and, if possible, acted on) while the lock is
+            // still held, but reported on only after it is released -- the
+            // lock must not stay taken behind an early return.
+            let runtime_role_result = db::runtime_role(&config);
+            let provision_result = match &runtime_role_result {
+                Ok(role) => {
+                    let runtime_password = config
+                        .database_password
+                        .as_ref()
+                        .map(|p| p.expose().as_str());
+                    Some(db::provision_runtime_login(&migrate_client, role, runtime_password).await)
+                }
+                Err(_) => None,
+            };
+
+            let _ = migrate_client
+                .execute(
+                    "SELECT pg_advisory_unlock($1)",
+                    &[&migrate::MIGRATION_LOCK_KEY],
+                )
+                .await;
+
+            match migration_result {
+                Ok(0) => tracing::info!("schema is up to date"),
+                Ok(n) => tracing::info!(applied = n, "migrations applied"),
+                Err(e) => {
+                    tracing::error!(error = %e, "migrations failed");
+                    return ExitCode::from(4);
+                }
+            }
+            if let Err(e) = runtime_role_result {
+                tracing::error!(error = %e, "could not determine the runtime role's name");
+                return ExitCode::from(3);
+            }
+            if let Err(e) = provision_result.expect("Ok(_) checked just above") {
+                tracing::error!(error = %e, "could not provision the runtime role's login");
+                return ExitCode::from(4);
+            }
+            // `migrate_client` and `migrate_pool` drop at the end of this
+            // match arm.
+        }
+        Ok(None) => {
+            tracing::info!(
+                "no migration credential configured; the runtime role must already exist, be \
+                 able to log in, and be at the schema version this binary expects"
+            );
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "could not build the migration connection pool");
+            return ExitCode::from(3);
+        }
+    }
+
+    // ---- The runtime pool: what serves every request from here on ------
     let pool = match db::pool(&config) {
         Ok(p) => p,
         Err(e) => {
@@ -87,10 +207,12 @@ async fn main() -> ExitCode {
         }
     };
 
-    // The tenant-isolation gate, before migrations and before the listener
-    // binds. `migrations/0002_identity_and_scope.sql` FORCEs row-level
-    // security, but that binds for nothing if the role this server connected
-    // as is a superuser or carries BYPASSRLS -- Postgres exempts both
+    // The tenant-isolation gate, before the listener binds, against the
+    // RUNTIME role specifically -- this is the connection every request is
+    // served from, and the one whose isolation actually matters.
+    // `migrations/0002_identity_and_scope.sql` FORCEs row-level security, but
+    // that binds for nothing if the role this server connected as is a
+    // superuser or carries BYPASSRLS -- Postgres exempts both
     // unconditionally. Found 2026-09-12: the shipped `deploy/compose.yaml`
     // connected as exactly such a role, so every isolation policy was inert
     // in production while the tests, which provision a restricted role on
@@ -98,21 +220,28 @@ async fn main() -> ExitCode {
     // actually is and refuses to start rather than warn -- the same shape as
     // `EngineState::load`'s schema gate above.
     match pool.get().await {
-        Ok(mut client) => {
+        Ok(client) => {
             if let Err(e) = rls::assert_rls_binds(&client).await {
                 tracing::error!(error = %e, "refusing to start");
                 return ExitCode::from(8);
             }
 
-            // Migrations before the listener binds. A server that accepts
-            // requests while its schema is half-applied is a server
-            // answering from a state nobody designed.
-            match migrate::run(&mut client).await {
-                Ok(0) => tracing::info!("schema is up to date"),
-                Ok(n) => tracing::info!(applied = n, "migrations applied"),
-                Err(e) => {
-                    tracing::error!(error = %e, "migrations failed");
-                    return ExitCode::from(4);
+            if config.migrate_database_url.is_none() {
+                match migrate::verify_current(&client).await {
+                    Ok(true) => {
+                        tracing::info!("schema is up to date (no migration credential configured)")
+                    }
+                    Ok(false) => {
+                        tracing::error!(
+                            "the schema is not at the version this binary expects, and no \
+                             migration credential was configured to bring it there"
+                        );
+                        return ExitCode::from(9);
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "the schema does not match what this binary expects");
+                        return ExitCode::from(4);
+                    }
                 }
             }
         }

@@ -51,8 +51,15 @@ jobs:
     # `migrations/0002_identity_and_scope.sql` through THIS role would make
     # every isolation assertion pass whether or not the policies actually
     # work. So the step below this service provisions a second, deliberately
-    # non-superuser role and database, and only that second role's
-    # connection string is ever handed to `cargo test` as `DATABASE_URL`.
+    # non-superuser role and database -- the MIGRATION role
+    # (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0) -- and only that
+    # role's connection string is ever handed to `cargo test` as
+    # `FATHOM_MIGRATE_DATABASE_URL`. The RUNTIME role (`fathom_app`,
+    # `DATABASE_URL`) is not created here at all: it comes from
+    # `migrations/0006_runtime_role.sql`, inside the chain, and
+    # `tests/support::migrated_pool` provisions its login off the migration
+    # role's connection every run -- exactly what `src/main.rs` does at
+    # startup, proved here rather than assumed.
     services:
       postgres:
         image: postgres:16
@@ -168,12 +175,19 @@ jobs:
       - name: Clippy, warnings are errors
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Tests
-        # The non-superuser role/database the step above provisioned -- see
-        # its comment, and `crates/fathom-server/tests/support/mod.rs`,
-        # which reads this same variable and falls back to this exact value
-        # for a developer running the suite locally.
+        # `FATHOM_MIGRATE_DATABASE_URL` is the non-superuser, CREATEROLE-
+        # holding role/database the step above provisioned -- see its
+        # comment. `DATABASE_URL` names the RUNTIME role instead
+        # (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0); nothing creates
+        # it ahead of time, because `tests/support::migrated_pool` provisions
+        # its login itself, off the migration role's connection, the same
+        # way `src/main.rs` does at startup. Both values are also this
+        # crate's own defaults (`crates/fathom-server/tests/support/mod.rs`),
+        # spelled out here so a developer reading this file does not have to
+        # go looking for them.
         env:
-          DATABASE_URL: postgres://fathom_test:fathom_test_pw@127.0.0.1:5432/fathom_test
+          DATABASE_URL: postgres://fathom_app:fathom_app_pw@127.0.0.1:5432/fathom_test
+          FATHOM_MIGRATE_DATABASE_URL: postgres://fathom_test:fathom_test_pw@127.0.0.1:5432/fathom_test
         run: cargo test --workspace --locked
       - name: Schema gates
         run: cargo run --locked -p fathom-schema --bin fathom-schema-check

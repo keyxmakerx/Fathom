@@ -9,6 +9,16 @@
 //! with. `pg_advisory_lock` is session-level and re-entrant, so `run`'s own
 //! acquisition on that same session succeeds immediately while every OTHER
 //! session's waits, which is exactly the serialisation this needs.
+//!
+//! **Connected as the MIGRATION role, not the runtime one.**
+//! `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0: the runtime role
+//! (`fathom_app`, what `support::migrated_pool` now hands back) holds
+//! `SELECT` only on `_fathom_migrations` -- this test directly `UPDATE`s that
+//! table's `checksum` column to simulate an edited migration, which needs the
+//! migration role's write access. `support::migration_pool` is that
+//! connection; `support::migrated_pool` is called first, exactly as every
+//! other test calls it, purely to guarantee the schema is migrated before
+//! this file starts corrupting its bookkeeping.
 
 mod support;
 
@@ -16,7 +26,8 @@ use fathom_server::migrate::{self, MigrateError};
 
 #[tokio::test]
 async fn an_edited_migration_is_refused_and_an_unedited_one_applies_nothing() {
-    let pool = support::migrated_pool().await;
+    let _runtime_pool = support::migrated_pool().await;
+    let pool = support::migration_pool().await;
     let mut client = pool.get().await.expect("connection");
 
     client
@@ -114,4 +125,77 @@ async fn an_edited_migration_is_refused_and_an_unedited_one_applies_nothing() {
         matches!(after_restore, Ok(0)),
         "with the record restored, migrations must apply nothing again: {after_restore:?}"
     );
+}
+
+/// `migrate::verify_current` is the read-only half `src/main.rs` uses when
+/// no migration credential is configured -- proved here from the RUNTIME
+/// role's own connection, which holds `SELECT` only on `_fathom_migrations`
+/// (`migrations/0006_runtime_role.sql`), so a passing test here is a test
+/// that the runtime role's privilege is actually enough.
+#[tokio::test]
+async fn verify_current_reflects_the_bookkeeping_from_the_runtime_role_alone() {
+    let runtime_pool = support::migrated_pool().await;
+    let runtime_client = runtime_pool.get().await.expect("runtime connection");
+
+    assert!(matches!(
+        migrate::verify_current(&runtime_client).await,
+        Ok(true)
+    ));
+
+    // Corrupt the recorded checksum for version 2, exactly as the test
+    // above does and exactly as carefully undone -- but through the
+    // MIGRATION role this time, since the runtime role holds no UPDATE on
+    // this table at all (that is the point of the split).
+    let migrate_pool = support::migration_pool().await;
+    let migrate_client = migrate_pool.get().await.expect("migration connection");
+    migrate_client
+        .execute(
+            "SELECT pg_advisory_lock($1)",
+            &[&migrate::MIGRATION_LOCK_KEY],
+        )
+        .await
+        .expect("take the migration lock for the duration of this test");
+
+    let row = migrate_client
+        .query_one(
+            "SELECT checksum FROM _fathom_migrations WHERE version = 2",
+            &[],
+        )
+        .await
+        .expect("migration 2 must be recorded as applied");
+    let original_checksum: i64 = row.get(0);
+    migrate_client
+        .execute(
+            "UPDATE _fathom_migrations SET checksum = $1 WHERE version = 2",
+            &[&original_checksum.wrapping_add(1)],
+        )
+        .await
+        .expect("corrupt the recorded checksum");
+
+    let verdict = migrate::verify_current(&runtime_client).await;
+
+    migrate_client
+        .execute(
+            "UPDATE _fathom_migrations SET checksum = $1 WHERE version = 2",
+            &[&original_checksum],
+        )
+        .await
+        .expect("restore the recorded checksum");
+    migrate_client
+        .execute(
+            "SELECT pg_advisory_unlock($1)",
+            &[&migrate::MIGRATION_LOCK_KEY],
+        )
+        .await
+        .expect("release the migration lock");
+
+    match verdict {
+        Err(MigrateError::Changed { version, .. }) => assert_eq!(version, 2),
+        other => panic!("an edited migration must be refused, got: {other:?}"),
+    }
+
+    assert!(matches!(
+        migrate::verify_current(&runtime_client).await,
+        Ok(true)
+    ));
 }

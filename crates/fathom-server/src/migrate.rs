@@ -51,6 +51,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0005_planes.sql",
         sql: include_str!("../migrations/0005_planes.sql"),
     },
+    Migration {
+        version: 6,
+        name: "0006_runtime_role.sql",
+        sql: include_str!("../migrations/0006_runtime_role.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
@@ -214,6 +219,65 @@ async fn run_locked(client: &mut Client) -> Result<u32, MigrateError> {
     }
 
     Ok(applied)
+}
+
+/// Whether the schema this connection sees is already at the version this
+/// binary embeds, without applying anything.
+///
+/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0: a server with no
+/// migration credential still starts and serves **provided the schema is
+/// already at the expected version**, and refuses only where it would
+/// actually need to migrate. This is the read-only half of [`run`] that
+/// makes that decidable — it takes `&Client`, not `&mut Client`, and issues
+/// no write, so it works from the runtime pool's connection, which holds no
+/// DDL and no write privilege on `_fathom_migrations` at all.
+///
+/// `Ok(false)` covers two shapes the caller cannot tell apart from here and
+/// does not need to: the bookkeeping table does not exist yet (never
+/// migrated), or it exists but is missing a version this binary embeds
+/// (partially migrated, or migrated by an older binary). Either way,
+/// migrating is what is needed next, and this function only answers whether
+/// that is true — `main.rs` decides what refusing looks like.
+///
+/// `Err(MigrateError::Changed { .. })` is the one case that is not "needs
+/// migrating": a recorded migration exists and its checksum disagrees with
+/// the embedded file, which is drift a fresh migration run would refuse too
+/// (see [`run_locked`]) and this surfaces the same way rather than silently
+/// treating it as current.
+pub async fn verify_current(client: &Client) -> Result<bool, MigrateError> {
+    let bookkeeping_exists: bool = client
+        .query_one("SELECT to_regclass('_fathom_migrations') IS NOT NULL", &[])
+        .await?
+        .get(0);
+    if !bookkeeping_exists {
+        return Ok(false);
+    }
+
+    for m in MIGRATIONS {
+        let existing = client
+            .query_opt(
+                "SELECT byte_len, checksum FROM _fathom_migrations WHERE version = $1",
+                &[&m.version],
+            )
+            .await?;
+        let Some(row) = existing else {
+            return Ok(false);
+        };
+        let recorded_len: i32 = row.get(0);
+        let recorded_checksum: i64 = row.get(1);
+        let embedded_len = i32::try_from(m.sql.len()).unwrap_or(i32::MAX);
+        let embedded_checksum = checksum(m.sql);
+        if recorded_len != embedded_len || recorded_checksum != embedded_checksum {
+            return Err(MigrateError::Changed {
+                version: m.version,
+                recorded_len,
+                embedded_len,
+                recorded_checksum,
+                embedded_checksum,
+            });
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(test)]

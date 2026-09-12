@@ -11,6 +11,7 @@ use deadpool_postgres::{Config as PoolConfig, ManagerConfig, Pool, RecyclingMeth
 use tokio_postgres::NoTls;
 
 use crate::config::Config;
+use crate::secret::Secret;
 
 /// Why the pool could not be built.
 ///
@@ -18,27 +19,36 @@ use crate::config::Config;
 /// would otherwise be describing.
 #[derive(Debug)]
 pub enum DbError {
-    /// `DATABASE_URL` is not a connection string this driver understands.
+    /// The connection string is not one this driver understands.
     UnparseableUrl,
     /// The pool itself refused to be built.
     Pool,
+    /// `DATABASE_URL` parsed, but named no user at all, so there is nothing
+    /// to hand to `ALTER ROLE ... LOGIN` when provisioning the runtime
+    /// role's ability to connect (`main.rs`'s startup sequence).
+    NoUser,
 }
 
 impl core::fmt::Display for DbError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::UnparseableUrl => f.write_str(
-                "DATABASE_URL is not a connection string tokio-postgres understands. \
-                 Its value is not shown here on purpose.",
+                "a configured database URL is not a connection string tokio-postgres \
+                 understands. Its value is not shown here on purpose.",
             ),
             Self::Pool => f.write_str("the connection pool could not be created"),
+            Self::NoUser => f.write_str(
+                "DATABASE_URL names no user. The runtime role's name comes from this URL, \
+                 and there is nothing to provision a login for without one.",
+            ),
         }
     }
 }
 
 impl std::error::Error for DbError {}
 
-/// Build a pool from the configuration.
+/// The shared guts of [`pool`] and [`migration_pool`]: a connection string
+/// and an optional password-file override, built into a deadpool `Pool`.
 ///
 /// **`NoTls`, and that is WO-11 trigger 4 in one word.** `49` §6 keeps C7 — no
 /// C or C++ in the shipped closure — only if TLS is terminated in front of the
@@ -51,12 +61,12 @@ impl std::error::Error for DbError {}
 /// revisit** — not by adding a TLS feature without thinking, but by re-reading
 /// `deps/decisions/tokio-postgres.md`'s note on the threat model the three 2026
 /// advisories share.
-pub fn pool(config: &Config) -> Result<Pool, DbError> {
-    let pg: tokio_postgres::Config = config
-        .database_url
-        .expose()
-        .parse()
-        .map_err(|_| DbError::UnparseableUrl)?;
+fn build_pool(
+    url: &Secret<String>,
+    password_override: Option<&Secret<String>>,
+    pool_size: usize,
+) -> Result<Pool, DbError> {
+    let pg: tokio_postgres::Config = url.expose().parse().map_err(|_| DbError::UnparseableUrl)?;
 
     let mut cfg = PoolConfig::new();
     cfg.manager = Some(ManagerConfig {
@@ -66,7 +76,7 @@ pub fn pool(config: &Config) -> Result<Pool, DbError> {
         // intermittent failures.
         recycling_method: RecyclingMethod::Verified,
     });
-    cfg.pool = Some(deadpool_postgres::PoolConfig::new(config.pool_size));
+    cfg.pool = Some(deadpool_postgres::PoolConfig::new(pool_size));
     cfg.dbname = pg.get_dbname().map(ToOwned::to_owned);
     cfg.user = pg.get_user().map(ToOwned::to_owned);
     // The file wins over the URL. `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`
@@ -74,7 +84,7 @@ pub fn pool(config: &Config) -> Result<Pool, DbError> {
     // into the key volume, so in the shipped deployment `DATABASE_URL`
     // carries a user and a host and no password at all. The URL branch
     // remains for a developer running against a local database by hand.
-    cfg.password = match &config.database_password {
+    cfg.password = match password_override {
         Some(password) => Some(password.expose().clone()),
         None => pg
             .get_password()
@@ -91,6 +101,115 @@ pub fn pool(config: &Config) -> Result<Pool, DbError> {
 
     cfg.create_pool(Some(Runtime::Tokio1), NoTls)
         .map_err(|_| DbError::Pool)
+}
+
+/// Build the RUNTIME pool from the configuration.
+///
+/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0: this is the role that
+/// serves every request, holding data privileges only — no ownership, no
+/// DDL, no `CREATEROLE`. See [`migration_pool`] for the other half.
+pub fn pool(config: &Config) -> Result<Pool, DbError> {
+    build_pool(
+        &config.database_url,
+        config.database_password.as_ref(),
+        config.pool_size,
+    )
+}
+
+/// Build the MIGRATION pool from the configuration, if a migration
+/// credential was configured at all.
+///
+/// `Ok(None)` when `FATHOM_MIGRATE_DATABASE_URL` is unset — a supported
+/// shape, not a partial failure. `main.rs` decides what that means for
+/// startup; this function only reports whether there is anything to connect
+/// with. Used once, briefly, and then dropped — `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`
+/// §15.0: "used once at startup and then not held."
+pub fn migration_pool(config: &Config) -> Result<Option<Pool>, DbError> {
+    match &config.migrate_database_url {
+        None => Ok(None),
+        Some(url) => build_pool(
+            url,
+            config.migrate_database_password.as_ref(),
+            config.pool_size,
+        )
+        .map(Some),
+    }
+}
+
+/// The runtime role's name, read out of `DATABASE_URL` rather than
+/// hardcoded — a deployment names its own roles, and this crate does not
+/// need to know `fathom_app` by name to provision its login (see
+/// `migrations/0006_runtime_role.sql`'s header for why the role itself is
+/// still created under a fixed name there).
+pub fn runtime_role(config: &Config) -> Result<String, DbError> {
+    let pg: tokio_postgres::Config = config
+        .database_url
+        .expose()
+        .parse()
+        .map_err(|_| DbError::UnparseableUrl)?;
+    pg.get_user().map(ToOwned::to_owned).ok_or(DbError::NoUser)
+}
+
+/// Double an embedded single quote, the same escaping PostgreSQL's own
+/// string-literal syntax uses, and wrap the result in quotes.
+///
+/// **Why not a bind parameter.** `ALTER ROLE ... PASSWORD $1` is not valid:
+/// PostgreSQL's grammar for `AlterRoleStmt` takes the password as an
+/// `Sconst` — a literal in the query text — not an expression position a
+/// parameter can fill, which is exactly why the existing
+/// `deploy/init-db/10-app-role.sh` uses `psql -v` variable substitution
+/// rather than a driver-level parameter for the same statement. The values
+/// this crate passes here are generated by that same script from
+/// `/dev/urandom` and are 64 lowercase hex characters, so escaping is belt
+/// and braces rather than the load-bearing control — but a role or password
+/// this function might one day be asked to quote should never be assumed to
+/// stay that shape.
+fn quote_literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// The same escaping, for a role name used as an identifier.
+fn quote_ident(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\"\""))
+}
+
+/// Give the runtime role the ability to log in, with the current runtime
+/// password — idempotent, safe to run on every startup that holds a
+/// migration connection.
+///
+/// **Why this is code and not a numbered migration.** A migration's text is
+/// checksum-pinned (`migrate::checksum`, `MigrateError::Changed`) precisely
+/// so that an applied one is never silently edited. A password read from a
+/// file at startup is not a constant either file could embed that way — it
+/// is a secret regenerated per deployment, not a schema change — so it is
+/// applied here, by the migration connection, after `migrate::run` and
+/// before that connection is dropped. `migrations/0006_runtime_role.sql`
+/// creates the role `NOLOGIN`, exactly as `fathom_operator` was created in
+/// `0005`; this is what turns that into a role the runtime pool can actually
+/// connect as, mirroring `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §1.4's own
+/// words: *"the server generates a random password ... and `ALTER ROLE
+/// fathom_app PASSWORD` it."* The one place this still deviates from §1.4 as
+/// written is that the SERVER does not generate the password itself — `43`
+/// §5.4's read-only filesystem means the server container cannot write into
+/// the key volume, so `deploy/init-db/10-app-role.sh` generates it, exactly
+/// as it already does for the migration role's own password.
+pub async fn provision_runtime_login(
+    client: &tokio_postgres::Client,
+    role: &str,
+    password: Option<&str>,
+) -> Result<(), tokio_postgres::Error> {
+    let statement = match password {
+        Some(password) => format!(
+            "ALTER ROLE {} LOGIN PASSWORD {}",
+            quote_ident(role),
+            quote_literal(password)
+        ),
+        // No password configured -- a local developer's trust/peer-auth
+        // database, most likely. Grant LOGIN and leave authentication to
+        // whatever `pg_hba.conf` already decides for this role.
+        None => format!("ALTER ROLE {} LOGIN", quote_ident(role)),
+    };
+    client.batch_execute(&statement).await
 }
 
 #[cfg(test)]
@@ -146,5 +265,71 @@ mod tests {
         for rendered in [format!("{err:?}"), format!("{err}")] {
             assert!(!rendered.contains("hunter2"), "{rendered}");
         }
+    }
+
+    // ---- §15.0: the migration pool is a genuinely separate, optional input ----
+
+    #[test]
+    fn no_migration_credential_means_no_migration_pool_and_no_error() {
+        let config = cfg("postgres://fathom_app@127.0.0.1:5432/fathom");
+        assert!(config.migrate_database_url.is_none());
+        assert!(migration_pool(&config).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_migration_credential_builds_a_pool_without_touching_the_database() {
+        let config = ServerConfig::from_lookup(|k| match k {
+            "DATABASE_URL" => Some("postgres://fathom_app@127.0.0.1:5432/fathom".to_string()),
+            "FATHOM_MIGRATE_DATABASE_URL" => {
+                Some("postgres://fathom:hunter2@127.0.0.1:5432/fathom".to_string())
+            }
+            _ => None,
+        })
+        .unwrap();
+        assert!(migration_pool(&config).unwrap().is_some());
+    }
+
+    #[test]
+    fn an_unparseable_migration_url_is_refused_without_naming_it() {
+        let config = ServerConfig::from_lookup(|k| match k {
+            "DATABASE_URL" => Some("postgres://fathom_app@127.0.0.1:5432/fathom".to_string()),
+            "FATHOM_MIGRATE_DATABASE_URL" => {
+                Some("K4NaRY not-a-connection-string K4NaRY".to_string())
+            }
+            _ => None,
+        })
+        .unwrap();
+        let err = migration_pool(&config).unwrap_err();
+        for rendered in [format!("{err:?}"), format!("{err}")] {
+            assert!(!rendered.contains("K4NaRY"), "{rendered}");
+        }
+    }
+
+    // ---- runtime_role: the role name comes from DATABASE_URL, never hardcoded ----
+
+    #[test]
+    fn the_runtime_role_is_read_from_database_url() {
+        let config = cfg("postgres://fathom_app@127.0.0.1:5432/fathom");
+        assert_eq!(runtime_role(&config).unwrap(), "fathom_app");
+    }
+
+    #[test]
+    fn a_database_url_with_no_user_refuses_rather_than_guessing() {
+        let config = cfg("postgres://127.0.0.1:5432/fathom");
+        assert!(matches!(runtime_role(&config), Err(DbError::NoUser)));
+    }
+
+    // ---- the ALTER ROLE statement provision_runtime_login builds -----------
+
+    #[test]
+    fn quote_literal_escapes_an_embedded_single_quote() {
+        assert_eq!(quote_literal("plain"), "'plain'");
+        assert_eq!(quote_literal("a'b"), "'a''b'");
+    }
+
+    #[test]
+    fn quote_ident_escapes_an_embedded_double_quote() {
+        assert_eq!(quote_ident("fathom_app"), "\"fathom_app\"");
+        assert_eq!(quote_ident("a\"b"), "\"a\"\"b\"");
     }
 }

@@ -32,25 +32,39 @@
 # that role a superuser regardless of the name given it -- a superuser
 # bypasses row-level security unconditionally, `FORCE` or not
 # (`crates/fathom-server/migrations/0002_identity_and_scope.sql`). So the
-# server must never connect as `fathom_bootstrap`. `deploy/init-db/10-app-role.sh`
-# runs once, as that bootstrap role, purely to create the `fathom` role the
-# server actually connects as below -- deliberately NOT a superuser, and owner
-# of its own database rather than granted piecemeal privileges (see that
-# script's own comment for why ownership is what lets it run migrations).
-# `fathom_server::rls::assert_rls_binds` then refuses to start at all if the
-# connected role turns out to be a superuser or carry BYPASSRLS, so this
-# cannot silently regress to the bootstrap role again.
+# server must never connect as `fathom_bootstrap`, for either role below.
+# `deploy/init-db/10-app-role.sh` runs once, as that bootstrap role, purely to
+# create the `fathom` role the server migrates as -- deliberately NOT a
+# superuser, and owner of its own database rather than granted piecemeal
+# privileges (see that script's own comment for why ownership is what lets it
+# run migrations). `fathom_server::rls::assert_rls_binds` refuses to start at
+# all if either connected role turns out to be a superuser or carry
+# BYPASSRLS, so this cannot silently regress to the bootstrap role again.
 #
-# THE APPLICATION'S DATABASE PASSWORD IS NOT IN THIS FILE, added 2026-09-12
+# TWO DATABASE ROLES, NOT ONE, ADDED 2026-09-12
+# (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0). Until this, `fathom`
+# owned every table, ran the migrations, held `CREATEROLE` -- AND served
+# every request; a runtime injection could reshape the schema or mint a
+# role. Now the SERVER connects as `fathom_app` (`DATABASE_URL`, data
+# privileges only -- created `NOLOGIN` by
+# `crates/fathom-server/migrations/0006_runtime_role.sql`, then logged into
+# by the server itself, see below) for every request it answers, and holds
+# `fathom`'s migration credential (`FATHOM_MIGRATE_DATABASE_URL`) only around
+# the migration step at startup, never for the connections that serve a
+# request afterwards.
+#
+# NEITHER DATABASE PASSWORD IS IN THIS FILE, added 2026-09-12
 # (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1 and §1.4). Whoever writes a
 # compose file holds the Docker socket, and is therefore a host-level
 # attacker -- so a credential typed here proves nothing about what a lesser
-# credential can reach. `deploy/init-db/10-app-role.sh` generates it at first
-# start into the `keys` volume, beside where the master key will live, and
-# the server reads it through `FATHOM_DB_PASSWORD_FILE`. What remains in this
-# file is the BOOTSTRAP superuser's password, which is what it has to be:
-# the postgres image needs it to initialise the cluster at all, and it is the
-# credential the server must never use.
+# credential can reach. `deploy/init-db/10-app-role.sh` generates BOTH at
+# first start into the `keys` volume, beside where the master key will live,
+# and the server reads them through `FATHOM_DB_PASSWORD_FILE` (the runtime
+# role, `fathom_app`) and `FATHOM_MIGRATE_DB_PASSWORD_FILE` (the migration
+# role, `fathom`). What remains in this file is the BOOTSTRAP superuser's
+# password, which is what it has to be: the postgres image needs it to
+# initialise the cluster at all, and it is the credential the server must
+# never use, for either role.
 #
 # AND THE ONE THAT MATTERS MOST HERE: **the server is not published to the
 # host.** Only Caddy is. `49` §6 keeps C7 — no C or C++ in the shipped closure —
@@ -95,11 +109,12 @@ services:
       # image starts, refuses, and reports an incompatible data directory --
       # found 2026-09-03 by running this file rather than reading it.
       - db:/var/lib/postgresql
-      # The key volume. `deploy/init-db/10-app-role.sh` generates the
-      # application role's password into it at first start, and it is where
-      # `master.key` will live once `docs/OPEN-QUESTIONS.md` A1 is answered.
-      # Read-write here because this is the container that writes it;
-      # read-only on `server`, which only reads it.
+      # The key volume. `deploy/init-db/10-app-role.sh` generates both the
+      # migration role's and the runtime role's passwords into it at first
+      # start, and it is where `master.key` will live once
+      # `docs/OPEN-QUESTIONS.md` A1 is answered. Read-write here because this
+      # is the container that writes it; read-only on `server`, which only
+      # reads it.
       - keys:/var/lib/fathom/keys
       # Runs once, only against a freshly created (empty) data directory --
       # the image's own entrypoint convention. See the file header and the
@@ -146,21 +161,30 @@ services:
       # network. The BINARY's default is loopback, deliberately, so that a
       # server started outside a container cannot serve the world by accident.
       FATHOM_BIND: "0.0.0.0:8080"
-      # `fathom`, not `fathom_bootstrap` -- the restricted, non-superuser
-      # role `deploy/init-db/10-app-role.sh` creates. `fathom-server` itself
-      # refuses to start if the role it connects as turns out to be a
-      # superuser or carry BYPASSRLS (`src/rls.rs`), so a compose file that
-      # pointed this back at the bootstrap role would fail loudly at startup
-      # rather than silently ship broken tenant isolation again.
+      # `fathom_app` -- the RUNTIME role, data privileges only, no ownership,
+      # no DDL, no `CREATEROLE`. This is what every request is served
+      # through. `fathom-server` itself refuses to start if the role it
+      # connects as turns out to be a superuser or carry BYPASSRLS
+      # (`src/rls.rs`), so a compose file that pointed this back at the
+      # bootstrap role, or at the migration role below, would fail loudly at
+      # startup rather than silently ship broken tenant isolation again.
       # NO PASSWORD IN THIS URL -- see §1.4 and the `db` service's comment.
       # The password comes from the key volume, by way of the variable below.
-      DATABASE_URL: "postgres://fathom@db:5432/fathom"
+      DATABASE_URL: "postgres://fathom_app@db:5432/fathom"
       # The file `deploy/init-db/10-app-role.sh` generated at first start.
       # `fathom-server` refuses to start if this is set and the file cannot
       # be read: a silent fall back to a password from somewhere else is how
       # the credential this design moves out of the environment creeps back
       # into it.
       FATHOM_DB_PASSWORD_FILE: "/var/lib/fathom/keys/db_app.pw"
+      # `fathom` -- the MIGRATION role: owns the schema, holds `CREATEROLE`,
+      # used once at startup to apply outstanding migrations and to provision
+      # `fathom_app`'s login (`src/db.rs::provision_runtime_login`), then not
+      # held. `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0's other half of
+      # the split: taking `CREATEROLE` and table ownership off the role above
+      # is only real if nothing that serves a request ever holds this one.
+      FATHOM_MIGRATE_DATABASE_URL: "postgres://fathom@db:5432/fathom"
+      FATHOM_MIGRATE_DB_PASSWORD_FILE: "/var/lib/fathom/keys/db_migrate.pw"
       FATHOM_LOG: "info"
       FATHOM_HEALTH_TIMEOUT_MS: "2000"
       FATHOM_DB_POOL_SIZE: "8"
@@ -200,10 +224,11 @@ services:
 
 volumes:
   db:
-  # Holds the application role's generated database password, and will hold
-  # the master key. Anything that can read this volume is a tier-3 attacker
-  # in `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1's terms: if you copy it
-  # off the machine, you have copied both.
+  # Holds both database roles' generated passwords -- the migration role's
+  # and the runtime role's -- and will hold the master key. Anything that can
+  # read this volume is a tier-3 attacker in
+  # `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1's terms: if you copy it off
+  # the machine, you have copied all three.
   keys:
   caddy_data:
   caddy_config:

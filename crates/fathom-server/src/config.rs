@@ -28,9 +28,15 @@ pub struct Config {
 
     /// `DATABASE_URL`. Required — there is no default, because a default here
     /// would be a server that starts against the wrong database.
+    ///
+    /// **This is the RUNTIME role's connection string** —
+    /// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0: data privileges only,
+    /// no ownership, no DDL, no `CREATEROLE`. `db::pool` builds the pool every
+    /// request is served from out of this field. See
+    /// [`Config::migrate_database_url`] for the other half of the split.
     pub database_url: Secret<String>,
 
-    /// The database password, read from the file named by
+    /// The runtime role's password, read from the file named by
     /// `FATHOM_DB_PASSWORD_FILE`. Overrides whatever `DATABASE_URL` carries.
     ///
     /// **`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1 and §1.4: the
@@ -47,6 +53,27 @@ pub struct Config {
     /// `None` when the variable is unset, which is the shape every test and
     /// every local developer uses.
     pub database_password: Option<Secret<String>>,
+
+    /// `FATHOM_MIGRATE_DATABASE_URL`. The migration role's connection string
+    /// — owns the schema, holds `CREATEROLE`, used once at startup to run
+    /// `migrate::run` and to provision the runtime role's ability to log in,
+    /// and then not held (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0).
+    ///
+    /// **`None` when unset, and that is a supported shape, not an error.**
+    /// The owner's inclination (repeated in `main.rs`'s own comment on the
+    /// startup sequence): a deployment that never hands the server this
+    /// credential still starts and serves, PROVIDED the schema is already at
+    /// the version this binary expects; it refuses only where it would
+    /// actually need to migrate and cannot. That is checked against the
+    /// runtime connection with `migrate::verify_current`, not asserted here.
+    pub migrate_database_url: Option<Secret<String>>,
+
+    /// The migration role's password, read from the file named by
+    /// `FATHOM_MIGRATE_DB_PASSWORD_FILE`. Overrides whatever
+    /// `migrate_database_url` carries, exactly as `database_password`
+    /// overrides `database_url` — same reasoning, same file-based mechanism,
+    /// a second credential rather than a second exception to §1.4.
+    pub migrate_database_password: Option<Secret<String>>,
 
     /// `FATHOM_LOG`, default `info`. One level, not a filter expression: see
     /// `deps/decisions/tracing-subscriber.md` on the five crates `env-filter`
@@ -126,6 +153,11 @@ pub enum ConfigError {
     /// `DATABASE_URL` carries, which in the shipped deployment is none, and
     /// then reports a connection failure that names the wrong cause.
     UnreadableDbPasswordFile,
+    /// `FATHOM_MIGRATE_DB_PASSWORD_FILE` is set and the file could not be
+    /// read, or held nothing. Same reasoning as
+    /// [`ConfigError::UnreadableDbPasswordFile`], for the migration role's
+    /// credential rather than the runtime role's.
+    UnreadableMigrateDbPasswordFile,
 }
 
 impl fmt::Display for ConfigError {
@@ -144,6 +176,13 @@ impl fmt::Display for ConfigError {
                 "FATHOM_DB_PASSWORD_FILE is set and the file behind it could not be read, or \
                  was empty. The application's database password is generated at first start \
                  into the key volume rather than typed into the compose file -- see \
+                 deploy/init-db/10-app-role.sh. Refusing to start rather than falling back to \
+                 a password from somewhere else.",
+            ),
+            Self::UnreadableMigrateDbPasswordFile => f.write_str(
+                "FATHOM_MIGRATE_DB_PASSWORD_FILE is set and the file behind it could not be \
+                 read, or was empty. The migration role's database password is generated at \
+                 first start into the key volume rather than typed into the compose file -- see \
                  deploy/init-db/10-app-role.sh. Refusing to start rather than falling back to \
                  a password from somewhere else.",
             ),
@@ -242,10 +281,32 @@ impl Config {
                 }
             };
 
+        // `FATHOM_MIGRATE_DATABASE_URL` has no default and no fallback: unlike
+        // `DATABASE_URL`, it is fine for this to be absent. See
+        // `main.rs`'s startup sequence and `migrate::verify_current` for what
+        // that means for a server that starts anyway.
+        let migrate_database_url = get("FATHOM_MIGRATE_DATABASE_URL")
+            .filter(|v| !v.trim().is_empty())
+            .map(Secret::new);
+
+        let migrate_database_password =
+            match get("FATHOM_MIGRATE_DB_PASSWORD_FILE").filter(|v| !v.trim().is_empty()) {
+                None => None,
+                Some(path) => {
+                    let value = read(path.trim())
+                        .map(|v| v.trim().to_string())
+                        .filter(|v| !v.is_empty())
+                        .ok_or(ConfigError::UnreadableMigrateDbPasswordFile)?;
+                    Some(Secret::new(value))
+                }
+            };
+
         Ok(Self {
             bind,
             database_url: Secret::new(database_url),
             database_password,
+            migrate_database_url,
+            migrate_database_password,
             log_level,
             health_timeout,
             pool_size,
@@ -260,6 +321,15 @@ impl Config {
     /// unhelpful. `redact_database_url` fails safe.
     pub fn database_for_logging(&self) -> String {
         redact_database_url(self.database_url.expose())
+    }
+
+    /// The migration database URL with its password removed, for a log line.
+    /// `None` when no migration credential was configured at all — logging
+    /// that absence is `main.rs`'s job, not this accessor's.
+    pub fn migrate_database_for_logging(&self) -> Option<String> {
+        self.migrate_database_url
+            .as_ref()
+            .map(|url| redact_database_url(url.expose()))
     }
 }
 
@@ -494,5 +564,140 @@ mod tests {
         assert!(!logged.contains("hunter2"), "{logged}");
         assert!(logged.contains("db.internal"), "{logged}");
         assert!(logged.contains("5432"), "{logged}");
+    }
+
+    // ---- §15.0: the migration role's connection string is a second,
+    // independent input, absent by default -------------------------------
+
+    #[test]
+    fn no_migrate_database_url_means_none_and_that_is_not_an_error() {
+        let c = Config::from_lookup(env(&[("DATABASE_URL", "postgres://u@h/db")])).unwrap();
+        assert!(c.migrate_database_url.is_none());
+        assert!(c.migrate_database_password.is_none());
+        assert!(c.migrate_database_for_logging().is_none());
+    }
+
+    #[test]
+    fn a_blank_migrate_database_url_is_the_same_as_absent() {
+        let c = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_MIGRATE_DATABASE_URL", "   "),
+        ]))
+        .unwrap();
+        assert!(c.migrate_database_url.is_none());
+    }
+
+    #[test]
+    fn a_migrate_database_url_is_read_independently_of_database_url() {
+        let c = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://fathom_app@db:5432/fathom"),
+            (
+                "FATHOM_MIGRATE_DATABASE_URL",
+                "postgres://fathom@db:5432/fathom",
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(
+            c.migrate_database_url.as_ref().map(|u| u.expose().clone()),
+            Some("postgres://fathom@db:5432/fathom".to_string())
+        );
+        // The two are genuinely independent -- one must not fall back to
+        // the other, or the split this exists for is only a naming exercise.
+        assert_eq!(
+            c.database_url.expose(),
+            "postgres://fathom_app@db:5432/fathom"
+        );
+    }
+
+    #[test]
+    fn the_migrate_database_password_is_read_from_the_file_the_environment_names() {
+        let c = Config::from_lookup_and_files(
+            env(&[
+                ("DATABASE_URL", "postgres://fathom_app@db:5432/fathom"),
+                (
+                    "FATHOM_MIGRATE_DATABASE_URL",
+                    "postgres://fathom@db:5432/fathom",
+                ),
+                (
+                    "FATHOM_MIGRATE_DB_PASSWORD_FILE",
+                    "/var/lib/fathom/keys/db_migrate.pw",
+                ),
+            ]),
+            |path| {
+                assert_eq!(path, "/var/lib/fathom/keys/db_migrate.pw");
+                Some("generated-at-first-start-too\n".to_string())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            c.migrate_database_password
+                .as_ref()
+                .map(|p| p.expose().as_str()),
+            Some("generated-at-first-start-too")
+        );
+    }
+
+    #[test]
+    fn an_unreadable_migrate_password_file_refuses_to_start_rather_than_falling_back() {
+        for file in [None, Some(String::new()), Some("   \n".to_string())] {
+            let err = Config::from_lookup_and_files(
+                env(&[
+                    ("DATABASE_URL", "postgres://fathom_app@db/fathom"),
+                    (
+                        "FATHOM_MIGRATE_DATABASE_URL",
+                        "postgres://fathom:fallback@db/fathom",
+                    ),
+                    ("FATHOM_MIGRATE_DB_PASSWORD_FILE", "/keys/db_migrate.pw"),
+                ]),
+                |_| file.clone(),
+            )
+            .unwrap_err();
+            assert_eq!(err, ConfigError::UnreadableMigrateDbPasswordFile);
+        }
+    }
+
+    #[test]
+    fn the_lookup_only_entry_point_refuses_a_migrate_password_file_rather_than_ignoring_it() {
+        assert_eq!(
+            Config::from_lookup(env(&[
+                ("DATABASE_URL", "postgres://u@h/db"),
+                ("FATHOM_MIGRATE_DB_PASSWORD_FILE", "/keys/db_migrate.pw"),
+            ]))
+            .unwrap_err(),
+            ConfigError::UnreadableMigrateDbPasswordFile
+        );
+    }
+
+    #[test]
+    fn the_migrate_password_is_a_secret_like_every_other() {
+        let c = Config::from_lookup_and_files(
+            env(&[
+                ("DATABASE_URL", "postgres://fathom_app@db/fathom"),
+                ("FATHOM_MIGRATE_DATABASE_URL", "postgres://fathom@db/fathom"),
+                ("FATHOM_MIGRATE_DB_PASSWORD_FILE", "/keys/db_migrate.pw"),
+            ]),
+            |_| Some("hunter2".to_string()),
+        )
+        .unwrap();
+        for rendered in [format!("{c:?}"), format!("{c:#?}")] {
+            assert!(!rendered.contains("hunter2"), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn the_loggable_migrate_url_names_the_host_and_not_the_password() {
+        let c = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://fathom_app@db/fathom"),
+            (
+                "FATHOM_MIGRATE_DATABASE_URL",
+                "postgres://fathom:hunter2@db.internal:5432/fathom",
+            ),
+        ]))
+        .unwrap();
+        let logged = c
+            .migrate_database_for_logging()
+            .expect("a migrate URL was configured");
+        assert!(!logged.contains("hunter2"), "{logged}");
+        assert!(logged.contains("db.internal"), "{logged}");
     }
 }
