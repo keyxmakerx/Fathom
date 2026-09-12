@@ -266,10 +266,11 @@ is used instead, because helpers cannot spawn their own helpers.
 3. Ask a closed question, get a short answer. No open-ended exploration.
 4. The notes file is a pointer page. If it starts becoming a changelog again, cut it.
 5. One task at a time unless two are genuinely independent.
-6. **Never `git add -A` while a helper is working.** It sweeps that helper's half-written files into
-   whatever the lead is committing, and the commit message then describes none of it. Done once on
-   2026-09-12: a dependency change landed in a commit about a documentation number. Stage explicit
-   paths.
+6. **`git commit -- <paths>`, always, while a helper is working.** Staging explicit paths is not
+   enough: `git commit` commits the whole index, so anything the helper staged rides along. Both
+   halves of this happened on 2026-09-12 — first `git add -A` swept a helper's in-flight file into a
+   commit about a documentation number, then a helper's own staged deletion of a 229-line safety test
+   rode into a commit about crypto primitives. A pathspec on the *commit* is what actually binds.
 
 ---
 
