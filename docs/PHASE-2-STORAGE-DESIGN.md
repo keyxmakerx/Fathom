@@ -2,8 +2,9 @@
 
 **Status:** REVISED AFTER ATTACK, 2026-09-11. Majors 1, 4 and 7 resolved 2026-09-12 (§11);
 major 5 and the primitives settled 2026-09-12 (§12).
-**Not accepted. Not built.** All seven majors resolved (§§11–13). Major 6 is presentation. The vault
-migration is blocked on one lookup — the per-recipient wrap primitive, §13.7.
+**Not accepted. Not built.** All seven majors resolved (§§11–13). Major 6 is presentation. The
+per-recipient wrap primitive is decided (§13.7, 2026-09-12); nothing blocks the vault migration
+except the build order in §13.6.
 **Review:** `PHASE-2-ATTACK-REPORT.md` — 6 lenses, 36 findings, 20 survived verification, 16
 refuted. 5 blockers, all addressed below. 7 majors, tracked in §10.
 **Binding inputs:** ADR-0040 (key custody), ADR-0042 (the credential vault), the owner's answers
@@ -1072,15 +1073,104 @@ compromises shares made while it runs, cannot rewrite entries the witness alread
 make an uncompromised browser accept a substituted key. The attack becomes: hold the server, keep
 holding it, and hope no second laptop ever checks. Describe it in those words and no stronger.
 
-### 13.7 The one lookup that now blocks the vault schema
+### 13.7 The per-recipient wrap primitive — decided 2026-09-12
 
-**The per-recipient wrap primitive is not decided and is not being decided from memory.** RFC 9180
-(HPKE) is unread. Open: X25519+HKDF+ChaCha20-Poly1305 versus RSA-OAEP versus HPKE; whether X25519 is
-in WebCrypto across the browsers Fathom supports today; what either costs against §12.4's budget and
-`multiple-versions = "deny"`; and its advisory status against a working control. **This blocks the
-vault migration because `vault_alg` and the wrap format go into sealed bytes.** Also unread: SP 800-57
-Part 1 (the 112-bit strength the nine-word fingerprint aims at), and IACR 2026/058 — precisely major
-2's attacker, and the one piece of outside work most likely to contradict something above.
+**ECDH over P-256, HKDF-SHA256, AES-256-GCM, computed in the browser with WebCrypto. `vault_alg = 1`.**
+Looked up, not recalled; the sources and dates are at the end of this section, and so is what could
+not be established.
+
+**Why this one.** It is the only candidate every browser has had for about a decade: ECDH `importKey`
+Chrome 37, Firefox 34, Safari 7; `deriveBits` Chrome 41, Firefox 34, Safari 11, Edge 79. X25519 in
+`SubtleCrypto` reached Safari 17 (2023-09), Firefox 130 (2024-09) and Chrome 133 (2025-02-04), so
+choosing it means a two-year-old Chrome cannot share a credential at all, for no gain at this bar.
+HPKE (RFC 9180) is not a WebCrypto algorithm — it would be hand-written JavaScript over the same
+primitives, and its ChaCha20-Poly1305 suite is unreachable because ChaCha20-Poly1305 is not in
+WebCrypto either. The browser side is zero external packages (OPEN-QUESTIONS A3), so the wrap is
+WebCrypto in JavaScript, the same line admin §4.2's session keypair already takes.
+
+**Server cost: zero new crates.** `p256 0.14.0`'s `ecdh` feature resolves to what ES256 already
+pulls (`elliptic-curve 0.14.1` with `hkdf 0.13.0`, both locked); measured by resolution, 54
+external crates with and without it. Neither RustSec (tip 2026-09-09) nor the GitHub Advisory
+Database (tip 2026-09-12) carries anything for `p256`, `elliptic-curve` or `hkdf`. X25519 would add
+six crates and a build script; HPKE eight and a new publisher, with `hpke 0.14.1` published
+2026-09-06 and so inside the cooldown. **RSA-OAEP is refused:** `rsa 0.9.10` carries the Marvin
+timing advisory (RUSTSEC-2023-0071, `patched = []`; GHSA-c38w-74pg-36hr still "no patch", modified
+2026-04-27) and would create nine duplicate-major pairs against `multiple-versions = "deny"`.
+
+**The construction, because these bytes get sealed:**
+
+```
+vault_alg = 1        // "ecdh-p256+hkdf-sha256+aes256gcm/v1"
+eph       = P-256 keypair, fresh per (recipient, epoch), generated in the sharer's browser
+Z         = ECDH(eph_priv, recipient_vault_pub)                     // 32 bytes, SubtleCrypto.deriveBits
+wrap_info = LP("fathom/vault/wrap/v1") ‖ LP(organisation_id) ‖ LP(credential_id)
+            ‖ u32(content_key_epoch) ‖ LP(sharer_key_fpr) ‖ LP(recipient_vault_key_fpr)
+            ‖ LP(eph_pub) ‖ u16(vault_alg)
+kek       = HKDF-SHA256(ikm = Z, salt = "", info = wrap_info, L = 32)
+wrap      = LP(eph_pub) ‖ LP(nonce_96) ‖ LP(AES-256-GCM(kek, nonce, aad = wrap_info, pt = vault_key))
+wrapped_key_digest = H("fathom/vault/wrap/digest/v1" ‖ LP(wrap))      // feeds §13.3's share_bytes
+```
+
+`wrap_info` re-binds epoch, sharer and recipient inside the AEAD, so a wrap moved between recipients
+or epochs fails to open rather than merely failing a check. Each `kek` is used exactly once, which
+sidesteps the nonce-lifetime class entirely (the `hpke-rs` crate's RUSTSEC-2026-0071 is a sequence
+wraparound causing nonce reuse — the second nonce hazard this design has met, §12.3 being the first).
+
+**Three rules that are not free to change later:**
+
+1. **`eph_pub` is uncompressed SEC1, 65 bytes.** Compressed-point `importKey` is unsupported in Safari
+   at every version and reached Firefox only at 146. Written into sealed bytes, so fixed now.
+2. **The recipient's browser verifies the `vault_shared` signature over §13.3's `share_bytes` before
+   using an unwrapped key.** "The server says this wrap came from Alice" is not sender
+   authentication; the signature is. This is the requirement the ePrint paper below names as a root
+   cause of shipped failures.
+3. **The server validates `eph_pub` as a point on the curve before storing it**, with `p256` at zero
+   cost, because whether WebCrypto's `importKey` validates an attacker-supplied ECDH public key could
+   not be established (below). Treat it as untrusted input on both sides.
+
+**Rotation and revocation** cost, per remaining recipient, one ephemeral keypair, one ECDH, one HKDF
+and one AEAD seal in the sharer's browser — 125 bytes on the wire — plus one signature over the new
+`share_bytes`. Nothing about the primitive complicates §13.3.
+
+**Test vectors** for the build: Wycheproof `ecdh_secp256r1_test.json`, `hkdf_sha256_test.json`,
+`aes_gcm_test.json` (C2SP/wycheproof, reachable 2026-09-12). NIST's CAVP vectors were unreachable.
+
+**Could not establish, and must not be written up as if it were:**
+
+- **SP 800-57 Part 1 Rev 5 was not read** — `nvlpubs.nist.gov` and `csrc.nist.gov` are both
+  egress-blocked. The 112-bit floor, the strength assigned to P-256, and the date through which each
+  is allowed exist here only as a search-result summary ("112-bit acceptable through 2030-12-31").
+  **No bit-strength figure goes into owner-facing documentation until the publication is read.**
+  Same for the nine-word fingerprint's target in §13.4.
+- **IACR ePrint 2026/058** — Scarlata, Torrisi, Backendal, Paterson, *Zero Knowledge (About)
+  Encryption: A Comparative Security Analysis of Three Cloud-based Password Managers*, USENIX
+  Security 2026. The paper itself is unreachable (`eprint.iacr.org`, `usenix.org` blocked); what is
+  known is from search-result summaries and the ETH Zurich news item. On that reading it does not
+  bear on the choice among primitives; it bears on everything around them — 27 attacks by a
+  malicious server against Bitwarden, LastPass and Dashlane, with the named causes *missing key
+  authentication, lack of authenticated encryption, poor key separation, continued support for
+  outdated cryptography*. §13.2's keyring, §13.3's signed set and rule 2 above are each an answer to
+  one of those. Read the paper before the vault ships; it is the one piece of outside work most
+  likely to contradict something in §13.
+- **Point validation in WebCrypto `importKey`** — the W3C and WICG specs are blocked. Rule 3 covers
+  the gap.
+- **The RFCs as published** (9180, 7748, 5869, 8439) — the IETF hosts are blocked; HPKE facts came
+  from the CFRG draft source on GitHub, which is not the RFC.
+- **Vendor release notes** for Chrome 133, Firefox 130, Safari 17 — blocked; the version floors are
+  MDN's compatibility data, a compilation rather than a vendor statement.
+- All advisory results go stale immediately. Re-run both sweeps and `./scripts/osv-gate.sh` before
+  the vault merge.
+
+Sources read 2026-09-12: `mdn/browser-compat-data` (`api/SubtleCrypto.json` and the browser release
+files), `mdn/content` (the `SubtleCrypto` and `deriveBits` pages, the Firefox 130 release page),
+`cfrg/draft-irtf-cfrg-hpke` (draft source and `test-vectors.json`), RustSec `advisory-db` at tip
+`b50980a`, the GitHub Advisory Database at `552f61c846`, the crates.io sparse index and tarballs for
+every crate named, `C2SP/wycheproof`. Closure measured by throwaway resolution outside the
+workspace; re-measure with `./scripts/closure-report.sh` when the vault lands.
+
+**Side finding for the cooldown gate:** the crates.io sparse index carries a `pubtime` field and
+`index.crates.io` is reachable from this session, so `scripts/crate-cooldown.sh` can read publication
+dates from the index instead of the API. Not done here; noted for the next gate pass.
 
 **`docs/UI-SPEC.md` has no vault surface.** The share dialog, the four fingerprint states and the
 mode-change consent screen are new surfaces and land there before they are built.
