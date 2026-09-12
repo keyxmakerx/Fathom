@@ -95,3 +95,15 @@ tokio-postgres = { version = "0.7.18" }
 deadpool-postgres = { version = "0.14.2", default-features = false, features = [
     "rt_tokio_1",
 ] }
+
+# The engine seam (docs/REBUILD-PLAN.md Phase 2, step one). Path dependencies
+# on first-party workspace members, not external crates: gate-zero and the
+# other four dependency-gate layers read Cargo.lock's `source = ...` line to
+# find what is external, and a path member carries none, so this adds nothing
+# to that closure. `fathom-schema` is the one this order's endpoint actually
+# calls (`src/engine.rs`); `fathom-graph` and `fathom-id` are wired now so the
+# next Phase 2 steps do not repeat this step -- they carry no caller yet, and
+# that is correct for a seam landing ahead of what will use it.
+fathom-graph = { path = "../fathom-graph" }
+fathom-id = { path = "../fathom-id" }
+fathom-schema = { path = "../fathom-schema" }
