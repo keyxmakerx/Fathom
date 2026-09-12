@@ -30,6 +30,8 @@ use core::fmt;
 
 use deadpool_postgres::Transaction;
 
+use fathom_canon::Json;
+
 use crate::crypto::{self, Key32, KeyId, UnwrapError};
 use crate::keyprovider::{KeyError, KeySource, RootKey};
 use crate::repo::{DesignId, TenantContext};
@@ -38,6 +40,9 @@ use crate::repo::{DesignId, TenantContext};
 const AAD_TENANT: &[u8] = b"fathom/key/aad/tenant/v1";
 /// Domain tag for a design key's binding.
 const AAD_DESIGN: &[u8] = b"fathom/key/aad/design/v1";
+/// Domain tag for an **organisation content key's** binding — the key that
+/// encrypts organisation-chain entry metadata (§7.3).
+const AAD_ORG_CONTENT: &[u8] = b"fathom/key/aad/org-content/v1";
 
 /// The two roots this server holds, loaded once at startup.
 ///
@@ -336,6 +341,22 @@ pub enum KeyStoreError {
     /// The key row says an epoch whose parent key row is gone. Unreachable
     /// through the foreign keys; never silently treated as "make a new one".
     Corrupt(&'static str),
+    /// **§12.6's one refusal.** A key operation was named that this function
+    /// does not perform. `rotate` is not a synonym for `rewrap`: one revokes
+    /// access and the other does not, and a path that quietly did the cheap one
+    /// when asked for the expensive one would leave an operator believing they
+    /// had revoked something.
+    NotASynonym {
+        asked_for: &'static str,
+    },
+    /// A re-wrap was asked for to the master key already in use. Not a no-op
+    /// worth performing: it would write a `rewrap` entry claiming custody
+    /// changed when nothing did.
+    RewrapToTheSameMasterKey,
+    /// The sealed entry could not be written. **The whole transaction fails
+    /// with it** -- a key operation whose audit entry did not land is exactly
+    /// the untraceable re-wrap §12.6 exists to prevent.
+    Chain(String),
 }
 
 impl fmt::Display for KeyStoreError {
@@ -347,6 +368,20 @@ impl fmt::Display for KeyStoreError {
             Self::Unwrap { what, why } => write!(f, "the {what} could not be unwrapped: {why}"),
             Self::NoSuchDesign => f.write_str("no such design in this organisation"),
             Self::Corrupt(what) => write!(f, "a stored {what} is not consistent"),
+            Self::NotASynonym { asked_for } => write!(
+                f,
+                "this operation is `rewrap` and `{asked_for}` is not a synonym for it. A \
+                 re-wrap changes custody and revokes nothing; a rotation re-encrypts and is the \
+                 only operation that revokes anything. Ask for the one you mean."
+            ),
+            Self::RewrapToTheSameMasterKey => f.write_str(
+                "the new master key is the one already in use, so there is no custody to \
+                 change. Refusing rather than writing a `rewrap` entry that claims otherwise.",
+            ),
+            Self::Chain(why) => write!(
+                f,
+                "the sealed rewrap entry could not be written, so the re-wrap is refused: {why}"
+            ),
         }
     }
 }
@@ -388,6 +423,17 @@ fn design_key_aad(tenant: &str, design: &str, epoch: i32) -> Vec<u8> {
     crypto::lp(&mut aad, AAD_DESIGN);
     crypto::lp(&mut aad, tenant.as_bytes());
     crypto::lp(&mut aad, design.as_bytes());
+    crypto::u32_le(&mut aad, epoch as u32);
+    aad
+}
+
+/// `LP(tag) ‖ LP(tenant_id) ‖ u32(epoch)` — what an organisation content key
+/// is bound to. Same shape as [`tenant_key_aad`] with its own tag, so the two
+/// cannot be confused for one another by a row that was moved.
+fn org_content_key_aad(tenant: &str, epoch: i32) -> Vec<u8> {
+    let mut aad = Vec::new();
+    crypto::lp(&mut aad, AAD_ORG_CONTENT);
+    crypto::lp(&mut aad, tenant.as_bytes());
     crypto::u32_le(&mut aad, epoch as u32);
     aad
 }
@@ -569,6 +615,162 @@ pub async fn design_key_under(
     Ok(DataKey { key, epoch, id })
 }
 
+// ---------------------------------------------------------------------------
+// The organisation content key — what encrypts organisation-chain metadata
+// ---------------------------------------------------------------------------
+
+/// The organisation's active **content key**, created on first use, wrapped
+/// under the tenant key.
+///
+/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.3: organisation-chain entry
+/// metadata is stored as AEAD ciphertext, because that is where the vault's
+/// recipient sets and mode changes will land and a plaintext copy in the audit
+/// log is §11.3 cost 3's leak returning through a side door.
+///
+/// # Why this is a fourth key and not one of the three that existed
+///
+/// - **Not the chain key.** An operator running §11.2's routine verification
+///   holds it. If it also opened organisation metadata, handing someone the
+///   ability to verify a history would hand them the access map the encryption
+///   exists to hide — §6's B5 separation collapsing one level down.
+/// - **Not the tenant key directly.** [`count_write_under_tenant_key`] exists
+///   because §12.3's birthday bound is per key. Adding an AEAD message per
+///   audit entry to the tenant key is precisely what that counter was written
+///   to forbid.
+/// - **Not a derived key.** Chain entries are append-only, so a rotation can
+///   never re-encrypt one. A key covering rows nobody may rewrite needs
+///   *epochs*, kept forever — which is a wrapped key with a table, not a
+///   derivation.
+///
+/// So: the same shape as a design key, one level across instead of one down.
+/// **And being wrapped under the tenant key is what makes §12.6's re-wrap
+/// cover it for free** — a re-wrap changes the tenant key's wrapping and
+/// nothing beneath it moves at all.
+pub async fn org_content_key(
+    tx: &Transaction<'_>,
+    ctx: &TenantContext,
+    tenant_key: &DataKey,
+) -> Result<DataKey, KeyStoreError> {
+    let tenant = ctx.tenant().to_string();
+
+    let row = tx
+        .query_opt(
+            "SELECT key_epoch, key_id, wrapped_key, wrap_nonce \
+             FROM org_content_keys \
+             WHERE organisation_id = $1 AND status = 'active'",
+            &[&tenant],
+        )
+        .await?;
+
+    if let Some(row) = row {
+        let epoch: i32 = row.get(0);
+        let id_text: String = row.get(1);
+        let wrapped: Vec<u8> = row.get(2);
+        let nonce: Vec<u8> = row.get(3);
+        let key = unwrap(
+            &tenant_key.key,
+            &wrapped,
+            &nonce,
+            &org_content_key_aad(&tenant, epoch),
+            "organisation content key",
+        )?;
+        let id = key.id();
+        if id.to_string() != id_text {
+            return Err(KeyStoreError::Corrupt("organisation content key id"));
+        }
+        return Ok(DataKey { key, epoch, id });
+    }
+
+    let epoch = 1;
+    let key = Key32::random()?;
+    let id = key.id();
+    let wrapped = crypto::wrap_key(&tenant_key.key, &org_content_key_aad(&tenant, epoch), &key)?;
+
+    tx.execute(
+        "INSERT INTO org_content_keys \
+             (organisation_id, key_epoch, key_id, wrapped_key, wrap_nonce, tenant_key_epoch, \
+              wrap_version, aead_alg_id) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        &[
+            &tenant,
+            &epoch,
+            &id.to_string(),
+            &wrapped.ciphertext,
+            &wrapped.nonce.to_vec(),
+            &tenant_key.epoch,
+            &crypto::WRAP_VERSION,
+            &crypto::AEAD_ALG_CHACHA20POLY1305_IETF,
+        ],
+    )
+    .await?;
+
+    // One message sealed under the tenant key: the wrap above.
+    count_write_under_tenant_key(tx, &tenant, tenant_key.epoch).await?;
+
+    Ok(DataKey { key, epoch, id })
+}
+
+/// Open a **retired** organisation content key, for reading an entry written
+/// under an older epoch.
+///
+/// Retired epochs are kept forever, and here that is not merely prudent: a
+/// chain entry cannot be re-encrypted, because the table is append-only. A
+/// deleted epoch is every organisation entry written under it, unreadable, in
+/// a table whose whole purpose is to still be readable later.
+pub async fn org_content_key_at_epoch(
+    tx: &Transaction<'_>,
+    ctx: &TenantContext,
+    tenant_key: &DataKey,
+    epoch: i32,
+) -> Result<Key32, KeyStoreError> {
+    let tenant = ctx.tenant().to_string();
+    let row = tx
+        .query_opt(
+            "SELECT wrapped_key, wrap_nonce FROM org_content_keys \
+             WHERE organisation_id = $1 AND key_epoch = $2",
+            &[&tenant, &epoch],
+        )
+        .await?
+        .ok_or(KeyStoreError::Corrupt("organisation content key epoch"))?;
+    let wrapped: Vec<u8> = row.get(0);
+    let nonce: Vec<u8> = row.get(1);
+    unwrap(
+        &tenant_key.key,
+        &wrapped,
+        &nonce,
+        &org_content_key_aad(&tenant, epoch),
+        "organisation content key",
+    )
+}
+
+/// Open a **tenant key** from a copy of its row, under a master key supplied by
+/// the caller.
+///
+/// **This is the function that makes §12.6's exposure sentence demonstrable
+/// rather than merely asserted**, and it is public for that reason. Given the
+/// previous master key and a copy of the key rows taken before a re-wrap,
+/// anyone still decrypts everything — so the test for re-wrap does exactly
+/// that and proves the sentence true, instead of asserting around it.
+///
+/// It is also the offline-recovery path: an operator holding a database dump
+/// and the key file needs precisely this, and a private helper would have meant
+/// writing it twice.
+pub fn unwrap_tenant_key_snapshot(
+    master: &Key32,
+    tenant: &str,
+    epoch: i32,
+    wrapped: &[u8],
+    nonce: &[u8],
+) -> Result<Key32, KeyStoreError> {
+    unwrap(
+        master,
+        wrapped,
+        nonce,
+        &tenant_key_aad(tenant, epoch),
+        "tenant key",
+    )
+}
+
 /// Both halves of a rotation: the key that was in use, and the one that now
 /// is. The caller needs both — the old one to decrypt what is stored, the new
 /// one to write it back.
@@ -651,6 +853,391 @@ pub async fn rotate_design_key(
         previous: current,
         current: DataKey { key, epoch, id },
     })
+}
+
+// ---------------------------------------------------------------------------
+// Re-wrap — §12.6, and the operation this order exists to finish
+// ---------------------------------------------------------------------------
+
+/// The two key operations, **which are not synonyms and have no shared verb**.
+///
+/// §12.6's one refusal, made mechanical: *"no config field, flag or parameter
+/// may accept 'rotate' as a synonym for 're-wrap'. A deployment with a single
+/// `master_key` setting that silently re-wraps when changed leaves the operator
+/// believing they revoked something."*
+///
+/// [`parse`](Self::parse) knows exactly two words and no aliases. Nothing maps
+/// `rekey`, `rotate-master`, `change-key` or `migrate` onto either.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeyOperation {
+    /// Changes **custody**. The data keys are unchanged; only their wrapping
+    /// changes. Revokes nothing. Seconds.
+    Rewrap,
+    /// Changes **bytes**. New data key, fresh nonce, new ciphertext, new
+    /// storage binding. **The only operation that revokes anything.** Hours,
+    /// I/O-bound.
+    Rotate,
+}
+
+impl KeyOperation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rewrap => "rewrap",
+            Self::Rotate => "rotate",
+        }
+    }
+
+    /// Exactly two words. No aliases, ever.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "rewrap" => Some(Self::Rewrap),
+            "rotate" => Some(Self::Rotate),
+            _ => None,
+        }
+    }
+}
+
+/// The sentence §12.6 requires an operator to acknowledge before a re-wrap,
+/// **in these words and not interchangeable ones**.
+pub const REWRAP_EXPOSURE_STATEMENT: &str = "Anyone who holds the previous master key and a copy \
+of the key rows taken before this switch can still decrypt all data, including data written after \
+it. This changed custody, not exposure. To revoke that access, run a rotation.";
+
+/// Proof that an operator was shown [`REWRAP_EXPOSURE_STATEMENT`] and
+/// acknowledged it.
+///
+/// A type rather than a `bool`, and the constructor takes the sentence rather
+/// than a flag, so the only way to obtain one is to have the exact text in
+/// hand. A `bool` argument would be satisfied by `true` written by whoever was
+/// in a hurry; this is satisfied by a surface that actually rendered the
+/// sentence.
+#[derive(Clone, Copy, Debug)]
+pub struct ExposureAcknowledged(());
+
+impl ExposureAcknowledged {
+    /// `Some` only for the exact sentence. A paraphrase is not an
+    /// acknowledgement of this statement — it is an acknowledgement of a
+    /// different one.
+    pub fn of(statement: &str) -> Option<Self> {
+        (statement == REWRAP_EXPOSURE_STATEMENT).then_some(Self(()))
+    }
+}
+
+/// What happened to the old master key material.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OldKeyDisposition {
+    /// **The only value this server ever returns.** The master key is a file
+    /// (or a `command://` endpoint, or an environment variable) outside this
+    /// process's custody — ADR-0043 §1 — so nothing here can destroy it, and
+    /// claiming otherwise would be the most dangerous sentence in the report.
+    /// Its row in `master_keys` is marked retired and kept forever, because
+    /// OWASP (quoted in ADR-0043 §4) keeps old keys so old backups stay
+    /// readable.
+    RetainedOutsideThisProcess,
+    /// Reserved for a deployment that can attest the old material is gone.
+    /// Nothing produces it today.
+    Destroyed,
+}
+
+/// What a re-wrap did, **in the words §12.6 requires**.
+///
+/// *"The operation named `rewrap` or `rotate`, never a shared verb; counts
+/// rather than a boolean; old and new master identity; what verification will
+/// say afterwards; whether old key material was retained or destroyed."*
+/// Every one of those is a field below, and `Display` renders all of them
+/// followed by the exposure statement.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RewrapReport {
+    /// Always [`KeyOperation::Rewrap`]. Present so the word is in the report
+    /// rather than implied by which function was called.
+    pub operation: KeyOperation,
+    pub organisation: String,
+    pub from_master_key_id: KeyId,
+    pub to_master_key_id: KeyId,
+    /// **A count, not a boolean.** Which key rows moved.
+    pub tenant_key_rows_rewrapped: usize,
+    /// Which epochs those were, so an operator can check the retired ones came
+    /// too — a re-wrap that moved only the active epoch would leave every
+    /// backup written under a retired one openable by the old master alone.
+    pub key_epochs_rewrapped: Vec<i32>,
+    /// **Always 0, and reported as a count rather than asserted as a fact in
+    /// prose.** Design keys and organisation content keys are wrapped under the
+    /// tenant key, which did not change; §4's two-level hierarchy is exactly
+    /// what makes custody move in one place.
+    pub subordinate_key_rows_rewrapped: usize,
+    /// **Always 0.** A re-wrap re-encrypts no payload. This is the number
+    /// §12.6 exists to make visible.
+    pub payload_versions_reencrypted: usize,
+    pub old_master_key: OldKeyDisposition,
+    /// Where the sealed `rewrap` entry landed on the organisation chain.
+    pub chain_entry_seq: i64,
+}
+
+impl RewrapReport {
+    /// §12.6's sentence, which a surface must show and an operator must
+    /// acknowledge.
+    pub fn exposure_statement(&self) -> &'static str {
+        REWRAP_EXPOSURE_STATEMENT
+    }
+}
+
+impl fmt::Display for RewrapReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let epochs: Vec<String> = self
+            .key_epochs_rewrapped
+            .iter()
+            .map(i32::to_string)
+            .collect();
+        write!(
+            f,
+            "{op}: organisation {org}, master key {from} -> {to}. {rows} tenant key row(s) \
+             re-wrapped (epoch(s) {epochs}); {sub} subordinate key row(s) touched; \
+             {payloads} payload version(s) re-encrypted. Old master key material: {disposition}. \
+             Verification will report exactly what it reported before this ran -- every \
+             ciphertext, nonce, content_hash and storage_binding is byte-identical, and no \
+             chain entry was written for any design. One sealed `rewrap` entry was written on \
+             the organisation chain at seq {seq}. {exposure}",
+            op = self.operation.as_str(),
+            org = self.organisation,
+            from = self.from_master_key_id,
+            to = self.to_master_key_id,
+            rows = self.tenant_key_rows_rewrapped,
+            epochs = epochs.join(", "),
+            sub = self.subordinate_key_rows_rewrapped,
+            payloads = self.payload_versions_reencrypted,
+            disposition = match self.old_master_key {
+                OldKeyDisposition::RetainedOutsideThisProcess =>
+                    "RETAINED -- it is a file outside this process's custody (ADR-0043 §1), so \
+                     this server cannot destroy it and does not claim to. Its row is marked \
+                     retired and kept forever so old backups stay readable",
+                OldKeyDisposition::Destroyed => "destroyed",
+            },
+            seq = self.chain_entry_seq,
+            exposure = REWRAP_EXPOSURE_STATEMENT,
+        )
+    }
+}
+
+/// **Re-wrap: change custody of a tenant's keys without re-encrypting a byte.**
+///
+/// §12.6. `keys::rotate_design_key`'s doc recorded why this could not be built
+/// before: *"§12.6 requires it to write a sealed `rewrap` entry on the
+/// tenant-level chain, and this order builds per-design chains only. A re-wrap
+/// without its audit trail would be the one security-relevant key operation
+/// leaving no trace."* The organisation chain now exists, so this does.
+///
+/// # What it touches, and what it must not
+///
+/// Only the wrapping columns of `tenant_keys`: `wrapped_key`, `wrap_nonce`,
+/// `master_key_id`, `master_key_epoch`, `wrap_version`, `rewrapped_at`,
+/// `rewrapped_by`. **Never `key_epoch`. Never `design_payload`.** §12.6: *"if a
+/// re-wrap moves `key_epoch`, the two operations are conflated in the schema
+/// and no interface can separate them afterwards."*
+///
+/// Every epoch is re-wrapped, retired ones included. Re-wrapping only the
+/// active epoch would leave every version written under a retired key still
+/// openable by the old master key alone, which is a custody change that did not
+/// change custody.
+///
+/// Design keys and organisation content keys are **not** touched and do not
+/// need to be: they are wrapped under the tenant key, which is unchanged. That
+/// is §4's two-level hierarchy paying for itself.
+///
+/// # Why it refuses `rotate`
+///
+/// §12.6's one refusal. `operation` must be [`KeyOperation::Rewrap`]; passing
+/// [`KeyOperation::Rotate`] is an error and not a fallback, because a setting
+/// that silently re-wraps when an operator asked to rotate leaves them
+/// believing they revoked something.
+pub async fn rewrap_tenant_keys(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    to_master: &Key32,
+    operation: KeyOperation,
+    _acknowledged: ExposureAcknowledged,
+) -> Result<RewrapReport, KeyStoreError> {
+    if operation != KeyOperation::Rewrap {
+        return Err(KeyStoreError::NotASynonym {
+            asked_for: operation.as_str(),
+        });
+    }
+
+    // The database's active master key must be the one this ring holds, or the
+    // unwraps below would fail as tag errors and read like corruption.
+    register_master_key(tx, ring).await?;
+
+    let from_id = ring.master_key_id();
+    let to_id = to_master.id();
+    if from_id == to_id {
+        return Err(KeyStoreError::RewrapToTheSameMasterKey);
+    }
+
+    let tenant = ctx.tenant().to_string();
+
+    // Retire the old, activate the new. The partial unique index allows one
+    // active row, so the order matters. `ON CONFLICT` covers re-wrapping back
+    // to a key this database used before: the row is kept forever and comes
+    // back into use rather than being inserted twice.
+    tx.execute(
+        "UPDATE master_keys SET status = 'retired', retired_at = now(), \
+                retired_reason = 'superseded by a re-wrap' \
+         WHERE key_id = $1 AND status = 'active'",
+        &[&from_id.to_string()],
+    )
+    .await?;
+    tx.execute(
+        "INSERT INTO master_keys (key_id, status) VALUES ($1, 'active') \
+         ON CONFLICT (key_id) DO UPDATE \
+            SET status = 'active', retired_at = NULL, retired_reason = NULL",
+        &[&to_id.to_string()],
+    )
+    .await?;
+
+    // Every epoch, active and retired. See the doc above for why.
+    let rows = tx
+        .query(
+            "SELECT key_epoch, key_id, wrapped_key, wrap_nonce, master_key_epoch \
+             FROM tenant_keys WHERE organisation_id = $1 ORDER BY key_epoch",
+            &[&tenant],
+        )
+        .await?;
+
+    let mut epochs = Vec::new();
+    for row in &rows {
+        let epoch: i32 = row.get(0);
+        let id_text: String = row.get(1);
+        let wrapped: Vec<u8> = row.get(2);
+        let nonce: Vec<u8> = row.get(3);
+        let master_epoch: i32 = row.get(4);
+
+        let aad = tenant_key_aad(&tenant, epoch);
+        let key = unwrap(ring.master(), &wrapped, &nonce, &aad, "tenant key")?;
+        if key.id().to_string() != id_text {
+            return Err(KeyStoreError::Corrupt("tenant key id"));
+        }
+
+        // **The same associated data.** The identity binding is over the
+        // tenant and the epoch, neither of which moves, so the unwrapped
+        // plaintext is byte-identical and only the wrapping changes. That is
+        // what "custody, not exposure" means at the byte level.
+        let rewrapped = crypto::wrap_key(to_master, &aad, &key)?;
+
+        let updated = tx
+            .execute(
+                "UPDATE tenant_keys \
+                    SET wrapped_key = $3, wrap_nonce = $4, master_key_id = $5, \
+                        master_key_epoch = $6, wrap_version = $7, rewrapped_at = now(), \
+                        rewrapped_by = $8 \
+                  WHERE organisation_id = $1 AND key_epoch = $2",
+                &[
+                    &tenant,
+                    &epoch,
+                    &rewrapped.ciphertext,
+                    &rewrapped.nonce.to_vec(),
+                    &to_id.to_string(),
+                    &(master_epoch + 1),
+                    &crypto::WRAP_VERSION,
+                    &ctx.actor().to_string(),
+                ],
+            )
+            .await?;
+        if updated != 1 {
+            return Err(KeyStoreError::Corrupt("tenant key re-wrap"));
+        }
+        epochs.push(epoch);
+    }
+
+    // The sealed entry, on the organisation chain, in the same transaction.
+    // Without it this whole operation leaves no trace -- which is the gap
+    // §12.6 named and the reason this function did not exist until now.
+    //
+    // The tenant key is read back AFTER the re-wrap, under the NEW master, so
+    // the organisation content key that encrypts this entry's own metadata is
+    // opened through the custody that now applies. An entry written under the
+    // old custody describing its own replacement would be a small, confusing
+    // lie in the one record that must not contain any.
+    let new_ring = KeyRing::from_keys(
+        Key32::from_bytes(*to_master.expose()),
+        Key32::from_bytes(*ring.chain_master().expose()),
+    );
+    let tenant_key = tenant_key(tx, &new_ring, ctx).await?;
+
+    let metadata = rewrap_metadata(ctx, &tenant, from_id, to_id, &epochs);
+    let appended = crate::chains::append_org(
+        tx,
+        &new_ring,
+        ctx,
+        &tenant_key,
+        crate::chain::EntryType::Rewrap,
+        &metadata,
+    )
+    .await
+    .map_err(|e| KeyStoreError::Chain(e.to_string()))?;
+
+    Ok(RewrapReport {
+        operation: KeyOperation::Rewrap,
+        organisation: tenant,
+        from_master_key_id: from_id,
+        to_master_key_id: to_id,
+        tenant_key_rows_rewrapped: rows.len(),
+        key_epochs_rewrapped: epochs,
+        subordinate_key_rows_rewrapped: 0,
+        payload_versions_reencrypted: 0,
+        old_master_key: OldKeyDisposition::RetainedOutsideThisProcess,
+        chain_entry_seq: appended.seq,
+    })
+}
+
+/// The sealed entry's metadata: old and new master identity, which key rows
+/// moved, who ran it, and — **as a statement of fact in the entry itself** —
+/// that no payload was re-encrypted.
+///
+/// That last field is not decoration. A reader of this chain in two years is
+/// asking whether the estate was ever exposed to a key somebody else holds, and
+/// the answer has to be inside the sealed record rather than inferred from the
+/// entry type's documentation.
+fn rewrap_metadata(
+    ctx: &TenantContext,
+    organisation: &str,
+    from: KeyId,
+    to: KeyId,
+    epochs: &[i32],
+) -> Vec<u8> {
+    let mut map = std::collections::BTreeMap::new();
+    map.insert("actor".to_string(), Json::Str(ctx.actor().to_string()));
+    map.insert(
+        "entry_type".to_string(),
+        Json::Str(crate::chain::EntryType::Rewrap.as_str().to_string()),
+    );
+    map.insert(
+        "operation".to_string(),
+        Json::Str(KeyOperation::Rewrap.as_str().to_string()),
+    );
+    map.insert(
+        "organisation".to_string(),
+        Json::Str(organisation.to_string()),
+    );
+    map.insert(
+        "from_master_key_id".to_string(),
+        Json::Str(from.to_string()),
+    );
+    map.insert("to_master_key_id".to_string(), Json::Str(to.to_string()));
+    map.insert(
+        "tenant_key_rows_rewrapped".to_string(),
+        Json::Int(epochs.len() as i64),
+    );
+    map.insert(
+        "key_epochs_rewrapped".to_string(),
+        Json::Arr(epochs.iter().map(|e| Json::Int(i64::from(*e))).collect()),
+    );
+    map.insert("payload_versions_reencrypted".to_string(), Json::Int(0));
+    map.insert("payload_reencrypted".to_string(), Json::Bool(false));
+    map.insert(
+        "exposure".to_string(),
+        Json::Str(REWRAP_EXPOSURE_STATEMENT.to_string()),
+    );
+    Json::Obj(map).to_canonical_bytes()
 }
 
 /// Count one AEAD message under a **tenant** key — the same detector, for the

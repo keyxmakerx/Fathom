@@ -46,7 +46,9 @@
 //! order's. Design tables and the credential vault need the key boundary
 //! first (WO-11 §8, ADR-0040 §9 items 1 and 2).
 
+pub mod audit;
 pub mod chain;
+pub mod chains;
 pub mod config;
 pub mod crypto;
 pub mod db;

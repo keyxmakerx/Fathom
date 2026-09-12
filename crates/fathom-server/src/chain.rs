@@ -2,10 +2,25 @@
 //! `docs/PHASE-2-STORAGE-DESIGN.md` §11.2 and §12.2, and the verifier that
 //! reports §11.2's three outcomes and its fourth sub-state.
 //!
-//! This module is pure. It touches no database: `designs` reads the rows and
-//! hands them here, which is what lets every construction below be driven
-//! from a test with no PostgreSQL at all, and what lets a chain be exported
-//! and verified somewhere else.
+//! This module is pure. It touches no database: `designs` and `chains` read
+//! the rows and hand them here, which is what lets every construction below be
+//! driven from a test with no PostgreSQL at all, and what lets a chain be
+//! exported and verified somewhere else.
+//!
+//! # Three levels, one mechanism
+//!
+//! `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.1 — *"reuse, not
+//! reinvention"* — adds a **site** chain (one per deployment) and an
+//! **organisation** chain (one per tenant) beside §11.2's per-design one. The
+//! seal construction, the length prefixing, `prev_seal`, `chain_key_epoch` on
+//! every entry, retired chain keys kept forever and the ordering rules below
+//! are **unchanged**. What is per level is the chain key's derivation label
+//! ([`chain_key`]), so entries cannot be spliced between levels, and what is
+//! per entry is whether it binds a payload at all ([`absent_content_binding`]).
+//!
+//! A second integrity mechanism would have been the easy way to add two
+//! levels and the wrong one: two verifiers drift, and the ordering rule in
+//! §12.6a — the one an attack found — would then have to be right twice.
 //!
 //! # The two things a verifier must never conflate
 //!
@@ -49,6 +64,45 @@ use crate::crypto::{self, Key32, KeyId};
 /// layer up.
 const CHAIN_KEY_LABEL: &[u8] = b"fathom/chain/key/v1";
 
+/// The **site** chain key's derivation label — one chain per deployment.
+///
+/// Raised by `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.1, which does not own
+/// it, and landed in `docs/PHASE-2-STORAGE-DESIGN.md` §12.2's table, which
+/// does. Domain-separated from the other two so that a genuine run of entries
+/// lifted from one level into another does not verify at the other: the seal
+/// key is different, whatever the row says.
+const SITE_CHAIN_KEY_LABEL: &[u8] = b"fathom/chain/key/site/v1";
+
+/// The **organisation** chain key's derivation label — one chain per tenant.
+/// §7.1 again, §12.2's table again.
+///
+/// This is the chain §12.6 means by *"the tenant-level chain"*: the level a
+/// `rewrap` entry is filed on, and the reason re-wrap could not be finished
+/// when only per-design chains existed.
+const ORG_CHAIN_KEY_LABEL: &[u8] = b"fathom/chain/key/org/v1";
+
+/// The **site metadata** key's derivation label (§7.3, §12.2's table).
+///
+/// Site-chain metadata is AEAD ciphertext like the organisation chain's, but
+/// the site chain exists precisely where no organisation does, so there is no
+/// tenant key to reach for. §7.3: *"under a site metadata key derived from
+/// `chain_master`"*.
+///
+/// **Per `chain_key_epoch`, and that is load-bearing rather than tidy.** A
+/// chain entry is append-only, so a key rotation can never re-encrypt one. The
+/// key that opens an entry must therefore never stop existing, which means
+/// epochs kept forever — the same rule retired chain keys and retired data
+/// keys already follow.
+///
+/// **What this costs, stated rather than discovered: a routine verifier
+/// holding `chain_master` can read site metadata.** That is acceptable because
+/// the site chain records deployment-level acts and holds no tenant data. It
+/// is deliberately not true one level down: the organisation content key is a
+/// wrapped DEK under the tenant key, which a verifier does not hold and cannot
+/// derive, so handing someone the ability to verify a history does not hand
+/// them a tenant's access map.
+const SITE_METADATA_KEY_LABEL: &[u8] = b"fathom/chain/key/site-metadata/v1";
+
 /// HKDF `info` for the sealing subkey (§12.2).
 ///
 /// **Deliberately not the same literal as the in-MAC domain tag below**, even
@@ -68,6 +122,148 @@ const TAG_CONTENT: &[u8] = b"fathom/chain/content/v1";
 const TAG_SEAL: &[u8] = b"fathom/chain/seal/v1";
 const TAG_GENESIS: &[u8] = b"fathom/chain/genesis/v1";
 
+/// The in-MAC domain tag for *"this entry binds no payload"*.
+///
+/// A site or organisation entry records an act, not a version. It still
+/// carries both content bindings and a `content_hash`, computed by the same
+/// functions over the same shape — so [`seal`] does not change at all, and
+/// [`verify`]'s `content_hash` check runs on every entry of every level
+/// without a branch. **That is the difference between reusing §11.2's
+/// construction and forking it**: there is one seal input in this product, and
+/// an entry that carries no payload says so inside the same MAC rather than
+/// beside it.
+const TAG_NO_CONTENT: &[u8] = b"fathom/chain/nocontent/v1";
+
+/// The in-MAC domain tag for the **metadata binding** — the keyed value that
+/// covers what an entry's metadata *means*, as opposed to the bytes stored for
+/// it. See [`metadata_binding`].
+const TAG_METADATA: &[u8] = b"fathom/chain/metadata/v1";
+
+/// The AEAD associated-data tag for an encrypted metadata column.
+const AAD_METADATA: &[u8] = b"fathom/chain/metadata/aead/v1";
+
+/// Which of the three chains an entry belongs to.
+///
+/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.1. The per-design edit chain is
+/// §11.2's, unchanged; the site and organisation chains are this order's.
+///
+/// **`read` is not here.** §7.2's per-design read chain (`payload_decrypted`)
+/// carries an open volume question — one entry per decryption is the honest
+/// maximum and costs two orders of magnitude more rows than the deduplicated
+/// alternative — and §15.6 does not put it in this stage. Its derivation label
+/// is reserved in §12.2's table and nothing writes it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ChainKind {
+    /// One per deployment. Everything organisation-independent.
+    Site,
+    /// One per tenant. §12.6's *"tenant-level chain"*.
+    Org,
+    /// One per design. §11.2's.
+    Design,
+}
+
+impl ChainKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Site => "site",
+            Self::Org => "org",
+            Self::Design => "design",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "site" => Some(Self::Site),
+            "org" => Some(Self::Org),
+            "design" => Some(Self::Design),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for ChainKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Which chain, named.
+///
+/// # The two identity slots, and why they are the same two §11.2 already had
+///
+/// §11.2's seal covers `LP(tenant_id) ‖ LP(design_id)`. Those are not two
+/// concepts the seal cares about — they are *the chain's identity, length
+/// prefixed, in two parts*. So the three levels fill the same two slots:
+///
+/// | chain | first slot | second slot |
+/// |---|---|---|
+/// | site | `""` | deployment id |
+/// | organisation | organisation id | `""` |
+/// | design | organisation id | design id |
+///
+/// **The design case is byte-for-byte what it was**, so every seal written
+/// before this existed still verifies. The empty slots are unambiguous because
+/// every slot is length-prefixed — `LP("")` is four zero bytes and cannot be
+/// confused with anything.
+///
+/// The identity slots are not what keeps the levels apart, though. The chain
+/// KEY is derived under a different label per level (§7.1), so an entry moved
+/// between levels is sealed under a key the destination's verifier never
+/// derives. The slots are the second layer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ChainRef<'a> {
+    Site {
+        deployment: &'a str,
+    },
+    Org {
+        organisation: &'a str,
+    },
+    Design {
+        organisation: &'a str,
+        design: &'a str,
+    },
+}
+
+impl<'a> ChainRef<'a> {
+    pub fn kind(self) -> ChainKind {
+        match self {
+            Self::Site { .. } => ChainKind::Site,
+            Self::Org { .. } => ChainKind::Org,
+            Self::Design { .. } => ChainKind::Design,
+        }
+    }
+
+    /// The value the `chain_id` column carries: what names this chain within
+    /// its kind.
+    pub fn chain_id(self) -> &'a str {
+        match self {
+            Self::Site { deployment } => deployment,
+            Self::Org { organisation } => organisation,
+            Self::Design { design, .. } => design,
+        }
+    }
+
+    /// The organisation this chain belongs to, when it belongs to one.
+    pub fn organisation(self) -> Option<&'a str> {
+        match self {
+            Self::Site { .. } => None,
+            Self::Org { organisation } | Self::Design { organisation, .. } => Some(organisation),
+        }
+    }
+
+    /// The two length-prefixed identity slots — see the type's own doc.
+    fn identity(self) -> (&'a str, &'a str) {
+        match self {
+            Self::Site { deployment } => ("", deployment),
+            Self::Org { organisation } => (organisation, ""),
+            Self::Design {
+                organisation,
+                design,
+            } => (organisation, design),
+        }
+    }
+}
+
 /// What kind of event an entry records.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EntryType {
@@ -84,6 +280,30 @@ pub enum EntryType {
     /// This is what stops a routine key rotation looking exactly like an
     /// attack, and so stops operators learning to dismiss the alarm.
     Reencrypt,
+
+    // ---- Site chain (§7.2) ------------------------------------------------
+    /// This deployment started. The site chain's first entry, and one more on
+    /// every start after that.
+    ///
+    /// §7.2 lists thirty-odd site entry types. This is the one this order
+    /// writes; the rest arrive with the surfaces that cause them, because an
+    /// entry type nothing emits is a column in a `CHECK` constraint pretending
+    /// to be a control.
+    DeploymentStarted,
+
+    // ---- Organisation chain (§7.2) ---------------------------------------
+    /// The first entry on an organisation's chain.
+    OrgGenesis,
+    /// **A re-wrap happened** — §12.6's whole point.
+    ///
+    /// Custody changed and exposure did not. The entry names the old and the
+    /// new master identity, which key rows moved, who ran it, and — as a
+    /// statement of fact inside the sealed metadata — that no payload was
+    /// re-encrypted. Rotation writes a `reencrypt` entry per version because it
+    /// changes bytes; re-wrap changes no bytes at all, so without this entry
+    /// the operation that changes *who can decrypt everything* would be the
+    /// only key operation in the product with no audit trail.
+    Rewrap,
 }
 
 impl EntryType {
@@ -92,6 +312,9 @@ impl EntryType {
             Self::Create => "create",
             Self::Update => "update",
             Self::Reencrypt => "reencrypt",
+            Self::DeploymentStarted => "deployment_started",
+            Self::OrgGenesis => "org_genesis",
+            Self::Rewrap => "rewrap",
         }
     }
 
@@ -100,8 +323,32 @@ impl EntryType {
             "create" => Some(Self::Create),
             "update" => Some(Self::Update),
             "reencrypt" => Some(Self::Reencrypt),
+            "deployment_started" => Some(Self::DeploymentStarted),
+            "org_genesis" => Some(Self::OrgGenesis),
+            "rewrap" => Some(Self::Rewrap),
             _ => None,
         }
+    }
+
+    /// The one chain this type may be filed on.
+    ///
+    /// Mirrored by `chain_entries_type_belongs_to_kind` in
+    /// `migrations/0009_chains_at_three_levels.sql`, so the rule holds for a
+    /// statement this code never issued as well as for one it did.
+    pub fn chain_kind(self) -> ChainKind {
+        match self {
+            Self::Create | Self::Update | Self::Reencrypt => ChainKind::Design,
+            Self::DeploymentStarted => ChainKind::Site,
+            Self::OrgGenesis | Self::Rewrap => ChainKind::Org,
+        }
+    }
+
+    /// Whether an entry of this type binds a stored payload version.
+    ///
+    /// False for every site and organisation type: they record an act. See
+    /// [`absent_content_binding`].
+    pub fn binds_a_payload(self) -> bool {
+        self.chain_kind() == ChainKind::Design
     }
 }
 
@@ -109,24 +356,96 @@ impl EntryType {
 // Key derivation
 // ---------------------------------------------------------------------------
 
-/// The per-design chain key, §12.2 exactly:
+/// The chain key for one chain at one epoch — §12.2's derivation, extended to
+/// the three levels §7.1 adds and length-prefixed throughout.
 ///
 /// ```text
-/// chain_key_epoch_e = HKDF-Expand(chain_master,
-///     info = LP("fathom/chain/key/v1") ‖ LP(tenant_id) ‖ LP(design_id)
+/// site:   HKDF-Expand(chain_master,
+///             LP("fathom/chain/key/site/v1") ‖ LP(deployment_id) ‖ u32(epoch), 32)
+/// org:    HKDF-Expand(chain_master,
+///             LP("fathom/chain/key/org/v1")  ‖ LP(organisation_id) ‖ u32(epoch), 32)
+/// design: HKDF-Expand(chain_master,
+///             LP("fathom/chain/key/v1") ‖ LP(tenant_id) ‖ LP(design_id) ‖ u32(epoch), 32)
+/// ```
+///
+/// **The design case is unchanged**, which is the requirement rather than a
+/// courtesy: a different info string here would silently stop every seal
+/// already in the database from verifying, and the failure would render as a
+/// forgery alarm.
+///
+/// **Per chain, which is what makes grafting fail** (§6's B5 fix, now at three
+/// levels): a genuine run of entries lifted from one design into another — or
+/// from one organisation's chain into another's, or between levels — does not
+/// verify under the destination's chain key. The length prefixes are what stop
+/// organisation `ab` + design `c` and organisation `a` + design `bc` deriving
+/// the same key.
+pub fn chain_key(chain_master: &Key32, chain: ChainRef<'_>, epoch: i32) -> Key32 {
+    let mut info = Vec::new();
+    match chain {
+        ChainRef::Site { deployment } => {
+            crypto::lp(&mut info, SITE_CHAIN_KEY_LABEL);
+            crypto::lp(&mut info, deployment.as_bytes());
+        }
+        ChainRef::Org { organisation } => {
+            crypto::lp(&mut info, ORG_CHAIN_KEY_LABEL);
+            crypto::lp(&mut info, organisation.as_bytes());
+        }
+        ChainRef::Design {
+            organisation,
+            design,
+        } => {
+            crypto::lp(&mut info, CHAIN_KEY_LABEL);
+            crypto::lp(&mut info, organisation.as_bytes());
+            crypto::lp(&mut info, design.as_bytes());
+        }
+    }
+    crypto::u32_le(&mut info, epoch as u32);
+    crypto::hkdf_expand(chain_master, &info)
+}
+
+/// The key that encrypts **site-chain metadata**, at one chain key epoch.
+///
+/// ```text
+/// site_metadata_key_e = HKDF-Expand(chain_master,
+///     info = LP("fathom/chain/key/site-metadata/v1") ‖ LP(deployment_id)
 ///            ‖ u32(chain_key_epoch), 32)
 /// ```
 ///
-/// **Per design, which is what makes grafting fail** (§6's B5 fix): a genuine
-/// run of entries lifted from one design into another does not verify under
-/// the second design's chain key.
-pub fn chain_key(chain_master: &Key32, tenant: &str, design: &str, epoch: i32) -> Key32 {
+/// See [`SITE_METADATA_KEY_LABEL`] for why it is derived rather than wrapped,
+/// why it is per epoch, and what a verifier holding `chain_master` can
+/// therefore read.
+pub fn site_metadata_key(chain_master: &Key32, deployment: &str, epoch: i32) -> Key32 {
     let mut info = Vec::new();
-    crypto::lp(&mut info, CHAIN_KEY_LABEL);
-    crypto::lp(&mut info, tenant.as_bytes());
-    crypto::lp(&mut info, design.as_bytes());
+    crypto::lp(&mut info, SITE_METADATA_KEY_LABEL);
+    crypto::lp(&mut info, deployment.as_bytes());
     crypto::u32_le(&mut info, epoch as u32);
     crypto::hkdf_expand(chain_master, &info)
+}
+
+/// The associated data an encrypted metadata column is sealed under.
+///
+/// ```text
+/// LP("fathom/chain/metadata/aead/v1") ‖ LP(chain_kind) ‖ LP(chain_id)
+///     ‖ u64(seq) ‖ u32(key_epoch)
+/// ```
+///
+/// `key_epoch` is `metadata_key_epoch` on an organisation entry and
+/// `chain_key_epoch` on a site one — whichever names the key that opened it.
+///
+/// **The seal already binds the ciphertext to its position**, because
+/// `metadata_stored` and `seq` are both in the seal input. This binds it a
+/// second time inside the AEAD, so a blob lifted between two entries of the
+/// same chain fails to decrypt at all rather than decrypting into the wrong
+/// entry's report — the same reason §4 binds a wrapped key to its identity
+/// instead of trusting the row it was read from.
+pub fn metadata_aad(chain: ChainRef<'_>, seq: i64, key_epoch: i32) -> Vec<u8> {
+    let mut aad = Vec::new();
+    crypto::lp(&mut aad, AAD_METADATA);
+    crypto::lp(&mut aad, chain.kind().as_str().as_bytes());
+    crypto::lp(&mut aad, chain.chain_id().as_bytes());
+    crypto::u64_le(&mut aad, seq as u64);
+    crypto::u32_le(&mut aad, key_epoch as u32);
+    aad
 }
 
 /// `K_seal` and `K_content` for one chain key epoch.
@@ -198,6 +517,60 @@ pub fn storage_binding(content_key: &Key32, facts: &StorageFacts<'_>) -> [u8; 32
     crypto::mac(content_key.expose(), &msg)
 }
 
+/// The value both bindings carry on an entry that binds **no payload** — every
+/// site and organisation entry.
+///
+/// ```text
+/// MAC(K_content, LP("fathom/chain/nocontent/v1"))
+/// ```
+///
+/// It is keyed and domain-separated, so it can neither collide with a real
+/// binding nor be recognised from a dump without the chain key. Both slots
+/// carry it, `content_hash` is then [`content_hash`] of the pair exactly as on
+/// a design entry, and the seal input is byte-identical in shape. **No branch
+/// in the verifier and no second seal construction** — which is the whole
+/// reason it is a constant rather than a `NULL` column.
+pub fn absent_content_binding(content_key: &Key32) -> [u8; 32] {
+    let mut msg = Vec::with_capacity(32);
+    crypto::lp(&mut msg, TAG_NO_CONTENT);
+    crypto::mac(content_key.expose(), &msg)
+}
+
+/// The keyed binding over what an entry's metadata **means**.
+///
+/// ```text
+/// metadata_binding = MAC(K_content,
+///     LP("fathom/chain/metadata/v1") ‖ LP(canon(metadata)))
+/// ```
+///
+/// # Why this exists, and what it replaced
+///
+/// §11.2's seal ended `‖ LP(canon(metadata))` — the plaintext, directly in the
+/// MAC. That made §7.3's encrypted metadata impossible: recomputing **any**
+/// seal would have needed the metadata key, so §11.2's routine check — links
+/// and bindings, no decryption, runnable by an operator holding only the chain
+/// key — would not have run at all on the chains that most need checking.
+///
+/// So metadata gets the two-tier treatment the *payload* already had:
+///
+/// | tier | covers | in the clear? |
+/// |---|---|---|
+/// | seal input `metadata_stored` | the bytes on disk | yes — the column |
+/// | `metadata_binding` (this) | what those bytes mean | yes — 32 bytes, keyed |
+///
+/// Links-only recomputes the seal from stored columns alone, so **a swapped or
+/// corrupted ciphertext breaks the seal with no key but the chain key**.
+/// Deep additionally recovers the plaintext — from the column on a design
+/// chain, by decrypting on a site or organisation one — and recomputes this
+/// value. Binding only the plaintext would have left the ciphertext covered by
+/// nothing on the one run §11.2 calls routine.
+pub fn metadata_binding(content_key: &Key32, canonical_metadata: &[u8]) -> [u8; 32] {
+    let mut msg = Vec::with_capacity(64 + canonical_metadata.len());
+    crypto::lp(&mut msg, TAG_METADATA);
+    crypto::lp(&mut msg, canonical_metadata);
+    crypto::mac(content_key.expose(), &msg)
+}
+
 /// `content_hash`, §11.2 — **keyed**, because an unkeyed hash of plaintext is
 /// a confirmation oracle against a stolen dump.
 pub fn content_hash(content_key: &Key32, plaintext: &[u8; 32], storage: &[u8; 32]) -> [u8; 32] {
@@ -225,11 +598,12 @@ pub fn content_hash(content_key: &Key32, plaintext: &[u8; 32], storage: &[u8; 32
 ///    harmless in practice, because the chain key is already per design, but
 ///    an unprefixed concatenation sitting next to a rule that says
 ///    "length-prefix every variable-length field" is what gets copied.
-pub fn genesis(tenant: &str, design: &str) -> [u8; 32] {
+pub fn genesis(chain: ChainRef<'_>) -> [u8; 32] {
+    let (first, second) = chain.identity();
     let mut msg = Vec::new();
     crypto::lp(&mut msg, TAG_GENESIS);
-    crypto::lp(&mut msg, tenant.as_bytes());
-    crypto::lp(&mut msg, design.as_bytes());
+    crypto::lp(&mut msg, first.as_bytes());
+    crypto::lp(&mut msg, second.as_bytes());
     Sha256::digest(&msg).into()
 }
 
@@ -237,15 +611,20 @@ pub fn genesis(tenant: &str, design: &str) -> [u8; 32] {
 pub struct SealFacts<'a> {
     pub chain_key_epoch: i32,
     pub seq: i64,
-    pub tenant: &'a str,
-    pub design: &'a str,
+    /// Which chain. Its two identity slots enter the MAC exactly where §11.2
+    /// puts `LP(tenant_id) ‖ LP(design_id)` — see [`ChainRef`].
+    pub chain: ChainRef<'a>,
     pub prev_seal: &'a [u8],
     pub content_hash: &'a [u8],
     pub entry_type: EntryType,
-    /// `fathom-canon`'s canonical bytes. One spelling per value, sorted keys,
-    /// no insignificant whitespace — so two verifiers cannot disagree about
-    /// what was sealed.
-    pub metadata: &'a [u8],
+    /// **The metadata column's bytes, exactly as they are stored** — the
+    /// canonical plaintext on a design chain, the AEAD blob on a site or
+    /// organisation one. The seal covers what is on disk, which is what lets
+    /// a links-only run catch a swapped ciphertext with the chain key alone.
+    pub metadata_stored: &'a [u8],
+    /// [`metadata_binding`] over `canon(metadata)` — the keyed value that
+    /// covers what those bytes mean. Stored in the clear beside them.
+    pub metadata_binding: &'a [u8],
 }
 
 /// `seal_n`, §11.2.
@@ -260,16 +639,18 @@ pub fn seal_verifies(seal_key: &Key32, facts: &SealFacts<'_>, tag: &[u8]) -> boo
 }
 
 fn seal_message(facts: &SealFacts<'_>) -> Vec<u8> {
-    let mut msg = Vec::with_capacity(160 + facts.metadata.len());
+    let (first, second) = facts.chain.identity();
+    let mut msg = Vec::with_capacity(200 + facts.metadata_stored.len());
     crypto::lp(&mut msg, TAG_SEAL);
     crypto::u32_le(&mut msg, facts.chain_key_epoch as u32);
     crypto::u64_le(&mut msg, facts.seq as u64);
-    crypto::lp(&mut msg, facts.tenant.as_bytes());
-    crypto::lp(&mut msg, facts.design.as_bytes());
+    crypto::lp(&mut msg, first.as_bytes());
+    crypto::lp(&mut msg, second.as_bytes());
     crypto::lp(&mut msg, facts.prev_seal);
     crypto::lp(&mut msg, facts.content_hash);
     crypto::lp(&mut msg, facts.entry_type.as_str().as_bytes());
-    crypto::lp(&mut msg, facts.metadata);
+    crypto::lp(&mut msg, facts.metadata_stored);
+    crypto::lp(&mut msg, facts.metadata_binding);
     msg
 }
 
@@ -283,13 +664,22 @@ pub struct StoredEntry {
     pub seq: i64,
     pub entry_type: EntryType,
     pub chain_key_epoch: i32,
-    pub design_version: i64,
+    /// `Some` on a design chain, `None` on a site or organisation chain —
+    /// where an entry records an act and there is no version to bind. The
+    /// column is nullable for exactly this reason and the migration's
+    /// `chain_entries_shape_matches_kind` refuses the two wrong combinations.
+    pub design_version: Option<i64>,
     pub prev_seal: Vec<u8>,
     pub plaintext_binding: Vec<u8>,
     pub storage_binding: Vec<u8>,
     pub content_hash: Vec<u8>,
     pub seal: Vec<u8>,
-    pub metadata: Vec<u8>,
+    /// The metadata column as stored: canonical plaintext on a design chain,
+    /// AEAD ciphertext on a site or organisation one. **Never rendered as text
+    /// without checking which** — see [`EntryMetadata`].
+    pub metadata_stored: Vec<u8>,
+    /// The clear 32-byte keyed binding beside it.
+    pub metadata_binding: Vec<u8>,
 }
 
 /// The stored bytes of one payload version, as a verifier sees them — no
@@ -363,6 +753,17 @@ pub enum BreakReason {
     /// written.** Not a coverage gap: there is no retired key to go and find,
     /// because no such epoch was ever minted. Someone changed the column.
     ChainKeyEpochNeverWritten,
+    /// The metadata recovered for this entry is not what
+    /// [`metadata_binding`] committed to.
+    ///
+    /// Reachable on every chain, but by two different routes. On a design
+    /// chain the stored column *is* the plaintext, so this fires on a
+    /// links-only run: someone edited the metadata and recomputed nothing.
+    /// On a site or organisation chain the stored column is ciphertext bound
+    /// by the seal, so reaching this needs a deep run and means the
+    /// **decrypted** value disagrees with the binding — which the writer's own
+    /// key would have had to produce.
+    MetadataBindingMismatch,
 }
 
 impl BreakReason {
@@ -389,6 +790,46 @@ impl BreakReason {
                 "the entry names a chain key epoch this deployment has never written, so there \
                  is no retired key to find -- the column was changed"
             }
+            Self::MetadataBindingMismatch => {
+                "the entry's metadata is not what its metadata_binding committed to"
+            }
+        }
+    }
+}
+
+/// The failing entry's metadata, and **whether what is being handed over is
+/// readable**.
+///
+/// An enum rather than a `Vec<u8>` or an `Option<Vec<u8>>`, and the reason is
+/// the one thing this whole tier is for: on a site or organisation chain the
+/// stored column is ciphertext, and a break report that handed an operator a
+/// blob where they expected canonical JSON would be a report they stop reading.
+/// `Option` would say "present or absent" and the question here is "present as
+/// what". The type makes the caller match, so a renderer cannot print the
+/// wrong one by default.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EntryMetadata {
+    /// `fathom-canon`'s canonical bytes — the metadata as it was sealed.
+    /// A design chain yields these on any run; a site or organisation chain
+    /// only on a deep one.
+    Plaintext(Vec<u8>),
+    /// The stored AEAD blob, on a run that did not decrypt it. **Flagged, not
+    /// rendered.** The break is still fully named — `seq`, the reason,
+    /// `entry_type` and `chain_key_epoch` all travel in the report beside this
+    /// — so an operator has everything they need except the sentence inside
+    /// the entry, and is told exactly that rather than shown noise.
+    Ciphertext(Vec<u8>),
+    /// The break is not at an entry at all — a stored payload row no entry
+    /// names has no metadata to report.
+    None,
+}
+
+impl EntryMetadata {
+    /// The canonical bytes, or `None` when this run never held them.
+    pub fn plaintext(&self) -> Option<&[u8]> {
+        match self {
+            Self::Plaintext(bytes) => Some(bytes),
+            Self::Ciphertext(_) | Self::None => None,
         }
     }
 }
@@ -414,8 +855,15 @@ pub enum Outcome {
         /// count towards this, so the number never claims more than was done.
         verified_before: usize,
         /// The failing entry's own metadata, so a reader has something to act
-        /// on rather than an index. Empty when the break is not at an entry.
-        metadata: Vec<u8>,
+        /// on rather than an index — **and whether it is readable**. See
+        /// [`EntryMetadata`]: on a site or organisation chain a links-only run
+        /// holds ciphertext, and saying so beats printing it.
+        metadata: EntryMetadata,
+        /// The failing entry's type, always in the clear, so a break on an
+        /// encrypted chain still names what kind of act it was.
+        entry_type: Option<EntryType>,
+        /// The failing entry's chain key epoch, always in the clear.
+        chain_key_epoch: Option<i32>,
         /// The design version involved, when there is one.
         design_version: Option<i64>,
     },
@@ -585,12 +1033,29 @@ impl AvailableKeys {
     }
 }
 
-/// Verify a design's chain.
+/// What a **deep** run is given.
 ///
-/// `entries` must be every entry for the design, in `seq` order. `payloads`
-/// is every stored version. `plaintexts` is `Some` only for a deep run, and
-/// carries the decrypted bytes by version — this module never decrypts
-/// anything itself, because it holds no data key and should not.
+/// This module never decrypts anything. It holds no data key, no organisation
+/// content key and no site metadata key, and it should not: every construction
+/// in this file has to be drivable from a test with no PostgreSQL and from an
+/// offline verifier with an exported chain. The caller — `designs` or `chains`
+/// — opens what it can and hands the plaintext in, exactly as it already did
+/// for payloads.
+pub struct DeepInputs<'a> {
+    /// Decrypted design payloads, by `design_version`. Empty on a site or
+    /// organisation chain, which have none.
+    pub payloads: &'a [(i64, Vec<u8>)],
+    /// Decrypted entry metadata, by `seq`. Empty on a design chain, where the
+    /// stored column **is** the canonical plaintext and the verifier reads it
+    /// directly.
+    pub metadata: &'a [(i64, Vec<u8>)],
+}
+
+/// Verify a chain.
+///
+/// `entries` must be every entry for the chain, in `seq` order. `payloads` is
+/// every stored version — empty for a site or organisation chain. `deep` is
+/// `Some` only for a deep run; see [`DeepInputs`].
 ///
 /// # The order, which is the control
 ///
@@ -601,23 +1066,28 @@ impl AvailableKeys {
 /// alongside; it never returns early and it never contributes to
 /// `verified_before`.
 pub fn verify(
-    tenant: &str,
-    design: &str,
+    chain: ChainRef<'_>,
     entries: &[StoredEntry],
     payloads: &[StoredPayload],
     keys: &AvailableKeys,
-    plaintexts: Option<&[(i64, Vec<u8>)]>,
+    deep: Option<&DeepInputs<'_>>,
 ) -> Report {
-    let depth = if plaintexts.is_some() {
+    let depth = if deep.is_some() {
         Depth::Deep
     } else {
         Depth::Links
     };
-    let mut content = if plaintexts.is_some() {
+    let mut content = if deep.is_some() {
         ContentState::Rebound
     } else {
         ContentState::NotRebound
     };
+
+    // Whether the metadata column holds the plaintext or a blob. A design
+    // chain stores canonical bytes; the other two store AEAD ciphertext
+    // (§7.3). This is the ONE branch the metadata tier costs, and it decides
+    // only where the plaintext comes from -- never whether the seal is checked.
+    let metadata_is_stored_in_the_clear = chain.kind() == ChainKind::Design;
 
     // **The coverage gap is collected before the pass and reported with
     // whatever the pass finds** -- never instead of it (§12.6a). Working it
@@ -644,17 +1114,36 @@ pub fn verify(
     // Counted by verification and by nothing else.
     let mut verified: usize = 0;
 
-    let mut prev_seal = genesis(tenant, design).to_vec();
+    let mut prev_seal = genesis(chain).to_vec();
     let mut expected_seq: i64 = 1;
 
     for entry in entries {
-        let broke = |reason: BreakReason| Report {
+        // What this run can honestly hand an operator for this entry. On a
+        // design chain the column is the plaintext; on the other two it is
+        // ciphertext unless a deep run supplied the decryption.
+        let reportable_metadata = || {
+            if metadata_is_stored_in_the_clear {
+                return EntryMetadata::Plaintext(entry.metadata_stored.clone());
+            }
+            match deep.and_then(|d| d.metadata.iter().find(|(s, _)| *s == entry.seq)) {
+                Some((_, bytes)) => EntryMetadata::Plaintext(bytes.clone()),
+                None => EntryMetadata::Ciphertext(entry.metadata_stored.clone()),
+            }
+        };
+
+        // `content` is passed in rather than captured: the metadata tier below
+        // can downgrade it to `NotRebound` part-way through this entry, and a
+        // closure that had borrowed it would then report the value from before
+        // the downgrade -- which is the one thing this field must never do.
+        let broke = |reason: BreakReason, content: ContentState| Report {
             outcome: Outcome::BrokenAt {
                 seq: entry.seq,
                 reason,
                 verified_before: verified,
-                metadata: entry.metadata.clone(),
-                design_version: Some(entry.design_version),
+                metadata: reportable_metadata(),
+                entry_type: Some(entry.entry_type),
+                chain_key_epoch: Some(entry.chain_key_epoch),
+                design_version: entry.design_version,
             },
             depth,
             content,
@@ -663,10 +1152,10 @@ pub fn verify(
 
         // ---- What needs no key -------------------------------------------
         if entry.seq != expected_seq {
-            return broke(BreakReason::SequenceSkippedOrRepeated);
+            return broke(BreakReason::SequenceSkippedOrRepeated, content);
         }
         if entry.prev_seal != prev_seal {
-            return broke(BreakReason::PrevSealMismatch);
+            return broke(BreakReason::PrevSealMismatch, content);
         }
         let sealed_over = prev_seal.clone();
         prev_seal = entry.seal.clone();
@@ -680,7 +1169,7 @@ pub fn verify(
             .written_through
             .is_some_and(|highest| entry.chain_key_epoch > highest)
         {
-            return broke(BreakReason::ChainKeyEpochNeverWritten);
+            return broke(BreakReason::ChainKeyEpochNeverWritten, content);
         }
 
         // ---- What needs the key for this entry's epoch --------------------
@@ -701,21 +1190,59 @@ pub fn verify(
             &to32(&entry.storage_binding),
         );
         if recomputed.as_slice() != entry.content_hash.as_slice() {
-            return broke(BreakReason::ContentHashMismatch);
+            return broke(BreakReason::ContentHashMismatch, content);
         }
 
         let facts = SealFacts {
             chain_key_epoch: entry.chain_key_epoch,
             seq: entry.seq,
-            tenant,
-            design,
+            chain,
             prev_seal: &sealed_over,
             content_hash: &entry.content_hash,
             entry_type: entry.entry_type,
-            metadata: &entry.metadata,
+            metadata_stored: &entry.metadata_stored,
+            metadata_binding: &entry.metadata_binding,
         };
         if !seal_verifies(&subkeys.seal, &facts, &entry.seal) {
-            return broke(BreakReason::SealDoesNotRecompute);
+            return broke(BreakReason::SealDoesNotRecompute, content);
+        }
+
+        // ---- The metadata's second tier ----------------------------------
+        //
+        // The seal above already covered the STORED bytes, so a swapped or
+        // corrupted ciphertext is caught with the chain key alone. This is the
+        // other half: that those bytes still MEAN what was sealed.
+        //
+        // On a design chain the plaintext is the column, so this runs on every
+        // run. On a site or organisation chain it runs only when a deep run
+        // supplied the decryption — and an entry that could not be decrypted
+        // is `NotRebound` rather than verified, which is §11.2's fourth
+        // sub-state doing exactly the job it was written for one tier down.
+        let recovered: Option<&[u8]> = if metadata_is_stored_in_the_clear {
+            Some(&entry.metadata_stored)
+        } else {
+            deep.and_then(|d| {
+                d.metadata
+                    .iter()
+                    .find(|(s, _)| *s == entry.seq)
+                    .map(|(_, bytes)| bytes.as_slice())
+            })
+        };
+        match recovered {
+            Some(bytes) => {
+                if metadata_binding(&subkeys.content, bytes).as_slice()
+                    != entry.metadata_binding.as_slice()
+                {
+                    return broke(BreakReason::MetadataBindingMismatch, content);
+                }
+            }
+            None if deep.is_some() => {
+                // Asked for a deep run and this entry's metadata could not be
+                // decrypted. "Content not checked" must never render the same
+                // as "content verified".
+                content = ContentState::NotRebound;
+            }
+            None => {}
         }
 
         // ---- The stored bytes, ENTRY-DRIVEN (§12.6a) ----------------------
@@ -727,62 +1254,68 @@ pub fn verify(
         // binding it carries is over the bytes of the version it was written
         // for, and those are not the bytes of the version it now names.
         // Deleting the entry instead breaks the next entry's `prev_seal`.
-        let Some(payload) = payloads
-            .iter()
-            .find(|p| p.design_version == entry.design_version)
-        else {
-            return broke(BreakReason::PayloadMissing);
-        };
-        let stored = storage_binding(
-            &subkeys.content,
-            &StorageFacts {
-                key_id: payload.key_id,
-                key_epoch: payload.key_epoch,
-                wrap_version: payload.wrap_version,
-                aead_alg_id: payload.aead_alg_id,
-                nonce: &payload.nonce,
-                ciphertext: &payload.ciphertext,
-            },
-        );
-        if stored.as_slice() != entry.storage_binding.as_slice() {
-            // §11.2: *"a verifier meeting a storage-binding mismatch looks for
-            // a reencrypt entry accounting for it: found, routine; absent,
-            // broken."* A later `reencrypt` on this same version is exactly
-            // that account -- it supersedes this entry's storage binding, and
-            // is itself checked when the pass reaches it.
-            let superseded = entries.iter().any(|later| {
-                later.seq > entry.seq
-                    && later.design_version == entry.design_version
-                    && later.entry_type == EntryType::Reencrypt
-            });
-            if !superseded {
-                return broke(BreakReason::StorageBindingMismatchUnexplained);
-            }
-        }
-
-        // ---- Deep only: the plaintext ------------------------------------
-        if let Some(plaintexts) = plaintexts {
-            match plaintexts.iter().find(|(v, _)| *v == entry.design_version) {
-                Some((_, bytes)) => {
-                    let facts = PlaintextFacts {
-                        tenant,
-                        design,
-                        design_version: entry.design_version,
-                        payload_schema_version: payload.payload_schema_version,
-                        payload: bytes,
-                    };
-                    if plaintext_binding(&subkeys.content, &facts).as_slice()
-                        != entry.plaintext_binding.as_slice()
-                    {
-                        return broke(BreakReason::PlaintextBindingMismatch);
-                    }
+        //
+        // An entry that names no version has nothing to do here — a site or
+        // organisation entry records an act. Its two bindings are the keyed
+        // `absent_content_binding`, and the `content_hash` check above already
+        // held them to what the seal committed to, so this is a skip and not
+        // an unchecked path.
+        if let Some(version) = entry.design_version {
+            let Some(payload) = payloads.iter().find(|p| p.design_version == version) else {
+                return broke(BreakReason::PayloadMissing, content);
+            };
+            let stored = storage_binding(
+                &subkeys.content,
+                &StorageFacts {
+                    key_id: payload.key_id,
+                    key_epoch: payload.key_epoch,
+                    wrap_version: payload.wrap_version,
+                    aead_alg_id: payload.aead_alg_id,
+                    nonce: &payload.nonce,
+                    ciphertext: &payload.ciphertext,
+                },
+            );
+            if stored.as_slice() != entry.storage_binding.as_slice() {
+                // §11.2: *"a verifier meeting a storage-binding mismatch looks
+                // for a reencrypt entry accounting for it: found, routine;
+                // absent, broken."* A later `reencrypt` on this same version is
+                // exactly that account -- it supersedes this entry's storage
+                // binding, and is itself checked when the pass reaches it.
+                let superseded = entries.iter().any(|later| {
+                    later.seq > entry.seq
+                        && later.design_version == Some(version)
+                        && later.entry_type == EntryType::Reencrypt
+                });
+                if !superseded {
+                    return broke(BreakReason::StorageBindingMismatchUnexplained, content);
                 }
-                None => {
-                    // Asked for a deep run and one version could not be
-                    // decrypted: the links still verified, and saying
-                    // "verified" here would be the exact conflation §11.2
-                    // forbids.
-                    content = ContentState::NotRebound;
+            }
+
+            // ---- Deep only: the plaintext --------------------------------
+            if let Some(deep) = deep {
+                match deep.payloads.iter().find(|(v, _)| *v == version) {
+                    Some((_, bytes)) => {
+                        let (organisation, design) = chain.identity();
+                        let facts = PlaintextFacts {
+                            tenant: organisation,
+                            design,
+                            design_version: version,
+                            payload_schema_version: payload.payload_schema_version,
+                            payload: bytes,
+                        };
+                        if plaintext_binding(&subkeys.content, &facts).as_slice()
+                            != entry.plaintext_binding.as_slice()
+                        {
+                            return broke(BreakReason::PlaintextBindingMismatch, content);
+                        }
+                    }
+                    None => {
+                        // Asked for a deep run and one version could not be
+                        // decrypted: the links still verified, and saying
+                        // "verified" here would be the exact conflation §11.2
+                        // forbids.
+                        content = ContentState::NotRebound;
+                    }
                 }
             }
         }
@@ -797,14 +1330,16 @@ pub fn verify(
     for payload in payloads {
         if !entries
             .iter()
-            .any(|e| e.design_version == payload.design_version)
+            .any(|e| e.design_version == Some(payload.design_version))
         {
             return Report {
                 outcome: Outcome::BrokenAt {
                     seq: 0,
                     reason: BreakReason::PayloadNotNamedByAnyEntry,
                     verified_before: verified,
-                    metadata: Vec::new(),
+                    metadata: EntryMetadata::None,
+                    entry_type: None,
+                    chain_key_epoch: None,
                     design_version: Some(payload.design_version),
                 },
                 depth,
@@ -880,9 +1415,17 @@ fn to32(bytes: &[u8]) -> [u8; 32] {
 mod tests {
     use super::*;
 
+    /// The design chain these tests drive. Written once so the identity slots
+    /// cannot drift between the helper that seals and the call that verifies —
+    /// which would make a passing run mean nothing.
+    const TD: ChainRef<'static> = ChainRef::Design {
+        organisation: "T",
+        design: "D",
+    };
+
     fn keys_for(epoch: i32) -> AvailableKeys {
         let master = Key32::from_bytes([9u8; 32]);
-        let ck = chain_key(&master, "T", "D", epoch);
+        let ck = chain_key(&master, TD, epoch);
         AvailableKeys::new(vec![(epoch, Subkeys::derive(&ck))])
     }
 
@@ -919,30 +1462,34 @@ mod tests {
         );
         let ch = content_hash(&sub.content, &pb, &sb);
         let metadata = b"{}".to_vec();
+        // A design chain stores its metadata in the clear, so the stored bytes
+        // and the bytes the binding covers are the same slice.
+        let mb = metadata_binding(&sub.content, &metadata);
         let s = seal(
             &sub.seal,
             &SealFacts {
                 chain_key_epoch: 1,
                 seq,
-                tenant: "T",
-                design: "D",
+                chain: TD,
                 prev_seal: &prev,
                 content_hash: &ch,
                 entry_type: EntryType::Update,
-                metadata: &metadata,
+                metadata_stored: &metadata,
+                metadata_binding: &mb,
             },
         );
         StoredEntry {
             seq,
             entry_type: EntryType::Update,
             chain_key_epoch: 1,
-            design_version: version,
+            design_version: Some(version),
             prev_seal: prev,
             plaintext_binding: pb.to_vec(),
             storage_binding: sb.to_vec(),
             content_hash: ch.to_vec(),
             seal: s.to_vec(),
-            metadata,
+            metadata_stored: metadata,
+            metadata_binding: mb.to_vec(),
         }
     }
 
@@ -962,7 +1509,7 @@ mod tests {
     fn three() -> (AvailableKeys, Vec<StoredEntry>, Vec<StoredPayload>) {
         let keys = keys_for(1);
         let mut entries = Vec::new();
-        let mut prev = genesis("T", "D").to_vec();
+        let mut prev = genesis(TD).to_vec();
         for seq in 1..=3i64 {
             let e = entry(seq, seq, prev.clone(), &keys);
             prev = e.seal.clone();
@@ -975,7 +1522,7 @@ mod tests {
     #[test]
     fn an_untouched_chain_verifies_and_says_what_it_did_not_check() {
         let (keys, entries, payloads) = three();
-        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        let report = verify(TD, &entries, &payloads, &keys, None);
         assert_eq!(report.outcome, Outcome::Verified { entries: 3 });
         assert_eq!(report.content, ContentState::NotRebound);
         // The whole point of the fourth sub-state: this must not read like a
@@ -989,7 +1536,11 @@ mod tests {
     fn a_deep_run_says_so_and_reads_differently() {
         let (keys, entries, payloads) = three();
         let plaintexts: Vec<(i64, Vec<u8>)> = (1..=3).map(|v| (v, b"payload".to_vec())).collect();
-        let report = verify("T", "D", &entries, &payloads, &keys, Some(&plaintexts));
+        let deep = DeepInputs {
+            payloads: &plaintexts,
+            metadata: &[],
+        };
+        let report = verify(TD, &entries, &payloads, &keys, Some(&deep));
         assert_eq!(report.depth, Depth::Deep);
         assert_eq!(report.content, ContentState::Rebound);
         assert!(report.summary().contains("links and content"), "{report}");
@@ -1000,8 +1551,8 @@ mod tests {
         let (keys, mut entries, payloads) = three();
         // Rewrite what the second entry says happened. Its seal no longer
         // recomputes; the first entry is untouched and must still verify.
-        entries[1].metadata = br#"{"who":"someone else"}"#.to_vec();
-        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        entries[1].metadata_stored = br#"{"who":"someone else"}"#.to_vec();
+        let report = verify(TD, &entries, &payloads, &keys, None);
         match report.outcome {
             Outcome::BrokenAt {
                 seq,
@@ -1022,7 +1573,7 @@ mod tests {
     fn a_removed_middle_entry_breaks_the_links() {
         let (keys, mut entries, payloads) = three();
         entries.remove(1);
-        match verify("T", "D", &entries, &payloads, &keys, None).outcome {
+        match verify(TD, &entries, &payloads, &keys, None).outcome {
             Outcome::BrokenAt { seq, reason, .. } => {
                 assert_eq!(seq, 3);
                 assert_eq!(reason, BreakReason::SequenceSkippedOrRepeated);
@@ -1035,7 +1586,7 @@ mod tests {
     fn a_swapped_blob_is_caught_without_decrypting_anything() {
         let (keys, entries, mut payloads) = three();
         payloads[2].ciphertext = b"someone else's bytes".to_vec();
-        match verify("T", "D", &entries, &payloads, &keys, None).outcome {
+        match verify(TD, &entries, &payloads, &keys, None).outcome {
             Outcome::BrokenAt { seq, reason, .. } => {
                 assert_eq!(seq, 3);
                 assert_eq!(reason, BreakReason::StorageBindingMismatchUnexplained);
@@ -1048,7 +1599,7 @@ mod tests {
     fn a_missing_chain_key_epoch_is_a_coverage_gap_and_not_a_failure() {
         let (keys, mut entries, payloads) = three();
         entries[2].chain_key_epoch = 2;
-        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        let report = verify(TD, &entries, &payloads, &keys, None);
         match &report.outcome {
             Outcome::CannotVerifyUnderKeyEpoch {
                 epochs,
@@ -1071,18 +1622,41 @@ mod tests {
         // §6's B5 fix: per-design chain keys are what make grafting fail.
         let (keys, entries, payloads) = three();
         let master = Key32::from_bytes([9u8; 32]);
+        let other_design = ChainRef::Design {
+            organisation: "T",
+            design: "OTHER",
+        };
         let other = AvailableKeys::new(vec![(
             1,
-            Subkeys::derive(&chain_key(&master, "T", "OTHER", 1)),
+            Subkeys::derive(&chain_key(&master, other_design, 1)),
         )]);
         assert!(matches!(
-            verify("T", "OTHER", &entries, &payloads, &other, None).outcome,
+            verify(other_design, &entries, &payloads, &other, None).outcome,
             Outcome::BrokenAt { seq: 1, .. }
         ));
         // ...and the same entries under the same key but a different tenant
         // do not verify either.
         assert!(matches!(
-            verify("OTHER", "D", &entries, &payloads, &keys, None).outcome,
+            verify(
+                ChainRef::Design {
+                    organisation: "OTHER",
+                    design: "D"
+                },
+                &entries,
+                &payloads,
+                &keys,
+                None
+            )
+            .outcome,
+            Outcome::BrokenAt { seq: 1, .. }
+        ));
+        // ...and neither does the ORGANISATION chain of the same tenant, which
+        // is the new half of the same fix: a different derivation label means
+        // an entry cannot be lifted between levels either (§7.1).
+        let org = ChainRef::Org { organisation: "T" };
+        let org_keys = AvailableKeys::new(vec![(1, Subkeys::derive(&chain_key(&master, org, 1)))]);
+        assert!(matches!(
+            verify(org, &entries, &payloads, &org_keys, None).outcome,
             Outcome::BrokenAt { seq: 1, .. }
         ));
     }
@@ -1092,17 +1666,40 @@ mod tests {
         // §12.2: without length prefixes, tenant `ab` + design `c` and tenant
         // `a` + design `bc` derive the same key.
         let master = Key32::from_bytes([1u8; 32]);
+        let d = |o, g| ChainRef::Design {
+            organisation: o,
+            design: g,
+        };
         assert_ne!(
-            chain_key(&master, "ab", "c", 1).expose(),
-            chain_key(&master, "a", "bc", 1).expose()
+            chain_key(&master, d("ab", "c"), 1).expose(),
+            chain_key(&master, d("a", "bc"), 1).expose()
         );
         assert_ne!(
-            chain_key(&master, "a", "b", 1).expose(),
-            chain_key(&master, "a", "b", 2).expose()
+            chain_key(&master, d("a", "b"), 1).expose(),
+            chain_key(&master, d("a", "b"), 2).expose()
         );
         // ...and the same for genesis, which this module length-prefixes
         // where §11.2 wrote a bare concatenation. See `genesis`.
-        assert_ne!(genesis("ab", "c"), genesis("a", "bc"));
+        assert_ne!(genesis(d("ab", "c")), genesis(d("a", "bc")));
+
+        // The three levels derive three different keys for the same name, so
+        // an entry cannot be spliced between them (§7.1). Checked rather than
+        // asserted: the labels are three literals and a copy-paste between
+        // them would be invisible in review.
+        let site = chain_key(&master, ChainRef::Site { deployment: "X" }, 1);
+        let org = chain_key(&master, ChainRef::Org { organisation: "X" }, 1);
+        let design = chain_key(&master, d("X", ""), 1);
+        assert_ne!(site.expose(), org.expose());
+        assert_ne!(site.expose(), design.expose());
+        assert_ne!(org.expose(), design.expose());
+
+        // And the identity slots do not collide across levels either: the
+        // site chain puts its name in the SECOND slot and the organisation
+        // chain in the first, so `genesis` differs for the same string.
+        assert_ne!(
+            genesis(ChainRef::Site { deployment: "X" }),
+            genesis(ChainRef::Org { organisation: "X" })
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1117,10 +1714,10 @@ mod tests {
         // before it verify", over entries nothing had examined. The forgery
         // was never named.
         let (keys, mut entries, payloads) = three();
-        entries[0].metadata = br#"{"who":"someone else"}"#.to_vec();
+        entries[0].metadata_stored = br#"{"who":"someone else"}"#.to_vec();
         entries[2].chain_key_epoch = 2;
 
-        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        let report = verify(TD, &entries, &payloads, &keys, None);
         match &report.outcome {
             Outcome::BrokenAt {
                 seq,
@@ -1148,9 +1745,9 @@ mod tests {
         // which is what a `position()` in a list would have said.
         let (keys, mut entries, payloads) = three();
         entries[1].chain_key_epoch = 2;
-        entries[2].metadata = br#"{"who":"someone else"}"#.to_vec();
+        entries[2].metadata_stored = br#"{"who":"someone else"}"#.to_vec();
 
-        match verify("T", "D", &entries, &payloads, &keys, None).outcome {
+        match verify(TD, &entries, &payloads, &keys, None).outcome {
             Outcome::BrokenAt {
                 seq,
                 verified_before,
@@ -1169,7 +1766,7 @@ mod tests {
         for e in &mut entries {
             e.chain_key_epoch = 2;
         }
-        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        let report = verify(TD, &entries, &payloads, &keys, None);
         match &report.outcome {
             Outcome::CannotVerifyUnderKeyEpoch {
                 verified_before, ..
@@ -1189,10 +1786,10 @@ mod tests {
         entries[2].chain_key_epoch = 2;
         let master = Key32::from_bytes([9u8; 32]);
         let mut both = keys.by_epoch;
-        both.push((2, Subkeys::derive(&chain_key(&master, "T", "D", 2))));
+        both.push((2, Subkeys::derive(&chain_key(&master, TD, 2))));
         let keys = AvailableKeys::new(both).written_through(1);
 
-        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        let report = verify(TD, &entries, &payloads, &keys, None);
         match &report.outcome {
             Outcome::BrokenAt { seq, reason, .. } => {
                 assert_eq!(*seq, 3);
@@ -1216,9 +1813,9 @@ mod tests {
         // version 2's bytes and those are not version 3's.
         let (keys, mut entries, mut payloads) = three();
         payloads.retain(|p| p.design_version != 2);
-        entries[1].design_version = 3;
+        entries[1].design_version = Some(3);
 
-        match verify("T", "D", &entries, &payloads, &keys, None).outcome {
+        match verify(TD, &entries, &payloads, &keys, None).outcome {
             Outcome::BrokenAt { seq, reason, .. } => {
                 assert_eq!(seq, 2);
                 assert_eq!(reason, BreakReason::StorageBindingMismatchUnexplained);
@@ -1234,9 +1831,9 @@ mod tests {
         // bb04ccb did -- reports entry 3 and claims two entries verified.
         let (keys, mut entries, mut payloads) = three();
         payloads[0].ciphertext = b"someone else's bytes".to_vec();
-        entries[2].metadata = br#"{"who":"someone else"}"#.to_vec();
+        entries[2].metadata_stored = br#"{"who":"someone else"}"#.to_vec();
 
-        match verify("T", "D", &entries, &payloads, &keys, None).outcome {
+        match verify(TD, &entries, &payloads, &keys, None).outcome {
             Outcome::BrokenAt {
                 seq,
                 reason,
@@ -1256,7 +1853,7 @@ mod tests {
         let (keys, entries, mut payloads) = three();
         payloads.push(payload(9));
 
-        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        let report = verify(TD, &entries, &payloads, &keys, None);
         match &report.outcome {
             Outcome::BrokenAt {
                 seq,
@@ -1282,7 +1879,7 @@ mod tests {
         // The ciphertext is still there; every entry is gone. "verified: 0
         // entries" was the old answer.
         let (keys, _entries, payloads) = three();
-        let report = verify("T", "D", &[], &payloads, &keys, None);
+        let report = verify(TD, &[], &payloads, &keys, None);
         assert!(
             matches!(
                 report.outcome,
@@ -1299,7 +1896,7 @@ mod tests {
     fn an_entry_naming_a_version_that_is_not_stored_is_still_a_break() {
         let (keys, entries, mut payloads) = three();
         payloads.retain(|p| p.design_version != 3);
-        match verify("T", "D", &entries, &payloads, &keys, None).outcome {
+        match verify(TD, &entries, &payloads, &keys, None).outcome {
             Outcome::BrokenAt { seq, reason, .. } => {
                 assert_eq!(seq, 3);
                 assert_eq!(reason, BreakReason::PayloadMissing);
@@ -1316,7 +1913,7 @@ mod tests {
         // account §11.2 asks a verifier to look for.
         let keys = keys_for(1);
         let sub = keys.get(1).unwrap();
-        let mut entries = vec![entry(1, 1, genesis("T", "D").to_vec(), &keys)];
+        let mut entries = vec![entry(1, 1, genesis(TD).to_vec(), &keys)];
 
         // The bytes as a rotation would leave them.
         let rotated = b"re-encrypted bytes".to_vec();
@@ -1334,31 +1931,33 @@ mod tests {
         let pb = entries[0].plaintext_binding.clone();
         let ch = content_hash(&sub.content, &to32(&pb), &sb);
         let metadata = br#"{"entry_type":"reencrypt"}"#.to_vec();
+        let mb = metadata_binding(&sub.content, &metadata);
         let prev = entries[0].seal.clone();
         let s = seal(
             &sub.seal,
             &SealFacts {
                 chain_key_epoch: 1,
                 seq: 2,
-                tenant: "T",
-                design: "D",
+                chain: TD,
                 prev_seal: &prev,
                 content_hash: &ch,
                 entry_type: EntryType::Reencrypt,
-                metadata: &metadata,
+                metadata_stored: &metadata,
+                metadata_binding: &mb,
             },
         );
         entries.push(StoredEntry {
             seq: 2,
             entry_type: EntryType::Reencrypt,
             chain_key_epoch: 1,
-            design_version: 1,
+            design_version: Some(1),
             prev_seal: prev,
             plaintext_binding: pb,
             storage_binding: sb.to_vec(),
             content_hash: ch.to_vec(),
             seal: s.to_vec(),
-            metadata,
+            metadata_stored: metadata,
+            metadata_binding: mb.to_vec(),
         });
 
         let payloads = vec![StoredPayload {
@@ -1372,7 +1971,7 @@ mod tests {
             payload_schema_version: 1,
         }];
 
-        let report = verify("T", "D", &entries, &payloads, &keys, None);
+        let report = verify(TD, &entries, &payloads, &keys, None);
         assert_eq!(report.outcome, Outcome::Verified { entries: 2 }, "{report}");
     }
 }

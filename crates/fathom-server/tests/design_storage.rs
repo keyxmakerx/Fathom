@@ -369,16 +369,16 @@ async fn tampering_with_entry_two_reports_broken_at_two_with_entry_one_still_ver
     // superuser connection is how a test gets that reach: the runtime role
     // has no UPDATE policy on `chain_entries` at all.
     let su = support::superuser_client_on_test_database().await;
-    let changed = su
-        .execute(
-            "UPDATE chain_entries SET metadata = $2 WHERE design_id = $1 AND seq = 2",
-            &[
-                &design.to_string(),
-                &br#"{"actor":"someone else"}"#.to_vec(),
-            ],
-        )
-        .await
-        .expect("tamper");
+    let changed = support::tamper(
+        &su,
+        "chain_entries",
+        "UPDATE chain_entries SET metadata = $2 WHERE design_id = $1 AND seq = 2",
+        &[
+            &design.to_string(),
+            &br#"{"actor":"someone else"}"#.to_vec(),
+        ],
+    )
+    .await;
     assert_eq!(changed, 1);
 
     let report = designs::verify_design(&pool, &ring, org, account, design, false)
@@ -459,12 +459,13 @@ async fn a_chain_entry_deleted_from_the_middle_breaks_the_links() {
     }
 
     let su = support::superuser_client_on_test_database().await;
-    su.execute(
+    support::tamper(
+        &su,
+        "chain_entries",
         "DELETE FROM chain_entries WHERE design_id = $1 AND seq = 2",
         &[&design.to_string()],
     )
-    .await
-    .expect("delete");
+    .await;
 
     let report = designs::verify_design(&pool, &ring, org, account, design, false)
         .await
@@ -905,21 +906,23 @@ async fn setting_an_unrelated_entrys_key_epoch_cannot_hide_a_forgery() {
     }
 
     let su = support::superuser_client_on_test_database().await;
-    su.execute(
+    support::tamper(
+        &su,
+        "chain_entries",
         "UPDATE chain_entries SET metadata = $2 WHERE design_id = $1 AND seq = 1",
         &[
             &design.to_string(),
             &br#"{"actor":"someone else"}"#.to_vec(),
         ],
     )
-    .await
-    .expect("forge entry 1");
-    su.execute(
+    .await;
+    support::tamper(
+        &su,
+        "chain_entries",
         "UPDATE chain_entries SET chain_key_epoch = 2 WHERE design_id = $1 AND seq = 3",
         &[&design.to_string()],
     )
-    .await
-    .expect("switch entry 3's epoch");
+    .await;
 
     let report = designs::verify_design(&pool, &ring, org, account, design, false)
         .await
@@ -955,12 +958,13 @@ async fn an_epoch_this_server_never_wrote_reads_as_an_anomaly_not_a_missing_key(
         .unwrap();
 
     let su = support::superuser_client_on_test_database().await;
-    su.execute(
+    support::tamper(
+        &su,
+        "chain_entries",
         "UPDATE chain_entries SET chain_key_epoch = 7 WHERE design_id = $1",
         &[&design.to_string()],
     )
-    .await
-    .unwrap();
+    .await;
 
     let report = designs::verify_design(&pool, &ring, org, account, design, false)
         .await
@@ -1008,12 +1012,13 @@ async fn an_entry_repointed_at_another_version_does_not_verify() {
     )
     .await
     .expect("destroy version 2");
-    su.execute(
+    support::tamper(
+        &su,
+        "chain_entries",
         "UPDATE chain_entries SET design_version = 3 WHERE design_id = $1 AND seq = 2",
         &[&design.to_string()],
     )
-    .await
-    .expect("re-point entry 2");
+    .await;
 
     let report = designs::verify_design(&pool, &ring, org, account, design, false)
         .await
@@ -1165,7 +1170,6 @@ async fn the_runtime_role_cannot_rewrite_or_delete_the_master_key_stamp() {
     // UPDATE or DELETE of the active row fails on referential integrity
     // whether or not the privilege was ever withheld.
     for (table, verb) in [
-        ("master_keys", "UPDATE"),
         ("master_keys", "DELETE"),
         ("chain_master_keys", "UPDATE"),
         ("chain_master_keys", "DELETE"),
@@ -1179,6 +1183,52 @@ async fn the_runtime_role_cannot_rewrite_or_delete_the_master_key_stamp() {
             .unwrap()
             .get(0);
         assert!(!held, "the runtime role holds {verb} on {table}");
+    }
+
+    // **`master_keys` UPDATE became COLUMN-level with
+    // `migrations/0009_chains_at_three_levels.sql`, and this check got
+    // sharper rather than weaker.** 0008 withheld UPDATE entirely and said
+    // why in its own header: *"retiring a key (status, retired_at) is an
+    // UPDATE. Nothing implements retirement yet; when it does it is an
+    // administrative path, not a request path, and it gets its privilege in
+    // the same diff."* §12.6's re-wrap is that path -- it supersedes a master
+    // key and must mark the old row retired rather than remove it.
+    //
+    // What ADR-0043 §4 actually needs protected is `key_id`: it is the stamp
+    // that makes a restore beside the wrong key file report two ids instead
+    // of failing like corruption, and a role that could rewrite it could turn
+    // that control off silently. So the assertion is now per COLUMN, which
+    // says more than the per-table one it replaces.
+    for column in ["status", "retired_at", "retired_reason"] {
+        let held: bool = client
+            .query_one(
+                "SELECT has_column_privilege(current_user, 'master_keys', $1, 'UPDATE')",
+                &[&column],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert!(
+            held,
+            "the runtime role cannot UPDATE master_keys.{column}, so a re-wrap cannot retire \
+             the master key it superseded"
+        );
+    }
+    for column in ["key_id", "first_seen_at"] {
+        let held: bool = client
+            .query_one(
+                "SELECT has_column_privilege(current_user, 'master_keys', $1, 'UPDATE')",
+                &[&column],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert!(
+            !held,
+            "the runtime role can rewrite master_keys.{column}. ADR-0043 §4's wrong-key check \
+             is exactly this column: a role that can rewrite it can make the stamp agree with \
+             whatever key is now configured, which turns the control off in silence."
+        );
     }
     for (table, verb) in [
         ("master_keys", "SELECT"),
@@ -1200,11 +1250,9 @@ async fn the_runtime_role_cannot_rewrite_or_delete_the_master_key_stamp() {
         );
     }
 
+    // The stamp itself, driven rather than inferred from the grant above.
     let updated = client
-        .execute(
-            "UPDATE master_keys SET retired_reason = 'nothing' WHERE status = 'active'",
-            &[],
-        )
+        .execute("UPDATE master_keys SET key_id = 'ffffffffffffffff'", &[])
         .await;
     assert!(
         updated.is_err(),

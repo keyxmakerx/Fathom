@@ -625,6 +625,11 @@ pub async fn verify_design(
         return Err(DesignError::NoSuchDesign);
     }
 
+    let design_chain = chain::ChainRef::Design {
+        organisation: &tenant_text,
+        design: &design_text,
+    };
+
     let entries = read_entries(&tx, &design_text, &tenant_text).await?;
     let payloads = read_payload_facts(&tx, &design_text, &tenant_text).await?;
 
@@ -646,12 +651,12 @@ pub async fn verify_design(
         .map(|e| e.chain_key_epoch)
         .collect::<std::collections::BTreeSet<_>>()
     {
-        let ck = chain::chain_key(ring.chain_master(), &tenant_text, &design_text, epoch);
+        let ck = chain::chain_key(ring.chain_master(), design_chain, epoch);
         by_epoch.push((epoch, chain::Subkeys::derive(&ck)));
     }
     let keys_available = chain::AvailableKeys::new(by_epoch).written_through(CHAIN_KEY_EPOCH);
 
-    let plaintexts = if deep {
+    let deep_payloads = if deep {
         let mut out: Vec<(i64, Vec<u8>)> = Vec::new();
         for p in &payloads {
             let key = design_key_at_epoch(&tx, ring, &ctx, design, p.key_epoch).await?;
@@ -672,13 +677,22 @@ pub async fn verify_design(
         None
     };
 
+    // A design chain stores its metadata in the clear (§7.3: it is an actor,
+    // an entry type and two version numbers), so `DeepInputs::metadata` is
+    // empty and the verifier reads the column directly -- which means the
+    // metadata binding is checked on a LINKS-ONLY run here, not only a deep
+    // one. The encrypted chains are the ones that need handing plaintext.
+    let deep_inputs = deep_payloads.as_ref().map(|payloads| chain::DeepInputs {
+        payloads,
+        metadata: &[],
+    });
+
     let report = chain::verify(
-        &tenant_text,
-        &design_text,
+        design_chain,
         &entries,
         &payloads,
         &keys_available,
-        plaintexts.as_deref(),
+        deep_inputs.as_ref(),
     );
 
     tx.commit().await?;
@@ -714,12 +728,11 @@ async fn append_entry(
     let tenant_text = ctx.tenant().to_string();
     let design_text = design.to_string();
 
-    let ck = chain::chain_key(
-        ring.chain_master(),
-        &tenant_text,
-        &design_text,
-        CHAIN_KEY_EPOCH,
-    );
+    let design_chain = chain::ChainRef::Design {
+        organisation: &tenant_text,
+        design: &design_text,
+    };
+    let ck = chain::chain_key(ring.chain_master(), design_chain, CHAIN_KEY_EPOCH);
     let sub = chain::Subkeys::derive(&ck);
 
     let tip = tx
@@ -735,7 +748,7 @@ async fn append_entry(
             let seal: Vec<u8> = row.get(1);
             (seq + 1, seal)
         }
-        None => (1, chain::genesis(&tenant_text, &design_text).to_vec()),
+        None => (1, chain::genesis(design_chain).to_vec()),
     };
 
     let plaintext_binding: Vec<u8> = match facts.carried_plaintext_binding {
@@ -771,25 +784,31 @@ async fn append_entry(
     let content_hash =
         chain::content_hash(&sub.content, &to32(&plaintext_binding), &storage_binding);
 
+    // A design entry's metadata is stored in the clear, so `metadata_stored`
+    // and the bytes the binding is taken over are the same slice. On the site
+    // and organisation chains they are not, which is why the seal takes both.
+    let metadata_binding = chain::metadata_binding(&sub.content, facts.metadata);
+
     let seal = chain::seal(
         &sub.seal,
         &chain::SealFacts {
             chain_key_epoch: CHAIN_KEY_EPOCH,
             seq,
-            tenant: &tenant_text,
-            design: &design_text,
+            chain: design_chain,
             prev_seal: &prev_seal,
             content_hash: &content_hash,
             entry_type: facts.entry_type,
-            metadata: facts.metadata,
+            metadata_stored: facts.metadata,
+            metadata_binding: &metadata_binding,
         },
     );
 
     tx.execute(
         "INSERT INTO chain_entries \
-             (design_id, organisation_id, seq, entry_type, chain_key_epoch, design_version, \
-              prev_seal, plaintext_binding, storage_binding, content_hash, seal, metadata) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+             (chain_kind, chain_id, design_id, organisation_id, seq, entry_type, \
+              chain_key_epoch, design_version, prev_seal, plaintext_binding, storage_binding, \
+              content_hash, seal, metadata, metadata_binding) \
+         VALUES ('design', $1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         &[
             &design_text,
             &tenant_text,
@@ -803,7 +822,25 @@ async fn append_entry(
             &content_hash.to_vec(),
             &seal.to_vec(),
             &facts.metadata.to_vec(),
+            &metadata_binding.to_vec(),
         ],
+    )
+    .await?;
+
+    // **The same transaction as the entry, which is the same transaction as
+    // the payload.** `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §9: an act that
+    // cannot queue its audit line does not commit, which is the whole of
+    // "stopping the log stops the act". Queuing afterwards, in its own
+    // transaction, would have written the design and lost the record on any
+    // failure between the two.
+    crate::audit::spool(
+        tx,
+        crate::chain::ChainKind::Design,
+        &design_text,
+        seq,
+        facts.entry_type,
+        CHAIN_KEY_EPOCH,
+        &seal,
     )
     .await?;
 
@@ -869,7 +906,8 @@ async fn read_entries(
     let rows = tx
         .query(
             "SELECT seq, entry_type, chain_key_epoch, design_version, prev_seal, \
-                    plaintext_binding, storage_binding, content_hash, seal, metadata \
+                    plaintext_binding, storage_binding, content_hash, seal, metadata, \
+                    metadata_binding \
              FROM chain_entries WHERE design_id = $1 AND organisation_id = $2 ORDER BY seq",
             &[&design, &tenant],
         )
@@ -889,7 +927,8 @@ async fn read_entries(
             storage_binding: row.get(6),
             content_hash: row.get(7),
             seal: row.get(8),
-            metadata: row.get(9),
+            metadata_stored: row.get(9),
+            metadata_binding: row.get(10),
         });
     }
     Ok(out)
@@ -975,6 +1014,36 @@ async fn design_key_at_epoch(
         return Err(DesignError::Corrupt("design key id"));
     }
     Ok(DataKey { key, epoch, id })
+}
+
+/// Decrypt one stored version with a design key the **caller** supplies.
+///
+/// The offline-recovery path: an operator holding a database dump and the key
+/// files needs exactly this, and there is no server to ask.
+///
+/// **It is also what makes §12.6's exposure sentence demonstrable rather than
+/// asserted.** *"Anyone who holds the previous master key and a copy of the key
+/// rows taken before this switch can still decrypt all data"* — a test can now
+/// do that, through the same AAD construction the real read path uses, instead
+/// of asserting around the claim. A private helper would have meant writing the
+/// associated data twice, and two copies of an AAD is how one of them quietly
+/// stops matching.
+#[allow(clippy::too_many_arguments)]
+pub fn open_stored_version(
+    key: &crypto::Key32,
+    tenant: &str,
+    design: &str,
+    version: i64,
+    key_epoch: i32,
+    payload_schema_version: i32,
+    nonce: &[u8],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, DesignError> {
+    let nonce: [u8; crypto::NONCE_LEN] = nonce
+        .try_into()
+        .map_err(|_| DesignError::Corrupt("payload nonce"))?;
+    let aad = payload_aad(tenant, design, version, key_epoch, payload_schema_version);
+    crypto::open(key, &nonce, ciphertext, &aad).map_err(|_| DesignError::Refused)
 }
 
 #[allow(clippy::too_many_arguments)]

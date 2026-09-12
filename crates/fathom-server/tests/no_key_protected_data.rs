@@ -188,12 +188,53 @@ const TABLES: &[TableClaim] = &[
     },
     TableClaim {
         name: "chain_entries",
+        protection: Protection::KeyProtected {
+            columns: &["metadata"],
+            under: "the organisation content key on an organisation entry, and a site metadata \
+                    key derived from the chain master on a site entry. A DESIGN entry's \
+                    metadata is canonical plaintext in this same column and is declared as \
+                    such below.",
+        },
+        why: "the tamper-evident history at three levels. The MAC tags, sequence numbers and \
+              entry types are in the clear by design -- §11.2 keys `content_hash` precisely so \
+              that a dump holder cannot use it as a confirmation oracle against a guessed \
+              payload. What changed with 0009 is the `metadata` column: on the ORGANISATION \
+              chain it is AEAD ciphertext (§7.3), because the vault will file recipient sets \
+              and mode changes there and in the clear that is an access map for anyone holding \
+              a dump; on the SITE chain it is ciphertext under a key derived from the chain \
+              master. On the DESIGN chain it stays canonical plaintext -- an actor, an entry \
+              type and two version numbers -- and the design's contents live encrypted in \
+              `design_payload`. No key is stored in this table.",
+    },
+    TableClaim {
+        name: "org_content_keys",
+        protection: Protection::KeyProtected {
+            columns: &["wrapped_key"],
+            under: "the tenant key, which is itself wrapped under the master key",
+        },
+        why: "one random data key per organisation, encrypting that organisation's chain entry \
+              metadata (§7.3). Deliberately NOT the chain key -- a routine verifier holds that \
+              one, and if it also opened organisation metadata then handing someone the ability \
+              to verify a history would hand them the access map. Wrapped under the TENANT key, \
+              which is what makes §12.6's re-wrap cover it without touching a byte of it.",
+    },
+    TableClaim {
+        name: "deployments",
         protection: Protection::NoKeyProtectedMaterial,
-        why: "the tamper-evident history: MAC tags, a sequence number, an entry type and \
-              canonical metadata. A binding is a KEYED MAC over content, never the content -- \
-              §11.2 keys `content_hash` precisely so that a dump holder cannot use it as a \
-              confirmation oracle against a guessed payload. No ciphertext and no key is \
-              stored here.",
+        why: "one row: this deployment's opaque id and when it was first seen. It is the name \
+              the site chain is sealed under (§7.1), so it is append-only by trigger -- but it \
+              is an identifier and a timestamp, and there is no free-text column for anything \
+              to hide in.",
+    },
+    TableClaim {
+        name: "audit_spool",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "sealed entries queued for shipping off the box (§9). It carries exactly §7.3's \
+              in-the-clear list -- seq, entry type, chain kind and id, timestamps, \
+              chain_key_epoch and the seal -- and DELIBERATELY no metadata, in either form: a \
+              copy of the ciphertext here would be a second copy of a thing already stored \
+              once, and a copy of the plaintext would be §11.3 cost 3's leak through a side \
+              door. A seal is a MAC tag, not a key.",
     },
 ];
 
@@ -209,7 +250,14 @@ const TABLES: &[TableClaim] = &[
 /// is a principal a connection authenticates as, not a relation, and it holds
 /// no rows at all. Which roles exist and what they may read is checked by
 /// `tests/planes.rs`, table by table, off the live schema.
-const NON_STORAGE_KINDS: &[&str] = &["index", "policy", "role"];
+/// `function` and `trigger` joined the list with
+/// `migrations/0009_chains_at_three_levels.sql`. Neither holds a row: a
+/// trigger is a rule attached to a table that already has to be declared
+/// above, and the function it calls raises an exception and returns nothing.
+/// Both are still read off the SQL by [`created_objects`] and reported by
+/// name, so one appearing on a table that is not in [`TABLES`] is visible in a
+/// diff.
+const NON_STORAGE_KINDS: &[&str] = &["index", "policy", "role", "function", "trigger"];
 
 /// Every migration file on disk, read from the directory rather than from
 /// the `MIGRATIONS` constant -- so a file added and not yet wired in is
@@ -571,9 +619,9 @@ async fn every_declared_ciphertext_column_exists_and_is_bytea() {
         }
     }
     assert!(
-        checked >= 3,
-        "only {checked} key-protected columns were checked; the key hierarchy has at least \
-         three (two wrapped keys and one payload)"
+        checked >= 5,
+        "only {checked} key-protected columns were checked; the hierarchy has at least five \
+         (three wrapped keys, one payload, and organisation chain metadata)"
     );
 }
 

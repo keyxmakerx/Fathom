@@ -223,6 +223,116 @@ pub async fn superuser_client_on_test_database() -> tokio_postgres::Client {
     client
 }
 
+/// The chain master every test that touches the **site chain** must use.
+///
+/// There is exactly one site chain per database (`0009`'s one-row
+/// `deployments` table), and these tests share a database. A suite that
+/// appended under its own chain master would leave entries no other suite can
+/// verify -- and the symptom is `BROKEN AT ENTRY 1`, which reads as a forgery
+/// alarm rather than as a fixture problem.
+///
+/// Per-design and per-organisation chains need no such agreement: those chains
+/// are per id, so each test's own design or organisation is already isolated.
+#[allow(dead_code)]
+pub const SITE_CHAIN_MASTER: [u8; 32] = [83; 32];
+
+/// The advisory lock key that serialises access to the shared site chain.
+const SITE_CHAIN_LOCK: i64 = 0x5f17_e0a1_7a11_0001u64 as i64;
+
+/// The advisory lock key that serialises access to the shared audit spool.
+const SPOOL_LOCK: i64 = 0x5f17_e0a1_7a11_0002u64 as i64;
+
+/// Hold the site chain against every other test, in this binary and in every
+/// other one.
+///
+/// Two tests deliberately break a site entry to prove the verifier reports it,
+/// and there is exactly one site chain per database. A process-local mutex
+/// would not do: `cargo test` runs each test BINARY in parallel, so
+/// `design_storage`, `append_only_fence` and `audit_chains` are separate
+/// processes against one PostgreSQL. A session-level advisory lock is the
+/// thing that spans them, and it needs no privilege and no cleanup -- it is
+/// released when the returned connection drops at the end of the test.
+///
+/// Returned rather than dropped, and named `_site` at the call sites, because
+/// what keeps the lock is the connection being alive.
+#[allow(dead_code)]
+pub async fn lock_the_site_chain() -> tokio_postgres::Client {
+    let client = superuser_client_on_test_database().await;
+    client
+        .execute("SELECT pg_advisory_lock($1)", &[&SITE_CHAIN_LOCK])
+        .await
+        .expect("take the site chain lock");
+    client
+}
+
+/// Act as **the** shipper, exclusively.
+///
+/// `audit_spool` is one queue per deployment and `audit::drain_once` takes the
+/// oldest batch of it, whoever queued them -- which is the design, because in
+/// production there is one shipper. So two tests draining at once each ship
+/// some of the other's entries, and both then find their own queue short. The
+/// lock makes "I am the shipper" true for the duration of a test, which is the
+/// condition the code was written under.
+///
+/// Other test binaries may still QUEUE entries while this is held; that is
+/// harmless, because every assertion is scoped to its own `chain_id`.
+///
+/// Take it AFTER [`lock_the_site_chain`] where both are needed -- one order,
+/// so two tests cannot each hold one and wait for the other.
+#[allow(dead_code)]
+pub async fn lock_the_spool() -> tokio_postgres::Client {
+    let client = superuser_client_on_test_database().await;
+    client
+        .execute("SELECT pg_advisory_lock($1)", &[&SPOOL_LOCK])
+        .await
+        .expect("take the spool lock");
+    client
+}
+
+/// Tamper with an append-only table, the way a **tier-3** attacker would have
+/// to.
+///
+/// `migrations/0009_chains_at_three_levels.sql` puts a `BEFORE UPDATE OR
+/// DELETE ... FOR EACH ROW` trigger on `chain_entries` and `deployments`, plus
+/// a statement-level one for `TRUNCATE`. A trigger fires for whoever is
+/// connected, so it binds a superuser too -- which is the point, and
+/// `tests/append_only_fence.rs` proves it by trying and failing.
+///
+/// But several tests in `design_storage.rs` need to PRODUCE a tampered row, so
+/// that the verifier can be shown to catch it. `ALTER TABLE ... DISABLE
+/// TRIGGER USER` is the only way in, and that is exactly the point: the
+/// migration's own header says the fence *"does not bind someone who alters
+/// the table first"* and rates that a tier-3 move. So these tests now also
+/// demonstrate the escape they depend on, rather than quietly having a
+/// privilege the fence was supposed to remove.
+///
+/// Not a weakening of anything: every assertion those tests made about what
+/// the verifier reports is unchanged. What changed is the cost of getting
+/// there, which is now visible in the test body.
+#[allow(dead_code)]
+pub async fn tamper(
+    client: &tokio_postgres::Client,
+    table: &str,
+    sql: &str,
+    params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+) -> u64 {
+    client
+        .batch_execute(&format!("ALTER TABLE {table} DISABLE TRIGGER USER"))
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "disabling the append-only trigger on {table} needs ownership -- a tier-3 move, \
+                 which is what this helper exists to make visible: {e}"
+            )
+        });
+    let result = client.execute(sql, params).await;
+    client
+        .batch_execute(&format!("ALTER TABLE {table} ENABLE TRIGGER USER"))
+        .await
+        .expect("re-enable the append-only trigger");
+    result.expect("the tampering statement itself must succeed once the trigger is off")
+}
+
 /// A raw connection authenticated as the PostgreSQL bootstrap superuser --
 /// deliberately not a pool, because the only thing this is ever used for is
 /// proving `rls::assert_rls_binds` refuses it.

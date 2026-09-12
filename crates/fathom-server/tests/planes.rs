@@ -39,12 +39,21 @@ const OPERATOR_ROLE: &str = "fathom_operator";
 /// A design payload table added next year is granted nothing by PostgreSQL
 /// when it is created, so it fails this test the day it appears unless
 /// somebody deliberately adds it here and defends it.
+/// `chain_entries` joined with `migrations/0009_chains_at_three_levels.sql`
+/// and it is the one addition that has to be argued rather than noted. An
+/// operator who cannot read the audit trail cannot do the job the audit trail
+/// exists for -- §1.3's sightlessness is about design DATA. A chain entry is
+/// MAC tags, a sequence number and an entry type, plus a `metadata` column
+/// that on the organisation and site chains is ciphertext this role holds no
+/// key for. §11.2 keys `content_hash` precisely so that holding one is not a
+/// confirmation oracle against a guessed payload.
 const OPERATOR_MAY_SELECT: &[&str] = &[
     "organisations",
     "scopes",
     "memberships",
     "accounts",
     "operators",
+    "chain_entries",
 ];
 
 /// Every privilege that is not `SELECT`. The operator plane holds none of
@@ -157,7 +166,7 @@ async fn the_operator_role_cannot_be_connected_to_at_all_yet() {
 }
 
 #[tokio::test]
-async fn the_operator_plane_may_read_exactly_five_tables_and_write_none() {
+async fn the_operator_plane_may_read_exactly_the_allowlist_and_write_none() {
     let client = migrated_then_superuser().await;
 
     let tables: Vec<String> = client

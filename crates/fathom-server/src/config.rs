@@ -13,6 +13,7 @@
 use core::fmt;
 use core::time::Duration;
 
+use crate::audit::SyslogTarget;
 use crate::keyprovider::KeySource;
 use crate::secret::{redact_database_url, Secret};
 
@@ -124,6 +125,23 @@ pub struct Config {
     /// so that handing someone the ability to verify a history is not handing
     /// them the designs.
     pub chain_key: KeySource,
+
+    /// Where sealed audit entries are shipped. `FATHOM_AUDIT_SYSLOG`, a bare
+    /// `host:port`, TCP, RFC 5424.
+    ///
+    /// **`None` is a supported shape and means spool-only**, not a partial
+    /// failure: entries accumulate in `audit_spool` and every act still
+    /// applies. `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §9 requires that
+    /// absence to be permanently and visibly marked rather than silently
+    /// tolerated — *"the startup log line, the admin page, the organisation
+    /// pages and the operator's register all say `unwitnessed`"* — and the
+    /// startup log line is the part of that which exists today. `src/main.rs`
+    /// writes it either way.
+    ///
+    /// Parsed here, at startup, so a mistyped destination fails before the
+    /// listener binds rather than at the first entry. A scheme is REFUSED
+    /// rather than stripped: see `audit::TargetError::HasScheme`.
+    pub audit_syslog: Option<SyslogTarget>,
 }
 
 /// ADR-0043 §9's path, in the operator's register and therefore in the code
@@ -321,6 +339,19 @@ impl Config {
             variable: "FATHOM_CHAIN_KEY",
         })?;
 
+        // No default, and absence is not an error: a deployment with no audit
+        // destination spools and says so. A MALFORMED one is an error, because
+        // the alternative is a server that starts, reports healthy, and ships
+        // nothing anywhere.
+        let audit_syslog = match get("FATHOM_AUDIT_SYSLOG").filter(|v| !v.trim().is_empty()) {
+            None => None,
+            Some(v) => Some(
+                SyslogTarget::parse(&v).map_err(|_| ConfigError::Unparseable {
+                    variable: "FATHOM_AUDIT_SYSLOG",
+                })?,
+            ),
+        };
+
         // Trailing newline trimmed: the file is written by a shell script and
         // a newline is what a shell script writes. Only the ends are trimmed
         // — a password is otherwise taken exactly as generated.
@@ -368,6 +399,7 @@ impl Config {
             schema_root,
             master_key,
             chain_key,
+            audit_syslog,
         })
     }
 

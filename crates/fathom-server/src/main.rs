@@ -315,6 +315,99 @@ async fn main() -> ExitCode {
         }
     }
 
+    // ---- The site chain, and the deployment identity it is sealed under ----
+    //
+    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.1 derives the site chain key
+    // over a `deployment_id`, so one is stamped on first start and never
+    // changes. §7.2's `deployment_started` is then the first thing this
+    // deployment can prove about itself, and one more is appended on every
+    // start — so a restart nobody authorised is a row somebody can point at.
+    let deployment = match pool.get().await {
+        Ok(mut client) => {
+            let registered = match fathom_server::chains::register_deployment(&**client).await {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::error!(error = %e, "could not establish this deployment's identity");
+                    return ExitCode::from(12);
+                }
+            };
+            let tx = match client.transaction().await {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!(error = %e, "could not open a transaction for the site chain");
+                    return ExitCode::from(12);
+                }
+            };
+            let appended = fathom_server::chains::record_deployment_started(
+                &tx,
+                &ring,
+                &registered,
+                migrate::MIGRATIONS.len() as i32,
+            )
+            .await;
+            match appended {
+                Ok(entry) => {
+                    if let Err(e) = tx.commit().await {
+                        tracing::error!(error = %e, "could not commit the site chain entry");
+                        return ExitCode::from(12);
+                    }
+                    tracing::info!(
+                        deployment = %registered,
+                        site_chain_seq = entry.seq,
+                        "site chain appended: deployment_started"
+                    );
+                }
+                Err(e) => {
+                    // Refusing to start rather than serving with no site chain.
+                    // An audit trail that begins whenever it happened to work
+                    // is one nobody can reason about a gap in.
+                    tracing::error!(error = %e, "could not append to the site chain");
+                    return ExitCode::from(12);
+                }
+            }
+            registered
+        }
+        Err(e) => {
+            tracing::error!(kind = %summarise(&e), "could not reach the database at startup");
+            return ExitCode::from(5);
+        }
+    };
+
+    // ---- Shipping the trail off the box (§9) ----------------------------
+    //
+    // **The absence of a destination is stated, not tolerated silently.** §9
+    // permits no witness at all and requires it to be permanently marked;
+    // §7.4 forbids calling an un-countersigned target an anchor. Receipts are
+    // deferred (§15.6), so this deployment is `unwitnessed` either way and the
+    // line says so in both branches rather than only the embarrassing one.
+    match &config.audit_syslog {
+        Some(target) => {
+            tracing::info!(
+                destination = %target,
+                deployment = %deployment,
+                "audit shipping enabled: one RFC 5424 line per sealed entry over TCP. Entries \
+                 spool in PostgreSQL when the destination is unreachable and drain in order when \
+                 it returns; nothing is dropped and shipping never blocks a write. This \
+                 deployment is UNWITNESSED: no countersigned receipt exists yet, so the \
+                 destination is a folder and not an anchor."
+            );
+            fathom_server::audit::spawn(
+                pool.clone(),
+                target.clone(),
+                fathom_server::audit::DEFAULT_INTERVAL,
+            );
+        }
+        None => {
+            tracing::info!(
+                deployment = %deployment,
+                "FATHOM_AUDIT_SYSLOG is not set: audit entries are SPOOL-ONLY. Every sealed \
+                 entry is written and queued in PostgreSQL, and nothing ships anywhere. This \
+                 deployment is UNWITNESSED: nothing outside this machine holds a copy of the \
+                 audit trail, so a party who holds the machine holds all of it."
+            );
+        }
+    }
+
     let health = Arc::new(HealthState {
         pool,
         timeout: config.health_timeout,
