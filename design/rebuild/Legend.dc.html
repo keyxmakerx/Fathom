@@ -1,0 +1,253 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 11px; }
+    .band { display: flex; border-bottom: 1px solid #D2D7DD; }
+    .band > .h { width: 150px; flex-shrink: 0; padding: 14px 16px; border-right: 1px solid #D2D7DD; background: #F2F4F6; }
+    .band > .h .t { font-size: 13px; font-weight: 700; margin-top: 2px; }
+    .band > .h .r { font-size: 10px; color: #5C6772; line-height: 14px; margin-top: 8px; }
+    .band > .b { flex-grow: 1; padding: 10px 20px; position: relative; }
+    .cap { font-size: 10px; color: #5C6772; line-height: 14px; }
+    .chip { display: inline-block; border: 1px solid; padding: 3px 8px; font-size: 11px; line-height: 14px; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0;">
+    <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="font-size: 11px; color: #5C6772;">Legend &middot; <span style="color: #14171A; font-weight: 700;">four glyphs, three lines, two palettes</span> &middot; open this board first when building any canvas surface</div>
+    <div style="flex-grow: 1;"></div>
+    <div style="font-size: 11px; color: #5C6772;">settled 2026-09-12 &middot; tokens: <span class="mono">--sheath-* --cable-*</span></div>
+  </div>
+
+  <!-- ===== 1. PORTS ===== -->
+  <div class="band" style="height: 138px;">
+    <div class="h"><div class="lbl">1</div><div class="t">Ports</div><div class="r">Same size on every plate. Filled = cabled, hollow = free. Count and position come from the engine's catalogue, never typed.</div></div>
+    <div class="b">
+      <svg width="1250" height="118" viewBox="0 0 1250 118" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+        <defs>
+          <symbol id="rj45" viewBox="-11 -10 22 20"><path d="M-11 -5 L-11 10 L11 10 L11 -5 L6 -5 L6 -10 L-6 -10 L-6 -5 Z"/></symbol>
+          <symbol id="sfp" viewBox="-14 -6.5 28 13"><rect x="-14" y="-6.5" width="28" height="13"/><line x1="-14" y1="0" x2="14" y2="0" stroke-width="0.8"/><path d="M-11 -6.5 L-11 -9.5 L-3 -9.5 L-3 -6.5" fill="none" stroke-width="1"/></symbol>
+          <symbol id="lc" viewBox="-12 -7 24 14"><rect x="-12" y="-7" width="24" height="14" fill="none"/><circle cx="-5" cy="0" r="3.2"/><circle cx="5" cy="0" r="3.2"/></symbol>
+          <symbol id="c14" viewBox="-11 -8 22 16"><path d="M-11 -4 L-7 -8 L7 -8 L11 -4 L11 4 L7 8 L-7 8 L-11 4 Z" fill="none"/><circle cx="-5" cy="2" r="1.4"/><circle cx="5" cy="2" r="1.4"/><rect x="-1.2" y="-5" width="2.4" height="4"/></symbol>
+        </defs>
+        <!-- each: true size (cabled, free) then a 3x enlargement to read the geometry -->
+        <g stroke="#14171A" stroke-width="1">
+          <g transform="translate(0,0)">
+            <use href="#rj45" x="0" y="44" width="22" height="20" fill="#14171A"/><use href="#rj45" x="30" y="44" width="22" height="20" fill="#FFFFFF"/>
+            <use href="#rj45" x="80" y="26" width="66" height="60" fill="#FFFFFF" stroke-width="0.5"/>
+            <text x="0" y="16" font-size="12" font-weight="700" stroke="none">RJ45</text>
+            <text x="0" y="104" font-size="10" fill="#5C6772" stroke="none">latch notch on top &middot; copper</text>
+          </g>
+          <g transform="translate(310,0)">
+            <use href="#sfp" x="0" y="48" width="28" height="13" fill="#14171A"/><use href="#sfp" x="36" y="48" width="28" height="13" fill="#FFFFFF"/>
+            <use href="#sfp" x="86" y="37" width="84" height="39" fill="#FFFFFF" stroke-width="0.5"/>
+            <text x="0" y="16" font-size="12" font-weight="700" stroke="none">SFP+</text>
+            <text x="0" y="104" font-size="10" fill="#5C6772" stroke="none">flat cage with a bail &middot; takes fibre or a DAC</text>
+          </g>
+          <g transform="translate(640,0)">
+            <use href="#lc" x="0" y="47" width="24" height="14" fill="#14171A"/><use href="#lc" x="32" y="47" width="24" height="14" fill="#FFFFFF"/>
+            <use href="#lc" x="82" y="33" width="72" height="42" fill="#FFFFFF" stroke-width="0.5"/>
+            <text x="0" y="16" font-size="12" font-weight="700" stroke="none">LC</text>
+            <text x="0" y="104" font-size="10" fill="#5C6772" stroke="none">two ferrules &middot; on the patch panel, not the server</text>
+          </g>
+          <g transform="translate(970,0)">
+            <use href="#c14" x="0" y="46" width="22" height="16" fill="#14171A" stroke-width="1.2"/><use href="#c14" x="30" y="46" width="22" height="16" fill="#FFFFFF" stroke-width="1.2"/>
+            <use href="#c14" x="80" y="30" width="66" height="48" fill="#FFFFFF" stroke-width="0.5"/>
+            <text x="0" y="16" font-size="12" font-weight="700" stroke="none">C14</text>
+            <text x="0" y="104" font-size="10" fill="#5C6772" stroke="none">hex inlet, three pins &middot; power</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- ===== 2. LINES ===== -->
+  <div class="band" style="height: 150px;">
+    <div class="h"><div class="lbl">2</div><div class="t">Lines</div><div class="r">Type is the <em>construction</em>, never the hue. Every cable sags right and down; longer vertical runs sag more, capped.</div></div>
+    <div class="b">
+      <svg width="1250" height="130" viewBox="0 0 1250 130" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+        <g fill="none" stroke-linecap="round">
+          <!-- copper: one stroke, 1.8 -->
+          <path d="M 20 30 C 38 37.2, 258 37.2, 240 30" stroke="#1E62C4" stroke-width="1.8"/>
+          <!-- fibre: a pair -- sheath 3.2 with a pale core 1.1 -->
+          <path d="M 20 70 C 38 77.2, 258 77.2, 240 70" stroke="#24B4C8" stroke-width="3.2"/><path d="M 20 70 C 38 77.2, 258 77.2, 240 70" stroke="#FFFFFF" stroke-width="1.1"/>
+          <!-- power: one heavy stroke, 3.4 -->
+          <path d="M 20 110 C 38 117.2, 258 117.2, 240 110" stroke="#14171A" stroke-width="3.4"/>
+        </g>
+        <g stroke="#14171A" stroke-width="1">
+          <use href="#rj45" x="240" y="20" width="22" height="20" fill="#1E62C4" stroke="#1E62C4"/>
+          <use href="#lc" x="240" y="63" width="24" height="14" fill="#24B4C8" stroke="#24B4C8"/>
+          <use href="#c14" x="240" y="102" width="22" height="16" fill="#14171A" stroke-width="1.2"/>
+        </g>
+        <g font-size="10" fill="#5C6772">
+          <text x="280" y="34"><tspan fill="#14171A" font-weight="700">copper</tspan> &middot; one stroke &middot; <tspan class="mono">--cable-copper 1.8</tspan></text>
+          <text x="280" y="74"><tspan fill="#14171A" font-weight="700">fibre</tspan> &middot; a pair: sheath with a pale core &middot; <tspan class="mono">--cable-fibre 3.2 / --fibre-core 1.1</tspan></text>
+          <text x="280" y="114"><tspan fill="#14171A" font-weight="700">power</tspan> &middot; one heavy stroke &middot; <tspan class="mono">--cable-power 3.4</tspan></text>
+        </g>
+
+        <!-- right: lit vs phantom, and the live droop while dragging -->
+        <g transform="translate(700,0)">
+          <g fill="none" stroke-linecap="round" opacity="0.28">
+            <path d="M 0 30 C 18 37.2, 198 37.2, 180 30" stroke="#D83228" stroke-width="1.8"/>
+            <path d="M 0 50 C 18 57.2, 198 57.2, 180 50" stroke="#2C9D4F" stroke-width="1.8"/>
+          </g>
+          <path d="M 0 40 C 18 47.2, 198 47.2, 180 40" stroke="#D2D7DD" stroke-width="9" fill="none" stroke-linecap="round"/>
+          <path d="M 0 40 C 18 47.2, 198 47.2, 180 40" stroke="#1E62C4" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+          <text x="200" y="36" font-size="10" fill="#14171A" font-weight="700">lit</text><text x="216" y="36" font-size="10" fill="#5C6772">&middot; pale halo 9, core 2.6</text>
+          <text x="200" y="52" font-size="10" fill="#14171A" font-weight="700">phantom</text><text x="248" y="52" font-size="10" fill="#5C6772">&middot; everything off the path at 28%</text>
+
+          <!-- dragging: fixed port to pointer, drooping live -->
+          <use href="#rj45" x="0" y="84" width="22" height="20" fill="#1E62C4" stroke="#1E62C4" stroke-width="1"/>
+          <path d="M 22 94 C 80 154, 140 166, 176 108" stroke="#1E62C4" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-dasharray="5 3"/>
+          <path d="M 176 108 L 176 122 M 172 118 L 176 122 L 180 118" stroke="#14171A" stroke-width="1.25" fill="none"/>
+          <text x="200" y="100" font-size="10" fill="#14171A" font-weight="700">dragging</text><text x="252" y="100" font-size="10" fill="#5C6772">&middot; it droops between the port and your hand</text>
+          <text x="200" y="116" font-size="10" fill="#5C6772">only ports the lead can land on stay live; the rest dim</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- ===== 3. TWO PALETTES ===== -->
+  <div class="band" style="height: 236px;">
+    <div class="h"><div class="lbl">3</div><div class="t">Two palettes</div><div class="r"><strong>Plastic is a line. Ink is a box.</strong><br>That is the whole rule. A sheath colour is only ever a cable stroke. A risk colour is only ever a bordered wash with words in it. They can share a hue and never be confused.</div></div>
+    <div class="b" style="display: flex; gap: 0;">
+
+      <div style="width: 740px; border-right: 1px solid #D2D7DD; padding-right: 20px;">
+        <div class="lbl" style="margin-bottom: 4px;">Plastic &middot; sheath &middot; the lead in your hand &middot; no dark-theme variant, because plastic does not change colour when the lights go off</div>
+        <svg width="700" height="150" viewBox="0 0 700 150" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+          <g fill="none" stroke-linecap="round" stroke-width="3.2">
+            <!-- copper jackets: stock Cat6 -->
+            <path d="M 6 18 C 24 25.2, 84 25.2, 66 18" stroke="#9FA4A9"/>
+            <path d="M 106 18 C 124 25.2, 184 25.2, 166 18" stroke="#1E62C4"/>
+            <path d="M 206 18 C 224 25.2, 284 25.2, 266 18" stroke="#D83228"/>
+            <path d="M 306 18 C 324 25.2, 384 25.2, 366 18" stroke="#E9C21C"/>
+            <path d="M 406 18 C 424 25.2, 484 25.2, 466 18" stroke="#2C9D4F"/>
+            <path d="M 506 18 C 524 25.2, 584 25.2, 566 18" stroke="#F0821F"/>
+            <path d="M 606 18 C 624 25.2, 684 25.2, 666 18" stroke="#7B45B4"/>
+            <path d="M 6 72 C 24 79.2, 84 79.2, 66 72" stroke="#14171A"/>
+            <path d="M 106 72 C 124 79.2, 184 79.2, 166 72" stroke="#D2D7DD" stroke-width="5.2"/><path d="M 106 72 C 124 79.2, 184 79.2, 166 72" stroke="#FFFFFF"/>
+            <!-- fibre jackets: TIA-598-C -->
+            <path d="M 306 72 C 324 79.2, 384 79.2, 366 72" stroke="#24B4C8"/><path d="M 306 72 C 324 79.2, 384 79.2, 366 72" stroke="#FFFFFF" stroke-width="1.1"/>
+            <path d="M 406 72 C 424 79.2, 484 79.2, 466 72" stroke="#C99AC7"/><path d="M 406 72 C 424 79.2, 484 79.2, 466 72" stroke="#FFFFFF" stroke-width="1.1"/>
+            <path d="M 506 72 C 524 79.2, 584 79.2, 566 72" stroke="#E9C21C"/><path d="M 506 72 C 524 79.2, 584 79.2, 566 72" stroke="#FFFFFF" stroke-width="1.1"/>
+            <path d="M 606 72 C 624 79.2, 684 79.2, 666 72" stroke="#F0821F"/><path d="M 606 72 C 624 79.2, 684 79.2, 666 72" stroke="#FFFFFF" stroke-width="1.1"/>
+          </g>
+          <g font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="6" y="44">grey</text><text x="106" y="44">blue</text><text x="206" y="44">red</text><text x="306" y="44">yellow</text><text x="406" y="44">green</text><text x="506" y="44">orange</text><text x="606" y="44">purple</text>
+            <text x="6" y="98">black</text><text x="106" y="98">white</text><text x="306" y="98">aqua</text><text x="406" y="98">erika</text><text x="506" y="98">yellow</text><text x="606" y="98">orange</text>
+          </g>
+          <g font-size="9" fill="#5C6772">
+            <text x="6" y="56">#9FA4A9</text><text x="106" y="56">#1E62C4</text><text x="206" y="56">#D83228</text><text x="306" y="56">#E9C21C</text><text x="406" y="56">#2C9D4F</text><text x="506" y="56">#F0821F</text><text x="606" y="56">#7B45B4</text>
+            <text x="6" y="110">= ink</text><text x="106" y="110">outlined on light</text><text x="306" y="110">OM3 / OM4</text><text x="406" y="110">OM4, some makers</text><text x="506" y="110">OS2 single-mode</text><text x="606" y="110">OM1 / OM2</text>
+          </g>
+          <text x="6" y="136" font-size="10" fill="#5C6772">Top row: copper. Bottom right: fibre jackets per TIA-598-C &mdash; note yellow and orange appear in both, and the <tspan fill="#14171A" font-weight="700">pair</tspan> tells you which. Power leads use the same palette, drawn heavy.</text>
+        </svg>
+      </div>
+
+      <div style="flex-grow: 1; padding-left: 20px;">
+        <div class="lbl" style="margin-bottom: 8px;">Ink &middot; risk &middot; reserved &middot; adapts to dark</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;">
+          <span class="chip" style="background: #EEF5F1; border-color: #1F6F4A; color: #1F6F4A;">read-only</span>
+          <span class="chip" style="background: #FBF3EA; border-color: #A8571B; color: #A8571B;">changes config</span>
+          <span class="chip" style="background: #F8EFEF; border-color: #8C2F2F; color: #8C2F2F;">disruptive</span>
+        </div>
+        <div class="lbl" style="margin-bottom: 6px;">The closest pair, side by side</div>
+        <svg width="360" height="60" viewBox="0 0 360 60" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+          <path d="M 4 22 C 22 29.2, 112 29.2, 94 22" stroke="#F0821F" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+          <text x="4" y="48" font-size="10" fill="#5C6772">an orange lead &middot; a line</text>
+          <rect x="150" y="10" width="200" height="26" fill="#FBF3EA" stroke="#A8571B"/>
+          <text x="160" y="27" font-size="11" fill="#A8571B" font-weight="700">2 and 3 can never be reached</text>
+          <text x="150" y="48" font-size="10" fill="#5C6772">a caution &middot; a box with words</text>
+        </svg>
+        <div class="cap" style="margin-top: 10px;">Risk never fills a cable or a port. A sheath never fills a region, a border or a word. Where a risk fact sits on the canvas &mdash; an unreachable policy, weak auth on a routing peer &mdash; it is drawn as a bordered wash, never as bare coloured text.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 4. PRESENCE ===== -->
+  <div class="band" style="height: 126px;">
+    <div class="h"><div class="lbl">4</div><div class="t">Presence</div><div class="r">No cursors. A ring is where someone's hands are. A chip is who is in the room. Scoped to the view.</div></div>
+    <div class="b">
+      <svg width="1250" height="106" viewBox="0 0 1250 106" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+        <!-- editing a device -->
+        <g transform="translate(0,20)">
+          <rect x="0" y="0" width="244" height="16" fill="#FFFFFF" stroke="#14171A"/>
+          <rect x="-2" y="-2" width="248" height="20" fill="none" stroke="#14171A" stroke-width="1.5" stroke-dasharray="4 3"/>
+          <circle cx="9" cy="8" r="2.5" fill="#14171A"/>
+          <text x="16" y="11" font-size="9" fill="#14171A" font-weight="700">core-01</text>
+          <g fill="#14171A" stroke="#14171A" stroke-width="0.6"><rect x="70" y="4" width="5" height="8"/><rect x="76" y="4" width="5" height="8"/><rect x="82" y="4" width="5" height="8" fill="#FFFFFF"/><rect x="88" y="4" width="5" height="8"/></g>
+          <text x="0" y="46" font-size="10" fill="#14171A" font-weight="700">editing</text><text x="42" y="46" font-size="10" fill="#5C6772">&middot; dashed ring on the device</text>
+          <text x="0" y="60" font-size="10" fill="#5C6772">two people on one device: two rings, offset. Who wins is a plan question, not a drawing one.</text>
+        </g>
+        <!-- holding a port -->
+        <g transform="translate(470,20)">
+          <g fill="#14171A" stroke="#14171A" stroke-width="0.6"><rect x="0" y="4" width="5" height="8"/><rect x="6" y="4" width="5" height="8"/><rect x="12" y="4" width="5" height="8" fill="#FFFFFF"/><rect x="18" y="4" width="5" height="8"/></g>
+          <rect x="9.5" y="1.5" width="10" height="13" fill="none" stroke="#14171A" stroke-width="1.2" stroke-dasharray="2 1.5"/>
+          <text x="0" y="46" font-size="10" fill="#14171A" font-weight="700">holding</text><text x="44" y="46" font-size="10" fill="#5C6772">&middot; dashed ring on a port mid-drag</text>
+          <text x="0" y="60" font-size="10" fill="#5C6772">the port is hollow and ringed: not yet cabled, but spoken for</text>
+        </g>
+        <!-- in the room -->
+        <g transform="translate(900,20)">
+          <rect x="4" y="-2" width="74" height="16" fill="#14171A"/>
+          <text x="41" y="9" font-size="9" fill="#FFFFFF" text-anchor="middle">Jordan T. &middot; editing</text>
+          <rect x="4" y="18" width="80" height="16" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="44" y="29" font-size="9" fill="#14171A" text-anchor="middle">Maria K. &middot; here</text>
+          <text x="0" y="60" font-size="10" fill="#14171A" font-weight="700">in the room</text><text x="64" y="60" font-size="10" fill="#5C6772">&middot; a chip on the rack rail. Solid when editing, outlined when only looking.</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- ===== 5. PORTALS ===== -->
+  <div class="band" style="height: 118px; border-bottom: none;">
+    <div class="h"><div class="lbl">5</div><div class="t">Portals</div><div class="r">Not either/or. The cable runs to the edge <em>and</em> the tray labels the crossing.</div></div>
+    <div class="b">
+      <svg width="1250" height="98" viewBox="0 0 1250 98" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+        <!-- three cables leave rightward and visibly reach the tray -->
+        <g fill="none" stroke-linecap="round">
+          <path d="M 20 22 C 38 29.2, 322 29.2, 304 22" stroke="#24B4C8" stroke-width="3.2"/><path d="M 20 22 C 38 29.2, 322 29.2, 304 22" stroke="#FFFFFF" stroke-width="1.1"/>
+          <path d="M 20 40 C 38 47.2, 322 47.2, 304 40" stroke="#24B4C8" stroke-width="3.2" opacity="0.28"/><path d="M 20 40 C 38 47.2, 322 47.2, 304 40" stroke="#FFFFFF" stroke-width="1.1" opacity="0.28"/>
+          <path d="M 20 58 C 38 65.2, 322 65.2, 304 58" stroke="#1E62C4" stroke-width="1.8" opacity="0.28"/>
+        </g>
+        <g stroke="#14171A" stroke-width="1"><use href="#lc" x="0" y="15" width="24" height="14" fill="#24B4C8" stroke="#24B4C8"/></g>
+        <!-- the tray: dashed at rest, solid outline when the lit path continues through it -->
+        <rect x="304" y="8" width="300" height="30" fill="#FAFBFC" stroke="#5C6772" stroke-dasharray="3 2"/>
+        <rect x="304" y="8" width="300" height="30" fill="none" stroke="#14171A" stroke-width="1.5"/>
+        <path d="M 318 29 L 318 17 M 314 21 L 318 17 L 322 21" stroke="#14171A" stroke-width="1.25" fill="none"/>
+        <text x="330" y="27" font-size="11" fill="#14171A">up the riser &rarr; MDF A-01</text>
+        <text x="596" y="27" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">2 fibre &middot; 1 copper</text>
+        <rect x="304" y="42" width="300" height="24" fill="#FAFBFC" stroke="#5C6772" stroke-dasharray="3 2"/>
+        <path d="M 318 48 L 318 60 M 314 56 L 318 60 L 322 56" stroke="#14171A" stroke-width="1.25" fill="none"/>
+        <text x="330" y="58" font-size="11" fill="#14171A">down to floor 2 desks</text>
+        <text x="596" y="58" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">24 copper</text>
+
+        <g font-size="10" fill="#5C6772">
+          <text x="640" y="20"><tspan fill="#14171A" font-weight="700">You see it leave.</tspan> The cable sags to the edge; a tray with no cable reaching it would read as a disconnected box.</text>
+          <text x="640" y="36"><tspan fill="#14171A" font-weight="700">You know where it went.</tspan> The tray names the far end and counts what crosses; a bare cable off the edge would read as unknown.</text>
+          <text x="640" y="52"><tspan fill="#14171A" font-weight="700">It lights with the path.</tspan> Hover any segment and the tray's outline goes solid, with the continuation named above it. Click to follow.</text>
+          <text x="640" y="72">Inside a box the same tray sits on the left edge, arrow pointing out, because that is the way the cable leaves.</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1;"></div>
+  <div style="border-top: 1px solid #D2D7DD; padding: 6px 16px; font-size: 10px; color: #5C6772; display: flex; justify-content: space-between;">
+    <span>Rule text lives in <span class="mono">docs/UI-SPEC.md</span>. Tokens in <span class="mono">design/tokens.css</span>. This board is the picture of both; when they disagree, the text wins and this board is wrong.</span>
+    <span>black = ink &middot; a virtual link inside a box has no sheath and draws in muted, taking a colour only at the jack where it becomes a cable</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

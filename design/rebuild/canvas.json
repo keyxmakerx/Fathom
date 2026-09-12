@@ -1,18 +1,4 @@
 {
-  "pages": [
-    {
-      "id": "page-1",
-      "name": "Rack first"
-    },
-    {
-      "id": "page-2",
-      "name": "Rejected directions (A\u2013H)"
-    },
-    {
-      "id": "page-3",
-      "name": "First pass (detail)"
-    }
-  ],
   "artboards": [
     {
       "file": "Main.dc.html",
@@ -21,7 +7,7 @@
       "y": 0,
       "w": 1440,
       "h": 900,
-      "title": "The shell \u2014 racks, ports, sagging cables, one path lit"
+      "title": "The shell — racks, ports, sagging cables, one path lit"
     },
     {
       "file": "Faceplate.dc.html",
@@ -30,7 +16,7 @@
       "y": 0,
       "w": 1440,
       "h": 900,
-      "title": "Zoomed in \u2014 the faceplate, a cable mid-drag"
+      "title": "Zoomed in — the faceplate, a cable mid-drag"
     },
     {
       "file": "Crossings.dc.html",
@@ -57,7 +43,7 @@
       "y": 0,
       "w": 1440,
       "h": 900,
-      "title": "A \u2014 Lenses over one map"
+      "title": "A — Lenses over one map"
     },
     {
       "file": "DirectionB.dc.html",
@@ -66,7 +52,7 @@
       "y": 0,
       "w": 1440,
       "h": 900,
-      "title": "B \u2014 The workbench"
+      "title": "B — The workbench"
     },
     {
       "file": "DirectionC.dc.html",
@@ -75,7 +61,7 @@
       "y": 1080,
       "w": 1440,
       "h": 900,
-      "title": "C \u2014 One canvas, all the way down"
+      "title": "C — One canvas, all the way down"
     },
     {
       "file": "DirectionD.dc.html",
@@ -84,7 +70,7 @@
       "y": 1080,
       "w": 1440,
       "h": 900,
-      "title": "D \u2014 Ask, then look"
+      "title": "D — Ask, then look"
     },
     {
       "file": "DirectionE.dc.html",
@@ -93,7 +79,7 @@
       "y": 2160,
       "w": 1440,
       "h": 900,
-      "title": "E \u2014 Follow the wire"
+      "title": "E — Follow the wire"
     },
     {
       "file": "DirectionF.dc.html",
@@ -102,7 +88,7 @@
       "y": 2160,
       "w": 1440,
       "h": 900,
-      "title": "F \u2014 The building is the map"
+      "title": "F — The building is the map"
     },
     {
       "file": "DirectionG.dc.html",
@@ -111,7 +97,7 @@
       "y": 3240,
       "w": 1440,
       "h": 900,
-      "title": "G \u2014 Two truths, one selection"
+      "title": "G — Two truths, one selection"
     },
     {
       "file": "DirectionH.dc.html",
@@ -120,7 +106,7 @@
       "y": 3240,
       "w": 1440,
       "h": 900,
-      "title": "H \u2014 The estate as it changes"
+      "title": "H — The estate as it changes"
     },
     {
       "file": "Hypervisor.dc.html",
@@ -129,7 +115,7 @@
       "y": 2160,
       "w": 1440,
       "h": 900,
-      "title": "Inside a server \u2014 lid off, same jacks, path out"
+      "title": "Inside a server — lid off, same jacks, path out"
     },
     {
       "file": "Firewall.dc.html",
@@ -138,7 +124,7 @@
       "y": 2160,
       "w": 1440,
       "h": 900,
-      "title": "Inside a firewall \u2014 in, zone, policy, route, out"
+      "title": "Inside a firewall — in, zone, policy, route, out"
     },
     {
       "file": "Config.dc.html",
@@ -147,7 +133,7 @@
       "y": 3240,
       "w": 1440,
       "h": 900,
-      "title": "Config \u2014 a drawer under the faceplate"
+      "title": "Config — a drawer under the faceplate"
     },
     {
       "file": "Building.dc.html",
@@ -156,7 +142,7 @@
       "y": 2160,
       "w": 1440,
       "h": 900,
-      "title": "Building (parked \u2014 not necessary)"
+      "title": "Building (parked — not necessary)"
     },
     {
       "file": "Inventory.dc.html",
@@ -184,6 +170,15 @@
       "w": 1440,
       "h": 900,
       "title": "Vault (first pass)"
+    },
+    {
+      "file": "Legend.dc.html",
+      "page": "page-1",
+      "x": 3120,
+      "y": 1200,
+      "w": 1440,
+      "h": 900,
+      "title": "Legend — four glyphs, three lines, two palettes. Open this first."
     }
   ],
   "annotations": [
@@ -193,7 +188,7 @@
       "x": 0,
       "y": -250,
       "w": 760,
-      "text": "RACK FIRST \u2014 one direction, done properly.\n\nThe rack, its faceplates, real ports from the engine's catalogue, and cables that sag between them are the product. Everything else hangs off that.\n\nWhat I took from Homelable: the slack-loop cable (bows right and down, more on longer runs), real RJ45/SFP jack shapes at a fixed size, patch-facing gear always shows ports and everything else reveals on hover, one cable per port, copper-or-fibre decided by the port you start from.\n\nWhat I took from elsewhere: Patchdocs lights the WHOLE physical path on one hover \u2014 that is the answer to your crossing complaint. Device42 keeps power and data cabling on separate toggles. Meraki/Mist put L2/L3 facts on the port, so you never leave the rack to read them.\n\nWhat I dropped: the building view (not necessary \u2014 you said so), the black triangle cursors (presence is now a dashed ring on the device someone is editing plus a name chip on the rail; a held port gets a dashed ring too), and the six-tab bar."
+      "text": "RACK FIRST — one direction, done properly.\n\nThe rack, its faceplates, real ports from the engine's catalogue, and cables that sag between them are the product. Everything else hangs off that.\n\nWhat I took from Homelable: the slack-loop cable (bows right and down, more on longer runs), real RJ45/SFP jack shapes at a fixed size, patch-facing gear always shows ports and everything else reveals on hover, one cable per port, copper-or-fibre decided by the port you start from.\n\nWhat I took from elsewhere: Patchdocs lights the WHOLE physical path on one hover — that is the answer to your crossing complaint. Device42 keeps power and data cabling on separate toggles. Meraki/Mist put L2/L3 facts on the port, so you never leave the rack to read them.\n\nWhat I dropped: the building view (not necessary — you said so), the black triangle cursors (presence is now a dashed ring on the device someone is editing plus a name chip on the rail; a held port gets a dashed ring too), and the six-tab bar."
     },
     {
       "id": "note-rejected",
@@ -201,7 +196,7 @@
       "x": 0,
       "y": -180,
       "w": 640,
-      "text": "Kept for the record. You rejected all eight on 2026-09-11 \u2014 the rack was not the centrepiece in any of them, and the building view hid crossings. Nothing here is in play."
+      "text": "Kept for the record. You rejected all eight on 2026-09-11 — the rack was not the centrepiece in any of them, and the building view hid crossings. Nothing here is in play."
     },
     {
       "id": "note-open",
@@ -209,7 +204,7 @@
       "x": 3120,
       "y": 0,
       "w": 560,
-      "text": "Answered 2026-09-11:\n\u2713 COLOUR IS THE REAL SHEATH. The hue on screen is the lead in your hand, so a cable you are holding can be found here and the reverse. Type is carried by the LINE, not the colour \u2014 copper one stroke, fibre a pair, power heavy. Grey, blue, red, yellow, green, orange, purple, black, white are stock lead colours, set per cable.\n\u2713 Four port glyphs: RJ45, SFP+ (bail), LC (two ferrules), C14 (power).\n\u2713 PSUs, PDU, and power on its own rail lane.\n\u2713 Rear view: stacked under the front when zoomed.\n\nONE COLLISION, WORTH KNOWING: red, green and orange are also the reserved risk colours. The rule that keeps them apart is LOCATION \u2014 the canvas shows sheath colours only, and risk never appears as colour on the canvas, only in panels and badges. If that feels too subtle, the alternative is a restricted lead palette that avoids those three hues. Your call.\n\nStill open:\n\u2022 Portal trays, or a cable that visibly runs off the edge?\n\u2022 Presence with no cursors \u2014 enough?"
+      "text": "Answered 2026-09-11:\n✓ COLOUR IS THE REAL SHEATH. Type is carried by the LINE — copper one stroke, fibre a pair, power heavy.\n✓ Four port glyphs: RJ45, SFP+ (bail), LC (two ferrules), C14 (power).\n✓ PSUs, PDU, and power on its own rail lane.\n✓ Rear view: stacked under the front when zoomed.\n\nClosed 2026-09-12 — see the LEGEND board below:\n✓ THE COLLISION. Not solved by location (the firewall board already had a caution on the canvas next to a red lead). Solved by FORM: plastic is a line, ink is a box. Sheath colours are saturated like the PVC they are and appear only as cable strokes; risk colours are muted like ink and appear only as bordered washes with words in them. Same hue, never confused. Sheath has no dark variant — plastic doesn't change colour when the lights go off.\n✓ PORTALS: both. The cable sags to the edge AND the tray labels the crossing.\n✓ PRESENCE: no cursors, settled. Ring = hands, chip = who is in the room.\n✓ Server board: SFP+ cages, fibre pair leaving. LC lives on the panel.\n✓ Firewall board: the other zone pairs are the same stack, collapsed, ordinals on the rail."
     },
     {
       "id": "note-inside",
@@ -217,11 +212,25 @@
       "x": 3120,
       "y": 2160,
       "w": 540,
-      "text": "INSIDE A BOX \u2014 redone in the rack's language.\n\nYou open the lid. The jacks on the left edge are the SAME ports you cabled in the rack, seen from inside, so the cable you plugged in continues through the wall. A path is one lit line: vNIC \u2192 bridge \u2192 bond \u2192 jack \u2192 out the portal to the rack. Everything else is phantomed.\n\nA bridge is drawn as a small switch faceplate, because that is what it is. A guest is a card with a jack on its edge.\n\nThe firewall: three zones are regions inside the box; interfaces sit in them; the policy set between two zones is a stack with an ordinal rail \u2014 like a rack of rules \u2014 and the rows that can never be reached are hatched like free U. The trace runs in \u2192 zone \u2192 policy \u2192 route \u2192 out, numbered.\n\nConfig is a drawer under the faceplate, not a separate page. Click a line, the port it built lights above.\n\nThe building view is parked on page 3. You said not necessary."
+      "text": "INSIDE A BOX — redone in the rack's language.\n\nYou open the lid. The jacks on the left edge are the SAME ports you cabled in the rack, seen from inside, so the cable you plugged in continues through the wall. A path is one lit line: vNIC → bridge → bond → jack → out the portal to the rack. Everything else is phantomed.\n\nA bridge is drawn as a small switch faceplate, because that is what it is. A guest is a card with a jack on its edge.\n\nThe firewall: three zones are regions inside the box; interfaces sit in them; the policy set between two zones is a stack with an ordinal rail — like a rack of rules — and the rows that can never be reached are hatched like free U. The trace runs in → zone → policy → route → out, numbered.\n\nConfig is a drawer under the faceplate, not a separate page. Click a line, the port it built lights above.\n\nThe building view is parked on page 3. You said not necessary."
     }
   ],
   "launch": {
     "view": "canvas",
     "page": "page-1"
-  }
+  },
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Rack first"
+    },
+    {
+      "id": "page-2",
+      "name": "Rejected directions (A–H)"
+    },
+    {
+      "id": "page-3",
+      "name": "First pass (detail)"
+    }
+  ]
 }

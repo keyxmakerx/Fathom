@@ -70,9 +70,9 @@
 
         <!-- cables arriving from the rack, off the left edge, into the rear panel -->
         <g fill="none" stroke-linecap="round">
-          <path d="M -10 150 C 20 150, 30 140, 58 146" stroke="#2F5D8A" stroke-width="1.8" opacity="0.28"/>
-          <path d="M -10 200 C 20 200, 30 190, 58 190" stroke="#2F5D8A" stroke-width="1.8" opacity="0.28"/>
-          <path d="M -10 300 C 20 300, 30 292, 58 292" stroke="#8A8F94" stroke-width="1.8" opacity="0.28"/>
+          <path d="M -10 150 C 20 150, 30 140, 58 146" stroke="#24B4C8" stroke-width="3.2" opacity="0.28"/><path d="M -10 150 C 20 150, 30 140, 58 146" stroke="#FFFFFF" stroke-width="1.1" opacity="0.28"/>
+          <path d="M -10 200 C 20 200, 30 190, 58 190" stroke="#24B4C8" stroke-width="3.2" opacity="0.28"/><path d="M -10 200 C 20 200, 30 190, 58 190" stroke="#FFFFFF" stroke-width="1.1" opacity="0.28"/>
+          <path d="M -10 350 C 20 350, 30 342, 58 346" stroke="#9FA4A9" stroke-width="1.8" opacity="0.28"/>
           <path d="M -10 690 C 20 690, 30 680, 58 684" stroke="#14171A" stroke-width="3.4" opacity="0.28"/>
           <path d="M -10 730 C 20 730, 30 722, 58 726" stroke="#14171A" stroke-width="3.4" opacity="0.28"/>
         </g>
@@ -90,8 +90,8 @@
         <text x="105" y="100" font-size="9" fill="#5C6772" text-anchor="middle" letter-spacing="1">REAR</text>
 
         <g fill="#14171A" stroke="#14171A" stroke-width="1">
-          <use href="#rj45" x="80" y="136" width="22" height="20"/>
-          <use href="#rj45" x="80" y="180" width="22" height="20"/>
+          <use href="#sfp" x="77" y="140" width="28" height="13"/>
+          <use href="#sfp" x="77" y="184" width="28" height="13"/>
           <use href="#rj45" x="80" y="282" width="22" height="20" fill="#FFFFFF"/>
           <use href="#rj45" x="80" y="336" width="22" height="20"/>
         </g>
@@ -101,7 +101,7 @@
           <text x="91" y="276" text-anchor="middle">enp2s0</text>
           <text x="91" y="330" text-anchor="middle">ipmi</text>
         </g>
-        <text x="91" y="212" font-size="8" fill="#5C6772" text-anchor="middle">10G</text>
+        <text x="91" y="212" font-size="8" fill="#5C6772" text-anchor="middle">2 &times; SFP+ &middot; 10G</text>
         <text x="91" y="314" font-size="8" fill="#5C6772" text-anchor="middle">free</text>
 
         <!-- PSUs, bottom of the rear panel -->
@@ -155,7 +155,7 @@
         <g>
           <rect x="400" y="330" width="150" height="90" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
           <rect x="398" y="328" width="154" height="94" fill="none" stroke="#14171A" stroke-width="1.5" stroke-dasharray="4 3"/>
-          <rect x="420" y="326" width="9" height="10" fill="#2F5D8A" stroke="#FFFFFF"/>
+          <rect x="420" y="326" width="9" height="10" fill="#14171A" stroke="#FFFFFF"/>
           <circle cx="412" cy="352" r="3.5" fill="#14171A"/>
           <text x="422" y="356" font-size="12" font-weight="700">dc-01</text>
           <text x="542" y="356" font-size="9" fill="#5C6772" text-anchor="end">VM 101</text>
@@ -202,13 +202,13 @@
         <rect x="760" y="460" width="150" height="100" fill="url(#hatch)" stroke="#D2D7DD"/>
         <text x="835" y="514" font-size="10" fill="#5C6772" text-anchor="middle">+ 7 more</text>
 
-        <!-- internal links: still cables, still sag -->
+        <!-- internal links: still sag, but no sheath -- a virtual link draws in muted and takes a colour only at the jack -->
         <g fill="none" stroke-linecap="round" opacity="0.28">
-          <path d="M 454 172 C 470 230, 590 290, 604 326" stroke="#8A8F94" stroke-width="1.8"/>
-          <path d="M 484 172 C 500 240, 770 290, 784 326" stroke="#8A8F94" stroke-width="1.8"/>
-          <path d="M 514 172 C 520 260, 440 400, 424 456" stroke="#8A8F94" stroke-width="1.8"/>
-          <path d="M 424 258 C 430 330, 440 400, 444 456" stroke="#8A8F94" stroke-width="1.8" stroke-dasharray="4 3"/>
-          <path d="M 454 258 C 470 330, 590 420, 604 456" stroke="#8A8F94" stroke-width="1.8" stroke-dasharray="4 3"/>
+          <path d="M 454 172 C 470 230, 590 290, 604 326" stroke="#5C6772" stroke-width="1.8"/>
+          <path d="M 484 172 C 500 240, 770 290, 784 326" stroke="#5C6772" stroke-width="1.8"/>
+          <path d="M 514 172 C 520 260, 440 400, 424 456" stroke="#5C6772" stroke-width="1.8"/>
+          <path d="M 424 258 C 430 330, 440 400, 444 456" stroke="#5C6772" stroke-width="1.8" stroke-dasharray="4 3"/>
+          <path d="M 454 258 C 470 330, 590 420, 604 456" stroke="#5C6772" stroke-width="1.8" stroke-dasharray="4 3"/>
         </g>
 
         <!-- ===== THE LIT PATH: dc-01 out to the rack. Halo, then core. ===== -->
@@ -217,13 +217,13 @@
           <path d="M 384 164 C 356 164, 340 177, 316 177" stroke="#D2D7DD" stroke-width="9"/>
           <path d="M 214 155 C 170 152, 150 146, 102 146" stroke="#D2D7DD" stroke-width="9"/>
           <path d="M 58 146 C 30 140, 20 150, -10 150" stroke="#D2D7DD" stroke-width="9"/>
-          <path d="M 424 326 C 424 260, 424 210, 424 172" stroke="#2F5D8A" stroke-width="2.6"/>
-          <path d="M 384 164 C 356 164, 340 177, 316 177" stroke="#2F5D8A" stroke-width="2.6"/>
-          <path d="M 214 155 C 170 152, 150 146, 102 146" stroke="#2F5D8A" stroke-width="2.6"/>
-          <path d="M 58 146 C 30 140, 20 150, -10 150" stroke="#2F5D8A" stroke-width="2.6"/>
+          <path d="M 424 326 C 424 260, 424 210, 424 172" stroke="#14171A" stroke-width="2.6"/>
+          <path d="M 384 164 C 356 164, 340 177, 316 177" stroke="#14171A" stroke-width="2.6"/>
+          <path d="M 214 155 C 170 152, 150 146, 102 146" stroke="#14171A" stroke-width="2.6"/>
+          <path d="M 58 146 C 30 140, 20 150, -10 150" stroke="#24B4C8" stroke-width="3.2"/><path d="M 58 146 C 30 140, 20 150, -10 150" stroke="#FFFFFF" stroke-width="1.1"/>
         </g>
-        <rect x="420" y="160" width="9" height="12" fill="#2F5D8A" stroke="#FFFFFF"/>
-        <use href="#rj45" x="80" y="136" width="22" height="20" fill="#2F5D8A" stroke="#2F5D8A"/>
+        <rect x="420" y="160" width="9" height="12" fill="#14171A" stroke="#FFFFFF"/>
+        <use href="#sfp" x="77" y="140" width="28" height="13" fill="#24B4C8" stroke="#24B4C8"/>
         <!-- hop labels on the lit path -->
         <g font-size="9" font-family="'DejaVu Sans Mono', Menlo, monospace" text-anchor="middle">
           <rect x="396" y="236" width="56" height="13" fill="#FFFFFF" stroke="#14171A" stroke-width="0.7"/><text x="424" y="246" fill="#14171A">1 &middot; vNIC</text>
@@ -238,7 +238,7 @@
           <text x="22" y="160" font-size="8" fill="#14171A" text-anchor="middle">to rack</text>
         </g>
 
-        <text x="60" y="806" font-size="10" fill="#5C6772">Hop 3 is a choice, not a fact &mdash; a bond hashes per flow. Fathom lights f0 and names f1, and never guesses which one a packet took.</text>
+        <text x="60" y="806" font-size="10" fill="#5C6772">The 10G pair leaves on aqua fibre through SFP+ cages; the LC ends are on the panel in the rack, not here. Hop 3 is a choice, not a fact &mdash; a bond hashes per flow. Fathom lights f0 and names f1, and never guesses which one a packet took.</text>
       </svg>
     </div>
 

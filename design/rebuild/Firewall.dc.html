@@ -67,9 +67,9 @@
 
         <!-- cables from the rack into the front panel (phantomed) -->
         <g fill="none" stroke-linecap="round" opacity="0.28">
-          <path d="M -10 150 C 20 150, 30 140, 58 146" stroke="#A33A3A" stroke-width="1.8"/>
-          <path d="M -10 210 C 20 210, 30 200, 58 202" stroke="#8A8F94" stroke-width="1.8"/>
-          <path d="M -10 460 C 20 460, 30 452, 58 454" stroke="#C9A227" stroke-width="3.2"/><path d="M -10 460 C 20 460, 30 452, 58 454" stroke="#FFFFFF" stroke-width="1.1"/>
+          <path d="M -10 150 C 20 150, 30 140, 58 146" stroke="#D83228" stroke-width="1.8"/>
+          <path d="M -10 210 C 20 210, 30 200, 58 202" stroke="#9FA4A9" stroke-width="1.8"/>
+          <path d="M -10 460 C 20 460, 30 452, 58 454" stroke="#E9C21C" stroke-width="3.2"/><path d="M -10 460 C 20 460, 30 452, 58 454" stroke="#FFFFFF" stroke-width="1.1"/>
         </g>
 
         <!-- ===== CHASSIS ===== -->
@@ -195,12 +195,37 @@
           <text x="522" y="384" font-size="9" fill="#A8571B">and the device stops at the first match.</text>
         </g>
 
-        <!-- other zone pairs: collapsed stacks -->
+        <!-- other zone pairs: the SAME object as the stack above, collapsed. The rail still carries the ordinals, so the count is read, not stated. Click to expand. -->
         <g font-size="10">
-          <rect x="490" y="440" width="240" height="26" fill="#FFFFFF" stroke="#D2D7DD"/><text x="500" y="457">untrust &rarr; trust</text><text x="722" y="457" fill="#5C6772" text-anchor="end" font-size="9">1 &middot; allow-web</text>
-          <rect x="490" y="472" width="240" height="26" fill="#FFFFFF" stroke="#D2D7DD"/><text x="500" y="489">trust &rarr; mgmt</text><text x="722" y="489" fill="#5C6772" text-anchor="end" font-size="9">2</text>
-          <rect x="490" y="504" width="240" height="26" fill="#FAFBFC" stroke="#D2D7DD" stroke-dasharray="3 2"/><text x="500" y="521" fill="#5C6772">mgmt &rarr; untrust</text><text x="722" y="521" fill="#5C6772" text-anchor="end" font-size="9">no set &middot; implicit deny</text>
-          <rect x="490" y="536" width="240" height="26" fill="#FFFFFF" stroke="#D2D7DD"/><text x="500" y="553">trust &rarr; vpn</text><text x="722" y="553" fill="#5C6772" text-anchor="end" font-size="9">21</text>
+          <g transform="translate(490,440)">
+            <rect x="0" y="0" width="240" height="30" fill="#FFFFFF" stroke="#14171A"/>
+            <rect x="0" y="0" width="22" height="30" fill="#F2F4F6" stroke="#D2D7DD"/>
+            <text x="11" y="19" font-size="8" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">1</text>
+            <text x="30" y="19">untrust &rarr; trust</text>
+            <text x="232" y="19" fill="#5C6772" text-anchor="end" font-size="9" font-family="'DejaVu Sans Mono', Menlo, monospace">1 &middot; allow-web</text>
+          </g>
+          <g transform="translate(490,476)">
+            <rect x="0" y="0" width="240" height="30" fill="#FFFFFF" stroke="#14171A"/>
+            <rect x="0" y="0" width="22" height="30" fill="#F2F4F6" stroke="#D2D7DD"/>
+            <text x="11" y="13" font-size="7" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">1</text>
+            <text x="11" y="24" font-size="7" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">2</text>
+            <text x="30" y="19">trust &rarr; mgmt</text>
+            <text x="232" y="19" fill="#5C6772" text-anchor="end" font-size="9" font-family="'DejaVu Sans Mono', Menlo, monospace">2</text>
+          </g>
+          <!-- no set between these zones: absent is drawn as absent, and Fathom does not say what the device does about it -->
+          <g transform="translate(490,512)">
+            <rect x="0" y="0" width="240" height="30" fill="url(#hatch)" stroke="#5C6772" stroke-dasharray="3 2"/>
+            <rect x="0" y="0" width="22" height="30" fill="#FAFBFC" stroke="#D2D7DD" stroke-dasharray="3 2"/>
+            <text x="30" y="19" fill="#5C6772">mgmt &rarr; untrust</text>
+            <text x="232" y="19" fill="#5C6772" text-anchor="end" font-size="9">no policy set</text>
+          </g>
+          <g transform="translate(490,548)">
+            <rect x="0" y="0" width="240" height="30" fill="#FFFFFF" stroke="#14171A"/>
+            <rect x="0" y="0" width="22" height="30" fill="#F2F4F6" stroke="#D2D7DD"/>
+            <text x="11" y="19" font-size="7" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">1&ndash;21</text>
+            <text x="30" y="19">trust &rarr; vpn</text>
+            <text x="232" y="19" fill="#5C6772" text-anchor="end" font-size="9" font-family="'DejaVu Sans Mono', Menlo, monospace">21</text>
+          </g>
         </g>
 
         <!-- routing: the way out, next to untrust -->
@@ -214,7 +239,7 @@
           <rect x="760" y="384" width="170" height="60" fill="#FFFFFF" stroke="#D2D7DD"/>
           <text x="770" y="402" font-size="10" font-weight="700" fill="#5C6772">ospf area 0</text>
           <text x="770" y="418" font-size="9" fill="#5C6772">core-01, core-02</text>
-          <text x="770" y="434" font-size="9" fill="#A8571B">simple-password</text>
+          <rect x="768" y="424" width="90" height="14" fill="#FBF3EA" stroke="#A8571B" stroke-width="0.8"/><text x="772" y="434" font-size="9" fill="#A8571B">simple-password</text>
         </g>
 
         <!-- ===== THE TRACE: one lit path through the box, in the order it happens ===== -->
@@ -227,16 +252,16 @@
           <path d="M 778 194 C 600 100, 300 100, 102 146" stroke="#D2D7DD" stroke-width="9"/>
           <path d="M 58 146 C 30 140, 20 150, -10 150" stroke="#D2D7DD" stroke-width="9"/>
 
-          <path d="M -10 210 C 20 210, 30 200, 58 202" stroke="#8A8F94" stroke-width="2.6"/>
+          <path d="M -10 210 C 20 210, 30 200, 58 202" stroke="#9FA4A9" stroke-width="2.6"/>
           <path d="M 102 202 C 150 202, 170 194, 208 194" stroke="#14171A" stroke-width="2.6"/>
           <path d="M 334 194 C 400 194, 430 172, 512 172" stroke="#14171A" stroke-width="2.6"/>
           <path d="M 722 172 C 745 172, 745 335, 760 335" stroke="#14171A" stroke-width="2.6"/>
           <path d="M 930 335 C 950 335, 950 194, 914 194" stroke="#14171A" stroke-width="2.6"/>
           <path d="M 778 194 C 600 100, 300 100, 102 146" stroke="#14171A" stroke-width="2.6"/>
-          <path d="M 58 146 C 30 140, 20 150, -10 150" stroke="#A33A3A" stroke-width="2.6"/>
+          <path d="M 58 146 C 30 140, 20 150, -10 150" stroke="#D83228" stroke-width="2.6"/>
         </g>
-        <use href="#rj45" x="80" y="192" width="22" height="20" fill="#8A8F94" stroke="#8A8F94"/>
-        <use href="#rj45" x="80" y="136" width="22" height="20" fill="#A33A3A" stroke="#A33A3A"/>
+        <use href="#rj45" x="80" y="192" width="22" height="20" fill="#9FA4A9" stroke="#9FA4A9"/>
+        <use href="#rj45" x="80" y="136" width="22" height="20" fill="#D83228" stroke="#D83228"/>
         <g font-size="9" font-family="'DejaVu Sans Mono', Menlo, monospace" text-anchor="middle">
           <rect x="130" y="176" width="52" height="13" fill="#FFFFFF" stroke="#14171A" stroke-width="0.7"/><text x="156" y="186" fill="#14171A">1 &middot; in</text>
           <rect x="396" y="168" width="60" height="13" fill="#FFFFFF" stroke="#14171A" stroke-width="0.7"/><text x="426" y="178" fill="#14171A">2 &middot; zone</text>
@@ -258,10 +283,10 @@
         </g>
 
         <!-- absent, shown as absent -->
-        <rect x="490" y="600" width="440" height="60" fill="#FFFFFF" stroke="#D2D7DD" stroke-dasharray="3 2"/>
-        <text x="500" y="620" font-size="9" fill="#5C6772" letter-spacing="1">NOT IN THE PASTE</text>
-        <text x="500" y="640" font-size="11" fill="#5C6772">NAT &middot; screens &middot; IDP &middot; routing-instances (1 reference pending)</text>
-        <text x="500" y="654" font-size="9" fill="#5C6772">Absent is drawn as absent, never as "none configured".</text>
+        <rect x="490" y="606" width="440" height="60" fill="#FFFFFF" stroke="#D2D7DD" stroke-dasharray="3 2"/>
+        <text x="500" y="626" font-size="9" fill="#5C6772" letter-spacing="1">NOT IN THE PASTE</text>
+        <text x="500" y="646" font-size="11" fill="#5C6772">NAT &middot; screens &middot; IDP &middot; routing-instances (1 reference pending)</text>
+        <text x="500" y="660" font-size="9" fill="#5C6772">Absent is drawn as absent, never as "none configured".</text>
 
         <text x="60" y="806" font-size="10" fill="#5C6772">In, zone, policy, route, out &mdash; every trace crosses the box in that order. The verdict is in row 1. Fathom points at it and does not read it for you.</text>
       </svg>

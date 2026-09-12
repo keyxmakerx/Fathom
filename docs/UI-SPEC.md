@@ -2,6 +2,9 @@
 
 **Pictures:** https://claude.ai/code/artifact/e4306f02-80bb-447b-99e9-7b2dede0a541
 Sources in `design/rebuild/*.dc.html`. Tokens in `design/tokens.css`.
+**The `Legend` board on page 1 is the one to open first when building any canvas surface** — the four
+glyphs, the three line constructions, both palettes, the presence marks and the portal rule, on one
+small board. The other boards show them in use.
 
 **Read this page by default. Open the pictures only when you are actually building one of these
 surfaces** — they are large, and re-reading them every turn is the cost this project has already
@@ -41,9 +44,20 @@ else reveals on hover or selection.
 droops live between the fixed port and the pointer — you see the slack before you commit.
 
 **Colour is the real sheath.** The hue is the lead you actually used, so a cable in your hand can be
-found on screen and back. Per-cable, from stock lead colours.
+found on screen and back. Per-cable, from stock lead colours: grey, blue, red, yellow, green, orange,
+purple, black, white for copper; per TIA-598-C for fibre — orange OM1/OM2, aqua OM3/OM4, erika violet
+OM4 (some makers), yellow OS2. Tokens `--sheath-*`. **Plastic has no dark-theme variant** — it does
+not change colour when the lights go off; only ink adapts. A sheath within a hairline of the page gets
+a hairline outline (white on light, black on dark).
 
-**Type is the line, not the hue.** Copper one stroke · fibre a pair (white core) · power heavy.
+**Type is the line, not the hue.** Copper one stroke · fibre a pair (pale core) · power heavy. Yellow
+and orange exist on both copper and fibre; the pair is what tells them apart. Tokens `--cable-*`.
+
+**Plastic is a line. Ink is a box.** A sheath colour is only ever a cable stroke (and the port it
+fills). A risk colour is only ever a bordered wash with words in it — never bare coloured text, never
+a cable, never a port. That is what lets a red lead and a *disruptive* chip share a screen: one is a
+line, the other is a box. Decided 2026-09-12, because the approved firewall board already puts a
+caution on the canvas beside a red cable, so location alone was never going to hold.
 
 **One cable per port.** Type decided by the port you start from. Only compatible ports stay live
 during a drag; the rest dim.
@@ -61,8 +75,11 @@ Everything off the lit path sits at **28%**; the path itself carries a pale halo
 
 ## Portals
 
-A cable that leaves the view ends in a dashed tray above or below the rack, naming where it goes and
-how many. Not an unknown — elsewhere. Click to follow.
+Not either/or — **both**. The cable visibly sags to the edge of the view *and* ends in a dashed tray
+there, naming where it goes and how many cross. A tray with no cable reaching it would read as a
+disconnected box; a cable off the edge with no tray would read as unknown. Above or below the rack;
+on the left edge inside a box, arrow pointing out. When the lit path continues through it the tray's
+outline goes solid with the continuation named above it. Click to follow. Decided 2026-09-12.
 
 ## Power
 
@@ -79,7 +96,10 @@ cabled**, seen from inside — the cable continues through the wall.
 
 - **Server**: bond as a box with jacks; a VLAN-aware bridge drawn as a small switch faceplate,
   because that is what it is; guests as cards with a vNIC jack on the edge. One lit path out.
-  A bond member is **a choice, not a fact** — name both, guess neither.
+  A bond member is **a choice, not a fact** — name both, guess neither. Its 10G jacks are SFP+
+  cages; **the LC glyph lives on the patch panel, not the server** — a server has cages.
+- **A virtual link has no sheath.** vNIC → bridge → bond draws in muted (ink when lit), and takes a
+  colour only at the jack where it becomes a cable. So a black lead and a logical link never collide.
 - **Firewall**: zones are regions inside the box, interfaces sit in them. A policy set is a stack
   with an ordinal rail — a rack of rules — and rows that can never be reached are **hatched like
   free U**. Trace order: in → zone → policy → route → out.
@@ -103,8 +123,11 @@ or denied · says "could not establish" over a guess · never changes the estate
 
 ## Presence
 
-No cursors. A dashed ring on the device someone is editing, a name chip on the rack rail, a dashed
-ring on a port someone is holding mid-drag. Scoped to the view.
+No cursors — **settled 2026-09-12**. A dashed ring on the device someone is editing, a dashed ring
+on a port someone is holding mid-drag, and a name chip on the rack rail — solid when editing,
+outlined when only looking. Scoped to the view. Two people on one device: two rings, offset. That
+shows the collision; **who wins is a plan question** (`REBUILD-PLAN.md`, open before Phase 4), not a
+drawing one.
 
 ## Motion
 
@@ -121,20 +144,25 @@ outruns the data. If it moves, it must be true now.
 
 ## Look
 
-`design/tokens.css` unchanged. Zero radius, no shadows, 1px hairlines, small type ramp, tabular
-numerals. The three risk colours stay reserved.
+`design/tokens.css` gained `--sheath-*` and `--cable-*` on 2026-09-12, sourced from this page.
+Nothing else changed: zero radius, no shadows, 1px hairlines, small type ramp, tabular numerals. The
+three risk colours stay reserved — and are now kept apart from the sheath palette by form, above.
 
 ---
 
-## Open
+## Closed 2026-09-12
 
-- **Palette collision.** Red, green and orange are stock lead colours *and* the reserved risk hues.
-  Separated today by location — sheath only on the canvas, risk only in panels. Alternative: a lead
-  palette avoiding those three.
-- **Portals** — dashed trays, or a cable that visibly runs off the edge?
-- **Presence** — is no-cursors enough?
-- Unfinished on the boards: SFP/LC glyphs not yet pulled into the server view; the firewall's other
-  zone pairs are still a plain list.
+All four items that were open at approval are decided above: the palette collision (plastic is a
+line, ink is a box), portals (both), presence (no cursors, settled), and the two unfinished boards
+(the server now has SFP+ cages with a fibre pair leaving; the firewall's other zone pairs are the
+same stack object, collapsed, with their ordinals on the rail). The `Legend` board carries all of it.
+
+**Residuals, accepted rather than open:**
+
+- On the dark theme, black and white leads are the hardest pair to tell apart — as in a dark
+  cabinet. The outline rule is the mitigation; there is no better one that keeps colour honest.
+- The firewall board no longer says *implicit deny* for a zone pair with no policy set. Fathom draws
+  the absence and does not say what the device does about it. That is the rule applied, not a loss.
 
 ## Parked
 
