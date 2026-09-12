@@ -239,6 +239,8 @@ not scheduled.
 ## Who does the work
 
 Roles, not running processes. Each is spawned only when needed.
+**Defined in `.claude/agents/` — one file each, carrying the model and effort level for that
+role.** Lead is this session; it has no file.
 
 | Role | Used for |
 |---|---|
