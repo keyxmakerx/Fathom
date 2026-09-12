@@ -60,6 +60,13 @@ replaced with a standard algorithm.
 
 ## Known limits worth remembering
 
+**The compose stack has not been started end to end.** `deploy/compose.yaml` and
+`deploy/init-db/10-app-role.sh` were verified by mechanism on 2026-09-12 — the exact SQL was run
+against a real PostgreSQL 16, the resulting role and database were confirmed to let the server
+migrate and serve, and `docker compose config` renders correctly — but the pinned image could not be
+pulled in this environment (registry egress blocked). **Run `docker compose up` from a clean checkout
+somewhere with registry access before calling deployment proven.**
+
 **The server refuses to start on a broken schema, deliberately.** `EngineState::load` runs every
 gate and will not serve a vocabulary that fails one. Before 2026-09-12 it started anyway, reported
 healthy, and served an empty kind list — an independent check reproduced that against a live
