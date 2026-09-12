@@ -16,20 +16,30 @@ dependencies on the client side, deliberately.
 the actual numbers off `fathom-schema-check`; this line has been wrong before.
 
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL,
-shuts down cleanly, and runs behind TLS in a composed stack. **It stores nothing yet** — exactly
-one table exists, the migrations table. That was deliberate: no row gets written before key
-custody is settled, and it now is.
+shuts down cleanly, and runs behind TLS in a composed stack. **It now stores identity and
+structure** — accounts, organisations, memberships and the organisation → network → building → rack
+tree — and **nothing the master key protects.** That boundary is enforced by
+`tests/no_key_protected_data.rs`, an allowlist in which every admitted table must say why it carries
+no design payload, credential or wrapped key. Designs and credentials wait on the tables that
+encrypt them, now unblocked by ADR-0043.
+
+**Tenant isolation holds at two layers**, and both were attacked before being trusted. An
+application filter in every repository function, and PostgreSQL row-level security driven by a
+transaction-local setting — never a session-level one, because a pooled connection would carry it to
+the next request. The server **refuses to start** if its own database role could bypass row-level
+security. A six-lens adversarial review of the first cut reproduced a cross-tenant privilege
+escalation against a live database; migration 0003 closes it by splitting every policy by command,
+so the branch that lets an account see its own memberships can never be used for a write.
+
+**The engine seam.** As of 2026-09-12 the server depends on `fathom-schema`, `fathom-graph` and
+`fathom-id`. It loads the `schema/` tree once at startup and serves `GET /schema/kinds` off the
+loaded tree. Before this, the two halves of the codebase shared nothing. `fathom-graph` and
+`fathom-id` have no caller yet.
 
 **The dependency gate.** Five layers, none redundant: approval records per crate, lookalike-name
 detection, a publication cooldown, licence and source allowlisting, and a vulnerability database
 check. 115 external crate versions in the lockfile after the server landed (the lockfile
 holds 132 entries; 17 of them are our own workspace crates, which no gate reviews).
-
-**The engine seam.** As of 2026-09-12 the server depends on `fathom-schema`, `fathom-graph` and
-`fathom-id`. It loads the `schema/` tree once at startup and serves `GET /schema/kinds` off the
-loaded tree. Before this, the two halves of the codebase shared nothing. It still stores nothing:
-`tests/stores_nothing.rs` is unchanged and still passes. `fathom-graph` and `fathom-id` have no
-caller yet.
 
 **Key handling.** Decided and ratified: a data key per tenant and per design, wrapped by a master
 key, custody switched by re-wrapping keys rather than re-encrypting data.
