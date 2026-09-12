@@ -22,6 +22,7 @@
 | § | |
 |---|---|
 | A | Blocks the server, now — 3 questions |
+| V | **The vault — 3 calls, raised 2026-09-12, all block the credential vault** |
 | B | **The questions nobody has asked yet** — 12, six of them blocking |
 | C | Cheap to answer now, expensive once built on — server shape |
 | D | Cheap now, expensive later — the data model |
@@ -420,6 +421,69 @@ Seven verification passes failed on an infrastructure error rather than a findin
 neither confirmed open nor confirmed answered: the scope of invariant 1, hosting firmware images,
 per-site diagram partitions, required fields on an empty chart, a top-down view, the type token,
 and passive plant. **Treat them as unknown, not closed.** They are cheap to re-check.
+
+## V. The vault — raised 2026-09-12
+
+Three calls the security review surfaced while resolving majors 1, 4 and 7 of
+`docs/PHASE-2-STORAGE-DESIGN.md`. All three are yours, not ours, and all three block building the
+credential vault. Everything technical around them is already decided and written up in §11 of that
+page.
+
+### V1. A passphrase you choose, or a key Fathom generates for you?
+
+**The problem.** The vault's whole strength against a stolen backup is that one secret. The standard
+(NIST) says a password used on its own must be at least 15 characters — but NIST's own appendix says
+that floor is sized for someone *guessing at a login screen*, and an attacker holding a stolen
+database needs passwords "orders of magnitude more complex" than that. A 15-character passphrase you
+chose is the minimum acceptable secret here, not a strong one.
+
+**The alternative.** Fathom generates a 128-bit recovery key — about 26 characters — and you print it
+or put it in a password manager. Nothing you can choose is weaker than what you are given, the
+key-strength settings stop being the weak link entirely, and "lose it and those credentials are gone"
+becomes an honest printed artefact instead of a memory test.
+
+**The cost.** It is a real change in how it feels to use. You cannot just remember it.
+
+**Our recommendation: the generated key.** But it is your product's feel, so you decide.
+
+### V2. Should the names of your sites and designs be encrypted?
+
+**Today they would not be.** Anyone with a copy of the database — a backup file, a stolen dump, no
+key needed — reads your organisation's name, every building, every rack, every design name, who
+edits what and how often. The drawings themselves stay encrypted. It is a target list with sites and
+the names of the people who maintain them.
+
+**Encrypting them costs four things,** and only the third is serious:
+
+1. Sorting and searching by name happens in your browser instead of on the server. At your scale this
+   is genuinely cheap.
+2. The database can no longer enforce that two designs have different names. The app checks instead.
+3. **Every place the server mentions a design by name loses the name** — notification emails, audit
+   entries, export filenames, error messages, support diagnostics. Each has to either look the name
+   up in your browser or keep a readable copy — and a readable copy in the audit log puts the leak
+   straight back. This is the one that costs real work, and it has to be decided before we build,
+   not after.
+4. **Restoring a backup gets harder.** An operator looking at a restored database cannot tell which
+   design is which without the key. You may be that operator.
+
+**What it does not buy:** Fathom's server can still read these names while it is running. This
+protects a stolen copy, nothing more.
+
+### V3. Should there be a second key held by the server?
+
+Argon2 — the thing that turns your passphrase into a key — can take an extra secret alongside it.
+Keep that secret in a file on the server rather than in the database, and a stolen database becomes
+uncrackable no matter how weak the passphrase was. That is exactly the attack the vault exists to
+survive.
+
+**Three costs, stated plainly:** it does nothing if someone compromises the running server; it cannot
+be changed without every user re-entering their passphrase; and if that file is ever lost, every
+credential in the vault is gone permanently.
+
+**Our recommendation: record it as an option, do not build it in this phase.** Answer only if you
+disagree.
+
+---
 
 ## What was dropped, and why that matters
 

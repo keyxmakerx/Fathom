@@ -1,6 +1,7 @@
 # Phase 2 — Storage, keys and the vault
 
-**Status:** REVISED AFTER ATTACK, 2026-09-11. Not accepted. Not built.
+**Status:** REVISED AFTER ATTACK, 2026-09-11. Majors 1, 4 and 7 resolved 2026-09-12 (§11).
+**Not accepted. Not built.** Four majors remain open in §10: 2, 3, 5 and 6.
 **Review:** `PHASE-2-ATTACK-REPORT.md` — 6 lenses, 36 findings, 20 survived verification, 16
 refuted. 5 blockers, all addressed below. 7 majors, tracked in §10.
 **Binding inputs:** ADR-0040 (key custody), ADR-0042 (the credential vault), the owner's answers
@@ -236,6 +237,10 @@ entry breaks the chain from that point forward.
 entry_n.seal = MAC( key_chain , entry_{n-1}.seal || entry_n.content_hash || entry_n.metadata )
 ```
 
+> **SUPERSEDED 2026-09-12 — do not build this line. See §11.2.** Bare concatenation of three
+> variable-length values admits a splice: a different field split producing the same byte string is
+> a different history with the same seal. Every field is length-prefixed in the replacement.
+
 **Choice: keyed, not a plain hash.** A plain hash chain is rewritable by anyone who can write the
 table — recompute every seal forward and it verifies perfectly. A keyed seal cannot be forged
 without the key, and the chain key is **not** the design key and is not held by the database.
@@ -313,7 +318,7 @@ Named so nobody assumes it was considered:
 
 From `PHASE-2-ATTACK-REPORT.md`. Each survived independent verification; none blocks starting.
 
-1. **Argon2id parameters are unspecified.** Memory, time, parallelism, salt custody and a passphrase
+1. **Argon2id parameters are unspecified.** **RESOLVED 2026-09-12 — see §11.1.** Memory, time, parallelism, salt custody and a passphrase
    floor all need naming — and **rule 1 applies: look them up and cite a source with a date. Do not
    write a number from memory.** Structure: passphrase → Argon2id → key-encrypting key; that wraps a
    random vault master key; that wraps per-entry keys. Carry the parameters per entry in the schema
@@ -326,7 +331,7 @@ From `PHASE-2-ATTACK-REPORT.md`. Each survived independent verification; none bl
    ADR-0042 makes mode-B access logging the sole compensating control. Extend §6's construction to a
    per-tenant vault audit chain. Make mode changes first-class sealed events, and write the rule
    nobody has written: who may change a credential's mode, with re-consent on A→B.
-4. **`content_hash` is undefined**, and both readings break something. Over ciphertext, a routine
+4. **`content_hash` is undefined, and both readings break something.** **RESOLVED 2026-09-12 — see §11.2.** Over ciphertext, a routine
    upgrade invalidates every seal at once and looks exactly like an attack. Over plaintext, a swapped
    blob survives a cheap check. Define it, and make verification report three outcomes: verified,
    broken at entry N, or cannot verify under key epoch K. Retired chain keys are kept forever with an
@@ -337,13 +342,240 @@ From `PHASE-2-ATTACK-REPORT.md`. Each survived independent verification; none bl
 6. **Mode is invisible** at the token, the export and the point of use. Show it beside every
    `cred_<id>` and give a per-scope count. Putting the mode in exports is a deliberate trade — it
    tells an export holder what is recoverable — so record it as a decision.
-7. **Plaintext metadata discloses the named hierarchy.** A database dump reveals the full named
+7. **Plaintext metadata discloses the named hierarchy.** **RESOLVED 2026-09-12 — see §11.3.** A database dump reveals the full named
    organisation → network → building → rack tree plus authorship and activity volumes, with no key.
    Replace §1's bare "Low" with a one-line threat model the backup documentation repeats, and decide
    explicitly whether design names are encrypted.
 
 Also open, unresolved rather than decided: per-version `size` is a device-count oracle — bucket it
 and pad, or accept and document it. Compression is unspecified, which is the actual gap.
+
+---
+
+## 11. Majors 1, 4 and 7 — resolved 2026-09-12
+
+Resolved by the security role. **Every lookup below was made on 2026-09-12** and every figure is
+attributed, per rule 1.
+
+> **Read this caveat before using any number here.** The session's egress proxy blocked
+> `rfc-editor.org`, `datatracker.ietf.org`, `ietf.org`, `csrc.nist.gov`, `nvlpubs.nist.gov`,
+> `pages.nist.gov`, `cheatsheetseries.owasp.org` and `eprint.iacr.org`. **RFC 9106's own text was
+> not read.** Its parameter values here are second-hand, from `argon2-cffi`'s named profile
+> constants, corroborated by two independent search summaries that agree. OWASP and NIST figures
+> come from their source repositories rather than their published sites. §11.5 lists every lookup
+> that must be redone with unrestricted network access before the vault ships.
+
+### 11.1 Argon2id — major 1
+
+**Parallelism is 1, and this is forced, not chosen.** Fathom derives this key in the browser, in the
+WASM module whose import allowlist is deliberately empty. Multi-lane Argon2 needs threads, threads
+need `SharedArrayBuffer`, and that needs COOP/COEP cross-origin isolation on every page — a
+deployment constraint, a self-hosted support burden, and new imports through a gate this project
+keeps closed. `argon2-cffi` states it outright: *"In WebAssembly environments `parallelism` must be
+1."* libsodium hard-codes it to 1 unconditionally. **RFC 9106's published profiles use p=4 and are
+therefore not directly usable.** Record the reason here so nobody later "fixes" it.
+
+Dropping p at fixed m and t does not reduce the attacker's cost — it makes the defender slower for
+the same cost. That is a knowing trade.
+
+**Floor, compiled into the client: m ≥ 65536 KiB (64 MiB), t ≥ 3, p = 1.** 64 MiB is simultaneously
+libsodium's INTERACTIVE memory and RFC 9106's second-recommended memory; t=3 is that profile's
+iteration count. It is ~3.4× OWASP's stated minimum, which is the right direction: **OWASP's ladder
+is calibrated for a server hashing on every login, and this is a once-per-session vault unlock.**
+Those are different workloads and the two-orders-of-magnitude spread between published figures is
+about that, not about the algorithm.
+
+**This is a floor. The target is calibrated, because the algorithm's own designers say so** — the
+Argon2 v1.3 spec §9 gives a procedure, not numbers. Measure on the slowest supported device at p=1,
+raise **m first**, then t, to roughly 0.5–1.0 s. Record the measured numbers, the device and the
+date; those are what go stale.
+
+**Salt: 16 bytes from a CSPRNG, per user, and it is not secret.** NIST SP 800-63B-4: *"Both the salt
+value and the resulting hash SHALL be stored for each password."* OWASP draws the contrast
+explicitly — secrecy is the *pepper's* property, not the salt's. It lives in the database beside the
+wrapped master key, in the clear. Say so rather than leaving it to be inferred. Output 32 bytes.
+
+**Structural correction — the parameters do not go on the entry.** §10 said "per entry", and that
+contradicts the structure the same paragraph settles. In `passphrase → Argon2id → KEK → random vault
+master key → per-entry keys`, the derivation runs **once per user per unlock**, not once per entry.
+Parameters on the KEK record; only `vmk_epoch` on the entry. This is the whole reason the KEK/master
+-key indirection exists — raising the parameters then rewrites **one row** and re-encrypts nothing.
+
+**The refusal floor bites on the write path, not the read path.** Argon2's own §3.2 makes m, t, p,
+version and type inputs to the derivation, so a server serving *lowered* parameters for an existing
+wrap produces a different key and the unwrap simply fails its tag. The attacker gains nothing. The
+real attack is at **vault creation, passphrase change, recovery-key rotation and recipient
+enrolment**, where the client would derive under hostile parameters and store a permanently cheap
+wrap. Same shape as the 2023 Bitwarden server-iterations issue (identified by search; the write-up
+itself was blocked, so it is second-hand). **Rule: on the write path the client uses its own
+compiled constants and there is no code path that accepts parameters from the server.**
+
+**Below-floor parameters on read — three bands, because one rule cannot cover both cases.** A single
+"refuse" bricks legitimately old vaults; a single "warn" lets a downgrade through.
+
+1. **Below the hard floor** (m < 8 MiB, t < 1, p ≠ 1, unknown algorithm or version): refuse to derive
+   at all. Report it as *"the server sent key-derivation parameters below this client's minimum"* —
+   a tamper signal, never "wrong passphrase". Offer raw-ciphertext export so a user facing a hostile
+   or broken server is not trapped.
+2. **Between the hard floor and the current target:** derive, unlock, then upgrade — re-derive at
+   current parameters and re-wrap the master key on the next successful unlock. One row. Show a
+   persistent state on the vault meanwhile, and write the upgrade as a sealed audit event so a
+   parameter *reduction* is visible as an event that should never appear.
+3. **At or above target:** proceed, and display the parameters where a user can see them, so a change
+   between sessions is observable at all.
+
+Pin the parameters in local browser state (trust on first use) beside the public-key fingerprints,
+and bind `algo‖version‖m‖t‖p‖salt‖kek_params_id` into the AEAD associated data of the master-key
+wrap, so failure resolves to `Misbound` vs `Refused` at exactly one path — the discipline the B1 fix
+already set for design keys.
+
+**None of this defends a running compromised server, which serves the JavaScript.** Keep that
+sentence beside the floor so the floor is not oversold.
+
+### 11.2 `content_hash` and the seal — major 4
+
+**Bind both domains and keep them separable.** That is what dissolves the dilemma: the plaintext
+binding is rotation-invariant, so a key upgrade does not invalidate it; the storage binding pins the
+actual bytes, so a swapped blob is caught without decrypting anything.
+
+**Length-prefix every variable-length field.** `LP(x) = u32_le(len(x)) ‖ x`. The superseded line in
+§6 concatenates three variable-length values bare, which admits a splice. This rule costs nothing now
+and cannot be retrofitted without invalidating every seal ever written.
+
+Subkeys, domain-separated from the per-design chain key of B5:
+
+```
+K_seal    = HKDF(key_chain_epoch_e, info = "fathom/chain/seal/v1")
+K_content = HKDF(key_chain_epoch_e, info = "fathom/chain/content/v1")
+
+plaintext_binding = MAC(K_content, LP("fathom/chain/plaintext/v1")
+    ‖ LP(tenant_id) ‖ LP(design_id) ‖ u64(design_version)
+    ‖ u32(payload_schema_version) ‖ LP(plaintext_payload_bytes))
+
+storage_binding   = MAC(K_content, LP("fathom/chain/storage/v1")
+    ‖ LP(key_id) ‖ u32(key_epoch) ‖ u32(wrap_version) ‖ u16(aead_alg_id)
+    ‖ LP(nonce) ‖ LP(ciphertext_including_tag))
+
+content_hash      = MAC(K_content, LP("fathom/chain/content/v1")
+    ‖ LP(plaintext_binding) ‖ LP(storage_binding))
+
+seal_n            = MAC(K_seal, LP("fathom/chain/seal/v1")
+    ‖ u32(chain_key_epoch) ‖ u64(seq_n) ‖ LP(tenant_id) ‖ LP(design_id)
+    ‖ LP(seal_{n-1}) ‖ LP(content_hash_n) ‖ LP(entry_type) ‖ LP(canon(metadata_n)))
+```
+
+Genesis is `LP(H("fathom/chain/genesis/v1" ‖ tenant_id ‖ design_id))`. `canon` is `fathom-canon`'s
+canonical bytes. `chain_key_epoch` is stored on **every** entry and retired chain keys are kept
+forever.
+
+**`content_hash` is keyed, and that is not decoration.** An unkeyed hash of plaintext is a
+confirmation oracle for anyone holding a dump: they can test whether two versions are identical,
+whether two tenants hold the same design, or whether a guessed payload is the real one — with no
+key, against the highest-value thing in the system after credentials. Keying costs nothing because
+every verifier already holds the chain key.
+
+**Poly1305 must not be the chain MAC.** RustCrypto's own source: *"Poly1305 is not a traditional MAC
+and is single-use only (a.k.a. 'one-time authenticator')."* It is fine inside ChaCha20-Poly1305,
+where it gets a fresh one-time key per message; lifting it out and keying it repeatedly breaks it.
+HMAC-SHA-256 or keyed BLAKE2b/KMAC — **and that choice needs its own dated lookup before building.**
+
+**Re-encryption becomes a recorded fact rather than an alarm.** A `reencrypt` entry type carries
+`plaintext_binding` across unchanged — which is itself the proof that the content did not change
+when the bytes did — and records old and new epochs, wrap versions and storage bindings. A verifier
+meeting a storage-binding mismatch looks for a `reencrypt` entry accounting for it: found, routine;
+absent, broken. This is what stops a `docker compose pull` looking exactly like an attack and
+teaching operators to dismiss the alarm.
+
+**The three outcomes, made precise:**
+
+- **verified** — every seal recomputes, `seq` is contiguous, and the stored blob's storage binding
+  matches directly or via a `reencrypt` chain. No decryption. This is the routine check.
+- **broken at entry N** — N is the **first** index where any of four things fail: the seal does not
+  recompute, the sequence skips or repeats, the storage binding mismatches unexplained, or
+  `prev_seal` does not match N−1. Report N, its metadata, and which of the four. Everything before N
+  is still verified and is reported as such.
+- **cannot verify under key epoch K** — a coverage gap, not a failure. Report the contiguous ranges
+  affected and the epochs missing.
+
+A fourth sub-state belongs to the third: **links verified, content not re-bound**, when the design
+key was unavailable or deep verification was not requested. *"Content not checked" must never render
+the same as "content verified."*
+
+Routine verification is links plus storage bindings, no decryption, runnable by an operator holding
+only the chain key. Deep verification additionally decrypts and recomputes the plaintext binding.
+**Both must name which they ran.**
+
+### 11.3 Plaintext metadata — major 7
+
+§1's bare "Low" is replaced by this, and the backup and restore documentation repeats it verbatim:
+
+> **Structure and identity are stored in the clear.** Anyone holding a database dump or a backup
+> file — with no key — learns who the customer is, the full named organisation → network → building
+> → rack tree, the names of designs, who edits what, and how often. The designs themselves stay
+> encrypted. Treat a backup as disclosing the estate's map legend, not its map.
+
+**Recommendation: encrypt design names, and make the scope path out of opaque ids with display names
+encrypted per node.** The path is the expensive half and must land before the first migration — §2
+already notes a subtree move rewrites every descendant. Prefix queries for presence and permission
+work identically on opaque tokens, so the materialised-path design is unaffected.
+
+**What it costs, which is the half that decides it:**
+
+1. No server-side ordering, filtering or search by name — fetch, decrypt, sort client-side. At
+   hundreds of designs this is genuinely cheap, and §3 already gave up server-side search. **Low.**
+2. No database-level uniqueness on names. Check it client-side at create time; the client holds the
+   list anyway. **Do not** add a blind index, deterministic column or order-preserving encryption to
+   get sorting back — equality leakage is the surface inference attacks on property-preserving
+   encryption target.
+3. **The real cost, and it is not the queries: every server-side surface that names a design loses
+   the name** — audit rows, notifications, export filenames, error messages, support diagnostics,
+   admin tooling, presence, job logs. Each must carry an id and render client-side, or keep a
+   plaintext copy — **and a plaintext copy in the audit log is the leak returning through a side
+   door.** This is where the decision is actually paid for and why it cannot wait.
+4. Operational pain on restore: an operator cannot tell which design is which without the key.
+5. **What it does not buy:** names encrypted under the tenant hierarchy are readable by the server at
+   runtime, exactly like the payload in §2a. This protects a stolen dump. The four forbidden
+   sentences apply here as everywhere.
+6. **What stays disclosed regardless:** tenant identity, the shape and size of the tree, node ids,
+   authorship, timestamps, activity volumes, per-version size. Encrypting names narrows the
+   disclosure from the estate's map legend to its silhouette — say that, so the change is not read
+   as making the metadata safe.
+
+### 11.4 Sent to the owner, not decided here
+
+Three of these are the owner's call and are listed in `docs/OPEN-QUESTIONS.md`:
+
+- **A generated 128-bit recovery key instead of a chosen passphrase.** NIST's floor is 15 characters
+  for single-factor, with a blocklist and no composition rules — but NIST's own Appendix A says
+  offline attacks need passwords "orders of magnitude more complex" than that. A machine-generated
+  key removes the KDF parameters from the critical path entirely and makes "forget it and the
+  entries are gone" an honest printable artefact rather than a memory test. It is also a real UX
+  change.
+- **Whether design names are encrypted**, given cost 3 and cost 4 above.
+- **Whether to add a server-held pepper.** Argon2 supports a secret input directly; it would make a
+  stolen dump uncrackable at any passphrase strength — which is exactly Mode A's threat. But it does
+  nothing against a running compromised server, it cannot be rotated without every user re-deriving,
+  and losing the pepper file destroys every Mode A entry. Recommended as a recorded option, not for
+  Phase 2.
+
+### 11.5 Lookups that must be redone with network access
+
+Blocked this session and therefore **unestablished**:
+
+- **RFC 9106 itself.** Every figure attributed to it here is second-hand.
+- Whether Argon2id is a NIST-approved password hashing scheme. SP 800-63B-4 points at SP 800-132,
+  whose own reference entry is dated **2010** — predating the Password Hashing Competition — so it
+  is likely outside the approved set, but only blog posts said so outright. **If FIPS matters to a
+  customer this is its own dated lookup.**
+- IACR ePrint **2026/058**, *"Zero Knowledge (About) Encryption"* — analyses a fully malicious
+  password-manager server against Bitwarden, LastPass and Dashlane. The single most relevant outside
+  work to Mode A. **Read it in full before the vault ships.**
+- The Bitwarden server-iterations write-up, and the Naveed–Kamara–Wright inference-attack paper
+  (venue and authorship verified, text not read).
+- The safe message limit for ChaCha20-Poly1305 under random 96-bit nonces, before the key hierarchy
+  is finalised.
+- Advisory status for `argon2` and `chacha20poly1305`: **nothing found** on 2026-09-12 against a
+  working control, which is a result and not a clean bill of health. It goes stale immediately.
 
 ---
 
