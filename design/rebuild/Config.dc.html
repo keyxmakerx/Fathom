@@ -12,11 +12,12 @@
     a { color: #14171A; } a:hover { color: #5C6772; }
     * { box-sizing: border-box; }
     .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
-    .ln { display: grid; grid-template-columns: 40px 18px 1fr; font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; line-height: 19px; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; }
+    .ln { display: grid; grid-template-columns: 40px 16px 1fr; font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; line-height: 19px; }
     .ln .n { color: #5C6772; text-align: right; padding-right: 8px; font-variant-numeric: tabular-nums; }
     .ln .g { text-align: center; color: #5C6772; font-size: 10px; }
     .ln .c { padding-left: 8px; white-space: pre; }
-    .tab { padding: 6px 14px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #5C6772; border-bottom: 2px solid transparent; }
+    .tab { padding: 6px 12px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #5C6772; border-bottom: 2px solid transparent; }
     .tab.on { color: #14171A; font-weight: 700; border-bottom-color: #14171A; }
   </style>
 </helmet>
@@ -25,119 +26,133 @@
   <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0;">
     <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
     <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
-      <span>IDF-2</span><span style="color: #D2D7DD;">&rsaquo;</span><span>hq-fw-01</span><span style="color: #D2D7DD;">&rsaquo;</span><span style="color: #14171A; font-weight: 700;">config</span>
+      <span>IDF-2</span><span style="color: #D2D7DD;">&rsaquo;</span><span>Rack A-04</span><span style="color: #D2D7DD;">&rsaquo;</span><span style="color: #14171A; font-weight: 700;">hq-fw-01</span>
     </div>
     <div style="flex-grow: 1;"></div>
-    <div style="font-size: 11px; color: #5C6772; font-variant-numeric: tabular-nums;">junos-srx &middot; 122 lines &middot; <span style="color: #14171A;">70 understood (57%)</span> &middot; 52 kept as text</div>
+    <div style="font-size: 11px; color: #5C6772; font-variant-numeric: tabular-nums;">junos-srx &middot; 122 lines &middot; <span style="color: #14171A;">70 built graph</span> &middot; 52 kept as text &middot; <span style="color: #A8571B;">4 worth a look</span></div>
   </div>
 
   <div style="flex-grow: 1; display: flex; min-height: 0;">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
 
-    <!-- LEFT: the config itself -->
-    <div style="width: 640px; border-right: 1px solid #D2D7DD; display: flex; flex-direction: column; flex-shrink: 0;">
-      <div style="height: 30px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 12px; gap: 12px; font-size: 11px; background: #FAFBFC;">
-        <span style="color: #14171A; font-weight: 700;">Viewer</span>
-        <span style="color: #5C6772;">gutter shows what Fathom built from each line</span>
-        <span style="flex-grow: 1;"></span>
-        <span style="color: #5C6772;">&#9679; built</span><span style="color: #5C6772;">&#9675; kept as text</span>
+      <!-- THE FACEPLATE STAYS. The config is a drawer under it. Click a line, the port it built lights. -->
+      <div style="height: 200px; position: relative; border-bottom: 1px solid #D2D7DD; background: #FAFBFC; flex-shrink: 0; overflow: hidden;">
+        <svg width="1120" height="200" viewBox="0 0 1120 200" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+          <defs>
+            <symbol id="rj45" viewBox="-11 -10 22 20"><path d="M-11 -5 L-11 10 L11 10 L11 -5 L6 -5 L6 -10 L-6 -10 L-6 -5 Z"/></symbol>
+            <symbol id="sfp" viewBox="-14 -6.5 28 13"><rect x="-14" y="-6.5" width="28" height="13"/><line x1="-14" y1="0" x2="14" y2="0" stroke-width="0.8"/><path d="M-11 -6.5 L-11 -9.5 L-3 -9.5 L-3 -6.5" fill="none" stroke-width="1"/></symbol>
+          </defs>
+          <g opacity="0.55">
+            <rect x="40" y="30" width="1040" height="140" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+            <rect x="40" y="30" width="1040" height="30" fill="#F2F4F6" stroke="#14171A"/>
+            <circle cx="58" cy="45" r="4" fill="#14171A"/>
+            <text x="70" y="49" font-size="12" font-weight="700">hq-fw-01</text>
+            <text x="150" y="49" font-size="10" fill="#5C6772">SRX340 &middot; U40&ndash;41 &middot; front</text>
+            <g fill="#14171A" stroke="#14171A" stroke-width="1">
+              <use href="#rj45" x="80" y="100" width="22" height="20"/>
+              <use href="#rj45" x="160" y="100" width="22" height="20" fill="#FFFFFF"/>
+              <use href="#rj45" x="200" y="100" width="22" height="20" fill="#FFFFFF"/>
+              <use href="#rj45" x="240" y="100" width="22" height="20" fill="#FFFFFF"/>
+              <use href="#rj45" x="280" y="100" width="22" height="20" fill="#FFFFFF"/>
+              <use href="#rj45" x="320" y="100" width="22" height="20" fill="#FFFFFF"/>
+              <use href="#rj45" x="360" y="100" width="22" height="20"/>
+            </g>
+            <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+              <use href="#sfp" x="460" y="104" width="28" height="13" fill="#14171A"/><use href="#sfp" x="500" y="104" width="28" height="13"/><use href="#sfp" x="540" y="104" width="28" height="13"/><use href="#sfp" x="580" y="104" width="28" height="13"/>
+            </g>
+            <g font-size="8" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">
+              <text x="91" y="134">0</text><text x="171" y="134">2</text><text x="211" y="134">3</text><text x="251" y="134">4</text><text x="291" y="134">5</text><text x="331" y="134">6</text><text x="371" y="134">7</text>
+              <text x="474" y="134">xe-0</text><text x="514" y="134">xe-1</text><text x="554" y="134">xe-2</text><text x="594" y="134">xe-3</text>
+            </g>
+          </g>
+          <!-- the port line 31 built: lit, with what it means -->
+          <use href="#rj45" x="120" y="100" width="22" height="20" fill="#14171A" stroke="#14171A" stroke-width="2.5"/>
+          <rect x="116" y="96" width="30" height="28" fill="none" stroke="#14171A" stroke-width="1.5" stroke-dasharray="4 3"/>
+          <text x="131" y="134" font-size="8" fill="#14171A" text-anchor="middle" font-weight="700" font-family="'DejaVu Sans Mono', Menlo, monospace">1</text>
+          <g transform="translate(150,68)">
+            <rect x="0" y="0" width="230" height="22" fill="#FFFFFF" stroke="#14171A"/>
+            <text x="8" y="15" font-size="10" font-family="'DejaVu Sans Mono', Menlo, monospace">ge-0/0/1.20 &rarr; zone <tspan font-weight="700">trust</tspan> &middot; built by line 31</text>
+          </g>
+          <text x="1072" y="49" font-size="10" fill="#5C6772" text-anchor="end">click a line below &middot; the port it built lights up here</text>
+        </svg>
       </div>
-      <div style="flex-grow: 1; overflow: hidden; padding: 8px 0;">
+
+      <!-- drawer handle -->
+      <div style="height: 28px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 14px; font-size: 11px; background: #FFFFFF;">
+        <span style="width: 30px; height: 3px; background: #D2D7DD;"></span>
+        <span style="font-weight: 700;">config</span>
+        <span style="color: #5C6772;">&#9679; built graph &nbsp; &#9675; kept as text &nbsp; &#8212; destroyed at the gate</span>
+        <span style="flex-grow: 1;"></span>
+        <span style="color: #5C6772;">fold sections</span>
+      </div>
+
+      <!-- the config -->
+      <div style="flex-grow: 1; overflow: hidden; padding: 6px 0;">
         <div class="ln"><div class="n">29</div><div class="g">&#9679;</div><div class="c">set interfaces ge-0/0/1 unit 20 family inet address 10.10.20.1/24</div></div>
         <div class="ln"><div class="n">30</div><div class="g">&#9679;</div><div class="c">set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30</div></div>
-        <div class="ln"><div class="n">31</div><div class="g">&#9679;</div><div class="c">set security zones security-zone trust interfaces ge-0/0/1.20</div></div>
+        <div class="ln" style="background: #F2F4F6; outline: 2px solid #14171A; outline-offset: -2px;"><div class="n" style="color: #14171A; font-weight: 700;">31</div><div class="g" style="color: #14171A;">&#9679;</div><div class="c" style="font-weight: 700;">set security zones security-zone trust interfaces ge-0/0/1.20</div></div>
         <div class="ln"><div class="n">32</div><div class="g">&#9679;</div><div class="c">set security zones security-zone untrust interfaces ge-0/0/0.0</div></div>
         <div class="ln"><div class="n">33</div><div class="g"></div><div class="c"> </div></div>
-
-        <div class="ln" style="background: #F8EFEF; border-left: 4px solid #8C2F2F;"><div class="n" style="color: #8C2F2F;">34</div><div class="g" style="color: #8C2F2F;">&#9679;</div><div class="c" style="color: #8C2F2F;">set security policies from-zone untrust to-zone trust policy allow-web \</div></div>
-        <div class="ln" style="background: #F8EFEF;"><div class="n" style="color: #8C2F2F;">35</div><div class="g" style="color: #8C2F2F;">&#9679;</div><div class="c" style="color: #8C2F2F;">    match source-address any destination-address any</div></div>
-        <div class="ln" style="background: #F8EFEF;"><div class="n" style="color: #8C2F2F;">36</div><div class="g" style="color: #8C2F2F;">&#9679;</div><div class="c" style="color: #8C2F2F;">set security policies ... policy allow-web then permit</div></div>
-
+        <div class="ln" style="background: #F8EFEF; border-left: 4px solid #8C2F2F;"><div class="n" style="color: #8C2F2F;">34</div><div class="g" style="color: #8C2F2F;">&#9679;</div><div class="c" style="color: #8C2F2F;">set security policies from-zone untrust to-zone trust policy allow-web match source-address any</div></div>
+        <div class="ln" style="background: #F8EFEF;"><div class="n" style="color: #8C2F2F;">35</div><div class="g" style="color: #8C2F2F;">&#9679;</div><div class="c" style="color: #8C2F2F;">set security policies from-zone untrust to-zone trust policy allow-web match destination-address any</div></div>
+        <div class="ln" style="background: #F8EFEF;"><div class="n" style="color: #8C2F2F;">36</div><div class="g" style="color: #8C2F2F;">&#9679;</div><div class="c" style="color: #8C2F2F;">set security policies from-zone untrust to-zone trust policy allow-web then permit</div></div>
         <div class="ln"><div class="n">37</div><div class="g"></div><div class="c"> </div></div>
-        <div class="ln"><div class="n">38</div><div class="g">&#9679;</div><div class="c">set security policies from-zone trust to-zone untrust policy outbound \</div></div>
-        <div class="ln"><div class="n">39</div><div class="g">&#9679;</div><div class="c">    match source-address any ... then permit</div></div>
+        <div class="ln"><div class="n">38</div><div class="g">&#9679;</div><div class="c">set security policies from-zone trust to-zone untrust policy outbound match source-address any</div></div>
+        <div class="ln"><div class="n">39</div><div class="g">&#9679;</div><div class="c">set security policies from-zone trust to-zone untrust policy outbound then permit</div></div>
         <div class="ln"><div class="n">40</div><div class="g"></div><div class="c"> </div></div>
-        <div class="ln" style="background: #FBF3EA; border-left: 4px solid #A8571B;"><div class="n" style="color: #A8571B;">41</div><div class="g" style="color: #A8571B;">&#9679;</div><div class="c" style="color: #A8571B;">set protocols ospf area 0.0.0.0 interface ge-0/0/1.20 \</div></div>
-        <div class="ln" style="background: #FBF3EA;"><div class="n" style="color: #A8571B;">42</div><div class="g" style="color: #A8571B;">&#9675;</div><div class="c" style="color: #A8571B;">    authentication simple-password <tspan>"&lt;destroyed at the gate&gt;"</tspan></div></div>
-        <div class="ln"><div class="n">43</div><div class="g">&#9679;</div><div class="c">set routing-options static route 0.0.0.0/0 next-hop 203.0.113.1</div></div>
-        <div class="ln" style="background: #FBF3EA; border-left: 4px solid #A8571B;"><div class="n" style="color: #A8571B;">44</div><div class="g" style="color: #A8571B;">&#9679;</div><div class="c" style="color: #A8571B;">set forwarding-options dhcp-relay server-group core 10.10.0.9</div></div>
-        <div class="ln"><div class="n">45</div><div class="g"></div><div class="c"> </div></div>
-        <div class="ln" style="opacity: 0.55;"><div class="n">46</div><div class="g">&#9675;</div><div class="c">set system ntp server 10.10.0.9</div></div>
-        <div class="ln" style="background: #FBF3EA; border-left: 4px solid #A8571B; opacity: 0.9;"><div class="n" style="color: #A8571B;">47</div><div class="g" style="color: #A8571B;">&#9675;</div><div class="c" style="color: #A8571B;">set snmp community public authorization read-only</div></div>
-        <div class="ln" style="opacity: 0.55;"><div class="n">48</div><div class="g">&#9675;</div><div class="c">set system services ssh root-login deny</div></div>
-        <div class="ln" style="opacity: 0.55;"><div class="n">49</div><div class="g">&#9675;</div><div class="c">set system syslog file messages any notice</div></div>
-
-        <div style="margin: 14px 12px 0 58px; border: 1px solid #D2D7DD; padding: 8px 10px; font-size: 11px; color: #5C6772; line-height: 16px;">
-          Hollow gutter marks are lines Fathom read and kept but does not model. They are never dropped, and they stay in the export exactly as written.
-        </div>
-        <div style="margin: 10px 12px 0 58px; border-left: 4px solid #14171A; background: #F2F4F6; padding: 8px 10px; font-size: 11px; line-height: 16px;">
-          <strong>Line 42 is not hidden, it is gone.</strong> The password was destroyed when you pasted, before anything was stored. Fathom cannot show it, export it, or answer a question about it.
-        </div>
+        <div class="ln" style="background: #FBF3EA; border-left: 4px solid #A8571B;"><div class="n" style="color: #A8571B;">41</div><div class="g" style="color: #A8571B;">&#8212;</div><div class="c" style="color: #A8571B;">set protocols ospf area 0.0.0.0 interface ge-0/0/1.20 authentication simple-password <span style="background: #14171A; color: #FFFFFF; padding: 0 6px;">destroyed at the gate</span></div></div>
+        <div class="ln"><div class="n">42</div><div class="g">&#9679;</div><div class="c">set routing-options static route 0.0.0.0/0 next-hop 203.0.113.1</div></div>
+        <div class="ln" style="background: #FBF3EA; border-left: 4px solid #A8571B;"><div class="n" style="color: #A8571B;">43</div><div class="g" style="color: #A8571B;">&#9679;</div><div class="c" style="color: #A8571B;">set forwarding-options dhcp-relay server-group core 10.10.0.9</div></div>
+        <div class="ln" style="opacity: 0.55;"><div class="n">44</div><div class="g">&#9675;</div><div class="c">set system ntp server 10.10.0.9</div></div>
+        <div class="ln" style="background: #FBF3EA; border-left: 4px solid #A8571B;"><div class="n" style="color: #A8571B;">45</div><div class="g" style="color: #A8571B;">&#9675;</div><div class="c" style="color: #A8571B;">set snmp community public authorization read-only</div></div>
+        <div class="ln" style="opacity: 0.55;"><div class="n">46</div><div class="g">&#9675;</div><div class="c">set system services ssh root-login deny</div></div>
+        <div class="ln" style="opacity: 0.55;"><div class="n">47</div><div class="g">&#9675;</div><div class="c">set system syslog file messages any notice</div></div>
+        <div class="ln" style="opacity: 0.55;"><div class="n">48</div><div class="g">&#9675;</div><div class="c">set system login user admin class super-user</div></div>
+        <div class="ln" style="background: #FBF3EA; opacity: 0.9;"><div class="n" style="color: #A8571B;">49</div><div class="g" style="color: #A8571B;">&#8212;</div><div class="c" style="color: #A8571B;">set system login user admin authentication encrypted-password <span style="background: #14171A; color: #FFFFFF; padding: 0 6px;">destroyed at the gate</span></div></div>
       </div>
     </div>
 
-    <!-- RIGHT: three tabs -->
-    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0; background: #FAFBFC;">
-      <div style="height: 30px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: stretch; padding: 0 8px; background: #FFFFFF;">
-        <div class="tab">Understood</div>
+    <!-- RIGHT: three tabs, Ask shown -->
+    <div style="width: 420px; border-left: 1px solid #D2D7DD; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div style="height: 30px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: stretch; padding: 0 6px; background: #FFFFFF;">
+        <div class="tab">Line 31</div>
         <div class="tab">Worth a look &middot; 4</div>
         <div class="tab on">Ask</div>
-        <div style="flex-grow: 1;"></div>
-        <div style="display: flex; align-items: center; font-size: 10px; color: #5C6772; padding-right: 6px;">the assistant reads this config only</div>
       </div>
 
-      <!-- ASK -->
-      <div style="flex-grow: 1; display: flex; flex-direction: column; min-height: 0;">
-
-        <div style="padding: 14px 16px 10px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;">
-          <div style="border: 1px solid #14171A; padding: 9px 12px; font-size: 14px; display: flex; align-items: center; gap: 10px;">
-            <span>why can't the sales laptops reach the file server?</span>
-            <span style="width: 1px; height: 16px; background: #14171A;"></span>
-          </div>
+      <div style="padding: 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;">
+        <div style="border: 1px solid #14171A; padding: 8px 10px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+          <span>why can't sales laptops reach the file server?</span><span style="width: 1px; height: 14px; background: #14171A;"></span>
         </div>
+      </div>
 
-        <div style="padding: 16px; overflow: hidden;">
-          <div style="font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; margin-bottom: 8px;">Answer</div>
+      <div style="padding: 12px; font-size: 13px; line-height: 20px; overflow: hidden;">
+        <div>Sales is <span class="mono" style="font-size: 12px;">10.10.20.0/24</span> on <span class="mono" style="font-size: 12px;">ge-0/0/1.20</span> <span style="color: #5C6772;">(line 29)</span>. The file server is <span class="mono" style="font-size: 12px;">10.10.30.11</span> on <span class="mono" style="font-size: 12px;">ge-0/0/1.30</span>. <strong>Both interfaces are in zone trust</strong> <span style="color: #5C6772;">(line 31)</span>.</div>
+        <div style="margin-top: 10px;"><strong>No trust &rarr; trust policy set exists in this config.</strong> Traffic between two interfaces in one zone is governed by intra-zone policy, and none is written here.</div>
+        <div style="margin-top: 10px; color: #5C6772;">Whether this Junos version's <em>default</em> for intra-zone traffic permits it is <strong style="color: #14171A;">a platform behaviour I will not assert</strong>. The version is not in the paste either.</div>
 
-          <div style="font-size: 14px; line-height: 22px;">
-            Sales is on <span style="font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 13px;">10.10.20.0/24</span> (VLAN 20, <a href="#" style="text-decoration: underline;">line 29</a>) and the file server is on <span style="font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 13px;">10.10.30.0/24</span> (VLAN 30). Both interfaces are in the <strong>same zone</strong>, <span style="font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 13px;">trust</span> (<a href="#" style="text-decoration: underline;">line 31</a>).
-          </div>
-          <div style="font-size: 14px; line-height: 22px; margin-top: 12px;">
-            <strong>There is no policy set for trust &rarr; trust in this config.</strong> On this platform, traffic between two interfaces in the same zone is governed by intra-zone policy, and none is written here.
-          </div>
-          <div style="font-size: 14px; line-height: 22px; margin-top: 12px; color: #5C6772;">
-            That is what the configuration says. Whether the device's default for intra-zone traffic on your Junos version permits or denies it is a <strong style="color: #14171A;">platform behaviour I will not assert</strong> &mdash; check the release notes for the version this box runs, which is not in the pasted text either.
-          </div>
-
-          <div style="margin-top: 16px; border: 1px solid #D2D7DD; background: #FFFFFF; padding: 10px 12px;">
-            <div class="lbl" style="margin-bottom: 6px;">What I looked at</div>
-            <div style="font-size: 12px; line-height: 19px; font-family: 'DejaVu Sans Mono', Menlo, monospace;">
-              <div>line 29 &middot; ge-0/0/1.20 &rarr; 10.10.20.1/24</div>
-              <div>line 31 &middot; zone trust gets ge-0/0/1.20</div>
-              <div>the graph &middot; 2 interfaces in zone trust</div>
-              <div>the graph &middot; 0 policy sets where both zones are trust</div>
-            </div>
-          </div>
-
-          <div style="margin-top: 12px; display: flex; gap: 8px;">
-            <span style="border: 1px solid #14171A; padding: 4px 12px; font-size: 12px;">Show me on the diagram</span>
-            <span style="border: 1px solid #D2D7DD; padding: 4px 12px; font-size: 12px; color: #5C6772;">Trace a packet between them</span>
-            <span style="border: 1px solid #D2D7DD; padding: 4px 12px; font-size: 12px; color: #5C6772;">Draft the policy</span>
-          </div>
+        <div style="margin-top: 12px; border: 1px solid #D2D7DD; background: #FFFFFF; padding: 8px 10px; font-size: 11px; line-height: 17px;" class="mono">
+          <div style="color: #5C6772; font-family: 'Liberation Sans', Arial, sans-serif; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px;">Looked at</div>
+          <div>line 29 &middot; line 31 &middot; graph: 2 ifaces in trust &middot; graph: 0 sets trust&rarr;trust</div>
         </div>
+        <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+          <span style="border: 1px solid #14171A; padding: 3px 10px; font-size: 11px;">Show on the firewall</span>
+          <span style="border: 1px solid #D2D7DD; padding: 3px 10px; font-size: 11px; color: #5C6772;">Trace it</span>
+          <span style="border: 1px solid #D2D7DD; padding: 3px 10px; font-size: 11px; color: #5C6772;">Draft the policy</span>
+        </div>
+      </div>
 
-        <div style="flex-grow: 1;"></div>
+      <div style="flex-grow: 1;"></div>
 
-        <!-- the rules the assistant runs under, stated on the screen, not in a help page -->
-        <div style="border-top: 1px solid #D2D7DD; background: #FFFFFF; padding: 12px 16px;">
-          <div class="lbl" style="margin-bottom: 8px;">What the assistant may and may not do</div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; font-size: 12px; line-height: 17px;">
-            <div style="display: flex; gap: 8px;"><span style="color: #1F6F4A; font-weight: 700;">&#10003;</span><span>Reads this config and this estate's graph. Nothing else.</span></div>
-            <div style="display: flex; gap: 8px;"><span style="color: #8C2F2F; font-weight: 700;">&times;</span><span>Cannot see any credential. They were destroyed before storage.</span></div>
-            <div style="display: flex; gap: 8px;"><span style="color: #1F6F4A; font-weight: 700;">&#10003;</span><span>Every claim cites a line number or a graph fact you can click.</span></div>
-            <div style="display: flex; gap: 8px;"><span style="color: #8C2F2F; font-weight: 700;">&times;</span><span>Never says permitted or denied. It shows what is written and in what order.</span></div>
-            <div style="display: flex; gap: 8px;"><span style="color: #1F6F4A; font-weight: 700;">&#10003;</span><span>Says "I could not establish this" rather than guessing.</span></div>
-            <div style="display: flex; gap: 8px;"><span style="color: #8C2F2F; font-weight: 700;">&times;</span><span>Never changes the estate. Drafts are yours to apply.</span></div>
-          </div>
+      <div style="border-top: 1px solid #D2D7DD; background: #FFFFFF; padding: 10px 12px; font-size: 11px; line-height: 16px;">
+        <div class="lbl" style="margin-bottom: 6px;">The assistant</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px;">
+          <div><span style="color: #1F6F4A; font-weight: 700;">&#10003;</span> reads this config and this graph only</div>
+          <div><span style="color: #8C2F2F; font-weight: 700;">&times;</span> cannot see a credential, ever</div>
+          <div><span style="color: #1F6F4A; font-weight: 700;">&#10003;</span> cites a line for every claim</div>
+          <div><span style="color: #8C2F2F; font-weight: 700;">&times;</span> never says permitted or denied</div>
+          <div><span style="color: #1F6F4A; font-weight: 700;">&#10003;</span> says "could not establish" over a guess</div>
+          <div><span style="color: #8C2F2F; font-weight: 700;">&times;</span> never changes the estate</div>
         </div>
       </div>
     </div>

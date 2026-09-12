@@ -129,7 +129,7 @@
       "y": 2160,
       "w": 1440,
       "h": 900,
-      "title": "Inside a server \u2014 bridges, guests, the path out"
+      "title": "Inside a server \u2014 lid off, same jacks, path out"
     },
     {
       "file": "Firewall.dc.html",
@@ -138,7 +138,7 @@
       "y": 2160,
       "w": 1440,
       "h": 900,
-      "title": "Inside a firewall \u2014 interfaces, zones, policy order, routing"
+      "title": "Inside a firewall \u2014 in, zone, policy, route, out"
     },
     {
       "file": "Config.dc.html",
@@ -147,16 +147,16 @@
       "y": 3240,
       "w": 1440,
       "h": 900,
-      "title": "Config \u2014 viewer, checker, assistant"
+      "title": "Config \u2014 a drawer under the faceplate"
     },
     {
       "file": "Building.dc.html",
-      "page": "page-1",
-      "x": 1560,
-      "y": 3240,
+      "page": "page-3",
+      "x": 0,
+      "y": 2160,
       "w": 1440,
       "h": 900,
-      "title": "Building \u2014 optional, and the crossings fixed"
+      "title": "Building (parked \u2014 not necessary)"
     },
     {
       "file": "Inventory.dc.html",
@@ -217,7 +217,7 @@
       "x": 3120,
       "y": 2160,
       "w": 540,
-      "text": "GOING INSIDE A BOX\n\nSame gesture as going inside a rack. The physical ports on the left edge are the far side of the ports you cabled in the rack, so a trace crosses the boundary without changing view.\n\nA guest is a node in the same graph as a switch, and its vNIC is a port. That is why a trace can start on a VM and end at the internet.\n\nThe firewall board is the teaching one: four bands left to right \u2014 where traffic enters, what it is called, what decides, where it leaves. It shows the policies in the order the device reads them and marks the two that can never be reached. It never says permitted or denied.\n\nThe config board carries the assistant. Its six rules are printed ON the screen, not in a help page: it reads this config and this graph only, cites a line for every claim, cannot see credentials because they were destroyed at the gate, never says permitted or denied, says 'I could not establish this' rather than guessing, and never changes the estate."
+      "text": "INSIDE A BOX \u2014 redone in the rack's language.\n\nYou open the lid. The jacks on the left edge are the SAME ports you cabled in the rack, seen from inside, so the cable you plugged in continues through the wall. A path is one lit line: vNIC \u2192 bridge \u2192 bond \u2192 jack \u2192 out the portal to the rack. Everything else is phantomed.\n\nA bridge is drawn as a small switch faceplate, because that is what it is. A guest is a card with a jack on its edge.\n\nThe firewall: three zones are regions inside the box; interfaces sit in them; the policy set between two zones is a stack with an ordinal rail \u2014 like a rack of rules \u2014 and the rows that can never be reached are hatched like free U. The trace runs in \u2192 zone \u2192 policy \u2192 route \u2192 out, numbered.\n\nConfig is a drawer under the faceplate, not a separate page. Click a line, the port it built lights above.\n\nThe building view is parked on page 3. You said not necessary."
     }
   ],
   "launch": {
