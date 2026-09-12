@@ -185,6 +185,56 @@ against no Fathom crate. That gets fixed first, because nothing else can be save
 **Security gets a hard adversarial review in this phase.** It is the stated bar and the one thing
 here that is expensive to fix later.
 
+#### Operational foundations — added 2026-09-12, owner's list
+
+Four things that are cheap now and expensive once code and data exist. Docker is confirmed as the
+shipping shape; `deploy/compose.yaml` already runs the database, the server and Caddy in front.
+
+**1. Two Fathom containers must be interchangeable.** This is what load balancing actually requires,
+and it is a constraint on every line written from here: no session state in process memory, nothing
+cached on local disk, no file written by the app except the master key it reads at startup. A design
+that holds a session in a process is a design that cannot be scaled, and retrofitting it means
+touching everything. **Lock it before more code lands.** The load balancer itself can then be
+whatever the customer already runs; the compose file grows a second `server` replica and Caddy
+balances across them.
+
+**2. Audit, and pushing it out.** Open question A2 asks whether the first release keeps an audit log;
+the answer is now effectively forced, because item 3 below depends on it. An audit trail an
+administrator can edit is not a control. So: append-only, sealed with the same chain construction as
+the design history (§11.2, §12), and **pushed off the box** — syslog or an SIEM endpoint — because a
+log that only lives on the machine the attacker took is evidence they control. This is also the
+answer to the enterprise question ADR-0043 §8 names as its own weakest point: without it, nothing in
+the product can say who decrypted what.
+
+**3. An administrator must not be able to take over the site.** The owner's words: *"we don't want an
+admin to be able to take over the site type situation."*
+
+Half of this is already closed by ADR-0043: an administrator who resets someone's password still
+cannot open that person's vault, because the vault needs a 128-bit key the server never holds. That
+is the decision paying for itself.
+
+The other half is not closed. **The server can read designs, so an administrator who resets a
+password can read that person's designs.** Closing it is separation of duties, and it has to be in
+the permission model rather than bolted on:
+
+- An administrator role that manages accounts, groups, organisations and SMTP but **is not a member
+  of any network** and therefore sees no design.
+- Membership in a scope granted only by someone already in it, never by the administrator alone.
+- Every administrative action — password reset, role change, membership grant — a **sealed audit
+  event the administrator cannot alter**, which is why item 2 comes first.
+- A password reset that **notifies the account holder out of band**, so a silent takeover is not
+  silent.
+
+The current schema has only `admin` and `member` on an organisation. That was deliberate — enough to
+ship the hierarchy — and it is not enough for this. The full model lands here.
+
+**4. The database role must not be a superuser.** Found 2026-09-12 while building the hierarchy:
+`deploy/compose.yaml` starts PostgreSQL with the image's bootstrap role, which PostgreSQL always
+makes a superuser, and **a superuser bypasses row-level security unconditionally** — `FORCE` or not.
+So the tenant isolation that was just built would not bind in the shipped deployment. The tests
+already run against a properly restricted role so they cannot pass vacuously; the deployment needs
+the same.
+
 **Done when:** the server stores a design, hands it back, and the history verifies as unaltered.
 
 ### Phase 3 — The canvas
