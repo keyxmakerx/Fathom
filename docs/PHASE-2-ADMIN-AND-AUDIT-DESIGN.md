@@ -528,6 +528,51 @@ that halts the customer's work is the control they will demand the administrator
 a standing warning that escalates in prominence, plus a refusal to arm break-glass with fewer than
 `t` holders, which is a statement of fact rather than a punishment.
 
+### 3.7 Groups, and directory sync — owner's requirement of 2026-09-12, constraints decided, tables not yet designed
+
+The owner: *"permissions wise we need people to be able to have groups, and view only, etc. There
+should be an admin mode where they can go in and change those settings. Eventually it should
+probably be able to sync with LDAP."*
+
+**View-only already exists**: it is the `read` capability in §3.1, granted per scope, so "this team
+can see the Leeds site and nothing else" is native. **Groups do not exist yet** — every grant is to
+one account — and they must, because a steward granting the same thing to forty people one at a time
+is how permission maps rot. **"Admin mode" is two screens, not one**, and the distinction is the whole
+anti-takeover design: the operator console (`/admin`: accounts, organisations, SMTP, site settings —
+*sees* the permission map, §1.1) and the steward's permission screen inside the organisation
+(*writes* it: groups, who is in them, what each may see or edit). Both need drawing in `UI-SPEC.md`.
+
+**Constraints decided now, so that the group design cannot reopen a closed takeover route:**
+
+1. **A group is a principal of its own kind, and a grant to a group is a signed grant like any
+   other** (§3.3), made by a steward of that scope. Nothing here changes who may grant.
+2. **Adding a person to a group is a sealed, steward-signed act, exactly like a grant.** It has to
+   be: if an operator could add an account to a group that holds `draw` on everything, the sockpuppet
+   route of §1 reopens with one extra step. So group membership is written by stewards, never by
+   operators, and the operator console shows it and can suspend it (§1.1's suspend verb extends to
+   group membership), nothing more.
+3. **Stewardship never flows through a group.** A group may hold `read` and `draw`; the `steward`
+   capability is granted only to an individually enrolled account with its own signing key, because
+   a steward signs things and a group cannot. This also keeps §3.5's quorum meaningful.
+4. **Directory sync (LDAP first; the same door serves Active Directory, SCIM and the rest later)
+   provisions accounts and group *membership*, never grants and never stewardship.** Whoever
+   controls the directory is an operator-equivalent for this product, so a synced group is marked as
+   synced, can hold `read` and `draw` only, and what it may see is still decided by a signed steward
+   grant to that group. A directory administrator can therefore put someone in the "network
+   viewers" group and cannot decide what network viewers see. Sync writes are sealed entries on the
+   organisation chain attributed to the sync principal, so a directory-side change is visible in
+   the trail as what it is.
+5. **Removal from a group takes effect at once and is reversible by a steward**, the same posture
+   as suspension; a directory removal is a removal, not a suspension, and says so in the entry.
+
+**Still to design, and then to attack before building:** the `groups` and `group_members` tables
+with their composite foreign keys onto `principals`, the signed bytes for a membership change (the
+`second_bytes` lesson in §3 applies: bind the fact, not an encoding), how a grant-to-group is
+resolved at request time without a second cache to poison (§3.4), and the LDAP connector's own
+credential — which is a device-credential-shaped secret and goes through the redaction gate and the
+vault like any other (CLAUDE.md rule 4). Sequenced after the account and enrolment work in §14;
+the schema is not touched until the group design has had its own attack round.
+
 ### 3.6 `move_subtree`, and the cheaper route around it
 
 `repo::move_subtree` today calls `authorise` and accepts any member, then rewrites every descendant
@@ -1624,6 +1669,11 @@ design does not pretend otherwise. The list it must satisfy:
 7. **Rate limiting, lockout, and the sign-in surface itself**, which this design does not specify.
 8. **`OPEN-QUESTIONS.md` C2 binds the operator surface too.** If device passwords are ever accepted
    for sign-in, §4.5's "no password path on `/admin`" is the line that must not move.
+9. **Directory sync is a provisioning source, not an authority** (§3.7, 2026-09-12). An LDAP or
+   Active Directory connector may create accounts and place them in synced groups; it may not grant,
+   second, or hold stewardship, and its own bind credential is vault-held. If sign-in against the
+   directory is ever offered, the session rules above apply unchanged: `actor` still comes from a
+   Fathom session bound to a browser-held key, never from the directory's say-so.
 
 ---
 
