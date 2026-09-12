@@ -22,7 +22,7 @@ custody is settled, and it now is.
 
 **The dependency gate.** Five layers, none redundant: approval records per crate, lookalike-name
 detection, a publication cooldown, licence and source allowlisting, and a vulnerability database
-check. 115 crates in the lockfile after the server landed.
+check. 130 crates in the lockfile after the server landed.
 
 **Key handling.** Decided and ratified: a data key per tenant and per design, wrapped by a master
 key, custody switched by re-wrapping keys rather than re-encrypting data.

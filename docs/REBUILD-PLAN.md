@@ -287,5 +287,5 @@ Still open:
 
 ## Deliberately not decided here
 
-Anything in `docs/70-ops/OPEN-FOR-THE-OWNER.md` that this plan does not touch. That page remains
+Anything in `docs/OPEN-QUESTIONS.md` that this plan does not touch. That page remains
 the register of owner decisions, and this plan does not answer any of them on the owner's behalf.
