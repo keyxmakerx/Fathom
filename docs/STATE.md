@@ -60,11 +60,15 @@ replaced with a standard algorithm.
 
 ## Known limits worth remembering
 
-**The production image cannot boot the server as of 2026-09-12.** `deploy/Dockerfile`'s runtime
-stage is distroless and copies only the compiled binary — it does not copy `schema/`. The engine
-seam loads that tree at startup and exits 7 when it cannot, so the image fails immediately. Found by
-the builder that added the seam, confirmed by reading the Dockerfile. Fix before anything is
-deployed: bake `schema/` into the runtime stage, or embed it in the binary.
+**The server refuses to start on a broken schema, deliberately.** `EngineState::load` runs every
+gate and will not serve a vocabulary that fails one. Before 2026-09-12 it started anyway, reported
+healthy, and served an empty kind list — an independent check reproduced that against a live
+database. A broken tree is now a startup failure naming the gate and the file, exit 7.
+
+`deploy/Dockerfile` copies `schema/` into the distroless runtime stage from the build stage, so the
+image ships exactly the tree it was built against. `FATHOM_SCHEMA_ROOT` overrides the path. Both
+landed 2026-09-12 after the same check found the image crash-looped with no schema beside the binary
+and no way for an operator to point it elsewhere.
 
 - **Typed values are not redacted.** The gate runs on paste only. A password typed by hand into a
   field is stored and exported as written — it gets a warning mark beside it, and that is the
