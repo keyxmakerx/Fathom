@@ -122,7 +122,16 @@ is tested against what a device accepts, never against what the detector needs.
    channel is open and the artifact must not hold secrets.**
 2. **The application never touches a network device.** No SSH, no NETCONF, no API. All
    output is copy-paste. This is a permanent product boundary, not a phase-1 limitation.
-3. **The application stores no device credential.** No PSK, certificate private key, SNMP
+3. **The application stores no device credential IN THE DESIGN, and never stores one silently.**
+   **SCOPED 2026-09-11 by ADR-0042** — this invariant previously read *"The application stores no
+   device credential."* That is no longer true: Fathom now keeps a credential vault, by owner
+   decision. What survives, and is binding: a secret is never written into the design graph (which
+   holds a reference only), and never stored without being shown to the operator and chosen. The
+   vault's default mode encrypts under a key the server does not hold. Read ADR-0042 before
+   relying on any sentence in this paragraph. The original text follows and describes the ingest
+   gate, which still runs — it now offers what it finds instead of destroying it.
+
+   Original: **The application stores no device credential.** No PSK, certificate private key, SNMP
    community, TACACS key or device password is ever written to a workspace, a sync blob, a
    git object or an export. Emitted configuration uses placeholders. A pasted capture may
    *contain* a credential; it is redacted at the ingest gate and the unredacted text never
@@ -185,6 +194,14 @@ is tested against what a device accepts, never against what the detector needs.
    workspace + corpus version + **rule-pack version set** + build (`24` §11.1).
 10. **The corpus is human-authored and reviewed.** No model output ships in the corpus
     without a named human reviewer recorded in the entry's `reviewed_by`.
+
+11. **A migration that reads an existing table must handle forced row-level security, and say so.**
+    Added 2026-09-12, after it was nearly shipped. A migration runs with no tenant context, so a
+    `SELECT` against a table behind `FORCE ROW LEVEL SECURITY` returns **zero rows, silently** — a
+    backfill that reports success and copies nothing. **On an empty database the bug is invisible**,
+    and an empty database is exactly where migrations get tested, so it surfaces on the first
+    deployment that has data. Wrap such a read in `NO FORCE` / `FORCE`, and comment that the pair is
+    load-bearing so nobody tidies it away.
 
 ## The risk enum — exactly three values, everywhere
 

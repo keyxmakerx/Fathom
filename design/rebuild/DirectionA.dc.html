@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .box { border: 1px solid #5C6772; background: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+    .ghost { border: 1px dashed #D2D7DD; background: #FAFBFC; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #5C6772; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="padding: 14px 20px 12px; border-bottom: 3px solid #14171A;">
+    <div style="font-size: 21px; font-weight: 700; line-height: 24px;">A &mdash; Lenses over one map</div>
+    <div style="color: #5C6772; font-size: 13px; margin-top: 4px;">One canvas. You change which <em>layer</em> you are looking through, not which screen you are on. Like turning layers on and off in a drawing.</div>
+  </div>
+
+  <!-- chrome -->
+  <div style="height: 40px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 20px; gap: 10px; background: #FAFBFC; flex-shrink: 0;">
+    <span class="lbl">Looking at</span>
+    <span style="font-size: 12px;">Northwind</span><span style="color: #D2D7DD;">&rsaquo;</span>
+    <span style="font-size: 12px;">HQ Campus</span><span style="color: #D2D7DD;">&rsaquo;</span>
+    <span style="font-size: 12px;">Building A</span><span style="color: #D2D7DD;">&rsaquo;</span>
+    <span style="font-size: 12px; font-weight: 700; border-bottom: 2px solid #14171A;">IDF-2 closet</span>
+    <span style="flex-grow: 1;"></span>
+    <span class="lbl">Owner</span><span style="font-size: 12px;">All</span>
+  </div>
+
+  <!-- the lens bar: the centrepiece of this direction -->
+  <div style="border-bottom: 1px solid #D2D7DD; padding: 10px 20px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+    <span class="lbl" style="margin-right: 4px;">Layer</span>
+    <span style="border: 1px solid #14171A; background: #14171A; color: #FFFFFF; padding: 3px 12px; font-size: 12px;">Physical</span>
+    <span style="border: 1px solid #D2D7DD; padding: 3px 12px; font-size: 12px; color: #5C6772;">Layer 2</span>
+    <span style="border: 1px solid #D2D7DD; padding: 3px 12px; font-size: 12px; color: #5C6772;">Layer 3</span>
+    <span style="border: 1px solid #D2D7DD; padding: 3px 12px; font-size: 12px; color: #5C6772;">Power</span>
+    <span style="border: 1px solid #D2D7DD; padding: 3px 12px; font-size: 12px; color: #5C6772;">Ownership</span>
+    <span style="width: 1px; height: 20px; background: #D2D7DD; margin: 0 8px;"></span>
+    <span class="lbl" style="margin-right: 4px;">Show</span>
+    <span style="border: 1px solid #14171A; padding: 3px 10px; font-size: 11px;">&#10003; Copper</span>
+    <span style="border: 1px solid #14171A; padding: 3px 10px; font-size: 11px;">&#10003; Fibre</span>
+    <span style="border: 1px solid #D2D7DD; padding: 3px 10px; font-size: 11px; color: #5C6772;">Power</span>
+    <span style="flex-grow: 1;"></span>
+    <span style="border: 1px solid #D2D7DD; padding: 3px 10px; font-size: 11px; color: #5C6772;">Trace a path</span>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+    <div style="flex-grow: 1; position: relative; padding: 24px; overflow: hidden;">
+
+      <!-- two racks side by side, grouped -->
+      <div style="position: absolute; left: 60px; top: 40px; border: 1px solid #14171A; padding: 8px;">
+        <div class="lbl" style="margin-bottom: 6px;">Rack A-04 &middot; 42U</div>
+        <div style="display: flex; gap: 8px;">
+          <div style="width: 150px;">
+            <div class="box" style="height: 22px; margin-bottom: 2px;">hq-fw-01</div>
+            <div class="box" style="height: 14px; margin-bottom: 2px;">core-01</div>
+            <div class="box" style="height: 14px; margin-bottom: 2px;">core-02</div>
+            <div class="ghost" style="height: 40px; margin-bottom: 2px;">free 6U</div>
+            <div class="box" style="height: 30px; margin-bottom: 2px;">vm-host-01</div>
+            <div class="ghost" style="height: 60px;">free 12U</div>
+          </div>
+          <div style="width: 150px;">
+            <div class="lbl" style="margin-bottom: 4px;">A-05</div>
+            <div class="box" style="height: 14px; margin-bottom: 2px;">patch-01</div>
+            <div class="box" style="height: 14px; margin-bottom: 2px;">acc-01</div>
+            <div class="ghost" style="height: 110px;">free</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ports + cable being dragged -->
+      <div style="position: absolute; left: 60px; top: 320px; border: 1px solid #14171A; padding: 10px; width: 316px;">
+        <div class="lbl" style="margin-bottom: 8px;">hq-fw-01 &mdash; faceplate</div>
+        <div style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px;">
+          <div style="height: 18px; border: 1px solid #14171A; background: #14171A;"></div>
+          <div style="height: 18px; border: 1px solid #14171A; background: #14171A;"></div>
+          <div style="height: 18px; border: 1px solid #1F6F4A; background: #EEF5F1;"></div>
+          <div style="height: 18px; border: 1px solid #D2D7DD;"></div>
+          <div style="height: 18px; border: 1px solid #D2D7DD;"></div>
+          <div style="height: 18px; border: 1px solid #D2D7DD;"></div>
+          <div style="height: 18px; border: 1px solid #D2D7DD;"></div>
+          <div style="height: 18px; border: 2px solid #A8571B; background: #FBF3EA;"></div>
+        </div>
+        <div style="display: flex; gap: 12px; margin-top: 8px; font-size: 10px; color: #5C6772;">
+          <span><span style="display: inline-block; width: 8px; height: 8px; background: #14171A;"></span> copper</span>
+          <span><span style="display: inline-block; width: 8px; height: 8px; border: 1px solid #1F6F4A; background: #EEF5F1;"></span> fibre</span>
+          <span><span style="display: inline-block; width: 8px; height: 8px; border: 1px solid #D2D7DD;"></span> free</span>
+          <span style="color: #A8571B;">&larr; dragging a cable from port 8</span>
+        </div>
+      </div>
+
+      <!-- the portal -->
+      <div style="position: absolute; right: 60px; top: 150px; width: 220px; border: 1px dashed #5C6772; background: #FAFBFC; padding: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#5C6772" stroke-width="1.25"><path d="M9 14V4M5 8l4-4 4 4"/></svg>
+          <span style="font-weight: 700; font-size: 12px;">Leaves this view</span>
+        </div>
+        <div style="font-size: 11px; color: #5C6772; line-height: 16px; margin-top: 6px;">Goes up to MDF &mdash; Building A<br>3 fibre pairs &middot; 1 copper</div>
+      </div>
+      <div style="position: absolute; right: 60px; top: 300px; width: 220px; border: 1px dashed #5C6772; background: #FAFBFC; padding: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#5C6772" stroke-width="1.25"><path d="M9 4v10M5 10l4 4 4-4"/></svg>
+          <span style="font-weight: 700; font-size: 12px;">Leaves this view</span>
+        </div>
+        <div style="font-size: 11px; color: #5C6772; line-height: 16px; margin-top: 6px;">Goes down to floor 2 desks<br>24 copper</div>
+      </div>
+
+      <svg style="position: absolute; inset: 0; pointer-events: none;" width="100%" height="100%">
+        <path d="M370 360 L560 360 L560 200 L1060 200" stroke="#A8571B" stroke-width="1.5" fill="none" stroke-dasharray="4 3"/>
+      </svg>
+    </div>
+
+    <div style="width: 300px; border-left: 1px solid #D2D7DD; background: #FAFBFC; padding: 16px;">
+      <div class="lbl">What this gets you</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Everyone already understands layers &mdash; it is how every drawing tool and every map works. Physical and Layer 3 are the same picture seen differently, which is <em>true</em> of a network and is the thing most tools get wrong.</div>
+      <div class="lbl" style="margin-top: 20px;">What it costs</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Only shows one place at a time. Comparing two closets, or following a circuit from HQ to a branch, means leaving and coming back.</div>
+      <div class="lbl" style="margin-top: 20px;">Best if</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Most work is "I am in one closet, show me everything about it."</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

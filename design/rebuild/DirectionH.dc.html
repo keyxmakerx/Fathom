@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; }
+    .node { position: absolute; width: 150px; border: 1px solid #14171A; background: #FFFFFF; padding: 6px 8px; font-size: 12px; line-height: 16px; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="padding: 14px 20px 12px; border-bottom: 3px solid #14171A;">
+    <div style="font-size: 21px; font-weight: 700; line-height: 24px;">H &mdash; The estate as it changes</div>
+    <div style="color: #5C6772; font-size: 13px; margin-top: 4px;">You already keep a sealed history of every change. Make <em>time</em> the first axis. The home screen is "what changed since I last looked", and any date is one drag away. Place and layer become filters on a timeline, not the other way round.</div>
+  </div>
+
+  <!-- timeline -->
+  <div style="padding: 14px 20px 10px; border-bottom: 1px solid #D2D7DD; background: #FAFBFC;">
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+      <span class="lbl">Showing</span>
+      <span style="border: 1px solid #14171A; background: #FFFFFF; padding: 3px 10px; font-size: 12px;">28 Aug</span>
+      <span style="font-size: 12px; color: #5C6772;">compared with</span>
+      <span style="border: 1px solid #14171A; background: #14171A; color: #FFFFFF; padding: 3px 10px; font-size: 12px;">now &middot; 11 Sep</span>
+      <span style="flex-grow: 1;"></span>
+      <span style="font-size: 11px; color: #1F6F4A; display: flex; align-items: center; gap: 6px;"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#1F6F4A" stroke-width="1.5"><path d="M2 6l3 3 5-6"/></svg>history verified &middot; 214 entries, chain intact</span>
+    </div>
+    <div style="position: relative; height: 36px; border-top: 1px solid #D2D7DD; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;">
+      <!-- change ticks -->
+      <div style="position: absolute; left: 6%; top: 8px; width: 2px; height: 20px; background: #D2D7DD;"></div>
+      <div style="position: absolute; left: 11%; top: 8px; width: 2px; height: 20px; background: #D2D7DD;"></div>
+      <div style="position: absolute; left: 12%; top: 8px; width: 2px; height: 20px; background: #D2D7DD;"></div>
+      <div style="position: absolute; left: 24%; top: 8px; width: 2px; height: 20px; background: #D2D7DD;"></div>
+      <div style="position: absolute; left: 31%; top: 8px; width: 2px; height: 20px; background: #D2D7DD;"></div>
+      <div style="position: absolute; left: 33%; top: 8px; width: 2px; height: 20px; background: #D2D7DD;"></div>
+      <div style="position: absolute; left: 34%; top: 8px; width: 2px; height: 20px; background: #D2D7DD;"></div>
+      <!-- selected window -->
+      <div style="position: absolute; left: 58%; right: 0; top: 0; bottom: 0; background: #F2F4F6; border-left: 2px solid #14171A;"></div>
+      <div style="position: absolute; left: 60%; top: 8px; width: 2px; height: 20px; background: #14171A;"></div>
+      <div style="position: absolute; left: 64%; top: 8px; width: 2px; height: 20px; background: #14171A;"></div>
+      <div style="position: absolute; left: 65%; top: 8px; width: 2px; height: 20px; background: #14171A;"></div>
+      <div style="position: absolute; left: 71%; top: 8px; width: 2px; height: 20px; background: #A8571B;"></div>
+      <div style="position: absolute; left: 83%; top: 8px; width: 2px; height: 20px; background: #14171A;"></div>
+      <div style="position: absolute; left: 91%; top: 8px; width: 2px; height: 20px; background: #14171A;"></div>
+      <div style="position: absolute; left: 97%; top: 8px; width: 2px; height: 20px; background: #14171A;"></div>
+      <div style="position: absolute; left: 58%; top: -18px; font-size: 10px; color: #14171A; font-weight: 700;">28 Aug</div>
+      <div style="position: absolute; right: 0; top: -18px; font-size: 10px; color: #14171A; font-weight: 700;">now</div>
+      <div style="position: absolute; left: 0; bottom: -16px; font-size: 10px; color: #5C6772;">Jun</div>
+      <div style="position: absolute; left: 33%; bottom: -16px; font-size: 10px; color: #5C6772;">Jul</div>
+      <div style="position: absolute; left: 66%; bottom: -16px; font-size: 10px; color: #5C6772;">Aug</div>
+    </div>
+    <div style="height: 14px;"></div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- change list -->
+    <div style="width: 320px; border-right: 1px solid #D2D7DD; background: #F2F4F6; flex-shrink: 0; display: flex; flex-direction: column;">
+      <div style="padding: 10px 12px 6px; display: flex; justify-content: space-between; align-items: baseline;">
+        <span class="lbl">Since 28 Aug</span>
+        <span style="font-size: 11px; color: #5C6772;">9 changes &middot; 3 people</span>
+      </div>
+      <div style="font-size: 12px; line-height: 16px;">
+        <div style="padding: 7px 12px; border-top: 1px solid #D2D7DD; background: #FFFFFF; border-left: 4px solid #1F6F4A;"><div>Added <strong>vm-host-02</strong> to rack A-04</div><div style="font-size: 10px; color: #5C6772; margin-top: 2px;">you &middot; 11 Sep 09:12</div></div>
+        <div style="padding: 7px 12px; border-top: 1px solid #D2D7DD; background: #FFFFFF; border-left: 4px solid #1F6F4A;"><div>Cabled <strong>core-02 xe-0/0/1</strong> &rarr; vm-host-02</div><div style="font-size: 10px; color: #5C6772; margin-top: 2px;">you &middot; 11 Sep 09:14</div></div>
+        <div style="padding: 7px 12px; border-top: 1px solid #D2D7DD; background: #FFFFFF; border-left: 4px solid #A8571B;"><div>Changed <strong>hq-fw-01</strong> policy <span class="mono">allow-web</span></div><div style="font-size: 10px; color: #A8571B; margin-top: 2px;">Maria P. &middot; 06 Sep &middot; now matches any application</div></div>
+        <div style="padding: 7px 12px; border-top: 1px solid #D2D7DD; background: #FFFFFF; border-left: 4px solid #8C2F2F;"><div>Removed <strong>hq-acc-03</strong></div><div style="font-size: 10px; color: #5C6772; margin-top: 2px;">Jordan T. &middot; 04 Sep &middot; 2 cables left dangling</div></div>
+        <div style="padding: 7px 12px; border-top: 1px solid #D2D7DD; background: #FFFFFF; border-left: 4px solid #1F6F4A;"><div>Added <strong>Rack A-05</strong> &middot; owner: landlord</div><div style="font-size: 10px; color: #5C6772; margin-top: 2px;">Jordan T. &middot; 02 Sep</div></div>
+        <div style="padding: 7px 12px; border-top: 1px solid #D2D7DD; background: #FFFFFF; border-left: 4px solid #A8571B;"><div>Moved <strong>hq-fw-01</strong> U36 &rarr; U38</div><div style="font-size: 10px; color: #5C6772; margin-top: 2px;">you &middot; 30 Aug</div></div>
+        <div style="padding: 7px 12px; border-top: 1px solid #D2D7DD; color: #5C6772;">+ 3 more</div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 10px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Every row is a sealed entry. Drag the window to see any past state exactly as it was.</div>
+    </div>
+
+    <!-- diff canvas -->
+    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+      <div style="height: 32px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 8px; font-size: 11px;">
+        <span class="lbl">Where</span><span>IDF-2</span>
+        <span style="width: 1px; height: 16px; background: #D2D7DD; margin: 0 4px;"></span>
+        <span class="lbl">Layer</span><span>Physical</span>
+        <span style="flex-grow: 1;"></span>
+        <span style="color: #1F6F4A;">&#9632; added</span>
+        <span style="color: #A8571B;">&#9632; changed</span>
+        <span style="color: #8C2F2F;">&#9632; removed</span>
+        <span style="color: #5C6772;">&#9633; unchanged</span>
+      </div>
+      <div style="flex-grow: 1; position: relative; overflow: hidden;">
+        <svg style="position: absolute; inset: 0; pointer-events: none;" width="100%" height="100%">
+          <path d="M235 118 L235 160" stroke="#5C6772" stroke-width="1"/>
+          <path d="M235 214 L235 250 L135 250 L135 290" stroke="#5C6772" stroke-width="1"/>
+          <path d="M235 214 L235 250 L335 250 L335 290" stroke="#5C6772" stroke-width="1"/>
+          <path d="M335 344 L335 380 L470 380 L470 420" stroke="#1F6F4A" stroke-width="2"/>
+          <path d="M135 344 L135 420" stroke="#8C2F2F" stroke-width="1" stroke-dasharray="4 3"/>
+        </svg>
+        <div class="node" style="left: 160px; top: 70px; border-color: #5C6772; color: #5C6772;">Internet</div>
+        <div class="node" style="left: 160px; top: 160px; border-color: #A8571B; outline: 1px solid #A8571B; outline-offset: 2px;"><div style="display: flex; justify-content: space-between;"><span>hq-fw-01</span><span style="font-size: 10px; color: #A8571B;">changed</span></div><div style="font-size: 10px; color: #A8571B;">policy &middot; moved U36&rarr;U38</div></div>
+        <div class="node" style="left: 60px; top: 290px; border-color: #5C6772; color: #5C6772;">hq-core-01</div>
+        <div class="node" style="left: 260px; top: 290px; border-color: #5C6772; color: #5C6772;">hq-core-02</div>
+        <div class="node" style="left: 60px; top: 420px; border: 1px dashed #8C2F2F; color: #8C2F2F; background: #F8EFEF;"><div style="display: flex; justify-content: space-between;"><span>hq-acc-03</span><span style="font-size: 10px;">removed</span></div><div style="font-size: 10px;">2 cables dangling</div></div>
+        <div class="node" style="left: 395px; top: 420px; border-color: #1F6F4A; background: #EEF5F1;"><div style="display: flex; justify-content: space-between;"><span>vm-host-02</span><span style="font-size: 10px; color: #1F6F4A;">added</span></div><div style="font-size: 10px; color: #5C6772;">server &middot; proxmox</div></div>
+
+        <div style="position: absolute; right: 20px; top: 20px; width: 250px; border: 1px solid #A8571B; background: #FBF3EA; padding: 10px; font-size: 11px; line-height: 16px;">
+          <div style="font-weight: 700; margin-bottom: 4px;">One change here is worth a look.</div>
+          On 06 Sep the policy <span class="mono">allow-web</span> went from matching one application to matching <em>any</em>. That is the difference between a web rule and an open door. Click to see before and after side by side.
+        </div>
+      </div>
+    </div>
+
+    <div style="width: 280px; border-left: 1px solid #D2D7DD; background: #FAFBFC; padding: 16px;">
+      <div class="lbl">What this gets you</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Nobody else does this, and you are uniquely able to: the sealed history means every past state is real, not reconstructed. "What changed since Friday" becomes the first thing you see. Audit, blame, rollback and <em>why is this broken now</em> all fall out of it.</div>
+      <div class="lbl" style="margin-top: 20px;">What it costs</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">It is not a drawing-first interface, and drawing is your first priority. On day one there is no history to show. It is a killer <em>mode</em>, not a killer shell.</div>
+      <div class="lbl" style="margin-top: 20px;">Where I would put it</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">A scrubber that can be pulled down over any other direction &mdash; and the default landing view once an estate is a few weeks old.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

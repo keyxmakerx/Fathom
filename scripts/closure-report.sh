@@ -124,7 +124,7 @@ out.append(f"**{n} external crates**, of which **{d} direct**. "
            f"**{b} carry a `build.rs`** and **{m} are proc-macros** — "
            f"{b + m} of {n} run code at compile time, which is the number the "
            f"August 2026 attack was about. Against `35` §5.1: **≤ 30 direct "
-           f"({d})**, **≤ 160 in the closure ({n})**.")
+           f"({d})**, **≤ 200 in the closure ({n})**.")
 table = "\n".join(out)
 
 if not write_to:

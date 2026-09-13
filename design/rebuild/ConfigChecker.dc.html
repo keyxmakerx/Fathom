@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .ln { display: grid; grid-template-columns: 44px 1fr; font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; line-height: 20px; }
+    .n { color: #5C6772; text-align: right; padding-right: 12px; font-variant-numeric: tabular-nums; border-right: 1px solid #D2D7DD; }
+    .c { padding-left: 12px; white-space: pre; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 16px; gap: 24px; flex-shrink: 0;">
+    <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="display: flex; align-self: stretch; align-items: stretch;">
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Diagram</div>
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Inventory</div>
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Rack</div>
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Findings</div>
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772;">Walkthrough</div>
+      <div style="padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; border-bottom: 4px solid #14171A; font-weight: 700;">Config</div>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center;">RK</div>
+  </div>
+
+  <div style="height: 32px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 16px; font-size: 11px; background: #FAFBFC; flex-shrink: 0;">
+    <span style="font-weight: 700;">hq-fw-01</span>
+    <span style="color: #5C6772;">junos-srx &middot; 122 lines</span>
+    <span style="color: #5C6772;">&middot;</span>
+    <span style="color: #5C6772;">70 of 122 lines understood</span>
+    <span style="flex-grow: 1;"></span>
+    <span style="color: #A8571B;">3 things worth a look</span>
+    <span style="color: #8C2F2F;">1 that will not do what it says</span>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- config -->
+    <div style="width: 700px; border-right: 1px solid #D2D7DD; flex-shrink: 0; overflow: hidden; padding: 12px 0;">
+      <div class="ln"><div class="n">31</div><div class="c">set security zones security-zone trust interfaces ge-0/0/1.0</div></div>
+      <div class="ln"><div class="n">32</div><div class="c">set security zones security-zone untrust interfaces ge-0/0/0.0</div></div>
+      <div class="ln"><div class="n">33</div><div class="c"> </div></div>
+
+      <!-- selected, danger -->
+      <div class="ln" style="background: #F8EFEF; border-left: 4px solid #8C2F2F; outline: 2px solid #8C2F2F; outline-offset: -2px;"><div class="n" style="color: #8C2F2F;">34</div><div class="c" style="color: #8C2F2F;">set security policies from-zone untrust to-zone trust policy allow-web match source-address any</div></div>
+      <div class="ln" style="background: #F8EFEF;"><div class="n" style="color: #8C2F2F;">35</div><div class="c" style="color: #8C2F2F;">set security policies from-zone untrust to-zone trust policy allow-web match destination-address any</div></div>
+      <div class="ln" style="background: #F8EFEF;"><div class="n" style="color: #8C2F2F;">36</div><div class="c" style="color: #8C2F2F;">set security policies from-zone untrust to-zone trust policy allow-web then permit</div></div>
+
+      <div class="ln"><div class="n">37</div><div class="c"> </div></div>
+      <div class="ln"><div class="n">38</div><div class="c">set security policies from-zone trust to-zone untrust policy outbound match source-address any</div></div>
+      <div class="ln"><div class="n">39</div><div class="c">set security policies from-zone trust to-zone untrust policy outbound then permit</div></div>
+      <div class="ln"><div class="n">40</div><div class="c"> </div></div>
+
+      <!-- caution -->
+      <div class="ln" style="background: #FBF3EA; border-left: 4px solid #A8571B;"><div class="n" style="color: #A8571B;">41</div><div class="c" style="color: #A8571B;">set protocols ospf area 0.0.0.0 interface ge-0/0/1.0 authentication simple-password "$9$abc123"</div></div>
+
+      <div class="ln"><div class="n">42</div><div class="c"> </div></div>
+      <div class="ln"><div class="n">43</div><div class="c">set routing-options static route 0.0.0.0/0 next-hop 203.0.113.1</div></div>
+
+      <!-- caution -->
+      <div class="ln" style="background: #FBF3EA; border-left: 4px solid #A8571B;"><div class="n" style="color: #A8571B;">44</div><div class="c" style="color: #A8571B;">set forwarding-options dhcp-relay server-group core 10.10.0.9</div></div>
+
+      <div class="ln"><div class="n">45</div><div class="c"> </div></div>
+      <div class="ln"><div class="n">46</div><div class="c">set interfaces ge-0/0/1 unit 0 family inet address 10.10.0.1/24</div></div>
+      <div class="ln"><div class="n">47</div><div class="c">set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30</div></div>
+
+      <!-- residue -->
+      <div class="ln" style="opacity: 0.55;"><div class="n">48</div><div class="c">set system ntp server 10.10.0.9</div></div>
+      <div class="ln" style="opacity: 0.55;"><div class="n">49</div><div class="c">set snmp community public authorization read-only</div></div>
+
+      <div style="margin: 16px 12px 0 56px; border: 1px solid #D2D7DD; padding: 8px 10px; font-size: 11px; color: #5C6772; line-height: 16px; max-width: 600px;">
+        Greyed lines are ones Fathom read but does not model yet. They are kept, not dropped &mdash; nothing is thrown away silently.
+      </div>
+    </div>
+
+    <!-- explanation -->
+    <div style="flex-grow: 1; background: #FAFBFC; display: flex; flex-direction: column; min-width: 0;">
+
+      <div style="padding: 16px 20px 12px; border-bottom: 1px solid #D2D7DD;">
+        <div style="font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #8C2F2F; margin-bottom: 6px;">Lines 34&ndash;36 &middot; will not do what it looks like</div>
+        <div style="font-size: 15px; font-weight: 700; line-height: 24px;">This permits the whole internet into your trusted network.</div>
+        <div style="font-size: 13px; line-height: 20px; margin-top: 10px;">
+          The policy is named <span style="font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px;">allow-web</span>, which reads as though it permits web traffic. It does not mention a port, a protocol or an application anywhere, so the device will not restrict it to web traffic &mdash; it matches <em>any</em> source, <em>any</em> destination, and permits.
+        </div>
+        <div style="font-size: 13px; line-height: 20px; margin-top: 10px;">
+          <strong>What the device will actually do:</strong> permit every packet arriving on <span style="font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px;">untrust</span> to reach anything in <span style="font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px;">trust</span>, for any port.
+        </div>
+        <div style="margin-top: 12px; border-left: 4px solid #8C2F2F; background: #F8EFEF; padding: 8px 10px; font-size: 12px; line-height: 18px;">
+          A policy name is a label. The device does not read it.
+        </div>
+        <div style="font-size: 11px; color: #5C6772; margin-top: 12px; line-height: 16px;">
+          Fathom is not telling you this is wrong &mdash; you may have meant it. It is telling you the name and the behaviour disagree.
+        </div>
+      </div>
+
+      <div style="padding: 12px 20px 8px; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772;">Also worth a look</div>
+
+      <div style="border-top: 1px solid #D2D7DD; padding: 10px 20px; display: flex; gap: 10px;">
+        <span style="color: #A8571B; font-weight: 700; font-variant-numeric: tabular-nums; font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px;">41</span>
+        <div>
+          <div style="font-weight: 700;">This OSPF password is stored in a form the device can reverse.</div>
+          <div style="font-size: 12px; color: #5C6772; line-height: 18px; margin-top: 2px;">Junos <span style="font-family: 'DejaVu Sans Mono', Menlo, monospace;">$9$</span> encoding is obfuscation, not encryption &mdash; anyone with the config can recover the password. Fathom destroyed this value when you pasted it and did not store it.</div>
+        </div>
+      </div>
+
+      <div style="border-top: 1px solid #D2D7DD; padding: 10px 20px; display: flex; gap: 10px;">
+        <span style="color: #A8571B; font-weight: 700; font-variant-numeric: tabular-nums; font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px;">44</span>
+        <div>
+          <div style="font-weight: 700;">This relay points at a server Fathom cannot find.</div>
+          <div style="font-size: 12px; color: #5C6772; line-height: 18px; margin-top: 2px;">DHCP relay sends requests to <span style="font-family: 'DejaVu Sans Mono', Menlo, monospace;">10.10.0.9</span>, which is not a device in this design. Either it lives outside what you have drawn, or the address is wrong.</div>
+        </div>
+      </div>
+
+      <div style="border-top: 1px solid #D2D7DD; padding: 10px 20px; display: flex; gap: 10px;">
+        <span style="color: #A8571B; font-weight: 700; font-variant-numeric: tabular-nums; font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px;">49</span>
+        <div>
+          <div style="font-weight: 700;">The SNMP community is the default one.</div>
+          <div style="font-size: 12px; color: #5C6772; line-height: 18px; margin-top: 2px;">Read-only, but <span style="font-family: 'DejaVu Sans Mono', Menlo, monospace;">public</span> is the value every scanner tries first. Anyone who can reach this device can read its configuration state.</div>
+        </div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 10px 20px; font-size: 11px; color: #5C6772; line-height: 16px;">
+        Fathom explains what a configuration does. It does not decide whether that is right for your network.
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

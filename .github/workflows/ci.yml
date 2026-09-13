@@ -40,8 +40,60 @@ permissions:
 jobs:
   gates:
     runs-on: ubuntu-latest
+
+    # `crates/fathom-server`'s repository-layer tests (Phase 2: accounts,
+    # organisations, the scope hierarchy) run against a real PostgreSQL, not
+    # a mock. `POSTGRES_USER` here is the image's initdb bootstrap role,
+    # which the official image always creates as a SUPERUSER regardless of
+    # the name given it -- and Postgres exempts superusers from row-level
+    # security unconditionally, `FORCE ROW LEVEL SECURITY` or not. Testing
+    # the tenant-isolation policies in
+    # `migrations/0002_identity_and_scope.sql` through THIS role would make
+    # every isolation assertion pass whether or not the policies actually
+    # work. So the step below this service provisions a second, deliberately
+    # non-superuser role and database -- the MIGRATION role
+    # (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0) -- and only that
+    # role's connection string is ever handed to `cargo test` as
+    # `FATHOM_MIGRATE_DATABASE_URL`. The RUNTIME role (`fathom_app`,
+    # `DATABASE_URL`) is not created here at all: it comes from
+    # `migrations/0006_runtime_role.sql`, inside the chain, and
+    # `tests/support::migrated_pool` provisions its login off the migration
+    # role's connection every run -- exactly what `src/main.rs` does at
+    # startup, proved here rather than assumed.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
     steps:
       - uses: actions/checkout@v4
+
+      # CREATEROLE, and only that, on top of NOSUPERUSER:
+      # `crates/fathom-server/migrations/0005_planes.sql` creates the second
+      # database role -- the sightless operator plane -- inside the migration
+      # chain, so that "run the chain from an empty database" produces the
+      # whole fence rather than half of it. `deploy/init-db/10-app-role.sh`
+      # grants the deployment's `fathom` role the same attribute, for the
+      # same reason and with the same accounting written out there. It is NOT
+      # superuser and NOT BYPASSRLS, which is what
+      # `fathom_server::rls::assert_rls_binds` checks and what makes every
+      # isolation assertion in this suite mean something.
+      - name: Provision a non-superuser test role (RLS does not bind to a superuser)
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE ROLE fathom_test LOGIN PASSWORD 'fathom_test_pw' NOSUPERUSER CREATEROLE;"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE DATABASE fathom_test OWNER fathom_test;"
 
       # ---- Layer 1, and everything else that needs no toolchain at all. ----
 
@@ -111,7 +163,21 @@ jobs:
       - name: Layer 3's positive control
         run: ./scripts/tests/advisory-gate-test.sh
 
-      # ---- Layer 5. Needs the crates.io API, so it is last of the five. ----
+      # Layer 6 — closes the gap in docs/PHASE-2-STORAGE-DESIGN.md §12.5. cargo-deny
+      # and cargo-audit above both read RustSec only; OSV.dev also carries advisories
+      # GitHub reviewed and RustSec never received (GHSA-3rjw-m598-pq24 against `cmov`
+      # was one). Needs the OSV.dev API, so it runs alongside layer 5, not before it.
+      - name: Layer 6 — OSV.dev advisory gate (RustSec + GitHub-reviewed)
+        run: ./scripts/osv-gate.sh
+
+      # A local fixture server, no network needed: the vulnerable pin must fail and
+      # name the advisory, the patched pin must pass, an allow-listed finding must
+      # pass, and an unreachable endpoint must fail closed. Same reasoning as Layer
+      # 3's positive control just above.
+      - name: Layer 6's positive control
+        run: ./scripts/tests/osv-gate-test.sh
+
+      # ---- Layer 5. Needs the crates.io API, so it is last, because it needs the crates.io API. ----
 
       - name: Layer 5 — the version cooldown
         run: ./scripts/crate-cooldown.sh
@@ -123,6 +189,19 @@ jobs:
       - name: Clippy, warnings are errors
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Tests
+        # `FATHOM_MIGRATE_DATABASE_URL` is the non-superuser, CREATEROLE-
+        # holding role/database the step above provisioned -- see its
+        # comment. `DATABASE_URL` names the RUNTIME role instead
+        # (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0); nothing creates
+        # it ahead of time, because `tests/support::migrated_pool` provisions
+        # its login itself, off the migration role's connection, the same
+        # way `src/main.rs` does at startup. Both values are also this
+        # crate's own defaults (`crates/fathom-server/tests/support/mod.rs`),
+        # spelled out here so a developer reading this file does not have to
+        # go looking for them.
+        env:
+          DATABASE_URL: postgres://fathom_app:fathom_app_pw@127.0.0.1:5432/fathom_test
+          FATHOM_MIGRATE_DATABASE_URL: postgres://fathom_test:fathom_test_pw@127.0.0.1:5432/fathom_test
         run: cargo test --workspace --locked
       - name: Schema gates
         run: cargo run --locked -p fathom-schema --bin fathom-schema-check

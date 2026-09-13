@@ -12,6 +12,8 @@ vendors:
   calix:     {}          # hardware-catalogue vendors are the same namespace —
   nokia:     {}          # 19 §3.9's catalogue vendor: is a FK into this block,
   adtran:    {}          # which is what makes 76 X11's cross-check possible
+                         # Nokia 7210 SAS surveyed 2026-09-12 from public captures only —
+                         # docs/surveys/nokia-7210-sas.md. No config body seen; no platform row.
   ciena:     {}          # owner-named 2026-08-06 (70 §7). Vendor only: no platform is
                          # declared below because no Ciena config has been seen, and
                          # inventing a family or version_scheme would fabricate vendor

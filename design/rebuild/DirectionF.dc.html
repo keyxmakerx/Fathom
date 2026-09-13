@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .room { position: absolute; border: 1px solid #5C6772; background: #FFFFFF; }
+    .room .nm { position: absolute; left: 6px; top: 4px; font-size: 10px; color: #5C6772; letter-spacing: 0.05em; }
+    .desk { position: absolute; width: 14px; height: 10px; border: 1px solid #D2D7DD; background: #FAFBFC; }
+    .rack { position: absolute; width: 22px; height: 34px; border: 1px solid #14171A; background: #FFFFFF; }
+    .hatch { background: repeating-linear-gradient(135deg, #A8571B 0 1px, transparent 1px 6px); }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="padding: 14px 20px 12px; border-bottom: 3px solid #14171A;">
+    <div style="font-size: 21px; font-weight: 700; line-height: 24px;">F &mdash; The building is the map</div>
+    <div style="color: #5C6772; font-size: 13px; margin-top: 4px;">Start from the floor plan, the way a facilities person thinks: <em>the closet on floor 2 by the stairs</em>. Racks live in rooms, cables run in risers and conduits, and the logical layers are drawn <em>over</em> the physical space rather than instead of it.</div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- floors -->
+    <div style="width: 180px; border-right: 1px solid #D2D7DD; background: #F2F4F6; flex-shrink: 0; display: flex; flex-direction: column;">
+      <div class="lbl" style="padding: 12px 12px 6px;">Building A</div>
+      <div style="font-size: 12px;">
+        <div style="padding: 6px 12px; color: #5C6772; border-bottom: 1px solid #D2D7DD;">Roof &middot; 2 AP</div>
+        <div style="padding: 6px 12px; color: #5C6772; border-bottom: 1px solid #D2D7DD;">Floor 3 &middot; <span style="color: #A8571B;">tenant</span></div>
+        <div style="padding: 6px 12px; background: #FFFFFF; border-left: 4px solid #14171A; border-bottom: 1px solid #D2D7DD; font-weight: 700;">Floor 2 &middot; IDF-2</div>
+        <div style="padding: 6px 12px; color: #5C6772; border-bottom: 1px solid #D2D7DD;">Floor 1</div>
+        <div style="padding: 6px 12px; color: #5C6772; border-bottom: 1px solid #D2D7DD;">Ground &middot; MDF</div>
+      </div>
+      <div class="lbl" style="padding: 16px 12px 6px;">Other sites</div>
+      <div style="font-size: 12px; color: #5C6772;">
+        <div style="padding: 4px 12px;">Building B</div>
+        <div style="padding: 4px 12px;">Denver NOC</div>
+        <div style="padding: 4px 12px;">23 branches</div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 10px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">No floor plan? Draw rooms as boxes. A plan is a background image, never required.</div>
+    </div>
+
+    <!-- plan -->
+    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+      <div style="height: 36px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 8px; background: #FAFBFC;">
+        <span class="lbl">Overlay</span>
+        <span style="border: 1px solid #14171A; background: #14171A; color: #FFFFFF; padding: 2px 10px; font-size: 11px;">Cabling</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">VLANs</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Subnets</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Power</span>
+        <span style="border: 1px solid #D2D7DD; padding: 2px 10px; font-size: 11px; color: #5C6772;">Wireless</span>
+        <span style="width: 1px; height: 18px; background: #D2D7DD; margin: 0 6px;"></span>
+        <span class="lbl">Owner</span>
+        <span style="font-size: 11px;">ours</span>
+        <span style="font-size: 11px; color: #A8571B;">&#9636; landlord / tenant</span>
+        <span style="flex-grow: 1;"></span>
+        <span style="font-size: 11px; color: #5C6772;">double-click a closet to open its racks</span>
+      </div>
+
+      <div style="flex-grow: 1; position: relative; background: #FAFBFC; overflow: hidden;">
+        <!-- building outline -->
+        <div style="position: absolute; left: 50px; top: 40px; width: 860px; height: 480px; border: 2px solid #14171A; background: #FFFFFF;">
+
+          <!-- rooms -->
+          <div class="room" style="left: 0; top: 0; width: 300px; height: 200px;"><span class="nm">Open plan &middot; north</span>
+            <div class="desk" style="left: 20px; top: 40px;"></div><div class="desk" style="left: 40px; top: 40px;"></div><div class="desk" style="left: 60px; top: 40px;"></div><div class="desk" style="left: 80px; top: 40px;"></div>
+            <div class="desk" style="left: 20px; top: 60px;"></div><div class="desk" style="left: 40px; top: 60px;"></div><div class="desk" style="left: 60px; top: 60px;"></div><div class="desk" style="left: 80px; top: 60px;"></div>
+            <div class="desk" style="left: 160px; top: 40px;"></div><div class="desk" style="left: 180px; top: 40px;"></div><div class="desk" style="left: 200px; top: 40px;"></div>
+            <div class="desk" style="left: 160px; top: 60px;"></div><div class="desk" style="left: 180px; top: 60px;"></div><div class="desk" style="left: 200px; top: 60px; border-color: #14171A; background: #14171A;"></div>
+            <div style="position: absolute; left: 216px; top: 56px; font-size: 9px; color: #5C6772;">2-114</div>
+          </div>
+          <div class="room" style="left: 300px; top: 0; width: 200px; height: 200px;"><span class="nm">Meeting</span></div>
+
+          <!-- the closet, selected -->
+          <div class="room" style="left: 500px; top: 0; width: 120px; height: 120px; outline: 2px solid #14171A; outline-offset: 2px; background: #F2F4F6;"><span class="nm" style="color: #14171A; font-weight: 700;">IDF-2</span>
+            <div class="rack" style="left: 14px; top: 40px;"></div>
+            <div class="rack hatch" style="left: 44px; top: 40px; border-color: #A8571B;"></div>
+            <div style="position: absolute; left: 14px; top: 80px; font-size: 9px; color: #5C6772;">A-04 &nbsp; A-05</div>
+            <div style="position: absolute; right: 6px; bottom: 4px; font-size: 9px; color: #5C6772;">2 racks</div>
+          </div>
+
+          <div class="room" style="left: 620px; top: 0; width: 240px; height: 120px;"><span class="nm">Stairs &middot; lift</span>
+            <div style="position: absolute; left: 100px; top: 30px; width: 40px; height: 60px; border: 1px dashed #5C6772;"></div>
+            <div style="position: absolute; left: 96px; top: 92px; font-size: 9px; color: #5C6772;">riser</div>
+          </div>
+
+          <div class="room" style="left: 500px; top: 120px; width: 360px; height: 80px;"><span class="nm">Corridor</span></div>
+
+          <div class="room" style="left: 0; top: 200px; width: 420px; height: 280px;"><span class="nm">Open plan &middot; south</span>
+            <div class="desk" style="left: 30px; top: 50px;"></div><div class="desk" style="left: 50px; top: 50px;"></div><div class="desk" style="left: 70px; top: 50px;"></div>
+            <div class="desk" style="left: 30px; top: 70px;"></div><div class="desk" style="left: 50px; top: 70px;"></div><div class="desk" style="left: 70px; top: 70px;"></div>
+            <div class="desk" style="left: 200px; top: 50px;"></div><div class="desk" style="left: 220px; top: 50px;"></div><div class="desk" style="left: 240px; top: 50px;"></div>
+            <div class="desk" style="left: 200px; top: 70px;"></div><div class="desk" style="left: 220px; top: 70px;"></div><div class="desk" style="left: 240px; top: 70px;"></div>
+          </div>
+          <div class="room" style="left: 420px; top: 200px; width: 200px; height: 280px;"><span class="nm">Lab</span>
+            <div style="position: absolute; left: 30px; top: 60px; width: 60px; height: 40px; border: 1px solid #14171A; font-size: 9px; padding: 3px;">bench sw</div>
+          </div>
+          <div class="room hatch" style="left: 620px; top: 200px; width: 240px; height: 280px; border-color: #A8571B;"><span class="nm" style="color: #A8571B;">Sublet &middot; tenant &middot; not ours</span></div>
+
+          <!-- cabling overlay -->
+          <svg style="position: absolute; inset: 0; pointer-events: none;" width="860" height="480">
+            <path d="M206 66 L206 90 L 480 90 L480 40 L514 40" stroke="#14171A" stroke-width="1" fill="none"/>
+            <path d="M60 260 L60 230 L 480 230 L480 110 L514 110" stroke="#14171A" stroke-width="1" fill="none"/>
+            <path d="M60 300 L 300 300 L300 230" stroke="#14171A" stroke-width="1" fill="none"/>
+            <path d="M560 60 L720 60" stroke="#1F6F4A" stroke-width="1.5" fill="none"/>
+            <path d="M720 60 L720 30" stroke="#1F6F4A" stroke-width="1.5" fill="none" stroke-dasharray="3 3"/>
+          </svg>
+          <div style="position: absolute; left: 726px; top: 20px; font-size: 9px; color: #1F6F4A;">3 fibre &uarr; MDF via riser</div>
+          <div style="position: absolute; left: 240px; top: 76px; font-size: 9px; color: #5C6772;">24 copper &rarr; IDF-2 patch</div>
+        </div>
+
+        <div style="position: absolute; left: 50px; bottom: 16px; display: flex; gap: 16px; font-size: 10px; color: #5C6772; background: #FFFFFF; border: 1px solid #D2D7DD; padding: 5px 10px;">
+          <span><span style="display: inline-block; width: 14px; height: 1px; background: #14171A; vertical-align: middle;"></span> copper</span>
+          <span><span style="display: inline-block; width: 14px; height: 2px; background: #1F6F4A; vertical-align: middle;"></span> fibre</span>
+          <span><span style="display: inline-block; width: 10px; height: 8px; border: 1px solid #A8571B; vertical-align: middle;" class="hatch"></span> not ours</span>
+          <span><span style="display: inline-block; width: 10px; height: 8px; border: 1px dashed #5C6772; vertical-align: middle;"></span> riser / conduit</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="width: 280px; border-left: 1px solid #D2D7DD; background: #FAFBFC; padding: 16px;">
+      <div class="lbl">What this gets you</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Closets, NOCs, sublet floors, risers, who owns what &mdash; everything you listed is a <em>place</em>, and this puts place first. A new engineer can find the switch because they can find the room. Ownership is literally hatched on the floor.</div>
+      <div class="lbl" style="margin-top: 20px;">What it costs</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Heavy on physical, lighter on logical. VLANs and subnets are overlays, which is right, but a pure L3 question (two sites, no buildings) needs a different canvas. And someone has to draw the rooms.</div>
+      <div class="lbl" style="margin-top: 20px;">Best if</div>
+      <div style="font-size: 12px; line-height: 18px; margin-top: 8px;">Most of the pain is physical: which closet, which riser, which rack, whose kit. For an office estate, that is most of the pain.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

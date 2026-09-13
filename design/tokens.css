@@ -13,6 +13,10 @@
 
    Everything else in the product references these names and declares no hex,
    no px font sizes and no durations of its own. (51 §14, opening sentence.)
+
+   EXCEPTION, 2026-09-12: the --sheath-* and --cable-* block below sources from
+   docs/UI-SPEC.md (the rebuild's design page), not from 51. Same rule applies:
+   change that page first, then this file.
    ========================================================================= */
 
 :root {
@@ -30,6 +34,44 @@
   --safe:       #1F6F4A;   --safe-wash:    #EEF5F1;   /* [E] ReadOnly      */
   --caution:    #A8571B;   --caution-wash: #FBF3EA;   /* [E] ChangesConfig */
   --danger:     #8C2F2F;   --danger-wash:  #F8EFEF;   /* [E] Disruptive    */
+
+  /* --- sheath. PLASTIC, NOT INK. Source: docs/UI-SPEC.md §Cables --------
+     The colour of the lead in your hand, so a cable you are holding can be
+     found on screen and the reverse. Drawn ONLY as a cable stroke: never a
+     fill, a border or a word. That form rule is what keeps red, green and
+     orange apart from the risk enum above, which is drawn only as a bordered
+     wash with text in it. Plastic is a line; ink is a box.
+
+     No dark-theme variant, on purpose: plastic does not change colour when
+     the lights go off. Only ink adapts. The one theme-aware rule lives in the
+     component: a sheath within a hairline of the page gets a --hairline
+     outline (white on light, black on dark).
+
+     Copper jackets are stock Cat6 colours. Fibre jackets follow TIA-598-C:
+     orange OM1/OM2, aqua OM3/OM4, erika violet OM4 (some makers), yellow OS2.
+     Yellow and orange therefore appear on both copper and fibre, and the
+     construction (one stroke vs a pair) is what tells them apart. */
+  --sheath-grey:   #9FA4A9;
+  --sheath-blue:   #1E62C4;
+  --sheath-red:    #D83228;
+  --sheath-yellow: #E9C21C;
+  --sheath-green:  #2C9D4F;
+  --sheath-orange: #F0821F;
+  --sheath-purple: #7B45B4;
+  --sheath-black:  #14171A;    /* = --ink on light. Fixed; see the outline rule. */
+  --sheath-white:  #FFFFFF;
+  --sheath-aqua:   #24B4C8;    /* OM3 / OM4 */
+  --sheath-erika:  #C99AC7;    /* OM4, some makers */
+
+  /* --- cable construction. Type is the line, never the hue. ------------- */
+  --cable-copper:  1.8px;      /* one stroke */
+  --cable-fibre:   3.2px;      /* a pair: this width, with --fibre-core over it */
+  --fibre-core:    var(--page);
+  --fibre-core-w:  1.1px;
+  --cable-power:   3.4px;      /* one heavy stroke */
+  --cable-lit:     2.6px;      /* the selected path's core, over --cable-halo */
+  --cable-halo:    9px;
+  --phantom:       0.28;       /* everything off the lit path */
 
   /* --- rules ---------------------------------------------------- §9 ----- */
   --rule-hair:   1px;      /* [E] */

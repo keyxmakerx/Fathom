@@ -13,7 +13,7 @@ fn attr_type_matches_62_section_13_3() {
         .ancestors()
         .nth(2)
         .expect("repo root");
-    let doc = fs::read_to_string(repo.join("docs/60-content/62-schema-spec.md"))
+    let doc = fs::read_to_string(repo.join("docs/archive/60-content/62-schema-spec.md"))
         .expect("62-schema-spec.md readable");
 
     let section = doc
