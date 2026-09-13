@@ -456,21 +456,25 @@ because the same splice applies: subject `ab` + scope `c` must not canonicalise 
 scope `bc`.
 
 ```
-grant_bytes   = LP("fathom/grant/v1")
+grant_bytes   = LP("fathom/grant/v2")
               ‖ LP(organisation_id) ‖ LP(root_pubkey_fpr) ‖ LP(scope_id)
               ‖ LP(subject_id) ‖ LP(subject_key_fpr)
               ‖ LP(capability)
               ‖ LP(granter_id_or_empty) ‖ LP(granter_key_fpr)
               ‖ u64(effective_from_unix) ‖ u64(expires_at_unix_or_0)
+              ‖ u32(sole_steward_appointment)
               ‖ u32(auth_epoch)
 
 grant_challenge  = H("fathom/grant/challenge/v1" ‖ grant_bytes)
-second_bytes     = LP("fathom/grant/second/v1") ‖ LP(H(grant_bytes)) ‖ LP(H(granter_sig))
+second_bytes     = LP("fathom/grant/second/v1") ‖ LP(H(grant_bytes)) ‖ LP(granter_key_fpr)
 second_challenge = H("fathom/grant/second/challenge/v1" ‖ second_bytes)
 revoke_bytes     = LP("fathom/grant/revoke/v1") ‖ LP(organisation_id) ‖ LP(grant_id)
                  ‖ LP(H(grant_bytes)) ‖ u64(revoked_at_unix)
 move_bytes       = LP("fathom/scope/move/v1") ‖ LP(organisation_id) ‖ LP(scope_id)
                  ‖ LP(old_path) ‖ LP(new_path) ‖ u64(at_unix)
+
+-- 2026-09-13: grant_bytes is v2 and carries the sole-steward flag; second_bytes binds the
+-- granter's key fingerprint, never a hash of a signature (the correction at the head of §3).
 reparent_bytes   = LP("fathom/device/reparent/v1") ‖ LP(organisation_id)
                  ‖ LP(canon(sorted list of (device_id, from_scope_id, to_scope_id)))
                  ‖ u64(at_unix)
@@ -520,7 +524,7 @@ whatever key the keyring currently holds — both wrong. Verification uses the k
    `granter_sig` and `seconder_sig` over recomputed bytes.
 5. If the grant chains to genesis, **recompute the organisation id** from `organisation_roots` and
    compare (§6.1).
-6. Check the quorum rule for the capability.
+6. Check the quorum rule for the capability — met by one *qualifying* seconding (§3.5, 2026-09-13).
 7. Only then return `Capabilities`, and only then may the caller set `app.design_capability`.
 
 ```
@@ -557,6 +561,30 @@ authorisation on a miss. If that proves too slow, the fix is a wider memo, never
 
 ### 3.5 Quorum, and the sole-steward problem solved rather than declared
 
+> **Added 2026-09-13 (§3.8 items 7 and 8).** **`sole_steward_appointment` is inside the signed
+> bytes, and the tag is `v2`.** The flag decides whether a `steward` grant is live on one signature
+> or inert until a second arrives, so it is a fact both parties attest rather than a column the
+> server fills in after the signature; a seconder is bound to it through `H(grant_bytes)`. **A
+> proposal is not evidence of itself:** `sign_grant` recomputes `grant_bytes` from the proposal's
+> fields and refuses a disagreement as unverifiable, and at commit re-derives every server-chosen
+> value from the authority state as it then is — the epoch, the sole-steward determination, the
+> root and subject fingerprints, and `effective_from` as that determination implies within the
+> proposal skew on both sides — refusing any difference with the re-propose error. **Quorum is met
+> when at least one qualifying seconding exists:** stored seal recomputes, signature verifies under
+> the key in service when it was made, seconder is neither granter nor subject, and the seconder
+> held a verified live `steward` grant on that scope at the seconding's chain position, evaluated
+> with a visited set so that stewardship depending transitively on the grant under evaluation does
+> not qualify. A seconding that does not qualify is not counted and is not an integrity failure —
+> a forged seal is caught by the whole-state stored-seal check at every use; failing the grant it
+> is attached to would let any steward brick another by seconding something. **There is no depth
+> limit:** the first build's "strictly backwards through `chain_seq`" argument was false, since a
+> grant may be seconded long after it was written. The visited set makes every path simple and a
+> per-call memo — the one §3.4 permits within a use, on the stack, discarded with the call — makes
+> every grant evaluated once; cost is linear in grants plus secondings. A cycle of secondings makes
+> nobody a steward and answers quorum-not-met, a permission answer. Known residual, fail-closed: a
+> single memoised pass can deny a grant the least fixed point would allow, never grant one; the
+> exact fixpoint is an outer loop over the memo if it is ever needed.
+>
 > **Added 2026-09-13 (§3.8 items 5 and 6).** For the sole-steward count a steward counts if they
 > hold a `steward` grant that is not revoked and not expired, **suspended or not**: a suspension
 > stops a steward acting, it does not remove them from the count that decides whether a second

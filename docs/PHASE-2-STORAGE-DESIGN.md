@@ -689,7 +689,7 @@ three chain levels are the admin design's §7.1; the migration is `0009_chains_a
 | `fathom/key/aad/org-content/v1` | wrap binding of the per-organisation content key under the tenant key, in the design-key shape | 0009 |
 | `fathom/key/fpr/v1` | key fingerprint, `H(LP(tag) ‖ LP(public_key))` — the tag is length-prefixed like every other construction, where admin §3.2 wrote it bare | 0011, `authority.rs` |
 | `fathom/org/id/v1` | organisation id derived from the root key: the first 128 bits of `H(LP(tag) ‖ LP(root_pub))`, Crockford base32, so it always decodes as a ULID (admin §6.1 wrote 26 characters of the digest, which decodes about one time in four) | 0011 |
-| `fathom/grant/v1` | `grant_bytes`, admin §3.3 | 0011, `grants.rs` |
+| `fathom/grant/v2` | `grant_bytes`, admin §3.3, carrying the sole-steward flag. `v1` never shipped | 0011, `grants.rs` |
 | `fathom/grant/second/v1` | `second_bytes`, binding `LP(H(grant_bytes)) ‖ LP(granter_key_fpr)` — never a hash of a signature (§3 correction) | 0011 |
 | `fathom/grant/revoke/v1` | revocation bytes, carrying the revoker's key fingerprint | 0011 |
 | `fathom/grant/suspend/v1`, `fathom/grant/unsuspend/v1` | suspension and lifting, in the revocation shape — admin §3 gave no bytes for them | 0011 |
