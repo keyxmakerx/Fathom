@@ -627,8 +627,15 @@ the code carry them out.
 2. **The genesis creation-only trigger passed vacuously.** A `SECURITY DEFINER` function reading a
    table under `FORCE ROW LEVEL SECURITY` owned by the definer sees zero rows with no tenant set.
    **Decided:** one genesis grant per organisation is a partial unique index — a constraint, which
-   row security cannot filter — and the trigger is dropped. §6.1's "unconstructible" now rests on
-   the index, not on a function.
+   row security cannot filter — and the trigger is dropped. *Corrected the same day, when the
+   builder stopped on it:* one index per organisation would contradict §6.1's one-or-two genesis
+   stewards and starve every new organisation of a second steward for 24 hours. **Decided instead:**
+   the trigger is dropped; a `CHECK` pins every genesis row to epoch 1 as belt-and-braces; and the
+   fence is the chain — the `org_genesis` entry's sealed metadata names the genesis grants (ids and
+   subject key fingerprints), and whole-state verification (item 1) refuses an organisation whose
+   `is_genesis` rows differ from that list. A late genesis row is not unconstructible in SQL; it is
+   unusable, because no entry sealed before it existed can name it, and re-sealing needs the chain
+   key. §6.1's "unconstructible" is read that way.
 3. **The keyring seal was organisation-scoped while the keyring is account-scoped**, so an account
    in two organisations was unauthorisable in the second, with the integrity alarm rather than a
    permission error. **Decided:** `account_keys` rows are sealed under a site-scoped row key derived
