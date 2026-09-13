@@ -93,6 +93,23 @@ pre-release database with enrolled keys — recreate it. A third round (same day
 the sole-steward flag inside the signed grant bytes (`fathom/grant/v2`) and made quorum turn on
 one qualifying seconding with no depth limit; a fourth checker pass found nothing.
 
+**Migration 0013 is sessions and the first HTTP surface** (admin §4; 2026-09-13): session rows with
+a MAC under the site-scoped row key, a browser-held session key, single-use nonces, a signed
+message on every request that reaches design payload or vault ciphertext, sign-in by proof of an
+enrolled account key with no password path, and routes for challenge, sign-in, sign-out and one
+protected demonstration route (`sessions.rs`, `api.rs`). **Every gate passed on a fresh database,
+but this layer has not been attacked by a checker** — the helper that built it was stopped
+before it could report, so its decisions where §4 was silent (rate limiting, lockout, token shape)
+live only in the code's comments and have not been read into the design.
+
+**Next session starts here:** (1) a checker round on 0013, `sessions.rs` and `api.rs`, with the
+same posture as the four rounds on the authority layer; (2) read the builder's silent-spot
+decisions out of the code into admin §4 and §13; (3) then the rest of §15.6 in order — the admin
+surface and the execution interlock, receipts and witness, break-glass — and, in parallel when
+the client work begins, the vault (storage §13, primitive decided) and the group tables (admin
+§3.7, to be designed and attacked before building). Costs to keep in view: a checker round on a
+layer this size has run 250–350k helper tokens, a build 400–550k.
+
 **The server can read design data, and says so** (`docs/PHASE-2-STORAGE-DESIGN.md` §2a).
 Encryption protects the database, the backups and the disk — not the running process.
 
