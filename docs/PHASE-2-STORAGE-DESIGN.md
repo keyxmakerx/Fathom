@@ -687,6 +687,21 @@ three chain levels are the admin design's §7.1; the migration is `0009_chains_a
 | `fathom/payload/v1` | associated-data tag of an encrypted design payload | 0007, `designs.rs` |
 | `fathom/chain/metadata/aead/v1` | associated-data tag for encrypted chain metadata: `LP(tag) ‖ LP(chain_kind) ‖ LP(chain_id) ‖ u64(seq) ‖ u32(key_epoch)`, where `key_epoch` is `metadata_key_epoch` on the organisation chain and `chain_key_epoch` on the site chain | 0009 |
 | `fathom/key/aad/org-content/v1` | wrap binding of the per-organisation content key under the tenant key, in the design-key shape | 0009 |
+| `fathom/key/fpr/v1` | key fingerprint, `H(LP(tag) ‖ LP(public_key))` — the tag is length-prefixed like every other construction, where admin §3.2 wrote it bare | 0011, `authority.rs` |
+| `fathom/org/id/v1` | organisation id derived from the root key: the first 128 bits of `H(LP(tag) ‖ LP(root_pub))`, Crockford base32, so it always decodes as a ULID (admin §6.1 wrote 26 characters of the digest, which decodes about one time in four) | 0011 |
+| `fathom/grant/v1` | `grant_bytes`, admin §3.3 | 0011, `grants.rs` |
+| `fathom/grant/second/v1` | `second_bytes`, binding `LP(H(grant_bytes)) ‖ LP(granter_key_fpr)` — never a hash of a signature (§3 correction) | 0011 |
+| `fathom/grant/revoke/v1` | revocation bytes, carrying the revoker's key fingerprint | 0011 |
+| `fathom/grant/suspend/v1`, `fathom/grant/unsuspend/v1` | suspension and lifting, in the revocation shape — admin §3 gave no bytes for them | 0011 |
+| `fathom/key/succession/v1` | the succession signature admin §8.4 requires and gave no bytes for | 0011 |
+| `fathom/chain/kdf/row/v1` | HKDF `info` → `K_row`, admin §3.4 | 0011 |
+| `fathom/row/v1` | in-MAC tag of a row MAC under `K_row` (admin §3.4, §4.3) | 0011 |
+| `fathom/authhead/live/v1`, `fathom/authhead/seal/v1` | the authority head's live-set digest and its seal | 0011 |
+| `fathom/grant/challenge/v1`, `fathom/grant/second/challenge/v1` | **Reserved. Nothing writes them.** WebAuthn challenges, admin §15.4 | — |
+| `fathom/scope/move/v1`, `fathom/device/reparent/v1` | **Reserved. Nothing writes them.** Admin §3.6 | — |
+
+`authority::LABELS` in `src/authority.rs` is the machine-readable copy of this table and a unit test
+asserts the two agree.
 
 **Which key encrypts chain metadata, per level.** As built in 0009 (2026-09-12): `metadata` keeps
 its name and holds the bytes as stored — canonical plaintext on `design`, ciphertext with the tag on

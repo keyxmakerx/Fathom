@@ -253,6 +253,43 @@ is no path from any operator verb to it.
 
 ### 3.2 The tables
 
+> **Built 2026-09-12 as migration `0011_authority.sql` — with these departures from the SQL below,
+> each found by building it and accepted by the project.** The migration and `src/authority.rs`
+> headers carry the same list; where this section and the code differ, the code is what exists.
+>
+> 1. `principals.kind` is `'steward'`, not `'account'`: 0004's `CHECK` admits `steward` and
+>    `operator` only, which is §0's own vocabulary. §13 item 6 is read the same way.
+> 2. `scope_id` is nullable, and `NULL` means the organisation itself: 0002 makes `organisations`
+>    the root of the scope tree with no row of its own, and §6.1's genesis grant, §1.1's *"any
+>    steward of that organisation"* and §3.5's live count all need that root. The signed bytes carry
+>    the empty string, length-prefixed.
+> 3. Seconding and suspension are their own append-only tables, not columns on the grant row —
+>    the argument this section makes for revocation applies to them. `scope_grants` is insert-only
+>    behind a trigger that binds a superuser; the cross-row `CHECK` survives as a three-column
+>    foreign key onto `(id, subject_id, granted_by)`.
+> 4. `grant_revocations` carries `revoker_key_fpr`, which §3.3 argues for and this section omitted.
+> 5. `alg` and `root_alg` carry Fathom's own id `1` (ES256 as §15.3 chose it) under a `CHECK`
+>    admitting nothing else. They are not COSE ids: the IANA registry was unreachable and rule 1
+>    forbids writing a remembered number into a stored column. Migrating them is WebAuthn's job.
+> 6. Suspension, unsuspension and the succession signature of §8.4 have bytes now — three labels in
+>    the revocation shape; storage §12.2's table lists them.
+> 7. The fingerprint length-prefixes its tag, like every other construction in the product.
+> 8. The organisation id is the first 128 bits of the digest, Crockford-encoded, because 26
+>    characters of a 256-bit digest fail to decode as a ULID about three times in four.
+> 9. A sole-steward appointment (§3.4 step 6) is recorded on the row and covered by the seal,
+>    because counting live stewards at verification time gives a different answer as the
+>    organisation grows.
+> 10. Every `ON DELETE CASCADE` is `RESTRICT`: a referential action is not subject to row security
+>     at any privilege level (0008, 0009).
+> 11. `K_row`, `fathom/row/v1` and the `fathom/authhead/*` labels are in storage §12.2's table,
+>     which owns every label.
+>
+> **Deferred, precisely:** §6.1 step 3 (shares to holders) and all of §8, per §15.2; WebAuthn and
+> the challenge derivations (§15.4); sessions (§4); the admin surface and interlock (§5.4); groups
+> (§3.7); `move_bytes` and `reparent_bytes` (§3.6). §1.1's operator suspend verb is schema-only until
+> the operator surface exists. Nothing is cached; the epoch high-water mark lives in one process,
+> so a head rollback is detected within a process lifetime only — §7.6's anchors are still deferred.
+
 ```sql
 -- 0005_authority.sql
 
