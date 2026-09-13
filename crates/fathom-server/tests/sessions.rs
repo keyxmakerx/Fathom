@@ -254,6 +254,29 @@ async fn store(pool: &Pool, ring: Arc<KeyRing>) -> SessionStore {
     SessionStore::new(pool.clone(), ring, deployment, SignInLimits::defaults())
 }
 
+/// A source address **this call and no other test will ever use**.
+///
+/// The source bucket is a rate limit, not a lockout: thirty attempts per
+/// fifteen minutes, counted per source string, in a row of `sign_in_attempts`
+/// in the shared test database. Every sign-in below used to hand it the same
+/// literal address, so the whole binary shared one bucket and the window
+/// carried over between runs — and on 2026-09-13 a third `cargo test` inside
+/// fifteen minutes tripped it, failing five tests that have nothing to do with
+/// rate limiting, with `RateLimited { retry_after_seconds: 487 }`.
+///
+/// Unique per call, and per process, so a re-run starts clean. The cap itself
+/// had no test at all until this change; it has one now, and that test holds a
+/// single source across its own attempts on purpose.
+fn a_source_of_its_own() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "198.51.100.7-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 /// Sign in the way a browser would: a fresh non-extractable keypair, a
 /// challenge derived from its public half, and the account's enrolled key
 /// signing that challenge.
@@ -282,7 +305,7 @@ async fn sign_in_with(
             &pubkey,
             &challenge.nonce,
             &evidence,
-            "198.51.100.7",
+            &a_source_of_its_own(),
         )
         .await
 }
@@ -833,7 +856,7 @@ async fn a_bind_nonce_cannot_bind_a_second_public_key() {
             &attacker.public_key(),
             &challenge.nonce,
             &evidence,
-            "198.51.100.7",
+            &a_source_of_its_own(),
         )
         .await;
     assert!(
@@ -850,7 +873,7 @@ async fn a_bind_nonce_cannot_bind_a_second_public_key() {
             &honest.public_key(),
             &challenge.nonce,
             &evidence,
-            "198.51.100.7",
+            &a_source_of_its_own(),
         )
         .await;
     assert!(
@@ -1082,6 +1105,76 @@ async fn failed_entries(pool: &Pool) -> i64 {
         .await
         .expect("count")
         .get(0)
+}
+
+/// The source bucket, which had no test of its own until the sign-in helpers
+/// stopped sharing one address (2026-09-13).
+///
+/// Deliberately a **valid** sign-in every time: §13 item 7's source number is a
+/// rate limit on attempts, not a lockout on failures, so the cap has to bite a
+/// caller whose signature is perfect — that is the whole difference between the
+/// two buckets. `max_per_account` is put far out of the way so there is no
+/// question which bucket refused.
+#[tokio::test]
+async fn the_source_bucket_refuses_a_valid_sign_in_past_its_cap() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let deployment = {
+        let client = pool.get().await.expect("connection");
+        chains::deployment_id(&**client).await.expect("deployment")
+    };
+    let store = SessionStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment,
+        SignInLimits {
+            window: std::time::Duration::from_secs(900),
+            max_per_account: 1_000_000,
+            max_per_source: 3,
+        },
+    );
+
+    // One source for all four attempts -- the bucket under test -- but one no
+    // other test and no earlier run has counted against.
+    let source = a_source_of_its_own();
+    let mut answers = Vec::new();
+    for _ in 0..4 {
+        let session_key = SoftwareKey::random().expect("a session keypair");
+        let pubkey = session_key.public_key();
+        let challenge = store
+            .issue_challenge(PrincipalKind::Steward, &estate.steward.address, &pubkey)
+            .await
+            .expect("a challenge");
+        let digest =
+            sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
+        let evidence = estate.steward.key.sign(&digest);
+        answers.push(
+            store
+                .sign_in(
+                    PrincipalKind::Steward,
+                    &pubkey,
+                    &challenge.nonce,
+                    &evidence,
+                    &source,
+                )
+                .await,
+        );
+    }
+
+    for (i, answer) in answers.iter().take(3).enumerate() {
+        assert!(
+            answer.is_ok(),
+            "attempt {} is inside the cap and its signature is good: {answer:?}",
+            i + 1
+        );
+    }
+    assert!(
+        matches!(answers[3], Err(SessionError::RateLimited { .. })),
+        "past the source cap even a perfect sign-in is told to wait: {:?}",
+        answers[3]
+    );
 }
 
 // ---------------------------------------------------------------------------

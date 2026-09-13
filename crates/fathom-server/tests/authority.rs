@@ -2066,6 +2066,7 @@ async fn a_seconding_with_a_good_signature_and_a_forged_seal_is_refused() {
     // superuser, so rewriting the seal takes the tier-3 route the fence's own
     // header names.
     let superuser = support::superuser_client_on_test_database().await;
+    let tamper_gate = support::hold_the_tamper_lock().await;
     superuser
         .batch_execute("ALTER TABLE grant_secondings DISABLE TRIGGER USER")
         .await
@@ -2081,6 +2082,7 @@ async fn a_seconding_with_a_good_signature_and_a_forged_seal_is_refused() {
         .batch_execute("ALTER TABLE grant_secondings ENABLE TRIGGER USER")
         .await
         .expect("put it back");
+    tamper_gate.release().await;
 
     let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, subject).await;
     let watch = EpochWatch::new();
@@ -2140,6 +2142,7 @@ async fn a_late_genesis_row_is_unusable_even_though_it_inserts() {
     // CHECK is satisfied, inserted as superuser with the append-only triggers
     // disabled -- every fence 0011 and 0012 put in the database, walked past.
     let superuser = support::superuser_client_on_test_database().await;
+    let tamper_gate = support::hold_the_tamper_lock().await;
     superuser
         .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
         .await
@@ -2171,6 +2174,7 @@ async fn a_late_genesis_row_is_unusable_even_though_it_inserts() {
         .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
         .await
         .expect("put it back");
+    tamper_gate.release().await;
 
     // And the organisation now authorises nobody, including the newcomer and
     // the genuine stewards: the sealed `org_genesis` entry names two genesis
@@ -2209,6 +2213,7 @@ async fn the_check_refuses_a_genesis_grant_at_any_epoch_but_one() {
     let (newcomer, newcomer_key) = a_bystander(&pool, &ring, &estate, "newcomer").await;
 
     let superuser = support::superuser_client_on_test_database().await;
+    let tamper_gate = support::hold_the_tamper_lock().await;
     superuser
         .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
         .await
@@ -2237,6 +2242,7 @@ async fn the_check_refuses_a_genesis_grant_at_any_epoch_but_one() {
         .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
         .await
         .expect("put it back");
+    tamper_gate.release().await;
 
     assert_eq!(
         err.code(),
@@ -2690,6 +2696,7 @@ async fn an_expired_co_steward_does_not_keep_the_survivor_from_appointing() {
     // that binds a superuser, so this is the tier-3 route -- used here only to
     // move a clock forward, which no test can otherwise do.
     let superuser = support::superuser_client_on_test_database().await;
+    let tamper_gate = support::hold_the_tamper_lock().await;
     superuser
         .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
         .await
@@ -2713,6 +2720,7 @@ async fn an_expired_co_steward_does_not_keep_the_survivor_from_appointing() {
         .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
         .await
         .expect("put it back");
+    tamper_gate.release().await;
 
     // Editing the row broke its seal, so re-seal the authority by advancing
     // the head through the real path -- the state is now genuinely "one live
@@ -2826,6 +2834,7 @@ async fn an_expired_co_steward_does_not_keep_the_survivor_from_appointing() {
     // built on. The test holds that key only because the test created the
     // steward, and it re-signs the moved bytes rather than pretending the old
     // signature still covers them.
+    let tamper_gate = support::hold_the_tamper_lock().await;
     superuser
         .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
         .await
@@ -2841,6 +2850,7 @@ async fn an_expired_co_steward_does_not_keep_the_survivor_from_appointing() {
         .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
         .await
         .expect("put it back");
+    tamper_gate.release().await;
 
     {
         let (tx, ctx, tenant_key) = acting(
@@ -2853,6 +2863,7 @@ async fn an_expired_co_steward_does_not_keep_the_survivor_from_appointing() {
         let moved = grant_bytes_for(&tx, &ring, &id).await;
         let resigned = estate.stewards[0].key.sign(&moved);
         let superuser = support::superuser_client_on_test_database().await;
+        let tamper_gate = support::hold_the_tamper_lock().await;
         superuser
             .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
             .await
@@ -2868,6 +2879,7 @@ async fn an_expired_co_steward_does_not_keep_the_survivor_from_appointing() {
             .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
             .await
             .expect("put it back");
+        tamper_gate.release().await;
 
         reseal_every_grant(&tx, 87, &estate).await;
         grants::advance_head(&tx, &ring, &ctx, &tenant_key)
@@ -3080,6 +3092,7 @@ async fn no_verdict_is_cached_between_two_uses_in_one_process() {
     let twin = high_s_twin(&stored.clone().try_into().expect("64 bytes"));
 
     let superuser = support::superuser_client_on_test_database().await;
+    let tamper_gate = support::hold_the_tamper_lock().await;
     superuser
         .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
         .await
@@ -3095,6 +3108,7 @@ async fn no_verdict_is_cached_between_two_uses_in_one_process() {
         .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
         .await
         .expect("put it back");
+    tamper_gate.release().await;
 
     let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, subject).await;
     let watch = EpochWatch::new();
@@ -3264,6 +3278,7 @@ async fn reseal_every_grant(
         .expect("the grants");
 
     let superuser = support::superuser_client_on_test_database().await;
+    let tamper_gate = support::hold_the_tamper_lock().await;
     superuser
         .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
         .await
@@ -3338,6 +3353,7 @@ async fn reseal_every_grant(
         .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
         .await
         .expect("put it back");
+    tamper_gate.release().await;
 }
 
 // ---------------------------------------------------------------------------

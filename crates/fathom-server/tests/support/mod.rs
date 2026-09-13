@@ -377,6 +377,60 @@ pub async fn tamper(
     result
 }
 
+/// Hold [`TAMPER_LOCK`] across a tamper window opened by hand.
+///
+/// [`tamper`] serialises the one-statement case. A window that needs several
+/// statements between the `DISABLE` and the `ENABLE` — reading rows, deriving
+/// a seal over each, writing them back — cannot go through it, and
+/// `authority.rs` opens eight such windows against the shared test database.
+///
+/// **They need the same lock.** The interleaving [`tamper`]'s header describes
+/// does not care who opened the window: A disables, B disables, A re-enables,
+/// and B's statement is refused with the append-only exception. That is not
+/// hypothetical — on 2026-09-13 it failed in CI, in
+/// `an_expired_co_steward_does_not_keep_the_survivor_from_appointing`, which
+/// re-seals every grant row in a loop and lost the race against another
+/// authority test's window. It had passed locally every run until then, which
+/// is what a race does.
+///
+/// Take this immediately before the `DISABLE`, release it immediately after
+/// the `ENABLE`, and **never call [`tamper`] while holding it** — that would
+/// wait on a lock this gate is holding, on another connection, forever.
+///
+/// A test whose database is its own (`isolated_deployment`) does not need it,
+/// because nothing else is in that database at all.
+#[allow(dead_code)]
+pub struct TamperGate {
+    gate: tokio_postgres::Client,
+}
+
+/// Take [`TAMPER_LOCK`] and hold it until the returned gate is released or
+/// dropped.
+#[allow(dead_code)]
+pub async fn hold_the_tamper_lock() -> TamperGate {
+    let gate = superuser_client_on_test_database().await;
+    gate.execute("SELECT pg_advisory_lock($1)", &[&TAMPER_LOCK])
+        .await
+        .expect("take the tamper lock");
+    TamperGate { gate }
+}
+
+impl TamperGate {
+    /// Give the lock back now.
+    ///
+    /// Dropping the gate closes its connection and PostgreSQL releases the
+    /// session lock with it, so this is not required for correctness — but it
+    /// is deterministic, where the drop path waits on a socket closing, and
+    /// the next window in the same test would otherwise block on it.
+    #[allow(dead_code)]
+    pub async fn release(self) {
+        let _ = self
+            .gate
+            .execute("SELECT pg_advisory_unlock($1)", &[&TAMPER_LOCK])
+            .await;
+    }
+}
+
 async fn tamper_locked(
     client: &tokio_postgres::Client,
     table: &str,
