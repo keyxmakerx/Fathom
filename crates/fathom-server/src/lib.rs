@@ -47,6 +47,7 @@
 //! first (WO-11 §8, ADR-0040 §9 items 1 and 2).
 
 pub mod audit;
+pub mod authority;
 pub mod chain;
 pub mod chains;
 pub mod config;
@@ -54,6 +55,7 @@ pub mod crypto;
 pub mod db;
 pub mod designs;
 pub mod engine;
+pub mod grants;
 pub mod health;
 pub mod healthcheck;
 pub mod ids;

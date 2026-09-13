@@ -12,6 +12,19 @@
 > PostgreSQL driver, and each now carries its own record because this workspace names it.
 > 115 → 123 crates, against `35` §5.1's cap of 160.
 >
+> **2026-09-12, Phase 2's authority layer (admin design §15.3):** eighteen crates arrived with
+> ES256 — `p256 0.14.0` and `ecdsa 0.17.0`, each with its own record because this workspace names
+> them, and their transitive closure `autocfg`, `base16ct`, `cpubits`, `crypto-bigint`, `der`,
+> `elliptic-curve`, `ff`, `group`, `num-traits`, `primefield`, `primeorder`, `rfc6979`, `sec1`,
+> `signature`, `subtle`, `wnaf`. **123 → 141 crates**, read off `./scripts/gate-zero.sh`, against
+> the 200 ceiling below. No `build.rs` and no proc macro among the eighteen; no C and no assembly.
+> `cipher` stays at `0.5.2`, above the yanked `0.5.0`. The only duplicate majors in the graph are
+> the four `deny.toml` already skips by name (`syn`, `wasi`); `cargo deny --locked check` reports
+> `advisories ok, bans ok, licenses ok, sources ok`. **`scripts/osv-gate.sh` could not run — its
+> endpoint is refused by this session's proxy and it fails closed — so the second database was read
+> through OSV's `crates.io` bulk export instead, version-aware with a positive control, and must be
+> re-run as the gate before merge.**
+>
 > **Cap split 2026-09-12 (OPEN-QUESTIONS A3).** The browser side stays at zero external crates,
 > enforced by `fathom-wasm`'s tests. The server's ceiling is now **200, revisit at 180** — a
 > ceiling, not a budget; every crate still needs its own record here. `scripts/closure-report.sh`
@@ -66,8 +79,10 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `aead` | `0.6.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:48:56 GMT | https://github.com/RustCrypto/traits |
 | `async-trait` | `0.1.92` | MIT OR Apache-2.0 | transitive | no | yes | Sat, 08 Aug 2026 07:10:36 GMT | https://github.com/dtolnay/async-trait |
 | `atomic-waker` | `1.1.2` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 14:59:32 GMT | https://github.com/smol-rs/atomic-waker |
+| `autocfg` | `1.5.1` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 18:05:58 GMT | https://github.com/cuviper/autocfg |
 | `axum` | `0.8.9` | MIT | DIRECT | no | no | Sun, 28 Jun 2026 18:07:52 GMT | https://github.com/tokio-rs/axum |
 | `axum-core` | `0.5.6` | MIT | transitive | no | no | Sun, 28 Jun 2026 17:11:24 GMT | https://github.com/tokio-rs/axum |
+| `base16ct` | `1.0.0` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 16:44:46 GMT | https://github.com/RustCrypto/formats |
 | `base64` | `0.22.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 14:36:55 GMT | https://github.com/marshallpierce/rust-base64 |
 | `bitflags` | `2.13.1` | MIT OR Apache-2.0 | transitive | no | no | Wed, 15 Jul 2026 20:36:21 GMT | https://github.com/bitflags/bitflags |
 | `block-buffer` | `0.12.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:55:10 GMT | https://github.com/RustCrypto/utils |
@@ -80,21 +95,28 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `cipher` | `0.5.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:53:35 GMT | https://github.com/RustCrypto/traits |
 | `cmov` | `0.5.4` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 17:09:19 GMT | https://github.com/RustCrypto/utils |
 | `const-oid` | `0.10.2` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 16:35:58 GMT | https://github.com/RustCrypto/formats |
+| `cpubits` | `0.1.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:53:57 GMT | https://github.com/RustCrypto/utils |
 | `cpufeatures` | `0.3.1` | MIT OR Apache-2.0 | transitive | no | no | Wed, 26 Aug 2026 18:40:00 GMT | https://github.com/RustCrypto/utils |
+| `crypto-bigint` | `0.7.5` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 17:58:43 GMT | https://github.com/RustCrypto/crypto-bigint |
 | `crypto-common` | `0.2.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:54:18 GMT | https://github.com/RustCrypto/traits |
 | `ctutils` | `0.4.2` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 17:39:09 GMT | https://github.com/RustCrypto/utils |
 | `deadpool` | `0.13.1` | MIT OR Apache-2.0 | transitive | no | no | Wed, 26 Aug 2026 15:11:02 GMT | https://github.com/deadpool-rs/deadpool |
 | `deadpool-postgres` | `0.14.2` | MIT OR Apache-2.0 | DIRECT | no | no | Wed, 26 Aug 2026 15:14:51 GMT | https://github.com/deadpool-rs/deadpool |
 | `deadpool-runtime` | `0.3.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:36:45 GMT | https://github.com/deadpool-rs/deadpool |
+| `der` | `0.8.2` | Apache-2.0 OR MIT | transitive | no | no | Sat, 05 Sep 2026 14:12:58 GMT | https://github.com/RustCrypto/formats |
 | `digest` | `0.11.3` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:57:12 GMT | https://github.com/RustCrypto/traits |
+| `ecdsa` | `0.17.0` | Apache-2.0 OR MIT | DIRECT | no | no | Thu, 02 Jul 2026 14:36:11 GMT | https://github.com/RustCrypto/signatures |
+| `elliptic-curve` | `0.14.1` | Apache-2.0 OR MIT | transitive | no | no | Mon, 29 Jun 2026 02:53:53 GMT | https://github.com/RustCrypto/traits |
 | `errno` | `0.3.14` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:08:03 GMT | https://github.com/lambda-fairy/rust-errno |
 | `fallible-iterator` | `0.2.0` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 14:36:53 GMT | https://github.com/sfackler/rust-fallible-iterator |
+| `ff` | `0.14.0` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:39:58 GMT | https://github.com/zkcrypto/ff |
 | `futures-channel` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:11 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-core` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:02 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-sink` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:07 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-task` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:08 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-util` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:20 GMT | https://github.com/rust-lang/futures-rs |
 | `getrandom` | `0.4.3` | MIT OR Apache-2.0 | DIRECT | yes | no | Sun, 28 Jun 2026 18:10:53 GMT | https://github.com/rust-random/getrandom |
+| `group` | `0.14.0` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:11:33 GMT | https://github.com/zkcrypto/group |
 | `hkdf` | `0.13.0` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 17:37:30 GMT | https://github.com/RustCrypto/KDFs/ |
 | `hmac` | `0.13.0` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 15:58:58 GMT | https://github.com/RustCrypto/MACs |
 | `http` | `1.5.0` | MIT OR Apache-2.0 | transitive | no | no | Wed, 29 Jul 2026 14:57:23 GMT | https://github.com/hyperium/http |
@@ -118,9 +140,11 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `memchr` | `2.8.3` | Unlicense OR MIT | transitive | no | no | Wed, 08 Jul 2026 00:49:55 GMT | https://github.com/BurntSushi/memchr |
 | `mime` | `0.3.17` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:18:11 GMT | https://github.com/hyperium/mime |
 | `mio` | `1.2.2` | MIT | transitive | no | no | Mon, 13 Jul 2026 15:39:11 GMT | https://github.com/tokio-rs/mio |
+| `num-traits` | `0.2.19` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 28 Jun 2026 14:49:37 GMT | https://github.com/rust-num/num-traits |
 | `objc2-core-foundation` | `0.3.2` | Zlib OR Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 15:53:07 GMT | https://github.com/madsmtm/objc2 |
 | `objc2-system-configuration` | `0.3.2` | Zlib OR Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 16:36:00 GMT | https://github.com/madsmtm/objc2 |
 | `once_cell` | `1.21.4` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:34:01 GMT | https://github.com/matklad/once_cell |
+| `p256` | `0.14.0` | Apache-2.0 OR MIT | DIRECT | no | no | Fri, 03 Jul 2026 17:56:53 GMT | https://github.com/RustCrypto/elliptic-curves |
 | `parking_lot` | `0.12.5` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:08:29 GMT | https://github.com/Amanieu/parking_lot |
 | `parking_lot_core` | `0.9.12` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 28 Jun 2026 15:08:48 GMT | https://github.com/Amanieu/parking_lot |
 | `percent-encoding` | `2.3.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 14:59:33 GMT | https://github.com/servo/rust-url/ |
@@ -130,25 +154,31 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `poly1305` | `0.9.1` | Apache-2.0 OR MIT | transitive | no | no | Wed, 08 Jul 2026 16:33:34 GMT | https://github.com/RustCrypto/universal-hashes |
 | `postgres-protocol` | `0.6.12` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:10:21 GMT | https://github.com/rust-postgres/rust-postgres |
 | `postgres-types` | `0.2.14` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:41:16 GMT | https://github.com/rust-postgres/rust-postgres |
+| `primefield` | `0.14.0` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 18:23:38 GMT | https://github.com/RustCrypto/elliptic-curves |
+| `primeorder` | `0.14.0` | Apache-2.0 OR MIT | transitive | no | no | Fri, 03 Jul 2026 00:18:02 GMT | https://github.com/RustCrypto/elliptic-curves |
 | `proc-macro2` | `1.0.107` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 19 Jul 2026 00:18:26 GMT | https://github.com/dtolnay/proc-macro2 |
 | `quote` | `1.0.47` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 19 Jul 2026 00:16:58 GMT | https://github.com/dtolnay/quote |
 | `r-efi` | `6.0.0` | MIT OR Apache-2.0 OR LGPL-2.1-or-later | transitive | no | no | Sun, 28 Jun 2026 15:43:22 GMT | https://github.com/r-efi/r-efi |
 | `rand` | `0.10.2` | MIT OR Apache-2.0 | transitive | no | no | Thu, 02 Jul 2026 09:01:40 GMT | https://github.com/rust-random/rand |
 | `rand_core` | `0.10.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:28:08 GMT | https://github.com/rust-random/rand_core |
 | `redox_syscall` | `0.5.18` | MIT | transitive | no | no | Sun, 28 Jun 2026 15:52:34 GMT | https://gitlab.redox-os.org/redox-os/syscall |
+| `rfc6979` | `0.6.0` | Apache-2.0 OR MIT | transitive | no | no | Tue, 30 Jun 2026 02:21:46 GMT | https://github.com/RustCrypto/signatures |
 | `rustversion` | `1.0.23` | MIT OR Apache-2.0 | transitive | no | yes | Tue, 07 Jul 2026 02:10:27 GMT | https://github.com/dtolnay/rustversion |
 | `scopeguard` | `1.2.0` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:31:51 GMT | https://github.com/bluss/scopeguard |
+| `sec1` | `0.8.1` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 17:13:56 GMT | https://github.com/RustCrypto/formats |
 | `serde` | `1.0.229` | MIT OR Apache-2.0 | transitive | yes | no | Sat, 18 Jul 2026 23:05:14 GMT | https://github.com/serde-rs/serde |
 | `serde_core` | `1.0.229` | MIT OR Apache-2.0 | transitive | yes | no | Sat, 18 Jul 2026 23:05:12 GMT | https://github.com/serde-rs/serde |
 | `serde_derive` | `1.0.229` | MIT OR Apache-2.0 | transitive | no | yes | Sat, 18 Jul 2026 23:05:08 GMT | https://github.com/serde-rs/serde |
 | `sha2` | `0.11.0` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 17:17:31 GMT | https://github.com/RustCrypto/hashes |
 | `sharded-slab` | `0.1.7` | MIT | transitive | no | no | Sun, 28 Jun 2026 15:19:03 GMT | https://github.com/hawkw/sharded-slab |
 | `signal-hook-registry` | `1.4.8` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:11:53 GMT | https://github.com/vorner/signal-hook |
+| `signature` | `3.0.0` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 16:12:50 GMT | https://github.com/RustCrypto/traits |
 | `siphasher` | `1.0.3` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:03:43 GMT | https://github.com/jedisct1/rust-siphash |
 | `slab` | `0.4.12` | MIT | transitive | no | no | Sun, 28 Jun 2026 17:09:00 GMT | https://github.com/tokio-rs/slab |
 | `smallvec` | `1.15.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 18:21:48 GMT | https://github.com/servo/rust-smallvec |
 | `socket2` | `0.6.5` | MIT OR Apache-2.0 | transitive | no | no | Mon, 13 Jul 2026 19:45:59 GMT | https://github.com/rust-lang/socket2 |
 | `stringprep` | `0.1.5` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:07:50 GMT | https://github.com/sfackler/rust-stringprep |
+| `subtle` | `2.6.1` | BSD-3-Clause | transitive | no | no | Sun, 28 Jun 2026 16:11:14 GMT | https://github.com/dalek-cryptography/subtle |
 | `syn` | `2.0.119` | MIT OR Apache-2.0 | transitive | no | no | Wed, 15 Jul 2026 00:23:50 GMT | https://github.com/dtolnay/syn |
 | `syn` | `3.0.4` | MIT OR Apache-2.0 | transitive | no | no | Mon, 24 Aug 2026 00:39:55 GMT | https://github.com/dtolnay/syn |
 | `sync_wrapper` | `1.0.2` | Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:27:08 GMT | https://github.com/Actyx/sync_wrapper |
@@ -185,9 +215,10 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `windows-link` | `0.2.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:12:27 GMT | https://github.com/microsoft/windows-rs |
 | `windows-sys` | `0.61.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:13:16 GMT | https://github.com/microsoft/windows-rs |
 | `wit-bindgen` | `0.57.1` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | transitive | yes | no | Sun, 28 Jun 2026 18:22:51 GMT | https://github.com/bytecodealliance/wit-bindgen |
+| `wnaf` | `0.14.1` | Apache-2.0 OR MIT | transitive | no | no | Thu, 03 Sep 2026 19:10:51 GMT | https://github.com/RustCrypto/elliptic-curves |
 | `zeroize` | `1.9.0` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 17:42:15 GMT | https://github.com/RustCrypto/utils |
 
-**123 external crates**, of which **11 direct**. **11 carry a `build.rs`** and **6 are proc-macros** — 17 of 123 run code at compile time, which is the number the August 2026 attack was about. Against `35` §5.1: **≤ 30 direct (11)**, **≤ 160 in the closure (123)**.
+**141 external crates**, of which **13 direct**. **12 carry a `build.rs`** and **6 are proc-macros** — 18 of 141 run code at compile time, which is the number the August 2026 attack was about. Against `35` §5.1: **≤ 30 direct (13)**, **≤ 200 in the closure (141)**.
 
 <!-- gate-zero:end -->
 

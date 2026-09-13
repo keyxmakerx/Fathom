@@ -164,3 +164,38 @@ getrandom = { version = "0.4.3", default-features = false }
 # means the seal input has ONE spelling per value rather than whatever a
 # formatter happened to emit.
 fathom-canon = { path = "../fathom-canon" }
+
+# ---------------------------------------------------------------------------
+# PHASE 2's AUTHORITY LAYER. `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.3
+# chose ES256 over EdDSA and said why: FIDO's metadata service was unreachable,
+# so which authenticators support EdDSA could not be established, and CLAUDE.md
+# rule 1 forbids betting on an unverified belief. ES256 is the choice that does
+# not need the lookup that could not be done.
+# ---------------------------------------------------------------------------
+
+# The curve. `default-features = false` drops `std`, `pem`, `pkcs8` and
+# `precomputed-tables`: none is on the path this crate uses, and `pem`/`pkcs8`
+# would add a key-encoding surface for keys this server only ever verifies.
+#
+# `ecdsa` is the one feature named, and it pulls exactly what ES256 is:
+# `arithmetic` (the field and group operations), `ecdsa-core/algorithm` (the
+# signing half) and `sha256` (the hash in ES256's name), which resolves to the
+# `sha2` already named above rather than adding one.
+p256 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
+
+# The signature algorithm itself, named directly because `src/authority.rs`
+# calls its types rather than only p256's re-exports -- `Signature`,
+# `SigningKey`, `VerifyingKey`, and `Signature::normalize_s`, which is how §3's
+# malleability correction is enforced.
+#
+# `der` IS NOT NAMED HERE and the absence is the point: §3's correction stores
+# and binds a signature as the fixed-size `r || s` pair, never as DER, because
+# several DER encodings of one signature are several byte strings over one
+# fact. p256 0.14.0's own manifest declares its `ecdsa` dependency with
+# `features = ["der"]`, so the `der` crate is in the closure whatever this line
+# says; what this line decides is that no code in this workspace reaches for a
+# DER parser.
+ecdsa = { version = "0.17.0", default-features = false, features = [
+    "algorithm",
+    "digest",
+] }

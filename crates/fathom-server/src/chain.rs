@@ -303,6 +303,40 @@ pub enum EntryType {
     // ---- Organisation chain (§7.2) ---------------------------------------
     /// The first entry on an organisation's chain.
     OrgGenesis,
+
+    // ---- The authority layer's acts (§7.2, migration 0011) ---------------
+    //
+    // Nine types, every one of them written by `grants.rs`. §7.2 lists more
+    // for this chain (`scope_moved`, `devices_reparented`,
+    // `recovery_holders_set`, `break_glass_*`, `member_added|removed`,
+    // `authority_rollback`); they arrive with the surfaces that cause them,
+    // because an entry type nothing emits is a name in a `CHECK` constraint
+    // pretending to be a control.
+    /// A signing key joined an account's keyring (§3.2, §8.4).
+    AccountKeyEnrolled,
+    /// An old key signed its successor, and says so (§8.4).
+    AccountKeySuperseded,
+    /// A key was retired and signs nothing further.
+    AccountKeyRetired,
+    /// A steward — or the organisation root key, at genesis — signed a scope
+    /// grant (§3.3).
+    GrantSigned,
+    /// A second steward countersigned it (§3.5's quorum).
+    GrantSeconded,
+    /// A grant was suspended: by a steward, or by an operator, which is the
+    /// one authority-adjacent act §1.1 gives the operator plane.
+    GrantSuspended,
+    /// A steward lifted a suspension. An operator cannot: `0011`'s own
+    /// `CHECK` refuses `unsuspend` for an operator principal.
+    GrantUnsuspended,
+    /// A grant was revoked — the positive, append-only fact §3.2 requires in
+    /// place of a nullable column whose absence means live.
+    GrantRevoked,
+    /// The organisation's authority head moved to a new epoch (§3.4). Written
+    /// by every one of the acts above, in the same transaction, because the
+    /// head is what makes the current state of the SET authenticated rather
+    /// than only the author of each row.
+    AuthHeadAdvanced,
     /// **A re-wrap happened** — §12.6's whole point.
     ///
     /// Custody changed and exposure did not. The entry names the old and the
@@ -334,6 +368,15 @@ impl EntryType {
             Self::SpoolPressure => "spool_pressure",
             Self::OrgGenesis => "org_genesis",
             Self::Rewrap => "rewrap",
+            Self::AccountKeyEnrolled => "account_key_enrolled",
+            Self::AccountKeySuperseded => "account_key_superseded",
+            Self::AccountKeyRetired => "account_key_retired",
+            Self::GrantSigned => "grant_signed",
+            Self::GrantSeconded => "grant_seconded",
+            Self::GrantSuspended => "grant_suspended",
+            Self::GrantUnsuspended => "grant_unsuspended",
+            Self::GrantRevoked => "grant_revoked",
+            Self::AuthHeadAdvanced => "auth_head_advanced",
         }
     }
 
@@ -347,6 +390,15 @@ impl EntryType {
             "spool_pressure" => Some(Self::SpoolPressure),
             "org_genesis" => Some(Self::OrgGenesis),
             "rewrap" => Some(Self::Rewrap),
+            "account_key_enrolled" => Some(Self::AccountKeyEnrolled),
+            "account_key_superseded" => Some(Self::AccountKeySuperseded),
+            "account_key_retired" => Some(Self::AccountKeyRetired),
+            "grant_signed" => Some(Self::GrantSigned),
+            "grant_seconded" => Some(Self::GrantSeconded),
+            "grant_suspended" => Some(Self::GrantSuspended),
+            "grant_unsuspended" => Some(Self::GrantUnsuspended),
+            "grant_revoked" => Some(Self::GrantRevoked),
+            "auth_head_advanced" => Some(Self::AuthHeadAdvanced),
             _ => None,
         }
     }
@@ -354,9 +406,11 @@ impl EntryType {
     /// Which chains this type may be filed on — **plural, because `rewrap` is
     /// filed on two.**
     ///
-    /// Mirrored by `chain_entries_type_belongs_to_kind` in
-    /// `migrations/0010_entry_type_belongs_to_kind.sql`, so the rule holds for
-    /// a statement this code never issued as well as for one it did.
+    /// Mirrored by `chain_entries_type_belongs_to_kind`, created in
+    /// `migrations/0010_entry_type_belongs_to_kind.sql` and extended by
+    /// `migrations/0011_authority.sql` through that file's documented DROP +
+    /// ADD path, so the rule holds for a statement this code never issued as
+    /// well as for one it did.
     ///
     /// **Corrected 2026-09-12.** This read `chain_kind(self) -> ChainKind`
     /// and its doc said the constraint was in
@@ -368,7 +422,16 @@ impl EntryType {
         match self {
             Self::Create | Self::Update | Self::Reencrypt => &[ChainKind::Design],
             Self::DeploymentStarted | Self::ShipperGap | Self::SpoolPressure => &[ChainKind::Site],
-            Self::OrgGenesis => &[ChainKind::Org],
+            Self::OrgGenesis
+            | Self::AccountKeyEnrolled
+            | Self::AccountKeySuperseded
+            | Self::AccountKeyRetired
+            | Self::GrantSigned
+            | Self::GrantSeconded
+            | Self::GrantSuspended
+            | Self::GrantUnsuspended
+            | Self::GrantRevoked
+            | Self::AuthHeadAdvanced => &[ChainKind::Org],
             Self::Rewrap => &[ChainKind::Site, ChainKind::Org],
         }
     }

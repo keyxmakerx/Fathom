@@ -76,6 +76,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0010_entry_type_belongs_to_kind.sql",
         sql: include_str!("../migrations/0010_entry_type_belongs_to_kind.sql"),
     },
+    Migration {
+        version: 11,
+        name: "0011_authority.sql",
+        sql: include_str!("../migrations/0011_authority.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

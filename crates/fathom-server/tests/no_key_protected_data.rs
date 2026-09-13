@@ -236,6 +236,70 @@ const TABLES: &[TableClaim] = &[
               once, and a copy of the plaintext would be §11.3 cost 3's leak through a side \
               door. A seal is a MAC tag, not a key.",
     },
+    // ---- 0011, the authority layer (admin design §3.2) --------------------
+    //
+    // Six tables, none of them key-protected, and the reason is the same for
+    // all six and is the point of the layer: **authority is expressed in
+    // PUBLIC KEYS, SIGNATURES AND MAC TAGS.** A signature is not a secret, a
+    // fingerprint is a hash of a public key, and a row seal is a MAC tag
+    // whose key is the chain key -- which is behind ADR-0043's provider
+    // interface and never in PostgreSQL. Nothing here is decrypted to be
+    // used; it is verified.
+    TableClaim {
+        name: "organisation_roots",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the organisation root PUBLIC key, its 16-byte id salt, the chain sequence its \
+              genesis was announced in, and a row seal. §6.1 splits or wraps the PRIVATE half \
+              on the creator's side and this server never receives it -- see \
+              `grants::bootstrap_organisation`, which takes a public key and signatures and \
+              nothing else.",
+    },
+    TableClaim {
+        name: "account_keys",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one row per enrolled signing key: the PUBLIC key, its fingerprint, the algorithm, \
+              and a succession signature. §1.3 withholds it from the operator plane not because \
+              it is secret but because a keyring is the map of who can sign what; the private \
+              halves are §15.1's software keys, held wherever the steward holds them, and are \
+              not in this database in any form.",
+    },
+    TableClaim {
+        name: "scope_grants",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "who may open which scope, and the signature that says so. Every column is either \
+              an opaque id, a capability word, a timestamp, a public-key fingerprint, a \
+              64-byte signature or a MAC tag. §11.3's standing disclosure applies -- the \
+              permission map is structure and is readable from a dump -- and that is stated \
+              there rather than re-litigated here.",
+    },
+    TableClaim {
+        name: "grant_secondings",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the second signature §3.5's quorum needs. Same shape as `scope_grants`: ids, a \
+              fingerprint, a signature, a seal.",
+    },
+    TableClaim {
+        name: "grant_suspensions",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "append-only suspend/unsuspend acts. Ids, a word, a timestamp, an optional \
+              fingerprint and signature, a seal. The one authority table an OPERATOR principal \
+              may legitimately appear in (§1.1's suspend verb), which is a fact about \
+              authority and not about keys.",
+    },
+    TableClaim {
+        name: "grant_revocations",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the positive, append-only fact that a grant is dead (§3.2). A revoker id, a \
+              fingerprint, a signature, a chain sequence and a seal.",
+    },
+    TableClaim {
+        name: "organisation_auth_head",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one row per organisation: the authority epoch, the chain sequence, how many \
+              grants are live, a keyed digest over them and the head seal. Two MAC tags and \
+              three integers. Keyed under the organisation chain key so that a dump cannot \
+              recompute them, which is integrity rather than confidentiality.",
+    },
 ];
 
 /// Object kinds a migration may create that are not themselves a place to
