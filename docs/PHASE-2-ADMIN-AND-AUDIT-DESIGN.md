@@ -284,6 +284,28 @@ is no path from any operator verb to it.
 > 11. `K_row`, `fathom/row/v1` and the `fathom/authhead/*` labels are in storage §12.2's table,
 >     which owns every label.
 >
+> **Migration 0012, 2026-09-13, after the second checker round (§3.8):**
+>
+> 12. **The head's `live_digest` covers the whole authority state, not the live grants.** §3.4's
+>     digest left every seconding, suspension and revocation outside the head, so a directly
+>     inserted seconding was covered by nothing. It now covers every non-revoked grant, every
+>     seconding, suspension and revocation, each keyed by table and row identity with its recomputed
+>     row seal; stored seals are compared separately. Label `fathom/authhead/live/v2`; v1 never
+>     shipped.
+> 13. **`account_keys` rows are sealed under a site-scoped row key**, derived from the site chain key
+>     under the same `fathom/chain/kdf/row/v1` label: the keyring is account-scoped and an
+>     organisation-scoped seal made an account in two organisations unauthorisable in the second.
+> 14. **Granting is two steps.** `propose_grant` fixes every server-chosen value and returns the
+>     bytes to sign; `sign_grant` verifies over those bytes as issued and refuses, with a typed
+>     re-propose error, when the epoch has moved or the proposal is older than 120 seconds. The
+>     one-step shape bound the server's clock into bytes the client had already signed.
+> 15. **The genesis trigger is dropped and the chain is the fence.** 0011's `SECURITY DEFINER`
+>     function read a `FORCE ROW LEVEL SECURITY` table it owned, saw zero rows with no tenant set,
+>     and passed vacuously. 0012 adds `CHECK (NOT is_genesis OR auth_epoch = 1)` and the
+>     `org_genesis` entry's sealed metadata names the genesis grants, checked at every use. A late
+>     genesis row still inserts; it authorises nobody. It is not unconstructible in SQL and must
+>     not be described as if it were.
+>
 > **Deferred, precisely:** §6.1 step 3 (shares to holders) and all of §8, per §15.2; WebAuthn and
 > the challenge derivations (§15.4); sessions (§4); the admin surface and interlock (§5.4); groups
 > (§3.7); `move_bytes` and `reparent_bytes` (§3.6). §1.1's operator suspend verb is schema-only until
@@ -534,6 +556,18 @@ hundred grants is a hundred HMACs on a memoised path — plus a handful of signa
 authorisation on a miss. If that proves too slow, the fix is a wider memo, never a stored verdict.
 
 ### 3.5 Quorum, and the sole-steward problem solved rather than declared
+
+> **Added 2026-09-13 (§3.8 items 5 and 6).** For the sole-steward count a steward counts if they
+> hold a `steward` grant that is not revoked and not expired, **suspended or not**: a suspension
+> stops a steward acting, it does not remove them from the count that decides whether a second
+> signature is required. Any single-steward act that removes or weakens another steward — revoking
+> or suspending a steward grant with no seconding — takes effect only after the same 24-hour delay
+> a sole appointment does, is recorded as a single-steward act on the organisation chain, and
+> closes the sole-steward path while it is pending. Without both, one steward suspends the other,
+> becomes "sole" on the strength of it, appoints a third alone, and lifts the suspension. **The
+> cost, stated for the owner:** revoking a steward's grant alone now takes 24 hours to bite; the
+> operator's immediate suspend (§1.1) remains the emergency lever, and a steward revoked with a
+> seconding is revoked at once.
 
 | Action | Quorum |
 |---|---|

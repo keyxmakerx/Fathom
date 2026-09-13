@@ -84,6 +84,13 @@ every use, nothing cached. `p256` and `ecdsa` entered through the gate with thei
 are not built, and admin §3.2 lists the eleven places the build departed from the design text.
 Golden vectors: `tests/authority_vectors.rs` from `tests/vectors/gen_authority_vectors.py`.
 
+**Migration 0012 (2026-09-13)** fixes the second checker round on that layer, admin §3.8: the
+head's digest covers the whole authority state and every seconding is verified at use; the
+vacuous genesis trigger is gone and the chain names the genesis grants; account keys are sealed
+under a site-scoped key; granting is propose-then-sign; suspension cannot manufacture a sole
+steward; expiry is evaluated at use; key retirement is a signed act. 0012 refuses to apply over a
+pre-release database with enrolled keys — recreate it.
+
 **The server can read design data, and says so** (`docs/PHASE-2-STORAGE-DESIGN.md` §2a).
 Encryption protects the database, the backups and the disk — not the running process.
 

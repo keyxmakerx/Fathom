@@ -694,9 +694,10 @@ three chain levels are the admin design's §7.1; the migration is `0009_chains_a
 | `fathom/grant/revoke/v1` | revocation bytes, carrying the revoker's key fingerprint | 0011 |
 | `fathom/grant/suspend/v1`, `fathom/grant/unsuspend/v1` | suspension and lifting, in the revocation shape — admin §3 gave no bytes for them | 0011 |
 | `fathom/key/succession/v1` | the succession signature admin §8.4 requires and gave no bytes for | 0011 |
-| `fathom/chain/kdf/row/v1` | HKDF `info` → `K_row`, admin §3.4 | 0011 |
+| `fathom/chain/kdf/row/v1` | HKDF `info` → `K_row`, admin §3.4. **Two inputs, one label:** the organisation chain key for organisation-scoped authority rows; the site chain key for `account_keys` (0012). The label separates uses of one key; these are two independently derived keys | 0011, 0012 |
 | `fathom/row/v1` | in-MAC tag of a row MAC under `K_row` (admin §3.4, §4.3) | 0011 |
-| `fathom/authhead/live/v1`, `fathom/authhead/seal/v1` | the authority head's live-set digest and its seal | 0011 |
+| `fathom/authhead/live/v2`, `fathom/authhead/seal/v1` | the authority head's whole-authority-state digest (grants, secondings, suspensions, revocations) and its seal. `live/v1` covered grants only and never shipped | 0011, 0012 |
+| `fathom/key/retire/v1` | in-signature tag of `retire_bytes`, key retirement as a signed act | 0012 |
 | `fathom/grant/challenge/v1`, `fathom/grant/second/challenge/v1` | **Reserved. Nothing writes them.** WebAuthn challenges, admin §15.4 | — |
 | `fathom/scope/move/v1`, `fathom/device/reparent/v1` | **Reserved. Nothing writes them.** Admin §3.6 | — |
 
