@@ -96,10 +96,22 @@ const TAG_GRANT_UNSUSPEND: &[u8] = b"fathom/grant/unsuspend/v1";
 /// the bytes; these are the bytes.
 const TAG_KEY_SUCCESSION: &[u8] = b"fathom/key/succession/v1";
 
+/// §8.4's retirement, which `0011` named in its entry-type `CHECK` and nothing
+/// wrote. See [`retire_bytes`].
+const TAG_KEY_RETIRE: &[u8] = b"fathom/key/retire/v1";
+
 /// §3.4's row-seal subkey, and its three in-MAC tags.
 const KDF_ROW_LABEL: &[u8] = b"fathom/chain/kdf/row/v1";
 const TAG_ROW: &[u8] = b"fathom/row/v1";
-const TAG_AUTHHEAD_LIVE: &[u8] = b"fathom/authhead/live/v1";
+/// **v2, and v1 was never shipped.** §3.4's digest covered the live GRANTS
+/// only, which left every seconding, suspension and revocation outside the
+/// head: the head's digest did not move when a seconding appeared, so a
+/// seconding row inserted directly was covered by nothing at all. v2 covers
+/// the whole authority state. The version is bumped rather than reused
+/// because the label names a construction and the construction changed; two
+/// meanings under one name is what this file's own `LABELS` test exists to
+/// stop.
+const TAG_AUTHHEAD_LIVE: &[u8] = b"fathom/authhead/live/v2";
 const TAG_AUTHHEAD_SEAL: &[u8] = b"fathom/authhead/seal/v1";
 
 /// **Every label this module introduces, for `PHASE-2-STORAGE-DESIGN.md`
@@ -147,16 +159,23 @@ pub const LABELS: &[(&str, &str)] = &[
         "in-signature tag of succession_bytes (§8.4 is silent)",
     ),
     (
+        "fathom/key/retire/v1",
+        "in-signature tag of retire_bytes (§8.4 is silent)",
+    ),
+    (
         "fathom/chain/kdf/row/v1",
-        "HKDF info from an organisation chain key → K_row (§3.4)",
+        "HKDF info from a chain key → K_row. TWO INPUTS, ONE LABEL: the \
+         organisation chain key for organisation-scoped rows, the SITE chain \
+         key for `account_keys` (§3.4, and see `row_key`)",
     ),
     (
         "fathom/row/v1",
         "in-MAC tag of an authority row seal (§3.4)",
     ),
     (
-        "fathom/authhead/live/v1",
-        "in-MAC tag of the live digest (§3.4)",
+        "fathom/authhead/live/v2",
+        "in-MAC tag of the whole-authority-state digest (§3.4). v1 covered \
+         grants only and was never shipped",
     ),
     (
         "fathom/authhead/seal/v1",
@@ -480,18 +499,68 @@ pub fn succession_bytes(
     msg
 }
 
+/// §8.4's retirement: taking a key out of use **without** naming a successor.
+///
+/// ```text
+/// retire_bytes = LP("fathom/key/retire/v1") ‖ LP(account_id)
+///              ‖ LP(key_fpr) ‖ LP(signer_key_fpr) ‖ u64(at_unix)
+/// ```
+///
+/// `0011` put `account_key_retired` in the entry-type `CHECK` and **nothing
+/// wrote it** — a name in a constraint pretending to be a control, which is
+/// the thing §3.2's own header warns against. This is the act that writes it.
+///
+/// **`signer_key_fpr` is in the bytes because the signer is not always the
+/// subject.** §8.4 lets the key's own holder retire it, and a steward must be
+/// able to retire a key whose holder has gone — so without naming the signing
+/// key, one retirement signature would be replayable as a statement by
+/// whoever the verifier happened to resolve. The same argument §3.3 makes for
+/// `granter_key_fpr` on a grant.
+pub fn retire_bytes(
+    account: &str,
+    key_fpr: &[u8; 32],
+    signer_key_fpr: &[u8; 32],
+    at_unix: i64,
+) -> Vec<u8> {
+    let mut msg = Vec::with_capacity(192);
+    crypto::lp(&mut msg, TAG_KEY_RETIRE);
+    crypto::lp(&mut msg, account.as_bytes());
+    crypto::lp(&mut msg, key_fpr);
+    crypto::lp(&mut msg, signer_key_fpr);
+    crypto::u64_le(&mut msg, at_unix as u64);
+    msg
+}
+
 // ---------------------------------------------------------------------------
 // The seals — §3.4
 // ---------------------------------------------------------------------------
 
-/// `K_row = HKDF-Expand(organisation chain key, "fathom/chain/kdf/row/v1", 32)`.
+/// `K_row = HKDF-Expand(chain key, "fathom/chain/kdf/row/v1", 32)`.
 ///
 /// A third subkey beside `chain::Subkeys`' `K_seal` and `K_content`, derived
-/// from the same organisation chain key and domain-separated from both. §3.4
-/// names it; §12.2's table does not have it yet, which is why it is in
-/// [`LABELS`].
-pub fn row_key(organisation_chain_key: &Key32) -> Key32 {
-    crypto::hkdf_expand(organisation_chain_key, KDF_ROW_LABEL)
+/// from the same chain key and domain-separated from both. §3.4 names it;
+/// §12.2's table does not have it yet, which is why it is in [`LABELS`].
+///
+/// # Two inputs, one label — deliberate, and here is why
+///
+/// §3.4 derives this from *the organisation chain key*, and for every
+/// organisation-scoped authority row that is right. **`account_keys` is not
+/// organisation-scoped.** The keyring is keyed on an ACCOUNT, and an account
+/// may be a member of two organisations; sealing its keyring row under one
+/// organisation's row key made it unverifiable in the other, which surfaced
+/// as `Unverifiable` — an integrity alarm — rather than as a permission
+/// error. So `account_keys` rows are sealed under
+/// `K_row_site = HKDF-Expand(site chain key, "fathom/chain/kdf/row/v1", 32)`,
+/// and verified under it everywhere.
+///
+/// **This needs no new label.** A KDF label separates *uses* of one key; what
+/// distinguishes these two subkeys is the input key, not the info string, and
+/// the site chain key and an organisation chain key are already independently
+/// derived from the chain master (`chain::chain_key`). Adding a second label
+/// would suggest the two are derived from the same secret, which they are
+/// not. `grants.rs::site_row_key` is the one place the site input is taken.
+pub fn row_key(chain_key: &Key32) -> Key32 {
+    crypto::hkdf_expand(chain_key, KDF_ROW_LABEL)
 }
 
 /// What one authority row's seal covers.
@@ -527,31 +596,51 @@ pub fn row_seal(row_key: &Key32, facts: &RowFacts<'_>) -> [u8; 32] {
     crypto::mac(row_key.expose(), &msg)
 }
 
-/// §3.4's `live_digest` — the keyed statement of **which grants are live**.
+/// §3.4's `live_digest` — the keyed statement of **the whole authority
+/// state**.
 ///
 /// ```text
-/// live_digest = MAC(K_row, LP("fathom/authhead/live/v1") ‖ LP(organisation_id)
+/// live_digest = MAC(K_row, LP("fathom/authhead/live/v2") ‖ LP(organisation_id)
 ///                   ‖ u32(auth_epoch) ‖ u32(live_count)
-///                   ‖ ⟦ LP(grant_id_i) ‖ LP(row_seal_i) for i in sorted(live) ⟧)
+///                   ‖ ⟦ LP(key_i) ‖ LP(row_seal_i) for i in sorted(state) ⟧)
 /// ```
 ///
-/// **Sorted by grant id, and the caller does not get to choose the order**:
-/// this function sorts, because a digest over a set whose order the caller
-/// picks is a digest over a different value per caller. `live_count` is
-/// derived from the slice for the same reason — a count that disagreed with
-/// the list would be a second, unchecked statement of the same fact.
+/// # What `state` must contain, and why it is not just the grants
 ///
-/// Each grant's **own row seal** is in the digest, not just its id, so the head
-/// covers what every live grant *says* as well as which ones there are. That
-/// is what makes "editing `capability` on a real grant grants nothing" true
-/// (§14's test list) without the head being rewritten.
+/// Every non-revoked grant, every seconding, every suspension and every
+/// revocation row — each keyed `"<table>/<row identity>"` and carrying its
+/// **recomputed** row seal.
+///
+/// §3.4's original digest covered the grants alone. That left a hole big
+/// enough to walk through: the head's digest did not move when a seconding
+/// appeared, so a `grant_secondings` row inserted directly through the
+/// application role was covered by no seal and by no head, and the only thing
+/// checked at use was a signature over bytes anybody can recompute from public
+/// columns. A bystander with no grant could flip a pending steward grant live.
+/// Covering the whole state means any row added, removed or edited anywhere in
+/// the authority makes the recomputed digest disagree with the sealed one.
+///
+/// **The table name is inside each key**, so a row moved between authority
+/// tables lands at a different position in the digest as well as failing its
+/// own seal (which already names its table — see [`row_seal`]).
+///
+/// **Sorted by key, and the caller does not get to choose the order**: this
+/// function sorts, because a digest over a set whose order the caller picks is
+/// a digest over a different value per caller. `live_count` is derived from
+/// the slice for the same reason — a count that disagreed with the list would
+/// be a second, unchecked statement of the same fact.
+///
+/// Each row's **own seal** is in the digest, not just its key, so the head
+/// covers what every row *says* as well as which rows there are. That is what
+/// makes "editing `capability` on a real grant grants nothing" true (§14's
+/// test list) without the head being rewritten.
 pub fn live_digest(
     row_key: &Key32,
     organisation: &str,
     auth_epoch: i32,
-    live: &[(String, [u8; 32])],
+    state: &[(String, [u8; 32])],
 ) -> [u8; 32] {
-    let mut sorted: Vec<&(String, [u8; 32])> = live.iter().collect();
+    let mut sorted: Vec<&(String, [u8; 32])> = state.iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut msg = Vec::with_capacity(64 + sorted.len() * 72);
@@ -559,8 +648,8 @@ pub fn live_digest(
     crypto::lp(&mut msg, organisation.as_bytes());
     crypto::u32_le(&mut msg, auth_epoch as u32);
     crypto::u32_le(&mut msg, sorted.len() as u32);
-    for (grant_id, seal) in sorted {
-        crypto::lp(&mut msg, grant_id.as_bytes());
+    for (key, seal) in sorted {
+        crypto::lp(&mut msg, key.as_bytes());
         crypto::lp(&mut msg, seal);
     }
     crypto::mac(row_key.expose(), &msg)
@@ -876,6 +965,67 @@ mod tests {
         assert_ne!(suspend, unsuspend);
         assert_ne!(suspend, revoke);
         assert_ne!(unsuspend, revoke);
+
+        // Retirement and succession are both statements by a key about a key.
+        let retire = retire_bytes("acct", &[1u8; 32], &[2u8; 32], 7);
+        let succeed = succession_bytes("acct", &[1u8; 32], &[2u8; 32], 7);
+        assert_ne!(retire, succeed);
+    }
+
+    #[test]
+    fn a_retirement_names_the_key_that_signed_it() {
+        // The signer is not always the subject -- §8.4 lets a steward retire a
+        // departed holder's key -- so a retirement signature must not be
+        // readable as a statement by whoever the verifier resolves.
+        assert_ne!(
+            retire_bytes("acct", &[1u8; 32], &[2u8; 32], 7),
+            retire_bytes("acct", &[1u8; 32], &[3u8; 32], 7)
+        );
+    }
+
+    #[test]
+    fn the_state_digest_moves_when_any_row_class_changes() {
+        // The §3.4 hole, as a property: a seconding, a suspension or a
+        // revocation appearing must move the head, not only a grant.
+        let key = Key32::from_bytes([5u8; 32]);
+        let grant = || {
+            (
+                "scope_grants/01JQZ0000000000000000000AA".to_string(),
+                [1u8; 32],
+            )
+        };
+        let base = vec![grant()];
+        let digest = |s: &[(String, [u8; 32])]| live_digest(&key, "org", 3, s);
+
+        for extra in [
+            "grant_secondings/01JQZ0000000000000000000BB",
+            "grant_suspensions/00000000000000000007",
+            "grant_revocations/01JQZ0000000000000000000AA",
+        ] {
+            let mut with = base.clone();
+            with.push((extra.to_string(), [9u8; 32]));
+            assert_ne!(
+                digest(&base),
+                digest(&with),
+                "the head must move when {extra} appears"
+            );
+        }
+    }
+
+    #[test]
+    fn the_state_digest_separates_the_tables() {
+        // One row id, two tables: the digest must not read them as each other.
+        let key = Key32::from_bytes([5u8; 32]);
+        let id = "01JQZ0000000000000000000AA";
+        assert_ne!(
+            live_digest(&key, "org", 3, &[(format!("scope_grants/{id}"), [1u8; 32])]),
+            live_digest(
+                &key,
+                "org",
+                3,
+                &[(format!("grant_revocations/{id}"), [1u8; 32])]
+            )
+        );
     }
 
     #[test]
@@ -928,6 +1078,7 @@ mod tests {
             TAG_GRANT_SUSPEND,
             TAG_GRANT_UNSUSPEND,
             TAG_KEY_SUCCESSION,
+            TAG_KEY_RETIRE,
             KDF_ROW_LABEL,
             TAG_ROW,
             TAG_AUTHHEAD_LIVE,

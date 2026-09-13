@@ -570,6 +570,58 @@ pub async fn verify_site(
     ))
 }
 
+/// The decrypted metadata of the **first** entry of `entry_type` on an
+/// organisation's chain, or `None` if the chain carries no such entry.
+///
+/// # Why decrypting is enough to trust what comes back
+///
+/// The metadata is AEAD ciphertext whose additional data binds the chain, the
+/// entry's `seq` and the key epoch (`chain::metadata_aad`). So a metadata blob
+/// lifted from another organisation, or from another position in this chain,
+/// does not open; a blob edited in place does not open; and a blob written
+/// fresh needs the organisation content key, which is wrapped under the tenant
+/// key, which is wrapped under the master key. What comes back is what was
+/// sealed at that seq on that chain, or nothing.
+///
+/// This is deliberately **not** a whole-chain verification. `verify_org` is
+/// that, and running it inside every authorisation would put a full chain walk
+/// on the hot path. What this answers is narrower and is all its one caller
+/// needs: *what did this organisation's own sealed record say when it was
+/// created?*
+pub async fn read_org_entry_metadata(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    entry_type: EntryType,
+) -> Result<Option<Vec<u8>>, ChainStoreError> {
+    let organisation = ctx.tenant().to_string();
+    let chain = ChainRef::Org {
+        organisation: &organisation,
+    };
+    let Some(row) = tx
+        .query_opt(
+            "SELECT seq FROM chain_entries \
+              WHERE chain_kind = 'org' AND chain_id = $1 AND entry_type = $2 \
+              ORDER BY seq LIMIT 1",
+            &[&organisation, &entry_type.as_str()],
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    let seq: i64 = row.get(0);
+
+    let tenant_key = keys::tenant_key(tx, ring, ctx).await?;
+    for framing in read_metadata_framing(tx, chain).await? {
+        if framing.seq != seq {
+            continue;
+        }
+        let key = keys::org_content_key_at_epoch(tx, ctx, &tenant_key, framing.key_epoch).await?;
+        return open_metadata(&key, chain, &framing);
+    }
+    Ok(None)
+}
+
 /// Verify an **organisation** chain.
 ///
 /// A deep run needs the organisation content key, which is wrapped under the

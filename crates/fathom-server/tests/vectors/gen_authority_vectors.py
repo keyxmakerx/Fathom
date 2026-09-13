@@ -94,7 +94,7 @@ TAG_GRANT_UNSUSPEND = b"fathom/grant/unsuspend/v1"
 TAG_KEY_SUCCESSION = b"fathom/key/succession/v1"
 KDF_ROW = b"fathom/chain/kdf/row/v1"
 TAG_ROW = b"fathom/row/v1"
-TAG_AUTHHEAD_LIVE = b"fathom/authhead/live/v1"
+TAG_AUTHHEAD_LIVE = b"fathom/authhead/live/v2"
 TAG_AUTHHEAD_SEAL = b"fathom/authhead/seal/v1"
 
 # The chain-key derivation this layer's subkeys hang off, from storage §12.2
@@ -139,12 +139,17 @@ ROW_CHAIN_SEQ = 4
 ROW_VERSION = 1
 ROW_STATE = b'{"capability":"steward"}\n'
 
-# The live set: two grants, deliberately given OUT of sorted order here,
-# because §3.4 says `sorted(live grants)` and the Rust sorts rather than
-# trusting its caller.
+# The authority state the head covers: v2 of this digest covers every
+# non-revoked grant, every seconding, every suspension and every revocation,
+# each keyed "<table>/<row identity>" -- not the grants alone, which is what
+# left secondings outside every seal. One row of each class here, deliberately
+# given OUT of sorted order, because the Rust sorts rather than trusting its
+# caller.
 LIVE = [
-    (b"01JQZ0000000000000000000GG", bytes([0x61]) * 32),
-    (b"01JQZ0000000000000000000EE", bytes([0x62]) * 32),
+    (b"scope_grants/01JQZ0000000000000000000GG", bytes([0x61]) * 32),
+    (b"grant_secondings/01JQZ0000000000000000000EE", bytes([0x62]) * 32),
+    (b"grant_suspensions/00000000000000000007", bytes([0x63]) * 32),
+    (b"grant_revocations/01JQZ0000000000000000000GG", bytes([0x64]) * 32),
 ]
 HEAD_CHAIN_SEQ = 9
 
@@ -346,7 +351,7 @@ live_digest = mac(
     + lp(ORGANISATION)
     + u32_le(AUTH_EPOCH)
     + u32_le(len(live_sorted))
-    + b"".join(lp(grant_id) + lp(seal) for grant_id, seal in live_sorted),
+    + b"".join(lp(key) + lp(seal) for key, seal in live_sorted),
 )
 
 head_seal = mac(

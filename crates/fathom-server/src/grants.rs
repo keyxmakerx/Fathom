@@ -57,6 +57,30 @@ use crate::repo::{self, AccountId, OrganisationId, RepoError, ScopeId, TenantCon
 /// and are named in `0011`'s own comment as unbuilt.
 pub const SOLE_STEWARD_DELAY_SECONDS: i64 = 24 * 60 * 60;
 
+/// How far into the past a proposal's `effective_from` may have drifted by the
+/// time the signed grant comes back (§3.3, and the two-step split below).
+///
+/// **Two minutes.** The window has to cover a human reading what they are
+/// signing and a software key producing the signature, plus clock drift
+/// between the browser and the server; it must not be long enough for a
+/// proposal captured off the wire to be replayed into a materially different
+/// authority state. Two minutes is generous for the first and short enough
+/// that the epoch check — which is exact, not fuzzy — is what actually carries
+/// the freshness guarantee. The epoch is the control; this is a bound on
+/// staleness for the one field the epoch does not pin.
+pub const PROPOSAL_SKEW_SECONDS: i64 = 120;
+
+/// How deep the seconder-held-steward check will recurse before refusing.
+///
+/// Verifying a seconding means verifying that the seconder held a live steward
+/// grant, which is itself a grant that may have been seconded. The recursion
+/// terminates on its own — each step moves strictly backwards in `chain_seq`,
+/// and genesis grants need no seconding — but "terminates" and "terminates
+/// soon" are different claims, and an authority shaped by an attacker is
+/// exactly where the difference would be found. Eight is far past any real
+/// appointment chain; beyond it the answer is a refusal, not a deeper search.
+const SECONDING_DEPTH_LIMIT: usize = 8;
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -96,6 +120,17 @@ pub enum AuthorityError {
     NoSigningKey,
     /// A stored row does not decode as what its column says it is.
     Corrupt(&'static str),
+    /// A proposal was overtaken between [`propose_grant`] and [`sign_grant`]:
+    /// the head moved, or `effective_from` has gone stale. **The caller must
+    /// re-propose and have the new bytes signed** — the server may not adjust
+    /// the bytes, because the signature covers them.
+    Stale(&'static str),
+    /// §3.5's sole-steward path is unavailable while a single-steward act that
+    /// weakens another steward is still within its delay.
+    SoleStewardPathBlocked,
+    /// The organisation's `is_genesis` rows are not the ones its sealed
+    /// `org_genesis` chain entry names (§6.1).
+    GenesisSetMismatch,
 }
 
 impl core::fmt::Display for AuthorityError {
@@ -132,6 +167,22 @@ impl core::fmt::Display for AuthorityError {
                 f.write_str("this account has no enrolled signing key, so it can sign nothing")
             }
             Self::Corrupt(what) => write!(f, "a stored {what} is not consistent"),
+            Self::Stale(what) => write!(
+                f,
+                "this grant proposal was overtaken ({what}). The signature covers the bytes that \
+                 were issued and the server may not alter them, so propose the grant again and \
+                 sign the new bytes"
+            ),
+            Self::SoleStewardPathBlocked => f.write_str(
+                "a single-steward act that removes or weakens another steward is still within \
+                 its delay, so the sole-steward appointment path is closed until it takes effect \
+                 or is revoked",
+            ),
+            Self::GenesisSetMismatch => f.write_str(
+                "this organisation's genesis grants are not the ones its sealed org_genesis \
+                 entry names, so a genesis row has been added, removed or altered since \
+                 creation",
+            ),
         }
     }
 }
@@ -255,7 +306,34 @@ pub struct AccountKey {
     pub enrolled_seq: i64,
     pub row_version: i32,
     pub superseded_by: Option<String>,
-    pub retired: bool,
+    /// When this key left service — `0` for "still in service".
+    ///
+    /// **A timestamp rather than a boolean, because §3.3 resolves a key *as of*
+    /// a grant's `effective_from`.** A key retired last week must still verify
+    /// the grants it signed last year; a boolean cannot say that, and reading
+    /// one meant a rotation silently invalidated history or silently validated
+    /// it, depending on which way the check was written.
+    pub retired_at_unix: i64,
+}
+
+impl AccountKey {
+    /// Whether this key was in service at `at_unix` (§3.3, §8.4).
+    ///
+    /// Retirement and supersession both take a key out of service, and both
+    /// are recorded with the same timestamp by [`supersede_key`], so one
+    /// comparison answers both.
+    ///
+    /// **The boundary is inclusive, and that is deliberate.** A key is in
+    /// service up to and including the instant it is retired; retirement bites
+    /// after that instant. The exclusive reading breaks the ordinary case —
+    /// a grant signed and a key superseded within the same second, which this
+    /// repository's own succession test does — by retrospectively invalidating
+    /// a grant that was signed before the retirement was even requested. What
+    /// the check is for is a grant claiming to be effective *after* a key left
+    /// service, and `<=` refuses that exactly.
+    pub fn in_service_at(&self, at_unix: i64) -> bool {
+        self.retired_at_unix == 0 || at_unix <= self.retired_at_unix
+    }
 }
 
 /// One scope grant, as stored.
@@ -305,6 +383,32 @@ fn row_key_for(ring: &KeyRing, organisation: &str) -> Key32 {
         CHAIN_KEY_EPOCH,
     );
     authority::row_key(&chain_key)
+}
+
+/// `K_row_site` — the subkey **`account_keys` rows are sealed under**.
+///
+/// § The keyring is account-scoped and the seal was not (fixed here). An
+/// account may belong to two organisations. Sealing its keyring row under the
+/// current organisation's row key meant the row verified in whichever
+/// organisation happened to enrol it and nowhere else: the second
+/// organisation recomputed the seal under its own key, got a different value,
+/// and refused the account with `Unverifiable` — an integrity alarm naming a
+/// forgery that had not happened, which is worse than a permission error
+/// because it sends someone looking for an attacker.
+///
+/// The site chain key is the one key in this deployment that is the same for
+/// every organisation, so it is what an account-scoped row must be sealed
+/// under. The label does not change — see `authority::row_key`.
+async fn site_row_key(tx: &Transaction<'_>, ring: &KeyRing) -> Result<Key32, AuthorityError> {
+    let deployment = chains::deployment_id(&**tx).await?;
+    let chain_key = chain::chain_key(
+        ring.chain_master(),
+        ChainRef::Site {
+            deployment: &deployment,
+        },
+        CHAIN_KEY_EPOCH,
+    );
+    Ok(authority::row_key(&chain_key))
 }
 
 /// `K_seal` for one organisation — the chain's own sealing subkey, which §3.4
@@ -393,7 +497,7 @@ fn account_key_row_state(key: &AccountKey) -> Vec<u8> {
     map.insert("alg".to_string(), Json::Int(i64::from(ALG_ES256)));
     map.insert("fpr".to_string(), Json::Str(hex(&key.fpr)));
     map.insert("public_key".to_string(), Json::Str(hex(&key.public_key)));
-    map.insert("retired".to_string(), Json::Bool(key.retired));
+    map.insert("retired_at".to_string(), Json::Int(key.retired_at_unix));
     map.insert(
         "superseded_by".to_string(),
         match &key.superseded_by {
@@ -444,7 +548,6 @@ pub async fn enrol_software_key(
     public_key: &[u8],
 ) -> Result<AccountKey, AuthorityError> {
     let (ring, ctx, tenant_key) = (auth.ring, auth.ctx, auth.tenant_key);
-    let organisation = auth.organisation();
     let account = auth.actor();
     let fpr = authority::key_fingerprint(public_key);
     let id = ids::new_ulid().to_string();
@@ -475,10 +578,10 @@ pub async fn enrol_software_key(
         enrolled_seq: appended.seq,
         row_version: 1,
         superseded_by: None,
-        retired: false,
+        retired_at_unix: 0,
     };
     let seal = authority::row_seal(
-        &row_key_for(ring, &organisation),
+        &site_row_key(tx, ring).await?,
         &RowFacts {
             table: "account_keys",
             row_id: &id,
@@ -522,13 +625,24 @@ pub async fn supersede_key(
     at_unix: i64,
 ) -> Result<(), AuthorityError> {
     let (ring, ctx, tenant_key) = (auth.ring, auth.ctx, auth.tenant_key);
-    let organisation = auth.organisation();
     let old = read_account_key(tx, old_key_id)
         .await?
         .ok_or(AuthorityError::NoSigningKey)?;
     let new = read_account_key(tx, new_key_id)
         .await?
         .ok_or(AuthorityError::NoSigningKey)?;
+
+    // **The successor must belong to the same account.** Without this, a key
+    // holder could name somebody else's key their successor, and every grant
+    // naming the old fingerprint would carry forward onto an account that
+    // never asked for it -- authority moved by one signature from a key whose
+    // holder is entitled to retire it and not to redirect it. §8.4's
+    // succession is a statement about one account's own keyring.
+    if new.account_id != old.account_id {
+        return Err(AuthorityError::Unverifiable(
+            "key succession across accounts",
+        ));
+    }
 
     let message = authority::succession_bytes(&old.account_id, &old.fpr, &new.fpr, at_unix);
     authority::verify_es256(&old.public_key, &message, succession_sig)?;
@@ -552,12 +666,12 @@ pub async fn supersede_key(
 
     let superseded = AccountKey {
         superseded_by: Some(new.id.clone()),
-        retired: true,
+        retired_at_unix: at_unix,
         row_version: old.row_version + 1,
         ..old.clone()
     };
     let seal = authority::row_seal(
-        &row_key_for(ring, &organisation),
+        &site_row_key(tx, ring).await?,
         &RowFacts {
             table: "account_keys",
             row_id: &superseded.id,
@@ -567,19 +681,129 @@ pub async fn supersede_key(
         },
     );
 
+    // `retired_at` is the signed `at_unix`, not `now()`: the seal covers the
+    // value and a verifier resolving a key as of a grant's `effective_from`
+    // compares against it, so the row and the signature must agree on when
+    // the key left service.
     let updated = tx
         .execute(
             "UPDATE account_keys \
-                SET superseded_by = $1, succession_sig = $2, retired_at = now(), \
-                    row_version = $3, row_seal = $4 \
-              WHERE id = $5",
+                SET superseded_by = $1, succession_sig = $2, \
+                    retired_at = to_timestamp($3::bigint), \
+                    row_version = $4, row_seal = $5 \
+              WHERE id = $6",
             &[
                 &new.id,
                 &succession_sig.to_vec(),
+                &at_unix,
                 &superseded.row_version,
                 &seal.to_vec(),
                 &old.id,
             ],
+        )
+        .await?;
+    if updated != 1 {
+        return Err(AuthorityError::Unverifiable("account key"));
+    }
+    let _ = appended;
+    Ok(())
+}
+
+/// Retire a key: take it out of service **without** naming a successor.
+///
+/// # A name that was pretending to be a control
+///
+/// `0011` put `account_key_retired` in `chain_entries`' entry-type `CHECK` and
+/// `account_keys.retired_at` in the keyring, and **nothing wrote either**. A
+/// column and an entry type that no code path produces read, to anyone
+/// auditing the schema, as a retirement mechanism that exists. This is that
+/// mechanism.
+///
+/// # Who may sign it
+///
+/// §8.4's succession shape, with the one extension it forces: the key's own
+/// holder, **or a steward of the organisation**. Succession needs the old key,
+/// because only its holder can prove the successor is theirs. Retirement is
+/// the case where the holder is gone — the dropped laptop, the departure §6.4
+/// describes — so restricting it to the key's own holder would mean the keys
+/// that most need retiring are the ones that cannot be. A steward already
+/// holds revocation over every grant the key names, so this grants them
+/// nothing they did not have; what it adds is that the keyring says so.
+///
+/// The signer's own fingerprint is inside [`authority::retire_bytes`], so a
+/// steward's retirement of somebody else's key is not readable as that
+/// person's own act.
+pub async fn retire_key(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    key_id: &str,
+    signature: &[u8],
+    at_unix: i64,
+) -> Result<(), AuthorityError> {
+    let (ring, ctx, tenant_key) = (auth.ring, auth.ctx, auth.tenant_key);
+    let actor = auth.actor();
+    let key = read_account_key(tx, key_id)
+        .await?
+        .ok_or(AuthorityError::NoSigningKey)?;
+
+    if key.retired_at_unix != 0 {
+        return Err(AuthorityError::Unverifiable("key already retired"));
+    }
+
+    // The signer: the holder, or a steward. A steward is established the same
+    // way every other authority act establishes one -- through the seven steps
+    // -- so there is no second, weaker notion of "is a steward" in this file.
+    let signer = signing_key_of(tx, &actor)
+        .await?
+        .ok_or(AuthorityError::NoSigningKey)?;
+    if key.account_id != actor {
+        authorise_account(tx, auth, None, Capability::Steward).await?;
+    }
+
+    let message = authority::retire_bytes(&key.account_id, &key.fpr, &signer.fpr, at_unix);
+    authority::verify_es256(&signer.public_key, &message, signature)?;
+
+    let appended = chains::append_org(
+        tx,
+        ring,
+        ctx,
+        tenant_key,
+        EntryType::AccountKeyRetired,
+        &entry_metadata(
+            EntryType::AccountKeyRetired,
+            &[
+                ("account", Json::Str(key.account_id.clone())),
+                ("key", Json::Str(key.id.clone())),
+                ("fpr", Json::Str(hex(&key.fpr))),
+                ("retired_by", Json::Str(actor.clone())),
+                ("at", Json::Int(at_unix)),
+            ],
+        ),
+    )
+    .await?;
+
+    let retired = AccountKey {
+        retired_at_unix: at_unix,
+        row_version: key.row_version + 1,
+        ..key.clone()
+    };
+    let seal = authority::row_seal(
+        &site_row_key(tx, ring).await?,
+        &RowFacts {
+            table: "account_keys",
+            row_id: &retired.id,
+            chain_seq: retired.enrolled_seq,
+            row_version: retired.row_version,
+            row_state: &account_key_row_state(&retired),
+        },
+    );
+
+    let updated = tx
+        .execute(
+            "UPDATE account_keys \
+                SET retired_at = to_timestamp($1::bigint), row_version = $2, row_seal = $3 \
+              WHERE id = $4 AND retired_at IS NULL",
+            &[&at_unix, &retired.row_version, &seal.to_vec(), &retired.id],
         )
         .await?;
     if updated != 1 {
@@ -596,14 +820,13 @@ async fn read_account_key(
     let row = tx
         .query_opt(
             "SELECT id, account_id, public_key, fpr, enrolled_seq, row_version, superseded_by, \
-                    retired_at \
+                    COALESCE(EXTRACT(EPOCH FROM retired_at)::bigint, 0) \
                FROM account_keys WHERE id = $1",
             &[&id],
         )
         .await?;
     let Some(row) = row else { return Ok(None) };
     let fpr: Vec<u8> = row.get(3);
-    let retired: Option<std::time::SystemTime> = row.get(7);
     Ok(Some(AccountKey {
         id: row.get(0),
         account_id: row.get(1),
@@ -612,7 +835,7 @@ async fn read_account_key(
         enrolled_seq: row.get(4),
         row_version: row.get(5),
         superseded_by: row.get(6),
-        retired: retired.is_some(),
+        retired_at_unix: row.get(7),
     }))
 }
 
@@ -639,13 +862,28 @@ pub async fn signing_key_of(
     }
 }
 
-/// Resolve a key by fingerprint, **verifying the keyring row's own seal**
-/// (§3.4 step 4).
+/// Resolve a key by fingerprint **as of `at_unix`**, verifying the keyring
+/// row's own seal (§3.4 step 4, §3.3, §8.4).
+///
+/// # Why this takes a time
+///
+/// §3.3: *"verification uses the keyring entry live at `effective_from`"*, and
+/// §8.4 turns that into the reason a key rotation does not invalidate a year
+/// of grants. A key that was retired or superseded **after** a grant was
+/// signed still verifies that grant; one retired **before** it verifies
+/// nothing, because at the moment the grant claims to have been signed that
+/// key was already out of service.
+///
+/// Reading `retired_at` and `superseded_by` as booleans — "is this key retired
+/// *now*" — gets both halves wrong at once: it invalidates history on every
+/// rotation, and it accepts a grant backdated to before a key existed. The
+/// comparison is against the grant's own `effective_from`, which is inside the
+/// signed bytes and therefore not the attacker's to choose.
 async fn key_by_fingerprint(
     tx: &Transaction<'_>,
     ring: &KeyRing,
-    organisation: &str,
     fpr: &[u8; 32],
+    at_unix: i64,
 ) -> Result<AccountKey, AuthorityError> {
     let row = tx
         .query_opt(
@@ -664,7 +902,7 @@ async fn key_by_fingerprint(
         .await?
         .get(0);
     let recomputed = authority::row_seal(
-        &row_key_for(ring, organisation),
+        &site_row_key(tx, ring).await?,
         &RowFacts {
             table: "account_keys",
             row_id: &key.id,
@@ -675,6 +913,9 @@ async fn key_by_fingerprint(
     );
     if stored != recomputed {
         return Err(AuthorityError::Unverifiable("account key row seal"));
+    }
+    if !key.in_service_at(at_unix) {
+        return Err(AuthorityError::NoSigningKey);
     }
     Ok(key)
 }
@@ -751,6 +992,37 @@ pub async fn bootstrap_organisation(
     let ctx = repo::open_tenant_context(tx, organisation, creator).await?;
     let tenant_key = keys::tenant_key(tx, ring, &ctx).await?;
 
+    // **The genesis grants are named in the sealed entry, before any of them
+    // is written.** §6.1 and the note in `0012`'s header: no `CHECK` can read
+    // another table, so no constraint can say "there is no genesis after
+    // creation". The organisation's own chain can. Each grant's id is minted
+    // here, listed in `org_genesis`, and then used as the row's primary key,
+    // so a genesis row that this entry does not name is refused at use — and
+    // a late genesis row cannot be named by an entry sealed before it existed.
+    let mut ids_for: Vec<String> = Vec::with_capacity(grants.len());
+    for _ in grants {
+        ids_for.push(ids::new_ulid().to_string());
+    }
+    let named_genesis = Json::Arr(
+        grants
+            .iter()
+            .zip(&ids_for)
+            .map(|(request, id)| {
+                let mut map = BTreeMap::new();
+                map.insert("grant".to_string(), Json::Str(id.clone()));
+                map.insert(
+                    "subject".to_string(),
+                    Json::Str(request.subject.to_string()),
+                );
+                map.insert(
+                    "subject_key_fpr".to_string(),
+                    Json::Str(hex(&request.subject_key_fpr)),
+                );
+                Json::Obj(map)
+            })
+            .collect(),
+    );
+
     let genesis_entry = chains::append_org(
         tx,
         ring,
@@ -763,6 +1035,7 @@ pub async fn bootstrap_organisation(
                 ("organisation", Json::Str(organisation_id.clone())),
                 ("root_fpr", Json::Str(hex(&root_fpr))),
                 ("creator", Json::Str(creator.to_string())),
+                ("genesis_grants", named_genesis),
             ],
         ),
     )
@@ -800,7 +1073,7 @@ pub async fn bootstrap_organisation(
     .await?;
 
     let mut written = Vec::new();
-    for request in grants {
+    for (request, grant_id) in grants.iter().zip(&ids_for) {
         let facts = GrantFacts {
             organisation: &organisation_id,
             root_pubkey_fpr: &root_fpr,
@@ -822,7 +1095,7 @@ pub async fn bootstrap_organisation(
         authority::verify_es256(root_pubkey, &message, &request.signature)?;
 
         let grant = Grant {
-            id: ids::new_ulid().to_string(),
+            id: grant_id.clone(),
             organisation_id: organisation_id.clone(),
             scope_id: None,
             subject_id: request.subject.to_string(),
@@ -856,27 +1129,66 @@ pub async fn bootstrap_organisation(
 
 // ---------------------------------------------------------------------------
 // Signing a grant — §3.3, §3.5
+//
+// TWO STEPS, AND WHY THE ONE-STEP SHAPE COULD NOT WORK
+//
+// `sign_grant` used to take a finished signature and then choose, itself,
+// three of the values that signature had to cover: the `auth_epoch`, the
+// wall-clock `now`, and the `effective_from` derived from it. The client could
+// not have signed those bytes, because they did not exist until after the
+// client signed. It worked only while the server's second and the client's
+// second happened to be the same one — and this repository's own suite flaked
+// on exactly that, refusing a correct signature with `DoesNotVerify` whenever
+// the clock ticked between the two.
+//
+// So: `propose_grant` fixes every server-chosen value and returns exactly the
+// bytes to sign. `sign_grant` verifies over those bytes AS ISSUED and never
+// recomputes them. What it re-checks at commit is whether the proposal is
+// still current -- and if it is not, it refuses and says to propose again. The
+// server may not quietly adjust bytes somebody has signed; that is the whole
+// point of the signature.
 // ---------------------------------------------------------------------------
 
 /// What a steward is asking to grant.
-pub struct GrantRequest<'a> {
+pub struct GrantRequest {
     pub scope: Option<ScopeId>,
     pub subject: AccountId,
     pub capability: Capability,
     /// `0` for "does not expire". `0011` refuses it for `steward`.
     pub expires_at_unix: i64,
-    /// The granter's signature over [`authority::grant_bytes`]. The server
-    /// never holds a steward's private key, so this arrives made.
-    pub signature: &'a [u8],
 }
 
-/// Sign a grant into existence (§3.3), enforcing §3.5's quorum rule for
-/// `steward`.
+/// A proposal: every server-chosen value fixed, and the exact bytes to sign.
+///
+/// Handed to the granter, signed by them, and handed back to [`sign_grant`]
+/// unchanged. Nothing in here is recomputed on the way back.
+#[derive(Clone, Debug)]
+pub struct GrantProposal {
+    pub organisation: String,
+    pub scope: Option<String>,
+    pub subject: String,
+    pub subject_key_fpr: [u8; 32],
+    pub capability: Capability,
+    pub granter: String,
+    pub granter_key_fpr: [u8; 32],
+    pub root_pubkey_fpr: [u8; 32],
+    /// Server-chosen, and therefore inside the bytes before anybody signs.
+    pub effective_from_unix: i64,
+    pub expires_at_unix: i64,
+    /// Server-chosen. Re-checked at [`sign_grant`], never re-derived.
+    pub auth_epoch: i32,
+    /// §3.5's sole-steward path, decided here and recorded on the row.
+    pub sole_steward_appointment: bool,
+    /// **Exactly the bytes to sign** — `authority::grant_bytes` over the
+    /// facts above, built once so that the two steps cannot disagree.
+    pub bytes: Vec<u8>,
+}
+
+/// Step one: fix the server's choices and produce the bytes to sign (§3.3).
 ///
 /// The granter must already hold `steward` at or above the scope, **verified
 /// through `authorise_account`** — so the seven steps run before a grant is
-/// written as well as before a design is opened, and a granter whose own grant
-/// has been revoked cannot grant.
+/// proposed as well as before a design is opened.
 ///
 /// # §3.5's quorum, and the sole-steward path
 ///
@@ -888,15 +1200,19 @@ pub struct GrantRequest<'a> {
 ///   quorum, enforced at use by `authorise_account`.
 /// - **Exactly one live steward** → §3.5's sole-steward path: the grant is
 ///   marked `sole_steward_appointment`, its `effective_from` is pushed 24
-///   hours out, and it needs no seconding. *"What matters — that no new
-///   grant-granting authority appears silently — survives. What does not
-///   survive is the demand for a second signature that cannot exist."*
-pub async fn sign_grant(
+///   hours out, and it needs no seconding.
+///
+/// The count is [`AuthorityState::steward_count`], which counts a suspended
+/// steward and does not count an expired one — see its own note for the two
+/// attacks that turned on those choices. And the sole path is closed outright
+/// while a single-steward act that weakens another steward is still inside its
+/// delay, so suspending your co-steward does not make you sole.
+pub async fn propose_grant(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
-    request: &GrantRequest<'_>,
-) -> Result<String, AuthorityError> {
-    let (ring, ctx, tenant_key) = (auth.ring, auth.ctx, auth.tenant_key);
+    request: &GrantRequest,
+) -> Result<GrantProposal, AuthorityError> {
+    let ring = auth.ring;
     let organisation = auth.organisation();
     let granter = auth.actor();
 
@@ -911,11 +1227,14 @@ pub async fn sign_grant(
         .ok_or(AuthorityError::NoSigningKey)?;
     let root_fpr = organisation_root_fpr(tx, ring, &organisation).await?;
 
-    let live_stewards = live_steward_count(tx, ring, &organisation).await?;
-    let sole_steward = request.capability == Capability::Steward && live_stewards <= 1;
+    let now = now_unix();
+    let state = read_authority_state(tx, &organisation).await?;
+    let sole_steward = request.capability == Capability::Steward && state.steward_count(now) <= 1;
+    if sole_steward && state.a_weakening_act_is_pending(now) {
+        return Err(AuthorityError::SoleStewardPathBlocked);
+    }
 
     let epoch = next_epoch(tx, &organisation).await?;
-    let now = now_unix();
     let effective_from = if sole_steward {
         now + SOLE_STEWARD_DELAY_SECONDS
     } else {
@@ -923,7 +1242,7 @@ pub async fn sign_grant(
     };
     let scope_text = request.scope.map(|s| s.to_string());
 
-    let facts = GrantFacts {
+    let bytes = authority::grant_bytes(&GrantFacts {
         organisation: &organisation,
         root_pubkey_fpr: &root_fpr,
         scope: scope_text.as_deref().unwrap_or(""),
@@ -935,29 +1254,101 @@ pub async fn sign_grant(
         effective_from_unix: effective_from,
         expires_at_unix: request.expires_at_unix,
         auth_epoch: epoch,
-    };
-    authority::verify_es256(
-        &granter_key.public_key,
-        &authority::grant_bytes(&facts),
-        request.signature,
-    )?;
+    });
+
+    Ok(GrantProposal {
+        organisation,
+        scope: scope_text,
+        subject: request.subject.to_string(),
+        subject_key_fpr: subject_key.fpr,
+        capability: request.capability,
+        granter,
+        granter_key_fpr: granter_key.fpr,
+        root_pubkey_fpr: root_fpr,
+        effective_from_unix: effective_from,
+        expires_at_unix: request.expires_at_unix,
+        auth_epoch: epoch,
+        sole_steward_appointment: sole_steward,
+        bytes,
+    })
+}
+
+/// Step two: verify the signature **over the bytes as issued**, and commit.
+///
+/// # What is checked here, and what is deliberately not
+///
+/// The signature is verified over `proposal.bytes` exactly as
+/// [`propose_grant`] produced them. Nothing is recomputed — recomputation is
+/// what made the one-step version fail, and a server that rebuilds the bytes
+/// it is about to verify has given itself the ability to verify something
+/// other than what was signed.
+///
+/// Two freshness checks stand between a proposal and a commit:
+///
+/// - **The epoch must still be the head's next.** Exact, not fuzzy. If another
+///   transaction advanced the authority in between, the signed `auth_epoch` is
+///   stale and the grant would take its place in a state its signer never saw.
+/// - **`effective_from` must not have gone stale** by more than
+///   [`PROPOSAL_SKEW_SECONDS`]. A grant that says it took effect an hour ago
+///   is backdated, and backdating is how a grant is made to look older than
+///   the revocation that should have caught it.
+///
+/// Either failure is [`AuthorityError::Stale`], which says to propose again.
+/// The server does not adjust and re-sign, because it cannot: it holds no
+/// steward's private key, which is the property §3.3 is built on.
+pub async fn sign_grant(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    proposal: &GrantProposal,
+    signature: &[u8],
+) -> Result<String, AuthorityError> {
+    let (ring, ctx, tenant_key) = (auth.ring, auth.ctx, auth.tenant_key);
+    let organisation = auth.organisation();
+
+    if proposal.organisation != organisation || proposal.granter != auth.actor() {
+        return Err(AuthorityError::Stale("it was issued for another actor"));
+    }
+
+    // The granter's authority again, at commit: a proposal is not a permit,
+    // and a granter revoked between the two steps grants nothing.
+    let scope = proposal.scope.as_deref().map(parse_scope).transpose()?;
+    authorise_account(tx, auth, scope, Capability::Steward).await?;
+
+    if next_epoch(tx, &organisation).await? != proposal.auth_epoch {
+        return Err(AuthorityError::Stale("the authority head has moved"));
+    }
+    if now_unix() - proposal.effective_from_unix > PROPOSAL_SKEW_SECONDS {
+        return Err(AuthorityError::Stale("effective_from has gone stale"));
+    }
+
+    let granter_key = key_by_fingerprint(
+        tx,
+        ring,
+        &proposal.granter_key_fpr,
+        proposal.effective_from_unix,
+    )
+    .await?;
+    if granter_key.account_id != proposal.granter {
+        return Err(AuthorityError::Unverifiable("granter key binding"));
+    }
+    authority::verify_es256(&granter_key.public_key, &proposal.bytes, signature)?;
 
     let grant = Grant {
         id: ids::new_ulid().to_string(),
         organisation_id: organisation.clone(),
-        scope_id: scope_text,
-        subject_id: request.subject.to_string(),
-        subject_key_fpr: subject_key.fpr,
-        capability: request.capability,
-        granted_by: Some(granter),
-        granter_key_fpr: granter_key.fpr,
-        granter_sig: request.signature.to_vec(),
+        scope_id: proposal.scope.clone(),
+        subject_id: proposal.subject.clone(),
+        subject_key_fpr: proposal.subject_key_fpr,
+        capability: proposal.capability,
+        granted_by: Some(proposal.granter.clone()),
+        granter_key_fpr: proposal.granter_key_fpr,
+        granter_sig: signature.to_vec(),
         is_genesis: false,
         is_recovery: false,
-        sole_steward_appointment: sole_steward,
-        auth_epoch: epoch,
-        effective_from_unix: effective_from,
-        expires_at_unix: request.expires_at_unix,
+        sole_steward_appointment: proposal.sole_steward_appointment,
+        auth_epoch: proposal.auth_epoch,
+        effective_from_unix: proposal.effective_from_unix,
+        expires_at_unix: proposal.expires_at_unix,
         chain_seq: 0,
         row_version: 1,
         row_seal: Vec::new(),
@@ -1115,15 +1506,17 @@ pub async fn second_grant(
     )
     .await?;
 
-    let id = ids::new_ulid().to_string();
-    let mut map = BTreeMap::new();
-    map.insert("grant_id".to_string(), Json::Str(grant.id.clone()));
-    map.insert("seconded_by".to_string(), Json::Str(seconder.clone()));
-    map.insert(
-        "seconder_key_fpr".to_string(),
-        Json::Str(hex(&seconder_key.fpr)),
-    );
-    map.insert("seconder_sig".to_string(), Json::Str(hex(signature)));
+    let row = Seconding {
+        id: ids::new_ulid().to_string(),
+        grant_id: grant.id.clone(),
+        seconded_by: seconder.clone(),
+        seconder_key_fpr: seconder_key.fpr,
+        seconder_sig: signature.to_vec(),
+        chain_seq: appended.seq,
+        seconded_at_unix: 0,
+        row_seal: Vec::new(),
+    };
+    let id = row.id.clone();
     let seal = authority::row_seal(
         &row_key_for(ring, &organisation),
         &RowFacts {
@@ -1131,7 +1524,7 @@ pub async fn second_grant(
             row_id: &id,
             chain_seq: appended.seq,
             row_version: 1,
-            row_state: &Json::Obj(map).to_canonical_bytes(),
+            row_state: &seconding_row_state(&row),
         },
     );
 
@@ -1198,6 +1591,8 @@ pub async fn set_suspension(
     };
     authority::verify_es256(&key.public_key, &message, signature)?;
 
+    let takes_effect = weakening_act_takes_effect_at(&grant, &actor, suspend, at_unix);
+
     write_suspension(
         tx,
         auth,
@@ -1208,8 +1603,46 @@ pub async fn set_suspension(
         Some(&key.fpr),
         Some(signature),
         at_unix,
+        takes_effect,
     )
     .await
+}
+
+/// When an act against a grant takes effect — now, or after §3.5's delay.
+///
+/// # The sequence this exists to refuse
+///
+/// One steward suspends the other; the organisation now looks
+/// single-stewarded; the survivor appoints a third **alone**, as a "sole
+/// steward" appointment; then lifts the suspension. Two signatures' worth of
+/// authority manufactured out of one, and every individual step permitted by
+/// the rules as they stood.
+///
+/// [`AuthorityState::steward_count`] closes it from one side by counting a
+/// suspended steward. This closes it from the other, and is the general
+/// statement: **a single-steward act that removes or weakens another steward
+/// waits out the same 24 hours a sole appointment does.** For the 24 hours it
+/// is pending it is visible, it is on the organisation chain marked as what it
+/// is, and the sole-steward path is closed while it stands.
+///
+/// Three acts are immediate, because none of them weakens anybody else:
+/// revoking or suspending a `read` or `draw` grant, acting on your own grant,
+/// and lifting a suspension.
+///
+/// **The cost, stated rather than buried:** offboarding a steward now takes a
+/// day to bite. §3.5 already accepts that cost for the mirror-image act, and
+/// the alternative is that the same single signature that cannot appoint a
+/// steward immediately can remove one immediately — which is the asymmetry the
+/// attack walks through. An organisation that needs a steward stopped *now*
+/// has suspension by an operator (§1.1), which is a different fence.
+fn weakening_act_takes_effect_at(grant: &Grant, actor: &str, weakening: bool, at_unix: i64) -> i64 {
+    let weakens_another_steward =
+        weakening && grant.capability == Capability::Steward && grant.subject_id != actor;
+    if weakens_another_steward {
+        at_unix + SOLE_STEWARD_DELAY_SECONDS
+    } else {
+        at_unix
+    }
 }
 
 /// **§1.1's operator suspend verb is schema-only, and this is where its caller
@@ -1237,6 +1670,7 @@ async fn write_suspension(
     actor_key_fpr: Option<&[u8; 32]>,
     actor_sig: Option<&[u8]>,
     at_unix: i64,
+    takes_effect_unix: i64,
 ) -> Result<(), AuthorityError> {
     let (ring, ctx, tenant_key) = (auth.ring, auth.ctx, auth.tenant_key);
     let organisation = grant.organisation_id.clone();
@@ -1257,21 +1691,30 @@ async fn write_suspension(
                 ("grant", Json::Str(grant.id.clone())),
                 ("actor", Json::Str(actor_id.to_string())),
                 ("actor_kind", Json::Str(actor_kind.to_string())),
+                ("at", Json::Int(at_unix)),
+                ("takes_effect_at", Json::Int(takes_effect_unix)),
+                // §3.5: a single-steward act that weakens another steward is
+                // *recorded as such* on the organisation chain, not merely
+                // delayed. A reader of the trail can see why it waited.
+                (
+                    "single_steward_act",
+                    Json::Bool(takes_effect_unix > at_unix),
+                ),
             ],
         ),
     )
     .await?;
 
-    let mut map = BTreeMap::new();
-    map.insert(
-        "action".to_string(),
-        Json::Str(if suspend { "suspend" } else { "unsuspend" }.to_string()),
-    );
-    map.insert("actor_id".to_string(), Json::Str(actor_id.to_string()));
-    map.insert("actor_kind".to_string(), Json::Str(actor_kind.to_string()));
-    map.insert("at".to_string(), Json::Int(at_unix));
-    map.insert("grant_id".to_string(), Json::Str(grant.id.clone()));
-    let row_state = Json::Obj(map).to_canonical_bytes();
+    let row = Suspension {
+        grant_id: grant.id.clone(),
+        action: if suspend { "suspend" } else { "unsuspend" }.to_string(),
+        actor_kind: actor_kind.to_string(),
+        actor_id: actor_id.to_string(),
+        at_unix,
+        takes_effect_unix,
+        chain_seq: appended.seq,
+        row_seal: Vec::new(),
+    };
 
     // The seal names the chain sequence, which is unique per organisation
     // chain, so it is the row's identity here: `grant_suspensions.seq` is an
@@ -1283,24 +1726,26 @@ async fn write_suspension(
             row_id: &grant.id,
             chain_seq: appended.seq,
             row_version: 1,
-            row_state: &row_state,
+            row_state: &suspension_row_state(&row),
         },
     );
 
     tx.execute(
         "INSERT INTO grant_suspensions \
              (grant_id, organisation_id, action, actor_kind, actor_id, actor_key_fpr, actor_sig, \
-              at, chain_seq, row_seal) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8::bigint), $9, $10)",
+              at, takes_effect_at, chain_seq, row_seal) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8::bigint), \
+                 to_timestamp($9::bigint), $10, $11)",
         &[
             &grant.id,
             &organisation,
-            &if suspend { "suspend" } else { "unsuspend" },
+            &row.action,
             &actor_kind,
             &actor_id,
             &actor_key_fpr.map(|f| f.to_vec()),
             &actor_sig.map(|s| s.to_vec()),
             &at_unix,
+            &takes_effect_unix,
             &appended.seq,
             &seal.to_vec(),
         ],
@@ -1345,6 +1790,11 @@ pub async fn revoke_grant(
     );
     authority::verify_es256(&key.public_key, &message, signature)?;
 
+    // §3.5, as amended: revoking another steward's grant on one signature is a
+    // single-steward act that weakens a steward, and waits out the same delay
+    // a sole appointment does. See `weakening_act_takes_effect_at`.
+    let takes_effect = weakening_act_takes_effect_at(&grant, &actor, true, at_unix);
+
     let appended = chains::append_org(
         tx,
         ring,
@@ -1356,17 +1806,24 @@ pub async fn revoke_grant(
             &[
                 ("grant", Json::Str(grant.id.clone())),
                 ("actor", Json::Str(actor.clone())),
+                ("at", Json::Int(at_unix)),
+                ("takes_effect_at", Json::Int(takes_effect)),
+                ("single_steward_act", Json::Bool(takes_effect > at_unix)),
             ],
         ),
     )
     .await?;
 
-    let mut map = BTreeMap::new();
-    map.insert("grant_id".to_string(), Json::Str(grant.id.clone()));
-    map.insert("revoked_at".to_string(), Json::Int(at_unix));
-    map.insert("revoked_by".to_string(), Json::Str(actor.clone()));
-    map.insert("revoked_sig".to_string(), Json::Str(hex(signature)));
-    map.insert("revoker_key_fpr".to_string(), Json::Str(hex(&key.fpr)));
+    let row = Revocation {
+        grant_id: grant.id.clone(),
+        revoked_by: actor.clone(),
+        revoker_key_fpr: key.fpr,
+        revoked_sig: signature.to_vec(),
+        revoked_at_unix: at_unix,
+        takes_effect_unix: takes_effect,
+        chain_seq: appended.seq,
+        row_seal: Vec::new(),
+    };
     let seal = authority::row_seal(
         &row_key_for(ring, &organisation),
         &RowFacts {
@@ -1374,19 +1831,20 @@ pub async fn revoke_grant(
             row_id: &grant.id,
             chain_seq: appended.seq,
             row_version: 1,
-            row_state: &Json::Obj(map).to_canonical_bytes(),
+            row_state: &revocation_row_state(&row),
         },
     );
 
     tx.execute(
         "INSERT INTO grant_revocations \
-             (grant_id, organisation_id, revoked_at, revoked_by, revoker_key_fpr, revoked_sig, \
-              chain_seq, row_seal) \
-         VALUES ($1, $2, to_timestamp($3::bigint), $4, $5, $6, $7, $8)",
+             (grant_id, organisation_id, revoked_at, takes_effect_at, revoked_by, \
+              revoker_key_fpr, revoked_sig, chain_seq, row_seal) \
+         VALUES ($1, $2, to_timestamp($3::bigint), to_timestamp($4::bigint), $5, $6, $7, $8, $9)",
         &[
             &grant.id,
             &organisation,
             &at_unix,
+            &takes_effect,
             &actor,
             &key.fpr.to_vec(),
             &signature.to_vec(),
@@ -1413,7 +1871,8 @@ pub async fn advance_head(
 ) -> Result<i32, AuthorityError> {
     let organisation = ctx.tenant().to_string();
     let epoch = next_epoch(tx, &organisation).await?;
-    let live = live_set(tx, ring, &organisation).await?;
+    let state = read_authority_state(tx, &organisation).await?;
+    let live = state.digest_entries(&row_key_for(ring, &organisation));
     let digest = authority::live_digest(
         &row_key_for(ring, &organisation),
         &organisation,
@@ -1484,86 +1943,453 @@ async fn next_epoch(tx: &Transaction<'_>, organisation: &str) -> Result<i32, Aut
     })
 }
 
-/// Every live grant's id and row seal — a grant that is neither revoked nor
-/// currently suspended.
+/// The **whole authority state** of one organisation, read once per act.
 ///
-/// **Expiry is not a member of this set's definition.** A grant that has
-/// expired is still a live row; it fails the time check at use. Folding time
-/// into the set would mean the head has to be rewritten as clocks pass, which
-/// nothing triggers, so the head would go stale and every authorisation would
-/// fail.
-async fn live_set(
-    tx: &Transaction<'_>,
-    ring: &KeyRing,
-    organisation: &str,
-) -> Result<Vec<(String, [u8; 32])>, AuthorityError> {
-    let rows = tx
-        .query(
-            "SELECT g.id \
-               FROM scope_grants g \
-              WHERE g.organisation_id = $1 \
-                AND NOT EXISTS (SELECT 1 FROM grant_revocations r WHERE r.grant_id = g.id) \
-                AND COALESCE(( \
-                        SELECT s.action FROM grant_suspensions s \
-                         WHERE s.grant_id = g.id ORDER BY s.seq DESC LIMIT 1 \
-                    ), 'unsuspend') = 'unsuspend' \
-              ORDER BY g.id",
-            &[&organisation],
-        )
-        .await?;
-
-    let mut live = Vec::with_capacity(rows.len());
-    for row in rows {
-        let id: String = row.get(0);
-        let grant = read_grant(tx, &id)
-            .await?
-            .ok_or(AuthorityError::Corrupt("grant"))?;
-        // The seal in the digest is the RECOMPUTED one, not the stored one: a
-        // head built from stored seals would carry an edited row's own lie
-        // forward.
-        let recomputed = authority::row_seal(
-            &row_key_for(ring, organisation),
-            &RowFacts {
-                table: "scope_grants",
-                row_id: &grant.id,
-                chain_seq: grant.chain_seq,
-                row_version: grant.row_version,
-                row_state: &grant_row_state(&grant),
-            },
-        );
-        live.push((id, recomputed));
-    }
-    Ok(live)
+/// §3.4's head covered the live grants and nothing else, which left every
+/// seconding, suspension and revocation outside every seal and outside the
+/// head. This is the set the head now covers, and the set every verdict is
+/// computed from — read once, so that two checks in one authorisation cannot
+/// disagree about what the database said.
+struct AuthorityState {
+    organisation: String,
+    grants: Vec<Grant>,
+    secondings: Vec<Seconding>,
+    /// Ordered by `seq` ascending — the append-only history, not a snapshot.
+    suspensions: Vec<Suspension>,
+    revocations: Vec<Revocation>,
 }
 
-/// How many distinct accounts hold a live `steward` grant — §3.5's
-/// `min(2, live distinct stewards)`.
-async fn live_steward_count(
+/// One seconding, as stored (§3.5).
+#[derive(Clone, Debug)]
+struct Seconding {
+    id: String,
+    grant_id: String,
+    seconded_by: String,
+    seconder_key_fpr: [u8; 32],
+    seconder_sig: Vec<u8>,
+    chain_seq: i64,
+    seconded_at_unix: i64,
+    row_seal: Vec<u8>,
+}
+
+/// One suspension or its lifting, as stored.
+#[derive(Clone, Debug)]
+struct Suspension {
+    grant_id: String,
+    action: String,
+    actor_kind: String,
+    actor_id: String,
+    at_unix: i64,
+    takes_effect_unix: i64,
+    chain_seq: i64,
+    row_seal: Vec<u8>,
+}
+
+/// One revocation, as stored.
+#[derive(Clone, Debug)]
+struct Revocation {
+    grant_id: String,
+    revoked_by: String,
+    revoker_key_fpr: [u8; 32],
+    revoked_sig: Vec<u8>,
+    revoked_at_unix: i64,
+    takes_effect_unix: i64,
+    chain_seq: i64,
+    row_seal: Vec<u8>,
+}
+
+fn seconding_row_state(s: &Seconding) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert("grant_id".to_string(), Json::Str(s.grant_id.clone()));
+    map.insert("seconded_by".to_string(), Json::Str(s.seconded_by.clone()));
+    map.insert(
+        "seconder_key_fpr".to_string(),
+        Json::Str(hex(&s.seconder_key_fpr)),
+    );
+    map.insert("seconder_sig".to_string(), Json::Str(hex(&s.seconder_sig)));
+    Json::Obj(map).to_canonical_bytes()
+}
+
+fn suspension_row_state(s: &Suspension) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert("action".to_string(), Json::Str(s.action.clone()));
+    map.insert("actor_id".to_string(), Json::Str(s.actor_id.clone()));
+    map.insert("actor_kind".to_string(), Json::Str(s.actor_kind.clone()));
+    map.insert("at".to_string(), Json::Int(s.at_unix));
+    map.insert("grant_id".to_string(), Json::Str(s.grant_id.clone()));
+    map.insert(
+        "takes_effect_at".to_string(),
+        Json::Int(s.takes_effect_unix),
+    );
+    Json::Obj(map).to_canonical_bytes()
+}
+
+fn revocation_row_state(r: &Revocation) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert("grant_id".to_string(), Json::Str(r.grant_id.clone()));
+    map.insert("revoked_at".to_string(), Json::Int(r.revoked_at_unix));
+    map.insert("revoked_by".to_string(), Json::Str(r.revoked_by.clone()));
+    map.insert("revoked_sig".to_string(), Json::Str(hex(&r.revoked_sig)));
+    map.insert(
+        "revoker_key_fpr".to_string(),
+        Json::Str(hex(&r.revoker_key_fpr)),
+    );
+    map.insert(
+        "takes_effect_at".to_string(),
+        Json::Int(r.takes_effect_unix),
+    );
+    Json::Obj(map).to_canonical_bytes()
+}
+
+/// Read every authority row for one organisation.
+async fn read_authority_state(
     tx: &Transaction<'_>,
-    ring: &KeyRing,
     organisation: &str,
-) -> Result<usize, AuthorityError> {
-    let live: BTreeSet<String> = live_set(tx, ring, organisation)
-        .await?
-        .into_iter()
-        .map(|(id, _)| id)
-        .collect();
-    let rows = tx
+) -> Result<AuthorityState, AuthorityError> {
+    let grants = read_grants_of(tx, organisation).await?;
+
+    let mut secondings = Vec::new();
+    for row in tx
         .query(
-            "SELECT id, subject_id FROM scope_grants \
-              WHERE organisation_id = $1 AND capability = 'steward'",
+            "SELECT id, grant_id, seconded_by, seconder_key_fpr, seconder_sig, chain_seq, \
+                    EXTRACT(EPOCH FROM seconded_at)::bigint, row_seal \
+               FROM grant_secondings WHERE organisation_id = $1 ORDER BY id",
             &[&organisation],
         )
-        .await?;
-    let mut subjects = BTreeSet::new();
-    for row in rows {
-        let id: String = row.get(0);
-        let subject: String = row.get(1);
-        if live.contains(&id) {
-            subjects.insert(subject);
-        }
+        .await?
+    {
+        let fpr: Vec<u8> = row.get(3);
+        secondings.push(Seconding {
+            id: row.get(0),
+            grant_id: row.get(1),
+            seconded_by: row.get(2),
+            seconder_key_fpr: as_32(&fpr, "seconder key fingerprint")?,
+            seconder_sig: row.get(4),
+            chain_seq: row.get(5),
+            seconded_at_unix: row.get(6),
+            row_seal: row.get(7),
+        });
     }
-    Ok(subjects.len())
+
+    let mut suspensions = Vec::new();
+    for row in tx
+        .query(
+            // ORDER BY the identity column, so "the latest suspension" does
+            // not depend on a clock anybody can set. `seq` is not carried on
+            // the struct: the row's identity inside its seal is the chain
+            // sequence, and two statements of one identity is one too many.
+            "SELECT grant_id, action, actor_kind, actor_id, \
+                    EXTRACT(EPOCH FROM at)::bigint, \
+                    EXTRACT(EPOCH FROM takes_effect_at)::bigint, chain_seq, row_seal \
+               FROM grant_suspensions WHERE organisation_id = $1 ORDER BY seq",
+            &[&organisation],
+        )
+        .await?
+    {
+        suspensions.push(Suspension {
+            grant_id: row.get(0),
+            action: row.get(1),
+            actor_kind: row.get(2),
+            actor_id: row.get(3),
+            at_unix: row.get(4),
+            takes_effect_unix: row.get(5),
+            chain_seq: row.get(6),
+            row_seal: row.get(7),
+        });
+    }
+
+    let mut revocations = Vec::new();
+    for row in tx
+        .query(
+            "SELECT grant_id, revoked_by, revoker_key_fpr, revoked_sig, \
+                    EXTRACT(EPOCH FROM revoked_at)::bigint, \
+                    EXTRACT(EPOCH FROM takes_effect_at)::bigint, chain_seq, row_seal \
+               FROM grant_revocations WHERE organisation_id = $1 ORDER BY grant_id",
+            &[&organisation],
+        )
+        .await?
+    {
+        let fpr: Vec<u8> = row.get(2);
+        revocations.push(Revocation {
+            grant_id: row.get(0),
+            revoked_by: row.get(1),
+            revoker_key_fpr: as_32(&fpr, "revoker key fingerprint")?,
+            revoked_sig: row.get(3),
+            revoked_at_unix: row.get(4),
+            takes_effect_unix: row.get(5),
+            chain_seq: row.get(6),
+            row_seal: row.get(7),
+        });
+    }
+
+    Ok(AuthorityState {
+        organisation: organisation.to_string(),
+        grants,
+        secondings,
+        suspensions,
+        revocations,
+    })
+}
+
+impl AuthorityState {
+    /// Every row the head's digest covers, keyed `"<table>/<row identity>"`
+    /// and carrying its **recomputed** seal.
+    ///
+    /// The seal in the digest is recomputed, never the stored one: a head
+    /// built from stored seals would carry an edited row's own lie forward.
+    /// The stored seal is compared separately, at use, for every row an answer
+    /// actually rests on — the two checks catch different things, and a
+    /// seconding with a valid signature but a forged stored seal is caught
+    /// only by the second.
+    ///
+    /// **Grants with a revocation row drop out of the grant portion**, and
+    /// their revocation row is in the set instead, so a revocation that is
+    /// deleted changes the digest twice over. Whether that revocation has yet
+    /// *taken effect* is a question for use, not for the digest: folding time
+    /// into the set would mean the head has to be resealed as clocks pass,
+    /// which nothing triggers, so the head would go stale and every
+    /// authorisation in the organisation would fail.
+    fn digest_entries(&self, row_key: &Key32) -> Vec<(String, [u8; 32])> {
+        let revoked: BTreeSet<&str> = self
+            .revocations
+            .iter()
+            .map(|r| r.grant_id.as_str())
+            .collect();
+
+        let mut entries = Vec::new();
+        for grant in &self.grants {
+            if revoked.contains(grant.id.as_str()) {
+                continue;
+            }
+            entries.push((
+                format!("scope_grants/{}", grant.id),
+                authority::row_seal(
+                    row_key,
+                    &RowFacts {
+                        table: "scope_grants",
+                        row_id: &grant.id,
+                        chain_seq: grant.chain_seq,
+                        row_version: grant.row_version,
+                        row_state: &grant_row_state(grant),
+                    },
+                ),
+            ));
+        }
+        for s in &self.secondings {
+            entries.push((
+                format!("grant_secondings/{}", s.id),
+                authority::row_seal(
+                    row_key,
+                    &RowFacts {
+                        table: "grant_secondings",
+                        row_id: &s.id,
+                        chain_seq: s.chain_seq,
+                        row_version: 1,
+                        row_state: &seconding_row_state(s),
+                    },
+                ),
+            ));
+        }
+        for s in &self.suspensions {
+            // `seq` is an identity column the database assigns, so the seal
+            // names the grant and the chain sequence -- which is unique per
+            // organisation chain -- and the digest key is zero-padded so that
+            // string ordering and numeric ordering agree.
+            entries.push((
+                format!("grant_suspensions/{:020}", s.chain_seq),
+                authority::row_seal(
+                    row_key,
+                    &RowFacts {
+                        table: "grant_suspensions",
+                        row_id: &s.grant_id,
+                        chain_seq: s.chain_seq,
+                        row_version: 1,
+                        row_state: &suspension_row_state(s),
+                    },
+                ),
+            ));
+        }
+        for r in &self.revocations {
+            entries.push((
+                format!("grant_revocations/{}", r.grant_id),
+                authority::row_seal(
+                    row_key,
+                    &RowFacts {
+                        table: "grant_revocations",
+                        row_id: &r.grant_id,
+                        chain_seq: r.chain_seq,
+                        row_version: 1,
+                        row_state: &revocation_row_state(r),
+                    },
+                ),
+            ));
+        }
+        entries
+    }
+
+    /// Every authority row's **stored** seal recomputes.
+    ///
+    /// # Why this is a second check and not the same one
+    ///
+    /// [`AuthorityState::digest_entries`] puts the *recomputed* seal into the
+    /// head's digest, which is what makes an edited row change the digest and
+    /// fail against the sealed head. But a row whose stored seal is forged and
+    /// whose content is untouched produces the same recomputed seal, so it
+    /// sails through the digest comparison. The stored seal has to be compared
+    /// against the recomputation as well, and this is where.
+    ///
+    /// Across the whole state, not only the rows an answer rests on: the head
+    /// is a statement about the whole authority, and a store that is lying
+    /// about one row of it is not a store to take a permission from. §3.4's
+    /// posture, unchanged — `Unverifiable`, never "no grants found".
+    fn verify_stored_seals(&self, row_key: &Key32) -> Result<(), AuthorityError> {
+        let check = |stored: &[u8], facts: &RowFacts<'_>, what: &'static str| {
+            if stored != authority::row_seal(row_key, facts) {
+                Err(AuthorityError::Unverifiable(what))
+            } else {
+                Ok(())
+            }
+        };
+
+        for g in &self.grants {
+            check(
+                &g.row_seal,
+                &RowFacts {
+                    table: "scope_grants",
+                    row_id: &g.id,
+                    chain_seq: g.chain_seq,
+                    row_version: g.row_version,
+                    row_state: &grant_row_state(g),
+                },
+                "grant row seal",
+            )?;
+        }
+        for s in &self.secondings {
+            check(
+                &s.row_seal,
+                &RowFacts {
+                    table: "grant_secondings",
+                    row_id: &s.id,
+                    chain_seq: s.chain_seq,
+                    row_version: 1,
+                    row_state: &seconding_row_state(s),
+                },
+                "grant seconding row seal",
+            )?;
+        }
+        for s in &self.suspensions {
+            check(
+                &s.row_seal,
+                &RowFacts {
+                    table: "grant_suspensions",
+                    row_id: &s.grant_id,
+                    chain_seq: s.chain_seq,
+                    row_version: 1,
+                    row_state: &suspension_row_state(s),
+                },
+                "grant suspension row seal",
+            )?;
+        }
+        for r in &self.revocations {
+            check(
+                &r.row_seal,
+                &RowFacts {
+                    table: "grant_revocations",
+                    row_id: &r.grant_id,
+                    chain_seq: r.chain_seq,
+                    row_version: 1,
+                    row_state: &revocation_row_state(r),
+                },
+                "grant revocation row seal",
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Whether a revocation has taken effect against this grant by `at_unix`.
+    ///
+    /// §3.5, as amended: a single-steward act that removes or weakens another
+    /// steward waits out the same 24 hours a sole appointment does, so the
+    /// existence of a revocation row and its taking effect are two different
+    /// moments.
+    fn revoked_by(&self, grant_id: &str, at_unix: i64) -> bool {
+        self.revocations
+            .iter()
+            .any(|r| r.grant_id == grant_id && r.takes_effect_unix <= at_unix)
+    }
+
+    /// As [`AuthorityState::revoked_by`], but only counting revocations
+    /// written by chain position `as_of_seq` — the historical question a
+    /// seconding asks about its seconder.
+    fn revoked_as_of(&self, grant_id: &str, at_unix: i64, as_of_seq: i64) -> bool {
+        self.revocations.iter().any(|r| {
+            r.grant_id == grant_id && r.takes_effect_unix <= at_unix && r.chain_seq <= as_of_seq
+        })
+    }
+
+    /// Whether this grant stands suspended at `at_unix`, counting only
+    /// suspension rows that have taken effect and were written by `as_of_seq`.
+    fn suspended_at(&self, grant_id: &str, at_unix: i64, as_of_seq: i64) -> bool {
+        self.suspensions
+            .iter()
+            .rfind(|s| {
+                s.grant_id == grant_id && s.takes_effect_unix <= at_unix && s.chain_seq <= as_of_seq
+            })
+            .map(|s| s.action == "suspend")
+            .unwrap_or(false)
+    }
+
+    /// Is any single-steward weakening act still inside its delay?
+    ///
+    /// §3.5: *"the sole-steward path cannot be taken while such an act is
+    /// pending."* Otherwise one steward suspends the other, waits for the
+    /// count to fall to one, and appoints a third alone — which is the
+    /// sequence this clause exists to refuse.
+    fn a_weakening_act_is_pending(&self, at_unix: i64) -> bool {
+        self.revocations
+            .iter()
+            .any(|r| r.takes_effect_unix > at_unix)
+            || self
+                .suspensions
+                .iter()
+                .any(|s| s.action == "suspend" && s.takes_effect_unix > at_unix)
+    }
+
+    /// §3.5's `min(2, live distinct stewards)` — the count.
+    ///
+    /// # What counts, and the two ways this was wrong
+    ///
+    /// **Expired grants do not count.** `0011` requires every steward grant to
+    /// carry an expiry, and the old count ignored expiry entirely — so an
+    /// organisation whose co-steward's grant had lapsed had one steward who
+    /// could do nothing and one who was not sole, and could never appoint
+    /// anybody again. Every organisation deadlocked eventually.
+    ///
+    /// **Suspended grants DO count.** A suspension is reversible by any
+    /// steward, so treating a suspended steward as absent let one steward
+    /// suspend the other, become "sole" on the strength of it, appoint a third
+    /// alone, and lift the suspension — manufacturing a steward out of one
+    /// signature. Suspension stops a steward acting; it does not remove them
+    /// from the count that decides whether a second signature is required.
+    fn steward_count(&self, at_unix: i64) -> usize {
+        let mut subjects = BTreeSet::new();
+        for grant in &self.grants {
+            if grant.capability != Capability::Steward {
+                continue;
+            }
+            if self.revoked_by(&grant.id, at_unix) {
+                continue;
+            }
+            if grant.effective_from_unix > at_unix {
+                continue;
+            }
+            if grant.expires_at_unix != 0 && grant.expires_at_unix <= at_unix {
+                continue;
+            }
+            subjects.insert(grant.subject_id.clone());
+        }
+        subjects.len()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1574,24 +2400,21 @@ fn parse_scope(id: &str) -> Result<ScopeId, AuthorityError> {
     id.parse().map_err(|_| AuthorityError::Corrupt("scope id"))
 }
 
-async fn read_grant(tx: &Transaction<'_>, id: &str) -> Result<Option<Grant>, AuthorityError> {
-    let row = tx
-        .query_opt(
-            "SELECT id, organisation_id, scope_id, subject_id, subject_key_fpr, capability, \
-                    granted_by, granter_key_fpr, granter_sig, is_genesis, is_recovery, \
-                    sole_steward_appointment, auth_epoch, \
-                    EXTRACT(EPOCH FROM effective_from)::bigint, \
-                    COALESCE(EXTRACT(EPOCH FROM expires_at)::bigint, 0), \
-                    chain_seq, row_version, row_seal \
-               FROM scope_grants WHERE id = $1",
-            &[&id],
-        )
-        .await?;
-    let Some(row) = row else { return Ok(None) };
+/// The column list every grant read uses, so that one read cannot drift from
+/// another and produce a different `grant_row_state` for the same row.
+const GRANT_COLUMNS: &str =
+    "id, organisation_id, scope_id, subject_id, subject_key_fpr, capability, \
+     granted_by, granter_key_fpr, granter_sig, is_genesis, is_recovery, \
+     sole_steward_appointment, auth_epoch, \
+     EXTRACT(EPOCH FROM effective_from)::bigint, \
+     COALESCE(EXTRACT(EPOCH FROM expires_at)::bigint, 0), \
+     chain_seq, row_version, row_seal";
+
+fn grant_from_row(row: &tokio_postgres::Row) -> Result<Grant, AuthorityError> {
     let subject_fpr: Vec<u8> = row.get(4);
     let granter_fpr: Vec<u8> = row.get(7);
     let capability: String = row.get(5);
-    Ok(Some(Grant {
+    Ok(Grant {
         id: row.get(0),
         organisation_id: row.get(1),
         scope_id: row.get(2),
@@ -1610,7 +2433,36 @@ async fn read_grant(tx: &Transaction<'_>, id: &str) -> Result<Option<Grant>, Aut
         chain_seq: row.get(15),
         row_version: row.get(16),
         row_seal: row.get(17),
-    }))
+    })
+}
+
+async fn read_grant(tx: &Transaction<'_>, id: &str) -> Result<Option<Grant>, AuthorityError> {
+    let row = tx
+        .query_opt(
+            &format!("SELECT {GRANT_COLUMNS} FROM scope_grants WHERE id = $1"),
+            &[&id],
+        )
+        .await?;
+    match row {
+        Some(row) => Ok(Some(grant_from_row(&row)?)),
+        None => Ok(None),
+    }
+}
+
+async fn read_grants_of(
+    tx: &Transaction<'_>,
+    organisation: &str,
+) -> Result<Vec<Grant>, AuthorityError> {
+    let rows = tx
+        .query(
+            &format!(
+                "SELECT {GRANT_COLUMNS} FROM scope_grants \
+                  WHERE organisation_id = $1 ORDER BY id"
+            ),
+            &[&organisation],
+        )
+        .await?;
+    rows.iter().map(grant_from_row).collect()
 }
 
 /// The organisation root key's fingerprint, **recomputing the organisation id
@@ -1658,6 +2510,83 @@ async fn organisation_root_fpr(
     Ok(authority::key_fingerprint(&root_pubkey))
 }
 
+/// Check that the organisation's `is_genesis` rows are exactly the ones its
+/// sealed `org_genesis` chain entry names (§6.1).
+///
+/// # What this replaces, and what it does not claim
+///
+/// `0011` carried a `BEFORE INSERT` trigger meant to refuse a genesis grant
+/// once the head had moved past epoch 0. It refused nothing. The function was
+/// `SECURITY DEFINER`, so its read of `organisation_auth_head` ran as the
+/// table's owner; that table is `FORCE ROW LEVEL SECURITY`, so the owner is
+/// subject to its policies too; the policy compares `organisation_id` against
+/// `current_setting('app.tenant_id', true)`, which with no tenant context set
+/// is `NULL`. The `EXISTS` was therefore false in exactly the session a second
+/// genesis would be written from, and the trigger returned `NEW`.
+///
+/// `0012` drops it and adds `CHECK (NOT is_genesis OR auth_epoch = 1)`, which
+/// binds at every privilege level. **That `CHECK` is belt-and-braces and not
+/// the fence**: a `CHECK` cannot read another table, so no constraint can
+/// express *"there is no genesis after creation"* — it can only say what a
+/// genesis row must look like, and an attacker writing one directly picks
+/// `auth_epoch = 1` freely.
+///
+/// The fence is this function, and it rests on the chain. `bootstrap_organisation`
+/// mints each genesis grant's id, names it in the `org_genesis` entry together
+/// with its subject and subject key fingerprint, and seals that entry before
+/// writing a single grant row. A genesis row added later is not in that list —
+/// and it cannot be added to it, because the entry was sealed before the row
+/// existed and re-sealing it needs the organisation content key. So a late
+/// genesis grant is **unusable**, not merely late.
+///
+/// **It is not unconstructible at the SQL level and must not be described as
+/// if it were.** The row inserts. What it does not do is authorise anybody.
+async fn verify_genesis_set(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    state: &AuthorityState,
+) -> Result<(), AuthorityError> {
+    let metadata = chains::read_org_entry_metadata(tx, ring, ctx, EntryType::OrgGenesis)
+        .await?
+        .ok_or(AuthorityError::Unverifiable("org_genesis chain entry"))?;
+    let parsed = Json::parse_canonical(&metadata)
+        .map_err(|_| AuthorityError::Corrupt("org_genesis metadata"))?;
+    let Json::Obj(map) = parsed else {
+        return Err(AuthorityError::Corrupt("org_genesis metadata"));
+    };
+    let Some(Json::Arr(named)) = map.get("genesis_grants") else {
+        return Err(AuthorityError::Corrupt("org_genesis metadata"));
+    };
+
+    // What the sealed entry says genesis was: (grant id, subject, subject fpr).
+    let mut sealed: BTreeSet<(String, String, String)> = BTreeSet::new();
+    for item in named {
+        let Json::Obj(fields) = item else {
+            return Err(AuthorityError::Corrupt("org_genesis metadata"));
+        };
+        let get = |k: &str| match fields.get(k) {
+            Some(Json::Str(s)) => Ok(s.clone()),
+            _ => Err(AuthorityError::Corrupt("org_genesis metadata")),
+        };
+        sealed.insert((get("grant")?, get("subject")?, get("subject_key_fpr")?));
+    }
+
+    // What the tables say it is now.
+    let found: BTreeSet<(String, String, String)> = state
+        .grants
+        .iter()
+        .filter(|g| g.is_genesis)
+        .map(|g| (g.id.clone(), g.subject_id.clone(), hex(&g.subject_key_fpr)))
+        .collect();
+
+    // Missing, extra, or a different subject -- all three are the same answer.
+    if sealed != found {
+        return Err(AuthorityError::GenesisSetMismatch);
+    }
+    Ok(())
+}
+
 /// Rebuild a stored grant's signed bytes — the only way to check a signature
 /// is to recompute what it should have covered.
 async fn grant_bytes_of(
@@ -1685,42 +2614,20 @@ async fn grant_bytes_of(
 // §3.4 — the seven steps
 // ---------------------------------------------------------------------------
 
-/// **Authorise, from scratch, every time** (§3.4).
-///
-/// 1. the scope's ancestors, so a grant above it counts;
-/// 2. the head, and **its seal verified** — `Unverifiable`, never "no grants";
-/// 3. the epoch against this process's high-water mark;
-/// 4. each candidate grant: **its row seal**, its membership of the head's
-///    `live_digest`, its times, the keyring rows for granter and subject with
-///    **their own seals**, and the signatures over recomputed bytes;
-/// 5. the organisation id recomputed from the root key;
-/// 6. §3.5's quorum for the capability;
-/// 7. only then the answer.
-///
-/// Step 4 is why a hand-inserted grant grants nothing, why editing
-/// `capability` on a real one grants nothing, and why deleting a revocation
-/// row does not restore the grant: the first two break the row seal, and the
-/// third leaves the head's `live_digest` disagreeing with a live set that now
-/// has one more member.
-pub async fn authorise_account(
+/// The scope ids a grant may sit at and still cover `scope`: the scope itself,
+/// every ancestor, and `None` — the organisation, which is above everything.
+async fn covering_scopes(
     tx: &Transaction<'_>,
-    auth: &Authority<'_>,
-    scope: Option<ScopeId>,
-    needed: Capability,
-) -> Result<Capabilities, AuthorityError> {
-    let (ring, watch) = (auth.ring, auth.watch);
-    let organisation = auth.organisation();
-    let account = auth.actor();
-
-    // 1. The scope and its ancestors. `None` is the organisation itself, which
-    //    every grant in the organisation is at or above.
+    organisation: &str,
+    scope: Option<&str>,
+) -> Result<BTreeSet<Option<String>>, AuthorityError> {
     let mut covering: BTreeSet<Option<String>> = BTreeSet::new();
     covering.insert(None);
     if let Some(scope) = scope {
         let row = tx
             .query_opt(
                 "SELECT path FROM scopes WHERE id = $1 AND organisation_id = $2",
-                &[&scope.to_string(), &organisation],
+                &[&scope, &organisation],
             )
             .await?
             .ok_or(AuthorityError::NotAuthorised)?;
@@ -1729,6 +2636,305 @@ pub async fn authorise_account(
             covering.insert(Some(ancestor.to_string()));
         }
     }
+    Ok(covering)
+}
+
+/// Verify one grant **row**: its own seal, both key bindings, and the
+/// granter's signature over recomputed bytes. No liveness, no clock, no
+/// quorum — those are separate questions asked by separate callers.
+async fn verify_grant_row(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    root_fpr: &[u8; 32],
+    grant: &Grant,
+) -> Result<(), AuthorityError> {
+    let organisation = grant.organisation_id.clone();
+
+    let recomputed = authority::row_seal(
+        &row_key_for(ring, &organisation),
+        &RowFacts {
+            table: "scope_grants",
+            row_id: &grant.id,
+            chain_seq: grant.chain_seq,
+            row_version: grant.row_version,
+            row_state: &grant_row_state(grant),
+        },
+    );
+    if grant.row_seal != recomputed {
+        return Err(AuthorityError::Unverifiable("grant row seal"));
+    }
+
+    // The subject's key, resolved as of the grant's own `effective_from`
+    // (§3.3), with the keyring row's seal verified inside
+    // `key_by_fingerprint`, and bound to the subject named on the row.
+    let subject_key =
+        key_by_fingerprint(tx, ring, &grant.subject_key_fpr, grant.effective_from_unix).await?;
+    if subject_key.account_id != grant.subject_id {
+        return Err(AuthorityError::Unverifiable("subject key binding"));
+    }
+
+    let message = authority::grant_bytes(&GrantFacts {
+        organisation: &organisation,
+        root_pubkey_fpr: root_fpr,
+        scope: grant.scope_id.as_deref().unwrap_or(""),
+        subject: &grant.subject_id,
+        subject_key_fpr: &grant.subject_key_fpr,
+        capability: grant.capability,
+        granter: grant.granted_by.as_deref(),
+        granter_key_fpr: &grant.granter_key_fpr,
+        effective_from_unix: grant.effective_from_unix,
+        expires_at_unix: grant.expires_at_unix,
+        auth_epoch: grant.auth_epoch,
+    });
+
+    let granter_public_key = match &grant.granted_by {
+        Some(granter_id) => {
+            let key =
+                key_by_fingerprint(tx, ring, &grant.granter_key_fpr, grant.effective_from_unix)
+                    .await?;
+            // **The granter's key must belong to the granter's account.**
+            // This is the same binding §3.3 argues for on the subject side and
+            // it was checked only there. Without it, a row naming account A as
+            // granter and account B's key fingerprint verifies happily under
+            // B's key -- so a grant reads, in the audit trail and on the
+            // permission screen, as A's act, and B is who actually signed it.
+            if key.account_id != *granter_id {
+                return Err(AuthorityError::Unverifiable("granter key binding"));
+            }
+            key.public_key
+        }
+        None => {
+            // Root-signed: genesis or recovery. The fingerprint in the row
+            // must be the root's own, or the signature would be checked
+            // against whatever key the keyring happens to hold.
+            if grant.granter_key_fpr != *root_fpr {
+                return Err(AuthorityError::Unverifiable("root grant fingerprint"));
+            }
+            tx.query_one(
+                "SELECT root_pubkey FROM organisation_roots WHERE organisation_id = $1",
+                &[&organisation],
+            )
+            .await?
+            .get(0)
+        }
+    };
+    authority::verify_es256(&granter_public_key, &message, &grant.granter_sig)?;
+    Ok(())
+}
+
+/// Does this grant carry the signatures §3.5 requires of it?
+///
+/// # What a seconding has to survive now, and what it survived before
+///
+/// Before: the seconder's signature over `second_bytes`, and nothing else.
+/// `second_bytes` is `LP(tag) ‖ LP(H(grant_bytes)) ‖ LP(granter_key_fpr)` —
+/// every input recomputable from columns any member of the organisation can
+/// read. The seconding row's own seal was written and then verified nowhere,
+/// the head's digest did not cover secondings at all, and nothing asked
+/// whether the seconder held `steward`. So any member with an enrolled key
+/// could insert a row through the application role and flip a pending steward
+/// grant live. That is the quorum this design exists to enforce, defeated by
+/// an `INSERT`.
+///
+/// Now, for every seconding an answer rests on:
+///
+/// 1. **the row's stored seal** recomputes — which the head's digest does not
+///    catch, because the digest carries the *recomputed* seal;
+/// 2. **the signature** over `second_bytes`;
+/// 3. **the seconder is neither the granter nor the subject** — `0011` binds
+///    this with a three-column foreign key and a `CHECK`, and it is restated
+///    here because a constraint that is the only statement of a rule is a rule
+///    that disappears the day the constraint is relaxed;
+/// 4. **the seconder held a verified live `steward` grant covering this
+///    grant's scope, at the seconding's own `chain_seq`** — not now. A
+///    seconding is a statement made at a moment, and a seconder whose own
+///    stewardship was revoked afterwards still seconded it; one who never held
+///    stewardship never did.
+///
+/// Step 4 recurses: the seconder's steward grant may itself have needed
+/// seconding. It terminates because each step moves strictly backwards through
+/// `chain_seq` and genesis grants need no seconding, and it is bounded anyway
+/// by [`SECONDING_DEPTH_LIMIT`].
+fn grant_quorum_met<'a>(
+    tx: &'a Transaction<'a>,
+    ring: &'a KeyRing,
+    state: &'a AuthorityState,
+    root_fpr: &'a [u8; 32],
+    grant: &'a Grant,
+    depth: usize,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), AuthorityError>> + 'a>> {
+    Box::pin(async move {
+        // §3.5: genesis and recovery grants are root-signed and have their own
+        // controls; a sole-steward appointment is §3.5's answer to a quorum
+        // that cannot be met, and pays for it with the delay instead.
+        if grant.capability != Capability::Steward
+            || grant.is_genesis
+            || grant.is_recovery
+            || grant.sole_steward_appointment
+        {
+            return Ok(());
+        }
+        if depth >= SECONDING_DEPTH_LIMIT {
+            return Err(AuthorityError::Unverifiable("seconding chain depth"));
+        }
+
+        let grant_bytes = grant_bytes_of(tx, ring, grant).await?;
+        let covering = covering_scopes(tx, &state.organisation, grant.scope_id.as_deref()).await?;
+
+        let mut verified = 0usize;
+        for seconding in state.secondings.iter().filter(|s| s.grant_id == grant.id) {
+            // 1. The stored seal. The head's digest carries the RECOMPUTED
+            //    seal, so a forged stored seal passes the head and is caught
+            //    only here.
+            let recomputed = authority::row_seal(
+                &row_key_for(ring, &state.organisation),
+                &RowFacts {
+                    table: "grant_secondings",
+                    row_id: &seconding.id,
+                    chain_seq: seconding.chain_seq,
+                    row_version: 1,
+                    row_state: &seconding_row_state(seconding),
+                },
+            );
+            if seconding.row_seal != recomputed {
+                return Err(AuthorityError::Unverifiable("grant seconding row seal"));
+            }
+
+            // 3. Neither the granter nor the subject.
+            if Some(&seconding.seconded_by) == grant.granted_by.as_ref()
+                || seconding.seconded_by == grant.subject_id
+            {
+                return Err(AuthorityError::Unverifiable(
+                    "seconder is the granter or the subject",
+                ));
+            }
+
+            // 2. The signature, under the key that was in service when the
+            //    seconding was made.
+            let key = key_by_fingerprint(
+                tx,
+                ring,
+                &seconding.seconder_key_fpr,
+                seconding.seconded_at_unix,
+            )
+            .await?;
+            if key.account_id != seconding.seconded_by {
+                return Err(AuthorityError::Unverifiable("seconder key binding"));
+            }
+            let message = authority::second_bytes(&grant_bytes, &grant.granter_key_fpr);
+            authority::verify_es256(&key.public_key, &message, &seconding.seconder_sig)?;
+
+            // 4. And the seconder actually held stewardship, then, there.
+            if !steward_held_at(
+                tx,
+                ring,
+                state,
+                root_fpr,
+                &seconding.seconded_by,
+                &covering,
+                seconding.seconded_at_unix,
+                seconding.chain_seq,
+                depth + 1,
+            )
+            .await?
+            {
+                return Err(AuthorityError::Unverifiable(
+                    "seconder held no live steward grant on this scope when they seconded",
+                ));
+            }
+
+            verified += 1;
+        }
+
+        if verified == 0 {
+            return Err(AuthorityError::QuorumNotMet { needed: 2, have: 1 });
+        }
+        Ok(())
+    })
+}
+
+/// Did `account` hold a fully verified, live `steward` grant covering one of
+/// `covering`, at `at_unix` and as of chain position `as_of_seq`?
+#[allow(clippy::too_many_arguments)]
+fn steward_held_at<'a>(
+    tx: &'a Transaction<'a>,
+    ring: &'a KeyRing,
+    state: &'a AuthorityState,
+    root_fpr: &'a [u8; 32],
+    account: &'a str,
+    covering: &'a BTreeSet<Option<String>>,
+    at_unix: i64,
+    as_of_seq: i64,
+    depth: usize,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, AuthorityError>> + 'a>> {
+    Box::pin(async move {
+        for grant in &state.grants {
+            if grant.subject_id != account || grant.capability != Capability::Steward {
+                continue;
+            }
+            if !covering.contains(&grant.scope_id) {
+                continue;
+            }
+            // It has to have existed, and been in force, at that moment.
+            if grant.chain_seq > as_of_seq || grant.effective_from_unix > at_unix {
+                continue;
+            }
+            if grant.expires_at_unix != 0 && grant.expires_at_unix <= at_unix {
+                continue;
+            }
+            if state.revoked_as_of(&grant.id, at_unix, as_of_seq)
+                || state.suspended_at(&grant.id, at_unix, as_of_seq)
+            {
+                continue;
+            }
+            verify_grant_row(tx, ring, root_fpr, grant).await?;
+            grant_quorum_met(tx, ring, state, root_fpr, grant, depth).await?;
+            return Ok(true);
+        }
+        Ok(false)
+    })
+}
+
+/// **Authorise, from scratch, every time** (§3.4).
+///
+/// 1. the scope's ancestors, so a grant above it counts;
+/// 2. the head, and **its seal verified** — `Unverifiable`, never "no grants";
+/// 3. the epoch against this process's high-water mark;
+/// 4. the whole authority state, digested and compared against the head —
+///    grants, secondings, suspensions and revocations, not grants alone;
+/// 5. the organisation id recomputed from the root key, and the genesis set
+///    compared against what the sealed `org_genesis` entry names;
+/// 6. each candidate grant: its row seal, both key bindings, the granter's
+///    signature over recomputed bytes, its times, and §3.5's quorum — every
+///    seconding it rests on verified in full;
+/// 7. only then the answer.
+///
+/// Step 4 is why a hand-inserted grant grants nothing, why editing
+/// `capability` on a real one grants nothing, why deleting a revocation row
+/// does not restore the grant, and — since the digest covers the whole state
+/// rather than the grants alone — why a seconding nobody was entitled to make
+/// does not make a steward.
+///
+/// # Nothing is cached, and there is nowhere to put a verdict
+///
+/// §3.4: *"no verdict is ever stored"*. Every value this function rests on is
+/// read inside the call and recomputed from sealed rows. Two authorisations in
+/// one process, one second apart, do the same work — which is what makes
+/// tampering between them visible.
+pub async fn authorise_account(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: Option<ScopeId>,
+    needed: Capability,
+) -> Result<Capabilities, AuthorityError> {
+    let (ring, ctx, watch) = (auth.ring, auth.ctx, auth.watch);
+    let organisation = auth.organisation();
+    let account = auth.actor();
+
+    // 1. The scope and its ancestors. `None` is the organisation itself, which
+    //    every grant in the organisation is at or above.
+    let scope_text = scope.map(|s| s.to_string());
+    let covering = covering_scopes(tx, &organisation, scope_text.as_deref()).await?;
 
     // 2. The head, and its seal.
     let head = tx
@@ -1741,6 +2947,7 @@ pub async fn authorise_account(
         .ok_or(AuthorityError::Unverifiable("authority head"))?;
     let auth_epoch: i32 = head.get(0);
     let head_chain_seq: i64 = head.get(1);
+    let stored_live_count: i32 = head.get(2);
     let stored_digest: Vec<u8> = head.get(3);
     let stored_head_seal: Vec<u8> = head.get(4);
 
@@ -1758,148 +2965,70 @@ pub async fn authorise_account(
     // 3. The rollback check.
     watch.observe(&organisation, auth_epoch)?;
 
-    // The live set as the database says it is now, and the digest over it. If
-    // the head's digest disagrees, a live row has been added, removed or
-    // edited since the head was sealed -- which is precisely the
-    // hand-inserted grant, the edited capability and the deleted revocation.
-    let live = live_set(tx, ring, &organisation).await?;
+    // 4. The whole authority state as the database says it is now, and the
+    //    digest over it. If the head's digest disagrees, a row has been added,
+    //    removed or edited somewhere in the authority since the head was
+    //    sealed -- the hand-inserted grant, the edited capability, the deleted
+    //    revocation, and the seconding nobody was entitled to make.
+    let state = read_authority_state(tx, &organisation).await?;
+    let entries = state.digest_entries(&row_key_for(ring, &organisation));
     let recomputed_digest = authority::live_digest(
         &row_key_for(ring, &organisation),
         &organisation,
         auth_epoch,
-        &live,
+        &entries,
     );
     if stored_digest != recomputed_digest {
-        return Err(AuthorityError::Unverifiable("live set"));
+        return Err(AuthorityError::Unverifiable("authority state"));
     }
-    let live_ids: BTreeSet<String> = live.into_iter().map(|(id, _)| id).collect();
+    // `live_count` is a second, independent statement of the same fact, and a
+    // statement nobody checks is a statement that can be false. §3.2 stores
+    // it; this is where it has to agree.
+    if stored_live_count as usize != entries.len() {
+        return Err(AuthorityError::Unverifiable("authority head live_count"));
+    }
+    // Then the row-level statement. The digest above carries the RECOMPUTED
+    // seals, so a row whose content is untouched and whose STORED seal is
+    // forged passes it; this is what catches that. Head first, rows second:
+    // the head is the statement about the whole authority, and a disagreement
+    // there is the more general fact.
+    state.verify_stored_seals(&row_key_for(ring, &organisation))?;
 
-    // 5. The organisation id, recomputed from its root key. Every grant in
-    //    this organisation chains to genesis, so this runs once here rather
-    //    than per grant.
+    // 5. The organisation id, recomputed from its root key, and the genesis
+    //    set against what the chain says genesis was.
     let root_fpr = organisation_root_fpr(tx, ring, &organisation).await?;
+    verify_genesis_set(tx, ring, ctx, &state).await?;
 
-    // 4. The candidates.
-    let rows = tx
-        .query(
-            "SELECT id FROM scope_grants \
-              WHERE organisation_id = $1 AND subject_id = $2",
-            &[&organisation, &account],
-        )
-        .await?;
-
+    // 6. The candidates.
     let now = now_unix();
     let mut best: Option<Capabilities> = None;
-    for row in rows {
-        let id: String = row.get(0);
-        let grant = read_grant(tx, &id)
-            .await?
-            .ok_or(AuthorityError::Corrupt("grant"))?;
-
+    for grant in &state.grants {
+        if grant.subject_id != account {
+            continue;
+        }
         if !covering.contains(&grant.scope_id) {
-            continue;
-        }
-        if !live_ids.contains(&grant.id) {
-            // Revoked or suspended. Not an error: another grant may cover it.
-            continue;
-        }
-        if grant.effective_from_unix > now {
-            continue;
-        }
-        if grant.expires_at_unix != 0 && grant.expires_at_unix <= now {
             continue;
         }
         if !grant.capability.covers(needed) {
             continue;
         }
-
-        // The row's own seal.
-        let recomputed = authority::row_seal(
-            &row_key_for(ring, &organisation),
-            &RowFacts {
-                table: "scope_grants",
-                row_id: &grant.id,
-                chain_seq: grant.chain_seq,
-                row_version: grant.row_version,
-                row_state: &grant_row_state(&grant),
-            },
-        );
-        if grant.row_seal != recomputed {
-            return Err(AuthorityError::Unverifiable("grant row seal"));
+        // Revoked or suspended -- as of now, honouring the delay §3.5 puts on
+        // a single-steward act. Not an error: another grant may cover it.
+        if state.revoked_by(&grant.id, now) || state.suspended_at(&grant.id, now, i64::MAX) {
+            continue;
+        }
+        if grant.effective_from_unix > now {
+            continue;
+        }
+        // **Expiry, evaluated at use.** Every steward grant carries one
+        // (`0011`), so a layer that ignored expiry here would have let a
+        // lapsed grant keep working.
+        if grant.expires_at_unix != 0 && grant.expires_at_unix <= now {
+            continue;
         }
 
-        // The subject's key, and the granter's, each with its own row seal
-        // verified, and the signature over recomputed bytes.
-        let subject_key =
-            key_by_fingerprint(tx, ring, &organisation, &grant.subject_key_fpr).await?;
-        if subject_key.account_id != grant.subject_id {
-            return Err(AuthorityError::Unverifiable("subject key binding"));
-        }
-
-        let message = authority::grant_bytes(&GrantFacts {
-            organisation: &organisation,
-            root_pubkey_fpr: &root_fpr,
-            scope: grant.scope_id.as_deref().unwrap_or(""),
-            subject: &grant.subject_id,
-            subject_key_fpr: &grant.subject_key_fpr,
-            capability: grant.capability,
-            granter: grant.granted_by.as_deref(),
-            granter_key_fpr: &grant.granter_key_fpr,
-            effective_from_unix: grant.effective_from_unix,
-            expires_at_unix: grant.expires_at_unix,
-            auth_epoch: grant.auth_epoch,
-        });
-
-        let granter_public_key = match &grant.granted_by {
-            Some(_) => {
-                let key =
-                    key_by_fingerprint(tx, ring, &organisation, &grant.granter_key_fpr).await?;
-                key.public_key
-            }
-            None => {
-                // Root-signed: genesis or recovery. The fingerprint in the row
-                // must be the root's own, or the signature would be checked
-                // against whatever key the keyring happens to hold.
-                if grant.granter_key_fpr != root_fpr {
-                    return Err(AuthorityError::Unverifiable("root grant fingerprint"));
-                }
-                tx.query_one(
-                    "SELECT root_pubkey FROM organisation_roots WHERE organisation_id = $1",
-                    &[&organisation],
-                )
-                .await?
-                .get(0)
-            }
-        };
-        authority::verify_es256(&granter_public_key, &message, &grant.granter_sig)?;
-
-        // 6. §3.5's quorum, at use.
-        if grant.capability == Capability::Steward
-            && !grant.is_genesis
-            && !grant.is_recovery
-            && !grant.sole_steward_appointment
-        {
-            let secondings = tx
-                .query(
-                    "SELECT seconder_key_fpr, seconder_sig FROM grant_secondings \
-                      WHERE grant_id = $1",
-                    &[&grant.id],
-                )
-                .await?;
-            let mut verified = 0usize;
-            for seconding in &secondings {
-                let fpr: Vec<u8> = seconding.get(0);
-                let sig: Vec<u8> = seconding.get(1);
-                let fpr = as_32(&fpr, "seconder key fingerprint")?;
-                let key = key_by_fingerprint(tx, ring, &organisation, &fpr).await?;
-                let second = authority::second_bytes(&message, &grant.granter_key_fpr);
-                authority::verify_es256(&key.public_key, &second, &sig)?;
-                verified += 1;
-            }
-            if verified == 0 {
-                return Err(AuthorityError::QuorumNotMet { needed: 2, have: 1 });
-            }
-        }
+        verify_grant_row(tx, ring, &root_fpr, grant).await?;
+        grant_quorum_met(tx, ring, &state, &root_fpr, grant, 0).await?;
 
         // 7. The answer. The widest capability wins, so a steward who also
         //    holds `read` somewhere is not answered with `read`.
