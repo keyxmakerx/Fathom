@@ -102,7 +102,7 @@ but this layer has not been attacked by a checker** — the helper that built it
 before it could report, so its decisions where §4 was silent (rate limiting, lockout, token shape)
 live only in the code's comments and have not been read into the design.
 
-**Next session starts here:** (1) a checker round on 0013, `sessions.rs` and `api.rs`, with the
+**Next session starts here** (the full plan is `docs/NEXT.md`): (1) a checker round on 0013, `sessions.rs` and `api.rs`, with the
 same posture as the four rounds on the authority layer; (2) read the builder's silent-spot
 decisions out of the code into admin §4 and §13; (3) then the rest of §15.6 in order — the admin
 surface and the execution interlock, receipts and witness, break-glass — and, in parallel when

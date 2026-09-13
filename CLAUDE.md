@@ -19,6 +19,7 @@ This file is a pointer page. It is loaded before every instruction, so it stays 
 | You need | Read |
 |---|---|
 | The plan | `docs/REBUILD-PLAN.md` |
+| **What to do next, session by session** | `docs/NEXT.md` — written 2026-09-13 for the sessions after it |
 | What is actually built right now | `docs/STATE.md` |
 | **What the interface looks like** | `docs/UI-SPEC.md` — approved. Pictures linked from it; open those only when building a surface. |
 | Rules you must not break | `.context/conventions.md` |
