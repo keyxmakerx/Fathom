@@ -16,6 +16,7 @@ use core::time::Duration;
 use crate::audit::{SpoolBounds, SyslogTarget};
 use crate::keyprovider::KeySource;
 use crate::secret::{redact_database_url, Secret};
+use crate::sessions::SignInLimits;
 
 /// Everything the server needs to start.
 #[derive(Debug, Clone)]
@@ -154,6 +155,37 @@ pub struct Config {
     /// handle; the two must agree because they are the same parser, and this
     /// one is what refuses a malformed value.
     pub audit_spool_bounds: SpoolBounds,
+
+    /// §13 item 7's rate limit and lockout, which
+    /// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` does not specify.
+    /// `FATHOM_SIGNIN_WINDOW_SECONDS` (default 900),
+    /// `FATHOM_SIGNIN_MAX_PER_ACCOUNT` (failures, default 10) and
+    /// `FATHOM_SIGNIN_MAX_PER_SOURCE` (attempts, default 30).
+    ///
+    /// Configurable because a deployment behind one NAT and a deployment on
+    /// the open internet are different shapes, and a fixed number would be
+    /// wrong for one of them. Parsed here, at startup, for
+    /// `audit_spool_bounds`' reason: a mistyped bound must fail before the
+    /// listener binds rather than leave a deployment believing it is limited
+    /// at a number it is not. **A zero is refused**, because a zero limit
+    /// locks every account out for a window and would read as "no limit".
+    pub sign_in_limits: SignInLimits,
+
+    /// Which request header carries the real client address, for the source
+    /// half of the sign-in rate limit. `FATHOM_TRUSTED_CLIENT_IP_HEADER`,
+    /// **unset by default**.
+    ///
+    /// Unset means the peer address, which is the honest default: a header a
+    /// client can set is a rate limit a client can evade, and this server
+    /// cannot know whether anything in front of it overwrites one. But `43`
+    /// §5.4 puts Caddy in front, and behind a proxy every request arrives from
+    /// the proxy — so with this unset in that deployment, the source bucket is
+    /// one bucket for the whole site and a single attacker rate-limits
+    /// everybody. **Set it only when the proxy you control overwrites the
+    /// header on every request.** Both failure modes are real; the deployment
+    /// chooses which one it is not in, and this comment is the place that says
+    /// so.
+    pub trusted_client_ip_header: Option<String>,
 }
 
 /// ADR-0043 §9's path, in the operator's register and therefore in the code
@@ -371,6 +403,13 @@ impl Config {
         let audit_spool_bounds = SpoolBounds::from_lookup(&get)
             .map_err(|variable| ConfigError::Unparseable { variable })?;
 
+        let sign_in_limits = SignInLimits::from_lookup(&get)
+            .map_err(|variable| ConfigError::Unparseable { variable })?;
+
+        let trusted_client_ip_header = get("FATHOM_TRUSTED_CLIENT_IP_HEADER")
+            .map(|v| v.trim().to_ascii_lowercase())
+            .filter(|v| !v.is_empty());
+
         // Trailing newline trimmed: the file is written by a shell script and
         // a newline is what a shell script writes. Only the ends are trimmed
         // — a password is otherwise taken exactly as generated.
@@ -420,6 +459,8 @@ impl Config {
             chain_key,
             audit_syslog,
             audit_spool_bounds,
+            sign_in_limits,
+            trusted_client_ip_header,
         })
     }
 

@@ -46,6 +46,7 @@
 //! order's. Design tables and the credential vault need the key boundary
 //! first (WO-11 §8, ADR-0040 §9 items 1 and 2).
 
+pub mod api;
 pub mod audit;
 pub mod authority;
 pub mod chain;
@@ -65,6 +66,7 @@ pub mod migrate;
 pub mod repo;
 pub mod rls;
 pub mod secret;
+pub mod sessions;
 
 use std::sync::Arc;
 

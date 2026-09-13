@@ -300,6 +300,40 @@ const TABLES: &[TableClaim] = &[
               three integers. Keyed under the organisation chain key so that a dump cannot \
               recompute them, which is integrity rather than confidentiality.",
     },
+    // ---- 0013, sessions (admin design §4) ---------------------------------
+    //
+    // Three tables, none key-protected, and the reason is §4.1 itself: a
+    // session is held together by a PUBLIC key the browser keeps the private
+    // half of, a MAC tag this server takes under a key PostgreSQL cannot
+    // read, and nonces that authorise nothing. **There is no password
+    // anywhere in this schema** (§4.5, §5.1, OPEN-QUESTIONS C2), so there is
+    // no verifier to protect either.
+    TableClaim {
+        name: "sessions",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one row per live session: the principal and its kind, the browser's session \
+              PUBLIC key (§4.2 generates the private half non-extractable in WebCrypto and it \
+              never leaves the browser), the consumed bind nonce, the evidence signature and \
+              its digest, a SHA-256 of the bearer token rather than the token, and the row \
+              MAC. Every one of those is a public value, a signature or a hash; the MAC's key \
+              is the site-scoped row key, behind ADR-0043's provider interface and never in \
+              PostgreSQL.",
+    },
+    TableClaim {
+        name: "session_nonces",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "32 random bytes, single-use, deleted at verification (§4.2). A nonce authorises \
+              nothing on its own -- it is an input to a message somebody still has to sign -- \
+              so it is not a secret this table is protecting.",
+    },
+    TableClaim {
+        name: "sign_in_attempts",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "§13 item 7's fixed-window counters: a bucket kind, a bucket key (an opaque \
+              account id or a source address, NEVER an address that was typed), a window \
+              start, a count and a latch. No credential, no key material, and nothing that \
+              was ever secret.",
+    },
 ];
 
 /// Object kinds a migration may create that are not themselves a place to

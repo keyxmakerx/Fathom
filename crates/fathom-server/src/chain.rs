@@ -300,6 +300,31 @@ pub enum EntryType {
     /// which §9's degrade table stops design writes and keeps reads serving.
     SpoolPressure,
 
+    // ---- Sessions (§4, migration 0013) -----------------------------------
+    //
+    // Five of the site chain's types, written by `sessions.rs`. **Two of them
+    // are not in §7.2's list**: it names `operator_signin|signin_failed` and
+    // gives an ACCOUNT sign-in no type at all, while §4 makes the account
+    // session the main path. The gap is the document's and is reported rather
+    // than worked around.
+    /// An account proved possession of an enrolled signing key over a server
+    /// challenge that also bound the fresh session public key (§4.2), and a
+    /// session row was written in the same transaction.
+    AccountSignin,
+    /// A sign-in attempt was refused. Carries the reason, including a
+    /// rate-limit refusal — §13 item 7's lockout has its sealed record here
+    /// rather than in a type of its own.
+    AccountSigninFailed,
+    /// An attempt at the operator sign-in surface was refused. §4.5: an
+    /// operator session is `A1` or it does not exist, there is no password
+    /// path, and no operator key can be enrolled yet — so every attempt is
+    /// refused and every one of them is recorded.
+    OperatorSigninFailed,
+    /// An account was disabled: its live sessions stop at their next request.
+    AccountDisabled,
+    /// An account was re-enabled.
+    AccountEnabled,
+
     // ---- Organisation chain (§7.2) ---------------------------------------
     /// The first entry on an organisation's chain.
     OrgGenesis,
@@ -366,6 +391,11 @@ impl EntryType {
             Self::DeploymentStarted => "deployment_started",
             Self::ShipperGap => "shipper_gap",
             Self::SpoolPressure => "spool_pressure",
+            Self::AccountSignin => "account_signin",
+            Self::AccountSigninFailed => "account_signin_failed",
+            Self::OperatorSigninFailed => "operator_signin_failed",
+            Self::AccountDisabled => "account_disabled",
+            Self::AccountEnabled => "account_enabled",
             Self::OrgGenesis => "org_genesis",
             Self::Rewrap => "rewrap",
             Self::AccountKeyEnrolled => "account_key_enrolled",
@@ -388,6 +418,11 @@ impl EntryType {
             "deployment_started" => Some(Self::DeploymentStarted),
             "shipper_gap" => Some(Self::ShipperGap),
             "spool_pressure" => Some(Self::SpoolPressure),
+            "account_signin" => Some(Self::AccountSignin),
+            "account_signin_failed" => Some(Self::AccountSigninFailed),
+            "operator_signin_failed" => Some(Self::OperatorSigninFailed),
+            "account_disabled" => Some(Self::AccountDisabled),
+            "account_enabled" => Some(Self::AccountEnabled),
             "org_genesis" => Some(Self::OrgGenesis),
             "rewrap" => Some(Self::Rewrap),
             "account_key_enrolled" => Some(Self::AccountKeyEnrolled),
@@ -421,7 +456,14 @@ impl EntryType {
     pub fn kinds(self) -> &'static [ChainKind] {
         match self {
             Self::Create | Self::Update | Self::Reencrypt => &[ChainKind::Design],
-            Self::DeploymentStarted | Self::ShipperGap | Self::SpoolPressure => &[ChainKind::Site],
+            Self::DeploymentStarted
+            | Self::ShipperGap
+            | Self::SpoolPressure
+            | Self::AccountSignin
+            | Self::AccountSigninFailed
+            | Self::OperatorSigninFailed
+            | Self::AccountDisabled
+            | Self::AccountEnabled => &[ChainKind::Site],
             Self::OrgGenesis
             | Self::AccountKeyEnrolled
             | Self::AccountKeySuperseded

@@ -38,7 +38,6 @@
 //!   `account_keys.key_source` records that as a fact rather than leaving it
 //!   to be assumed.
 
-use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
@@ -392,7 +391,16 @@ fn row_key_for(ring: &KeyRing, organisation: &str) -> Key32 {
 /// The site chain key is the one key in this deployment that is the same for
 /// every organisation, so it is what an account-scoped row must be sealed
 /// under. The label does not change — see `authority::row_key`.
-async fn site_row_key(tx: &Transaction<'_>, ring: &KeyRing) -> Result<Key32, AuthorityError> {
+///
+/// `pub(crate)` since `0013`: a session row is account-scoped in exactly the
+/// way a keyring row is — it belongs to a principal, not to an organisation,
+/// and its verifier holds no tenant context — so `sessions.rs` seals under
+/// this same subkey rather than deriving a second one. Nothing outside this
+/// crate gains a way to reach it.
+pub(crate) async fn site_row_key(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+) -> Result<Key32, AuthorityError> {
     let deployment = chains::deployment_id(&**tx).await?;
     let chain_key = chain::chain_key(
         ring.chain_master(),
@@ -853,6 +861,82 @@ pub async fn signing_key_of(
         }
         None => Ok(None),
     }
+}
+
+/// The account's key **as `sign_in` must resolve it**: the live one, its own
+/// keyring row seal verified, and in service at `at_unix`.
+///
+/// [`signing_key_of`] answers "which row would this account sign with" and
+/// verifies nothing, which is right for a caller that is about to hand the
+/// bytes to a human. A caller that is about to accept a signature as proof of
+/// identity needs the seal checked, because a keyring row whose `public_key`
+/// was edited is exactly how an administrator would sign in as somebody else.
+/// This is that caller's function, added for `sessions.rs` (§4.2).
+pub async fn live_signing_key(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    account: &str,
+    at_unix: i64,
+) -> Result<AccountKey, AuthorityError> {
+    let key = signing_key_of(tx, account)
+        .await?
+        .ok_or(AuthorityError::NoSigningKey)?;
+    verify_key_row(tx, ring, &key, at_unix).await?;
+    Ok(key)
+}
+
+/// One keyring row by id, seal verified, in service at `at_unix`.
+///
+/// A session records **which** key proved it, not merely that some key did, so
+/// that the session dies with that key (§8.4's retirement, checked at every
+/// request). Resolving the account's *current* key instead would mean a
+/// retired key's session surviving on its successor's authority, which nobody
+/// authorised.
+pub async fn signing_key_by_id(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    key_id: &str,
+    at_unix: i64,
+) -> Result<AccountKey, AuthorityError> {
+    let key = read_account_key(tx, key_id)
+        .await?
+        .ok_or(AuthorityError::NoSigningKey)?;
+    verify_key_row(tx, ring, &key, at_unix).await?;
+    Ok(key)
+}
+
+/// The seal-and-service check both of the two above share with
+/// [`key_by_fingerprint`].
+async fn verify_key_row(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    key: &AccountKey,
+    at_unix: i64,
+) -> Result<(), AuthorityError> {
+    let stored: Vec<u8> = tx
+        .query_one(
+            "SELECT row_seal FROM account_keys WHERE id = $1",
+            &[&key.id],
+        )
+        .await?
+        .get(0);
+    let recomputed = authority::row_seal(
+        &site_row_key(tx, ring).await?,
+        &RowFacts {
+            table: "account_keys",
+            row_id: &key.id,
+            chain_seq: key.enrolled_seq,
+            row_version: key.row_version,
+            row_state: &account_key_row_state(key),
+        },
+    );
+    if stored != recomputed {
+        return Err(AuthorityError::Unverifiable("account key row seal"));
+    }
+    if !key.in_service_at(at_unix) {
+        return Err(AuthorityError::NoSigningKey);
+    }
+    Ok(())
 }
 
 /// Resolve a key by fingerprint **as of `at_unix`**, verifying the keyring
@@ -2893,8 +2977,9 @@ fn grant_quorum_met<'a>(
     state: &'a AuthorityState,
     root_fpr: &'a [u8; 32],
     grant: &'a Grant,
-    pass: &'a RefCell<QuorumPass>,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, AuthorityError>> + 'a>> {
+    pass: &'a Mutex<QuorumPass>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, AuthorityError>> + Send + 'a>>
+{
     Box::pin(async move {
         // §3.5: genesis and recovery grants are root-signed and have their own
         // controls; a sole-steward appointment is §3.5's answer to a quorum
@@ -2909,10 +2994,11 @@ fn grant_quorum_met<'a>(
         {
             return Ok(true);
         }
-        if let Some(settled) = pass.borrow().settled.get(&grant.id).copied() {
+        let settled = pass.lock().expect(POISON).settled.get(&grant.id).copied();
+        if let Some(settled) = settled {
             return Ok(settled);
         }
-        if !pass.borrow_mut().on_path.insert(grant.id.clone()) {
+        if !pass.lock().expect(POISON).on_path.insert(grant.id.clone()) {
             // Already under evaluation further up this path. **Not memoised**:
             // it is an answer about this path, not about this grant.
             return Ok(false);
@@ -2920,14 +3006,34 @@ fn grant_quorum_met<'a>(
 
         let met = a_qualifying_seconding_exists(tx, ring, state, root_fpr, grant, pass).await;
 
-        pass.borrow_mut().on_path.remove(&grant.id);
+        pass.lock().expect(POISON).on_path.remove(&grant.id);
         let met = met?;
-        pass.borrow_mut().settled.insert(grant.id.clone(), met);
+        pass.lock()
+            .expect(POISON)
+            .settled
+            .insert(grant.id.clone(), met);
         Ok(met)
     })
 }
 
+/// What a poisoned pass lock would mean, said once.
+///
+/// It cannot happen: the mutex is created inside one authorisation, is locked
+/// only for the length of a map lookup or insert with no `await` in between,
+/// and nothing inside those sections can panic. The `expect` is here rather
+/// than an `unwrap` so that if it ever did, the message says which lock.
+const POISON: &str = "the quorum pass lock is never held across an await and never poisoned";
+
 /// One pass's working memory: the path being walked, and what it has settled.
+///
+/// **A `Mutex`, not a `RefCell`, and the reason is the HTTP boundary.**
+/// `&RefCell<T>` is not `Send`, so an authorisation that held one across an
+/// `await` produced a future axum will not accept — which is to say: with a
+/// `RefCell` here, **no route in this server could ever authorise anybody**.
+/// The change is mechanical (the lock is taken for one map operation at a
+/// time, never across an `await`, and there is exactly one thread in the
+/// walk), and it is the alternative to a borrow that works everywhere except
+/// where the product needs it.
 ///
 /// **Created inside one authorisation question and dropped with it.** §3.4
 /// permits a memo *"of the live set within a use"* and forbids a stored
@@ -2975,7 +3081,7 @@ async fn a_qualifying_seconding_exists<'a>(
     state: &'a AuthorityState,
     root_fpr: &'a [u8; 32],
     grant: &'a Grant,
-    pass: &'a RefCell<QuorumPass>,
+    pass: &'a Mutex<QuorumPass>,
 ) -> Result<bool, AuthorityError> {
     let grant_bytes = grant_bytes_of(tx, ring, grant).await?;
     let covering = covering_scopes(tx, &state.organisation, grant.scope_id.as_deref()).await?;
@@ -3011,7 +3117,7 @@ async fn seconding_qualifies<'a>(
     grant_bytes: &[u8],
     covering: &BTreeSet<Option<String>>,
     seconding: &Seconding,
-    pass: &'a RefCell<QuorumPass>,
+    pass: &'a Mutex<QuorumPass>,
 ) -> Result<bool, AuthorityError> {
     // 1. The stored seal. The head's digest carries the RECOMPUTED seal, so a
     //    forged stored seal passes the head; `verify_stored_seals` is what
@@ -3096,7 +3202,7 @@ async fn steward_held_at<'a>(
     covering: &BTreeSet<Option<String>>,
     at_unix: i64,
     as_of_seq: i64,
-    pass: &'a RefCell<QuorumPass>,
+    pass: &'a Mutex<QuorumPass>,
 ) -> Result<bool, AuthorityError> {
     for grant in &state.grants {
         if grant.subject_id != account || grant.capability != Capability::Steward {
@@ -3134,9 +3240,10 @@ async fn row_verifies<'a>(
     ring: &'a KeyRing,
     root_fpr: &'a [u8; 32],
     grant: &'a Grant,
-    pass: &'a RefCell<QuorumPass>,
+    pass: &'a Mutex<QuorumPass>,
 ) -> Result<bool, AuthorityError> {
-    if let Some(settled) = pass.borrow().rows.get(&grant.id).copied() {
+    let settled = pass.lock().expect(POISON).rows.get(&grant.id).copied();
+    if let Some(settled) = settled {
         return Ok(settled);
     }
     let verdict = match verify_grant_row(tx, ring, root_fpr, grant).await {
@@ -3144,7 +3251,10 @@ async fn row_verifies<'a>(
         Err(e) if is_a_disqualification(&e) => false,
         Err(e) => return Err(e),
     };
-    pass.borrow_mut().rows.insert(grant.id.clone(), verdict);
+    pass.lock()
+        .expect(POISON)
+        .rows
+        .insert(grant.id.clone(), verdict);
     Ok(verdict)
 }
 
@@ -3294,7 +3404,7 @@ pub async fn authorise_account(
         // seconding is not a broken store, it is a grant that is not yet
         // usable -- so it is passed over and another candidate may still
         // answer. Each candidate gets its own pass, discarded with it.
-        let pass = RefCell::new(QuorumPass::default());
+        let pass = Mutex::new(QuorumPass::default());
         if !grant_quorum_met(tx, ring, &state, &root_fpr, grant, &pass).await? {
             short_of_quorum = true;
             continue;

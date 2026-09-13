@@ -415,6 +415,36 @@ async fn main() -> ExitCode {
         }
     }
 
+    // ---- Sessions, and the first routes that need one --------------------
+    //
+    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §4. The store holds the pool,
+    // the chain master (for the site-scoped row key a session row's MAC is
+    // taken under), this deployment's identity (inside every challenge) and
+    // §13 item 7's limits. `EpochWatch` is the one per-process value §3.4 step
+    // 3 asks for, and this is the first thing in the server with a request
+    // layer to hold it.
+    let api = fathom_server::api::ApiState {
+        sessions: Arc::new(fathom_server::sessions::SessionStore::new(
+            pool.clone(),
+            Arc::clone(&ring),
+            deployment.clone(),
+            config.sign_in_limits,
+        )),
+        watch: Arc::new(fathom_server::grants::EpochWatch::new()),
+        ring: Arc::clone(&ring),
+        trusted_client_ip_header: config.trusted_client_ip_header.clone(),
+    };
+    tracing::info!(
+        window_seconds = config.sign_in_limits.window.as_secs(),
+        max_per_account = config.sign_in_limits.max_per_account,
+        max_per_source = config.sign_in_limits.max_per_source,
+        trusted_client_ip_header = config
+            .trusted_client_ip_header
+            .as_deref()
+            .unwrap_or("(none: the peer address is the bucket)"),
+        "sign-in limits"
+    );
+
     let health = Arc::new(HealthState {
         pool,
         timeout: config.health_timeout,
@@ -430,9 +460,17 @@ async fn main() -> ExitCode {
 
     tracing::info!(bind = %config.bind, "listening");
 
-    let served = axum::serve(listener, router(AppState { health, engine }))
-        .with_graceful_shutdown(shutdown())
-        .await;
+    // `into_make_service_with_connect_info` rather than the router directly:
+    // §13 item 7's source bucket needs the peer address, and without this the
+    // extension it reads is never populated, so every sign-in in the
+    // deployment would count into one bucket named "unknown".
+    let app = router(AppState { health, engine }).merge(fathom_server::api::router(api));
+    let served = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown())
+    .await;
 
     match served {
         Ok(()) => {
