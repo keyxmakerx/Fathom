@@ -103,7 +103,7 @@ so the branch that lets an account see its own memberships can never be used for
 **Two custodies, as of 0004 and 0005.** Operators hold the machine; stewards hold the data. A
 composite key onto `principals (id, kind)` makes an operator **unrepresentable** in an authority row
 — proved by a test that connects as a full-privilege superuser and still cannot do it, because this
-is a constraint rather than a policy. The operator database role has `SELECT` on five tables and
+is a constraint rather than a policy. The operator database role has `SELECT` on eleven tables (the list is `OPERATOR_MAY_SELECT` in `tests/planes.rs`) and
 nothing else, and every policy added for it is `FOR SELECT`, never `FOR ALL`. The application's
 database password is generated at first start into the key volume and appears in neither the compose
 file nor the environment.

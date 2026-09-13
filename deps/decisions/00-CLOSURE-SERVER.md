@@ -17,7 +17,10 @@
 > them, and their transitive closure `autocfg`, `base16ct`, `cpubits`, `crypto-bigint`, `der`,
 > `elliptic-curve`, `ff`, `group`, `num-traits`, `primefield`, `primeorder`, `rfc6979`, `sec1`,
 > `signature`, `subtle`, `wnaf`. **123 → 141 crates**, read off `./scripts/gate-zero.sh`, against
-> the 200 ceiling below. No `build.rs` and no proc macro among the eighteen; no C and no assembly.
+> the 200 ceiling below. One `build.rs` among the eighteen — `num-traits 0.2.19`, whose build script
+> only probes the compiler through `autocfg`; the generated table below counts it (build-script crates
+> 11 → 12). No proc macro; no C and no assembly. *(Corrected 2026-09-13; the first version of this
+> paragraph said "no `build.rs`".)*
 > `cipher` stays at `0.5.2`, above the yanked `0.5.0`. The only duplicate majors in the graph are
 > the four `deny.toml` already skips by name (`syn`, `wasi`); `cargo deny --locked check` reports
 > `advisories ok, bans ok, licenses ok, sources ok`. **`scripts/osv-gate.sh` could not run — its

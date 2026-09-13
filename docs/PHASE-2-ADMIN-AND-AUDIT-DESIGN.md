@@ -610,6 +610,61 @@ credential — which is a device-credential-shaped secret and goes through the r
 vault like any other (CLAUDE.md rule 4). Sequenced after the account and enrolment work in §14;
 the schema is not touched until the group design has had its own attack round.
 
+### 3.8 The second checker round, 2026-09-13 — six defects in the first build, and what was decided
+
+A checker attacked migration 0011 and `grants.rs` and confirmed six defects. Each is a hole in
+this section's own text as much as in the build, so the decisions live here; migration 0012 and
+the code carry them out.
+
+1. **A seconding was outside every seal and outside the head.** Its row seal was written and never
+   verified, the head's digest covered grants only, and nothing at use checked the seconder held
+   `steward` — so any account key plus the app role completed §3.5's quorum. **Decided:** the
+   authority head's digest covers the whole authority state — every unrevoked grant, every
+   seconding, suspension and revocation row, each seal verified, in one canonical order — and every
+   use verifies each seconding it relies on: seal, signature over `second_bytes`, seconder ≠
+   granter, and a verified live steward grant for the seconder on that scope at the seconding's
+   chain position. §3.4's "verification at every use" now means the whole state, not the grant row.
+2. **The genesis creation-only trigger passed vacuously.** A `SECURITY DEFINER` function reading a
+   table under `FORCE ROW LEVEL SECURITY` owned by the definer sees zero rows with no tenant set.
+   **Decided:** one genesis grant per organisation is a partial unique index — a constraint, which
+   row security cannot filter — and the trigger is dropped. §6.1's "unconstructible" now rests on
+   the index, not on a function.
+3. **The keyring seal was organisation-scoped while the keyring is account-scoped**, so an account
+   in two organisations was unauthorisable in the second, with the integrity alarm rather than a
+   permission error. **Decided:** `account_keys` rows are sealed under a site-scoped row key derived
+   from the site chain key with the same `fathom/chain/kdf/row/v1` label. Pre-release only: 0012
+   refuses to apply over enrolled keys, and such a database is recreated.
+4. **The server bound its own clock into bytes the client had already signed** — epoch, time and the
+   sole-steward flag were chosen after signing, so a signature made one second earlier failed, and
+   the suite itself flaked on it. **Decided:** two steps. The server *proposes* the exact bytes
+   (fixing every server-chosen value); the client signs them; the server verifies over the bytes as
+   issued and at commit checks the epoch is still the head's and the effective time is not stale,
+   else refuses with an error that says to re-propose.
+5. **Suspension manufactured a sole steward:** suspend the other steward, appoint a third alone,
+   lift the suspension. **Decided:** for the sole-steward determination a steward counts if their
+   steward grant is unrevoked and unexpired, suspended or not; and any single-steward act that
+   removes or weakens another steward — revoking or suspending a steward grant without a seconding
+   — takes the same 24-hour delay as a sole appointment, is recorded as such, and the sole-steward
+   path is closed while such an act is pending. Two stewards who each move against the other end
+   with neither, which is §8's break-glass and is the intended outcome, not a bug.
+6. **An expired co-steward still counted as live**, and every steward grant must expire, so every
+   organisation eventually deadlocked: the expired steward could do nothing, the survivor was not
+   sole. **Decided:** expiry is evaluated at use wherever the live set is computed, and the
+   sole-steward count excludes expired grants.
+
+Also from the round: `account_key_retired` was a name in a `CHECK` written by nothing — key
+retirement is built as a signed act in §8.4's succession shape, and the keyring entry consulted is
+the one live at the grant's `effective_from` (§3.3), which the first build ignored; the granter's
+key must belong to the granter's account, as the subject's already had to; a successor key must
+belong to the same account; the stored live count is compared, not merely stored. The five new
+append-only tables gain fence tests as superuser, and a use → tamper → use test guards against a
+cached verdict. `num-traits` does carry a `build.rs` (closure record corrected) and the operator
+role reads eleven tables, not five (STATE corrected).
+
+**Still open after this round, for the next attack:** whether the 24-hour delay on single-steward
+acts against a steward is the right friction for a two-person organisation; a deliberate two-writer
+race on the head; and the head rollback beyond one process lifetime, which waits on §7.6's anchors.
+
 ### 3.6 `move_subtree`, and the cheaper route around it
 
 `repo::move_subtree` today calls `authorise` and accepts any member, then rewrites every descendant
