@@ -77,8 +77,8 @@ const ORG_CHAIN_KEY: &str = "c4c7db8438214073587a04221272de2e2fc34018a2ddea5660e
 const K_ROW: &str = "6d8a379427f0c8303dbbbebc354f2d230d9e113d5b240045641a90c6107c5faa";
 const K_SEAL: &str = "a9e1e0824b7e0e5143cc26230ef95076d88623d32e87ab0c2fd10686731a124d";
 const ROW_SEAL: &str = "1813724da54cb668cbac06be321526d1bf3127128af3e937f572fe46661db9fe";
-const LIVE_DIGEST: &str = "512314b84fb2b6473c95446d975ab522456cedb29a57db4be89840040d05150f";
-const HEAD_SEAL: &str = "bf87009cbfd88c6aee8468f99dd35c3ec0d38bf5855ea61b94cb880b1c102737";
+const LIVE_DIGEST: &str = "309ad036607d46a3a5f3c676fd458db21ce4b4911ff3ef2c6ae282f687578588";
+const HEAD_SEAL: &str = "05ee7935297a82fff82e0d8def4fddc1f7493ff24ef609c9e7cda527c799ca77";
 const SIGNATURE: &str = "1ed49eab8aa694e63551a54fa72c6be4b0e89181b39b1fe0eb8b49ab320bc5a06df3b0c915318c899188879b0e69b5cc\
      4122df16f510afcd1b5d22409de4794f";
 const ORGANISATION_ID: &str = "3YW3CZP5ZNXSVFCBWPGQ7DCP7P";
@@ -293,11 +293,30 @@ fn the_live_digest_and_the_head_seal_are_the_ones_the_document_describes() {
         CHAIN_KEY_EPOCH,
     );
     let row_key = authority::row_key(&chain_key);
+    // v2 of this digest covers the WHOLE authority state -- every non-revoked
+    // grant, every seconding, every suspension, every revocation -- each keyed
+    // "<table>/<row identity>". v1 covered the grants alone, which is what put
+    // secondings outside every seal and outside the head.
+    //
     // Handed over deliberately UNSORTED, because §3.4 sorts and the code must
     // not depend on its caller having done so.
     let live = vec![
-        ("01JQZ0000000000000000000GG".to_string(), [0x61u8; 32]),
-        ("01JQZ0000000000000000000EE".to_string(), [0x62u8; 32]),
+        (
+            "scope_grants/01JQZ0000000000000000000GG".to_string(),
+            [0x61u8; 32],
+        ),
+        (
+            "grant_secondings/01JQZ0000000000000000000EE".to_string(),
+            [0x62u8; 32],
+        ),
+        (
+            "grant_suspensions/00000000000000000007".to_string(),
+            [0x63u8; 32],
+        ),
+        (
+            "grant_revocations/01JQZ0000000000000000000GG".to_string(),
+            [0x64u8; 32],
+        ),
     ];
     let digest = authority::live_digest(&row_key, ORGANISATION, AUTH_EPOCH, &live);
     assert_eq!(hex(&digest), LIVE_DIGEST);

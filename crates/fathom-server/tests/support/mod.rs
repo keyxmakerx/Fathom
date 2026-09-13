@@ -165,6 +165,17 @@ pub async fn migrated_pool() -> Pool {
     )
     .await;
 
+    // `src/main.rs` stamps the deployment identity at startup, and since the
+    // authority layer seals `account_keys` under the SITE chain key -- the one
+    // key that is the same for every organisation, which is what an
+    // account-scoped row has to be sealed under -- that identity is a
+    // precondition for enrolling a key at all, not just for the site chain.
+    // Registering it here, inside the migration lock, mirrors that startup
+    // order rather than leaving each test to discover it as `NoDeployment`.
+    // Idempotent: `deployments` is a one-row table and this returns the
+    // existing id.
+    let deployment_result = fathom_server::chains::register_deployment(&**client).await;
+
     let _ = client
         .execute(
             "SELECT pg_advisory_unlock($1)",
@@ -175,6 +186,7 @@ pub async fn migrated_pool() -> Pool {
     migrate_result
         .expect("migrations must apply cleanly against a fresh or already-migrated database");
     provision_result.expect("provisioning the runtime test role's login must succeed");
+    deployment_result.expect("stamping the deployment identity must succeed");
 
     fathom_server::db::pool(&app_config).expect("the pool builds without touching the database")
 }

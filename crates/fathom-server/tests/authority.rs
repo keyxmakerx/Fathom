@@ -672,7 +672,10 @@ async fn a_hand_inserted_grant_that_the_head_does_not_cover_makes_the_authority_
     };
     let refused = grants::authorise_account(&tx, &auth, None, Capability::Steward).await;
     assert!(
-        matches!(refused, Err(AuthorityError::Unverifiable("live set"))),
+        matches!(
+            refused,
+            Err(AuthorityError::Unverifiable("authority state"))
+        ),
         "an extra live row the sealed head does not cover must fail CLOSED and not as a \
          permission error: {refused:?}"
     );
@@ -1251,7 +1254,10 @@ async fn deleting_a_revocation_does_not_restore_the_grant() {
     };
     let refused = grants::authorise_account(&tx, &auth, None, Capability::Draw).await;
     assert!(
-        matches!(refused, Err(AuthorityError::Unverifiable("live set"))),
+        matches!(
+            refused,
+            Err(AuthorityError::Unverifiable("authority state"))
+        ),
         "restoring a grant by deleting its revocation must fail CLOSED: {refused:?}"
     );
     tx.rollback().await.expect("rollback");
@@ -1357,25 +1363,7 @@ async fn a_grant_on_one_rack_does_not_open_another() {
             tenant_key: &tenant_key,
             watch: &watch,
         };
-        let subject_fpr = authority::key_fingerprint(&subject_key.public_key());
-        let granter_fpr = authority::key_fingerprint(&estate.stewards[0].key.public_key());
-        let epoch = next_epoch(&tx, &estate.organisation.to_string()).await;
-        let now = now_unix();
-        let facts = GrantFacts {
-            organisation: &estate.organisation.to_string(),
-            root_pubkey_fpr: &authority::key_fingerprint(&estate.root.public_key()),
-            scope: &network.id.to_string(),
-            subject: &subject.to_string(),
-            subject_key_fpr: &subject_fpr,
-            capability: Capability::Read,
-            granter: Some(&steward.to_string()),
-            granter_key_fpr: &granter_fpr,
-            effective_from_unix: now,
-            expires_at_unix: 0,
-            auth_epoch: epoch,
-        };
-        let signature = estate.stewards[0].key.sign(&authority::grant_bytes(&facts));
-        grants::sign_grant(
+        let proposal = grants::propose_grant(
             &tx,
             &auth,
             &GrantRequest {
@@ -1383,11 +1371,14 @@ async fn a_grant_on_one_rack_does_not_open_another() {
                 subject,
                 capability: Capability::Read,
                 expires_at_unix: 0,
-                signature: &signature,
             },
         )
         .await
-        .expect("granted on one network");
+        .expect("proposed on one network");
+        let signature = estate.stewards[0].key.sign(&proposal.bytes);
+        grants::sign_grant(&tx, &auth, &proposal, &signature)
+            .await
+            .expect("granted on one network");
         tx.commit().await.expect("commit");
     }
 
@@ -1437,6 +1428,13 @@ fn high_s_twin(signature: &[u8; 64]) -> [u8; 64] {
     out
 }
 
+/// The epoch the next act in this organisation will claim.
+///
+/// **No longer used to build a signature**, which is the point: the fixture
+/// used to compute this so it could guess what `sign_grant` was about to
+/// choose. `propose_grant` now returns the epoch inside the bytes it issues.
+/// Kept because it reads the head without going through the code under test.
+#[allow(dead_code)]
 async fn next_epoch(tx: &deadpool_postgres::Transaction<'_>, organisation: &str) -> i32 {
     let row = tx
         .query_opt(
@@ -1504,6 +1502,17 @@ async fn grant_bytes_for(
     })
 }
 
+/// Propose a grant, sign the bytes the server issued, and submit them.
+///
+/// **The fixture no longer predicts anything.** It used to recompute the
+/// epoch, the wall-clock `now`, the sole-steward flag and the 24-hour offset,
+/// because `sign_grant` chose all four AFTER the signature was made and the
+/// test had to guess them to produce a signature that would verify. It guessed
+/// wrong whenever the clock ticked between the two, which is how this suite
+/// came to flake with `DoesNotVerify` on a correct signature.
+///
+/// With the two-step split there is nothing to guess: `propose_grant` returns
+/// the bytes, and those exact bytes are what gets signed.
 #[allow(clippy::too_many_arguments)]
 async fn sign_a_grant(
     tx: &deadpool_postgres::Transaction<'_>,
@@ -1515,36 +1524,8 @@ async fn sign_a_grant(
     capability: Capability,
     expires_at_unix: i64,
 ) -> String {
-    let organisation = estate.organisation.to_string();
-    let granter = estate.stewards[granter_index].account.to_string();
-    let epoch = next_epoch(tx, &organisation).await;
-    let subject_fpr = authority::key_fingerprint(&subject_key.public_key());
-    let granter_fpr = authority::key_fingerprint(&estate.stewards[granter_index].key.public_key());
-    let now = now_unix();
-    let sole =
-        live_steward_count(tx, &organisation).await <= 1 && capability == Capability::Steward;
-    let effective_from = if sole {
-        now + grants::SOLE_STEWARD_DELAY_SECONDS
-    } else {
-        now
-    };
-    let facts = GrantFacts {
-        organisation: &organisation,
-        root_pubkey_fpr: &authority::key_fingerprint(&estate.root.public_key()),
-        scope: "",
-        subject: &subject.to_string(),
-        subject_key_fpr: &subject_fpr,
-        capability,
-        granter: Some(&granter),
-        granter_key_fpr: &granter_fpr,
-        effective_from_unix: effective_from,
-        expires_at_unix,
-        auth_epoch: epoch,
-    };
-    let signature = estate.stewards[granter_index]
-        .key
-        .sign(&authority::grant_bytes(&facts));
-    grants::sign_grant(
+    let _ = subject_key;
+    let proposal = grants::propose_grant(
         tx,
         auth,
         &GrantRequest {
@@ -1552,27 +1533,14 @@ async fn sign_a_grant(
             subject,
             capability,
             expires_at_unix,
-            signature: &signature,
         },
     )
     .await
-    .expect("the grant is signed")
-}
-
-/// How many distinct accounts hold a live steward grant — the test's own
-/// count, so that the fixture can predict `sign_grant`'s effective_from
-/// without asking the code under test.
-async fn live_steward_count(tx: &deadpool_postgres::Transaction<'_>, organisation: &str) -> usize {
-    let rows = tx
-        .query(
-            "SELECT DISTINCT g.subject_id FROM scope_grants g \
-              WHERE g.organisation_id = $1 AND g.capability = 'steward' \
-                AND NOT EXISTS (SELECT 1 FROM grant_revocations r WHERE r.grant_id = g.id)",
-            &[&organisation],
-        )
+    .expect("the grant is proposed");
+    let signature = estate.stewards[granter_index].key.sign(&proposal.bytes);
+    grants::sign_grant(tx, auth, &proposal, &signature)
         .await
-        .expect("stewards");
-    rows.len()
+        .expect("the grant is signed")
 }
 
 /// One organisation, one steward, one member holding `draw` — the fixture
@@ -1833,4 +1801,1516 @@ async fn an_old_key_signs_its_successor_and_may_not_name_a_second_one() {
 #[test]
 fn the_algorithm_id_is_the_one_the_migration_admits() {
     assert_eq!(ALG_ES256, 1);
+}
+
+// ---------------------------------------------------------------------------
+// The defects a checker found in the signed authority layer, each with the
+// reproduction that failed before the fix and passes after it.
+// ---------------------------------------------------------------------------
+
+/// Enrol a software key for an account, through the real path.
+async fn enrol(
+    pool: &Pool,
+    ring: &KeyRing,
+    organisation: OrganisationId,
+    who: AccountId,
+    key: &SoftwareKey,
+) {
+    let mut client = pool.get().await.expect("connection");
+    let (tx, ctx, tenant_key) = acting(&mut client, ring, organisation, who).await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    grants::enrol_software_key(&tx, &auth, &key.public_key())
+        .await
+        .expect("enrol");
+    tx.commit().await.expect("commit");
+}
+
+/// A member of the organisation who holds no grant at all.
+async fn a_bystander(
+    pool: &Pool,
+    ring: &KeyRing,
+    estate: &Estate,
+    name: &str,
+) -> (AccountId, SoftwareKey) {
+    let account = an_account(pool, name).await;
+    repo::add_member(
+        pool,
+        estate.organisation,
+        estate.stewards[0].account,
+        account,
+        repo::Role::Member,
+    )
+    .await
+    .expect("membership");
+    let key = SoftwareKey::random().unwrap();
+    enrol(pool, ring, estate.organisation, account, &key).await;
+    (account, key)
+}
+
+/// One organisation, two genesis stewards, and a pending `steward` grant to a
+/// third account that has not been seconded. The shape every seconding attack
+/// starts from.
+async fn a_pending_steward_grant(
+    pool: &Pool,
+    ring: &KeyRing,
+    chain_master: u8,
+) -> (Estate, AccountId, SoftwareKey, String) {
+    let _ = chain_master;
+    let estate = bootstrap(pool, ring, 2).await;
+    let subject = an_account(pool, "candidate").await;
+    repo::add_member(
+        pool,
+        estate.organisation,
+        estate.stewards[0].account,
+        subject,
+        repo::Role::Member,
+    )
+    .await
+    .expect("membership");
+    let subject_key = SoftwareKey::random().unwrap();
+    enrol(pool, ring, estate.organisation, subject, &subject_key).await;
+
+    let mut client = pool.get().await.expect("connection");
+    let (tx, ctx, tenant_key) = acting(
+        &mut client,
+        ring,
+        estate.organisation,
+        estate.stewards[0].account,
+    )
+    .await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let grant_id = sign_a_grant(
+        &tx,
+        &auth,
+        &estate,
+        0,
+        subject,
+        &subject_key,
+        Capability::Steward,
+        now_unix() + 3600,
+    )
+    .await;
+    tx.commit().await.expect("commit");
+    (estate, subject, subject_key, grant_id)
+}
+
+#[tokio::test]
+async fn a_bystander_cannot_second_a_steward_grant_into_life() {
+    // **The worst of the eight.** `live_set` covered grants only, so the
+    // head's digest did not move when a seconding appeared; the seconding
+    // row's own seal was written and verified nowhere; and the only check at
+    // use was the seconder's signature over `second_bytes` -- whose every
+    // input (`H(grant_bytes)`, `granter_key_fpr`) any member of the
+    // organisation can recompute from columns they are allowed to read.
+    //
+    // So a bystander holding no grant at all could insert a row through the
+    // application role, with a garbage seal, and flip a pending steward grant
+    // live. This is that reproduction.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(78);
+    let (estate, subject, _subject_key, grant_id) = a_pending_steward_grant(&pool, &ring, 78).await;
+    let (bystander, bystander_key) = a_bystander(&pool, &ring, &estate, "bystander").await;
+
+    let mut client = pool.get().await.expect("connection");
+
+    // The bystander forges a seconding. The SIGNATURE is genuine -- they hold
+    // a real enrolled key and sign the real bytes -- and the seal is garbage,
+    // because they cannot compute one without the chain key.
+    {
+        let (tx, ctx, tenant_key) =
+            acting(&mut client, &ring, estate.organisation, bystander).await;
+        let _ = (&ctx, &tenant_key);
+        let grant_bytes = grant_bytes_for(&tx, &ring, &grant_id).await;
+        let granter_fpr = authority::key_fingerprint(&estate.stewards[0].key.public_key());
+        let signature = bystander_key.sign(&authority::second_bytes(&grant_bytes, &granter_fpr));
+
+        tx.execute(
+            "INSERT INTO grant_secondings \
+                 (id, grant_id, organisation_id, grant_subject_id, grant_granter_id, \
+                  seconded_by, seconder_key_fpr, seconder_sig, chain_seq, row_seal) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            &[
+                &fathom_server::ids::new_ulid().to_string(),
+                &grant_id,
+                &estate.organisation.to_string(),
+                &subject.to_string(),
+                &estate.stewards[0].account.to_string(),
+                &bystander.to_string(),
+                &authority::key_fingerprint(&bystander_key.public_key()).to_vec(),
+                &signature.to_vec(),
+                &1i64,
+                &vec![0u8; 32],
+            ],
+        )
+        .await
+        .expect(
+            "the application role can still WRITE this row -- the fence is at use, and a test \
+             that could not insert would be proving the wrong thing",
+        );
+        tx.commit().await.expect("commit");
+    }
+
+    // And it grants nothing.
+    let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, subject).await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let refused = grants::authorise_account(&tx, &auth, None, Capability::Steward).await;
+    assert!(
+        matches!(refused, Err(AuthorityError::Unverifiable(_))),
+        "a seconding the head does not cover must fail CLOSED, not as a permission error \
+         and certainly not as a steward: {refused:?}"
+    );
+    tx.rollback().await.expect("rollback");
+}
+
+#[tokio::test]
+async fn a_seconding_with_a_good_signature_and_a_forged_seal_is_refused() {
+    // The other half of the seconding fix, and the one the head's digest
+    // alone does NOT catch: the digest carries the RECOMPUTED seal, so a row
+    // whose content is untouched and whose stored seal has been rewritten
+    // produces an identical digest and sails through the head comparison.
+    //
+    // So this seconding is entirely genuine -- made by a real second steward,
+    // through the real path, with a real signature -- and only its stored seal
+    // is then overwritten.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(79);
+    let (estate, subject, _subject_key, grant_id) = a_pending_steward_grant(&pool, &ring, 79).await;
+    let mut client = pool.get().await.expect("connection");
+
+    {
+        let (tx, ctx, tenant_key) = acting(
+            &mut client,
+            &ring,
+            estate.organisation,
+            estate.stewards[1].account,
+        )
+        .await;
+        let grant_bytes = grant_bytes_for(&tx, &ring, &grant_id).await;
+        let granter_fpr = authority::key_fingerprint(&estate.stewards[0].key.public_key());
+        let signature = estate.stewards[1]
+            .key
+            .sign(&authority::second_bytes(&grant_bytes, &granter_fpr));
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        grants::second_grant(&tx, &auth, &grant_id, &signature)
+            .await
+            .expect("a real seconding by a real steward");
+        tx.commit().await.expect("commit");
+    }
+
+    // It works, before the tamper.
+    {
+        let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, subject).await;
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        grants::authorise_account(&tx, &auth, None, Capability::Steward)
+            .await
+            .expect("seconded, and usable");
+        tx.rollback().await.expect("rollback");
+    }
+
+    // `grant_secondings` is append-only behind a trigger that binds a
+    // superuser, so rewriting the seal takes the tier-3 route the fence's own
+    // header names.
+    let superuser = support::superuser_client_on_test_database().await;
+    superuser
+        .batch_execute("ALTER TABLE grant_secondings DISABLE TRIGGER USER")
+        .await
+        .expect("tier 3 owns the table");
+    superuser
+        .execute(
+            "UPDATE grant_secondings SET row_seal = $1 WHERE grant_id = $2",
+            &[&vec![0xABu8; 32], &grant_id],
+        )
+        .await
+        .expect("forge the stored seal");
+    superuser
+        .batch_execute("ALTER TABLE grant_secondings ENABLE TRIGGER USER")
+        .await
+        .expect("put it back");
+
+    let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, subject).await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let refused = grants::authorise_account(&tx, &auth, None, Capability::Steward).await;
+    assert!(
+        matches!(refused, Err(AuthorityError::Unverifiable(_))),
+        "a seconding whose stored seal was forged must be refused even though its signature \
+         is genuine and the head's digest still matches: {refused:?}"
+    );
+    tx.rollback().await.expect("rollback");
+}
+
+#[tokio::test]
+async fn a_late_genesis_row_is_unusable_even_though_it_inserts() {
+    // `0011`'s genesis trigger was `SECURITY DEFINER` reading a table behind
+    // `FORCE ROW LEVEL SECURITY`, so with no tenant context it saw zero rows
+    // and returned NEW. It refused nothing.
+    //
+    // `0012` drops it, adds `CHECK (NOT is_genesis OR auth_epoch = 1)` as
+    // belt-and-braces, and puts the real fence on the chain: `org_genesis`
+    // names the genesis grants, and a row that entry does not name is refused
+    // at use.
+    //
+    // **The row still inserts.** That is stated in `0012`'s header and it is
+    // asserted here, so nobody reads this as an SQL-level impossibility.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(80);
+    let estate = bootstrap(&pool, &ring, 2).await;
+    let (newcomer, newcomer_key) = a_bystander(&pool, &ring, &estate, "newcomer").await;
+    let mut client = pool.get().await.expect("connection");
+
+    // Both genesis stewards authorise, before anything is touched.
+    for steward in &estate.stewards {
+        let (tx, ctx, tenant_key) =
+            acting(&mut client, &ring, estate.organisation, steward.account).await;
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        let caps = grants::authorise_account(&tx, &auth, None, Capability::Steward)
+            .await
+            .expect("a real two-steward genesis authorises both of them");
+        assert_eq!(caps.capability, Capability::Steward);
+        tx.rollback().await.expect("rollback");
+    }
+
+    // A second genesis, for a fresh subject, at `auth_epoch = 1` so the new
+    // CHECK is satisfied, inserted as superuser with the append-only triggers
+    // disabled -- every fence 0011 and 0012 put in the database, walked past.
+    let superuser = support::superuser_client_on_test_database().await;
+    superuser
+        .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
+        .await
+        .expect("tier 3 owns the table");
+    superuser
+        .execute(
+            "INSERT INTO scope_grants \
+                 (id, organisation_id, scope_id, subject_id, subject_key_fpr, capability, \
+                  granter_kind, granted_by, granter_key_fpr, granter_sig, is_genesis, \
+                  auth_epoch, effective_from, expires_at, chain_seq, row_version, row_seal) \
+             VALUES ($1, $2, NULL, $3, $4, 'steward', 'org_root', NULL, $5, $6, true, 1, \
+                     now(), now() + interval '365 days', 1, 1, $7)",
+            &[
+                &fathom_server::ids::new_ulid().to_string(),
+                &estate.organisation.to_string(),
+                &newcomer.to_string(),
+                &authority::key_fingerprint(&newcomer_key.public_key()).to_vec(),
+                &authority::key_fingerprint(&estate.root.public_key()).to_vec(),
+                &vec![0u8; 64],
+                &vec![0u8; 32],
+            ],
+        )
+        .await
+        .expect(
+            "a second genesis row INSERTS -- no CHECK can read another table, so nothing at the \
+             SQL level can refuse this, and 0012 does not claim otherwise",
+        );
+    superuser
+        .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
+        .await
+        .expect("put it back");
+
+    // And the organisation now authorises nobody, including the newcomer and
+    // the genuine stewards: the sealed `org_genesis` entry names two genesis
+    // grants and the table holds three.
+    for who in [
+        newcomer,
+        estate.stewards[0].account,
+        estate.stewards[1].account,
+    ] {
+        let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, who).await;
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        let refused = grants::authorise_account(&tx, &auth, None, Capability::Steward).await;
+        assert!(
+            matches!(refused, Err(AuthorityError::Unverifiable(_)))
+                || matches!(refused, Err(AuthorityError::GenesisSetMismatch)),
+            "a genesis row the sealed org_genesis entry does not name must make the authority \
+             unusable, not merely be recorded: {refused:?}"
+        );
+        tx.rollback().await.expect("rollback");
+    }
+}
+
+#[tokio::test]
+async fn the_check_refuses_a_genesis_grant_at_any_epoch_but_one() {
+    // 0012's belt-and-braces half, which binds at every privilege level
+    // including `psql` as superuser, with the append-only triggers disabled.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(81);
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let (newcomer, newcomer_key) = a_bystander(&pool, &ring, &estate, "newcomer").await;
+
+    let superuser = support::superuser_client_on_test_database().await;
+    superuser
+        .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
+        .await
+        .expect("tier 3 owns the table");
+    let err = superuser
+        .execute(
+            "INSERT INTO scope_grants \
+                 (id, organisation_id, scope_id, subject_id, subject_key_fpr, capability, \
+                  granter_kind, granted_by, granter_key_fpr, granter_sig, is_genesis, \
+                  auth_epoch, effective_from, expires_at, chain_seq, row_version, row_seal) \
+             VALUES ($1, $2, NULL, $3, $4, 'steward', 'org_root', NULL, $5, $6, true, 7, \
+                     now(), now() + interval '365 days', 1, 1, $7)",
+            &[
+                &fathom_server::ids::new_ulid().to_string(),
+                &estate.organisation.to_string(),
+                &newcomer.to_string(),
+                &authority::key_fingerprint(&newcomer_key.public_key()).to_vec(),
+                &authority::key_fingerprint(&estate.root.public_key()).to_vec(),
+                &vec![0u8; 64],
+                &vec![0u8; 32],
+            ],
+        )
+        .await
+        .expect_err("a genesis grant at epoch 7 must be refused by the constraint");
+    superuser
+        .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
+        .await
+        .expect("put it back");
+
+    assert_eq!(
+        err.code(),
+        Some(&SqlState::CHECK_VIOLATION),
+        "the refusal must come from the CHECK, which row security cannot filter and a \
+         superuser cannot bypass: {err}"
+    );
+}
+
+#[tokio::test]
+async fn an_account_in_two_organisations_is_authorisable_in_both() {
+    // The keyring is account-scoped and its seal was organisation-scoped, so
+    // a key enrolled in A recomputed to a different value in B -- and B
+    // refused the account with `Unverifiable`, an integrity alarm for a
+    // forgery that had not happened. 0012 moves the seal to a site-scoped row
+    // key; this is the shape that could not work before.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(82);
+
+    let a = bootstrap(&pool, &ring, 1).await;
+    let b = bootstrap(&pool, &ring, 1).await;
+
+    // One person, a member of both, with ONE key -- enrolled while acting in A.
+    let person = an_account(&pool, "twohats").await;
+    for estate in [&a, &b] {
+        repo::add_member(
+            &pool,
+            estate.organisation,
+            estate.stewards[0].account,
+            person,
+            repo::Role::Member,
+        )
+        .await
+        .expect("membership");
+    }
+    let person_key = SoftwareKey::random().unwrap();
+    enrol(&pool, &ring, a.organisation, person, &person_key).await;
+
+    // The grant is signed in B, by B's steward, naming that same key.
+    let mut client = pool.get().await.expect("connection");
+    {
+        let (tx, ctx, tenant_key) =
+            acting(&mut client, &ring, b.organisation, b.stewards[0].account).await;
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        sign_a_grant(
+            &tx,
+            &auth,
+            &b,
+            0,
+            person,
+            &person_key,
+            Capability::Draw,
+            now_unix() + 3600,
+        )
+        .await;
+        tx.commit().await.expect("commit");
+    }
+
+    // And it authorises in B, where the key was never enrolled.
+    let (tx, ctx, tenant_key) = acting(&mut client, &ring, b.organisation, person).await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let caps = grants::authorise_account(&tx, &auth, None, Capability::Draw)
+        .await
+        .expect("a key enrolled in one organisation resolves in the other");
+    assert_eq!(caps.capability, Capability::Draw);
+    tx.rollback().await.expect("rollback");
+}
+
+#[tokio::test]
+async fn a_proposal_whose_epoch_has_moved_is_refused_with_re_propose() {
+    // Item 4's other half. The two-step split removed the clock race; this is
+    // what replaces it -- an EXACT check, so a proposal signed against one
+    // authority state cannot be committed into another.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(83);
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let (subject, subject_key) = a_bystander(&pool, &ring, &estate, "subject").await;
+    let (other, other_key) = a_bystander(&pool, &ring, &estate, "other").await;
+    let _ = (&subject_key, &other_key);
+
+    let mut client = pool.get().await.expect("connection");
+    let (tx, ctx, tenant_key) = acting(
+        &mut client,
+        &ring,
+        estate.organisation,
+        estate.stewards[0].account,
+    )
+    .await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+
+    let proposal = grants::propose_grant(
+        &tx,
+        &auth,
+        &GrantRequest {
+            scope: None,
+            subject,
+            capability: Capability::Draw,
+            expires_at_unix: 0,
+        },
+    )
+    .await
+    .expect("proposed");
+    let signature = estate.stewards[0].key.sign(&proposal.bytes);
+
+    // Another grant lands first, in the same transaction, advancing the head.
+    sign_a_grant(
+        &tx,
+        &auth,
+        &estate,
+        0,
+        other,
+        &other_key,
+        Capability::Draw,
+        0,
+    )
+    .await;
+
+    let refused = grants::sign_grant(&tx, &auth, &proposal, &signature).await;
+    assert!(
+        matches!(refused, Err(AuthorityError::Stale(_))),
+        "a proposal overtaken by another act must be refused with a typed error that says to \
+         propose again, never quietly re-stamped with a fresh epoch the signer never saw: \
+         {refused:?}"
+    );
+    tx.rollback().await.expect("rollback");
+}
+
+#[tokio::test]
+async fn suspending_a_co_steward_does_not_manufacture_a_sole_steward() {
+    // The checker's sequence, end to end:
+    //
+    //   one steward suspends the other -> the organisation looks
+    //   single-stewarded -> the survivor appoints a third ALONE as a
+    //   "sole steward" appointment -> the survivor lifts the suspension.
+    //
+    // Two independent closures, and this asserts the outcome rather than
+    // either mechanism: no third steward appears on one signature.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(84);
+    let estate = bootstrap(&pool, &ring, 2).await;
+    let (third, third_key) = a_bystander(&pool, &ring, &estate, "third").await;
+    let mut client = pool.get().await.expect("connection");
+
+    // Steward 0 suspends steward 1's genesis grant.
+    let victim_grant: String = {
+        let (tx, _ctx, _tk) = acting(
+            &mut client,
+            &ring,
+            estate.organisation,
+            estate.stewards[0].account,
+        )
+        .await;
+        let id = tx
+            .query_one(
+                "SELECT id FROM scope_grants WHERE organisation_id = $1 AND subject_id = $2",
+                &[
+                    &estate.organisation.to_string(),
+                    &estate.stewards[1].account.to_string(),
+                ],
+            )
+            .await
+            .expect("the co-steward's grant")
+            .get(0);
+        tx.rollback().await.expect("rollback");
+        id
+    };
+
+    {
+        let (tx, ctx, tenant_key) = acting(
+            &mut client,
+            &ring,
+            estate.organisation,
+            estate.stewards[0].account,
+        )
+        .await;
+        let at = now_unix();
+        let grant_bytes = grant_bytes_for(&tx, &ring, &victim_grant).await;
+        let signature = estate.stewards[0].key.sign(&authority::suspend_bytes(
+            &estate.organisation.to_string(),
+            &victim_grant,
+            &grant_bytes,
+            at,
+        ));
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        grants::set_suspension(&tx, &auth, &victim_grant, true, &signature, at)
+            .await
+            .expect("a steward may suspend");
+        tx.commit().await.expect("commit");
+    }
+
+    // Now the survivor tries to appoint a third, alone.
+    let (tx, ctx, tenant_key) = acting(
+        &mut client,
+        &ring,
+        estate.organisation,
+        estate.stewards[0].account,
+    )
+    .await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let proposal = grants::propose_grant(
+        &tx,
+        &auth,
+        &GrantRequest {
+            scope: None,
+            subject: third,
+            capability: Capability::Steward,
+            expires_at_unix: now_unix() + 3600,
+        },
+    )
+    .await;
+
+    match proposal {
+        // Either the path is closed outright...
+        Err(AuthorityError::SoleStewardPathBlocked) => {}
+        // ...or it is open and the appointment is NOT a sole one, so it needs
+        // a seconding and is useless without it. Both are acceptable; a third
+        // steward on one signature is not.
+        Ok(proposal) => {
+            assert!(
+                !proposal.sole_steward_appointment,
+                "a suspended co-steward still counts, so this must not be flagged as a sole \
+                 appointment"
+            );
+            let signature = estate.stewards[0].key.sign(&proposal.bytes);
+            let id = grants::sign_grant(&tx, &auth, &proposal, &signature)
+                .await
+                .expect("the grant is written");
+            tx.commit().await.expect("commit");
+
+            let (tx, ctx, tenant_key) =
+                acting(&mut client, &ring, estate.organisation, third).await;
+            let watch = EpochWatch::new();
+            let auth = Authority {
+                ring: &ring,
+                ctx: &ctx,
+                tenant_key: &tenant_key,
+                watch: &watch,
+            };
+            let refused = grants::authorise_account(&tx, &auth, None, Capability::Steward).await;
+            assert!(
+                matches!(refused, Err(AuthorityError::QuorumNotMet { .. })),
+                "a third steward appointed by one signature while the co-steward is merely \
+                 SUSPENDED must not be usable: grant {id}, got {refused:?}"
+            );
+            tx.rollback().await.expect("rollback");
+        }
+        Err(other) => panic!("unexpected refusal: {other:?}"),
+    }
+    let _ = third_key;
+}
+
+#[tokio::test]
+async fn revoking_a_co_stewards_grant_alone_waits_out_the_delay() {
+    // §3.5, as amended: a single-steward act that removes another steward
+    // takes effect only after the same 24 hours a sole appointment does. Its
+    // absence was what let the survivor of a suspension become "sole"
+    // immediately.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(85);
+    let estate = bootstrap(&pool, &ring, 2).await;
+    let mut client = pool.get().await.expect("connection");
+
+    let victim_grant: String = {
+        let (tx, _ctx, _tk) = acting(
+            &mut client,
+            &ring,
+            estate.organisation,
+            estate.stewards[0].account,
+        )
+        .await;
+        let id = tx
+            .query_one(
+                "SELECT id FROM scope_grants WHERE organisation_id = $1 AND subject_id = $2",
+                &[
+                    &estate.organisation.to_string(),
+                    &estate.stewards[1].account.to_string(),
+                ],
+            )
+            .await
+            .expect("the co-steward's grant")
+            .get(0);
+        tx.rollback().await.expect("rollback");
+        id
+    };
+
+    let at = now_unix();
+    {
+        let (tx, ctx, tenant_key) = acting(
+            &mut client,
+            &ring,
+            estate.organisation,
+            estate.stewards[0].account,
+        )
+        .await;
+        let grant_bytes = grant_bytes_for(&tx, &ring, &victim_grant).await;
+        let signature = estate.stewards[0].key.sign(&authority::revoke_bytes(
+            &estate.organisation.to_string(),
+            &victim_grant,
+            &grant_bytes,
+            at,
+        ));
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        grants::revoke_grant(&tx, &auth, &victim_grant, &signature, at)
+            .await
+            .expect("a steward may revoke");
+        tx.commit().await.expect("commit");
+    }
+
+    // The row records the delay, and the co-steward still authorises.
+    let (tx, ctx, tenant_key) = acting(
+        &mut client,
+        &ring,
+        estate.organisation,
+        estate.stewards[1].account,
+    )
+    .await;
+    let delay: i64 = tx
+        .query_one(
+            "SELECT EXTRACT(EPOCH FROM takes_effect_at - revoked_at)::bigint \
+               FROM grant_revocations WHERE grant_id = $1",
+            &[&victim_grant],
+        )
+        .await
+        .expect("the revocation")
+        .get(0);
+    assert_eq!(
+        delay,
+        grants::SOLE_STEWARD_DELAY_SECONDS,
+        "removing another steward on one signature waits exactly as long as appointing one \
+         does"
+    );
+
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let caps = grants::authorise_account(&tx, &auth, None, Capability::Steward)
+        .await
+        .expect("a revocation inside its delay has not yet taken effect");
+    assert_eq!(caps.capability, Capability::Steward);
+    tx.rollback().await.expect("rollback");
+}
+
+#[tokio::test]
+async fn revoking_a_draw_grant_takes_effect_at_once() {
+    // The other side of the same rule, so the delay is not read as blanket.
+    // A `draw` grant weakens no steward, so nothing waits.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(86);
+    let (estate, subject, _key, grant_id) = an_estate_with_a_draw_grant(&pool, &ring).await;
+    let mut client = pool.get().await.expect("connection");
+
+    let at = now_unix();
+    {
+        let (tx, ctx, tenant_key) = acting(
+            &mut client,
+            &ring,
+            estate.organisation,
+            estate.stewards[0].account,
+        )
+        .await;
+        let grant_bytes = grant_bytes_for(&tx, &ring, &grant_id).await;
+        let signature = estate.stewards[0].key.sign(&authority::revoke_bytes(
+            &estate.organisation.to_string(),
+            &grant_id,
+            &grant_bytes,
+            at,
+        ));
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        grants::revoke_grant(&tx, &auth, &grant_id, &signature, at)
+            .await
+            .expect("revoked");
+        tx.commit().await.expect("commit");
+    }
+
+    let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, subject).await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let refused = grants::authorise_account(&tx, &auth, None, Capability::Draw).await;
+    assert!(
+        matches!(refused, Err(AuthorityError::NotAuthorised)),
+        "revoking a draw grant weakens no steward and must bite at once: {refused:?}"
+    );
+    tx.rollback().await.expect("rollback");
+}
+
+#[tokio::test]
+async fn an_expired_co_steward_does_not_keep_the_survivor_from_appointing() {
+    // Every steward grant must carry an expiry (`0011`), and the live set
+    // ignored expiry -- so once a co-steward's grant lapsed, the organisation
+    // had one steward who could do nothing and one who was not "sole", and
+    // could never appoint anybody again. Every organisation deadlocked
+    // eventually.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(87);
+    let estate = bootstrap(&pool, &ring, 2).await;
+    let (third, _third_key) = a_bystander(&pool, &ring, &estate, "third").await;
+    let mut client = pool.get().await.expect("connection");
+
+    // Expire steward 1's grant. `scope_grants` is append-only behind a trigger
+    // that binds a superuser, so this is the tier-3 route -- used here only to
+    // move a clock forward, which no test can otherwise do.
+    let superuser = support::superuser_client_on_test_database().await;
+    superuser
+        .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
+        .await
+        .expect("tier 3 owns the table");
+    superuser
+        .execute(
+            // Both ends move: `0011` has CHECK (expires_at > effective_from),
+            // so an expiry in the past needs a start further in the past.
+            "UPDATE scope_grants \
+                SET effective_from = now() - interval '2 hours', \
+                    expires_at = now() - interval '1 hour' \
+              WHERE organisation_id = $1 AND subject_id = $2",
+            &[
+                &estate.organisation.to_string(),
+                &estate.stewards[1].account.to_string(),
+            ],
+        )
+        .await
+        .expect("expire the co-steward");
+    superuser
+        .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
+        .await
+        .expect("put it back");
+
+    // Editing the row broke its seal, so re-seal the authority by advancing
+    // the head through the real path -- the state is now genuinely "one live
+    // steward, one expired".
+    {
+        let (tx, ctx, tenant_key) = acting(
+            &mut client,
+            &ring,
+            estate.organisation,
+            estate.stewards[0].account,
+        )
+        .await;
+        reseal_every_grant(&tx, 87, &estate).await;
+        grants::advance_head(&tx, &ring, &ctx, &tenant_key)
+            .await
+            .expect("advance the head over the new state");
+        tx.commit().await.expect("commit");
+    }
+
+    // The expired steward is refused...
+    {
+        let (tx, ctx, tenant_key) = acting(
+            &mut client,
+            &ring,
+            estate.organisation,
+            estate.stewards[1].account,
+        )
+        .await;
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        let refused = grants::authorise_account(&tx, &auth, None, Capability::Steward).await;
+        assert!(
+            matches!(refused, Err(AuthorityError::NotAuthorised)),
+            "an expired grant must stop working: {refused:?}"
+        );
+        tx.rollback().await.expect("rollback");
+    }
+
+    // ...and the survivor is now SOLE, so the organisation is not deadlocked.
+    let (tx, ctx, tenant_key) = acting(
+        &mut client,
+        &ring,
+        estate.organisation,
+        estate.stewards[0].account,
+    )
+    .await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let proposal = grants::propose_grant(
+        &tx,
+        &auth,
+        &GrantRequest {
+            scope: None,
+            subject: third,
+            capability: Capability::Steward,
+            expires_at_unix: now_unix() + 30 * 24 * 3600,
+        },
+    )
+    .await
+    .expect("the survivor can still appoint");
+    assert!(
+        proposal.sole_steward_appointment,
+        "with the co-steward expired the survivor is the only live steward, so §3.5's sole \
+         path is the one that must open"
+    );
+    assert!(
+        proposal.effective_from_unix >= now_unix() + grants::SOLE_STEWARD_DELAY_SECONDS - 5,
+        "and it waits the 24 hours"
+    );
+
+    let signature = estate.stewards[0].key.sign(&proposal.bytes);
+    let id = grants::sign_grant(&tx, &auth, &proposal, &signature)
+        .await
+        .expect("written");
+    tx.commit().await.expect("commit");
+
+    // Not usable yet -- the delay is the control.
+    {
+        let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, third).await;
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        let refused = grants::authorise_account(&tx, &auth, None, Capability::Steward).await;
+        assert!(
+            matches!(refused, Err(AuthorityError::NotAuthorised)),
+            "grant {id} must wait out its delay: {refused:?}"
+        );
+        tx.rollback().await.expect("rollback");
+    }
+
+    // And usable once the delay has passed.
+    //
+    // **Standing the clock forward means re-signing, and that is the point.**
+    // `effective_from` is inside `grant_bytes`, so moving it invalidates the
+    // granter's signature -- there is no way to age a pending appointment into
+    // life without the granter's key, which is exactly the property §3.3 is
+    // built on. The test holds that key only because the test created the
+    // steward, and it re-signs the moved bytes rather than pretending the old
+    // signature still covers them.
+    superuser
+        .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
+        .await
+        .expect("tier 3");
+    superuser
+        .execute(
+            "UPDATE scope_grants SET effective_from = now() - interval '1 minute' WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .expect("wind the delay forward");
+    superuser
+        .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
+        .await
+        .expect("put it back");
+
+    {
+        let (tx, ctx, tenant_key) = acting(
+            &mut client,
+            &ring,
+            estate.organisation,
+            estate.stewards[0].account,
+        )
+        .await;
+        let moved = grant_bytes_for(&tx, &ring, &id).await;
+        let resigned = estate.stewards[0].key.sign(&moved);
+        let superuser = support::superuser_client_on_test_database().await;
+        superuser
+            .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
+            .await
+            .expect("tier 3");
+        superuser
+            .execute(
+                "UPDATE scope_grants SET granter_sig = $1 WHERE id = $2",
+                &[&resigned.to_vec(), &id],
+            )
+            .await
+            .expect("re-sign the moved bytes");
+        superuser
+            .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
+            .await
+            .expect("put it back");
+
+        reseal_every_grant(&tx, 87, &estate).await;
+        grants::advance_head(&tx, &ring, &ctx, &tenant_key)
+            .await
+            .expect("advance");
+        tx.commit().await.expect("commit");
+    }
+
+    let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, third).await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let caps = grants::authorise_account(&tx, &auth, None, Capability::Steward)
+        .await
+        .expect("after the delay the sole appointment stands on its own");
+    assert_eq!(caps.capability, Capability::Steward);
+    tx.rollback().await.expect("rollback");
+}
+
+#[tokio::test]
+async fn a_retired_key_stops_signing_and_keeps_verifying_what_it_signed() {
+    // `account_key_retired` was in `0011`'s entry-type CHECK and `retired_at`
+    // was in the keyring, and NOTHING wrote either -- a name pretending to be
+    // a control. This is the act, and the two halves of §3.3's "keyring entry
+    // live at effective_from".
+    let pool = support::migrated_pool().await;
+    let ring = keyring(88);
+    let (estate, subject, _subject_key, grant_id) = {
+        let (estate, subject, key, id) = an_estate_with_a_draw_grant(&pool, &ring).await;
+        (estate, subject, key, id)
+    };
+    let mut client = pool.get().await.expect("connection");
+
+    let key_id: String = {
+        let (tx, _ctx, _tk) = acting(&mut client, &ring, estate.organisation, subject).await;
+        let id = grants::signing_key_of(&tx, &subject.to_string())
+            .await
+            .expect("read")
+            .expect("a key")
+            .id;
+        tx.rollback().await.expect("rollback");
+        id
+    };
+
+    // The holder retires their own key, an hour from now -- so the grant,
+    // whose `effective_from` is in the past, was signed while the key was in
+    // service.
+    let at = now_unix() + 3600;
+    {
+        let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, subject).await;
+        let key = grants::signing_key_of(&tx, &subject.to_string())
+            .await
+            .expect("read")
+            .expect("a key");
+        let signature = _subject_key.sign(&authority::retire_bytes(
+            &subject.to_string(),
+            &key.fpr,
+            &key.fpr,
+            at,
+        ));
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        grants::retire_key(&tx, &auth, &key_id, &signature, at)
+            .await
+            .expect("a holder may retire their own key");
+        tx.commit().await.expect("commit");
+    }
+
+    let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, subject).await;
+
+    // The row records it, and the account has no signing key any more.
+    let retired: bool = tx
+        .query_one(
+            "SELECT retired_at IS NOT NULL FROM account_keys WHERE id = $1",
+            &[&key_id],
+        )
+        .await
+        .expect("the key")
+        .get(0);
+    assert!(retired, "retirement must be written, not merely logged");
+    assert!(
+        grants::signing_key_of(&tx, &subject.to_string())
+            .await
+            .expect("read")
+            .is_none(),
+        "a retired key is not a signing key"
+    );
+
+    // **And the grant it was named in still authorises**, because §3.3
+    // resolves the keyring entry as of `effective_from`, not as of now.
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let caps = grants::authorise_account(&tx, &auth, None, Capability::Draw)
+        .await
+        .unwrap_or_else(|e| panic!("grant {grant_id} must survive its key's retirement: {e:?}"));
+    assert_eq!(caps.capability, Capability::Draw);
+    tx.rollback().await.expect("rollback");
+}
+
+#[tokio::test]
+async fn a_key_may_not_be_superseded_onto_another_account() {
+    // §8.4's succession is a statement about one account's own keyring. Naming
+    // somebody else's key a successor would move every grant that names the
+    // old fingerprint onto an account that never asked for it.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(89);
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let (stranger, stranger_key) = a_bystander(&pool, &ring, &estate, "stranger").await;
+    let mut client = pool.get().await.expect("connection");
+
+    let (tx, ctx, tenant_key) = acting(
+        &mut client,
+        &ring,
+        estate.organisation,
+        estate.stewards[0].account,
+    )
+    .await;
+    let mine = grants::signing_key_of(&tx, &estate.stewards[0].account.to_string())
+        .await
+        .expect("read")
+        .expect("a key");
+    let theirs = grants::signing_key_of(&tx, &stranger.to_string())
+        .await
+        .expect("read")
+        .expect("a key");
+    let at = now_unix();
+    let signature = estate.stewards[0].key.sign(&authority::succession_bytes(
+        &estate.stewards[0].account.to_string(),
+        &mine.fpr,
+        &theirs.fpr,
+        at,
+    ));
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let refused = grants::supersede_key(&tx, &auth, &mine.id, &theirs.id, &signature, at).await;
+    assert!(
+        matches!(
+            refused,
+            Err(AuthorityError::Unverifiable(
+                "key succession across accounts"
+            ))
+        ),
+        "a succession must not move authority between accounts: {refused:?}"
+    );
+    tx.rollback().await.expect("rollback");
+    let _ = stranger_key;
+}
+
+#[tokio::test]
+async fn no_verdict_is_cached_between_two_uses_in_one_process() {
+    // §3.4: *"no verdict is ever stored"*. The mutation that proves it: a
+    // successful authorisation, then the stored `granter_sig` swapped for its
+    // own valid high-`s` twin, then a second authorisation in the same
+    // process. A layer that remembered the first answer would give it again.
+    //
+    // The twin is a REAL, valid ECDSA signature over the same message under
+    // the same key -- not a corrupted blob, which any check would reject.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(90);
+    let (estate, subject, _key, grant_id) = an_estate_with_a_draw_grant(&pool, &ring).await;
+    let mut client = pool.get().await.expect("connection");
+
+    {
+        let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, subject).await;
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        grants::authorise_account(&tx, &auth, None, Capability::Draw)
+            .await
+            .expect("it works first");
+        tx.rollback().await.expect("rollback");
+    }
+
+    let stored: Vec<u8> = {
+        let (tx, _ctx, _tk) = acting(&mut client, &ring, estate.organisation, subject).await;
+        let sig = tx
+            .query_one(
+                "SELECT granter_sig FROM scope_grants WHERE id = $1",
+                &[&grant_id],
+            )
+            .await
+            .expect("the grant")
+            .get(0);
+        tx.rollback().await.expect("rollback");
+        sig
+    };
+    let twin = high_s_twin(&stored.clone().try_into().expect("64 bytes"));
+
+    let superuser = support::superuser_client_on_test_database().await;
+    superuser
+        .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
+        .await
+        .expect("tier 3 owns the table");
+    superuser
+        .execute(
+            "UPDATE scope_grants SET granter_sig = $1 WHERE id = $2",
+            &[&twin.to_vec(), &grant_id],
+        )
+        .await
+        .expect("swap in the malleable twin");
+    superuser
+        .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
+        .await
+        .expect("put it back");
+
+    let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, subject).await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let refused = grants::authorise_account(&tx, &auth, None, Capability::Draw).await;
+    assert!(
+        matches!(refused, Err(AuthorityError::Unverifiable(_))),
+        "the second use must re-derive everything from the stored rows, so a signature swapped \
+         between the two is caught: {refused:?}"
+    );
+    tx.rollback().await.expect("rollback");
+}
+
+#[tokio::test]
+async fn two_transactions_signing_at_once_never_share_an_epoch() {
+    // `advance_head`/`next_epoch` take `FOR UPDATE` on the head row, so two
+    // concurrent signers in one organisation serialise. What must never happen
+    // is two grants at one epoch, which would mean the head's statement about
+    // its own state named two different states.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(91);
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let (one, one_key) = a_bystander(&pool, &ring, &estate, "one").await;
+    let (two, two_key) = a_bystander(&pool, &ring, &estate, "two").await;
+    let _ = (&one_key, &two_key);
+
+    // Two connections, two transactions, both live at once.
+    let mut client_a = pool.get().await.expect("connection a");
+    let mut client_b = pool.get().await.expect("connection b");
+
+    let (tx_a, ctx_a, key_a) = acting(
+        &mut client_a,
+        &ring,
+        estate.organisation,
+        estate.stewards[0].account,
+    )
+    .await;
+    let watch_a = EpochWatch::new();
+    let auth_a = Authority {
+        ring: &ring,
+        ctx: &ctx_a,
+        tenant_key: &key_a,
+        watch: &watch_a,
+    };
+    let proposal_a = grants::propose_grant(
+        &tx_a,
+        &auth_a,
+        &GrantRequest {
+            scope: None,
+            subject: one,
+            capability: Capability::Draw,
+            expires_at_unix: 0,
+        },
+    )
+    .await
+    .expect("proposed a");
+    let sig_a = estate.stewards[0].key.sign(&proposal_a.bytes);
+    let id_a = grants::sign_grant(&tx_a, &auth_a, &proposal_a, &sig_a)
+        .await
+        .expect("a commits");
+    tx_a.commit().await.expect("commit a");
+
+    // B proposes only after A has committed, so B sees the advanced head.
+    let (tx_b, ctx_b, key_b) = acting(
+        &mut client_b,
+        &ring,
+        estate.organisation,
+        estate.stewards[0].account,
+    )
+    .await;
+    let watch_b = EpochWatch::new();
+    let auth_b = Authority {
+        ring: &ring,
+        ctx: &ctx_b,
+        tenant_key: &key_b,
+        watch: &watch_b,
+    };
+    let proposal_b = grants::propose_grant(
+        &tx_b,
+        &auth_b,
+        &GrantRequest {
+            scope: None,
+            subject: two,
+            capability: Capability::Draw,
+            expires_at_unix: 0,
+        },
+    )
+    .await
+    .expect("proposed b");
+    let sig_b = estate.stewards[0].key.sign(&proposal_b.bytes);
+    let id_b = grants::sign_grant(&tx_b, &auth_b, &proposal_b, &sig_b)
+        .await
+        .expect("b commits");
+    tx_b.commit().await.expect("commit b");
+
+    assert_ne!(
+        proposal_a.auth_epoch, proposal_b.auth_epoch,
+        "two grants must never claim one epoch"
+    );
+
+    let mut client = pool.get().await.expect("connection");
+    let (tx, _ctx, _tk) = acting(&mut client, &ring, estate.organisation, one).await;
+    let epochs: Vec<i32> = tx
+        .query(
+            "SELECT auth_epoch FROM scope_grants WHERE id = ANY($1) ORDER BY auth_epoch",
+            &[&vec![id_a.clone(), id_b.clone()]],
+        )
+        .await
+        .expect("the two grants")
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    assert_eq!(epochs.len(), 2);
+    assert_eq!(
+        epochs[1] - epochs[0],
+        1,
+        "consecutive, with no epoch skipped or repeated: {epochs:?}"
+    );
+    tx.rollback().await.expect("rollback");
+}
+
+/// Re-seal every grant row of an organisation under the current chain key.
+///
+/// **A test-only tier-3 move, and it exists for one reason**: two tests need a
+/// clock moved — an expiry into the past, a delay into the past — and no test
+/// can wait a day or reach the server's clock. Editing the row breaks its
+/// seal, so the seal has to be recomputed or the authority is `Unverifiable`
+/// for a reason that has nothing to do with what is being tested.
+///
+/// This is not a hole in the fence: it needs the chain master, which is the
+/// thing the fence rests on, and the test holds it only because the test
+/// created the organisation.
+async fn reseal_every_grant(
+    tx: &deadpool_postgres::Transaction<'_>,
+    chain_master: u8,
+    estate: &Estate,
+) {
+    use fathom_server::authority::RowFacts;
+
+    let organisation = estate.organisation.to_string();
+    let chain_key = fathom_server::chain::chain_key(
+        &Key32::from_bytes([chain_master; 32]),
+        ChainRef::Org {
+            organisation: &organisation,
+        },
+        fathom_server::chains::CHAIN_KEY_EPOCH,
+    );
+    let row_key = authority::row_key(&chain_key);
+
+    let rows = tx
+        .query(
+            "SELECT id, scope_id, subject_id, subject_key_fpr, capability, granted_by, \
+                    granter_key_fpr, granter_sig, is_genesis, is_recovery, \
+                    sole_steward_appointment, auth_epoch, \
+                    EXTRACT(EPOCH FROM effective_from)::bigint, \
+                    COALESCE(EXTRACT(EPOCH FROM expires_at)::bigint, 0), \
+                    chain_seq, row_version \
+               FROM scope_grants WHERE organisation_id = $1",
+            &[&organisation],
+        )
+        .await
+        .expect("the grants");
+
+    let superuser = support::superuser_client_on_test_database().await;
+    superuser
+        .batch_execute("ALTER TABLE scope_grants DISABLE TRIGGER USER")
+        .await
+        .expect("tier 3");
+    for row in rows {
+        let id: String = row.get(0);
+        let scope_id: Option<String> = row.get(1);
+        let granted_by: Option<String> = row.get(5);
+        let subject_fpr: Vec<u8> = row.get(3);
+        let granter_fpr: Vec<u8> = row.get(6);
+        let granter_sig: Vec<u8> = row.get(7);
+
+        // The canonical row state `grants.rs` seals, rebuilt here. Kept in
+        // step with `grant_row_state` by this test failing loudly if it drifts.
+        let mut map = BTreeMap::new();
+        map.insert(
+            "auth_epoch".to_string(),
+            Json::Int(i64::from(row.get::<_, i32>(11))),
+        );
+        map.insert("capability".to_string(), Json::Str(row.get::<_, String>(4)));
+        map.insert("effective_from".to_string(), Json::Int(row.get(12)));
+        map.insert("expires_at".to_string(), Json::Int(row.get(13)));
+        map.insert(
+            "granted_by".to_string(),
+            match &granted_by {
+                Some(v) => Json::Str(v.clone()),
+                None => Json::Null,
+            },
+        );
+        map.insert("granter_key_fpr".to_string(), Json::Str(hex(&granter_fpr)));
+        map.insert("granter_sig".to_string(), Json::Str(hex(&granter_sig)));
+        map.insert("is_genesis".to_string(), Json::Bool(row.get(8)));
+        map.insert("is_recovery".to_string(), Json::Bool(row.get(9)));
+        map.insert(
+            "organisation_id".to_string(),
+            Json::Str(organisation.clone()),
+        );
+        map.insert(
+            "scope_id".to_string(),
+            match &scope_id {
+                Some(v) => Json::Str(v.clone()),
+                None => Json::Null,
+            },
+        );
+        map.insert(
+            "sole_steward_appointment".to_string(),
+            Json::Bool(row.get(10)),
+        );
+        map.insert("subject_id".to_string(), Json::Str(row.get::<_, String>(2)));
+        map.insert("subject_key_fpr".to_string(), Json::Str(hex(&subject_fpr)));
+        let state = Json::Obj(map).to_canonical_bytes();
+
+        let seal = authority::row_seal(
+            &row_key,
+            &RowFacts {
+                table: "scope_grants",
+                row_id: &id,
+                chain_seq: row.get(14),
+                row_version: row.get(15),
+                row_state: &state,
+            },
+        );
+        superuser
+            .execute(
+                "UPDATE scope_grants SET row_seal = $1 WHERE id = $2",
+                &[&seal.to_vec(), &id],
+            )
+            .await
+            .expect("re-seal");
+    }
+    superuser
+        .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
+        .await
+        .expect("put it back");
 }

@@ -358,3 +358,454 @@ async fn the_positive_control_an_entry_can_still_be_appended() {
         assert_eq!(pair[1], pair[0] + 1, "the site chain must be contiguous");
     }
 }
+
+// ---------------------------------------------------------------------------
+// `0011` section G — the same fence on the five AUTHORITY tables
+//
+// A checker dropped all five of these triggers and **the whole suite stayed
+// green**. Every test that cared about tampering reached for
+// `support::tamper`, which disables triggers itself, so nothing anywhere
+// asserted the triggers were there in the first place. A fence nobody tests is
+// a fence that gets tidied away.
+//
+// One test per table, driven as the bootstrap superuser, because the claim
+// `0011` makes is *"refused at every privilege level"* — a row-level trigger
+// fires for whoever is connected, where a policy is not evaluated for a
+// superuser at all.
+//
+// `TRUNCATE` gets its own assertion on every table: it fires no row-level
+// trigger, so without the statement-level one a single statement erases the
+// authority of every tenant and the UPDATE/DELETE tests would still pass.
+// ---------------------------------------------------------------------------
+
+/// Rebuild a stored `draw` grant's signed bytes, the way the server does at
+/// use — needed because a seconding, a suspension and a revocation all sign
+/// over `H(grant_bytes)`.
+async fn draw_grant_bytes(
+    tx: &deadpool_postgres::Transaction<'_>,
+    organisation: &str,
+    root_fpr: &[u8; 32],
+    subject: &str,
+    grant_id: &str,
+) -> Vec<u8> {
+    use fathom_server::authority::{self, Capability, GrantFacts};
+
+    let row = tx
+        .query_one(
+            "SELECT subject_key_fpr, granter_key_fpr, granted_by, auth_epoch, \
+                    EXTRACT(EPOCH FROM effective_from)::bigint, \
+                    COALESCE(EXTRACT(EPOCH FROM expires_at)::bigint, 0) \
+               FROM scope_grants WHERE id = $1",
+            &[&grant_id],
+        )
+        .await
+        .expect("the grant");
+    let subject_fpr: Vec<u8> = row.get(0);
+    let granter_fpr: Vec<u8> = row.get(1);
+    let granted_by: Option<String> = row.get(2);
+    authority::grant_bytes(&GrantFacts {
+        organisation,
+        root_pubkey_fpr: root_fpr,
+        scope: "",
+        subject,
+        subject_key_fpr: &subject_fpr.try_into().expect("32 bytes"),
+        capability: Capability::Draw,
+        granter: granted_by.as_deref(),
+        granter_key_fpr: &granter_fpr.try_into().expect("32 bytes"),
+        effective_from_unix: row.get(4),
+        expires_at_unix: row.get(5),
+        auth_epoch: row.get(3),
+    })
+}
+
+/// One bootstrapped organisation with a row in each of the five authority
+/// tables, written through the real signing paths so that what these tests
+/// fail to delete is genuinely sealed.
+///
+/// Returns the organisation id and the two grant ids the acts were made
+/// against.
+async fn an_authority_with_every_row_class() -> (String, String) {
+    use fathom_server::authority::{self, Capability, SoftwareKey};
+    use fathom_server::crypto::Key32;
+    use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant, GrantRequest};
+    use fathom_server::keys::{self, KeyRing};
+    use fathom_server::repo;
+
+    let pool = support::migrated_pool().await;
+    let ring = KeyRing::from_keys(Key32::from_bytes([21; 32]), Key32::from_bytes([92; 32]));
+
+    let stamp = id();
+    let root = SoftwareKey::random().expect("root key");
+    let salt = [0x5au8; 16];
+    let organisation_id = authority::derive_organisation_id(&root.public_key(), &salt);
+    let root_fpr = authority::key_fingerprint(&root.public_key());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    // Two genesis stewards, so a seconding is possible at all.
+    let mut stewards = Vec::new();
+    for n in 0..2 {
+        let account = repo::create_account(
+            &pool,
+            &format!("fence-{stamp}-{n}@example.test"),
+            &format!("Fence {n}"),
+        )
+        .await
+        .expect("account")
+        .id;
+        stewards.push((account, SoftwareKey::random().expect("key")));
+    }
+
+    let requests: Vec<GenesisGrant> = stewards
+        .iter()
+        .map(|(account, key)| {
+            let subject_key_fpr = authority::key_fingerprint(&key.public_key());
+            let facts = fathom_server::authority::GrantFacts {
+                organisation: &organisation_id,
+                root_pubkey_fpr: &root_fpr,
+                scope: "",
+                subject: &account.to_string(),
+                subject_key_fpr: &subject_key_fpr,
+                capability: Capability::Steward,
+                granter: None,
+                granter_key_fpr: &root_fpr,
+                effective_from_unix: now,
+                expires_at_unix: now + 365 * 24 * 3600,
+                auth_epoch: 1,
+            };
+            GenesisGrant {
+                subject: *account,
+                subject_key_fpr,
+                capability: Capability::Steward,
+                effective_from_unix: now,
+                expires_at_unix: now + 365 * 24 * 3600,
+                signature: root.sign(&authority::grant_bytes(&facts)),
+            }
+        })
+        .collect();
+
+    let mut conn = pool.get().await.expect("connection");
+    let tx = conn.transaction().await.expect("begin");
+    let genesis = grants::bootstrap_organisation(
+        &tx,
+        &ring,
+        stewards[0].0,
+        &format!("Fence Org {stamp}"),
+        &root.public_key(),
+        &salt,
+        &requests,
+    )
+    .await
+    .expect("genesis");
+    tx.commit().await.expect("commit");
+
+    // Enrol both stewards' keys, and a subject's.
+    let subject = repo::create_account(
+        &pool,
+        &format!("fence-{stamp}-subject@example.test"),
+        "Fence Subject",
+    )
+    .await
+    .expect("account")
+    .id;
+    let subject_key = SoftwareKey::random().expect("key");
+
+    for (account, key) in stewards
+        .iter()
+        .map(|(a, k)| (*a, k))
+        .chain(std::iter::once((subject, &subject_key)))
+    {
+        if account != stewards[0].0 {
+            repo::add_member(
+                &pool,
+                genesis.organisation,
+                stewards[0].0,
+                account,
+                repo::Role::Member,
+            )
+            .await
+            .expect("membership");
+        }
+        let tx = conn.transaction().await.expect("begin");
+        let ctx = repo::open_tenant_context(&tx, genesis.organisation, account)
+            .await
+            .expect("context");
+        let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+            .await
+            .expect("tenant key");
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        grants::enrol_software_key(&tx, &auth, &key.public_key())
+            .await
+            .expect("enrol");
+        tx.commit().await.expect("commit");
+    }
+
+    // Two draw grants: one to second and suspend, one to revoke.
+    let mut written = Vec::new();
+    for _ in 0..2 {
+        let tx = conn.transaction().await.expect("begin");
+        let ctx = repo::open_tenant_context(&tx, genesis.organisation, stewards[0].0)
+            .await
+            .expect("context");
+        let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+            .await
+            .expect("tenant key");
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        let proposal = grants::propose_grant(
+            &tx,
+            &auth,
+            &GrantRequest {
+                scope: None,
+                subject,
+                capability: Capability::Draw,
+                expires_at_unix: now + 3600,
+            },
+        )
+        .await
+        .expect("propose");
+        let signature = stewards[0].1.sign(&proposal.bytes);
+        written.push(
+            grants::sign_grant(&tx, &auth, &proposal, &signature)
+                .await
+                .expect("sign"),
+        );
+        tx.commit().await.expect("commit");
+    }
+
+    // A seconding and a suspension on the first, a revocation on the second.
+    {
+        let tx = conn.transaction().await.expect("begin");
+        let ctx = repo::open_tenant_context(&tx, genesis.organisation, stewards[1].0)
+            .await
+            .expect("context");
+        let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+            .await
+            .expect("tenant key");
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        let bytes = draw_grant_bytes(
+            &tx,
+            &organisation_id,
+            &root_fpr,
+            &subject.to_string(),
+            &written[0],
+        )
+        .await;
+        let granter_fpr = authority::key_fingerprint(&stewards[0].1.public_key());
+        let signature = stewards[1]
+            .1
+            .sign(&authority::second_bytes(&bytes, &granter_fpr));
+        grants::second_grant(&tx, &auth, &written[0], &signature)
+            .await
+            .expect("second");
+        tx.commit().await.expect("commit");
+    }
+
+    {
+        let tx = conn.transaction().await.expect("begin");
+        let ctx = repo::open_tenant_context(&tx, genesis.organisation, stewards[0].0)
+            .await
+            .expect("context");
+        let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+            .await
+            .expect("tenant key");
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        let bytes = draw_grant_bytes(
+            &tx,
+            &organisation_id,
+            &root_fpr,
+            &subject.to_string(),
+            &written[0],
+        )
+        .await;
+        let signature = stewards[0].1.sign(&authority::suspend_bytes(
+            &organisation_id,
+            &written[0],
+            &bytes,
+            now,
+        ));
+        grants::set_suspension(&tx, &auth, &written[0], true, &signature, now)
+            .await
+            .expect("suspend");
+
+        let bytes = draw_grant_bytes(
+            &tx,
+            &organisation_id,
+            &root_fpr,
+            &subject.to_string(),
+            &written[1],
+        )
+        .await;
+        let signature = stewards[0].1.sign(&authority::revoke_bytes(
+            &organisation_id,
+            &written[1],
+            &bytes,
+            now,
+        ));
+        grants::revoke_grant(&tx, &auth, &written[1], &signature, now)
+            .await
+            .expect("revoke");
+        tx.commit().await.expect("commit");
+    }
+
+    (organisation_id, written[0].clone())
+}
+
+/// Every authority table, every route, as the superuser.
+///
+/// One test rather than fifteen: the fixture is expensive and the assertion is
+/// identical, so splitting it would buy nothing but runtime. Each failure
+/// names its table and its verb.
+#[tokio::test]
+async fn a_superuser_cannot_rewrite_erase_or_truncate_any_authority_table() {
+    let (organisation, grant) = an_authority_with_every_row_class().await;
+    let client = support::superuser_client_on_test_database().await;
+
+    // Positive control first: every table really does hold a row, so a refusal
+    // below cannot be a row-level trigger simply never firing.
+    for table in [
+        "organisation_roots",
+        "scope_grants",
+        "grant_secondings",
+        "grant_suspensions",
+        "grant_revocations",
+    ] {
+        let count: i64 = client
+            .query_one(
+                &format!("SELECT count(*) FROM {table} WHERE organisation_id = $1"),
+                &[&organisation],
+            )
+            .await
+            .expect("count")
+            .get(0);
+        assert!(
+            count >= 1,
+            "{table} must hold a row for this fence to be under test at all -- a \
+             BEFORE ... FOR EACH ROW trigger on an empty table refuses nothing and looks \
+             identical"
+        );
+    }
+
+    // UPDATE and DELETE, per table. The column written is one the seal covers,
+    // so this is the attack rather than a no-op.
+    for (table, update) in [
+        (
+            "organisation_roots",
+            "UPDATE organisation_roots SET row_seal = $2 WHERE organisation_id = $1",
+        ),
+        (
+            "scope_grants",
+            "UPDATE scope_grants SET capability = 'steward' WHERE organisation_id = $1",
+        ),
+        (
+            "grant_secondings",
+            "UPDATE grant_secondings SET row_seal = $2 WHERE organisation_id = $1",
+        ),
+        (
+            "grant_suspensions",
+            "UPDATE grant_suspensions SET action = 'unsuspend' WHERE organisation_id = $1",
+        ),
+        (
+            "grant_revocations",
+            "UPDATE grant_revocations SET row_seal = $2 WHERE organisation_id = $1",
+        ),
+    ] {
+        let err = if update.contains("$2") {
+            client
+                .execute(update, &[&organisation, &vec![0u8; 32]])
+                .await
+        } else {
+            client.execute(update, &[&organisation]).await
+        }
+        .expect_err(&format!(
+            "{table}: rewriting a sealed authority row must be refused for EVERY role -- a \
+             policy is not evaluated for this one at all"
+        ));
+        assert_refused_by_the_trigger(&err, &format!("UPDATE {table}"));
+
+        let err = client
+            .execute(
+                &format!("DELETE FROM {table} WHERE organisation_id = $1"),
+                &[&organisation],
+            )
+            .await
+            .expect_err(&format!(
+                "{table}: deleting a sealed authority row must be refused for every role"
+            ));
+        assert_refused_by_the_trigger(&err, &format!("DELETE {table}"));
+
+        // TRUNCATE -- the route a row-level trigger does not cover at all.
+        let err = client
+            .batch_execute(&format!("TRUNCATE {table} CASCADE"))
+            .await
+            .expect_err(&format!(
+                "{table}: TRUNCATE fires no row-level trigger, so without its own \
+                 statement-level trigger one statement erases the authority of every tenant"
+            ));
+        assert_refused_by_the_trigger(&err, &format!("TRUNCATE {table}"));
+    }
+
+    // And the keyring, whose trigger says something narrower: UPDATE is
+    // allowed for supersession and retirement only, DELETE and TRUNCATE never.
+    let err = client
+        .execute(
+            "UPDATE account_keys SET public_key = $1 WHERE id IN \
+                 (SELECT id FROM account_keys LIMIT 1)",
+            &[&vec![4u8; 65]],
+        )
+        .await
+        .expect_err("swapping a keyring public key is the attack the keyring exists to refuse");
+    assert_eq!(
+        err.code(),
+        Some(&SqlState::RAISE_EXCEPTION),
+        "the keyring's own trigger must raise: {err}"
+    );
+
+    let err = client
+        .execute("DELETE FROM account_keys", &[])
+        .await
+        .expect_err("the keyring is append-only");
+    assert_eq!(err.code(), Some(&SqlState::RAISE_EXCEPTION), "{err}");
+
+    let err = client
+        .batch_execute("TRUNCATE account_keys CASCADE")
+        .await
+        .expect_err("the keyring is append-only");
+    assert_refused_by_the_trigger(&err, "TRUNCATE account_keys");
+
+    // The positive control at the end: the rows are all still there.
+    let count: i64 = client
+        .query_one(
+            "SELECT count(*) FROM scope_grants WHERE organisation_id = $1",
+            &[&organisation],
+        )
+        .await
+        .expect("count")
+        .get(0);
+    assert!(count >= 3, "grant {grant}: the authority survived intact");
+}
