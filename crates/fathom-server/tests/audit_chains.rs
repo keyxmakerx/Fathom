@@ -1676,10 +1676,26 @@ async fn an_entry_type_nothing_parses_reads_as_broken_at_and_not_as_an_error() {
     // Getting the row in now costs dropping a constraint, which is a tier-3
     // move and is performed in the open, exactly as `support::tamper` performs
     // the trigger's.
-    let pool = support::migrated_pool().await;
+    //
+    // **A deployment of its own, not the shared `migrated_pool` database.**
+    // `ALTER TABLE ... DROP CONSTRAINT` / `ADD CONSTRAINT` on `chain_entries`
+    // takes `ACCESS EXCLUSIVE` on the whole table -- every chain kind, every
+    // organisation, every design and site chain any other test binary is
+    // appending to at the same time, not just this test's own `org` row.
+    // Nothing else in this crate takes a lock before writing to
+    // `chain_entries` (unlike the site chain and the spool, which have
+    // `support::lock_the_site_chain` and `support::lock_the_spool` for
+    // exactly this reason), so on the shared database this test's `ADD
+    // CONSTRAINT` -- which revalidates every row in the table -- stalls any
+    // concurrent append for as long as that validation takes, and a `DROP
+    // CONSTRAINT` beforehand does the same waiting for the table to go
+    // quiet. `support::isolated_deployment` gives this test a `chain_entries`
+    // nothing else is appending to, so there is nothing to stall and nothing
+    // to lock.
+    let pool = support::isolated_deployment("entry_type_future").await;
     let ring = keyring(72);
     let (account, org) = an_org_chain(&pool, &ring, 2).await;
-    let su = support::superuser_client_on_test_database().await;
+    let su = support::superuser_on_isolated("entry_type_future").await;
 
     let tip: i64 = su
         .query_one(
@@ -1740,13 +1756,25 @@ async fn an_entry_type_nothing_parses_reads_as_broken_at_and_not_as_an_error() {
 
     // Put the schema back before asserting anything, so a failure here does
     // not leave the whole database without the constraint.
-    support::tamper(
-        &su,
-        "chain_entries",
+    //
+    // Disabling the append-only trigger directly, rather than through
+    // `support::tamper`, because this database is this test's own --
+    // `support::tamper`'s cross-process `TAMPER_LOCK` exists to keep two
+    // SEPARATE test binaries from disabling the same shared table's trigger
+    // at once, and nothing else ever touches this isolated database's
+    // `chain_entries` at all.
+    su.batch_execute("ALTER TABLE chain_entries DISABLE TRIGGER USER")
+        .await
+        .expect("disable the append-only trigger for this test's own cleanup");
+    su.execute(
         "DELETE FROM chain_entries WHERE chain_kind = 'org' AND chain_id = $1 AND seq = $2",
         &[&org.to_string(), &(tip + 1)],
     )
-    .await;
+    .await
+    .expect("remove the forced row");
+    su.batch_execute("ALTER TABLE chain_entries ENABLE TRIGGER USER")
+        .await
+        .expect("re-enable the append-only trigger");
     su.batch_execute(&format!(
         "ALTER TABLE chain_entries ADD CONSTRAINT chain_entries_type_belongs_to_kind {definition}"
     ))

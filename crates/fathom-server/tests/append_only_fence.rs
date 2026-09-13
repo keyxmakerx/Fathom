@@ -188,7 +188,17 @@ async fn an_organisation_chain_cannot_be_erased_through_its_parent() {
     use fathom_server::keys::KeyRing;
     use fathom_server::repo;
 
-    let pool = support::migrated_pool().await;
+    // A deployment of its own, not the shared `migrated_pool` database:
+    // `ALTER TABLE org_content_keys DROP/ADD CONSTRAINT` below takes `ACCESS
+    // EXCLUSIVE` on the whole table, and `org_content_keys` is written on
+    // every organisation-chain append (`tests/audit_chains.rs`'s
+    // `the_organisation_content_keys_write_counter_actually_counts` is proof
+    // it is shared, deployment-wide bookkeeping, not a fixture of this test's
+    // own). Nothing takes a lock before writing to it, so on the shared
+    // database this DDL stalls -- for as long as its constraint validation
+    // takes -- any other test binary's concurrent append to ANY
+    // organisation's chain, this test's own included.
+    let pool = support::isolated_deployment("org_chain_erase_fence").await;
     let ring = KeyRing::from_keys(Key32::from_bytes([21; 32]), Key32::from_bytes([84; 32]));
 
     let stamp = id();
@@ -223,7 +233,7 @@ async fn an_organisation_chain_cannot_be_erased_through_its_parent() {
     .expect("append to the organisation chain");
     tx.commit().await.expect("commit");
 
-    let su = support::superuser_client_on_test_database().await;
+    let su = support::superuser_on_isolated("org_chain_erase_fence").await;
 
     // ---- The constraint itself, off the catalogue -------------------------
     //

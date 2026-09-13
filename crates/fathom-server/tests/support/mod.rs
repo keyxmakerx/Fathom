@@ -60,13 +60,28 @@ pub fn migrate_test_database_url() -> String {
 /// runs against, and the one `rls_startup.rs` checks `assert_rls_binds`
 /// against, exactly as `DATABASE_URL` is in the shipped deployment.
 ///
-/// `DATABASE_URL`, if set, otherwise the fixed default
-/// `.github/workflows/ci.yml` provisions -- **not by creating the role
-/// directly**, but by letting [`migrated_pool`] provision it the same way
-/// `src/main.rs` does, off the migration role's `CREATEROLE` connection.
+/// `DATABASE_URL`, if set. Otherwise **the same database
+/// [`migrate_test_database_url`] names, not an independent hard-coded one**.
+/// Before 2026-09-13 this fell back to a literal `.../fathom_test` no matter
+/// what `FATHOM_MIGRATE_DATABASE_URL` pointed at, which is exactly the fixed
+/// default `.github/workflows/ci.yml` provisions too -- so the mismatch was
+/// invisible there. It stopped being invisible the moment a caller pointed
+/// only `FATHOM_MIGRATE_DATABASE_URL` at a database of its own (precisely
+/// what running these tests against a fresh, disposable database requires):
+/// `migrated_pool` would migrate and corrupt-and-restore bookkeeping in that
+/// database, while every RUNTIME-role read silently kept hitting the
+/// unrelated, already-migrated `fathom_test`, which had never seen either
+/// change. A test asserting on the runtime role's own view of that
+/// bookkeeping (`tests/migrate_gate.rs`'s
+/// `verify_current_reflects_the_bookkeeping_from_the_runtime_role_alone`)
+/// then observed the untouched database's bookkeeping and reported the
+/// corruption as absent -- deterministically, not intermittently, and
+/// reproducing with that one test run alone. Deriving the default from
+/// [`migrate_test_database_url`] instead means the two connections always
+/// agree on WHICH database unless a caller deliberately points them apart.
 pub fn test_database_url() -> String {
     std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-        "postgres://fathom_app:fathom_app_pw@127.0.0.1:5432/fathom_test".to_string()
+        url_for_role(&migrate_test_database_url(), "fathom_app", "fathom_app_pw")
     })
 }
 
@@ -522,6 +537,22 @@ fn url_for_database(url: &str, database: &str) -> String {
         _ => ("127.0.0.1".to_string(), 5432),
     };
     format!("postgres://{user}{password}@{host}:{port}/{database}")
+}
+
+/// [`url_for_database`]'s counterpart: the same connection string, with a
+/// different role's credentials, pointed at the SAME database rather than a
+/// different one. What [`test_database_url`]'s default uses to stay pointed
+/// at whatever database [`migrate_test_database_url`] names, rather than
+/// carrying an independent, literal database name of its own that can drift
+/// out of step with it.
+fn url_for_role(url: &str, user: &str, password: &str) -> String {
+    let parsed: tokio_postgres::Config = url.parse().expect("the URL must parse");
+    let database = parsed.get_dbname().expect("a database name");
+    let (host, port) = match (parsed.get_hosts().first(), parsed.get_ports().first()) {
+        (Some(tokio_postgres::config::Host::Tcp(host)), Some(port)) => (host.clone(), *port),
+        _ => ("127.0.0.1".to_string(), 5432),
+    };
+    format!("postgres://{user}:{password}@{host}:{port}/{database}")
 }
 
 /// A raw connection authenticated as the PostgreSQL bootstrap superuser --
