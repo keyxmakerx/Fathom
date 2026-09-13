@@ -89,7 +89,9 @@ head's digest covers the whole authority state and every seconding is verified a
 vacuous genesis trigger is gone and the chain names the genesis grants; account keys are sealed
 under a site-scoped key; granting is propose-then-sign; suspension cannot manufacture a sole
 steward; expiry is evaluated at use; key retirement is a signed act. 0012 refuses to apply over a
-pre-release database with enrolled keys — recreate it.
+pre-release database with enrolled keys — recreate it. A third round (same day, no migration) put
+the sole-steward flag inside the signed grant bytes (`fathom/grant/v2`) and made quorum turn on
+one qualifying seconding with no depth limit; a fourth checker pass found nothing.
 
 **The server can read design data, and says so** (`docs/PHASE-2-STORAGE-DESIGN.md` §2a).
 Encryption protects the database, the backups and the disk — not the running process.

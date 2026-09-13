@@ -755,10 +755,23 @@ role reads eleven tables, not five (STATE corrected).
    a sole steward with a third appointed is **48 hours**, with the victim shown a
    `grant_revoked` entry carrying the effective time throughout the first 24.
 
+**Fourth pass, 2026-09-13, on items 7 and 8: no defects.** Every proposal-tampering variant is
+refused with a distinct error (flip the flag: unverifiable; flip and re-sign: the re-derivation
+refuses it; a second steward appearing between propose and commit: re-propose; an effective time
+on the wrong side of its flag: re-propose). The three quorum reproductions are dead and eleven
+generations of appointments authorise. Measured once, debug build, local PostgreSQL: an
+organisation of 200 stewards with 1,990 secondings authorises in about 217 ms per call, and each
+seconding costs about 190 ms to write because it runs a full authorisation for the seconder —
+take a release-build number before quoting either. Two properties stated so they are not later
+read as bugs: a forged *stored seal* on any authority row is fatal organisation-wide while a bad
+signature or an unentitled seconder merely fails to qualify (both reachable only by tampering); and
+the per-candidate memo can withhold a quorum, never grant one.
+
 **Still open after this round, for the next attack:** whether the 24-hour delay on single-steward
 acts against a steward is the right friction for a two-person organisation; the head rollback
-beyond one process lifetime, which waits on §7.6's anchors; and the cost of quorum evaluation
-under a wide fan-out of secondings (depth was bounded by the fix; breadth was not measured).
+beyond one process lifetime, which waits on §7.6's anchors; release-build cost under fan-out
+beyond 200 stewards; and everything that changes when a proposal crosses a real HTTP boundary,
+which §4's sessions are about to create.
 
 ### 3.6 `move_subtree`, and the cheaper route around it
 
