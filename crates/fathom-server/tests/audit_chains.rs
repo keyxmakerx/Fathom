@@ -1690,6 +1690,24 @@ async fn an_entry_type_nothing_parses_reads_as_broken_at_and_not_as_an_error() {
         .expect("tip")
         .get(0);
 
+    // **The definition is read back before it is dropped, and restored from
+    // what was read.** It was hard-coded here until 2026-09-13, and the moment
+    // `0011` extended the constraint with the authority layer's nine entry
+    // types this test put 0010's shorter version back -- silently, on every
+    // run, leaving the database with a constraint that refuses rows the server
+    // legitimately writes. Restoring what was actually there costs nothing and
+    // cannot go stale.
+    let definition: String = su
+        .query_one(
+            "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c \
+             WHERE c.conrelid = 'chain_entries'::regclass \
+               AND c.conname = 'chain_entries_type_belongs_to_kind'",
+            &[],
+        )
+        .await
+        .expect("the pairing constraint must exist before this test drops it")
+        .get(0);
+
     su.batch_execute(
         "ALTER TABLE chain_entries DROP CONSTRAINT chain_entries_type_belongs_to_kind",
     )
@@ -1729,15 +1747,11 @@ async fn an_entry_type_nothing_parses_reads_as_broken_at_and_not_as_an_error() {
         &[&org.to_string(), &(tip + 1)],
     )
     .await;
-    su.batch_execute(
-        "ALTER TABLE chain_entries ADD CONSTRAINT chain_entries_type_belongs_to_kind CHECK ( \
-            (chain_kind = 'design' AND entry_type IN ('create', 'update', 'reencrypt')) \
-         OR (chain_kind = 'site' AND entry_type IN ('deployment_started', 'shipper_gap', \
-                                                    'spool_pressure', 'rewrap')) \
-         OR (chain_kind = 'org' AND entry_type IN ('org_genesis', 'rewrap')))",
-    )
+    su.batch_execute(&format!(
+        "ALTER TABLE chain_entries ADD CONSTRAINT chain_entries_type_belongs_to_kind {definition}"
+    ))
     .await
-    .expect("restore the constraint");
+    .expect("restore the constraint exactly as it was");
 
     let report = report.expect(
         "an entry type this build cannot parse must be an OUTCOME, never an Err: an Err says \

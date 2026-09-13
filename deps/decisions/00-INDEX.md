@@ -14,6 +14,17 @@ approval is **an owner act**.
 | `tracing-subscriber` | Writes the events somewhere | 2026-09-03 | RUSTSEC-2025-0055, patched ≥ 0.3.20, in use 0.3.23 — and `ansi` off as well |
 | `tokio-postgres` | The PostgreSQL driver (`49` §6) | 2026-09-03 | RUSTSEC-2026-0178 — **0.7.18 IS the patch**; two more in `postgres-protocol`, both patched |
 | `deadpool-postgres` | The connection pool | 2026-09-03 | None, open or historic |
+| `hkdf` | HKDF-SHA-256, Expand-only, for every chain subkey (storage §12.1) | 2026-09-12 | None, open or historic |
+| `hmac` | The chain MAC — HMAC-SHA-256 (storage §12.1) | 2026-09-12 | None; `cmov` on its tag-comparison path is pinned ≥ 0.5.4 |
+| `sha2` | The hash under the MAC, the KDF and the genesis digest | 2026-09-12 | None against 0.11.0 |
+| `getrandom` | The OS CSPRNG directly, never `rand` (storage §12.4) | 2026-09-12 | None against 0.4.3 |
+| `p256` | The curve under ES256 (admin §15.3) | 2026-09-12 | Nothing found in RustSec or OSV, both with working controls |
+| `ecdsa` | ECDSA itself, and the low-S rule §3's correction requires | 2026-09-12 | Nothing found in RustSec or OSV, both with working controls |
+
+**Four rows above were missing until 2026-09-12** — `hkdf`, `hmac`, `sha2` and `getrandom` had
+records on disk since the key hierarchy landed and no line here. The gate reads the files, not this
+table, so nothing was admitted that should not have been; what was wrong is that a reader of the
+index could not see what had been approved.
 
 **Two closure documents, not one.** `00-CLOSURE.md` covers the twenty-two crypto crates
 (2026-08-15, neither vendored). `00-CLOSURE-SERVER.md` covers the server's closure and is

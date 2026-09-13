@@ -47,6 +47,18 @@ const OPERATOR_ROLE: &str = "fathom_operator";
 /// that on the organisation and site chains is ciphertext this role holds no
 /// key for. §11.2 keys `content_hash` precisely so that holding one is not a
 /// confirmation oracle against a guessed payload.
+///
+/// **The five authority tables joined with `migrations/0011_authority.sql`,
+/// and they are §1.1's first verb made reachable**: *"list organisations,
+/// their scope tree shape, members, GRANTS AND CAPABILITY MAP"*. §1.3's own
+/// `GRANT` list names `scope_grants` and `grant_revocations` explicitly;
+/// secondings, suspensions and the head are the same map in three more rows,
+/// and an operator who may suspend a grant (§1.1) but cannot see whether it is
+/// suspended has been given a verb with no way to check it.
+///
+/// **`account_keys` is NOT here and must not be**: §1.3 revokes it by name.
+/// Neither is `organisation_roots`, which no §1.1 verb needs and which is the
+/// one table binding an organisation's identity to a key.
 const OPERATOR_MAY_SELECT: &[&str] = &[
     "organisations",
     "scopes",
@@ -54,6 +66,11 @@ const OPERATOR_MAY_SELECT: &[&str] = &[
     "accounts",
     "operators",
     "chain_entries",
+    "scope_grants",
+    "grant_secondings",
+    "grant_suspensions",
+    "grant_revocations",
+    "organisation_auth_head",
 ];
 
 /// Every privilege that is not `SELECT`. The operator plane holds none of

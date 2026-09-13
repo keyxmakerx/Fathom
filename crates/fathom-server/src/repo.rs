@@ -628,6 +628,42 @@ pub async fn create_organisation(
     })
 }
 
+/// The half of [`create_organisation`] that takes an **id and an open
+/// transaction**, for `grants::bootstrap_organisation`.
+///
+/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §6.1 derives an organisation's id
+/// from its root public key and a salt — *"a re-minted genesis under a
+/// different key yields a DIFFERENT organisation id and matches no existing
+/// row"* — so genesis cannot use [`OrganisationId::new`], which mints a fresh
+/// ULID from the clock. And it cannot use a separate transaction either: the
+/// root row, the genesis grants, their chain entries and the authority head
+/// all commit together with this row or none of them does.
+///
+/// `pub(crate)`, deliberately, and the constraint that keeps it honest is not
+/// in this function: the id an external caller could supply here still has to
+/// be the one `authority::derive_organisation_id` produces, because
+/// `grants::authorise_account` recomputes it from `organisation_roots` at every
+/// authorisation and refuses the mismatch (§3.4 step 5).
+pub(crate) async fn create_organisation_in(
+    tx: &Transaction<'_>,
+    id: OrganisationId,
+    creator: AccountId,
+    display_name: &str,
+) -> Result<(), RepoError> {
+    set_tenant_context(tx, id, Some(creator)).await?;
+    tx.execute(
+        "INSERT INTO organisations (id, display_name) VALUES ($1, $2)",
+        &[&id.to_string(), &display_name],
+    )
+    .await?;
+    tx.execute(
+        "INSERT INTO memberships (account_id, organisation_id, role) VALUES ($1, $2, $3)",
+        &[&creator.to_string(), &id.to_string(), &Role::Admin.as_str()],
+    )
+    .await?;
+    Ok(())
+}
+
 /// Adds `member` to `tenant` with `role`.
 ///
 /// **`actor` must be an admin of `tenant`, not merely a member.** This gated
