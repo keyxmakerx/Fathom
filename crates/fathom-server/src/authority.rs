@@ -85,7 +85,14 @@ const TAG_ORG_ID: &[u8] = b"fathom/org/id/v1";
 
 /// §3.3's four message tags, and two this file adds because §3.3 specifies no
 /// bytes for suspension at all (see [`suspend_bytes`]).
-const TAG_GRANT: &[u8] = b"fathom/grant/v1";
+///
+/// **`fathom/grant/v2`, and v1 was never shipped.** §3.3's v1 layout left
+/// `sole_steward_appointment` outside the signed bytes, so the one bit that
+/// decides whether a `steward` grant needs a second signature at all was a
+/// server-side field nobody attested. [`grant_bytes`] now carries it, and the
+/// tag is bumped rather than reused: a layout change under an unchanged tag is
+/// what makes a stored signature mean two things.
+const TAG_GRANT: &[u8] = b"fathom/grant/v2";
 const TAG_GRANT_SECOND: &[u8] = b"fathom/grant/second/v1";
 const TAG_GRANT_REVOKE: &[u8] = b"fathom/grant/revoke/v1";
 const TAG_GRANT_SUSPEND: &[u8] = b"fathom/grant/suspend/v1";
@@ -137,7 +144,11 @@ pub const LABELS: &[(&str, &str)] = &[
         "fathom/org/id/v1",
         "hash tag of the organisation id derivation (§6.1)",
     ),
-    ("fathom/grant/v1", "in-signature tag of grant_bytes (§3.3)"),
+    (
+        "fathom/grant/v2",
+        "in-signature tag of grant_bytes (§3.3). v1 left the sole-steward \
+         flag outside the signature and was never shipped",
+    ),
     (
         "fathom/grant/second/v1",
         "in-signature tag of second_bytes (§3.3, corrected)",
@@ -332,20 +343,40 @@ pub struct GrantFacts<'a> {
     /// `0` means "does not expire" — §3.3's `u64(expires_at_unix_or_0)`. A
     /// `steward` grant may not use it (`0011` has the `CHECK`).
     pub expires_at_unix: i64,
+    /// §3.5's sole-steward path: this grant needed no seconding, and paid for
+    /// that with the 24-hour delay in `effective_from`.
+    ///
+    /// **It is in the signed bytes, and it is the field that most needed to
+    /// be.** A `steward` grant with this bit set is live without a second
+    /// signature; with it clear it is inert until one arrives. Left outside
+    /// the signature, the bit was a server-side field that nobody attested —
+    /// and a granter who signed an honest proposal could set it on the way
+    /// back and mint a steward with no seconding and no delay. Now both
+    /// parties' signatures cover it: the granter's over `grant_bytes`, the
+    /// seconder's over `LP(H(grant_bytes))`.
+    pub sole_steward_appointment: bool,
     pub auth_epoch: i32,
 }
 
 /// §3.3's `grant_bytes`, exactly.
 ///
 /// ```text
-/// grant_bytes = LP("fathom/grant/v1")
+/// grant_bytes = LP("fathom/grant/v2")
 ///             ‖ LP(organisation_id) ‖ LP(root_pubkey_fpr) ‖ LP(scope_id)
 ///             ‖ LP(subject_id) ‖ LP(subject_key_fpr)
 ///             ‖ LP(capability)
 ///             ‖ LP(granter_id_or_empty) ‖ LP(granter_key_fpr)
 ///             ‖ u64(effective_from_unix) ‖ u64(expires_at_unix_or_0)
+///             ‖ u32(sole_steward_appointment)
 ///             ‖ u32(auth_epoch)
 /// ```
+///
+/// **v2 adds `u32(sole_steward_appointment)` and nothing else.** It sits with
+/// the other server-chosen values, between the two times it qualifies and the
+/// epoch — the delay in `effective_from` is only meaningful beside the flag
+/// that explains it. It is a fixed-width `u32` of `0` or `1` rather than a
+/// byte, because every other fixed-width field in this construction is one and
+/// a lone byte is the kind of thing a second implementation gets wrong.
 pub fn grant_bytes(facts: &GrantFacts<'_>) -> Vec<u8> {
     let mut msg = Vec::with_capacity(256);
     crypto::lp(&mut msg, TAG_GRANT);
@@ -359,6 +390,7 @@ pub fn grant_bytes(facts: &GrantFacts<'_>) -> Vec<u8> {
     crypto::lp(&mut msg, facts.granter_key_fpr);
     crypto::u64_le(&mut msg, facts.effective_from_unix as u64);
     crypto::u64_le(&mut msg, facts.expires_at_unix as u64);
+    crypto::u32_le(&mut msg, u32::from(facts.sole_steward_appointment));
     crypto::u32_le(&mut msg, facts.auth_epoch as u32);
     msg
 }
@@ -953,6 +985,39 @@ mod tests {
         assert_eq!(a, b);
         assert_ne!(a, second_bytes(b"grant byteS", &fpr));
         assert_ne!(a, second_bytes(b"grant bytes", &[2u8; 32]));
+    }
+
+    #[test]
+    fn the_sole_steward_flag_is_inside_the_signed_bytes() {
+        // The defect this field closes: the flag decides whether a `steward`
+        // grant is live with one signature or inert until a second arrives,
+        // and it was chosen by the server AFTER the granter signed. Two
+        // grants alike in every other respect must not have the same bytes.
+        let facts = |sole| GrantFacts {
+            organisation: "01JQZ0000000000000000000AA",
+            root_pubkey_fpr: &[1u8; 32],
+            scope: "",
+            subject: "01JQZ0000000000000000000CC",
+            subject_key_fpr: &[2u8; 32],
+            capability: Capability::Steward,
+            granter: Some("01JQZ0000000000000000000DD"),
+            granter_key_fpr: &[3u8; 32],
+            effective_from_unix: 1_760_000_000,
+            expires_at_unix: 1_790_000_000,
+            sole_steward_appointment: sole,
+            auth_epoch: 7,
+        };
+        assert_ne!(
+            grant_bytes(&facts(false)),
+            grant_bytes(&facts(true)),
+            "the flag that decides whether a seconding is needed must be signed"
+        );
+        // And the tag moved with the layout.
+        assert!(grant_bytes(&facts(false)).starts_with(&{
+            let mut head = Vec::new();
+            crypto::lp(&mut head, b"fathom/grant/v2");
+            head
+        }));
     }
 
     #[test]

@@ -24,17 +24,21 @@
 //!
 //! # What is not here
 //!
-//! - **No memoised live set.** §3.4 permits one, keyed by `(organisation,
-//!   auth_epoch)` in process memory. It is an optimisation and it is not
-//!   built: the brief for this layer is *nothing cached that a database write
-//!   could poison*, and the cheapest way to hold that line is to have nowhere
-//!   to put a stale answer.
+//! - **No memoised live set across calls.** §3.4 permits one, keyed by
+//!   `(organisation, auth_epoch)` in process memory. It is an optimisation and
+//!   it is not built: the brief for this layer is *nothing cached that a
+//!   database write could poison*, and the cheapest way to hold that line is
+//!   to have nowhere to put a stale answer. The one memo that exists,
+//!   `QuorumPass`, lives on the stack **inside a single authorisation** and is
+//!   dropped with it — it is what makes the seconding walk linear rather than
+//!   exponential, and no second use can see it.
 //! - **No verdict is ever stored**, and there is no column that could hold
 //!   one.
 //! - **No hardware factor** (§15.1). Keys are software ES256 keys and
 //!   `account_keys.key_source` records that as a fact rather than leaving it
 //!   to be assumed.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
@@ -69,17 +73,6 @@ pub const SOLE_STEWARD_DELAY_SECONDS: i64 = 24 * 60 * 60;
 /// the freshness guarantee. The epoch is the control; this is a bound on
 /// staleness for the one field the epoch does not pin.
 pub const PROPOSAL_SKEW_SECONDS: i64 = 120;
-
-/// How deep the seconder-held-steward check will recurse before refusing.
-///
-/// Verifying a seconding means verifying that the seconder held a live steward
-/// grant, which is itself a grant that may have been seconded. The recursion
-/// terminates on its own — each step moves strictly backwards in `chain_seq`,
-/// and genesis grants need no seconding — but "terminates" and "terminates
-/// soon" are different claims, and an authority shaped by an attacker is
-/// exactly where the difference would be found. Eight is far past any real
-/// appointment chain; beyond it the answer is a refusal, not a deeper search.
-const SECONDING_DEPTH_LIMIT: usize = 8;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -1085,6 +1078,10 @@ pub async fn bootstrap_organisation(
             granter_key_fpr: &root_fpr,
             effective_from_unix: request.effective_from_unix,
             expires_at_unix: request.expires_at_unix,
+            // A genesis grant is root-signed and needs no seconding for a
+            // reason of its own (§6.1); it is not §3.5's sole-steward path and
+            // does not claim the flag.
+            sole_steward_appointment: false,
             auth_epoch: 1,
         };
         let message = authority::grant_bytes(&facts);
@@ -1177,7 +1174,10 @@ pub struct GrantProposal {
     pub expires_at_unix: i64,
     /// Server-chosen. Re-checked at [`sign_grant`], never re-derived.
     pub auth_epoch: i32,
-    /// §3.5's sole-steward path, decided here and recorded on the row.
+    /// §3.5's sole-steward path: server-chosen, **inside the signed bytes**
+    /// (`fathom/grant/v2`), and re-derived at [`sign_grant`] rather than
+    /// believed. All three, because this one bool decides whether a `steward`
+    /// grant is live on one signature.
     pub sole_steward_appointment: bool,
     /// **Exactly the bytes to sign** — `authority::grant_bytes` over the
     /// facts above, built once so that the two steps cannot disagree.
@@ -1229,34 +1229,12 @@ pub async fn propose_grant(
 
     let now = now_unix();
     let state = read_authority_state(tx, &organisation).await?;
-    let sole_steward = request.capability == Capability::Steward && state.steward_count(now) <= 1;
-    if sole_steward && state.a_weakening_act_is_pending(now) {
-        return Err(AuthorityError::SoleStewardPathBlocked);
-    }
+    let choices = server_choices(&state, request.capability, now)?;
 
     let epoch = next_epoch(tx, &organisation).await?;
-    let effective_from = if sole_steward {
-        now + SOLE_STEWARD_DELAY_SECONDS
-    } else {
-        now
-    };
     let scope_text = request.scope.map(|s| s.to_string());
 
-    let bytes = authority::grant_bytes(&GrantFacts {
-        organisation: &organisation,
-        root_pubkey_fpr: &root_fpr,
-        scope: scope_text.as_deref().unwrap_or(""),
-        subject: &request.subject.to_string(),
-        subject_key_fpr: &subject_key.fpr,
-        capability: request.capability,
-        granter: Some(&granter),
-        granter_key_fpr: &granter_key.fpr,
-        effective_from_unix: effective_from,
-        expires_at_unix: request.expires_at_unix,
-        auth_epoch: epoch,
-    });
-
-    Ok(GrantProposal {
+    let proposal = GrantProposal {
         organisation,
         scope: scope_text,
         subject: request.subject.to_string(),
@@ -1265,11 +1243,76 @@ pub async fn propose_grant(
         granter,
         granter_key_fpr: granter_key.fpr,
         root_pubkey_fpr: root_fpr,
-        effective_from_unix: effective_from,
+        effective_from_unix: choices.effective_from_unix,
         expires_at_unix: request.expires_at_unix,
         auth_epoch: epoch,
-        sole_steward_appointment: sole_steward,
-        bytes,
+        sole_steward_appointment: choices.sole_steward_appointment,
+        // Filled in below, from the fields above and nothing else.
+        bytes: Vec::new(),
+    };
+    Ok(GrantProposal {
+        bytes: proposal_bytes(&proposal),
+        ..proposal
+    })
+}
+
+/// Every value the **server** picks for a grant, derived from the authority
+/// state as it is at `now`.
+///
+/// # One function, called twice, and that is the point
+///
+/// [`propose_grant`] calls it to fix the values a granter is about to sign;
+/// [`sign_grant`] calls it again at commit and refuses if the answer has
+/// changed. Two spellings of "is this a sole-steward appointment" — one at
+/// each end — is how the two ends come to disagree, and the disagreement that
+/// mattered was the one where the proposal's own copy of the flag was simply
+/// believed.
+struct ServerChoices {
+    sole_steward_appointment: bool,
+    effective_from_unix: i64,
+}
+
+fn server_choices(
+    state: &AuthorityState,
+    capability: Capability,
+    now: i64,
+) -> Result<ServerChoices, AuthorityError> {
+    let sole = capability == Capability::Steward && state.steward_count(now) <= 1;
+    if sole && state.a_weakening_act_is_pending(now) {
+        return Err(AuthorityError::SoleStewardPathBlocked);
+    }
+    Ok(ServerChoices {
+        sole_steward_appointment: sole,
+        // §3.5: the delay is what stands in for the second signature, so the
+        // flag and the offset are one decision and are taken in one place.
+        effective_from_unix: if sole {
+            now + SOLE_STEWARD_DELAY_SECONDS
+        } else {
+            now
+        },
+    })
+}
+
+/// The bytes a proposal's own fields say it is.
+///
+/// **`GrantProposal`'s fields are all `pub` and it crosses a process
+/// boundary**, so `bytes` and the fields beside it are two statements of one
+/// thing and nothing made them agree. [`sign_grant`] recomputes this and
+/// refuses a proposal whose `bytes` are not what its fields spell out.
+fn proposal_bytes(proposal: &GrantProposal) -> Vec<u8> {
+    authority::grant_bytes(&GrantFacts {
+        organisation: &proposal.organisation,
+        root_pubkey_fpr: &proposal.root_pubkey_fpr,
+        scope: proposal.scope.as_deref().unwrap_or(""),
+        subject: &proposal.subject,
+        subject_key_fpr: &proposal.subject_key_fpr,
+        capability: proposal.capability,
+        granter: Some(&proposal.granter),
+        granter_key_fpr: &proposal.granter_key_fpr,
+        effective_from_unix: proposal.effective_from_unix,
+        expires_at_unix: proposal.expires_at_unix,
+        sole_steward_appointment: proposal.sole_steward_appointment,
+        auth_epoch: proposal.auth_epoch,
     })
 }
 
@@ -1278,23 +1321,51 @@ pub async fn propose_grant(
 /// # What is checked here, and what is deliberately not
 ///
 /// The signature is verified over `proposal.bytes` exactly as
-/// [`propose_grant`] produced them. Nothing is recomputed — recomputation is
-/// what made the one-step version fail, and a server that rebuilds the bytes
-/// it is about to verify has given itself the ability to verify something
-/// other than what was signed.
+/// [`propose_grant`] produced them. The bytes are not *rebuilt for
+/// verification* — a server that verifies a signature over something it
+/// assembled itself has given itself the ability to verify something other
+/// than what was signed, and rebuilding them at that point is what made the
+/// one-step version fail.
 ///
-/// Two freshness checks stand between a proposal and a commit:
+/// # But every field beside them IS re-derived, and this is the defect that
+/// taught it
 ///
-/// - **The epoch must still be the head's next.** Exact, not fuzzy. If another
-///   transaction advanced the authority in between, the signed `auth_epoch` is
-///   stale and the grant would take its place in a state its signer never saw.
-/// - **`effective_from` must not have gone stale** by more than
-///   [`PROPOSAL_SKEW_SECONDS`]. A grant that says it took effect an hour ago
-///   is backdated, and backdating is how a grant is made to look older than
-///   the revocation that should have caught it.
+/// `GrantProposal` crosses a process boundary with all its fields `pub`, and
+/// this function used to copy `sole_steward_appointment` off it onto the row.
+/// Nothing bound the flag to the signature and nothing re-derived it, so a
+/// steward could sign an honest proposal, flip the flag on the way back, and
+/// mint a `steward` grant that needed no seconding and waited no 24 hours —
+/// §3.5's whole quorum, defeated by setting a `bool` on a struct. Three
+/// things close it, and each closes it alone:
 ///
-/// Either failure is [`AuthorityError::Stale`], which says to propose again.
-/// The server does not adjust and re-sign, because it cannot: it holds no
+/// 1. **The flag is inside `grant_bytes`** (`fathom/grant/v2`), so flipping it
+///    invalidates the granter's signature and the seconder's with it.
+/// 2. **The bytes are recomputed from the proposal's own fields** and must be
+///    the bytes presented. A proposal whose fields and bytes disagree is not a
+///    stale proposal, it is a forged one, and it is refused as
+///    [`AuthorityError::Unverifiable`].
+/// 3. **Every server-chosen value is re-derived from the state as it is at
+///    commit** and must match exactly: the epoch, the sole-steward
+///    determination, the `effective_from` that determination implies, the
+///    organisation root fingerprint and the subject's key fingerprint.
+///
+/// The freshness checks, each exact rather than fuzzy:
+///
+/// - **The epoch must still be the head's next.** If another transaction
+///   advanced the authority in between, the signed `auth_epoch` is stale and
+///   the grant would take its place in a state its signer never saw.
+/// - **The sole-steward determination must still hold.** A second steward
+///   appearing between the two steps turns a one-signature appointment into
+///   one that needs a seconding; a proposal signed under the old answer is
+///   refused rather than committed under the new one.
+/// - **`effective_from` must be the one the flag implies**, within
+///   [`PROPOSAL_SKEW_SECONDS`] of it — `now` for an ordinary grant, `now +
+///   `[`SOLE_STEWARD_DELAY_SECONDS`] for a sole appointment. A grant that says
+///   it took effect an hour ago is backdated, and backdating is how a grant is
+///   made to look older than the revocation that should have caught it.
+///
+/// Any of those is [`AuthorityError::Stale`], which says to propose again. The
+/// server does not adjust and re-sign, because it cannot: it holds no
 /// steward's private key, which is the property §3.3 is built on.
 pub async fn sign_grant(
     tx: &Transaction<'_>,
@@ -1309,16 +1380,59 @@ pub async fn sign_grant(
         return Err(AuthorityError::Stale("it was issued for another actor"));
     }
 
+    // The proposal's bytes must be the bytes its fields spell out. Every field
+    // below is read off the proposal, and this is what makes reading them
+    // safe: what the signature covers and what the row is built from are one
+    // statement, not two.
+    if proposal_bytes(proposal) != proposal.bytes {
+        return Err(AuthorityError::Unverifiable(
+            "the proposal's fields are not the bytes it carries",
+        ));
+    }
+
     // The granter's authority again, at commit: a proposal is not a permit,
     // and a granter revoked between the two steps grants nothing.
     let scope = proposal.scope.as_deref().map(parse_scope).transpose()?;
     authorise_account(tx, auth, scope, Capability::Steward).await?;
 
+    // Every server-chosen value, re-derived from the state as it is now.
+    //
+    // The sole-steward determination is checked BEFORE the epoch, so that a
+    // proposal overtaken by a second steward's arrival says which fact moved.
+    // Both refusals are the same typed re-propose error.
+    let now = now_unix();
+    let state = read_authority_state(tx, &organisation).await?;
+    let choices = server_choices(&state, proposal.capability, now)?;
+    if choices.sole_steward_appointment != proposal.sole_steward_appointment {
+        return Err(AuthorityError::Stale(
+            "the sole-steward determination has changed",
+        ));
+    }
+    // `effective_from` must be the value the flag implies, allowing only for
+    // the time the signer took. Not "not too old": a sole appointment's
+    // `effective_from` is a day in the FUTURE, and a one-sided staleness test
+    // against `now` passed it trivially.
+    let drift = choices.effective_from_unix - proposal.effective_from_unix;
+    if !(0..=PROPOSAL_SKEW_SECONDS).contains(&drift) {
+        return Err(AuthorityError::Stale(
+            "effective_from is not the one this proposal's own facts imply",
+        ));
+    }
     if next_epoch(tx, &organisation).await? != proposal.auth_epoch {
         return Err(AuthorityError::Stale("the authority head has moved"));
     }
-    if now_unix() - proposal.effective_from_unix > PROPOSAL_SKEW_SECONDS {
-        return Err(AuthorityError::Stale("effective_from has gone stale"));
+    // The two fingerprints the server resolved for the signer, resolved again.
+    // A key rotated between the two steps means the bytes name a key the
+    // organisation no longer points at, which is a re-propose and not a
+    // silent substitution.
+    if organisation_root_fpr(tx, ring, &organisation).await? != proposal.root_pubkey_fpr {
+        return Err(AuthorityError::Stale("the organisation root has moved"));
+    }
+    let subject_key = signing_key_of(tx, &proposal.subject)
+        .await?
+        .ok_or(AuthorityError::NoSigningKey)?;
+    if subject_key.fpr != proposal.subject_key_fpr {
+        return Err(AuthorityError::Stale("the subject's signing key has moved"));
     }
 
     let granter_key = key_by_fingerprint(
@@ -1345,7 +1459,10 @@ pub async fn sign_grant(
         granter_sig: signature.to_vec(),
         is_genesis: false,
         is_recovery: false,
-        sole_steward_appointment: proposal.sole_steward_appointment,
+        // The RE-DERIVED flag, not the proposal's copy of it. They are equal
+        // by the check above; taking the derived one means that if the check
+        // is ever loosened, the row still says what the state says.
+        sole_steward_appointment: choices.sole_steward_appointment,
         auth_epoch: proposal.auth_epoch,
         effective_from_unix: proposal.effective_from_unix,
         expires_at_unix: proposal.expires_at_unix,
@@ -2606,6 +2723,7 @@ async fn grant_bytes_of(
         granter_key_fpr: &grant.granter_key_fpr,
         effective_from_unix: grant.effective_from_unix,
         expires_at_unix: grant.expires_at_unix,
+        sole_steward_appointment: grant.sole_steward_appointment,
         auth_epoch: grant.auth_epoch,
     }))
 }
@@ -2684,6 +2802,9 @@ async fn verify_grant_row(
         granter_key_fpr: &grant.granter_key_fpr,
         effective_from_unix: grant.effective_from_unix,
         expires_at_unix: grant.expires_at_unix,
+        // v2: the flag is inside the signature, so an edited flag on a stored
+        // row fails the granter's signature as well as the row seal.
+        sole_steward_appointment: grant.sole_steward_appointment,
         auth_epoch: grant.auth_epoch,
     });
 
@@ -2724,175 +2845,307 @@ async fn verify_grant_row(
 
 /// Does this grant carry the signatures §3.5 requires of it?
 ///
-/// # What a seconding has to survive now, and what it survived before
+/// **Quorum is met when at least one QUALIFYING seconding exists.** A
+/// qualifying seconding is one whose stored seal recomputes, whose signature
+/// over `second_bytes` verifies under the key that was in service when it was
+/// made, whose seconder is neither the granter nor the subject, and whose
+/// seconder held a verified live `steward` grant covering this grant's scope
+/// **at the seconding's own chain position** — not now. A seconding is a
+/// statement made at a moment; a seconder whose stewardship was revoked
+/// afterwards still seconded it, and one who never held stewardship never did.
 ///
-/// Before: the seconder's signature over `second_bytes`, and nothing else.
-/// `second_bytes` is `LP(tag) ‖ LP(H(grant_bytes)) ‖ LP(granter_key_fpr)` —
-/// every input recomputable from columns any member of the organisation can
-/// read. The seconding row's own seal was written and then verified nowhere,
-/// the head's digest did not cover secondings at all, and nothing asked
-/// whether the seconder held `steward`. So any member with an enrolled key
-/// could insert a row through the application role and flip a pending steward
-/// grant live. That is the quorum this design exists to enforce, defeated by
-/// an `INSERT`.
+/// # A seconding that does not qualify is NOT COUNTED, and is not an alarm
 ///
-/// Now, for every seconding an answer rests on:
+/// This is the correction. Every check above used to return
+/// [`AuthorityError::Unverifiable`] for the whole grant, so **one bad
+/// seconding failed the grant it was attached to** — and since anybody who
+/// holds `steward` can second any grant, one steward could brick another's
+/// stewardship permanently by adding a seconding that fails to qualify. Not
+/// counting it loses nothing: a forged seal is caught for the whole
+/// organisation by [`AuthorityState::verify_stored_seals`], which runs over
+/// every authority row at every use and is where a store that is lying about
+/// itself is refused. What is left here is a question about one signature's
+/// standing, and the answer to "this signature does not count" is that it does
+/// not count.
 ///
-/// 1. **the row's stored seal** recomputes — which the head's digest does not
-///    catch, because the digest carries the *recomputed* seal;
-/// 2. **the signature** over `second_bytes`;
-/// 3. **the seconder is neither the granter nor the subject** — `0011` binds
-///    this with a three-column foreign key and a `CHECK`, and it is restated
-///    here because a constraint that is the only statement of a rule is a rule
-///    that disappears the day the constraint is relaxed;
-/// 4. **the seconder held a verified live `steward` grant covering this
-///    grant's scope, at the seconding's own `chain_seq`** — not now. A
-///    seconding is a statement made at a moment, and a seconder whose own
-///    stewardship was revoked afterwards still seconded it; one who never held
-///    stewardship never did.
+/// # The cycle, and why the recursion terminates
 ///
-/// Step 4 recurses: the seconder's steward grant may itself have needed
-/// seconding. It terminates because each step moves strictly backwards through
-/// `chain_seq` and genesis grants need no seconding, and it is bounded anyway
-/// by [`SECONDING_DEPTH_LIMIT`].
+/// Step 4 recurses: the seconder's own steward grant may itself have needed
+/// seconding. **The termination argument in the superseded comment was false.**
+/// It claimed each step moves strictly backwards through `chain_seq`; it does
+/// not, because a grant may be seconded long after it was written, so
+/// `A seconds B` and `B seconds A` is constructible and the walk between them
+/// does not descend. What was there instead was a depth limit of eight, which
+/// turned a cycle into [`AuthorityError::Unverifiable`] for everyone in it —
+/// permanently, since a seconding cannot be withdrawn — and refused generation
+/// nine of an ordinary appointment chain along with it.
+///
+/// The argument that is true: [`QuorumPass::on_path`] holds the grant ids on
+/// the path under evaluation, so **every path is simple** — a seconder whose
+/// stewardship depends, transitively, on the grant being evaluated does not
+/// qualify, and the walk cannot revisit a grant it is already inside. And
+/// [`QuorumPass::settled`] memoises each grant's answer, so **every grant is
+/// evaluated once** per pass. Cost is linear in grants plus secondings, and
+/// the depth limit is gone.
 fn grant_quorum_met<'a>(
     tx: &'a Transaction<'a>,
     ring: &'a KeyRing,
     state: &'a AuthorityState,
     root_fpr: &'a [u8; 32],
     grant: &'a Grant,
-    depth: usize,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), AuthorityError>> + 'a>> {
+    pass: &'a RefCell<QuorumPass>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, AuthorityError>> + 'a>> {
     Box::pin(async move {
         // §3.5: genesis and recovery grants are root-signed and have their own
         // controls; a sole-steward appointment is §3.5's answer to a quorum
-        // that cannot be met, and pays for it with the delay instead.
+        // that cannot be met, and pays for it with the delay instead. All
+        // three are facts the granter's signature covers -- `is_genesis` and
+        // `is_recovery` through the row seal, the sole flag through
+        // `grant_bytes` itself since `fathom/grant/v2`.
         if grant.capability != Capability::Steward
             || grant.is_genesis
             || grant.is_recovery
             || grant.sole_steward_appointment
         {
-            return Ok(());
+            return Ok(true);
         }
-        if depth >= SECONDING_DEPTH_LIMIT {
-            return Err(AuthorityError::Unverifiable("seconding chain depth"));
+        if let Some(settled) = pass.borrow().settled.get(&grant.id).copied() {
+            return Ok(settled);
         }
-
-        let grant_bytes = grant_bytes_of(tx, ring, grant).await?;
-        let covering = covering_scopes(tx, &state.organisation, grant.scope_id.as_deref()).await?;
-
-        let mut verified = 0usize;
-        for seconding in state.secondings.iter().filter(|s| s.grant_id == grant.id) {
-            // 1. The stored seal. The head's digest carries the RECOMPUTED
-            //    seal, so a forged stored seal passes the head and is caught
-            //    only here.
-            let recomputed = authority::row_seal(
-                &row_key_for(ring, &state.organisation),
-                &RowFacts {
-                    table: "grant_secondings",
-                    row_id: &seconding.id,
-                    chain_seq: seconding.chain_seq,
-                    row_version: 1,
-                    row_state: &seconding_row_state(seconding),
-                },
-            );
-            if seconding.row_seal != recomputed {
-                return Err(AuthorityError::Unverifiable("grant seconding row seal"));
-            }
-
-            // 3. Neither the granter nor the subject.
-            if Some(&seconding.seconded_by) == grant.granted_by.as_ref()
-                || seconding.seconded_by == grant.subject_id
-            {
-                return Err(AuthorityError::Unverifiable(
-                    "seconder is the granter or the subject",
-                ));
-            }
-
-            // 2. The signature, under the key that was in service when the
-            //    seconding was made.
-            let key = key_by_fingerprint(
-                tx,
-                ring,
-                &seconding.seconder_key_fpr,
-                seconding.seconded_at_unix,
-            )
-            .await?;
-            if key.account_id != seconding.seconded_by {
-                return Err(AuthorityError::Unverifiable("seconder key binding"));
-            }
-            let message = authority::second_bytes(&grant_bytes, &grant.granter_key_fpr);
-            authority::verify_es256(&key.public_key, &message, &seconding.seconder_sig)?;
-
-            // 4. And the seconder actually held stewardship, then, there.
-            if !steward_held_at(
-                tx,
-                ring,
-                state,
-                root_fpr,
-                &seconding.seconded_by,
-                &covering,
-                seconding.seconded_at_unix,
-                seconding.chain_seq,
-                depth + 1,
-            )
-            .await?
-            {
-                return Err(AuthorityError::Unverifiable(
-                    "seconder held no live steward grant on this scope when they seconded",
-                ));
-            }
-
-            verified += 1;
+        if !pass.borrow_mut().on_path.insert(grant.id.clone()) {
+            // Already under evaluation further up this path. **Not memoised**:
+            // it is an answer about this path, not about this grant.
+            return Ok(false);
         }
 
-        if verified == 0 {
-            return Err(AuthorityError::QuorumNotMet { needed: 2, have: 1 });
-        }
-        Ok(())
+        let met = a_qualifying_seconding_exists(tx, ring, state, root_fpr, grant, pass).await;
+
+        pass.borrow_mut().on_path.remove(&grant.id);
+        let met = met?;
+        pass.borrow_mut().settled.insert(grant.id.clone(), met);
+        Ok(met)
     })
 }
 
-/// Did `account` hold a fully verified, live `steward` grant covering one of
-/// `covering`, at `at_unix` and as of chain position `as_of_seq`?
-#[allow(clippy::too_many_arguments)]
-fn steward_held_at<'a>(
+/// One pass's working memory: the path being walked, and what it has settled.
+///
+/// **Created inside one authorisation question and dropped with it.** §3.4
+/// permits a memo *"of the live set within a use"* and forbids a stored
+/// verdict; this is the first and cannot become the second. It lives on the
+/// stack, every value in it is derived from rows read inside the same
+/// transaction, and no second use can see it — so the property the test
+/// `no_verdict_is_cached_between_two_uses_in_one_process` asserts is untouched.
+#[derive(Default)]
+struct QuorumPass {
+    /// The grant ids on the path currently under evaluation. What makes every
+    /// path simple, and therefore what makes the walk terminate.
+    on_path: BTreeSet<String>,
+    /// Grant id → does this grant carry the signatures §3.5 requires.
+    settled: BTreeMap<String, bool>,
+    /// Grant id → did [`verify_grant_row`] accept it, in the soft sense this
+    /// walk asks it (a grant that does not verify is not a steward's; it is
+    /// not an alarm raised from inside somebody else's authorisation).
+    rows: BTreeMap<String, bool>,
+}
+
+/// A refusal that makes a seconding or a supporting grant **not count**,
+/// rather than one that makes the store untrustworthy.
+///
+/// The distinction is the whole of the correction above. `Unverifiable` and
+/// `Signature` mean *this row does not say what it claims*; asked about the
+/// grant an answer is being given for, that is an alarm, and asked about some
+/// other account's grant several steps away it is simply a row that supports
+/// nothing. `NoSigningKey` means a fingerprint resolves to no live keyring
+/// entry, which is the same kind of answer.
+///
+/// A database error, a corrupt column or a rollback is none of those and
+/// propagates.
+fn is_a_disqualification(error: &AuthorityError) -> bool {
+    matches!(
+        error,
+        AuthorityError::Unverifiable(_)
+            | AuthorityError::Signature(_)
+            | AuthorityError::NoSigningKey
+    )
+}
+
+async fn a_qualifying_seconding_exists<'a>(
     tx: &'a Transaction<'a>,
     ring: &'a KeyRing,
     state: &'a AuthorityState,
     root_fpr: &'a [u8; 32],
-    account: &'a str,
-    covering: &'a BTreeSet<Option<String>>,
-    at_unix: i64,
-    as_of_seq: i64,
-    depth: usize,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, AuthorityError>> + 'a>> {
-    Box::pin(async move {
-        for grant in &state.grants {
-            if grant.subject_id != account || grant.capability != Capability::Steward {
-                continue;
-            }
-            if !covering.contains(&grant.scope_id) {
-                continue;
-            }
-            // It has to have existed, and been in force, at that moment.
-            if grant.chain_seq > as_of_seq || grant.effective_from_unix > at_unix {
-                continue;
-            }
-            if grant.expires_at_unix != 0 && grant.expires_at_unix <= at_unix {
-                continue;
-            }
-            if state.revoked_as_of(&grant.id, at_unix, as_of_seq)
-                || state.suspended_at(&grant.id, at_unix, as_of_seq)
-            {
-                continue;
-            }
-            verify_grant_row(tx, ring, root_fpr, grant).await?;
-            grant_quorum_met(tx, ring, state, root_fpr, grant, depth).await?;
+    grant: &'a Grant,
+    pass: &'a RefCell<QuorumPass>,
+) -> Result<bool, AuthorityError> {
+    let grant_bytes = grant_bytes_of(tx, ring, grant).await?;
+    let covering = covering_scopes(tx, &state.organisation, grant.scope_id.as_deref()).await?;
+
+    for seconding in state.secondings.iter().filter(|s| s.grant_id == grant.id) {
+        let qualifies = seconding_qualifies(
+            tx,
+            ring,
+            state,
+            root_fpr,
+            grant,
+            &grant_bytes,
+            &covering,
+            seconding,
+            pass,
+        )
+        .await?;
+        if qualifies {
             return Ok(true);
         }
-        Ok(false)
-    })
+    }
+    Ok(false)
+}
+
+/// Everything one seconding has to be before it counts towards §3.5's quorum.
+#[allow(clippy::too_many_arguments)]
+async fn seconding_qualifies<'a>(
+    tx: &'a Transaction<'a>,
+    ring: &'a KeyRing,
+    state: &'a AuthorityState,
+    root_fpr: &'a [u8; 32],
+    grant: &'a Grant,
+    grant_bytes: &[u8],
+    covering: &BTreeSet<Option<String>>,
+    seconding: &Seconding,
+    pass: &'a RefCell<QuorumPass>,
+) -> Result<bool, AuthorityError> {
+    // 1. The stored seal. The head's digest carries the RECOMPUTED seal, so a
+    //    forged stored seal passes the head; `verify_stored_seals` is what
+    //    refuses the organisation over it. Here it only stops the row
+    //    counting.
+    let recomputed = authority::row_seal(
+        &row_key_for(ring, &state.organisation),
+        &RowFacts {
+            table: "grant_secondings",
+            row_id: &seconding.id,
+            chain_seq: seconding.chain_seq,
+            row_version: 1,
+            row_state: &seconding_row_state(seconding),
+        },
+    );
+    if seconding.row_seal != recomputed {
+        return Ok(false);
+    }
+
+    // 2. Neither the granter nor the subject. `0011` binds this with a
+    //    three-column foreign key and a `CHECK`, and it is restated here
+    //    because a constraint that is the only statement of a rule is a rule
+    //    that disappears the day the constraint is relaxed.
+    if Some(&seconding.seconded_by) == grant.granted_by.as_ref()
+        || seconding.seconded_by == grant.subject_id
+    {
+        return Ok(false);
+    }
+
+    // 3. The signature, under the key that was in service when the seconding
+    //    was made.
+    let key = match key_by_fingerprint(
+        tx,
+        ring,
+        &seconding.seconder_key_fpr,
+        seconding.seconded_at_unix,
+    )
+    .await
+    {
+        Ok(key) => key,
+        Err(e) if is_a_disqualification(&e) => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    if key.account_id != seconding.seconded_by {
+        return Ok(false);
+    }
+    let message = authority::second_bytes(grant_bytes, &grant.granter_key_fpr);
+    if authority::verify_es256(&key.public_key, &message, &seconding.seconder_sig).is_err() {
+        return Ok(false);
+    }
+
+    // 4. And the seconder actually held stewardship, then, there.
+    steward_held_at(
+        tx,
+        ring,
+        state,
+        root_fpr,
+        &seconding.seconded_by,
+        covering,
+        seconding.seconded_at_unix,
+        seconding.chain_seq,
+        pass,
+    )
+    .await
+}
+
+/// Did `account` hold a fully verified, live `steward` grant covering one of
+/// `covering`, at `at_unix` and as of chain position `as_of_seq`?
+///
+/// A grant that fails [`verify_grant_row`] is passed over rather than raised:
+/// this is a question about somebody else's grant, asked from inside a third
+/// party's authorisation, and the whole-state seal check is what refuses a
+/// store that is lying. The result is memoised per pass, so a grant is
+/// verified once however many secondings lean on it.
+#[allow(clippy::too_many_arguments)]
+async fn steward_held_at<'a>(
+    tx: &'a Transaction<'a>,
+    ring: &'a KeyRing,
+    state: &'a AuthorityState,
+    root_fpr: &'a [u8; 32],
+    account: &str,
+    covering: &BTreeSet<Option<String>>,
+    at_unix: i64,
+    as_of_seq: i64,
+    pass: &'a RefCell<QuorumPass>,
+) -> Result<bool, AuthorityError> {
+    for grant in &state.grants {
+        if grant.subject_id != account || grant.capability != Capability::Steward {
+            continue;
+        }
+        if !covering.contains(&grant.scope_id) {
+            continue;
+        }
+        // It has to have existed, and been in force, at that moment.
+        if grant.chain_seq > as_of_seq || grant.effective_from_unix > at_unix {
+            continue;
+        }
+        if grant.expires_at_unix != 0 && grant.expires_at_unix <= at_unix {
+            continue;
+        }
+        if state.revoked_as_of(&grant.id, at_unix, as_of_seq)
+            || state.suspended_at(&grant.id, at_unix, as_of_seq)
+        {
+            continue;
+        }
+        if !row_verifies(tx, ring, root_fpr, grant, pass).await? {
+            continue;
+        }
+        if grant_quorum_met(tx, ring, state, root_fpr, grant, pass).await? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// [`verify_grant_row`], memoised for one pass and soft on the refusals
+/// [`is_a_disqualification`] names.
+async fn row_verifies<'a>(
+    tx: &'a Transaction<'a>,
+    ring: &'a KeyRing,
+    root_fpr: &'a [u8; 32],
+    grant: &'a Grant,
+    pass: &'a RefCell<QuorumPass>,
+) -> Result<bool, AuthorityError> {
+    if let Some(settled) = pass.borrow().rows.get(&grant.id).copied() {
+        return Ok(settled);
+    }
+    let verdict = match verify_grant_row(tx, ring, root_fpr, grant).await {
+        Ok(()) => true,
+        Err(e) if is_a_disqualification(&e) => false,
+        Err(e) => return Err(e),
+    };
+    pass.borrow_mut().rows.insert(grant.id.clone(), verdict);
+    Ok(verdict)
 }
 
 /// **Authorise, from scratch, every time** (§3.4).
@@ -2905,8 +3158,10 @@ fn steward_held_at<'a>(
 /// 5. the organisation id recomputed from the root key, and the genesis set
 ///    compared against what the sealed `org_genesis` entry names;
 /// 6. each candidate grant: its row seal, both key bindings, the granter's
-///    signature over recomputed bytes, its times, and §3.5's quorum — every
-///    seconding it rests on verified in full;
+///    signature over recomputed bytes, its times, and §3.5's quorum — which is
+///    met by **one qualifying seconding**, walked with a visited set so that a
+///    seconder whose own stewardship depends on the grant under evaluation
+///    does not qualify;
 /// 7. only then the answer.
 ///
 /// Step 4 is why a hand-inserted grant grants nothing, why editing
@@ -3002,6 +3257,11 @@ pub async fn authorise_account(
     // 6. The candidates.
     let now = now_unix();
     let mut best: Option<Capabilities> = None;
+    // Whether any candidate was refused for want of a seconding, so that the
+    // refusal can say so. §3.5's quorum not being met is a different fact from
+    // holding no grant at all, and both are permission answers -- neither is
+    // an integrity alarm.
+    let mut short_of_quorum = false;
     for grant in &state.grants {
         if grant.subject_id != account {
             continue;
@@ -3027,8 +3287,18 @@ pub async fn authorise_account(
             continue;
         }
 
+        // The row: a hard question, because this is the grant the answer
+        // would rest on. `Unverifiable` here is the alarm §3.4 asks for.
         verify_grant_row(tx, ring, &root_fpr, grant).await?;
-        grant_quorum_met(tx, ring, &state, &root_fpr, grant, 0).await?;
+        // The quorum: a soft one. A `steward` grant with no qualifying
+        // seconding is not a broken store, it is a grant that is not yet
+        // usable -- so it is passed over and another candidate may still
+        // answer. Each candidate gets its own pass, discarded with it.
+        let pass = RefCell::new(QuorumPass::default());
+        if !grant_quorum_met(tx, ring, &state, &root_fpr, grant, &pass).await? {
+            short_of_quorum = true;
+            continue;
+        }
 
         // 7. The answer. The widest capability wins, so a steward who also
         //    holds `read` somewhere is not answered with `read`.
@@ -3045,7 +3315,11 @@ pub async fn authorise_account(
         };
     }
 
-    best.ok_or(AuthorityError::NotAuthorised)
+    match best {
+        Some(capabilities) => Ok(capabilities),
+        None if short_of_quorum => Err(AuthorityError::QuorumNotMet { needed: 2, have: 1 }),
+        None => Err(AuthorityError::NotAuthorised),
+    }
 }
 
 #[cfg(test)]
@@ -3065,6 +3339,39 @@ mod tests {
         );
         // Per organisation, not global: another tenant's epochs are its own.
         assert!(watch.observe("other", 1).is_ok());
+    }
+
+    #[test]
+    fn only_a_steward_grant_can_take_the_sole_steward_path() {
+        // §3.5's sole path is an answer to a quorum of two that cannot be met,
+        // and `read` and `draw` have never needed two. The flag decides
+        // whether a grant is live without a seconding, so a `draw` grant
+        // wearing it would be a `draw` grant with a 24-hour delay and a
+        // meaningless exemption -- and one more way for the bit to be set.
+        let state = AuthorityState {
+            organisation: "01JQZ0000000000000000000BB".to_string(),
+            grants: Vec::new(),
+            secondings: Vec::new(),
+            suspensions: Vec::new(),
+            revocations: Vec::new(),
+        };
+        // No live steward at all, which is the most permissive input there is.
+        assert_eq!(state.steward_count(1_000), 0);
+        for capability in [Capability::Read, Capability::Draw] {
+            let choices = server_choices(&state, capability, 1_000).expect("not blocked");
+            assert!(
+                !choices.sole_steward_appointment,
+                "{capability:?} never takes §3.5's sole-steward path"
+            );
+            assert_eq!(choices.effective_from_unix, 1_000, "and it is live at once");
+        }
+        let choices = server_choices(&state, Capability::Steward, 1_000).expect("not blocked");
+        assert!(choices.sole_steward_appointment);
+        assert_eq!(
+            choices.effective_from_unix,
+            1_000 + SOLE_STEWARD_DELAY_SECONDS,
+            "the flag and the delay are one decision"
+        );
     }
 
     #[test]

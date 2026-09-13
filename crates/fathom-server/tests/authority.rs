@@ -93,6 +93,21 @@ struct Estate {
 /// root public key and a salt, sign the genesis grants with the root private
 /// key, hand the server the public half and the signatures.
 async fn bootstrap(pool: &Pool, ring: &KeyRing, steward_count: usize) -> Estate {
+    bootstrap_with_starts(pool, ring, &vec![0i64; steward_count]).await
+}
+
+/// As [`bootstrap`], with each genesis steward's `effective_from` offset from
+/// now by the matching entry in `starts`.
+///
+/// **One test needs a steward who becomes live while it watches**, and there
+/// is no other way to arrange it: every grant this layer writes is live at
+/// once or a day later, the clock is the server's, and a genesis grant is the
+/// only one whose `effective_from` the caller chooses (§6.1 — the root key
+/// signs it before the server sees it). A second steward arriving between a
+/// proposal and its commit is exactly what §3.5's sole-steward determination
+/// has to notice.
+async fn bootstrap_with_starts(pool: &Pool, ring: &KeyRing, starts: &[i64]) -> Estate {
+    let steward_count = starts.len();
     let root = SoftwareKey::random().expect("a root keypair");
     let salt = [0x5au8; 16];
     let organisation_id = authority::derive_organisation_id(&root.public_key(), &salt);
@@ -114,7 +129,9 @@ async fn bootstrap(pool: &Pool, ring: &KeyRing, steward_count: usize) -> Estate 
     let now = now_unix();
     let requests: Vec<GenesisGrant> = stewards
         .iter()
-        .map(|s| {
+        .zip(starts)
+        .map(|(s, start)| {
+            let now = now + start;
             let subject_key_fpr = authority::key_fingerprint(&s.key.public_key());
             let facts = GrantFacts {
                 organisation: &organisation_id,
@@ -127,6 +144,9 @@ async fn bootstrap(pool: &Pool, ring: &KeyRing, steward_count: usize) -> Estate 
                 granter_key_fpr: &root_fpr,
                 effective_from_unix: now,
                 expires_at_unix: now + 365 * 24 * 3600,
+                // Genesis is root-signed and needs no seconding for a reason
+                // of its own (§6.1); it is not §3.5's sole-steward path.
+                sole_steward_appointment: false,
                 auth_epoch: 1,
             };
             GenesisGrant {
@@ -315,6 +335,7 @@ async fn a_genesis_grant_signed_by_the_wrong_key_is_refused_before_anything_is_s
         granter_key_fpr: &root_fpr,
         effective_from_unix: now,
         expires_at_unix: now + 3600,
+        sole_steward_appointment: false,
         auth_epoch: 1,
     };
     // Signed by a key that is not the root: exactly the "re-mint a genesis"
@@ -1463,7 +1484,8 @@ async fn grant_bytes_for(
             "SELECT organisation_id, scope_id, subject_id, subject_key_fpr, capability, \
                     granted_by, granter_key_fpr, auth_epoch, \
                     EXTRACT(EPOCH FROM effective_from)::bigint, \
-                    COALESCE(EXTRACT(EPOCH FROM expires_at)::bigint, 0) \
+                    COALESCE(EXTRACT(EPOCH FROM expires_at)::bigint, 0), \
+                    sole_steward_appointment \
                FROM scope_grants WHERE id = $1",
             &[&grant_id],
         )
@@ -1498,6 +1520,9 @@ async fn grant_bytes_for(
         granter_key_fpr: &granter_fpr.try_into().expect("32 bytes"),
         effective_from_unix: row.get(8),
         expires_at_unix: row.get(9),
+        // v2 of `grant_bytes` carries the flag, so a recomputation that
+        // guessed it would produce bytes no stored signature verifies over.
+        sole_steward_appointment: row.get(10),
         auth_epoch: row.get(7),
     })
 }
@@ -3313,4 +3338,499 @@ async fn reseal_every_grant(
         .batch_execute("ALTER TABLE scope_grants ENABLE TRIGGER USER")
         .await
         .expect("put it back");
+}
+
+// ---------------------------------------------------------------------------
+// The third checker round, 2026-09-13 — the sole-steward flag outside the
+// signature, and the seconding walk
+// ---------------------------------------------------------------------------
+
+/// Authorise `who` for `steward` at the organisation, and hand back the raw
+/// answer — these tests are about *which* refusal, not only that there is one.
+async fn steward_answer(
+    client: &mut deadpool_postgres::Client,
+    ring: &KeyRing,
+    organisation: OrganisationId,
+    who: AccountId,
+) -> Result<fathom_server::grants::Capabilities, AuthorityError> {
+    let (tx, ctx, tenant_key) = acting(client, ring, organisation, who).await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let answer = grants::authorise_account(&tx, &auth, None, Capability::Steward).await;
+    tx.rollback().await.expect("rollback");
+    answer
+}
+
+/// Grant `steward` to one account, signed by `estate.stewards[granter]`.
+async fn appoint(
+    client: &mut deadpool_postgres::Client,
+    ring: &KeyRing,
+    estate: &Estate,
+    granter: usize,
+    subject: AccountId,
+    subject_key: &SoftwareKey,
+) -> String {
+    let (tx, ctx, tenant_key) = acting(
+        client,
+        ring,
+        estate.organisation,
+        estate.stewards[granter].account,
+    )
+    .await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let id = sign_a_grant(
+        &tx,
+        &auth,
+        estate,
+        granter,
+        subject,
+        subject_key,
+        Capability::Steward,
+        now_unix() + 3600,
+    )
+    .await;
+    tx.commit().await.expect("commit");
+    id
+}
+
+/// Second a grant **through the ordinary API**, as `seconder`.
+async fn second_as(
+    client: &mut deadpool_postgres::Client,
+    ring: &KeyRing,
+    organisation: OrganisationId,
+    grant_id: &str,
+    seconder: AccountId,
+    seconder_key: &SoftwareKey,
+) {
+    let (tx, ctx, tenant_key) = acting(client, ring, organisation, seconder).await;
+    let grant_bytes = grant_bytes_for(&tx, ring, grant_id).await;
+    let granter_fpr: Vec<u8> = tx
+        .query_one(
+            "SELECT granter_key_fpr FROM scope_grants WHERE id = $1",
+            &[&grant_id],
+        )
+        .await
+        .expect("the grant")
+        .get(0);
+    let signature = seconder_key.sign(&authority::second_bytes(
+        &grant_bytes,
+        &granter_fpr.try_into().expect("32 bytes"),
+    ));
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    grants::second_grant(&tx, &auth, grant_id, &signature)
+        .await
+        .expect("the seconding verifies");
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn a_granter_who_flips_the_sole_steward_flag_after_signing_mints_nothing() {
+    // **The checker's reproduction, and the worst of the three.**
+    // `GrantProposal`'s fields are all `pub`; `sole_steward_appointment` was
+    // outside `grant_bytes`, so the granter signed the honest bytes, set one
+    // `bool` on the struct on the way back, and `sign_grant` copied it onto
+    // the row. A `steward` grant with the flag set needs no seconding and
+    // waits no 24 hours -- so §3.5's entire quorum came down to a field
+    // nobody had attested and nobody re-derived.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(84);
+    let estate = bootstrap(&pool, &ring, 2).await;
+    let (subject, _subject_key) = a_bystander(&pool, &ring, &estate, "candidate").await;
+
+    let mut client = pool.get().await.expect("connection");
+    let (tx, ctx, tenant_key) = acting(
+        &mut client,
+        &ring,
+        estate.organisation,
+        estate.stewards[0].account,
+    )
+    .await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+
+    let proposal = grants::propose_grant(
+        &tx,
+        &auth,
+        &GrantRequest {
+            scope: None,
+            subject,
+            capability: Capability::Steward,
+            expires_at_unix: now_unix() + 3600,
+        },
+    )
+    .await
+    .expect("proposed");
+    assert!(
+        !proposal.sole_steward_appointment,
+        "two live stewards, so this is not §3.5's sole path and the fixture is wrong if it is"
+    );
+
+    // The signature is over the bytes EXACTLY as issued. Nothing about it is
+    // forged, which is what makes this the attack rather than a corrupt blob.
+    let signature = estate.stewards[0].key.sign(&proposal.bytes);
+    let flipped = fathom_server::grants::GrantProposal {
+        sole_steward_appointment: true,
+        ..proposal.clone()
+    };
+
+    let refused = grants::sign_grant(&tx, &auth, &flipped, &signature).await;
+    assert!(
+        matches!(refused, Err(AuthorityError::Unverifiable(_))),
+        "a proposal whose fields do not spell out the bytes that were signed is forged, not \
+         stale, and must be refused before anything is written: {refused:?}"
+    );
+
+    // The untouched proposal still commits, so the refusal above is the flag
+    // and not the path.
+    let grant_id = grants::sign_grant(&tx, &auth, &proposal, &signature)
+        .await
+        .expect("the untouched proposal still commits");
+    let sole: bool = tx
+        .query_one(
+            "SELECT sole_steward_appointment FROM scope_grants WHERE id = $1",
+            &[&grant_id],
+        )
+        .await
+        .expect("the grant")
+        .get(0);
+    assert!(!sole, "the row carries the re-derived flag");
+    tx.commit().await.expect("commit");
+
+    // And the appointment is inert until a second steward seconds it, which
+    // is the control the flip went around.
+    let refused = steward_answer(&mut client, &ring, estate.organisation, subject).await;
+    assert!(
+        matches!(refused, Err(AuthorityError::QuorumNotMet { .. })),
+        "{refused:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_proposal_whose_sole_steward_flag_no_longer_holds_is_refused_with_re_propose() {
+    // The other half: the flag being signed is not enough on its own, because
+    // the granter signs what the SERVER proposed. If a second steward becomes
+    // live between the two steps, a one-signature appointment is no longer one
+    // §3.5 allows -- so every server-chosen value is re-derived at commit and
+    // any difference is the typed re-propose error.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(85);
+    // The second genesis steward is signed live from two seconds hence.
+    let estate = bootstrap_with_starts(&pool, &ring, &[0, 2]).await;
+    let (subject, _subject_key) = a_bystander(&pool, &ring, &estate, "candidate").await;
+
+    let mut client = pool.get().await.expect("connection");
+    let (tx, ctx, tenant_key) = acting(
+        &mut client,
+        &ring,
+        estate.organisation,
+        estate.stewards[0].account,
+    )
+    .await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+
+    let proposal = grants::propose_grant(
+        &tx,
+        &auth,
+        &GrantRequest {
+            scope: None,
+            subject,
+            capability: Capability::Steward,
+            expires_at_unix: now_unix() + 30 * 24 * 3600,
+        },
+    )
+    .await
+    .expect("proposed");
+    assert!(
+        proposal.sole_steward_appointment,
+        "the co-steward's grant is not in force yet, so the survivor is sole"
+    );
+    let signature = estate.stewards[0].key.sign(&proposal.bytes);
+
+    // The co-steward becomes live while the proposal is in the signer's hands.
+    // Nothing else happens, so the EPOCH is untouched -- this is the
+    // sole-steward re-derivation being the check that fires, not the epoch.
+    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
+
+    let refused = grants::sign_grant(&tx, &auth, &proposal, &signature).await;
+    match refused {
+        Err(AuthorityError::Stale(why)) => assert!(
+            why.contains("sole-steward"),
+            "the refusal must name the fact that moved, so the caller knows what to propose \
+             again: {why}"
+        ),
+        other => panic!(
+            "a sole-steward appointment signed when the organisation had one steward must not \
+             commit once it has two: {other:?}"
+        ),
+    }
+    tx.rollback().await.expect("rollback");
+}
+
+#[tokio::test]
+async fn a_cycle_of_secondings_does_not_brick_the_stewards_involved() {
+    // **The checker's first reproduction.** Genesis A and B; C appointed by A
+    // and seconded by B; D appointed by A and seconded by C; then D seconds
+    // C's grant -- an ordinary, permitted act through the ordinary API,
+    // available to any steward.
+    //
+    // Before: `grant_quorum_met` failed the whole grant if ANY seconding on it
+    // failed, and walked into C -> D -> C until the depth limit, so C and D
+    // both answered `Unverifiable("seconding chain depth")` from then on, for
+    // ever, with no way to withdraw the seconding. One steward could brick
+    // another by seconding something.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(86);
+    let estate = bootstrap(&pool, &ring, 2).await;
+    let (c, c_key) = a_bystander(&pool, &ring, &estate, "third-steward").await;
+    let (d, d_key) = a_bystander(&pool, &ring, &estate, "fourth-steward").await;
+    let mut client = pool.get().await.expect("connection");
+
+    let c_grant = appoint(&mut client, &ring, &estate, 0, c, &c_key).await;
+    second_as(
+        &mut client,
+        &ring,
+        estate.organisation,
+        &c_grant,
+        estate.stewards[1].account,
+        &estate.stewards[1].key,
+    )
+    .await;
+    let d_grant = appoint(&mut client, &ring, &estate, 0, d, &d_key).await;
+    second_as(&mut client, &ring, estate.organisation, &d_grant, c, &c_key).await;
+
+    // Both are stewards before the cycle closes.
+    steward_answer(&mut client, &ring, estate.organisation, c)
+        .await
+        .expect("C is a steward");
+    steward_answer(&mut client, &ring, estate.organisation, d)
+        .await
+        .expect("D is a steward");
+
+    // D seconds C's grant. C's stewardship does not need it -- B already
+    // seconded -- and D is entitled to make it.
+    second_as(&mut client, &ring, estate.organisation, &c_grant, d, &d_key).await;
+
+    let after_c = steward_answer(&mut client, &ring, estate.organisation, c).await;
+    assert!(
+        matches!(&after_c, Ok(capabilities) if capabilities.capability == Capability::Steward),
+        "C's stewardship rests on B's seconding and cannot be undone by a second, circular \
+         one: {after_c:?}"
+    );
+    let after_d = steward_answer(&mut client, &ring, estate.organisation, d).await;
+    assert!(
+        matches!(&after_d, Ok(capabilities) if capabilities.capability == Capability::Steward),
+        "and D, whose grant C seconded, is unaffected: {after_d:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_chain_of_twenty_appointments_authorises_at_every_generation() {
+    // **The checker's second reproduction.** Each new steward is granted by A
+    // and seconded by the previous appointee, so verifying generation n means
+    // verifying n-1 behind it. `SECONDING_DEPTH_LIMIT = 8` turned generation
+    // nine of an ordinary, entirely honest appointment chain into
+    // `Unverifiable` -- an integrity alarm about a store that was telling the
+    // truth.
+    //
+    // Twenty rather than nine, because nine only proves the old bound moved.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(87);
+    let estate = bootstrap(&pool, &ring, 2).await;
+    let mut client = pool.get().await.expect("connection");
+
+    let mut appointees: Vec<(AccountId, SoftwareKey)> = Vec::new();
+    for generation in 1..=20 {
+        let (next, next_key) =
+            a_bystander(&pool, &ring, &estate, &format!("generation{generation}")).await;
+        let grant = appoint(&mut client, &ring, &estate, 0, next, &next_key).await;
+        // The previous appointee seconds -- or, for generation one, the second
+        // genesis steward.
+        let (seconder, seconder_key) = match appointees.last() {
+            Some((account, key)) => (*account, key),
+            None => (estate.stewards[1].account, &estate.stewards[1].key),
+        };
+        second_as(
+            &mut client,
+            &ring,
+            estate.organisation,
+            &grant,
+            seconder,
+            seconder_key,
+        )
+        .await;
+
+        let answer = steward_answer(&mut client, &ring, estate.organisation, next).await;
+        assert!(
+            matches!(&answer, Ok(capabilities) if capabilities.capability == Capability::Steward),
+            "generation {generation} of an honest appointment chain must authorise: {answer:?}"
+        );
+        appointees.push((next, next_key));
+    }
+}
+
+#[tokio::test]
+async fn a_genuine_cycle_of_secondings_makes_nobody_a_steward() {
+    // The case the visited set exists for, and the one the depth limit used to
+    // answer with an integrity alarm: X's only seconding is by Y, Y's only
+    // seconding is by X, and neither has any other support. Neither is a
+    // steward -- and that is a permission answer about a quorum that is not
+    // met, not a claim that the store has been tampered with.
+    //
+    // It cannot be built through the API (the API asks a seconder to be a
+    // steward first), so the rows go in directly WITH CORRECT SEALS and the
+    // head is advanced through the real path -- otherwise the whole-state
+    // check would refuse it first and this test would prove nothing about the
+    // walk.
+    let pool = support::migrated_pool().await;
+    let ring = keyring(88);
+    let estate = bootstrap(&pool, &ring, 2).await;
+    let (x, x_key) = a_bystander(&pool, &ring, &estate, "x").await;
+    let (y, y_key) = a_bystander(&pool, &ring, &estate, "y").await;
+    let mut client = pool.get().await.expect("connection");
+
+    let x_grant = appoint(&mut client, &ring, &estate, 0, x, &x_key).await;
+    let y_grant = appoint(&mut client, &ring, &estate, 0, y, &y_key).await;
+
+    let (tx, ctx, tenant_key) = acting(&mut client, &ring, estate.organisation, x).await;
+    insert_seconding_directly(&tx, 88, &estate, &x_grant, y, &y_key).await;
+    insert_seconding_directly(&tx, 88, &estate, &y_grant, x, &x_key).await;
+    grants::advance_head(&tx, &ring, &ctx, &tenant_key)
+        .await
+        .expect("the head covers the new rows");
+    tx.commit().await.expect("commit");
+
+    for (who, name) in [(x, "X"), (y, "Y")] {
+        let answer = steward_answer(&mut client, &ring, estate.organisation, who).await;
+        assert!(
+            matches!(answer, Err(AuthorityError::QuorumNotMet { .. })),
+            "{name}'s only seconding is by somebody whose own stewardship depends on {name}, so \
+             the quorum is not met -- which is a permission answer, not `Unverifiable`: {answer:?}"
+        );
+    }
+}
+
+/// Insert one seconding row directly, sealed correctly and signed genuinely.
+///
+/// The tier-2 route: the application role can write this table, so the fence
+/// has to be at use. The seal is computed rather than forged because the point
+/// of the test above is the WALK, and a bad seal is refused earlier by
+/// `verify_stored_seals` -- which is its own test, and passes.
+async fn insert_seconding_directly(
+    tx: &deadpool_postgres::Transaction<'_>,
+    chain_master: u8,
+    estate: &Estate,
+    grant_id: &str,
+    seconder: AccountId,
+    seconder_key: &SoftwareKey,
+) {
+    let organisation = estate.organisation.to_string();
+    let row = tx
+        .query_one(
+            "SELECT subject_id, granted_by, granter_key_fpr FROM scope_grants WHERE id = $1",
+            &[&grant_id],
+        )
+        .await
+        .expect("the grant");
+    let subject_id: String = row.get(0);
+    let granted_by: Option<String> = row.get(1);
+    let granter_fpr: Vec<u8> = row.get(2);
+
+    let grant_bytes = grant_bytes_for(tx, &keyring(chain_master), grant_id).await;
+    let signature = seconder_key.sign(&authority::second_bytes(
+        &grant_bytes,
+        &granter_fpr.clone().try_into().expect("32 bytes"),
+    ));
+    let seconder_fpr = authority::key_fingerprint(&seconder_key.public_key());
+    let id = fathom_server::ids::new_ulid().to_string();
+
+    // The head's own chain sequence: at or past every grant in the
+    // organisation, so the seconding is not refused merely for predating what
+    // it seconds.
+    let chain_seq: i64 = tx
+        .query_one(
+            "SELECT chain_seq FROM organisation_auth_head WHERE organisation_id = $1",
+            &[&organisation],
+        )
+        .await
+        .expect("the head")
+        .get(0);
+
+    // `seconding_row_state`, rebuilt here. Kept in step by this test failing
+    // loudly if it drifts.
+    let mut map = BTreeMap::new();
+    map.insert("grant_id".to_string(), Json::Str(grant_id.to_string()));
+    map.insert("seconded_by".to_string(), Json::Str(seconder.to_string()));
+    map.insert(
+        "seconder_key_fpr".to_string(),
+        Json::Str(hex(&seconder_fpr)),
+    );
+    map.insert("seconder_sig".to_string(), Json::Str(hex(&signature)));
+    let row_state = Json::Obj(map).to_canonical_bytes();
+
+    let chain_key = fathom_server::chain::chain_key(
+        &Key32::from_bytes([chain_master; 32]),
+        ChainRef::Org {
+            organisation: &organisation,
+        },
+        chains::CHAIN_KEY_EPOCH,
+    );
+    let seal = authority::row_seal(
+        &authority::row_key(&chain_key),
+        &authority::RowFacts {
+            table: "grant_secondings",
+            row_id: &id,
+            chain_seq,
+            row_version: 1,
+            row_state: &row_state,
+        },
+    );
+
+    tx.execute(
+        "INSERT INTO grant_secondings \
+             (id, grant_id, organisation_id, grant_subject_id, grant_granter_id, seconded_by, \
+              seconder_key_fpr, seconder_sig, chain_seq, row_seal) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        &[
+            &id,
+            &grant_id,
+            &organisation,
+            &subject_id,
+            &granted_by,
+            &seconder.to_string(),
+            &seconder_fpr.to_vec(),
+            &signature.to_vec(),
+            &chain_seq,
+            &seal.to_vec(),
+        ],
+    )
+    .await
+    .expect("the application role can write this table -- the fence is at use");
 }

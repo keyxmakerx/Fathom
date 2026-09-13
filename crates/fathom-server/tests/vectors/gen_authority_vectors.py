@@ -86,7 +86,7 @@ def hkdf_expand(prk: bytes, info: bytes, length: int = 32) -> bytes:
 
 TAG_KEY_FPR = b"fathom/key/fpr/v1"
 TAG_ORG_ID = b"fathom/org/id/v1"
-TAG_GRANT = b"fathom/grant/v1"
+TAG_GRANT = b"fathom/grant/v2"
 TAG_GRANT_SECOND = b"fathom/grant/second/v1"
 TAG_GRANT_REVOKE = b"fathom/grant/revoke/v1"
 TAG_GRANT_SUSPEND = b"fathom/grant/suspend/v1"
@@ -127,6 +127,10 @@ NEW_KEY_FPR = bytes([0x45]) * 32
 CAPABILITY = b"steward"
 EFFECTIVE_FROM = 1_760_000_000
 EXPIRES_AT = 1_790_000_000
+# v2 of grant_bytes carries §3.5's sole-steward flag. TRUE here, deliberately:
+# a vector taken over the flag's zero value would agree with a construction
+# that dropped the field, which is the same trap as a vector over zeros.
+SOLE_STEWARD_APPOINTMENT = True
 AUTH_EPOCH = 7
 AT_UNIX = 1_770_000_000
 
@@ -248,8 +252,8 @@ PUBLIC_KEY = sec1_uncompressed(PUBLIC_POINT)
 # reproducing it, which is the independent check that matters: a wrong
 # `grant_bytes` on either side makes this verification fail.
 SIGNATURE_OVER_GRANT_BYTES = bytes.fromhex(
-    "1ed49eab8aa694e63551a54fa72c6be4b0e89181b39b1fe0eb8b49ab320bc5a0"
-    "6df3b0c915318c899188879b0e69b5cc4122df16f510afcd1b5d22409de4794f"
+    "2949158ea5be2cfcfe8ae10961eb0f0d27a5f3787953b0c828ee5415e4e93651"
+    "240459fc6eb9a005f594c805d5955b72f6803f0913f1126006ae713151e0e449"
 )
 
 # ---------------------------------------------------------------------------
@@ -288,6 +292,7 @@ grant_bytes = (
     + lp(GRANTER_KEY_FPR)
     + u64_le(EFFECTIVE_FROM)
     + u64_le(EXPIRES_AT)
+    + u32_le(1 if SOLE_STEWARD_APPOINTMENT else 0)
     + u32_le(AUTH_EPOCH)
 )
 

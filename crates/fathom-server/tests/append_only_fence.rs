@@ -414,6 +414,8 @@ async fn draw_grant_bytes(
         granter_key_fpr: &granter_fpr.try_into().expect("32 bytes"),
         effective_from_unix: row.get(4),
         expires_at_unix: row.get(5),
+        // A `draw` grant never takes §3.5's sole-steward path.
+        sole_steward_appointment: false,
         auth_epoch: row.get(3),
     })
 }
@@ -473,6 +475,7 @@ async fn an_authority_with_every_row_class() -> (String, String) {
                 granter_key_fpr: &root_fpr,
                 effective_from_unix: now,
                 expires_at_unix: now + 365 * 24 * 3600,
+                sole_steward_appointment: false,
                 auth_epoch: 1,
             };
             GenesisGrant {
