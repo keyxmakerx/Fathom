@@ -702,9 +702,35 @@ append-only tables gain fence tests as superuser, and a use → tamper → use t
 cached verdict. `num-traits` does carry a `build.rs` (closure record corrected) and the operator
 role reads eleven tables, not five (STATE corrected).
 
+**Third round, 2026-09-13, on the corrections above — three more, all confirmed, all decided:**
+
+7. **The sole-steward flag was copied from the proposal unauthenticated.** Two-step granting
+   re-checked everything at commit except that one flag, which a steward could flip after signing
+   the untouched bytes and mint a steward with no seconding and no delay — the quorum bypass of
+   item 1, moved into the proposal round-trip. **Decided:** the flag is a field of `grant_bytes`
+   (tag `fathom/grant/v2`; nothing shipped), `sign_grant` recomputes the bytes from the proposal's
+   fields and refuses a mismatch, and at commit every server-chosen value — epoch, the flag, the
+   effective time — is re-derived from current state and must equal the proposal, else re-propose.
+   The rule generalises: **a proposal is data the client returns; nothing in it is trusted at
+   commit that is not either inside the signed bytes or re-derived.**
+8. **A cycle of secondings bricked the stewards involved, and an ordinary chain of nine
+   appointments hit a depth limit.** Quorum evaluation failed a grant if *any* seconding on it
+   failed, recursed with no cycle guard, and capped depth at eight as an integrity error.
+   **Decided:** quorum is met by at least one *qualifying* seconding — seal and signature verify,
+   seconder distinct from granter and subject, seconder a verified live steward on that scope at
+   the seconding's chain position, evaluated with a visited set so that stewardship which depends
+   transitively on the grant under evaluation does not qualify. A non-qualifying seconding is not
+   counted and is not an integrity failure (forged seals are the separate whole-state check's
+   job). No depth limit; a per-call memo makes every grant evaluated once, so cost is linear.
+9. The two-writer race on the head held (`FOR UPDATE`, exact epoch), proposals cannot be replayed,
+   a stale proposal cannot outlive a revocation, and the fastest hostile path from two stewards to
+   a sole steward with a third appointed is **48 hours**, with the victim shown a
+   `grant_revoked` entry carrying the effective time throughout the first 24.
+
 **Still open after this round, for the next attack:** whether the 24-hour delay on single-steward
-acts against a steward is the right friction for a two-person organisation; a deliberate two-writer
-race on the head; and the head rollback beyond one process lifetime, which waits on §7.6's anchors.
+acts against a steward is the right friction for a two-person organisation; the head rollback
+beyond one process lifetime, which waits on §7.6's anchors; and the cost of quorum evaluation
+under a wide fan-out of secondings (depth was bounded by the fix; breadth was not measured).
 
 ### 3.6 `move_subtree`, and the cheaper route around it
 
