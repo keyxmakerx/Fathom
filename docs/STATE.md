@@ -74,6 +74,16 @@ an error; the spool is bounded per admin §9 and past the bound design writes st
 continue; `tests/chain_vectors.rs` holds golden values produced by an independent Python assembly
 of the §11.2 messages (`tests/vectors/gen_chain_vectors.py`), so the two must agree.
 
+**Migration 0011 is the authority layer** of admin design §3 (2026-09-12): organisation root-key
+identity, account signing keys, scope grants with signature columns, seconding, suspension and
+revocation as their own append-only tables, and the authority head. Every principal reference is a
+composite `(id, kind)` foreign key, so an operator cannot appear in an authority row. `authority.rs`
+holds the signed-byte constructions and `grants.rs` the acts; ES256 with software keys, verified at
+every use, nothing cached. `p256` and `ecdsa` entered through the gate with their records under
+`deps/decisions/`. Genesis is real; Shamir shares, WebAuthn, sessions, the admin surface and groups
+are not built, and admin §3.2 lists the eleven places the build departed from the design text.
+Golden vectors: `tests/authority_vectors.rs` from `tests/vectors/gen_authority_vectors.py`.
+
 **The server can read design data, and says so** (`docs/PHASE-2-STORAGE-DESIGN.md` §2a).
 Encryption protects the database, the backups and the disk — not the running process.
 
