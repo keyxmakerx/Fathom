@@ -423,16 +423,64 @@ async fn main() -> ExitCode {
     // §13 item 7's limits. `EpochWatch` is the one per-process value §3.4 step
     // 3 asks for, and this is the first thing in the server with a request
     // layer to hold it.
+    let sessions = Arc::new(fathom_server::sessions::SessionStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment.clone(),
+        config.sign_in_limits,
+    ));
+    let watch = Arc::new(fathom_server::grants::EpochWatch::new());
     let api = fathom_server::api::ApiState {
-        sessions: Arc::new(fathom_server::sessions::SessionStore::new(
-            pool.clone(),
-            Arc::clone(&ring),
-            deployment.clone(),
-            config.sign_in_limits,
-        )),
-        watch: Arc::new(fathom_server::grants::EpochWatch::new()),
+        sessions: Arc::clone(&sessions),
+        watch: Arc::clone(&watch),
         ring: Arc::clone(&ring),
         trusted_client_ip_header: config.trusted_client_ip_header.clone(),
+    };
+
+    // The design routes share the session store and the epoch watch with the
+    // session routes deliberately: two `SessionStore`s would be two nonce
+    // tables' worth of state in one process, and two `EpochWatch`es would
+    // defeat the single per-process value §3.4 step 3 asks for. They are built
+    // once above and both routers hold the same `Arc`.
+    //
+    // The catalogue is read once, here, and never from a request: it is
+    // read-only reference data and a per-request filesystem read would be a
+    // way to make an authenticated caller do disk work. A catalogue that will
+    // not load is a startup failure with the file and the line, the same
+    // treatment `EngineState::load` gives a broken schema tree -- serving a
+    // faceplate the operator cannot see the source of is worse than not
+    // starting. `load_catalogue` wants the directory that holds both `corpus/`
+    // and `schema/`, which is `schema_root`'s parent.
+    let corpus_root = std::path::Path::new(&config.schema_root)
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf();
+    let catalogue = match fathom_server::design_api::load_catalogue(&corpus_root) {
+        Ok(models) => {
+            tracing::info!(
+                models = models.len(),
+                root = %corpus_root.display(),
+                "equipment catalogue loaded"
+            );
+            Arc::new(models)
+        }
+        Err(e) => {
+            tracing::error!(
+                file = %e.file,
+                line = e.line,
+                gate = ?e.gate,
+                message = %e.message,
+                root = %corpus_root.display(),
+                "the equipment catalogue could not be loaded; refusing to start"
+            );
+            return ExitCode::from(8);
+        }
+    };
+    let designs = fathom_server::design_api::DesignApiState {
+        sessions,
+        watch,
+        ring: Arc::clone(&ring),
+        catalogue,
     };
     tracing::info!(
         window_seconds = config.sign_in_limits.window.as_secs(),
@@ -464,7 +512,9 @@ async fn main() -> ExitCode {
     // §13 item 7's source bucket needs the peer address, and without this the
     // extension it reads is never populated, so every sign-in in the
     // deployment would count into one bucket named "unknown".
-    let app = router(AppState { health, engine }).merge(fathom_server::api::router(api));
+    let app = router(AppState { health, engine })
+        .merge(fathom_server::api::router(api))
+        .merge(fathom_server::design_api::router(designs));
     let served = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
