@@ -1123,9 +1123,17 @@ async fn the_operator_sign_in_surface_accepts_no_password_shaped_input() {
     let store = store(&pool, Arc::clone(&ring)).await;
 
     // §4.5: an operator session is A1 or it does not exist. There is no
-    // password path, no reset link and no "forgot" flow — and no operator
-    // authenticator can be enrolled yet, so every attempt is refused with the
-    // reason said out loud rather than folded into a generic failure.
+    // password path, no reset link and no "forgot" flow.
+    //
+    // **Updated for `0015`, which makes the operator plane real.** This used
+    // to assert `OperatorHasNoAuthenticator`, because no operator key could be
+    // enrolled at all and so every attempt could safely say why. Now that one
+    // can, saying why would tell an unauthenticated caller which operator ids
+    // have enrolled and which are still holding a token — so the refusal is
+    // the same uniform `SignInRefused` an unknown account address gets, and
+    // the sealed `operator_signin_failed` entry carries the reason where an
+    // operator can read it. `tests/operators.rs` drives the path that now
+    // succeeds.
     let key = SoftwareKey::random().unwrap();
     let challenge = store
         .issue_challenge(
@@ -1151,7 +1159,7 @@ async fn the_operator_sign_in_surface_accepts_no_password_shaped_input() {
         )
         .await;
     assert!(
-        matches!(refused, Err(SessionError::OperatorHasNoAuthenticator)),
+        matches!(refused, Err(SessionError::SignInRefused)),
         "got {refused:?}"
     );
 

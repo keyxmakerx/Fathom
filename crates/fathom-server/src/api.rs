@@ -174,6 +174,23 @@ pub const HEADER_SIGNATURE: &str = "fathom-signature";
 /// number.
 pub const MAX_SIGNED_BODY: usize = 1024 * 1024;
 
+impl Signed {
+    /// The extractor's body, **as a function any state type can call**.
+    ///
+    /// `admin.rs` has its own `State` — it carries an `OperatorStore` that the
+    /// session routes have no use for — and axum's `FromRequest` is
+    /// implemented per state type. Without this the admin surface would either
+    /// re-type the header parsing (two spellings of one protocol, which is how
+    /// a signature stops verifying) or borrow `ApiState` and carry fields it
+    /// does not use. The rules stay in one place; only the state differs.
+    pub async fn from_request_for(
+        request: Request,
+        sessions: &SessionStore,
+    ) -> Result<Self, Refusal> {
+        signed_from_request(request, sessions).await
+    }
+}
+
 impl FromRequest<ApiState> for Signed {
     type Rejection = Refusal;
 
@@ -190,6 +207,12 @@ impl FromRequest<ApiState> for Signed {
     /// what a request asks for, and leaving it outside the signature would be
     /// a hole the first route that takes a filter would fall into.
     async fn from_request(request: Request, state: &ApiState) -> Result<Self, Self::Rejection> {
+        signed_from_request(request, &state.sessions).await
+    }
+}
+
+async fn signed_from_request(request: Request, sessions: &SessionStore) -> Result<Signed, Refusal> {
+    {
         let (parts, body) = request.into_parts();
         let method = parts.method.as_str().to_string();
         let path = parts
@@ -225,8 +248,7 @@ impl FromRequest<ApiState> for Signed {
         // The nonce is spent here, in its own committed transaction, so that a
         // handler which fails — or which rolls its own transaction back —
         // cannot leave a replayable one behind.
-        let pending = state
-            .sessions
+        let pending = sessions
             .begin_request(&SignedRequest {
                 session_id: &session_id,
                 method: &method,
@@ -239,7 +261,7 @@ impl FromRequest<ApiState> for Signed {
             })
             .await?;
 
-        Ok(Self { pending, body })
+        Ok(Signed { pending, body })
     }
 }
 
@@ -608,7 +630,7 @@ impl IntoResponse for Refusal {
                     .into_response();
             }
             SessionError::Malformed(_) => (StatusCode::BAD_REQUEST, "malformed request\n"),
-            SessionError::SignInRefused | SessionError::OperatorHasNoAuthenticator => {
+            SessionError::SignInRefused => {
                 tracing::info!(reason = %self.0, "sign-in refused");
                 (StatusCode::UNAUTHORIZED, "sign-in refused\n")
             }

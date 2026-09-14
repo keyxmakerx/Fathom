@@ -542,6 +542,28 @@ pub(crate) async fn enter_key_custody(tx: &Transaction<'_>) -> Result<(), RepoEr
 /// `app.account_id` is set to the empty string, which every policy that reads
 /// it already treats as a refusal, so nothing an account may do becomes
 /// possible here.
+/// Point the tenant-scoped policies at one organisation for **§1.1's operator
+/// suspend verb**, which has no membership to open a context from.
+///
+/// `grants::suspend_grant_by_operator` is the only caller and the argument for
+/// the crossing is on `keys::tenant_key_for`. What this function adds over
+/// [`set_custody_tenant`] is the one line that matters: `app.design_capability`
+/// is set to its refusal FIRST and is never set to anything else on this path,
+/// so an operator transaction that names a tenant still reaches no design
+/// payload — §1.3's sightlessness, kept by the same mechanism that keeps it
+/// everywhere else rather than by this function being careful.
+pub(crate) async fn enter_operator_tenant_scope(
+    tx: &Transaction<'_>,
+    tenant: &str,
+) -> Result<(), RepoError> {
+    tx.execute(
+        "SELECT set_config('app.design_capability', 'no', true)",
+        &[],
+    )
+    .await?;
+    set_custody_tenant(tx, tenant).await
+}
+
 pub(crate) async fn set_custody_tenant(
     tx: &Transaction<'_>,
     tenant: &str,

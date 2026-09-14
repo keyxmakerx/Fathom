@@ -590,12 +590,86 @@ pub async fn enrol_software_key(
     )
     .await?;
 
+    insert_account_key(tx, ring, &id, &account, public_key, appended.seq).await
+}
+
+/// Enrol an account's **first** software key, on the site chain, at the moment
+/// an enrolment token is redeemed (§1.1, §5.1, §6.2, migration `0015`).
+///
+/// # Why this exists beside [`enrol_software_key`], which does not change
+///
+/// [`enrol_software_key`] files `account_key_enrolled` on an ORGANISATION's
+/// chain, and needs an [`Authority`] to do it — which needs a
+/// [`repo::TenantContext`], which needs a membership row. That is right for a
+/// key enrolled by somebody who is already in an organisation, and impossible
+/// for the case this build is about: **§6.4 says a steward may only grant to a
+/// subject who already has a registered key, and §6.2 says an organisation
+/// shell is redeemed by an account that already has one.** So the first key of
+/// an invited person is enrolled before any organisation knows their name, and
+/// there is no organisation chain it could be filed on.
+///
+/// §7.1 answers what to do with it: *"the site chain covers everything
+/// organisation-independent."* §7.2 already names the type —
+/// `authenticator_registered` — on the site chain, which is where this files
+/// it.
+///
+/// **The row, its seal and the keyring's shape are identical.** Both paths go
+/// through `insert_account_key`, so a key enrolled at invitation and one
+/// enrolled inside an organisation are the same row sealed the same way, and
+/// `live_signing_key` cannot tell them apart — which is the property that
+/// makes sign-in work for both.
+pub async fn enrol_software_key_at_invitation(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    deployment: &str,
+    account: &str,
+    public_key: &[u8],
+) -> Result<AccountKey, AuthorityError> {
+    let fpr = authority::key_fingerprint(public_key);
+    let id = ids::new_ulid().to_string();
+
+    let appended = chains::append_site(
+        tx,
+        ring,
+        deployment,
+        EntryType::AuthenticatorRegistered,
+        &entry_metadata(
+            EntryType::AuthenticatorRegistered,
+            &[
+                ("account", Json::Str(account.to_string())),
+                ("key", Json::Str(id.clone())),
+                ("fpr", Json::Str(hex(&fpr))),
+                ("key_source", Json::Str("software".to_string())),
+                ("principal_kind", Json::Str("steward".to_string())),
+            ],
+        ),
+    )
+    .await?;
+
+    insert_account_key(tx, ring, &id, account, public_key, appended.seq).await
+}
+
+/// The row every enrolment path writes, sealed the one way.
+///
+/// **One function, so the two chains cannot drift into two row shapes.** The
+/// seal is `authority::row_seal` under the site-scoped row key, which is what
+/// `verify_key_row` recomputes at every use — an account's keyring is
+/// account-scoped, not organisation-scoped, and `site_row_key`'s own doc
+/// carries that argument.
+async fn insert_account_key(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    id: &str,
+    account: &str,
+    public_key: &[u8],
+    chain_seq: i64,
+) -> Result<AccountKey, AuthorityError> {
     let key = AccountKey {
-        id: id.clone(),
-        account_id: account.clone(),
+        id: id.to_string(),
+        account_id: account.to_string(),
         public_key: public_key.to_vec(),
-        fpr,
-        enrolled_seq: appended.seq,
+        fpr: authority::key_fingerprint(public_key),
+        enrolled_seq: chain_seq,
         row_version: 1,
         superseded_by: None,
         retired_at_unix: 0,
@@ -604,8 +678,8 @@ pub async fn enrol_software_key(
         &site_row_key(tx, ring).await?,
         &RowFacts {
             table: "account_keys",
-            row_id: &id,
-            chain_seq: appended.seq,
+            row_id: id,
+            chain_seq,
             row_version: 1,
             row_state: &account_key_row_state(&key),
         },
@@ -621,8 +695,8 @@ pub async fn enrol_software_key(
             &account,
             &public_key.to_vec(),
             &ALG_ES256,
-            &fpr.to_vec(),
-            &appended.seq,
+            &key.fpr.to_vec(),
+            &chain_seq,
             &seal.to_vec(),
         ],
     )
@@ -1815,7 +1889,8 @@ pub async fn set_suspension(
 
     write_suspension(
         tx,
-        auth,
+        auth.ring,
+        auth.tenant_key,
         &grant,
         suspend,
         "steward",
@@ -1882,7 +1957,8 @@ fn weakening_act_takes_effect_at(grant: &Grant, actor: &str, weakening: bool, at
 #[allow(clippy::too_many_arguments)]
 async fn write_suspension(
     tx: &Transaction<'_>,
-    auth: &Authority<'_>,
+    ring: &KeyRing,
+    tenant_key: &DataKey,
     grant: &Grant,
     suspend: bool,
     actor_kind: &str,
@@ -1892,17 +1968,17 @@ async fn write_suspension(
     at_unix: i64,
     takes_effect_unix: i64,
 ) -> Result<(), AuthorityError> {
-    let (ring, ctx, tenant_key) = (auth.ring, auth.ctx, auth.tenant_key);
     let organisation = grant.organisation_id.clone();
     let entry_type = if suspend {
         EntryType::GrantSuspended
     } else {
         EntryType::GrantUnsuspended
     };
-    let appended = chains::append_org(
+    let appended = chains::append_org_as(
         tx,
         ring,
-        ctx,
+        &organisation,
+        actor_id,
         tenant_key,
         entry_type,
         &entry_metadata(
@@ -1972,8 +2048,94 @@ async fn write_suspension(
     )
     .await?;
 
-    advance_head(tx, auth.ring, auth.ctx, auth.tenant_key).await?;
+    advance_head_as(tx, ring, &organisation, actor_id, tenant_key).await?;
     Ok(())
+}
+
+/// **§1.1's operator suspend verb, made real.**
+///
+/// *"Suspend a scope grant (immediate) | operator session; any steward of that
+/// organisation may lift it; if no steward is live, the recovery key lifts
+/// it."* This is the one authority-adjacent act the operator plane has, and it
+/// is deliberately one-way: there is no operator unsuspend here, and `0011`'s
+/// own `CHECK` refuses `action = 'unsuspend'` for an `actor_kind = 'operator'`
+/// row, so a second opinion is needed to restore what one operator stopped.
+///
+/// # What an operator does NOT gain by holding this
+///
+/// * **No capability anywhere.** Suspension only ever removes a grant from the
+///   live set; `authorise_account` skips a suspended grant and nothing about
+///   this act can add one. An operator who suspends every grant in an
+///   organisation has locked its stewards out and has still read nothing.
+/// * **No design payload.** `repo::enter_operator_tenant_scope` sets
+///   `app.design_capability` to its refusal and never to anything else.
+/// * **No signature.** `actor_sig` is `NULL` for an operator, because there is
+///   nothing an operator could sign that a steward would honour — their
+///   authority for this act is the operator session, and the session is what
+///   the site chain records. The organisation's own chain records the act with
+///   `actor_kind = 'operator'`, so a steward reading their own trail can see
+///   that the machine side did this and who to ask.
+/// * **No immediacy against a steward's own protections.** §3.5's delay on a
+///   weakening act is a rule about a *steward* acting alone; §1.1 makes the
+///   operator's suspension immediate on purpose, because the case it exists
+///   for is a steward who must be stopped now. That asymmetry is the design's,
+///   is written down there, and is why the act is one-way and loudly recorded.
+///
+/// # Why this takes an organisation id, which §4's pinning rule would rather it
+/// did not
+///
+/// `scope_grants` is behind `organisation_id = app.tenant_id`, so the grant row
+/// cannot be read until a tenant is named — and the tenant cannot be read off
+/// the grant row that cannot be read. An earlier draft of this function took
+/// only a grant id for exactly the reason §4 gives, and it could not read
+/// anything.
+///
+/// So the caller names both, and **the pair is checked**: the organisation
+/// scopes the transaction, the grant is read inside that scope, and a grant
+/// whose own `organisation_id` is not the one named is refused. An operator who
+/// guesses a grant id from another tenant gets `NotAuthorised` rather than a
+/// suspension in the organisation they named. The alternative — widening
+/// `scope_grants`' read policy to any transaction that sets
+/// `app.operator_custody` — would give the application role a way to read every
+/// grant in the estate, which is a larger door than this one.
+pub async fn suspend_grant_by_operator(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    operator_id: &str,
+    organisation: &str,
+    grant_id: &str,
+    at_unix: i64,
+) -> Result<String, AuthorityError> {
+    let organisation = organisation.to_string();
+    repo::enter_operator_tenant_scope(tx, &organisation).await?;
+
+    let grant = read_grant(tx, grant_id)
+        .await?
+        .ok_or(AuthorityError::NotAuthorised)?;
+    if grant.organisation_id != organisation {
+        return Err(AuthorityError::NotAuthorised);
+    }
+
+    let tenant_key = keys::tenant_key_for(tx, ring, &organisation).await?;
+
+    write_suspension(
+        tx,
+        ring,
+        &tenant_key,
+        &grant,
+        true,
+        "operator",
+        operator_id,
+        None,
+        None,
+        at_unix,
+        // Immediate, which is the whole point of the verb (§1.1). §3.5's delay
+        // is a rule about one steward weakening another, and an operator is
+        // not a steward.
+        at_unix,
+    )
+    .await?;
+    Ok(organisation)
 }
 
 /// Revoke a grant — the positive, append-only fact §3.2 requires.
@@ -2089,7 +2251,33 @@ pub async fn advance_head(
     ctx: &TenantContext,
     tenant_key: &DataKey,
 ) -> Result<i32, AuthorityError> {
-    let organisation = ctx.tenant().to_string();
+    advance_head_as(
+        tx,
+        ring,
+        &ctx.tenant().to_string(),
+        &ctx.actor().to_string(),
+        tenant_key,
+    )
+    .await
+}
+
+/// The half of [`advance_head`] that takes the organisation and the actor
+/// directly, for §1.1's operator suspend verb — which has no tenant context
+/// because an operator can never be a member (`0004`).
+///
+/// **The head MUST advance for every act that changes the authority state**,
+/// operator acts included: §3.4 step 4 recomputes the digest over the whole
+/// state and refuses the organisation outright if it disagrees with the head.
+/// An operator suspension that skipped this would not weaken one grant, it
+/// would make every authorisation in that organisation an integrity alarm.
+pub(crate) async fn advance_head_as(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    organisation: &str,
+    actor: &str,
+    tenant_key: &DataKey,
+) -> Result<i32, AuthorityError> {
+    let organisation = organisation.to_string();
     let epoch = next_epoch(tx, &organisation).await?;
     let state = read_authority_state(tx, &organisation).await?;
     let live = state.digest_entries(&row_key_for(ring, &organisation));
@@ -2100,10 +2288,11 @@ pub async fn advance_head(
         &live,
     );
 
-    let appended = chains::append_org(
+    let appended = chains::append_org_as(
         tx,
         ring,
-        ctx,
+        &organisation,
+        actor,
         tenant_key,
         EntryType::AuthHeadAdvanced,
         &entry_metadata(
