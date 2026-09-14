@@ -52,6 +52,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::Router;
+use deadpool_postgres::Transaction;
 
 use crate::authority::Capability;
 use crate::crypto;
@@ -108,14 +109,50 @@ pub fn router(state: ApiState) -> Router {
 // The extractor every protected route composes
 // ---------------------------------------------------------------------------
 
-/// A request that carried a verified per-request signature (§4.1 clause (b)).
+/// A request that arrived with a per-request proof and has **spent its
+/// single-use nonce**, ready to be verified inside the handler's own
+/// transaction (§4.1 clause (b)).
+///
+/// # Why the extractor no longer returns a `VerifiedSession`
+///
+/// Until `0014` it did, and verification therefore ran in a transaction of its
+/// own that committed before the handler opened a second one for
+/// `open_tenant_context` and `authorise_account`. The disabled-account check,
+/// the evidence-key check and grant evaluation never shared a snapshot: an
+/// account disabled, a key retired or a grant revoked between the two commits
+/// was checked against one state and authorised against another. §3.4's seven
+/// steps and §4's *"before setting `app.design_capability`"* both read as one
+/// continuous act, and they were two.
+///
+/// A transaction cannot be carried out of an axum extractor, so the *request*
+/// is carried instead and the handler opens one transaction for both halves.
+/// **§13 item 1 is untouched**: a [`SessionStore::PendingRequest`] is not an
+/// actor and cannot become one, `VerifiedSession` still has private fields and
+/// no public constructor, and `sessions::open_tenant_context` is still the only
+/// bridge to the repository layer.
 ///
 /// Holds the body as it arrived, because the signature covers its digest and a
 /// handler that re-read the body from anywhere else would be acting on bytes
 /// nobody signed.
+///
+/// [`SessionStore::PendingRequest`]: sessions::PendingRequest
 pub struct Signed {
-    pub session: VerifiedSession,
+    /// The proof, waiting for the transaction that will check it.
+    pub pending: sessions::PendingRequest,
     pub body: Bytes,
+}
+
+impl Signed {
+    /// Run the rest of §4.1 clause (b) **inside `tx`**, so that whatever this
+    /// handler authorises next sees the same snapshot the session was verified
+    /// against.
+    pub async fn verify(
+        &self,
+        state: &ApiState,
+        tx: &Transaction<'_>,
+    ) -> Result<VerifiedSession, Refusal> {
+        Ok(state.sessions.verify_pending(tx, &self.pending).await?)
+    }
 }
 
 /// The five headers a signed request carries. Named here rather than inline so
@@ -185,9 +222,12 @@ impl FromRequest<ApiState> for Signed {
             .await
             .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
 
-        let session = state
+        // The nonce is spent here, in its own committed transaction, so that a
+        // handler which fails — or which rolls its own transaction back —
+        // cannot leave a replayable one behind.
+        let pending = state
             .sessions
-            .verify_request(&SignedRequest {
+            .begin_request(&SignedRequest {
                 session_id: &session_id,
                 method: &method,
                 path: &path,
@@ -199,7 +239,7 @@ impl FromRequest<ApiState> for Signed {
             })
             .await?;
 
-        Ok(Self { session, body })
+        Ok(Self { pending, body })
     }
 }
 
@@ -217,14 +257,21 @@ impl FromRequest<ApiState> for Signed {
 /// is why the refusal is at sign-in and not here.
 async fn challenge_handler(
     State(state): State<ApiState>,
-    body: Bytes,
+    request: Request,
 ) -> Result<Response, Refusal> {
+    // Counted against the source bucket like any other attempt (`0014` §C):
+    // this route writes a `session_nonces` row, and until that change one
+    // anonymous POST was one permanent row.
+    let source = source_of(&state, request.headers(), request.extensions());
+    let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
+        .await
+        .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
     let fields = read_fields(&body, 3)?;
     let kind = principal_kind(&fields[0])?;
     let address = text(&fields[1], "address")?;
     let challenge = state
         .sessions
-        .issue_challenge(kind, &address, &fields[2])
+        .issue_challenge(kind, &address, &fields[2], &source)
         .await?;
 
     let mut out = Vec::with_capacity(96);
@@ -296,7 +343,23 @@ async fn sign_out_handler(
     State(state): State<ApiState>,
     signed: Signed,
 ) -> Result<Response, Refusal> {
-    state.sessions.sign_out(&signed.session).await?;
+    // One transaction for the verification and the act, so a session cannot be
+    // verified against one state and signed out against another.
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Pool(e)))?;
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    let session = signed.verify(&state, &tx).await?;
+    state.sessions.sign_out_in(&tx, &session).await?;
+    tx.commit()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
     Ok((StatusCode::OK, "signed out\n").into_response())
 }
 
@@ -307,7 +370,7 @@ async fn organisation_capability_handler(
     Path(organisation): Path<String>,
     signed: Signed,
 ) -> Result<Response, Refusal> {
-    capability(&state, &signed.session, &organisation, None).await
+    capability(&state, &signed, &organisation, None).await
 }
 
 /// `GET /organisations/{organisation}/scopes/{scope}/capability`.
@@ -316,7 +379,7 @@ async fn scope_capability_handler(
     Path((organisation, scope)): Path<(String, String)>,
     signed: Signed,
 ) -> Result<Response, Refusal> {
-    capability(&state, &signed.session, &organisation, Some(scope)).await
+    capability(&state, &signed, &organisation, Some(scope)).await
 }
 
 /// **The whole chain, end to end, in one route.**
@@ -332,9 +395,13 @@ async fn scope_capability_handler(
 /// It asks for `read`, the weakest capability, and answers with the strongest
 /// one actually established, so a steward sees `steward` and a `NotAuthorised`
 /// is a real refusal rather than a question about the wrong verb.
+///
+/// **One transaction, since `0014`.** Verification and authorisation share a
+/// snapshot, which is what §3.4's seven steps and §4's *"before setting
+/// `app.design_capability`"* have always read as and were not.
 async fn capability(
     state: &ApiState,
-    session: &VerifiedSession,
+    signed: &Signed,
     organisation: &str,
     scope: Option<String>,
 ) -> Result<Response, Refusal> {
@@ -360,7 +427,8 @@ async fn capability(
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
 
-    let ctx = sessions::open_tenant_context(&tx, tenant, session).await?;
+    let session = signed.verify(state, &tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
     let tenant_key = keys::tenant_key(&tx, &state.ring, &ctx)
         .await
         .map_err(|e| Refusal::from(SessionError::Keys(e)))?;
@@ -372,10 +440,18 @@ async fn capability(
     };
 
     let answer = grants::authorise_account(&tx, &auth, scope_id, Capability::Read).await;
-    // Read-only: nothing here writes, so the transaction is rolled back rather
-    // than committed. An authorisation is a question, and a question that
-    // leaves a row behind is a question that can be answered from the row.
-    let _ = tx.rollback().await;
+
+    // **It commits, and that changed with `0014`.** The HANDLER still writes
+    // nothing — an authorisation is a question, and a question that leaves a
+    // row behind is a question that can be answered from the row. What the
+    // transaction now also carries is verification's own bookkeeping: the
+    // advanced `request_counter`, which is the mark every later nonce is
+    // issued against. Rolling that back would leave the mark where it was
+    // while the browser's own tally moved on, and the session would stop at
+    // `CounterNotFresh` a window later.
+    tx.commit()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
 
     match answer {
         Ok(capabilities) => Ok((
@@ -538,6 +614,7 @@ impl IntoResponse for Refusal {
             }
             SessionError::NotSigned
             | SessionError::NoSuchSession
+            | SessionError::SessionRevoked
             | SessionError::Expired
             | SessionError::AccountDisabled
             | SessionError::EvidenceKeyNotInService

@@ -315,6 +315,12 @@ pub enum EntryType {
     /// rate-limit refusal — §13 item 7's lockout has its sealed record here
     /// rather than in a type of its own.
     AccountSigninFailed,
+    /// A session was signed out (migration `0014`). §7.2 names no type for it
+    /// — the same gap `0013` reported for the two above — and the act needs
+    /// one, because a sign-out is now RECORDED rather than only performed: the
+    /// sealed entry is what the `session_revocations` row's MAC binds to, so
+    /// stopping the log stops the act here as everywhere else.
+    AccountSignedOut,
     /// An attempt at the operator sign-in surface was refused. §4.5: an
     /// operator session is `A1` or it does not exist, there is no password
     /// path, and no operator key can be enrolled yet — so every attempt is
@@ -393,6 +399,7 @@ impl EntryType {
             Self::SpoolPressure => "spool_pressure",
             Self::AccountSignin => "account_signin",
             Self::AccountSigninFailed => "account_signin_failed",
+            Self::AccountSignedOut => "account_signed_out",
             Self::OperatorSigninFailed => "operator_signin_failed",
             Self::AccountDisabled => "account_disabled",
             Self::AccountEnabled => "account_enabled",
@@ -420,6 +427,7 @@ impl EntryType {
             "spool_pressure" => Some(Self::SpoolPressure),
             "account_signin" => Some(Self::AccountSignin),
             "account_signin_failed" => Some(Self::AccountSigninFailed),
+            "account_signed_out" => Some(Self::AccountSignedOut),
             "operator_signin_failed" => Some(Self::OperatorSigninFailed),
             "account_disabled" => Some(Self::AccountDisabled),
             "account_enabled" => Some(Self::AccountEnabled),
@@ -461,6 +469,7 @@ impl EntryType {
             | Self::SpoolPressure
             | Self::AccountSignin
             | Self::AccountSigninFailed
+            | Self::AccountSignedOut
             | Self::OperatorSigninFailed
             | Self::AccountDisabled
             | Self::AccountEnabled => &[ChainKind::Site],
