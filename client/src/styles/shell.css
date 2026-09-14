@@ -1,0 +1,149 @@
+/* The application shell: masthead, left rail, centre, right inspector.
+   `docs/UI-SPEC.md` "The shape". Static content only in this slice — no
+   diagram, no React Flow. Geometry only here; every colour, border width and
+   type size below is a token from `design/tokens.css`, per that page's
+   "Look" section: zero radius, no shadows, 1px hairlines. */
+
+.shell {
+  display: grid;
+  grid-template-columns: 260px 1fr 300px;
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    'masthead masthead masthead'
+    'rail centre inspector';
+  height: 100%;
+  background: var(--page);
+  color: var(--ink);
+}
+
+.masthead {
+  grid-area: masthead;
+  display: flex;
+  align-items: center;
+  gap: var(--s5);
+  padding: 0 var(--s4);
+  height: calc(var(--lh-step) * 2);
+  border-bottom: var(--rule-mast) solid var(--ink);
+  font-size: var(--t-mast);
+}
+
+.masthead__brand {
+  font-weight: 700;
+  letter-spacing: var(--track-mast);
+  text-transform: uppercase;
+}
+
+.masthead__breadcrumb {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.masthead__spacer {
+  flex: 1;
+}
+
+.masthead__control {
+  font-size: var(--t-small);
+  color: var(--muted);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s2);
+  background: var(--surface);
+}
+
+.masthead__account {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-small);
+}
+
+.rail,
+.inspector {
+  overflow-y: auto;
+  padding: var(--s4);
+}
+
+.rail {
+  grid-area: rail;
+  border-right: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+}
+
+.inspector {
+  grid-area: inspector;
+  border-left: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+}
+
+.centre {
+  grid-area: centre;
+  overflow: auto;
+  background: var(--page);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rail__section + .rail__section {
+  margin-top: var(--s5);
+}
+
+.rail__heading {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 var(--s2) 0;
+}
+
+.rail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.rail__item {
+  padding: var(--s1) var(--s2);
+  border: var(--rule-hair) solid transparent;
+  font-size: var(--t-body);
+}
+
+.rail__item--current {
+  border-color: var(--hairline);
+  background: var(--page);
+}
+
+.centre__empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--t-body);
+  max-width: var(--measure);
+}
+
+.centre__empty-title {
+  font-size: var(--t-title);
+  color: var(--ink);
+  margin: 0 0 var(--s2) 0;
+}
+
+.inspector__empty {
+  color: var(--muted);
+  font-size: var(--t-body);
+}
+
+.theme-toggle {
+  font-size: var(--t-small);
+  color: var(--muted);
+  background: none;
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s2);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
