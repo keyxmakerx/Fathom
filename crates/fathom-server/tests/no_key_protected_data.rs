@@ -408,6 +408,38 @@ const TABLES: &[TableClaim] = &[
               `operator_read` is written once per surface per session rather than once per \
               poll. A session id and a surface name, and nothing else.",
     },
+    TableClaim {
+        name: "firmware_images",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "ADR-0045's staging record: which scope an image was staged for, the operator's own \
+              name for the file, its length, the SHA-256 that was declared, the SHA-256 this \
+              server computed over the bytes it wrote, and the state machine between them. \
+              **The image itself is not here** -- one to two gigabytes goes to a directory, and \
+              `0017` §A says why. A firmware image is a public vendor artefact, not a secret; \
+              the two hashes are hashes of it. **No device credential can arrive on this table**: \
+              there is no column for a password, a key, a host key or a device address, which is \
+              CLAUDE.md rule 4's shape and ADR-0045 §4.1's decision made structural.",
+    },
+    TableClaim {
+        name: "firmware_upload_tokens",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the HASH of a single-use upload token, never the token. It authorises exactly one \
+              thing -- sending the bytes of one already-declared image, at the length and hash \
+              that declaration named -- and it is returned once, to the steward who declared, \
+              and is gone from this server the moment it is handed out. The hash is useless to \
+              upload with, exactly as `sessions.token_hash` is useless to sign with.",
+    },
+    TableClaim {
+        name: "firmware_fetch_tokens",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the HASH of the one-time URL a switch collects an image from, plus who issued it, \
+              which sealed entry recorded that, when it expires, and whether and from where it \
+              was redeemed. **The URL is a credential and this table does not hold it** -- \
+              `H(LP(\"fathom/firmware/token/v1\") || LP(token))` and nothing more, so a database \
+              read hands an attacker a hash and a hash cannot be fetched with. It is not \
+              key-protected material either: it protects a public vendor image, it is single-use \
+              and minutes long, and it wraps no key.",
+    },
 ];
 
 /// Object kinds a migration may create that are not themselves a place to
