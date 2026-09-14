@@ -2036,6 +2036,26 @@ over all 93 projected crates in both databases: every hit is against a version b
 server only verifies; there is no secret scalar in this process on this path. It matters for
 browser-side reconstruction and nothing else new.
 
+**Low-S is required on the wire, and `WebCrypto` does not produce it — added 2026-09-14.**
+`authority::verify_es256` refuses any signature whose `s` is above the curve order's halfway point,
+and `SoftwareKey::sign` normalises its own output so the server never trips its own rule. The
+browser has no such courtesy: `SubtleCrypto.sign` with `ECDSA`/`P-256` returns whichever of the two
+equivalent signatures the implementation happens to produce, so roughly half of all genuine
+browser signatures are high-S and would have been refused, at random, with the uniform refusal that
+says nothing about why. Nobody would have found that from the error message.
+
+The browser therefore applies the same normalisation before sending: `client/src/crypto/p256.ts`,
+proved by its own tests to be a no-op on an already-low-S value and to recover the same value from
+its high-S twin. Found on 2026-09-14 by the builder of the first client slice, not by a document —
+which is the argument for writing the client against the real byte construction rather than a
+description of it.
+
+**This applies to every future signer, not only this one.** WebAuthn assertions arrive from an
+authenticator over which Fathom has no normalisation hook at all, so §15.4's verification must
+decide explicitly whether a high-S assertion is refused or normalised before verification. That
+decision is open and belongs with the WebAuthn work; it is recorded here so it is not discovered
+the same way twice.
+
 ### 15.4 WebAuthn verification is hand-written, and that is allowed
 
 **No Rust crate passes this project's bar.** `webauthn-rs 0.5.5` depends on `openssl` and
