@@ -54,6 +54,7 @@ pub mod chains;
 pub mod config;
 pub mod crypto;
 pub mod db;
+pub mod design_api;
 pub mod designs;
 pub mod engine;
 pub mod grants;

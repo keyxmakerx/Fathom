@@ -108,6 +108,13 @@ fathom-graph = { path = "../fathom-graph" }
 fathom-id = { path = "../fathom-id" }
 fathom-schema = { path = "../fathom-schema" }
 
+# The equipment catalogue (`crates/fathom-corpus/src/catalogue.rs`, landed
+# 2026-09-14), read-only, for `src/design_api.rs`'s catalogue routes. A path
+# member of this workspace, like the three above: it adds nothing to the
+# dependency closure gate-zero measures, and `fathom-corpus` itself names only
+# `fathom-id` and `fathom-schema`, both already dependencies of this crate.
+fathom-corpus = { path = "../fathom-corpus" }
+
 # ---------------------------------------------------------------------------
 # PHASE 2's KEY HIERARCHY. Every version below is `docs/PHASE-2-STORAGE-DESIGN.md`
 # §12.4's table, and each has its own `deps/decisions/` record because this

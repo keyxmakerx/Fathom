@@ -450,6 +450,7 @@ dependencies = [
  "deadpool-postgres",
  "ecdsa",
  "fathom-canon",
+ "fathom-corpus",
  "fathom-graph",
  "fathom-id",
  "fathom-schema",
