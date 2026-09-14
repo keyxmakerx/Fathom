@@ -8,6 +8,53 @@ use fathom_server::engine::EngineState;
 use fathom_server::health::HealthState;
 use fathom_server::{db, keys, log_startup, migrate, rls, router, AppState};
 
+/// Where the first operator's enrolment token is written on a first start.
+///
+/// **Beside the master key, not beside the binary.** ADR-0043 §9 already tells
+/// an operator that the key volume is the sensitive one, that it is backed up
+/// separately from the database and never archived with it. The bootstrap
+/// token is a bearer secret of the same order for the few minutes it lives, so
+/// it belongs in the place the operator has already been told to guard, rather
+/// than in a second place they have to be told about. When the master key does
+/// not come from a file -- `command://` or `env://` -- there is no such
+/// directory, and the current directory is the honest fallback: the path is
+/// logged either way, so nobody has to guess where it went.
+fn first_operator_token_path(config: &fathom_server::config::Config) -> std::path::PathBuf {
+    match &config.master_key {
+        fathom_server::keyprovider::KeySource::File(p) => p
+            .parent()
+            .map(|d| d.join("first-operator-token"))
+            .unwrap_or_else(|| std::path::PathBuf::from("first-operator-token")),
+        _ => std::path::PathBuf::from("first-operator-token"),
+    }
+}
+
+/// Write the bootstrap token, readable by its owner and nobody else.
+///
+/// The mode is set **before** the bytes are written, not after, because a file
+/// created world-readable and then chmodded is world-readable for the length
+/// of that window, and this is a bearer token. Hex rather than raw bytes so an
+/// operator can read it out of a terminal without a hex dump, and a trailing
+/// newline so `cat` behaves.
+fn write_bootstrap_token(path: &std::path::Path, token: &[u8; 32]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    let mut hex = String::with_capacity(65);
+    for byte in token {
+        hex.push_str(&format!("{byte:02x}"));
+    }
+    hex.push('\n');
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o400)
+        .open(path)?;
+    file.write_all(hex.as_bytes())?;
+    file.sync_all()
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     // `43` §5.4: "distroless has no shell and no curl. The binary is its own
@@ -477,10 +524,87 @@ async fn main() -> ExitCode {
         }
     };
     let designs = fathom_server::design_api::DesignApiState {
-        sessions,
+        sessions: Arc::clone(&sessions),
         watch,
         ring: Arc::clone(&ring),
         catalogue,
+    };
+
+    // The operator plane. `single_operator` is read from the configuration
+    // rather than decided here, and it removes the second signature without
+    // removing the delay -- admin design §5.3, and `config.rs` says why on the
+    // field itself.
+    let operators = Arc::new(fathom_server::operators::OperatorStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment.clone(),
+        config.single_operator,
+    ));
+
+    // §5.3's mode is written to the site chain at startup rather than left as
+    // a belief held only by this process's environment. An auditor reading the
+    // chain can then see that the deployment was running with one operator,
+    // and when.
+    if config.single_operator {
+        match operators.record_single_operator_mode().await {
+            Ok(seq) => tracing::warn!(
+                site_chain_seq = seq,
+                "FATHOM_SINGLE_OPERATOR is set: settings changes need ONE operator's assertion                  instead of two. The delay is unchanged and is now the only thing standing                  between one compromised operator and a changed setting."
+            ),
+            Err(e) => {
+                tracing::error!(error = ?e, "could not record single-operator mode; refusing to start");
+                return ExitCode::from(9);
+            }
+        }
+    }
+
+    // First start mints the first operator and their enrolment token. The
+    // token is the one secret in this program that a human has to read, so it
+    // goes to a file beside the key it is as sensitive as, mode 0400, and its
+    // PATH is logged while the token itself never is -- logs are shipped off
+    // the box by design (`audit.rs`), and a token in a log is a token in
+    // whatever holds the logs.
+    let notice_address = config.operator_notice_address.clone().unwrap_or_default();
+    match operators
+        .bootstrap_first_operator("the first operator", &notice_address)
+        .await
+    {
+        Ok(bootstrap) => {
+            let path = first_operator_token_path(&config);
+            match write_bootstrap_token(&path, &bootstrap.invitation.token) {
+                Ok(()) => tracing::warn!(
+                    operator_id = %bootstrap.operator_id,
+                    token_file = %path.display(),
+                    expires_at_unix = bootstrap.invitation.expires_at_unix,
+                    "FIRST START: an operator was created and an enrolment token written. Read                      the file, redeem it in a browser, then delete it. The token is not in this                      log and will not be shown again."
+                ),
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        token_file = %path.display(),
+                        "the first operator was created but their enrolment token could not be                          written, so nobody can redeem it; refusing to start"
+                    );
+                    return ExitCode::from(10);
+                }
+            }
+        }
+        // Every start after the first. Not an error here: the deployment is
+        // already bootstrapped, which is the ordinary case.
+        Err(fathom_server::operators::OperatorError::AlreadyBootstrapped) => {}
+        Err(e) => {
+            tracing::error!(
+                error = ?e,
+                notice_address_set = config.operator_notice_address.is_some(),
+                "could not bootstrap the first operator; refusing to start. On a first start, set                  FATHOM_OPERATOR_NOTICE_ADDRESS to the address that should receive operator                  notices."
+            );
+            return ExitCode::from(9);
+        }
+    }
+
+    let admin = fathom_server::admin::AdminState {
+        sessions,
+        operators,
+        ring: Arc::clone(&ring),
     };
     tracing::info!(
         window_seconds = config.sign_in_limits.window.as_secs(),
@@ -514,7 +638,8 @@ async fn main() -> ExitCode {
     // deployment would count into one bucket named "unknown".
     let app = router(AppState { health, engine })
         .merge(fathom_server::api::router(api))
-        .merge(fathom_server::design_api::router(designs));
+        .merge(fathom_server::design_api::router(designs))
+        .merge(fathom_server::admin::router(admin));
     let served = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

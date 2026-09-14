@@ -186,6 +186,30 @@ pub struct Config {
     /// chooses which one it is not in, and this comment is the place that says
     /// so.
     pub trusted_client_ip_header: Option<String>,
+
+    /// `FATHOM_SINGLE_OPERATOR`. Admin design §5.3's documented escape for a
+    /// deployment that genuinely has one operator.
+    ///
+    /// **It removes the second signature and it does NOT remove the delay.**
+    /// The delay is what gives anyone a chance to notice; the second signature
+    /// is what makes one compromised operator insufficient. A deployment with
+    /// one operator cannot have the second, so it keeps the first, and the
+    /// fact that it is in this mode is written to the site chain at startup
+    /// rather than left as a local belief.
+    ///
+    /// Absent, empty or anything but `1`/`true`/`yes` means false: the safe
+    /// value is the one you get by not setting it or by fumbling it.
+    pub single_operator: bool,
+
+    /// `FATHOM_OPERATOR_NOTICE_ADDRESS`. Where operator notices go, and the
+    /// address the first operator is created against on a first start.
+    ///
+    /// **Read at every start and used only at the first.** There is no default:
+    /// a deployment that bootstrapped an operator against a guessed address
+    /// would have an operator nobody can reach, and admin design §5.5's notices
+    /// are part of how a second operator learns that a settings change was
+    /// requested at all.
+    pub operator_notice_address: Option<String>,
 }
 
 /// ADR-0043 §9's path, in the operator's register and therefore in the code
@@ -406,6 +430,19 @@ impl Config {
         let sign_in_limits = SignInLimits::from_lookup(&get)
             .map_err(|variable| ConfigError::Unparseable { variable })?;
 
+        let operator_notice_address = get("FATHOM_OPERATOR_NOTICE_ADDRESS")
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+
+        let single_operator = matches!(
+            get("FATHOM_SINGLE_OPERATOR")
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+                .as_str(),
+            "1" | "true" | "yes"
+        );
+
         let trusted_client_ip_header = get("FATHOM_TRUSTED_CLIENT_IP_HEADER")
             .map(|v| v.trim().to_ascii_lowercase())
             .filter(|v| !v.is_empty());
@@ -461,6 +498,8 @@ impl Config {
             audit_spool_bounds,
             sign_in_limits,
             trusted_client_ip_header,
+            single_operator,
+            operator_notice_address,
         })
     }
 
@@ -504,6 +543,31 @@ mod tests {
         assert_eq!(c.health_timeout, Duration::from_millis(2000));
         assert_eq!(c.pool_size, 8);
         assert_eq!(c.schema_root, "schema");
+    }
+
+    #[test]
+    fn single_operator_mode_is_off_unless_it_is_asked_for_unambiguously() {
+        // The safe value is what a fumbled setting gives you. `FATHOM_SINGLE_
+        // OPERATOR=flase` must not be single-operator mode, and neither must
+        // an empty string left behind by a template that filled nothing in.
+        for absent_or_wrong in ["", "   ", "0", "false", "no", "flase", "off", "2"] {
+            let c = Config::from_lookup(env(&[
+                ("DATABASE_URL", "postgres://u@h/db"),
+                ("FATHOM_SINGLE_OPERATOR", absent_or_wrong),
+            ]))
+            .unwrap();
+            assert!(!c.single_operator, "must be off for {absent_or_wrong:?}");
+        }
+        for asked in ["1", "true", "TRUE", "yes", " Yes "] {
+            let c = Config::from_lookup(env(&[
+                ("DATABASE_URL", "postgres://u@h/db"),
+                ("FATHOM_SINGLE_OPERATOR", asked),
+            ]))
+            .unwrap();
+            assert!(c.single_operator, "must be on for {asked:?}");
+        }
+        let c = Config::from_lookup(env(&[("DATABASE_URL", "postgres://u@h/db")])).unwrap();
+        assert!(!c.single_operator, "absent means off");
     }
 
     #[test]
