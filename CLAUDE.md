@@ -20,6 +20,7 @@ This file is a pointer page. It is loaded before every instruction, so it stays 
 |---|---|
 | The plan | `docs/REBUILD-PLAN.md` |
 | **What to do next, session by session** | `docs/NEXT.md` — written 2026-09-13 for the sessions after it |
+| **How to actually run it** | `docs/RUNNING-IT.md` — from source is verified; Compose is not yet |
 | What is actually built right now | `docs/STATE.md` |
 | **What the interface looks like** | `docs/UI-SPEC.md` — approved. Pictures linked from it; open those only when building a surface. |
 | Rules you must not break | `.context/conventions.md` |
