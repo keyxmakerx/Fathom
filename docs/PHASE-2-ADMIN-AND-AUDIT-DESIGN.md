@@ -807,6 +807,58 @@ provenance, which damages the product's other co-equal goal by means of its own 
 
 ---
 
+> **The operator console as built — 2026-09-14.** Migration `0015` and `operators.rs`. Ten places
+> where this design was wrong, silent, or describes something not built. The first three change what
+> the design says; the rest are gaps, named so they are not mistaken for finished work.
+>
+> 1. **An organisation shell is not a row in `organisations`.** §6.2 reads as though it is. It cannot
+>    be: §6.1 derives the organisation id from a root key that does not exist until the claim is
+>    redeemed. A shell is its own row, and it names the organisation its claim eventually produced.
+> 2. **§5.1's reset is an enrolment token, not `reset_link_sent`.** There is no password, so there is
+>    nothing to reset; the path is the invitation path. The entry type follows the act.
+> 3. **An operator signs in with their operator id**, because §4.5 gives operators no address of
+>    record. Accounts sign in with an address; operators do not have one to use.
+> 4. **§5.4 step 4 is not implemented.** It wants the delay measured against a chain receipt, and
+>    there is no `chain_receipts` table — `0009` defers receipts deliberately. The delay is therefore
+>    measured against *this server's clock*, which is the thing it was supposed not to trust. The
+>    column is absent rather than stubbed, so nothing reads a field that means less than its name.
+>    This is the weakest point in the interlock and it is not closed by anything below.
+> 5. **§4.4's steward co-signature on enrolment redemption is not built.** A redeemed token enrols a
+>    key on the token alone. This is where the build is weaker than this design, it is grant-shaped
+>    work, and it should be done before anybody relies on invitations at scale.
+> 6. **No notices are sent anywhere, because there is no mail path at all.** §1.1 and §5.5 both
+>    require them, and §5.5's second operator is supposed to learn of a request by being told. Today
+>    they learn by looking. The interlock's *refusals* all hold; its *notification* does not exist.
+> 7. **§1.1's rate limit on account-shell creation is not built.**
+> 8. **§1.3's read-only pool is not used.** `fathom_operator` is `NOLOGIN` (`0005`) and `planes.rs`
+>    asserts it cannot be connected to at all. Console reads run on the application role under
+>    `app.operator_custody`, with `design_capability` at its refusal. Giving that role a login is a
+>    deployment change, not a code change, and until it is made §1.3 describes an intent rather than
+>    a mechanism.
+> 9. **`OperatorHasNoAuthenticator` was retired.** Once operators can exist, answering "that one has
+>    no key" is an oracle over operator ids, which is the same defect §4's correction block records
+>    for account addresses.
+> 10. **`grant_suspended` is filed on BOTH chains**, like `rewrap`: the organisation's chain for the
+>    stewards who may lift it, the site chain because every operator act must be legible to whoever
+>    audits the operator plane. §7.2's two lists both carry it.
+>
+> **Two configuration values, neither with a default.** `FATHOM_SINGLE_OPERATOR` removes the second
+> signature and **not** the delay, and is recorded on the site chain at startup so the mode is
+> auditable rather than a local belief. `FATHOM_OPERATOR_NOTICE_ADDRESS` is where notices will go and
+> the address the first operator is created against; a guessed default would bootstrap an operator
+> nobody can reach.
+>
+> **The session's evidence key is under two foreign keys, not a trigger.** `0015` first replaced
+> `0013`'s foreign key with a `SECURITY DEFINER` trigger, because the reference is polymorphic: an
+> account's proving key and an operator's live in different keyrings. That trigger ran as a
+> NOSUPERUSER owner and so was subject to `FORCE ROW LEVEL SECURITY`, which made it ask *is this key
+> visible to me* rather than *does this key exist* — measured on PostgreSQL 16.13, an insert naming
+> an existing-but-invisible row was accepted and one naming a non-existent row was refused.
+> Referential integrity does not go through row security. It also passed its own tests by coincidence
+> of the ambient transaction, so nothing in the suite could tell. Two columns and two real foreign
+> keys now, with `CHECK`s tying each to its principal kind; the application still reads and writes one
+> value, so the row MAC covers the same bytes.
+
 ## 4. Sessions: the per-request proof
 
 The server decrypts designs to serve them. Nothing here changes that, so the only place to stand is
@@ -1200,14 +1252,18 @@ organisation chain; the site chain covers everything organisation-independent.
 
 **Site chain** — `deployment_started`, `schema_fingerprint`, `migration_applied`,
 `client_build_digest`, `operator_bootstrapped`, `operator_created|seconded|enrolled|disabled`,
-`operator_signin|signin_failed`, `account_signin|signin_failed`, `account_signed_out`,
+`operator_signin|signin_failed|signed_out`, `operator_read`, `account_signin|signin_failed`,
+`account_signed_out`,
 `account_created`, `account_disabled|enabled`, `reset_link_sent`,
 `password_changed`, `authenticator_registered|removed`, `enrolment_token_issued|redeemed|expired`,
 `contact_change_requested|seconded|applied|cancelled`,
 `setting_requested|seconded|applied|cancelled`, `setting_unresolvable`, `single_operator_mode`,
 `org_shell_created`, `backup_taken`, `restore_performed`, `rewrap`, `rotate_started|finished`,
 `shipper_config_changed`, `shipper_gap`, `spool_pressure`, `clock_step`, `epoch_opened`,
-`witness_receipt`, `verification_run`, `heartbeat`.
+`witness_receipt`, `verification_run`, `heartbeat`, and **`grant_suspended`** — on both lists from
+2026-09-14, for the same reason `rewrap` is: the organisation's chain carries it for the stewards who
+may lift it, and the site chain carries it because suspension is an operator act and every operator
+act has to be legible to whoever audits the operator plane.
 
 **Organisation chain** — `org_genesis`, `account_key_enrolled|superseded|retired`, `grant_signed`,
 `grant_seconded`, `grant_suspended|unsuspended`, `grant_revoked`, `auth_head_advanced`,
