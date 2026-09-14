@@ -21,7 +21,14 @@ path = "src/main.rs"
 # platform TLS stack, and a default feature is the usual way that happens
 # without anyone choosing it. deps/decisions/00-CLOSURE.md §"Why
 # default-features = false is a security control" is the precedent.
+# `fs` added 2026-09-14 with the firmware fetch route's streaming body. It is a
+# FEATURE, not a dependency: tokio's own manifest has `fs = []`, so it pulls no
+# package and gate-zero's closure count is unchanged either way. It exists
+# because `tokio_util::io::ReaderStream` needs an `AsyncRead`, and the only one
+# over a file is `tokio::fs::File` -- which is itself a `spawn_blocking` wrapper
+# over `std::fs`, the same mechanism the upload path already hand-rolls.
 tokio = { version = "1.53.1", default-features = false, features = [
+    "fs",
     "rt-multi-thread",
     "net",
     "macros",

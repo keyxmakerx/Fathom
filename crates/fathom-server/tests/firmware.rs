@@ -950,6 +950,309 @@ async fn a_fetch_url_serves_the_staged_bytes_once_and_then_never_again() {
     );
 }
 
+/// **The fetch streams.** The claim is not "the handler names a stream type" —
+/// a type is not a measurement — it is that a fetch costs the server a buffer
+/// and not an image, and that the bytes still arrive whole.
+///
+/// How this measures it. The router under test runs **in this process**, so
+/// this process's resident set is the server's. The staged image is built once
+/// and **deliberately kept alive** for the whole test, so the allocator is not
+/// holding a free 40 MiB arena that a buffering implementation could quietly
+/// reuse without the resident set moving. A baseline is taken after staging and
+/// after the fetch URL is issued; the body is then read in fixed 64 KiB chunks,
+/// hashed and discarded — never collected — with the resident set sampled on
+/// every chunk. A handler that read the file whole would have to add the
+/// image's size to the resident set before the first byte reached the socket.
+///
+/// `std::fs::read` of this image is 41,943,040 bytes; the bound asserted here
+/// is a quarter of that. On Linux this reads `/proc/self/statm`; where that
+/// file does not exist the memory half is skipped and the correctness half
+/// still runs, which is stated rather than hidden.
+///
+/// It also pins the framing. `Body::from_stream` has no length of its own, so
+/// without the explicit `Content-Length` the response would be chunked — and
+/// the raw socket readers in this file would then see the chunk headers as
+/// body. That is a real regression, so it is asserted directly.
+#[tokio::test]
+async fn a_large_image_streams_back_whole_and_the_server_never_holds_it() {
+    use sha2::{Digest, Sha256};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    // 40 MiB: 160 chunks of the fetch path's 256 KiB, so the streaming loop is
+    // exercised rather than incidentally skipped, and comfortably under the
+    // 64 MiB `max_image_bytes` this test router is built with.
+    let length = 40 * 1024 * 1024;
+    let bytes = an_image(length);
+    let expected = sha256_of(&bytes);
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &bytes,
+    )
+    .await;
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!(
+            "/organisations/{}/firmware/{image}/fetch-urls",
+            estate.organisation
+        ),
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status,
+        "200",
+        "issue a fetch url: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let url = json_str(&body, "fetch_url");
+    let path = url
+        .strip_prefix("https://fathom.test.invalid")
+        .expect("the configured base url");
+
+    let baseline = resident_bytes();
+
+    let mut stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("connect to the test router");
+    stream
+        .write_all(
+            format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
+        )
+        .await
+        .expect("write the fetch request");
+
+    // Fixed buffer, hashing as it goes: this reader is the shape the claim is
+    // about, so it must not itself accumulate the image.
+    let mut buffer = vec![0u8; 64 * 1024];
+    let mut head: Vec<u8> = Vec::new();
+    let mut head_done = false;
+    let mut hasher = Sha256::new();
+    let mut received: u64 = 0;
+    let mut peak: u64 = 0;
+    loop {
+        let n = stream.read(&mut buffer).await.expect("read the response");
+        if n == 0 {
+            break;
+        }
+        let mut chunk = &buffer[..n];
+        if !head_done {
+            head.extend_from_slice(chunk);
+            match head.windows(4).position(|w| w == b"\r\n\r\n") {
+                None => continue,
+                Some(split) => {
+                    let body_start = head.split_off(split + 4);
+                    head_done = true;
+                    hasher.update(&body_start);
+                    received += body_start.len() as u64;
+                    chunk = &[];
+                }
+            }
+        }
+        hasher.update(chunk);
+        received += chunk.len() as u64;
+        if let (Some(base), Some(now)) = (baseline, resident_bytes()) {
+            peak = peak.max(now.saturating_sub(base));
+        }
+    }
+
+    let head = String::from_utf8_lossy(&head).to_lowercase();
+    assert!(head.starts_with("http/1.1 200"), "{head}");
+    assert!(
+        head.contains(&format!("content-length: {length}")),
+        "a streamed body still states its length, or a device cannot tell a truncated transfer \
+         from a complete one:\n{head}"
+    );
+    assert!(
+        !head.contains("transfer-encoding"),
+        "the length is stated, so this must not also be chunked:\n{head}"
+    );
+
+    assert_eq!(received, length as u64, "every staged byte came back");
+    assert_eq!(
+        <[u8; 32]>::from(hasher.finalize()),
+        expected,
+        "the bytes that came back are the bytes that were staged"
+    );
+
+    match baseline {
+        None => eprintln!(
+            "resident set not readable on this platform; the memory half of \
+             a_large_image_streams_back_whole_and_the_server_never_holds_it did not run"
+        ),
+        Some(_) => assert!(
+            peak < (length as u64) / 4,
+            "serving a {length}-byte image grew this process's resident set by {peak} bytes. A \
+             fetch must cost a buffer, not an image — see src/firmware.rs's module doc"
+        ),
+    }
+
+    // Held to here on purpose: see the doc comment. Freeing it earlier would
+    // leave an arena a buffering implementation could reuse invisibly.
+    assert_eq!(bytes.len(), length);
+}
+
+/// **A device that hangs up mid-transfer, twelve times, leaves no open file.**
+///
+/// The buffered version could not leak a file handle, because it held no handle
+/// while the response was being written. Streaming holds one open for the
+/// length of the transfer, so the question this answers is the one that
+/// introduces: what happens to it when the device goes away, and can a switch
+/// that retries badly accumulate handles until the process runs out.
+///
+/// Measured, not reasoned about. The router under test runs in this process, so
+/// `/proc/self/fd` **is** the server's descriptor table; each entry is a symlink
+/// to the file it holds, and this test's staging directory is its own, so a
+/// descriptor pointing into it can only be a fetch's. Twelve fetch URLs are
+/// issued for one 16 MiB image — far larger than any socket buffer, so each
+/// transfer is certainly still running — each is fetched far enough to see body
+/// bytes arrive, and then the socket is dropped without being drained.
+///
+/// The count is polled rather than asserted instantly: `tokio::fs::File`'s
+/// close is handed to the blocking pool, so it is a moment behind the drop.
+/// Waiting for it to reach zero and failing on the timeout is the honest shape
+/// — a leak never reaches zero, however long the poll waits.
+#[tokio::test]
+async fn a_device_that_hangs_up_mid_transfer_leaves_no_open_file_behind() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    if open_files_under(&directory).is_none() {
+        eprintln!(
+            "/proc/self/fd is not readable on this platform; \
+             a_device_that_hangs_up_mid_transfer_leaves_no_open_file_behind cannot measure"
+        );
+        return;
+    }
+
+    let bytes = an_image(16 * 1024 * 1024);
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &bytes,
+    )
+    .await;
+
+    for attempt in 0..12 {
+        let (status, body) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &format!(
+                "/organisations/{}/firmware/{image}/fetch-urls",
+                estate.organisation
+            ),
+            b"",
+        )
+        .await;
+        assert_eq!(
+            status,
+            "200",
+            "issue fetch url {attempt}: {}",
+            String::from_utf8_lossy(&body)
+        );
+        let url = json_str(&body, "fetch_url");
+        let path = url
+            .strip_prefix("https://fathom.test.invalid")
+            .expect("the configured base url");
+
+        let mut stream = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("connect to the test router");
+        stream
+            .write_all(
+                format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                    .as_bytes(),
+            )
+            .await
+            .expect("write the fetch request");
+
+        // Read until the body has started, so the hang-up is genuinely
+        // mid-transfer and not before the handler ever opened anything.
+        let mut seen = Vec::new();
+        let mut buffer = vec![0u8; 8 * 1024];
+        while seen.len() < 64 * 1024 || !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+            let n = stream.read(&mut buffer).await.expect("read the response");
+            assert!(n > 0, "the transfer ended before it could be interrupted");
+            seen.extend_from_slice(&buffer[..n]);
+        }
+        assert!(
+            String::from_utf8_lossy(&seen[..64]).starts_with("HTTP/1.1 200"),
+            "fetch {attempt} must have started: {}",
+            String::from_utf8_lossy(&seen[..64])
+        );
+
+        // The device goes away. No shutdown, no drain: the socket is dropped
+        // with 16 MiB still unsent, which is what a switch losing power does.
+        drop(stream);
+    }
+
+    // Every one of the twelve is now abandoned. Wait for the descriptor count
+    // to come back to zero; a leak would never get there.
+    let mut left = usize::MAX;
+    for _ in 0..100 {
+        left = open_files_under(&directory).expect("checked above that this is readable");
+        if left == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        left, 0,
+        "twelve devices hung up mid-transfer and this process still holds {left} open descriptors \
+         into the staging directory. A device that retries badly would exhaust the process's \
+         descriptors"
+    );
+}
+
+/// How many of this process's open descriptors point inside `directory`.
+///
+/// `None` where `/proc/self/fd` does not exist, which is stated by the caller
+/// rather than silently passing.
+fn open_files_under(directory: &PathBuf) -> Option<usize> {
+    let entries = std::fs::read_dir("/proc/self/fd").ok()?;
+    Some(
+        entries
+            .filter_map(|e| e.ok())
+            .filter_map(|e| std::fs::read_link(e.path()).ok())
+            .filter(|target| target.starts_with(directory))
+            .count(),
+    )
+}
+
+/// This process's resident set in bytes, or `None` where the kernel does not
+/// publish it. Field two of `/proc/self/statm` is resident pages.
+fn resident_bytes() -> Option<u64> {
+    let text = std::fs::read_to_string("/proc/self/statm").ok()?;
+    let pages: u64 = text.split_whitespace().nth(1)?.parse().ok()?;
+    Some(pages * 4096)
+}
+
 /// A fetch URL that has run out of time is refused, and the refusal is the
 /// same one an unknown token gets.
 #[tokio::test]
