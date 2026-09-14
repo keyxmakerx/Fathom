@@ -29,6 +29,16 @@ tokio = { version = "1.53.1", default-features = false, features = [
     "time",
 ] }
 
+# tokio-util 0.7, `io` only, direct as of 2026-09-14 for exactly one item:
+# `io::ReaderStream`, which turns an open file into the stream
+# `axum::body::Body::from_stream` accepts. Without it the firmware fetch route
+# reads a two-gibibyte image into memory to answer a request that carries no
+# session — the URL is the credential, because a switch cannot sign one.
+# Owner-approved; deps/decisions/tokio-util.md. Adds NOTHING to the closure: it
+# was already in the lockfile under tokio-postgres, and gate-zero counts the same
+# 141 packages either way.
+tokio-util = { version = "0.7", default-features = false, features = ["io"] }
+
 # axum 0.8.9. `41` §5.2 chose it and `49` §6 keeps the choice, with one standing
 # instruction: use its own `ws` feature when WebSockets arrive rather than
 # adding `tokio-tungstenite` separately, which would be two copies of the same
