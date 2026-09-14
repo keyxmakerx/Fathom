@@ -68,30 +68,35 @@
 //! token that is single-use except when it is not. Junos's `file copy` fetches
 //! whole files. If resumption is wanted later it is a decision, not a patch.
 //!
-//! # What is buffered, and what that costs — READ THIS BEFORE RAISING THE CAP
+//! # Nothing here holds an image in memory — NOT ON EITHER PATH
 //!
-//! The upload path streams. **The download path does not**, and the reason is
-//! a dependency rather than a design: producing a streaming response body in
-//! axum means naming `http_body::Frame` (to implement `http_body::Body`) or
-//! `futures_core::Stream` (for `Body::from_stream`), and neither crate is a
-//! direct dependency of this one. `axum::body::HttpBody` is re-exported and is
-//! what lets the *upload* stream; no equivalent re-export exists for the type
-//! a body must yield. Adding either as a direct dependency needs a
-//! `deps/decisions/` record, which is a human approval this session cannot
-//! give, so it is reported rather than taken.
+//! Both directions stream. The upload writes to disk as the bytes arrive
+//! ([`stream_to_disk`]); the download reads from disk as the socket drains
+//! ([`fetch_handler`], `tokio_util::io::ReaderStream` over a
+//! [`tokio::fs::File`], served as `axum::body::Body::from_stream`). What a
+//! fetch holds at once is [`FETCH_CHUNK`] bytes, not `max_image_bytes`, and
+//! that is the whole reason `tokio-util` is a direct dependency —
+//! `deps/decisions/tokio-util.md`, owner-approved 2026-09-14 for exactly one
+//! item.
 //!
-//! Until then [`fetch_handler`] reads the file whole and [`FetchBudget`] holds
-//! the cost to one image at a time: a second concurrent fetch is refused with
-//! `503` and a `Retry-After`, **before** any token is spent. So the worst case
-//! is one `max_image_bytes` allocation rather than one per caller, which
-//! matters because this is the one route in the server an unauthenticated
-//! caller can reach with a token they were handed. When a streaming body
-//! lands, [`FetchBudget`] goes with it.
+//! **Why that matters more here than anywhere else in the server:** this is the
+//! one route an unauthenticated caller can reach, because a switch cannot sign
+//! a request and the URL is therefore the credential (ADR-0045 §4.2). A route
+//! with no session behind it that allocated a gibibyte per caller would be a
+//! denial-of-service surface reachable by anybody holding one handed-out URL.
+//! It no longer allocates one, so the process-wide `FetchBudget` that used to
+//! admit one fetch at a time — and refuse the second with `503` — is gone with
+//! the allocation it existed to bound. Concurrency here is now bounded by the
+//! same thing that bounds every other route: connections and file handles.
+//!
+//! Two properties survive that change and are load-bearing, both restated at
+//! [`fetch_handler`] where the code makes them: the redemption is **sealed and
+//! committed before the first byte is written to the socket**, and the token is
+//! spent **exactly once** whether or not the transfer completes.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes, HttpBody};
@@ -159,6 +164,19 @@ pub const MAX_SIGNED_BODY: usize = 64 * 1024;
 /// [`stream_to_disk`].
 const UPLOAD_CHUNK: usize = 4 * 1024 * 1024;
 
+/// How much is held in memory between the disk and the socket on the fetch
+/// path: **this, and not the size of the image.**
+///
+/// 256 KiB. `ReaderStream`'s own default is 4 KiB, which for a two-gibibyte
+/// image is over five hundred thousand round trips through `spawn_blocking`;
+/// this is the same order as the upload's chunk without matching it, because
+/// the two are bounded by different things — the upload accumulates before one
+/// blocking write, the download allocates one of these per chunk in flight.
+/// The number that matters is that it is a constant, so a fetch's memory does
+/// not depend on `max_image_bytes` and a hundred concurrent fetches cost a
+/// hundred of these rather than a hundred images.
+const FETCH_CHUNK: usize = 256 * 1024;
+
 /// The domain separator for a firmware token's stored hash. A new use of a
 /// hash gets a label of its own, as `sessions::token_hash`'s does.
 const TAG_FIRMWARE_TOKEN: &[u8] = b"fathom/firmware/token/v1";
@@ -195,7 +213,6 @@ pub struct FirmwareStore {
     max_image_bytes: u64,
     fetch_base_url: String,
     trusted_client_ip_header: Option<String>,
-    budget: FetchBudget,
 }
 
 impl FirmwareStore {
@@ -242,7 +259,6 @@ impl FirmwareStore {
             max_image_bytes,
             fetch_base_url: fetch_base_url.trim_end_matches('/').to_string(),
             trusted_client_ip_header,
-            budget: FetchBudget::new(max_image_bytes),
         })
     }
 
@@ -287,46 +303,6 @@ fn ulid_text(image: FirmwareImageId) -> String {
         "a firmware image id is a ULID and becomes a filename; this one is not"
     );
     text
-}
-
-/// How much fetch buffering is allowed at once — see the module doc's last
-/// section. Deliberately blunt: the cap is one image, so at most one fetch is
-/// in flight.
-struct FetchBudget {
-    cap: u64,
-    in_flight: AtomicU64,
-}
-
-impl FetchBudget {
-    fn new(cap: u64) -> Self {
-        Self {
-            cap,
-            in_flight: AtomicU64::new(0),
-        }
-    }
-
-    /// Reserve the whole budget, or refuse. Conservative on purpose: the
-    /// reservation is taken BEFORE the token is spent, so a refusal costs the
-    /// caller a retry and not their single-use URL.
-    fn reserve(&self) -> Option<FetchReservation<'_>> {
-        match self
-            .in_flight
-            .compare_exchange(0, self.cap, Ordering::AcqRel, Ordering::Acquire)
-        {
-            Ok(_) => Some(FetchReservation { budget: self }),
-            Err(_) => None,
-        }
-    }
-}
-
-struct FetchReservation<'a> {
-    budget: &'a FetchBudget,
-}
-
-impl Drop for FetchReservation<'_> {
-    fn drop(&mut self) {
-        self.budget.in_flight.store(0, Ordering::Release);
-    }
 }
 
 /// The staging directory cannot be used, said at startup rather than at the
@@ -426,10 +402,6 @@ pub enum FirmwareError {
 
     /// Something about the filesystem. Never rendered to the caller in detail.
     Storage(std::io::Error),
-
-    /// A fetch is already in flight and this build buffers — see the module
-    /// doc's last section.
-    Busy,
 }
 
 /// Written for an operator reading a log line, never for the network — the
@@ -483,10 +455,6 @@ impl core::fmt::Display for FirmwareError {
                  has already been spent, or has expired",
             ),
             Self::Storage(e) => write!(f, "the firmware staging directory refused something: {e}"),
-            Self::Busy => f.write_str(
-                "another firmware image is already being served, and this build holds one whole \
-                 image in memory to serve it",
-            ),
         }
     }
 }
@@ -642,13 +610,6 @@ impl IntoResponse for FirmwareError {
                 tracing::error!(reason = %e, "firmware storage failed");
                 (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
             }
-
-            Self::Busy => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                [(axum::http::header::RETRY_AFTER, "30")],
-                "this server is already serving a firmware image; try again shortly\n",
-            )
-                .into_response(),
         }
     }
 }
@@ -1493,17 +1454,44 @@ async fn image_scope(
 ///
 /// What happens, in order, and the order is the design:
 ///
-/// 1. **Reserve the buffer budget**, before anything else, so a refusal under
-///    load costs a retry rather than a single-use token (module doc, last
-///    section).
-/// 2. **Spend the token** with one guarded `UPDATE ... RETURNING`, atomic
+/// 1. **Spend the token** with one guarded `UPDATE ... RETURNING`, atomic
 ///    against a second caller presenting the same URL.
-/// 3. **Take the tenant off the row that was just read**, never off the
+/// 2. **Take the tenant off the row that was just read**, never off the
 ///    request.
-/// 4. **Seal `firmware_fetch_redeemed` and commit** — before a single byte is
+/// 3. **Seal `firmware_fetch_redeemed` and commit** — before a single byte is
 ///    written to the socket, so a transfer that dies half way still leaves the
 ///    record that the bytes left.
-/// 5. Serve exactly the staged bytes.
+/// 4. Serve exactly the staged bytes, **streamed**, a [`FETCH_CHUNK`] at a
+///    time.
+///
+/// # Streaming does not weaken step 3, and the code says so twice
+///
+/// With a buffered body the ordering was obvious because the bytes did not
+/// exist until after `tx.commit()`. Streaming makes it less obvious — the body
+/// is a lazily-polled object — so it is stated here and again at the line that
+/// builds it: `tx.commit().await?` **returns before `File::open` is called**,
+/// and hyper cannot poll the body before this function has returned the
+/// response that holds it. There is no path on which a byte reaches the socket
+/// with the redemption uncommitted. `tests/firmware.rs` holds the test for it.
+///
+/// # The token is spent exactly once, including when the transfer dies
+///
+/// Spending is the `UPDATE ... WHERE redeemed_at IS NULL` in step 1, and it is
+/// committed in step 3. Nothing after that point can give it back: an error
+/// opening the file, a length that disagrees with the row, a read error mid
+/// stream and a device that hangs up at forty per cent all leave the row
+/// redeemed. That is ADR-0045 §4.2's single use taken literally — a URL that
+/// published bytes is spent whether or not the bytes all arrived — and it is
+/// the same behaviour the buffered version had.
+///
+/// The old code reserved a process-wide buffer budget *before* spending the
+/// token, so that a refusal under load cost a retry rather than the URL. That
+/// concern was specific to the allocation: the refusal it protected against
+/// was transient and retrying would have worked. With the allocation gone
+/// there is no transient refusal left on this route — every remaining failure
+/// after the commit is an integrity fault (the staged file is missing, or is
+/// not the length its row records) that a retry would hit again — so there is
+/// nothing left to reserve ahead of the spend.
 ///
 /// No range support: see the module doc.
 async fn fetch_handler(
@@ -1514,10 +1502,6 @@ async fn fetch_handler(
     let token = unhex(&token)
         .filter(|t| t.len() == 32)
         .ok_or(FirmwareError::TokenNotFresh)?;
-
-    let Some(_reservation) = state.store.budget.reserve() else {
-        return Err(FirmwareError::Busy);
-    };
 
     let source = source_of(&state, request.headers(), request.extensions());
 
@@ -1596,24 +1580,39 @@ async fn fetch_handler(
         "firmware image served"
     );
 
+    // **Everything above this line is committed.** `tx.commit()` has already
+    // returned, so the redemption is durable before the file is so much as
+    // opened, let alone read — step 3 of the order above, restated at the line
+    // that would otherwise make it hard to see.
     let path = state.store.image_path(image);
-    let bytes = tokio::task::spawn_blocking(move || std::fs::read(&path))
+    let file = tokio::fs::File::open(&path)
         .await
-        .map_err(joined)?
         .map_err(FirmwareError::Storage)?;
 
     // The row said how long it is; disagreeing with the disk means the file
     // was changed underneath this server, which is an integrity alarm and not
-    // a transfer to complete.
-    if bytes.len() as i64 != byte_length {
+    // a transfer to complete. Checked from the metadata of the OPEN handle, so
+    // it is the length of the file this response will actually read from and
+    // not of whatever is at that path a moment later.
+    let on_disk = file.metadata().await.map_err(FirmwareError::Storage)?.len();
+    if on_disk as i64 != byte_length {
         tracing::error!(
             image = %image,
             expected = byte_length,
-            found = bytes.len(),
+            found = on_disk,
             "a staged firmware image is not the length its row records"
         );
         return Err(FirmwareError::NotStaged);
     }
+
+    // One `FETCH_CHUNK` in flight, never the image. The handle lives as long
+    // as the response body does: when the device hangs up, hyper drops the
+    // body, which drops the `ReaderStream`, which drops the `File` and closes
+    // the descriptor. Nothing here has to notice the disconnect.
+    let body = Body::from_stream(tokio_util::io::ReaderStream::with_capacity(
+        file,
+        FETCH_CHUNK,
+    ));
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -1628,13 +1627,26 @@ async fn fetch_handler(
             .parse()
             .expect("a checked filename is a valid header value"),
     );
+    // A streamed body has no length of its own, so hyper would frame this
+    // response with `Transfer-Encoding: chunked`. It is stated instead, from
+    // the length that was just checked against the open handle, because a
+    // device copying a two-gigabyte image should be able to see how far it has
+    // got and to know a truncated transfer was truncated. `Content-Length` and
+    // the body length cannot disagree: both come from `on_disk`.
+    headers.insert(
+        axum::http::header::CONTENT_LENGTH,
+        on_disk
+            .to_string()
+            .parse()
+            .expect("a decimal integer is a valid header value"),
+    );
     // What a device should compare against, in the response itself, so a
     // transfer's own record carries the hash Fathom holds.
     headers.insert(
         "fathom-firmware-sha256",
         hex(&computed).parse().expect("hex is a valid header value"),
     );
-    Ok((StatusCode::OK, headers, bytes).into_response())
+    Ok((StatusCode::OK, headers, body).into_response())
 }
 
 /// Which address this server will record the bytes as having gone to.
@@ -2108,7 +2120,6 @@ mod tests {
             max_image_bytes: 1,
             fetch_base_url: "https://example.invalid".to_string(),
             trusted_client_ip_header: None,
-            budget: FetchBudget::new(1),
         };
         let path = store.image_path(FirmwareImageId::new());
         assert!(
@@ -2187,22 +2198,6 @@ mod tests {
         let without = json_text(&commands("junos.tgz", &sha, None));
         assert!(!without.contains("/firmware/fetch/"), "{without}");
         assert!(without.contains("cannot show you one"), "{without}");
-    }
-
-    /// The budget is one image at a time, and it is given back on drop.
-    #[test]
-    fn the_fetch_budget_admits_one_at_a_time_and_recovers() {
-        let budget = FetchBudget::new(4096);
-        let first = budget.reserve().expect("the first fetch is admitted");
-        assert!(
-            budget.reserve().is_none(),
-            "a second concurrent fetch must be refused while this build buffers"
-        );
-        drop(first);
-        assert!(
-            budget.reserve().is_some(),
-            "the budget must come back when the first fetch finishes"
-        );
     }
 
     /// The token hash is domain-separated from every other token hash in this
