@@ -143,6 +143,17 @@ pub async fn migrated_pool() -> Pool {
     // `src/main.rs` applies, and `pg_advisory_lock` is session-level and
     // re-entrant, so `run`'s own acquisition nests inside this one without
     // deadlocking against it.
+    //
+    // **That lock covers this database and no other, and the comment above
+    // used to imply otherwise — corrected 2026-09-14.** Advisory locks are
+    // scoped to the database: measured on PostgreSQL 16 that day, the same key
+    // held in database A is still free in database B on one cluster. `ALTER
+    // ROLE` writes the cluster-wide `pg_authid`, so two test runs in two
+    // databases — which is exactly what `docs/NEXT.md` rule 3 asks builders to
+    // do — still collide, and did, with "tuple concurrently updated". The fix
+    // lives in `db::provision_runtime_login` as a bounded retry, because the
+    // two-container deployment races there at startup for the same reason and
+    // a test-only fix would have left that standing.
     client
         .execute(
             "SELECT pg_advisory_lock($1)",
