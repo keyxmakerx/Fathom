@@ -32,6 +32,13 @@ big enough to hit. Never a page change.
 Four glyphs, never confusable: **RJ45** (latch notch), **SFP+** (cage with a bail), **LC** (two
 ferrules), **C14** (hex inlet, three pins). Same size on every plate.
 
+**A fifth is owed: QSFP+ — 2026-09-14.** The first real catalogue entry, Juniper's EX4300-48P,
+carries four built-in QSFP+ ports on the rear, and a QSFP+ cage is visibly wider than an SFP+ one
+with four lanes behind it. The catalogue records the true kind, because writing SFP+ into the data
+of record would send somebody to a rack holding the wrong transceiver, which is the error class
+this product exists to prevent. So the gap is here, in the drawing, not there: **until a glyph is
+drawn, a QSFP+ port has no glyph and must not borrow the SFP+ one.** See "Not yet drawn" below.
+
 Count, position and numbering come from the **engine's equipment catalogue**, never typed. Numbered
 as the label on the box reads — odd over even, 12-port groups, uplinks right.
 
@@ -177,6 +184,15 @@ work from a closed brief, in this page's language, before they are built:
   not produced; no "proceed anyway"; wording names both explanations).
 - **The mode-change consent screen** — the full statement rendered before the touch, in the
   register §12.6 of the storage design already uses.
+
+## Not yet drawn — the QSFP+ glyph, 2026-09-14
+
+A fifth port glyph, sized and shaped so it cannot be mistaken for SFP+ at faceplate zoom, and
+legible at the zoom where ports first fade in. Designer work from a closed brief, in this page's
+language, before the faceplate surface is built. The rule the glyph has to satisfy is the one the
+four already satisfy: never confusable, same size on every plate.
+
+Until it exists the catalogue is ahead of the canvas, which is the right way round.
 
 ## Parked
 
