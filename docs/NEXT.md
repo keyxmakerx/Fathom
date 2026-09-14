@@ -24,8 +24,14 @@ comparable amount again.
    surface `docs/UI-SPEC.md` does not draw.
 3. **Isolation.** Every builder that touches `crates/` runs in a worktree
    (`isolation: "worktree"`, reset to the branch tip first — worktrees are cut from `main`) and in
-   its own database: create it as the superuser, set all three of `FATHOM_MIGRATE_DATABASE_URL`,
-   `DATABASE_URL`, `SUPERUSER_DATABASE_URL` to it, drop it after. Never `fathom_test`. **A test
+   its own database: create it as the superuser, point `FATHOM_MIGRATE_DATABASE_URL` and
+   `SUPERUSER_DATABASE_URL` at it, and drop it after. Never `fathom_test`.
+   **`DATABASE_URL` is the exception and an earlier version of this rule got it wrong.** It names
+   the RUNTIME role, `fathom_app`, and must never be given the superuser's URL: PostgreSQL exempts
+   a superuser from row-level security unconditionally, so every tenant-isolation assertion in the
+   suite would pass whether the policies work or not, and two of them fail outright. Leave it unset
+   and the harness derives the runtime connection itself, exactly as `.github/workflows/ci.yml`
+   does. A builder hit this on 2026-09-14 and reported it rather than working around it. **A test
    that shares the database shares every global in it.** Two of these bit on 2026-09-13: a
    table-wide `DISABLE TRIGGER` window opened by hand instead of through `support::tamper`'s
    advisory lock (CI failed; `support::hold_the_tamper_lock` is the fix), and a rate-limit
