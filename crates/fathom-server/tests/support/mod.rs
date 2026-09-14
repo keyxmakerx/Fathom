@@ -584,6 +584,20 @@ pub fn isolated_database_name(tag: &str) -> String {
     format!("fathom_isolated_{tag}")
 }
 
+/// The RUNTIME role's connection string for one isolated deployment's own
+/// database.
+///
+/// For the one test that has to run the SHIPPED BINARY rather than call into
+/// this library: `tests/bootstrap_reissue.rs` proves that
+/// `fathom-server reissue-bootstrap-token` never prints the token it mints,
+/// and the only honest way to prove what a program prints is to run it and
+/// read what it printed. That needs a `DATABASE_URL` to hand the child
+/// process, which is this.
+#[allow(dead_code)]
+pub fn isolated_database_url(tag: &str) -> String {
+    url_for_database(&test_database_url(), &isolated_database_name(tag))
+}
+
 /// A superuser connection to one isolated deployment's own database -- for the
 /// tamper and the catalogue reads that have to see past every policy.
 #[allow(dead_code)]

@@ -207,6 +207,16 @@ pub enum OperatorError {
     /// A first operator already exists, so the bootstrap path is closed
     /// (§6.3). Idempotent callers should read this as "nothing to do".
     AlreadyBootstrapped,
+    /// **An operator key is enrolled, so there is no re-issuing the first
+    /// operator's enrolment token** — see
+    /// [`OperatorStore::reissue_bootstrap_token`], which is the only thing
+    /// that produces this.
+    ///
+    /// The refusal is the control. A re-issue that still worked after
+    /// enrolment would let anyone who can run a command on the host mint
+    /// themselves an operator enrolment token, and an operator session with
+    /// it, without holding any key this deployment has ever seen.
+    AlreadyEnrolled,
     /// A field of a message was not the shape it must be.
     Malformed(&'static str),
     /// A stored row does not decode as what its column says it is.
@@ -266,6 +276,13 @@ impl core::fmt::Display for OperatorError {
             Self::NotFound(what) => write!(f, "no such {what}"),
             Self::AlreadyBootstrapped => f.write_str(
                 "this deployment already has an operator, so the first-start path is closed",
+            ),
+            Self::AlreadyEnrolled => f.write_str(
+                "an operator key is already enrolled in this deployment, so the first \
+                 operator's enrolment token cannot be re-issued. The way back in is another \
+                 operator, or a restore from backup. Re-issuing after enrolment would be a \
+                 way for anyone who can run a command on this host to mint themselves an \
+                 operator session",
             ),
             Self::Malformed(what) => write!(f, "the {what} is not the shape it must be"),
             Self::Corrupt(what) => write!(f, "a stored {what} is not consistent"),
@@ -530,6 +547,22 @@ pub struct Bootstrap {
     pub invitation: Invitation,
 }
 
+/// What [`OperatorStore::reissue_bootstrap_token`] produces: the same
+/// invitation §6.3's first start produces, and what it cost.
+///
+/// No `Debug`, deliberately — [`Invitation`]'s own `Debug` withholds the
+/// token, and this type exists to be carried straight to a file.
+pub struct Reissued {
+    pub operator_id: String,
+    pub invitation: Invitation,
+    /// The site-chain `seq` of the sealed `enrolment_token_issued` entry this
+    /// re-issue wrote. Logged, so that the act can be pointed at.
+    pub issued_seq: i64,
+    /// The ids of the tokens this re-issue expired — a previously issued and
+    /// unredeemed one, if there was one. Ids, never tokens.
+    pub expired: Vec<String>,
+}
+
 // ---------------------------------------------------------------------------
 // The store
 // ---------------------------------------------------------------------------
@@ -767,6 +800,247 @@ impl OperatorStore {
         leave_custody(&tx).await?;
         tx.commit().await?;
         Ok(count > 0)
+    }
+
+    /// **A fresh enrolment token for the first operator, and only while no
+    /// operator key has ever been enrolled.**
+    ///
+    /// The problem this answers: §6.3's token is handed out exactly once, in a
+    /// file, and it is the only way into a new deployment. Lose it — a
+    /// container restarted before anybody read it, a volume discarded, a
+    /// terminal closed — and nothing re-bootstraps, because an operator row
+    /// exists and [`OperatorStore::bootstrap_first_operator`] is idempotent by
+    /// design. Before this, the only remedy was destroying the database.
+    ///
+    /// # The gate, which is the whole of this function
+    ///
+    /// **If any row exists in `operator_keys`, this refuses.** Not "if the
+    /// first operator has a live key", not "if that operator has one": *any*
+    /// row, retired or not. A re-issue that worked after enrolment would let
+    /// whoever can run a command on this host mint an operator enrolment
+    /// token, redeem it with a key of their own, and hold an operator session
+    /// — without ever holding a key this deployment has seen. That is a
+    /// backdoor with a subcommand in front of it, and no amount of logging
+    /// makes it not one. Once a key exists, the way back in is another
+    /// operator or a restore, and [`OperatorError::AlreadyEnrolled`] says so.
+    ///
+    /// A host-level attacker is tier 3 in
+    /// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1 and already holds the key
+    /// volume and the database, so this does not pretend to fence them out of
+    /// the deployment. What it fences is the *window*: before enrolment there
+    /// is no operator key in existence and so nothing to steal a march on —
+    /// the installer and the attacker are in the same position, which is the
+    /// position §6.3's own token file already puts them in. After enrolment
+    /// there is a key, and this must not be a way around it.
+    ///
+    /// # Which operator
+    ///
+    /// Exactly one operator must exist and it must be the bootstrap one
+    /// (`created_by IS NULL`). With no key enrolled anywhere, that is the only
+    /// state the console can have produced: §5.5's operator-creation path
+    /// needs two operator sessions, and an operator session needs an enrolled
+    /// key. Anything else is a register this path cannot reason about, and it
+    /// refuses rather than guessing which row to hand a token for.
+    ///
+    /// # The token it replaces
+    ///
+    /// **Any live, unredeemed operator token for that operator is expired
+    /// first**, in the same transaction, each with its own sealed
+    /// `enrolment_token_expired` entry. Two live tokens would be two bearer
+    /// secrets for one enrolment, and the one this command is run because
+    /// nobody can find is exactly the one nobody can account for: leaving it
+    /// live would mean a deployment where the operator believes they hold the
+    /// only way in while a lost file still holds another. The cost is that
+    /// running this while somebody is mid-enrolment invalidates the token they
+    /// are holding; they run it again and get the new one, which is the lesser
+    /// harm and the recoverable one.
+    ///
+    /// Each of those rows' seals is verified before it is expired. A token row
+    /// that does not verify is not re-sealed into a new state by this path —
+    /// that would launder it — and the whole act refuses instead.
+    ///
+    /// The token is returned once, exactly as the bootstrap returns it, and it
+    /// is the caller's job to write it where a human can read it. **Nothing in
+    /// this module logs it.**
+    pub async fn reissue_bootstrap_token(&self) -> Result<Reissued, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        enter_enrolment_custody(&tx).await?;
+
+        // The bootstrap's own lock, because this is the bootstrap's act: a
+        // re-issue racing a first start must not read "no key enrolled" from
+        // one snapshot and mint against another.
+        tx.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended('fathom/operator/bootstrap', 0))",
+            &[],
+        )
+        .await?;
+
+        // THE GATE. Every row, retired or live, for every operator.
+        let enrolled: i64 = tx
+            .query_one("SELECT count(*) FROM operator_keys", &[])
+            .await?
+            .get(0);
+        if enrolled > 0 {
+            return Err(OperatorError::AlreadyEnrolled);
+        }
+
+        let rows = tx
+            .query("SELECT id, created_by FROM operators", &[])
+            .await?;
+        if rows.is_empty() {
+            // Nothing to re-issue for. The server's own first start is what
+            // mints the first operator, and it has not run yet.
+            return Err(OperatorError::NotFound("first operator"));
+        }
+        if rows.len() > 1 {
+            return Err(OperatorError::Corrupt("operator register"));
+        }
+        let operator: String = rows[0].get(0);
+        let created_by: Option<String> = rows[0].get(1);
+        if created_by.is_some() {
+            return Err(OperatorError::Corrupt("operator register"));
+        }
+
+        // The row's own seal, before a token is minted against it. An
+        // `operators` row edited in the database is exactly how somebody would
+        // point the first operator at a name nobody expects.
+        let row = verify_operator_row(&tx, &self.ring, &operator).await?;
+        if row.disabled_at_unix != 0 {
+            return Err(OperatorError::OperatorDisabled);
+        }
+
+        let expired = self.expire_live_operator_tokens(&tx, &operator).await?;
+
+        // `reason` is the field `issue_token` already carries for this — the
+        // bootstrap's own token says `bootstrap` — and it is inside the sealed
+        // metadata, so a reader holding the chain key can tell a token minted
+        // from the host command line from one minted by the console. It is
+        // deliberately not a new `EntryType`: the act IS an enrolment token
+        // being issued, which is what `enrolment_token_issued` means, and a
+        // new type would cost a migration rewriting a `CHECK` that three
+        // migrations have already rewritten, for a distinction the sealed
+        // metadata already carries.
+        let invitation = self
+            .issue_token(
+                &tx,
+                Purpose::Operator,
+                &operator,
+                &operator,
+                "bootstrap_reissue",
+            )
+            .await?;
+        let issued_seq: i64 = tx
+            .query_one(
+                "SELECT issued_seq FROM enrolment_tokens WHERE id = $1",
+                &[&invitation.id],
+            )
+            .await?
+            .get(0);
+
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(Reissued {
+            operator_id: operator,
+            invitation,
+            issued_seq,
+            expired,
+        })
+    }
+
+    /// **Expire every live, unredeemed `operator` token for this operator**, so
+    /// that a re-issue leaves one bearer secret alive and not two. Returns
+    /// their ids -- ids, never tokens.
+    ///
+    /// The kill is `expired_at`, with its `enrolment_token_expired` entry, and
+    /// it is the only kill this schema offers: the runtime role is granted
+    /// `UPDATE (redeemed_at, redeemed_seq, expired_at, expired_seq,
+    /// row_version, row_seal)` on `enrolment_tokens` and nothing else
+    /// (`0015` §I), because a token is issued once and then either redeemed or
+    /// expired. Moving `expires_at` instead would need a privilege this design
+    /// withholds on purpose, and a `revoked_at` column would change
+    /// [`TokenFacts`] and so the seal over every token row a live database
+    /// already holds. [`OperatorStore::spend_token`] refuses on the flag.
+    async fn expire_live_operator_tokens(
+        &self,
+        tx: &Transaction<'_>,
+        operator: &str,
+    ) -> Result<Vec<String>, OperatorError> {
+        let rows = tx
+            .query(
+                &format!(
+                    "SELECT {TOKEN_COLUMNS} FROM enrolment_tokens \
+                      WHERE purpose = 'operator' AND operator_id = $1 \
+                        AND redeemed_at IS NULL AND expired_at IS NULL \
+                      ORDER BY id"
+                ),
+                &[&operator],
+            )
+            .await?;
+
+        let now = now_unix();
+        let mut expired = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let (token, stored_seal) = token_row(row)?;
+
+            // The seal first. A token row that does not verify is not re-sealed
+            // into a new state by this path -- that would launder it -- and the
+            // whole re-issue refuses instead.
+            let as_stored = self
+                .token_seal(tx, &token.facts(), token.issued_seq, token.row_version)
+                .await?;
+            if stored_seal != as_stored {
+                return Err(OperatorError::Unverifiable("enrolment token row seal"));
+            }
+
+            // §7.2's type, with the reason inside the sealed metadata: this
+            // token did not run out of time, it was replaced. A reader holding
+            // the chain key can tell the two apart.
+            let appended = chains::append_site(
+                tx,
+                &self.ring,
+                &self.deployment,
+                EntryType::EnrolmentTokenExpired,
+                &entry_metadata(
+                    EntryType::EnrolmentTokenExpired,
+                    &[
+                        ("token", Json::Str(token.id.clone())),
+                        ("purpose", Json::Str(token.purpose.as_str().to_string())),
+                        ("reason", Json::Str("bootstrap_reissue".to_string())),
+                    ],
+                ),
+            )
+            .await?;
+
+            let mut facts = token.facts();
+            facts.expired_at_unix = now;
+            let version = token.row_version + 1;
+            let seal = self
+                .token_seal(tx, &facts, token.issued_seq, version)
+                .await?;
+
+            // Both columns in one statement, because the table's own
+            // `CHECK ((expired_at IS NULL) = (expired_seq IS NULL))` refuses
+            // the state between them.
+            let updated = tx
+                .execute(
+                    "UPDATE enrolment_tokens \
+                        SET expired_at = to_timestamp($2::bigint), expired_seq = $3, \
+                            row_version = $4, row_seal = $5 \
+                      WHERE id = $1 AND redeemed_at IS NULL AND expired_at IS NULL",
+                    &[&token.id, &now, &appended.seq, &version, &seal.to_vec()],
+                )
+                .await?;
+            if updated != 1 {
+                // The read above and this write are one transaction under the
+                // bootstrap advisory lock, so this cannot happen; a row that
+                // moved underneath us is a state this path will not write over.
+                return Err(OperatorError::Corrupt("enrolment token row"));
+            }
+            expired.push(token.id);
+        }
+        Ok(expired)
     }
 
     // -----------------------------------------------------------------------
@@ -2924,36 +3198,14 @@ impl OperatorStore {
         let hash = token_hash(token);
         let row = tx
             .query_opt(
-                "SELECT id, purpose, account_id, operator_id, shell_id, issued_by, issued_seq, \
-                        EXTRACT(EPOCH FROM expires_at)::bigint, \
-                        COALESCE(EXTRACT(EPOCH FROM redeemed_at)::bigint, 0), \
-                        COALESCE(EXTRACT(EPOCH FROM expired_at)::bigint, 0), \
-                        row_version, row_seal, token_hash \
-                   FROM enrolment_tokens WHERE token_hash = $1",
+                &format!("SELECT {TOKEN_COLUMNS} FROM enrolment_tokens WHERE token_hash = $1"),
                 &[&hash.to_vec()],
             )
             .await?;
         let Some(row) = row else {
             return Err(OperatorError::EnrolmentRefused);
         };
-        let purpose_text: String = row.get(1);
-        let stored_seal: Vec<u8> = row.get(11);
-        let stored_hash: Vec<u8> = row.get(12);
-        let out = TokenRow {
-            id: row.get(0),
-            purpose: Purpose::parse(&purpose_text)
-                .ok_or(OperatorError::Corrupt("enrolment token purpose"))?,
-            token_hash: as_32(&stored_hash, "enrolment token hash")?,
-            account_id: row.get(2),
-            operator_id: row.get(3),
-            shell_id: row.get(4),
-            issued_by: row.get(5),
-            issued_seq: row.get(6),
-            expires_at_unix: row.get(7),
-            redeemed_at_unix: row.get(8),
-            expired_at_unix: row.get(9),
-            row_version: row.get(10),
-        };
+        let (out, stored_seal) = token_row(&row)?;
 
         if out.purpose != purpose {
             return Err(OperatorError::EnrolmentRefused);
@@ -2972,6 +3224,19 @@ impl OperatorStore {
         if out.redeemed_at_unix != 0 {
             return Err(OperatorError::EnrolmentRefused);
         }
+        // **`expired_at` is a terminal state and not only a note.** It was only
+        // a note until 2026-09-14 -- set by `note_expired` when a token was
+        // presented after `expires_at` had already passed, and read by nothing
+        // -- which was harmless while the only thing that set it was a check
+        // the next redemption would make again anyway. It is now also how
+        // `expire_live_operator_tokens` kills the token a re-issue replaces,
+        // and that token's `expires_at` is still in the future: the runtime
+        // role is deliberately not granted `UPDATE (expires_at)` (`0015` §I:
+        // "a token is issued once, and then either redeemed or expired"), so
+        // the flag has to be the state rather than a comment on one.
+        if out.expired_at_unix != 0 {
+            return Err(OperatorError::EnrolmentRefused);
+        }
         if out.expires_at_unix <= now_unix() {
             self.note_expired(tx, &out).await?;
             return Err(OperatorError::EnrolmentRefused);
@@ -2982,25 +3247,32 @@ impl OperatorStore {
     /// Record that a token was presented after its expiry (§7.2's
     /// `enrolment_token_expired`), **once**: the guarded `UPDATE` is the latch,
     /// so presenting a dead token in a loop does not grow the chain.
+    ///
+    /// **`expired_at` and `expired_seq` move in ONE statement.** They were two,
+    /// until 2026-09-14, and the table's own
+    /// `CHECK ((expired_at IS NULL) = (expired_seq IS NULL))` refuses the state
+    /// between them -- so the first statement always failed, and this function
+    /// had never run against a real database. It could not: the only path that
+    /// reaches it is a token presented after its expiry, and the one test that
+    /// produced one moved `expires_at` without re-sealing the row, so
+    /// `spend_token` refused on the seal a few lines earlier and never got
+    /// here. The seq is not known until the entry is appended, so the append
+    /// moves ahead of the write rather than the two columns moving apart.
+    ///
+    /// **A caller that refuses AFTER calling this must commit if it wants the
+    /// entry.** `spend_token` does not: it calls this and then returns
+    /// `EnrolmentRefused`, and every caller of `spend_token` drops the
+    /// transaction, so the record of the presentation rolls back with it.
+    /// Reported 2026-09-14 and NOT fixed here -- recording a refusal durably
+    /// while refusing means a second transaction, and that is its own act with
+    /// its own review.
     async fn note_expired(
         &self,
         tx: &Transaction<'_>,
         row: &TokenRow,
     ) -> Result<(), OperatorError> {
-        let now = now_unix();
-        let mut facts = row.facts();
-        facts.expired_at_unix = now;
-        let version = row.row_version + 1;
-        let seal = self.token_seal(tx, &facts, row.issued_seq, version).await?;
-        let took = tx
-            .query_opt(
-                "UPDATE enrolment_tokens \
-                    SET expired_at = to_timestamp($2::bigint), row_version = $3, row_seal = $4 \
-                  WHERE id = $1 AND expired_at IS NULL RETURNING 1",
-                &[&row.id, &now, &version, &seal.to_vec()],
-            )
-            .await?;
-        if took.is_none() {
+        // The latch, read from the row this transaction already holds.
+        if row.expired_at_unix != 0 {
             return Ok(());
         }
         let appended = chains::append_site(
@@ -3013,13 +3285,23 @@ impl OperatorStore {
                 &[
                     ("token", Json::Str(row.id.clone())),
                     ("purpose", Json::Str(row.purpose.as_str().to_string())),
+                    ("reason", Json::Str("presented_after_expiry".to_string())),
                 ],
             ),
         )
         .await?;
+
+        let now = now_unix();
+        let mut facts = row.facts();
+        facts.expired_at_unix = now;
+        let version = row.row_version + 1;
+        let seal = self.token_seal(tx, &facts, row.issued_seq, version).await?;
         tx.execute(
-            "UPDATE enrolment_tokens SET expired_seq = $2 WHERE id = $1",
-            &[&row.id, &appended.seq],
+            "UPDATE enrolment_tokens \
+                SET expired_at = to_timestamp($2::bigint), expired_seq = $3, \
+                    row_version = $4, row_seal = $5 \
+              WHERE id = $1 AND expired_at IS NULL",
+            &[&row.id, &now, &appended.seq, &version, &seal.to_vec()],
         )
         .await?;
         Ok(())
@@ -3542,6 +3824,42 @@ impl OperatorStore {
 // ---------------------------------------------------------------------------
 // Rows, as this module reads them back
 // ---------------------------------------------------------------------------
+
+/// The columns every read of an `enrolment_tokens` row selects, in the order
+/// [`token_row`] expects them. One constant rather than two copies of the
+/// list: a column added to one query and not the other is a row read with the
+/// wrong indices, which is the kind of mistake that reads as corruption.
+const TOKEN_COLUMNS: &str = "id, purpose, account_id, operator_id, shell_id, issued_by, \
+     issued_seq, EXTRACT(EPOCH FROM expires_at)::bigint, \
+     COALESCE(EXTRACT(EPOCH FROM redeemed_at)::bigint, 0), \
+     COALESCE(EXTRACT(EPOCH FROM expired_at)::bigint, 0), row_version, row_seal, token_hash";
+
+/// One `enrolment_tokens` row and **the seal as stored**, which is returned
+/// beside it rather than checked here: the caller decides what a failure to
+/// verify means, and the two callers mean different things by it.
+fn token_row(row: &tokio_postgres::Row) -> Result<(TokenRow, Vec<u8>), OperatorError> {
+    let purpose_text: String = row.get(1);
+    let stored_seal: Vec<u8> = row.get(11);
+    let stored_hash: Vec<u8> = row.get(12);
+    Ok((
+        TokenRow {
+            id: row.get(0),
+            purpose: Purpose::parse(&purpose_text)
+                .ok_or(OperatorError::Corrupt("enrolment token purpose"))?,
+            token_hash: as_32(&stored_hash, "enrolment token hash")?,
+            account_id: row.get(2),
+            operator_id: row.get(3),
+            shell_id: row.get(4),
+            issued_by: row.get(5),
+            issued_seq: row.get(6),
+            expires_at_unix: row.get(7),
+            redeemed_at_unix: row.get(8),
+            expired_at_unix: row.get(9),
+            row_version: row.get(10),
+        },
+        stored_seal,
+    ))
+}
 
 struct TokenRow {
     id: String,
