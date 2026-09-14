@@ -759,3 +759,167 @@ pub async fn record_deployment_started(
     )
     .await
 }
+
+// ---------------------------------------------------------------------------
+// Reading ONE site entry back, verified — §5.4's interlock
+// ---------------------------------------------------------------------------
+
+/// One site-chain entry, read back with its seal and its link checked and its
+/// metadata opened.
+pub struct SiteEntry {
+    pub seq: i64,
+    pub entry_type: EntryType,
+    /// The canonical metadata as it was sealed, decrypted.
+    pub metadata: Vec<u8>,
+}
+
+/// Read site entry `seq`, **verify its own seal and its link to `seq - 1`**,
+/// and open its metadata.
+///
+/// This is §5.4 steps 2 and 3, and it exists because the interlock needs
+/// exactly those two checks and not a whole-chain walk:
+///
+/// > *"For each, load site-chain entry `sealed_seq`, verify its seal, and check
+/// > that the entry's sealed metadata contains this row's `(id, key,
+/// > value_digest, effective_at)`. Check the entry links: `prev_seal` matches
+/// > entry `sealed_seq - 1`, whose seal also verifies."*
+///
+/// [`verify_site`] is the whole-chain walk and stays what an operator runs.
+/// Putting it on the settings resolver would mean re-reading every sign-in
+/// entry ever written to answer *"what is the effective value of `smtp`?"* —
+/// and a control that costs that much is a control somebody switches off.
+///
+/// **Both checks are here rather than split between here and the caller**, for
+/// [`read_org_entry_metadata`]'s reason: a verification a caller has to
+/// remember to run is a verification a later caller does not.
+///
+/// `Ok(None)` means there is no entry at that sequence, which for the interlock
+/// is a refusal and never a skip — a row naming an entry that does not exist is
+/// exactly the forged sibling §5.4 is about.
+pub async fn read_site_entry_verified(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    seq: i64,
+) -> Result<Option<SiteEntry>, ChainStoreError> {
+    let deployment = deployment_id(&**tx).await?;
+    let chain = ChainRef::Site {
+        deployment: &deployment,
+    };
+
+    let Some(entry) = read_site_row(tx, chain, seq).await? else {
+        return Ok(None);
+    };
+    let Some(entry_type) = entry.entry_type.known() else {
+        return Err(ChainStoreError::Corrupt("site entry type"));
+    };
+
+    // The entry's own seal, under the chain key at the epoch the row names.
+    if !site_seal_verifies(ring, chain, &entry, entry_type) {
+        return Err(ChainStoreError::Corrupt("site entry seal"));
+    }
+
+    // The link. §11.2's first entry links to the chain's genesis value, which
+    // is derived and not stored, so `seq = 1` is checked against that rather
+    // than against a row that does not exist.
+    if seq <= 1 {
+        if entry.prev_seal != chain::genesis(chain) {
+            return Err(ChainStoreError::Corrupt("site entry link"));
+        }
+    } else {
+        let Some(previous) = read_site_row(tx, chain, seq - 1).await? else {
+            return Err(ChainStoreError::Corrupt("site entry link"));
+        };
+        let Some(previous_type) = previous.entry_type.known() else {
+            return Err(ChainStoreError::Corrupt("site entry type"));
+        };
+        if !site_seal_verifies(ring, chain, &previous, previous_type) {
+            return Err(ChainStoreError::Corrupt("site entry seal"));
+        }
+        if entry.prev_seal != previous.seal {
+            return Err(ChainStoreError::Corrupt("site entry link"));
+        }
+    }
+
+    // The metadata, under the site metadata key at the entry's own epoch.
+    let mut opened = None;
+    for framing in read_metadata_framing(tx, chain).await? {
+        if framing.seq != seq {
+            continue;
+        }
+        let key = chain::site_metadata_key(ring.chain_master(), &deployment, framing.key_epoch);
+        opened = open_metadata(&key, chain, &framing)?;
+        break;
+    }
+    let Some(metadata) = opened else {
+        return Err(ChainStoreError::Corrupt("site entry metadata"));
+    };
+
+    // The binding over what those bytes MEAN, beside the seal over what they
+    // ARE. Without it a ciphertext that happened to open would pass.
+    let ck = chain::chain_key(ring.chain_master(), chain, entry.chain_key_epoch);
+    let sub = chain::Subkeys::derive(&ck);
+    if chain::metadata_binding(&sub.content, &metadata).as_slice() != entry.metadata_binding {
+        return Err(ChainStoreError::Corrupt("site entry metadata binding"));
+    }
+
+    Ok(Some(SiteEntry {
+        seq,
+        entry_type,
+        metadata,
+    }))
+}
+
+fn site_seal_verifies(
+    ring: &KeyRing,
+    chain: ChainRef<'_>,
+    entry: &chain::StoredEntry,
+    entry_type: EntryType,
+) -> bool {
+    let ck = chain::chain_key(ring.chain_master(), chain, entry.chain_key_epoch);
+    let sub = chain::Subkeys::derive(&ck);
+    chain::seal_verifies(
+        &sub.seal,
+        &chain::SealFacts {
+            chain_key_epoch: entry.chain_key_epoch,
+            seq: entry.seq,
+            chain,
+            prev_seal: &entry.prev_seal,
+            content_hash: &entry.content_hash,
+            entry_type,
+            metadata_stored: &entry.metadata_stored,
+            metadata_binding: &entry.metadata_binding,
+        },
+        &entry.seal,
+    )
+}
+
+async fn read_site_row(
+    tx: &Transaction<'_>,
+    chain: ChainRef<'_>,
+    seq: i64,
+) -> Result<Option<chain::StoredEntry>, ChainStoreError> {
+    let row = tx
+        .query_opt(
+            "SELECT seq, entry_type, chain_key_epoch, design_version, prev_seal, \
+                    plaintext_binding, storage_binding, content_hash, seal, metadata, \
+                    metadata_binding \
+             FROM chain_entries WHERE chain_kind = $1 AND chain_id = $2 AND seq = $3",
+            &[&chain.kind().as_str(), &chain.chain_id(), &seq],
+        )
+        .await?;
+    let Some(row) = row else { return Ok(None) };
+    let entry_type: String = row.get(1);
+    Ok(Some(chain::StoredEntry {
+        seq: row.get(0),
+        entry_type: chain::StoredEntryType::from_column(&entry_type),
+        chain_key_epoch: row.get(2),
+        design_version: row.get(3),
+        prev_seal: row.get(4),
+        plaintext_binding: row.get(5),
+        storage_binding: row.get(6),
+        content_hash: row.get(7),
+        seal: row.get(8),
+        metadata_stored: row.get(9),
+        metadata_binding: row.get(10),
+    }))
+}

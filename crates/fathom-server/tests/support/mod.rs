@@ -118,6 +118,13 @@ pub async fn migration_pool() -> Pool {
 /// role. Panics with a message naming what to do, rather than silently
 /// skipping -- the brief this crate's tests answer to is explicit that these
 /// must run against a real database, not be quietly optional.
+///
+/// `#[allow(dead_code)]`: `mod support;` is compiled fresh into every test
+/// binary in this crate, and `tests/operators.rs` uses only
+/// [`isolated_deployment`] — §6.3's first operator is minted once per
+/// deployment, and the shared database is one deployment several binaries
+/// write `operators` rows to.
+#[allow(dead_code)]
 pub async fn migrated_pool() -> Pool {
     let migrate_url = migrate_test_database_url();
     let migrate_config =

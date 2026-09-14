@@ -347,6 +347,67 @@ const TABLES: &[TableClaim] = &[
               in PostgreSQL. It exists because deleting the session row left last night's \
               backup holding bytes that verified for ever.",
     },
+    // ---- 0015, the operator console and the enrolment path ----------------
+    TableClaim {
+        name: "operator_keys",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one operator's enrolled ES256 PUBLIC key, its fingerprint, the site-chain seq of \
+              the entry that enrolled it, and a row seal. `account_keys` carries the same claim \
+              for the account plane and for the same reason: a public key is public, and the \
+              private half never reaches this server at all.",
+    },
+    TableClaim {
+        name: "site_install",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one row, written at first start: the install-time notice address §6.2 pins an \
+              organisation's enrolment claim to. An address is identity, not a credential -- \
+              `accounts.email` carries the same claim -- and no role may ever UPDATE this one.",
+    },
+    TableClaim {
+        name: "organisation_shells",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a name, the operator who created it, the chain seq that recorded it, and the \
+              organisation its claim eventually produced. §6.2's shell holds no data by \
+              definition: it exists precisely because there is nothing in it yet.",
+    },
+    TableClaim {
+        name: "enrolment_tokens",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the HASH of a single-use enrolment token, never the token, plus which subject it \
+              names, who issued it, when it expires and whether it has been spent. The token \
+              itself is returned once and is gone from this server the moment it is handed \
+              out; the hash is useless to redeem with, exactly as `sessions.token_hash` is.",
+    },
+    TableClaim {
+        name: "site_settings_versions",
+        protection: Protection::KeyProtected {
+            columns: &["value_ct"],
+            under: "a subkey of the site chain key (`fathom/site/settings/v1`), which is derived \
+                  from the chain master behind ADR-0043's provider interface and is never in \
+                  PostgreSQL. §5.3: \"AEAD; SMTP credentials are credentials.\" `value_digest` \
+                  is a digest of the ciphertext and is what §5.4's sealed entry names.",
+        },
+        why: "one version of one site setting. The value is a credential often enough to be \
+              treated as one always, so it is stored only as ciphertext; everything else on the \
+              row -- who requested it, who seconded it, when it takes effect, which sealed \
+              entry applied it -- is the audit trail of the change and is meant to be read.",
+    },
+    TableClaim {
+        name: "operator_requests",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "§5.5's two operator assertions for creating an operator: a display name, the two \
+              operator ids, their two signatures over the change digest, the delay, and which \
+              operator the applied request produced. Signatures are not secrets -- they are \
+              what a later reader verifies -- and there is no free-text column a payload could \
+              hide in.",
+    },
+    TableClaim {
+        name: "operator_read_samples",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "§1.1's sampling latch: one row per (operator session, console surface), so that \
+              `operator_read` is written once per surface per session rather than once per \
+              poll. A session id and a surface name, and nothing else.",
+    },
 ];
 
 /// Object kinds a migration may create that are not themselves a place to

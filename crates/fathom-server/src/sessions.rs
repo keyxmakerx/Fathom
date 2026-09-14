@@ -46,11 +46,15 @@
 //!   enrolled in `account_keys` (§15.1's deliberate downgrade). The challenge
 //!   derivation is the one §4.2 specifies, so the WebAuthn path lands on the
 //!   same bytes when it is built.
-//! * **No operator authenticator.** §4.5 is kept exactly — an operator
-//!   session is `A1` or it does not exist — and there is no table an
-//!   operator's key could be enrolled in yet, so the operator sign-in surface
-//!   refuses every attempt with [`SessionError::OperatorHasNoAuthenticator`]
-//!   rather than growing a re-issuable factor to fill the gap.
+//! * **No operator password, and no operator anything-but-a-key.** §4.5 is
+//!   kept exactly: an operator session is `A1` or it does not exist. Since
+//!   `migrations/0015` there IS a table an operator's key is enrolled in
+//!   (`operator_keys`), so the operator branch of sign-in now resolves a key
+//!   and verifies a signature over the same challenge an account signs —
+//!   **the same mechanism, on the other plane**, which is what §4.5 asks for.
+//!   An operator with no key enrolled is refused with the same message an
+//!   unknown address gets; there is no weaker factor to fall back to and
+//!   there must never be one.
 //! * **No verdict is cached.** Every request re-reads the row, re-verifies the
 //!   MAC, re-resolves the evidence key and re-verifies a fresh signature.
 //! * **No background task.** `migrations/0014_session_hardening.sql` §C's
@@ -74,6 +78,7 @@ use crate::crypto::{self, Key32};
 use crate::grants::{self, AuthorityError};
 use crate::ids;
 use crate::keys::{KeyRing, KeyStoreError};
+use crate::operators;
 use crate::repo::{self, AccountId, OrganisationId, RepoError, TenantContext};
 
 // ---------------------------------------------------------------------------
@@ -768,15 +773,21 @@ pub enum SessionError {
     /// master. §4.3's second fence, caught.
     Unverifiable(&'static str),
     /// Sign-in did not succeed. One variant for every cause, on purpose.
+    ///
+    /// **`OperatorHasNoAuthenticator` was a variant here until `0015` and is
+    /// deliberately gone.** It said, to an unauthenticated caller, that the
+    /// operator plane had no key enrolled — which was harmless while no
+    /// operator could exist at all and became an oracle the moment one could:
+    /// an attacker walking operator ids would learn which of them have
+    /// enrolled and which are still holding a token. §4.5 is unchanged and is
+    /// kept by the code rather than by the error type: an operator session is
+    /// `A1` or it does not exist, and there is no password path to fall back
+    /// to.
     SignInRefused,
     /// Too many attempts in this window (§13 item 7).
     RateLimited {
         retry_after_seconds: i64,
     },
-    /// §4.5: an operator session is `A1` or it does not exist, and no operator
-    /// authenticator can be enrolled yet. **There is no password path to fall
-    /// back to and there must never be one.**
-    OperatorHasNoAuthenticator,
     /// No live session with that id.
     NoSuchSession,
     /// This session id is in `session_revocations`: it was signed out, and the
@@ -857,11 +868,6 @@ impl core::fmt::Display for SessionError {
             } => write!(
                 f,
                 "too many sign-in attempts; this window closes in {retry_after_seconds} seconds"
-            ),
-            Self::OperatorHasNoAuthenticator => f.write_str(
-                "an operator session is A1 or it does not exist (§4.5), and no operator \
-                 authenticator is enrolled on this deployment. There is no password path on the \
-                 operator surface and there must never be one",
             ),
             Self::NoSuchSession => f.write_str("no live session with that id"),
             Self::SessionRevoked => f.write_str(
@@ -1059,13 +1065,20 @@ impl SessionStore {
             return Err(e);
         }
 
-        // An operator has no keyring to resolve an address against, so the
-        // principal is always absent on that plane. §4.5 is kept by refusing
-        // at sign-in, not by refusing to issue a nonce, so the two planes
-        // cannot be told apart from outside either.
+        // **What an operator types in the address box is their operator id**,
+        // and the resolution is the same shape either way: a string that names
+        // nobody produces a nonce with no principal, byte-identical to one
+        // that does, and the refusal happens at sign-in after the attempt has
+        // been counted.
+        //
+        // §4.5 gives an operator no address of record — there is no reset path
+        // to send anything to — so there is nothing else to resolve them by.
+        // The id is not a secret and is not treated as one: it is the operator
+        // plane's equivalent of an address, and possession of the enrolled
+        // private key is the whole of the factor.
         let principal = match kind {
             PrincipalKind::Steward => account_by_address(&tx, address).await?,
-            PrincipalKind::Operator => None,
+            PrincipalKind::Operator => operator_by_id(&tx, address).await?,
         };
         let claimed = claimed_address_key(&grants::site_chain_key(&tx, &self.ring).await?, address);
 
@@ -1263,18 +1276,10 @@ impl SessionStore {
 
         let principal_kind: Option<String> = consumed.get(2);
         let Some(account) = principal else {
-            // No account for that address, or the operator plane, where there
-            // is no keyring at all.
-            return match kind {
-                PrincipalKind::Operator => Err((
-                    bucket,
-                    "operator_has_no_authenticator",
-                    SessionError::OperatorHasNoAuthenticator,
-                )),
-                PrincipalKind::Steward => {
-                    Err((bucket, "no_such_account", SessionError::SignInRefused))
-                }
-            };
+            // The claimed identity — an address on the account plane, an
+            // operator id on the operator plane — resolved to nobody. One
+            // answer for both planes and for both reasons.
+            return Err((bucket, "no_such_principal", SessionError::SignInRefused));
         };
         if principal_kind.as_deref() != Some(kind.as_str()) {
             return Err((
@@ -1283,73 +1288,136 @@ impl SessionStore {
                 SessionError::SignInRefused,
             ));
         }
-        if kind == PrincipalKind::Operator {
-            return Err((
-                Some(AccountBucket::Account(account)),
-                "operator_has_no_authenticator",
-                SessionError::OperatorHasNoAuthenticator,
-            ));
-        }
 
-        // (3) The account, and whether it may sign in at all.
-        let disabled = tx
-            .query_opt(
-                "SELECT disabled_at IS NOT NULL FROM accounts WHERE id = $1",
-                &[&account],
-            )
-            .await
-            .map_err(|e| {
-                (
-                    Some(AccountBucket::Account(account.clone())),
-                    "database",
-                    SessionError::Db(e),
-                )
-            })?;
-        match disabled {
-            Some(row) if row.get::<_, bool>(0) => {
-                return Err((
-                    Some(AccountBucket::Account(account)),
-                    "account_disabled",
-                    SessionError::SignInRefused,
-                ))
-            }
-            Some(_) => {}
-            None => {
-                return Err((
-                    Some(AccountBucket::Account(account)),
-                    "no_such_account",
-                    SessionError::SignInRefused,
-                ))
-            }
-        }
-
-        // `account_keys` is read through a policy that shows an account its
-        // own rows when `app.account_id` names it. Sign-in is exactly that
-        // case: the account is the one the consumed nonce named, never one the
-        // caller supplied.
-        set_account_id(tx, &account)
-            .await
-            .map_err(|e| (Some(AccountBucket::Account(account.clone())), "database", e))?;
+        // (3) The principal, whether it may sign in at all, and the key it
+        // signs with. **Two planes, one shape.** An account has a disabled
+        // flag and a keyring row; an operator has a disabled flag, a keyring
+        // row of its own, and one check an account does not need — that the
+        // register row itself verifies. Every refusal below is the refusal the
+        // other plane gives, so the two cannot be told apart from outside.
         let now = now_unix();
-        let key = match grants::live_signing_key(tx, &self.ring, &account, now).await {
-            Ok(key) => key,
-            Err(AuthorityError::NoSigningKey) => {
-                return Err((
-                    Some(AccountBucket::Account(account)),
-                    "no_signing_key",
-                    SessionError::SignInRefused,
-                ))
+        let key: SignInKey = match kind {
+            PrincipalKind::Steward => {
+                let disabled = tx
+                    .query_opt(
+                        "SELECT disabled_at IS NOT NULL FROM accounts WHERE id = $1",
+                        &[&account],
+                    )
+                    .await
+                    .map_err(|e| {
+                        (
+                            Some(AccountBucket::Account(account.clone())),
+                            "database",
+                            SessionError::Db(e),
+                        )
+                    })?;
+                match disabled {
+                    Some(row) if row.get::<_, bool>(0) => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "account_disabled",
+                            SessionError::SignInRefused,
+                        ))
+                    }
+                    Some(_) => {}
+                    None => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "no_such_account",
+                            SessionError::SignInRefused,
+                        ))
+                    }
+                }
+
+                // `account_keys` is read through a policy that shows an account
+                // its own rows when `app.account_id` names it. Sign-in is
+                // exactly that case: the account is the one the consumed nonce
+                // named, never one the caller supplied.
+                set_account_id(tx, &account)
+                    .await
+                    .map_err(|e| (Some(AccountBucket::Account(account.clone())), "database", e))?;
+                match grants::live_signing_key(tx, &self.ring, &account, now).await {
+                    Ok(key) => SignInKey {
+                        id: key.id,
+                        public_key: key.public_key,
+                        fpr: key.fpr,
+                    },
+                    Err(AuthorityError::NoSigningKey) => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "no_signing_key",
+                            SessionError::SignInRefused,
+                        ))
+                    }
+                    Err(e @ AuthorityError::Unverifiable(_)) => {
+                        // An integrity alarm, not a sign-in failure: say so
+                        // rather than folding it into the uniform refusal.
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "keyring_unverifiable",
+                            e.into(),
+                        ));
+                    }
+                    Err(e) => {
+                        return Err((Some(AccountBucket::Account(account)), "keyring", e.into()))
+                    }
+                }
             }
-            Err(e @ AuthorityError::Unverifiable(_)) => {
-                // An integrity alarm, not a sign-in failure: say so rather
-                // than folding it into the uniform refusal.
-                return Err((
-                    Some(AccountBucket::Account(account)),
-                    "keyring_unverifiable",
-                    e.into(),
-                ));
+            PrincipalKind::Operator => {
+                // **The register row is verified, not merely read.**
+                // `operators::verify_operator_row` recomputes its seal AND
+                // checks the site-chain entry that created it — §5.4's
+                // interlock applied to the register itself, so an operator row
+                // minted by whoever holds the database cannot sign in.
+                let row = match operators::verify_operator_row(tx, &self.ring, &account).await {
+                    Ok(row) => row,
+                    Err(operators::OperatorError::Unverifiable(what)) => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "operator_row_unverifiable",
+                            SessionError::Unverifiable(what),
+                        ))
+                    }
+                    Err(_) => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "no_such_operator",
+                            SessionError::SignInRefused,
+                        ))
+                    }
+                };
+                if row.disabled_at_unix != 0 {
+                    return Err((
+                        Some(AccountBucket::Account(account)),
+                        "operator_disabled",
+                        SessionError::SignInRefused,
+                    ));
+                }
+                match operators::live_operator_key(tx, &self.ring, &account, now).await {
+                    Ok(key) => SignInKey {
+                        id: key.id,
+                        public_key: key.public_key,
+                        fpr: key.fpr,
+                    },
+                    Err(operators::OperatorError::Unverifiable(what)) => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "operator_keyring_unverifiable",
+                            SessionError::Unverifiable(what),
+                        ))
+                    }
+                    Err(_) => {
+                        // §4.5: an operator session is `A1` or it does not
+                        // exist. No key, no session, and no weaker factor to
+                        // fall back to.
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "no_signing_key",
+                            SessionError::SignInRefused,
+                        ));
+                    }
+                }
             }
-            Err(e) => return Err((Some(AccountBucket::Account(account)), "keyring", e.into())),
         };
 
         // (4) The evidence signature.
@@ -1368,13 +1436,19 @@ impl SessionStore {
         let token = random_32()
             .map_err(|e| (Some(AccountBucket::Account(account.clone())), "random", e))?;
         let digest = evidence_digest(&challenge, evidence_sig);
+        // §7.2 names both, and which one this is is the one fact a reader of
+        // the site chain can group by without holding the metadata key.
+        let entry_type = match kind {
+            PrincipalKind::Steward => EntryType::AccountSignin,
+            PrincipalKind::Operator => EntryType::OperatorSignin,
+        };
         let appended = chains::append_site(
             tx,
             &self.ring,
             &self.deployment,
-            EntryType::AccountSignin,
+            entry_type,
             &entry_metadata(
-                EntryType::AccountSignin,
+                entry_type,
                 &[
                     ("account", Json::Str(account.clone())),
                     ("session", Json::Str(id.clone())),
@@ -1420,6 +1494,22 @@ impl SessionStore {
             .row_mac(tx, &row)
             .await
             .map_err(|e| (Some(AccountBucket::Account(account.clone())), "row mac", e))?;
+
+        // §5.5's *"the seconder has an independent sign-in on record"*, taken
+        // once, on the operator plane only. It is recorded here rather than at
+        // the console because what §5.5 is asking about is a sign-in, and this
+        // is the only place one happens.
+        if kind == PrincipalKind::Operator {
+            operators::note_first_signin(tx, &account)
+                .await
+                .map_err(|_| {
+                    (
+                        Some(AccountBucket::Account(account.clone())),
+                        "database",
+                        SessionError::Corrupt("operator register"),
+                    )
+                })?;
+        }
 
         tx.execute(
             "INSERT INTO sessions \
@@ -1913,31 +2003,77 @@ impl SessionStore {
             return Err(SessionError::Expired);
         }
 
-        // (4) The account.
+        // (4) The principal — on both planes.
         set_account_id(tx, &row.principal_id).await?;
-        if row.principal_kind == PrincipalKind::Steward {
-            let disabled: Option<bool> = tx
-                .query_opt(
-                    "SELECT disabled_at IS NOT NULL FROM accounts WHERE id = $1",
-                    &[&row.principal_id],
-                )
-                .await?
-                .map(|r| r.get(0));
-            match disabled {
-                Some(false) => {}
-                Some(true) => return Err(SessionError::AccountDisabled),
-                None => return Err(SessionError::NoSuchSession),
+        match row.principal_kind {
+            PrincipalKind::Steward => {
+                let disabled: Option<bool> = tx
+                    .query_opt(
+                        "SELECT disabled_at IS NOT NULL FROM accounts WHERE id = $1",
+                        &[&row.principal_id],
+                    )
+                    .await?
+                    .map(|r| r.get(0));
+                match disabled {
+                    Some(false) => {}
+                    Some(true) => return Err(SessionError::AccountDisabled),
+                    None => return Err(SessionError::NoSuchSession),
+                }
+            }
+            // **A suspended operator stops at the next request**, which is the
+            // same sentence `0013` §A wrote for a disabled account and the same
+            // mechanism: a column re-read inside the transaction that will also
+            // authorise, never a flag cached in the session row. A session
+            // carrying a stored "is an operator in good standing" boolean would
+            // be one `UPDATE` from being true again.
+            PrincipalKind::Operator => {
+                let disabled: Option<bool> = tx
+                    .query_opt(
+                        "SELECT disabled_at IS NOT NULL FROM operators WHERE id = $1",
+                        &[&row.principal_id],
+                    )
+                    .await?
+                    .map(|r| r.get(0));
+                match disabled {
+                    Some(false) => {}
+                    Some(true) => return Err(SessionError::AccountDisabled),
+                    None => return Err(SessionError::NoSuchSession),
+                }
             }
         }
 
-        // (5) The evidence key, still in service, its own seal still true.
+        // (5) The evidence key, still in service, its own seal still true —
+        // **resolved from the keyring the session's own plane keeps**. The two
+        // keyrings are different tables with different seals (`0015` §B), and
+        // resolving an operator's key id against `account_keys` would refuse
+        // every operator session at its second request.
         if let Some(key_id) = &row.evidence_key_id {
-            match grants::signing_key_by_id(tx, &self.ring, key_id, now).await {
-                Ok(_) => {}
-                Err(AuthorityError::NoSigningKey) => {
-                    return Err(SessionError::EvidenceKeyNotInService)
+            match row.principal_kind {
+                PrincipalKind::Steward => {
+                    match grants::signing_key_by_id(tx, &self.ring, key_id, now).await {
+                        Ok(_) => {}
+                        Err(AuthorityError::NoSigningKey) => {
+                            return Err(SessionError::EvidenceKeyNotInService)
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
                 }
-                Err(e) => return Err(e.into()),
+                PrincipalKind::Operator => {
+                    match operators::live_operator_key(tx, &self.ring, &row.principal_id, now).await
+                    {
+                        // The operator's LIVE key must still be the one that
+                        // proved this session. An operator who enrolled a
+                        // second key does not keep a session the first one
+                        // established, for §8.4's reason: a session dies with
+                        // the key that made it.
+                        Ok(key) if &key.id == key_id => {}
+                        Ok(_) => return Err(SessionError::EvidenceKeyNotInService),
+                        Err(operators::OperatorError::Unverifiable(what)) => {
+                            return Err(SessionError::Unverifiable(what))
+                        }
+                        Err(_) => return Err(SessionError::EvidenceKeyNotInService),
+                    }
+                }
             }
         }
 
@@ -2046,13 +2182,22 @@ impl SessionStore {
         // The entry first, then the row whose MAC covers its seq: no record,
         // no sign-out, which is the order `attempt_sign_in` uses for the same
         // reason (§0, "stopping the log stops the act").
+        // §7.2 names `account_signed_out` and, since `0015`, `operator_signed_out`
+        // — two types rather than one with a `principal_kind` field, because
+        // the type is what a reader holding only the chain key can group by,
+        // and an operator's acts must be legible as operator acts to whoever
+        // audits the operator plane.
+        let entry_type = match session.kind {
+            PrincipalKind::Steward => EntryType::AccountSignedOut,
+            PrincipalKind::Operator => EntryType::OperatorSignedOut,
+        };
         let appended = chains::append_site(
             tx,
             &self.ring,
             &self.deployment,
-            EntryType::AccountSignedOut,
+            entry_type,
             &entry_metadata(
-                EntryType::AccountSignedOut,
+                entry_type,
                 &[
                     ("session", Json::Str(session.id.clone())),
                     ("account", Json::Str(principal.clone())),
@@ -2562,6 +2707,41 @@ async fn account_by_address(
         .query_opt("SELECT id FROM accounts WHERE email = $1", &[&address])
         .await?;
     Ok(row.map(|r| r.get(0)))
+}
+
+/// Resolve what an operator typed to an operator id, for sign-in only.
+///
+/// **§4.5 gives an operator no address of record**, because there is no reset
+/// path to send anything to, so the operator plane's equivalent of an address
+/// is the operator's own id — handed to them once at enrolment and shown on the
+/// console beside their name. It is not a secret and is not treated as one: the
+/// factor is a signature by the key `operator_keys` holds for them.
+///
+/// A value that names nobody returns `None` and takes exactly the path an
+/// unknown address takes on the account plane, which is what keeps the two
+/// planes' refusals identical.
+async fn operator_by_id(
+    tx: &Transaction<'_>,
+    claimed: &str,
+) -> Result<Option<String>, SessionError> {
+    let row = tx
+        .query_opt("SELECT id FROM operators WHERE id = $1", &[&claimed])
+        .await?;
+    Ok(row.map(|r| r.get(0)))
+}
+
+/// The one shape sign-in needs from either keyring: which key proved this
+/// session, and what verifies against it.
+///
+/// `grants::AccountKey` and `operators::OperatorKey` are different rows in
+/// different tables with different seals, and deliberately so — `0015` §B
+/// carries that argument. What sign-in needs from either is the same three
+/// fields, and this is that, so the branch below produces one value and the
+/// forty lines after it are written once.
+struct SignInKey {
+    id: String,
+    public_key: Vec<u8>,
+    fpr: [u8; 32],
 }
 
 // ---------------------------------------------------------------------------
