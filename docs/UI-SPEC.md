@@ -29,15 +29,23 @@ big enough to hit. Never a page change.
 
 ## Ports
 
-Four glyphs, never confusable: **RJ45** (latch notch), **SFP+** (cage with a bail), **LC** (two
-ferrules), **C14** (hex inlet, three pins). Same size on every plate.
+Five glyphs, never confusable: **RJ45** (latch notch), **SFP+** (cage with a bail), **QSFP+** (wide
+cage, four lanes, no bail), **LC** (two ferrules), **C14** (hex inlet, three pins). Same height on
+every plate; QSFP+ is wider because the metal is, at 40×13 against SFP+'s 28×13.
 
-**A fifth is owed: QSFP+ — 2026-09-14.** The first real catalogue entry, Juniper's EX4300-48P,
-carries four built-in QSFP+ ports on the rear, and a QSFP+ cage is visibly wider than an SFP+ one
-with four lanes behind it. The catalogue records the true kind, because writing SFP+ into the data
-of record would send somebody to a rack holding the wrong transceiver, which is the error class
-this product exists to prevent. So the gap is here, in the drawing, not there: **until a glyph is
-drawn, a QSFP+ port has no glyph and must not borrow the SFP+ one.** See "Not yet drawn" below.
+**Drawn 2026-09-14, and the reason it is not simply a wider SFP+.** The catalogue records a QSFP+
+port as QSFP+, because writing SFP+ into the data of record would send somebody to a rack holding
+the wrong transceiver. That left the drawing owing a glyph. **Width alone could not be the answer:**
+at the zoom where ports first become hit targets there is nothing beside a port to compare a width
+against, so a cage that differs only in width is a coin flip. The mark is the **direction of the
+rules inside the cage** — SFP+ carries one horizontal rule, one slot; QSFP+ carries three vertical
+rules, four lanes — and orientation reads alone. The dividers are the longest lines in the glyph, so
+they are the last thing to survive as the zoom drops, which was measured rather than assumed.
+
+**No bail on QSFP+.** A real module has a pull tab, not a wire latch, and the flat top is what stops
+the silhouette collapsing back towards SFP+. Four alternatives were drawn and rejected; the
+comparison lives at `/ports.html` in the client, which shows all five at four zooms in both themes
+and both states, the way the `Legend` board shows four.
 
 Count, position and numbering come from the **engine's equipment catalogue**, never typed. Numbered
 as the label on the box reads — odd over even, 12-port groups, uplinks right.
@@ -185,14 +193,23 @@ work from a closed brief, in this page's language, before they are built:
 - **The mode-change consent screen** — the full statement rendered before the touch, in the
   register §12.6 of the storage design already uses.
 
-## Not yet drawn — the QSFP+ glyph, 2026-09-14
+## Owed to the boards, and two numbers this page does not name — 2026-09-14
 
-A fifth port glyph, sized and shaped so it cannot be mistaken for SFP+ at faceplate zoom, and
-legible at the zoom where ports first fade in. Designer work from a closed brief, in this page's
-language, before the faceplate surface is built. The rule the glyph has to satisfy is the one the
-four already satisfy: never confusable, same size on every plate.
+The glyph exists in the client; the pictures have not caught up. The `Legend` board needs a fifth
+column in band 1 at true size, 40×13 and no bail, captioned "wide cage, four lanes"; its masthead
+line says four and should say five; and the `Faceplate` board's rear QSFP+ placeholder is currently
+a bailed SFP+ at 40×16 and should be this glyph at 40×13.
 
-Until it exists the catalogue is ahead of the canvas, which is the right way round.
+Two things this page has never specified, both found by drawing rather than by reading:
+
+- **The zoom at which ports become hit targets has no number here.** "Ports fade in as they become
+  big enough to hit" is the rule and it is the right rule, but the glyph work needed a figure to
+  test against and derived one from the `Faceplate` board's port pitch. Name it when the faceplate
+  surface is built, and name it here rather than in the code.
+- **Port-colour mode and the lane dividers are undecided.** "Filled = cabled" plus "the port it
+  fills" means a cabled port can carry the sheath colour, and QSFP+'s dividers are drawn in the
+  page colour against an ink fill. Whether they stay page-coloured over a sheath fill, or invert, is
+  not decided. It only arises for the glyph that has interior detail, which is this one.
 
 ## Parked
 
