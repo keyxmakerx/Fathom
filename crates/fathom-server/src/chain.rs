@@ -446,6 +446,27 @@ pub enum EntryType {
     /// the operation that changes *who can decrypt everything* would be the
     /// only key operation in the product with no audit trail.
     ///
+    // ---- Firmware staging (ADR-0045, migration 0017) ---------------------
+    //
+    // Three types, written by `firmware.rs`. **None of them is in §7.2's
+    // list**, because §7.2 predates ADR-0045; `0017` §E carries the report,
+    // as `0013` §G and `0015` §J carried theirs.
+    /// An image arrived whole: the bytes were written to Fathom's disk, the
+    /// SHA-256 was computed over them as they were written, and it matched
+    /// the declaration. A truncated or altered upload writes nothing — it
+    /// deletes the partial file and refuses, which is trap 2 of
+    /// `docs/UPGRADING-A-JUNIPER.md`.
+    FirmwareStaged,
+    /// A one-time fetch URL was minted for a device to collect an image with.
+    /// ADR-0045 §8: this publishes bytes to anything that can reach this
+    /// server holding the token, so it is an act with a sealed record rather
+    /// than a read. **The entry names the token's id and never the token.**
+    FirmwareFetchIssued,
+    /// A fetch URL was spent: the bytes went somewhere. Written and committed
+    /// BEFORE the body is served, so a transfer that dies half way still
+    /// leaves the record that it started.
+    FirmwareFetchRedeemed,
+
     /// **The one type filed on two kinds.** A re-wrap is deployment-wide,
     /// because the master key is: one summary entry lands on the site chain
     /// naming both master identities and how many tenants moved, and one entry
@@ -502,6 +523,9 @@ impl EntryType {
             Self::GrantUnsuspended => "grant_unsuspended",
             Self::GrantRevoked => "grant_revoked",
             Self::AuthHeadAdvanced => "auth_head_advanced",
+            Self::FirmwareStaged => "firmware_staged",
+            Self::FirmwareFetchIssued => "firmware_fetch_issued",
+            Self::FirmwareFetchRedeemed => "firmware_fetch_redeemed",
         }
     }
 
@@ -550,6 +574,9 @@ impl EntryType {
             "grant_unsuspended" => Some(Self::GrantUnsuspended),
             "grant_revoked" => Some(Self::GrantRevoked),
             "auth_head_advanced" => Some(Self::AuthHeadAdvanced),
+            "firmware_staged" => Some(Self::FirmwareStaged),
+            "firmware_fetch_issued" => Some(Self::FirmwareFetchIssued),
+            "firmware_fetch_redeemed" => Some(Self::FirmwareFetchRedeemed),
             _ => None,
         }
     }
@@ -609,7 +636,10 @@ impl EntryType {
             | Self::GrantSeconded
             | Self::GrantUnsuspended
             | Self::GrantRevoked
-            | Self::AuthHeadAdvanced => &[ChainKind::Org],
+            | Self::AuthHeadAdvanced
+            | Self::FirmwareStaged
+            | Self::FirmwareFetchIssued
+            | Self::FirmwareFetchRedeemed => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the
             // master key is deployment-wide (§7.2's own note), and
             // `grant_suspended` because §1.1 gives the operator plane one

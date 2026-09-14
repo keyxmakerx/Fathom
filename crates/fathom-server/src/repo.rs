@@ -117,6 +117,18 @@ ulid_id!(
     DesignId
 );
 
+ulid_id!(
+    /// A staged firmware image's id (ADR-0045, migration `0017`).
+    ///
+    /// **This id is also the file's name on disk**, which is why it is minted
+    /// here like every other id rather than anywhere near the filesystem: a
+    /// ULID's encoding is twenty-six characters of Crockford base32, so it can
+    /// hold no separator, no dot and no `..`. `firmware::storage_name`
+    /// re-validates that alphabet before it joins anything to a directory, and
+    /// `0017`'s own `CHECK` says the same thing a third time.
+    FirmwareImageId
+);
+
 // ---------------------------------------------------------------------------
 // Small enums
 // ---------------------------------------------------------------------------
