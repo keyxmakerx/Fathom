@@ -10,6 +10,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod catalogue;
 pub mod concepts;
 pub mod detln;
 pub mod gates;
@@ -18,6 +19,10 @@ pub mod load;
 pub mod model;
 pub mod normalize;
 
+pub use catalogue::{
+    Catalogue, CatalogueError, CatalogueGate, Face, Faceplate, Layout, Model as CatalogueModel,
+    Port, PortGroup, PortKind, PsuInlets, Role, Row, Source as CatalogueSource,
+};
 pub use gates::{Finding, Severity};
 pub use index::CorpusIndex;
 pub use load::LoadError;
