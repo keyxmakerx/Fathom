@@ -1458,6 +1458,263 @@ async fn an_operator_row_minted_in_the_database_cannot_sign_in() {
 }
 
 // ---------------------------------------------------------------------------
+// `0015` §B2 — the evidence key reference, and every write path over it
+// ---------------------------------------------------------------------------
+
+/// **Every server write path to a `sessions` row works with no key custody
+/// set** — and the reference the row carries is checked absolutely, by the
+/// system, not relatively, by whatever the writing transaction can see.
+///
+/// # The defect this is the regression test for
+///
+/// The first draft of `0015` replaced `0013`'s foreign key with a
+/// `SECURITY DEFINER` trigger that looked the evidence key up in whichever
+/// keyring the row's `principal_kind` named. `SECURITY DEFINER` runs the body
+/// as the function's OWNER, and that owner is the migration role, which is
+/// `NOSUPERUSER` and therefore bound by `FORCE ROW LEVEL SECURITY` on both
+/// keyrings — so the check asked *"is this key visible to me here"* rather than
+/// *"does this key exist"*, and its answer moved with the GUCs.
+///
+/// It passed every test I had, because the two paths that update a session row
+/// both happen to hold `app.session_custody` and to have set `app.account_id`
+/// by the time they get there. **That is the failure mode worth a test of its
+/// own: it worked by coincidence of the ambient transaction, not because the
+/// data was right.** The visible half was three tests in `tests/sessions.rs`
+/// writing a session row as the bootstrap superuser — who bypasses row
+/// security, but whose privileges a definer's body does not run with.
+///
+/// So the steps below drive each write path and then make the same statements
+/// from the *bare* superuser connection, holding no GUC at all, which is the
+/// condition the trigger could not survive.
+#[tokio::test]
+async fn every_write_path_to_an_operator_session_row_works_with_no_key_custody_set() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+    let superuser = superuser().await;
+
+    // (1) INSERT — sign-in put the key id in the OPERATOR column, and left the
+    //     account one empty. One row, one plane (§B2's two `CHECK`s).
+    let row = superuser
+        .query_one(
+            "SELECT evidence_key_id, evidence_operator_key_id FROM sessions WHERE id = $1",
+            &[&operator.signed_in.session_id],
+        )
+        .await
+        .expect("the session row");
+    let account_column: Option<String> = row.get(0);
+    let operator_column: Option<String> = row.get(1);
+    assert!(
+        account_column.is_none(),
+        "an operator session must not name a key in the account keyring's column"
+    );
+    let evidence = operator_column.expect("an operator session names its operator key");
+
+    // And it is a real row of the operator keyring, so the foreign key has
+    // something to have checked.
+    let enrolled: i64 = superuser
+        .query_one(
+            "SELECT count(*) FROM operator_keys WHERE id = $1",
+            &[&evidence],
+        )
+        .await
+        .expect("count")
+        .get(0);
+    assert_eq!(enrolled, 1);
+
+    // (2) UPDATE — the request-counter advance, twice, through the real
+    //     verification path. This is the statement the trigger re-ran on every
+    //     single request.
+    for _ in 0..2 {
+        verify(
+            &sessions_store,
+            &operator.signed_in,
+            &operator.session_key,
+            "GET",
+            "/admin/operators",
+            b"",
+        )
+        .await;
+    }
+
+    // (3) The same table, written from a connection holding NO custody and no
+    //     `app.account_id` — the exact shape of the three failures. `0013`
+    //     leaves `expires_at` inside the row MAC on purpose, so this breaks the
+    //     MAC and the session is refused afterwards; what is under test here is
+    //     that the STATEMENT is accepted, which is the premise those tests need
+    //     before they can reach the attack they are about.
+    superuser
+        .execute(
+            "UPDATE sessions SET expires_at = expires_at + interval '1 second' WHERE id = $1",
+            &[&operator.signed_in.session_id],
+        )
+        .await
+        .expect(
+            "an UPDATE that touches no evidence column must not consult either keyring: \
+             that was the definer trap",
+        );
+
+    // (4) DELETE — sign-out, on a session of its own so the one above stays as
+    //     it is. It writes a revocation row and removes the session.
+    let (signed_in, session_key) =
+        sign_in_as_operator(&sessions_store, &operator.id, &operator.key).await;
+    let session = verify(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "DELETE",
+        "/session",
+        b"",
+    )
+    .await;
+    sessions_store
+        .sign_out(&session)
+        .await
+        .expect("sign-out is a write path to this table too");
+    let left: i64 = superuser
+        .query_one(
+            "SELECT count(*) FROM sessions WHERE id = $1",
+            &[&signed_in.session_id],
+        )
+        .await
+        .expect("count")
+        .get(0);
+    assert_eq!(left, 0);
+
+    // (5) DELETE — the sweep. Age a live operator session past its expiry and
+    //     drive the path that sweeps (`sign_in` pays for the growth of all
+    //     three session tables, `0014` §C).
+    let (aged, _key) = sign_in_as_operator(&sessions_store, &operator.id, &operator.key).await;
+    // Both timestamps move, because `0013`'s own `CHECK (expires_at >
+    // issued_at)` is a rule about a session and not about the clock -- the same
+    // shape `tests/sessions.rs` uses to age one.
+    superuser
+        .execute(
+            "UPDATE sessions \
+                SET issued_at = now() - interval '2 hours', \
+                    expires_at = now() - interval '1 hour' \
+              WHERE id = $1",
+            &[&aged.session_id],
+        )
+        .await
+        .expect("age the session");
+    let _ = sign_in_as_operator(&sessions_store, &operator.id, &operator.key).await;
+    let swept: i64 = superuser
+        .query_one(
+            "SELECT count(*) FROM sessions WHERE id = $1",
+            &[&aged.session_id],
+        )
+        .await
+        .expect("count")
+        .get(0);
+    assert_eq!(
+        swept, 0,
+        "an expired operator session is swept like any other"
+    );
+}
+
+/// **The reference is absolute: it answers the same question for every caller.**
+///
+/// Made from the bootstrap superuser, holding no GUC — the caller for whom the
+/// old trigger answered "no" to everything. A session naming a key that exists
+/// is accepted; a session naming a key that does not exist is refused; and a
+/// row may not name a key in the other plane's keyring.
+#[tokio::test]
+async fn a_session_may_not_name_an_evidence_key_that_does_not_exist_or_belongs_to_the_other_plane()
+{
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+    let superuser = superuser().await;
+
+    // A key that exists on each plane, to name in the attempts below.
+    let operator_key: String = superuser
+        .query_one(
+            "SELECT id FROM operator_keys WHERE operator_id = $1",
+            &[&operator.id],
+        )
+        .await
+        .expect("the operator's key")
+        .get(0);
+
+    // (a) A key id that is in NEITHER keyring. Refused — this is the whole
+    //     claim the trigger was making and could not keep.
+    let refused = superuser
+        .execute(
+            "INSERT INTO sessions \
+                 (id, principal_id, principal_kind, token_hash, session_pubkey, session_alg, \
+                  bound_nonce, evidence_operator_key_id, assurance, chain_seq, issued_at, \
+                  last_seen_at, expires_at, row_version, row_mac) \
+             SELECT 'forged-1', principal_id, principal_kind, token_hash, session_pubkey, \
+                    session_alg, bound_nonce, 'no-such-key-anywhere', assurance, chain_seq, \
+                    issued_at, last_seen_at, expires_at, row_version, row_mac \
+               FROM sessions WHERE id = $1",
+            &[&operator.signed_in.session_id],
+        )
+        .await;
+    assert!(
+        refused.is_err(),
+        "a session naming a key that is in no keyring must be refused at every privilege level"
+    );
+
+    // (b) An operator session naming a key in the ACCOUNT column. Refused by
+    //     §B2's `CHECK`, before the foreign key is even reached — which is what
+    //     makes `read_session`'s COALESCE unambiguous.
+    let refused = superuser
+        .execute(
+            "UPDATE sessions SET evidence_key_id = $2 WHERE id = $1",
+            &[&operator.signed_in.session_id, &operator_key],
+        )
+        .await;
+    assert!(
+        refused.is_err(),
+        "an operator session must not carry an account-plane evidence column"
+    );
+
+    // (c) And the mechanism itself cannot come back quietly: two foreign keys,
+    //     no trigger. A trigger reading a table behind FORCE ROW LEVEL
+    //     SECURITY answers a visibility question however it is written, so this
+    //     names the shape rather than the function.
+    let fkeys: Vec<String> = superuser
+        .query(
+            "SELECT conname FROM pg_constraint \
+              WHERE conrelid = 'sessions'::regclass AND contype = 'f' \
+                AND pg_get_constraintdef(oid) ILIKE '%_keys(id)%'",
+            &[],
+        )
+        .await
+        .expect("read the constraints")
+        .iter()
+        .map(|r| r.get::<_, String>(0))
+        .collect();
+    assert_eq!(
+        fkeys.len(),
+        2,
+        "both evidence columns must be under referential integrity: {fkeys:?}"
+    );
+    let triggers: i64 = superuser
+        .query_one(
+            "SELECT count(*) FROM pg_trigger \
+              WHERE tgrelid = 'sessions'::regclass AND NOT tgisinternal",
+            &[],
+        )
+        .await
+        .expect("count triggers")
+        .get(0);
+    assert_eq!(
+        triggers, 0,
+        "the evidence-key check is a constraint, not a trigger: a trigger would be reading a \
+         table behind FORCE ROW LEVEL SECURITY and would answer a visibility question"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // §4.5 and §5.1 — no password, anywhere
 // ---------------------------------------------------------------------------
 

@@ -1511,13 +1511,27 @@ impl SessionStore {
                 })?;
         }
 
+        // **One value, two columns, two foreign keys** (`0015` §B2). The key
+        // that proved this session is in `account_keys` or in `operator_keys`,
+        // never both, and referential integrity is the only mechanism that
+        // answers "does it exist" the same way for every caller — a trigger
+        // reading either keyring answers "is it visible to me", which is a
+        // different question and was the wrong one.
+        //
+        // `row.evidence_key_id` is still the single value the MAC covers, so
+        // `session_row_state` and its pinned vectors are untouched.
+        let (account_evidence, operator_evidence) = match kind {
+            PrincipalKind::Steward => (row.evidence_key_id.clone(), None),
+            PrincipalKind::Operator => (None, row.evidence_key_id.clone()),
+        };
         tx.execute(
             "INSERT INTO sessions \
                  (id, principal_id, principal_kind, token_hash, session_pubkey, session_alg, \
                   bound_nonce, evidence_key_id, evidence_sig, assertion_digest, assurance, \
-                  chain_seq, issued_at, last_seen_at, expires_at, row_version, row_mac) \
+                  chain_seq, issued_at, last_seen_at, expires_at, row_version, row_mac, \
+                  evidence_operator_key_id) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
-                     to_timestamp($13), to_timestamp($13), to_timestamp($14), 1, $15)",
+                     to_timestamp($13), to_timestamp($13), to_timestamp($14), 1, $15, $16)",
             &[
                 &row.id,
                 &row.principal_id,
@@ -1526,7 +1540,7 @@ impl SessionStore {
                 &row.session_pubkey,
                 &authority::ALG_ES256,
                 &row.bound_nonce.to_vec(),
-                &row.evidence_key_id,
+                &account_evidence,
                 &row.evidence_sig,
                 &row.assertion_digest.map(|d| d.to_vec()),
                 &row.assurance.as_str(),
@@ -1534,6 +1548,7 @@ impl SessionStore {
                 &(row.issued_at_unix as f64),
                 &(row.expires_at_unix as f64),
                 &mac.to_vec(),
+                &operator_evidence,
             ],
         )
         .await
@@ -2654,8 +2669,13 @@ fn clock_skew_seconds(now_seconds: i64, unix_ms: i64) -> Result<i64, SessionErro
 async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRow>, SessionError> {
     let row = tx
         .query_opt(
+            // `COALESCE` over the two evidence columns, and it is unambiguous
+            // because `0015` §B2's `CHECK`s let only the one matching this
+            // row's `principal_kind` be set. What comes back is the same single
+            // value `session_row_state` has always hashed.
             "SELECT id, principal_id, principal_kind, token_hash, session_pubkey, bound_nonce, \
-                    evidence_key_id, evidence_sig, assertion_digest, assurance, chain_seq, \
+                    COALESCE(evidence_key_id, evidence_operator_key_id), \
+                    evidence_sig, assertion_digest, assurance, chain_seq, \
                     row_version, EXTRACT(EPOCH FROM issued_at)::bigint, \
                     EXTRACT(EPOCH FROM expires_at)::bigint, request_counter \
                FROM sessions WHERE id = $1",
