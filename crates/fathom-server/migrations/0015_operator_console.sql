@@ -218,67 +218,131 @@ CREATE INDEX IF NOT EXISTS operator_keys_operator_idx ON operator_keys (operator
 -- ---------------------------------------------------------------------------
 -- B2. THE ONE CORRECTION THIS FILE MAKES TO 0013's SCHEMA
 --
+-- **This section was rewritten on 2026-09-14, editing this file in place after
+-- it had already been applied.** That is not licence to edit an applied
+-- migration, and the checksum gate still refuses one: the exception holds only
+-- because `0015` was written the same day, has never shipped, and existed only
+-- in databases `cargo test` creates and drops. A file that has run anywhere
+-- real is immutable, and the next correction to this one is `0016`.
+--
+-- # What was wrong
+--
 -- `0013` gave `sessions.evidence_key_id` a foreign key to `account_keys(id)`,
 -- which was exactly right on the day it was written: the only keyring in the
 -- schema was the account one, and §4.5 meant an operator session could not
--- exist. Section B adds a second keyring, so that foreign key now says
--- something false — **an operator's session names the key that proved it, and
--- that key is in `operator_keys`** — and it refuses the insert outright.
+-- exist. Section B adds a second keyring, so that foreign key started refusing
+-- a legitimate insert -- an operator's session names the key that proved it,
+-- and that key is in `operator_keys`.
 --
--- The fence is replaced rather than removed. A foreign key cannot reference
--- two tables, so what takes its place is a `SECURITY DEFINER` trigger that
--- checks the SAME fact against the right keyring for the row's own
--- `principal_kind`:
+-- The first attempt dropped the foreign key and replaced it with a
+-- `SECURITY DEFINER` trigger that looked the id up in whichever keyring the
+-- row's `principal_kind` named. **That trigger was not an integrity constraint,
+-- and this paragraph is kept so that nobody rebuilds it.** `SECURITY DEFINER`
+-- runs the body as the function's OWNER, and the owner here is the migration
+-- role, which is deliberately `NOSUPERUSER` and therefore subject to the
+-- `FORCE ROW LEVEL SECURITY` on both keyrings. So the body asked *"is this key
+-- visible to me in this transaction"* and not *"does this key exist"*, and the
+-- answer moved with whichever GUCs the writing transaction happened to hold.
 --
---   * `steward`  -> the id must exist in `account_keys`;
---   * `operator` -> the id must exist in `operator_keys`.
+-- Three tests in `tests/sessions.rs` failed on it, all of them writing a
+-- session row as the bootstrap superuser -- who bypasses row security, but
+-- whose privileges the definer's body does not run with. Those failures were
+-- the visible half. The invisible half was worse: the trigger fired
+-- `BEFORE INSERT OR UPDATE`, so every request-counter advance and every sweep
+-- re-ran the check, and any of them running outside a custody transaction
+-- would have been refused in production for a reason having nothing to do with
+-- the data.
 --
--- **What is lost and what is kept, stated rather than glossed.** A foreign key
--- also refuses a DELETE of the referenced row (`ON DELETE RESTRICT`); a trigger
--- on `sessions` does not. Nothing is weakened by that here: `fathom_app` holds
--- no `DELETE` on either keyring (`0011` §I revokes it on `account_keys`, and
--- section I of this file never grants it on `operator_keys`), and a session
--- whose evidence key has gone stops at its next request anyway, because
--- verification re-resolves the key and refuses when it is not in service. What
--- is kept is the fence that matters: a session row naming a key that does not
--- exist cannot be inserted, at every privilege level a trigger reaches --
--- which is every level except one that disables the trigger first, exactly as
--- `0009` says of its own append-only fence.
+-- # What replaces it, and why it is absolute
 --
--- `SECURITY DEFINER` with the search path pinned, on `0011` §2's named trap: a
--- trigger function that reads a row-level-security-protected table must be, or
--- it runs as the invoker, sees nothing and passes vacuously. Both keyrings are
--- behind `FORCE ROW LEVEL SECURITY`.
+-- Two columns, each with a real foreign key, and a `CHECK` tying each to the
+-- principal kind that may use it. **Referential integrity is enforced by the
+-- system and does not go through row security**, so the answer is the same for
+-- every caller whatever GUCs are set -- which is the property the trigger lost
+-- and the whole reason a foreign key is worth restructuring a column for.
+--
+-- That property was measured on this PostgreSQL rather than taken from memory
+-- (CLAUDE.md rule 1). As the non-superuser owner, against a `FORCE ROW LEVEL
+-- SECURITY` table whose policy made every row invisible to it:
+--
+--     rows visible to the owner                                 0
+--     INSERT naming a row that exists but is invisible    ACCEPTED
+--     INSERT naming a row that does not exist              REFUSED
+--
+-- `0013`'s foreign key is therefore NOT dropped; a second one is added beside
+-- it. The application still reads and writes ONE value -- `SessionRow`'s
+-- `evidence_key_id` is unchanged, and so is `session_row_state`, so the MAC
+-- covers exactly the bytes it did before and `tests/session_vectors.rs` pins
+-- the same vectors. What changed is which column that one value rests in.
+--
+-- # What it costs
+--
+--   * A wider row: one text column that is `NULL` for every session on the
+--     other plane. `sessions` is small and short-lived.
+--   * `read_session` coalesces the two columns, so a reader has to know that.
+--     The `CHECK`s below are what make the coalesce unambiguous: at most one is
+--     ever set, because a row has exactly one `principal_kind`.
+--   * A polymorphic reference cannot be a single foreign key, so anything that
+--     later wants "the evidence key, whichever plane it is on" as one joinable
+--     column wants a view over these two and not a third column.
+--
+-- What is GAINED over both the trigger and the original foreign key: an
+-- operator session's evidence key is under referential integrity too, which it
+-- never was -- the trigger only approximated it, and `0013` could not express
+-- it at all.
 -- ---------------------------------------------------------------------------
-ALTER TABLE sessions DROP CONSTRAINT IF EXISTS sessions_evidence_key_id_fkey;
 
-CREATE OR REPLACE FUNCTION fathom_session_evidence_key_exists() RETURNS trigger
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
-BEGIN
-    IF NEW.evidence_key_id IS NULL THEN
-        RETURN NEW;
-    END IF;
-
-    IF NEW.principal_kind = 'operator' THEN
-        IF NOT EXISTS (SELECT 1 FROM operator_keys WHERE id = NEW.evidence_key_id) THEN
-            RAISE EXCEPTION
-                'the key that proved this session is not in the operator keyring';
-        END IF;
-    ELSE
-        IF NOT EXISTS (SELECT 1 FROM account_keys WHERE id = NEW.evidence_key_id) THEN
-            RAISE EXCEPTION
-                'the key that proved this session is not in the account keyring';
-        END IF;
-    END IF;
-
-    RETURN NEW;
-END
-$fn$;
-
+-- The failed attempt, removed.
+--
+-- **A database that applied the draft cannot reach this line**: the checksum
+-- gate sees a file whose bytes have changed and refuses to go on, which is
+-- exactly what it is for. Such a database is dropped and rebuilt, and only
+-- disposable test databases ever held one. The guards here are therefore not a
+-- repair path -- they are what makes every statement in this section safe to
+-- run in any order against a database arriving from `0014`, where the trigger
+-- never existed and the foreign key still does.
 DROP TRIGGER IF EXISTS sessions_evidence_key_exists ON sessions;
-CREATE TRIGGER sessions_evidence_key_exists
-    BEFORE INSERT OR UPDATE ON sessions
-    FOR EACH ROW EXECUTE FUNCTION fathom_session_evidence_key_exists();
+DROP FUNCTION IF EXISTS fathom_session_evidence_key_exists();
+
+-- `0013`'s foreign key, under the name PostgreSQL generated for it. The guard
+-- finds it already present on a database arriving from `0014` and does nothing.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'sessions'::regclass
+           AND contype = 'f'
+           AND conname = 'sessions_evidence_key_id_fkey'
+    ) THEN
+        ALTER TABLE sessions
+            ADD CONSTRAINT sessions_evidence_key_id_fkey
+            FOREIGN KEY (evidence_key_id) REFERENCES account_keys(id) ON DELETE RESTRICT;
+    END IF;
+END
+$$;
+
+-- The operator plane's half of the same fact.
+ALTER TABLE sessions
+    ADD COLUMN evidence_operator_key_id text
+        REFERENCES operator_keys(id) ON DELETE RESTRICT;
+
+-- **One row, one plane, one evidence column.** Without these a session row
+-- could name a key in each keyring at once and `read_session`'s coalesce would
+-- pick one arbitrarily; with them, the column that is set is the one the row's
+-- own `principal_kind` allows and the other is `NULL`.
+ALTER TABLE sessions
+    ADD CONSTRAINT sessions_account_evidence_is_a_steward_session
+        CHECK (evidence_key_id IS NULL OR principal_kind = 'steward'),
+    ADD CONSTRAINT sessions_operator_evidence_is_an_operator_session
+        CHECK (evidence_operator_key_id IS NULL OR principal_kind = 'operator');
+
+-- No new grant is needed and none is given: `0006` grants `INSERT` on the table
+-- rather than per column, so the new column is writable on insert -- and
+-- `0013`'s `REVOKE UPDATE ON sessions` with
+-- `GRANT UPDATE (last_seen_at, request_counter)` still means `fathom_app` can
+-- never rewrite either evidence column after the insert. Both foreign keys are
+-- therefore checked exactly once, when the session is created, and no
+-- request-time statement can touch them.
 
 -- ---------------------------------------------------------------------------
 -- C. THE INSTALL RECORD -- §6.2's ADDRESS NO ROLE CAN REWRITE
