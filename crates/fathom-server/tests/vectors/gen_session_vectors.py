@@ -76,6 +76,12 @@ TAG_SESSION_REQUEST = b"fathom/session/req/v1"
 TAG_SESSION_TOKEN = b"fathom/session/token/v1"
 TAG_SESSION_EVIDENCE = b"fathom/session/evidence/v1"
 
+# 0014 section A: the keyed hash a claimed sign-in address is counted under,
+# so the rate-limit table never holds a list of addresses that are not
+# accounts.
+KDF_SESSION_ADDRESS = b"fathom/session/kdf/address/v1"
+TAG_SESSION_ADDRESS = b"fathom/session/address/v1"
+
 # The row MAC reuses the authority layer's construction under the SITE-scoped
 # row key (0013's departure 2, following 0012 §D for `account_keys`). Repeated
 # here rather than imported from the authority vector script: an independent
@@ -110,6 +116,12 @@ PATH = b"/organisations/01JQZ0000000000000000000AA/capability?at=now"
 BODY = b"the body this request actually carried"
 UNIX_MS = 1_760_000_000_123
 REQUEST_COUNTER = 9
+
+# 0014 section A. A plausible address, and one whose length is not a round
+# number, so a construction that dropped a length prefix does not agree by
+# accident.
+CLAIMED_ADDRESS = b"someone@example.invalid"
+REVOCATION_REASON = b"signed_out"
 
 ASSURANCE = b"A1"
 ISSUED_AT = 1_760_000_000
@@ -312,6 +324,32 @@ site_chain_key = hkdf_expand(
 )
 k_row_site = hkdf_expand(site_chain_key, KDF_ROW)
 
+# 0014 section A's claimed-address key, expanded from the SAME site chain key
+# under a label of its own -- the rule storage 12.2 states for when a label is
+# warranted: a new USE of one key, not a new key.
+k_addr = hkdf_expand(site_chain_key, KDF_SESSION_ADDRESS)
+claimed_address_key = mac(k_addr, lp(TAG_SESSION_ADDRESS) + lp(CLAIMED_ADDRESS))
+
+# 0014 section D's revocation row: the same row_seal construction under the
+# same key, on a different table name, so a row lifted between the two does
+# not verify where it lands.
+revocation_row_state = canon(
+    {
+        "principal_id": PRINCIPAL_ID.decode(),
+        "reason": REVOCATION_REASON.decode(),
+        "session_id": SESSION_ID.decode(),
+    }
+)
+revocation_row_mac = mac(
+    k_row_site,
+    lp(TAG_ROW)
+    + lp(b"session_revocations")
+    + lp(SESSION_ID)
+    + u64_le(CHAIN_SEQ)
+    + u32_le(ROW_VERSION)
+    + lp(revocation_row_state),
+)
+
 row_state = canon(
     {
         "assertion_digest": hexs(evidence_digest),
@@ -379,6 +417,10 @@ if __name__ == "__main__":
         ("EVIDENCE_DIGEST", evidence_digest),
         ("SITE_CHAIN_KEY", site_chain_key),
         ("K_ROW_SITE", k_row_site),
+        ("K_ADDR", k_addr),
+        ("CLAIMED_ADDRESS_KEY", claimed_address_key),
+        ("REVOCATION_ROW_STATE", revocation_row_state),
+        ("REVOCATION_ROW_MAC", revocation_row_mac),
         ("ROW_STATE", row_state),
         ("ROW_MAC", row_mac),
         ("SIGNATURE", SIGNATURE_OVER_REQUEST_BYTES),

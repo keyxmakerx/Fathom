@@ -401,15 +401,34 @@ pub(crate) async fn site_row_key(
     tx: &Transaction<'_>,
     ring: &KeyRing,
 ) -> Result<Key32, AuthorityError> {
+    Ok(authority::row_key(&site_chain_key(tx, ring).await?))
+}
+
+/// **The site chain key itself** — the one key in this deployment that is the
+/// same for every organisation, and the input every site-scoped subkey is
+/// expanded from.
+///
+/// `pub(crate)` since `0014`: `sessions.rs` expands a second subkey from it,
+/// for the keyed hash of a claimed sign-in address, in exactly the shape
+/// [`authority::row_key`] expands `K_row_site`. It needs the key and not the
+/// row subkey, because a KDF label separates uses of ONE key and hashing an
+/// address is not a row seal.
+///
+/// Nothing outside this crate gains a way to reach it, and nothing inside it
+/// may return it to a caller who has not already been trusted with
+/// `chain_master`.
+pub(crate) async fn site_chain_key(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+) -> Result<Key32, AuthorityError> {
     let deployment = chains::deployment_id(&**tx).await?;
-    let chain_key = chain::chain_key(
+    Ok(chain::chain_key(
         ring.chain_master(),
         ChainRef::Site {
             deployment: &deployment,
         },
         CHAIN_KEY_EPOCH,
-    );
-    Ok(authority::row_key(&chain_key))
+    ))
 }
 
 /// `K_seal` for one organisation — the chain's own sealing subkey, which §3.4

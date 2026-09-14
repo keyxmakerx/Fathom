@@ -330,9 +330,22 @@ const TABLES: &[TableClaim] = &[
         name: "sign_in_attempts",
         protection: Protection::NoKeyProtectedMaterial,
         why: "§13 item 7's fixed-window counters: a bucket kind, a bucket key (an opaque \
-              account id or a source address, NEVER an address that was typed), a window \
-              start, a count and a latch. No credential, no key material, and nothing that \
-              was ever secret.",
+              account id, a source address, or since 0014 a KEYED HASH of a claimed address \
+              -- NEVER an address that was typed), a window start, a count and two latches. \
+              No credential, no key material, and nothing that was ever secret. The keyed \
+              hash's key is derived from the site chain key and is not in PostgreSQL, which \
+              is what makes the column a grouping rather than a list of addresses.",
+    },
+    // ---- 0014, sign-out recorded rather than only performed ---------------
+    TableClaim {
+        name: "session_revocations",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one append-only row per signed-out session: the session id, the principal, a \
+              reason, the time, the site-chain seq of the `account_signed_out` entry, and the \
+              row MAC. A session id is not a secret and none of the rest ever was; the MAC's \
+              key is the site-scoped row key, behind ADR-0043's provider interface and never \
+              in PostgreSQL. It exists because deleting the session row left last night's \
+              backup holding bytes that verified for ever.",
     },
 ];
 
