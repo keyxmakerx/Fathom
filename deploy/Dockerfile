@@ -62,6 +62,25 @@ RUN pinned=$(grep -E '^channel' rust-toolchain.toml | sed 's/.*"\(.*\)".*/\1/') 
 # the workspace Cargo.toml.
 RUN cargo build --locked --profile server -p fathom-server
 
+# A directory for the runtime stage to copy, and the reason it is made HERE:
+# the runtime image is distroless, so there is no shell to `mkdir` with. See
+# the `COPY` that uses it below for what it is for. The README is not
+# decoration -- it is the one thing an operator finds if they go looking in the
+# volume before the server has written anything, and a `COPY` of a genuinely
+# empty directory is a thing not every builder agrees about.
+RUN mkdir -p /bootstrap-seed && \
+    printf '%s\n' \
+      "This volume holds ONE file: the enrolment token for the first operator," \
+      "written at first start (admin design 6.3) as first-operator-token." \
+      "" \
+      "It is a bearer secret. Read it, redeem it in a browser, delete it." \
+      "If it is gone and nobody has enrolled a key yet, run:" \
+      "" \
+      "    docker compose run --rm server reissue-bootstrap-token" \
+      "" \
+      "Once any operator key is enrolled that command refuses, by design." \
+      > /bootstrap-seed/README
+
 # ---- run ------------------------------------------------------------------
 FROM gcr.io/distroless/cc-debian12@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 
@@ -82,6 +101,23 @@ COPY --from=build /src/target/server/fathom-server /fathom-server
 # update should not require a new binary.
 COPY --from=build /src/schema /schema
 ENV FATHOM_SCHEMA_ROOT=/schema
+
+# THE ONE PATH THIS SERVER WRITES, and the one reason this image is not
+# entirely read-only. Admin design §6.3's first start mints the first operator
+# and writes their single-use enrolment token to a file for a human to read;
+# `FATHOM_BOOTSTRAP_TOKEN_FILE` names where. It is NOT in the key volume --
+# that volume is mounted read-only on the server, deliberately, and deriving
+# this path from the master key's is what stopped `deploy/compose.yaml` from
+# ever completing a first start (see its header).
+#
+# **Owned by 65532 here so that the named volume inherits it.** Docker seeds a
+# fresh named volume from whatever is at the mount point in the image,
+# ownership included; a mount point that does not exist in the image is created
+# root-owned, and this container does not run as root, so the server could not
+# create the file at all. `--chown` on `COPY` is how a distroless stage sets
+# ownership without a shell to `chown` with.
+COPY --from=build --chown=65532:65532 /bootstrap-seed /var/lib/fathom/bootstrap
+ENV FATHOM_BOOTSTRAP_TOKEN_FILE=/var/lib/fathom/bootstrap/first-operator-token
 
 # 65532:65532 is distroless's `nonroot`. The compose file says so as well; both
 # say it so that neither alone is load-bearing.

@@ -210,6 +210,33 @@ pub struct Config {
     /// are part of how a second operator learns that a settings change was
     /// requested at all.
     pub operator_notice_address: Option<String>,
+
+    /// Where the first operator's enrolment token is written — by a first
+    /// start, and by `fathom-server reissue-bootstrap-token`.
+    /// `FATHOM_BOOTSTRAP_TOKEN_FILE`, default
+    /// [`DEFAULT_BOOTSTRAP_TOKEN_FILE`].
+    ///
+    /// **Chosen by the deployment, not derived from where the master key
+    /// lives.** It was derived, until 2026-09-14, and that is what made a
+    /// first start in a container impossible: ADR-0043 §3 gives the master key
+    /// its own volume, `deploy/compose.yaml` mounts that volume READ-ONLY on
+    /// the server because the server only reads it, and a token path derived
+    /// from the key's path therefore pointed at a filesystem this process
+    /// cannot write. The write failed, the first operator existed with an
+    /// enrolment token nobody could ever read, and the server exited. A
+    /// derived path cannot be fixed by a deployment; a variable can.
+    ///
+    /// **The default is deliberately not inside the key volume**, for the
+    /// same reason: that volume is read-only to this process in the shipped
+    /// deployment, so a default that pointed into it would be a default that
+    /// cannot work where it matters most. It is relative to the working
+    /// directory, which is the honest default for somebody running the binary
+    /// from a checkout — and in a container, where the root filesystem is
+    /// read-only (`43` §5.4), it fails loudly at the write with the path in
+    /// the message rather than quietly putting a bearer token somewhere
+    /// nobody was told about. The shipped `deploy/compose.yaml` sets this
+    /// variable explicitly at a writable volume of its own.
+    pub bootstrap_token_file: String,
 }
 
 /// ADR-0043 §9's path, in the operator's register and therefore in the code
@@ -222,6 +249,17 @@ pub const DEFAULT_MASTER_KEY: &str = "file:///var/lib/fathom/keys/master.key";
 /// The chain master's default path, beside the master key in the same volume
 /// and deliberately not the same file.
 pub const DEFAULT_CHAIN_KEY: &str = "file:///var/lib/fathom/keys/chain.key";
+
+/// Where the first operator's enrolment token goes when nothing says
+/// otherwise: beside the process, in its working directory.
+///
+/// **Not in the key volume**, though the token is as sensitive as what lives
+/// there for the few hours it is live. ADR-0043 §3's volume is mounted
+/// read-only on the server in the shipped deployment, because the server
+/// reads the key and does not write it; a default that pointed into it would
+/// be a default that fails in precisely the deployment this product ships.
+/// See [`Config::bootstrap_token_file`].
+pub const DEFAULT_BOOTSTRAP_TOKEN_FILE: &str = "first-operator-token";
 
 /// The five levels `tracing` has, parsed by hand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -434,6 +472,15 @@ impl Config {
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
 
+        // Trimmed, and an all-whitespace value falls back to the default
+        // exactly as `FATHOM_SCHEMA_ROOT` does: a template that filled
+        // nothing in must not leave this server trying to create a file
+        // called " ".
+        let bootstrap_token_file = get("FATHOM_BOOTSTRAP_TOKEN_FILE")
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| DEFAULT_BOOTSTRAP_TOKEN_FILE.to_string());
+
         let single_operator = matches!(
             get("FATHOM_SINGLE_OPERATOR")
                 .unwrap_or_default()
@@ -500,6 +547,7 @@ impl Config {
             trusted_client_ip_header,
             single_operator,
             operator_notice_address,
+            bootstrap_token_file,
         })
     }
 
@@ -568,6 +616,60 @@ mod tests {
         }
         let c = Config::from_lookup(env(&[("DATABASE_URL", "postgres://u@h/db")])).unwrap();
         assert!(!c.single_operator, "absent means off");
+    }
+
+    #[test]
+    fn the_bootstrap_token_path_is_the_deployments_choice_and_is_not_in_the_key_volume() {
+        // The fault this variable exists for: the path used to be DERIVED
+        // from `FATHOM_MASTER_KEY`, so it landed in a volume the shipped
+        // compose file mounts read-only, and a first start in a container
+        // could not write the one secret a human has to read. Two claims,
+        // both of which have to hold.
+        let default = Config::from_lookup(env(&[("DATABASE_URL", "postgres://u@h/db")])).unwrap();
+        assert_eq!(default.bootstrap_token_file, DEFAULT_BOOTSTRAP_TOKEN_FILE);
+        assert!(
+            !default.bootstrap_token_file.contains("/keys/"),
+            "the default must not land in the key volume: it is read-only to this process \
+             in the shipped deployment"
+        );
+
+        // And it does not move when the master key does, which is the whole
+        // point of the change.
+        let elsewhere = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            (
+                "FATHOM_MASTER_KEY",
+                "file:///var/lib/fathom/keys/master.key",
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(
+            elsewhere.bootstrap_token_file, DEFAULT_BOOTSTRAP_TOKEN_FILE,
+            "the token path must not be derived from where the master key lives"
+        );
+
+        let chosen = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            (
+                "FATHOM_BOOTSTRAP_TOKEN_FILE",
+                "  /var/lib/fathom/bootstrap/first-operator-token  ",
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(
+            chosen.bootstrap_token_file,
+            "/var/lib/fathom/bootstrap/first-operator-token"
+        );
+
+        let blank = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_BOOTSTRAP_TOKEN_FILE", "   "),
+        ]))
+        .unwrap();
+        assert_eq!(
+            blank.bootstrap_token_file, DEFAULT_BOOTSTRAP_TOKEN_FILE,
+            "a template that filled nothing in falls back to the default"
+        );
     }
 
     #[test]
