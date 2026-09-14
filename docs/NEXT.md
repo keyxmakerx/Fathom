@@ -47,12 +47,19 @@ comparable amount again.
    are under a checksum); corrections go in the next migration's header.
 6. **Never from memory.** A security fact is looked up and cited with a date, or written as "could
    not establish". The four forbidden sentences in `CLAUDE.md` apply to every user-facing string.
-7. **The PostgreSQL in this environment** is started by hand (`/var/tmp/fathom-pg`, user
-   `postgres`, `initdb` as that user, `pg_ctl ... -o '-c listen_addresses=127.0.0.1 -p 5432'`),
-   with role `fathom_test`/`fathom_test_pw` (NOSUPERUSER CREATEROLE) and database `fathom_test`
-   per `.github/workflows/ci.yml`. `cargo-deny` and `cargo-audit` are installed with
-   `cargo install --locked`. `api.osv.dev` is blocked here; `scripts/osv-gate.sh` fails closed
-   and must be run where CI has egress.
+7. **The PostgreSQL in this environment** is the packaged cluster at
+   `/var/lib/postgresql/16/main`, serving `127.0.0.1:5432`, with roles `fathom_test`
+   (NOSUPERUSER CREATEROLE), `fathom_app` and `fathom_operator`, and database `fathom_test`.
+   **Corrected 2026-09-14:** this rule used to describe a cluster started by hand under
+   `/var/tmp/fathom-pg`. That one is gone. A builder found the packaged cluster installed and
+   stopped, started it, and changed loopback authentication in its `pg_hba.conf` from
+   `scram-sha-256` to `trust` so that the superuser workflow these briefs describe would work.
+   Two clusters competing for one port is also the likeliest explanation for the cluster that
+   disappeared mid-session that day. If PostgreSQL is not running, start **that** cluster rather
+   than creating another. Trust authentication on loopback is acceptable only because this is a
+   disposable container; it is not advice for anywhere else. `cargo-deny` and `cargo-audit` are
+   installed with `cargo install --locked`. `api.osv.dev` is blocked here; `scripts/osv-gate.sh`
+   fails closed and must be run where CI has egress.
 8. **Every brief opens with the base check, and this is the lead's job, not the builder's.**
    Worktrees are cut from `main`, and `main` falls behind the working branch the moment the first
    commit of a session lands. Put this at the top of every brief, verbatim, before anything else:
