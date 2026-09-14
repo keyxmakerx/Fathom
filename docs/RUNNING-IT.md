@@ -1,8 +1,9 @@
 # Running Fathom — 2026-09-14
 
 Two ways to start it: **from source**, which is verified below and is what you want today, and
-**Docker Compose**, which is not yet verified and has a known first-start fault being fixed. Both
-end in the same place: a server, a browser client, and one operator who can invite people.
+**Docker Compose**, which nobody has yet run end to end and which needs one thing done by hand
+first. Both end in the same place: a server, a browser client, and one operator who can invite
+people.
 
 **Read `docs/STATE.md` for what is and is not built.** The short version: you can sign in, and there
 is no diagram yet. The canvas is the next block of work.
