@@ -20,6 +20,16 @@ const apiTarget = process.env.FATHOM_API_PROXY_TARGET ?? 'http://127.0.0.1:8080'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      // `ports.html` is the static port-glyph gallery (`docs/UI-SPEC.md`
+      // "Ports"); a second page, so it has to be named here to be built.
+      input: {
+        main: fileURLToPath(new URL('index.html', import.meta.url)),
+        ports: fileURLToPath(new URL('ports.html', import.meta.url)),
+      },
+    },
+  },
   server: {
     fs: {
       allow: [searchForWorkspaceRoot(process.cwd()), repoRoot],
