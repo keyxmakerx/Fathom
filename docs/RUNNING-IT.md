@@ -126,16 +126,48 @@ restart                                   one operator, no re-bootstrap
 `deploy/compose.yaml` builds a two-container deployment behind Caddy, with the database passwords
 generated at first start and the images pinned by digest rather than by tag.
 
-**It has never been started end to end, and it has a known first-start fault.** The key volume is
-mounted read-only, correctly, and the first-start operator token is currently written beside the key
-— so the first start fails. The fix, in progress, moves the token to its own writable volume and adds
-a way to re-issue it if it is lost before anyone redeems it. **This section will say "verified" when
-somebody has actually run it, and not before.**
+**Nobody has run it end to end. Docker is not available in the environment this repository is
+developed in, so the compose path can only be proven on your machine, and until you do, treat this
+section as reasoning rather than evidence.**
 
-Docker is not available in the environment this repository is developed in, so the compose path can
-only be proven on your machine.
+Two first-start faults have been found by reading it. The first is fixed; the second needs one
+action from you.
 
----
+**Fixed:** the first-start operator token was written beside the master key, and the key volume is
+mounted read-only on purpose, so the server could not start. The token now has its own writable
+volume, `FATHOM_BOOTSTRAP_TOKEN_FILE` points at it, and the key volume is unchanged.
+
+**You must do this: generate the two keys before the first `compose up`.** The server creates them
+itself when they are missing, which is right when you run it from source and impossible in the
+container, because it would be writing into the read-only key volume. Seed the volume first:
+
+```sh
+docker volume create fathom_keys        # match your compose project's volume name
+docker run --rm -v fathom_keys:/keys alpine sh -c '
+  head -c 32 /dev/urandom > /keys/master.key
+  head -c 32 /dev/urandom > /keys/chain.key
+  chown 65532:65532 /keys/master.key /keys/chain.key
+  chmod 400 /keys/master.key /keys/chain.key'
+```
+
+`65532` is the unprivileged user the distroless image runs as. The server refuses to load a key file
+that is readable by anyone but its owner, which is why the mode matters and why the database
+container's generated password files are a separate, world-readable thing.
+
+**Generating the keys yourself is better than letting the server do it, and not only because of the
+mount.** It puts the backup conversation at the start, where it belongs. Copy that volume somewhere
+your database backups are not, before you put a single design in. There is no recovery path and that
+is deliberate (ADR-0043).
+
+`FATHOM_OPERATOR_NOTICE_ADDRESS` must be set in your environment; the compose file requires it rather
+than defaulting it. The install record it feeds is write-once by design, no role can update it, and
+organisation enrolment claims are pinned to it, so a plausible-looking placeholder would be
+permanently wrong in any deployment that did not read the comment.
+
+**If you lose the first-start token before redeeming it**, `fathom-server reissue-bootstrap-token`
+issues another. It refuses the moment any operator key has ever been enrolled, including a retired
+one, because a re-issue that still worked after that would be a way for anyone who can run a command
+on the host to make themselves an operator.
 
 ## What does not work yet
 

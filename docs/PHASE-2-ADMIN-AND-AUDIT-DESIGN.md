@@ -1190,10 +1190,25 @@ chain.
 
 Both are written to the master-key volume, not mailed — because on a fresh install there is no mail.
 
-- At first start, if no operator exists, the server writes a single-use enrolment token to
-  `/var/lib/fathom/keys/first_operator.token`, 0400, and logs the path. Whoever can read that volume
-  is the legitimate installer. Redeeming it registers an authenticator and writes
+- At first start, if no operator exists, the server writes a single-use enrolment token to the path
+  `FATHOM_BOOTSTRAP_TOKEN_FILE` names, 0400, and logs the path and never the token. Whoever can read
+  that file is the legitimate installer. Redeeming it enrols a key and writes
   `operator_bootstrapped`.
+
+  **Corrected 2026-09-14. This paragraph said `/var/lib/fathom/keys/first_operator.token`, and it
+  was wrong twice over.** The filename was never that in code, and the master-key volume is the one
+  place the token must not go: `deploy/compose.yaml` mounts it read-only, correctly, so the first
+  start in a container could not write the token and the server refused to start. The path is now
+  the deployment's choice with its own writable volume, and the key volume stays read-only.
+
+- **A lost token used to brick the deployment.** If nobody redeemed it before a restart, the operator
+  row existed so nothing re-bootstrapped, and there was no way in again short of destroying the
+  database. `fathom-server reissue-bootstrap-token` is the way back, and its refusal is the design:
+  it works **only while no operator key has ever been enrolled**, counting retired ones, so it cannot
+  serve as a backdoor for anyone who can run a command on the host. Once a key exists it refuses and
+  names the remedy, which is another operator or a restore. It expires the token it replaces in the
+  same transaction, because two live bearer secrets is one too many and the one being replaced is
+  exactly the one nobody can account for.
 - The first organisation's enrolment claim is displayed once in that operator's own session and
   written to the same volume.
 
