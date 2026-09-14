@@ -23,7 +23,7 @@ comparable amount again.
    narrowly and once. `bookkeeper` on haiku for STATE.md and number checks. `designer` only for a
    surface `docs/UI-SPEC.md` does not draw.
 3. **Isolation.** Every builder that touches `crates/` runs in a worktree
-   (`isolation: "worktree"`, reset to the branch tip first — worktrees are cut from `main`) and in
+   (`isolation: "worktree"`) and in
    its own database: create it as the superuser, point `FATHOM_MIGRATE_DATABASE_URL` and
    `SUPERUSER_DATABASE_URL` at it, and drop it after. Never `fathom_test`.
    **`DATABASE_URL` is the exception and an earlier version of this rule got it wrong.** It names
@@ -53,6 +53,19 @@ comparable amount again.
    per `.github/workflows/ci.yml`. `cargo-deny` and `cargo-audit` are installed with
    `cargo install --locked`. `api.osv.dev` is blocked here; `scripts/osv-gate.sh` fails closed
    and must be run where CI has egress.
+8. **Every brief opens with the base check, and this is the lead's job, not the builder's.**
+   Worktrees are cut from `main`, and `main` falls behind the working branch the moment the first
+   commit of a session lands. Put this at the top of every brief, verbatim, before anything else:
+
+   > Run `git rev-parse --short HEAD` and `git rev-parse --short <branch>`. If they differ, run
+   > `git merge --ff-only <branch>` and confirm it succeeded. Do not build until they match.
+
+   On 2026-09-14 three builders were launched against a base four commits stale: two of the files
+   one of them was told to read did not exist, the migration number it was given would have
+   collided, and the security-bearing file it had to extend had been rewritten in the gap. It
+   stopped and said so, which is the right behaviour and cost a build anyway. The lead can also
+   fast-forward a clean worktree from outside it, which is the fix when a builder is already
+   running.
 
 ---
 
