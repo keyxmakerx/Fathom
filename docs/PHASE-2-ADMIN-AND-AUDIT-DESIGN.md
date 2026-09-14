@@ -527,6 +527,13 @@ whatever key the keyring currently holds — both wrong. Verification uses the k
 6. Check the quorum rule for the capability — met by one *qualifying* seconding (§3.5, 2026-09-13).
 7. Only then return `Capabilities`, and only then may the caller set `app.design_capability`.
 
+**One transaction, and until 2026-09-14 it was two.** Steps 1 to 7 and the session verification that
+precedes them now run in the caller's single transaction. They did not: session verification opened,
+committed and closed its own, so a key retired or an account disabled between the two was evaluated
+against a different snapshot than the grant walk. The window was milliseconds and no route yet
+carried design payload across it, which is why it survived review; the property this step describes
+simply did not hold.
+
 ```
 K_row       = HKDF-Expand(chain_key_epoch_e, info = "fathom/chain/kdf/row/v1", 32)
 
@@ -804,6 +811,39 @@ provenance, which damages the product's other co-equal goal by means of its own 
 
 The server decrypts designs to serve them. Nothing here changes that, so the only place to stand is
 *which session gets served*.
+
+> **Corrected 2026-09-14, after the first adversarial round on this layer.** Migration `0014` carries
+> the same list in its header. Six things this section said, or failed to say, were not true of what
+> was built. In order of how much they mattered:
+>
+> 1. **The refusal was not uniform and this section implied it was.** The rate limiter counted a
+>    failure only when the address resolved, so a real address answered "too many attempts" after the
+>    cap and an address belonging to nobody answered "refused" for ever. Eleven tries told an
+>    attacker which addresses exist. A sign-in now counts against a **keyed hash of the claimed
+>    address** when it resolves to nothing — labels `fathom/session/kdf/address/v1` and
+>    `fathom/session/address/v1`, storage §12.2 — so both answers move at the same attempt. The
+>    table never holds an address that is not an account in the clear.
+> 2. **Timing is not equalised, and this section must not be read as promising it.** A resolving
+>    address goes on to verify a row seal and an ES256 signature; an unknown one stops earlier, and
+>    the wall-clock difference is measurable. Closing it means verifying against a decoy key, which
+>    changes what sign-in *does* rather than what it *answers*. Not done, and stated rather than
+>    left to be assumed.
+> 3. **Verification and authorisation were two transactions**, so the disabled-account check, the
+>    evidence-key check and the grant evaluation never shared a snapshot. §3.4 step 7 and this
+>    section both read as one continuous act; they were describing something that was not the case.
+>    It is one transaction now, with the nonce still spent in its own committed transaction for the
+>    reason `0013` gave.
+> 4. **`request_counter` had no upper bound** (§4.3), so a client could send the largest possible
+>    integer and no later nonce could ever exceed it: the session was bricked until expiry. Bounded
+>    to a window above the mark, sized to the outstanding-nonce limit so the in-flight case `0013`
+>    requires still works.
+> 5. **Sign-out was a deletion** (§4.3). A deleted row restored from a backup verified again,
+>    silently undoing the sign-out. Sign-out is now a deletion **and** an append-only sealed record,
+>    bound to a new `account_signed_out` site entry.
+> 6. **The challenge route was not rate limited** and this section did not ask for it, so an
+>    unauthenticated caller could add rows for ever. It is counted now, which spends the source
+>    budget twice per sign-in and so **halves the effective attempts per source**. A deployment
+>    behind one address, which is most of them, must raise the limit rather than discover this.
 
 ### 4.1 The rule
 
@@ -1160,7 +1200,8 @@ organisation chain; the site chain covers everything organisation-independent.
 
 **Site chain** — `deployment_started`, `schema_fingerprint`, `migration_applied`,
 `client_build_digest`, `operator_bootstrapped`, `operator_created|seconded|enrolled|disabled`,
-`operator_signin|signin_failed`, `account_created`, `account_disabled|enabled`, `reset_link_sent`,
+`operator_signin|signin_failed`, `account_signin|signin_failed`, `account_signed_out`,
+`account_created`, `account_disabled|enabled`, `reset_link_sent`,
 `password_changed`, `authenticator_registered|removed`, `enrolment_token_issued|redeemed|expired`,
 `contact_change_requested|seconded|applied|cancelled`,
 `setting_requested|seconded|applied|cancelled`, `setting_unresolvable`, `single_operator_mode`,
@@ -1871,7 +1912,15 @@ design does not pretend otherwise. The list it must satisfy:
    `kind = 'account'` **in the same transaction**, or the composite foreign keys make the account
    useless. It also adds that registration must answer `OPEN-QUESTIONS.md` B5 — whether a stranger
    may create an account and an organisation — because §6.2's shell path assumes the answer is no.
-7. **Rate limiting, lockout, and the sign-in surface itself**, which this design does not specify.
+7. **Rate limiting and the sign-in surface itself.** Specified and built as of `0013` and `0014`;
+   this item no longer describes missing work. **There is no lockout and there is not going to be
+   one — decided 2026-09-14.** Three places, this item among them, called the per-account counter a
+   lockout; the code never refused a correct sign-in because of it, and the wording was corrected
+   rather than the behaviour. The reasoning: on a surface anyone on the internet can reach, a real
+   lockout hands an attacker a denial of service against a named colleague at the cost of a few
+   requests, and there is no password here to brute force — sign-in is a signature by an enrolled
+   key. The per-account counter therefore bounds how fast the audit chain grows and nothing else.
+   The per-source counter is the rate limit that does the work.
 8. **`OPEN-QUESTIONS.md` C2 binds the operator surface too.** If device passwords are ever accepted
    for sign-in, §4.5's "no password path on `/admin`" is the line that must not move.
 9. **Directory sync is a provisioning source, not an authority** (§3.7, 2026-09-12). An LDAP or

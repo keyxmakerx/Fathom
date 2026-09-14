@@ -702,6 +702,8 @@ three chain levels are the admin design's §7.1; the migration is `0009_chains_a
 | `fathom/session/evidence/v1` | the assurance evidence sealed onto the session row (admin §4.2) | 0013 |
 | `fathom/session/req/v1` | the canonical per-request signature message: method, path, body digest, nonce, time (admin §4.1) | 0013 |
 | `fathom/session/token/v1` | the session token's own MAC | 0013 |
+| `fathom/session/kdf/address/v1` | HKDF `info` deriving `K_addr` from the **site** chain key, in `authority::row_key`'s shape | 0014, `sessions.rs` |
+| `fathom/session/address/v1` | in-MAC tag of `claimed_address_key = MAC(K_addr, LP(tag) ‖ LP(address))`, the keyed hash of the address a sign-in claimed. It exists so the rate limiter can count a failure against an address that resolves to **nothing**, which is what closed the enumeration oracle; the table must never hold an address in the clear (admin §4.2) | 0014 |
 | `fathom/grant/challenge/v1`, `fathom/grant/second/challenge/v1` | **Reserved. Nothing writes them.** WebAuthn challenges, admin §15.4 | — |
 | `fathom/scope/move/v1`, `fathom/device/reparent/v1` | **Reserved. Nothing writes them.** Admin §3.6 | — |
 
