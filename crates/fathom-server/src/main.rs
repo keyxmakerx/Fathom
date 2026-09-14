@@ -535,6 +535,8 @@ async fn main() -> ExitCode {
             return ExitCode::from(8);
         }
     };
+    let sessions_for_firmware = Arc::clone(&sessions);
+    let watch_for_firmware = Arc::clone(&watch);
     let designs = fathom_server::design_api::DesignApiState {
         sessions: Arc::clone(&sessions),
         watch,
@@ -613,6 +615,47 @@ async fn main() -> ExitCode {
         }
     }
 
+    // Firmware staging (ADR-0045). Absent configuration means the routes are
+    // not mounted at all rather than mounted and failing: a route that answers
+    // is a route an attacker can probe, and most deployments will never stage
+    // an image. The directory is proved writable HERE, by writing and removing
+    // a probe file, so a deployment that cannot stage learns it at startup and
+    // not from an operator halfway through a maintenance window.
+    let firmware = match &config.firmware_dir {
+        None => None,
+        Some(dir) => {
+            let base = config
+                .firmware_fetch_base_url
+                .clone()
+                .expect("config refuses a firmware directory with no fetch base URL");
+            match fathom_server::firmware::FirmwareStore::open(
+                std::path::PathBuf::from(dir),
+                config.firmware_max_bytes,
+                base.clone(),
+                config.trusted_client_ip_header.clone(),
+            ) {
+                Ok(store) => {
+                    tracing::info!(
+                        directory = %dir,
+                        max_image_bytes = config.firmware_max_bytes,
+                        fetch_base_url = %base,
+                        "firmware staging enabled. The fetch base URL must be an origin a DEVICE \
+                         can reach, which is often not the one a browser uses."
+                    );
+                    Some(Arc::new(store))
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        directory = %dir,
+                        "the firmware staging directory is unusable; refusing to start"
+                    );
+                    return ExitCode::from(11);
+                }
+            }
+        }
+    };
+
     let admin = fathom_server::admin::AdminState {
         sessions,
         operators,
@@ -648,10 +691,20 @@ async fn main() -> ExitCode {
     // §13 item 7's source bucket needs the peer address, and without this the
     // extension it reads is never populated, so every sign-in in the
     // deployment would count into one bucket named "unknown".
-    let app = router(AppState { health, engine })
+    let mut app = router(AppState { health, engine })
         .merge(fathom_server::api::router(api))
         .merge(fathom_server::design_api::router(designs))
         .merge(fathom_server::admin::router(admin));
+    if let Some(store) = firmware {
+        app = app.merge(fathom_server::firmware::router(
+            fathom_server::firmware::FirmwareState {
+                sessions: Arc::clone(&sessions_for_firmware),
+                watch: Arc::clone(&watch_for_firmware),
+                ring: Arc::clone(&ring),
+                store,
+            },
+        ));
+    }
     let served = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

@@ -237,6 +237,30 @@ pub struct Config {
     /// nobody was told about. The shipped `deploy/compose.yaml` sets this
     /// variable explicitly at a writable volume of its own.
     pub bootstrap_token_file: String,
+
+    /// `FATHOM_FIRMWARE_DIR`. Where staged firmware images live (ADR-0045).
+    ///
+    /// **Absent means the feature is off and its routes are not mounted**, not
+    /// that they exist and fail. A route that answers at all is a route an
+    /// attacker can probe, and a deployment that never stages firmware should
+    /// not carry one.
+    pub firmware_dir: Option<String>,
+
+    /// `FATHOM_FIRMWARE_MAX_BYTES`. The largest image that may be staged, and
+    /// also the worst case a single fetch holds in memory until the streaming
+    /// body lands. Default two gibibytes, which covers a Junos image with room.
+    pub firmware_max_bytes: u64,
+
+    /// `FATHOM_FIRMWARE_FETCH_BASE_URL`. **The origin a SWITCH can reach**,
+    /// which is very often not the one an operator's browser used.
+    ///
+    /// The server cannot discover this. It sees the address a request arrived
+    /// on, and behind a reverse proxy, a NAT or a management VLAN that says
+    /// nothing about what a device in a rack can resolve. It is rendered into
+    /// the `file copy` line an operator pastes into a switch, so a wrong value
+    /// fails visibly on the device rather than silently here. Required
+    /// whenever `firmware_dir` is set.
+    pub firmware_fetch_base_url: Option<String>,
 }
 
 /// ADR-0043 §9's path, in the operator's register and therefore in the code
@@ -260,6 +284,11 @@ pub const DEFAULT_CHAIN_KEY: &str = "file:///var/lib/fathom/keys/chain.key";
 /// be a default that fails in precisely the deployment this product ships.
 /// See [`Config::bootstrap_token_file`].
 pub const DEFAULT_BOOTSTRAP_TOKEN_FILE: &str = "first-operator-token";
+
+/// Two gibibytes. A Junos install package is one to two gigabytes, so this
+/// admits the images this feature exists for and refuses anything that is
+/// plainly not one.
+pub const DEFAULT_FIRMWARE_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// The five levels `tracing` has, parsed by hand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -468,6 +497,31 @@ impl Config {
         let sign_in_limits = SignInLimits::from_lookup(&get)
             .map_err(|variable| ConfigError::Unparseable { variable })?;
 
+        let firmware_dir = get("FATHOM_FIRMWARE_DIR")
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        let firmware_fetch_base_url = get("FATHOM_FIRMWARE_FETCH_BASE_URL")
+            .map(|v| v.trim().trim_end_matches('/').to_string())
+            .filter(|v| !v.is_empty());
+        let firmware_max_bytes =
+            match get("FATHOM_FIRMWARE_MAX_BYTES").filter(|v| !v.trim().is_empty()) {
+                None => DEFAULT_FIRMWARE_MAX_BYTES,
+                Some(v) => v.trim().parse::<u64>().ok().filter(|n| *n > 0).ok_or(
+                    ConfigError::Unparseable {
+                        variable: "FATHOM_FIRMWARE_MAX_BYTES",
+                    },
+                )?,
+            };
+        // Staging with nowhere for a device to fetch from is a half-configured
+        // feature that looks whole until the first upgrade. Refused at startup
+        // rather than discovered by an operator holding a command that cannot
+        // work.
+        if firmware_dir.is_some() && firmware_fetch_base_url.is_none() {
+            return Err(ConfigError::Unparseable {
+                variable: "FATHOM_FIRMWARE_FETCH_BASE_URL",
+            });
+        }
+
         let operator_notice_address = get("FATHOM_OPERATOR_NOTICE_ADDRESS")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
@@ -548,6 +602,9 @@ impl Config {
             single_operator,
             operator_notice_address,
             bootstrap_token_file,
+            firmware_dir,
+            firmware_max_bytes,
+            firmware_fetch_base_url,
         })
     }
 
@@ -591,6 +648,44 @@ mod tests {
         assert_eq!(c.health_timeout, Duration::from_millis(2000));
         assert_eq!(c.pool_size, 8);
         assert_eq!(c.schema_root, "schema");
+    }
+
+    #[test]
+    fn staging_firmware_with_nowhere_to_fetch_it_from_is_refused_at_startup() {
+        // Half-configured looks whole until the first upgrade, which is the
+        // worst moment to find out.
+        let err = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_FIRMWARE_DIR", "/var/lib/fathom/firmware"),
+        ]))
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ConfigError::Unparseable {
+                    variable: "FATHOM_FIRMWARE_FETCH_BASE_URL"
+                }
+            ),
+            "{err:?}"
+        );
+
+        // Both together are fine, and the trailing slash is not the operator's
+        // problem: it is rendered into a command, so it is normalised here.
+        let c = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_FIRMWARE_DIR", "/var/lib/fathom/firmware"),
+            ("FATHOM_FIRMWARE_FETCH_BASE_URL", "https://fathom.example/"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            c.firmware_fetch_base_url.as_deref(),
+            Some("https://fathom.example")
+        );
+        assert_eq!(c.firmware_max_bytes, DEFAULT_FIRMWARE_MAX_BYTES);
+
+        // Neither set: the feature is simply off, and that is not an error.
+        let off = Config::from_lookup(env(&[("DATABASE_URL", "postgres://u@h/db")])).unwrap();
+        assert!(off.firmware_dir.is_none());
     }
 
     #[test]
