@@ -1,0 +1,233 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .place { padding: 0 10px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772; }
+    .place.on { color: #14171A; font-weight: 700; border-bottom: 4px solid #14171A; }
+    .k { width: 72px; font-size: 11px; color: #5C6772; flex-shrink: 0; }
+
+    /* One cycle: 6000ms. Press 0-110ms, camera 110-260ms, ring 260-370ms,
+       then 5.63s of stillness before it repeats. The still frame IS the
+       final state: every base style below is the settled one. */
+    .press  { animation: press  6s cubic-bezier(0.2, 0, 0, 1) infinite; }
+    .camera { animation: camera 6s cubic-bezier(0.2, 0, 0, 1) infinite; transform-origin: 50% 50%; }
+    .ring   { animation: ring   6s cubic-bezier(0.2, 0, 0, 1) infinite; }
+
+    @keyframes press {
+      0%             { background-color: #FFFFFF; color: #14171A; }
+      1.83%, 100%    { background-color: #14171A; color: #FFFFFF; }
+    }
+    @keyframes camera {
+      0%, 1.83%      { transform: scale(0.92); opacity: 0; }
+      4.33%, 100%    { transform: scale(1);    opacity: 1; }
+    }
+    @keyframes ring {
+      0%, 4.33%      { opacity: 0; stroke-width: 4; }
+      6.17%, 100%    { opacity: 1; stroke-width: 1.5; }
+    }
+
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 560px; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px; padding: 18px 80px 14px; display: flex; flex-direction: column; gap: 10px;">
+
+  <div style="display: flex; gap: 0; align-items: stretch;">
+
+    <!-- LEFT FRAME: inventory -->
+    <div style="width: 620px; height: 396px; border: 1px solid #D2D7DD; background: #FFFFFF; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div style="height: 30px; border-bottom: 3px solid #14171A; display: flex; align-items: stretch; padding: 0 10px; gap: 8px; flex-shrink: 0;">
+        <div style="display: flex; align-items: stretch;">
+          <div class="place" style="padding-left: 0;">Racks</div>
+          <div class="place on">Inventory</div>
+        </div>
+        <div style="flex-grow: 1;"></div>
+        <div style="display: flex; align-items: center; font-size: 10px; color: #5C6772;">Northwind &middot; 60 devices</div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 24px 150px 152px 1fr; border-bottom: 1px solid #14171A; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; flex-shrink: 0;">
+        <div style="padding: 6px 0;"></div>
+        <div style="padding: 6px 10px;">name</div>
+        <div style="padding: 6px 10px;">model</div>
+        <div style="padding: 6px 10px;">where</div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 24px 150px 152px 1fr; font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; flex-shrink: 0;">
+        <div style="padding: 6px 0; border-bottom: 1px solid #D2D7DD;"></div>
+        <div style="padding: 6px 10px; border-bottom: 1px solid #D2D7DD;">hq-fw-01</div>
+        <div style="padding: 6px 10px; border-bottom: 1px solid #D2D7DD;">SRX340</div>
+        <div style="padding: 6px 10px; border-bottom: 1px solid #D2D7DD;">A-04 &middot; U40&ndash;41</div>
+
+        <div style="padding: 6px 0; border-bottom: 1px solid #D2D7DD; background: #F2F4F6; border-left: 4px solid #14171A;"></div>
+        <div style="padding: 6px 10px; border-bottom: 1px solid #D2D7DD; background: #F2F4F6; font-weight: 700;">core-01</div>
+        <div style="padding: 6px 10px; border-bottom: 1px solid #D2D7DD; background: #F2F4F6;">EX4300-48P</div>
+        <div style="padding: 6px 10px; border-bottom: 1px solid #D2D7DD; background: #F2F4F6;">A-04 &middot; U38</div>
+
+        <div style="padding: 6px 0; border-bottom: 1px solid #D2D7DD;"></div>
+        <div style="padding: 6px 10px; border-bottom: 1px solid #D2D7DD;">core-02</div>
+        <div style="padding: 6px 10px; border-bottom: 1px solid #D2D7DD;">EX4300-48P</div>
+        <div style="padding: 6px 10px; border-bottom: 1px solid #D2D7DD;">A-04 &middot; U37</div>
+      </div>
+
+      <div style="padding: 8px 10px 0; font-size: 11px; color: #5C6772;">First press selects a cell. Second press edits it.</div>
+
+      <div style="flex-grow: 1;"></div>
+
+      <!-- the one editor, in its side-panel form -->
+      <div style="border-top: 1px solid #14171A; background: #FAFBFC; padding: 10px 12px; display: flex; gap: 16px; align-items: flex-end; flex-shrink: 0;">
+        <div style="flex-grow: 1;">
+          <div style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; padding-bottom: 6px;">core-01</div>
+          <div style="display: flex; gap: 8px; padding: 3px 0;"><span class="k">model</span><span class="mono">EX4300-48P</span></div>
+          <div style="display: flex; gap: 8px; padding: 3px 0;"><span class="k">rack</span><span class="mono">A-04 &middot; U38</span></div>
+          <div style="display: flex; gap: 8px; padding: 3px 0;"><span class="k">ports</span><span class="mono">31 of 52 cabled</span></div>
+        </div>
+        <div class="press" style="border: 1px solid #14171A; background: #14171A; color: #FFFFFF; padding: 6px 18px; font-size: 12px; flex-shrink: 0;">Show on rack</div>
+      </div>
+    </div>
+
+    <!-- the crossing -->
+    <div style="width: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M2 13 H21 M15 7 L21 13 L15 19" fill="none" stroke="#14171A" stroke-width="1.5"></path></svg>
+    </div>
+
+    <!-- RIGHT FRAME: the drawing -->
+    <div style="width: 620px; height: 396px; border: 1px solid #D2D7DD; background: #FFFFFF; display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden;">
+      <div style="height: 30px; border-bottom: 3px solid #14171A; display: flex; align-items: stretch; padding: 0 10px; gap: 8px; flex-shrink: 0;">
+        <div style="display: flex; align-items: stretch;">
+          <div class="place on" style="padding-left: 0;">Racks</div>
+          <div class="place">Inventory</div>
+        </div>
+        <div style="flex-grow: 1;"></div>
+        <div style="display: flex; align-items: center; font-size: 10px; color: #5C6772;">IDF-2 &middot; A-04 &middot; rack scale &middot; 100%</div>
+      </div>
+
+      <div class="camera" style="flex-grow: 1; min-height: 0;">
+        <svg width="618" height="364" viewBox="0 0 618 364" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif" aria-label="Rack A-04, core-01 selected">
+          <defs>
+            <pattern id="freeU" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(135)">
+              <rect x="0" y="0" width="2" height="5" fill="#5C6772"></rect>
+            </pattern>
+          </defs>
+
+          <!-- rack shell; it runs off the bottom of the frame because the camera is at rack scale -->
+          <rect x="159" y="12" width="300" height="360" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"></rect>
+          <rect x="159" y="12" width="28" height="360" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+          <rect x="431" y="12" width="28" height="360" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+
+          <g font-size="8" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="181" y="24">42</text><text x="181" y="56">40</text><text x="181" y="88">38</text><text x="181" y="120">36</text><text x="181" y="152">34</text><text x="181" y="184">32</text><text x="181" y="216">30</text><text x="181" y="248">28</text><text x="181" y="280">26</text><text x="181" y="312">24</text><text x="181" y="344">22</text>
+          </g>
+
+          <!-- free rack units -->
+          <rect x="187" y="12" width="244" height="16" fill="url(#freeU)"></rect>
+          <rect x="187" y="60" width="244" height="16" fill="url(#freeU)"></rect>
+          <rect x="187" y="108" width="244" height="16" fill="url(#freeU)"></rect>
+          <rect x="187" y="172" width="244" height="32" fill="url(#freeU)"></rect>
+          <rect x="187" y="220" width="244" height="152" fill="url(#freeU)"></rect>
+
+          <!-- U40-41 hq-fw-01 -->
+          <g>
+            <rect x="187" y="28" width="244" height="32" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="196" cy="37" r="2.5" fill="#14171A"></circle>
+            <text x="203" y="40" font-size="9" fill="#14171A" font-weight="700">hq-fw-01</text>
+            <text x="425" y="40" font-size="8" fill="#5C6772" text-anchor="end">SRX340 &middot; firewall</text>
+            <g transform="translate(203,45)">
+              <rect x="0" y="0" width="8" height="9" fill="#14171A"></rect><rect x="11" y="0" width="8" height="9" fill="#14171A"></rect><rect x="22" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="33" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="44" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="55" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="66" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="77" y="0" width="8" height="9" fill="#14171A"></rect>
+            </g>
+          </g>
+
+          <!-- U38 core-01, the thing the selection carried -->
+          <g>
+            <rect x="187" y="76" width="244" height="16" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="196" cy="84" r="2.5" fill="#14171A"></circle>
+            <text x="203" y="87" font-size="9" fill="#14171A" font-weight="700">core-01</text>
+            <g transform="translate(257,80)">
+              <rect x="0" y="0" width="5" height="8" fill="#14171A"></rect><rect x="6" y="0" width="5" height="8" fill="#14171A"></rect><rect x="12" y="0" width="5" height="8" fill="#14171A"></rect><rect x="18" y="0" width="5" height="8" fill="#14171A"></rect><rect x="24" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="30" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="36" y="0" width="5" height="8" fill="#14171A"></rect><rect x="42" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="48" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="54" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="60" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="66" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+              <rect x="78" y="0" width="5" height="8" fill="#14171A"></rect><rect x="84" y="0" width="5" height="8" fill="#14171A"></rect><rect x="90" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="96" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="102" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="108" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="114" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="120" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="126" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="132" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="138" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="144" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+              <rect x="156" y="1" width="9" height="6" fill="#14171A"></rect><rect x="167" y="1" width="9" height="6" fill="#14171A"></rect>
+            </g>
+            <rect class="ring" x="185" y="74" width="248" height="20" fill="none" stroke="#14171A" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+          </g>
+
+          <!-- U37 core-02 -->
+          <g>
+            <rect x="187" y="92" width="244" height="16" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="196" cy="100" r="2.5" fill="#14171A"></circle>
+            <text x="203" y="103" font-size="9" fill="#14171A" font-weight="700">core-02</text>
+            <g transform="translate(257,96)">
+              <rect x="0" y="0" width="5" height="8" fill="#14171A"></rect><rect x="6" y="0" width="5" height="8" fill="#14171A"></rect><rect x="12" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="18" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="24" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="30" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="36" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="42" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="48" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="54" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="60" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="66" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+              <rect x="156" y="1" width="9" height="6" fill="#14171A"></rect><rect x="167" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+            </g>
+          </g>
+
+          <!-- U35 patch-01 -->
+          <g>
+            <rect x="187" y="124" width="244" height="16" fill="#F2F4F6" stroke="#14171A"></rect>
+            <text x="193" y="135" font-size="9" fill="#14171A" font-weight="700">patch-01</text>
+            <g transform="translate(247,128)">
+              <rect x="0" y="0" width="5" height="8" fill="#14171A"></rect><rect x="7" y="0" width="5" height="8" fill="#14171A"></rect><rect x="14" y="0" width="5" height="8" fill="#14171A"></rect><rect x="21" y="0" width="5" height="8" fill="#14171A"></rect><rect x="28" y="0" width="5" height="8" fill="#14171A"></rect><rect x="35" y="0" width="5" height="8" fill="#14171A"></rect><rect x="42" y="0" width="5" height="8" fill="#14171A"></rect><rect x="49" y="0" width="5" height="8" fill="#14171A"></rect><rect x="56" y="0" width="5" height="8" fill="#14171A"></rect><rect x="63" y="0" width="5" height="8" fill="#14171A"></rect><rect x="70" y="0" width="5" height="8" fill="#14171A"></rect><rect x="77" y="0" width="5" height="8" fill="#14171A"></rect>
+              <rect x="88" y="0" width="5" height="8" fill="#14171A"></rect><rect x="95" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="102" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="109" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="116" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="123" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="130" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="137" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="144" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="151" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="158" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="165" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+            </g>
+          </g>
+
+          <!-- U34 acc-01 -->
+          <g>
+            <rect x="187" y="140" width="244" height="16" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="196" cy="148" r="2.5" fill="#14171A"></circle>
+            <text x="203" y="151" font-size="9" fill="#14171A" font-weight="700">acc-01</text>
+          </g>
+
+          <!-- U33 acc-02 -->
+          <g>
+            <rect x="187" y="156" width="244" height="16" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="196" cy="164" r="2.5" fill="#14171A"></circle>
+            <text x="203" y="167" font-size="9" fill="#14171A" font-weight="700">acc-02</text>
+          </g>
+
+          <!-- U30 fibre-01 -->
+          <g>
+            <rect x="187" y="204" width="244" height="16" fill="#F2F4F6" stroke="#14171A"></rect>
+            <text x="193" y="215" font-size="9" fill="#14171A" font-weight="700">fibre-01</text>
+            <text x="425" y="215" font-size="8" fill="#5C6772" text-anchor="end">12-port LC panel</text>
+          </g>
+
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- the way back -->
+  <div style="display: flex; align-items: center;">
+    <div style="width: 620px; flex-shrink: 0; font-size: 11px; color: #5C6772;">The row was already selected here; pressing the button did not change the selection.</div>
+    <div style="width: 40px; flex-shrink: 0;"></div>
+    <div style="width: 620px; flex-shrink: 0; display: flex; align-items: center; gap: 12px;">
+      <span style="border: 1px solid #14171A; background: #FFFFFF; color: #14171A; padding: 4px 14px; font-size: 12px;">Open in inventory</span>
+      <span style="font-size: 11px; color: #5C6772;">and it lands back on that same row.</span>
+    </div>
+  </div>
+
+  <div style="border-top: 1px solid #D2D7DD; padding-top: 8px; display: flex; align-items: baseline; gap: 16px;">
+    <span style="font-size: 13px;">Same selection, carried both ways. Not a page change.</span>
+    <span style="flex-grow: 1;"></span>
+    <span style="font-size: 10px; color: #5C6772;">replays every 6 s for demonstration; in the product it happens once, on the click</span>
+  </div>
+
+  <div style="display: flex; align-items: baseline; gap: 16px; font-size: 10px; color: #5C6772;">
+    <span>Press 110 ms &middot; camera 150 ms, scale 0.92 to 1 &middot; ring 110 ms. One easing, cubic-bezier(0.2, 0, 0, 1).</span>
+    <span style="flex-grow: 1;"></span>
+    <span>Every name, model and position on this board is a sample.</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
