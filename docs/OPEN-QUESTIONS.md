@@ -450,6 +450,21 @@ Is an LTE card at a customer site **a service in its own right**, like an E-Line
 If LTE is its own service, every site with LTE backup shows up as two unrelated services someone
 has to link by hand, and you cannot ask the system which circuits actually have a backup path.
 
+### D10. A maintenance record that spans scopes — whose chain seals the outcome?
+
+*Raised 2026-09-15 while drawing the maintenance board (ADR-0046 §7).* A maintenance record names
+the devices it covers, and nothing stops those devices sitting in more than one scope. The outcome a
+person writes — succeeded, failed, partial — is sealed into an audit entry, and every audit entry is
+sealed by one scope's chain. Nothing yet says **which scope's chain seals the outcome** when the
+record spans several, nor what a reader with capability on only one of those scopes sees on a device
+whose outcome was sealed elsewhere.
+
+Two shapes, pick before the schema lands: the record belongs to the narrowest scope containing all
+its devices and is sealed there, with the entry visible to anyone who can read that scope; or the
+outcome is sealed once per scope touched, with the same words, so each chain is complete on its own.
+The first is one entry and one truth; the second keeps a scope's chain self-contained when it is
+exported or verified alone, which is what the verify endpoint promises today.
+
 ---
 
 ## E. Needs your time, not just your answer
