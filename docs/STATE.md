@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-12. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-15. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -9,7 +9,7 @@ This page records what exists. It is not a changelog — history lives in `docs/
 ## Working and keeping
 
 **The Rust engine.** Schema toolchain, typed graph store, config ingest with the redaction gate,
-the fragment-to-store weld, the finder, emitters, layout. 985 tests passing as of 2026-09-12. Zero external
+the fragment-to-store weld, the finder, emitters, layout. 1208 tests passing as of 2026-09-14. Zero external
 dependencies on the client side, deliberately.
 
 **The schema.** Real and enforced — roughly 51 kinds, 95 edges, 61 scalars at version 0.5. Read
@@ -97,10 +97,9 @@ one qualifying seconding with no depth limit; a fourth checker pass found nothin
 a MAC under the site-scoped row key, a browser-held session key, single-use nonces, a signed
 message on every request that reaches design payload or vault ciphertext, sign-in by proof of an
 enrolled account key with no password path, and routes for challenge, sign-in, sign-out and one
-protected demonstration route (`sessions.rs`, `api.rs`). **Every gate passed on a fresh database,
-but this layer has not been attacked by a checker** — the helper that built it was stopped
-before it could report, so its decisions where §4 was silent (rate limiting, lockout, token shape)
-live only in the code's comments and have not been read into the design.
+protected demonstration route (`sessions.rs`, `api.rs`). Every gate passed on a fresh database;
+this layer was attacked by an opus checker on 2026-09-13. The builder's decisions where §4 was
+silent (rate limiting, lockout, token shape) have been read into `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`.
 
 **Next session starts here** (the full plan is `docs/NEXT.md`): (1) a checker round on 0013, `sessions.rs` and `api.rs`, with the
 same posture as the four rounds on the authority layer; (2) read the builder's silent-spot
@@ -157,13 +156,9 @@ other.
 
 ## Being replaced
 
-**The browser client.** Currently a single large HTML file assembled by Rust. Four views work
-(diagram, inventory, finder, findings); two were never built (walkthrough, config). The gestures
-are proven — placing boxes, drawing links, cabling, drag-to-connect — each with browser tests
-behind it. **The interaction design is worth keeping; the implementation is not.**
-
-**The layout engine.** Works, and is cubic — 36,481 nodes took 244 seconds when measured. Being
-replaced with a standard algorithm.
+**The browser client.** Built at `client/` in React and Vite. Vite, React, TypeScript, the shell,
+a working sign-in with WebCrypto keys, five port glyphs (RJ45, SFP+, QSFP+, LC, C14), a
+gallery at `/ports.html`. **No diagram yet.** The old Rust-assembled HTML client is retired and still on disk under `crates/fathom-artifact/`; it is not served.
 
 ---
 
@@ -171,6 +166,9 @@ replaced with a standard algorithm.
 
 - Walkthrough view — the teaching half of the product.
 - Config view.
+- Diagram view — being rebuilt in React; not yet built.
+- Inventory view — the old client's view is retired; the new client's view is not built.
+- Building view — un-parked but not built.
 - Engine manager — how equipment types are registered and kept current.
 - Automatic correlation across separately-pasted configs.
 - Anything that discovers a network live. Everything today comes from pasted text.
@@ -179,22 +177,22 @@ replaced with a standard algorithm.
 
 ## Known limits worth remembering
 
-**The compose stack has not been started end to end.** `deploy/compose.yaml` and
-`deploy/init-db/10-app-role.sh` were verified by mechanism on 2026-09-12 — the exact SQL was run
-against a real PostgreSQL 16, the resulting role and database were confirmed to let the server
-migrate and serve, and `docker compose config` renders correctly — but the pinned image could not be
-pulled in this environment (registry egress blocked). **Run `docker compose up` from a clean checkout
-somewhere with registry access before calling deployment proven.**
+**The compose stack has not been run end to end.** `deploy/compose.yaml` and the initial setup
+scripts were verified by mechanism on 2026-09-12. Two first-start faults were found by reading it:
+the first is fixed (the bootstrap token now has its own writable volume, separate from the read-only
+key volume); the second requires manual action (generate the two keys before the first `compose up`).
+Both are documented in `docs/RUNNING-IT.md`. **Run `docker compose up` from a clean checkout
+somewhere with the keys pre-generated before calling deployment proven.**
+
+**The sessions test suite is sensitive to a shared database.** Every test that runs against the
+same database shares global state — triggers, rate-limit buckets, the site chain. See
+`docs/NEXT.md` rule 3 for the isolation requirements.
 
 **The server refuses to start on a broken schema, deliberately.** `EngineState::load` runs every
-gate and will not serve a vocabulary that fails one. Before 2026-09-12 it started anyway, reported
-healthy, and served an empty kind list — an independent check reproduced that against a live
-database. A broken tree is now a startup failure naming the gate and the file, exit 7.
-
-`deploy/Dockerfile` copies `schema/` into the distroless runtime stage from the build stage, so the
-image ships exactly the tree it was built against. `FATHOM_SCHEMA_ROOT` overrides the path. Both
-landed 2026-09-12 after the same check found the image crash-looped with no schema beside the binary
-and no way for an operator to point it elsewhere.
+gate and will not serve a vocabulary that fails one. A broken tree is now a startup failure naming
+the gate and the file, exit 7. `deploy/Dockerfile` copies `schema/` into the distroless runtime
+stage from the build stage, so the image ships exactly the tree it was built against.
+`FATHOM_SCHEMA_ROOT` overrides the path.
 
 - **Typed values are not redacted.** The gate runs on paste only. A password typed by hand into a
   field is stored and exported as written — it gets a warning mark beside it, and that is the
