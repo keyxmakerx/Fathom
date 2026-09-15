@@ -5,9 +5,10 @@ to build, in what order, with which helpers, and what it will cost. It is writte
 running on Opus, so every decision it relies on is named with its file, and nothing here asks the
 session to decide something already decided.
 
-**The target: a first usable version.** A person signs in, draws a rack-first network diagram,
-saves it, and shares it view-only with a colleague, on the Docker stack, with the security
-foundation already built underneath. Roughly six to nine sessions of the size of 2026-09-12/13.
+**The target: a first usable version.** A person signs in, lands on a home page, draws a rack-first
+network diagram, saves it, finds it again in a basic inventory, and shares it view-only with a
+colleague, on the Docker stack, with the security foundation already built underneath. *Home and a
+basic inventory joined the target on 2026-09-15 (ADR-0046 §8).* Roughly six to nine sessions of the size of 2026-09-12/13.
 The vault, live multi-user editing, inventory, teaching, groups and LDAP come after, and are a
 comparable amount again.
 
@@ -126,6 +127,15 @@ refused a save. ~500k tokens.
 
 ## Sessions 3–6 — The canvas
 
+> **Amended 2026-09-15, ADR-0046.** The client has two places, *Racks* and *Inventory*, plus *Home*,
+> and one editor shared by the drawing's inspector and the inventory page. Before Session 4 starts,
+> the undrawn screens listed in `docs/UI-SPEC.md` "Not yet drawn — the screens" are sketched as one
+> set, so navigation is decided once. Session 3's shell gains the two-place masthead and Home;
+> Session 6 gains the basic inventory (lists, the page, *show on rack*), notes on a device, and
+> undo-that-records. The patching surface, maintenance records and the building stop come after the
+> first usable version.
+
+
 **Goal:** the product. `docs/UI-SPEC.md` is approved; build against it and open the linked pictures
 only for the surface being built. React + Vite, plain CSS from `design/tokens.css`, React Flow.
 The redaction gate is `crates/fathom-wasm`, compiled for the browser, zero external packages
@@ -194,6 +204,10 @@ Each binds until overruled on merit in writing (`CLAUDE.md` rule 6):
 - Invite only (B5); the owner writes vendor knowledge as they go (B10); unreviewed engine items
   shown, labelled (E2); name formatting is groundwork only (D8) — OPEN-QUESTIONS.
 - Browser side: zero external packages (A3). Server crate cap 200, revisit at 180.
+- Two places, one editor, undo that records, comments sealed with the change, maintenance records,
+  suggestions never recorded as facts — ADR-0046. Firmware by the device pulling — ADR-0045.
+- **Reopened, on merit, by the owner:** the building view (ADR-0046 §4). It is a zoom level, not a
+  parked idea.
 
 ## Questions only the owner can answer (none block Session 1)
 

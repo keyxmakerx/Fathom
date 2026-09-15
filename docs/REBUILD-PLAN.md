@@ -106,6 +106,13 @@ Three answers that change the shape of the work.
 3. **Inventory.**
 4. Monitoring and integration with live systems. **Beyond alpha and beta.** Noted, not scheduled.
 
+> **Two amendments.** 2026-09-14, ADR-0045: one narrow piece of live-device work, firmware staging,
+> comes forward — and only because the device does the fetching and Fathom holds no credential;
+> monitoring itself stays where it is. 2026-09-15, ADR-0046: inventory keeps its third place in this
+> order but becomes a co-equal *place* beside the drawing rather than a later phase's afterthought,
+> and a basic form of it is in the first usable version. The building view, parked on 2026-09-12,
+> was un-parked the same day as a stop on the camera above the closet.
+
 **Pasting a config is no longer a core feature.** Keep it only because it already exists and costs
 little to carry.
 

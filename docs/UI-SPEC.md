@@ -15,17 +15,24 @@ paid once.
 ## The shape
 
 Rack-first. The rack, its faceplates, its ports and the cables between them **are** the product.
-Everything else hangs off that. No tab bar.
+Everything else hangs off that.
+
+**Two places, not a tab bar of views — ADR-0046, 2026-09-15.** *Racks*, the drawing below, and
+*Inventory*, lists with a page per thing. Equals; the masthead names both and marks the current one.
+Inside the drawing there are still no tabs: no physical-versus-logical view, layer two and three live
+on the port. The retired client's six-tab strip does not come back. A basic inventory is in the first
+usable version.
 
 | | |
 |---|---|
 | **Left rail** | Racks in this closet · other closets · equipment palette to drag from |
 | **Centre** | The racks, at whatever zoom |
 | **Right** | Inspector for whatever is selected |
-| **Masthead** | Scope breadcrumb · cable-kind toggles · port-colour mode · who else is here · zoom |
+| **Masthead** | Racks · Inventory · scope breadcrumb · cable-kind toggles · port-colour mode · who else is here · zoom · your account (People and permissions for stewards, Site for operators, sign out) |
 
-**Zoom is one continuous camera**: closet → rack → faceplate → port. Ports fade in as they become
-big enough to hit. Never a page change.
+**Zoom is one continuous camera**: building → closet → rack → faceplate → port. Ports fade in as
+they become big enough to hit. Never a page change. *Building* joined the camera on 2026-09-15 when
+the owner un-parked it; its board already draws it the right way (see "The building", below).
 
 ## Ports
 
@@ -165,6 +172,72 @@ three risk colours stay reserved — and are now kept apart from the sheath pale
 
 ---
 
+## Screens — 2026-09-15
+
+The whole set, and where each stands. ADR-0046 is the decision; this is the list.
+
+| Screen | Who | Stands |
+|---|---|---|
+| Sign in and enrol | everyone | built in the client |
+| **Home** — organisations, the closets and designs you may open, what changed | everyone | not drawn |
+| **Racks** — the drawing on this page | everyone | approved, page 1; not built |
+| **Inventory** — lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, import and export, change history from the chain, *show on rack* | everyone | first pass only; redraw owed |
+| Search — an overlay, never a page | everyone | not in the approved shell |
+| Findings and the config checker | everyone | a stray board on disk, off the canvas |
+| Walkthrough — the teaching half | everyone | never built, never drawn |
+| Firmware — stage, hash, commands (ADR-0045) | stewards | built on the server; lives inside inventory, per model |
+| Vault — share, fingerprints, consent | everyone | designed; three surfaces undrawn |
+| History and verify | everyone | endpoints exist; not drawn |
+| **People and permissions** — members, view-only / draw / steward, seconding, suspend, invitations, the scope tree; groups and LDAP later | stewards | server built; not drawn |
+| **Operator console** — account shells, invitations, organisation shells, mail behind the two-person rule, suspend, the site trail | operators | server built; not drawn |
+
+**One editor.** The inspector on the drawing and the page in the inventory are one component; one
+fills a page, the other sits in the side panel. Same fields, same code. This is what makes *edited
+from either* true, and the reason inventory must never grow a second detail pane.
+
+## The building — un-parked 2026-09-15
+
+One more stop on the camera, above the closet. Floors down the side, rooms as boxes you drag, the
+riser, every run between rooms a counted bundle and never a single cable, a floor-plan image as an
+optional background and never required. The parked board on page 3 already draws exactly this. Still
+open underneath it: a scanned plan image cannot say it is current or the right building, would be
+missing from every export, and needs a size cap.
+
+## The patching surface — 2026-09-15
+
+At the faceplate zoom, **plates pull in and push out, as many as needed**, arranged by hand, cabled
+between. Pull one in by search or from the rack. The arrangement is scratch and the cables are facts:
+pulling a plate in does not move the device, nothing remembers where the plates were, and every cable
+is recorded exactly as one drawn on the rack. Every single-plate rule holds — compatible ports only,
+one cable per port, droop on the drag, colour on release, a portal when the cable leaves the closet —
+and presence rings appear on pulled-in plates.
+
+**The far-end picker suggests; it never records.** Candidates carry a reason each — the device at the
+far end of the panel port you are on, the same rack, the same closet, a config line naming a neighbour
+— and a connection exists only when a person drops the cable. ADR-0038 restated.
+
+*Suggestion, not decision:* the colour picker on release defaults to the colour used last.
+
+## Undo, comments, maintenance, notes — 2026-09-15
+
+**Undo never erases.** The trail is append-only and sealed, so an undo is a new change that reverses
+the previous one, and both are recorded: *cabled at 14:02, uncabled at 14:03*. You undo your own
+changes, never a colleague's; a colleague's change in between makes your undo a visible conflict,
+never a silent overwrite. Who wins is parked with live editing.
+
+**A comment on any change**, written by the person, sealed into the same entry as the change.
+Optional; the who and the when are always there.
+
+**A maintenance record**: what was planned, its window, which devices, the changes it covered, and an
+outcome the person writes — succeeded, failed, partial — with notes. Fathom never infers success. A
+firmware upgrade ends here.
+
+**A note on a device, port or rack**: the text, when, who, pasted or typed. Pasted text goes through
+the redaction gate first, as a pasted config does; typed text is marked, not redacted. Notes show in
+the one editor, both places.
+
+All four are schema additions and do not exist until the schema says so.
+
 ## Closed 2026-09-12
 
 All four items that were open at approval are decided above: the palette collision (plastic is a
@@ -193,6 +266,14 @@ work from a closed brief, in this page's language, before they are built:
 - **The mode-change consent screen** — the full statement rendered before the touch, in the
   register §12.6 of the storage design already uses.
 
+## Not yet drawn — the screens, 2026-09-15
+
+From the table above, drawn as one set so navigation is decided once: **Home**, **Inventory**
+(redone as a place, with the page-as-editor), **People and permissions**, **the operator console**,
+**Walkthrough** (low-fi is enough), **the patching surface** with its far-end picker, **notes and a
+maintenance record** in the editor, and **undo with the trail beside it**. The shell that holds them
+needs drawing too: the approved masthead was drawn for Racks alone.
+
 ## Owed to the boards, and two numbers this page does not name — 2026-09-14
 
 The glyph exists in the client; the pictures have not caught up. The `Legend` board needs a fifth
@@ -213,5 +294,7 @@ Two things this page has never specified, both found by drawing rather than by r
 
 ## Parked
 
-The building / floor-plan view. Owner: *"can be kinda cool, but not necessary."* Board is on page 3
-of the canvas if it ever comes back.
+Nothing, as of 2026-09-15. The building view was un-parked by the owner and is now a stop on the
+camera (above). The first-pass boards on page 3 are superseded: *Inventory (first pass)* by the
+screens section, *Rack (first pass)* by the approved page-1 boards; *Vault (first pass)* stands until
+the three vault surfaces are drawn.

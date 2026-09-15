@@ -556,12 +556,17 @@ halves with a test comparing them? Worth settling before a second vendor is taug
   never make ten standalone links look like a single port-channel.
 - **A scanned floor plan behind the drawing** — useful, but nothing can tell you it is current or
   even the right building, and it would be missing from every export. Plus: cap its size, in the
-  browser or on the server?
-- **Following a connection hop by hop:** light it up on the drawing you are looking at, or open
-  its own screen? (There are only six screens and all six are claimed.)
+  browser or on the server? *Live again from 2026-09-15: the building view was un-parked (ADR-0046
+  §4) and this is the question underneath it.*
+- **Following a connection hop by hop:** ~~light it up on the drawing you are looking at, or open
+  its own screen? (There are only six screens and all six are claimed.)~~ *Answered by
+  `docs/UI-SPEC.md` "Cables": the path lights hop by hop on the drawing and the far end is panned
+  into view. The six-screens premise belonged to the retired client; there are two places now
+  (ADR-0046 §1).*
 - **Named lists you build yourself** — "the Q3 firewall refresh", "PCI scope" — spanning several
   sites and customers, saved and handed on as one thing? Or is filtering the inventory each time
-  enough?
+  enough? *Narrowed 2026-09-15 (ADR-0046 §2): over one graph a named list is a saved filter and a
+  name, not a second dataset. Whether to build it is still open; what it is, is not.*
 - **Version bug lists** — "don't run that release, it has this bug." Worth paying a named person
   to write and re-check? A stale bug list is worse than none.
 
