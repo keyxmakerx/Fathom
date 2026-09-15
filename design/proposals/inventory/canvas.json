@@ -1,0 +1,17 @@
+{
+  "artboards": [
+    { "file": "InventoryFirstPass.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Original — Inventory (first pass), page 3. The shape you described: a tab, a table, a details panel." },
+    { "file": "Main.dc.html", "x": 1560, "y": 0, "w": 1440, "h": 900, "title": "Replacement — Listed. The same shell, the same inspector, the estate as a list. No tab bar." },
+    { "file": "MastheadChange.dc.html", "x": 0, "y": 1080, "w": 1440, "h": 380, "title": "The one change to an approved board: the masthead, before and after" },
+    { "file": "OneCamera.dc.html", "x": 1560, "y": 1080, "w": 1440, "h": 480, "title": "One camera — the list is the far end of the zoom you already have" },
+    { "file": "InspectorTwoWays.dc.html", "x": 0, "y": 1720, "w": 1440, "h": 900, "title": "One inspector — the quick peek and the editor, reached from the list or from the rack" },
+    { "file": "FreeSpace.dc.html", "x": 1560, "y": 1720, "w": 1440, "h": 900, "title": "Free space is inventory — runs, ports and inlets as rows, not gaps" },
+    { "file": "ModelsAndFirmware.dc.html", "x": 0, "y": 2800, "w": 1440, "h": 900, "title": "First slice worth building — models and firmware, tied to the staging you asked for" }
+  ],
+  "annotations": [
+    { "id": "read-me-first", "x": 0, "y": -170, "w": 700, "text": "Read across, then down.\n\nTop row: the original first-pass inventory board (left) beside the replacement (right).\n\nSecond row: the only change to an approved board, and why the list is the far end of the existing zoom rather than a place.\n\nThird row: the inspector is one component reached two ways; free space gets rows of its own.\n\nBottom: the narrow first slice, which is the same question the firmware staging work started answering." },
+    { "id": "why-replace", "x": 0, "y": 940, "w": 1440, "text": "Why the original cannot stand: it breaks three rules the approved page-1 shell was chosen for. (1) A tab bar — Diagram, Inventory, Rack, Findings, Walkthrough, Config — where the spec says there is none. (2) A page change, where the spec says zoom is one continuous camera and never a page change. (3) A second details panel beside the canvas's inspector, so two editors sit over one graph and will drift. The table itself, the first-press-selects second-press-edits rule, the credential mark and the Gaps section are all good, and they are kept." },
+    { "id": "sample-values", "x": 1560, "y": 940, "w": 1440, "text": "Sample values throughout: device names, Junos versions, the staged image name, hashes and dates are made up to show the shapes. Counts in a real deployment come from the graph and the catalogue and are never typed." }
+  ],
+  "launch": { "view": "canvas" }
+}

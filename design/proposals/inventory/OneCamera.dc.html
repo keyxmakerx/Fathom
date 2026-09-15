@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .frame { width: 232px; height: 236px; border: 1px solid #D2D7DD; background: #FFFFFF; display: flex; flex-direction: column; overflow: hidden; }
+    .frame.new { border: 1px solid #14171A; }
+    .cap { padding: 6px 8px; border-bottom: 1px solid #D2D7DD; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; display: flex; justify-content: space-between; }
+    .cap b { color: #14171A; }
+    .free { background: repeating-linear-gradient(135deg, #5C6772 0 2px, transparent 2px 5px); }
+    .lr { display: flex; gap: 6px; padding: 3px 8px; border-bottom: 1px solid #D2D7DD; font-size: 11px; }
+    .arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 40px; color: #5C6772; font-size: 18px; gap: 2px; }
+    .arrow small { font-size: 9px; letter-spacing: 0.10em; text-transform: uppercase; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 480px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px; padding: 24px 32px;">
+
+  <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 3px solid #14171A; padding-bottom: 8px;">
+    <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">One camera</div>
+    <div style="font-size: 12px; color: #5C6772;">The approved spec: closet &rarr; rack &rarr; faceplate &rarr; port, one continuous zoom, never a page change. This proposal adds one frame on the far left. Past the closet, it is a list, not a map.</div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 0; padding-top: 24px;">
+
+    <div class="frame new">
+      <div class="cap"><b>Estate &middot; listed</b><span>this proposal</span></div>
+      <div class="mono">
+        <div class="lr" style="color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase; font-size: 9px;">IDF-2 &middot; A-04</div>
+        <div class="lr"><span style="color: #5C6772; width: 22px;">40</span><span>hq-fw-01</span></div>
+        <div class="lr" style="background: #F2F4F6; border-left: 3px solid #14171A; padding-left: 5px;"><span style="color: #5C6772; width: 22px;">38</span><span>core-01</span></div>
+        <div class="lr"><span style="color: #5C6772; width: 22px;">37</span><span>core-02</span></div>
+        <div class="lr"><span style="color: #5C6772; width: 22px;">35</span><span>patch-01</span></div>
+        <div class="lr" style="color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase; font-size: 9px;">IDF-2 &middot; A-05</div>
+        <div class="lr"><span style="color: #5C6772; width: 22px;">22</span><span>carrier</span></div>
+        <div class="lr" style="color: #5C6772; letter-spacing: 0.10em; text-transform: uppercase; font-size: 9px;">MDF &middot; A-01</div>
+        <div class="lr"><span style="color: #5C6772; width: 22px;">41</span><span>core-a01</span></div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div class="mono" style="padding: 4px 8px; color: #5C6772; border-top: 1px solid #D2D7DD;">8% &middot; 62 devices</div>
+    </div>
+
+    <div class="arrow">&rarr;<small>zoom</small></div>
+
+    <div class="frame">
+      <div class="cap"><b>Closet &middot; drawn</b><span>approved &middot; Main</span></div>
+      <div style="display: flex; gap: 14px; padding: 14px 16px; align-items: flex-end;">
+        <div style="width: 78px; height: 156px; border: 1px solid #14171A; display: flex; flex-direction: column; justify-content: flex-start;">
+          <div style="height: 8px; border-bottom: 1px solid #D2D7DD;"></div>
+          <div style="height: 8px; border-bottom: 1px solid #D2D7DD; background: #F2F4F6; outline: 1px dashed #14171A; outline-offset: -1px;"></div>
+          <div style="height: 8px; border-bottom: 1px solid #D2D7DD;"></div>
+          <div style="height: 8px; border-bottom: 1px solid #D2D7DD;"></div>
+          <div style="height: 22px; border-bottom: 1px solid #D2D7DD;" class="free"></div>
+          <div style="height: 16px; border-bottom: 1px solid #D2D7DD;"></div>
+          <div style="height: 16px; border-bottom: 1px solid #D2D7DD;"></div>
+        </div>
+        <div style="width: 62px; height: 96px; border: 1px solid #D2D7DD;"></div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div class="mono" style="padding: 4px 8px; color: #5C6772; border-top: 1px solid #D2D7DD;">72% &middot; A-04, A-05 &middot; core-01 still selected</div>
+    </div>
+
+    <div class="arrow">&rarr;<small>zoom</small></div>
+
+    <div class="frame">
+      <div class="cap"><b>Rack &middot; drawn</b><span>approved &middot; Rack</span></div>
+      <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 0;">
+        <div style="height: 16px; border: 1px solid #14171A; margin-bottom: 2px;"></div>
+        <div style="height: 16px; border: 1px solid #14171A; background: #F2F4F6; outline: 2px dashed #14171A; outline-offset: 1px; margin-bottom: 2px; display: flex; align-items: center; padding-left: 6px; font-size: 9px; letter-spacing: 0.10em; text-transform: uppercase;">core-01</div>
+        <div style="height: 16px; border: 1px solid #14171A; margin-bottom: 2px;"></div>
+        <div style="height: 16px; border: 1px solid #14171A; margin-bottom: 2px;"></div>
+        <div style="height: 40px; margin-bottom: 2px;" class="free"></div>
+        <div style="height: 32px; border: 1px solid #14171A; margin-bottom: 2px;"></div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div class="mono" style="padding: 4px 8px; color: #5C6772; border-top: 1px solid #D2D7DD;">140% &middot; A-04 &middot; U38 selected</div>
+    </div>
+
+    <div class="arrow">&rarr;<small>zoom</small></div>
+
+    <div class="frame">
+      <div class="cap"><b>Faceplate &middot; ports</b><span>approved &middot; Faceplate</span></div>
+      <div style="padding: 24px 12px; display: flex; flex-direction: column; gap: 4px;">
+        <div style="display: flex; gap: 3px;">
+          <span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 6px;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span>
+        </div>
+        <div style="display: flex; gap: 3px;">
+          <span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 6px;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A;"></span><span style="width: 10px; height: 8px; border: 1px solid #14171A; background: #14171A;"></span>
+        </div>
+        <div style="display: flex; gap: 3px; padding-top: 6px;">
+          <span style="width: 30px; height: 10px; border: 1px solid #14171A; border-top: 3px solid #14171A; background: #14171A;"></span><span style="width: 30px; height: 10px; border: 1px solid #14171A; border-top: 3px solid #14171A;"></span><span style="width: 42px; height: 10px; border: 1px solid #14171A; background: repeating-linear-gradient(90deg, transparent 0 9px, #14171A 9px 10px);"></span>
+        </div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div class="mono" style="padding: 4px 8px; color: #5C6772; border-top: 1px solid #D2D7DD;">320% &middot; core-01 front &middot; ports appear</div>
+    </div>
+
+    <div class="arrow">&rarr;<small>zoom</small></div>
+
+    <div class="frame">
+      <div class="cap"><b>Port</b><span>approved &middot; Legend</span></div>
+      <div style="padding: 40px 0 0; display: flex; justify-content: center;">
+        <div style="width: 64px; height: 60px; border: 2px solid #14171A; border-top-left-radius: 0; position: relative;">
+          <div style="position: absolute; left: 20px; top: -10px; width: 22px; height: 10px; border: 2px solid #14171A; border-bottom: 0; background: #FFFFFF;"></div>
+        </div>
+      </div>
+      <div class="mono" style="text-align: center; padding-top: 10px; color: #5C6772;">RJ45 &middot; ge-0/0/7 &middot; free</div>
+      <div style="flex-grow: 1;"></div>
+      <div class="mono" style="padding: 4px 8px; color: #5C6772; border-top: 1px solid #D2D7DD;">900% &middot; one port &middot; a hit target</div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1;"></div>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; border-top: 1px solid #D2D7DD; padding-top: 8px; font-size: 11px; line-height: 16px; color: #5C6772;">
+    <div><strong style="color: #14171A;">Selection rides the camera.</strong> Pick core-01 in the list, zoom in, it is still selected on the rack. Zoom back out, the list opens on its row.</div>
+    <div><strong style="color: #14171A;">Not Direction C.</strong> That rejected direction drew campus, building and floor as a spatial canvas. This draws nothing above the closet; the building view stays parked.</div>
+    <div><strong style="color: #14171A;">Where the switch is.</strong> The view control in the masthead flips Drawn and Listed at any scope, so you can list one rack without zooming out to the estate.</div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
