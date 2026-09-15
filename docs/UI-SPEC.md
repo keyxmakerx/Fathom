@@ -2,6 +2,8 @@
 
 **Pictures:** https://claude.ai/code/artifact/e4306f02-80bb-447b-99e9-7b2dede0a541
 Sources in `design/rebuild/*.dc.html`. Tokens in `design/tokens.css`.
+**The screens set (proposal, 2026-09-15):** https://claude.ai/artifact/9sCWD7oBYogejnCpk9pcxN — sources in
+`design/proposals/screens/`. Nine boards, four of them animated. Not yet approved.
 **The `Legend` board on page 1 is the one to open first when building any canvas surface** — the four
 glyphs, the three line constructions, both palettes, the presence marks and the portal rule, on one
 small board. The other boards show them in use.
@@ -179,17 +181,17 @@ The whole set, and where each stands. ADR-0046 is the decision; this is the list
 | Screen | Who | Stands |
 |---|---|---|
 | Sign in and enrol | everyone | built in the client |
-| **Home** — organisations, the closets and designs you may open, what changed | everyone | not drawn |
+| **Home** — organisations, the closets and designs you may open, what changed | everyone | drawn 2026-09-15 (screens set); not built |
 | **Racks** — the drawing on this page | everyone | approved, page 1; not built |
-| **Inventory** — lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, import and export, change history from the chain, *show on rack* | everyone | first pass only; redraw owed |
-| Search — an overlay, never a page | everyone | not in the approved shell |
+| **Inventory** — lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, import and export, change history from the chain, *show on rack* | everyone | redrawn 2026-09-15 as a place, the page as the editor (screens set); not built |
+| Search — an overlay, never a page | everyone | the far-end picker on the patching board is the same box; the overlay itself is not drawn |
 | Findings and the config checker | everyone | a stray board on disk, off the canvas |
-| Walkthrough — the teaching half | everyone | never built, never drawn |
+| Walkthrough — the teaching half | everyone | sketched low-fi 2026-09-15 (screens set); never built |
 | Firmware — stage, hash, commands (ADR-0045) | stewards | built on the server; lives inside inventory, per model |
 | Vault — share, fingerprints, consent | everyone | designed; three surfaces undrawn |
 | History and verify | everyone | endpoints exist; not drawn |
-| **People and permissions** — members, view-only / draw / steward, seconding, suspend, invitations, the scope tree; groups and LDAP later | stewards | server built; not drawn |
-| **Operator console** — account shells, invitations, organisation shells, mail behind the two-person rule, suspend, the site trail | operators | server built; not drawn |
+| **People and permissions** — members, view-only / draw / steward, seconding, suspend, invitations, the scope tree; groups and LDAP later | stewards | server built; drawn 2026-09-15 (screens set) |
+| **Operator console** — account shells, invitations, organisation shells, mail behind the two-person rule, suspend, the site trail | operators | server built; drawn 2026-09-15 (screens set) |
 
 **One editor.** The inspector on the drawing and the page in the inventory are one component; one
 fills a page, the other sits in the side panel. Same fields, same code. This is what makes *edited
@@ -266,13 +268,29 @@ work from a closed brief, in this page's language, before they are built:
 - **The mode-change consent screen** — the full statement rendered before the touch, in the
   register §12.6 of the storage design already uses.
 
-## Not yet drawn — the screens, 2026-09-15
+## The screens set — drawn 2026-09-15, not yet approved
 
-From the table above, drawn as one set so navigation is decided once: **Home**, **Inventory**
-(redone as a place, with the page-as-editor), **People and permissions**, **the operator console**,
-**Walkthrough** (low-fi is enough), **the patching surface** with its far-end picker, **notes and a
-maintenance record** in the editor, and **undo with the trail beside it**. The shell that holds them
-needs drawing too: the approved masthead was drawn for Racks alone.
+**Pictures:** https://claude.ai/artifact/9sCWD7oBYogejnCpk9pcxN. Sources in `design/proposals/screens/*.dc.html`,
+laid out by `canvas.json`. Nine boards, read across then down: Home; Inventory as a place with the
+page as the editor; the crossing between them; the patching surface with the far-end picker; undo
+with the trail beside it; notes and a maintenance record in the one editor; people and permissions;
+the operator console; walkthrough, low-fi. The crossing, patching, undo and maintenance boards move.
+
+The shell question this section used to carry is answered on the boards: the masthead names both
+places and marks the current one, and carries the account chip; on Home and the admin surfaces
+neither place is marked and the zoom cluster is absent, because none of them is the camera.
+
+Three things drawing settled that this page had not said, as drawn and open to the owner:
+
+- Undo and Redo are two chips in the masthead, the words only; Ctrl Z and Ctrl Shift Z are the keys.
+- The account chip opens a menu: People and permissions, Site (operators only), Sign out.
+- Home shows no presence, because it is not a shared document.
+
+Two questions drawing surfaced, neither settled:
+
+- **A plate pushed out while a lead is in hand** from one of its ports: the lead springs back, follows
+  the plate off, or blocks the push-out. *Scratch arrangement, factual cables* does not answer it.
+- **A maintenance record spanning scopes:** which scope's chain seals the outcome. `OPEN-QUESTIONS` D10.
 
 ## Owed to the boards, and two numbers this page does not name — 2026-09-14
 

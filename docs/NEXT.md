@@ -128,9 +128,10 @@ refused a save. ~500k tokens.
 ## Sessions 3–6 — The canvas
 
 > **Amended 2026-09-15, ADR-0046.** The client has two places, *Racks* and *Inventory*, plus *Home*,
-> and one editor shared by the drawing's inspector and the inventory page. Before Session 4 starts,
-> the undrawn screens listed in `docs/UI-SPEC.md` "Not yet drawn — the screens" are sketched as one
-> set, so navigation is decided once. Session 3's shell gains the two-place masthead and Home;
+> and one editor shared by the drawing's inspector and the inventory page. The screens were drawn as
+> one set on 2026-09-15 (`docs/UI-SPEC.md` "The screens set"), so navigation is decided once; they
+> await the owner's approval, and Session 3 builds the shell against the approved version, not the
+> proposal. Session 3's shell gains the two-place masthead and Home;
 > Session 6 gains the basic inventory (lists, the page, *show on rack*), notes on a device, and
 > undo-that-records. The patching surface, maintenance records and the building stop come after the
 > first usable version.
