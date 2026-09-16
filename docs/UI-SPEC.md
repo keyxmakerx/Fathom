@@ -142,7 +142,12 @@ PDU with C13 outlets in the rack. Each device's PSU inlets notated on the left r
 hexagons for dual, filled when fed. Power leads run their own rail lane. A device with one PSU fed
 is marked **single-fed**.
 
-**Rear view**: stacked under the front when zoomed, a flip at rack scale.
+**Rear view — superseded 2026-09-16 by ADR-0050.** A rack has two elevations, front and rear,
+one camera and a flip: per rack at the rack stop, per row at the closet stop. The rear elevation
+draws the face that faces the back, the frame mirrored and the bay order reversed, faceplates as
+the vendor draws them. Inlets are ports on the rear face at their positions; a supply is a part in a
+slot, so *single-fed* and *one fitted* are different marks. Management and console ports are in
+the catalogue on the face that carries them.
 
 ## Inside a box
 
