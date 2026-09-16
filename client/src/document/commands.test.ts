@@ -22,6 +22,7 @@ import {
   type Document,
 } from './model';
 import { newUlid } from './ulid';
+import { viewOf } from './view';
 
 const NOW = 1_700_000_000_000;
 
@@ -147,28 +148,88 @@ describe('placeChassis', () => {
 });
 
 describe('moveChassis', () => {
-  it('updates position and face', () => {
+  it('updates position and face within the same rack', () => {
     const { doc, rackId } = rackOf(42);
     const placed = placeChassis(doc, rackId, MODEL_1U, 12, 'front', { now: NOW });
     const chassisId = edgesIn(placed, rackId, 'MountedIn')[0].from;
-    const moved = moveChassis(placed, chassisId, 20, 'rear', { now: NOW });
+    const moved = moveChassis(placed, chassisId, rackId, 20, 'rear', { now: NOW });
     const mounted = edgesOut(moved, chassisId, 'MountedIn')[0];
     expect(readMountedInFields(mounted)).toEqual({ positionU: 20, heightU: 1, face: 'rear' });
+    expect(mounted.to).toBe(rackId);
   });
 
-  it('refuses an overlap with another chassis', () => {
+  it('refuses an overlap with another chassis in the same rack', () => {
     const { doc, rackId } = rackOf(42);
     let working = placeChassis(doc, rackId, MODEL_1U, 12, 'front', { now: NOW });
     working = placeChassis(working, rackId, MODEL_1U, 13, 'front', { now: NOW });
     const first = edgesIn(working, rackId, 'MountedIn').find((e) => readMountedInFields(e).positionU === 12)!;
-    expect(() => moveChassis(working, first.from, 13, 'front', { now: NOW })).toThrow(RackOverlapError);
+    expect(() => moveChassis(working, first.from, rackId, 13, 'front', { now: NOW })).toThrow(RackOverlapError);
   });
 
   it('refuses an unknown chassis', () => {
-    const { doc } = rackOf(42);
-    expect(() => moveChassis(doc, 'chassis:01ARZ3NDEKTSV4RRFFQ69G5FAV', 1, 'front', { now: NOW })).toThrow(
-      UnknownReferenceError,
+    const { doc, rackId } = rackOf(42);
+    expect(() =>
+      moveChassis(doc, 'chassis:01ARZ3NDEKTSV4RRFFQ69G5FAV', rackId, 1, 'front', { now: NOW }),
+    ).toThrow(UnknownReferenceError);
+  });
+
+  it('moves a chassis from one rack to another', () => {
+    const { doc, premisesId, rackId: sourceRackId } = rackOf(42);
+    const withTarget = createRack(doc, premisesId, {
+      label: 'R2',
+      heightU: 42,
+      unitNumbering: 'ascending',
+      now: NOW,
+    });
+    const targetRackId = withTarget.nodes.find((n) => n.id !== premisesId && n.id !== sourceRackId)!.id;
+    const placed = placeChassis(withTarget, sourceRackId, MODEL_1U, 12, 'front', { now: NOW });
+    const chassisId = edgesIn(placed, sourceRackId, 'MountedIn')[0].from;
+
+    const moved = moveChassis(placed, chassisId, targetRackId, 20, 'rear', { now: NOW });
+
+    expect(edgesIn(moved, sourceRackId, 'MountedIn')).toHaveLength(0);
+    const mounted = edgesIn(moved, targetRackId, 'MountedIn');
+    expect(mounted).toHaveLength(1);
+    expect(mounted[0].from).toBe(chassisId);
+    expect(readMountedInFields(mounted[0])).toEqual({ positionU: 20, heightU: 1, face: 'rear' });
+
+    const view = viewOf(moved, [MODEL_1U]);
+    const sourceView = view.racks.find((r) => r.id === sourceRackId)!;
+    const targetView = view.racks.find((r) => r.id === targetRackId)!;
+    expect(sourceView.chassis).toHaveLength(0);
+    expect(sourceView.freeRuns).toEqual([{ fromU: 1, toU: 42 }]);
+    expect(targetView.chassis).toHaveLength(1);
+    expect(targetView.chassis[0].id).toBe(chassisId);
+    expect(targetView.chassis[0].positionU).toBe(20);
+  });
+
+  it('refuses a cross-rack move onto an occupied run, leaving the document unchanged', () => {
+    const { doc, premisesId, rackId: sourceRackId } = rackOf(42);
+    const withTarget = createRack(doc, premisesId, {
+      label: 'R2',
+      heightU: 42,
+      unitNumbering: 'ascending',
+      now: NOW,
+    });
+    const targetRackId = withTarget.nodes.find((n) => n.id !== premisesId && n.id !== sourceRackId)!.id;
+    let working = placeChassis(withTarget, sourceRackId, MODEL_1U, 12, 'front', { now: NOW });
+    working = placeChassis(working, targetRackId, MODEL_1U, 20, 'front', { now: NOW });
+    const chassisId = edgesIn(working, sourceRackId, 'MountedIn')[0].from;
+
+    const before = JSON.stringify(working);
+    expect(() => moveChassis(working, chassisId, targetRackId, 20, 'front', { now: NOW })).toThrow(
+      RackOverlapError,
     );
+    expect(JSON.stringify(working)).toBe(before);
+  });
+
+  it('refuses a move to an unknown rack', () => {
+    const { doc, rackId } = rackOf(42);
+    const placed = placeChassis(doc, rackId, MODEL_1U, 12, 'front', { now: NOW });
+    const chassisId = edgesIn(placed, rackId, 'MountedIn')[0].from;
+    expect(() =>
+      moveChassis(placed, chassisId, 'rack:01ARZ3NDEKTSV4RRFFQ69G5FAV', 20, 'front', { now: NOW }),
+    ).toThrow(UnknownReferenceError);
   });
 });
 

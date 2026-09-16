@@ -321,45 +321,97 @@ export function placeChassis(
 export function moveChassis(
   doc: Document,
   chassisId: string,
+  rackId: string,
   positionU: number,
   face: 'front' | 'rear',
   opts?: Actor,
 ): Document {
   const mounted: GraphEdge | undefined = edgesOut(doc, chassisId, 'MountedIn')[0];
   if (!mounted) throw new UnknownReferenceError(chassisId, 'a mounted Chassis');
-  const rackId = mounted.to;
   const heightU = readNumber(mounted.fields['MountedIn.height_u']) ?? 1;
-  checkPlacement(doc, rackId, rackHeightU(doc, rackId), positionU, heightU, chassisId);
+  const sameRack = mounted.to === rackId;
+  // `rackHeightU` throws `UnknownReferenceError` for a target rack this
+  // document does not have — the same refusal `placeChassis` gives an
+  // unknown rack. The overlap check excludes the moving chassis itself only
+  // when the target is the rack it is already in; a move onto another rack
+  // is checked against that rack's own occupants, none of which is this one.
+  checkPlacement(doc, rackId, rackHeightU(doc, rackId), positionU, heightU, sameRack ? chassisId : undefined);
 
   const { actor, now } = resolve(opts);
   let working = doc;
-  const position = setField(
-    working,
-    now,
-    actor,
-    mounted.id,
-    mounted.fields['MountedIn.position_u'],
-    'MountedIn.position_u',
-    uint(positionU, 8),
-  );
-  working = position.doc;
-  const faceEntry = setField(
-    working,
-    now,
-    actor,
-    mounted.id,
-    mounted.fields['MountedIn.face'],
-    'MountedIn.face',
-    token(face),
-  );
+
+  if (sameRack) {
+    const position = setField(
+      working,
+      now,
+      actor,
+      mounted.id,
+      mounted.fields['MountedIn.position_u'],
+      'MountedIn.position_u',
+      uint(positionU, 8),
+    );
+    working = position.doc;
+    const faceEntry = setField(
+      working,
+      now,
+      actor,
+      mounted.id,
+      mounted.fields['MountedIn.face'],
+      'MountedIn.face',
+      token(face),
+    );
+    working = faceEntry.doc;
+
+    working = replaceEdge(working, mounted.id, (e) => ({
+      ...e,
+      fields: { ...e.fields, 'MountedIn.position_u': position.entry, 'MountedIn.face': faceEntry.entry },
+    }));
+
+    const batch: Batch = { id: newUlid(now), label: 'move chassis', ops: [position.op, faceEntry.op] };
+    return withBatch(working, batch);
+  }
+
+  // A cross-rack move: `MountedIn.to` is fixed at creation like every other
+  // edge this module writes (`model.ts`'s `withEdge`/`replaceEdge` never
+  // rewrite `from`/`to`), so the old edge is retired and a new one minted to
+  // the target rack — the same shape `placeChassis` builds — in this one
+  // batch, rather than reaching for a rewrite this document's edges do not
+  // support.
+  working = { ...working, edges: working.edges.map((e) => (e.id === mounted.id ? { ...e, absentSince: now } : e)) };
+  const tombstoneOp: Op = { type: 'tombstone', element: mounted.id, at: now, by: actor };
+
+  const mountedProv = assertHand(working, { assertedAt: now, assertedBy: actor });
+  working = mountedProv.doc;
+  const mountedId = formatEdgeId('MountedIn', newUlid(now));
+  const positionEntry = setField(working, now, actor, mountedId, undefined, 'MountedIn.position_u', uint(positionU, 8));
+  working = positionEntry.doc;
+  const heightEntry = setField(working, now, actor, mountedId, undefined, 'MountedIn.height_u', uint(heightU, 8));
+  working = heightEntry.doc;
+  const faceEntry = setField(working, now, actor, mountedId, undefined, 'MountedIn.face', token(face));
   working = faceEntry.doc;
+  working = withEdge(working, {
+    id: mountedId,
+    from: chassisId,
+    to: rackId,
+    prov: mountedProv.id,
+    fields: {
+      'MountedIn.position_u': positionEntry.entry,
+      'MountedIn.height_u': heightEntry.entry,
+      'MountedIn.face': faceEntry.entry,
+    },
+  });
 
-  working = replaceEdge(working, mounted.id, (e) => ({
-    ...e,
-    fields: { ...e.fields, 'MountedIn.position_u': position.entry, 'MountedIn.face': faceEntry.entry },
-  }));
-
-  const batch: Batch = { id: newUlid(now), label: 'move chassis', ops: [position.op, faceEntry.op] };
+  const batch: Batch = {
+    id: newUlid(now),
+    label: 'move chassis',
+    ops: [
+      tombstoneOp,
+      { type: 'add_edge', edge: mountedId, from: chassisId, to: rackId, prov: mountedProv.id },
+      positionEntry.op,
+      heightEntry.op,
+      faceEntry.op,
+    ],
+  };
   return withBatch(working, batch);
 }
 

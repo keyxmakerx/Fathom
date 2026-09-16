@@ -164,13 +164,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
 
   const handleMove = useCallback(
-    (chassisId: string, _rackId: string, positionU: number) => {
-      // `document/commands.ts`'s `moveChassis` repositions a chassis within
-      // the rack it is already mounted in — it takes no target rack, so a
-      // drag that crosses into a different rack is not yet supported here.
+    (chassisId: string, rackId: string, positionU: number) => {
       if (doc == null) return;
       try {
-        applyDocChange(moveChassis(doc, chassisId, positionU, 'front'));
+        applyDocChange(moveChassis(doc, chassisId, rackId, positionU, 'front'));
       } catch {
         // As `handlePlace` above: the drawing validated the drop against a
         // view that turned out to be stale. Leave the document as it was.
