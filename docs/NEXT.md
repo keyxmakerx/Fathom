@@ -79,9 +79,11 @@ comparable amount again.
 
 ## Handoff, 2026-09-16 — read this first
 
-Sessions 1 to 4 are done and Session 5 is half done (updated late on 2026-09-16): cables,
-drag-to-connect, portals and the editing editor are in; the second half is listed in
-`docs/STATE.md` under "Carried". Before anything else, read in this order and nothing more: `docs/STATE.md`'s
+Sessions 1 to 5 are done (updated late on 2026-09-16). **Session 6 is next**: inside a box, the
+config surface with the redaction gate on paste (`crates/fathom-wasm`, never reimplemented in
+JavaScript; test the gate against what a real device accepts, `CLAUDE.md` rule 2), view-only
+rendering for `read`, motion and look. Start with `docs/STATE.md`'s client section and its
+"Carried" list, then UI-SPEC "Inside a box", "Config", "Presence", "Motion", "Look". Before anything else, read in this order and nothing more: `docs/STATE.md`'s
 client section; `docs/UI-SPEC.md` "Cables", "Keeping it readable at forty cables", "Portals",
 "Power"; ADR-0049 (what a payload is); `client/src/document/` (the graph the browser holds, its
 commands, and `view.ts`) and `client/src/components/drawing/` (what draws it). `docs/archive/`

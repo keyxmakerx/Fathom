@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-16, late: 1219 server-side tests and 95 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-16, late: 1224 server-side tests and 374 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -178,20 +178,22 @@ other.
   flight, the latest queued, a refusal shown and never rolled back. The TypeScript writer reproduces
   all three Rust-made vectors byte for byte, and the server reads every payload back before storing it.
 
-- **Cables** (Session 5, first half). Connect two ports by dragging: the live droop, only
-  compatible ports stay live, one cable per port, the colour picker on release with the last-used
-  sheath preselected. Cables draw with the sag, the sheath as the stroke, copper as one stroke,
-  fibre as a pair, power heavy in the opposite lane; a cable leaving the closet ends in a dashed
-  portal tray naming where it goes. Clicking a cable lights it and dims the rest; Delete
-  disconnects. The editor edits hostname, role, management address and serial, first press
-  selects, second edits, typed values marked as typed.
+- **Cables** (Session 5). Connect two ports by dragging: the live droop, only compatible ports stay
+  live, one cable per port, the colour picker on release with the last-used sheath preselected.
+  Cables draw with the sag, the sheath as the stroke, copper one stroke, fibre a pair, power heavy in
+  the opposite lane; a cable leaving the closet ends in a dashed portal tray naming where it goes.
+  Cables sharing both ends bundle with a count and fan open on hover; a hovered or selected cable
+  lights its whole path through a panel and a portal while the rest sits at the phantom opacity.
+  PSU inlets on the rail, filled when fed, the single-fed wash, a PDU's n of m used; a front | rear
+  flip at the rack stop and rear chassis stacked at the faceplate stop. The editor edits hostname,
+  role, management address and serial, first press selects, second edits, typed values marked and a
+  refused value said out loud. The catalogue has an APC PDU and two Panduit panels, cited.
 
-**Carried, Session 5 second half:** bundles and fan-on-hover at forty cables; light the whole
-path through panels; PSU inlets drawn on the rail and *single-fed* shown (the view already carries
-both); rear faces drawn (a rear-mounted chassis shows as a gap); a refused typed value dropped
-without a word in the editor; the catalogue has no PDU model yet, so a power lead can be drawn
-only once one exists; and the "two people on a running server" proof, which tests and screenshots
-still stand in for. The old Rust-assembled HTML client is retired and still on disk under
+**Carried to Session 6 and later:** the drawing reads a panel as a chassis with no PSU inlets and
+pairs its ports by label across rows; the schema's `PassThrough` edge is where a panel's pairing
+belongs, written at placement, and the path walk should follow it. Optics (ADR-0047 §5) so a cage
+can take fibre. The "two people on a running server" proof, which tests and screenshots still stand
+in for. The old Rust-assembled HTML client is retired and still on disk under
 `crates/fathom-artifact/`; it is not served.
 
 ---
