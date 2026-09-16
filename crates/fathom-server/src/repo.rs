@@ -776,16 +776,22 @@ pub async fn list_members(
         .collect()
 }
 
-/// Every organisation `account` belongs to. Deliberately does **not** set a
-/// tenant context -- there is no single tenant to set before the caller knows
-/// which organisations it has. This is the query the `organisations` and
-/// `memberships` RLS policies' `account_id` branch exists for.
-pub async fn list_organisations_for_account(
-    pool: &Pool,
+/// The transaction half of [`list_organisations_for_account`], for
+/// `design_api`'s `GET /organisations` handler, which already has an open
+/// transaction -- a verified session's own -- and must not open a second
+/// one. `pub(crate)` because the caller sits outside this module but inside
+/// this crate.
+///
+/// Sets `app.account_id` and nothing else, same as the pool-based wrapper
+/// below, and for the same reason given there: this is the query the
+/// `organisations` and `memberships` RLS policies' `account_id` branch
+/// exists for, and there is no single tenant to pin before the caller knows
+/// which organisations it has. One copy of the SQL; [`list_organisations_for_account`]
+/// is this function plus the transaction around it.
+pub(crate) async fn list_organisations_for_account_in(
+    tx: &Transaction<'_>,
     account: AccountId,
 ) -> Result<Vec<Organisation>, RepoError> {
-    let mut client = pool.get().await?;
-    let tx = client.transaction().await?;
     tx.execute(
         "SELECT set_config('app.account_id', $1, true)",
         &[&account.to_string()],
@@ -801,7 +807,6 @@ pub async fn list_organisations_for_account(
             &[&account.to_string()],
         )
         .await?;
-    tx.commit().await?;
 
     rows.iter()
         .map(|row| {
@@ -814,6 +819,21 @@ pub async fn list_organisations_for_account(
             })
         })
         .collect()
+}
+
+/// Every organisation `account` belongs to. Deliberately does **not** set a
+/// tenant context -- there is no single tenant to set before the caller knows
+/// which organisations it has. This is the query the `organisations` and
+/// `memberships` RLS policies' `account_id` branch exists for.
+pub async fn list_organisations_for_account(
+    pool: &Pool,
+    account: AccountId,
+) -> Result<Vec<Organisation>, RepoError> {
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
+    let organisations = list_organisations_for_account_in(&tx, account).await?;
+    tx.commit().await?;
+    Ok(organisations)
 }
 
 // ---------------------------------------------------------------------------

@@ -496,6 +496,20 @@ async fn an_operator_cannot_grant_capability_inside_an_organisation() {
     );
     drop(tx);
 
+    //    `sessions::account_without_tenant` is the second and last bridge from
+    //    a session to an `AccountId` (added 2026-09-16 for `GET
+    //    /organisations`, which has no tenant to open). It must refuse an
+    //    operator for the same reason: an operator principal is
+    //    unrepresentable in a membership, so it belongs to no organisation and
+    //    an empty list would be a claim rather than an answer. Asserted here,
+    //    beside the first bridge, so that a future third bridge added without
+    //    this refusal fails in the test that exists to catch exactly that.
+    let refused = sessions::account_without_tenant(&operator.session);
+    assert!(
+        matches!(refused, Err(SessionError::NotATenantPrincipal)),
+        "an operator session must not yield an account id: {refused:?}"
+    );
+
     // 3. The database, as the superuser — the strongest privilege available,
     //    which row security does not bind and referential integrity does.
     let superuser = superuser().await;

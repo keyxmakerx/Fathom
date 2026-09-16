@@ -671,8 +671,14 @@ impl VerifiedSession {
     }
 
     /// The principal, as text. **Deliberately not an `AccountId`**: the
-    /// repository layer takes `AccountId`, and the only way to hand it one
-    /// derived from a session is [`open_tenant_context`].
+    /// repository layer takes `AccountId`, and the only ways to hand it one
+    /// derived from a session are [`open_tenant_context`] and
+    /// [`account_without_tenant`] — named functions, so that every place a
+    /// session becomes an actor is greppable.
+    ///
+    /// This returns text for logging, comparison and audit entries. Parsing
+    /// it back into an `AccountId` is exactly the bypass those two functions
+    /// exist to prevent; call one of them instead.
     pub fn principal_id(&self) -> String {
         self.actor.to_string()
     }
@@ -2361,6 +2367,37 @@ pub async fn open_tenant_context(
         return Err(SessionError::NotATenantPrincipal);
     }
     Ok(repo::open_tenant_context(tx, tenant, session.actor).await?)
+}
+
+/// The account behind a session, for the one kind of query that has no tenant
+/// to open: *"which organisations do I belong to?"*.
+///
+/// **This is the second and last bridge from a session to an `AccountId`**,
+/// [`open_tenant_context`] being the first. It exists because that one cannot
+/// serve a caller who does not yet know which tenant it is asking about —
+/// which is the whole point of `list_organisations_for_account`, whose own
+/// doc comment says so.
+///
+/// **It opens no tenant context, and that is the danger.** `open_tenant_context`
+/// sets the row-level-security context that keeps one organisation's rows away
+/// from another's; this sets nothing. A caller may therefore use the returned
+/// `AccountId` **only** with queries whose RLS policy is satisfied by the
+/// `account_id` branch — the `organisations` and `memberships` policies of
+/// `0002`, read through `repo::list_organisations_for_account_in`, which sets
+/// `app.account_id` itself. Handing it to anything tenant-scoped would read
+/// under no context at all. If a second caller ever wants this, read that
+/// caller's policy first and say in its doc comment which branch it relies on.
+///
+/// An operator session is refused with the same
+/// [`SessionError::NotATenantPrincipal`] `open_tenant_context` gives, for the
+/// same reason: an operator principal is unrepresentable in a membership at
+/// every privilege level (§2, `0004`), so it belongs to no organisation and
+/// the honest answer is a typed refusal rather than an empty list.
+pub fn account_without_tenant(session: &VerifiedSession) -> Result<AccountId, SessionError> {
+    if session.kind != PrincipalKind::Steward {
+        return Err(SessionError::NotATenantPrincipal);
+    }
+    Ok(session.actor)
 }
 
 // ---------------------------------------------------------------------------

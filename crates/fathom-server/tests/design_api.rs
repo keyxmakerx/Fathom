@@ -513,6 +513,95 @@ async fn call(
     .await
 }
 
+/// [`call`], but with the last byte of the signature flipped after it is
+/// computed — a real session, a real nonce, and a signature that does not
+/// verify. Otherwise identical, on purpose: the only thing this must prove
+/// differently from an unsigned request is that a *wrong* signature is
+/// refused too, not only a missing one.
+async fn call_badly_signed(
+    addr: SocketAddr,
+    person: &Person,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> (String, Vec<u8>) {
+    let session_key = SoftwareKey::random().unwrap();
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+
+    let mut chal = Vec::new();
+    lp(&mut chal, b"steward");
+    lp(&mut chal, person.address.as_bytes());
+    lp(&mut chal, &pubkey);
+    let (status, answer) = post_bytes(
+        addr,
+        "/session/challenge",
+        &chal,
+        &[(TEST_SOURCE_HEADER, source.clone())],
+    )
+    .await;
+    assert_eq!(status, "200", "challenge");
+    let (nonce, rest) = read_lp(&answer);
+    let (deployment, _) = read_lp(rest);
+    let deployment = String::from_utf8(deployment.to_vec()).unwrap();
+    let nonce: [u8; 32] = nonce.try_into().unwrap();
+
+    let digest = sessions::session_challenge(&pubkey, &nonce, &deployment);
+    let mut signin = Vec::new();
+    lp(&mut signin, b"steward");
+    lp(&mut signin, &pubkey);
+    lp(&mut signin, &nonce);
+    lp(&mut signin, &person.key.sign(&digest));
+    let (status, answer) =
+        post_bytes(addr, "/session", &signin, &[(TEST_SOURCE_HEADER, source)]).await;
+    assert_eq!(status, "200", "sign-in");
+    let (session_id, rest) = read_lp(&answer);
+    let (token, _) = read_lp(rest);
+    let session_id = String::from_utf8(session_id.to_vec()).unwrap();
+
+    let (status, answer) = post_bytes(
+        addr,
+        "/session/nonce",
+        b"",
+        &[
+            (HEADER_SESSION, session_id.clone()),
+            (HEADER_TOKEN, hex(token)),
+        ],
+    )
+    .await;
+    assert_eq!(status, "200", "nonce");
+    let (nonce, _) = read_lp(&answer);
+    let nonce: [u8; 32] = nonce.try_into().unwrap();
+
+    let unix_ms = now_ms();
+    let counter = 1i64;
+    let message = sessions::request_bytes(
+        &session_id,
+        method,
+        path,
+        &sessions::body_digest(body),
+        &nonce,
+        unix_ms,
+        counter,
+    );
+    let mut signature = session_key.sign(&message);
+    signature[63] ^= 0xff;
+    raw_request(
+        addr,
+        method,
+        path,
+        &[
+            (HEADER_SESSION, session_id),
+            (HEADER_NONCE, hex(nonce)),
+            (HEADER_TIMESTAMP, unix_ms.to_string()),
+            (HEADER_COUNTER, counter.to_string()),
+            (HEADER_SIGNATURE, hex(signature)),
+        ],
+        body,
+    )
+    .await
+}
+
 // ---------------------------------------------------------------------------
 // Save: a `read`-only caller is refused, and the refusal does not leak
 // whether the design exists
@@ -866,5 +955,153 @@ async fn a_signed_in_caller_reads_the_catalogue_list_and_one_models_full_detail(
                 .iter()
                 .any(|f| f.groups.iter().any(|g| g.kind.token() == "SFP+")),
         "must not invent a port kind the model does not have"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// GET /organisations — which tenants the signed-in account belongs to
+// ---------------------------------------------------------------------------
+
+fn contains_org(text: &str, id: OrganisationId) -> bool {
+    text.contains(&format!("\"organisation_id\":\"{id}\""))
+}
+
+/// Enrol a key on the site chain at "invitation" time, exactly as an account
+/// with no organisation yet would be enrolled (`grants::enrol_software_key_at_invitation`'s
+/// own doc: "the first key of an invited person is enrolled before any
+/// organisation knows their name"). Needed for the "belongs to none" case
+/// below, since `enrol` (this file's other fixture) opens a tenant context
+/// and so requires a membership that a lonely account does not have.
+async fn enrol_at_invitation(pool: &Pool, ring: &KeyRing, person: &Person) {
+    let client = pool.get().await.expect("connection");
+    let deployment = chains::deployment_id(&**client)
+        .await
+        .expect("this deployment is stamped");
+    drop(client);
+
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    // `account_keys_insertable` (`0011_authority.sql`) checks `account_id =
+    // app.account_id`; the token-redemption path this mirrors sets it from
+    // the token's own row (`operators.rs`'s `set_account_id`) for the same
+    // reason.
+    tx.execute(
+        "SELECT set_config('app.account_id', $1, true)",
+        &[&person.account.to_string()],
+    )
+    .await
+    .expect("set app.account_id");
+    grants::enrol_software_key_at_invitation(
+        &tx,
+        ring,
+        &deployment,
+        &person.account.to_string(),
+        &person.key.public_key(),
+    )
+    .await
+    .expect("enrol at invitation");
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn an_account_sees_exactly_the_organisations_it_belongs_to_and_none_it_does_not() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+
+    let estate_a = bootstrap(&pool, &ring).await;
+    let estate_b = bootstrap(&pool, &ring).await;
+
+    // estate_b's steward is ALSO a member of A -- one account, two
+    // organisations. Membership alone is enough for this route: the account's
+    // key, enrolled once in `bootstrap`, is account-scoped, not
+    // organisation-scoped (`grants::insert_account_key`'s own doc), so no
+    // second enrolment is needed to sign in.
+    repo::add_member(
+        &pool,
+        estate_a.organisation,
+        estate_a.steward.account,
+        estate_b.steward.account,
+        repo::Role::Member,
+    )
+    .await
+    .expect("add estate_b's steward to A as well");
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    // The account in two organisations sees exactly both.
+    let (status, body) = call(addr, &estate_b.steward, "GET", "/organisations", b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body);
+    assert!(
+        contains_org(&text, estate_a.organisation) && contains_org(&text, estate_b.organisation),
+        "an account in both organisations must see both: {text}"
+    );
+    assert_eq!(
+        text.matches("\"organisation_id\":\"").count(),
+        2,
+        "and exactly those two, no more: {text}"
+    );
+
+    // The assertion that matters: the account that belongs ONLY to A must
+    // never see B, even though B exists and this same database just proved
+    // another account can see it. If RLS's `account_id` branch were bypassed
+    // this would silently return every organisation in the database instead.
+    let (status, body) = call(addr, &estate_a.steward, "GET", "/organisations", b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body);
+    assert!(
+        contains_org(&text, estate_a.organisation),
+        "must still see its own organisation: {text}"
+    );
+    assert!(
+        !contains_org(&text, estate_b.organisation),
+        "an account must never see an organisation it is not a member of: {text}"
+    );
+    assert_eq!(text.matches("\"organisation_id\":\"").count(), 1, "{text}");
+}
+
+#[tokio::test]
+async fn an_account_that_belongs_to_no_organisation_gets_an_empty_list() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+
+    let lonely = an_account(&pool, "lonely").await;
+    enrol_at_invitation(&pool, &ring, &lonely).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let (status, body) = call(addr, &lonely, "GET", "/organisations", b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        body,
+        b"[]\n",
+        "an account in no organisation gets an empty list, not an error: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn organisations_refuses_unsigned_and_badly_signed_requests_like_every_other_route() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let (status, _) = raw_request(addr, "GET", "/organisations", &[], b"").await;
+    assert_eq!(
+        status, "401",
+        "an unsigned request must be refused before any handler runs, exactly like every other \
+         signed route"
+    );
+
+    let (status, _) = call_badly_signed(addr, &estate.steward, "GET", "/organisations", b"").await;
+    assert_eq!(
+        status, "401",
+        "a session that is real but a signature that does not verify must be refused the same \
+         way an unsigned request is"
     );
 }

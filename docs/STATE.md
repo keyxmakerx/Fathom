@@ -185,9 +185,26 @@ key volume); the second requires manual action (generate the two keys before the
 Both are documented in `docs/RUNNING-IT.md`. **Run `docker compose up` from a clean checkout
 somewhere with the keys pre-generated before calling deployment proven.**
 
-**The sessions test suite is sensitive to a shared database.** Every test that runs against the
-same database shares global state — triggers, rate-limit buckets, the site chain. See
-`docs/NEXT.md` rule 3 for the isolation requirements.
+**The test suite needs a fresh database, and that is now measured rather than assumed.** Every test
+running against one database shares its global state — triggers, rate-limit buckets, the site chain,
+the settings rows. See `docs/NEXT.md` rule 3 for the isolation requirements.
+
+On 2026-09-16 the suite was run repeatedly against a single database to see how far that goes. On a
+fresh database it passes; reused, it fails intermittently, and three separate causes were found:
+
+- **A rate-limit bucket at `127.0.0.1`.** `tests/sessions.rs`'s HTTP sign-in helper trusted no
+  forwarded-for header, so every sign-in it made counted against the peer address, and the counter
+  outlives a `cargo test`. The challenge answered `429` instead of `200`. **Fixed**: the helper now
+  takes a source of its own, as rule 3 requires of anything global.
+- **A one-second session lifetime** in `an_expired_session_is_refused_and_the_row_goes_with_it` had
+  to cover signing in *and* taking a nonce, both real round trips, so on a loaded machine the
+  session expired before the test reached the refusal it exists to check. **Fixed**: four seconds.
+- **Two tests still share state across runs** and fail only on a reused database:
+  `an_operator_cannot_be_seconded_by_the_operator_they_created` (a settings row reads `captured`
+  where it expects `first`) and `past_the_bound_a_rotation_is_refused_and_drains_to_succeed`. Both
+  were confirmed to fail identically at the commit before that day's work, so neither is new. **Not
+  fixed.** They cost nothing under rule 3, which gives every builder its own database, and CI
+  creates one per run.
 
 **The server refuses to start on a broken schema, deliberately.** `EngineState::load` runs every
 gate and will not serve a vocabulary that fails one. A broken tree is now a startup failure naming

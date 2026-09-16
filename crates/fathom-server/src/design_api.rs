@@ -120,7 +120,7 @@ use crate::chain;
 use crate::designs::{self, DesignError};
 use crate::grants::{self, Authority, EpochWatch};
 use crate::keys::KeyRing;
-use crate::repo::{DesignId, OrganisationId, ScopeId, TenantContext};
+use crate::repo::{self, DesignId, OrganisationId, ScopeId, TenantContext};
 use crate::sessions::{
     self, PendingRequest, SessionError, SessionStore, SignedRequest, VerifiedSession,
 };
@@ -177,6 +177,7 @@ pub fn load_catalogue(root: &Path) -> Result<Vec<Model>, CatalogueError> {
 /// module doc: nothing here is added to `api::router`.
 pub fn router(state: DesignApiState) -> Router {
     Router::new()
+        .route("/organisations", get(list_organisations_handler))
         .route(
             "/organisations/{organisation}/designs",
             get(list_designs_handler),
@@ -514,6 +515,70 @@ fn parse_organisation(text: &str) -> Result<OrganisationId, SessionError> {
 fn parse_design(text: &str) -> Result<DesignId, SessionError> {
     text.parse()
         .map_err(|_| SessionError::Malformed("design id"))
+}
+
+// ---------------------------------------------------------------------------
+// Organisations
+// ---------------------------------------------------------------------------
+
+/// `GET /organisations` — every organisation the signed-in account belongs
+/// to. The client's Home screen needs this before it can name a tenant in
+/// any of the routes below it, so it lives here rather than in `api.rs`:
+/// this module already owns the [`Signed`] extractor for non-admin session
+/// routes (see the module doc's "its own state" section), and that is the
+/// extractor this route needs too.
+///
+/// **Deliberately does not call [`sessions::open_tenant_context`].** That
+/// bridge pins one tenant for the rest of a request; this route answers
+/// "which tenants" *before* any tenant is known, so there is nothing yet to
+/// pin. It authorises instead through
+/// [`repo::list_organisations_for_account_in`], the transaction half of
+/// `repo::list_organisations_for_account` -- the query the `organisations`
+/// and `memberships` RLS policies' `account_id` branch exists for. That
+/// function sets `app.account_id` and nothing else, so it reads exactly the
+/// rows RLS lets an account see about itself, no more.
+///
+/// An operator session is refused with the same
+/// [`SessionError::NotATenantPrincipal`] `sessions::open_tenant_context`
+/// uses for the same reason: an operator principal is unrepresentable in a
+/// membership at every privilege level (`0004`), so it belongs to no
+/// organisation this route could ever answer with.
+async fn list_organisations_handler(
+    State(state): State<DesignApiState>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+
+    let session = signed.verify(&state, &tx).await?;
+    // `sessions::account_without_tenant` is the named bridge for a route with
+    // no tenant to open; it refuses an operator session itself. Parsing
+    // `principal_id()` back into an `AccountId` here instead would be the
+    // bypass that function's doc comment exists to prevent.
+    let account = sessions::account_without_tenant(&session)?;
+
+    let organisations = repo::list_organisations_for_account_in(&tx, account)
+        .await
+        .map_err(SessionError::from)?;
+
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let out = organisations
+        .into_iter()
+        .map(|o| {
+            let mut map = BTreeMap::new();
+            map.insert("organisation_id".to_string(), Json::Str(o.id.to_string()));
+            map.insert("display_name".to_string(), Json::Str(o.display_name));
+            Json::Obj(map)
+        })
+        .collect();
+
+    Ok(json_response(Json::Arr(out)))
 }
 
 // ---------------------------------------------------------------------------

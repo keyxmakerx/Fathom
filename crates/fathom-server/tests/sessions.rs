@@ -642,23 +642,33 @@ async fn an_expired_session_is_refused_and_the_row_goes_with_it() {
         let client = pool.get().await.expect("connection");
         chains::deployment_id(&**client).await.expect("deployment")
     };
-    // A one-second lifetime, and then a real second. The alternative -- moving
-    // `expires_at` in SQL -- breaks the row MAC, so the refusal observed would
-    // be the MAC's and this test would prove nothing about expiry. That fence
-    // has its own test below.
+    // A short lifetime, and then a real wait past it. The alternative --
+    // moving `expires_at` in SQL -- breaks the row MAC, so the refusal
+    // observed would be the MAC's and this test would prove nothing about
+    // expiry. That fence has its own test below.
+    //
+    // **Four seconds, not one.** The lifetime has to cover signing in AND
+    // taking a nonce, both of which are real database round trips, because
+    // the session is already ticking when `sign_in` returns. At one second
+    // this test failed on a loaded machine with `a live session may ask for a
+    // nonce: Expired` -- the session expiring before the test had finished
+    // setting itself up, so it never reached the refusal it exists to check.
+    // Observed 2026-09-16 while running the suite repeatedly. Four seconds is
+    // still an expiry a person would notice and costs the suite under five.
+    const LIFETIME: std::time::Duration = std::time::Duration::from_secs(4);
     let store = SessionStore::with_lifetime(
         pool.clone(),
         Arc::clone(&ring),
         deployment,
         SignInLimits::defaults(),
-        std::time::Duration::from_secs(1),
+        LIFETIME,
     );
     let (signed_in, session_key) = sign_in(&store, &estate.steward).await;
 
     // A nonce first, so the refusal is about the session's lifetime and not
     // about the caller having nothing to present.
     let call = a_call(&store, &signed_in, &session_key, "GET", "/x", b"").await;
-    tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+    tokio::time::sleep(LIFETIME + std::time::Duration::from_millis(500)).await;
 
     let refused = store
         .verify_request(&as_request(&call, "GET", "/x", b""))
@@ -1645,9 +1655,19 @@ async fn the_demonstration_route_answers_read_draw_steward_and_not_authorised_fr
         sessions: Arc::new(store(&pool, Arc::clone(&ring)).await),
         watch: Arc::new(EpochWatch::new()),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: None,
+        // Trusted so that `call_over_http` can give this test a rate-limit
+        // bucket of its own; see its doc comment for what happens without
+        // one. This is a test driving its own router, not advice: the header
+        // is only safe to trust where a proxy you control overwrites it, as
+        // `ApiState::trusted_client_ip_header` says.
+        trusted_client_ip_header: Some("x-forwarded-for".to_string()),
     };
     let addr = serve(api::router(state)).await;
+
+    // Four sign-ins follow. One source for all four is fine — the cap is far
+    // above four — but it must not be a source any other test or any earlier
+    // run shares.
+    let source = a_source_of_its_own();
 
     let path = format!("/organisations/{}/capability", estate.organisation);
     for (who, expected) in [
@@ -1655,12 +1675,12 @@ async fn the_demonstration_route_answers_read_draw_steward_and_not_authorised_fr
         (&reader, "read\n"),
         (&drawer, "draw\n"),
     ] {
-        let (status, body) = call_over_http(addr, who, "GET", &path).await;
+        let (status, body) = call_over_http(addr, who, "GET", &path, &source).await;
         assert_eq!(status, "200", "{} got {status} {body}", who.address);
         assert_eq!(body, expected, "for {}", who.address);
     }
 
-    let (status, body) = call_over_http(addr, &stranger, "GET", &path).await;
+    let (status, body) = call_over_http(addr, &stranger, "GET", &path, &source).await;
     assert_eq!(
         status, "403",
         "a member with no grant is not authorised, and the refusal is a permission error rather \
@@ -1674,21 +1694,35 @@ async fn the_demonstration_route_answers_read_draw_steward_and_not_authorised_fr
 }
 
 /// Sign in, take a nonce and sign one request, all over the real HTTP surface.
+/// `source` is the value sent as `x-forwarded-for`, which the state this
+/// helper is driven against must trust (`ApiState::trusted_client_ip_header`).
+///
+/// **It has to be a source of the caller's own.** Without it every request
+/// here counts against the peer address — `127.0.0.1` for every test in this
+/// file at once — and the sign-in rate limit is a counter in the database that
+/// outlives a single `cargo test`. On a fresh database that is invisible; on a
+/// database a suite has already run against, this test's four sign-ins land on
+/// a bucket near its cap and the challenge answers `429` instead of `200`.
+/// Found on 2026-09-16 by running the suite repeatedly against one database.
+/// `docs/NEXT.md` ground rule 3: anything global needs a lock or a key of its
+/// own, and a rate-limit bucket is global.
 async fn call_over_http(
     addr: std::net::SocketAddr,
     person: &Person,
     method: &str,
     path: &str,
+    source: &str,
 ) -> (String, String) {
     let session_key = SoftwareKey::random().unwrap();
     let pubkey = session_key.public_key();
+    let forwarded: &[(&str, String)] = &[("x-forwarded-for", source.to_string())];
 
     // POST /session/challenge
     let mut body = Vec::new();
     lp(&mut body, b"steward");
     lp(&mut body, person.address.as_bytes());
     lp(&mut body, &pubkey);
-    let (status, answer) = post_bytes(addr, "/session/challenge", &body, &[]).await;
+    let (status, answer) = post_bytes(addr, "/session/challenge", &body, forwarded).await;
     assert_eq!(status, "200", "challenge");
     let (nonce, rest) = read_lp(&answer);
     let (deployment, _) = read_lp(rest);
@@ -1702,7 +1736,7 @@ async fn call_over_http(
     lp(&mut body, &pubkey);
     lp(&mut body, &nonce);
     lp(&mut body, &person.key.sign(&digest));
-    let (status, answer) = post_bytes(addr, "/session", &body, &[]).await;
+    let (status, answer) = post_bytes(addr, "/session", &body, forwarded).await;
     assert_eq!(status, "200", "sign-in");
     let (session_id, rest) = read_lp(&answer);
     let (token, _) = read_lp(rest);
