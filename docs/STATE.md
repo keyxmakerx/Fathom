@@ -156,10 +156,27 @@ other.
 
 ## Being replaced
 
-**The browser client.** Built at `client/` in React and Vite. Vite, React, TypeScript, the shell,
-a working sign-in with WebCrypto keys, five port glyphs (RJ45, SFP+, QSFP+, LC, C14), a
-gallery at `/ports.html`. **No diagram yet.** The shell it will get is approved and drawn
-(ADR-0047, `design/shell/`); Session 3 of `docs/NEXT.md` builds it. The old Rust-assembled HTML client is retired and still on disk under `crates/fathom-artifact/`; it is not served.
+**The browser client.** Built at `client/` in React and Vite. Vite, React, TypeScript, five port
+glyphs (RJ45, SFP+, QSFP+, LC, C14) and a gallery at `/ports.html`. Session 3 of `docs/NEXT.md`
+landed 2026-09-16: 62 tests, typecheck and build clean.
+
+- **Two doors.** Sign-in with a key this browser holds, and **enrolment**, which redeems an
+  invitation against `POST /enrolment/account` and generates a non-extractable account keypair whose
+  private half never leaves the browser. Until enrolment existed no browser could obtain a key at
+  all, so nobody could sign in for the first time.
+- **The shell of ADR-0047**, built to the approved board: the one-row bar (two places, the path that
+  opens the tree, the five lenses, search that collapses to its magnifier when the row will not fit,
+  presence, undo and redo, zoom, the account chip and its menu), the rail folded to a strip, and an
+  editor absent from the document when nothing is selected. One reusable pop-over, closing on
+  Escape and returning focus. The lens row and zoom are absent on Home, which is not the camera.
+- **Home**, listing the organisations you belong to and the designs you may open, landing an account
+  with exactly one place to go directly there.
+
+**No diagram yet** — Session 4 builds the rack. Two things Home cannot show, both waiting on
+`docs/OPEN-QUESTIONS.md` D11: a design has no name, and no route resolves a scope id to one, so the
+bar's path shows only the organisation and the design list shows identifiers rather than named
+closets. The old Rust-assembled HTML client is retired and still on disk under
+`crates/fathom-artifact/`; it is not served.
 
 ---
 
