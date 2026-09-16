@@ -79,8 +79,9 @@ comparable amount again.
 
 ## Handoff, 2026-09-16 — read this first
 
-Sessions 1 to 4 are done and green (updated late on 2026-09-16). **Session 5, cables and
-portals, is next.** Before anything else, read in this order and nothing more: `docs/STATE.md`'s
+Sessions 1 to 4 are done and Session 5 is half done (updated late on 2026-09-16): cables,
+drag-to-connect, portals and the editing editor are in; the second half is listed in
+`docs/STATE.md` under "Carried". Before anything else, read in this order and nothing more: `docs/STATE.md`'s
 client section; `docs/UI-SPEC.md` "Cables", "Keeping it readable at forty cables", "Portals",
 "Power"; ADR-0049 (what a payload is); `client/src/document/` (the graph the browser holds, its
 commands, and `view.ts`) and `client/src/components/drawing/` (what draws it). `docs/archive/`

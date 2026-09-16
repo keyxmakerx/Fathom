@@ -178,12 +178,20 @@ other.
   flight, the latest queued, a refusal shown and never rolled back. The TypeScript writer reproduces
   all three Rust-made vectors byte for byte, and the server reads every payload back before storing it.
 
-**Not yet drawn or done, carried to Session 5:** cables and portals; a rear-mounted chassis is not
-drawn (its run is reserved and shows as a gap); a 1U box's port glyphs overflow its bottom edge at
-the faceplate stop; hostnames are set by nobody yet, since the editor does not edit; the "done
-when" of Session 4 — a diagram built from nothing that a colleague with `read` sees and cannot
-change — was proved by tests and screenshots against fixtures, not yet by two people on a running
-server. The old Rust-assembled HTML client is retired and still on disk under
+- **Cables** (Session 5, first half). Connect two ports by dragging: the live droop, only
+  compatible ports stay live, one cable per port, the colour picker on release with the last-used
+  sheath preselected. Cables draw with the sag, the sheath as the stroke, copper as one stroke,
+  fibre as a pair, power heavy in the opposite lane; a cable leaving the closet ends in a dashed
+  portal tray naming where it goes. Clicking a cable lights it and dims the rest; Delete
+  disconnects. The editor edits hostname, role, management address and serial, first press
+  selects, second edits, typed values marked as typed.
+
+**Carried, Session 5 second half:** bundles and fan-on-hover at forty cables; light the whole
+path through panels; PSU inlets drawn on the rail and *single-fed* shown (the view already carries
+both); rear faces drawn (a rear-mounted chassis shows as a gap); a refused typed value dropped
+without a word in the editor; the catalogue has no PDU model yet, so a power lead can be drawn
+only once one exists; and the "two people on a running server" proof, which tests and screenshots
+still stand in for. The old Rust-assembled HTML client is retired and still on disk under
 `crates/fathom-artifact/`; it is not served.
 
 ---
