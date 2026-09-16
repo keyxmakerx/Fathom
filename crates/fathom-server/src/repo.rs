@@ -169,7 +169,7 @@ pub enum ScopeKind {
 }
 
 impl ScopeKind {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Network => "network",
             Self::Building => "building",
@@ -177,7 +177,7 @@ impl ScopeKind {
         }
     }
 
-    fn parse(s: &str) -> Option<Self> {
+    pub(crate) fn parse(s: &str) -> Option<Self> {
         match s {
             "network" => Some(Self::Network),
             "building" => Some(Self::Building),

@@ -237,6 +237,63 @@ async fn a_member_with(
     person
 }
 
+/// Like [`a_member_with`], but the grant (when `capability` is `Some`) is
+/// scoped to `scope` rather than the whole organisation (`scope: None`) —
+/// what test 2 for `GET /organisations/{organisation}/scopes` needs: a
+/// capability that covers one subtree and nothing above or beside it.
+async fn a_member_with_scope(
+    pool: &Pool,
+    ring: &KeyRing,
+    estate: &Estate,
+    name: &str,
+    scope: ScopeId,
+    capability: Capability,
+) -> Person {
+    let person = an_account(pool, name).await;
+    repo::add_member(
+        pool,
+        estate.organisation,
+        estate.steward.account,
+        person.account,
+        repo::Role::Member,
+    )
+    .await
+    .expect("membership");
+    enrol(pool, ring, estate.organisation, &person).await;
+
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, estate.organisation, estate.steward.account)
+        .await
+        .expect("tenant context");
+    let tenant_key = keys::tenant_key(&tx, ring, &ctx).await.expect("tenant key");
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let proposal = grants::propose_grant(
+        &tx,
+        &auth,
+        &GrantRequest {
+            scope: Some(scope),
+            subject: person.account,
+            capability,
+            expires_at_unix: now_unix() + 30 * 24 * 3600,
+        },
+    )
+    .await
+    .expect("proposed");
+    let signature = estate.steward.key.sign(&proposal.bytes);
+    grants::sign_grant(&tx, &auth, &proposal, &signature)
+        .await
+        .expect("signed");
+    tx.commit().await.expect("commit");
+    person
+}
+
 async fn store(pool: &Pool, ring: Arc<KeyRing>) -> SessionStore {
     let client = pool.get().await.expect("connection");
     let deployment = chains::deployment_id(&**client)
@@ -278,6 +335,57 @@ async fn a_scope_and_design(pool: &Pool, estate: &Estate) -> (ScopeId, DesignId)
             .await
             .expect("create design");
     (scope.id, design)
+}
+
+/// A three-level tree the scopes tests share: one network, two buildings
+/// under it, and one rack under the first building. `(network, building_a,
+/// building_b, rack_under_a)`.
+async fn a_scope_tree(pool: &Pool, estate: &Estate) -> (ScopeId, ScopeId, ScopeId, ScopeId) {
+    let network = repo::create_scope(
+        pool,
+        estate.organisation,
+        estate.steward.account,
+        None,
+        ScopeKind::Network,
+        &unique("net"),
+    )
+    .await
+    .expect("create network")
+    .id;
+    let building_a = repo::create_scope(
+        pool,
+        estate.organisation,
+        estate.steward.account,
+        Some(network),
+        ScopeKind::Building,
+        &unique("building-a"),
+    )
+    .await
+    .expect("create building a")
+    .id;
+    let building_b = repo::create_scope(
+        pool,
+        estate.organisation,
+        estate.steward.account,
+        Some(network),
+        ScopeKind::Building,
+        &unique("building-b"),
+    )
+    .await
+    .expect("create building b")
+    .id;
+    let rack_under_a = repo::create_scope(
+        pool,
+        estate.organisation,
+        estate.steward.account,
+        Some(building_a),
+        ScopeKind::Rack,
+        &unique("rack-a"),
+    )
+    .await
+    .expect("create rack under a")
+    .id;
+    (network, building_a, building_b, rack_under_a)
 }
 
 /// The header `app` trusts for the source bucket, so this file's own tests
@@ -1099,6 +1207,170 @@ async fn organisations_refuses_unsigned_and_badly_signed_requests_like_every_oth
     );
 
     let (status, _) = call_badly_signed(addr, &estate.steward, "GET", "/organisations", b"").await;
+    assert_eq!(
+        status, "401",
+        "a session that is real but a signature that does not verify must be refused the same \
+         way an unsigned request is"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// GET /organisations/{organisation}/scopes — D11
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_steward_sees_every_scope_in_the_organisation_in_path_order_root_first() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (network, building_a, building_b, rack_under_a) = a_scope_tree(&pool, &estate).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = format!("/organisations/{}/scopes", estate.organisation);
+    let (status, body) = call(addr, &estate.steward, "GET", &path, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body).into_owned();
+
+    for scope in [network, building_a, building_b, rack_under_a] {
+        assert!(
+            text.contains(&format!("\"scope_id\":\"{scope}\"")),
+            "every scope in the organisation must be present: missing {scope}: {text}"
+        );
+    }
+    // Object keys are a `BTreeMap`, so alphabetical: "parent_scope_id" is
+    // always immediately followed by "path" in the emitted JSON.
+    assert!(
+        text.contains(&format!("\"parent_scope_id\":null,\"path\":\"{network}\"")),
+        "the root's parent_scope_id must be JSON null: {text}"
+    );
+
+    // Root first, path order: the network's own row must appear before
+    // either building's, and each building's row before the rack under it.
+    let at = |needle: &str| {
+        text.find(needle)
+            .unwrap_or_else(|| panic!("{needle} not found in {text}"))
+    };
+    let network_at = at(&format!("\"scope_id\":\"{network}\""));
+    let building_a_at = at(&format!("\"scope_id\":\"{building_a}\""));
+    let building_b_at = at(&format!("\"scope_id\":\"{building_b}\""));
+    let rack_at = at(&format!("\"scope_id\":\"{rack_under_a}\""));
+    assert!(
+        network_at < building_a_at && network_at < building_b_at,
+        "the root must be listed before its children: {text}"
+    );
+    assert!(
+        building_a_at < rack_at,
+        "a parent must be listed before its own descendant: {text}"
+    );
+}
+
+#[tokio::test]
+async fn an_account_granted_read_on_one_child_scope_sees_only_that_subtree_not_its_parent_or_siblings(
+) {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (network, building_a, building_b, rack_under_a) = a_scope_tree(&pool, &estate).await;
+
+    let narrow = a_member_with_scope(
+        &pool,
+        &ring,
+        &estate,
+        "narrow",
+        building_a,
+        Capability::Read,
+    )
+    .await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = format!("/organisations/{}/scopes", estate.organisation);
+    let (status, body) = call(addr, &narrow, "GET", &path, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body).into_owned();
+
+    // The assertion that matters: the granted scope and its own descendant
+    // are present...
+    assert!(
+        text.contains(&format!("\"scope_id\":\"{building_a}\"")),
+        "the scope the grant covers must be present: {text}"
+    );
+    assert!(
+        text.contains(&format!("\"scope_id\":\"{rack_under_a}\"")),
+        "a descendant of the granted scope must be present too: {text}"
+    );
+    // ...but its parent and its sibling, which exist in this same
+    // organisation and were just proven present for the steward, must be
+    // absent — not present-but-marked-forbidden, simply absent.
+    assert!(
+        !text.contains(&format!("\"scope_id\":\"{network}\"")),
+        "the granted scope's parent must be absent even though it exists: {text}"
+    );
+    assert!(
+        !text.contains(&format!("\"scope_id\":\"{building_b}\"")),
+        "a sibling scope must be absent even though it exists: {text}"
+    );
+
+    // The positive control: the steward sees all four, proving the omission
+    // above is about capability and not a broken tree.
+    let (status, body) = call(addr, &estate.steward, "GET", &path, b"").await;
+    assert_eq!(status, "200");
+    let text = String::from_utf8_lossy(&body);
+    for scope in [network, building_a, building_b, rack_under_a] {
+        assert!(
+            text.contains(&format!("\"scope_id\":\"{scope}\"")),
+            "the steward, unlike the narrow grant above, must see every scope: {text}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_account_with_no_grant_in_the_organisation_gets_an_empty_scope_list() {
+    // Matches `list_designs_handler`'s own answer to the identical question
+    // (`a_caller_with_no_capability_gets_a_list_that_omits_the_design_entirely`,
+    // above): a member with no grant sees `[]`, not a refusal. Membership
+    // alone opens the tenant context; `authorise_account` is what actually
+    // gates every row, and it is called per scope here exactly as it is
+    // called per design there.
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let _tree = a_scope_tree(&pool, &estate).await;
+    let outsider = a_member_with(&pool, &ring, &estate, "outsider", None).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = format!("/organisations/{}/scopes", estate.organisation);
+    let (status, body) = call(addr, &outsider, "GET", &path, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        body,
+        b"[]\n",
+        "a member with no grant must see an empty list, not scopes marked forbidden: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn scopes_refuses_unsigned_and_badly_signed_requests_like_every_other_route() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let _tree = a_scope_tree(&pool, &estate).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = format!("/organisations/{}/scopes", estate.organisation);
+
+    let (status, _) = raw_request(addr, "GET", &path, &[], b"").await;
+    assert_eq!(
+        status, "401",
+        "an unsigned request must be refused before any handler runs, exactly like every other \
+         signed route"
+    );
+
+    let (status, _) = call_badly_signed(addr, &estate.steward, "GET", &path, b"").await;
     assert_eq!(
         status, "401",
         "a session that is real but a signature that does not verify must be refused the same \

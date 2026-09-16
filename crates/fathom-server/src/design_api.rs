@@ -183,6 +183,10 @@ pub fn router(state: DesignApiState) -> Router {
             get(list_designs_handler),
         )
         .route(
+            "/organisations/{organisation}/scopes",
+            get(list_scopes_handler),
+        )
+        .route(
             "/organisations/{organisation}/designs/{design}",
             get(open_design_handler),
         )
@@ -660,6 +664,120 @@ async fn list_designs_handler(
             Json::Str(capability.as_str().to_string()),
         );
         map.insert("latest_version".to_string(), Json::Int(latest_version));
+        out.push(Json::Obj(map));
+    }
+
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(Json::Arr(out)))
+}
+
+// ---------------------------------------------------------------------------
+// Scopes
+// ---------------------------------------------------------------------------
+
+/// `GET /organisations/{organisation}/scopes` — every scope in the
+/// organisation the caller holds at least `read` on, ordered by `path` (root
+/// first). Built for D11 (`docs/OPEN-QUESTIONS.md`): a design has no name of
+/// its own, so the client names it by its scope, and the shell's path control
+/// and tree pop-over need the tree this route serves.
+///
+/// Filters exactly the way [`list_designs_handler`] does, row by row through
+/// `grants::authorise_account`, and for the same reason (module doc, "Why a
+/// design the caller cannot see is absent, not forbidden"): a scope the
+/// caller holds no capability on is left out of the answer entirely, never
+/// returned as a `403`-flavoured entry.
+///
+/// **The consequence for navigation, spelled out because it is easy to miss:**
+/// an ancestor the caller may not read is absent even when one of its
+/// descendants is present, because each row is checked on its own scope, not
+/// on its whole ancestor chain's readability. A caller holding `read` on one
+/// rack but nothing on the building or network above it gets that rack alone
+/// — not the rack plus bare-name ancestors to make the path look complete.
+/// The client must therefore draw the path from the highest ancestor it was
+/// actually given, and the tree pop-over shows only what came back. This is
+/// "omit rather than forbid" applied to navigation, and it is deliberate:
+/// showing an unreadable ancestor's name, even without its content, would
+/// tell an account the name of a scope it holds no capability on, and
+/// `docs/OPEN-QUESTIONS.md` B4 has not decided anyone may see that. If a
+/// later decision wants ancestor names shown regardless, it changes here, in
+/// one place.
+async fn list_scopes_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+
+    let session = signed.verify(&state, &tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+
+    let rows = tx
+        .query(
+            "SELECT id, parent_scope_id, kind, display_name, path, depth \
+             FROM scopes \
+             WHERE organisation_id = $1 \
+             ORDER BY path",
+            &[&ctx.tenant().to_string()],
+        )
+        .await
+        .map_err(SessionError::Db)?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        let id_text: String = row.get(0);
+        let parent_text: Option<String> = row.get(1);
+        let kind_text: String = row.get(2);
+        let display_name: String = row.get(3);
+        let path: String = row.get(4);
+        let depth: i16 = row.get(5);
+
+        let scope: ScopeId = id_text
+            .parse()
+            .map_err(|_| SessionError::Corrupt("scope id"))?;
+        let kind = repo::ScopeKind::parse(&kind_text).ok_or(SessionError::Corrupt("scope kind"))?;
+
+        let answer = grants::authorise_account(&tx, &auth, Some(scope), Capability::Read).await;
+        let capability = match answer {
+            Ok(c) => c.capability,
+            Err(grants::AuthorityError::NotAuthorised)
+            | Err(grants::AuthorityError::QuorumNotMet { .. }) => continue,
+            Err(other) => return Err(SessionError::Authority(other).into()),
+        };
+
+        let mut map = BTreeMap::new();
+        map.insert("scope_id".to_string(), Json::Str(id_text));
+        map.insert(
+            "parent_scope_id".to_string(),
+            match parent_text {
+                Some(p) => Json::Str(p),
+                None => Json::Null,
+            },
+        );
+        map.insert("kind".to_string(), Json::Str(kind.as_str().to_string()));
+        map.insert("display_name".to_string(), Json::Str(display_name));
+        map.insert("depth".to_string(), Json::Int(depth as i64));
+        map.insert("path".to_string(), Json::Str(path));
+        map.insert(
+            "capability".to_string(),
+            Json::Str(capability.as_str().to_string()),
+        );
         out.push(Json::Obj(map));
     }
 
