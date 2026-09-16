@@ -502,6 +502,13 @@ needs no schema change. Say so if the second is what you meant.
 
 ### D12. An invitation redeemed but never received
 
+> **RESOLVED 2026-09-16, the same day.** The enrolment review found three ways to lose the key, not
+> one — a cut response, a body that will not parse, and an IndexedDB write failing, the last the
+> likeliest — so the order was reversed: the keypair is stored under a *pending* slot before the
+> request is sent, promoted on a confirmed answer, deleted only on a definite refusal, and left in
+> place on any unknown outcome, where sign-in then tries it and promotes it if the server accepts.
+> The text below is the question as first asked.
+
 *Found 2026-09-16 while building enrolment.* Redemption spends the token and enrols the key in one
 server transaction, and the browser stores its keypair only after reading the answer. If the network
 fails in between, the token is spent, the account has a key recorded against it, and the browser that

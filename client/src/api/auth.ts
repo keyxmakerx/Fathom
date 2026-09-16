@@ -4,7 +4,14 @@
 // assembles and reads exactly those bytes and nothing else.
 
 import { concatBytes, lp, readLp, readU64LE, utf8 } from '../crypto/bytes';
-import { exportPublicKeyRaw, generateSessionKeyPair, getEnrolledKeyPair, signMessage } from '../crypto/keys';
+import {
+  exportPublicKeyRaw,
+  generateKeyPair,
+  getEnrolledKeyPair,
+  getPendingKeyPair,
+  promotePendingKeyPair,
+  signMessage,
+} from '../crypto/keys';
 import { sessionChallenge } from '../crypto/session';
 import { setSession } from '../state/sessionState';
 import { PRINCIPAL_KIND_STEWARD } from './constants';
@@ -12,14 +19,16 @@ import { refusalFrom } from './errors';
 import { signedFetch } from './signedFetch';
 
 /**
- * Thrown when this browser holds no enrolled key for the given address.
+ * Thrown when this browser holds no enrolled key -- and no pending one
+ * either -- for the given address.
  *
- * **This build has no enrolment surface.** Enrolment is by invitation
- * through an admin console `docs/REBUILD-PLAN.md` Phase 2 has not built, so
- * this is the ordinary case for every address today, not a bug in this
- * screen. `SignIn.tsx` shows the message on this error and nothing more —
- * inventing a reason beyond "this browser does not have it" would be a
- * guess this client has no way to stand behind.
+ * Enrolment is by invitation, through `./enrolment.ts`'s
+ * `redeemAccountEnrolment` (`Enrol.tsx`). Before that has ever happened for
+ * an address, or after this browser's storage has genuinely lost both
+ * copies, this is the honest state, not a bug in this screen. `SignIn.tsx`
+ * shows the message on this error and nothing more — inventing a reason
+ * beyond "this browser does not have it" would be a guess this client has
+ * no way to stand behind.
  */
 export class NoEnrolledKeyError extends Error {
   readonly address: string;
@@ -36,19 +45,34 @@ export class NoEnrolledKeyError extends Error {
  *
  * Generates a fresh, non-extractable session keypair; asks the server for a
  * challenge bound to its public half; signs that challenge with the
- * address's already-enrolled account key; and exchanges the result for a
- * session. Throws [`NoEnrolledKeyError`] before any network call if this
- * browser holds no such key, and an [`ApiRefusal`](./errors.ts) — the
- * server's own uniform wording, unchanged — for every refusal the server
- * itself can produce.
+ * address's account key; and exchanges the result for a session.
+ *
+ * Uses the enrolled key if this browser has one. If it does not, it falls
+ * back to a PENDING key for the address (`../crypto/keys.ts`) -- the state
+ * left behind when `redeemAccountEnrolment` could not confirm the server's
+ * answer (see its doc comment and `../../docs/OPEN-QUESTIONS.md` D12). A
+ * pending key the server never actually enrolled costs exactly one refused
+ * sign-in here and nothing else; a pending key the server did enrol lets
+ * this call succeed, and success promotes it to the enrolled slot so the
+ * next sign-in does not need this fallback.
+ *
+ * Throws [`NoEnrolledKeyError`] before any network call if this browser
+ * holds neither, and an [`ApiRefusal`](./errors.ts) — the server's own
+ * uniform wording, unchanged — for every refusal the server itself can
+ * produce.
  */
 export async function signIn(address: string): Promise<void> {
-  const enrolledKeyPair = await getEnrolledKeyPair(address);
+  let enrolledKeyPair = await getEnrolledKeyPair(address);
+  let usingPendingKey = false;
   if (!enrolledKeyPair) {
-    throw new NoEnrolledKeyError(address);
+    enrolledKeyPair = await getPendingKeyPair(address);
+    if (!enrolledKeyPair) {
+      throw new NoEnrolledKeyError(address);
+    }
+    usingPendingKey = true;
   }
 
-  const sessionKeyPair = await generateSessionKeyPair();
+  const sessionKeyPair = await generateKeyPair();
   const sessionPubkey = await exportPublicKeyRaw(sessionKeyPair.publicKey);
 
   // Body: LP(principal_kind) || LP(address) || LP(session_pubkey)
@@ -92,6 +116,14 @@ export async function signIn(address: string): Promise<void> {
   const { value: sessionIdBytes, rest: afterSessionId } = readLp(signInOut);
   const { value: token, rest: afterToken } = readLp(afterSessionId);
   const expiresAtUnix = Number(readU64LE(afterToken));
+
+  if (usingPendingKey) {
+    // The server just accepted a signature made with the pending key, so it
+    // was enrolled after all -- move it to the enrolled slot. Best effort:
+    // if this local write fails, the pending key is simply tried again next
+    // time, at the cost of nothing beyond repeating this promotion.
+    await promotePendingKeyPair(address).catch(() => {});
+  }
 
   setSession({
     sessionId: new TextDecoder().decode(sessionIdBytes),

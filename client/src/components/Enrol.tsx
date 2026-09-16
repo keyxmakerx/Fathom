@@ -2,14 +2,26 @@ import { useState, type FormEvent } from 'react';
 
 import { signIn } from '../api/auth';
 import { ApiRefusal } from '../api/errors';
-import { MalformedTokenError, parseToken, redeemAccountEnrolment } from '../api/enrolment';
+import {
+  EnrolmentNotAttemptedError,
+  EnrolmentOutcomeUnknownError,
+  MalformedTokenError,
+  parseToken,
+  redeemAccountEnrolment,
+} from '../api/enrolment';
 import '../styles/enrol.css';
 
 type Stage =
   | { kind: 'form' }
   | { kind: 'enrolling' }
   | { kind: 'signing-in' }
-  | { kind: 'enrolled-sign-in-failed'; address: string; detail: string };
+  // Redemption was confirmed OK, but the follow-on sign-in did not complete.
+  | { kind: 'enrolled-sign-in-failed'; address: string; detail: string }
+  // Redemption's outcome could not be confirmed either way, and the sign-in
+  // attempted with the pending key did not complete. Kept as its own stage,
+  // with its own honest wording, rather than folded into the case above --
+  // see the finding on `EnrolmentOutcomeUnknownError` in `../api/enrolment.ts`.
+  | { kind: 'outcome-unknown-sign-in-failed'; address: string; detail: string };
 
 /**
  * Redeem an invitation token: paste the token, give the address it was
@@ -20,9 +32,10 @@ type Stage =
  * (`crates/fathom-server/src/admin.rs`'s module header, "no password field
  * anywhere in this file"). The token is a bearer secret with one use, so it
  * is held only in this component's own state -- never a URL, a query
- * string, a log line, or `localStorage` -- and is cleared the moment
- * redemption succeeds, so a later reload of this screen has nothing left to
- * resend.
+ * string, a log line, or `localStorage` -- and is cleared only once
+ * redemption is *confirmed* OK, so a later reload of this screen has
+ * nothing left to resend. When the outcome could not be confirmed either
+ * way, the field is deliberately left as typed -- see `handleSubmit`.
  */
 export interface EnrolProps {
   /** Go back to sign-in, for a browser that already holds a key. Optional
@@ -52,54 +65,68 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
 
     const trimmedAddress = address.trim();
     setStage({ kind: 'enrolling' });
+
+    // Whether redemption's outcome was confirmed at all -- distinct from
+    // whether it was confirmed *OK*. See `EnrolmentOutcomeUnknownError` in
+    // `../api/enrolment.ts`: this is the one case where this screen must
+    // not say "refused" (the server may have accepted it) and must not say
+    // "enrolled" either (this browser could not confirm that).
+    let outcomeUnknown = false;
     try {
       await redeemAccountEnrolment(tokenBytes, trimmedAddress);
     } catch (error) {
       console.error(error);
-      // The field is left as typed so a mistyped token can be corrected;
-      // only a SUCCESSFUL redemption clears it.
-      //
-      // **This does not prove the token is unspent.** A refusal read off a
-      // response means the server declined it, but a network failure after
-      // the server committed lands here too, and in that case the token is
-      // spent and this browser holds no key -- `putEnrolledKeyPair` below
-      // runs only once the answer has been read. The person is then locked
-      // out until an operator reissues the invitation, which
-      // `/admin/accounts/{account}/enrolment` exists to do. Leaving the
-      // field as typed is still right: retrying costs nothing and the
-      // server's answer is the same either way.
-      setStage({ kind: 'form' });
-      setRefusal(describeRefusal(error));
-      return;
+      if (error instanceof EnrolmentOutcomeUnknownError) {
+        outcomeUnknown = true;
+      } else {
+        // A definite refusal (`ApiRefusal`), or nothing was sent at all
+        // (`EnrolmentNotAttemptedError`) -- either way, the token is
+        // exactly as usable as before this attempt, so the field is left
+        // as typed rather than cleared.
+        setStage({ kind: 'form' });
+        setRefusal(describeRefusal(error));
+        return;
+      }
     }
 
-    // Redeemed. Clear the token now, before anything else, so this screen
-    // has nothing left that could be resent -- the server's answer already
-    // told it the token is spent, and a reload from here must never suggest
-    // trying it again.
-    setToken('');
+    if (!outcomeUnknown) {
+      // Confirmed OK. Clear the token now, before anything else, so this
+      // screen has nothing left that could be resent -- the server's
+      // answer already told it the token is spent, and a reload from here
+      // must never suggest trying it again.
+      setToken('');
+    }
+    // If the outcome was unknown, the token is deliberately left as typed:
+    // if it was never accepted, retyping it costs nothing; if it was, the
+    // server's own uniform refusal on a retry says so and nothing is lost.
+
     setStage({ kind: 'signing-in' });
     try {
+      // `signIn` (`../api/auth.ts`) tries the enrolled key first and falls
+      // back to a pending one -- which is exactly what a browser in the
+      // `outcomeUnknown` state holds, per `EnrolmentOutcomeUnknownError`'s
+      // doc comment. A successful sign-in here is what actually confirms,
+      // after the fact, that an unknown-outcome redemption did land.
       await signIn(trimmedAddress);
       // `signIn` calls `setSession`, which the shell listens for; this
       // component does not navigate itself.
     } catch (error) {
       console.error(error);
       setStage({
-        kind: 'enrolled-sign-in-failed',
+        kind: outcomeUnknown ? 'outcome-unknown-sign-in-failed' : 'enrolled-sign-in-failed',
         address: trimmedAddress,
         detail: describeRefusal(error),
       });
     }
   }
 
-  async function retrySignIn(addr: string) {
+  async function retrySignIn(stageKind: 'enrolled-sign-in-failed' | 'outcome-unknown-sign-in-failed', addr: string) {
     setStage({ kind: 'signing-in' });
     try {
       await signIn(addr);
     } catch (error) {
       console.error(error);
-      setStage({ kind: 'enrolled-sign-in-failed', address: addr, detail: describeRefusal(error) });
+      setStage({ kind: stageKind, address: addr, detail: describeRefusal(error) });
     }
   }
 
@@ -116,7 +143,30 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
           <button
             type="button"
             className="enrol__submit"
-            onClick={() => retrySignIn(stage.address)}
+            onClick={() => retrySignIn('enrolled-sign-in-failed', stage.address)}
+          >
+            Try signing in again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (stage.kind === 'outcome-unknown-sign-in-failed') {
+    return (
+      <div className="enrol">
+        <div className="enrol__card">
+          <h1 className="enrol__title">Fathom</h1>
+          <p className="enrol__subtitle">Could not confirm the invitation was accepted.</p>
+          <p className="enrol__body">
+            This browser could not tell whether the server accepted the token for {stage.address},
+            and signing in did not complete either: {stage.detail} If this keeps happening, ask
+            for a new invitation.
+          </p>
+          <button
+            type="button"
+            className="enrol__submit"
+            onClick={() => retrySignIn('outcome-unknown-sign-in-failed', stage.address)}
           >
             Try signing in again
           </button>
@@ -201,12 +251,21 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
 
 /** The server's own wording where it gave one; this screen adds nothing --
  * see `../api/errors.ts` and `operators.rs`'s `EnrolmentRefused` on why one
- * refusal covers several causes and none of them is guessed here. */
+ * refusal covers several causes and none of them is guessed here.
+ *
+ * `EnrolmentNotAttemptedError` and `EnrolmentOutcomeUnknownError` each carry
+ * their own honest wording ("nothing was sent" versus "may have been
+ * accepted") and are returned unchanged -- collapsing either into the
+ * generic fallback below would be exactly the "refused" / "accepted and
+ * lost" conflation this function exists to avoid. */
 function describeRefusal(error: unknown): string {
   if (error instanceof ApiRefusal) {
     return error.retryAfterSeconds != null
       ? `${error.message} Try again in ${error.retryAfterSeconds}s.`
       : error.message;
   }
-  return 'Did not complete. See the console for detail.';
+  if (error instanceof EnrolmentNotAttemptedError || error instanceof EnrolmentOutcomeUnknownError) {
+    return error.message;
+  }
+  return 'Did not complete, and this browser cannot say why. See the console for detail.';
 }
