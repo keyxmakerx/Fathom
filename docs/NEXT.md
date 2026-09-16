@@ -79,10 +79,18 @@ comparable amount again.
 
 ## Handoff, 2026-09-16 — read this first
 
-Sessions 1 and 2 are done and green. **Session 3 is next**, and the owner said start. Before
-anything else, read in this order and nothing more: `docs/UI-SPEC.md`; `design/shell/BRIEF.md` and
-the five PNGs in `design/shell/renders/`; ADR-0047; `docs/RUNNING-IT.md`. The boards are the
-brief. `docs/archive/` stays closed.
+Sessions 1 to 4 are done and green (updated late on 2026-09-16). **Session 5, cables and
+portals, is next.** Before anything else, read in this order and nothing more: `docs/STATE.md`'s
+client section; `docs/UI-SPEC.md` "Cables", "Keeping it readable at forty cables", "Portals",
+"Power"; ADR-0049 (what a payload is); `client/src/document/` (the graph the browser holds, its
+commands, and `view.ts`) and `client/src/components/drawing/` (what draws it). `docs/archive/`
+stays closed. Session 5 starts with the schema: `Cable` and its edges exist; `PortPosition` is a
+field-less stub and `PhysicalPort` has no cabled state in the view, so the first brief is what the
+view carries for a cabled port, and the second is the two carried-over defects in STATE.md.
+
+Session 4 ran as three parallel builders on disjoint files against contracts written in the briefs
+(the view the drawing renders; the callbacks it raises), joined by a fourth; two follow-ups fixed
+what screenshots showed and reports did not. That shape worked: keep it.
 
 Four rules the owner did not object to, so build on them until told otherwise (ADR-0047 §9): an
 expected link with unknown ends is drawn dashed and listed as a gap; names are clipped in the middle

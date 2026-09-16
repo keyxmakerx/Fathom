@@ -156,26 +156,34 @@ other.
 
 ## Being replaced
 
-**The browser client.** Built at `client/` in React and Vite. Vite, React, TypeScript, five port
-glyphs (RJ45, SFP+, QSFP+, LC, C14) and a gallery at `/ports.html`. Session 3 of `docs/NEXT.md`
-landed 2026-09-16: 62 tests, typecheck and build clean.
+**The browser client.** Built at `client/` in React, Vite and React Flow. Sessions 3 and 4 of
+`docs/NEXT.md` landed 2026-09-16: 240 client tests, typecheck and build clean, `gate-npm` green.
 
-- **Two doors.** Sign-in with a key this browser holds, and **enrolment**, which redeems an
-  invitation against `POST /enrolment/account` and generates a non-extractable account keypair whose
-  private half never leaves the browser. Until enrolment existed no browser could obtain a key at
-  all, so nobody could sign in for the first time.
-- **The shell of ADR-0047**, built to the approved board: the one-row bar (two places, the path that
-  opens the tree, the five lenses, search that collapses to its magnifier when the row will not fit,
-  presence, undo and redo, zoom, the account chip and its menu), the rail folded to a strip, and an
-  editor absent from the document when nothing is selected. One reusable pop-over, closing on
-  Escape and returning focus. The lens row and zoom are absent on Home, which is not the camera.
-- **Home**, listing the organisations you belong to and the designs you may open, landing an account
-  with exactly one place to go directly there.
+- **Two doors.** Sign-in with a key this browser holds, and enrolment, which redeems an invitation
+  and generates a non-extractable account keypair stored under a pending slot *before* the request
+  goes out, promoted on a confirmed answer, so a key the server has accepted is never lost.
+- **The shell of ADR-0047**: the one-row bar, the path that opens the scope tree, the five lenses,
+  search that collapses to its magnifier, presence, undo and redo (disabled: nothing changes the
+  graph through them yet), zoom, the account menu; the rail folded to a strip that opens to the
+  palette; an editor absent when nothing is selected.
+- **Home**, listing your organisations and the designs you may open grouped under their closet's
+  name, landing an account with one place to go directly there.
+- **The Racks place** (Session 4). Opening a design fetches the catalogue and the payload, reads the
+  plain face (ADR-0049) into the browser's document, and draws it with React Flow: racks with rails,
+  U numbers and hatched free runs; device boxes with name and model; ports from the catalogue's
+  faceplates fading in toward the faceplate stop. The camera has three stops derived from the
+  approved boards — closet 87.5%, rack 100% (one 42U rack fits), faceplate 200%. Dragging a palette
+  item onto a rack snaps to a unit, refuses an overlap with a shake, and places the device, its
+  chassis and its ports; a chassis drags within or between racks. Every change saves: one save in
+  flight, the latest queued, a refusal shown and never rolled back. The TypeScript writer reproduces
+  all three Rust-made vectors byte for byte, and the server reads every payload back before storing it.
 
-**No diagram yet** — Session 4 builds the rack. Two things Home cannot show, both waiting on
-`docs/OPEN-QUESTIONS.md` D11: a design has no name, and no route resolves a scope id to one, so the
-bar's path shows only the organisation and the design list shows identifiers rather than named
-closets. The old Rust-assembled HTML client is retired and still on disk under
+**Not yet drawn or done, carried to Session 5:** cables and portals; a rear-mounted chassis is not
+drawn (its run is reserved and shows as a gap); a 1U box's port glyphs overflow its bottom edge at
+the faceplate stop; hostnames are set by nobody yet, since the editor does not edit; the "done
+when" of Session 4 — a diagram built from nothing that a colleague with `read` sees and cannot
+change — was proved by tests and screenshots against fixtures, not yet by two people on a running
+server. The old Rust-assembled HTML client is retired and still on disk under
 `crates/fathom-artifact/`; it is not served.
 
 ---
