@@ -4,10 +4,11 @@ import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catal
 import { openDesign, saveDesign } from '../../api/payload';
 import { ApiRefusal } from '../../api/errors';
 import { moveChassis, placeChassis } from '../../document/commands';
+import { setChassisField, setDeviceField } from '../../document/edit';
 import type { Document } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
 import { viewOf, type ClosetView } from '../../document/view';
-import { Drawing, EditorFor, Palette, type Selection } from '../drawing';
+import { Drawing, EditorFor, Palette, type EditorChange, type Selection } from '../drawing';
 import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { ensureRackToPlaceInto } from './emptyDesign';
@@ -176,11 +177,34 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, applyDocChange],
   );
 
+  // Turns an `EditorChange` (ADR-0046 §2's one editor) into the matching
+  // `document/edit.ts` call and saves it the same way `handlePlace` and
+  // `handleMove` do above — one `SaveQueue` push, a refused edit (an
+  // out-of-schema value, or an id that no longer resolves because the
+  // document moved under us) leaves the document exactly as it was.
+  const handleEdit = useCallback(
+    (change: EditorChange) => {
+      if (doc == null) return;
+      try {
+        const next =
+          change.kind === 'device'
+            ? setDeviceField(doc, change.id, change.field, change.value)
+            : setChassisField(doc, change.id, change.field, change.value);
+        applyDocChange(next);
+      } catch {
+        // As `handlePlace`/`handleMove`: the editor raised a request against
+        // a view that turned out to be stale, or a value the schema refuses.
+        // Leave the document as it was rather than apply a half-formed edit.
+      }
+    },
+    [doc, applyDocChange],
+  );
+
   const editor =
     saveRefusal != null ? (
       <div className="racks-place__refusal">{saveRefusal}</div>
     ) : doc != null ? (
-      EditorFor(selection, displayView)
+      EditorFor(selection, displayView, { onEdit: handleEdit })
     ) : null;
 
   const rail = <Palette palette={paletteFromCatalogue(catalogue)} />;

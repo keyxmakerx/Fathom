@@ -37,6 +37,14 @@ export interface ChassisView {
   heightU: number;
   face: 'front' | 'rear';
   ports: PortView[];
+  /** `Device.role`, `Device.management_address` and `Chassis.serial` —
+   * `null` when the schema field is absent (UI-SPEC "Absent is drawn as
+   * absent"; never an empty string standing in for unset). Read straight off
+   * `node.fields` rather than through `readDeviceFields`/`readChassisFields`
+   * (`document/model.ts`), which this session's brief does not extend. */
+  role: string | null;
+  managementAddress: string | null;
+  serial: string | null;
 }
 
 export interface RackView {
@@ -65,6 +73,17 @@ function isLiveNode(n: GraphNode): boolean {
 
 function catalogueMatch(catalogue: readonly CatalogueModel[], model: string): CatalogueModel | undefined {
   return catalogue.find((m) => m.model === model);
+}
+
+/** A field's string value straight off a node's `fields` map, or `null` when
+ * it is absent or the node itself was not found — `document/model.ts`'s own
+ * `fieldValue`/`asString` are private to that file, so this is a local,
+ * read-only equivalent rather than a change to a module outside this
+ * session's brief. */
+function fieldString(node: GraphNode | undefined, key: string): string | null {
+  const entry = node?.fields[key];
+  if (!entry || entry.presence !== 'set') return null;
+  return typeof entry.value === 'string' ? entry.value : null;
 }
 
 /** One port, positioned from the catalogue faceplate matching the chassis's
@@ -103,6 +122,9 @@ function chassisView(doc: Document, mountedEdgeId: string, catalogue: readonly C
   const deviceId = hasChassis?.from ?? '';
   const deviceNode = deviceId ? findNode(doc, deviceId) : undefined;
   const hostname = deviceNode ? (readDeviceFields(deviceNode).hostname ?? '') : '';
+  const role = fieldString(deviceNode, 'Device.role');
+  const managementAddress = fieldString(deviceNode, 'Device.management_address');
+  const serial = fieldString(chassisNode, 'Chassis.serial');
 
   const chassisFields = readChassisFields(chassisNode);
   const model = chassisFields.model ?? '';
@@ -127,6 +149,9 @@ function chassisView(doc: Document, mountedEdgeId: string, catalogue: readonly C
     heightU,
     face,
     ports,
+    role,
+    managementAddress,
+    serial,
   };
 }
 

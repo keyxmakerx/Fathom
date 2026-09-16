@@ -20,6 +20,22 @@ export interface DrawingActions {
   onSelect(selection: Selection | null): void;
 }
 
+/** The one editor's own field set (ADR-0046 §2) — exactly the four fields
+ * `schema/schema.yaml` gives `Device` and `Chassis` that this session's
+ * editor exposes. `value: null` is a cleared field (UI-SPEC "Absent is drawn
+ * as absent" — a clear is never an empty string). */
+export type EditorChange =
+  | { kind: 'device'; id: string; field: 'hostname' | 'role' | 'management_address'; value: string | null }
+  | { kind: 'chassis'; id: string; field: 'serial'; value: string | null };
+
+/** What the editor raises. Like `DrawingActions`, it never acts on the graph
+ * itself — the caller turns a change into a real edit through
+ * `document/edit.ts` and finds out what happened only when a new `view` prop
+ * arrives. */
+export interface EditorActions {
+  onEdit(change: EditorChange): void;
+}
+
 export type Selection =
   | { kind: 'rack'; id: string }
   | { kind: 'chassis'; id: string }
