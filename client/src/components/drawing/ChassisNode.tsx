@@ -4,7 +4,9 @@ import { Handle, Position, useViewport, type Node, type NodeProps } from '@xyflo
 import { PORT_GLYPHS } from '../ports';
 import { ABSENT, UNNAMED_HOSTNAME, type ChassisView, type PortView, type Sheath } from './contract';
 import { PORT_ROW_GAP_PX, U_PX, counterScaledFontPx, glyphScaleFittingBudget, portRowBudgetPx } from './geometry';
+import { isPanel } from './paths';
 import { portKindFor } from './portGlyph';
+import { pduUsage, pduUsageLabel } from './power';
 import { SHEATH_VAR } from './sheath';
 
 /** The hostname's flow-space size at the rack stop — `drawing.css`'s own
@@ -36,6 +38,12 @@ export interface ChassisNodeData extends Record<string, unknown> {
    * `view.cables` and hands it down rather than this component reaching
    * past its own props for the cable list. */
   portSheath: ReadonlyMap<string, Sheath>;
+  /** UI-SPEC "Power": "a rear-mounted chassis draws stacked beneath its
+   * front neighbour... labelled rear" — `faces.ts`'s own `FaceLayoutItem.rear`,
+   * passed straight through so this node never has to re-derive it from
+   * `chassis.face` (which reads `rear` at the closet/rack stops' flip too,
+   * a different reason for the same word). */
+  rear: boolean;
 }
 
 export type ChassisNodeType = Node<ChassisNodeData, 'chassis'>;
@@ -156,7 +164,7 @@ function PortRow({
  * border and header row are unconditional, so an empty device still reads
  * as a device, never as a rendering failure. */
 export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
-  const { chassis, selected, portOpacity, onSelectPort, liveDrag, portSheath } = data;
+  const { chassis, selected, portOpacity, onSelectPort, liveDrag, portSheath, rear } = data;
   const { zoom } = useViewport();
   const rows = portRows(chassis.ports);
   const height = chassis.heightU * U_PX;
@@ -170,6 +178,17 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
   // `portRowBudgetPx` divides it first — see `geometry.ts` for the fix.
   const glyphScale = glyphScaleFittingBudget(zoom, portRowBudgetPx(portsBudgetPx, rows.length));
   const hasHostname = chassis.hostname.length > 0;
+  // UI-SPEC "Keeping it readable" / "Power": an unpowered chassis (no PSU
+  // inlet the catalogue knows of — `paths.ts`'s own `isPanel`, its file
+  // header records why this is the reading this session settled on) draws
+  // without the "live device" bullet, matching `Main.dc.html`'s own
+  // patch-01/fibre-01/pdu-a04 rows — the only three boxes on that board
+  // with neither a bullet nor a PSU mark on the rail beside them.
+  const passive = isPanel(chassis);
+  // UI-SPEC "Power": "A PDU's outlets are its C13 faceplate ports and its
+  // header shows `n of m used`, derived" — takes the model text's own slot
+  // when this chassis is one; an ordinary device (or panel) keeps the model.
+  const usage = pduUsage(chassis);
 
   return (
     <div
@@ -177,6 +196,7 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
       style={{ height }}
     >
       <div className="drawing-chassis__header">
+        {!passive && <span className="drawing-chassis__bullet" aria-hidden="true" />}
         <span
           className={
             hasHostname
@@ -187,7 +207,14 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
         >
           {hasHostname ? chassis.hostname : UNNAMED_HOSTNAME}
         </span>
-        <span className="drawing-chassis__model">{chassis.model || ABSENT}</span>
+        {rear && <span className="drawing-chassis__rear-tag">rear</span>}
+        {chassis.singleFed && (
+          // UI-SPEC "Power": "single-fed... a bordered caution wash with
+          // those words, the only way a risk colour appears." Never a bare
+          // dot or a border alone — the word is what carries the fact.
+          <span className="drawing-chassis__single-fed">single-fed</span>
+        )}
+        <span className="drawing-chassis__model">{usage ? pduUsageLabel(usage) : chassis.model || ABSENT}</span>
       </div>
       <div
         className="drawing-chassis__ports"
@@ -205,6 +232,12 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
           />
         ))}
       </div>
+      {/* A bundle band (`bundles.ts`, `Drawing.tsx`) connects two chassis,
+          not two specific ports — this invisible handle is its one shared
+          anchor, positioned at the box's own left-centre by
+          `.drawing-chassis__bundle-handle` (`drawing.css`) rather than any
+          particular port's own absolute-positioned handle above. */}
+      <Handle type="source" position={Position.Left} id="__bundle__" className="drawing-chassis__bundle-handle nodrag" />
     </div>
   );
 }

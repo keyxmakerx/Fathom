@@ -31,3 +31,23 @@ export function findPort(
   }
   return undefined;
 }
+
+/** Same lookup, widened to a chassis's `psuInlets` too — UI-SPEC "Power":
+ * the inlets draw on the rack's own left rail, not the faceplate, so a
+ * cable ending at one routes through the rack node's rail handle
+ * (`Drawing.tsx`), not the chassis node's — `isPsuInlet` is what tells a
+ * caller which handle to reach for. */
+export function findAnyPort(
+  view: ClosetView,
+  portId: string,
+): { rack: RackView; chassis: ChassisView; port: PortView; isPsuInlet: boolean } | undefined {
+  const onFaceplate = findPort(view, portId);
+  if (onFaceplate) return { ...onFaceplate, isPsuInlet: false };
+  for (const rack of view.racks) {
+    for (const chassis of rack.chassis) {
+      const inlet = chassis.psuInlets.find((p) => p.id === portId);
+      if (inlet != null) return { rack, chassis, port: inlet, isPsuInlet: true };
+    }
+  }
+  return undefined;
+}

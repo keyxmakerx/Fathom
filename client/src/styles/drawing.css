@@ -44,7 +44,43 @@
   letter-spacing: var(--track-label);
   white-space: nowrap;
   overflow: hidden;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.drawing-rack__label-text {
+  overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* UI-SPEC "Power": "at the rack stop a small front | rear flip in the rack
+   header (two words, the current one 700)." */
+.drawing-rack__flip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--muted);
+}
+
+.drawing-rack__face {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.drawing-rack__face--on {
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .drawing-rack__frame {
@@ -107,6 +143,24 @@
   position: absolute;
   top: 0;
   bottom: 0;
+}
+
+/* UI-SPEC "Power": "Each device's PSU inlets notated on the left rail
+   beside it — two hexagons for dual, filled when fed." The glyph itself
+   (`components/ports`'s `C14`, "filled = cabled, hollow = free") carries
+   the state; this only places it. */
+.drawing-rack__psu {
+  position: absolute;
+}
+
+.drawing-rack__psu-handle {
+  position: absolute !important;
+  inset: 0;
+  transform: none !important;
+  background: transparent !important;
+  border: none;
+  border-radius: 0;
+  pointer-events: none;
 }
 
 .drawing-rack__free {
@@ -209,6 +263,41 @@
   font-weight: 400;
 }
 
+/* `Main.dc.html`'s own bullet before a live device's hostname — omitted for
+   a passive chassis (`paths.ts`'s `isPanel`: a panel, a fibre panel, a PDU —
+   nothing with a PSU inlet the catalogue knows of), matching that board's
+   own patch-01/fibre-01/pdu-a04 rows. */
+.drawing-chassis__bullet {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink);
+  align-self: center;
+}
+
+.drawing-chassis__rear-tag {
+  flex-shrink: 0;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* UI-SPEC "Power": "single-fed... a bordered caution wash with those
+   words, the only way a risk colour appears." */
+.drawing-chassis__single-fed {
+  flex-shrink: 0;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--caution);
+  background: var(--caution-wash);
+  border: var(--rule-hair) solid var(--caution);
+  padding: 0 3px;
+  line-height: 1.4;
+}
+
 .drawing-chassis__model {
   flex: 1 1 auto;
   min-width: 0;
@@ -293,6 +382,18 @@
    regardless of which stylesheet's rule the bundler happens to place last. */
 .drawing-chassis__port--cabled .port--cabled .port__body {
   fill: var(--port-sheath, var(--ink));
+}
+
+/* A bundle band's one shared anchor per chassis (`bundles.ts`, `Drawing.tsx`) —
+   the same invisible-handle trick `.drawing-tray__handle` already uses. */
+.drawing-chassis__bundle-handle {
+  position: absolute !important;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ---- the editor surface ------------------------------------------------ */
@@ -399,6 +500,7 @@
    `--surface-2`, the far side's name, the count right-aligned. */
 
 .drawing-tray {
+  position: relative;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
@@ -438,6 +540,26 @@
   pointer-events: none;
 }
 
+/* UI-SPEC "Portals": "When the lit path continues through it the tray's
+   outline goes solid with the continuation named above it." */
+.drawing-tray--lit {
+  border-style: solid;
+  border-color: var(--ink);
+}
+
+.drawing-tray__continuation {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  padding-bottom: 2px;
+  font-size: var(--t-micro);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---- cables --------------------------------------------------------------
    UI-SPEC "Cables": sheath colour and construction (stroke count/width)
    are set inline per cable in `CableEdge.tsx` (the sheath is per-cable
@@ -446,6 +568,37 @@
 
 .drawing-cable {
   transition: opacity var(--m-pane) var(--m-ease);
+}
+
+/* UI-SPEC "Keeping it readable at forty cables" #2: "each with its own
+   sheath and its port pair labelled" — drawn only on a fanned bundle
+   member (`CableEdge.tsx`'s own `portPairLabel`). */
+.drawing-cable__pair-label {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  fill: var(--ink);
+}
+
+/* ---- bundles ---------------------------------------------------------
+   UI-SPEC "Keeping it readable at forty cables" #1–2: "cables sharing both
+   ends draw as one band whose width grows with the count and carries a
+   `×n` badge... hovering the band opens it into its members... folds back
+   on leave." */
+
+.drawing-bundle {
+  transition: opacity var(--m-pane) var(--m-ease);
+}
+
+.drawing-bundle__badge-box {
+  fill: var(--page);
+  stroke: var(--hairline);
+  stroke-width: var(--rule-hair);
+}
+
+.drawing-bundle__badge-text {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  fill: var(--ink);
 }
 
 /* ---- the colour picker ----------------------------------------------------

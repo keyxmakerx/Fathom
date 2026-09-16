@@ -21,7 +21,7 @@ import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
 
 import { compatible } from '../../document/compat';
-import type { CableKind, ClosetView, DrawingActions, RackView, Selection, Sheath } from './contract';
+import type { CableKind, CableView, ClosetView, DrawingActions, RackView, Selection, Sheath } from './contract';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from './dnd';
 import {
   CAMERA_STOPS,
@@ -30,6 +30,7 @@ import {
   RAIL_PX,
   U_PX,
   cableSagPath,
+  cameraStopAt,
   overlapsRack,
   portOpacity as portOpacityAt,
   rackAtPoint,
@@ -37,18 +38,22 @@ import {
   uToOffsetPx,
 } from './geometry';
 import { ChassisNode, type ChassisNodeData, type ChassisNodeType } from './ChassisNode';
+import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEdge';
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { ColourPicker } from './ColourPicker';
 import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeData, type RackNodeType } from './RackNode';
 import { PortalTrayNode, PORTAL_TRAY_HEIGHT, type PortalTrayNodeData, type PortalTrayNodeType } from './PortalTrayNode';
 import { chassisNodeId, parseNodeId, rackNodeId, trayNodeId } from './nodeId';
-import { findPort } from './lookup';
+import { findAnyPort, findPort } from './lookup';
 import { liveTargetPortIds } from './liveTargets';
 import { groupPortals, portalCountLabel } from './portals';
 import { sheathsFor } from './sheath';
+import { groupBundles } from './bundles';
+import { litPathFor } from './paths';
+import { chassisToDraw, type Facing } from './faces';
 
 const NODE_TYPES = { rack: RackNode, chassis: ChassisNode, tray: PortalTrayNode };
-const EDGE_TYPES = { cable: CableEdge };
+const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
 
 /** Gap between a rack's frame and the portal tray(s) drawn above or below
  * it — session's own choice, not a board's literal pixel (`Main.dc.html`'s
@@ -57,6 +62,12 @@ const EDGE_TYPES = { cable: CableEdge };
  * as continuous with the rack, per UI-SPEC "Portals": "Not either/or —
  * both." */
 const TRAY_GAP_PX = 12;
+
+/** Gap between a stacked rear chassis and the front box it stacks beneath —
+ * UI-SPEC "Power": "stacked under the front when zoomed" (the faceplate
+ * stop, `faces.ts`'s own `stackedUnderChassisId`). Small enough to read as
+ * directly attached to its front neighbour rather than floating. */
+const STACKED_REAR_GAP_PX = 2;
 
 /** The live drooping lead while a drag-to-connect is in progress — UI-SPEC
  * "Motion" #1: "Cable droops as you pull it," and "Cables": "you see the
@@ -149,6 +160,13 @@ function DrawingInner({
   const [pendingConnect, setPendingConnect] = useState<PendingConnect | null>(null);
   const [lastSheathByKind, setLastSheathByKind] = useState<LastSheathByKind>({});
   const [hoveredCableId, setHoveredCableId] = useState<string | null>(null);
+  // UI-SPEC "Power": "a flip at rack scale" — session-only, per rack, like
+  // `rackPositions` above; not a document fact (`RACK_GAP_PX`'s own rule).
+  const [rackFacing, setRackFacing] = useState<Record<string, Facing>>({});
+  // UI-SPEC "Keeping it readable at forty cables" #2: "the band opens into
+  // its members... then folds back on leave" — the one bundle currently
+  // fanned open, or `null` when none is.
+  const [fannedBundleKey, setFannedBundleKey] = useState<string | null>(null);
 
   const livePortIds = useMemo(
     () => (dragFromPortId ? liveTargetPortIds(view, dragFromPortId) : null),
@@ -241,14 +259,25 @@ function DrawingInner({
 
   const zoomPercent = Math.round(viewport.zoom * 100);
 
+  // UI-SPEC "Rear faces": which stop this camera reads as right now decides
+  // whether the header's `front | rear` flip governs (closet, rack) or both
+  // faces draw at once, rear stacked under its front neighbour (faceplate).
+  const cameraStop = cameraStopAt(zoomPercent);
+
   const nodes: Node[] = [];
   for (const rack of view.racks) {
     const pos = rackPositions[rack.id] ?? { x: 0, y: 0 };
+    const facing: Facing = rackFacing[rack.id] ?? 'front';
+    const faceItems = chassisToDraw(rack, cameraStop, facing);
     const rackData: RackNodeData = {
       rack,
       selected: selected?.kind === 'rack' && selected.id === rack.id,
       dropPreview: dropPreview[rack.id] ?? null,
       shaking: shakingId === rackNodeId(rack.id),
+      visibleChassis: faceItems.map((item) => item.chassis),
+      facing,
+      onFlip: () => setRackFacing((prev) => ({ ...prev, [rack.id]: prev[rack.id] === 'rear' ? 'front' : 'rear' })),
+      showFlip: cameraStop === 'rack',
     };
     nodes.push({
       id: rackNodeId(rack.id),
@@ -260,13 +289,32 @@ function DrawingInner({
       data: rackData,
     } satisfies AnyRackNode);
 
-    for (const chassis of rack.chassis) {
-      if (chassis.face !== 'front') continue;
+    for (const item of faceItems) {
+      const { chassis } = item;
       const id = chassisNodeId(chassis.id);
-      const basePosition = {
-        x: pos.x + RAIL_PX,
-        y: pos.y + RACK_HEADER_PX + uToOffsetPx(rack.heightU, chassis.positionU, chassis.heightU),
-      };
+      // UI-SPEC "Power": "stacked under the front when zoomed" — a rear
+      // chassis matched to a front neighbour at the same U draws directly
+      // beneath that neighbour's own box; one with no front neighbour there
+      // draws in its own reserved run instead (`faces.ts`'s own doc: "never
+      // a silent gap again"), and at the closet/rack stops (the flip) a
+      // rear item is simply the only thing shown, at its own position.
+      const frontNeighbour = item.stackedUnderChassisId
+        ? rack.chassis.find((c) => c.id === item.stackedUnderChassisId)
+        : undefined;
+      const basePosition = frontNeighbour
+        ? {
+            x: pos.x + RAIL_PX,
+            y:
+              pos.y +
+              RACK_HEADER_PX +
+              uToOffsetPx(rack.heightU, frontNeighbour.positionU, frontNeighbour.heightU) +
+              frontNeighbour.heightU * U_PX +
+              STACKED_REAR_GAP_PX,
+          }
+        : {
+            x: pos.x + RAIL_PX,
+            y: pos.y + RACK_HEADER_PX + uToOffsetPx(rack.heightU, chassis.positionU, chassis.heightU),
+          };
       const chassisData: ChassisNodeData = {
         chassis,
         selected: selected?.kind === 'chassis' && selected.id === chassis.id,
@@ -274,6 +322,7 @@ function DrawingInner({
         onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
         liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
         portSheath,
+        rear: item.rear,
       };
       nodes.push({
         id,
@@ -292,6 +341,21 @@ function DrawingInner({
   // `portals.ts` does the grouping; this only lays the resulting boxes out
   // above or below their rack, stacking more than one on the same side.
   const portalGroups = useMemo(() => groupPortals(view), [view]);
+
+  // UI-SPEC "Selection" + "Keeping it readable at forty cables" #3: the
+  // selected (or hovered) cable's *whole physical path* lights at full
+  // opacity with a pale halo — through a panel's paired port, out to a
+  // portal tray — and everything off that path sits at the phantom
+  // opacity. Nothing lit leaves every cable at its plain, undimmed colour.
+  const litCableId = selected?.kind === 'cable' ? selected.id : (hoveredCableId ?? null);
+  const somethingLit = litCableId != null;
+  const litPath = useMemo(
+    () => (litCableId ? litPathFor(view, litCableId, portalGroups) : null),
+    [view, litCableId, portalGroups],
+  );
+  const litCableIdSet = useMemo(() => new Set(litPath?.cableIds ?? []), [litPath]);
+  const litTrayKeySet = useMemo(() => new Set(litPath?.trayKeys ?? []), [litPath]);
+
   const traySlots: Record<string, number> = {};
   for (const group of portalGroups) {
     const pos = rackPositions[group.rackId];
@@ -309,6 +373,7 @@ function DrawingInner({
       label: group.label,
       countLabel: portalCountLabel(group),
       side: group.side,
+      lit: litTrayKeySet.has(group.key),
     };
     nodes.push({
       id: trayNodeId(group.key),
@@ -321,45 +386,103 @@ function DrawingInner({
     } satisfies AnyTrayNode);
   }
 
-  // UI-SPEC "Selection": the selected (or hovered) cable lights at full
-  // opacity with a pale halo; everything else off that one path sits at
-  // the phantom opacity. Nothing lit (nothing selected, nothing hovered)
-  // leaves every cable at its plain, undimmed colour.
-  const litCableId = selected?.kind === 'cable' ? selected.id : (hoveredCableId ?? null);
-  const somethingLit = litCableId != null;
+  // UI-SPEC "Power": a cable ending at a PSU inlet routes from the rack's
+  // own rail handle (`RackNode.tsx`'s `psu.id`-keyed `Handle`), not the
+  // chassis's faceplate — `findAnyPort` is what tells the two apart.
+  function resolveEnd(end: { portId: string; chassisId: string; rackId: string }): { nodeId: string; handleId: string } | null {
+    const found = findAnyPort(view, end.portId);
+    if (!found) return null;
+    return found.isPsuInlet
+      ? { nodeId: rackNodeId(found.rack.id), handleId: end.portId }
+      : { nodeId: chassisNodeId(end.chassisId), handleId: end.portId };
+  }
 
-  const edges: Edge[] = [];
-  for (const cable of view.cables ?? []) {
+  function portLabel(portId: string): string {
+    return findPort(view, portId)?.port.label || portId;
+  }
+
+  // UI-SPEC "Keeping it readable at forty cables" #1: cables sharing both
+  // ends (and the same lane/kind, `bundles.ts`'s own doc) draw as one band.
+  const bundles = useMemo(() => groupBundles(view.cables ?? []), [view.cables]);
+
+  function buildCableEdge(cable: CableView, portPairLabel?: string): CableEdgeType | null {
     const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string } => 'portId' in e);
     const outside = cable.ends.find((e): e is { outside: true; label: string } => 'outside' in e && e.outside);
 
     let target: { nodeId: string; handleId: string } | null = null;
     if (real.length === 2) {
-      target = { nodeId: chassisNodeId(real[1].chassisId), handleId: real[1].portId };
+      target = resolveEnd(real[1]);
     } else if (outside) {
       const group = portalGroups.find((g) => g.cables.some((c) => c.cableId === cable.id));
       if (group) target = { nodeId: trayNodeId(group.key), handleId: 'tray' };
     }
-    if (real.length === 0 || target == null) continue; // no real near end to draw from
+    if (real.length === 0 || target == null) return null; // no real near end to draw from
 
-    const near = real[0];
+    const source = resolveEnd(real[0]);
+    if (source == null) return null;
+
     const edgeData: CableEdgeData = {
       cable,
-      lit: somethingLit && litCableId === cable.id,
-      dimmed: somethingLit && litCableId !== cable.id,
+      lit: somethingLit && litCableIdSet.has(cable.id),
+      dimmed: somethingLit && !litCableIdSet.has(cable.id),
       onSelect: (cableId: string) => onSelect({ kind: 'cable', id: cableId }),
       onHoverChange: setHoveredCableId,
+      portPairLabel,
     };
-    edges.push({
+    return {
       id: cable.id,
       type: 'cable',
-      source: chassisNodeId(near.chassisId),
-      sourceHandle: near.portId,
+      source: source.nodeId,
+      sourceHandle: source.handleId,
       target: target.nodeId,
       targetHandle: target.handleId,
       selectable: false, // selection is handled by CableEdge's own onClick, not React Flow's
+      // Above a chassis box's own `zIndex: 10` (below) — `Main.dc.html`'s own
+      // rack draws its cables as one SVG layer over the elevation, not
+      // tucked behind a device row a short hop happens to pass under.
+      zIndex: 11,
       data: edgeData,
-    } satisfies CableEdgeType);
+    } satisfies CableEdgeType;
+  }
+
+  const edges: Edge[] = [];
+  const bundledCableIds = new Set(bundles.filter((b) => b.members.length > 1).flatMap((b) => b.members.map((m) => m.id)));
+
+  for (const bundle of bundles) {
+    if (bundle.members.length === 1) continue; // a bundle of one is a plain cable, handled below
+    const fanned = fannedBundleKey === bundle.key;
+    const bundleData: BundleEdgeData = {
+      bundle,
+      fanned,
+      dimmed: somethingLit && !bundle.members.some((m) => litCableIdSet.has(m.id)),
+      onFan: setFannedBundleKey,
+    };
+    edges.push({
+      id: `bundle:${bundle.key}`,
+      type: 'bundle',
+      source: chassisNodeId(bundle.chassisA),
+      sourceHandle: '__bundle__',
+      target: chassisNodeId(bundle.chassisB),
+      targetHandle: '__bundle__',
+      selectable: false,
+      zIndex: 11,
+      data: bundleData,
+    } satisfies BundleEdgeType);
+
+    if (fanned) {
+      for (const member of bundle.members) {
+        const real = member.ends.filter((e): e is { portId: string; chassisId: string; rackId: string } => 'portId' in e);
+        const label = real.length === 2 ? `${portLabel(real[0].portId)} ↔ ${portLabel(real[1].portId)}` : undefined;
+        const built = buildCableEdge(member, label);
+        if (built) edges.push(built);
+      }
+    }
+  }
+
+  for (const cable of view.cables ?? []) {
+    if (bundledCableIds.has(cable.id)) continue; // drawn above, as the bundle's band and (when fanned) its members
+    const built = buildCableEdge(cable);
+    if (built) edges.push(built);
   }
 
   const handleNodeClick: NodeMouseHandler = useCallback(
