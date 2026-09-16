@@ -24,7 +24,13 @@ type Stage =
  * redemption succeeds, so a later reload of this screen has nothing left to
  * resend.
  */
-export function Enrol() {
+export interface EnrolProps {
+  /** Go back to sign-in, for a browser that already holds a key. Optional
+   * so this screen still stands alone. */
+  onUseExistingKey?: () => void;
+}
+
+export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
   const [token, setToken] = useState('');
   const [address, setAddress] = useState('');
   const [stage, setStage] = useState<Stage>({ kind: 'form' });
@@ -182,6 +188,12 @@ export function Enrol() {
         <p className="enrol__note">
           The address must be the one the invitation was sent to. The token can only be used once.
         </p>
+
+        {onUseExistingKey && (
+          <button type="button" className="enrol__switch" onClick={onUseExistingKey}>
+            Already enrolled in this browser? Sign in.
+          </button>
+        )}
       </form>
     </div>
   );

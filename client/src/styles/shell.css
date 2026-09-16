@@ -1,149 +1,456 @@
-/* The application shell: masthead, left rail, centre, right inspector.
-   `docs/UI-SPEC.md` "The shape". Static content only in this slice — no
-   diagram, no React Flow. Geometry only here; every colour, border width and
-   type size below is a token from `design/tokens.css`, per that page's
-   "Look" section: zero radius, no shadows, 1px hairlines. */
+/* The application shell — the bar, the folded rail strip, the drawing, and
+   the editor surface. Approved board: `design/shell/Main.dc.html`; the rule
+   record is `docs/decisions/adr-0047-the-shell-four-kinds-of-thing.md`.
+   Every colour, rule width and type size below is a token from
+   `design/tokens.css`; structural pixel measurements (44px row, 28px strip,
+   316px editor, 180px/24px search, 24px/20px/16px marks) are the board's own
+   literal geometry, not tokens — there is nothing in `design/tokens.css` to
+   name them with. */
 
 .shell {
-  display: grid;
-  grid-template-columns: 260px 1fr 300px;
-  grid-template-rows: auto 1fr;
-  grid-template-areas:
-    'masthead masthead masthead'
-    'rail centre inspector';
+  display: flex;
+  flex-direction: column;
   height: 100%;
   background: var(--page);
   color: var(--ink);
 }
 
-.masthead {
-  grid-area: masthead;
-  display: flex;
-  align-items: center;
-  gap: var(--s5);
-  padding: 0 var(--s4);
-  height: calc(var(--lh-step) * 2);
+/* ---- the bar -------------------------------------------------------- */
+
+.shell-bar {
+  height: 44px;
+  box-sizing: border-box;
   border-bottom: var(--rule-mast) solid var(--ink);
-  font-size: var(--t-mast);
+  display: flex;
+  align-items: stretch;
+  padding: 0 var(--s4);
+  gap: var(--s3);
+  flex-shrink: 0;
+  background: var(--page);
 }
 
-.masthead__brand {
+.shell-bar__leading {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s3);
+  min-width: 0;
+}
+
+.shell-bar__trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.shell-bar__spacer {
+  flex: 1 1 auto;
+}
+
+.shell-bar__brand {
+  display: flex;
+  align-items: center;
+  font-size: var(--t-mast);
   font-weight: 700;
   letter-spacing: var(--track-mast);
   text-transform: uppercase;
+  color: var(--ink);
+  white-space: nowrap;
 }
 
-.masthead__breadcrumb {
+.shell-bar__sep-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.shell-bar__sep {
+  width: var(--rule-hair);
+  height: var(--s5);
+  background: var(--hairline);
+  flex-shrink: 0;
+  display: block;
+}
+
+.shell-bar__tabs {
+  display: flex;
+  align-items: stretch;
+}
+
+.shell-bar__tab {
+  padding: 0 var(--s3);
+  display: flex;
+  align-items: center;
+  font-size: var(--t-tab);
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
   color: var(--muted);
-  font-size: var(--t-small);
+  background: none;
+  border: none;
+  border-bottom: var(--rule-accent) solid transparent;
+  cursor: pointer;
 }
 
-.masthead__spacer {
-  flex: 1;
+.shell-bar__tab:hover {
+  color: var(--ink);
 }
 
-.masthead__control {
-  font-size: var(--t-small);
+.shell-bar__tab--on {
+  color: var(--ink);
+  font-weight: 700;
+  border-bottom-color: var(--ink);
+}
+
+.shell-bar__path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-tab);
+  white-space: nowrap;
+}
+
+.shell-bar__path-empty {
   color: var(--muted);
+}
+
+.shell-bar__path-part {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell-bar__path-sep {
+  color: var(--muted);
+}
+
+.shell-bar__path-label {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.shell-bar__path-label:hover {
+  color: var(--ink);
+}
+
+.shell-bar__path-label--current {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.shell-bar__lenses {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell-lens {
   border: var(--rule-hair) solid var(--hairline);
-  padding: var(--s1) var(--s2);
+  padding: 2px 8px;
+  font-size: var(--t-tab);
+  line-height: 14px;
+  color: var(--ink);
+  background: var(--page);
+  cursor: pointer;
+}
+
+.shell-lens--on {
+  background: var(--ink);
+  color: var(--page);
+  border-color: var(--ink);
+}
+
+.shell-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 180px;
+  height: 24px;
+  border: var(--rule-hair) solid var(--hairline);
+  padding: 0 var(--s2);
+  background: var(--page);
+  color: var(--muted);
+}
+
+.shell-search--collapsed {
+  width: 24px;
+  justify-content: center;
+  padding: 0;
+}
+
+.shell-search__label {
+  font-size: var(--t-tab);
+  color: var(--muted);
+}
+
+.shell-search__spacer {
+  flex: 1 1 auto;
+}
+
+.shell-search__shortcut {
+  font-family: var(--mono);
+  font-size: var(--t-tab);
+  color: var(--muted);
+}
+
+.shell-bar__presence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell-chip {
+  border: var(--rule-hair) solid var(--hairline);
+  padding: 2px 8px;
+  font-size: var(--t-tab);
+  line-height: 14px;
+  color: var(--muted);
+  background: var(--page);
+}
+
+.shell-chip--ink {
+  border-color: var(--ink);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.shell-chip--ink:disabled {
+  color: var(--muted);
+  border-color: var(--hairline);
+  cursor: default;
+}
+
+.shell-bar__undoredo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell-bar__zoom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell-zoom-btn {
+  width: 20px;
+  height: 20px;
+  border: var(--rule-hair) solid var(--hairline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--t-tab);
+  color: var(--ink);
+  background: var(--page);
+  cursor: pointer;
+  padding: 0;
+}
+
+.shell-zoom-value {
+  font-family: var(--mono);
+  font-size: var(--t-tab);
+  min-width: 36px;
+  text-align: center;
+  color: var(--ink);
+  font-variant-numeric: var(--num-tabular);
+}
+
+.shell-account {
+  width: 24px;
+  height: 24px;
+  background: var(--ink);
+  color: var(--page);
+  font-size: var(--t-micro);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* ---- the popover ------------------------------------------------------
+   One kind, everywhere — BRIEF.md "Under the bar": a hairline box, surface-2,
+   square corners, no shadow, opened by a click, closed by clicking away or
+   Escape. */
+
+.shell-popover-host {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.shell-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: var(--z-egress);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 6px 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+}
+
+.shell-popover--right {
+  left: auto;
+  right: 0;
+}
+
+.shell-popover__row {
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 5px 12px;
+  font-size: var(--t-small);
+  line-height: 18px;
+  color: var(--ink);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.shell-popover__row:hover:not(:disabled) {
   background: var(--surface);
 }
 
-.masthead__account {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  font-size: var(--t-small);
+.shell-popover__row--current {
+  font-weight: 700;
 }
 
-.rail,
-.inspector {
+.shell-popover__row--muted {
+  color: var(--muted);
+}
+
+.shell-popover__row:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+/* ---- under the bar ----------------------------------------------------- */
+
+.shell__body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  position: relative;
+}
+
+.shell-strip-wrap {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.shell-strip {
+  width: 28px;
+  border-right: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 6px;
+  gap: var(--s3);
+  flex-shrink: 0;
+}
+
+.shell-strip__handle {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--t-tab);
+  line-height: 16px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.shell-strip__handle:hover {
+  color: var(--ink);
+}
+
+.shell-strip__mark {
+  color: var(--ink);
+}
+
+.shell-rail {
+  width: 240px;
+  border-right: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+  padding: var(--s4);
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.shell-rail__empty {
+  color: var(--muted);
+  font-size: var(--t-body);
+  margin: 0;
+}
+
+.shell__drawing {
+  flex: 1 1 auto;
+  position: relative;
+  overflow: auto;
+  background: var(--page);
+  min-width: 0;
+}
+
+.shell-editor {
+  width: 316px;
+  flex-shrink: 0;
+  border-left: var(--rule-hair) solid var(--hairline);
+  background: var(--surface-2);
   overflow-y: auto;
   padding: var(--s4);
 }
 
-.rail {
-  grid-area: rail;
-  border-right: var(--rule-hair) solid var(--hairline);
-  background: var(--surface);
-}
-
-.inspector {
-  grid-area: inspector;
-  border-left: var(--rule-hair) solid var(--hairline);
-  background: var(--surface);
-}
-
-.centre {
-  grid-area: centre;
-  overflow: auto;
-  background: var(--page);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.rail__section + .rail__section {
-  margin-top: var(--s5);
-}
-
-.rail__heading {
-  font-size: var(--t-micro);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 0 0 var(--s2) 0;
-}
-
-.rail__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* Where the drawing will be. Session 4 of `docs/NEXT.md` builds the rack;
+   until then this says so rather than showing an empty canvas that looks
+   like a failure. */
+.app-placeholder {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: var(--s1);
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
 }
 
-.rail__item {
-  padding: var(--s1) var(--s2);
-  border: var(--rule-hair) solid transparent;
-  font-size: var(--t-body);
-}
-
-.rail__item--current {
-  border-color: var(--hairline);
+.app-placeholder button {
+  border: 1px solid var(--ink);
   background: var(--page);
-}
-
-.centre__empty {
-  text-align: center;
-  color: var(--muted);
-  font-size: var(--t-body);
-  max-width: var(--measure);
-}
-
-.centre__empty-title {
-  font-size: var(--t-title);
   color: var(--ink);
-  margin: 0 0 var(--s2) 0;
-}
-
-.inspector__empty {
-  color: var(--muted);
-  font-size: var(--t-body);
-}
-
-.theme-toggle {
-  font-size: var(--t-small);
-  color: var(--muted);
-  background: none;
-  border: var(--rule-hair) solid var(--hairline);
-  padding: var(--s1) var(--s2);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 16px;
   cursor: pointer;
 }
 
-.theme-toggle:hover {
-  color: var(--ink);
-  border-color: var(--ink);
+/* Nothing in the bar may shrink except the search box.
+   BRIEF.md: "search collapses to the magnifier alone before anything else
+   gives." Without this, flex quietly squeezes the presence chips instead,
+   which is wrong twice over: the chips wrap onto two lines in a 44px row,
+   and `Bar.tsx`'s measurement stops being true -- it measures the groups'
+   rendered width, so a group that has already been squeezed reports the
+   squeezed size, the sum never exceeds the container, and search never
+   collapses. Holding every group at its natural width is what makes that
+   measurement honest. Found by rendering the bar at 1440, not by reading
+   it. */
+.shell-bar__leading,
+.shell-bar__trailing,
+.shell-bar__leading > *,
+.shell-bar__trailing > * {
+  flex-shrink: 0;
+}
+
+.shell-chip,
+.shell-lens,
+.shell-bar__path-label,
+.shell-bar__tab,
+.shell-zoom-value,
+.shell-search__label {
+  white-space: nowrap;
 }

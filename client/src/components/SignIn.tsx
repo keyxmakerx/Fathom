@@ -4,14 +4,20 @@ import { NoEnrolledKeyError, signIn } from '../api/auth';
 import { ApiRefusal } from '../api/errors';
 import '../styles/signin.css';
 
+export interface SignInProps {
+  /** Go to the enrolment screen, which puts a key in this browser by
+   * redeeming an invitation. Optional so this screen still stands alone. */
+  onRedeemInvitation?: () => void;
+}
+
 /**
  * Sign-in, and nothing else. No password field: there is nowhere one could
  * go (`crates/fathom-server/src/api.rs`'s `sign_in_handler`). No
- * self-registration: enrolment is by invitation, through a console this
- * build does not have, so this screen assumes a key is already enrolled in
- * the browser it runs in.
+ * self-registration: enrolment is by invitation
+ * (`docs/OPEN-QUESTIONS.md` B5), so this screen signs in with a key this
+ * browser already holds and sends anyone without one to `Enrol`.
  */
-export function SignIn() {
+export function SignIn({ onRedeemInvitation }: SignInProps = {}) {
   const [address, setAddress] = useState('');
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -67,6 +73,12 @@ export function SignIn() {
         )}
 
         <p className="signin__note">There is no password. Enrolment is by invitation.</p>
+
+        {onRedeemInvitation && (
+          <button type="button" className="signin__switch" onClick={onRedeemInvitation}>
+            No key in this browser? Redeem an invitation.
+          </button>
+        )}
       </form>
     </div>
   );

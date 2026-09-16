@@ -80,3 +80,23 @@
   font-size: var(--t-small);
   color: var(--muted);
 }
+
+/* The other door. A button, not a link: it changes what this app shows,
+   it does not navigate anywhere, and a screen reader should hear it as
+   the action it is. */
+.signin__switch {
+  margin-top: var(--space-3, 12px);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.signin__switch:hover {
+  color: var(--ink);
+}

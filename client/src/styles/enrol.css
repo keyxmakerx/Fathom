@@ -90,3 +90,21 @@
   font-size: var(--t-small);
   color: var(--muted);
 }
+
+/* The other door — see `signin.css`'s note on why this is a button. */
+.enrol__switch {
+  margin-top: var(--space-3, 12px);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.enrol__switch:hover {
+  color: var(--ink);
+}
