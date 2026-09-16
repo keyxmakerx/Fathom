@@ -1,0 +1,74 @@
+# corpus/catalogue/panduit/fd1w12aqdlcz.yaml — read by fathom-corpus's
+# `catalogue` module (crates/fathom-corpus/src/catalogue.rs), which see for
+# the format's rules: unknown keys refused, positions and numbering are a
+# pattern the reader expands, never coordinates this file states outright.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10,
+# same convention as corpus/catalogue/juniper/ex4300-48p.yaml).
+#
+# WHERE EVERY NUMBER BELOW CAME FROM.
+#
+# This environment's network egress is blocked for every vendor domain tried
+# on 2026-09-16, including panduit.com directly (`curl` through the
+# configured proxy and this session's WebFetch tool both returned
+# EGRESS_BLOCKED on the CONNECT). Panduit's own product page could therefore
+# not be fetched and read verbatim, which CLAUDE.md rule 1 asks to be stated
+# plainly rather than papered over. What follows is the best available
+# evidence given that constraint, and no further: web search results dated
+# 2026-09-16 that named and summarised Panduit's own product page
+# (panduit.com/en/products/fiber-optic-systems/fiber-optic-panels-cassettes-
+# enclosures/fiber-optic-enclosures/fd1w12aqdlcz.html), corroborated by an
+# independent reseller listing (elettronew.com) and a Panduit-hosted PDF
+# datasheet (111517824.pdf) that agree on the same port count, connector type
+# and physical form factor — the same method, for the same reason, as
+# ex4300-48p.yaml's header.
+#
+#   Panduit, product page for FD1W12AQDLCZ — content established via web
+#   search synthesis, read 2026-09-16 (see note above): 1 RU, pre-loaded with
+#   12 duplex LC adapters (24 fibre connections), OM4, "1.73 in H x 17.5 in W
+#   x 12.1 in D", black powder-coated steel, rack-mount fibre enclosure/patch
+#   panel.
+#
+# "12-PORT" = 12 DUPLEX LC ADAPTER POSITIONS, not 24 individual ferrules:
+# UI-SPEC "Ports" draws the `LC` glyph as "two ferrules" — one glyph per
+# duplex LC adapter — so this file's `count: 12` matches the catalogue's own
+# unit of a "port" for this kind, exactly as the source's "12 duplex LC
+# adapters" names it.
+#
+# LAYOUT: a fibre adapter panel is a flat plate of adapters read left to
+# right in one row — none of the sources describe a paired top/bottom
+# arrangement, and no photo or spec here supports inventing one. `single_row`,
+# numbered 1-12, is the conservative reading, same rule the sibling copper
+# panel in this directory (nk6ppg24y.yaml) states for the same reason.
+#
+# NO `psu_inlets` DECLARED, ON PURPOSE — this is the format's "passive panel"
+# expression: `psu_inlets` is optional (catalogue.rs: `psu_inlets:
+# Option<PsuInlets>`), and a fibre patch panel is genuinely unpowered
+# hardware — ADR-0037 §5's `PassiveNode` names exactly this class,
+# *"hardware with ports and no configuration"*, and `Odf` (optical
+# distribution frame) is one of its named forms, the fibre sibling of
+# `PatchPanel`. Omitting the field is how this format says "no power enters
+# this plate" without adding a new key to a format ADR-0044 keeps
+# deliberately closed — see nk6ppg24y.yaml's header for the same reasoning
+# stated once for the copper panel.
+vendor: panduit
+model: FD1W12AQDLCZ
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Panduit, product page for FD1W12AQDLCZ
+    (panduit.com/en/products/fiber-optic-systems/fiber-optic-panels-
+    cassettes-enclosures/fiber-optic-enclosures/fd1w12aqdlcz.html), for the
+    12 duplex LC adapters, 1 RU count and physical dimensions; corroborated
+    by an independent reseller listing (elettronew.com) and a Panduit-hosted
+    PDF datasheet describing the same unit — all read via web search
+    synthesis on 2026-09-16 because this environment's network egress
+    blocked a direct fetch of panduit.com (see the file header for what was
+    tried).
+  read_on: "2026-09-16"
+faceplates:
+  - face: front
+    port_count: 12
+    port_groups:
+      - { kind: "LC", role: access, layout: single_row, count: 12, start_number: 1 }

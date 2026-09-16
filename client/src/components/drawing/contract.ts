@@ -78,10 +78,25 @@ export type EditorChange =
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through
- * `document/edit.ts` and finds out what happened only when a new `view` prop
- * arrives. */
+ * `document/edit.ts` and finds out what happened, for an ACCEPTED edit,
+ * only when a new `view` prop arrives.
+ *
+ * A REFUSED edit (`document/edit.ts`'s `FieldValueError` — a malformed
+ * management address, a role outside the enum) is different: nothing else
+ * ever tells the editor which field it was, because there is no new view to
+ * derive that from — the document did not change. So `onEdit` returns the
+ * refusal directly, synchronously, rather than through a callback: the
+ * caller (`racks/RacksPlace.tsx`'s `handleEdit`) already resolves an edit
+ * in one synchronous call (`document/edit.ts` either returns a new
+ * `Document` or throws, both in the same tick), so a return value is the
+ * whole answer and needs no extra plumbing — a callback would add a second
+ * way to report the same fact for no round trip this contract actually has
+ * to survive. `void` means the edit was accepted, or the failure is not one
+ * this editor names beside a field (e.g. the document moved under us,
+ * `UnknownReferenceError`) — either way the caller leaves the document as
+ * it was. */
 export interface EditorActions {
-  onEdit(change: EditorChange): void;
+  onEdit(change: EditorChange): { refused: string } | void;
 }
 
 export type Selection =

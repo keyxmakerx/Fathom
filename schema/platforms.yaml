@@ -36,6 +36,14 @@ vendors:
                          # unrelated firmware stacks, so one row would be wrong for two of
                          # them. This needs a device on a desk, not more research.
 
+  apc:       {}          # hardware-catalogue vendor only, added 2026-09-16 for
+                         # corpus/catalogue/apc/ (ADR-0044 §1's catalogue/ part
+                         # of an engine): a rack PDU. No config platform — a PDU
+                         # has ports and power, not a CLI to capture.
+  panduit:   {}          # hardware-catalogue vendor only, added 2026-09-16 for
+                         # corpus/catalogue/panduit/: passive patch panels
+                         # (copper and fibre). Same reasoning as `apc` above.
+
   proxmox:   {}          # Owner-named 2026-08-28 (`70` §18.4): *"proxmox would probably
                          # need to be an engine"* — the first general-purpose host vendor,
                          # and the sentence that set the direction for ADR-0037 §5's open

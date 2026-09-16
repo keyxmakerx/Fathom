@@ -49,6 +49,22 @@ const TYPED_NOTE_STYLE: CSSProperties = {
   lineHeight: 1.4,
 };
 
+// UI-SPEC "Cables": "A risk colour is only ever a bordered wash with words
+// in it — never bare coloured text." A refused edit is exactly that risk —
+// same `--danger`/`--danger-wash` tokens `racks.css`'s
+// `.racks-place__refusal` already uses for the server's own refusal path,
+// applied inline because this file does not touch `drawing.css` (see the
+// file header).
+const CAUTION_STYLE: CSSProperties = {
+  display: 'block',
+  marginTop: 'var(--s1)',
+  border: 'var(--rule-hair) solid var(--danger)',
+  background: 'var(--danger-wash)',
+  color: 'var(--danger)',
+  padding: 'var(--s1) var(--s2)',
+  fontSize: 'var(--t-micro)',
+};
+
 type FieldState = 'idle' | 'selected' | 'editing';
 
 interface EditableValueProps {
@@ -57,7 +73,10 @@ interface EditableValueProps {
   placeholderClassName?: string;
   editorKind: 'text' | 'select';
   options?: readonly string[];
-  onCommit: (raw: string | null) => void;
+  /** Returns the refusal beside a value the schema refused
+   * (`EditorActions.onEdit`, `contract.ts`) — see its doc for why this is a
+   * return value and not a callback. */
+  onCommit: (raw: string | null) => { refused: string } | void;
 }
 
 /**
@@ -69,6 +88,7 @@ interface EditableValueProps {
 function EditableValue({ value, placeholder, placeholderClassName, editorKind, options, onCommit }: EditableValueProps) {
   const [state, setState] = useState<FieldState>('idle');
   const [draft, setDraft] = useState(value);
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   // The document changed under us (a save applied, or a refusal left it as
   // it was) — pick up the authoritative value whenever this field is not
@@ -77,14 +97,29 @@ function EditableValue({ value, placeholder, placeholderClassName, editorKind, o
     if (state !== 'editing') setDraft(value);
   }, [value, state]);
 
+  // The field's own authoritative value moved under us — a save applied, a
+  // different edit landed, or this is a fresh selection entirely. Whatever
+  // refusal was showing no longer describes the current value, so it
+  // clears with it rather than lingering as a stale caution.
+  useEffect(() => {
+    setRefusal(null);
+  }, [value]);
+
   function commit(raw: string) {
     const trimmed = raw.trim();
-    onCommit(trimmed.length > 0 ? trimmed : null);
+    const result = onCommit(trimmed.length > 0 ? trimmed : null);
+    if (result?.refused) {
+      setRefusal(result.refused);
+      setState('selected');
+      return;
+    }
+    setRefusal(null);
     setState('idle');
   }
 
   function revert() {
     setDraft(value);
+    setRefusal(null);
     setState('selected');
   }
 
@@ -115,7 +150,10 @@ function EditableValue({ value, placeholder, placeholderClassName, editorKind, o
         autoFocus
         className="drawing-editor__field-value"
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setRefusal(null);
+        }}
         onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
           if (e.key === 'Enter') commit(draft);
           else if (e.key === 'Escape') revert();
@@ -127,13 +165,16 @@ function EditableValue({ value, placeholder, placeholderClassName, editorKind, o
 
   const hasValue = value.length > 0;
   return (
-    <span
-      style={state === 'selected' ? SELECTED_STYLE : IDLE_STYLE}
-      className={hasValue ? undefined : placeholderClassName}
-      onClick={() => setState(state === 'selected' ? 'editing' : 'selected')}
-    >
-      {hasValue ? value : placeholder}
-    </span>
+    <>
+      <span
+        style={state === 'selected' ? SELECTED_STYLE : IDLE_STYLE}
+        className={hasValue ? undefined : placeholderClassName}
+        onClick={() => setState(state === 'selected' ? 'editing' : 'selected')}
+      >
+        {hasValue ? value : placeholder}
+      </span>
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+    </>
   );
 }
 

@@ -102,8 +102,17 @@ pub enum CatalogueGate {
 /// hardware has. This reader is the estate-of-record: it names a fifth kind,
 /// `QsfpPlus`, for the transceiver cage that genuinely is QSFP+ and is not
 /// SFP+, so a catalogue entry never has to misname the metal to fit a glyph
-/// set the screen has not caught up to yet. A spelling outside all five is
-/// still a `PortKindUnknown` load error, not a silently accepted synonym.
+/// set the screen has not caught up to yet, and a sixth, `C13`, for a PDU's
+/// outlets — the female IEC 60320 socket a device's `C14` inlet plugs into
+/// (UI-SPEC "Power": *"PDU with C13 outlets in the rack. Each device's PSU
+/// inlets"* — C14). `C13` and `C14` are the two ends of the same cord, not
+/// synonyms, so the catalogue must say which one a plate has. The client's
+/// drawing layer, which has not grown a sixth glyph yet, draws a `C13` port
+/// with the `C14` glyph mirrored (`client/src/components/drawing/
+/// portGlyph.ts`) — a drawing-layer stopgap, not a reason to misname the
+/// metal here (the same reasoning `QsfpPlus` already established). A
+/// spelling outside all six is still a `PortKindUnknown` load error, not a
+/// silently accepted synonym.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PortKind {
     Rj45,
@@ -111,6 +120,7 @@ pub enum PortKind {
     QsfpPlus,
     Lc,
     C14,
+    C13,
 }
 
 impl PortKind {
@@ -121,6 +131,7 @@ impl PortKind {
             "QSFP+" => Some(PortKind::QsfpPlus),
             "LC" => Some(PortKind::Lc),
             "C14" => Some(PortKind::C14),
+            "C13" => Some(PortKind::C13),
             _ => None,
         }
     }
@@ -132,6 +143,7 @@ impl PortKind {
             PortKind::QsfpPlus => "QSFP+",
             PortKind::Lc => "LC",
             PortKind::C14 => "C14",
+            PortKind::C13 => "C13",
         }
     }
 }
@@ -763,7 +775,7 @@ fn load_port_groups(file: &str, node: &Node) -> Result<Vec<PortGroup>, Catalogue
                 file,
                 item.line,
                 CatalogueGate::PortKindUnknown,
-                format!("`{kind_tok}` is not one of RJ45, SFP+, QSFP+, LC, C14"),
+                format!("`{kind_tok}` is not one of RJ45, SFP+, QSFP+, LC, C14, C13"),
             )
         })?;
         let role_tok = req_str(file, item, "role")?;
@@ -805,7 +817,7 @@ fn load_psu(file: &str, node: &Node) -> Result<PsuInlets, CatalogueError> {
             file,
             node.line,
             CatalogueGate::PortKindUnknown,
-            format!("`{kind_tok}` is not one of RJ45, SFP+, QSFP+, LC, C14"),
+            format!("`{kind_tok}` is not one of RJ45, SFP+, QSFP+, LC, C14, C13"),
         )
     })?;
     let count = req_u32_range(file, node, "count", 0, MAX_PSU_INLETS)?;
@@ -922,6 +934,31 @@ mod tests {
         assert_eq!(ports.len(), 2);
         assert!(ports.iter().all(|p| p.kind == PortKind::QsfpPlus));
         assert_eq!(PortKind::QsfpPlus.token(), "QSFP+");
+    }
+
+    #[test]
+    fn c13_parses_as_its_own_kind_distinct_from_c14() {
+        // The sixth kind: a PDU's outlet is `C13`, a device's inlet is `C14`
+        // — the two ends of one cord, never the same `PortKind` even though
+        // the client mirrors one glyph for both (see the enum's doc comment).
+        let text = "vendor: juniper\n\
+             model: TEST-C13\n\
+             rack_units: 1\n\
+             reviewed_by: <named human>\n\
+             source:\n  cite: \"fixture\"\n  read_on: \"2026-09-16\"\n\
+             faceplates:\n  \
+               - face: front\n    \
+                 port_count: 2\n    \
+                 port_groups:\n      \
+                   - { kind: \"C13\", role: access, layout: single_row, count: 2, start_number: 1 }\n";
+        let cat = Catalogue::from_sources(&source(text), "juniper", &juniper_vendors())
+            .expect("a C13 group is a recognised kind, not a load error");
+        let m = cat.model("TEST-C13").expect("model present");
+        let ports = m.faceplate(Face::Front).expect("front face").ports();
+        assert_eq!(ports.len(), 2);
+        assert!(ports.iter().all(|p| p.kind == PortKind::C13));
+        assert!(ports.iter().all(|p| p.kind != PortKind::C14));
+        assert_eq!(PortKind::C13.token(), "C13");
     }
 
     #[test]

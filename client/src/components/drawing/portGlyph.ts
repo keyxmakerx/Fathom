@@ -31,6 +31,12 @@ const ALIASES: Record<string, PortKind> = {
   fibre: 'lc',
   fiber: 'lc',
   c14: 'c14',
+  // `C13` is its own `PortKind` in the catalogue (`fathom_corpus::catalogue`
+  // — a PDU's outlet, not a device's inlet: the two ends of one cord). The
+  // client draws five glyphs, not six (UI-SPEC "Ports"), so a C13 outlet
+  // shares the C14 glyph here, mirrored, rather than gaining a sixth shape —
+  // a drawing-layer stopgap, not a claim that the two connectors are the
+  // same piece of metal.
   c13: 'c14',
   iec: 'c14',
   iec60320: 'c14',

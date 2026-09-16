@@ -4,7 +4,7 @@ import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catal
 import { openDesign, saveDesign } from '../../api/payload';
 import { ApiRefusal } from '../../api/errors';
 import { moveChassis, placeChassis } from '../../document/commands';
-import { setChassisField, setDeviceField } from '../../document/edit';
+import { FieldValueError, setChassisField, setDeviceField } from '../../document/edit';
 import type { Document } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
 import { viewOf, type ClosetView } from '../../document/view';
@@ -44,6 +44,20 @@ function describeError(error: unknown): string {
   }
   if (error instanceof Error) return error.message;
   return 'That request did not complete.';
+}
+
+/** What `handleEdit` turns a caught `document/edit.ts` failure into for
+ * `EditorActions.onEdit` (`contract.ts`) — pulled out as its own pure
+ * function, no `Document` or React involved, so the message for each kind
+ * of refusal can be tested directly. Only `FieldValueError` (a malformed
+ * value the schema refuses — a malformed management address, a role outside
+ * the enum) becomes a refusal the editor shows beside the field it came
+ * from; `UnknownReferenceError` (the id no longer resolves because the
+ * document moved under us) has no field left to attach a message to, so it
+ * still resolves to `undefined` — the same silent drop as before this
+ * change, now named rather than accidental. */
+export function refusalFor(error: unknown): { refused: string } | undefined {
+  return error instanceof FieldValueError ? { refused: error.message } : undefined;
 }
 
 export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
@@ -183,7 +197,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   // out-of-schema value, or an id that no longer resolves because the
   // document moved under us) leaves the document exactly as it was.
   const handleEdit = useCallback(
-    (change: EditorChange) => {
+    (change: EditorChange): { refused: string } | void => {
       if (doc == null) return;
       try {
         const next =
@@ -191,10 +205,13 @@ export function RacksPlace(props: RacksPlaceProps) {
             ? setDeviceField(doc, change.id, change.field, change.value)
             : setChassisField(doc, change.id, change.field, change.value);
         applyDocChange(next);
-      } catch {
+      } catch (e) {
         // As `handlePlace`/`handleMove`: the editor raised a request against
         // a view that turned out to be stale, or a value the schema refuses.
-        // Leave the document as it was rather than apply a half-formed edit.
+        // Leave the document as it was rather than apply a half-formed edit
+        // — but a refused VALUE (`refusalFor`) is the editor's to show
+        // beside the field it came from, not to drop silently.
+        return refusalFor(e);
       }
     },
     [doc, applyDocChange],
