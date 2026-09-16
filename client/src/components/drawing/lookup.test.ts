@@ -5,6 +5,7 @@ import { findChassis, findPort, findRack } from './lookup';
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
+  cables: [],
   racks: [
     {
       id: 'rack-1',
@@ -23,12 +24,14 @@ const VIEW: ClosetView = {
           heightU: 1,
           face: 'front',
           ports: [
-            { id: 'port-1', label: '0', connector: 'RJ45', row: 0, column: 0, uplink: false },
-            { id: 'port-2', label: 'xe-0', connector: 'SFP+', row: 0, column: 1, uplink: true },
+            { id: 'port-1', label: '0', connector: 'RJ45', row: 0, column: 0, uplink: false, cable: null },
+            { id: 'port-2', label: 'xe-0', connector: 'SFP+', row: 0, column: 1, uplink: true, cable: null },
           ],
           role: null,
           managementAddress: null,
           serial: null,
+          psuInlets: [],
+          singleFed: false,
         },
       ],
     },

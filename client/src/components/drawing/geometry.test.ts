@@ -1,17 +1,24 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CABLE_SAG_MAX_PX,
   CAMERA_STOPS,
   MAX_GLYPH_TRUE_HEIGHT_PX,
+  PORT_ROW_GAP_PX,
   RACK_HEADER_PX,
   TEXT_FLOOR_PX,
   U_PX,
+  cableSagPath,
+  cableSagPx,
   cameraStopAt,
   counterScaledFontPx,
   counterScaledGlyphScale,
   glyphScaleFittingBudget,
+  laneBiasPx,
   overlapsRack,
   portOpacity,
+  portRowBudgetPx,
+  portalTraySide,
   rackAtPoint,
   snapDropToU,
   sortFreeRuns,
@@ -257,5 +264,113 @@ describe('rackAtPoint', () => {
   it('skips a rack with no session position rather than throwing', () => {
     const sparse = { a: { x: 0, y: 0 } };
     expect(rackAtPoint(racks, sparse, { x: 450, y: 100 }, width)).toBeNull();
+  });
+});
+
+describe('portRowBudgetPx — the session 5 1U overflow fix', () => {
+  it('hands a single row the whole budget', () => {
+    expect(portRowBudgetPx(7, 1)).toBe(7);
+  });
+
+  it('splits the budget between two rows, minus the gap between them', () => {
+    // (7 - 2) / 2 = 2.5 — the case that used to overflow a 1U box: the old
+    // code gave both rows the full 7px budget instead of splitting it.
+    expect(portRowBudgetPx(7, 2)).toBeCloseTo(2.5, 10);
+  });
+
+  it('never returns a negative budget when the gaps alone exceed the total', () => {
+    expect(portRowBudgetPx(1, 5)).toBe(0);
+  });
+
+  it('treats zero or fewer rows as one row, rather than dividing by zero', () => {
+    expect(portRowBudgetPx(7, 0)).toBe(7);
+  });
+
+  it('two rows sharing a divided budget fit inside the total, unlike the undivided budget', () => {
+    const totalBudget = 7;
+    const numRows = 2;
+    const perRow = portRowBudgetPx(totalBudget, numRows);
+    const contentHeight = perRow * numRows + (numRows - 1) * PORT_ROW_GAP_PX;
+    expect(contentHeight).toBeLessThanOrEqual(totalBudget + 1e-9);
+    // The pre-fix behaviour, for contrast: handing every row the full
+    // budget make two rows' content taller than the box that holds them.
+    const undividedContentHeight = totalBudget * numRows + (numRows - 1) * PORT_ROW_GAP_PX;
+    expect(undividedContentHeight).toBeGreaterThan(totalBudget);
+  });
+});
+
+describe('cableSagPx — "more on longer vertical runs, capped"', () => {
+  it('is small for a short, same-row run', () => {
+    expect(cableSagPx(10)).toBeLessThan(10);
+  });
+
+  it('grows with the vertical run before the cap', () => {
+    expect(cableSagPx(50)).toBeGreaterThan(cableSagPx(10));
+  });
+
+  it('is capped at CABLE_SAG_MAX_PX for a long run', () => {
+    expect(cableSagPx(1000)).toBe(CABLE_SAG_MAX_PX);
+  });
+
+  it('reads a downward and an upward run the same way — sag is about distance, not direction', () => {
+    expect(cableSagPx(-200)).toBe(cableSagPx(200));
+  });
+
+  it('never sags backwards: zero run, zero sag', () => {
+    expect(cableSagPx(0)).toBe(0);
+  });
+});
+
+describe('cableSagPath — bows right and down', () => {
+  it('both control points sit to the right of a straight vertical run', () => {
+    const d = cableSagPath(100, 0, 100, 200, 'copper');
+    const nums = d.match(/-?\d+(\.\d+)?/g)!.map(Number);
+    // M x1 y1 C c1x c1y, c2x c2y, x2 y2
+    const [, , c1x, , c2x] = nums;
+    expect(c1x).toBeGreaterThan(100);
+    expect(c2x).toBeGreaterThan(100);
+  });
+
+  it('a longer vertical run sags no further than the cap', () => {
+    const short = cableSagPath(0, 0, 0, 20, 'copper');
+    const long = cableSagPath(0, 0, 0, 2000, 'copper');
+    const shortC1y = Number(short.match(/-?\d+(\.\d+)?/g)![3]);
+    const longC1y = Number(long.match(/-?\d+(\.\d+)?/g)![3]);
+    expect(longC1y).toBeLessThanOrEqual(CABLE_SAG_MAX_PX * 0.6 + 1e-9);
+    expect(longC1y).toBeGreaterThan(shortC1y);
+  });
+
+  it('starts and ends exactly at the two ports, whatever the sag', () => {
+    const d = cableSagPath(12, 34, 56, 78, 'fibre');
+    expect(d.startsWith('M 12 34')).toBe(true);
+    expect(d.endsWith('56 78')).toBe(true);
+  });
+});
+
+describe('laneBiasPx — "power runs one side, data the other. They never share."', () => {
+  it('power and copper bias in opposite directions', () => {
+    expect(Math.sign(laneBiasPx('power'))).not.toBe(Math.sign(laneBiasPx('copper')));
+  });
+
+  it('power and fibre bias in opposite directions', () => {
+    expect(Math.sign(laneBiasPx('power'))).not.toBe(Math.sign(laneBiasPx('fibre')));
+  });
+
+  it('copper and fibre — both data — share the same lane side', () => {
+    expect(Math.sign(laneBiasPx('copper'))).toBe(Math.sign(laneBiasPx('fibre')));
+  });
+});
+
+describe('portalTraySide — "Above or below the rack ... decide by the port\'s row"', () => {
+  it('a chassis in the rack\'s upper half exits toward a tray above', () => {
+    expect(portalTraySide(42, 38)).toBe('above');
+  });
+
+  it('a chassis in the rack\'s lower half exits toward a tray below', () => {
+    expect(portalTraySide(42, 3)).toBe('below');
+  });
+
+  it('a chassis exactly on the midline reads below, its own occupied U never rounding up', () => {
+    expect(portalTraySide(42, 21)).toBe('below');
   });
 });

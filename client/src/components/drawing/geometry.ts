@@ -35,6 +35,8 @@
  * not "within a rounding pixel" the way the old (wrong) base needed.
  */
 
+import type { CableKind } from './contract';
+
 /** Pixels per U at the "rack" camera stop (100%) — see the file header for
  * how this is derived from the 42U reference rack fitting the drawing's
  * height, not from a board's literal pixel size. */
@@ -226,6 +228,99 @@ export function uToOffsetPx(rackHeightU: number, positionU: number, heightU: num
  */
 export function sortFreeRuns<T extends { fromU: number; toU: number }>(runs: readonly T[]): T[] {
   return [...runs].sort((a, b) => b.toU - a.toU || b.fromU - a.fromU);
+}
+
+/** `.drawing-chassis__ports`'s own `gap: 2px` (`drawing.css`) — kept here so
+ * `portRowBudgetPx` divides the same pixel count the CSS actually spends
+ * between rows, not a guess at it. */
+export const PORT_ROW_GAP_PX = 2;
+
+/**
+ * The flow-space height one port row may use, out of a chassis's total
+ * ports budget — session 5's fix for the "1U box's port glyphs overflow its
+ * bottom edge at the faceplate stop" defect (`docs/STATE.md`, carried from
+ * session 4): `ChassisNode.tsx` used to hand `glyphScaleFittingBudget` the
+ * *whole* ports budget for every row, so a paired top/bottom faceplate
+ * (`document/view.ts`'s `rowNumber` — two rows sharing one 1U box) sized
+ * each row as if it alone owned all the height, and the two rows together
+ * asked for roughly double what the box actually has. Dividing the budget
+ * by the row count first (minus the gaps between them) is what makes each
+ * row's own share honest. `numRows` is always at least 1 in practice (a
+ * chassis with ports has at least one row), but this clamps anyway rather
+ * than divide by zero for an empty chassis.
+ */
+export function portRowBudgetPx(totalBudgetPx: number, numRows: number, rowGapPx: number = PORT_ROW_GAP_PX): number {
+  const rows = Math.max(1, numRows);
+  return Math.max(0, (totalBudgetPx - (rows - 1) * rowGapPx) / rows);
+}
+
+/** The sag's cap — `docs/UI-SPEC.md` "Cables": "more on longer vertical
+ * runs, capped." A cable between two far racks never bows further than
+ * this, no matter how tall the run. */
+export const CABLE_SAG_MAX_PX = 64;
+
+/** How much of the vertical run's length becomes sag before the cap takes
+ * over — chosen so a same-row jump (a few U of vertical run) reads as a
+ * gentle droop and a riser-to-floor run reads as a real hanging slack
+ * without needing per-cable tuning. */
+const CABLE_SAG_RATIO = 0.22;
+
+/** UI-SPEC "Cables": "Every cable bows right and down, more on longer
+ * vertical runs, capped." Purely a function of the vertical distance
+ * travelled — a same-row jump between two adjacent ports sags only a
+ * little; a cable climbing several racks' worth of U sags up to
+ * `CABLE_SAG_MAX_PX` and no further. */
+export function cableSagPx(verticalRunPx: number): number {
+  return Math.min(CABLE_SAG_MAX_PX, Math.abs(verticalRunPx) * CABLE_SAG_RATIO);
+}
+
+/** UI-SPEC "Cables" + "Lanes": data bows right, power keeps "its own lane
+ * on the other side from data" — the two lanes never share a side, so a
+ * power run and a data run leaving the same rack edge are never mistaken
+ * for one another even when they happen to travel the same distance. */
+export function laneBiasPx(kind: CableKind): number {
+  return kind === 'power' ? -CABLE_SAG_MAX_PX * 0.5 : CABLE_SAG_MAX_PX * 0.5;
+}
+
+/**
+ * The sagging cable path between two flow-space points — the live drag's
+ * droop and the settled cable's curve are the same curve
+ * (`docs/UI-SPEC.md` "Motion" #1: "Cable droops as you pull it — slack you
+ * would really have," i.e. the same slack the settled cable keeps once it
+ * is dropped). Bows right and down: the first control point sits to the
+ * lower-right of the start, the second to the upper-right of the end, so
+ * the curve reads as real cable weight rather than a mechanical arc.
+ * `laneBiasPx` shifts both control points sideways for a power cable, so
+ * it never draws through the same lane a data cable would.
+ */
+export function cableSagPath(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  kind: CableKind = 'copper',
+): string {
+  const sag = cableSagPx(y2 - y1);
+  const bias = laneBiasPx(kind);
+  const c1x = x1 + sag + bias;
+  const c1y = y1 + sag * 0.6;
+  const c2x = x2 + sag * 0.35 + bias;
+  const c2y = y2 - sag * 0.5;
+  return `M ${x1} ${y1} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`;
+}
+
+/**
+ * Above the rack or below it — UI-SPEC "Portals": "Above or below the
+ * rack" — decided by the port's own row in the rack: read here as which
+ * half of the rack the chassis carrying it occupies (U numbering runs
+ * bottom-up, so a higher `positionU` is physically nearer the top), since
+ * that is what a person standing at the rack actually sees the cable head
+ * toward. A chassis exactly on the midline reads by its lower (occupied) U,
+ * the same "never invented, always decided" rule `snapDropToU` already
+ * follows for a drop that lands exactly on a boundary.
+ */
+export function portalTraySide(rackHeightU: number, chassisPositionU: number): 'above' | 'below' {
+  return chassisPositionU * 2 > rackHeightU ? 'above' : 'below';
 }
 
 /**

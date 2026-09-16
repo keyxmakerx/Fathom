@@ -124,7 +124,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
 
   const realView = useMemo<ClosetView>(
-    () => (doc ? viewOf(doc, catalogue) : { premisesId: '', racks: [] }),
+    () => (doc ? viewOf(doc, catalogue) : { premisesId: '', racks: [], cables: [] }),
     [doc, catalogue],
   );
 
@@ -134,7 +134,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   // and Rack (`ensureRackToPlaceInto`) only when something is actually
   // dropped onto it, never on load.
   const displayView = useMemo<ClosetView>(
-    () => (realView.racks.length > 0 ? realView : { premisesId: realView.premisesId, racks: [PENDING_RACK_VIEW] }),
+    () => (realView.racks.length > 0 ? realView : { premisesId: realView.premisesId, racks: [PENDING_RACK_VIEW], cables: realView.cables }),
     [realView],
   );
 

@@ -14,6 +14,7 @@ const NOOP_ACTIONS: EditorActions = { onEdit: () => {} };
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
+  cables: [],
   racks: [
     {
       id: 'rack-1',
@@ -31,10 +32,12 @@ const VIEW: ClosetView = {
           positionU: 38,
           heightU: 1,
           face: 'front',
-          ports: [{ id: 'port-1', label: '0', connector: 'RJ45', row: 0, column: 0, uplink: false }],
+          ports: [{ id: 'port-1', label: '0', connector: 'RJ45', row: 0, column: 0, uplink: false, cable: null }],
           role: 'switch',
           managementAddress: '10.10.0.2',
           serial: 'SN-0042',
+          psuInlets: [],
+          singleFed: false,
         },
       ],
     },
@@ -43,6 +46,7 @@ const VIEW: ClosetView = {
 
 const BARE_VIEW: ClosetView = {
   premisesId: 'closet-1',
+  cables: [],
   racks: [
     {
       id: 'rack-1',
@@ -64,6 +68,8 @@ const BARE_VIEW: ClosetView = {
           role: null,
           managementAddress: null,
           serial: null,
+          psuInlets: [],
+          singleFed: false,
         },
       ],
     },

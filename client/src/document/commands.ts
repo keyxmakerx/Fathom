@@ -4,6 +4,7 @@
 // call so the op log stays a genuine record of what happened rather than a
 // diff reconstructed after the fact.
 
+import { connectorTokenOf } from './compat';
 import type { CatalogueModel } from '../api/catalogue';
 import {
   LOCAL_ACTOR,
@@ -265,10 +266,10 @@ export function placeChassis(
       const portId = formatNodeId('PhysicalPort', newUlid(now));
       const label = setField(working, now, actor, portId, undefined, 'PhysicalPort.label', text(String(port.number)));
       working = label.doc;
-      // The catalogue's own connector vocabulary (`"RJ45"`, `"SFP+"`, ...),
-      // carried through verbatim — never re-typed into the schema's token set
-      // (`model.ts`'s doc on `token()`).
-      const connector = setField(working, now, actor, portId, undefined, 'PhysicalPort.connector', token(port.kind));
+      // The schema's own token for the catalogue's port kind (`"RJ45"` is
+      // written as `rj45`): `connectorTokenOf` in `compat.ts` says why, and
+      // `view.ts` maps the same way when it finds the port on its faceplate.
+      const connector = setField(working, now, actor, portId, undefined, 'PhysicalPort.connector', token(connectorTokenOf(port.kind)));
       working = connector.doc;
       working = withNode(working, {
         id: portId,
@@ -282,6 +283,51 @@ export function placeChassis(
       const hasPortId = formatEdgeId('HasPort', newUlid(now));
       working = withEdge(working, { id: hasPortId, from: chassisId, to: portId, prov: hasPortProv.id, fields: {} });
       ops.push({ type: 'add_edge', edge: hasPortId, from: chassisId, to: portId, prov: hasPortProv.id });
+    }
+  }
+
+  // Power inlets (docs/UI-SPEC.md "Power"): a model whose catalogue entry
+  // names `psu_inlets` gets that many `PhysicalPort` nodes here —
+  // `PhysicalPort.connector: c14` (the schema's own IEC 60320 token, not a
+  // catalogue `PortKind` spelling to carry verbatim: these ports have no
+  // faceplate entry to read one off), `PhysicalPort.service: power`,
+  // labelled "PSU 1", "PSU 2"... A model whose faceplate ports are
+  // themselves `c13` outlets (a PDU) already got them in the loop above and
+  // needs nothing here. Still ordinary `HasPort` children of this chassis —
+  // `view.ts`'s `ChassisView.psuInlets` is what keeps them out of the
+  // faceplate `ports` array, not anything at this layer.
+  if (model.psuInlets) {
+    for (let i = 0; i < model.psuInlets.count; i += 1) {
+      const inletExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
+      working = inletExistence.doc;
+      const inletId = formatNodeId('PhysicalPort', newUlid(now));
+      const inletLabel = setField(working, now, actor, inletId, undefined, 'PhysicalPort.label', text(`PSU ${i + 1}`));
+      working = inletLabel.doc;
+      const inletConnector = setField(working, now, actor, inletId, undefined, 'PhysicalPort.connector', token('c14'));
+      working = inletConnector.doc;
+      const inletService = setField(working, now, actor, inletId, undefined, 'PhysicalPort.service', token('power'));
+      working = inletService.doc;
+      working = withNode(working, {
+        id: inletId,
+        existence: inletExistence.id,
+        fields: {
+          'PhysicalPort.label': inletLabel.entry,
+          'PhysicalPort.connector': inletConnector.entry,
+          'PhysicalPort.service': inletService.entry,
+        },
+      });
+      ops.push(
+        { type: 'add_node', node: inletId, prov: inletExistence.id },
+        inletLabel.op,
+        inletConnector.op,
+        inletService.op,
+      );
+
+      const hasInletProv = assertHand(working, { assertedAt: now, assertedBy: actor });
+      working = hasInletProv.doc;
+      const hasInletId = formatEdgeId('HasPort', newUlid(now));
+      working = withEdge(working, { id: hasInletId, from: chassisId, to: inletId, prov: hasInletProv.id, fields: {} });
+      ops.push({ type: 'add_edge', edge: hasInletId, from: chassisId, to: inletId, prov: hasInletProv.id });
     }
   }
 

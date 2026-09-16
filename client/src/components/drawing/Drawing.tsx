@@ -1,19 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import {
   Background,
+  ConnectionMode,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  type ConnectionLineComponentProps,
+  type Edge,
+  type FinalConnectionState,
+  type IsValidConnection,
   type Node,
   type NodeMouseHandler,
+  type OnConnectEnd,
+  type OnConnectStart,
   type OnNodeDrag,
   type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
 
-import type { ClosetView, DrawingActions, RackView, Selection } from './contract';
+import { compatible } from '../../document/compat';
+import type { CableKind, ClosetView, DrawingActions, RackView, Selection, Sheath } from './contract';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from './dnd';
 import {
   CAMERA_STOPS,
@@ -21,6 +29,7 @@ import {
   RACK_INNER_PX,
   RAIL_PX,
   U_PX,
+  cableSagPath,
   overlapsRack,
   portOpacity as portOpacityAt,
   rackAtPoint,
@@ -28,10 +37,39 @@ import {
   uToOffsetPx,
 } from './geometry';
 import { ChassisNode, type ChassisNodeData, type ChassisNodeType } from './ChassisNode';
+import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
+import { ColourPicker } from './ColourPicker';
 import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeData, type RackNodeType } from './RackNode';
-import { chassisNodeId, parseNodeId, rackNodeId } from './nodeId';
+import { PortalTrayNode, PORTAL_TRAY_HEIGHT, type PortalTrayNodeData, type PortalTrayNodeType } from './PortalTrayNode';
+import { chassisNodeId, parseNodeId, rackNodeId, trayNodeId } from './nodeId';
+import { findPort } from './lookup';
+import { liveTargetPortIds } from './liveTargets';
+import { groupPortals, portalCountLabel } from './portals';
+import { sheathsFor } from './sheath';
 
-const NODE_TYPES = { rack: RackNode, chassis: ChassisNode };
+const NODE_TYPES = { rack: RackNode, chassis: ChassisNode, tray: PortalTrayNode };
+const EDGE_TYPES = { cable: CableEdge };
+
+/** Gap between a rack's frame and the portal tray(s) drawn above or below
+ * it — session's own choice, not a board's literal pixel (`Main.dc.html`'s
+ * two trays sit at a different overall scale than this drawing's flow
+ * space). Kept small enough that the sagging cable connecting them reads
+ * as continuous with the rack, per UI-SPEC "Portals": "Not either/or —
+ * both." */
+const TRAY_GAP_PX = 12;
+
+/** The live drooping lead while a drag-to-connect is in progress — UI-SPEC
+ * "Motion" #1: "Cable droops as you pull it," and "Cables": "you see the
+ * slack before you commit." Undecided sheath yet (the picker has not
+ * opened), so this draws in `--muted` ink rather than any real sheath —
+ * `Patching.dc.html`'s own reference board draws the in-hand lead the same
+ * plain grey. */
+function ConnectionLine({ fromX, fromY, toX, toY }: ConnectionLineComponentProps) {
+  const d = cableSagPath(fromX, fromY, toX, toY, 'copper');
+  return (
+    <path d={d} fill="none" stroke="var(--muted)" strokeWidth={2.4} strokeLinecap="round" className="drawing-cable__live" />
+  );
+}
 
 /** Session-only gap between racks placed side by side — not a document
  * fact, never saved (brief: "remembered in component state only in this
@@ -55,12 +93,42 @@ export interface DrawingProps extends DrawingActions {
 
 type AnyRackNode = RackNodeType;
 type AnyChassisNode = ChassisNodeType;
-type FlowNode = AnyRackNode | AnyChassisNode;
+type AnyTrayNode = PortalTrayNodeType;
+type FlowNode = AnyRackNode | AnyChassisNode | AnyTrayNode;
 
 type RackPositions = Record<string, { x: number; y: number }>;
 type DropPreview = Record<string, { fromU: number; toU: number; valid: boolean }>;
 
-function DrawingInner({ view, selected, zoom, onZoomChange, onPlace, onMove, onSelect }: DrawingProps) {
+/** A drop the picker has not yet confirmed — UI-SPEC "Drag-to-connect":
+ * nothing is recorded until the picker's own accept. `screenX`/`screenY`
+ * are screen pixels (`useReactFlow`'s `flowToScreenPosition`), not flow
+ * space — the picker is a fixed-size overlay, never zoomed with the
+ * canvas. */
+interface PendingConnect {
+  fromPortId: string;
+  toPortId: string;
+  kind: CableKind;
+  screenX: number;
+  screenY: number;
+}
+
+/** One sheath remembered per cable kind, for the session — UI-SPEC
+ * "Drag-to-connect": "the last-used one for that kind preselected." Never
+ * persisted past the session (not a document fact, the same rule
+ * `RACK_GAP_PX`'s own session-only layout follows). */
+type LastSheathByKind = Partial<Record<CableKind, Sheath>>;
+
+function DrawingInner({
+  view,
+  selected,
+  zoom,
+  onZoomChange,
+  onPlace,
+  onMove,
+  onSelect,
+  onConnect,
+  onDisconnect,
+}: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
   const [rackPositions, setRackPositions] = useState<RackPositions>({});
@@ -69,6 +137,37 @@ function DrawingInner({ view, selected, zoom, onZoomChange, onPlace, onMove, onS
   const [shakingId, setShakingId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: Math.max(zoom, 1) / 100 });
   const shakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // `FinalConnectionState.to` (below) is already screen space, but relative
+  // to the React Flow container rather than the page — this is what turns
+  // it into the page coordinates the colour picker's `position: fixed`
+  // overlay actually needs.
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Drag-to-connect (UI-SPEC "Cables", "Drag-to-connect") and cable
+  // selection/hover (UI-SPEC "Selection").
+  const [dragFromPortId, setDragFromPortId] = useState<string | null>(null);
+  const [pendingConnect, setPendingConnect] = useState<PendingConnect | null>(null);
+  const [lastSheathByKind, setLastSheathByKind] = useState<LastSheathByKind>({});
+  const [hoveredCableId, setHoveredCableId] = useState<string | null>(null);
+
+  const livePortIds = useMemo(
+    () => (dragFromPortId ? liveTargetPortIds(view, dragFromPortId) : null),
+    [view, dragFromPortId],
+  );
+
+  // UI-SPEC "Cables": "the port a cable fills takes the sheath colour" —
+  // built once per view change rather than have every `ChassisNode` search
+  // the whole cable list for its own ports.
+  const portSheath = useMemo(() => {
+    const map = new Map<string, Sheath>();
+    for (const cable of view.cables ?? []) {
+      if (cable.sheath == null) continue;
+      for (const end of cable.ends) {
+        if ('portId' in end) map.set(end.portId, cable.sheath);
+      }
+    }
+    return map;
+  }, [view.cables]);
 
   // New racks land side by side in arrival order; a rack already placed
   // keeps its session position even if the view re-orders around it.
@@ -173,6 +272,8 @@ function DrawingInner({ view, selected, zoom, onZoomChange, onPlace, onMove, onS
         selected: selected?.kind === 'chassis' && selected.id === chassis.id,
         portOpacity: portOpacityAt(zoomPercent),
         onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
+        liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
+        portSheath,
       };
       nodes.push({
         id,
@@ -185,6 +286,80 @@ function DrawingInner({ view, selected, zoom, onZoomChange, onPlace, onMove, onS
         data: chassisData,
       } satisfies AnyChassisNode);
     }
+  }
+
+  // UI-SPEC "Portals": one tray node per (rack, side, far label) group —
+  // `portals.ts` does the grouping; this only lays the resulting boxes out
+  // above or below their rack, stacking more than one on the same side.
+  const portalGroups = useMemo(() => groupPortals(view), [view]);
+  const traySlots: Record<string, number> = {};
+  for (const group of portalGroups) {
+    const pos = rackPositions[group.rackId];
+    if (pos == null) continue;
+    const rack = view.racks.find((r) => r.id === group.rackId);
+    if (rack == null) continue;
+    const slotKey = `${group.rackId}|${group.side}`;
+    const slot = traySlots[slotKey] ?? 0;
+    traySlots[slotKey] = slot + 1;
+    const y =
+      group.side === 'above'
+        ? pos.y - (slot + 1) * (PORTAL_TRAY_HEIGHT + TRAY_GAP_PX)
+        : pos.y + rackNodeHeight(rack) + TRAY_GAP_PX + slot * (PORTAL_TRAY_HEIGHT + TRAY_GAP_PX);
+    const trayData: PortalTrayNodeData = {
+      label: group.label,
+      countLabel: portalCountLabel(group),
+      side: group.side,
+    };
+    nodes.push({
+      id: trayNodeId(group.key),
+      type: 'tray',
+      position: { x: pos.x, y },
+      draggable: false,
+      selectable: false,
+      style: { width: RACK_NODE_WIDTH, height: PORTAL_TRAY_HEIGHT },
+      data: trayData,
+    } satisfies AnyTrayNode);
+  }
+
+  // UI-SPEC "Selection": the selected (or hovered) cable lights at full
+  // opacity with a pale halo; everything else off that one path sits at
+  // the phantom opacity. Nothing lit (nothing selected, nothing hovered)
+  // leaves every cable at its plain, undimmed colour.
+  const litCableId = selected?.kind === 'cable' ? selected.id : (hoveredCableId ?? null);
+  const somethingLit = litCableId != null;
+
+  const edges: Edge[] = [];
+  for (const cable of view.cables ?? []) {
+    const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string } => 'portId' in e);
+    const outside = cable.ends.find((e): e is { outside: true; label: string } => 'outside' in e && e.outside);
+
+    let target: { nodeId: string; handleId: string } | null = null;
+    if (real.length === 2) {
+      target = { nodeId: chassisNodeId(real[1].chassisId), handleId: real[1].portId };
+    } else if (outside) {
+      const group = portalGroups.find((g) => g.cables.some((c) => c.cableId === cable.id));
+      if (group) target = { nodeId: trayNodeId(group.key), handleId: 'tray' };
+    }
+    if (real.length === 0 || target == null) continue; // no real near end to draw from
+
+    const near = real[0];
+    const edgeData: CableEdgeData = {
+      cable,
+      lit: somethingLit && litCableId === cable.id,
+      dimmed: somethingLit && litCableId !== cable.id,
+      onSelect: (cableId: string) => onSelect({ kind: 'cable', id: cableId }),
+      onHoverChange: setHoveredCableId,
+    };
+    edges.push({
+      id: cable.id,
+      type: 'cable',
+      source: chassisNodeId(near.chassisId),
+      sourceHandle: near.portId,
+      target: target.nodeId,
+      targetHandle: target.handleId,
+      selectable: false, // selection is handled by CableEdge's own onClick, not React Flow's
+      data: edgeData,
+    } satisfies CableEdgeType);
   }
 
   const handleNodeClick: NodeMouseHandler = useCallback(
@@ -287,12 +462,103 @@ function DrawingInner({ view, selected, zoom, onZoomChange, onPlace, onMove, onS
     [rf, view.racks, rackPositions, onPlace, triggerShake],
   );
 
+  // UI-SPEC "Drag-to-connect": "the lead droops live between the fixed
+  // port and the pointer; only ports compatible with the origin stay
+  // live... a port that already has a cable is never a target."
+  const isValidConnection: IsValidConnection = useCallback(
+    (edgeOrConnection) => {
+      const fromId = edgeOrConnection.sourceHandle;
+      const toId = edgeOrConnection.targetHandle;
+      if (!fromId || !toId || fromId === toId) return false;
+      const from = findPort(view, fromId);
+      const to = findPort(view, toId);
+      if (!from || !to) return false;
+      if ((from.port.cable ?? null) != null) return false;
+      if ((to.port.cable ?? null) != null) return false;
+      return compatible(from.port.connector, to.port.connector).ok;
+    },
+    [view],
+  );
+
+  const handleConnectStart: OnConnectStart = useCallback((_event, params) => {
+    setDragFromPortId(params.handleId ?? null);
+  }, []);
+
+  // UI-SPEC "Drag-to-connect": "drop on a live port opens the colour
+  // picker... drop anywhere else, or Escape, cancels with nothing
+  // recorded." A drop that lands on an incompatible or already-cabled port
+  // is simply not `isValid` — `connectionState.isValid` reflects
+  // `isValidConnection` above — so it falls through to the same "nothing
+  // recorded" path as a drop on empty canvas, per the brief's build list
+  // (no separate shake is specified for a cable drop, unlike a chassis
+  // drop's `overlapsRack` shake above).
+  const handleConnectEnd: OnConnectEnd = useCallback(
+    (_event, connectionState: FinalConnectionState) => {
+      setDragFromPortId(null);
+      if (!connectionState.isValid) return;
+      const fromHandleId = connectionState.fromHandle?.id;
+      const toHandleId = connectionState.toHandle?.id;
+      if (!fromHandleId || !toHandleId) return;
+      const from = findPort(view, fromHandleId);
+      const to = findPort(view, toHandleId);
+      if (!from || !to) return;
+      const result = compatible(from.port.connector, to.port.connector);
+      if (!result.ok) return;
+
+      // `connectionState.to` is screen space already (`@xyflow/system`'s own
+      // `onPointerUp`: a valid drop's `to` is `rendererPointToPoint`, the
+      // same conversion `flowToScreenPosition` does), but relative to the
+      // React Flow container's own top-left, not the page's — add the
+      // container's own offset to get real page coordinates for the
+      // picker's `position: fixed` overlay.
+      const rect = containerRef.current?.getBoundingClientRect();
+      setPendingConnect({
+        fromPortId: fromHandleId,
+        toPortId: toHandleId,
+        kind: result.kind,
+        screenX: (rect?.left ?? 0) + connectionState.to.x,
+        screenY: (rect?.top ?? 0) + connectionState.to.y,
+      });
+    },
+    [view],
+  );
+
+  const handlePickerConfirm = useCallback(
+    (sheath: Sheath) => {
+      if (!pendingConnect) return;
+      setLastSheathByKind((prev) => ({ ...prev, [pendingConnect.kind]: sheath }));
+      onConnect?.(pendingConnect.fromPortId, pendingConnect.toPortId, sheath);
+      setPendingConnect(null);
+    },
+    [pendingConnect, onConnect],
+  );
+
+  const handlePickerCancel = useCallback(() => setPendingConnect(null), []);
+
+  // UI-SPEC "Delete/Backspace on a selected cable calls onDisconnect after
+  // nothing else — no confirmation dialog; undo is the record's job."
+  // React Flow's own delete handling stays off (`deleteKeyCode={null}`
+  // below, unchanged from before this session) for racks and chassis,
+  // which do not have a delete feature yet — this listener acts only when
+  // a cable is the current selection.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      if (selected?.kind !== 'cable') return;
+      event.preventDefault();
+      onDisconnect?.(selected.id);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [selected, onDisconnect]);
+
   return (
-    <div className="drawing" onDrop={handleDrop} onDragOver={handleDragOver}>
+    <div className="drawing" ref={containerRef} onDrop={handleDrop} onDragOver={handleDragOver}>
       <ReactFlow
         nodes={nodes}
-        edges={[]}
+        edges={edges}
         nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
         viewport={viewport}
         onViewportChange={handleViewportChange}
         onNodeClick={handleNodeClick}
@@ -304,12 +570,31 @@ function DrawingInner({ view, selected, zoom, onZoomChange, onPlace, onMove, onS
         panOnDrag
         panOnScroll={false}
         zoomOnScroll
-        nodesConnectable={false}
+        // UI-SPEC "Cables": a drag may be picked up from either end of a
+        // future cable, and dropped on any other live port — loose mode is
+        // what lets every port `Handle` (all declared `type="source"`,
+        // `ChassisNode.tsx`) both start and receive a connection.
+        connectionMode={ConnectionMode.Loose}
+        connectionLineComponent={ConnectionLine}
+        isValidConnection={isValidConnection}
+        onConnectStart={handleConnectStart}
+        onConnectEnd={handleConnectEnd}
+        nodesConnectable
         elementsSelectable
         deleteKeyCode={null}
       >
         <Background gap={U_PX} size={1} />
       </ReactFlow>
+      {pendingConnect && (
+        <ColourPicker
+          kind={pendingConnect.kind}
+          initial={lastSheathByKind[pendingConnect.kind] ?? sheathsFor(pendingConnect.kind)[0]}
+          screenX={pendingConnect.screenX}
+          screenY={pendingConnect.screenY}
+          onConfirm={handlePickerConfirm}
+          onCancel={handlePickerCancel}
+        />
+      )}
     </div>
   );
 }

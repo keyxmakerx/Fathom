@@ -124,7 +124,8 @@ describe('placeChassis', () => {
     expect(findNode(next, deviceId)).toBeDefined();
 
     const ports = edgesOut(next, chassisId, 'HasPort');
-    expect(ports).toHaveLength(3); // 2 front + 1 rear, every faceplate's ports
+    // 2 front + 1 rear faceplate ports, plus MODEL_1U's 2 PSU inlets (docs/UI-SPEC.md "Power").
+    expect(ports).toHaveLength(5);
   });
 
   it('refuses an out-of-range unit', () => {
@@ -262,5 +263,17 @@ describe('removeChassis', () => {
     expect(() => removeChassis(doc, 'chassis:01ARZ3NDEKTSV4RRFFQ69G5FAV', { now: NOW })).toThrow(
       UnknownReferenceError,
     );
+  });
+});
+
+describe('placeChassis writes the schema connector token, not the catalogue kind', () => {
+  it('maps RJ45 to rj45 and QSFP+ to qsfp, and an unknown kind to other', async () => {
+    const { connectorTokenOf } = await import('./compat');
+    expect(connectorTokenOf('RJ45')).toBe('rj45');
+    expect(connectorTokenOf('SFP+')).toBe('sfp_plus');
+    expect(connectorTokenOf('QSFP+')).toBe('qsfp');
+    expect(connectorTokenOf('LC')).toBe('lc');
+    expect(connectorTokenOf('C14')).toBe('c14');
+    expect(connectorTokenOf('Mystery')).toBe('other');
   });
 });

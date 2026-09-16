@@ -49,7 +49,7 @@ function premisesDoc(): { doc: Document; premisesId: string } {
 
 describe('viewOf', () => {
   it('is empty for a document with no Premises', () => {
-    expect(viewOf(emptyDocument(), [])).toEqual({ premisesId: '', racks: [] });
+    expect(viewOf(emptyDocument(), [])).toEqual({ premisesId: '', racks: [], cables: [] });
   });
 
   it('draws a rack with no chassis and one free run', () => {
@@ -79,7 +79,8 @@ describe('viewOf', () => {
     // Only the front faceplate's two ports are drawn for a front-mounted chassis.
     expect(chassis.ports).toHaveLength(2);
     expect(chassis.ports.map((p) => p.label).sort()).toEqual(['0', '1']);
-    expect(chassis.ports.every((p) => p.connector === 'RJ45')).toBe(true);
+    // The schema's token, never the catalogue's `"RJ45"` (`compat.ts`'s `connectorTokenOf`).
+    expect(chassis.ports.every((p) => p.connector === 'rj45')).toBe(true);
 
     expect(view.racks[0].freeRuns).toEqual([
       { fromU: 1, toU: 2 },

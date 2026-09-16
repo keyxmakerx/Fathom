@@ -249,6 +249,7 @@
 }
 
 .drawing-chassis__port {
+  position: relative;
   appearance: none;
   border: none;
   background: none;
@@ -261,6 +262,37 @@
 .drawing-chassis__port:focus-visible {
   outline: var(--focus-width) solid var(--focus-colour);
   outline-offset: 1px;
+}
+
+/* The React Flow `Handle` sits over the glyph rather than at a node edge —
+   `ChassisNode.tsx`'s own note on why: many ports per node, each its own
+   handle. `position: static` (not the base.css default `absolute`) plus
+   `inset: 0` pulled out of the flow keeps it exactly the glyph's own box,
+   never React Flow's own edge-anchored default offset. */
+.drawing-chassis__port-handle {
+  position: absolute !important;
+  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  transform: none !important;
+  background: transparent !important;
+  border: none;
+  border-radius: 0;
+}
+
+/* UI-SPEC "Cables": "the port a cable fills takes the sheath colour."
+   `--port-sheath` is set inline by `ChassisNode.tsx` only on a cabled
+   port. Three classes deep so this outranks `components/ports/ports.css`'s
+   own `.port--cabled .port__body { fill: var(--ink) }` (two classes)
+   regardless of which stylesheet's rule the bundler happens to place last. */
+.drawing-chassis__port--cabled .port--cabled .port__body {
+  fill: var(--port-sheath, var(--ink));
 }
 
 /* ---- the editor surface ------------------------------------------------ */
@@ -357,5 +389,119 @@
 
 .drawing-palette__summary {
   font-size: var(--t-small);
+  color: var(--muted);
+}
+
+/* ---- portal trays -------------------------------------------------------
+   UI-SPEC "Portals": "the cable visibly sags to the edge of the view and
+   ends in a dashed tray there, naming where it goes and how many cross."
+   `design/shell/Main.dc.html`'s two tray boxes: a dashed hairline box,
+   `--surface-2`, the far side's name, the count right-aligned. */
+
+.drawing-tray {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 0 var(--s3);
+  border: var(--rule-hair) dashed var(--muted);
+  background: var(--surface-2);
+  font-size: var(--t-small);
+  color: var(--ink);
+}
+
+.drawing-tray__arrow {
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+.drawing-tray__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawing-tray__count {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-variant-numeric: var(--num-tabular);
+}
+
+.drawing-tray__handle {
+  position: absolute !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---- cables --------------------------------------------------------------
+   UI-SPEC "Cables": sheath colour and construction (stroke count/width)
+   are set inline per cable in `CableEdge.tsx` (the sheath is per-cable
+   data, not a fixed style this stylesheet could name); only the
+   interaction affordance lives here. */
+
+.drawing-cable {
+  transition: opacity var(--m-pane) var(--m-ease);
+}
+
+/* ---- the colour picker ----------------------------------------------------
+   UI-SPEC "Drag-to-connect": "the colour picker as the one popover kind."
+   Deliberately parallel to `shell.css`'s `.shell-popover*` (hairline
+   border, `--surface-2`, zero radius, no shadow) — see `ColourPicker.tsx`'s
+   own note on why this is a separate, structurally similar rule set rather
+   than importing `shell.css` into a module that otherwise never depends on
+   the shell. */
+
+.drawing-picker {
+  z-index: var(--z-egress);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  padding: var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 220px;
+}
+
+.drawing-picker__title {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.drawing-picker__swatches {
+  display: flex;
+  gap: var(--s2);
+}
+
+.drawing-picker__swatch {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.drawing-picker__swatch--selected {
+  outline: var(--focus-width) solid var(--ink);
+  outline-offset: 2px;
+}
+
+.drawing-picker__name {
+  font-size: var(--t-body);
+  color: var(--ink);
+  font-family: var(--mono);
+}
+
+.drawing-picker__hint {
+  font-size: var(--t-micro);
   color: var(--muted);
 }
