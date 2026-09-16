@@ -83,6 +83,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test --workspace --locked
 cargo run -p fathom-schema --bin fathom-schema-check
 ./scripts/gate-zero.sh
+./scripts/gate-npm.sh
 ```
 
 Plus the dependency gates in `scripts/` and whatever the current task names. Green is the gate,

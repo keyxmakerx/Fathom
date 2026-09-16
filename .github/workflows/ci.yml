@@ -100,6 +100,12 @@ jobs:
       - name: Gate zero — no unapproved dependency
         run: ./scripts/gate-zero.sh
 
+      # ADR-0032 §5's record-before-admission process, mirrored for the browser client:
+      # gate-zero.sh reads Cargo.lock only, and package.json/package-lock.json had no gate
+      # at all before this. Needs no toolchain, so it runs beside gate-zero.
+      - name: Gate npm — no unapproved client dependency
+        run: ./scripts/gate-npm.sh
+
       - name: Layer 4 (mechanical half) — no look-alike crate names
         run: ./scripts/lockfile-lookalikes.sh
 
@@ -116,6 +122,7 @@ jobs:
       - name: The gates' own tests
         run: |
           ./scripts/tests/gate-zero-test.sh
+          ./scripts/tests/gate-npm-test.sh
           ./scripts/tests/lockfile-lookalikes-test.sh
           ./scripts/tests/crate-cooldown-test.sh
           ./scripts/tests/forbidden-claims-test.sh
