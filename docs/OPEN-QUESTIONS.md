@@ -465,6 +465,40 @@ outcome is sealed once per scope touched, with the same words, so each chain is 
 The first is one entry and one truth; the second keeps a scope's chain self-contained when it is
 exported or verified alone, which is what the verify endpoint promises today.
 
+### D11. A design has no name — is its scope its name?
+
+*Found 2026-09-16 while building Home.* The `designs` table carries an id, an organisation, a
+**scope**, a creation time and a creator. There is **no name column**, so the design list can only
+show an opaque identifier, and Home's board — which lists closets by name — cannot be built as
+drawn.
+
+Two readings, and they lead to different work:
+
+- **The scope is the name.** You do not name drawings; you open *IDF-2*. A design hangs under a
+  scope, the scope has a `display_name`, and the estate is what you navigate. This fits the camera
+  and the two places: nothing in the interface is a file list. The work it implies is **a route that
+  returns the scope tree** — which the shell's path control and its tree pop-over need anyway, and
+  which nothing exposes today (`scopes` has `display_name`, `kind`, `path`, `depth` and
+  `parent_scope_id`; `repo.rs` has only `create_scope`).
+- **A design needs a name of its own.** Then it is a schema addition, by `CLAUDE.md` rule 3, and one
+  scope can hold several named drawings.
+
+**Proceeding on the first reading**, because it is the one the rest of the design implies and it
+needs no schema change. Say so if the second is what you meant.
+
+### D12. An invitation redeemed but never received
+
+*Found 2026-09-16 while building enrolment.* Redemption spends the token and enrols the key in one
+server transaction, and the browser stores its keypair only after reading the answer. If the network
+fails in between, the token is spent, the account has a key recorded against it, and the browser that
+generated it holds nothing. The person is locked out until an operator reissues the invitation, which
+`/admin/accounts/{account}/enrolment` already does.
+
+The alternative is for the browser to store the keypair *before* sending, and clear it on refusal,
+which trades a rare lockout for a key that exists locally without being enrolled. Neither is wrong;
+the current order is the one where nothing is stored that the server has not accepted. Worth a
+decision only if reissuing turns out to be painful in practice.
+
 ---
 
 ## E. Needs your time, not just your answer
