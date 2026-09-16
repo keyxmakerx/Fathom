@@ -439,6 +439,24 @@ fn design_error_response(e: DesignError) -> Response {
             tracing::error!(reason = %e, "design storage integrity check failed");
             (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
         }
+        // ADR-0049 #2 and #4: a distinct, non-500 status naming the
+        // plain-face error, never a generic failure -- the payload is the
+        // caller's own bytes, not a storage fault.
+        DesignError::InvalidPlainPayload(plain_error) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!(
+                "that payload does not read back as a fathom-plain document: {plain_error:?}\n"
+            ),
+        )
+            .into_response(),
+        DesignError::SchemaVersionPrefixMismatch { prefix, declared } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!(
+                "the wire prefix names schema version {prefix} but the payload's own line 3 \
+                 declares `{declared}`; these must agree\n"
+            ),
+        )
+            .into_response(),
         DesignError::Pool(_)
         | DesignError::Db(_)
         | DesignError::Repo(_)
@@ -868,6 +886,29 @@ async fn open_design_handler(
 /// version fixed at four bytes because everything after it is the payload
 /// verbatim, and a length-prefixed field here would mean copying up to 64 MiB
 /// twice for no reason.
+///
+/// # The server reads every payload back before storing it (ADR-0049 #2)
+///
+/// `payload` is parsed with [`fathom_workspace::read_plain`] before anything
+/// else here touches the database. A design payload is a `fathom-plain 1`
+/// document by decision, not by convention (ADR-0049 #1) — the one graph
+/// format the Rust engine reads — so bytes the engine itself cannot read
+/// back are refused at the door rather than stored opaque, unreadable to
+/// everything downstream that later opens this design. This runs before the
+/// session is even verified, for the same reason [`read_u32_le`] already
+/// does: a malformed request costs nothing from the database either way.
+///
+/// ADR-0049 #4 also requires the wire prefix and the payload's own declared
+/// schema version (its line 3) to agree. `read_plain` already refused any
+/// payload whose line 3 is not this build's current schema version, so by
+/// the time it has returned `Ok`, line 3 is known; [`declared_schema_version`]
+/// reads it back out of the same bytes rather than threading a second copy
+/// of it out of `fathom_workspace`, which is deliberately bytes-in/bytes-out
+/// with no policy of its own (that crate's own module doc). There is no
+/// existing numeric form of the schema version (`SCHEMA_VERSION` is the
+/// string `"0.N"`; no major bump has happened yet) anywhere in this tree, so
+/// [`schema_version_as_u32`] is the one place that defines the wire number:
+/// strip the fixed `"0."` and parse the remainder as the minor number.
 async fn save_design_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, design)): PathExtractor<(String, String)>,
@@ -878,6 +919,27 @@ async fn save_design_handler(
 
     let (schema_version, payload) =
         read_u32_le(&signed.body).ok_or(SessionError::Malformed("design payload body"))?;
+
+    // ADR-0049 #2: refuse anything the engine cannot read, before the
+    // session is verified or the database is touched. `let _ =`, not a bound
+    // name: `fathom_graph::Graph` boxes field values as `dyn Any` with no
+    // `Send` bound, so a `Graph` kept alive across the `.await`s below would
+    // make this handler's future itself not `Send` -- the wildcard pattern
+    // drops it immediately, right here, well before any of them.
+    let _ = fathom_workspace::read_plain(payload).map_err(DesignError::InvalidPlainPayload)?;
+
+    // ADR-0049 #4: the wire prefix and the payload's own declared schema
+    // version must agree. `read_plain` above already proved line 3 is a
+    // well-formed `schema <version>` line, so this only re-reads it.
+    let declared = declared_schema_version(payload)
+        .expect("read_plain already validated a well-formed line 3");
+    if schema_version_as_u32(declared) != Some(schema_version) {
+        return Err(DesignError::SchemaVersionPrefixMismatch {
+            prefix: schema_version,
+            declared: declared.to_owned(),
+        }
+        .into());
+    }
 
     let mut client = state
         .sessions
@@ -912,6 +974,34 @@ fn read_u32_le(bytes: &[u8]) -> Option<(u32, &[u8])> {
     let (head, rest) = bytes.split_at(4);
     let arr: [u8; 4] = head.try_into().ok()?;
     Some((u32::from_le_bytes(arr), rest))
+}
+
+/// Line 3 of a `fathom-plain` payload, read back out of the raw bytes rather
+/// than threaded out of `fathom_workspace::read_plain` — that crate is
+/// deliberately bytes-in/bytes-out with no policy of its own (its own module
+/// doc), and this is only ever called after `read_plain` has already
+/// accepted the same bytes, so line 3 is guaranteed well-formed
+/// (`schema <version>`) here. `None` only if that guarantee is broken.
+fn declared_schema_version(payload: &[u8]) -> Option<&str> {
+    payload
+        .split(|&b| b == b'\n')
+        .nth(2)
+        .and_then(|line| core::str::from_utf8(line).ok())
+        .and_then(|line| line.strip_prefix("schema "))
+}
+
+/// ADR-0049 #4's wire number for `SCHEMA_VERSION` (`fathom-ir`'s generated
+/// `"0.N"` string). No numeric form of it exists anywhere else in this tree
+/// to compare the four-byte prefix against, so this defines the one used on
+/// the wire: strip the fixed `"0."` — no major bump has happened yet
+/// (`schema/schema.yaml`'s own comment on the baseline) — and parse the
+/// remainder as the minor number. Any other shape (in particular a future
+/// major bump) returns `None`, which is an unconditional refusal until
+/// someone decides what the wire form of a 1.x schema version is.
+fn schema_version_as_u32(declared: &str) -> Option<u32> {
+    declared
+        .strip_prefix("0.")
+        .and_then(|minor| minor.parse().ok())
 }
 
 // ---------------------------------------------------------------------------

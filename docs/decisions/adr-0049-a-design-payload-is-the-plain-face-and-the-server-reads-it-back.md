@@ -23,7 +23,11 @@ never reached this question.
    with `write_plain` into fixtures under the client tree, and the TypeScript reader and writer
    must reproduce them byte for byte — the same cross-language pattern as the session vectors.
 4. **The schema version prefix stays.** The save route's four-byte prefix and the face's line 3
-   both name the schema version; they must agree, and the server checks that they do.
+   both name the schema version; they must agree, and the server checks that they do. *Settled
+   while building, 2026-09-16:* the schema version is the string `0.N` and the prefix is a `u32`,
+   so the prefix carries **N**, the minor number — `0.5` puts `5` on the wire, little-endian. No
+   prior art existed for this; it is named in `design_api.rs` and here, and is revisited if the
+   schema ever reaches `1.0`.
 
 ## What this rules out
 

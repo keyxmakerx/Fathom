@@ -161,6 +161,20 @@ pub enum DesignError {
     Refused,
     /// A stored row is not shaped like one this server wrote.
     Corrupt(&'static str),
+    /// The payload does not read back as a `fathom-plain` document
+    /// (`fathom_workspace::read_plain`). ADR-0049 #2: **the server reads
+    /// every design payload back before storing it**, and a payload the
+    /// engine itself cannot parse is refused at the door rather than stored
+    /// opaque and unreadable to everything downstream that expects a plain
+    /// workspace face -- the walkthrough, the checker, the inventory.
+    InvalidPlainPayload(fathom_workspace::PlainError),
+    /// The wire body's four-byte schema-version prefix disagreed with the
+    /// payload's own declared schema version on line 3. ADR-0049 #4: both
+    /// name the schema version and must agree.
+    SchemaVersionPrefixMismatch {
+        prefix: u32,
+        declared: String,
+    },
 }
 
 impl fmt::Display for DesignError {
@@ -200,6 +214,17 @@ impl fmt::Display for DesignError {
                  corruption.",
             ),
             Self::Corrupt(what) => write!(f, "a stored {what} is not shaped like one we wrote"),
+            Self::InvalidPlainPayload(e) => {
+                write!(
+                    f,
+                    "payload does not read back as a fathom-plain document: {e:?}"
+                )
+            }
+            Self::SchemaVersionPrefixMismatch { prefix, declared } => write!(
+                f,
+                "the wire prefix names schema version {prefix} but the payload's own line 3 \
+                 declares `{declared}`; these must agree"
+            ),
         }
     }
 }

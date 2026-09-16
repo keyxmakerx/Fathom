@@ -1,0 +1,8 @@
+{
+  "name": "two-chassis",
+  "description": "Builds on one-rack.plain: the same Premises and Rack (label \"R1\", height_u 42, ascending), plus two Device nodes, each with one Chassis (HasChassis). Each chassis is MountedIn the rack at a different position_u (10 and 20) with face set (front and rear -- both sampled, not a rule: MountedIn.face is optional and either value is legal). The first chassis owns 2 PhysicalPort nodes, the second owns 3, each attached via HasPort and carrying a label (\"1\", \"2\", ...), a position and a connector (rj45, sfp_plus, qsfp28 -- sampled from PhysicalPort.connector's closed vocabulary, not the only legal values). PhysicalPort.position is set on every port, but 19 section 3.3's PortPosition shape has no modelled fields yet (fathom-ir's own value::PortPosition stub), so on the wire it is the empty object {}; setting it records only that a position is known, not what it is. Every label, position_u, face and connector value here is a sample, never a fixed convention.",
+  "node_count": 11,
+  "edge_count": 10,
+  "kinds": ["Premises", "Rack", "Device", "Chassis", "PhysicalPort"],
+  "edges": ["HasRack", "HasChassis", "MountedIn", "HasPort"]
+}

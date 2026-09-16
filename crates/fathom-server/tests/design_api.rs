@@ -26,6 +26,11 @@ use std::sync::Arc;
 
 use deadpool_postgres::Pool;
 
+use fathom_graph::{
+    Actor, BatchId, Confidence, Graph, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId,
+};
+use fathom_id::Ulid;
+use fathom_ir::generated::ir_types::NodeKind;
 use fathom_server::api::{
     HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION, HEADER_SIGNATURE, HEADER_TIMESTAMP, HEADER_TOKEN,
 };
@@ -445,6 +450,40 @@ fn a_design_id_nothing_was_ever_created_under() -> DesignId {
     DesignId(fathom_server::ids::new_ulid())
 }
 
+/// A real `fathom-plain 1` document (ADR-0049 #2: `save_design_handler` now
+/// reads every payload back with `fathom_workspace::read_plain` before
+/// storing it, so a save test's body has to be one of these rather than
+/// arbitrary bytes). `seed` only keeps the ULIDs distinct across the tests
+/// that call this more than once; the content otherwise carries nothing
+/// these tests read back.
+fn a_plain_face_payload(seed: u128) -> Vec<u8> {
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(Ulid(seed * 10)), "design_api test fixture")
+        .expect("open batch");
+    g.insert_node(
+        NodeKind::Device,
+        Ulid(seed * 10 + 1),
+        ProvenanceRecord {
+            id: ProvenanceId(Ulid(seed * 10 + 2)),
+            origin: Origin::Hand,
+            asserted_at: Timestamp(0),
+            asserted_by: Actor::User(UserId(Ulid(seed * 10 + 3))),
+            confidence: Confidence::Asserted,
+            supersedes: None,
+        },
+    )
+    .expect("bare device");
+    g.end_batch().expect("close batch");
+    fathom_workspace::write_plain(&g).expect("a graph this crate built must write")
+}
+
+/// ADR-0049 #4's wire number for the schema version currently declared on
+/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.5"` at time
+/// of writing, whose minor component this is. Kept as its own named constant
+/// rather than a bare `5` at each call site so a future schema bump has one
+/// place to change.
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 5;
+
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
     out.extend_from_slice(payload);
@@ -727,7 +766,11 @@ async fn a_read_only_caller_is_refused_a_save_and_the_refusal_does_not_leak_whet
 
     let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
 
-    let body = save_body(1, b"a reader must never be able to write this");
+    // A real `fathom-plain` payload (ADR-0049 #2 now refuses anything else
+    // before the capability check below is even reached), so this test
+    // still proves what its name says: the capability check, not the
+    // payload's own shape.
+    let body = save_body(CURRENT_SCHEMA_WIRE_VERSION, &a_plain_face_payload(1));
 
     let real_path = format!(
         "/organisations/{}/designs/{}/versions",
@@ -876,13 +919,15 @@ async fn a_drawer_saves_a_version_and_the_steward_opens_the_same_bytes_back() {
         "/organisations/{}/designs/{}/versions",
         estate.organisation, design
     );
-    let payload = b"the estate, drawn by someone with draw but not steward";
+    // A real `fathom-plain` payload -- ADR-0049 #2, exactly as the read-only
+    // caller test above notes.
+    let payload = a_plain_face_payload(2);
     let (status, body) = call(
         addr,
         &drawer,
         "POST",
         &versions_path,
-        &save_body(3, payload),
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &payload),
     )
     .await;
     assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
@@ -906,6 +951,170 @@ async fn a_drawer_saves_a_version_and_the_steward_opens_the_same_bytes_back() {
     let text = String::from_utf8_lossy(&body);
     assert!(text.contains("\"entry_type\":\"create\""), "{text}");
     assert!(text.contains("\"design_version\":1"), "{text}");
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0049 #2 and #4: the server reads every design payload back before
+// storing it, and the wire prefix must agree with the payload's own line 3
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_payload_written_by_write_plain_saves_and_opens_back_byte_for_byte() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let payload = a_plain_face_payload(3);
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &payload),
+    )
+    .await;
+    assert_eq!(
+        status,
+        "200",
+        "a payload write_plain wrote must be accepted: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let open_path = format!("/organisations/{}/designs/{}", estate.organisation, design);
+    let (status, body) = call(addr, &drawer, "GET", &open_path, b"").await;
+    assert_eq!(status, "200");
+    assert_eq!(
+        body, payload,
+        "the bytes read back must equal the bytes write_plain produced, byte for byte"
+    );
+}
+
+/// Line 2 of a `fathom-plain` payload is [`fathom_workspace::PLAIN_WARNING`],
+/// byte for byte -- flipping the case of its first letter edits it away
+/// without moving any other offset in the file.
+fn corrupt_warning_line(payload: &[u8]) -> Vec<u8> {
+    let mut out = payload.to_vec();
+    let first_nl = out
+        .iter()
+        .position(|&b| b == b'\n')
+        .expect("line 1 ends in a newline");
+    let warning_start = first_nl + 1;
+    assert_eq!(
+        out[warning_start], b'T',
+        "line 2 must start with the T of THIS -- fathom_workspace::PLAIN_WARNING"
+    );
+    out[warning_start] = b't';
+    out
+}
+
+#[tokio::test]
+async fn a_payload_whose_warning_line_is_edited_is_refused_with_the_named_error() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let corrupted = corrupt_warning_line(&a_plain_face_payload(4));
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &corrupted),
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(
+        status, "422",
+        "an edited warning line must be refused, never stored: {text}"
+    );
+    assert!(
+        text.contains("MissingPlaintextBanner"),
+        "the refusal must name the plain-face error rather than a generic failure: {text}"
+    );
+
+    // Positive control: nothing was written.
+    let latest = designs::read_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        None,
+    )
+    .await;
+    assert!(
+        matches!(latest, Err(designs::DesignError::NoSuchVersion)),
+        "the refused save must not have written a version: {latest:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_payload_whose_prefix_disagrees_with_line_3_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let payload = a_plain_face_payload(5);
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        // The payload's own line 3 declares CURRENT_SCHEMA_WIRE_VERSION; the
+        // wire prefix disagrees on purpose.
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION + 1, &payload),
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(
+        status, "422",
+        "a prefix that disagrees with line 3 must be refused, never stored: {text}"
+    );
+    assert!(
+        text.contains("schema version"),
+        "the refusal must name the disagreement rather than a generic failure: {text}"
+    );
+
+    let latest = designs::read_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        None,
+    )
+    .await;
+    assert!(
+        matches!(latest, Err(designs::DesignError::NoSuchVersion)),
+        "the refused save must not have written a version: {latest:?}"
+    );
 }
 
 #[tokio::test]

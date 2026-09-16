@@ -132,6 +132,15 @@ fathom-schema = { path = "../fathom-schema" }
 # `fathom-id` and `fathom-schema`, both already dependencies of this crate.
 fathom-corpus = { path = "../fathom-corpus" }
 
+# The plain workspace face (ADR-0049): `save_design_handler` reads every
+# design payload back with `fathom_workspace::read_plain` before it is
+# stored, and refuses anything the engine cannot read. A path member of this
+# workspace, exactly like the four above -- NOT an external dependency, and
+# gate-zero's closure count is unchanged by this line. `fathom-workspace`
+# itself names only `fathom-canon`, `fathom-graph`, `fathom-id` and
+# `fathom-ir`, all already reachable from this crate through `fathom-graph`.
+fathom-workspace = { path = "../fathom-workspace" }
+
 # ---------------------------------------------------------------------------
 # PHASE 2's KEY HIERARCHY. Every version below is `docs/PHASE-2-STORAGE-DESIGN.md`
 # §12.4's table, and each has its own `deps/decisions/` record because this
@@ -223,3 +232,14 @@ ecdsa = { version = "0.17.0", default-features = false, features = [
     "algorithm",
     "digest",
 ] }
+
+[dev-dependencies]
+# `tests/design_api.rs` builds real graphs to prove a save round-trips a
+# genuine `fathom-plain` payload (ADR-0049), which needs the generated node
+# kinds `fathom-workspace` itself does not re-export (that crate is
+# deliberately bytes-in/bytes-out). A path member of this workspace, exactly
+# like the dependencies above: NOT an external dependency, and it is already
+# reachable from this crate through `fathom-graph` -- naming it directly only
+# makes it `use`-able from a test binary, which Cargo requires even for a
+# transitively-present path member.
+fathom-ir = { path = "../fathom-ir" }
