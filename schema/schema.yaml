@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.5"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.6"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -57,6 +57,18 @@ schema:
                     # owner changes. Whole change = MINOR. RelayServerIn is the third
                     # edge because the owner chose it (70 §18.5) over a string field
                     # that would have been invariant 7's natural-key reference.
+                    #
+                    # 0.6 is the cables session's schema half (docs/UI-SPEC.md "Cables",
+                    # "Power"): one new optional field, `Cable.sheath` (field key 312, the
+                    # next in `schema/field-keys.yaml`), and two enum variants each on two
+                    # already-keyed fields — `PhysicalPort.connector` gains `c13`/`c14`,
+                    # `PhysicalPort.service` gains `power` — so a PDU's outlets and a
+                    # device's PSU inlets are ports the way UI-SPEC "Power" draws them.
+                    # Priced against 62 §16.2 exactly as 0.2 and 0.3 were: "New optional
+                    # field" is minor (the field is new, its declarer — Cable — is not),
+                    # and "New enum variant | minor | Variant::Unknown(token)" three times.
+                    # No kind, no edge, no retype, no removal, no field key reused or
+                    # renumbered. Whole change = MINOR.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -959,8 +971,8 @@ kinds:
       # exactly as tier-1 already behaves when position (0..1 since birth) is absent.
       - { name: label, type: Text, card: "0..1", emit: "—", doc: "The silkscreen: \"1\", \"PON 0/1\". Not the interface name. Absent means: the port exists and nobody has read the faceplate yet." }
       - { name: position, type: PortPosition, card: "0..1", emit: "—", doc: "{ slot: Option<u8>, subslot: Option<u8>, index: u16 }." }
-      - { name: connector, type: "enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, other }", card: "0..1", emit: "—" }
-      - { name: service, type: "enum { ethernet, pon, rf, serial, console, management, other }", card: "0..1", emit: "—", doc: What the cage is for. }
+      - { name: connector, type: "enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, other }", card: "0..1", emit: "—", doc: "c13/c14 are the IEC 60320 power connectors — a PDU outlet is c13, a device PSU inlet is c14 (docs/UI-SPEC.md \"Power\")." }
+      - { name: service, type: "enum { ethernet, pon, rf, serial, console, management, power, other }", card: "0..1", emit: "—", doc: "What the cage is for. power: a PDU outlet or a device PSU inlet, ports the same way as any other faceplate opening (docs/UI-SPEC.md \"Power\"); Cable.media already carries power for the run between them." }
       - { name: speed_max, type: Bandwidth, card: "0..1", emit: "—", doc: The cage's ceiling — a different fact from Interface.speed. }
       - name: transceiver
         type: Transceiver
@@ -1009,6 +1021,7 @@ kinds:
       - { name: provider_circuit, type: Text, card: "0..1", emit: "—", doc: Free prose until Circuit exists — promotion trigger written in 19 §3.4.2. }
       - { name: notes, type: Text, card: "0..1", emit: "—" }
       - { name: last_confirmed, type: Date, card: "0..1", emit: "—", doc: "19 §6.10 — Origin::Hand only; rendered as ADR-0027's stamp, never evaluated." }
+      - { name: sheath, type: "enum { grey, blue, red, yellow, green, orange, purple, black, white, aqua, erika }", card: "0..1", emit: "—", doc: "The lead actually used, never a status (docs/UI-SPEC.md \"Cables\"). Copper: the nine stock lead colours; fibre adds aqua (OM3/OM4) and erika (violet OM4, some makers) per TIA-598-C — orange and yellow are shared with copper, the line style (Cable.media) is what tells them apart. Deliberately closed, no other/unknown variant: each token is a `--sheath-*` CSS custom property, not an open taxonomy." }
     identity:
       # NOTE (form vs content): 62 §8.1's term grammar has edge(E) with no end qualifier;
       # 19 §3.4 writes the tier with Terminates:A / Terminates:B (end field normalised by

@@ -1113,12 +1113,13 @@ mod body {
         pub fn position<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::PortPosition, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(209))
         }
-        /// `PhysicalPort.connector` — `enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, other }`, card `0..1`, emit `—`.
+        /// `PhysicalPort.connector` — `enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, other }`, card `0..1`, emit `—`.
+        /// c13/c14 are the IEC 60320 power connectors — a PDU outlet is c13, a device PSU inlet is c14 (docs/UI-SPEC.md "Power").
         pub fn connector<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortConnector, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(210))
         }
-        /// `PhysicalPort.service` — `enum { ethernet, pon, rf, serial, console, management, other }`, card `0..1`, emit `—`.
-        /// What the cage is for.
+        /// `PhysicalPort.service` — `enum { ethernet, pon, rf, serial, console, management, power, other }`, card `0..1`, emit `—`.
+        /// What the cage is for. power: a PDU outlet or a device PSU inlet, ports the same way as any other faceplate opening (docs/UI-SPEC.md "Power"); Cable.media already carries power for the run between them.
         pub fn service<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortService, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(211))
         }
@@ -1190,6 +1191,11 @@ mod body {
         /// 19 §6.10 — Origin::Hand only; rendered as ADR-0027's stamp, never evaluated.
         pub fn last_confirmed<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Date, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(224))
+        }
+        /// `Cable.sheath` — `enum { grey, blue, red, yellow, green, orange, purple, black, white, aqua, erika }`, card `0..1`, emit `—`.
+        /// The lead actually used, never a status (docs/UI-SPEC.md "Cables"). Copper: the nine stock lead colours; fibre adds aqua (OM3/OM4) and erika (violet OM4, some makers) per TIA-598-C — orange and yellow are shared with copper, the line style (Cable.media) is what tells them apart. Deliberately closed, no other/unknown variant: each token is a `--sheath-*` CSS custom property, not an open taxonomy.
+        pub fn sheath<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::CableSheath, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(312))
         }
     }
     /// Typed reads for `PassiveNode` fields.
@@ -1876,6 +1882,7 @@ mod body {
             309 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             310 => Some((core::any::TypeId::of::<u32>(), "u32")),
             311 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            312 => Some((core::any::TypeId::of::<crate::generated::ir_types::CableSheath>(), "crate::generated::ir_types::CableSheath")),
             _ => None,
         }
     }
@@ -2195,6 +2202,7 @@ mod body {
             309 => crate::canon::slot_to::<crate::scalar::Identifier>(309, "crate::scalar::Identifier", value),
             310 => crate::canon::slot_to::<u32>(310, "u32", value),
             311 => crate::canon::slot_to::<u32>(311, "u32", value),
+            312 => crate::canon::slot_to::<crate::generated::ir_types::CableSheath>(312, "crate::generated::ir_types::CableSheath", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2512,6 +2520,7 @@ mod body {
             309 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             310 => crate::canon::slot_from::<u32>(j),
             311 => crate::canon::slot_from::<u32>(j),
+            312 => crate::canon::slot_from::<crate::generated::ir_types::CableSheath>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

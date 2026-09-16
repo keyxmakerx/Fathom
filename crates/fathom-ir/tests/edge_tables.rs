@@ -90,9 +90,12 @@ fn slot_type_covers_every_registry_key() {
     // the two tables has silently lost a key.
     // 307 -> 311 on 2026-08-29: WO-10's four `DhcpRelay` keys at 308-311;
     // the loop below is what proves each reaches a slot type.
+    // 311 -> 312 on 2026-09-16: the cables session's `Cable.sheath` key at
+    // 312; `PhysicalPort.connector`/`.service` gained enum variants on their
+    // existing keys, not new ones.
     assert_eq!(
         FIELD_KEYS.len(),
-        311,
+        312,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

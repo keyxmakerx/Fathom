@@ -15,17 +15,8 @@
 // cascades) itself. That is the referee's job, deliberately not duplicated
 // here (never reimplement a gate the format already has one for).
 //
-// **SCHEMA_VERSION gap:** `schema/generated/ir_types.ts` — the one file this
-// session is told to import a schema version from — does not export one;
-// only `crates/fathom-ir/src/generated/ir_types.rs` does
-// (`pub const SCHEMA_VERSION: &str = "0.5"`, `fathom-schemagen`'s Rust
-// emitter writes it, its TypeScript emitter does not). Fixing the generator
-// is `crates/`, out of this session's owned tree, so the value is pinned
-// here, named as a gap in this module's own doc rather than silently
-// retyped: it is a copy of the constant just cited, not a second source of
-// truth invented for this file.
-
 import { toCanonicalBytes, parseCanonical, type CanonValue } from './canon';
+import { SCHEMA_VERSION } from '../../../schema/generated/ir_types';
 import {
   type Batch,
   type Document,
@@ -44,9 +35,7 @@ export const PLAIN_MAGIC = 'fathom-plain';
 export const PLAIN_FACE_VERSION = 1;
 export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
-/** See this file's header doc: copied from `fathom-ir`'s Rust-only generated
- * constant, not re-derived from `schema/generated/ir_types.ts`. */
-export const SCHEMA_VERSION = '0.5';
+export { SCHEMA_VERSION };
 
 export type PlainErrorReason =
   | { kind: 'not-plain-face' }

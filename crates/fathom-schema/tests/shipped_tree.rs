@@ -71,7 +71,7 @@ fn shipped_tree_declaration_counts_hold() {
     assert_eq!(tree.classes.len(), 4, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 311, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 312, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -92,7 +92,14 @@ fn shipped_tree_declaration_counts_hold() {
     // classes and scopes are unmoved: `server` is the existing `IpAddr`,
     // `group_name` the existing `Identifier`, the two limits plain `u32`. The
     // `Placeable` CLASS gained `DhcpRelay` and the noticer below still holds.
-    assert_eq!(tree.version.as_deref(), Some("0.5"));
+    //
+    // 0.5 -> 0.6 (2026-09-16) is the cables session's schema half and moves
+    // exactly one count: +1 field key (`Cable.sheath`, 311 -> 312). No kind,
+    // no edge, no scalar, no enum FILE, no class, no import scope --
+    // `Cable.sheath` and `PhysicalPort.connector`/`.service`'s new variants
+    // are all INLINE enums, and the two variant additions land on already-
+    // keyed fields, so only the registry and the version move.
+    assert_eq!(tree.version.as_deref(), Some("0.6"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

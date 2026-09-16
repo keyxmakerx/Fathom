@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.5";
+    pub const SCHEMA_VERSION: &str = "0.6";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -626,7 +626,7 @@ mod body {
                 NodeKind::NtpServer => &[crate::bag::FieldKey(201), crate::bag::FieldKey(202), crate::bag::FieldKey(203)],
                 NodeKind::SyslogTarget => &[crate::bag::FieldKey(204), crate::bag::FieldKey(205), crate::bag::FieldKey(206), crate::bag::FieldKey(207)],
                 NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
-                NodeKind::Cable => &[crate::bag::FieldKey(216), crate::bag::FieldKey(217), crate::bag::FieldKey(218), crate::bag::FieldKey(219), crate::bag::FieldKey(220), crate::bag::FieldKey(221), crate::bag::FieldKey(222), crate::bag::FieldKey(223), crate::bag::FieldKey(224)],
+                NodeKind::Cable => &[crate::bag::FieldKey(216), crate::bag::FieldKey(217), crate::bag::FieldKey(218), crate::bag::FieldKey(219), crate::bag::FieldKey(220), crate::bag::FieldKey(221), crate::bag::FieldKey(222), crate::bag::FieldKey(223), crate::bag::FieldKey(224), crate::bag::FieldKey(312)],
                 NodeKind::PassiveNode => &[crate::bag::FieldKey(225), crate::bag::FieldKey(226), crate::bag::FieldKey(227), crate::bag::FieldKey(228), crate::bag::FieldKey(229)],
                 NodeKind::Premises => &[crate::bag::FieldKey(230), crate::bag::FieldKey(231), crate::bag::FieldKey(232), crate::bag::FieldKey(233), crate::bag::FieldKey(234), crate::bag::FieldKey(235), crate::bag::FieldKey(236)],
                 NodeKind::Tenant => &[crate::bag::FieldKey(237), crate::bag::FieldKey(238), crate::bag::FieldKey(239), crate::bag::FieldKey(240), crate::bag::FieldKey(241), crate::bag::FieldKey(242)],
@@ -3104,6 +3104,8 @@ mod body {
         Mpo,
         F,
         Bnc,
+        C13,
+        C14,
         Other,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
@@ -3113,7 +3115,7 @@ mod body {
 
     impl PhysicalPortConnector {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 12] = [
+        pub const DECLARED: [&'static str; 14] = [
             "rj45",
             "sfp",
             "sfp_plus",
@@ -3125,6 +3127,8 @@ mod body {
             "mpo",
             "f",
             "bnc",
+            "c13",
+            "c14",
             "other",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
@@ -3141,6 +3145,8 @@ mod body {
                 "mpo" => PhysicalPortConnector::Mpo,
                 "f" => PhysicalPortConnector::F,
                 "bnc" => PhysicalPortConnector::Bnc,
+                "c13" => PhysicalPortConnector::C13,
+                "c14" => PhysicalPortConnector::C14,
                 "other" => PhysicalPortConnector::Other,
                 other => PhysicalPortConnector::Unknown(other.to_owned()),
             }
@@ -3159,6 +3165,8 @@ mod body {
                 PhysicalPortConnector::Mpo => "mpo",
                 PhysicalPortConnector::F => "f",
                 PhysicalPortConnector::Bnc => "bnc",
+                PhysicalPortConnector::C13 => "c13",
+                PhysicalPortConnector::C14 => "c14",
                 PhysicalPortConnector::Other => "other",
                 PhysicalPortConnector::Unknown(t) => t,
             }
@@ -3174,6 +3182,7 @@ mod body {
         Serial,
         Console,
         Management,
+        Power,
         Other,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
@@ -3183,13 +3192,14 @@ mod body {
 
     impl PhysicalPortService {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 7] = [
+        pub const DECLARED: [&'static str; 8] = [
             "ethernet",
             "pon",
             "rf",
             "serial",
             "console",
             "management",
+            "power",
             "other",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
@@ -3201,6 +3211,7 @@ mod body {
                 "serial" => PhysicalPortService::Serial,
                 "console" => PhysicalPortService::Console,
                 "management" => PhysicalPortService::Management,
+                "power" => PhysicalPortService::Power,
                 "other" => PhysicalPortService::Other,
                 other => PhysicalPortService::Unknown(other.to_owned()),
             }
@@ -3214,6 +3225,7 @@ mod body {
                 PhysicalPortService::Serial => "serial",
                 PhysicalPortService::Console => "console",
                 PhysicalPortService::Management => "management",
+                PhysicalPortService::Power => "power",
                 PhysicalPortService::Other => "other",
                 PhysicalPortService::Unknown(t) => t,
             }
@@ -3322,6 +3334,77 @@ mod body {
                 CableOwnership::Provider => "provider",
                 CableOwnership::Customer => "customer",
                 CableOwnership::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `Cable.sheath` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum CableSheath {
+        Grey,
+        Blue,
+        Red,
+        Yellow,
+        Green,
+        Orange,
+        Purple,
+        Black,
+        White,
+        Aqua,
+        Erika,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl CableSheath {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 11] = [
+            "grey",
+            "blue",
+            "red",
+            "yellow",
+            "green",
+            "orange",
+            "purple",
+            "black",
+            "white",
+            "aqua",
+            "erika",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> CableSheath {
+            match token {
+                "grey" => CableSheath::Grey,
+                "blue" => CableSheath::Blue,
+                "red" => CableSheath::Red,
+                "yellow" => CableSheath::Yellow,
+                "green" => CableSheath::Green,
+                "orange" => CableSheath::Orange,
+                "purple" => CableSheath::Purple,
+                "black" => CableSheath::Black,
+                "white" => CableSheath::White,
+                "aqua" => CableSheath::Aqua,
+                "erika" => CableSheath::Erika,
+                other => CableSheath::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                CableSheath::Grey => "grey",
+                CableSheath::Blue => "blue",
+                CableSheath::Red => "red",
+                CableSheath::Yellow => "yellow",
+                CableSheath::Green => "green",
+                CableSheath::Orange => "orange",
+                CableSheath::Purple => "purple",
+                CableSheath::Black => "black",
+                CableSheath::White => "white",
+                CableSheath::Aqua => "aqua",
+                CableSheath::Erika => "erika",
+                CableSheath::Unknown(t) => t,
             }
         }
     }
@@ -4357,6 +4440,18 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(CableOwnership::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for CableSheath {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(CableSheath::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -6362,12 +6457,13 @@ mod body {
         ProviderCircuit,
         Notes,
         LastConfirmed,
+        Sheath,
     }
 
     impl CableField {
-        pub const COUNT: usize = 9;
+        pub const COUNT: usize = 10;
         /// Every field, declaration order.
-        pub const ALL: [CableField; 9] = [
+        pub const ALL: [CableField; 10] = [
             CableField::Label,
             CableField::Assembly,
             CableField::Media,
@@ -6377,6 +6473,7 @@ mod body {
             CableField::ProviderCircuit,
             CableField::Notes,
             CableField::LastConfirmed,
+            CableField::Sheath,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -6392,6 +6489,7 @@ mod body {
                 CableField::ProviderCircuit => "provider_circuit",
                 CableField::Notes => "notes",
                 CableField::LastConfirmed => "last_confirmed",
+                CableField::Sheath => "sheath",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -6406,6 +6504,7 @@ mod body {
                 CableField::ProviderCircuit => crate::bag::FieldKey(222),
                 CableField::Notes => crate::bag::FieldKey(223),
                 CableField::LastConfirmed => crate::bag::FieldKey(224),
+                CableField::Sheath => crate::bag::FieldKey(312),
             }
         }
     }
@@ -7337,7 +7436,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 311] = [
+    pub const FIELD_KEYS: [(&str, u32); 312] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -7649,15 +7748,16 @@ mod body {
         ("DhcpRelay.group_name", 309),
         ("DhcpRelay.maximum_hop_count", 310),
         ("DhcpRelay.minimum_wait_time", 311),
+        ("Cable.sheath", 312),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 39] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 40] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
-        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0x00,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

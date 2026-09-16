@@ -27,11 +27,13 @@ use std::collections::BTreeSet;
 /// Line 3 tracks `SCHEMA_VERSION` and is therefore the ONE line of this vector
 /// that is not a constant of the file format: the document typed it when the
 /// tree was at 0.1, ADR-0036 moved the tree to 0.2 on 2026-08-15, and ADR-0037
-/// moved it to 0.3 on 2026-08-16. The payload below is byte-identical across
-/// both bumps, which is the useful thing this vector proves — adding a kind and
-/// two edges changes the header and nothing else, and adding two enum variants
-/// does not even change the shape of a value, so no existing workspace's body
-/// is rewritten by either.
+/// moved it to 0.3 on 2026-08-16. Subsequent bumps (0.4 relaxed cardinality,
+/// 0.5 added `DhcpRelay`, 0.6 the cables session's `Cable.sheath` field and
+/// two enum variants) move only this line again. The payload below is
+/// byte-identical across every bump, which is the useful thing this vector
+/// proves — adding a kind and two edges changes the header and nothing else,
+/// and adding a field or an enum variant does not even change the shape of a
+/// value, so no existing workspace's body is rewritten by any of them.
 ///
 /// **THAT IS TRUE AND IT IS NOT THE WHOLE STORY**, so it is said here rather
 /// than left to be discovered: `read_plain` refuses a mismatched version on
@@ -44,7 +46,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.5\n",
+    "schema 0.6\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",

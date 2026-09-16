@@ -388,3 +388,6 @@ fields:
   DhcpRelay.group_name: 309
   DhcpRelay.maximum_hop_count: 310
   DhcpRelay.minimum_wait_time: 311
+  # Cable.sheath — the cables session (docs/UI-SPEC.md "Cables"). Appended at the tail
+  # with the next integer, which is the only way a key is ever assigned.
+  Cable.sheath: 312

@@ -79,7 +79,16 @@ fn schema_version_is_the_trees() {
     // declarer, keys 308-311. 62 §16.2 prices a new kind, a new edge kind and a
     // field on a new declarer all MINOR: an old build keeps the unknown kind in
     // `unknown` rather than refusing the file. Nothing existing moved.
-    assert_eq!(SCHEMA_VERSION, "0.5");
+    //
+    // 0.5 -> 0.6 on 2026-09-16: the cables session's schema half. One new
+    // optional field, `Cable.sheath` (key 312), and two enum variants each on
+    // two already-keyed fields -- `PhysicalPort.connector` gains `c13`/`c14`,
+    // `PhysicalPort.service` gains `power` (docs/UI-SPEC.md "Cables", "Power").
+    // 62 §16.2 prices a new optional field and a new enum variant both MINOR;
+    // an old build reads an unrecognised sheath or connector/service token
+    // into the generated unknown arm, which `enum_tokens_round_trip_including_unknown`
+    // below exercises. Nothing existing moved.
+    assert_eq!(SCHEMA_VERSION, "0.6");
 }
 
 #[test]
@@ -572,7 +581,12 @@ fn dispatch_names_every_registry_key() {
     // group_name, maximum_hop_count, minimum_wait_time) at 308-311, appended
     // after `MountedIn.face`. Grew, never shrank; the loop below proves each
     // new key reaches a generated arm.
-    assert_eq!(FIELD_KEYS.len(), 311, "the registry grew or shrank");
+    //
+    // 311 -> 312 on 2026-09-16: the cables session's one new field key,
+    // `Cable.sheath` at 312, appended after `DhcpRelay.minimum_wait_time`.
+    // `PhysicalPort.connector`/`.service` gained enum variants on their
+    // existing keys (210, 211) -- no new key, an enum variant is not a field.
+    assert_eq!(FIELD_KEYS.len(), 312, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.
