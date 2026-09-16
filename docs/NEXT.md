@@ -79,8 +79,11 @@ comparable amount again.
 
 ## Handoff, 2026-09-16 — read this first
 
-Sessions 1 to 5 are done (updated late on 2026-09-16). **Session 6 is next**: inside a box, the
-config surface with the redaction gate on paste (`crates/fathom-wasm`, never reimplemented in
+Sessions 1 to 5 are done (updated late on 2026-09-16). **Session 6 is next, and it starts with
+the rear elevation (ADR-0050)**: schema 0.7 with row and bay on the rack and a supply as a part in
+a slot; the catalogue with inlets positioned on the rear face and management and console ports
+named; then the drawing of one rack and of a row from behind, mirrored. After that: inside a box,
+the config surface with the redaction gate on paste (`crates/fathom-wasm`, never reimplemented in
 JavaScript; test the gate against what a real device accepts, `CLAUDE.md` rule 2), view-only
 rendering for `read`, motion and look. Start with `docs/STATE.md`'s client section and its
 "Carried" list, then UI-SPEC "Inside a box", "Config", "Presence", "Motion", "Look". Before anything else, read in this order and nothing more: `docs/STATE.md`'s
