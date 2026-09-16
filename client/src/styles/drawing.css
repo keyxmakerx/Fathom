@@ -1,10 +1,13 @@
 /* The rack drawing — `docs/UI-SPEC.md` "The shape", "Ports", "Motion",
    `design/shell/Main.dc.html`, `design/shell/Lenses.dc.html`. Every colour,
    rule and type size below is a token from `design/tokens.css`; the rack's
-   own structural pixel geometry (32px per U, 28px rail, 244px device
-   column) is `components/drawing/geometry.ts`'s, not a token — there is
-   nothing in tokens.css to name a per-U pixel size with. Zero radius, no
-   shadows, per "Look". */
+   own structural pixel geometry (16px per U at the rack stop, 28px rail,
+   244px device column) is `components/drawing/geometry.ts`'s, not a token —
+   there is nothing in tokens.css to name a per-U pixel size with. Zero
+   radius, no shadows, per "Look". Rack label, U numbers and hostname carry
+   an inline `font-size` from `geometry.ts`'s `counterScaledFontPx`, not the
+   `font-size` below — the CSS value is the rack-stop default that function
+   starts from. */
 
 .drawing {
   width: 100%;
@@ -29,6 +32,14 @@
 .drawing-rack__label {
   height: 16px;
   font-size: var(--t-micro);
+  /* `design/tokens.css`'s `body` sets an absolute 20px `line-height` (its
+     own baseline unit, `--lh-step`) that a smaller `font-size` alone does
+     not shrink — session 4 found this the hard way squeezing a port row
+     under `.drawing-chassis__header` below. Harmless here (a fixed
+     `height` plus `overflow: hidden` already crops it), set explicitly
+     anyway so this row's true content height matches what it looks like
+     it should be, rather than accidentally relying on the crop. */
+  line-height: 1;
   color: var(--muted);
   letter-spacing: var(--track-label);
   white-space: nowrap;
@@ -83,6 +94,11 @@
   box-sizing: border-box;
   font-family: var(--mono);
   font-size: 8px;
+  /* Same `body` inherited-line-height note as `.drawing-rack__label` —
+     this row has no `overflow: hidden` of its own, so an inflated line box
+     would bleed into the U row above and below rather than merely being
+     cropped. */
+  line-height: 1;
   font-variant-numeric: var(--num-tabular);
   color: var(--muted);
 }
@@ -158,13 +174,26 @@
   align-items: baseline;
   gap: var(--s1);
   padding: 0 4px;
-  min-height: 12px;
+  /* Session 4: matches `.drawing-chassis__hostname`'s own (now `line-height:
+     1`) height at the rack-to-faceplate zoom range, where `HOSTNAME_BASE_PX`
+     in `ChassisNode.tsx` holds its counter-scaled font flat at 9px — kept
+     equal to that number (not the old 12px, set when a 1U row was 32
+     flow-space px rather than 16 — see `geometry.ts`'s file header) so a 1U
+     row's port row gets whatever is actually left over, not a guess. */
+  min-height: 9px;
 }
 
 /* ADR-0047 §9: the name takes up to two thirds; the model shrinks first. */
 .drawing-chassis__hostname {
   flex: 0 1 66%;
   font-size: 9px;
+  /* `design/tokens.css`'s `body` line-height is an absolute 20px, which a
+     9px `font-size` alone does not shrink — session 4 found this squeezing
+     the port row below `.drawing-chassis__header` out of a 1U row
+     entirely (a 16 flow-space px row cannot hold both a ~20px header and
+     a port glyph). `HOSTNAME_BASE_PX` in `ChassisNode.tsx` counter-scales
+     the *font*; this is what makes that number the row's real height too. */
+  line-height: 1;
   font-weight: 700;
   color: var(--ink);
   white-space: nowrap;
@@ -172,10 +201,19 @@
   text-overflow: ellipsis;
 }
 
+/* An unset hostname (UI-SPEC "Absent is drawn as absent"): the muted word,
+   never bold, never blank. Same rule, same colour, as `.drawing-rack__label`
+   and `.drawing-editor__title--placeholder`. */
+.drawing-chassis__hostname--placeholder {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 .drawing-chassis__model {
   flex: 1 1 auto;
   min-width: 0;
   font-size: 8px;
+  line-height: 1;
   color: var(--muted);
   text-align: right;
   white-space: nowrap;
@@ -238,6 +276,14 @@
   font-size: var(--t-head);
   font-weight: 700;
   color: var(--ink);
+}
+
+/* An unset hostname (UI-SPEC "Absent is drawn as absent"): the muted word,
+   never bold, never blank — the panel's own version of
+   `.drawing-chassis__hostname--placeholder`. */
+.drawing-editor__title--placeholder {
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .drawing-editor__field-label {

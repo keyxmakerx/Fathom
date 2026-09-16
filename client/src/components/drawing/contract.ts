@@ -25,6 +25,17 @@ export type Selection =
   | { kind: 'chassis'; id: string }
   | { kind: 'port'; id: string };
 
+/** UI-SPEC "Absent is drawn as absent" — a dash, never an invented zero or
+ * an omitted row. Shared by `ChassisNode` (the box) and `Editor` (the
+ * panel) so a missing field reads the same mark in both places. */
+export const ABSENT = '—';
+
+/** A device's hostname is left unset by the command that places it, until
+ * someone types one — never blank, never invented as a fact. Shared by
+ * `ChassisNode` and `Editor` so the placeholder word is the same wherever a
+ * hostname is drawn. */
+export const UNNAMED_HOSTNAME = 'unnamed';
+
 /** One row of the palette — the catalogue entries a rack may take, never a
  * hard-coded list (BRIEF's "no sample data in component source"). */
 export interface PaletteItem {

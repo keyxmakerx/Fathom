@@ -2,9 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CAMERA_STOPS,
+  MAX_GLYPH_TRUE_HEIGHT_PX,
   RACK_HEADER_PX,
+  TEXT_FLOOR_PX,
   U_PX,
   cameraStopAt,
+  counterScaledFontPx,
+  counterScaledGlyphScale,
+  glyphScaleFittingBudget,
   overlapsRack,
   portOpacity,
   rackAtPoint,
@@ -12,6 +17,78 @@ import {
   sortFreeRuns,
   uToOffsetPx,
 } from './geometry';
+
+describe('the rack stop fits the reference 42U rack', () => {
+  it('42U at U_PX plus the header fits inside the drawing pane (819px, 1440x900)', () => {
+    const DRAWING_PANE_PX = 819;
+    expect(RACK_HEADER_PX + 42 * U_PX).toBeLessThan(DRAWING_PANE_PX);
+  });
+
+  it('the closet and faceplate stops read the approved boards exactly', () => {
+    expect(U_PX * (CAMERA_STOPS.closet / 100)).toBeCloseTo(14, 5);
+    expect(U_PX * (CAMERA_STOPS.faceplate / 100)).toBeCloseTo(32, 5);
+  });
+});
+
+describe('counterScaledFontPx', () => {
+  it('matches basePx once zoomed in enough that the floor is already cleared', () => {
+    expect(counterScaledFontPx(10, 1)).toBe(10);
+    expect(counterScaledFontPx(10, 2)).toBe(10);
+  });
+
+  it('grows the on-screen size above the floor as the camera zooms in', () => {
+    const zoom = 2;
+    expect(counterScaledFontPx(10, zoom) * zoom).toBe(20);
+  });
+
+  it('pins the on-screen size at the floor once zooming out would drop below it', () => {
+    const zoom = CAMERA_STOPS.closet / 100; // 0.875
+    const onScreen = counterScaledFontPx(10, zoom) * zoom;
+    expect(onScreen).toBeCloseTo(TEXT_FLOOR_PX, 5);
+  });
+
+  it('never drops below the floor no matter how far out the camera goes', () => {
+    const zoom = 0.1;
+    const onScreen = counterScaledFontPx(10, zoom) * zoom;
+    expect(onScreen).toBeGreaterThanOrEqual(TEXT_FLOOR_PX - 1e-9);
+  });
+});
+
+describe('counterScaledGlyphScale', () => {
+  it('is the true-size scale (1) at the rack stop', () => {
+    expect(counterScaledGlyphScale(CAMERA_STOPS.rack / 100)).toBe(1);
+  });
+
+  it('halves at the faceplate stop, where the camera itself is 2x the rack stop', () => {
+    expect(counterScaledGlyphScale(CAMERA_STOPS.faceplate / 100)).toBe(0.5);
+  });
+
+  it('renders at a constant true on-screen size at every zoom', () => {
+    for (const zoom of [0.5, 1, 1.5, 2, 3]) {
+      expect(counterScaledGlyphScale(zoom) * zoom).toBeCloseTo(1, 10);
+    }
+  });
+});
+
+describe('glyphScaleFittingBudget', () => {
+  it('matches counterScaledGlyphScale when the row has room to spare', () => {
+    const zoom = CAMERA_STOPS.faceplate / 100;
+    expect(glyphScaleFittingBudget(zoom, 1000)).toBe(counterScaledGlyphScale(zoom));
+  });
+
+  it('shrinks below true size rather than overflow a too-small row', () => {
+    const zoom = CAMERA_STOPS.faceplate / 100;
+    const tightBudget = 10; // less than MAX_GLYPH_TRUE_HEIGHT_PX * counterScaledGlyphScale(zoom) = 10.5
+    const scale = glyphScaleFittingBudget(zoom, tightBudget);
+    expect(scale).toBeLessThan(counterScaledGlyphScale(zoom));
+    expect(MAX_GLYPH_TRUE_HEIGHT_PX * scale).toBeCloseTo(tightBudget, 5);
+  });
+
+  it('never divides by zero when there is no room at all', () => {
+    expect(() => glyphScaleFittingBudget(2, 0)).not.toThrow();
+    expect(glyphScaleFittingBudget(2, 0)).toBe(0);
+  });
+});
 
 describe('cameraStopAt', () => {
   it('reads the exact stops back', () => {
@@ -21,10 +98,13 @@ describe('cameraStopAt', () => {
   });
 
   it('picks the nearest stop off-exact', () => {
-    expect(cameraStopAt(60)).toBe('closet');
-    expect(cameraStopAt(90)).toBe('rack');
-    expect(cameraStopAt(150)).toBe('rack');
-    expect(cameraStopAt(200)).toBe('faceplate');
+    // Written against `CAMERA_STOPS` rather than literal percentages so this
+    // stays true however the three numbers are derived (session 4 rebased
+    // them against the 42U reference rack, not a board's literal pixel size).
+    expect(cameraStopAt(CAMERA_STOPS.closet - 20)).toBe('closet');
+    expect(cameraStopAt((CAMERA_STOPS.closet + CAMERA_STOPS.rack) / 2 + 1)).toBe('rack');
+    expect(cameraStopAt(CAMERA_STOPS.rack + (CAMERA_STOPS.faceplate - CAMERA_STOPS.rack) * 0.25)).toBe('rack');
+    expect(cameraStopAt(CAMERA_STOPS.faceplate - 20)).toBe('faceplate');
   });
 
   it('clamps below the lowest and above the highest stop', () => {

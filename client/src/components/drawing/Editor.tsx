@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import '../../styles/drawing.css';
-import type { ClosetView, Selection } from './contract';
+import { ABSENT, UNNAMED_HOSTNAME, type ClosetView, type Selection } from './contract';
 import { findChassis, findPort, findRack } from './lookup';
 
 function Field({ label, value }: { label: string; value: ReactNode }) {
@@ -12,10 +12,6 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
     </div>
   );
 }
-
-/** UI-SPEC "Absent is drawn as absent" — a dash, never an invented zero or
- * an omitted row. */
-const ABSENT = '—';
 
 /**
  * The selected thing's fields, exactly as the shell's `editor` prop wants
@@ -47,9 +43,20 @@ export function EditorFor(selection: Selection | null, view: ClosetView): ReactN
     const { rack, chassis } = found;
     const topU = chassis.positionU + chassis.heightU - 1;
     const uRange = chassis.heightU === 1 ? `U${chassis.positionU}` : `U${chassis.positionU}–U${topU}`;
+    // UI-SPEC "Absent is drawn as absent": an unset hostname reads as the
+    // same muted placeholder word here as it does on the box itself
+    // (`ChassisNode.tsx`), not the generic `ABSENT` dash every other field
+    // uses — a name's absence gets a word, not a mark.
+    const hasHostname = chassis.hostname.length > 0;
     return (
       <div className="drawing-editor__panel">
-        <div className="drawing-editor__title">{chassis.hostname || ABSENT}</div>
+        <div
+          className={
+            hasHostname ? 'drawing-editor__title' : 'drawing-editor__title drawing-editor__title--placeholder'
+          }
+        >
+          {hasHostname ? chassis.hostname : UNNAMED_HOSTNAME}
+        </div>
         <Field label="Model" value={chassis.model || ABSENT} />
         <Field label="Vendor" value={chassis.vendor || ABSENT} />
         <Field label="Rack" value={`${rack.label} · ${uRange}`} />
@@ -69,7 +76,7 @@ export function EditorFor(selection: Selection | null, view: ClosetView): ReactN
       <div className="drawing-editor__title">{port.label || ABSENT}</div>
       <Field label="Connector" value={port.connector} />
       <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
-      <Field label="Device" value={chassis.hostname} />
+      <Field label="Device" value={chassis.hostname || UNNAMED_HOSTNAME} />
       <Field label="Rack" value={rack.label} />
       <Field label="Cabled" value={ABSENT} />
     </div>

@@ -86,6 +86,37 @@ function DrawingInner({ view, selected, zoom, onZoomChange, onPlace, onMove, onS
     });
   }, [view.racks]);
 
+  // "Entering the Racks place lands at the rack stop with the first rack
+  // fitted, not at an arbitrary corner" — once on mount and whenever the
+  // set of racks changes, fit the camera to whatever racks are now placed,
+  // never past the rack stop's own zoom (a short rack should not zoom in
+  // tighter than "the rack stop" just because it is short). Waits for
+  // `rackPositions` to actually carry every current rack's id, since a
+  // brand-new rack's real position lands one render after `view.racks`
+  // does (the effect above); fitting against the `{x:0,y:0}` fallback
+  // would fit an empty corner instead. `fitView`'s own `onViewportChange`
+  // is what keeps the bar's zoom number in agreement — the same path a
+  // manual scroll-zoom already takes (`handleViewportChange`, below).
+  const rackIdsKey = view.racks.map((r) => r.id).join('|');
+  const allRacksPositioned = view.racks.every((r) => rackPositions[r.id] != null);
+  useEffect(() => {
+    if (!allRacksPositioned || view.racks.length === 0) return;
+    const raf = requestAnimationFrame(() => {
+      void rf.fitView({
+        nodes: view.racks.map((r) => ({ id: rackNodeId(r.id) })),
+        padding: 0.1,
+        maxZoom: CAMERA_STOPS.rack / 100,
+      });
+    });
+    return () => cancelAnimationFrame(raf);
+    // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is
+    // its content identity (which racks exist), and that is the only
+    // change this effect should react to. The array's own object identity
+    // is not guaranteed stable across a caller's re-renders (nothing
+    // requires the caller to memoise it), and re-fitting on every render
+    // would fight a person's own scroll-zoom.
+  }, [rackIdsKey, allRacksPositioned, rf]);
+
   useEffect(() => {
     setViewport((v) => (Math.round(v.zoom * 100) === zoom ? v : { ...v, zoom: zoom / 100 }));
   }, [zoom]);
