@@ -4,9 +4,17 @@ import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catal
 import { openDesign, saveDesign } from '../../api/payload';
 import { ApiRefusal } from '../../api/errors';
 import { moveChassis, placeChassis } from '../../document/commands';
-import { FieldValueError, setChassisField, setDeviceField } from '../../document/edit';
+import { FieldValueError, setChassisField, setDeviceField, setRackField } from '../../document/edit';
 import type { Document } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
+import {
+  FixedSlotError,
+  SlotAlreadyFittedError,
+  UnknownSlotError,
+  fitSupply,
+  removeSupply,
+  setSupplyField,
+} from '../../document/supplies';
 import { viewOf, type ClosetView } from '../../document/view';
 import { Drawing, EditorFor, Palette, type EditorChange, type Selection } from '../drawing';
 import type { ShellProps } from '../shell/types';
@@ -30,6 +38,8 @@ const PENDING_RACK_VIEW: ClosetView['racks'][number] = {
   unitNumbering: 'ascending',
   chassis: [],
   freeRuns: [{ fromU: 1, toU: 42 }],
+  row: null,
+  bay: null,
 };
 
 /** The server's own wording where the failure was a refusal it sent
@@ -57,7 +67,14 @@ function describeError(error: unknown): string {
  * still resolves to `undefined` — the same silent drop as before this
  * change, now named rather than accidental. */
 export function refusalFor(error: unknown): { refused: string } | undefined {
-  return error instanceof FieldValueError ? { refused: error.message } : undefined;
+  if (error instanceof FieldValueError) return { refused: error.message };
+  // `document/supplies.ts`'s own typed refusals (ADR-0050 §4) — an unknown
+  // slot, a slot already fitted, a fixed slot — shown beside the fit/remove
+  // action the same way a `FieldValueError` shows beside its field.
+  if (error instanceof UnknownSlotError || error instanceof SlotAlreadyFittedError || error instanceof FixedSlotError) {
+    return { refused: error.message };
+  }
+  return undefined;
 }
 
 export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
@@ -138,7 +155,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
 
   const realView = useMemo<ClosetView>(
-    () => (doc ? viewOf(doc, catalogue) : { premisesId: '', racks: [], cables: [] }),
+    () => (doc ? viewOf(doc, catalogue) : { premisesId: '', racks: [], cables: [], rows: [] }),
     [doc, catalogue],
   );
 
@@ -148,7 +165,15 @@ export function RacksPlace(props: RacksPlaceProps) {
   // and Rack (`ensureRackToPlaceInto`) only when something is actually
   // dropped onto it, never on load.
   const displayView = useMemo<ClosetView>(
-    () => (realView.racks.length > 0 ? realView : { premisesId: realView.premisesId, racks: [PENDING_RACK_VIEW], cables: realView.cables }),
+    () =>
+      realView.racks.length > 0
+        ? realView
+        : {
+            premisesId: realView.premisesId,
+            racks: [PENDING_RACK_VIEW],
+            cables: realView.cables,
+            rows: [{ label: null, racks: [PENDING_RACK_VIEW] }],
+          },
     [realView],
   );
 
@@ -192,18 +217,44 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
 
   // Turns an `EditorChange` (ADR-0046 §2's one editor) into the matching
-  // `document/edit.ts` call and saves it the same way `handlePlace` and
-  // `handleMove` do above — one `SaveQueue` push, a refused edit (an
-  // out-of-schema value, or an id that no longer resolves because the
-  // document moved under us) leaves the document exactly as it was.
+  // `document/edit.ts`/`document/supplies.ts` call and saves it the same way
+  // `handlePlace` and `handleMove` do above — one `SaveQueue` push, a
+  // refused edit (an out-of-schema value, an id that no longer resolves
+  // because the document moved under us, or one of `supplies.ts`'s own
+  // typed refusals) leaves the document exactly as it was.
   const handleEdit = useCallback(
     (change: EditorChange): { refused: string } | void => {
       if (doc == null) return;
       try {
-        const next =
-          change.kind === 'device'
-            ? setDeviceField(doc, change.id, change.field, change.value)
-            : setChassisField(doc, change.id, change.field, change.value);
+        let next: Document;
+        if (change.kind === 'device') {
+          next = setDeviceField(doc, change.id, change.field, change.value);
+        } else if (change.kind === 'chassis') {
+          next = setChassisField(doc, change.id, change.field, change.value);
+        } else if (change.kind === 'rack') {
+          // `EditorChange`'s own doc (`drawing/contract.ts`): the editor
+          // only ever holds text, so `bay` is parsed here, before
+          // `setRackField` gets a chance to refuse it as a schema value.
+          if (change.field === 'bay') {
+            if (change.value === null) {
+              next = setRackField(doc, change.id, 'bay', null);
+            } else {
+              const parsed = Number(change.value);
+              if (!Number.isInteger(parsed)) {
+                throw new FieldValueError('Rack.bay', change.value, 'must be a whole number');
+              }
+              next = setRackField(doc, change.id, 'bay', parsed);
+            }
+          } else {
+            next = setRackField(doc, change.id, 'row', change.value);
+          }
+        } else if (change.kind === 'supply') {
+          next = setSupplyField(doc, change.id, change.field, change.value);
+        } else if (change.kind === 'supply-remove') {
+          next = removeSupply(doc, change.id);
+        } else {
+          next = fitSupply(doc, change.chassisId, change.slot);
+        }
         applyDocChange(next);
       } catch (e) {
         // As `handlePlace`/`handleMove`: the editor raised a request against

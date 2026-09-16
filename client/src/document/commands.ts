@@ -264,7 +264,14 @@ export function placeChassis(
       const portExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
       working = portExistence.doc;
       const portId = formatNodeId('PhysicalPort', newUlid(now));
-      const label = setField(working, now, actor, portId, undefined, 'PhysicalPort.label', text(String(port.number)));
+      // `CataloguePort` carries exactly one of `number`/`name` (`api/catalogue.ts`'s
+      // module doc, ADR-0050 §5) — a numbered faceplate port labels as its
+      // silkscreen number, a named one (a management/console port, e.g. `"me0"`)
+      // as the vendor's own word. `String(port.number)` alone would write the
+      // literal text "null" for every named port and break `view.ts`'s
+      // (label, connector) faceplate match for it.
+      const labelText = port.name ?? String(port.number);
+      const label = setField(working, now, actor, portId, undefined, 'PhysicalPort.label', text(labelText));
       working = label.doc;
       // The schema's own token for the catalogue's port kind (`"RJ45"` is
       // written as `rj45`): `connectorTokenOf` in `compat.ts` says why, and
@@ -286,19 +293,40 @@ export function placeChassis(
     }
   }
 
-  // Power inlets (ADR-0050 §3): a model whose catalogue entry lists
-  // `psu_slots` gets one `PhysicalPort` per slot here, labelled with the
-  // slot's own name (PSU0, PEM A) —
-  // `PhysicalPort.connector: c14` (the schema's own IEC 60320 token, not a
-  // catalogue `PortKind` spelling to carry verbatim: these ports have no
-  // faceplate entry to read one off), `PhysicalPort.service: power`,
-  // A model whose faceplate ports are
+  // Power inlets (ADR-0050 §3/§4). A model whose faceplate ports are
   // themselves `c13` outlets (a PDU) already got them in the loop above and
-  // needs nothing here. Still ordinary `HasPort` children of this chassis —
-  // `view.ts`'s `ChassisView.psuInlets` is what keeps them out of the
-  // faceplate `ports` array, not anything at this layer.
-  {
-    for (const slot of model.psuSlots) {
+  // needs nothing here.
+  //
+  // Every OTHER catalogue slot gets an inlet here, placed as FITTED: placing
+  // a model from the catalogue assumes every slot shipped populated, because
+  // a new device ships with its supplies — a user who later pulls one to
+  // record a genuinely empty bay does so through `supplies.ts`'s
+  // `removeSupply`, which is the moment "empty" becomes a fact someone
+  // asserted rather than a guess made here.
+  //
+  //   - `hotSwap: false` (a fixed, non-removable supply): the inlet stays a
+  //     `PhysicalPort` directly on the CHASSIS, exactly as before this
+  //     session — there is no separate field-replaceable part to record
+  //     (ADR-0050 §4, schema.yaml's `PowerSupply` doc: "it never gets a
+  //     PowerSupply node, because there is no separate part to record").
+  //   - `hotSwap: true`: the inlet moves to a fresh `PowerSupply` node,
+  //     seated in this chassis by `FittedIn` (containment — `schema/schema.yaml`'s
+  //     `FittedIn` doc), because on a hot-swappable unit the socket is on the
+  //     SUPPLY, not the chassis (`PowerSupply` joins the `PortHost` class for
+  //     exactly this). `HasPort` from a `PowerSupply` to its inlet is legal
+  //     as of `HasPort.from: [Chassis, PassiveNode, PowerSupply]`
+  //     (`schema/schema.yaml`, ADR-0050 §4 follow-up, commit a68d1a1).
+  //
+  // Neither branch writes `PhysicalPort.position`: `PortPosition`
+  // (`schema/schema.yaml`'s `position` field type) is, on the wire, a
+  // field-less stub — `crates/fathom-ir/src/canon.rs`'s `unit_canon!` macro
+  // round-trips it as nothing but an empty JSON object, so there is no slot/
+  // column to carry through it yet. The slot's own position (row, column,
+  // face) is carried instead by the catalogue itself and read back in
+  // `view.ts`, which already has the slot name (`PhysicalPort.label` /
+  // `PowerSupply.slot`) to join on.
+  for (const slot of model.psuSlots) {
+    if (!slot.hotSwap) {
       const inletExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
       working = inletExistence.doc;
       const inletId = formatNodeId('PhysicalPort', newUlid(now));
@@ -329,7 +357,58 @@ export function placeChassis(
       const hasInletId = formatEdgeId('HasPort', newUlid(now));
       working = withEdge(working, { id: hasInletId, from: chassisId, to: inletId, prov: hasInletProv.id, fields: {} });
       ops.push({ type: 'add_edge', edge: hasInletId, from: chassisId, to: inletId, prov: hasInletProv.id });
+      continue;
     }
+
+    // hotSwap: true — a PowerSupply, fitted in this slot, carries its own inlet.
+    const supplyExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
+    working = supplyExistence.doc;
+    const supplyId = formatNodeId('PowerSupply', newUlid(now));
+    const supplySlot = setField(working, now, actor, supplyId, undefined, 'PowerSupply.slot', text(slot.name));
+    working = supplySlot.doc;
+    working = withNode(working, {
+      id: supplyId,
+      existence: supplyExistence.id,
+      fields: { 'PowerSupply.slot': supplySlot.entry },
+    });
+    ops.push({ type: 'add_node', node: supplyId, prov: supplyExistence.id }, supplySlot.op);
+
+    const fittedProv = assertHand(working, { assertedAt: now, assertedBy: actor });
+    working = fittedProv.doc;
+    const fittedId = formatEdgeId('FittedIn', newUlid(now));
+    working = withEdge(working, { id: fittedId, from: chassisId, to: supplyId, prov: fittedProv.id, fields: {} });
+    ops.push({ type: 'add_edge', edge: fittedId, from: chassisId, to: supplyId, prov: fittedProv.id });
+
+    const inletExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
+    working = inletExistence.doc;
+    const inletId = formatNodeId('PhysicalPort', newUlid(now));
+    const inletLabel = setField(working, now, actor, inletId, undefined, 'PhysicalPort.label', text(slot.name));
+    working = inletLabel.doc;
+    const inletConnector = setField(working, now, actor, inletId, undefined, 'PhysicalPort.connector', token('c14'));
+    working = inletConnector.doc;
+    const inletService = setField(working, now, actor, inletId, undefined, 'PhysicalPort.service', token('power'));
+    working = inletService.doc;
+    working = withNode(working, {
+      id: inletId,
+      existence: inletExistence.id,
+      fields: {
+        'PhysicalPort.label': inletLabel.entry,
+        'PhysicalPort.connector': inletConnector.entry,
+        'PhysicalPort.service': inletService.entry,
+      },
+    });
+    ops.push(
+      { type: 'add_node', node: inletId, prov: inletExistence.id },
+      inletLabel.op,
+      inletConnector.op,
+      inletService.op,
+    );
+
+    const hasInletProv = assertHand(working, { assertedAt: now, assertedBy: actor });
+    working = hasInletProv.doc;
+    const hasInletId = formatEdgeId('HasPort', newUlid(now));
+    working = withEdge(working, { id: hasInletId, from: supplyId, to: inletId, prov: hasInletProv.id, fields: {} });
+    ops.push({ type: 'add_edge', edge: hasInletId, from: supplyId, to: inletId, prov: hasInletProv.id });
   }
 
   const mountedProv = assertHand(working, { assertedAt: now, assertedBy: actor });

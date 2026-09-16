@@ -4,7 +4,7 @@ import type { ChassisView, PortView } from './contract';
 import { isPowerConnector, pduUsage, pduUsageLabel } from './power';
 
 function port(overrides: Partial<PortView> & Pick<PortView, 'id'>): PortView {
-  return { label: '', connector: 'c13', row: 0, column: 0, uplink: false, cable: null, ...overrides };
+  return { label: '', connector: 'c13', row: 0, column: 0, uplink: false, role: null, cable: null, face: 'front', ...overrides };
 }
 
 function pdu(ports: PortView[]): Pick<ChassisView, 'ports'> {

@@ -21,6 +21,23 @@
   --xy-background-pattern-dots-color: var(--hairline);
 }
 
+/* ADR-0050 §2: "the flip is one camera, never a page: racks move to their
+   mirrored places with the standard motion, nothing remounts." The same
+   node ids stay mounted (`Drawing.tsx`'s own `rackPositions`, keyed by rack
+   id) — this is what turns the position change React re-renders into a
+   slide rather than a jump. Excluded while a node is actually being
+   dragged (`.dragging`, React Flow's own class) so a live drag never lags
+   behind the pointer. */
+.drawing .react-flow__node:not(.dragging) {
+  transition: transform var(--m-pane) var(--m-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawing .react-flow__node {
+    transition: none;
+  }
+}
+
 /* ---- the rack --------------------------------------------------------- */
 
 .drawing-rack {
@@ -83,6 +100,34 @@
   font-weight: 700;
 }
 
+/* ---- the row label -----------------------------------------------------
+   ADR-0050 §2: "each row a horizontal band with its label at the left...
+   the flip is per row at the closet stop." One node per row (`RowLabelNode.tsx`),
+   docked left of the band, sharing the rack header's own `.drawing-rack__face*`
+   flip classes above so the two controls read as one family. */
+
+.drawing-row-label {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+  gap: var(--s1);
+  padding-right: var(--s2);
+  font-family: var(--sans);
+  color: var(--muted);
+  text-align: right;
+}
+
+.drawing-row-label__text {
+  font-size: var(--t-small);
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .drawing-rack__frame {
   position: relative;
   border: 1.5px solid var(--ink);
@@ -116,10 +161,28 @@
 .drawing-rack__u-numbers {
   position: absolute;
   top: 0;
-  left: 0;
   display: flex;
   flex-direction: column;
   pointer-events: none;
+}
+
+.drawing-rack__u-numbers--left {
+  left: 0;
+}
+
+/* ADR-0050 §1: "the rail that is on the left from the front is on the right
+   from behind, unit numbers with it" — a RE-LAYOUT (which rail element
+   hosts the numbering, `RackNode.tsx`), not a mirrored transform on the
+   frame, so the device column and everything positioned over it never
+   flips along with it. */
+.drawing-rack__u-numbers--right {
+  right: 0;
+}
+
+.drawing-rack__u-numbers--right .drawing-rack__u-number {
+  justify-content: flex-start;
+  padding-right: 0;
+  padding-left: 3px;
 }
 
 .drawing-rack__u-number {
@@ -298,6 +361,21 @@
   line-height: 1.4;
 }
 
+/* ADR-0050 §4: "single-fed... and one fitted... two distinct marks" — the
+   same bordered caution wash construction as `.drawing-chassis__single-fed`
+   above, the two able to sit side by side when both facts hold at once. */
+.drawing-chassis__one-fitted {
+  flex-shrink: 0;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--caution);
+  background: var(--caution-wash);
+  border: var(--rule-hair) solid var(--caution);
+  padding: 0 3px;
+  line-height: 1.4;
+}
+
 .drawing-chassis__model {
   flex: 1 1 auto;
   min-width: 0;
@@ -382,6 +460,25 @@
    regardless of which stylesheet's rule the bundler happens to place last. */
 .drawing-chassis__port--cabled .port--cabled .port__body {
   fill: var(--port-sheath, var(--ink));
+}
+
+/* ADR-0050 §1: "an inlet strip at the plate's end" — the rear elevation's
+   own row (`ChassisNode.tsx`'s `InletStrip`), the same `.drawing-chassis__port-row`
+   layout every faceplate row already uses, right-aligned like an uplink
+   group so it reads as the plate's trailing edge. */
+.drawing-chassis__inlets {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* The inlet with no supply behind it at all (`InletView.fitted === false`) —
+   a dashed empty outline, the one state the plain `C14` glyph's own
+   `cabled` prop cannot tell apart from "fitted, uncabled" on its own two
+   values. Three states in total: filled (fitted + cabled), hollow (fitted,
+   `cabled=false` — `C14`'s own plain free reading), and this one. */
+.drawing-chassis__inlet--unfitted .port__edge {
+  stroke-dasharray: 2 1.5;
 }
 
 /* A bundle band's one shared anchor per chassis (`bundles.ts`, `Drawing.tsx`) —

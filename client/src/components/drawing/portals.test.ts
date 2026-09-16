@@ -6,6 +6,7 @@ import { groupPortals, portalCountLabel } from './portals';
 function view(overrides: Partial<ClosetView> = {}): ClosetView {
   return {
     premisesId: 'closet-1',
+    rows: [],
     racks: [
       {
         id: 'rack-1',
@@ -13,6 +14,8 @@ function view(overrides: Partial<ClosetView> = {}): ClosetView {
         heightU: 42,
         unitNumbering: 'bottom-up',
         freeRuns: [],
+        row: null,
+        bay: null,
         chassis: [
           {
             id: 'chassis-top',
@@ -28,6 +31,7 @@ function view(overrides: Partial<ClosetView> = {}): ClosetView {
             serial: null,
             psuInlets: [],
             singleFed: false,
+            oneFitted: false,
             ports: [],
           },
           {
@@ -44,6 +48,7 @@ function view(overrides: Partial<ClosetView> = {}): ClosetView {
             serial: null,
             psuInlets: [],
             singleFed: false,
+            oneFitted: false,
             ports: [],
           },
         ],

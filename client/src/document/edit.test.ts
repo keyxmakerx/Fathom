@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
 import { createRack, placeChassis, UnknownReferenceError } from './commands';
-import { DEVICE_ROLES, FieldValueError, isIpAddr, setChassisField, setDeviceField } from './edit';
-import { edgesIn, emptyDocument, findNode, formatNodeId, type Document } from './model';
+import { DEVICE_ROLES, FieldValueError, isIpAddr, setChassisField, setDeviceField, setRackField } from './edit';
+import { edgesIn, emptyDocument, findNode, formatNodeId, readRackFields, type Document } from './model';
 import { newUlid } from './ulid';
 
 const NOW = 1_700_000_000_000;
@@ -156,5 +156,70 @@ describe('setChassisField — serial', () => {
     expect(() =>
       setChassisField(doc, 'chassis:01ARZ3NDEKTSV4RRFFQ69G5FAV', 'serial', 'SN-1', { now: NOW }),
     ).toThrow(UnknownReferenceError);
+  });
+});
+
+function docWithRack(): { doc: Document; rackId: string } {
+  const premisesId = formatNodeId('Premises', newUlid(NOW));
+  const doc: Document = {
+    ...emptyDocument(),
+    nodes: [
+      {
+        id: premisesId,
+        existence: newUlid(NOW),
+        fields: { 'Premises.label': { presence: 'set', prov: newUlid(NOW), value: 'Riverside CO' } },
+      },
+    ],
+  };
+  const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now: NOW });
+  const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+  return { doc: withRack, rackId };
+}
+
+describe('setRackField — row', () => {
+  it('sets Rack.row as one Origin::Hand batch', () => {
+    const { doc, rackId } = docWithRack();
+    const next = setRackField(doc, rackId, 'row', 'Row A', { now: NOW });
+    expect(readRackFields(findNode(next, rackId)!).row).toBe('Row A');
+  });
+
+  it('clears as absent', () => {
+    const { doc, rackId } = docWithRack();
+    const once = setRackField(doc, rackId, 'row', 'Row A', { now: NOW });
+    const cleared = setRackField(once, rackId, 'row', null, { now: NOW + 1 });
+    expect(findNode(cleared, rackId)!.fields['Rack.row'].presence).toBe('absent');
+  });
+
+  it('refuses an unknown rack', () => {
+    const { doc } = docWithRack();
+    expect(() => setRackField(doc, 'rack:01ARZ3NDEKTSV4RRFFQ69G5FAV', 'row', 'Row A', { now: NOW })).toThrow(
+      UnknownReferenceError,
+    );
+  });
+});
+
+describe('setRackField — bay', () => {
+  it('sets Rack.bay', () => {
+    const { doc, rackId } = docWithRack();
+    const next = setRackField(doc, rackId, 'bay', 3, { now: NOW });
+    expect(readRackFields(findNode(next, rackId)!).bay).toBe(3);
+  });
+
+  it('refuses a bay below 1 (ADR-0050 §2: bays count from 1)', () => {
+    const { doc, rackId } = docWithRack();
+    expect(() => setRackField(doc, rackId, 'bay', 0, { now: NOW })).toThrow(FieldValueError);
+    expect(() => setRackField(doc, rackId, 'bay', -1, { now: NOW })).toThrow(FieldValueError);
+  });
+
+  it('refuses a non-integer', () => {
+    const { doc, rackId } = docWithRack();
+    expect(() => setRackField(doc, rackId, 'bay', 1.5, { now: NOW })).toThrow(FieldValueError);
+  });
+
+  it('clears as absent', () => {
+    const { doc, rackId } = docWithRack();
+    const once = setRackField(doc, rackId, 'bay', 3, { now: NOW });
+    const cleared = setRackField(once, rackId, 'bay', null, { now: NOW + 1 });
+    expect(findNode(cleared, rackId)!.fields['Rack.bay'].presence).toBe('absent');
   });
 });

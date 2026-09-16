@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import type { CatalogueModel } from '../api/catalogue';
+import { createRack, placeChassis } from './commands';
 import { PlainError, PLAIN_WARNING, readPlain, writePlain } from './plain';
-import { emptyDocument, type Document } from './model';
+import { emptyDocument, formatNodeId, type Document } from './model';
+import { removeSupply } from './supplies';
+import { newUlid } from './ulid';
 
 // WO-05 §4.4's pinned vector, copied byte for byte from
 // `crates/fathom-workspace/tests/plain_face.rs`'s `PINNED` constant — a
@@ -80,6 +84,48 @@ describe('writePlain / readPlain own round trip', () => {
         },
       ],
     };
+    const bytes = writePlain(doc);
+    const reloaded = readPlain(bytes);
+    expect(reloaded).toEqual(doc);
+    expect(writePlain(reloaded)).toEqual(bytes);
+  });
+
+  it('round trips a chassis with one PSU slot fitted and one removed (ADR-0050 §4)', () => {
+    const now = 1_700_000_000_000;
+    const premisesId = formatNodeId('Premises', newUlid(now));
+    const base: Document = {
+      ...emptyDocument(),
+      nodes: [
+        {
+          id: premisesId,
+          existence: newUlid(now),
+          fields: { 'Premises.label': { presence: 'set', prov: newUlid(now), value: 'Riverside CO' } },
+        },
+      ],
+    };
+    const model: CatalogueModel = {
+      vendor: 'juniper',
+      model: 'EX4300-48P',
+      rackUnits: 1,
+      reviewedBy: 'reviewer',
+      source: { cite: 'cite', readOn: '2026-09-14' },
+      psuSlots: [
+        { name: 'PSU0', hotSwap: true, face: 'rear', position: { row: 'single', column: 0 } },
+        { name: 'PSU1', hotSwap: true, face: 'rear', position: { row: 'single', column: 1 } },
+      ],
+      faceplates: [
+        { face: 'front', portCount: 1, ports: [{ kind: 'RJ45', number: 0, uplink: false, row: 'single', column: 0, groupGapBefore: false }] },
+      ],
+    };
+    const withRack = createRack(base, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const placed = placeChassis(withRack, rackId, model, 12, 'front', { now });
+    const supplyId = placed.nodes.find((n) => n.id.startsWith('power-supply:'))!.id;
+    const doc = removeSupply(placed, supplyId, { now });
+    // Sanity: one PowerSupply node is now tombstoned, the other is live.
+    expect(doc.nodes.filter((n) => n.id.startsWith('power-supply:'))).toHaveLength(2);
+    expect(doc.nodes.find((n) => n.id === supplyId)!.absentSince).toBe(now);
+
     const bytes = writePlain(doc);
     const reloaded = readPlain(bytes);
     expect(reloaded).toEqual(doc);

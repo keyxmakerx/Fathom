@@ -21,7 +21,7 @@ import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
 
 import { compatible } from '../../document/compat';
-import type { CableKind, CableView, ClosetView, DrawingActions, RackView, Selection, Sheath } from './contract';
+import type { CableKind, CableView, ClosetView, DrawingActions, RackView, RowView, Selection, Sheath } from './contract';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from './dnd';
 import {
   CAMERA_STOPS,
@@ -43,17 +43,55 @@ import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { ColourPicker } from './ColourPicker';
 import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeData, type RackNodeType } from './RackNode';
 import { PortalTrayNode, PORTAL_TRAY_HEIGHT, type PortalTrayNodeData, type PortalTrayNodeType } from './PortalTrayNode';
-import { chassisNodeId, parseNodeId, rackNodeId, trayNodeId } from './nodeId';
+import { ROW_LABEL_WIDTH, RowLabelNode, type RowLabelNodeData, type RowLabelNodeType } from './RowLabelNode';
+import { chassisNodeId, parseNodeId, rackNodeId, rowLabelNodeId, trayNodeId } from './nodeId';
 import { findAnyPort, findPort } from './lookup';
 import { liveTargetPortIds } from './liveTargets';
 import { groupPortals, portalCountLabel } from './portals';
 import { sheathsFor } from './sheath';
 import { groupBundles } from './bundles';
 import { litPathFor } from './paths';
-import { chassisToDraw, type Facing } from './faces';
+import { faceplateItems, type Facing } from './elevation';
+import { layoutRow, rowKey, type RowLayout } from './rows';
 
-const NODE_TYPES = { rack: RackNode, chassis: ChassisNode, tray: PortalTrayNode };
+const NODE_TYPES = { rack: RackNode, chassis: ChassisNode, tray: PortalTrayNode, rowLabel: RowLabelNode };
 const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
+
+/** Vertical gap between one row's band and the next — session's own choice,
+ * like `RACK_GAP_PX` beside it (below); not a document fact. */
+const ROW_GAP_PX = 64;
+
+/** ADR-0050 §2: "a rack with no row is its own row." `view.rows` is the
+ * document builder's own logic (`document/view.ts`'s session note) and may
+ * not be populated yet; this falls back to grouping `view.racks` by each
+ * rack's own `row` field (preserving arrival order as the bay order) so the
+ * drawing still has *something* to lay out by — every rack still draws,
+ * simply one to a row until the document side fills `row`/`bay` in. */
+function rowsOf(view: Pick<ClosetView, 'rows' | 'racks'>): RowView[] {
+  if (view.rows.length > 0) return view.rows;
+  const byRow = new Map<string, RackView[]>();
+  const order: string[] = [];
+  for (const rack of view.racks) {
+    const key = rack.row ?? `__no-row-${rack.id}__`;
+    if (!byRow.has(key)) {
+      byRow.set(key, []);
+      order.push(key);
+    }
+    byRow.get(key)!.push(rack);
+  }
+  return order.map((key) => ({ label: byRow.get(key)![0]!.row, racks: byRow.get(key)! }));
+}
+
+/** The flow-space top of the `rowIndex`-th row's band — every row stacked
+ * top to bottom, each band as tall as its tallest rack. */
+function rowBandY(rowLayouts: readonly RowLayout[], rowIndex: number): number {
+  let y = 0;
+  for (let i = 0; i < rowIndex; i += 1) {
+    const heights = rowLayouts[i]!.racks.map((r) => rackNodeHeight(r));
+    y += Math.max(0, ...heights) + ROW_GAP_PX;
+  }
+  return y;
+}
 
 /** Gap between a rack's frame and the portal tray(s) drawn above or below
  * it — session's own choice, not a board's literal pixel (`Main.dc.html`'s
@@ -62,12 +100,6 @@ const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
  * as continuous with the rack, per UI-SPEC "Portals": "Not either/or —
  * both." */
 const TRAY_GAP_PX = 12;
-
-/** Gap between a stacked rear chassis and the front box it stacks beneath —
- * UI-SPEC "Power": "stacked under the front when zoomed" (the faceplate
- * stop, `faces.ts`'s own `stackedUnderChassisId`). Small enough to read as
- * directly attached to its front neighbour rather than floating. */
-const STACKED_REAR_GAP_PX = 2;
 
 /** The live drooping lead while a drag-to-connect is in progress — UI-SPEC
  * "Motion" #1: "Cable droops as you pull it," and "Cables": "you see the
@@ -105,7 +137,7 @@ export interface DrawingProps extends DrawingActions {
 type AnyRackNode = RackNodeType;
 type AnyChassisNode = ChassisNodeType;
 type AnyTrayNode = PortalTrayNodeType;
-type FlowNode = AnyRackNode | AnyChassisNode | AnyTrayNode;
+type FlowNode = AnyRackNode | AnyChassisNode | AnyTrayNode | RowLabelNodeType;
 
 type RackPositions = Record<string, { x: number; y: number }>;
 type DropPreview = Record<string, { fromU: number; toU: number; valid: boolean }>;
@@ -160,13 +192,32 @@ function DrawingInner({
   const [pendingConnect, setPendingConnect] = useState<PendingConnect | null>(null);
   const [lastSheathByKind, setLastSheathByKind] = useState<LastSheathByKind>({});
   const [hoveredCableId, setHoveredCableId] = useState<string | null>(null);
-  // UI-SPEC "Power": "a flip at rack scale" — session-only, per rack, like
+  // ADR-0050 §1: "a flip at rack scale" — session-only, per rack, like
   // `rackPositions` above; not a document fact (`RACK_GAP_PX`'s own rule).
+  // The rack stop's own control (`RackNode.tsx`'s header). Takes precedence
+  // over the row's own flip (below) for whichever rack it names — an
+  // explicit rack-stop choice, not something a row flip should fight to
+  // override.
   const [rackFacing, setRackFacing] = useState<Record<string, Facing>>({});
+  // ADR-0050 §2: "per row at the closet stop" — keyed by `rows.ts`'s own
+  // `rowKey`, since an unlabelled row has no other stable identity.
+  const [rowFacing, setRowFacing] = useState<Record<string, Facing>>({});
   // UI-SPEC "Keeping it readable at forty cables" #2: "the band opens into
   // its members... then folds back on leave" — the one bundle currently
   // fanned open, or `null` when none is.
   const [fannedBundleKey, setFannedBundleKey] = useState<string | null>(null);
+
+  // ADR-0050 §2: the closet stop's own layout unit. `rowViews` is `view.rows`
+  // (or `rowsOf`'s fallback grouping when the document builder has not
+  // populated it yet); `rowLayouts` resolves each row's own bay order
+  // against its current flip — front keeps `view.rows`' own "bay ascending
+  // as seen from the front" order, rear reverses it ("you have walked
+  // round").
+  const rowViews = useMemo(() => rowsOf(view), [view]);
+  const rowLayouts = useMemo(
+    () => rowViews.map((row, i) => layoutRow(row, rowFacing[rowKey(row, i)] ?? 'front')),
+    [rowViews, rowFacing],
+  );
 
   const livePortIds = useMemo(
     () => (dragFromPortId ? liveTargetPortIds(view, dragFromPortId) : null),
@@ -187,21 +238,40 @@ function DrawingInner({
     return map;
   }, [view.cables]);
 
-  // New racks land side by side in arrival order; a rack already placed
-  // keeps its session position even if the view re-orders around it.
+  // ADR-0050 §2: "the closet stop arranges racks by row, bays left to right
+  // as seen from the front." Every rack's position is derived from
+  // `rowLayouts` — its row's band (top to bottom, `rowBandY`) and its bay
+  // index within that row's *current* order (left to right, already
+  // reversed for a row flipped to rear by `layoutRow` above). Recomputed
+  // whenever `rowLayouts` itself changes — on mount, when the document's own
+  // rows/racks change, and whenever any row's flip toggles — which is what
+  // turns a row flip into "racks move to their mirrored places... nothing
+  // remounts" (ADR-0050 §2): the same rack ids keep their React Flow node
+  // identity, only the position each one is given changes, and
+  // `drawing.css`'s own node transition is what makes that read as a slide
+  // rather than a jump. A rack a person has freely dragged keeps that
+  // position across renders where `rowLayouts` itself does not change (nothing
+  // here runs merely because `dragOverride`/`rackPositions` changed); it is
+  // only re-derived, like every other rack's, the next time a row's own flip
+  // (or the document's row/bay data) actually changes.
   useEffect(() => {
     setRackPositions((prev) => {
-      const known = view.racks.filter((r) => prev[r.id] == null);
-      if (known.length === 0) return prev;
-      let cursorX = Object.values(prev).reduce((max, p) => Math.max(max, p.x + RACK_NODE_WIDTH + RACK_GAP_PX), 0);
       const next = { ...prev };
-      for (const rack of known) {
-        next[rack.id] = { x: cursorX, y: 0 };
-        cursorX += RACK_NODE_WIDTH + RACK_GAP_PX;
-      }
-      return next;
+      let changed = false;
+      rowLayouts.forEach((layout, rowIndex) => {
+        const y = rowBandY(rowLayouts, rowIndex);
+        layout.racks.forEach((rack, bayIndex) => {
+          const want = { x: bayIndex * (RACK_NODE_WIDTH + RACK_GAP_PX), y };
+          const have = prev[rack.id];
+          if (have == null || have.x !== want.x || have.y !== want.y) {
+            next[rack.id] = want;
+            changed = true;
+          }
+        });
+      });
+      return changed ? next : prev;
     });
-  }, [view.racks]);
+  }, [rowLayouts]);
 
   // "Entering the Racks place lands at the rack stop with the first rack
   // fitted, not at an arbitrary corner" — once on mount and whenever the
@@ -259,83 +329,111 @@ function DrawingInner({
 
   const zoomPercent = Math.round(viewport.zoom * 100);
 
-  // UI-SPEC "Rear faces": which stop this camera reads as right now decides
-  // whether the header's `front | rear` flip governs (closet, rack) or both
-  // faces draw at once, rear stacked under its front neighbour (faceplate).
+  // UI-SPEC "Rear faces" / ADR-0050 §1: which stop this camera reads as
+  // right now decides only whether the rack-stop's own flip control shows
+  // (`showFlip`, below) and whether the row-label's own flip control shows
+  // (closet stop only) — every stop now draws exactly one elevation per
+  // rack, never both at once (the retired `faces.ts` faceplate-stop
+  // stacking is gone with it, ADR-0050 §1).
   const cameraStop = cameraStopAt(zoomPercent);
 
-  const nodes: Node[] = [];
-  for (const rack of view.racks) {
-    const pos = rackPositions[rack.id] ?? { x: 0, y: 0 };
-    const facing: Facing = rackFacing[rack.id] ?? 'front';
-    const faceItems = chassisToDraw(rack, cameraStop, facing);
-    const rackData: RackNodeData = {
-      rack,
-      selected: selected?.kind === 'rack' && selected.id === rack.id,
-      dropPreview: dropPreview[rack.id] ?? null,
-      shaking: shakingId === rackNodeId(rack.id),
-      visibleChassis: faceItems.map((item) => item.chassis),
-      facing,
-      onFlip: () => setRackFacing((prev) => ({ ...prev, [rack.id]: prev[rack.id] === 'rear' ? 'front' : 'rear' })),
-      showFlip: cameraStop === 'rack',
-    };
-    nodes.push({
-      id: rackNodeId(rack.id),
-      type: 'rack',
-      position: pos,
-      draggable: true,
-      selectable: true,
-      style: { width: RACK_NODE_WIDTH, height: rackNodeHeight(rack) },
-      data: rackData,
-    } satisfies AnyRackNode);
+  // Every rack's currently-drawn elevation: this rack's own flip
+  // (`rackFacing`, the rack stop's control) when it has one, otherwise its
+  // row's flip (`rowFacing`, the closet stop's control, defaulting to
+  // front) — ADR-0050 §2: "per row at the closet stop and per rack at the
+  // rack stop."
+  const rowIndexByRackId = new Map<string, number>();
+  rowViews.forEach((row, i) => row.racks.forEach((r) => rowIndexByRackId.set(r.id, i)));
+  function elevationFor(rackId: string): Facing {
+    const own = rackFacing[rackId];
+    if (own) return own;
+    const rowIndex = rowIndexByRackId.get(rackId);
+    if (rowIndex == null) return 'front';
+    return rowFacing[rowKey(rowViews[rowIndex]!, rowIndex)] ?? 'front';
+  }
 
-    for (const item of faceItems) {
-      const { chassis } = item;
-      const id = chassisNodeId(chassis.id);
-      // UI-SPEC "Power": "stacked under the front when zoomed" — a rear
-      // chassis matched to a front neighbour at the same U draws directly
-      // beneath that neighbour's own box; one with no front neighbour there
-      // draws in its own reserved run instead (`faces.ts`'s own doc: "never
-      // a silent gap again"), and at the closet/rack stops (the flip) a
-      // rear item is simply the only thing shown, at its own position.
-      const frontNeighbour = item.stackedUnderChassisId
-        ? rack.chassis.find((c) => c.id === item.stackedUnderChassisId)
-        : undefined;
-      const basePosition = frontNeighbour
-        ? {
-            x: pos.x + RAIL_PX,
-            y:
-              pos.y +
-              RACK_HEADER_PX +
-              uToOffsetPx(rack.heightU, frontNeighbour.positionU, frontNeighbour.heightU) +
-              frontNeighbour.heightU * U_PX +
-              STACKED_REAR_GAP_PX,
-          }
-        : {
-            x: pos.x + RAIL_PX,
-            y: pos.y + RACK_HEADER_PX + uToOffsetPx(rack.heightU, chassis.positionU, chassis.heightU),
-          };
-      const chassisData: ChassisNodeData = {
-        chassis,
-        selected: selected?.kind === 'chassis' && selected.id === chassis.id,
-        portOpacity: portOpacityAt(zoomPercent),
-        onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
-        liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
-        portSheath,
-        rear: item.rear,
+  const nodes: Node[] = [];
+
+  rowLayouts.forEach((layout, rowIndex) => {
+    const y = rowBandY(rowLayouts, rowIndex);
+    if (cameraStop === 'closet' && layout.racks.length > 0) {
+      const key = rowKey(rowViews[rowIndex]!, rowIndex);
+      const bandHeight = Math.max(0, ...layout.racks.map((r) => rackNodeHeight(r)));
+      const rowLabelData: RowLabelNodeData = {
+        label: layout.label,
+        elevation: layout.elevation,
+        onFlip: () => setRowFacing((prev) => ({ ...prev, [key]: prev[key] === 'rear' ? 'front' : 'rear' })),
       };
       nodes.push({
-        id,
-        type: 'chassis',
-        position: dragOverride[id] ?? basePosition,
+        id: rowLabelNodeId(key),
+        type: 'rowLabel',
+        position: { x: -(ROW_LABEL_WIDTH + RACK_GAP_PX / 2), y },
+        draggable: false,
+        selectable: false,
+        style: { width: ROW_LABEL_WIDTH, height: bandHeight },
+        data: rowLabelData,
+      } satisfies RowLabelNodeType);
+    }
+
+    for (const rack of layout.racks) {
+      const pos = rackPositions[rack.id] ?? { x: 0, y };
+      const elevation = elevationFor(rack.id);
+      // ADR-0050 §1: every mounted chassis draws at every elevation now —
+      // as its own faceplate for this face, or a plain plate when it has
+      // none — so this is no longer a filtered subset the way the retired
+      // `faces.ts`'s `chassisToDraw` was.
+      const items = faceplateItems(rack.chassis, elevation);
+      const rackData: RackNodeData = {
+        rack,
+        selected: selected?.kind === 'rack' && selected.id === rack.id,
+        dropPreview: dropPreview[rack.id] ?? null,
+        shaking: shakingId === rackNodeId(rack.id),
+        chassisItems: items,
+        elevation,
+        onFlip: () => setRackFacing((prev) => ({ ...prev, [rack.id]: prev[rack.id] === 'rear' ? 'front' : 'rear' })),
+        showFlip: cameraStop === 'rack',
+      };
+      nodes.push({
+        id: rackNodeId(rack.id),
+        type: 'rack',
+        position: pos,
         draggable: true,
         selectable: true,
-        zIndex: 10,
-        style: { width: RACK_INNER_PX, height: chassis.heightU * U_PX },
-        data: chassisData,
-      } satisfies AnyChassisNode);
+        style: { width: RACK_NODE_WIDTH, height: rackNodeHeight(rack) },
+        data: rackData,
+      } satisfies AnyRackNode);
+
+      for (const item of items) {
+        const { chassis } = item;
+        const id = chassisNodeId(chassis.id);
+        const basePosition = {
+          x: pos.x + RAIL_PX,
+          y: pos.y + RACK_HEADER_PX + uToOffsetPx(rack.heightU, chassis.positionU, chassis.heightU),
+        };
+        const chassisData: ChassisNodeData = {
+          chassis,
+          ports: item.ports,
+          inlets: item.inlets,
+          elevation,
+          selected: selected?.kind === 'chassis' && selected.id === chassis.id,
+          portOpacity: portOpacityAt(zoomPercent),
+          onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
+          liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
+          portSheath,
+        };
+        nodes.push({
+          id,
+          type: 'chassis',
+          position: dragOverride[id] ?? basePosition,
+          draggable: true,
+          selectable: true,
+          zIndex: 10,
+          style: { width: RACK_INNER_PX, height: chassis.heightU * U_PX },
+          data: chassisData,
+        } satisfies AnyChassisNode);
+      }
     }
-  }
+  });
 
   // UI-SPEC "Portals": one tray node per (rack, side, far label) group —
   // `portals.ts` does the grouping; this only lays the resulting boxes out
@@ -386,15 +484,22 @@ function DrawingInner({
     } satisfies AnyTrayNode);
   }
 
-  // UI-SPEC "Power": a cable ending at a PSU inlet routes from the rack's
-  // own rail handle (`RackNode.tsx`'s `psu.id`-keyed `Handle`), not the
-  // chassis's faceplate — `findAnyPort` is what tells the two apart.
+  // ADR-0050 §1: "in the rear elevation a power lead ends on the inlet on
+  // the face; in the front elevation it ends on the rail hexagon as today."
+  // `findAnyPort` tells a PSU inlet apart from an ordinary faceplate port;
+  // `elevationFor` (above) is which elevation the inlet's own rack is
+  // currently drawn in — the front elevation still routes to the rack's own
+  // rail handle (`RackNode.tsx`'s `psu.id`-keyed `Handle`), the rear
+  // elevation routes to the chassis's own inlet-strip handle
+  // (`ChassisNode.tsx`'s `InletGlyph`), exactly the handle each actually
+  // draws in that elevation.
   function resolveEnd(end: { portId: string; chassisId: string; rackId: string }): { nodeId: string; handleId: string } | null {
     const found = findAnyPort(view, end.portId);
     if (!found) return null;
-    return found.isPsuInlet
-      ? { nodeId: rackNodeId(found.rack.id), handleId: end.portId }
-      : { nodeId: chassisNodeId(end.chassisId), handleId: end.portId };
+    if (found.isPsuInlet && elevationFor(found.rack.id) === 'front') {
+      return { nodeId: rackNodeId(found.rack.id), handleId: end.portId };
+    }
+    return { nodeId: chassisNodeId(end.chassisId), handleId: end.portId };
   }
 
   function portLabel(portId: string): string {

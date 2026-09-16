@@ -5,7 +5,7 @@ import { groupPortals } from './portals';
 import { isPanel, litPathFor, pairedPort } from './paths';
 
 function port(overrides: Partial<PortView> & Pick<PortView, 'id' | 'label'>): PortView {
-  return { connector: 'rj45', row: 0, column: 0, uplink: false, cable: null, ...overrides };
+  return { connector: 'rj45', row: 0, column: 0, uplink: false, role: null, cable: null, face: 'front', ...overrides };
 }
 
 function chassis(overrides: Partial<ChassisView> & Pick<ChassisView, 'id'>): ChassisView {
@@ -20,8 +20,28 @@ function chassis(overrides: Partial<ChassisView> & Pick<ChassisView, 'id'>): Cha
     role: null,
     managementAddress: null,
     serial: null,
-    psuInlets: [{ id: `${overrides.id}-psu`, label: '1', connector: 'c14', row: 0, column: 0, uplink: false, cable: null }],
+    psuInlets: [
+      {
+        id: `${overrides.id}-psu`,
+        label: '1',
+        connector: 'c14',
+        row: 0,
+        column: 0,
+        uplink: false,
+        cable: null,
+        face: 'front',
+        slot: 'PSU 0',
+        role: null,
+        serial: null,
+        model: null,
+        hotSwap: true,
+        fitted: true,
+        supplyId: null,
+        position: { row: 'single', column: 0 },
+      },
+    ],
     singleFed: false,
+    oneFitted: false,
     ports: [],
     ...overrides,
   };
@@ -91,7 +111,8 @@ function twoHopView(): ClosetView {
   });
   return {
     premisesId: 'closet-1',
-    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], chassis: [acc, patch, dist] }],
+    rows: [],
+    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, chassis: [acc, patch, dist] }],
     cables: [
       { id: accToPanel, kind: 'copper', media: 'cat6', sheath: 'grey', label: null, ends: [{ portId: 'acc-port', chassisId: 'acc-01', rackId: 'rack-1' }, { portId: 'panel-front-7', chassisId: 'patch-01', rackId: 'rack-1' }] },
       { id: panelToDist, kind: 'copper', media: 'cat6', sheath: 'blue', label: null, ends: [{ portId: 'panel-rear-7', chassisId: 'patch-01', rackId: 'rack-1' }, { portId: 'dist-port', chassisId: 'dist-01', rackId: 'rack-1' }] },
@@ -139,7 +160,8 @@ function threeHopView(): ClosetView {
   const core = chassis({ id: 'core-01', ports: [port({ id: 'core-port', label: '1', cable: { cableId: c3, farPortId: 'b-rear-3', farChassisId: 'patch-b', outsideCloset: false } })] });
   return {
     premisesId: 'closet-1',
-    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], chassis: [acc, patchA, patchB, core] }],
+    rows: [],
+    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, chassis: [acc, patchA, patchB, core] }],
     cables: [
       { id: c1, kind: 'copper', media: 'cat6', sheath: 'grey', label: null, ends: [{ portId: 'acc-port', chassisId: 'acc-01', rackId: 'rack-1' }, { portId: 'a-front-7', chassisId: 'patch-a', rackId: 'rack-1' }] },
       { id: c2, kind: 'copper', media: 'cat6', sheath: 'blue', label: null, ends: [{ portId: 'a-rear-7', chassisId: 'patch-a', rackId: 'rack-1' }, { portId: 'b-front-3', chassisId: 'patch-b', rackId: 'rack-1' }] },
@@ -176,7 +198,8 @@ function panelToPortalView(): { view: ClosetView; trayKey: string } {
   });
   const view: ClosetView = {
     premisesId: 'closet-1',
-    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], chassis: [acc, patch] }],
+    rows: [],
+    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, chassis: [acc, patch] }],
     cables: [
       { id: c1, kind: 'copper', media: 'cat6', sheath: 'grey', label: null, ends: [{ portId: 'acc-port', chassisId: 'acc-01', rackId: 'rack-1' }, { portId: 'front-7', chassisId: 'patch-01', rackId: 'rack-1' }] },
       { id: c2, kind: 'fibre', media: 'om4', sheath: 'aqua', label: null, ends: [{ portId: 'rear-7', chassisId: 'patch-01', rackId: 'rack-1' }, { outside: true, label: 'up the riser → MDF A-01' }] },

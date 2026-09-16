@@ -390,6 +390,17 @@ describe('view: PortView.cable and ClosetView.cables', () => {
   });
 });
 
+// ADR-0050 §4: both `PORT_MODEL`'s slots are `hotSwap: true`, so their
+// inlets live on `PowerSupply` nodes (`FittedIn`), never as `HasPort`
+// children of the chassis itself — `supplyInlets` below finds them the way
+// `view.ts`'s own `hotSwapInletView` does.
+function supplyInlets(doc: Document, chassisId: string): string[] {
+  return edgesOut(doc, chassisId, 'FittedIn')
+    .filter((e) => e.absentSince === undefined)
+    .map((e) => edgesOut(doc, e.to, 'HasPort')[0]?.to)
+    .filter((id): id is string => id !== undefined);
+}
+
 describe('view: ChassisView.psuInlets and singleFed', () => {
   it('exposes the c14 inlets kept out of the faceplate ports array', () => {
     const { doc, chassisA } = twoChassis();
@@ -408,9 +419,7 @@ describe('view: ChassisView.psuInlets and singleFed', () => {
 
   it('is true with exactly one of two inlets fed', () => {
     const { doc, chassisA } = twoChassis();
-    const inletA = doc.nodes
-      .filter((n) => n.absentSince === undefined)
-      .find((n) => edgesIn(doc, n.id, 'HasPort').some((e) => e.from === chassisA) && readPhysicalPortFields(n).connector === 'c14')!;
+    const inletAId = supplyInlets(doc, chassisA)[0];
     // Feed one inlet from a PDU-style c13 outlet elsewhere in the document.
     const pduPort = formatNodeId('PhysicalPort', newUlid(NOW));
     const withPdu: Document = {
@@ -427,23 +436,18 @@ describe('view: ChassisView.psuInlets and singleFed', () => {
         },
       ],
     };
-    const fed = connectPorts(withPdu, inletA.id, pduPort, {}, { now: NOW });
+    const fed = connectPorts(withPdu, inletAId, pduPort, {}, { now: NOW });
     const view = viewOf(fed, [PORT_MODEL]);
     expect(view.racks[0].chassis.find((c) => c.id === chassisA)!.singleFed).toBe(true);
   });
 
   it('is false with two of two inlets fed', () => {
     const { doc, chassisA } = twoChassis();
-    const inlets = doc.nodes.filter(
-      (n) =>
-        n.absentSince === undefined &&
-        edgesIn(doc, n.id, 'HasPort').some((e) => e.from === chassisA) &&
-        readPhysicalPortFields(n).connector === 'c14',
-    );
+    const inlets = supplyInlets(doc, chassisA);
     expect(inlets).toHaveLength(2);
     let working = doc;
     let pduNodes: Array<{ id: string }> = [];
-    for (const inlet of inlets) {
+    for (const inletId of inlets) {
       const pduPort = formatNodeId('PhysicalPort', newUlid(NOW));
       working = {
         ...working,
@@ -459,7 +463,7 @@ describe('view: ChassisView.psuInlets and singleFed', () => {
           },
         ],
       };
-      working = connectPorts(working, inlet.id, pduPort, {}, { now: NOW });
+      working = connectPorts(working, inletId, pduPort, {}, { now: NOW });
       pduNodes.push({ id: pduPort });
     }
     const view = viewOf(working, [PORT_MODEL]);
@@ -473,9 +477,7 @@ describe('view: ChassisView.psuInlets and singleFed', () => {
     const oneInletModel: CatalogueModel = { ...NO_PSU_MODEL, model: 'ONE-PSU', psuSlots: [{ name: 'PSU0', hotSwap: true, face: 'rear', position: { row: 'single', column: 0 } }] };
     const placed = placeChassis(withRack, rackId, oneInletModel, 1, 'front', { now: NOW });
     const chassisId = edgesIn(placed, rackId, 'MountedIn')[0].from;
-    const inletId = edgesOut(placed, chassisId, 'HasPort')
-      .map((e) => e.to)
-      .find((id) => readPhysicalPortFields(findNode(placed, id)!).connector === 'c14')!;
+    const inletId = supplyInlets(placed, chassisId)[0];
 
     const pduPort = formatNodeId('PhysicalPort', newUlid(NOW));
     const withPdu: Document = {

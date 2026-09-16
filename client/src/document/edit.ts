@@ -24,6 +24,7 @@ import {
   requireFieldName,
   text,
   token,
+  uint,
   withBatch,
   type Batch,
   type Document,
@@ -201,4 +202,47 @@ export function setChassisField(
   const { actor, now } = resolve(opts);
   const built = setFieldEntry(doc, now, actor, chassisId, node.fields[wireKey], wireKey, encoded);
   return commitField(built.doc, now, chassisId, wireKey, built.entry, built.op, `set ${wireKey}`);
+}
+
+export type RackFieldKey = 'row' | 'bay';
+
+/**
+ * `Rack.row` (`Text`, ADR-0050 §2 — the room's own name for it, "Row A") or
+ * `Rack.bay` (`u16`, refused below 1 — "counted left to right as seen from
+ * the front, 1 first", `schema/schema.yaml`'s own doc) on one `Rack` node —
+ * the same shape as `setDeviceField`/`setChassisField`.
+ */
+export function setRackField(
+  doc: Document,
+  rackId: string,
+  key: RackFieldKey,
+  value: string | number | null,
+  opts?: Actor,
+): Document {
+  const node = findNode(doc, rackId);
+  if (!node) throw new UnknownReferenceError(rackId, 'Rack');
+  const wireKey = `Rack.${key}`;
+
+  let encoded: FieldEntry['value'] | undefined;
+  if (value !== null) {
+    switch (key) {
+      case 'row':
+        if (typeof value !== 'string') throw new FieldValueError(wireKey, String(value), 'must be text');
+        encoded = text(value);
+        break;
+      case 'bay':
+        if (typeof value !== 'number' || !Number.isInteger(value)) {
+          throw new FieldValueError(wireKey, String(value), 'must be a whole number');
+        }
+        if (value < 1) {
+          throw new FieldValueError(wireKey, String(value), 'must be 1 or more (ADR-0050 §2: bays count from 1)');
+        }
+        encoded = uint(value, 16);
+        break;
+    }
+  }
+
+  const { actor, now } = resolve(opts);
+  const built = setFieldEntry(doc, now, actor, rackId, node.fields[wireKey], wireKey, encoded);
+  return commitField(built.doc, now, rackId, wireKey, built.entry, built.op, `set ${wireKey}`);
 }

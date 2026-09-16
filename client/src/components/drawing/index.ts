@@ -4,9 +4,11 @@ export type {
   DrawingActions,
   EditorActions,
   EditorChange,
+  InletView,
   PaletteItem,
   PortView,
   RackView,
+  RowView,
   Selection,
 } from './contract';
 export { Drawing, type DrawingProps } from './Drawing';

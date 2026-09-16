@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { chassisNodeId, parseNodeId, rackNodeId, trayNodeId } from './nodeId';
+import { chassisNodeId, parseNodeId, rackNodeId, rowLabelNodeId, trayNodeId } from './nodeId';
 
 describe('rackNodeId / chassisNodeId / parseNodeId', () => {
   it('round-trips a rack id', () => {
@@ -23,5 +23,9 @@ describe('rackNodeId / chassisNodeId / parseNodeId', () => {
 
   it('a tray node id is never a Selection this drawing raises — deliberately not parsed', () => {
     expect(parseNodeId(trayNodeId('rack-1|above|up the riser'))).toBeNull();
+  });
+
+  it('a row label node id is never a Selection this drawing raises — deliberately not parsed', () => {
+    expect(parseNodeId(rowLabelNodeId('A'))).toBeNull();
   });
 });

@@ -1,8 +1,8 @@
 import { Handle, Position, useViewport, type Node, type NodeProps } from '@xyflow/react';
 
 import { C14 } from '../ports';
-import type { Facing } from './faces';
-import type { ChassisView, RackView } from './contract';
+import type { Facing, FaceplateItem } from './elevation';
+import type { RackView } from './contract';
 import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, counterScaledFontPx, sortFreeRuns } from './geometry';
 
 /** The rack label's and U numbers' flow-space size at the rack stop —
@@ -34,29 +34,33 @@ export interface RackNodeData extends Record<string, unknown> {
   dropPreview: { fromU: number; toU: number; valid: boolean } | null;
   /** True for the ~180ms after a drop this rack refused, for the shake. */
   shaking: boolean;
-  /** Whichever chassis are currently drawn for this rack — `faces.ts`'s own
-   * `chassisToDraw` output, already resolved for the camera stop and the
-   * flip — so the rail's PSU marks (UI-SPEC "Power") always match what is
-   * actually on screen rather than this node re-deciding the face on its
-   * own. */
-  visibleChassis: readonly ChassisView[];
-  /** UI-SPEC "Power": "a flip at rack scale" — which face `front | rear` in
-   * the header currently shows. */
-  facing: Facing;
+  /** Every mounted chassis, resolved for this rack's current elevation
+   * (`elevation.ts`'s own `faceplateItems`) — ADR-0050 §1: unlike the
+   * retired `faces.ts` flip, every chassis draws at every elevation, so this
+   * is no longer a filtered subset; it is what the rail's PSU marks (front
+   * elevation only — see `elevation` below) are built from, so they always
+   * match what is actually on screen rather than this node re-deriving the
+   * face on its own. */
+  chassisItems: readonly FaceplateItem[];
+  /** ADR-0050 §1: "a flip at rack scale." At the closet stop this is set by
+   * the row's own flip; at the rack and faceplate stops, by this rack's own
+   * control below. */
+  elevation: Facing;
   onFlip: () => void;
-  /** UI-SPEC "Rear faces": "at the rack stop a small front | rear flip in
-   * the rack header" — the faceplate stop draws both faces at once
-   * (`faces.ts`) and has nothing to flip, so the control itself is hidden
-   * there rather than drawn inert. */
+  /** The rack stop's own `front | rear` control — hidden at the closet stop,
+   * where the row's own header control governs instead (`Drawing.tsx`). */
   showFlip: boolean;
 }
 
 export type RackNodeType = Node<RackNodeData, 'rack'>;
 
 /** One inlet's rail position: `chassis`'s own row, `index` of `count`
- * siblings on that row, centred in the left rail. Shared by the visible hex
- * mark and its `Handle` so the two never drift apart. */
-function psuSlot(rack: RackView, chassis: ChassisView, index: number, count: number): { left: number; top: number } {
+ * siblings on that row, centred in the rail that currently carries the
+ * numbering (`railSide`, below) — ADR-0050 §1: "the rail... unit numbers
+ * with it," so the PSU marks (drawn only in the front elevation, where the
+ * rail hexagon is still how a power lead ends) travel with the same rail
+ * the U numbers do rather than staying pinned to a fixed side. */
+function psuSlot(rack: RackView, chassis: FaceplateItem['chassis'], index: number, count: number): { left: number; top: number } {
   const rowTop = (rack.heightU - (chassis.positionU + chassis.heightU - 1)) * U_PX;
   const rowHeight = chassis.heightU * U_PX;
   const centreX = RAIL_PX / 2 + (index - (count - 1) / 2) * PSU_HEX_GAP_PX;
@@ -65,12 +69,23 @@ function psuSlot(rack: RackView, chassis: ChassisView, index: number, count: num
 }
 
 /** Rails, U numbers, hatched free runs — drawn exactly as `design/shell/Main.dc.html`
- * and `design/shell/Lenses.dc.html` draw them. Chassis are not drawn here:
+ * and `design/shell/Lenses.dc.html` draw them, mirrored for the rear
+ * elevation (ADR-0050 §1: "the rail that is on the left from the front is on
+ * the right from behind, unit numbers with it"). Chassis are not drawn here:
  * they are sibling React Flow nodes positioned to align with this rack's
  * frame (`Drawing.tsx`), so a chassis can be dragged from one rack's frame
- * to another's without this node re-rendering. */
+ * to another's without this node re-rendering.
+ *
+ * The mirror is a RE-LAYOUT (which rail hosts the numbering), not a CSS
+ * transform on the frame: ADR-0050 §1 is explicit that "a faceplate's own
+ * layout does not mirror," and a `scaleX(-1)` on the whole frame would flip
+ * the device column (and everything React Flow stacks over it, `Drawing.tsx`'s
+ * sibling `ChassisNode`s) along with the rails — mirroring exactly the
+ * content the decision says must not mirror. Swapping which side element
+ * carries the numbering leaves the device column, and everything positioned
+ * over it, untouched. */
 export function RackNode({ data }: NodeProps<RackNodeType>) {
-  const { rack, selected, dropPreview, shaking, visibleChassis, facing, onFlip, showFlip } = data;
+  const { rack, selected, dropPreview, shaking, chassisItems, elevation, onFlip, showFlip } = data;
   const { zoom } = useViewport();
   const frameHeight = rack.heightU * U_PX;
   const usedU = rack.chassis.reduce((sum, c) => sum + c.heightU, 0);
@@ -82,6 +97,17 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
   // than letting them shrink below it as the camera zooms out.
   const labelFontPx = counterScaledFontPx(RACK_LABEL_BASE_PX, zoom);
   const uNumberFontPx = counterScaledFontPx(U_NUMBER_BASE_PX, zoom);
+
+  // ADR-0050 §1: rail hexagons are the front elevation's own way for a power
+  // lead to end ("as today"); the rear elevation's leads end directly on the
+  // inlet strip drawn on the chassis's own rear faceplate (`ChassisNode.tsx`)
+  // instead, so nothing is drawn on the rail there.
+  const railInlets =
+    elevation === 'front'
+      ? chassisItems.flatMap((item) => item.inlets.map((inlet, i) => ({ chassis: item.chassis, inlet, i, count: item.inlets.length })))
+      : [];
+
+  const railSide: 'left' | 'right' = elevation === 'rear' ? 'right' : 'left';
 
   return (
     <div
@@ -98,10 +124,10 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
           <span className="drawing-rack__flip nodrag">
             <button
               type="button"
-              className={facing === 'front' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
+              className={elevation === 'front' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
               onClick={(e) => {
                 e.stopPropagation();
-                if (facing !== 'front') onFlip();
+                if (elevation !== 'front') onFlip();
               }}
             >
               front
@@ -109,10 +135,10 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
             <span aria-hidden="true"> | </span>
             <button
               type="button"
-              className={facing === 'rear' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
+              className={elevation === 'rear' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
               onClick={(e) => {
                 e.stopPropagation();
-                if (facing !== 'rear') onFlip();
+                if (elevation !== 'rear') onFlip();
               }}
             >
               rear
@@ -122,37 +148,44 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
       </div>
       <div className="drawing-rack__frame" style={{ height: frameHeight }}>
         <div className="drawing-rack__rail drawing-rack__rail--left" style={{ width: RAIL_PX }}>
-          {/* UI-SPEC "Power": "Each device's PSU inlets notated on the left
-              rail beside it — two hexagons for dual, filled when fed." */}
-          {visibleChassis.flatMap((chassis) =>
-            chassis.psuInlets.map((inlet, i) => {
-              const slot = psuSlot(rack, chassis, i, chassis.psuInlets.length);
-              return (
-                <div
-                  key={inlet.id}
-                  className="drawing-rack__psu"
-                  style={{ left: slot.left, top: slot.top, width: PSU_HEX_WIDTH, height: PSU_HEX_HEIGHT }}
-                >
-                  <C14 cabled={inlet.cable != null} scale={PSU_HEX_SCALE} title={`${chassis.hostname || 'unnamed'} PSU ${i + 1}`} />
-                  <Handle
-                    type="source"
-                    position={Position.Left}
-                    id={inlet.id}
-                    className="drawing-rack__psu-handle"
-                  />
-                </div>
-              );
-            }),
+          {railSide === 'left' && (
+            <>
+              {/* UI-SPEC "Power": "Each device's PSU inlets notated on the
+                  left rail beside it — two hexagons for dual, filled when
+                  fed" (the front elevation only, ADR-0050 §1). */}
+              {railInlets.map(({ chassis, inlet, i, count }) => {
+                const slot = psuSlot(rack, chassis, i, count);
+                return (
+                  <div
+                    key={inlet.id}
+                    className="drawing-rack__psu"
+                    style={{ left: slot.left, top: slot.top, width: PSU_HEX_WIDTH, height: PSU_HEX_HEIGHT }}
+                  >
+                    <C14 cabled={inlet.cable != null} scale={PSU_HEX_SCALE} title={`${chassis.hostname || 'unnamed'} ${inlet.slot || `PSU ${i + 1}`}`} />
+                    <Handle type="source" position={Position.Left} id={inlet.id} className="drawing-rack__psu-handle" />
+                  </div>
+                );
+              })}
+              <div className="drawing-rack__u-numbers drawing-rack__u-numbers--left" style={{ width: RAIL_PX }}>
+                {Array.from({ length: rack.heightU }, (_, i) => rack.heightU - i).map((u) => (
+                  <div key={u} className="drawing-rack__u-number" style={{ height: U_PX, fontSize: uNumberFontPx }}>
+                    {u}
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
-        <div className="drawing-rack__rail drawing-rack__rail--right" style={{ width: RAIL_PX }} />
-
-        <div className="drawing-rack__u-numbers drawing-rack__u-numbers--left" style={{ width: RAIL_PX }}>
-          {Array.from({ length: rack.heightU }, (_, i) => rack.heightU - i).map((u) => (
-            <div key={u} className="drawing-rack__u-number" style={{ height: U_PX, fontSize: uNumberFontPx }}>
-              {u}
+        <div className="drawing-rack__rail drawing-rack__rail--right" style={{ width: RAIL_PX }}>
+          {railSide === 'right' && (
+            <div className="drawing-rack__u-numbers drawing-rack__u-numbers--right" style={{ width: RAIL_PX }}>
+              {Array.from({ length: rack.heightU }, (_, i) => rack.heightU - i).map((u) => (
+                <div key={u} className="drawing-rack__u-number" style={{ height: U_PX, fontSize: uNumberFontPx }}>
+                  {u}
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
 
         <div className="drawing-rack__device-column" style={{ left: RAIL_PX, width: RACK_INNER_PX }}>

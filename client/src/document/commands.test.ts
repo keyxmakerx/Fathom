@@ -18,6 +18,8 @@ import {
   formatNodeId,
   readChassisFields,
   readMountedInFields,
+  readPhysicalPortFields,
+  readPowerSupplyFields,
   readRackFields,
   type Document,
 } from './model';
@@ -127,8 +129,59 @@ describe('placeChassis', () => {
     expect(findNode(next, deviceId)).toBeDefined();
 
     const ports = edgesOut(next, chassisId, 'HasPort');
-    // 2 front + 1 rear faceplate ports, plus MODEL_1U's 2 PSU inlets (docs/UI-SPEC.md "Power").
-    expect(ports).toHaveLength(5);
+    // 2 front + 1 rear faceplate ports. MODEL_1U's two PSU slots are both
+    // `hotSwap: true` (ADR-0050 §4), so their inlets live on fresh
+    // `PowerSupply` nodes, not as `HasPort` children of the chassis itself.
+    expect(ports).toHaveLength(3);
+
+    const fitted = edgesOut(next, chassisId, 'FittedIn');
+    expect(fitted).toHaveLength(2);
+    for (const f of fitted) {
+      const supply = findNode(next, f.to)!;
+      expect(readPowerSupplyFields(supply).slot).toMatch(/^PSU[01]$/);
+      const supplyPorts = edgesOut(next, f.to, 'HasPort');
+      expect(supplyPorts).toHaveLength(1);
+      const inlet = findNode(next, supplyPorts[0].to)!;
+      const inletFields = readPhysicalPortFields(inlet);
+      expect(inletFields.connector).toBe('c14');
+      expect(inletFields.label).toBe(readPowerSupplyFields(supply).slot);
+    }
+  });
+
+  it('keeps a fixed (non-hot-swap) slot\'s inlet directly on the chassis', () => {
+    const { doc, rackId } = rackOf(42);
+    const fixedModel: CatalogueModel = {
+      ...MODEL_1U,
+      psuSlots: [{ name: 'PSU0', hotSwap: false, face: 'rear', position: { row: 'single', column: 0 } }],
+    };
+    const next = placeChassis(doc, rackId, fixedModel, 12, 'front', { now: NOW });
+    const mounted = edgesIn(next, rackId, 'MountedIn')[0];
+    const chassisId = mounted.from;
+
+    expect(edgesOut(next, chassisId, 'FittedIn')).toHaveLength(0);
+    const ports = edgesOut(next, chassisId, 'HasPort');
+    const inlet = ports.find((e) => readPhysicalPortFields(findNode(next, e.to)!).connector === 'c14');
+    expect(inlet).toBeDefined();
+    expect(readPhysicalPortFields(findNode(next, inlet!.to)!).label).toBe('PSU0');
+  });
+
+  it('labels a named port with its catalogue name, not "null"', () => {
+    const { doc, rackId } = rackOf(42);
+    const namedModel: CatalogueModel = {
+      ...MODEL_1U,
+      psuSlots: [],
+      faceplates: [
+        {
+          face: 'front',
+          portCount: 1,
+          ports: [{ kind: 'RJ45', number: null, name: 'me0', uplink: false, role: 'management', row: 'single', column: 0, groupGapBefore: false }],
+        },
+      ],
+    };
+    const next = placeChassis(doc, rackId, namedModel, 12, 'front', { now: NOW });
+    const chassisId = edgesIn(next, rackId, 'MountedIn')[0].from;
+    const port = edgesOut(next, chassisId, 'HasPort')[0];
+    expect(readPhysicalPortFields(findNode(next, port.to)!).label).toBe('me0');
   });
 
   it('refuses an out-of-range unit', () => {

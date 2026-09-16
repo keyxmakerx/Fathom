@@ -352,6 +352,11 @@ export interface RackFields {
   label?: string;
   heightU?: number;
   unitNumbering?: string;
+  /** ADR-0050 §2 — the row the rack stands in, and its bay within it. Both
+   * `0..1`: a rack recorded before its closet stop existed has said
+   * something true, and neither is invented for it. */
+  row?: string;
+  bay?: number;
 }
 
 export function readRackFields(node: GraphNode): RackFields {
@@ -359,6 +364,25 @@ export function readRackFields(node: GraphNode): RackFields {
     label: asString(fieldValue(node.fields, 'Rack.label')),
     heightU: asNumber(fieldValue(node.fields, 'Rack.height_u')),
     unitNumbering: asString(fieldValue(node.fields, 'Rack.unit_numbering')),
+    row: asString(fieldValue(node.fields, 'Rack.row')),
+    bay: asNumber(fieldValue(node.fields, 'Rack.bay')),
+  };
+}
+
+/** ADR-0050 §4 — a field-replaceable power supply seated in a Chassis slot
+ * (`FittedIn`). `slot` is the vendor's own word for the bay ("PSU 0",
+ * "PEM A"), the same string the catalogue's `CataloguePsuSlot.name` gives. */
+export interface PowerSupplyFields {
+  slot?: string;
+  serial?: string;
+  model?: string;
+}
+
+export function readPowerSupplyFields(node: GraphNode): PowerSupplyFields {
+  return {
+    slot: asString(fieldValue(node.fields, 'PowerSupply.slot')),
+    serial: asString(fieldValue(node.fields, 'PowerSupply.serial')),
+    model: asString(fieldValue(node.fields, 'PowerSupply.model')),
   };
 }
 

@@ -42,6 +42,8 @@ import type { Sheath } from '../../document/view';
 
 export type {
   CableEndView,
+  InletView,
+  RowView,
   CableKind,
   CableView,
   ChassisView,
@@ -68,13 +70,23 @@ export interface DrawingActions {
   onDisconnect?(cableId: string): void;
 }
 
-/** The one editor's own field set (ADR-0046 §2) — exactly the four fields
- * `schema/schema.yaml` gives `Device` and `Chassis` that this session's
- * editor exposes. `value: null` is a cleared field (UI-SPEC "Absent is drawn
- * as absent" — a clear is never an empty string). */
+/** The one editor's own field set (ADR-0046 §2). `value: null` is a cleared
+ * field (UI-SPEC "Absent is drawn as absent" — a clear is never an empty
+ * string). ADR-0050 §2/§4 add `Rack.row`/`.bay` and a chassis's power
+ * supplies: `'rack'`'s `value` is always the raw text an input holds (the
+ * editor deals only in strings — `EditableValue`, `Editor.tsx`); the caller
+ * (`racks/RacksPlace.tsx`'s `handleEdit`) parses `bay` to a number before
+ * calling `document/edit.ts`'s `setRackField`. `'supply-remove'`/
+ * `'supply-fit'` are actions, not field edits — `document/supplies.ts`'s
+ * `removeSupply`/`fitSupply` — and may still be refused (an unknown slot, a
+ * slot already fitted, a fixed slot) the same way a field edit can. */
 export type EditorChange =
   | { kind: 'device'; id: string; field: 'hostname' | 'role' | 'management_address'; value: string | null }
-  | { kind: 'chassis'; id: string; field: 'serial'; value: string | null };
+  | { kind: 'chassis'; id: string; field: 'serial'; value: string | null }
+  | { kind: 'rack'; id: string; field: 'row' | 'bay'; value: string | null }
+  | { kind: 'supply'; id: string; field: 'serial' | 'model'; value: string | null }
+  | { kind: 'supply-remove'; id: string }
+  | { kind: 'supply-fit'; chassisId: string; slot: string };
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through

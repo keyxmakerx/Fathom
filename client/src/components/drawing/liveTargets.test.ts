@@ -5,6 +5,7 @@ import { liveTargetPortIds } from './liveTargets';
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
+  rows: [],
   racks: [
     {
       id: 'rack-1',
@@ -12,6 +13,8 @@ const VIEW: ClosetView = {
       heightU: 42,
       unitNumbering: 'bottom-up',
       freeRuns: [],
+      row: null,
+      bay: null,
       chassis: [
         {
           id: 'chassis-1',
@@ -27,12 +30,13 @@ const VIEW: ClosetView = {
           serial: null,
           psuInlets: [],
           singleFed: false,
+          oneFitted: false,
           ports: [
-            { id: 'rj45-free', label: '1', connector: 'rj45', row: 0, column: 0, uplink: false, cable: null },
-            { id: 'rj45-free-2', label: '2', connector: 'RJ45', row: 0, column: 1, uplink: false, cable: null },
-            { id: 'rj45-cabled', label: '3', connector: 'rj45', row: 0, column: 2, uplink: false, cable: { cableId: 'cable-1', farPortId: 'far', farChassisId: 'far-c', outsideCloset: false } },
-            { id: 'sfp-free', label: 'xe-0', connector: 'sfp_plus', row: 1, column: 0, uplink: true, cable: null },
-            { id: 'lc-free', label: 'lc-1', connector: 'lc', row: 1, column: 1, uplink: false, cable: null },
+            { id: 'rj45-free', label: '1', connector: 'rj45', row: 0, column: 0, role: null, uplink: false, cable: null, face: 'front' },
+            { id: 'rj45-free-2', label: '2', connector: 'RJ45', row: 0, column: 1, role: null, uplink: false, cable: null, face: 'front' },
+            { id: 'rj45-cabled', label: '3', connector: 'rj45', row: 0, column: 2, role: null, uplink: false, cable: { cableId: 'cable-1', farPortId: 'far', farChassisId: 'far-c', outsideCloset: false }, face: 'front' },
+            { id: 'sfp-free', label: 'xe-0', connector: 'sfp_plus', row: 1, column: 0, role: null, uplink: true, cable: null, face: 'front' },
+            { id: 'lc-free', label: 'lc-1', connector: 'lc', row: 1, column: 1, role: null, uplink: false, cable: null, face: 'front' },
           ],
         },
       ],

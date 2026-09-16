@@ -178,6 +178,31 @@ function EditableValue({ value, placeholder, placeholderClassName, editorKind, o
   );
 }
 
+/** A supply's remove/fit action (ADR-0050 §4) — the same idle/refused shape
+ * `EditableValue` uses (`CAUTION_STYLE`), but for a one-shot command rather
+ * than a typed value: `onCommit` calls straight through to
+ * `EditorActions.onEdit` and shows whatever refusal comes back
+ * (`document/supplies.ts`'s `UnknownSlotError`/`SlotAlreadyFittedError`/
+ * `FixedSlotError`, via `racks/RacksPlace.tsx`'s own `refusalFor`) beside
+ * the button, the same way a refused field edit shows beside its field. */
+function SupplyAction({ label, onCommit }: { label: string; onCommit: () => { refused: string } | void }) {
+  const [refusal, setRefusal] = useState<string | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          const result = onCommit();
+          setRefusal(result?.refused ?? null);
+        }}
+      >
+        {label}
+      </button>
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+    </>
+  );
+}
+
 /** The Inventory board's own mark (`design/proposals/screens/Inventory.dc.html`
  * — "Stored as typed."), shown once a field carries a value: every field
  * this editor writes is `Origin::Hand` (`document/edit.ts`'s `assertHand`),
@@ -218,6 +243,28 @@ export function EditorFor(selection: Selection | null, view: ClosetView, actions
         <Field label="Numbering" value={rack.unitNumbering} />
         <Field label="Used" value={`${usedU} of ${rack.heightU}U`} />
         <Field label="Devices" value={String(rack.chassis.length)} />
+
+        <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">Row</div>
+          <EditableValue
+            value={rack.row ?? ''}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={(v) => actions.onEdit({ kind: 'rack', id: rack.id, field: 'row', value: v })}
+          />
+        </div>
+        <TypedNote shown={(rack.row ?? '').length > 0} />
+
+        <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">Bay</div>
+          <EditableValue
+            value={rack.bay != null ? String(rack.bay) : ''}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={(v) => actions.onEdit({ kind: 'rack', id: rack.id, field: 'bay', value: v })}
+          />
+        </div>
+        <TypedNote shown={rack.bay != null} />
       </div>
     );
   }
@@ -284,6 +331,45 @@ export function EditorFor(selection: Selection | null, view: ClosetView, actions
           />
         </div>
         <TypedNote shown={(chassis.serial ?? '').length > 0} />
+
+        {chassis.psuInlets.length > 0 ? (
+          <div className="drawing-editor__field">
+            <div className="drawing-editor__field-label">Power</div>
+            {chassis.psuInlets.map((inlet) => (
+              <div key={inlet.id} className="drawing-editor__field">
+                <div className="drawing-editor__field-label">{inlet.slot}</div>
+                <div className="drawing-editor__field-value">
+                  {!inlet.fitted ? (
+                    <SupplyAction
+                      label="fit"
+                      onCommit={() => actions.onEdit({ kind: 'supply-fit', chassisId: chassis.id, slot: inlet.slot })}
+                    />
+                  ) : inlet.hotSwap && inlet.supplyId != null ? (
+                    <>
+                      <EditableValue
+                        value={inlet.serial ?? ''}
+                        placeholder={ABSENT}
+                        editorKind="text"
+                        onCommit={(v) =>
+                          actions.onEdit({ kind: 'supply', id: inlet.supplyId!, field: 'serial', value: v })
+                        }
+                      />
+                      <TypedNote shown={(inlet.serial ?? '').length > 0} />
+                      <SupplyAction
+                        label="remove"
+                        onCommit={() => actions.onEdit({ kind: 'supply-remove', id: inlet.supplyId! })}
+                      />
+                    </>
+                  ) : (
+                    'fitted'
+                  )}
+                </div>
+              </div>
+            ))}
+            {chassis.singleFed ? <div style={CAUTION_STYLE}>Single-fed: only one supply is cabled.</div> : null}
+            {chassis.oneFitted ? <div style={CAUTION_STYLE}>One fitted: a slot is empty.</div> : null}
+          </div>
+        ) : null}
       </div>
     );
   }

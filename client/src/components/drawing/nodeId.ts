@@ -20,6 +20,13 @@ export function trayNodeId(key: string): string {
   return `tray:${key}`;
 }
 
+/** A row label node's id — `key` is `rows.ts`'s own `rowKey`. Never parsed
+ * back by `parseNodeId` either, same reason as `trayNodeId`: a row label is
+ * not a `Selection`. */
+export function rowLabelNodeId(key: string): string {
+  return `rowLabel:${key}`;
+}
+
 export function parseNodeId(nodeId: string): { kind: 'rack' | 'chassis'; id: string } | null {
   const sep = nodeId.indexOf(':');
   if (sep <= 0) return null;
