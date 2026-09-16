@@ -1,0 +1,315 @@
+/* The rack drawing — `docs/UI-SPEC.md` "The shape", "Ports", "Motion",
+   `design/shell/Main.dc.html`, `design/shell/Lenses.dc.html`. Every colour,
+   rule and type size below is a token from `design/tokens.css`; the rack's
+   own structural pixel geometry (32px per U, 28px rail, 244px device
+   column) is `components/drawing/geometry.ts`'s, not a token — there is
+   nothing in tokens.css to name a per-U pixel size with. Zero radius, no
+   shadows, per "Look". */
+
+.drawing {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: var(--page);
+}
+
+.drawing .react-flow__background {
+  --xy-background-color: var(--page);
+  --xy-background-pattern-dots-color: var(--hairline);
+}
+
+/* ---- the rack --------------------------------------------------------- */
+
+.drawing-rack {
+  font-family: var(--sans);
+  color: var(--ink);
+  user-select: none;
+}
+
+.drawing-rack__label {
+  height: 16px;
+  font-size: var(--t-micro);
+  color: var(--muted);
+  letter-spacing: var(--track-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawing-rack__frame {
+  position: relative;
+  border: 1.5px solid var(--ink);
+  background: var(--page);
+  box-sizing: border-box;
+}
+
+.drawing-rack--selected .drawing-rack__frame {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: var(--focus-offset-outset);
+}
+
+.drawing-rack__rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--hairline);
+  border-left: 1px solid var(--hairline);
+  box-sizing: border-box;
+}
+
+.drawing-rack__rail--left {
+  left: 0;
+}
+
+.drawing-rack__rail--right {
+  right: 0;
+}
+
+.drawing-rack__u-numbers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.drawing-rack__u-number {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 3px;
+  box-sizing: border-box;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-variant-numeric: var(--num-tabular);
+  color: var(--muted);
+}
+
+.drawing-rack__device-column {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.drawing-rack__free {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background-image: var(--hatch);
+}
+
+.drawing-rack__drop-preview {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border: 1px dashed var(--ink);
+  background: var(--surface);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.drawing-rack__drop-preview--invalid {
+  border-color: var(--danger);
+  background: var(--danger-wash);
+}
+
+/* UI-SPEC "Motion" #2: "Wrong drop: target shakes once sideways, lead
+   springs back to your hand." One event, one play, never a loop. */
+@keyframes drawing-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+.drawing-rack--shake .drawing-rack__frame {
+  animation: drawing-shake 220ms var(--m-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawing-rack--shake .drawing-rack__frame {
+    animation: none;
+  }
+}
+
+/* ---- the device box ---------------------------------------------------- */
+
+.drawing-chassis {
+  box-sizing: border-box;
+  border: 1px solid var(--ink);
+  background: var(--page);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--sans);
+}
+
+.drawing-chassis--selected {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: var(--focus-offset-inset);
+}
+
+.drawing-chassis__header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s1);
+  padding: 0 4px;
+  min-height: 12px;
+}
+
+/* ADR-0047 §9: the name takes up to two thirds; the model shrinks first. */
+.drawing-chassis__hostname {
+  flex: 0 1 66%;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawing-chassis__model {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 8px;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawing-chassis__ports {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 4px;
+  min-height: 0;
+}
+
+.drawing-chassis__port-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.drawing-chassis__port-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.drawing-chassis__port-group--uplink {
+  margin-left: auto;
+}
+
+.drawing-chassis__port {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  cursor: pointer;
+}
+
+.drawing-chassis__port:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: 1px;
+}
+
+/* ---- the editor surface ------------------------------------------------ */
+
+.drawing-editor__panel {
+  padding: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.drawing-editor__title {
+  font-size: var(--t-head);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.drawing-editor__field-label {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.drawing-editor__field-value {
+  font-size: var(--t-body);
+  color: var(--ink);
+  font-variant-numeric: var(--num-tabular);
+}
+
+/* ---- the palette -------------------------------------------------------- */
+
+.drawing-palette {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawing-palette--empty {
+  padding: var(--s4);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.drawing-palette__item {
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--hairline);
+  cursor: grab;
+}
+
+.drawing-palette__item:active {
+  cursor: grabbing;
+}
+
+.drawing-palette__item-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+
+.drawing-palette__vendor {
+  font-size: var(--t-micro);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+}
+
+.drawing-palette__model {
+  font-size: var(--t-small);
+  font-weight: 700;
+  color: var(--ink);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawing-palette__units {
+  font-size: var(--t-micro);
+  color: var(--muted);
+  font-variant-numeric: var(--num-tabular);
+}
+
+.drawing-palette__summary {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
