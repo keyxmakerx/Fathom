@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-16, late: 1224 server-side tests and 374 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-16, late: 1228 server-side tests and 413 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -189,11 +189,20 @@ other.
   role, management address and serial, first press selects, second edits, typed values marked and a
   refused value said out loud. The catalogue has an APC PDU and two Panduit panels, cited.
 
-**Carried to Session 6 and later:** the drawing reads a panel as a chassis with no PSU inlets and
-pairs its ports by label across rows; the schema's `PassThrough` edge is where a panel's pairing
-belongs, written at placement, and the path walk should follow it. Optics (ADR-0047 §5) so a cage
-can take fibre. The "two people on a running server" proof, which tests and screenshots still stand
-in for. The old Rust-assembled HTML client is retired and still on disk under
+- **The rear elevation** (Session 6, first, ADR-0050). Schema 0.7: a rack in a row and bay, a
+  supply as a part in a slot with its own serial, hosting its inlet port. The catalogue records
+  each supply slot on its face at its position with a hot-swap flag, and management and console
+  ports by name; the EX4300's me0, con and both slots are on the rear, cited. The drawing has two
+  elevations of every rack, mirrored from behind with faceplates as the vendor draws them; the
+  closet stop lays racks out by row and a row flips as one camera, bays reversed; inlets draw in a
+  strip in three states and the marks *single-fed* and *one fitted* are derived; the editor fits or
+  removes a supply and sets a rack's row and bay.
+
+**Carried:** a panel's port pairing belongs on the schema's `PassThrough` edge, written at
+placement, and the path walk should follow it (the drawing pairs by label across rows today).
+Optics (ADR-0047 §5). The left-right order of the EX4300's two supply slots could not be
+established from any reachable diagram. The "two people on a running server" proof, which tests
+and screenshots still stand in for. The old Rust-assembled HTML client is retired and still on disk under
 `crates/fathom-artifact/`; it is not served.
 
 ---
