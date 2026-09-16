@@ -114,7 +114,11 @@ Three things this session learned that the rules above do not say:
     errors and a failed `npm run build`. Give every Rust builder
     `CARGO_TARGET_DIR=/home/user/Fathom/target` in its brief so worktrees share one build cache
     (cargo locks it correctly), remove a worktree the moment its files are taken across, and
-    delete test logs under `/tmp/claude-0/` as you go.
+    delete test logs under `/tmp/claude-0/` as you go. One caveat, seen the same day: two
+    builders that both regenerate the same crate (a schema bump and a catalogue change both
+    touching `fathom-ir` or `fathom-corpus`) can hand each other a stale artefact, and the
+    failure's backtrace names the other worktree's path. `cargo clean -p <that crate>` and a
+    rerun settles it; it is not a bug in either change.
 
 11. **Boards are checked by rendering them**, not by reading them: headless Chromium is at
     `/opt/pw-browsers/chromium` and Playwright at `/opt/node22/lib/node_modules/playwright`; a
