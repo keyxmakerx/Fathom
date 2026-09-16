@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.6";
+export const SCHEMA_VERSION = "0.7";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -57,7 +57,8 @@ export type NodeKind =
   | "PathSegment"
   | "LayoutPin"
   | "Rack"
-  | "DhcpRelay";
+  | "DhcpRelay"
+  | "PowerSupply";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -110,6 +111,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "LayoutPin",
   "Rack",
   "DhcpRelay",
+  "PowerSupply",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -200,7 +202,8 @@ export type EdgeKind =
   | "MountedIn"
   | "HasDhcpRelay"
   | "RelaysFor"
-  | "RelayServerIn";
+  | "RelayServerIn"
+  | "FittedIn";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -289,6 +292,7 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDhcpRelay",
   "RelaysFor",
   "RelayServerIn",
+  "FittedIn",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -421,8 +425,9 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   ServicePath: ["ordinal", "role", "label", "last_confirmed", "note"],
   PathSegment: ["ordinal", "kind", "boundary_reason", "warp_technology", "max_hops", "note", "resolution", "corroboration"],
   LayoutPin: ["x", "y"],
-  Rack: ["label", "height_u", "unit_numbering"],
+  Rack: ["label", "height_u", "unit_numbering", "row", "bay"],
   DhcpRelay: ["server", "group_name", "maximum_hop_count", "minimum_wait_time"],
+  PowerSupply: ["slot", "serial", "model"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -739,4 +744,9 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "DhcpRelay.maximum_hop_count": 310,
   "DhcpRelay.minimum_wait_time": 311,
   "Cable.sheath": 312,
+  "Rack.row": 313,
+  "Rack.bay": 314,
+  "PowerSupply.slot": 315,
+  "PowerSupply.serial": 316,
+  "PowerSupply.model": 317,
 };

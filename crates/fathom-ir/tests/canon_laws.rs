@@ -88,7 +88,18 @@ fn schema_version_is_the_trees() {
     // an old build reads an unrecognised sheath or connector/service token
     // into the generated unknown arm, which `enum_tokens_round_trip_including_unknown`
     // below exercises. Nothing existing moved.
-    assert_eq!(SCHEMA_VERSION, "0.6");
+    //
+    // 0.6 -> 0.7 on 2026-09-16: ADR-0050, the rear elevation. Two optional fields
+    // on the existing declarer `Rack` (`row`, `bay`), one new kind `PowerSupply`
+    // (joins the `PortHost` and `Placeable` classes), one new edge kind `FittedIn`
+    // seating a `PowerSupply` in its `Chassis` -- CONTAINMENT, not a reference like
+    // `MountedIn`, because `PowerSupply` has no competing containment parent the
+    // way `Chassis` does, and its identity `[owner(Chassis), slot]` needs the same
+    // containment convention `HasRack` and `HasPort` already use. Five new field
+    // keys, 313-317. 62 §16.2 prices a new optional field, a new node kind and a
+    // new edge kind all MINOR; an old build keeps the unrecognised kind in
+    // `unknown` rather than refusing the file. Nothing existing moved.
+    assert_eq!(SCHEMA_VERSION, "0.7");
 }
 
 #[test]
@@ -586,7 +597,11 @@ fn dispatch_names_every_registry_key() {
     // `Cable.sheath` at 312, appended after `DhcpRelay.minimum_wait_time`.
     // `PhysicalPort.connector`/`.service` gained enum variants on their
     // existing keys (210, 211) -- no new key, an enum variant is not a field.
-    assert_eq!(FIELD_KEYS.len(), 312, "the registry grew or shrank");
+    //
+    // 312 -> 317 on 2026-09-16: ADR-0050's five keys -- `Rack.row`, `Rack.bay`
+    // (313-314), `PowerSupply.slot`, `.serial`, `.model` (315-317) -- appended
+    // after `Cable.sheath`.
+    assert_eq!(FIELD_KEYS.len(), 317, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

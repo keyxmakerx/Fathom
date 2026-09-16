@@ -47,7 +47,10 @@ const MODEL_1U: CatalogueModel = {
   rackUnits: 1,
   reviewedBy: 'reviewer',
   source: { cite: 'cite', readOn: '2026-09-14' },
-  psuInlets: { kind: 'C14', count: 2 },
+  psuSlots: [
+    { name: 'PSU0', hotSwap: true, face: 'rear', position: { row: 'single', column: 0 } },
+    { name: 'PSU1', hotSwap: true, face: 'rear', position: { row: 'single', column: 1 } },
+  ],
   faceplates: [
     {
       face: 'front',

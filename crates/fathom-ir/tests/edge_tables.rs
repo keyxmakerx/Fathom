@@ -93,9 +93,11 @@ fn slot_type_covers_every_registry_key() {
     // 311 -> 312 on 2026-09-16: the cables session's `Cable.sheath` key at
     // 312; `PhysicalPort.connector`/`.service` gained enum variants on their
     // existing keys, not new ones.
+    // 312 -> 317 on 2026-09-16: ADR-0050's five keys -- `Rack.row`, `.bay`
+    // (313-314), `PowerSupply.slot`, `.serial`, `.model` (315-317).
     assert_eq!(
         FIELD_KEYS.len(),
-        312,
+        317,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

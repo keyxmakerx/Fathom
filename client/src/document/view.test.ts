@@ -14,7 +14,7 @@ const MODEL: CatalogueModel = {
   rackUnits: 1,
   reviewedBy: 'reviewer',
   source: { cite: 'cite', readOn: '2026-09-14' },
-  psuInlets: null,
+  psuSlots: [],
   faceplates: [
     {
       face: 'front',

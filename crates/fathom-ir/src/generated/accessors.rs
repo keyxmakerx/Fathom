@@ -1541,6 +1541,18 @@ mod body {
         pub fn unit_numbering<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::RackUnitNumbering, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(304))
         }
+        /// `Rack.row` — `Text`, card `0..1`, emit `—`.
+        /// The row the rack stands in, as the room names it: "Row A". A rack with no row is its own row (ADR-0050 §2).
+        pub fn row<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(313))
+        }
+        /// `Rack.bay` — `u16`, card `0..1`, emit `—`.
+        /// The rack's place in its row, counted left to right as seen from the front, 1
+        /// first (ADR-0050 §2). The closet stop arranges racks by row on this number; the
+        /// row's rear elevation reverses the order, because you have walked round.
+        pub fn bay<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(314))
+        }
     }
     /// Typed reads for `DhcpRelay` fields.
     pub mod dhcp_relay {
@@ -1563,6 +1575,23 @@ mod body {
         /// `minimum-wait-time seconds` (Juniper, 2026-08-29). Units: seconds. Range not established -- WO-10 §5.4 item 3; residue in the first cut.
         pub fn minimum_wait_time<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(311))
+        }
+    }
+    /// Typed reads for `PowerSupply` fields.
+    pub mod power_supply {
+        /// `PowerSupply.slot` — `Text`, card `1`, emit `—`.
+        /// The slot's name in the vendor's own words: "PSU 0", "PSU 1", "PEM A".
+        pub fn slot<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(315))
+        }
+        /// `PowerSupply.serial` — `Identifier`, card `0..1`, emit `—`.
+        /// Inventory. Sensitive-ish; never leaves the workspace -- Chassis.serial's own doc.
+        pub fn serial<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(316))
+        }
+        /// `PowerSupply.model` — `Identifier`, card `0..1`, emit `—`.
+        pub fn model<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(317))
         }
     }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
@@ -1883,6 +1912,11 @@ mod body {
             310 => Some((core::any::TypeId::of::<u32>(), "u32")),
             311 => Some((core::any::TypeId::of::<u32>(), "u32")),
             312 => Some((core::any::TypeId::of::<crate::generated::ir_types::CableSheath>(), "crate::generated::ir_types::CableSheath")),
+            313 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            314 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            315 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            316 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            317 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             _ => None,
         }
     }
@@ -2203,6 +2237,11 @@ mod body {
             310 => crate::canon::slot_to::<u32>(310, "u32", value),
             311 => crate::canon::slot_to::<u32>(311, "u32", value),
             312 => crate::canon::slot_to::<crate::generated::ir_types::CableSheath>(312, "crate::generated::ir_types::CableSheath", value),
+            313 => crate::canon::slot_to::<crate::scalar::Text>(313, "crate::scalar::Text", value),
+            314 => crate::canon::slot_to::<u16>(314, "u16", value),
+            315 => crate::canon::slot_to::<crate::scalar::Text>(315, "crate::scalar::Text", value),
+            316 => crate::canon::slot_to::<crate::scalar::Identifier>(316, "crate::scalar::Identifier", value),
+            317 => crate::canon::slot_to::<crate::scalar::Identifier>(317, "crate::scalar::Identifier", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2521,6 +2560,11 @@ mod body {
             310 => crate::canon::slot_from::<u32>(j),
             311 => crate::canon::slot_from::<u32>(j),
             312 => crate::canon::slot_from::<crate::generated::ir_types::CableSheath>(j),
+            313 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            314 => crate::canon::slot_from::<u16>(j),
+            315 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            316 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            317 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

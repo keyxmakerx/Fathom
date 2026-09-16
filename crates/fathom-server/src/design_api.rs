@@ -112,7 +112,7 @@ use axum::Router;
 use deadpool_postgres::Transaction;
 
 use fathom_canon::Json;
-use fathom_corpus::catalogue::{Catalogue, CatalogueError, Face, Model, Port, Row};
+use fathom_corpus::catalogue::{Catalogue, CatalogueError, Face, Model, Port, PsuSlot, Role, Row};
 
 use crate::api;
 use crate::authority::Capability;
@@ -1331,16 +1331,8 @@ fn json_of_model(m: &Model) -> Json {
     map.insert("source".to_string(), Json::Obj(source));
 
     map.insert(
-        "psu_inlets".to_string(),
-        match &m.psu_inlets {
-            Some(p) => {
-                let mut pm = BTreeMap::new();
-                pm.insert("kind".to_string(), Json::Str(p.kind.token().to_string()));
-                pm.insert("count".to_string(), Json::Int(i64::from(p.count)));
-                Json::Obj(pm)
-            }
-            None => Json::Null,
-        },
+        "psu_slots".to_string(),
+        Json::Arr(m.psu_slots.iter().map(json_of_psu_slot).collect()),
     );
 
     map.insert(
@@ -1351,17 +1343,59 @@ fn json_of_model(m: &Model) -> Json {
     Json::Obj(map)
 }
 
+/// ADR-0050 §3/§4: a PSU bay is a positioned entry on a face, not a count —
+/// see `fathom_corpus::catalogue::PsuSlot`'s own doc for why it carries no
+/// connector `kind` any more.
+fn json_of_psu_slot(s: &PsuSlot) -> Json {
+    let mut map = BTreeMap::new();
+    map.insert("name".to_string(), Json::Str(s.name.clone()));
+    map.insert("hot_swap".to_string(), Json::Bool(s.hot_swap));
+    map.insert(
+        "face".to_string(),
+        Json::Str(json_of_face(s.face).to_string()),
+    );
+    let mut position = BTreeMap::new();
+    position.insert(
+        "row".to_string(),
+        Json::Str(json_of_row(s.position.row).to_string()),
+    );
+    position.insert(
+        "column".to_string(),
+        Json::Int(i64::from(s.position.column)),
+    );
+    map.insert("position".to_string(), Json::Obj(position));
+    Json::Obj(map)
+}
+
+fn json_of_face(f: Face) -> &'static str {
+    match f {
+        Face::Front => "front",
+        Face::Rear => "rear",
+    }
+}
+
+fn json_of_row(r: Row) -> &'static str {
+    match r {
+        Row::Top => "top",
+        Row::Bottom => "bottom",
+        Row::Single => "single",
+    }
+}
+
+fn json_of_role(r: Role) -> &'static str {
+    match r {
+        Role::Access => "access",
+        Role::Uplink => "uplink",
+        Role::Management => "management",
+        Role::Console => "console",
+    }
+}
+
 fn json_of_faceplate(f: &fathom_corpus::catalogue::Faceplate) -> Json {
     let mut map = BTreeMap::new();
     map.insert(
         "face".to_string(),
-        Json::Str(
-            match f.face {
-                Face::Front => "front",
-                Face::Rear => "rear",
-            }
-            .to_string(),
-        ),
+        Json::Str(json_of_face(f.face).to_string()),
     );
     map.insert("port_count".to_string(), Json::Int(i64::from(f.port_count)));
     map.insert(
@@ -1371,22 +1405,28 @@ fn json_of_faceplate(f: &fathom_corpus::catalogue::Faceplate) -> Json {
     Json::Obj(map)
 }
 
+/// `number` and `name` are the mirror-image pair `Port` itself carries
+/// (ADR-0050 §5): a numbered port sends `number` and `name: null`; a named
+/// port (`me0`, `con`) sends `number: null` and `name`. `uplink` is kept
+/// alongside the fuller `role` for the reason `Port::uplink`'s own doc
+/// comment gives.
 fn json_of_port(p: &Port) -> Json {
     let mut map = BTreeMap::new();
     map.insert("kind".to_string(), Json::Str(p.kind.token().to_string()));
-    map.insert("number".to_string(), Json::Int(i64::from(p.number)));
+    map.insert(
+        "number".to_string(),
+        p.number.map_or(Json::Null, |n| Json::Int(i64::from(n))),
+    );
+    map.insert(
+        "name".to_string(),
+        p.name.clone().map_or(Json::Null, Json::Str),
+    );
     map.insert("uplink".to_string(), Json::Bool(p.uplink));
     map.insert(
-        "row".to_string(),
-        Json::Str(
-            match p.row {
-                Row::Top => "top",
-                Row::Bottom => "bottom",
-                Row::Single => "single",
-            }
-            .to_string(),
-        ),
+        "role".to_string(),
+        Json::Str(json_of_role(p.role).to_string()),
     );
+    map.insert("row".to_string(), Json::Str(json_of_row(p.row).to_string()));
     map.insert("column".to_string(), Json::Int(i64::from(p.column)));
     map.insert(
         "group_gap_before".to_string(),

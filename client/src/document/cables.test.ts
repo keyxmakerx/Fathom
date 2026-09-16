@@ -71,7 +71,10 @@ const PORT_MODEL: CatalogueModel = {
   rackUnits: 1,
   reviewedBy: 'reviewer',
   source: { cite: 'fixture', readOn: '2026-09-16' },
-  psuInlets: { kind: 'C14', count: 2 },
+  psuSlots: [
+    { name: 'PSU0', hotSwap: true, face: 'rear', position: { row: 'single', column: 0 } },
+    { name: 'PSU1', hotSwap: true, face: 'rear', position: { row: 'single', column: 1 } },
+  ],
   faceplates: [
     {
       face: 'front',
@@ -84,7 +87,7 @@ const PORT_MODEL: CatalogueModel = {
   ],
 };
 
-const NO_PSU_MODEL: CatalogueModel = { ...PORT_MODEL, model: 'PORT-BOX-NOPSU', psuInlets: null };
+const NO_PSU_MODEL: CatalogueModel = { ...PORT_MODEL, model: 'PORT-BOX-NOPSU', psuSlots: [] };
 
 function portByConnector(doc: Document, chassisId: string, connector: string): string {
   const port = edgesOut(doc, chassisId, 'HasPort')
@@ -467,7 +470,7 @@ describe('view: ChassisView.psuInlets and singleFed', () => {
     const { doc, premisesId } = docWithPremises();
     const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 4, unitNumbering: 'ascending', now: NOW });
     const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
-    const oneInletModel: CatalogueModel = { ...NO_PSU_MODEL, model: 'ONE-PSU', psuInlets: { kind: 'C14', count: 1 } };
+    const oneInletModel: CatalogueModel = { ...NO_PSU_MODEL, model: 'ONE-PSU', psuSlots: [{ name: 'PSU0', hotSwap: true, face: 'rear', position: { row: 'single', column: 0 } }] };
     const placed = placeChassis(withRack, rackId, oneInletModel, 1, 'front', { now: NOW });
     const chassisId = edgesIn(placed, rackId, 'MountedIn')[0].from;
     const inletId = edgesOut(placed, chassisId, 'HasPort')

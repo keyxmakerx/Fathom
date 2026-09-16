@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.6"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.7"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -69,6 +69,37 @@ schema:
                     # and "New enum variant | minor | Variant::Unknown(token)" three times.
                     # No kind, no edge, no retype, no removal, no field key reused or
                     # renumbered. Whole change = MINOR.
+                    #
+                    # 0.7 is ADR-0050 (the rear elevation, 2026-09-16), all additive: two
+                    # optional fields on the existing declarer Rack — row and bay, the
+                    # row a rack stands in and its place within it (62 §16.2: "New optional
+                    # field" is minor); one new node kind, PowerSupply, a field-replaceable
+                    # supply that occupies a chassis slot, joining the PortHost class
+                    # because a hot-swappable supply carries its own inlet port (62 §16.2:
+                    # "New node kind" is minor, and the Placeable/PortHost class widenings
+                    # are "New enum variant"-shaped in 62's table — a class member added,
+                    # nothing removed); one new edge kind, FittedIn, seating a PowerSupply
+                    # in its Chassis (62 §16.2: "New edge kind" is minor). FittedIn is
+                    # CONTAINMENT, not reference like MountedIn: MountedIn is forced to be
+                    # a reference because Chassis already has a containment parent (Device,
+                    # via HasChassis) and containment is a forest, so a rack cannot also
+                    # contain the chassis (MountedIn's own doc, ADR-0036). PowerSupply has
+                    # no such competing claim — nothing else contains it — so the same
+                    # forest rule that forces MountedIn to be a reference does not apply,
+                    # and containment is free to be the answer FittedIn gives. It is also
+                    # the answer PowerSupply's declared identity, `[owner(Chassis), slot]`,
+                    # needs: every `owner(X)` identity term elsewhere in this tree (Rack's
+                    # `owner(Premises)`, PhysicalPort's `owner(PortHost)`, PassiveNode's
+                    # `owner(Premises)`) is backed by a containment edge with `in: "1"` —
+                    # HasRack's own doc says so in as many words ("in: 1 keeps containment
+                    # a forest and makes owner(Premises) usable as Rack's identity term") —
+                    # and no `owner()` term in this schema is backed by a reference edge.
+                    # FittedIn follows that same, only, convention: HasPort's and HasRack's,
+                    # not MountedIn's. Five new field keys, 313-317 (Rack.row, Rack.bay,
+                    # PowerSupply.slot, PowerSupply.serial, PowerSupply.model), one new kind
+                    # (51 -> 52), one new edge (95 -> 96). No kind removed, no retype, no
+                    # tuple reordered, no containment moved for anything that already had
+                    # one. Whole change = MINOR.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -169,8 +200,12 @@ classes:
     doc: |
       Cross-vendor rules address this, never the kinds — 11 §12.1's reth/LAG split.
   - class: PortHost
-    members: [Chassis, PassiveNode]
-    doc: The two owners of PhysicalPort. 19 §3.3, carried per 19 §7.4 row 5.
+    members: [Chassis, PassiveNode, PowerSupply]
+    doc: |
+      The owners of PhysicalPort. 19 §3.3, carried per 19 §7.4 row 5. ADR-0050 added
+      PowerSupply: on a hot-swappable unit the inlet socket is on the supply, not the
+      chassis, so the supply is a PortHost exactly as Chassis and PassiveNode are. A
+      device whose supply is fixed keeps its inlet on the Chassis directly, unchanged.
   # ADR-0035. Every kind the diagram can draw as a box — which today is every declared kind,
   # because `fathom-layout` draws every live node and `56` §4.1's projection table leaves 23
   # kinds untabled and therefore drawn at every layer. The list is written out rather than
@@ -241,6 +276,9 @@ classes:
       # WO-10 (2026-08-29). A relay is drawn as a box like its NtpServer sibling; nothing
       # about it argues for being the first deliberately-unplaceable kind (WO-10 §11 item 1).
       - DhcpRelay
+      # ADR-0050. A power supply is a part with its own record, drawn on the rear
+      # elevation like any other PortHost — PhysicalPort's own precedent exactly.
+      - PowerSupply
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
 
@@ -1324,6 +1362,18 @@ kinds:
           an elevation drawn with the wrong direction is upside down and every position in it
           is wrong while looking entirely plausible, which is precisely the silent-wrongness
           56 §0 exists to prevent. A rack whose direction nobody stated is not drawn.
+      # ADR-0050 §2 (2026-09-16) — the row a rack stands in, and its bay within that row.
+      # Both optional, both appended at the tail: a rack recorded before its closet stop
+      # existed has said something true, and refusing it would lose the fact.
+      - { name: row, type: Text, card: "0..1", emit: "—", doc: "The row the rack stands in, as the room names it: \"Row A\". A rack with no row is its own row (ADR-0050 §2)." }
+      - name: bay
+        type: u16
+        card: "0..1"
+        emit: "—"
+        doc: |
+          The rack's place in its row, counted left to right as seen from the front, 1
+          first (ADR-0050 §2). The closet stop arranges racks by row on this number; the
+          row's rear elevation reverses the order, because you have walked round.
       # NO `notes` FIELD, deliberately, and it was here in the first draft. Every sibling
       # physical kind carries one, so copying it in felt like consistency -- but nothing
       # writes it, nothing reads it, and no face offers it. ADR-0008 makes a schema field a
@@ -1349,6 +1399,35 @@ kinds:
       - { name: maximum_hop_count, type: u32, card: "0..1", emit: O, doc: "`maximum-hop-count number` (Juniper, 2026-08-29). Units: hops. Range not established -- WO-10 §5.4 item 3; residue in the first cut." }
       - { name: minimum_wait_time, type: u32, card: "0..1", emit: O, doc: "`minimum-wait-time seconds` (Juniper, 2026-08-29). Units: seconds. Range not established -- WO-10 §5.4 item 3; residue in the first cut." }
     identity: []   # VERIFY: nothing in `11` states an identity tuple for a relay.
+
+  # ADR-0050 (the rear elevation, 2026-09-16). Appended at the tail because order is wire
+  # identity (62 §13) -- DhcpRelay's own precedent.
+  - kind: PowerSupply
+    layer: physical
+    emits: false
+    doc: |
+      A field-replaceable power supply that occupies a slot of a Chassis, populated or
+      empty (ADR-0050 §4) -- a part with its own serial, because a hot-swappable supply
+      is a unit an engineer pulls and replaces on its own, distinct from the chassis it
+      sits in.
+
+      It joins the PortHost class, because on a hot-swappable unit the inlet socket is
+      on the SUPPLY, not the chassis: its PhysicalPort (connector c14, service power) is
+      the inlet, and an empty slot has no inlet to cable -- there is nothing there to
+      plug into until a supply is fitted. A device whose supply is fixed (not
+      field-replaceable) keeps its inlet port on the Chassis directly, exactly as today;
+      it never gets a PowerSupply node, because there is no separate part to record.
+
+      NOTHING PARSES A POWER SUPPLY, the same property of the world Rack's doc already
+      states for itself: no vendor statement known to this project says which slot a
+      supply is in or what its serial is. Every PowerSupply and every FittedIn is
+      Origin::Hand.
+    fields:
+      - { name: slot, type: Text, card: "1", emit: "—", doc: "The slot's name in the vendor's own words: \"PSU 0\", \"PSU 1\", \"PEM A\"." }
+      - { name: serial, type: Identifier, card: "0..1", emit: "—", doc: Inventory. Sensitive-ish; never leaves the workspace -- Chassis.serial's own doc. }
+      - { name: model, type: Identifier, card: "0..1", emit: "—" }
+    identity:
+      - [ owner(Chassis), slot ]   # tier 1 -- a physical coordinate, PhysicalPort's precedent exactly
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -2489,6 +2568,37 @@ edges:
       to `0..n`, a minor bump. Absent means the statement named none, which means the
       DEFAULT instance -- and absent must never be rendered as "unknown": the config
       stated a complete fact by saying nothing (19 §6.3's three states; do not collapse).
+
+  # ADR-0050 (the rear elevation, 2026-09-16). Appended at the tail because order is wire
+  # identity (62 §13) -- RelayServerIn's own precedent.
+  - edge: FittedIn
+    class: containment
+    from: [Chassis]
+    to: [PowerSupply]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0050 §4. Seats a PowerSupply in the Chassis whose slot it occupies.
+
+      CONTAINMENT, unlike MountedIn, and for the reason MountedIn's own doc gives:
+      MountedIn is forced to be a reference because Chassis already has a containment
+      parent (Device, via HasChassis) and containment is a forest, so a rack cannot also
+      contain the chassis. PowerSupply has no such competing claim -- nothing else
+      contains it -- so that rule does not force FittedIn's hand, and containment is free
+      to be the answer, exactly as HasPort's is for PhysicalPort, PhysicalPort's own
+      PortHost sibling. It is also the answer PowerSupply's identity needs:
+      `[owner(Chassis), slot]` reads `owner(Chassis)`, and every `owner(X)` identity term
+      elsewhere in this tree -- Rack's `owner(Premises)` via HasRack, PhysicalPort's
+      `owner(PortHost)` via HasPort, PassiveNode's `owner(Premises)` via HasPassiveNode --
+      is backed by a containment edge with `in: "1"`; HasRack's own doc names this
+      convention directly ("in: 1 keeps containment a forest and makes owner(Premises)
+      usable as Rack's identity term"). No `owner()` term in this schema is backed by a
+      reference edge, and FittedIn follows the one convention that exists: HasPort's and
+      HasRack's, not MountedIn's.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

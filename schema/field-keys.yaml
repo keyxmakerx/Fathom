@@ -391,3 +391,10 @@ fields:
   # Cable.sheath — the cables session (docs/UI-SPEC.md "Cables"). Appended at the tail
   # with the next integer, which is the only way a key is ever assigned.
   Cable.sheath: 312
+  # ADR-0050 (the rear elevation, 2026-09-16). Appended at the tail with the next
+  # integers, which is the only way a key is ever assigned.
+  Rack.row: 313
+  Rack.bay: 314
+  PowerSupply.slot: 315
+  PowerSupply.serial: 316
+  PowerSupply.model: 317

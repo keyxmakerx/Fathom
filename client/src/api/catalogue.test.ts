@@ -28,18 +28,45 @@ describe('parseCatalogueList', () => {
 });
 
 describe('parseCatalogueModel', () => {
+  const numberedPort = {
+    kind: 'RJ45',
+    number: 0,
+    name: null,
+    uplink: false,
+    role: 'access',
+    row: 'single',
+    column: 0,
+    group_gap_before: false,
+  };
+  const namedPort = {
+    kind: 'RJ45',
+    number: null,
+    name: 'me0',
+    uplink: false,
+    role: 'management',
+    row: 'single',
+    column: 1,
+    group_gap_before: false,
+  };
   const wellFormed = {
     vendor: 'juniper',
     model: 'EX4300-48P',
     rack_units: 1,
     reviewed_by: 'reviewer',
     source: { cite: 'cite', read_on: '2026-09-14' },
-    psu_inlets: { kind: 'C14', count: 2 },
+    psu_slots: [
+      {
+        name: 'PSU0',
+        hot_swap: true,
+        face: 'rear',
+        position: { row: 'single', column: 0 },
+      },
+    ],
     faceplates: [
       {
         face: 'front',
-        port_count: 1,
-        ports: [{ kind: 'RJ45', number: 0, uplink: false, row: 'single', column: 0, group_gap_before: false }],
+        port_count: 2,
+        ports: [numberedPort, namedPort],
       },
     ],
   };
@@ -51,20 +78,48 @@ describe('parseCatalogueModel', () => {
       rackUnits: 1,
       reviewedBy: 'reviewer',
       source: { cite: 'cite', readOn: '2026-09-14' },
-      psuInlets: { kind: 'C14', count: 2 },
+      psuSlots: [
+        {
+          name: 'PSU0',
+          hotSwap: true,
+          face: 'rear',
+          position: { row: 'single', column: 0 },
+        },
+      ],
       faceplates: [
         {
           face: 'front',
-          portCount: 1,
-          ports: [{ kind: 'RJ45', number: 0, uplink: false, row: 'single', column: 0, groupGapBefore: false }],
+          portCount: 2,
+          ports: [
+            {
+              kind: 'RJ45',
+              number: 0,
+              name: null,
+              uplink: false,
+              role: 'access',
+              row: 'single',
+              column: 0,
+              groupGapBefore: false,
+            },
+            {
+              kind: 'RJ45',
+              number: null,
+              name: 'me0',
+              uplink: false,
+              role: 'management',
+              row: 'single',
+              column: 1,
+              groupGapBefore: false,
+            },
+          ],
         },
       ],
     });
   });
 
-  it('parses a null psu_inlets', () => {
-    const body = { ...wellFormed, psu_inlets: null };
-    expect(parseCatalogueModel(bytesOf(body)).psuInlets).toBeNull();
+  it('parses an empty psu_slots list', () => {
+    const body = { ...wellFormed, psu_slots: [] };
+    expect(parseCatalogueModel(bytesOf(body)).psuSlots).toEqual([]);
   });
 
   it('rejects a malformed body — not JSON', () => {
@@ -74,9 +129,17 @@ describe('parseCatalogueModel', () => {
   it('rejects a port row outside top / bottom / single', () => {
     const bad = {
       ...wellFormed,
-      faceplates: [{ face: 'front', port_count: 1, ports: [{ ...wellFormed.faceplates[0].ports[0], row: 'middle' }] }],
+      faceplates: [{ face: 'front', port_count: 1, ports: [{ ...numberedPort, row: 'middle' }] }],
     };
     expect(() => parseCatalogueModel(bytesOf(bad))).toThrow(/row/);
+  });
+
+  it('rejects a port role outside the four named roles', () => {
+    const bad = {
+      ...wellFormed,
+      faceplates: [{ face: 'front', port_count: 1, ports: [{ ...numberedPort, role: 'trunk' }] }],
+    };
+    expect(() => parseCatalogueModel(bytesOf(bad))).toThrow(/role/);
   });
 
   it('rejects a missing vendor', () => {

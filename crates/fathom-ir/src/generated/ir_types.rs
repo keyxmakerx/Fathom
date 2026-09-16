@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.6";
+    pub const SCHEMA_VERSION: &str = "0.7";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -237,12 +237,29 @@ mod body {
         /// Fathom never observes a lease. This is what the config SAYS, and the findings
         /// view must never imply it watched a packet (WO-10 §1).
         DhcpRelay,
+        /// A field-replaceable power supply that occupies a slot of a Chassis, populated or
+        /// empty (ADR-0050 §4) -- a part with its own serial, because a hot-swappable supply
+        /// is a unit an engineer pulls and replaces on its own, distinct from the chassis it
+        /// sits in.
+        ///
+        /// It joins the PortHost class, because on a hot-swappable unit the inlet socket is
+        /// on the SUPPLY, not the chassis: its PhysicalPort (connector c14, service power) is
+        /// the inlet, and an empty slot has no inlet to cable -- there is nothing there to
+        /// plug into until a supply is fitted. A device whose supply is fixed (not
+        /// field-replaceable) keeps its inlet port on the Chassis directly, exactly as today;
+        /// it never gets a PowerSupply node, because there is no separate part to record.
+        ///
+        /// NOTHING PARSES A POWER SUPPLY, the same property of the world Rack's doc already
+        /// states for itself: no vendor statement known to this project says which slot a
+        /// supply is in or what its serial is. Every PowerSupply and every FittedIn is
+        /// Origin::Hand.
+        PowerSupply,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 51;
+        pub const COUNT: usize = 52;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 51] = [
+        pub const ALL: [NodeKind; 52] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -294,6 +311,7 @@ mod body {
             NodeKind::LayoutPin,
             NodeKind::Rack,
             NodeKind::DhcpRelay,
+            NodeKind::PowerSupply,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -351,6 +369,7 @@ mod body {
                 NodeKind::LayoutPin => "LayoutPin",
                 NodeKind::Rack => "Rack",
                 NodeKind::DhcpRelay => "DhcpRelay",
+                NodeKind::PowerSupply => "PowerSupply",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -406,6 +425,7 @@ mod body {
                 "LayoutPin" => Some(NodeKind::LayoutPin),
                 "Rack" => Some(NodeKind::Rack),
                 "DhcpRelay" => Some(NodeKind::DhcpRelay),
+                "PowerSupply" => Some(NodeKind::PowerSupply),
                 _ => None,
             }
         }
@@ -467,6 +487,7 @@ mod body {
                 NodeKind::LayoutPin => &[],
                 NodeKind::Rack => &[&["owner(Premises)", "label"]],
                 NodeKind::DhcpRelay => &[],
+                NodeKind::PowerSupply => &[&["owner(Chassis)", "slot"]],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -523,6 +544,7 @@ mod body {
                 NodeKind::LayoutPin => Layer::Config,
                 NodeKind::Rack => Layer::Physical,
                 NodeKind::DhcpRelay => Layer::Config,
+                NodeKind::PowerSupply => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -580,6 +602,7 @@ mod body {
                 NodeKind::LayoutPin => false,
                 NodeKind::Rack => false,
                 NodeKind::DhcpRelay => true,
+                NodeKind::PowerSupply => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -636,8 +659,9 @@ mod body {
                 NodeKind::ServicePath => &[crate::bag::FieldKey(268), crate::bag::FieldKey(269), crate::bag::FieldKey(270), crate::bag::FieldKey(271), crate::bag::FieldKey(272)],
                 NodeKind::PathSegment => &[crate::bag::FieldKey(273), crate::bag::FieldKey(274), crate::bag::FieldKey(275), crate::bag::FieldKey(276), crate::bag::FieldKey(277), crate::bag::FieldKey(278), crate::bag::FieldKey(279), crate::bag::FieldKey(280)],
                 NodeKind::LayoutPin => &[crate::bag::FieldKey(300), crate::bag::FieldKey(301)],
-                NodeKind::Rack => &[crate::bag::FieldKey(302), crate::bag::FieldKey(303), crate::bag::FieldKey(304)],
+                NodeKind::Rack => &[crate::bag::FieldKey(302), crate::bag::FieldKey(303), crate::bag::FieldKey(304), crate::bag::FieldKey(313), crate::bag::FieldKey(314)],
                 NodeKind::DhcpRelay => &[crate::bag::FieldKey(308), crate::bag::FieldKey(309), crate::bag::FieldKey(310), crate::bag::FieldKey(311)],
+                NodeKind::PowerSupply => &[crate::bag::FieldKey(315), crate::bag::FieldKey(316), crate::bag::FieldKey(317)],
             }
         }
     }
@@ -884,12 +908,30 @@ mod body {
         /// DEFAULT instance -- and absent must never be rendered as "unknown": the config
         /// stated a complete fact by saying nothing (19 §6.3's three states; do not collapse).
         RelayServerIn,
+        /// ADR-0050 §4. Seats a PowerSupply in the Chassis whose slot it occupies.
+        ///
+        /// CONTAINMENT, unlike MountedIn, and for the reason MountedIn's own doc gives:
+        /// MountedIn is forced to be a reference because Chassis already has a containment
+        /// parent (Device, via HasChassis) and containment is a forest, so a rack cannot also
+        /// contain the chassis. PowerSupply has no such competing claim -- nothing else
+        /// contains it -- so that rule does not force FittedIn's hand, and containment is free
+        /// to be the answer, exactly as HasPort's is for PhysicalPort, PhysicalPort's own
+        /// PortHost sibling. It is also the answer PowerSupply's identity needs:
+        /// `[owner(Chassis), slot]` reads `owner(Chassis)`, and every `owner(X)` identity term
+        /// elsewhere in this tree -- Rack's `owner(Premises)` via HasRack, PhysicalPort's
+        /// `owner(PortHost)` via HasPort, PassiveNode's `owner(Premises)` via HasPassiveNode --
+        /// is backed by a containment edge with `in: "1"`; HasRack's own doc names this
+        /// convention directly ("in: 1 keeps containment a forest and makes owner(Premises)
+        /// usable as Rack's identity term"). No `owner()` term in this schema is backed by a
+        /// reference edge, and FittedIn follows the one convention that exists: HasPort's and
+        /// HasRack's, not MountedIn's.
+        FittedIn,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 87;
+        pub const COUNT: usize = 88;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 87] = [
+        pub const ALL: [EdgeKind; 88] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -977,6 +1019,7 @@ mod body {
             EdgeKind::HasDhcpRelay,
             EdgeKind::RelaysFor,
             EdgeKind::RelayServerIn,
+            EdgeKind::FittedIn,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1070,6 +1113,7 @@ mod body {
                 EdgeKind::HasDhcpRelay => "HasDhcpRelay",
                 EdgeKind::RelaysFor => "RelaysFor",
                 EdgeKind::RelayServerIn => "RelayServerIn",
+                EdgeKind::FittedIn => "FittedIn",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1161,6 +1205,7 @@ mod body {
                 "HasDhcpRelay" => Some(EdgeKind::HasDhcpRelay),
                 "RelaysFor" => Some(EdgeKind::RelaysFor),
                 "RelayServerIn" => Some(EdgeKind::RelayServerIn),
+                "FittedIn" => Some(EdgeKind::FittedIn),
                 _ => None,
             }
         }
@@ -1254,6 +1299,7 @@ mod body {
                 EdgeKind::HasDhcpRelay => EdgeClass::Containment,
                 EdgeKind::RelaysFor => EdgeClass::Reference,
                 EdgeKind::RelayServerIn => EdgeClass::Reference,
+                EdgeKind::FittedIn => EdgeClass::Containment,
             }
         }
     }
@@ -1431,12 +1477,13 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
                 EdgeKind::RelaysFor => &[NodeKind::DhcpRelay],
                 EdgeKind::RelayServerIn => &[NodeKind::DhcpRelay],
+                EdgeKind::FittedIn => &[NodeKind::Chassis],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1529,6 +1576,7 @@ mod body {
                 EdgeKind::HasDhcpRelay => &[NodeKind::DhcpRelay],
                 EdgeKind::RelaysFor => &[NodeKind::LogicalUnit],
                 EdgeKind::RelayServerIn => &[NodeKind::RoutingInstance],
+                EdgeKind::FittedIn => &[NodeKind::PowerSupply],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -1621,6 +1669,7 @@ mod body {
                 EdgeKind::HasDhcpRelay => EdgeCardBound { min: 0, max: None },
                 EdgeKind::RelaysFor => EdgeCardBound { min: 0, max: None },
                 EdgeKind::RelayServerIn => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::FittedIn => EdgeCardBound { min: 0, max: None },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -1713,6 +1762,7 @@ mod body {
                 EdgeKind::HasDhcpRelay => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::RelaysFor => EdgeCardBound { min: 0, max: None },
                 EdgeKind::RelayServerIn => EdgeCardBound { min: 0, max: None },
+                EdgeKind::FittedIn => EdgeCardBound { min: 1, max: Some(1) },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -1806,6 +1856,7 @@ mod body {
                 EdgeKind::HasDhcpRelay => false,
                 EdgeKind::RelaysFor => false,
                 EdgeKind::RelayServerIn => false,
+                EdgeKind::FittedIn => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -1898,6 +1949,7 @@ mod body {
                 EdgeKind::HasDhcpRelay => false,
                 EdgeKind::RelaysFor => false,
                 EdgeKind::RelayServerIn => false,
+                EdgeKind::FittedIn => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -1990,6 +2042,7 @@ mod body {
                 EdgeKind::HasDhcpRelay => &[],
                 EdgeKind::RelaysFor => &[],
                 EdgeKind::RelayServerIn => &[],
+                EdgeKind::FittedIn => &[],
             }
         }
     }
@@ -6963,15 +7016,19 @@ mod body {
         Label,
         HeightU,
         UnitNumbering,
+        Row,
+        Bay,
     }
 
     impl RackField {
-        pub const COUNT: usize = 3;
+        pub const COUNT: usize = 5;
         /// Every field, declaration order.
-        pub const ALL: [RackField; 3] = [
+        pub const ALL: [RackField; 5] = [
             RackField::Label,
             RackField::HeightU,
             RackField::UnitNumbering,
+            RackField::Row,
+            RackField::Bay,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -6981,6 +7038,8 @@ mod body {
                 RackField::Label => "label",
                 RackField::HeightU => "height_u",
                 RackField::UnitNumbering => "unit_numbering",
+                RackField::Row => "row",
+                RackField::Bay => "bay",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -6989,6 +7048,8 @@ mod body {
                 RackField::Label => crate::bag::FieldKey(302),
                 RackField::HeightU => crate::bag::FieldKey(303),
                 RackField::UnitNumbering => crate::bag::FieldKey(304),
+                RackField::Row => crate::bag::FieldKey(313),
+                RackField::Bay => crate::bag::FieldKey(314),
             }
         }
     }
@@ -7029,6 +7090,42 @@ mod body {
                 DhcpRelayField::GroupName => crate::bag::FieldKey(309),
                 DhcpRelayField::MaximumHopCount => crate::bag::FieldKey(310),
                 DhcpRelayField::MinimumWaitTime => crate::bag::FieldKey(311),
+            }
+        }
+    }
+
+    /// Fields of kind `PowerSupply`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum PowerSupplyField {
+        Slot,
+        Serial,
+        Model,
+    }
+
+    impl PowerSupplyField {
+        pub const COUNT: usize = 3;
+        /// Every field, declaration order.
+        pub const ALL: [PowerSupplyField; 3] = [
+            PowerSupplyField::Slot,
+            PowerSupplyField::Serial,
+            PowerSupplyField::Model,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                PowerSupplyField::Slot => "slot",
+                PowerSupplyField::Serial => "serial",
+                PowerSupplyField::Model => "model",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                PowerSupplyField::Slot => crate::bag::FieldKey(315),
+                PowerSupplyField::Serial => crate::bag::FieldKey(316),
+                PowerSupplyField::Model => crate::bag::FieldKey(317),
             }
         }
     }
@@ -7436,7 +7533,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 312] = [
+    pub const FIELD_KEYS: [(&str, u32); 317] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -7749,6 +7846,11 @@ mod body {
         ("DhcpRelay.maximum_hop_count", 310),
         ("DhcpRelay.minimum_wait_time", 311),
         ("Cable.sheath", 312),
+        ("Rack.row", 313),
+        ("Rack.bay", 314),
+        ("PowerSupply.slot", 315),
+        ("PowerSupply.serial", 316),
+        ("PowerSupply.model", 317),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
@@ -7757,7 +7859,7 @@ mod body {
     pub const FIELD_REQUIRED_BITS: [u8; 40] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
-        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0x00,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0x08,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

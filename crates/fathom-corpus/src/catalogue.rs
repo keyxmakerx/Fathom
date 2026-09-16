@@ -66,7 +66,14 @@ pub const PAIRED_GROUP_BLOCK: u32 = 12;
 const MAX_PORTS_PER_GROUP: u32 = 576;
 const MAX_PORT_NUMBER: u32 = 100_000;
 const MAX_RACK_UNITS: u32 = 60;
-const MAX_PSU_INLETS: u32 = 8;
+/// Cap on how many bays `psu_slots` may list (ADR-0050 §3/§4) — no real
+/// chassis is anywhere close; same "fail fast on a malformed file" spirit as
+/// [`MAX_PORTS_PER_GROUP`].
+const MAX_PSU_SLOTS: u32 = 8;
+/// Cap on a slot's `position.column` — a PSU bay's column is a small integer
+/// by construction (a handful of bays side by side), so this is generous
+/// headroom, not an expected value.
+const MAX_SLOT_COLUMN: u32 = 16;
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -89,12 +96,17 @@ pub enum CatalogueGate {
     LayoutUnknown,
     RoleUnknown,
     FaceUnknown,
+    RowUnknown,
     DuplicateFace,
     MissingFrontFace,
     DuplicatePortNumber,
     PortCountMismatch,
     UplinkNotRight,
     ReviewedByMissing,
+    /// A port group declared both `names` and `count` (exactly one is
+    /// required), or declared `role: management` / `role: console` without
+    /// `names` (ADR-0050 §5 — a named port is not numbered).
+    PortNamingInvalid,
 }
 
 /// UI-SPEC "Ports" names four glyphs — "Four glyphs, never confusable" — but
@@ -148,13 +160,19 @@ impl PortKind {
     }
 }
 
-/// Whether a port group carries user traffic or is one of the plate's
-/// uplinks. UI-SPEC: "uplinks right" — enforced at load by
-/// [`gate_uplinks_right`], not by anything in [`Faceplate::ports`].
+/// Whether a port group carries user traffic, is one of the plate's uplinks,
+/// or is the out-of-band management or console interface (ADR-0050 §5: "they
+/// are the reason the rear view exists"). UI-SPEC's "uplinks right" is
+/// enforced at load by [`gate_uplinks_right`] for `Access`/`Uplink` only, not
+/// by anything in [`Faceplate::ports`]; `Management` and `Console` carry no
+/// left/right ordering rule of their own, since real hardware places them
+/// wherever the vendor's chassis design puts them, not in a numbered bank.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     Access,
     Uplink,
+    Management,
+    Console,
 }
 
 impl Role {
@@ -162,6 +180,8 @@ impl Role {
         match t {
             "access" => Some(Role::Access),
             "uplink" => Some(Role::Uplink),
+            "management" => Some(Role::Management),
+            "console" => Some(Role::Console),
             _ => None,
         }
     }
@@ -220,17 +240,42 @@ impl Face {
     }
 }
 
-/// A run of `count` ports of one `kind`, numbered `start_number ..
-/// start_number + count`, arranged per `layout`. Everything a wrong catalogue
-/// could get wrong about ONE bank lives in these five fields; everything
-/// about how banks combine on a plate is a load-time gate, not a field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Whether a [`PortGroup`]'s ports are a numbered run or a list of
+/// individually named ports (ADR-0050 §5): a bank of access or uplink ports
+/// is `Counted`, numbered `start_number .. start_number + count`; the
+/// EX4300's `me0` and `con` are `Named` — printed on the box as words, never
+/// as part of a numbering pattern, so nothing here invents a number for them.
+/// A group carries exactly one of these; [`load_port_groups`] is what
+/// refuses a file declaring both, or declaring neither.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PortNumbering {
+    Counted { count: u32, start_number: u32 },
+    Named { names: Vec<String> },
+}
+
+impl PortNumbering {
+    /// How many ports this group expands to — the one thing
+    /// [`Faceplate::ports`] and the load-time gates need regardless of which
+    /// variant they are looking at.
+    fn len(&self) -> u32 {
+        match self {
+            PortNumbering::Counted { count, .. } => *count,
+            #[allow(clippy::cast_possible_truncation)]
+            PortNumbering::Named { names } => names.len() as u32,
+        }
+    }
+}
+
+/// A run of ports of one `kind`, arranged per `layout` and numbered or named
+/// per `numbering`. Everything a wrong catalogue could get wrong about ONE
+/// bank lives in these four fields; everything about how banks combine on a
+/// plate is a load-time gate, not a field.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortGroup {
     pub kind: PortKind,
     pub role: Role,
     pub layout: Layout,
-    pub count: u32,
-    pub start_number: u32,
+    pub numbering: PortNumbering,
 }
 
 /// One face of one model, front or rear (UI-SPEC's rear view). `port_count`
@@ -253,13 +298,40 @@ pub enum Row {
     Single,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+impl Row {
+    /// Parses a `psu_slots[].position.row` token — the same three words
+    /// [`Faceplate::ports`] produces for a port, per ADR-0050 §3's
+    /// instruction to place an inlet "like a port" (module doc, catalogue.rs
+    /// top). A `PortGroup`'s own row is never read from the file — this is
+    /// the one place `Row` is parsed rather than computed.
+    fn from_token(t: &str) -> Option<Row> {
+        match t {
+            "top" => Some(Row::Top),
+            "bottom" => Some(Row::Bottom),
+            "single" => Some(Row::Single),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Port {
     pub kind: PortKind,
     /// As printed on the physical box (UI-SPEC: "numbered as the label on
     /// the box reads"). May be 0- or 1-based; see [`Layout::PairedColumns`].
-    pub number: u32,
+    /// `None` for a [`PortNumbering::Named`] port — see `name` below.
+    pub number: Option<u32>,
+    /// The vendor's own word for a [`PortNumbering::Named`] port (`me0`,
+    /// `con`); `None` for a numbered port, exactly the mirror image of
+    /// `number` above — a port carries exactly one of the two, never both,
+    /// never neither.
+    pub name: Option<String>,
+    /// `true` exactly when `role == Role::Uplink` — kept as its own field
+    /// because it predates `role` here and UI-SPEC's "uplinks right" is
+    /// stated in exactly these terms; `role` (below) is the fuller picture,
+    /// added for `Management`/`Console` (ADR-0050 §5).
     pub uplink: bool,
+    pub role: Role,
     pub row: Row,
     /// 0-based, left to right, continuous across every group on the plate —
     /// gaps between banks are the `group_gap_before` flag, not a skipped
@@ -284,9 +356,10 @@ impl Faceplate {
         let mut column_cursor: u32 = 0;
         for (gi, g) in self.groups.iter().enumerate() {
             let base_column = column_cursor;
-            let half = g.count.div_ceil(2);
+            let count = g.numbering.len();
+            let half = count.div_ceil(2);
             let mut columns_used = 0u32;
-            for i in 0..g.count {
+            for i in 0..count {
                 let (row, col_in_group) = match g.layout {
                     Layout::PairedColumns => {
                         let row = if i % 2 == 0 { Row::Top } else { Row::Bottom };
@@ -304,10 +377,17 @@ impl Faceplate {
                 columns_used = columns_used.max(col_in_group + 1);
                 let opens_new_group = i == 0 && gi > 0;
                 let opens_12_block = i > 0 && i % PAIRED_GROUP_BLOCK == 0;
+                let (number, name) = match &g.numbering {
+                    PortNumbering::Counted { start_number, .. } => (Some(start_number + i), None),
+                    #[allow(clippy::indexing_slicing)]
+                    PortNumbering::Named { names } => (None, Some(names[i as usize].clone())),
+                };
                 out.push(Port {
                     kind: g.kind,
-                    number: g.start_number + i,
+                    number,
+                    name,
                     uplink: g.role == Role::Uplink,
+                    role: g.role,
                     row,
                     column: base_column + col_in_group,
                     group_gap_before: opens_new_group || opens_12_block,
@@ -319,10 +399,33 @@ impl Faceplate {
     }
 }
 
+/// Where a [`PsuSlot`] sits on its face — the same `row`/`column` vocabulary
+/// [`Port`] carries (ADR-0050 §3: "like any port"), stated by the file rather
+/// than expanded from a group, because a chassis has at most a handful of
+/// bays and their arrangement follows no numbering pattern worth a
+/// [`PortGroup`]-style expansion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlotPosition {
+    pub row: Row,
+    pub column: u32,
+}
+
+/// A power-supply bay, populated or not — ADR-0050 §3/§4: an inlet is a
+/// positioned entry on a faceplate, not a count. `name` is the vendor's own
+/// word for the slot ("PSU 0", "PSU 1", "PEM A"), cited under CLAUDE.md rule
+/// 1 via the model's own [`Source`]. `hot_swap: false` records a supply that
+/// is not field-replaceable — the model still has an inlet, it just has one
+/// fixed slot; drawing the inlet mark on the chassis for that case is the
+/// client's job, not this reader's (ADR-0050 §4). A model with no inlet at
+/// all (a passive panel, or a captive-corded device with no socket to name)
+/// omits `psu_slots` entirely rather than listing one — see
+/// `corpus/catalogue/panduit/*.yaml` and `corpus/catalogue/apc/*.yaml`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PsuInlets {
-    pub kind: PortKind,
-    pub count: u32,
+pub struct PsuSlot {
+    pub name: String,
+    pub hot_swap: bool,
+    pub face: Face,
+    pub position: SlotPosition,
 }
 
 /// Where a claim in this file came from — CLAUDE.md rule 1, made a field
@@ -341,7 +444,10 @@ pub struct Model {
     pub reviewed_by: String,
     pub source: Source,
     pub faceplates: Vec<Faceplate>,
-    pub psu_inlets: Option<PsuInlets>,
+    /// Empty for a model with no PSU inlet at all (module doc on
+    /// [`PsuSlot`]) — never `None` vs. `Some(vec![])`, since an absent
+    /// `psu_slots:` key and an explicit empty list mean the same thing here.
+    pub psu_slots: Vec<PsuSlot>,
 }
 
 impl Model {
@@ -529,12 +635,13 @@ const MODEL_KEYS: &[&str] = &[
     "reviewed_by",
     "source",
     "faceplates",
-    "psu_inlets",
+    "psu_slots",
 ];
 const SOURCE_KEYS: &[&str] = &["cite", "read_on"];
 const FACEPLATE_KEYS: &[&str] = &["face", "port_count", "port_groups"];
-const GROUP_KEYS: &[&str] = &["kind", "role", "layout", "count", "start_number"];
-const PSU_KEYS: &[&str] = &["kind", "count"];
+const GROUP_KEYS: &[&str] = &["kind", "role", "layout", "count", "start_number", "names"];
+const PSU_SLOT_KEYS: &[&str] = &["name", "hot_swap", "face", "position"];
+const POSITION_KEYS: &[&str] = &["row", "column"];
 
 fn load_model(
     file: &str,
@@ -596,9 +703,9 @@ fn load_model(
         ));
     }
 
-    let psu_inlets = match root.get("psu_inlets") {
-        None => None,
-        Some(n) => Some(load_psu(file, n)?),
+    let psu_slots = match root.get("psu_slots") {
+        None => Vec::new(),
+        Some(n) => load_psu_slots(file, n)?,
     };
 
     Ok(Model {
@@ -608,7 +715,7 @@ fn load_model(
         reviewed_by,
         source,
         faceplates,
-        psu_inlets,
+        psu_slots,
     })
 }
 
@@ -675,7 +782,7 @@ fn load_faceplates(file: &str, node: &Node) -> Result<Vec<Faceplate>, CatalogueE
         let stated_count = req_u32_range(file, item, "port_count", 0, MAX_PORTS_PER_GROUP * 8)?;
         let groups = load_port_groups(file, req(file, item, "port_groups")?)?;
 
-        let derived: u32 = groups.iter().map(|g| g.count).sum();
+        let derived: u32 = groups.iter().map(|g| g.numbering.len()).sum();
         if derived != stated_count {
             return Err(err(
                 file,
@@ -700,31 +807,64 @@ fn load_faceplates(file: &str, node: &Node) -> Result<Vec<Faceplate>, CatalogueE
     Ok(out)
 }
 
-/// Numbers only collide within one [`PortKind`], not across the whole plate:
-/// real hardware routinely prints "1" under both the first copper port and
-/// the first SFP+ uplink, and the glyph is what tells them apart (UI-SPEC:
-/// "Four glyphs, never confusable"). The EX4300-48P below does exactly this
-/// — its 48 RJ45 ports and its 4 SFP+ uplinks are both numbered from 0. What
-/// IS a mistake is two groups of the SAME kind claiming the same number.
+/// One port's identity within a [`PortKind`] — either a silkscreen number or
+/// a vendor-printed name, the same two-shape split [`PortNumbering`] carries,
+/// used here as the set element [`gate_no_duplicate_numbers`] de-duplicates
+/// against.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum PortIdentity {
+    Number(u32),
+    Name(String),
+}
+
+/// Numbers (or names) only collide within one [`PortKind`], not across the
+/// whole plate: real hardware routinely prints "1" under both the first
+/// copper port and the first SFP+ uplink, and the glyph is what tells them
+/// apart (UI-SPEC: "Four glyphs, never confusable"). The EX4300-48P below
+/// does exactly this — its 48 RJ45 ports and its 4 SFP+ uplinks are both
+/// numbered from 0. What IS a mistake is two groups of the SAME kind
+/// claiming the same number or the same name.
 fn gate_no_duplicate_numbers(
     file: &str,
     line: usize,
     groups: &[PortGroup],
 ) -> Result<(), CatalogueError> {
-    let mut seen: BTreeSet<(PortKind, u32)> = BTreeSet::new();
+    let mut seen: BTreeSet<(PortKind, PortIdentity)> = BTreeSet::new();
     for g in groups {
-        for i in 0..g.count {
-            let number = g.start_number + i;
-            if !seen.insert((g.kind, number)) {
-                return Err(err(
-                    file,
-                    line,
-                    CatalogueGate::DuplicatePortNumber,
-                    format!(
-                        "{} port number {number} is claimed by more than one group",
-                        g.kind.token()
-                    ),
-                ));
+        match &g.numbering {
+            PortNumbering::Counted {
+                count,
+                start_number,
+            } => {
+                for i in 0..*count {
+                    let number = start_number + i;
+                    if !seen.insert((g.kind, PortIdentity::Number(number))) {
+                        return Err(err(
+                            file,
+                            line,
+                            CatalogueGate::DuplicatePortNumber,
+                            format!(
+                                "{} port number {number} is claimed by more than one group",
+                                g.kind.token()
+                            ),
+                        ));
+                    }
+                }
+            }
+            PortNumbering::Named { names } => {
+                for name in names {
+                    if !seen.insert((g.kind, PortIdentity::Name(name.clone()))) {
+                        return Err(err(
+                            file,
+                            line,
+                            CatalogueGate::DuplicatePortNumber,
+                            format!(
+                                "{} port name `{name}` is claimed by more than one group",
+                                g.kind.token()
+                            ),
+                        ));
+                    }
+                }
             }
         }
     }
@@ -735,7 +875,8 @@ fn gate_no_duplicate_numbers(
 /// an emergent property of [`Faceplate::ports`]'s left-to-right expansion:
 /// once an `uplink` group has been seen, no later `access` group is legal on
 /// the same plate, so an author cannot write uplinks first and have them
-/// silently land on the left.
+/// silently land on the left. `Management` and `Console` groups carry no
+/// such rule (`Role`'s own doc comment) and pass through untouched.
 fn gate_uplinks_right(file: &str, line: usize, groups: &[PortGroup]) -> Result<(), CatalogueError> {
     let mut seen_uplink = false;
     for g in groups {
@@ -751,7 +892,7 @@ fn gate_uplinks_right(file: &str, line: usize, groups: &[PortGroup]) -> Result<(
                         .to_owned(),
                 ));
             }
-            Role::Access => {}
+            Role::Access | Role::Management | Role::Console => {}
         }
     }
     Ok(())
@@ -784,7 +925,7 @@ fn load_port_groups(file: &str, node: &Node) -> Result<Vec<PortGroup>, Catalogue
                 file,
                 item.line,
                 CatalogueGate::RoleUnknown,
-                format!("`{role_tok}` is not `access` or `uplink`"),
+                format!("`{role_tok}` is not `access`, `uplink`, `management` or `console`"),
             )
         })?;
         let layout_tok = req_str(file, item, "layout")?;
@@ -796,32 +937,188 @@ fn load_port_groups(file: &str, node: &Node) -> Result<Vec<PortGroup>, Catalogue
                 format!("`{layout_tok}` is not `paired_columns`, `paired_rows` or `single_row`"),
             )
         })?;
-        let count = req_u32_range(file, item, "count", 1, MAX_PORTS_PER_GROUP)?;
-        let start_number = req_u32_range(file, item, "start_number", 0, MAX_PORT_NUMBER)?;
+
+        // Exactly one of `names` (individually named ports — ADR-0050 §5) or
+        // `count`/`start_number` (a numbered bank) may be present; a
+        // `management`/`console` group is always named, since a management
+        // or console port is never part of a numbered run.
+        let has_names = item.get("names").is_some();
+        let has_count = item.get("count").is_some();
+        let numbering = match (has_names, has_count) {
+            (true, true) => {
+                return Err(err(
+                    file,
+                    item.line,
+                    CatalogueGate::PortNamingInvalid,
+                    "a port group cannot declare both `names` and `count`".to_owned(),
+                ));
+            }
+            (true, false) => PortNumbering::Named {
+                names: load_names(file, req(file, item, "names")?)?,
+            },
+            (false, true) => {
+                if matches!(role, Role::Management | Role::Console) {
+                    return Err(err(
+                        file,
+                        item.line,
+                        CatalogueGate::PortNamingInvalid,
+                        format!(
+                            "a `{role_tok}` group must declare `names`, not `count` — a \
+                             management or console port is named, not numbered"
+                        ),
+                    ));
+                }
+                PortNumbering::Counted {
+                    count: req_u32_range(file, item, "count", 1, MAX_PORTS_PER_GROUP)?,
+                    start_number: req_u32_range(file, item, "start_number", 0, MAX_PORT_NUMBER)?,
+                }
+            }
+            (false, false) => {
+                return Err(err(
+                    file,
+                    item.line,
+                    CatalogueGate::PortNamingInvalid,
+                    "a port group must declare either `names` or `count`".to_owned(),
+                ));
+            }
+        };
+
         out.push(PortGroup {
             kind,
             role,
             layout,
-            count,
-            start_number,
+            numbering,
         });
     }
     Ok(out)
 }
 
-fn load_psu(file: &str, node: &Node) -> Result<PsuInlets, CatalogueError> {
-    refuse_unknown_keys(file, node, PSU_KEYS)?;
-    let kind_tok = req_str(file, node, "kind")?;
-    let kind = PortKind::from_token(&kind_tok).ok_or_else(|| {
+/// `names:` — a list of vendor-printed port words (`me0`, `con`), never
+/// empty, never past the same generous cap a numbered bank is held to.
+fn load_names(file: &str, node: &Node) -> Result<Vec<String>, CatalogueError> {
+    let seq = node.as_seq().ok_or_else(|| {
         err(
             file,
             node.line,
-            CatalogueGate::PortKindUnknown,
-            format!("`{kind_tok}` is not one of RJ45, SFP+, QSFP+, LC, C14, C13"),
+            CatalogueGate::Parse,
+            "`names` is not a list",
         )
     })?;
-    let count = req_u32_range(file, node, "count", 0, MAX_PSU_INLETS)?;
-    Ok(PsuInlets { kind, count })
+    if seq.is_empty() {
+        return Err(err(
+            file,
+            node.line,
+            CatalogueGate::Parse,
+            "`names` must not be empty",
+        ));
+    }
+    if seq.len() > MAX_PORTS_PER_GROUP as usize {
+        return Err(err(
+            file,
+            node.line,
+            CatalogueGate::Parse,
+            format!(
+                "`names` has {} entries, more than {MAX_PORTS_PER_GROUP}",
+                seq.len()
+            ),
+        ));
+    }
+    let mut out = Vec::new();
+    for n in seq {
+        let s = n.as_str().ok_or_else(|| {
+            err(
+                file,
+                n.line,
+                CatalogueGate::Parse,
+                "a `names` entry is not a string",
+            )
+        })?;
+        if s.is_empty() {
+            return Err(err(
+                file,
+                n.line,
+                CatalogueGate::Parse,
+                "a `names` entry must not be empty",
+            ));
+        }
+        out.push(s.to_owned());
+    }
+    Ok(out)
+}
+
+fn load_psu_slots(file: &str, node: &Node) -> Result<Vec<PsuSlot>, CatalogueError> {
+    let seq = node.as_seq().ok_or_else(|| {
+        err(
+            file,
+            node.line,
+            CatalogueGate::Parse,
+            "`psu_slots` is not a list",
+        )
+    })?;
+    if seq.len() > MAX_PSU_SLOTS as usize {
+        return Err(err(
+            file,
+            node.line,
+            CatalogueGate::Parse,
+            format!(
+                "`psu_slots` has {} entries, more than {MAX_PSU_SLOTS}",
+                seq.len()
+            ),
+        ));
+    }
+    let mut out = Vec::new();
+    for item in seq {
+        refuse_unknown_keys(file, item, PSU_SLOT_KEYS)?;
+        let name = req_str(file, item, "name")?;
+        if name.is_empty() {
+            return Err(err(
+                file,
+                item.line,
+                CatalogueGate::Parse,
+                "a `psu_slots` entry's `name` must not be empty",
+            ));
+        }
+        let hot_swap = req(file, item, "hot_swap")?.as_bool().ok_or_else(|| {
+            err(
+                file,
+                item.line,
+                CatalogueGate::Parse,
+                "`hot_swap` is not `true` or `false`",
+            )
+        })?;
+        let face_tok = req_str(file, item, "face")?;
+        let face = Face::from_token(&face_tok).ok_or_else(|| {
+            err(
+                file,
+                item.line,
+                CatalogueGate::FaceUnknown,
+                format!("`{face_tok}` is not `front` or `rear`"),
+            )
+        })?;
+        let position = load_slot_position(file, req(file, item, "position")?)?;
+        out.push(PsuSlot {
+            name,
+            hot_swap,
+            face,
+            position,
+        });
+    }
+    Ok(out)
+}
+
+fn load_slot_position(file: &str, node: &Node) -> Result<SlotPosition, CatalogueError> {
+    refuse_unknown_keys(file, node, POSITION_KEYS)?;
+    let row_tok = req_str(file, node, "row")?;
+    let row = Row::from_token(&row_tok).ok_or_else(|| {
+        err(
+            file,
+            node.line,
+            CatalogueGate::RowUnknown,
+            format!("`{row_tok}` is not `top`, `bottom` or `single`"),
+        )
+    })?;
+    let column = req_u32_range(file, node, "column", 0, MAX_SLOT_COLUMN)?;
+    Ok(SlotPosition { row, column })
 }
 
 #[cfg(test)]
@@ -1068,19 +1365,20 @@ mod tests {
 
         // Odd over even, for every one of the 24 access ports.
         for p in ports.iter().filter(|p| p.kind == PortKind::Rj45) {
-            let want_row = if p.number % 2 == 1 {
+            let number = p.number.expect("a Counted port always has a number");
+            let want_row = if number % 2 == 1 {
                 Row::Top
             } else {
                 Row::Bottom
             };
-            assert_eq!(p.row, want_row, "port {} is on the wrong row", p.number);
+            assert_eq!(p.row, want_row, "port {number} is on the wrong row");
         }
 
         // A gap opens the 13th access port (0-based index 12) — the boundary
         // between the two 12-port blocks of the one 24-port group.
         let port_13 = ports
             .iter()
-            .find(|p| p.kind == PortKind::Rj45 && p.number == 13)
+            .find(|p| p.kind == PortKind::Rj45 && p.number == Some(13))
             .expect("port 13 exists");
         assert!(
             port_13.group_gap_before,
@@ -1088,7 +1386,7 @@ mod tests {
         );
         let port_2 = ports
             .iter()
-            .find(|p| p.kind == PortKind::Rj45 && p.number == 2)
+            .find(|p| p.kind == PortKind::Rj45 && p.number == Some(2))
             .expect("port 2 exists");
         assert!(!port_2.group_gap_before, "no gap mid-block");
 
@@ -1109,7 +1407,7 @@ mod tests {
         assert!(min_uplink_column > max_access_column);
         let first_uplink = ports
             .iter()
-            .find(|p| p.uplink && p.number == 1)
+            .find(|p| p.uplink && p.number == Some(1))
             .expect("uplink port 1 exists");
         assert!(first_uplink.group_gap_before);
 
@@ -1118,7 +1416,7 @@ mod tests {
         let by_number = |n: u32| {
             ports
                 .iter()
-                .find(|p| p.uplink && p.number == n)
+                .find(|p| p.uplink && p.number == Some(n))
                 .unwrap_or_else(|| panic!("uplink port {n} exists"))
         };
         assert_eq!(by_number(1).row, Row::Top);
@@ -1143,7 +1441,9 @@ mod tests {
                  port_count: 2\n    \
                  port_groups:\n      \
                    - { kind: \"SFP+\", role: uplink, layout: single_row, count: 2, start_number: 0 }\n\
-             psu_inlets:\n  kind: \"C14\"\n  count: 2\n";
+             psu_slots:\n  \
+               - { name: \"PSU 0\", hot_swap: true, face: rear, position: { row: single, column: 0 } }\n  \
+               - { name: \"PSU 1\", hot_swap: true, face: rear, position: { row: single, column: 1 } }\n";
         let cat = Catalogue::from_sources(&source(text), "juniper", &juniper_vendors())
             .expect("a model with a rear faceplate loads");
         let m = cat.model("TEST-REAR").expect("model present");
@@ -1151,12 +1451,100 @@ mod tests {
         let rear = m.faceplate(Face::Rear).expect("rear face present");
         let ports = rear.ports();
         assert_eq!(ports.len(), 2);
-        assert_eq!(ports[0].number, 0);
-        assert_eq!(ports[1].number, 1);
+        assert_eq!(ports[0].number, Some(0));
+        assert_eq!(ports[1].number, Some(1));
         assert!(ports.iter().all(|p| p.row == Row::Single));
-        let psu = m.psu_inlets.as_ref().expect("psu inlets present");
-        assert_eq!(psu.kind, PortKind::C14);
-        assert_eq!(psu.count, 2);
+        assert_eq!(m.psu_slots.len(), 2);
+        assert_eq!(m.psu_slots[0].name, "PSU 0");
+        assert!(m.psu_slots[0].hot_swap);
+        assert_eq!(m.psu_slots[0].face, Face::Rear);
+        assert_eq!(m.psu_slots[0].position.row, Row::Single);
+        assert_eq!(m.psu_slots[0].position.column, 0);
+        assert_eq!(m.psu_slots[1].position.column, 1);
+    }
+
+    #[test]
+    fn psu_slots_absent_is_an_empty_list_not_an_error() {
+        // A passive panel or a captive-corded device omits `psu_slots`
+        // entirely — see `corpus/catalogue/panduit/*.yaml` and
+        // `corpus/catalogue/apc/*.yaml`.
+        let text = good_model_text("");
+        let cat = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect("a model with no psu_slots key loads");
+        let m = cat.model("TEST-12P").expect("model present");
+        assert!(m.psu_slots.is_empty());
+    }
+
+    #[test]
+    fn a_named_group_round_trips_with_no_number() {
+        // The EX4300's `me0`/`con` shape: a management group naming one
+        // port, no `count`, no `start_number`.
+        let text = "vendor: juniper\n\
+             model: TEST-NAMED\n\
+             rack_units: 1\n\
+             reviewed_by: <named human>\n\
+             source:\n  cite: \"fixture\"\n  read_on: \"2026-09-16\"\n\
+             faceplates:\n  \
+               - face: front\n    \
+                 port_count: 1\n    \
+                 port_groups:\n      \
+                   - { kind: \"RJ45\", role: access, layout: single_row, count: 1, start_number: 1 }\n  \
+               - face: rear\n    \
+                 port_count: 2\n    \
+                 port_groups:\n      \
+                   - { kind: \"RJ45\", role: management, layout: single_row, names: [me0] }\n      \
+                   - { kind: \"RJ45\", role: console, layout: single_row, names: [con] }\n";
+        let cat = Catalogue::from_sources(&source(text), "juniper", &juniper_vendors())
+            .expect("a named management/console group loads");
+        let m = cat.model("TEST-NAMED").expect("model present");
+        let ports = m.faceplate(Face::Rear).expect("rear face").ports();
+        assert_eq!(ports.len(), 2);
+        let me0 = ports
+            .iter()
+            .find(|p| p.name.as_deref() == Some("me0"))
+            .expect("me0 present");
+        assert_eq!(me0.number, None);
+        assert_eq!(me0.role, Role::Management);
+        let con = ports
+            .iter()
+            .find(|p| p.name.as_deref() == Some("con"))
+            .expect("con present");
+        assert_eq!(con.number, None);
+        assert_eq!(con.role, Role::Console);
+    }
+
+    #[test]
+    fn a_group_with_both_names_and_count_is_refused() {
+        let text = "vendor: juniper\n\
+             model: TEST-BOTH\n\
+             rack_units: 1\n\
+             reviewed_by: <named human>\n\
+             source:\n  cite: \"fixture\"\n  read_on: \"2026-09-16\"\n\
+             faceplates:\n  \
+               - face: front\n    \
+                 port_count: 1\n    \
+                 port_groups:\n      \
+                   - { kind: \"RJ45\", role: access, layout: single_row, names: [me0], count: 1, start_number: 0 }\n";
+        let e = Catalogue::from_sources(&source(text), "juniper", &juniper_vendors())
+            .expect_err("a group cannot declare both names and count");
+        assert_eq!(e.gate, CatalogueGate::PortNamingInvalid);
+    }
+
+    #[test]
+    fn a_management_group_without_names_is_refused() {
+        let text = "vendor: juniper\n\
+             model: TEST-MGMT-NONAMED\n\
+             rack_units: 1\n\
+             reviewed_by: <named human>\n\
+             source:\n  cite: \"fixture\"\n  read_on: \"2026-09-16\"\n\
+             faceplates:\n  \
+               - face: rear\n    \
+                 port_count: 1\n    \
+                 port_groups:\n      \
+                   - { kind: \"RJ45\", role: management, layout: single_row, count: 1, start_number: 0 }\n";
+        let e = Catalogue::from_sources(&source(text), "juniper", &juniper_vendors())
+            .expect_err("a management group must name its port, not number it");
+        assert_eq!(e.gate, CatalogueGate::PortNamingInvalid);
     }
 
     #[test]
@@ -1193,8 +1581,12 @@ mod tests {
         );
         // Numbered from 0, per the approved design board — see the module
         // doc on `Layout::PairedColumns`.
-        assert!(ports.iter().any(|p| p.number == 0 && p.row == Row::Top));
-        assert!(ports.iter().any(|p| p.number == 1 && p.row == Row::Bottom));
+        assert!(ports
+            .iter()
+            .any(|p| p.number == Some(0) && p.row == Row::Top));
+        assert!(ports
+            .iter()
+            .any(|p| p.number == Some(1) && p.row == Row::Bottom));
 
         // The front uplink module genuinely is SFP+ (EX-UM-4X4SFP); the rear
         // built-in ports genuinely are QSFP+ — the catalogue must say so,
@@ -1205,7 +1597,36 @@ mod tests {
         );
         let rear = ex.faceplate(Face::Rear).expect("rear face present");
         let rear_ports = rear.ports();
-        assert_eq!(rear_ports.len(), 4);
-        assert!(rear_ports.iter().all(|p| p.kind == PortKind::QsfpPlus));
+        // 4 built-in QSFP+ uplinks, plus the rear-panel `me0` management and
+        // `con` console RJ45 ports (ADR-0050 §5) — see the file's own header
+        // for the citation and date these were added under.
+        assert_eq!(rear_ports.len(), 6);
+        assert_eq!(
+            rear_ports
+                .iter()
+                .filter(|p| p.kind == PortKind::QsfpPlus)
+                .count(),
+            4
+        );
+        let me0 = rear_ports
+            .iter()
+            .find(|p| p.name.as_deref() == Some("me0"))
+            .expect("me0 present on the rear face");
+        assert_eq!(me0.kind, PortKind::Rj45);
+        assert_eq!(me0.role, Role::Management);
+        assert_eq!(me0.number, None);
+        let con = rear_ports
+            .iter()
+            .find(|p| p.name.as_deref() == Some("con"))
+            .expect("con present on the rear face");
+        assert_eq!(con.kind, PortKind::Rj45);
+        assert_eq!(con.role, Role::Console);
+        assert_eq!(con.number, None);
+
+        // Both PSUs are recorded as positioned, hot-swappable rear slots
+        // (ADR-0050 §3/§4), not a count.
+        assert_eq!(ex.psu_slots.len(), 2);
+        assert!(ex.psu_slots.iter().all(|s| s.hot_swap));
+        assert!(ex.psu_slots.iter().all(|s| s.face == Face::Rear));
     }
 }

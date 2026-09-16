@@ -41,16 +41,18 @@
 # numbered 1-12, is the conservative reading, same rule the sibling copper
 # panel in this directory (nk6ppg24y.yaml) states for the same reason.
 #
-# NO `psu_inlets` DECLARED, ON PURPOSE — this is the format's "passive panel"
-# expression: `psu_inlets` is optional (catalogue.rs: `psu_inlets:
-# Option<PsuInlets>`), and a fibre patch panel is genuinely unpowered
-# hardware — ADR-0037 §5's `PassiveNode` names exactly this class,
-# *"hardware with ports and no configuration"*, and `Odf` (optical
-# distribution frame) is one of its named forms, the fibre sibling of
-# `PatchPanel`. Omitting the field is how this format says "no power enters
-# this plate" without adding a new key to a format ADR-0044 keeps
-# deliberately closed — see nk6ppg24y.yaml's header for the same reasoning
-# stated once for the copper panel.
+# NO `psu_slots` DECLARED, ON PURPOSE — RE-CHECKED 2026-09-16 against
+# ADR-0050 §3/§4's positioned-slot format (`psu_slots`, replacing the former
+# `psu_inlets: { kind, count }`); the underlying fact is unchanged: this is
+# the format's "passive panel" expression, and a fibre patch panel is
+# genuinely unpowered hardware — ADR-0037 §5's `PassiveNode` names exactly
+# this class, *"hardware with ports and no configuration"*, and `Odf`
+# (optical distribution frame) is one of its named forms, the fibre sibling
+# of `PatchPanel`. Omitting the field (`psu_slots` defaults to an empty list
+# — `crates/fathom-corpus/src/catalogue.rs`'s `Model::psu_slots`) is how this
+# format says "no power enters this plate" without adding a new key to a
+# format ADR-0044 keeps deliberately closed — see nk6ppg24y.yaml's header
+# for the same reasoning stated once for the copper panel.
 vendor: panduit
 model: FD1W12AQDLCZ
 rack_units: 1

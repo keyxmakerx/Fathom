@@ -64,14 +64,14 @@ fn shipped_tree_declaration_counts_hold() {
     // hard ceiling, bought for a bound that 62 §3.2's per-field `constraints`
     // already expresses. The `Placeable` CLASS did move — it gained `Rack` —
     // and `every_kind_but_the_pin_itself_is_placeable` below is the noticer.
-    assert_eq!(tree.kinds.len(), 51, "kind count");
-    assert_eq!(tree.edges.len(), 95, "edge count (87 + 8 derived)");
+    assert_eq!(tree.kinds.len(), 52, "kind count");
+    assert_eq!(tree.edges.len(), 96, "edge count (88 + 8 derived)");
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
     assert_eq!(tree.classes.len(), 4, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 312, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 317, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -99,7 +99,17 @@ fn shipped_tree_declaration_counts_hold() {
     // `Cable.sheath` and `PhysicalPort.connector`/`.service`'s new variants
     // are all INLINE enums, and the two variant additions land on already-
     // keyed fields, so only the registry and the version move.
-    assert_eq!(tree.version.as_deref(), Some("0.6"));
+    //
+    // 0.6 -> 0.7 (2026-09-16) is ADR-0050 (the rear elevation) and moves four of the
+    // counts above: +1 kind (`PowerSupply`, 51 -> 52), +1 edge (`FittedIn`, 95 -> 96),
+    // +5 field keys (313-317, 312 -> 317, two on Rack and three on PowerSupply). Scalars,
+    // enum FILE count and import scopes are unmoved: `row` is `Text`, `bay` and `slot`'s
+    // siblings are `u16`/`Text`/`Identifier`, all pre-existing types. The `class` count
+    // stays 4 -- no class added -- but two of the four existing classes widen their
+    // membership (`Placeable` gains `PowerSupply`, `PortHost` gains `PowerSupply`), which
+    // is why `every_kind_but_the_pin_itself_is_placeable` below is still the noticer for
+    // the first and there is no equivalent noticer for the second, per PortHost's own doc.
+    assert_eq!(tree.version.as_deref(), Some("0.7"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

@@ -21,7 +21,8 @@ pub mod normalize;
 
 pub use catalogue::{
     Catalogue, CatalogueError, CatalogueGate, Face, Faceplate, Layout, Model as CatalogueModel,
-    Port, PortGroup, PortKind, PsuInlets, Role, Row, Source as CatalogueSource,
+    Port, PortGroup, PortKind, PortNumbering, PsuSlot, Role, Row, SlotPosition,
+    Source as CatalogueSource,
 };
 pub use gates::{Finding, Severity};
 pub use index::CorpusIndex;

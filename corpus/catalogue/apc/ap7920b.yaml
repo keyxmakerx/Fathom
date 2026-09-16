@@ -47,16 +47,21 @@
 # for and does not need one for (ports and rack units are all this format
 # records).
 #
-# NO `psu_inlets` DECLARED, ON PURPOSE: every source above describes the
+# NO `psu_slots` DECLARED, ON PURPOSE — RE-CHECKED 2026-09-16 AGAINST
+# ADR-0050 §3/§4's positioned-slot format (`psu_slots`, replacing the former
+# `psu_inlets: { kind, count }`): every source above still describes the
 # unit's upstream connection as a permanently-attached "C14 cord", not a
 # removable C14 inlet socket on the chassis — there is no connector on the
 # unit itself for a technician to plug or unplug at the PDU end, only a wire
-# disappearing into the housing. `psu_inlets` is optional in this format
-# precisely for hardware with no such socket (catalogue.rs: `psu_inlets:
-# Option<PsuInlets>`), so this file states none rather than inventing an
-# inlet the sources never describe. This is also this catalogue's example of
-# a device that draws power but is not a PSU-inlet-bearing device in the
-# format's sense — distinct from a genuinely passive panel (see
+# disappearing into the housing. There is therefore no slot to name: a
+# `psu_slots` entry needs a vendor-printed slot name and a position on a
+# face (`crates/fathom-corpus/src/catalogue.rs`'s `PsuSlot`), and this unit
+# has neither, only a captive wire. `psu_slots` is empty rather than
+# inventing a slot the sources never describe, exactly the same "no removable
+# socket, nothing to name" reasoning the old `psu_inlets` header stated for
+# the count-based format. This is also this catalogue's example of a device
+# that draws power but is not a PSU-slot-bearing device in the format's
+# sense — distinct from a genuinely passive panel (see
 # corpus/catalogue/panduit/), which has no faceplate here because a PDU is
 # not one; it is the far end of the same "Power" lens (UI-SPEC).
 vendor: apc

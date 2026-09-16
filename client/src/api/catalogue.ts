@@ -1,14 +1,29 @@
 // The device catalogue — `GET /catalogue/models` and
 // `GET /catalogue/models/{vendor}/{model}`, `crates/fathom-server/src/design_api.rs`'s
 // `catalogue_list_handler` / `catalogue_model_handler`. Shapes read off
-// `json_of_model` / `json_of_faceplate` / `json_of_port` there, not assumed:
-// a port on the wire is `kind` (the catalogue's own connector token, e.g.
-// `"RJ45"`, `"SFP+"` — a different vocabulary from the schema's
-// `PhysicalPort.connector` enum, deliberately not reconciled here), `number`
-// (the silkscreen number), `uplink`, `row` (`"top"` / `"bottom"` / `"single"`),
-// `column` and `group_gap_before`. There is no `label` key on a port — the
-// silkscreen number is the label — and `psu_inlets` is model-level, not
-// per-port.
+// `json_of_model` / `json_of_faceplate` / `json_of_port` / `json_of_psu_slot`
+// there, not assumed: a port on the wire is `kind` (the catalogue's own
+// connector token, e.g. `"RJ45"`, `"SFP+"` — a different vocabulary from the
+// schema's `PhysicalPort.connector` enum, deliberately not reconciled here),
+// `number` (the silkscreen number, `null` for a named port — see below),
+// `name` (the vendor's own word for a named port, e.g. `"me0"`, `null` for a
+// numbered one — ADR-0050 §5; a port carries exactly one of `number`/`name`),
+// `uplink`, `role` (`"access"` / `"uplink"` / `"management"` / `"console"` —
+// the fuller picture `uplink` is one bit of), `row` (`"top"` / `"bottom"` /
+// `"single"`), `column` and `group_gap_before`. There is no `label` key on a
+// port — the silkscreen number or the name is the label. `name` and `role`
+// are typed optional here even though the server always sends them: the
+// document and drawing builders that will consume them are next round's work
+// (this task's brief), and this file must not force every existing fixture
+// in `client/src/document`/`client/src/components` that already builds a
+// `CataloguePort` literal without them to be edited outside this task's
+// files. `parsePort` below still reads both off every real response.
+//
+// `psuSlots` (wire: `psu_slots`) is model-level, not per-port, and is a list,
+// never `null` — an empty list is how the server says "no PSU inlet on this
+// model at all" (ADR-0050 §3/§4's `PsuSlot`; see
+// `crates/fathom-corpus/src/catalogue.rs`'s module doc on why it carries no
+// connector `kind` any more).
 
 import { signedFetch } from './signedFetch';
 
@@ -17,15 +32,27 @@ export interface CatalogueSource {
   readOn: string;
 }
 
-export interface CataloguePsuInlets {
-  kind: string;
-  count: number;
+export interface CatalogueSlotPosition {
+  row: 'top' | 'bottom' | 'single';
+  column: number;
+}
+
+/** A power-supply bay, positioned on a face like a port (ADR-0050 §3/§4) —
+ * never a count. `hotSwap: false` records a fixed, non-removable supply; the
+ * model still has an inlet, it is just not a field-replaceable one. */
+export interface CataloguePsuSlot {
+  name: string;
+  hotSwap: boolean;
+  face: 'front' | 'rear';
+  position: CatalogueSlotPosition;
 }
 
 export interface CataloguePort {
   kind: string;
-  number: number;
+  number: number | null;
+  name?: string | null;
   uplink: boolean;
+  role?: 'access' | 'uplink' | 'management' | 'console';
   row: 'top' | 'bottom' | 'single';
   column: number;
   groupGapBefore: boolean;
@@ -44,7 +71,7 @@ export interface CatalogueModel {
   rackUnits: number;
   reviewedBy: string;
   source: CatalogueSource;
-  psuInlets: CataloguePsuInlets | null;
+  psuSlots: CataloguePsuSlot[];
   faceplates: CatalogueFaceplate[];
 }
 
@@ -85,6 +112,40 @@ function bool(v: unknown, what: string): boolean {
   return v;
 }
 
+function nullableNum(v: unknown, what: string): number | null {
+  if (v === null) return null;
+  return num(v, what);
+}
+
+function nullableStr(v: unknown, what: string): string | null {
+  if (v === null) return null;
+  return str(v, what);
+}
+
+function parseRow(v: unknown, what: string): 'top' | 'bottom' | 'single' {
+  const row = str(v, what);
+  if (row !== 'top' && row !== 'bottom' && row !== 'single') {
+    throw malformed(`${what} is not one of top / bottom / single`);
+  }
+  return row;
+}
+
+function parseFace(v: unknown, what: string): 'front' | 'rear' {
+  const face = str(v, what);
+  if (face !== 'front' && face !== 'rear') {
+    throw malformed(`${what} is not front / rear`);
+  }
+  return face;
+}
+
+function parseRole(v: unknown, what: string): 'access' | 'uplink' | 'management' | 'console' {
+  const role = str(v, what);
+  if (role !== 'access' && role !== 'uplink' && role !== 'management' && role !== 'console') {
+    throw malformed(`${what} is not one of access / uplink / management / console`);
+  }
+  return role;
+}
+
 function parseJson(bytes: Uint8Array, what: string): unknown {
   const text = new TextDecoder().decode(bytes);
   try {
@@ -108,15 +169,13 @@ export function parseCatalogueList(bytes: Uint8Array): CatalogueListEntry[] {
 
 function parsePort(v: unknown, path: string): CataloguePort {
   const m = obj(v, path);
-  const row = str(m.row, `${path}.row`);
-  if (row !== 'top' && row !== 'bottom' && row !== 'single') {
-    throw malformed(`${path}.row is not one of top / bottom / single`);
-  }
   return {
     kind: str(m.kind, `${path}.kind`),
-    number: num(m.number, `${path}.number`),
+    number: nullableNum(m.number, `${path}.number`),
+    name: nullableStr(m.name, `${path}.name`),
     uplink: bool(m.uplink, `${path}.uplink`),
-    row,
+    role: parseRole(m.role, `${path}.role`),
+    row: parseRow(m.row, `${path}.row`),
     column: num(m.column, `${path}.column`),
     groupGapBefore: bool(m.group_gap_before, `${path}.group_gap_before`),
   };
@@ -124,35 +183,39 @@ function parsePort(v: unknown, path: string): CataloguePort {
 
 function parseFaceplate(v: unknown, path: string): CatalogueFaceplate {
   const m = obj(v, path);
-  const face = str(m.face, `${path}.face`);
-  if (face !== 'front' && face !== 'rear') {
-    throw malformed(`${path}.face is not front / rear`);
-  }
   return {
-    face,
+    face: parseFace(m.face, `${path}.face`),
     portCount: num(m.port_count, `${path}.port_count`),
     ports: arr(m.ports, `${path}.ports`).map((p, i) => parsePort(p, `${path}.ports[${i}]`)),
+  };
+}
+
+function parsePsuSlot(v: unknown, path: string): CataloguePsuSlot {
+  const m = obj(v, path);
+  const position = obj(m.position, `${path}.position`);
+  return {
+    name: str(m.name, `${path}.name`),
+    hotSwap: bool(m.hot_swap, `${path}.hot_swap`),
+    face: parseFace(m.face, `${path}.face`),
+    position: {
+      row: parseRow(position.row, `${path}.position.row`),
+      column: num(position.column, `${path}.position.column`),
+    },
   };
 }
 
 export function parseCatalogueModel(bytes: Uint8Array): CatalogueModel {
   const m = obj(parseJson(bytes, 'catalogue model'), 'catalogue model body');
   const source = obj(m.source, 'catalogue model.source');
-  const psuInletsRaw = m.psu_inlets;
-  const psuInlets =
-    psuInletsRaw === null
-      ? null
-      : (() => {
-          const p = obj(psuInletsRaw, 'catalogue model.psu_inlets');
-          return { kind: str(p.kind, 'psu_inlets.kind'), count: num(p.count, 'psu_inlets.count') };
-        })();
   return {
     vendor: str(m.vendor, 'catalogue model.vendor'),
     model: str(m.model, 'catalogue model.model'),
     rackUnits: num(m.rack_units, 'catalogue model.rack_units'),
     reviewedBy: str(m.reviewed_by, 'catalogue model.reviewed_by'),
     source: { cite: str(source.cite, 'source.cite'), readOn: str(source.read_on, 'source.read_on') },
-    psuInlets,
+    psuSlots: arr(m.psu_slots, 'catalogue model.psu_slots').map((s, i) =>
+      parsePsuSlot(s, `psu_slots[${i}]`),
+    ),
     faceplates: arr(m.faceplates, 'catalogue model.faceplates').map((f, i) =>
       parseFaceplate(f, `faceplates[${i}]`),
     ),

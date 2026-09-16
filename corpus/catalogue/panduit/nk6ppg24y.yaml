@@ -37,14 +37,17 @@
 # conservative reading rather than a guess at a column pattern this format
 # would otherwise expand incorrectly.
 #
-# NO `psu_inlets` DECLARED, ON PURPOSE — this is the format's "passive panel"
-# expression: `psu_inlets` is optional (catalogue.rs: `psu_inlets:
-# Option<PsuInlets>`), and a patch panel is genuinely unpowered hardware —
-# ADR-0037 §5's `PassiveNode` names exactly this class, *"hardware with ports
-# and no configuration"*, and a `PatchPanel` is one of its named forms.
-# Omitting the field, rather than declaring a count of zero or inventing a
-# kind, is how this format says "no power enters this plate" without adding
-# a new key to a format ADR-0044 keeps deliberately closed.
+# NO `psu_slots` DECLARED, ON PURPOSE — RE-CHECKED 2026-09-16 against
+# ADR-0050 §3/§4's positioned-slot format (`psu_slots`, replacing the former
+# `psu_inlets: { kind, count }`); the underlying fact is unchanged: this is
+# the format's "passive panel" expression, and a patch panel is genuinely
+# unpowered hardware — ADR-0037 §5's `PassiveNode` names exactly this class,
+# *"hardware with ports and no configuration"*, and a `PatchPanel` is one of
+# its named forms. Omitting the field (`psu_slots` defaults to an empty list
+# — `crates/fathom-corpus/src/catalogue.rs`'s `Model::psu_slots`), rather
+# than declaring a slot that does not exist, is how this format says "no
+# power enters this plate" without adding a new key to a format ADR-0044
+# keeps deliberately closed.
 vendor: panduit
 model: NK6PPG24Y
 rack_units: 1

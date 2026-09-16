@@ -304,6 +304,10 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     `56` has not made it. The rack ELEVATION is a separate renderer
         //     and is unaffected by this table — there, a rack is the frame.
         | NodeKind::Rack
+        //     `PowerSupply` (ADR-0050) joins them by the same rule: `56` has no
+        //     row for it either, and the rear elevation — a separate renderer,
+        //     like the rack elevation — is where a fitted supply actually draws.
+        | NodeKind::PowerSupply
         // (b) `19`'s service model, which `56` does not mention at all.
         | NodeKind::Tenant
         | NodeKind::Service

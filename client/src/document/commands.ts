@@ -286,22 +286,23 @@ export function placeChassis(
     }
   }
 
-  // Power inlets (docs/UI-SPEC.md "Power"): a model whose catalogue entry
-  // names `psu_inlets` gets that many `PhysicalPort` nodes here —
+  // Power inlets (ADR-0050 §3): a model whose catalogue entry lists
+  // `psu_slots` gets one `PhysicalPort` per slot here, labelled with the
+  // slot's own name (PSU0, PEM A) —
   // `PhysicalPort.connector: c14` (the schema's own IEC 60320 token, not a
   // catalogue `PortKind` spelling to carry verbatim: these ports have no
   // faceplate entry to read one off), `PhysicalPort.service: power`,
-  // labelled "PSU 1", "PSU 2"... A model whose faceplate ports are
+  // A model whose faceplate ports are
   // themselves `c13` outlets (a PDU) already got them in the loop above and
   // needs nothing here. Still ordinary `HasPort` children of this chassis —
   // `view.ts`'s `ChassisView.psuInlets` is what keeps them out of the
   // faceplate `ports` array, not anything at this layer.
-  if (model.psuInlets) {
-    for (let i = 0; i < model.psuInlets.count; i += 1) {
+  {
+    for (const slot of model.psuSlots) {
       const inletExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
       working = inletExistence.doc;
       const inletId = formatNodeId('PhysicalPort', newUlid(now));
-      const inletLabel = setField(working, now, actor, inletId, undefined, 'PhysicalPort.label', text(`PSU ${i + 1}`));
+      const inletLabel = setField(working, now, actor, inletId, undefined, 'PhysicalPort.label', text(slot.name));
       working = inletLabel.doc;
       const inletConnector = setField(working, now, actor, inletId, undefined, 'PhysicalPort.connector', token('c14'));
       working = inletConnector.doc;
