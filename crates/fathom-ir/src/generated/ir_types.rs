@@ -1428,7 +1428,7 @@ mod body {
                 EdgeKind::HasExternalPeer => &[NodeKind::Site, NodeKind::Premises],
                 EdgeKind::HasTunnel => &[],
                 EdgeKind::HasPremises => &[],
-                EdgeKind::HasPort => &[NodeKind::Chassis, NodeKind::PassiveNode],
+                EdgeKind::HasPort => &[NodeKind::Chassis, NodeKind::PassiveNode, NodeKind::PowerSupply],
                 EdgeKind::HasPassiveNode => &[NodeKind::Premises],
                 EdgeKind::HasCable => &[],
                 EdgeKind::HasTenant => &[],

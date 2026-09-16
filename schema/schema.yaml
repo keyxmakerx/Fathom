@@ -1799,7 +1799,7 @@ edges:
     doc: 19 §5.1.
   - edge: HasPort
     class: containment
-    from: [Chassis, PassiveNode]
+    from: [Chassis, PassiveNode, PowerSupply]
     to: [PhysicalPort]
     out: "0..n"
     in: "1"

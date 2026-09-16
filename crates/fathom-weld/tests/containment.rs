@@ -90,7 +90,11 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // conflict with, unlike `Chassis` — and joining `Placeable` adds
     // (PowerSupply, LayoutPin) through `HasLayoutPin`. Two pairs for one new
     // kind, the same arithmetic WO-10 established.
-    assert_eq!(resolved, 100, "the containment pair set moved");
+    //
+    // 100 -> 101 the same day: `HasPort`'s own `from` list gains
+    // `PowerSupply`, which the `PortHost` class already named — a supply
+    // hosts its inlet port (ADR-0050 §4) — adding (PowerSupply, PhysicalPort).
+    assert_eq!(resolved, 101, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
