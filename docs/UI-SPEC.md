@@ -1,10 +1,16 @@
 # The interface — approved 2026-09-11
 
-**Pictures:** https://claude.ai/code/artifact/e4306f02-80bb-447b-99e9-7b2dede0a541
-Sources in `design/rebuild/*.dc.html`. Tokens in `design/tokens.css`.
-**The screens set (proposal, 2026-09-15):** https://claude.ai/artifact/9sCWD7oBYogejnCpk9pcxN — sources in
-`design/proposals/screens/`. Nine boards, four of them animated. Not yet approved.
-**The `Legend` board on page 1 is the one to open first when building any canvas surface** — the four
+**The shell, approved 2026-09-16 (ADR-0047):** https://claude.ai/artifact/GkXzzMe3JG6SQAaXke9C4p —
+sources and PNG renders in `design/shell/`. The bar, the stops, the lenses, the estate, optics,
+tracked changes. This is the frame every other picture sits in.
+**The drawing's details, approved 2026-09-11:** https://claude.ai/code/artifact/e4306f02-80bb-447b-99e9-7b2dede0a541 —
+sources in `design/rebuild/*.dc.html`: Legend, Faceplate, Crossings, Motion, Hypervisor, Firewall,
+Config, Building. Their masthead predates the shell and is superseded by it; their drawing stands.
+The other boards that canvas shows were retired on 2026-09-16 (`docs/archive/design-retired-2026-09-16/`).
+**The screens set, 2026-09-15:** https://claude.ai/artifact/9sCWD7oBYogejnCpk9pcxN — sources in
+`design/proposals/screens/`. The surfaces stand; the bar on them is superseded by the shell's.
+Tokens in `design/tokens.css`.
+**The `Legend` board (`design/rebuild/`) is the one to open first when building any canvas surface** — the four
 glyphs, the three line constructions, both palettes, the presence marks and the portal rule, on one
 small board. The other boards show them in use.
 
@@ -27,14 +33,39 @@ usable version.
 
 | | |
 |---|---|
-| **Left rail** | Racks in this closet · other closets · equipment palette to drag from |
-| **Centre** | The racks, at whatever zoom |
-| **Right** | Inspector for whatever is selected |
-| **Masthead** | Racks · Inventory · scope breadcrumb · cable-kind toggles · port-colour mode · who else is here · zoom · your account (People and permissions for stewards, Site for operators, sign out) |
+| **The bar** | One row, 44px, the 3px rule beneath, nothing else above the drawing. Fathom · Racks · Inventory (the current one marked) · the path, which opens the tree when clicked · the lens, five words with one lit · search · who else is here · Undo · Redo · zoom · you (People and permissions for stewards, Site for operators, sign out). |
+| **The drawing** | The whole width beneath the bar. The rail is folded to a 28px strip of marks and opens on click. |
+| **The editor** | A surface: slides in on the right when something is selected, goes when you click away. The same component as the inventory page. |
+| **Pop-overs** | One kind: a flat hairline box, square, no shadow, opened by a click, closed by clicking away or Esc, never more than one level. The tree, the account menu, the pickers, and right-click on anything. Hover only shows a small label after a pause. |
 
-**Zoom is one continuous camera**: building → closet → rack → faceplate → port. Ports fade in as
-they become big enough to hit. Never a page change. *Building* joined the camera on 2026-09-15 when
-the owner un-parked it; its board already draws it the right way (see "The building", below).
+**ADR-0047, 2026-09-16.** The old masthead's cable-kind toggles and port-colour buttons are gone: a
+lens is both. Four kinds of thing make every screen — places, stops, lenses, surfaces — and nothing
+else gets a name; the record has the list.
+
+**Zoom is one continuous camera**, seven stops: estate → site → building → closet → rack →
+faceplate → inside. Ports fade in as they become big enough to hit. Never a page change. *Building*
+joined on 2026-09-15 (see "The building", below); *estate* and *site* on 2026-09-16 (see "The
+estate", below); *inside* is the approved Hypervisor and Firewall boards, named as a stop.
+
+## The estate, lenses, optics, tracked changes — ADR-0047, 2026-09-16
+
+**The estate stop.** Sites placed by hand and never auto-laid-out; the links between them drawn as
+counted bundles, never single lines, with the carrier and circuit IDs on the label; a link to another
+organisation goes through a portal, the same rule as a cable between closets. The tree in the path's
+pop-over is how you move and how permission is held; a saved list is a saved filter across
+everything; a map image may sit behind the estate, placed by hand, never required.
+
+**Lenses.** Cables · Links · Routing · Power · Owner, one at a time. A lens changes the marks and the
+colours on the same boxes; it never moves one and never hides one. In Inventory it picks the columns.
+"No physical view versus logical view" stays true: routing is a lens, not a second picture.
+
+**Optics.** A cage takes an optic before it takes a cable. Drag cage to cage; on release say what is
+between them, a DAC or two optics and a fibre pair, defaulting to the last answer. The compatibility
+check follows the optic, not the cage. Schema first: `Transceiver` has no fields yet.
+
+**Tracked changes.** A maintenance record's *Show these changes* shows its changes on the drawing the
+way a document does: added solid, removed faded and struck, changed as old and new, everything else
+at 0.28. A view over the trail, not a second record.
 
 ## Ports
 
@@ -182,10 +213,10 @@ The whole set, and where each stands. ADR-0046 is the decision; this is the list
 |---|---|---|
 | Sign in and enrol | everyone | built in the client |
 | **Home** — organisations, the closets and designs you may open, what changed | everyone | drawn 2026-09-15 (screens set); not built |
-| **Racks** — the drawing on this page | everyone | approved, page 1; not built |
+| **Racks** — the drawing on this page | everyone | approved: the shell of 2026-09-16 is the frame, the 2026-09-11 boards are the drawing's details; not built |
 | **Inventory** — lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, import and export, change history from the chain, *show on rack* | everyone | redrawn 2026-09-15 as a place, the page as the editor (screens set); not built |
 | Search — an overlay, never a page | everyone | the far-end picker on the patching board is the same box; the overlay itself is not drawn |
-| Findings and the config checker | everyone | a stray board on disk, off the canvas |
+| Findings and the config checker | everyone | not drawn; the first pass carried the tab strip and was retired 2026-09-16 |
 | Walkthrough — the teaching half | everyone | sketched low-fi 2026-09-15 (screens set); never built |
 | Firmware — stage, hash, commands (ADR-0045) | stewards | built on the server; lives inside inventory, per model |
 | Vault — share, fingerprints, consent | everyone | designed; three surfaces undrawn |
@@ -268,7 +299,7 @@ work from a closed brief, in this page's language, before they are built:
 - **The mode-change consent screen** — the full statement rendered before the touch, in the
   register §12.6 of the storage design already uses.
 
-## The screens set — drawn 2026-09-15, not yet approved
+## The screens set — drawn 2026-09-15; the surfaces stand, the bar is superseded (ADR-0047)
 
 **Pictures:** https://claude.ai/artifact/9sCWD7oBYogejnCpk9pcxN. Sources in `design/proposals/screens/*.dc.html`,
 laid out by `canvas.json`. Nine boards, read across then down: Home; Inventory as a place with the
@@ -312,7 +343,6 @@ Two things this page has never specified, both found by drawing rather than by r
 
 ## Parked
 
-Nothing, as of 2026-09-15. The building view was un-parked by the owner and is now a stop on the
-camera (above). The first-pass boards on page 3 are superseded: *Inventory (first pass)* by the
-screens section, *Rack (first pass)* by the approved page-1 boards; *Vault (first pass)* stands until
-the three vault surfaces are drawn.
+Nothing, as of 2026-09-16. The first-pass boards and the eight direction boards were retired on 2026-09-16 to
+`docs/archive/design-retired-2026-09-16/`; the shell of that day replaces the 2026-09-11 shell board,
+the screens set replaces the inventory first pass, and the vault's three surfaces are still to draw.

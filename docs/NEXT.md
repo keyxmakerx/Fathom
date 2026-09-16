@@ -128,10 +128,11 @@ refused a save. ~500k tokens.
 ## Sessions 3–6 — The canvas
 
 > **Amended 2026-09-15, ADR-0046.** The client has two places, *Racks* and *Inventory*, plus *Home*,
-> and one editor shared by the drawing's inspector and the inventory page. The screens were drawn as
-> one set on 2026-09-15 (`docs/UI-SPEC.md` "The screens set"), so navigation is decided once; they
-> await the owner's approval, and Session 3 builds the shell against the approved version, not the
-> proposal. Session 3's shell gains the two-place masthead and Home;
+> and one editor shared by the drawing's inspector and the inventory page. The screens were drawn on
+> 2026-09-15 and the shell on 2026-09-16; **the shell is approved (ADR-0047, `design/shell/`) and
+> Session 3 builds it**: the one-row bar, the folded strip, the editor as a surface, the tree from
+> the path, the lens row. Home and the other surfaces come from the screens set with the shell's
+> bar. Session 3's shell gains the two-place bar and Home;
 > Session 6 gains the basic inventory (lists, the page, *show on rack*), notes on a device, and
 > undo-that-records. The patching surface, maintenance records and the building stop come after the
 > first usable version.

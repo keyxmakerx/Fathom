@@ -1,8 +1,8 @@
-# The shell — brief for five boards, 2026-09-16
+# The shell — approved 2026-09-16
 
-A proposal, not a decision. The owner asked for pictures of the vocabulary agreed in conversation on
-2026-09-16, after the screens set of 2026-09-15 (`design/proposals/screens/`). Nothing here is in
-`docs/UI-SPEC.md` yet; it goes there only if the owner approves these boards.
+Approved by the owner on 2026-09-16 ("those look great"); ADR-0047 is the record and `docs/UI-SPEC.md`
+carries the rules. This file was the brief the five boards were drawn from, kept because it names
+the sample estate and the format. Renders of the approved boards are in `renders/`.
 
 **Five boards, no animation.** Main (the shell), Estate, Lenses, Optics, Changes. Do not redraw
 anything the two earlier sets already show: the patching table, undo, maintenance record, people,
@@ -86,7 +86,7 @@ swatch. Zero radius, no shadows, 1px hairlines, the 3px bar rule. Type: Liberati
 body; DejaVu Sans Mono 12.5px for values, tabular numerals; labels 10px, 0.10em, uppercase, muted.
 Selected row: surface background with a 4px ink left border. Buttons: 1px ink border, `5px 0`
 padding, centred 12px text; a secondary button uses the hairline border and muted text. Hatch for
-free rack units as `design/rebuild/Main.dc.html` draws it. Everything off a lit path sits at
+free rack units as the retired 2026-09-11 shell board (its drawing now lives in `design/shell/Main.dc.html`) draws it. Everything off a lit path sits at
 opacity 0.28.
 
 Glyphs: RJ45 (latch notch), SFP+ (cage with a bail, one horizontal rule), QSFP+ (wide cage, three
@@ -115,7 +115,7 @@ leaves the organisation.
 
 **Main.dc.html — the shell, at the closet stop.** Path `Northwind › HQ › Building A › IDF-2`,
 Racks current, lens Cables lit. The drawing fills the width: racks A-04 and A-05 side by side at
-about 14px per U, drawn as `design/rebuild/Main.dc.html` draws a rack (rails, U numbers, hatched
+about 14px per U, drawn as the retired 2026-09-11 shell board (its drawing now lives in `design/shell/Main.dc.html`) draws a rack (rails, U numbers, hatched
 free units), the devices above as boxes with their names and a few ports, three or four cables with
 sheath colours sagging between them. Nothing selected, so no right panel. A right-click popover is
 open on core-01 with rows: "Open in inventory", "Pull into the patching table", "Add a note",
@@ -128,7 +128,7 @@ A-05) / IDF-3; Denver NOC; then a muted row "1 closet not in your scope"; then a
 "Acme Dental" as another organisation, muted, with "read" beside it. The drawing: three boxes placed
 by hand on the page — **HQ** and **Denver NOC** as site boxes (name at 700, a mono line "3 closets ·
 5 racks · 41 devices" and "1 closet · 4 racks · 19 devices"), and **Acme Dental** drawn as a portal
-the way `design/rebuild/Main.dc.html` draws one (a bordered box with the name and "another
+the way the retired 2026-09-11 shell board (its drawing now lives in `design/shell/Main.dc.html`) draws one (a bordered box with the name and "another
 organisation"). Between them, **bundles, never single lines**, lifted from
 `design/rebuild/Building.dc.html`: HQ–Denver as one thick counted run labelled "MPLS · carrier A ·
 2 circuits" with the circuit IDs in mono beneath, plus a thinner one labelled "internet VPN · 1";
@@ -146,7 +146,7 @@ cables at opacity 0.28, and instead mono marks on the boxes: core-01 "irb.20 · 
 hq-fw-01 "gateway · 10.10.0.1 · default route out", acc-01 and acc-02 "vlan 20 · via core-01", and
 ports coloured by subnet with a two-row legend (10.10.20.0/24 staff, 10.10.30.0/24 servers) using
 two sheath colours as swatches. Caption sentence: "Same boxes, same places. Only the marks changed."
-Do not repeat the composition of `design/rebuild/DirectionA.dc.html` (read it once to avoid it).
+Do not repeat the composition of `docs/archive/design-retired-2026-09-16/rebuild/DirectionA.dc.html` (read it once to avoid it).
 
 **Optics.dc.html — 1440×620, cage to cage.** Faceplate stop: core-01's four SFP+ cages xe-0/0/0–3
 on the left, vm-host-01's two SFP+ cages on the right, drawn large (each cage ~72×24) with the SFP+
@@ -174,7 +174,7 @@ shows old and new."
 
 ## Rules for the designers
 
-Write only your named files under `design/proposals/shell/`. Do not seed, publish, or run git.
+Write only your named files under `design/shell/`. Do not seed, publish, or run git.
 Do not read `docs/archive/`. Do not open any artifact URL. Read this brief, `design/tokens.css`,
 `design/proposals/screens/Main.dc.html` (the last bar, to see what changes), and the boards this
 brief names for your files. Report in under 40 lines: what you drew, where the brief was silent and
