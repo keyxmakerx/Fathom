@@ -37,3 +37,18 @@ export function layoutRow(row: RowView, elevation: Facing): RowLayout {
 export function rowKey(row: Pick<RowView, 'label'>, index: number): string {
   return row.label ?? `__row-${index}__`;
 }
+
+/** s6f #3: a dragged rack's own mirrored x when its row flips — "the rack a
+ * person dragged in that row moves by the mirror of its dragged offset, not
+ * to a fresh slot." Reflects `x` across the row's own width (the same span
+ * `rackCount` racks laid out `rackWidthPx` wide with `gapPx` between them
+ * occupy), rather than reassigning it to whatever bay index it now falls
+ * at. For a rack that already sat exactly on a bay slot this lands on the
+ * same x the ordinary `bayIndex * (rackWidthPx + gapPx)` formula would give
+ * it for the reversed bay order — the two are the same reflection, one
+ * generalised to an x a drag left off any slot, the other assuming one. */
+export function mirroredRackX(x: number, rackCount: number, rackWidthPx: number, gapPx: number): number {
+  if (rackCount <= 0) return x;
+  const rowWidth = (rackCount - 1) * (rackWidthPx + gapPx) + rackWidthPx;
+  return rowWidth - rackWidthPx - x;
+}

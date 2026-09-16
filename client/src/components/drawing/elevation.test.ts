@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ChassisView, InletView, PortView } from './contract';
-import { faceplateItem, faceplateItems, visibleFaceOf } from './elevation';
+import { faceplateItem, faceplateItems, powerLeadHandle, visibleFaceOf } from './elevation';
+import type { CameraStop } from './geometry';
 
 function port(overrides: Partial<PortView> & Pick<PortView, 'id' | 'face'>): PortView {
   return { label: overrides.id, connector: 'rj45', row: 0, column: 0, uplink: false, role: null, cable: null, ...overrides };
@@ -114,5 +115,36 @@ describe('faceplateItems: every mounted chassis draws at every elevation', () =>
     const items = faceplateItems([front, rear], 'front');
     expect(items.map((i) => i.chassis.id)).toEqual(['front-1', 'rear-1']);
     expect(items[1].plainPlate).toBe(true);
+  });
+});
+
+describe('powerLeadHandle: where a PSU inlet lead ends — s6f #1', () => {
+  const stops: CameraStop[] = ['closet', 'rack', 'faceplate'];
+
+  it('the front elevation always ends on the rail hexagon, at every camera stop', () => {
+    for (const stop of stops) {
+      expect(powerLeadHandle('front', stop)).toBe('rail');
+    }
+  });
+
+  it('the rear elevation ends on the plate\'s stable anchor at the closet stop, never the strip\'s own inlet handle', () => {
+    expect(powerLeadHandle('rear', 'closet')).toBe('anchor');
+  });
+
+  it('the rear elevation ends on the plate\'s stable anchor at the rack stop too', () => {
+    expect(powerLeadHandle('rear', 'rack')).toBe('anchor');
+  });
+
+  it('the rear elevation ends on the inlet itself only at the faceplate stop', () => {
+    expect(powerLeadHandle('rear', 'faceplate')).toBe('inlet');
+  });
+
+  it('a cable must draw at every stop: every (elevation, stop) pair resolves to a handle that actually exists', () => {
+    const elevations: Array<'front' | 'rear'> = ['front', 'rear'];
+    for (const elevation of elevations) {
+      for (const stop of stops) {
+        expect(['rail', 'anchor', 'inlet']).toContain(powerLeadHandle(elevation, stop));
+      }
+    }
   });
 });

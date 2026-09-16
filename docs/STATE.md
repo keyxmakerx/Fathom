@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-16, late: 1228 server-side tests and 413 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-16, late: 1228 server-side tests and 423 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 

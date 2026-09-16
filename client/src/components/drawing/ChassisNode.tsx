@@ -21,6 +21,19 @@ const HOSTNAME_BASE_PX = 9;
  * competing with for a 1U row's 16 flow px. */
 const HEADER_MIN_PX = 9;
 
+/** A rear-elevation power lead's stable handle at the closet and rack
+ * stops — `docs/decisions/adr-0050-the-rear-elevation.md` §1. `InletStrip`
+ * (below) only mounts its own per-inlet handles when it actually draws —
+ * `showInletStrip`, tied to this node's own `elevation` prop — so a lead
+ * whose far node flips elevation the same render loses its handle for the
+ * one frame between that mount and React Flow's own measurement of it
+ * (`Drawing.tsx`'s `resolveEnd` routes here instead at those two stops, the
+ * faceplate stop's own zoomed-in read still landing on the inlet itself).
+ * One per chassis, not per inlet — "the plate's inlet-end edge (the same
+ * side the strip sits on)," never a specific inlet's own position — so the
+ * id is a plain constant, exactly like `__bundle__` below. */
+export const INLET_ANCHOR_HANDLE_ID = '__inlet-anchor__';
+
 export interface ChassisNodeData extends Record<string, unknown> {
   chassis: ChassisView;
   /** This elevation's own faceplate ports (`elevation.ts`'s `faceplateItem`
@@ -54,6 +67,13 @@ export interface ChassisNodeData extends Record<string, unknown> {
    * `view.cables` and hands it down rather than this component reaching
    * past its own props for the cable list. */
   portSheath: ReadonlyMap<string, Sheath>;
+  /** ADR-0050 §3 / s6f #2: "the rail hexagons... light the inlet they stand
+   * for" — the cable id currently hovered (or selected), same state
+   * `RackNode.tsx`'s own `onHoverInlet` writes and a `CableEdge`'s own hover
+   * already reads via `Drawing.tsx`'s `litCableId`. `null` when nothing is
+   * lit. An inlet in the strip below compares its own `cable.cableId`
+   * against this, the same "hover key" the hexagon that lights it shares. */
+  litCableId: string | null;
 }
 
 export type ChassisNodeType = Node<ChassisNodeData, 'chassis'>;
@@ -172,13 +192,22 @@ function InletGlyph({
   inlet,
   onSelectPort,
   glyphScale,
+  litCableId,
 }: {
   inlet: InletView;
   onSelectPort: (portId: string) => void;
   glyphScale: number;
+  /** s6f #2: "the same hover key" the rail hexagon that stands for this
+   * inlet shares (`RackNodeData.onHoverInlet`) — dims this glyph exactly
+   * like `PortRow`'s own `liveDrag`-driven dimming does, when something is
+   * lit and it is not this inlet's own cable. */
+  litCableId: string | null;
 }) {
   const cabled = inlet.cable != null;
   const title = `${inlet.slot || inlet.label} — ${inlet.fitted ? (cabled ? 'fed' : 'fitted, no lead') : 'not fitted'}`;
+  const dimmed = litCableId != null && inlet.cable?.cableId !== litCableId;
+  const style: Record<string, string | number> = {};
+  if (dimmed) style.opacity = 'var(--phantom)';
   return (
     <button
       key={inlet.id}
@@ -187,6 +216,7 @@ function InletGlyph({
       className={
         cabled ? 'drawing-chassis__port drawing-chassis__port--cabled nodrag' : 'drawing-chassis__port nodrag'
       }
+      style={style}
       onClick={(event: MouseEvent) => {
         event.stopPropagation();
         onSelectPort(inlet.id);
@@ -213,10 +243,12 @@ function InletStrip({
   inlets,
   onSelectPort,
   glyphScale,
+  litCableId,
 }: {
   inlets: InletView[];
   onSelectPort: (portId: string) => void;
   glyphScale: number;
+  litCableId: string | null;
 }) {
   const byRow = new Map<string, InletView[]>();
   for (const inlet of inlets) {
@@ -234,7 +266,7 @@ function InletStrip({
             {[...rowInlets]
               .sort((a, b) => (a.position?.column ?? 0) - (b.position?.column ?? 0))
               .map((inlet) => (
-                <InletGlyph key={inlet.id} inlet={inlet} onSelectPort={onSelectPort} glyphScale={glyphScale} />
+                <InletGlyph key={inlet.id} inlet={inlet} onSelectPort={onSelectPort} glyphScale={glyphScale} litCableId={litCableId} />
               ))}
           </div>
         </div>
@@ -261,7 +293,7 @@ function InletStrip({
  * and an unset hostname reads as the muted word `UNNAMED_HOSTNAME`, never
  * blank and never invented — same rule, same word, as `Editor.tsx`. */
 export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
-  const { chassis, ports, inlets, elevation, selected, portOpacity, onSelectPort, liveDrag, portSheath } = data;
+  const { chassis, ports, inlets, elevation, selected, portOpacity, onSelectPort, liveDrag, portSheath, litCableId } = data;
   const { zoom } = useViewport();
   const rows = portRows(ports);
   const height = chassis.heightU * U_PX;
@@ -342,7 +374,9 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
               portSheath={portSheath}
             />
           ))}
-          {showInletStrip && <InletStrip inlets={inlets} onSelectPort={onSelectPort} glyphScale={glyphScale} />}
+          {showInletStrip && (
+            <InletStrip inlets={inlets} onSelectPort={onSelectPort} glyphScale={glyphScale} litCableId={litCableId} />
+          )}
         </div>
       )}
       {/* A bundle band (`bundles.ts`, `Drawing.tsx`) connects two chassis,
@@ -351,6 +385,20 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
           `.drawing-chassis__bundle-handle` (`drawing.css`) rather than any
           particular port's own absolute-positioned handle above. */}
       <Handle type="source" position={Position.Left} id="__bundle__" className="drawing-chassis__bundle-handle nodrag" />
+      {/* s6f #1: the rear elevation's stable inlet-end anchor — see
+          `INLET_ANCHOR_HANDLE_ID`'s own doc above. Rendered unconditionally
+          (not gated on `showInletStrip`/`plainPlate`) whenever this chassis
+          draws in the rear elevation, so it is never subject to the same
+          mount-then-measure gap the strip's own per-inlet handles are. */}
+      {elevation === 'rear' && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          id={INLET_ANCHOR_HANDLE_ID}
+          isConnectable={false}
+          className="drawing-chassis__inlet-anchor-handle nodrag"
+        />
+      )}
     </div>
   );
 }

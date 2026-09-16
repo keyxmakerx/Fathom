@@ -50,6 +50,13 @@ export interface RackNodeData extends Record<string, unknown> {
   /** The rack stop's own `front | rear` control — hidden at the closet stop,
    * where the row's own header control governs instead (`Drawing.tsx`). */
   showFlip: boolean;
+  /** ADR-0050 §3 / s6f #2: "the rail hexagons... light the inlet they stand
+   * for" — hovering one calls this with its own inlet's cable id (`null` on
+   * leave, or when the inlet carries no cable to light), the exact
+   * `setHoveredCableId` a `CableEdge`'s own hover already calls
+   * (`Drawing.tsx`), so the two share one piece of state rather than two
+   * that happen to agree. */
+  onHoverInlet: (cableId: string | null) => void;
 }
 
 export type RackNodeType = Node<RackNodeData, 'rack'>;
@@ -85,7 +92,7 @@ function psuSlot(rack: RackView, chassis: FaceplateItem['chassis'], index: numbe
  * carries the numbering leaves the device column, and everything positioned
  * over it, untouched. */
 export function RackNode({ data }: NodeProps<RackNodeType>) {
-  const { rack, selected, dropPreview, shaking, chassisItems, elevation, onFlip, showFlip } = data;
+  const { rack, selected, dropPreview, shaking, chassisItems, elevation, onFlip, showFlip, onHoverInlet } = data;
   const { zoom } = useViewport();
   const frameHeight = rack.heightU * U_PX;
   const usedU = rack.chassis.reduce((sum, c) => sum + c.heightU, 0);
@@ -160,6 +167,8 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
                     key={inlet.id}
                     className="drawing-rack__psu"
                     style={{ left: slot.left, top: slot.top, width: PSU_HEX_WIDTH, height: PSU_HEX_HEIGHT }}
+                    onMouseEnter={() => onHoverInlet(inlet.cable?.cableId ?? null)}
+                    onMouseLeave={() => onHoverInlet(null)}
                   >
                     <C14 cabled={inlet.cable != null} scale={PSU_HEX_SCALE} title={`${chassis.hostname || 'unnamed'} ${inlet.slot || `PSU ${i + 1}`}`} />
                     <Handle type="source" position={Position.Left} id={inlet.id} className="drawing-rack__psu-handle" />

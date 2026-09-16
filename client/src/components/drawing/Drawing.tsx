@@ -37,7 +37,7 @@ import {
   snapDropToU,
   uToOffsetPx,
 } from './geometry';
-import { ChassisNode, type ChassisNodeData, type ChassisNodeType } from './ChassisNode';
+import { ChassisNode, INLET_ANCHOR_HANDLE_ID, type ChassisNodeData, type ChassisNodeType } from './ChassisNode';
 import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEdge';
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { ColourPicker } from './ColourPicker';
@@ -51,8 +51,8 @@ import { groupPortals, portalCountLabel } from './portals';
 import { sheathsFor } from './sheath';
 import { groupBundles } from './bundles';
 import { litPathFor } from './paths';
-import { faceplateItems, type Facing } from './elevation';
-import { layoutRow, rowKey, type RowLayout } from './rows';
+import { faceplateItems, powerLeadHandle, type Facing } from './elevation';
+import { layoutRow, mirroredRackX, rowKey, type RowLayout } from './rows';
 
 const NODE_TYPES = { rack: RackNode, chassis: ChassisNode, tray: PortalTrayNode, rowLabel: RowLabelNode };
 const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
@@ -175,6 +175,19 @@ function DrawingInner({
   const rf = useReactFlow<FlowNode>();
 
   const [rackPositions, setRackPositions] = useState<RackPositions>({});
+  // s6f #3: racks a person has dragged by hand — the row-flip layout effect
+  // (below) never snaps one of these back to a freshly computed bay slot;
+  // it mirrors whatever position it already has instead. Session-only, like
+  // `rackPositions` itself (never cleared once set — a rack stays "one a
+  // person placed" for the rest of the session, the same way `rackPositions`
+  // itself is never reset to "derived" once a person has touched it).
+  const [draggedRackIds, setDraggedRackIds] = useState<ReadonlySet<string>>(() => new Set());
+  // The previous render's per-row elevation, keyed by `rows.ts`'s own
+  // `rowKey` — read (never written outside the layout effect) so that
+  // effect can tell which row, if any, is the one that JUST flipped, rather
+  // than re-snapping every row's racks whenever `rowLayouts` changes for
+  // any reason (a document update, a different row's own flip).
+  const prevRowElevationRef = useRef<Record<string, Facing>>({});
   const [dragOverride, setDragOverride] = useState<Record<string, { x: number; y: number }>>({});
   const [dropPreview, setDropPreview] = useState<DropPreview>({});
   const [shakingId, setShakingId] = useState<string | null>(null);
@@ -254,13 +267,42 @@ function DrawingInner({
   // here runs merely because `dragOverride`/`rackPositions` changed); it is
   // only re-derived, like every other rack's, the next time a row's own flip
   // (or the document's row/bay data) actually changes.
+  //
+  // s6f #3: "only racks in the flipped row move, and a rack the person
+  // dragged in that row moves by the mirror of its dragged offset, not to a
+  // fresh slot." Two refinements on top of the paragraph above, which was
+  // previously only true for a rack nobody had dragged: a row whose own
+  // elevation did not just change (`prevRowElevationRef`, above) leaves
+  // every rack in it untouched even though this effect is re-running (some
+  // OTHER row's flip is what changed `rowLayouts`); and within a row whose
+  // elevation did just change, a dragged rack is reflected across that
+  // row's own width (`rows.ts`'s own `mirroredRackX`, its own doc — the
+  // same position the ordinary `want` formula below would land a rack
+  // sitting exactly on a bay slot on, generalised to whatever off-slot x a
+  // drag left it at) rather than snapped to the bay index's fresh slot.
   useEffect(() => {
+    const prevElevation = prevRowElevationRef.current;
+    const nextElevation: Record<string, Facing> = {};
     setRackPositions((prev) => {
       const next = { ...prev };
       let changed = false;
       rowLayouts.forEach((layout, rowIndex) => {
+        const key = rowKey(rowViews[rowIndex]!, rowIndex);
+        nextElevation[key] = layout.elevation;
         const y = rowBandY(rowLayouts, rowIndex);
+        const rowJustFlipped = (prevElevation[key] ?? 'front') !== layout.elevation;
         layout.racks.forEach((rack, bayIndex) => {
+          if (draggedRackIds.has(rack.id)) {
+            if (!rowJustFlipped) return; // a dragged rack outside the row that just flipped: untouched
+            const have = prev[rack.id];
+            if (have == null) return; // nothing placed yet to mirror
+            const mirroredX = mirroredRackX(have.x, layout.racks.length, RACK_NODE_WIDTH, RACK_GAP_PX);
+            if (have.x !== mirroredX) {
+              next[rack.id] = { x: mirroredX, y: have.y };
+              changed = true;
+            }
+            return;
+          }
           const want = { x: bayIndex * (RACK_NODE_WIDTH + RACK_GAP_PX), y };
           const have = prev[rack.id];
           if (have == null || have.x !== want.x || have.y !== want.y) {
@@ -271,6 +313,12 @@ function DrawingInner({
       });
       return changed ? next : prev;
     });
+    prevRowElevationRef.current = nextElevation;
+    // `draggedRackIds` deliberately not a dependency, the same reasoning the
+    // paragraph above already gives `dragOverride`/`rackPositions`: a drag
+    // itself must not re-run this effect, only the next actual row-flip or
+    // document change reads whatever `draggedRackIds` holds by then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowLayouts]);
 
   // "Entering the Racks place lands at the rack stop with the first rack
@@ -352,6 +400,16 @@ function DrawingInner({
     return rowFacing[rowKey(rowViews[rowIndex]!, rowIndex)] ?? 'front';
   }
 
+  // UI-SPEC "Selection" + "Keeping it readable at forty cables" #3 / s6f #2:
+  // hoisted ahead of the node-building loop below (unlike `litPath`'s own
+  // fuller derivation, further down, which needs `portalGroups` that loop
+  // has not built yet) so a rail hexagon's own hover — the same
+  // `setHoveredCableId` `onHoverChange` already gives a `CableEdge`,
+  // `RackNode.tsx`'s `onHoverInlet` below — marks its inlet's own glyph in
+  // the same pass a cable's own hover already marks the cable itself,
+  // "the same hover key" both read off `ChassisNodeData.litCableId`.
+  const litCableId = selected?.kind === 'cable' ? selected.id : (hoveredCableId ?? null);
+
   const nodes: Node[] = [];
 
   rowLayouts.forEach((layout, rowIndex) => {
@@ -392,6 +450,10 @@ function DrawingInner({
         elevation,
         onFlip: () => setRackFacing((prev) => ({ ...prev, [rack.id]: prev[rack.id] === 'rear' ? 'front' : 'rear' })),
         showFlip: cameraStop === 'rack',
+        // s6f #2: reuses `setHoveredCableId` itself — the exact function a
+        // `CableEdge`'s own `onHoverChange` already calls — so a rail
+        // hexagon's hover and a cable's own hover write the same state.
+        onHoverInlet: setHoveredCableId,
       };
       nodes.push({
         id: rackNodeId(rack.id),
@@ -420,6 +482,10 @@ function DrawingInner({
           onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
           liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
           portSheath,
+          // s6f #2: "the same hover key" as the rail hexagon's own
+          // `onHoverInlet` (`RackNodeData`, above) — an inlet glyph in the
+          // strip compares its own cable against this to light or dim.
+          litCableId,
         };
         nodes.push({
           id,
@@ -445,7 +511,7 @@ function DrawingInner({
   // opacity with a pale halo — through a panel's paired port, out to a
   // portal tray — and everything off that path sits at the phantom
   // opacity. Nothing lit leaves every cable at its plain, undimmed colour.
-  const litCableId = selected?.kind === 'cable' ? selected.id : (hoveredCableId ?? null);
+  // (`litCableId` itself is computed above, ahead of the node-building loop.)
   const somethingLit = litCableId != null;
   const litPath = useMemo(
     () => (litCableId ? litPathFor(view, litCableId, portalGroups) : null),
@@ -489,15 +555,25 @@ function DrawingInner({
   // `findAnyPort` tells a PSU inlet apart from an ordinary faceplate port;
   // `elevationFor` (above) is which elevation the inlet's own rack is
   // currently drawn in — the front elevation still routes to the rack's own
-  // rail handle (`RackNode.tsx`'s `psu.id`-keyed `Handle`), the rear
-  // elevation routes to the chassis's own inlet-strip handle
-  // (`ChassisNode.tsx`'s `InletGlyph`), exactly the handle each actually
-  // draws in that elevation.
+  // rail handle (`RackNode.tsx`'s `psu.id`-keyed `Handle`).
+  //
+  // s6f #1: the rear elevation does NOT always route to the inlet's own
+  // handle (`ChassisNode.tsx`'s `InletGlyph`) — that handle only exists once
+  // the inlet strip itself has mounted and been measured, which the
+  // faceplate stop's own zoomed-in read is the only stop that reliably
+  // shows in time. At the closet and rack stops it routes to the chassis's
+  // stable `INLET_ANCHOR_HANDLE_ID` instead — "the plate's inlet-end edge
+  // (the same side the strip sits on)" — always present whenever the
+  // chassis itself draws in the rear elevation, never gated on the strip's
+  // own conditional mount.
   function resolveEnd(end: { portId: string; chassisId: string; rackId: string }): { nodeId: string; handleId: string } | null {
     const found = findAnyPort(view, end.portId);
     if (!found) return null;
-    if (found.isPsuInlet && elevationFor(found.rack.id) === 'front') {
-      return { nodeId: rackNodeId(found.rack.id), handleId: end.portId };
+    if (found.isPsuInlet) {
+      const via = powerLeadHandle(elevationFor(found.rack.id), cameraStop);
+      if (via === 'rail') return { nodeId: rackNodeId(found.rack.id), handleId: end.portId };
+      if (via === 'inlet') return { nodeId: chassisNodeId(found.chassis.id), handleId: end.portId };
+      return { nodeId: chassisNodeId(found.chassis.id), handleId: INLET_ANCHOR_HANDLE_ID };
     }
     return { nodeId: chassisNodeId(end.chassisId), handleId: end.portId };
   }
@@ -631,6 +707,10 @@ function DrawingInner({
 
       if (parsed.kind === 'rack') {
         setRackPositions((prev) => ({ ...prev, [parsed.id]: node.position }));
+        // s6f #3: once a person has placed this rack by hand, the row-flip
+        // layout effect (above) stops snapping it to a freshly computed bay
+        // slot and mirrors its own position instead.
+        setDraggedRackIds((prev) => (prev.has(parsed.id) ? prev : new Set(prev).add(parsed.id)));
         return;
       }
 

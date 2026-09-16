@@ -8,6 +8,7 @@
  * No DOM, no React Flow.
  */
 
+import type { CameraStop } from './geometry';
 import type { ChassisView, InletView, PortView } from './contract';
 
 export type Facing = 'front' | 'rear';
@@ -54,4 +55,22 @@ export function faceplateItem(chassis: ChassisView, elevation: Facing): Faceplat
  * mounting face. */
 export function faceplateItems(chassis: readonly ChassisView[], elevation: Facing): FaceplateItem[] {
   return chassis.map((c) => faceplateItem(c, elevation));
+}
+
+/** Where a PSU inlet's own power lead ends — s6f #1, `docs/decisions/adr-0050-the-rear-elevation.md`
+ * §1: "in the front elevation it ends on the rail hexagon as today... in
+ * the rear elevation a power lead ends on the inlet on the face." The rear
+ * elevation reading is refined once more by the camera stop: the inlet's
+ * own handle (`ChassisNode.tsx`'s `InletGlyph`) only exists once the inlet
+ * strip itself has drawn, which is only reliable at the faceplate stop (the
+ * strip mounts and is measured by React Flow within the same render at
+ * that zoom; at the closet and rack stops the strip's own conditional mount
+ * can lag a render behind the elevation flip that triggers it). The closet
+ * and rack stops route to the chassis's own stable anchor instead — "the
+ * plate's inlet-end edge, the same side the strip sits on"
+ * (`ChassisNode.tsx`'s `INLET_ANCHOR_HANDLE_ID`) — always present whenever
+ * the chassis itself draws in the rear elevation. */
+export function powerLeadHandle(elevation: Facing, cameraStop: CameraStop): 'rail' | 'anchor' | 'inlet' {
+  if (elevation === 'front') return 'rail';
+  return cameraStop === 'faceplate' ? 'inlet' : 'anchor';
 }

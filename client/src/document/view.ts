@@ -536,12 +536,14 @@ function rackView(
 }
 
 /** `racks` grouped by `RackView.row`, front-ascending by `bay` within each
- * (ADR-0050 §2). Named rows appear in the order their first rack was
- * created (`racks`' own order — `HasRack` edges, ulid-ordered); a rack with
- * no row is its own row, `label: null`, after every named one — never
+ * (ADR-0050 §2). Named rows sort by label, numerically aware so "Row 2"
+ * precedes "Row 10" — the order a person expects, and a deterministic one:
+ * creation order tied two racks made in the same millisecond to the random
+ * half of their ulids, which made the row test flake on 2026-09-16. A rack
+ * with no row is its own row, `label: null`, after every named one — never
  * grouped with other unrowed racks, which would assert a shared row nobody
- * stated. `Array.prototype.sort` is spec-stable, so two racks tied on `bay`
- * (including two both `null`) keep their original relative order. */
+ * stated. Two racks tied on `bay` (including two both `null`) order by
+ * their own labels, the same way. */
 function rowsOf(racks: readonly RackView[]): RowView[] {
   const named = new Map<string, RackView[]>();
   const namedOrder: string[] = [];
@@ -557,13 +559,14 @@ function rowsOf(racks: readonly RackView[]): RowView[] {
       unrowed.push(r);
     }
   }
+  const byLabel = (a: string, b: string): number => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
   const byBayAscending = (a: RackView, b: RackView): number =>
-    (a.bay ?? Number.POSITIVE_INFINITY) - (b.bay ?? Number.POSITIVE_INFINITY);
-  const rows: RowView[] = namedOrder.map((label) => ({
+    (a.bay ?? Number.POSITIVE_INFINITY) - (b.bay ?? Number.POSITIVE_INFINITY) || byLabel(a.label, b.label);
+  const rows: RowView[] = [...namedOrder].sort(byLabel).map((label) => ({
     label,
     racks: [...named.get(label)!].sort(byBayAscending),
   }));
-  for (const r of unrowed) rows.push({ label: null, racks: [r] });
+  for (const r of [...unrowed].sort((a, b) => byLabel(a.label, b.label))) rows.push({ label: null, racks: [r] });
   return rows;
 }
 

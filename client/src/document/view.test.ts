@@ -202,7 +202,7 @@ describe('viewOf', () => {
   });
 
   describe('rows (ADR-0050 §2)', () => {
-    it('groups named rows by first appearance, bays ascending; unrowed racks after, each its own row', () => {
+    it('groups named rows by label, numerically aware, bays ascending; unrowed racks after, each its own row', () => {
       const { doc, premisesId } = premisesDoc();
       let working = createRack(doc, premisesId, { label: 'R-unrowed', heightU: 10, unitNumbering: 'ascending', now: NOW });
       const unrowedId = working.nodes.find((n) => n.id !== premisesId)!.id;

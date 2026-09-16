@@ -493,6 +493,19 @@
   pointer-events: none;
 }
 
+/* s6f #1 (`ChassisNode.tsx`'s `INLET_ANCHOR_HANDLE_ID`): the same trick,
+   at the plate's inlet-end edge — the right side, where `.drawing-chassis__inlets`
+   itself sits — rather than the bundle handle's left. */
+.drawing-chassis__inlet-anchor-handle {
+  position: absolute !important;
+  right: 0;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* ---- the editor surface ------------------------------------------------ */
 
 .drawing-editor__panel {
