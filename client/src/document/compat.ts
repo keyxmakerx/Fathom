@@ -39,7 +39,23 @@ const DAC_CONNECTORS = new Set(['sfp', 'sfp_plus', 'sfp28', 'qsfp', 'qsfp28']);
 /** `fromConnector`/`toConnector` are `PhysicalPort.connector` tokens — the
  * schema's own spelling (lower_snake_case), not a catalogue's raw `"RJ45"` /
  * `"SFP+"` (`commands.ts`'s doc on `token()` explains why those differ). */
-export function compatible(fromConnector: string, toConnector: string): CompatResult {
+/** A connector as the table reads it: the schema token, whatever spelling
+ * arrived — a catalogue kind (`"RJ45"`), a token with stray whitespace, or a
+ * token in the wrong case. The document stores only schema tokens
+ * (`connectorTokenOf` at placement), so this is tolerance at the boundary,
+ * not a second vocabulary. */
+function normaliseConnector(c: string): string {
+  const mapped = connectorTokenOf(c.trim());
+  if (mapped !== 'other') return mapped;
+  const lower = c.trim().toLowerCase();
+  return SCHEMA_CONNECTORS.has(lower) ? lower : connectorTokenOf(c.trim().toUpperCase());
+}
+
+const SCHEMA_CONNECTORS = new Set(['rj45', 'sfp', 'sfp_plus', 'sfp28', 'qsfp', 'qsfp28', 'lc', 'sc', 'mpo', 'f', 'bnc', 'c13', 'c14', 'other']);
+
+export function compatible(fromConnectorRaw: string, toConnectorRaw: string): CompatResult {
+  const fromConnector = normaliseConnector(fromConnectorRaw);
+  const toConnector = normaliseConnector(toConnectorRaw);
   if (fromConnector === 'rj45' && toConnector === 'rj45') {
     return { ok: true, kind: 'copper', media: 'cat6' };
   }
@@ -73,7 +89,6 @@ export function compatible(fromConnector: string, toConnector: string): CompatRe
  * cable compatibility table, which speaks the schema's tokens, could not
  * match a single catalogue-sourced port.
  */
-const SCHEMA_CONNECTORS = new Set(['rj45', 'sfp', 'sfp_plus', 'sfp28', 'qsfp', 'qsfp28', 'lc', 'sc', 'mpo', 'f', 'bnc', 'c13', 'c14', 'other']);
 
 export function connectorTokenOf(catalogueKind: string): string {
   // Idempotent: a value already in the schema's spelling is itself, so the
