@@ -44,10 +44,11 @@
 //! wrong rather than having it quietly dropped. `tests/operators.rs` greps this
 //! file, `api.rs` and `operators.rs` for the shape of one.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::extract::{FromRequest, Path, Request, State};
-use axum::http::StatusCode;
+use axum::extract::{ConnectInfo, FromRequest, Path, Request, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
@@ -56,7 +57,7 @@ use crate::api::{self, Refusal, Signed, MAX_SIGNED_BODY};
 use crate::crypto;
 use crate::keys;
 use crate::operators::{Invitation, OperatorError, OperatorStore};
-use crate::sessions::{SessionError, SessionStore};
+use crate::sessions::{PrincipalKind, SessionError, SessionStore};
 
 /// Everything the operator console needs.
 #[derive(Clone)]
@@ -64,6 +65,15 @@ pub struct AdminState {
     pub sessions: Arc<SessionStore>,
     pub operators: Arc<OperatorStore>,
     pub ring: Arc<keys::KeyRing>,
+    /// Which header, if any, carries the real client address for the two
+    /// unauthenticated redemption routes' source bucket.
+    ///
+    /// `ApiState::trusted_client_ip_header`'s own field, exactly: `None`
+    /// means the peer address, right for a server on the open internet and
+    /// wrong behind a reverse proxy that does not overwrite this header on
+    /// every request. Wired from the same configuration value in `main.rs`,
+    /// because a deployment behind one proxy is behind it for every route.
+    pub trusted_client_ip_header: Option<String>,
 }
 
 impl FromRequest<AdminState> for Signed {
@@ -476,15 +486,29 @@ async fn cancel_setting(
 /// caller controls.
 ///
 /// Every refusal is the same refusal, and the sealed entry carries the reason.
+///
+/// **Counted against the source bucket, like `/session/challenge` and
+/// `/session`.** This route has no session by necessity (the module header
+/// says why), which used to mean no rate limit and no lockout at all: a
+/// leaked token's whole 72-hour life was free, unlimited address guessing.
+/// [`SessionStore::check_source_budget`] is the same limiter §13 item 7
+/// already built, reached from a caller that is not a sign-in; past the cap
+/// this answers exactly what `/session` does — the same status, the same
+/// `Retry-After`.
 async fn redeem_account(
     State(state): State<AdminState>,
     request: Request,
 ) -> Result<Response, Refusal> {
+    let source = source_of(&state, request.headers(), request.extensions());
     let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
         .await
         .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
     let fields = read_fields(&body, 3)?;
     let address = text(&fields[1], "address")?;
+    state
+        .sessions
+        .check_source_budget(PrincipalKind::Steward, &source)
+        .await?;
     let key = state
         .operators
         .redeem_account_enrolment(&fields[0], &address, &fields[2])
@@ -501,14 +525,22 @@ async fn redeem_account(
 ///
 /// **No operator id field**: the operator is the one the token names, so a
 /// token issued for one operator cannot enrol a key for another.
+///
+/// Counted against the source bucket exactly as [`redeem_account`] is — see
+/// its own doc comment.
 async fn redeem_operator(
     State(state): State<AdminState>,
     request: Request,
 ) -> Result<Response, Refusal> {
+    let source = source_of(&state, request.headers(), request.extensions());
     let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
         .await
         .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
     let fields = read_fields(&body, 2)?;
+    state
+        .sessions
+        .check_source_budget(PrincipalKind::Operator, &source)
+        .await?;
     let key = state
         .operators
         .redeem_operator_enrolment(&fields[0], &fields[1])
@@ -550,6 +582,35 @@ async fn verify(
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
     Ok(session)
+}
+
+/// Which bucket a redemption attempt is counted against.
+///
+/// `api::source_of`'s shape exactly, repeated here rather than shared,
+/// because it reads one field off a different state type — `firmware.rs`
+/// already made the same choice for the same reason, and its own doc comment
+/// names `api::source_of` as the shape it mirrors. The peer address unless
+/// [`AdminState::trusted_client_ip_header`] is configured: a header a client
+/// can set is a rate limit a client can evade.
+fn source_of(
+    state: &AdminState,
+    headers: &HeaderMap,
+    extensions: &axum::http::Extensions,
+) -> String {
+    if let Some(name) = &state.trusted_client_ip_header {
+        if let Some(value) = headers.get(name).and_then(|v| v.to_str().ok()) {
+            // The first entry of a comma-separated list is the client in
+            // every forwarding convention; the rest are proxies.
+            let first = value.split(',').next().unwrap_or("").trim();
+            if !first.is_empty() {
+                return first.to_string();
+            }
+        }
+    }
+    extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| addr.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Read exactly `n` length-prefixed fields, and refuse anything else.

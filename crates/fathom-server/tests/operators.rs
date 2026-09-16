@@ -941,6 +941,337 @@ async fn a_token_for_one_address_cannot_enrol_a_key_for_another() {
 }
 
 // ---------------------------------------------------------------------------
+// The redemption routes: a rate limit and a record for every refusal
+// ---------------------------------------------------------------------------
+
+/// A well-formed but bogus `/enrolment/account` body: three length-prefixed
+/// fields, so it clears `read_fields`, and content that names no real token,
+/// so the redemption route always refuses it with the ordinary answer.
+fn bogus_account_redemption_body() -> Vec<u8> {
+    let key = SoftwareKey::random().expect("a keypair");
+    let mut body = Vec::new();
+    lp(&mut body, unique("bogus-token").as_bytes());
+    lp(&mut body, unique("nobody@example.invalid").as_bytes());
+    lp(&mut body, &key.public_key());
+    body
+}
+
+/// **Repeated refused redemptions from one source reach the cap and are
+/// answered over it, a different source has its own budget, and a valid
+/// redemption from a fresh source still succeeds.**
+///
+/// This is Finding A's first half: until this fix, `/enrolment/account` had
+/// no session and no rate limit, so a leaked token's whole 72-hour life was
+/// free, unlimited guessing. The limiter under test is the one
+/// `/session/challenge` and `/session` already share
+/// ([`SessionStore::check_source_budget`]), so this drives the real router —
+/// the limiter sits in the handler, not in `OperatorStore`.
+#[tokio::test]
+async fn repeated_refused_redemptions_reach_the_cap_and_other_sources_are_unaffected() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store =
+        Arc::new(store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let deployment_id = {
+        let client = pool.get().await.expect("connection");
+        chains::deployment_id(&**client).await.expect("deployment")
+    };
+    // A small source cap and an account cap far out of the way, exactly
+    // `tests/sessions.rs`'s own shape for isolating which bucket answers.
+    let admin_sessions = Arc::new(SessionStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment_id,
+        SignInLimits {
+            window: Duration::from_secs(900),
+            max_per_account: 1_000_000,
+            max_per_source: 3,
+        },
+    ));
+    let state = AdminState {
+        sessions: admin_sessions,
+        operators: Arc::clone(&operators_store),
+        ring: Arc::clone(&ring),
+        trusted_client_ip_header: Some("x-forwarded-for".to_string()),
+    };
+    let addr = serve(admin::router(state)).await;
+
+    let source = a_source_of_its_own();
+    let mut statuses = Vec::new();
+    for _ in 0..4 {
+        let (status, _) = raw_request(
+            addr,
+            "POST",
+            "/enrolment/account",
+            &[("x-forwarded-for", source.clone())],
+            &bogus_account_redemption_body(),
+        )
+        .await;
+        statuses.push(status);
+    }
+    for (i, status) in statuses.iter().take(3).enumerate() {
+        assert_eq!(
+            status,
+            "401",
+            "attempt {} is inside the cap and refused ordinarily: {statuses:?}",
+            i + 1
+        );
+    }
+    assert_eq!(
+        statuses[3], "429",
+        "past the cap even the redemption route must tell the caller to wait: {statuses:?}"
+    );
+
+    // A different source has its own budget and is not touched by the run
+    // above.
+    let (status, _) = raw_request(
+        addr,
+        "POST",
+        "/enrolment/account",
+        &[("x-forwarded-for", a_source_of_its_own())],
+        &bogus_account_redemption_body(),
+    )
+    .await;
+    assert_eq!(
+        status, "401",
+        "a fresh source is refused ordinarily, not rate limited by another source's attempts"
+    );
+
+    // And a genuine, valid redemption from a fresh source still succeeds: the
+    // limiter counts attempts and is not a lockout on this route either.
+    let address = unique("ratelimit-valid@example.org");
+    let invitation = operators_store
+        .create_account_shell(&operator.session, &address, "Rate Limit Valid")
+        .await
+        .expect("a shell");
+    let key = SoftwareKey::random().expect("a keypair");
+    let mut body = Vec::new();
+    lp(&mut body, &invitation.token);
+    lp(&mut body, address.as_bytes());
+    lp(&mut body, &key.public_key());
+    let (status, answer) = raw_request(
+        addr,
+        "POST",
+        "/enrolment/account",
+        &[("x-forwarded-for", a_source_of_its_own())],
+        &body,
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "a valid redemption from a source with budget left still succeeds: {answer:?}"
+    );
+}
+
+/// The operator redemption route shares the same limiter, driven the same
+/// way.
+#[tokio::test]
+async fn the_operator_redemption_route_is_also_rate_limited_by_source() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let operators_store =
+        Arc::new(store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await);
+    let deployment_id = {
+        let client = pool.get().await.expect("connection");
+        chains::deployment_id(&**client).await.expect("deployment")
+    };
+    let admin_sessions = Arc::new(SessionStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment_id,
+        SignInLimits {
+            window: Duration::from_secs(900),
+            max_per_account: 1_000_000,
+            max_per_source: 2,
+        },
+    ));
+    let state = AdminState {
+        sessions: admin_sessions,
+        operators: operators_store,
+        ring: Arc::clone(&ring),
+        trusted_client_ip_header: Some("x-forwarded-for".to_string()),
+    };
+    let addr = serve(admin::router(state)).await;
+
+    let bogus_operator_body = || {
+        let key = SoftwareKey::random().expect("a keypair");
+        let mut body = Vec::new();
+        lp(&mut body, unique("bogus-operator-token").as_bytes());
+        lp(&mut body, &key.public_key());
+        body
+    };
+
+    let source = a_source_of_its_own();
+    let mut statuses = Vec::new();
+    for _ in 0..3 {
+        let (status, _) = raw_request(
+            addr,
+            "POST",
+            "/enrolment/operator",
+            &[("x-forwarded-for", source.clone())],
+            &bogus_operator_body(),
+        )
+        .await;
+        statuses.push(status);
+    }
+    for (i, status) in statuses.iter().take(2).enumerate() {
+        assert_eq!(
+            status,
+            "401",
+            "attempt {} is inside the cap: {statuses:?}",
+            i + 1
+        );
+    }
+    assert_eq!(
+        statuses[2], "429",
+        "past the cap the operator redemption route refuses too: {statuses:?}"
+    );
+}
+
+/// **A refused redemption leaves a sealed entry, and the caller's own answer
+/// is unchanged.**
+///
+/// Finding A's second half: until this fix, every check the redemption route
+/// makes runs inside the transaction that opened to spend the token, and a
+/// refusal returns before that transaction commits — so the entry rolled
+/// back with everything else and an address-guessing run against a leaked
+/// token left no trace at all.
+#[tokio::test]
+async fn a_refused_redemption_leaves_a_sealed_entry_and_the_refusal_is_unchanged() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let victim_address = unique("sealed-victim@example.org");
+    operators_store
+        .create_account_shell(&operator.session, &victim_address, "Victim")
+        .await
+        .expect("a shell for the victim");
+    let attacker_address = unique("sealed-attacker@example.org");
+    let attacker_invitation = operators_store
+        .create_account_shell(&operator.session, &attacker_address, "Attacker")
+        .await
+        .expect("a shell for the attacker");
+
+    let before = site_entries_of("account_signin_failed").await;
+    let guess = SoftwareKey::random().expect("a keypair");
+    let refused = operators_store
+        .redeem_account_enrolment(
+            &attacker_invitation.token,
+            &victim_address,
+            &guess.public_key(),
+        )
+        .await;
+    assert!(
+        matches!(refused, Err(OperatorError::EnrolmentRefused)),
+        "got {refused:?}"
+    );
+    let after = site_entries_of("account_signin_failed").await;
+    assert_eq!(
+        after - before,
+        1,
+        "a refused redemption leaves exactly one sealed entry, even though the transaction \
+         that found the reason to refuse rolled back"
+    );
+
+    // The wrong guess did not burn the token: the rightful holder can still
+    // redeem it. This fix records the refusal; it must not also start
+    // retiring the token on a refusal it never used to retire it on.
+    let rightful = SoftwareKey::random().expect("a keypair");
+    let redeemed = operators_store
+        .redeem_account_enrolment(
+            &attacker_invitation.token,
+            &attacker_address,
+            &rightful.public_key(),
+        )
+        .await;
+    assert!(
+        redeemed.is_ok(),
+        "the token is still live for its rightful holder after a wrong guess: {redeemed:?}"
+    );
+
+    // And the caller's own answer to the refusal is byte-for-byte what it was
+    // before this fix: the same status, the same body.
+    let state = AdminState {
+        sessions: Arc::new(sessions(&pool, Arc::clone(&ring)).await),
+        operators: Arc::new(store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await),
+        ring: Arc::clone(&ring),
+        trusted_client_ip_header: None,
+    };
+    let addr = serve(admin::router(state)).await;
+    let (status, answer) = raw_request(
+        addr,
+        "POST",
+        "/enrolment/account",
+        &[],
+        &bogus_account_redemption_body(),
+    )
+    .await;
+    assert_eq!(status, "401");
+    assert_eq!(
+        answer, b"sign-in refused\n",
+        "the refusal's bytes on the wire must not change: {answer:?}"
+    );
+}
+
+/// **After a reissue, the first token is refused and the second redeems.**
+///
+/// Finding B: `issue_account_enrolment` had no equivalent of
+/// `reissue_bootstrap_token`'s own kill, so a leaked first invitation stayed
+/// redeemable for its whole life even after a second was issued to fix
+/// exactly that.
+#[tokio::test]
+async fn after_a_reissue_the_first_token_is_refused_and_the_second_redeems() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let address = unique("reissue@example.org");
+    let first = operators_store
+        .create_account_shell(&operator.session, &address, "Reissue")
+        .await
+        .expect("a shell");
+
+    let second = operators_store
+        .issue_account_enrolment(&operator.session, &first.subject)
+        .await
+        .expect("a reissue");
+    assert_ne!(
+        first.id, second.id,
+        "a reissue mints a fresh token rather than returning the first"
+    );
+
+    let leaked = SoftwareKey::random().expect("a keypair");
+    let refused = operators_store
+        .redeem_account_enrolment(&first.token, &address, &leaked.public_key())
+        .await;
+    assert!(
+        matches!(refused, Err(OperatorError::EnrolmentRefused)),
+        "the token a reissue replaced must not still enrol a key: {refused:?}"
+    );
+
+    let rightful = SoftwareKey::random().expect("a keypair");
+    let redeemed = operators_store
+        .redeem_account_enrolment(&second.token, &address, &rightful.public_key())
+        .await;
+    assert!(
+        redeemed.is_ok(),
+        "the newly issued token redeems: {redeemed:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // §5.3, §5.4, §5.5 — the interlock
 // ---------------------------------------------------------------------------
 
@@ -1753,6 +2084,7 @@ async fn an_operator_route_refuses_a_body_carrying_a_field_it_does_not_read() {
         sessions: Arc::new(sessions(&pool, Arc::clone(&ring)).await),
         operators: Arc::new(store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await),
         ring: Arc::clone(&ring),
+        trusted_client_ip_header: None,
     };
     let addr = serve(admin::router(state)).await;
 

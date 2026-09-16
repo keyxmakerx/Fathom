@@ -1221,6 +1221,59 @@ impl SessionStore {
         result
     }
 
+    /// Count one attempt against the source bucket §13 item 7 already keeps —
+    /// the same `sign_in_attempts` rows, the same window, the same cap — and
+    /// refuse over it exactly as [`SessionStore::issue_challenge`] and
+    /// [`SessionStore::sign_in`] do: the same [`SessionError::RateLimited`],
+    /// carrying the same `Retry-After`.
+    ///
+    /// **For a caller with no session to compose [`sign_in`](Self::sign_in)
+    /// with** — `admin.rs`'s two enrolment-redemption routes, which by
+    /// necessity serve an unauthenticated caller (the module header says why)
+    /// and so had no rate limit and no lockout at all. This is not a second
+    /// limiter: it is `count_attempt`/`refuse`, the ones §13 item 7 already
+    /// built, reached from a caller that is not a sign-in. A source that has
+    /// spent its budget guessing addresses at `/session` has spent it here
+    /// too, and one that has spent it here has that much less left for
+    /// `/session`.
+    ///
+    /// `kind` picks which of the two site-chain types the cap's own sealed
+    /// entry is filed under when it fires — [`EntryType::AccountSigninFailed`]
+    /// or [`EntryType::OperatorSigninFailed`] — matching which redemption
+    /// route the caller reached, not because a redemption IS a sign-in but
+    /// because §13 item 7's *"one entry per (source, window)"* latch already
+    /// lives on those two types and a third type would need a migration this
+    /// change does not make.
+    ///
+    /// [`EntryType::AccountSigninFailed`]: crate::chain::EntryType::AccountSigninFailed
+    /// [`EntryType::OperatorSigninFailed`]: crate::chain::EntryType::OperatorSigninFailed
+    pub async fn check_source_budget(
+        &self,
+        kind: PrincipalKind,
+        source: &str,
+    ) -> Result<(), SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+
+        let source_count = self
+            .count_attempt(&tx, "source", source)
+            .await?
+            .unwrap_or(0);
+        if source_count > self.limits.max_per_source {
+            let e = self
+                .refuse(&tx, None, source, "rate_limited_source", kind)
+                .await;
+            leave_session_custody(&tx).await?;
+            tx.commit().await?;
+            return Err(e);
+        }
+
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// The part of [`SessionStore::sign_in`] that can fail without the
     /// transaction being poisoned. Returns the bucket the failure belongs to
     /// alongside the error, so it can be counted against the right one.

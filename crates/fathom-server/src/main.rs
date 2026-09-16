@@ -660,6 +660,7 @@ async fn main() -> ExitCode {
         sessions,
         operators,
         ring: Arc::clone(&ring),
+        trusted_client_ip_header: config.trusted_client_ip_header.clone(),
     };
     tracing::info!(
         window_seconds = config.sign_in_limits.window.as_secs(),

@@ -911,7 +911,9 @@ impl OperatorStore {
             return Err(OperatorError::OperatorDisabled);
         }
 
-        let expired = self.expire_live_operator_tokens(&tx, &operator).await?;
+        let expired = self
+            .expire_live_tokens(&tx, Purpose::Operator, &operator, "bootstrap_reissue")
+            .await?;
 
         // `reason` is the field `issue_token` already carries for this — the
         // bootstrap's own token says `bootstrap` — and it is inside the sealed
@@ -949,9 +951,19 @@ impl OperatorStore {
         })
     }
 
-    /// **Expire every live, unredeemed `operator` token for this operator**, so
-    /// that a re-issue leaves one bearer secret alive and not two. Returns
+    /// **Expire every live, unredeemed token of `purpose` for this subject**,
+    /// so that a re-issue leaves one bearer secret alive and not two. Returns
     /// their ids -- ids, never tokens.
+    ///
+    /// **One function for both callers this store has**:
+    /// [`OperatorStore::reissue_bootstrap_token`] (`purpose = operator`,
+    /// `subject` the operator id) and [`OperatorStore::issue_account_enrolment`]
+    /// (`purpose = account`, `subject` the account id). The two mint a new
+    /// token in an otherwise identical shape — an operator's own reset and
+    /// §5.1's account reset are the same act on two planes — so the kill that
+    /// keeps a re-issue from leaving two live tokens belongs here once rather
+    /// than twice. `subject` is checked against the column `purpose` names,
+    /// never trusted to already match it.
     ///
     /// The kill is `expired_at`, with its `enrolment_token_expired` entry, and
     /// it is the only kill this schema offers: the runtime role is granted
@@ -962,20 +974,31 @@ impl OperatorStore {
     /// withholds on purpose, and a `revoked_at` column would change
     /// [`TokenFacts`] and so the seal over every token row a live database
     /// already holds. [`OperatorStore::spend_token`] refuses on the flag.
-    async fn expire_live_operator_tokens(
+    async fn expire_live_tokens(
         &self,
         tx: &Transaction<'_>,
-        operator: &str,
+        purpose: Purpose,
+        subject: &str,
+        reason: &'static str,
     ) -> Result<Vec<String>, OperatorError> {
+        // The column a subject id is checked against, chosen from a closed set
+        // and never taken from a caller — `latch`'s own rule in `sessions.rs`,
+        // restated here because this is the other place in the codebase a
+        // column name is interpolated at all.
+        let column = match purpose {
+            Purpose::Account => "account_id",
+            Purpose::Operator => "operator_id",
+            Purpose::Organisation => "shell_id",
+        };
         let rows = tx
             .query(
                 &format!(
                     "SELECT {TOKEN_COLUMNS} FROM enrolment_tokens \
-                      WHERE purpose = 'operator' AND operator_id = $1 \
+                      WHERE purpose = $1 AND {column} = $2 \
                         AND redeemed_at IS NULL AND expired_at IS NULL \
                       ORDER BY id"
                 ),
-                &[&operator],
+                &[&purpose.as_str(), &subject],
             )
             .await?;
 
@@ -1007,7 +1030,7 @@ impl OperatorStore {
                     &[
                         ("token", Json::Str(token.id.clone())),
                         ("purpose", Json::Str(token.purpose.as_str().to_string())),
-                        ("reason", Json::Str("bootstrap_reissue".to_string())),
+                        ("reason", Json::Str(reason.to_string())),
                     ],
                 ),
             )
@@ -1149,6 +1172,15 @@ impl OperatorStore {
     /// reported to the lead rather than closed here, because closing it means
     /// building the steward co-signature path, which is a grant-shaped act and
     /// belongs with the authority layer.
+    ///
+    /// **A re-issue kills the account's other live tokens first**, mirroring
+    /// [`OperatorStore::reissue_bootstrap_token`]'s own kill through the same
+    /// [`OperatorStore::expire_live_tokens`]: without it, a first invitation
+    /// that leaked stayed redeemable for its whole 72-hour life even after a
+    /// second was issued to fix exactly that. This does not touch any key
+    /// already enrolled — an account may hold more than one, by §4.4's own
+    /// *"two authenticators at enrolment, not one"*, and retiring one on a
+    /// re-issue is a steward-co-signed act this function is not.
     pub async fn issue_account_enrolment(
         &self,
         operator: &VerifiedSession,
@@ -1159,10 +1191,27 @@ impl OperatorStore {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         enter_operator_custody(&tx).await?;
+        // `enrolment_tokens_updatable` (`0015`) grants `UPDATE` only under
+        // `app.enrolment_custody`, not `app.operator_custody` — the same
+        // second capability `reissue_bootstrap_token` already holds for the
+        // identical reason: `expire_live_tokens`'s `UPDATE` is a spend of the
+        // token it is retiring, the redemption path's own act, and operator
+        // custody alone does not carry it.
+        enter_enrolment_custody(&tx).await?;
         // The register's own half of the same question, in the transaction the
         // act runs in (§1.1: a suspended operator stops at the next request).
         self.check_operator_live(&tx, &acting).await?;
 
+        // `accounts_readable` (`0013`) has no `app.operator_custody` branch —
+        // only `account_custody`, `session_custody` and the account's own
+        // `app.account_id` — so `app.operator_custody` alone leaves this
+        // read seeing no row at all, for every account this function is ever
+        // called with. `set_account_disabled` already carries this exact
+        // second setting for the same table; this function needed it too and
+        // did not have it, so §5.1's reset could never find the account it
+        // was resetting.
+        tx.execute("SELECT set_config('app.account_custody', 'yes', true)", &[])
+            .await?;
         let exists = tx
             .query_opt("SELECT 1 FROM accounts WHERE id = $1", &[&account])
             .await?;
@@ -1170,10 +1219,15 @@ impl OperatorStore {
             return Err(OperatorError::NotFound("account"));
         }
 
+        self.expire_live_tokens(&tx, Purpose::Account, account, "reissued")
+            .await?;
+
         let invitation = self
             .issue_token(&tx, Purpose::Account, account, &acting, "reissued")
             .await?;
 
+        tx.execute("SELECT set_config('app.account_custody', 'no', true)", &[])
+            .await?;
         leave_custody(&tx).await?;
         tx.commit().await?;
         Ok(invitation)
@@ -1202,6 +1256,16 @@ impl OperatorStore {
     ///
     /// Every refusal is [`OperatorError::EnrolmentRefused`], one message for
     /// every cause, and the sealed entry carries the reason.
+    ///
+    /// **The reason survives the refusal that finds it.** The transaction
+    /// above refuses without committing — so an entry appended inside it,
+    /// naming the reason, rolls back with everything else — and until this
+    /// was fixed the guess that mattered most (an address checked against the
+    /// wrong account) left no trace at all: the token stayed live and nobody
+    /// could tell it had been tried. [`OperatorStore::record_redemption_refused`]
+    /// is the second, short transaction that survives the rollback, appended
+    /// after this one has already failed and the caller still gets the one
+    /// uniform [`OperatorError::EnrolmentRefused`] either way.
     pub async fn redeem_account_enrolment(
         &self,
         token: &[u8],
@@ -1214,7 +1278,19 @@ impl OperatorStore {
         let tx = client.transaction().await?;
         enter_enrolment_custody(&tx).await?;
 
-        let row = self.spend_token(&tx, token, Purpose::Account).await?;
+        let row = match self.spend_token(&tx, token, Purpose::Account).await {
+            Ok(row) => row,
+            Err(OperatorError::EnrolmentRefused) => {
+                self.record_redemption_refused(
+                    EntryType::AccountSigninFailed,
+                    Purpose::Account,
+                    "token_invalid",
+                )
+                .await;
+                return Err(OperatorError::EnrolmentRefused);
+            }
+            Err(e) => return Err(e),
+        };
         let account = row
             .account_id
             .clone()
@@ -1233,11 +1309,32 @@ impl OperatorStore {
             )
             .await?;
         let Some(found) = found else {
+            self.record_redemption_refused(
+                EntryType::AccountSigninFailed,
+                Purpose::Account,
+                "account_not_found",
+            )
+            .await;
             return Err(OperatorError::EnrolmentRefused);
         };
         let on_record: String = found.get(0);
         let disabled: bool = found.get(1);
         if on_record != address || disabled {
+            // **This is the guessing oracle's own check.** Somebody holding a
+            // leaked token can present any address; the reason distinguishes a
+            // wrong guess from a disabled account for an operator reading the
+            // sealed entry, and neither reason is ever returned to the caller.
+            let reason = if on_record != address {
+                "address_mismatch"
+            } else {
+                "account_disabled"
+            };
+            self.record_redemption_refused(
+                EntryType::AccountSigninFailed,
+                Purpose::Account,
+                reason,
+            )
+            .await;
             return Err(OperatorError::EnrolmentRefused);
         }
 
@@ -2719,6 +2816,12 @@ impl OperatorStore {
     ///
     /// The operator id comes from the TOKEN, never from the caller, for
     /// `redeem_account_enrolment`'s reason.
+    ///
+    /// Every refusal here is [`OperatorError::EnrolmentRefused`] too, and
+    /// `redeem_account_enrolment`'s note about
+    /// [`OperatorStore::record_redemption_refused`] applies exactly: the
+    /// reason is appended after this transaction has already rolled back, in
+    /// a second one of its own.
     pub async fn redeem_operator_enrolment(
         &self,
         token: &[u8],
@@ -2730,7 +2833,19 @@ impl OperatorStore {
         let tx = client.transaction().await?;
         enter_enrolment_custody(&tx).await?;
 
-        let row = self.spend_token(&tx, token, Purpose::Operator).await?;
+        let row = match self.spend_token(&tx, token, Purpose::Operator).await {
+            Ok(row) => row,
+            Err(OperatorError::EnrolmentRefused) => {
+                self.record_redemption_refused(
+                    EntryType::OperatorSigninFailed,
+                    Purpose::Operator,
+                    "token_invalid",
+                )
+                .await;
+                return Err(OperatorError::EnrolmentRefused);
+            }
+            Err(e) => return Err(e),
+        };
         let operator = row
             .operator_id
             .clone()
@@ -2739,9 +2854,21 @@ impl OperatorStore {
         // A disabled operator does not enrol a key. §4.5's re-enrolment is two
         // operators' work, not a token that was issued before the disabling.
         let Some(existing) = read_operator(&tx, &operator).await? else {
+            self.record_redemption_refused(
+                EntryType::OperatorSigninFailed,
+                Purpose::Operator,
+                "operator_not_found",
+            )
+            .await;
             return Err(OperatorError::EnrolmentRefused);
         };
         if existing.disabled_at_unix != 0 {
+            self.record_redemption_refused(
+                EntryType::OperatorSigninFailed,
+                Purpose::Operator,
+                "operator_disabled",
+            )
+            .await;
             return Err(OperatorError::EnrolmentRefused);
         }
 
@@ -3338,6 +3465,72 @@ impl OperatorStore {
             return Err(OperatorError::EnrolmentRefused);
         }
         Ok(())
+    }
+
+    /// **Record a refused redemption, in a transaction of its own.**
+    ///
+    /// `redeem_account_enrolment` and `redeem_operator_enrolment` refuse
+    /// without committing — every check after `spend_token` runs inside the
+    /// transaction that opened to spend the token, and a caller that finds a
+    /// reason to refuse returns before that transaction ever commits — so an
+    /// entry appended inside it rolls back with everything else. `note_expired`
+    /// already reported exactly this gap for one cause (a token presented
+    /// after its own expiry) on 2026-09-14; this is the fix, for every cause
+    /// a redemption is refused, not only that one.
+    ///
+    /// Called AFTER the refusing transaction's own work, never before: this
+    /// opens a fresh connection and a fresh transaction, so the entry it
+    /// appends survives however the caller's transaction resolves.
+    ///
+    /// **`entry_type` is one of the two site-chain types `sessions.rs` already
+    /// writes for a failed sign-in** — [`EntryType::AccountSigninFailed`] for
+    /// an account redemption, [`EntryType::OperatorSigninFailed`] for an
+    /// operator one — reused rather than a third type of this function's own:
+    /// a redemption that fails is, from an operator reading the site chain,
+    /// the same fact a failed sign-in is (somebody who does not hold what this
+    /// surface asked for presented themselves), and a new `EntryType` needs a
+    /// migration this fix does not make.
+    ///
+    /// **Best-effort.** A failure here must not turn an ordinary refusal into
+    /// a 500: it is logged and swallowed, never propagated to the caller, who
+    /// gets [`OperatorError::EnrolmentRefused`] either way.
+    async fn record_redemption_refused(
+        &self,
+        entry_type: EntryType,
+        purpose: Purpose,
+        reason: &'static str,
+    ) {
+        let attempt: Result<(), OperatorError> = async {
+            let mut client = self.pool.get().await?;
+            let tx = client.transaction().await?;
+            enter_enrolment_custody(&tx).await?;
+            chains::append_site(
+                &tx,
+                &self.ring,
+                &self.deployment,
+                entry_type,
+                &entry_metadata(
+                    entry_type,
+                    &[
+                        ("purpose", Json::Str(purpose.as_str().to_string())),
+                        ("reason", Json::Str(reason.to_string())),
+                    ],
+                ),
+            )
+            .await?;
+            leave_custody(&tx).await?;
+            tx.commit().await?;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = attempt {
+            tracing::error!(
+                error = %e,
+                purpose = purpose.as_str(),
+                reason,
+                "could not record a refused enrolment redemption"
+            );
+        }
     }
 
     async fn notice_address(&self, tx: &Transaction<'_>) -> Result<String, OperatorError> {
