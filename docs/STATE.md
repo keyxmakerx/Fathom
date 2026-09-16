@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-16. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-16, late: 1219 server-side tests and 95 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -222,6 +222,11 @@ fresh database it passes; reused, it fails intermittently, and three separate ca
   were confirmed to fail identically at the commit before that day's work, so neither is new. **Not
   fixed.** They cost nothing under rule 3, which gives every builder its own database, and CI
   creates one per run.
+
+**`tests/operators.rs` leaves a database behind per test.** Its per-test fixture creates
+`fathom_isolated_*` databases and does not drop them; twelve were found after one run on
+2026-09-16 and dropped by hand. Harmless in CI, which discards the cluster, and a slow leak
+anywhere else. Not fixed; the fixture is the place.
 
 **The server refuses to start on a broken schema, deliberately.** `EngineState::load` runs every
 gate and will not serve a vocabulary that fails one. A broken tree is now a startup failure naming
