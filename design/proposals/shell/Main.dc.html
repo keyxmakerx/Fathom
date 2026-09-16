@@ -1,0 +1,314 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .place { padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772; }
+    .place.on { color: #14171A; font-weight: 700; border-bottom: 4px solid #14171A; }
+    .sep { width: 1px; height: 24px; background: #D2D7DD; flex-shrink: 0; }
+    .lens { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; line-height: 14px; color: #14171A; }
+    .lens.on { background: #14171A; color: #FFFFFF; border-color: #14171A; }
+    .chip { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; line-height: 14px; color: #5C6772; }
+    .chip.ink { border-color: #14171A; color: #14171A; }
+    .zb { width: 20px; height: 20px; border: 1px solid #D2D7DD; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #14171A; }
+    .pop { position: absolute; border: 1px solid #D2D7DD; background: #FAFBFC; padding: 6px 0; display: flex; flex-direction: column; }
+    .pop .r { padding: 5px 12px; font-size: 12px; line-height: 18px; color: #14171A; white-space: nowrap; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px; position: relative;">
+
+  <!-- THE BAR: one row, 44px, 3px ink rule beneath. Search is collapsed to the magnifier: with a four-part path the full box does not fit 1440. -->
+  <div style="height: 47px; border-bottom: 3px solid #14171A; display: flex; align-items: stretch; padding: 0 16px; gap: 12px; flex-shrink: 0;">
+    <div style="display: flex; align-items: center; font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: stretch;">
+      <div class="place on">Racks</div>
+      <div class="place">Inventory</div>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+      <span>Northwind</span><span style="color: #5C6772;">&rsaquo;</span><span>HQ</span><span style="color: #5C6772;">&rsaquo;</span><span>Building A</span><span style="color: #5C6772;">&rsaquo;</span><span style="color: #14171A; font-weight: 700;">IDF-2</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="lens on">Cables</span>
+      <span class="lens">Links</span>
+      <span class="lens">Routing</span>
+      <span class="lens">Power</span>
+      <span class="lens">Owner</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center;">
+      <div style="width: 24px; height: 24px; border: 1px solid #D2D7DD; display: flex; align-items: center; justify-content: center;">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="#5C6772" stroke-width="1.2"><circle cx="4.5" cy="4.5" r="3.5"></circle><path d="M7.2 7.2 L10.5 10.5"></path></svg>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="chip">Jordan T.</span>
+      <span class="chip">Maria P.</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="chip ink">Undo</span>
+      <span class="chip ink">Redo</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="zb">&minus;</span>
+      <span class="mono" style="font-size: 11px; min-width: 36px; text-align: center; color: #14171A;">100%</span>
+      <span class="zb">+</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center;">
+      <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center;">RK</div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- THE STRIP: 28px, the rail folded away. A handle and three marks. -->
+    <div style="width: 28px; border-right: 1px solid #D2D7DD; background: #F2F4F6; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; padding-top: 6px; gap: 12px;">
+      <div style="font-size: 11px; line-height: 16px; color: #5C6772;">&rsaquo;</div>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><rect x="2.5" y="1.5" width="11" height="13"></rect><path d="M4.5 1.5 V14.5 M11.5 1.5 V14.5 M4.5 5.5 H11.5 M4.5 8.5 H11.5 M4.5 11.5 H11.5"></path></svg>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><rect x="3.5" y="5.5" width="9" height="9"></rect><path d="M6.5 5.5 V2.5 H9.5 V5.5 M5.5 14.5 V11.5 M8 14.5 V11.5 M10.5 14.5 V11.5"></path></svg>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><rect x="3.5" y="2.5" width="9" height="12"></rect><path d="M5.5 5 H7.5 M8.5 5 H10.5 M5.5 8 H7.5 M8.5 8 H10.5 M7 14.5 V11.5 H9 V14.5"></path></svg>
+    </div>
+
+    <!-- THE DRAWING: the whole width. Nothing selected, so no right panel. -->
+    <div style="flex-grow: 1; position: relative; overflow: hidden; background: #FFFFFF;">
+      <svg width="1412" height="819" viewBox="0 0 1412 819" style="position: absolute; left: 0; top: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+        <defs>
+          <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><line x1="0" y1="0" x2="0" y2="6" stroke="#D2D7DD" stroke-width="1"></line></pattern>
+          <pattern id="hatchOwner" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><line x1="0" y1="0" x2="0" y2="6" stroke="#5C6772" stroke-width="0.8"></line></pattern>
+        </defs>
+        <g transform="translate(269,-12) scale(1.15)">
+
+        <!-- portal tray above A-04 -->
+        <g>
+          <rect x="80" y="24" width="300" height="30" fill="#FAFBFC" stroke="#5C6772" stroke-dasharray="3 2"></rect>
+          <path d="M94 45 L94 33 M90 37 L94 33 L98 37" stroke="#14171A" stroke-width="1.25" fill="none"></path>
+          <text x="106" y="43" font-size="11" fill="#14171A">up the riser &rarr; MDF A-01</text>
+          <text x="372" y="43" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">3 fibre &middot; 1 copper</text>
+        </g>
+
+        <!-- ===== RACK A-04 (42U, 14px per U) ===== -->
+        <g transform="translate(80,64)">
+          <text x="150" y="-1" font-size="9" fill="#5C6772" text-anchor="middle" letter-spacing="1">A-04 &middot; 42U &middot; 14 used</text>
+          <rect x="0" y="0" width="300" height="588" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"></rect>
+          <rect x="0" y="0" width="28" height="588" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+          <rect x="272" y="0" width="28" height="588" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+          <g font-size="8" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="22" y="10">42</text><text x="22" y="38">40</text><text x="22" y="66">38</text><text x="22" y="94">36</text><text x="22" y="122">34</text><text x="22" y="150">32</text><text x="22" y="178">30</text><text x="22" y="206">28</text><text x="22" y="234">26</text><text x="22" y="262">24</text><text x="22" y="290">22</text><text x="22" y="318">20</text><text x="22" y="346">18</text><text x="22" y="374">16</text><text x="22" y="402">14</text><text x="22" y="430">12</text><text x="22" y="458">10</text><text x="22" y="486">8</text><text x="22" y="514">6</text><text x="22" y="542">4</text><text x="22" y="570">2</text>
+          </g>
+          <!-- PSU inlets on the rail beside each device. Two hexagons = dual PSU. Filled = fed. -->
+          <g stroke="#14171A" stroke-width="0.7" fill="#14171A">
+            <path d="M3 19 L4 18 L8 18 L9 19 L9 23 L8 24 L4 24 L3 23 Z"></path><path d="M13 19 L14 18 L18 18 L19 19 L19 23 L18 24 L14 24 L13 23 Z"></path>
+            <path d="M3 60 L4 59 L8 59 L9 60 L9 64 L8 65 L4 65 L3 64 Z"></path>
+            <path d="M3 74 L4 73 L8 73 L9 74 L9 78 L8 79 L4 79 L3 78 Z"></path>
+            <path d="M3 116 L4 115 L8 115 L9 116 L9 120 L8 121 L4 121 L3 120 Z"></path>
+            <path d="M3 130 L4 129 L8 129 L9 130 L9 134 L8 135 L4 135 L3 134 Z"></path>
+            <path d="M3 327 L4 326 L8 326 L9 327 L9 331 L8 332 L4 332 L3 331 Z"></path><path d="M13 327 L14 326 L18 326 L19 327 L19 331 L18 332 L14 332 L13 331 Z"></path>
+            <path d="M3 383 L4 382 L8 382 L9 383 L9 387 L8 388 L4 388 L3 387 Z"></path><path d="M13 383 L14 382 L18 382 L19 383 L19 387 L18 388 L14 388 L13 387 Z"></path>
+          </g>
+          <!-- power leads: their own lane, up the left rail, from the PDU outlets. Never in the data lane. -->
+          <g fill="none" stroke="#14171A" stroke-width="1.8" stroke-linecap="round" opacity="0.55">
+            <path d="M 102 549 C 60 552, 20 300, 6 24"></path>
+            <path d="M 114 549 C 68 552, 24 300, 16 24"></path>
+            <path d="M 126 549 C 76 552, 26 320, 6 65"></path>
+            <path d="M 138 549 C 84 552, 28 330, 6 79"></path>
+            <path d="M 150 549 C 92 552, 30 340, 6 121"></path>
+            <path d="M 162 549 C 100 552, 32 350, 6 135"></path>
+            <path d="M 174 549 C 108 552, 34 460, 6 332"></path>
+            <path d="M 186 549 C 116 552, 36 480, 6 388"></path>
+          </g>
+          <!-- free U hatched -->
+          <rect x="28" y="0" width="244" height="14" fill="url(#hatch)"></rect>
+          <rect x="28" y="42" width="244" height="14" fill="url(#hatch)"></rect>
+          <rect x="28" y="84" width="244" height="14" fill="url(#hatch)"></rect>
+          <rect x="28" y="140" width="244" height="28" fill="url(#hatch)"></rect>
+          <rect x="28" y="182" width="244" height="140" fill="url(#hatch)"></rect>
+          <rect x="28" y="434" width="244" height="112" fill="url(#hatch)"></rect>
+          <rect x="28" y="560" width="244" height="28" fill="url(#hatch)"></rect>
+
+          <!-- U40-41: hq-fw-01 SRX340 (2U) -->
+          <g transform="translate(28,14)">
+            <rect x="0" y="0" width="244" height="28" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="9" cy="8" r="2.5" fill="#14171A"></circle>
+            <text x="16" y="11" font-size="9" fill="#14171A" font-weight="700">hq-fw-01</text>
+            <text x="238" y="11" font-size="8" fill="#5C6772" text-anchor="end">SRX340 &middot; firewall</text>
+            <g transform="translate(16,15)">
+              <rect x="0" y="0" width="8" height="9" fill="#2C9D4F" stroke="#14171A" stroke-width="0.8"></rect><rect x="11" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="22" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="33" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="44" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="55" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="66" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="77" y="0" width="8" height="9" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect>
+            </g>
+            <g transform="translate(120,16)">
+              <rect x="0" y="0" width="11" height="7" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="14" y="0" width="11" height="7" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="28" y="0" width="11" height="7" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect><rect x="42" y="0" width="11" height="7" fill="#FFFFFF" stroke="#14171A" stroke-width="0.8"></rect>
+            </g>
+          </g>
+
+          <!-- U38: core-01 EX4300-48P -->
+          <g transform="translate(28,56)">
+            <rect x="0" y="0" width="244" height="14" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="9" cy="7" r="2.5" fill="#14171A"></circle>
+            <text x="16" y="10" font-size="9" fill="#14171A" font-weight="700">core-01</text>
+            <g transform="translate(70,3)">
+              <rect x="0" y="0" width="5" height="8" fill="#2C9D4F" stroke="#14171A" stroke-width="0.6"></rect><rect x="6" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="12" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="18" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="24" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="30" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="36" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="42" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="48" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="54" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="60" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="66" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+              <rect x="156" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="167" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="178" y="1" width="9" height="6" fill="#24B4C8" stroke="#14171A" stroke-width="0.6"></rect><rect x="189" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+            </g>
+          </g>
+
+          <!-- U37: core-02 -->
+          <g transform="translate(28,70)">
+            <rect x="0" y="0" width="244" height="14" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="9" cy="7" r="2.5" fill="#14171A"></circle>
+            <text x="16" y="10" font-size="9" fill="#14171A" font-weight="700">core-02</text>
+            <g transform="translate(70,3)">
+              <rect x="0" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="6" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="12" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="18" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="24" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="30" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="36" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="42" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="48" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="54" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="60" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="66" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+              <rect x="156" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="167" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="178" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="189" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+            </g>
+          </g>
+
+          <!-- U35: patch-01 (24-port panel) -->
+          <g transform="translate(28,98)">
+            <rect x="0" y="0" width="244" height="14" fill="#F2F4F6" stroke="#14171A"></rect>
+            <text x="6" y="10" font-size="9" fill="#14171A" font-weight="700">patch-01</text>
+            <g transform="translate(60,3)">
+              <rect x="0" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="7" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="14" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="21" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="28" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="35" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="42" y="0" width="5" height="8" fill="#1E62C4" stroke="#14171A" stroke-width="0.6"></rect><rect x="49" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="56" y="0" width="5" height="8" fill="#D83228" stroke="#14171A" stroke-width="0.6"></rect><rect x="63" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="70" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="77" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+              <rect x="88" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="95" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="102" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="109" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="116" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="123" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="130" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="137" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="144" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="151" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="158" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="165" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+            </g>
+          </g>
+
+          <!-- U34: acc-01 -->
+          <g transform="translate(28,112)">
+            <rect x="0" y="0" width="244" height="14" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="9" cy="7" r="2.5" fill="#14171A"></circle>
+            <text x="16" y="10" font-size="9" fill="#14171A" font-weight="700">acc-01</text>
+            <g transform="translate(70,3)">
+              <rect x="0" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="6" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="12" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="18" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="24" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="30" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="36" y="0" width="5" height="8" fill="#1E62C4" stroke="#14171A" stroke-width="0.6"></rect><rect x="42" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="48" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="54" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="60" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="66" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+              <rect x="156" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="167" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+            </g>
+          </g>
+
+          <!-- U33: acc-02 -->
+          <g transform="translate(28,126)">
+            <rect x="0" y="0" width="244" height="14" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="9" cy="7" r="2.5" fill="#14171A"></circle>
+            <text x="16" y="10" font-size="9" fill="#14171A" font-weight="700">acc-02</text>
+            <g transform="translate(70,3)">
+              <rect x="0" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="6" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="12" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="18" y="0" width="5" height="8" fill="#D83228" stroke="#14171A" stroke-width="0.6"></rect><rect x="24" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="30" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="36" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="42" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="48" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="54" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="60" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="66" y="0" width="5" height="8" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+              <rect x="156" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="167" y="1" width="9" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+            </g>
+          </g>
+
+          <!-- U30: fibre-01 (12-port LC panel) -->
+          <g transform="translate(28,168)">
+            <rect x="0" y="0" width="244" height="14" fill="#F2F4F6" stroke="#14171A"></rect>
+            <text x="6" y="10" font-size="9" fill="#14171A" font-weight="700">fibre-01</text>
+            <g transform="translate(80,3)">
+              <rect x="0" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"></rect><circle cx="3" cy="4" r="1.5" fill="#D2D7DD"></circle><circle cx="7" cy="4" r="1.5" fill="#D2D7DD"></circle>
+              <rect x="14" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"></rect><circle cx="17" cy="4" r="1.5" fill="#D2D7DD"></circle><circle cx="21" cy="4" r="1.5" fill="#D2D7DD"></circle>
+              <rect x="28" y="0" width="10" height="8" fill="#24B4C8" stroke="#14171A" stroke-width="0.8"></rect><circle cx="31" cy="4" r="1.5" fill="#14171A"></circle><circle cx="35" cy="4" r="1.5" fill="#14171A"></circle>
+              <rect x="42" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"></rect><circle cx="45" cy="4" r="1.5" fill="#D2D7DD"></circle><circle cx="49" cy="4" r="1.5" fill="#D2D7DD"></circle>
+              <rect x="56" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"></rect><circle cx="59" cy="4" r="1.5" fill="#D2D7DD"></circle><circle cx="63" cy="4" r="1.5" fill="#D2D7DD"></circle>
+              <rect x="70" y="0" width="10" height="8" fill="#FFFFFF" stroke="#D2D7DD" stroke-width="0.8"></rect><circle cx="73" cy="4" r="1.5" fill="#D2D7DD"></circle><circle cx="77" cy="4" r="1.5" fill="#D2D7DD"></circle>
+            </g>
+          </g>
+
+          <!-- U16-19: vm-host-01 (4U) -->
+          <g transform="translate(28,322)">
+            <rect x="0" y="0" width="244" height="56" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="9" cy="8" r="2.5" fill="#14171A"></circle>
+            <text x="16" y="11" font-size="9" fill="#14171A" font-weight="700">vm-host-01</text>
+            <text x="238" y="11" font-size="8" fill="#5C6772" text-anchor="end">proxmox &middot; 4U</text>
+            <rect x="8" y="18" width="228" height="28" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+            <rect x="200" y="48" width="5" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="207" y="48" width="5" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+          </g>
+          <!-- U12-15: vm-host-02 (4U) -->
+          <g transform="translate(28,378)">
+            <rect x="0" y="0" width="244" height="56" fill="#FFFFFF" stroke="#14171A"></rect>
+            <circle cx="9" cy="8" r="2.5" fill="#14171A"></circle>
+            <text x="16" y="11" font-size="9" fill="#14171A" font-weight="700">vm-host-02</text>
+            <text x="238" y="11" font-size="8" fill="#5C6772" text-anchor="end">proxmox &middot; 4U</text>
+            <rect x="8" y="18" width="228" height="28" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+            <rect x="200" y="48" width="5" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect><rect x="207" y="48" width="5" height="6" fill="#FFFFFF" stroke="#14171A" stroke-width="0.6"></rect>
+          </g>
+          <!-- U3: pdu-a04, 8 x C13 outlets -->
+          <g transform="translate(28,546)">
+            <rect x="0" y="0" width="244" height="14" fill="#F2F4F6" stroke="#14171A"></rect>
+            <text x="6" y="10" font-size="9" fill="#14171A" font-weight="700">pdu-a04</text>
+            <g transform="translate(70,3)" stroke="#14171A" stroke-width="0.8" fill="#14171A">
+              <path d="M0 2 L2 0 L6 0 L8 2 L8 6 L6 8 L2 8 L0 6 Z"></path><path d="M12 2 L14 0 L18 0 L20 2 L20 6 L18 8 L14 8 L12 6 Z"></path><path d="M24 2 L26 0 L30 0 L32 2 L32 6 L30 8 L26 8 L24 6 Z"></path><path d="M36 2 L38 0 L42 0 L44 2 L44 6 L42 8 L38 8 L36 6 Z"></path><path d="M48 2 L50 0 L54 0 L56 2 L56 6 L54 8 L50 8 L48 6 Z"></path><path d="M60 2 L62 0 L66 0 L68 2 L68 6 L66 8 L62 8 L60 6 Z"></path><path d="M72 2 L74 0 L78 0 L80 2 L80 6 L78 8 L74 8 L72 6 Z"></path><path d="M84 2 L86 0 L90 0 L92 2 L92 6 L90 8 L86 8 L84 6 Z"></path>
+            </g>
+            <text x="238" y="10" font-size="8" fill="#5C6772" text-anchor="end">8 of 8 used</text>
+          </g>
+        </g>
+
+        <!-- portal tray below A-04 -->
+        <g>
+          <rect x="80" y="662" width="300" height="30" fill="#FAFBFC" stroke="#5C6772" stroke-dasharray="3 2"></rect>
+          <path d="M94 671 L94 683 M90 679 L94 683 L98 679" stroke="#14171A" stroke-width="1.25" fill="none"></path>
+          <text x="106" y="681" font-size="11" fill="#14171A">down to floor 2 desks</text>
+          <text x="372" y="681" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">24 copper</text>
+        </g>
+
+        <!-- ===== RACK A-05 (24U, landlord's, empty) ===== -->
+        <g transform="translate(440,64)">
+          <text x="120" y="-8" font-size="9" fill="#5C6772" text-anchor="middle" letter-spacing="1">A-05 &middot; 24U &middot; LANDLORD &middot; not ours</text>
+          <rect x="0" y="0" width="240" height="336" fill="#FFFFFF" stroke="#5C6772" stroke-width="1.5"></rect>
+          <rect x="0" y="0" width="240" height="336" fill="url(#hatchOwner)" opacity="0.35"></rect>
+          <rect x="0" y="0" width="24" height="336" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+          <rect x="216" y="0" width="24" height="336" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+          <g font-size="8" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="19" y="10">24</text><text x="19" y="66">20</text><text x="19" y="122">16</text><text x="19" y="178">12</text><text x="19" y="234">8</text><text x="19" y="290">4</text>
+          </g>
+          <rect x="24" y="0" width="192" height="336" fill="url(#hatch)"></rect>
+          <text x="120" y="172" font-size="9" fill="#5C6772" text-anchor="middle">empty</text>
+        </g>
+
+        <!-- ===== CABLES. Colour is the real sheath; type is the line. Nothing is lit, so nothing is dimmed. ===== -->
+        <g fill="none" stroke-linecap="round">
+          <!-- hq-fw-01 p1 -> core-01 ge-0/0/0: green copper -->
+          <path d="M 128 103 C 128 132, 152 146, 180 124" stroke="#2C9D4F" stroke-width="1.8"></path>
+          <!-- acc-01 ge-0/0/7 -> patch-01 p7: blue copper, a short loop -->
+          <path d="M 216 180 C 270 212, 270 140, 213 173" stroke="#1E62C4" stroke-width="1.8"></path>
+          <!-- acc-02 ge-0/0/4 -> patch-01 p9: red copper -->
+          <path d="M 198 194 C 140 222, 160 150, 226 174" stroke="#D83228" stroke-width="1.8"></path>
+          <!-- core-01 xe-0/0/2 -> fibre-01 p3: OM3 aqua, drawn as a pair -->
+          <path d="M 360 131 C 404 184, 330 254, 221 236" stroke="#24B4C8" stroke-width="3.2"></path>
+          <path d="M 360 131 C 404 184, 330 254, 221 236" stroke="#FFFFFF" stroke-width="1.1"></path>
+        </g>
+
+        <!-- canvas hint -->
+        </g>
+        <text x="80" y="808" font-size="10" fill="#5C6772">Right-click any box for what it can do. The wheel moves the camera through the stops; the lens changes the marks.</text>
+      </svg>
+
+      <!-- THE RIGHT-CLICK POPOVER on core-01: one kind of popover, one level. -->
+      <div class="pop" style="left: 560px; top: 150px; min-width: 212px;">
+        <div class="r">Open in inventory</div>
+        <div class="r">Pull into the patching table</div>
+        <div class="r">Add a note</div>
+        <div class="r">Open the config drawer</div>
+        <div class="r">Copy name</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- THE CAPTION STRIP -->
+  <div style="height: 34px; border-top: 1px solid #D2D7DD; background: #FAFBFC; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0;">
+    <span style="font-size: 12px;">The drawing is the screen. Panels fold away; the bar is the only thing that stays.</span>
+    <span style="flex-grow: 1;"></span>
+    <span style="font-size: 11px; color: #5C6772;">Every name, address, count and time on this board is a sample.</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
