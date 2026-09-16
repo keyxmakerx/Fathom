@@ -77,6 +77,31 @@ comparable amount again.
 
 ---
 
+## Handoff, 2026-09-16 — read this first
+
+Sessions 1 and 2 are done and green. **Session 3 is next**, and the owner said start. Before
+anything else, read in this order and nothing more: `docs/UI-SPEC.md`; `design/shell/BRIEF.md` and
+the five PNGs in `design/shell/renders/`; ADR-0047; `docs/RUNNING-IT.md`. The boards are the
+brief. `docs/archive/` stays closed.
+
+Four rules the owner did not object to, so build on them until told otherwise (ADR-0047 §9): an
+expected link with unknown ends is drawn dashed and listed as a gap; names are clipped in the middle
+and never shrunk; the name stays on the left and the model shrinks first; one lens at a time, no
+compare mode.
+
+Three things this session learned that the rules above do not say:
+
+9. **Commit with `-F <file>`, never `-m "..."`.** Backticks in a quoted message are run by the
+   shell; a merge commit was garbled that way on 2026-09-13 and had to be amended.
+10. **`pkill -f fathom-server` kills your own shell** when the pattern appears in its command line.
+    Check with `pgrep` and `curl` instead.
+11. **Boards are checked by rendering them**, not by reading them: headless Chromium is at
+    `/opt/pw-browsers/chromium` and Playwright at `/opt/node22/lib/node_modules/playwright`; a
+    ten-line script screenshots a `.dc.html` at 1440 wide. Every overlap and clipped label this
+    session found, it found in a screenshot. Seed a canvas with the `design` skill's
+    `seed-canvas.mjs`, publish with the Artifact tool, and run one haiku second look before
+    committing.
+
 ## Session 1 — Close the server foundation
 
 **Goal:** the last security-bearing server code is attacked and the admin console exists, so that

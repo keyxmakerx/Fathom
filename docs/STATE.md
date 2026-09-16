@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-15. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-16. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -158,7 +158,8 @@ other.
 
 **The browser client.** Built at `client/` in React and Vite. Vite, React, TypeScript, the shell,
 a working sign-in with WebCrypto keys, five port glyphs (RJ45, SFP+, QSFP+, LC, C14), a
-gallery at `/ports.html`. **No diagram yet.** The old Rust-assembled HTML client is retired and still on disk under `crates/fathom-artifact/`; it is not served.
+gallery at `/ports.html`. **No diagram yet.** The shell it will get is approved and drawn
+(ADR-0047, `design/shell/`); Session 3 of `docs/NEXT.md` builds it. The old Rust-assembled HTML client is retired and still on disk under `crates/fathom-artifact/`; it is not served.
 
 ---
 
