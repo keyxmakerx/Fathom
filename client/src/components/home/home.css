@@ -104,6 +104,42 @@
   flex-direction: column;
 }
 
+.home__scope-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+}
+
+.home__scope-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.home__scope-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: var(--s2) 0;
+}
+
+.home__scope-name {
+  font-size: var(--t-small);
+  font-weight: 700;
+}
+
+.home__scope-kind {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.home__scope-count {
+  margin-left: auto;
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
 .home__design-list {
   list-style: none;
   margin: 0;

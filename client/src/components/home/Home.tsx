@@ -4,7 +4,9 @@ import { signOut } from '../../api/auth';
 import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from '../../api/designs';
 import { ApiRefusal } from '../../api/errors';
 import { fetchOrganisations, type Organisation } from '../../api/organisations';
+import { fetchScopes, type Scope } from '../../api/scopes';
 import { pickDirectEntry, type DirectEntry } from './directEntry';
+import { groupDesignsByScope } from './groupByScope';
 import './home.css';
 
 export interface HomeProps {
@@ -50,6 +52,7 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
   const [organisations, setOrganisations] = useState<Loadable<Organisation[]>>({ status: 'loading' });
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [designs, setDesigns] = useState<Loadable<DesignSummary[]>>({ status: 'loading' });
+  const [scopes, setScopes] = useState<Loadable<Scope[]>>({ status: 'loading' });
   const [landed, setLanded] = useState(false);
 
   useEffect(() => {
@@ -83,6 +86,29 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
       .catch((error: unknown) => {
         if (cancelled) return;
         setDesigns({ status: 'error', message: describeError(error) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrgId]);
+
+  // Every design's row name comes from the scope it hangs under (D11), so
+  // Home needs the scope tree for the same organisation it has designs for
+  // — fetched alongside, not derived from anything typed here.
+  useEffect(() => {
+    if (selectedOrgId === null) {
+      return;
+    }
+    let cancelled = false;
+    setScopes({ status: 'loading' });
+    fetchScopes(selectedOrgId)
+      .then((rows) => {
+        if (cancelled) return;
+        setScopes({ status: 'ready', value: rows });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setScopes({ status: 'error', message: describeError(error) });
       });
     return () => {
       cancelled = true;
@@ -155,46 +181,25 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
 
         <section className="home__section">
           <div className="home__label">Designs you may open</div>
-          {designs.status === 'loading' && selectedOrgId !== null && (
+          {selectedOrgId === null && <p className="home__muted">No organisation selected.</p>}
+          {selectedOrgId !== null && (designs.status === 'loading' || scopes.status === 'loading') && (
             <p className="home__muted">Loading…</p>
           )}
           {designs.status === 'error' && <p className="home__error">{designs.message}</p>}
-          {selectedOrgId === null && <p className="home__muted">No organisation selected.</p>}
+          {designs.status !== 'error' && scopes.status === 'error' && (
+            <p className="home__error">{scopes.message}</p>
+          )}
           {designs.status === 'ready' && designs.value.length === 0 && (
             <p className="home__muted">No designs in this organisation yet.</p>
           )}
-          {designs.status === 'ready' && designs.value.length > 0 && selectedOrganisation && (
-            <ul className="home__design-list">
-              {sortDesignsByRecency(designs.value).map((design) => (
-                <li key={design.designId} className="home__design-row">
-                  <span className="home__design-id m">{design.designId}</span>
-                  <span className="home__design-meta">
-                    scope <span className="m">{design.scopeId}</span>
-                  </span>
-                  <span className="home__design-meta">v{design.latestVersion}</span>
-                  <span className="home__design-meta">{design.capability}</span>
-                  <span className="home__design-meta">
-                    {formatCreatedAt(design.createdAtUnix)} · {design.createdBy}
-                  </span>
-                  <span className="home__design-actions">
-                    <button
-                      type="button"
-                      className="home__btn"
-                      onClick={() => onOpenRacks(selectedOrganisation, design)}
-                    >
-                      Racks
-                    </button>
-                    <button
-                      type="button"
-                      className="home__btn"
-                      onClick={() => onOpenInventory(selectedOrganisation, design)}
-                    >
-                      Inventory
-                    </button>
-                  </span>
-                </li>
-              ))}
-            </ul>
+          {designs.status === 'ready' && scopes.status === 'ready' && designs.value.length > 0 && selectedOrganisation && (
+            <ScopedDesignList
+              designs={sortDesignsByRecency(designs.value)}
+              scopes={scopes.value}
+              organisation={selectedOrganisation}
+              onOpenRacks={onOpenRacks}
+              onOpenInventory={onOpenInventory}
+            />
           )}
         </section>
       </main>
@@ -207,6 +212,104 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
         </button>
       </aside>
     </div>
+  );
+}
+
+interface ScopedDesignListProps {
+  designs: DesignSummary[];
+  scopes: Scope[];
+  organisation: Organisation;
+  onOpenRacks: (organisation: Organisation, design: DesignSummary) => void;
+  onOpenInventory: (organisation: Organisation, design: DesignSummary) => void;
+}
+
+/**
+ * The board grouped by closet (D11: a design's scope is its name). One
+ * block per scope that has at least one open-able design — the scope's own
+ * `display_name` as the block's name, its `kind` as a small label beside
+ * it, and a design count that is always read off `designs.length`, never
+ * typed. A design whose scope did not come back from `/scopes` (the
+ * caller may open it but may not read its closet) is listed last, under
+ * "Elsewhere" — an honest heading, not an invented closet.
+ */
+function ScopedDesignList({ designs, scopes, organisation, onOpenRacks, onOpenInventory }: ScopedDesignListProps) {
+  const { groups, elsewhere } = groupDesignsByScope(designs, scopes);
+
+  return (
+    <div className="home__scope-groups">
+      {groups.map(({ scope, designs: scopeDesigns }) => (
+        <div className="home__scope-group" key={scope.scopeId}>
+          <div className="home__scope-heading">
+            <span className="home__scope-name">{scope.displayName}</span>
+            <span className="home__scope-kind">{scope.kind}</span>
+            <span className="home__scope-count">
+              {scopeDesigns.length} design{scopeDesigns.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <ul className="home__design-list">
+            {scopeDesigns.map((design) => (
+              <DesignRow
+                key={design.designId}
+                design={design}
+                organisation={organisation}
+                onOpenRacks={onOpenRacks}
+                onOpenInventory={onOpenInventory}
+              />
+            ))}
+          </ul>
+        </div>
+      ))}
+
+      {elsewhere.length > 0 && (
+        <div className="home__scope-group" key="elsewhere">
+          <div className="home__scope-heading">
+            <span className="home__scope-name">Elsewhere</span>
+            <span className="home__scope-count">
+              {elsewhere.length} design{elsewhere.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <ul className="home__design-list">
+            {elsewhere.map((design) => (
+              <DesignRow
+                key={design.designId}
+                design={design}
+                organisation={organisation}
+                onOpenRacks={onOpenRacks}
+                onOpenInventory={onOpenInventory}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface DesignRowProps {
+  design: DesignSummary;
+  organisation: Organisation;
+  onOpenRacks: (organisation: Organisation, design: DesignSummary) => void;
+  onOpenInventory: (organisation: Organisation, design: DesignSummary) => void;
+}
+
+function DesignRow({ design, organisation, onOpenRacks, onOpenInventory }: DesignRowProps) {
+  return (
+    <li className="home__design-row">
+      <span className="home__design-id m">{design.designId}</span>
+      <span className="home__design-meta">v{design.latestVersion}</span>
+      <span className="home__design-meta">{design.capability}</span>
+      <span className="home__design-meta">
+        {formatCreatedAt(design.createdAtUnix)} · {design.createdBy}
+      </span>
+      <span className="home__design-actions">
+        <button type="button" className="home__btn" onClick={() => onOpenRacks(organisation, design)}>
+          Racks
+        </button>
+        <button type="button" className="home__btn" onClick={() => onOpenInventory(organisation, design)}>
+          Inventory
+        </button>
+      </span>
+    </li>
   );
 }
 

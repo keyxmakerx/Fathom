@@ -1,12 +1,15 @@
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
-import type { DesignSummary } from './api/designs';
+import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import type { Organisation } from './api/organisations';
+import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
 import { Enrol } from './components/Enrol';
 import { Home } from './components/home';
 import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
 import type { Lens, Place } from './components/Shell';
+import { PopoverRow } from './components/shell/Popover';
+import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
 import { initialsFromAddress } from './initials';
 import { getSession, subscribe } from './state/sessionState';
@@ -41,6 +44,63 @@ export default function App() {
   // drawing Session 4 builds will read it too, and two copies would drift.
   const [lens, setLens] = useState<Lens>('cables');
   const [zoom, setZoom] = useState(100);
+
+  // The open organisation's scope tree and design list, for the bar's path
+  // and tree pop-over (ADR-0047 §2, §4). Fetched here rather than read off
+  // `Home` — Home's own fetch is scoped to its own render and is gone once
+  // a place is open. `[]` on failure or before load: never a fabricated
+  // scope or design.
+  const openOrganisationId = view.kind === 'place' ? view.organisation.organisationId : null;
+  const [scopes, setScopes] = useState<Scope[]>([]);
+  const [orgDesigns, setOrgDesigns] = useState<DesignSummary[]>([]);
+
+  useEffect(() => {
+    if (openOrganisationId === null) {
+      setScopes([]);
+      setOrgDesigns([]);
+      return;
+    }
+    let cancelled = false;
+    fetchScopes(openOrganisationId)
+      .then((rows) => {
+        if (!cancelled) setScopes(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setScopes([]);
+      });
+    fetchDesigns(openOrganisationId)
+      .then((rows) => {
+        if (!cancelled) setOrgDesigns(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setOrgDesigns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [openOrganisationId]);
+
+  // The most recent design per scope — same ordering Home groups by
+  // (`sortDesignsByRecency`) — so a tree row or path part naming a scope
+  // can open "that scope's first design" (this task's brief) without
+  // inventing which one that is.
+  const firstDesignByScopeId = new Map<string, DesignSummary>();
+  for (const design of sortDesignsByRecency(orgDesigns)) {
+    if (!firstDesignByScopeId.has(design.scopeId)) {
+      firstDesignByScopeId.set(design.scopeId, design);
+    }
+  }
+
+  function selectScope(scopeId: string) {
+    const design = firstDesignByScopeId.get(scopeId);
+    if (!design) {
+      // No design in this scope to switch to — the row/part still exists
+      // (a closet can have nothing in it yet), but selecting it does
+      // nothing visible, per this task's brief.
+      return;
+    }
+    setView((current) => (current.kind === 'place' ? { ...current, design } : current));
+  }
 
   const openIn = useCallback(
     (place: Place) => (organisation: Organisation, design: DesignSummary) =>
@@ -117,16 +177,33 @@ export default function App() {
     );
   }
 
+  // The path: the organisation, then the chain of scopes actually returned
+  // for the open design's scope (`pathTo` — root-most first, stopping at
+  // whatever ancestor came back, never inventing one it did not). Each
+  // scope part is selectable: clicking it opens that scope's most recent
+  // design in the place already open, mirroring the tree row below.
+  const scopeChain = pathTo(scopes, view.design.scopeId);
+  const path: PathPart[] = [
+    { label: view.organisation.displayName },
+    ...scopeChain.map((scope) => ({
+      label: scope.displayName,
+      onSelect: () => selectScope(scope.scopeId),
+    })),
+  ];
+
+  // The tree: the forest built from every scope the caller may at least
+  // read, one `PopoverRow` per scope, indented by how deep the row sits in
+  // that forest (not the server's own `depth`, which would over-indent a
+  // scope whose ancestors were withheld). The open design's own scope is
+  // marked current.
+  const forest = buildScopeForest(scopes);
+
   return (
     <Shell
       {...common}
       place={view.place}
-      // The organisation is all this client can name today. A design has no
-      // name of its own and nothing resolves its scope id to one — see
-      // `docs/OPEN-QUESTIONS.md` D11, which is why the rest of the path is
-      // missing rather than filled with an identifier nobody can read.
-      path={[{ label: view.organisation.displayName }]}
-      tree={null}
+      path={path}
+      tree={<ScopeTree nodes={forest} currentScopeId={view.design.scopeId} onSelectScope={selectScope} />}
       onPlaceChange={(place) => setView({ ...view, place })}
     >
       <div className="app-placeholder">
@@ -140,5 +217,47 @@ export default function App() {
         </button>
       </div>
     </Shell>
+  );
+}
+
+interface ScopeTreeProps {
+  nodes: ScopeTreeNode[];
+  currentScopeId: string;
+  onSelectScope: (scopeId: string) => void;
+}
+
+/**
+ * The path's tree pop-over content: `buildScopeForest`'s forest, flattened
+ * into `PopoverRow`s in forest order, indented per level. Several roots is
+ * the ordinary case (an ancestor the caller may not read is simply absent —
+ * `scopes.ts`'s own doc), so this walks every root, not one tree.
+ */
+function ScopeTree({ nodes, currentScopeId, onSelectScope }: ScopeTreeProps) {
+  return <>{nodes.map((node) => <ScopeTreeRows key={node.scope.scopeId} node={node} depth={0} currentScopeId={currentScopeId} onSelectScope={onSelectScope} />)}</>;
+}
+
+interface ScopeTreeRowsProps {
+  node: ScopeTreeNode;
+  depth: number;
+  currentScopeId: string;
+  onSelectScope: (scopeId: string) => void;
+}
+
+function ScopeTreeRows({ node, depth, currentScopeId, onSelectScope }: ScopeTreeRowsProps) {
+  return (
+    <Fragment>
+      <PopoverRow current={node.scope.scopeId === currentScopeId} onSelect={() => onSelectScope(node.scope.scopeId)}>
+        <span style={{ paddingLeft: `${depth * 12}px` }}>{node.scope.displayName}</span>
+      </PopoverRow>
+      {node.children.map((child) => (
+        <ScopeTreeRows
+          key={child.scope.scopeId}
+          node={child}
+          depth={depth + 1}
+          currentScopeId={currentScopeId}
+          onSelectScope={onSelectScope}
+        />
+      ))}
+    </Fragment>
   );
 }
