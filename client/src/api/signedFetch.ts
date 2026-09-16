@@ -14,6 +14,18 @@ import { refusalFrom } from './errors';
 const EMPTY_BODY = new Uint8Array(0);
 
 /**
+ * `signedFetch`'s full result — added for `document/api/payload.ts`'s
+ * `openDesign`, which needs `open_design_handler`'s response headers
+ * (`fathom-design-version`, `fathom-payload-schema-version`) and not only
+ * the body. `signedFetch` itself keeps its original signature and behaviour;
+ * every existing caller is unaffected.
+ */
+export interface SignedResponse {
+  bytes: Uint8Array;
+  headers: Headers;
+}
+
+/**
  * Sign and send one request under the live session.
  *
  * `path` must be the exact request target -- path and query -- because that
@@ -22,11 +34,11 @@ const EMPTY_BODY = new Uint8Array(0);
  * then let `fetch` normalise it before this function saw it would be
  * signing something other than what goes over the wire.
  */
-export async function signedFetch(
+export async function signedFetchWithHeaders(
   method: string,
   path: string,
   body: Uint8Array = EMPTY_BODY,
-): Promise<Uint8Array> {
+): Promise<SignedResponse> {
   const session = getSession();
   if (!session) {
     throw new Error('no active session: sign in first');
@@ -69,5 +81,14 @@ export async function signedFetch(
   if (!response.ok) {
     throw await refusalFrom(response);
   }
-  return new Uint8Array(await response.arrayBuffer());
+  return { bytes: new Uint8Array(await response.arrayBuffer()), headers: response.headers };
+}
+
+/** The body alone — every caller that does not need response headers. */
+export async function signedFetch(
+  method: string,
+  path: string,
+  body: Uint8Array = EMPTY_BODY,
+): Promise<Uint8Array> {
+  return (await signedFetchWithHeaders(method, path, body)).bytes;
 }
