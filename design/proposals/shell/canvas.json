@@ -1,0 +1,15 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "The shell — the drawing is the screen; one bar, panels folded, a right-click menu open" },
+    { "file": "Estate.dc.html", "x": 1560, "y": 0, "w": 1440, "h": 900, "title": "The estate stop — sites placed by hand, links as counted bundles, the tree open from the path" },
+    { "file": "Lenses.dc.html", "x": 0, "y": 1020, "w": 1440, "h": 620, "title": "Two lenses over the same rack — Cables and Routing; nothing moved, only the marks changed" },
+    { "file": "Optics.dc.html", "x": 1560, "y": 1020, "w": 1440, "h": 620, "title": "Optics — a cage takes an optic before it takes a cable; drag cage to cage and say what is between" },
+    { "file": "Changes.dc.html", "x": 0, "y": 1760, "w": 1440, "h": 900, "title": "Tracked changes — a maintenance record's changes shown on the drawing, the way a document shows them" }
+  ],
+  "annotations": [
+    { "id": "read-me-first", "x": 0, "y": -300, "w": 760, "text": "The shell, 2026-09-16. A proposal: four kinds of thing and nothing else gets a name.\n\nPlaces: Racks and Inventory. Stops: estate, site, building, closet, rack, faceplate, inside. Lenses: Cables, Links, Routing, Power, Owner. Surfaces: the editor, search, the patching table, the walkthrough.\n\nRow 1: the shell at the closet stop, and the estate stop with the tree open.\nRow 2: two lenses over one rack, and optics.\nRow 3: tracked changes.\n\nNothing here moves. The earlier sets already show the motion." },
+    { "id": "not-here", "x": 1560, "y": -160, "w": 1440, "text": "Not redrawn, because it is already drawn: inside a box (the approved Hypervisor and Firewall boards), the patching table, undo, the maintenance record, people, the operator console, walkthrough, inventory and home (the screens set of 2026-09-15)." },
+    { "id": "sample-values", "x": 1560, "y": 1760, "w": 1440, "text": "Every name, site, circuit ID, address, count and time on these boards is a sample. Counts, models and positions in the product come from the graph and the catalogue and are never typed." }
+  ],
+  "launch": { "view": "canvas" }
+}
