@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .mast { font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap; flex-shrink: 0; }
+    .tab { padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772; white-space: nowrap; }
+    .tab.on { border-bottom: 4px solid #14171A; font-weight: 700; color: #14171A; }
+    .hr { width: 1px; height: 24px; background: #D2D7DD; flex-shrink: 0; }
+    .path { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772; white-space: nowrap; flex-shrink: 0; }
+    .path .sep { color: #5C6772; }
+    .path .here { color: #14171A; font-weight: 700; }
+    .lens { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+    .lz { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; white-space: nowrap; color: #14171A; background: #FFFFFF; }
+    .lz.on { background: #14171A; color: #FFFFFF; border-color: #14171A; }
+    .chip { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; white-space: nowrap; color: #14171A; }
+    .chip.key { border-color: #14171A; }
+    .zb { border: 1px solid #D2D7DD; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+    .svgnum { font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 9px; fill: #5C6772; text-anchor: middle; }
+    .prow { font-size: 12px; padding: 5px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 620px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px; overflow: hidden;">
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 10px; gap: 8px; flex-shrink: 0; overflow: hidden;">
+    <div class="mast">Fathom</div>
+    <div class="hr"></div>
+    <div style="display: flex; align-self: stretch; align-items: stretch; flex-shrink: 0;"><div class="tab on">Racks</div><div class="tab">Inventory</div></div>
+    <div class="hr"></div>
+    <div class="path"><span>Northwind</span><span class="sep">&rsaquo;</span><span>HQ</span><span class="sep">&rsaquo;</span><span>Building A</span><span class="sep">&rsaquo;</span><span>IDF-2</span><span class="sep">&rsaquo;</span><span>A-04</span><span class="sep">&rsaquo;</span><span class="here">core-01</span></div>
+    <div class="hr"></div>
+    <div class="lens"><span class="lz on">Cables</span><span class="lz">Links</span><span class="lz">Routing</span><span class="lz">Power</span><span class="lz">Owner</span></div>
+    <div style="flex-grow: 1; min-width: 0;"></div>
+    <div class="hr"></div>
+    <div style="width: 180px; min-width: 26px; flex-shrink: 1; height: 24px; border: 1px solid #D2D7DD; display: flex; align-items: center; gap: 6px; padding: 0 6px; overflow: hidden;">
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="#14171A" stroke-width="1" style="flex-shrink: 0;"><circle cx="4.5" cy="4.5" r="3.5"></circle><line x1="7" y1="7" x2="10.5" y2="10.5"></line></svg>
+      <span style="font-size: 11px; color: #5C6772; white-space: nowrap;">Search</span>
+      <span style="flex-grow: 1;"></span>
+      <span class="mono" style="font-size: 10px; color: #5C6772; white-space: nowrap;">Ctrl K</span>
+    </div>
+    <div class="hr"></div>
+    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;"><span class="chip">Jordan T.</span><span class="chip">Maria P.</span></div>
+    <div class="hr"></div>
+    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;"><span class="chip key">Undo</span><span class="chip key">Redo</span></div>
+    <div class="hr"></div>
+    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;"><span class="zb">&minus;</span><span class="mono" style="font-size: 11px; min-width: 34px; text-align: center;">200%</span><span class="zb">+</span></div>
+    <div class="hr"></div>
+    <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">RK</div>
+  </div>
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+    <div style="width: 28px; flex-shrink: 0; background: #F2F4F6; border-right: 1px solid #D2D7DD; display: flex; flex-direction: column; align-items: center; padding-top: 6px; gap: 12px;">
+      <div style="font-size: 12px; color: #5C6772; line-height: 16px;">&rsaquo;</div>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><rect x="3.5" y="1.5" width="9" height="13"></rect><line x1="3.5" y1="5.5" x2="12.5" y2="5.5"></line><line x1="3.5" y1="9.5" x2="12.5" y2="9.5"></line></svg>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><line x1="5.5" y1="1" x2="5.5" y2="5"></line><line x1="10.5" y1="1" x2="10.5" y2="5"></line><rect x="3.5" y="5.5" width="9" height="6"></rect><line x1="8" y1="11.5" x2="8" y2="15"></line></svg>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><rect x="2.5" y="2.5" width="11" height="12"></rect><rect x="5" y="5" width="2" height="2"></rect><rect x="9" y="5" width="2" height="2"></rect><rect x="5" y="9" width="2" height="2"></rect><rect x="9" y="9" width="2" height="2"></rect></svg>
+    </div>
+    <div style="flex-grow: 1; position: relative; overflow: hidden; background: #FFFFFF; min-width: 0;">
+      <svg width="1412" height="539" viewBox="0 0 1412 539" style="position: absolute; left: 0; top: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+        <defs>
+          <symbol id="rj45" viewBox="-11 -10 22 20"><path d="M-11 -5 L-11 10 L11 10 L11 -5 L6 -5 L6 -10 L-6 -10 L-6 -5 Z"></path></symbol>
+          <symbol id="sfp" viewBox="-14 -6.5 28 13" overflow="visible"><rect x="-14" y="-6.5" width="28" height="13"></rect><line x1="-14" y1="0" x2="14" y2="0" stroke-width="0.8"></line><path d="M-11 -6.5 L-11 -9.5 L-3 -9.5 L-3 -6.5" fill="none" stroke-width="1"></path></symbol>
+          <symbol id="lc" viewBox="-12 -7 24 14"><rect x="-12" y="-7" width="24" height="14" fill="none"></rect><circle cx="-5" cy="0" r="3.2"></circle><circle cx="5" cy="0" r="3.2"></circle></symbol>
+          <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><line x1="0" y1="0" x2="0" y2="6" stroke="#D2D7DD" stroke-width="1"></line></pattern>
+        </defs>
+        <g stroke="#14171A" stroke-width="1"><rect x="72" y="84" width="380" height="220" fill="#FFFFFF" stroke-width="1.5"></rect><rect x="72" y="84" width="380" height="24" fill="#F2F4F6"></rect></g>
+        <circle cx="86" cy="96" r="4" fill="#14171A"></circle>
+        <text x="96" y="100" font-size="12" font-weight="700" fill="#14171A">core-01</text>
+        <text x="150" y="100" font-size="10" fill="#5C6772">Juniper EX4300-48P &middot; U38 &middot; rack A-04 &middot; front</text>
+        <text x="104" y="124" font-size="10" letter-spacing="1" fill="#5C6772">SFP+ BLOCK &middot; xe-0/0/0 &ndash; 3</text>
+        <text x="442" y="124" font-size="9" fill="#5C6772" text-anchor="end">&larr; ge-0/0/0 &ndash; 47 are off this view</text>
+        <g transform="translate(104,136)" stroke="#5C6772" stroke-width="1">
+          <path d="M 8 4 L 8 0 L 28 0 L 28 4" fill="none"></path>
+          <rect x="0" y="4" width="72" height="24" fill="#FFFFFF"></rect>
+          <line x1="0" y1="16" x2="72" y2="16" stroke-width="0.8"></line>
+        </g>
+        <text x="140" y="180" font-size="10" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace">xe-0/0/0</text>
+        <g transform="translate(232,136)" stroke="#14171A" stroke-width="1">
+          <path d="M 8 4 L 8 0 L 28 0 L 28 4" fill="none"></path>
+          <rect x="0" y="4" width="72" height="24" fill="#FFFFFF"></rect>
+          <line x1="0" y1="16" x2="72" y2="16" stroke-width="0.8"></line>
+        </g>
+        <text x="268" y="180" font-size="10" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace">xe-0/0/1</text>
+        <g transform="translate(104,232)" stroke="#14171A" stroke-width="1">
+          <path d="M 8 4 L 8 0 L 28 0 L 28 4" fill="none"></path>
+          <rect x="0" y="4" width="72" height="24" fill="#FFFFFF"></rect>
+          <line x1="0" y1="16" x2="72" y2="16" stroke-width="0.8"></line>
+        </g>
+        <text x="140" y="276" font-size="10" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace">xe-0/0/2</text>
+        <rect x="126" y="240" width="46" height="16" fill="#14171A"></rect>
+        <text x="144" y="251" font-size="8" fill="#FFFFFF" text-anchor="middle" font-family="'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace">SR &middot; LC</text>
+        <circle cx="166" cy="245" r="1.6" fill="#FFFFFF"></circle><circle cx="166" cy="251" r="1.6" fill="#FFFFFF"></circle>
+        <g transform="translate(232,232)" stroke="#14171A" stroke-width="1">
+          <path d="M 8 4 L 8 0 L 28 0 L 28 4" fill="none"></path>
+          <rect x="0" y="4" width="72" height="24" fill="#FFFFFF"></rect>
+          <line x1="0" y1="16" x2="72" y2="16" stroke-width="0.8"></line>
+        </g>
+        <text x="268" y="276" font-size="10" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace">xe-0/0/3</text>
+        <rect x="254" y="240" width="46" height="16" fill="#14171A"></rect>
+        <text x="272" y="251" font-size="8" fill="#FFFFFF" text-anchor="middle" font-family="'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace">SR &middot; LC</text>
+        <circle cx="294" cy="245" r="1.6" fill="#FFFFFF"></circle><circle cx="294" cy="251" r="1.6" fill="#FFFFFF"></circle>
+        <g font-size="9" fill="#5C6772" text-anchor="middle">
+          <text x="140" y="194">empty &middot; the cage alone</text>
+          <text x="268" y="194">the lead leaves here</text>
+          <text x="140" y="222">SR optic &middot; fibre in it</text>
+          <text x="268" y="222">SR optic &middot; nothing in it</text>
+        </g>
+        <g fill="none" stroke-linecap="round"><path d="M 172 248 C 188 248, 192 258, 192 288 L 192 400" stroke="#24B4C8" stroke-width="3.2"></path><path d="M 172 248 C 188 248, 192 258, 192 288 L 192 400" stroke="#FFFFFF" stroke-width="1.1"></path></g>
+        <text x="192" y="416" font-size="9" fill="#5C6772" text-anchor="middle">to fibre-01 p3 &middot; OM3 &middot; aqua</text>
+        <text x="192" y="428" font-size="9" fill="#5C6772" text-anchor="middle">U30, off this view</text>
+        <g stroke="#14171A" stroke-width="1"><rect x="880" y="84" width="440" height="140" fill="#FFFFFF" stroke-width="1.5"></rect><rect x="880" y="84" width="440" height="24" fill="#F2F4F6"></rect></g>
+        <circle cx="894" cy="96" r="4" fill="#14171A"></circle>
+        <text x="904" y="100" font-size="12" font-weight="700" fill="#14171A">vm-host-01</text>
+        <text x="980" y="100" font-size="10" fill="#5C6772">4U server &middot; U16 &ndash; 19 &middot; rack A-04 &middot; pulled in</text>
+        <text x="1310" y="100" font-size="10" fill="#5C6772" text-anchor="end">push out &times;</text>
+        <text x="912" y="124" font-size="10" letter-spacing="1" fill="#5C6772">10G NIC &middot; 2 &times; SFP+</text>
+        <g transform="translate(912,136)" stroke="#14171A" stroke-width="1">
+          <path d="M 8 4 L 8 0 L 28 0 L 28 4" fill="none"></path>
+          <rect x="0" y="4" width="72" height="24" fill="#FFFFFF"></rect>
+          <line x1="0" y1="16" x2="72" y2="16" stroke-width="0.8"></line>
+        </g>
+        <text x="948" y="180" font-size="10" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace">sfp 0</text>
+        <g transform="translate(1024,136)" stroke="#5C6772" stroke-width="1">
+          <path d="M 8 4 L 8 0 L 28 0 L 28 4" fill="none"></path>
+          <rect x="0" y="4" width="72" height="24" fill="#FFFFFF"></rect>
+          <line x1="0" y1="16" x2="72" y2="16" stroke-width="0.8"></line>
+        </g>
+        <text x="1060" y="180" font-size="10" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace">sfp 1</text>
+        <g font-size="9" fill="#5C6772" text-anchor="middle"><text x="948" y="194">the drop point</text><text x="1060" y="194">empty &middot; the cage alone</text></g>
+        <line x1="304" y1="152" x2="912" y2="152" stroke="#9FA4A9" stroke-width="2.4" stroke-linecap="round" opacity="0.28"></line>
+        <text x="620" y="170" font-size="10" fill="#5C6772" text-anchor="middle">lead in hand &middot; xe-0/0/1 &rarr; sfp 0 &middot; nothing is recorded yet</text>
+        <g font-size="10" fill="#5C6772">
+          <text x="72" y="478">Two things live in a cage: first the optic, then the cable in the optic. A DAC is both at once, so the drawing asks which on release.</text>
+          <text x="72" y="493">Two optics and a fibre pair are three parts, each with its own record; the fibre goes to a panel, the DAC goes straight to the other cage.</text>
+          <text x="72" y="508">The default is the last answer given on this design. Change it here and only this link changes.</text>
+        </g>
+      </svg>
+      <div style="position: absolute; left: 912px; top: 232px; width: 420px; border: 1px solid #D2D7DD; background: #FAFBFC; padding: 6px 0; display: flex; flex-direction: column;">
+        <div class="lbl" style="padding: 5px 12px;">What is between them?</div>
+        <div class="prow" style="font-weight: 700;"><span>DAC &middot; 3 m &middot; one cable, both ends fixed</span><span style="font-size: 10px; color: #5C6772; font-weight: 400; white-space: nowrap;">last used</span></div>
+        <div class="prow"><span>Two optics and a fibre pair &middot; SFP+ SR &middot; LC both ends</span></div>
+        <div style="height: 1px; background: #D2D7DD; margin: 6px 0;"></div>
+        <div style="font-size: 11px; color: #5C6772; padding: 5px 12px; line-height: 16px;">The check follows the optic: a cage holding a copper optic takes copper.</div>
+      </div>
+    </div>
+  </div>
+  <div style="height: 34px; flex-shrink: 0; background: #FAFBFC; border-top: 1px solid #D2D7DD; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; gap: 16px;">
+    <span style="font-size: 12px;">A cage takes an optic before it takes a cable. Drag cage to cage and say what is between them.</span>
+    <span style="font-size: 11px; color: #5C6772; white-space: nowrap;">Every name, address, count and time on this board is a sample.</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
