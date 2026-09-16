@@ -103,6 +103,13 @@ Three things this session learned that the rules above do not say:
    shell; a merge commit was garbled that way on 2026-09-13 and had to be amended.
 10. **`pkill -f fathom-server` kills your own shell** when the pattern appears in its command line.
     Check with `pgrep` and `curl` instead.
+12. **A Rust builder's worktree builds its own `target/`, and the disk is a fixed allowance.** Four
+    of them in one afternoon filled it (2026-09-16); `ENOSPC` then showed up as phantom clippy
+    errors and a failed `npm run build`. Give every Rust builder
+    `CARGO_TARGET_DIR=/home/user/Fathom/target` in its brief so worktrees share one build cache
+    (cargo locks it correctly), remove a worktree the moment its files are taken across, and
+    delete test logs under `/tmp/claude-0/` as you go.
+
 11. **Boards are checked by rendering them**, not by reading them: headless Chromium is at
     `/opt/pw-browsers/chromium` and Playwright at `/opt/node22/lib/node_modules/playwright`; a
     ten-line script screenshots a `.dc.html` at 1440 wide. Every overlap and clipped label this
