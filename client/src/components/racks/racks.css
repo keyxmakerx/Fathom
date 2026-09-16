@@ -1,0 +1,17 @@
+.racks-place__loading {
+  padding: var(--s4);
+  color: var(--muted);
+  font-size: var(--t-body);
+}
+
+/* The refused-save caution wash, shown in the editor surface's place. The
+   same wash `signin.css`'s `.signin__refusal` uses for the same reason: a
+   refusal from the server, not this client's own invention. */
+.racks-place__refusal {
+  margin: var(--s3);
+  border: var(--rule-hair) solid var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+  padding: var(--s3);
+  font-size: var(--t-small);
+}

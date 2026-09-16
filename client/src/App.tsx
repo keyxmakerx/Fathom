@@ -8,6 +8,7 @@ import { Home } from './components/home';
 import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
 import type { Lens, Place } from './components/Shell';
+import { RacksPlace } from './components/racks/RacksPlace';
 import { PopoverRow } from './components/shell/Popover';
 import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
@@ -198,20 +199,31 @@ export default function App() {
   // marked current.
   const forest = buildScopeForest(scopes);
 
+  const shellPlaceProps = {
+    ...common,
+    place: view.place,
+    path,
+    tree: <ScopeTree nodes={forest} currentScopeId={view.design.scopeId} onSelectScope={selectScope} />,
+    onPlaceChange: (place: Place) => setView({ ...view, place }),
+  };
+
+  // Racks has a real place to render now; Inventory keeps its placeholder
+  // (this task's brief) until its own session builds it.
+  if (view.place === 'racks') {
+    return (
+      <RacksPlace
+        {...shellPlaceProps}
+        organisationId={view.organisation.organisationId}
+        designId={view.design.designId}
+        onZoomChange={setZoom}
+      />
+    );
+  }
+
   return (
-    <Shell
-      {...common}
-      place={view.place}
-      path={path}
-      tree={<ScopeTree nodes={forest} currentScopeId={view.design.scopeId} onSelectScope={selectScope} />}
-      onPlaceChange={(place) => setView({ ...view, place })}
-    >
+    <Shell {...shellPlaceProps}>
       <div className="app-placeholder">
-        <p>
-          {view.place === 'racks'
-            ? 'The drawing is not built yet.'
-            : 'The inventory is not built yet.'}
-        </p>
+        <p>The inventory is not built yet.</p>
         <button type="button" onClick={() => setView({ kind: 'home' })}>
           Back to home
         </button>

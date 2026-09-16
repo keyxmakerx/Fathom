@@ -72,6 +72,11 @@ export interface ShellProps {
    * editor is then absent from the DOM, not an empty panel. */
   editor: ReactNode | null;
 
+  /** Content for the folded rail's open state (`Strip`'s `nav`) — the
+   * palette, for the Racks place. Omitted or `null` falls back to `Strip`'s
+   * own honest empty state rather than inventing rail content. */
+  rail?: ReactNode;
+
   /** The drawing itself (or Inventory's lists, or Home): the shell draws
    * none of it. */
   children: ReactNode;

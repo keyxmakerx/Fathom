@@ -39,6 +39,7 @@ export function Shell({
   onRedo,
   account,
   editor,
+  rail,
   children,
 }: ShellProps) {
   return (
@@ -61,7 +62,7 @@ export function Shell({
         account={account}
       />
       <div className="shell__body">
-        <Strip />
+        <Strip rail={rail} />
         <main className="shell__drawing" aria-label="Drawing">
           {children}
         </main>

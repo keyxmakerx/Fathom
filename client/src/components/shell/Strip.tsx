@@ -1,4 +1,12 @@
+import type { ReactNode } from 'react';
 import { useState } from 'react';
+
+export interface StripProps {
+  /** The open rail's content, e.g. the Racks place's palette. `null` or
+   * omitted shows the honest empty state below rather than inventing rail
+   * content. */
+  rail?: ReactNode;
+}
 
 /**
  * The rail folded to a 28px strip — BRIEF.md "Under the bar": "a small ›
@@ -13,7 +21,7 @@ import { useState } from 'react';
  * that rail yet (no prop supplies it), so opening it shows the honest empty
  * state rather than inventing rack names.
  */
-export function Strip() {
+export function Strip({ rail }: StripProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -72,7 +80,7 @@ export function Strip() {
 
       {open && (
         <nav className="shell-rail" aria-label="Racks and equipment">
-          <p className="shell-rail__empty">Nothing to show yet.</p>
+          {rail ?? <p className="shell-rail__empty">Nothing to show yet.</p>}
         </nav>
       )}
     </div>

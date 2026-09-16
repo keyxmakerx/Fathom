@@ -1,46 +1,12 @@
 /**
- * The view contract this drawing builds against. The document model is
- * being built in parallel by another session at `client/src/document/view.ts`
- * — when that file exists, the lead switches the import there in one line.
- * Until then these are declared here, with exactly the names and shapes the
- * brief specifies, so the switch is mechanical. The drawing never imports
- * `document/` directly.
+ * The view contract this drawing builds against. The document model
+ * (`client/src/document/view.ts`) is the one definition of the four view
+ * shapes below; this file re-exports them rather than declaring a second
+ * copy, now that that file exists. The drawing itself still never imports
+ * `document/` directly — it goes through this module.
  */
 
-export interface PortView {
-  id: string;
-  label: string;
-  connector: string;
-  row: number;
-  column: number;
-  uplink: boolean;
-}
-
-export interface ChassisView {
-  id: string;
-  deviceId: string;
-  hostname: string;
-  model: string;
-  vendor: string;
-  positionU: number;
-  heightU: number;
-  face: 'front' | 'rear';
-  ports: PortView[];
-}
-
-export interface RackView {
-  id: string;
-  label: string;
-  heightU: number;
-  unitNumbering: string;
-  chassis: ChassisView[];
-  freeRuns: Array<{ fromU: number; toU: number }>;
-}
-
-export interface ClosetView {
-  premisesId: string;
-  racks: RackView[];
-}
+export type { ChassisView, ClosetView, PortView, RackView } from '../../document/view';
 
 /**
  * What the drawing raises. It never acts on the graph itself — every one of
