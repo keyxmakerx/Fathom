@@ -1008,6 +1008,15 @@ drawer or a safe — at the moment the first is registered, and says why: the al
 a steward-co-signed recovery every time a laptop dies, and the observed response to that friction is
 key escrow (§8.4).
 
+**The invitation token's text form — recorded 2026-09-16, found by the enrolment review.** A token
+leaves the server as 32 raw bytes in a length-prefixed field (`admin.rs`'s invitation answer) and
+nothing here said how a console or a mail renders it to a person. The one place the server does
+render such a token, `main.rs`'s `write_bootstrap_token`, writes **64 lowercase hexadecimal
+characters**, and the browser's enrolment screen reads that form, stripping whitespace, hyphens and
+the invisible characters an HTML mail can insert. That is the encoding, for every surface that
+shows a token to a person, until a server-side constant names it; a console that renders anything
+else breaks the screen without breaking the server.
+
 ### 4.5 The operator surface has no password path at all
 
 An operator session is `A1` or it does not exist. There is no password sign-in, no reset link, and no
