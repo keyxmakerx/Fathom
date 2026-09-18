@@ -788,6 +788,26 @@ credential in the vault is gone permanently.
 
 ---
 
+## W. Places — raised 2026-09-18 (ADR-0051)
+
+### W1. Where does the places track sit after v0.1: before the vault, or after it?
+
+The vault is the product's promise about stored data and is already designed; the places track
+(the designer, the room stop, blueprint import) is what the owner asked for on 2026-09-18. The
+recommendation is after the vault, because the vault changes storage and the places track does
+not, and building storage last means re-sealing what the places track wrote. The owner may
+decide the other way on merit.
+
+### W2. A real blueprint to test the DXF importer against.
+
+A hand-made file proves the parser and not the world. One DXF of a real floor, with its layer
+names, from the owner when the importer is built. Until then the importer is not scheduled.
+
+### W3. DWG is not supported; is that acceptable?
+
+Reading DWG means a large foreign dependency for a proprietary binary format. Every CAD tool
+exports DXF. Recommendation: say so in the import dialog and never read DWG.
+
 ## What was dropped, and why that matters
 
 **42 of 93 candidates were stale.** If a question you remember being asked is not in this list, it

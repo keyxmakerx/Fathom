@@ -199,7 +199,8 @@ other.
   removes a supply and sets a rack's row and bay.
 
 **Carried:** a panel's port pairing belongs on the schema's `PassThrough` edge, written at
-placement, and the path walk should follow it (the drawing pairs by label across rows today).
+placement, and the path walk should follow it (the drawing pairs by label across rows today);
+that, shelves, surfaces, the sketch and the room's furniture are schema 0.8, ADR-0051, next.
 Optics (ADR-0047 §5). The left-right order of the EX4300's two supply slots could not be
 established from any reachable diagram. The "two people on a running server" proof, which tests
 and screenshots still stand in for. The old Rust-assembled HTML client is retired and still on disk under

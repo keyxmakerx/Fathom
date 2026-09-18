@@ -79,8 +79,9 @@ comparable amount again.
 
 ## Handoff, 2026-09-16 — read this first
 
-Sessions 1 to 5 are done and Session 6's rear elevation (ADR-0050) is in (updated late on
-2026-09-16). **Next**: inside a box, the config surface with the redaction gate on paste (`crates/fathom-wasm`, never reimplemented in
+Sessions 1 to 5 are done and Session 6(a), the rear elevation, is in (updated 2026-09-18).
+**Next is Session 6(b)**, schema 0.8 and the small drawings of ADR-0051, then 6(c): inside a box,
+the config surface with the redaction gate on paste (`crates/fathom-wasm`, never reimplemented in
 JavaScript; test the gate against what a real device accepts, `CLAUDE.md` rule 2), view-only
 rendering for `read`, motion and look. Start with `docs/STATE.md`'s client section and its
 "Carried" list, then UI-SPEC "Inside a box", "Config", "Presence", "Motion", "Look". Before anything else, read in this order and nothing more: `docs/STATE.md`'s
@@ -200,9 +201,14 @@ the spec does not draw. In order:
   the palette, place and move, pan and zoom, save and load through Session 2's endpoints.
 - **5.** Cables and portals (§"Cables", §"Keeping it readable at forty cables", §"Portals"),
   drag-to-connect, power (§"Power").
-- **6.** Inside a box (§"Inside a box"), the config surface (§"Config") with the redaction gate
-  on paste — test the gate against what a real device accepts (CLAUDE.md rule 2) — view-only
-  rendering for `read`, motion and look (§"Motion", §"Look").
+- **6.** In three parts, amended 2026-09-18 (ADR-0051): **(a)** the rear elevation, ADR-0050,
+  done 2026-09-16; **(b)** schema 0.8 and the small drawings — shelves and what sits on them,
+  surfaces and what is fixed to them, the outlet form, pass-through written at placement, the
+  sketch for a device with no catalogue entry, the room's furniture as geometry — shapes before the
+  release because a migration after it costs more; **(c)** inside a box (§"Inside a box"), the
+  config surface (§"Config") with the redaction gate on paste — test the gate against what a real
+  device accepts (CLAUDE.md rule 2) — view-only rendering for `read`, motion and look (§"Motion",
+  §"Look").
 
 **Done when:** you can build a network diagram from nothing, by dragging, and it saves, and a
 colleague with `read` sees it and cannot change it. ~400k tokens per session.
@@ -230,6 +236,11 @@ colleague with `read` sees it and cannot change it. ~400k tokens per session.
    foundations item 1) already forbids in-process state.
 4. **Receipts, witness, break-glass, WebAuthn** — admin §7.4–§7.6, §8, §15.4; §15.2's Shamir.
 5. **Inventory, teaching, the config checker** — Phases 5 and 6. **LDAP** after groups.
+6. **The places track** — ADR-0051, added 2026-09-18; its position in this list relative to the
+   vault is the owner's (OPEN-QUESTIONS W1). In order: the designer that draws a model and writes
+   it into your own engine, the sketch form first; the room stop with outlets and horizontal runs
+   and the path lit from desk to switch; blueprint import, a plan image as a scaled background
+   first, DXF walls and labels second, DWG never, vector PDF only if DXF proves insufficient.
 
 ---
 
