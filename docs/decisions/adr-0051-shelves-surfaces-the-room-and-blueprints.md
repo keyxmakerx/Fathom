@@ -69,8 +69,18 @@ arrives as its own piece, the small ones before v0.1 and the large ones after.
   every CAD tool exports DXF.
 - **Vector PDF** keeps paths but needs a PDF content-stream reader and a decompressor, a dependency
   argued through the gate; later, if DXF proves insufficient in practice.
-- **Recognising walls in a scanned image** is a research problem, not a feature; out of scope.
-  The scan stays a background and a person draws over it.
+- **Rebuilding a layout from a picture** — the owner's question of 2026-09-18: upload a JPG or a
+  PDF page and have Fathom draw the walls. Fully automatic, no: separating walls from hatching,
+  dimension lines, furniture symbols and text in pixels is what trained vision models do, room
+  names need character recognition on top, and both mean large dependencies or sending blueprints
+  to a third party, neither of which fits this product. Two steps instead. First, **trace with
+  snapping**: the image scaled behind the room stop and a person draws walls over it with
+  straight-line and right-angle snapping — half a session, always works. Second, **suggest walls**:
+  a classical pipeline compiled from Rust for the browser with no external packages — binarise,
+  thin, find long straight segments — offered as candidates a person accepts or rejects in one
+  pass. A draft on a clean drawing, noise on a bad scan, never a result; one to two sessions, and
+  built only if a real blueprint of the owner's shows it saves time over tracing. Room names stay
+  typed.
 
 ## Consequences
 
