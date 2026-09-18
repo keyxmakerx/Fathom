@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-18: 1234 server-side tests and 595 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-18: 1234 server-side tests and 624 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -206,9 +206,8 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   resolve on occupants and fixtures; the editor shows either with the placed-on control. The
   catalogue has a Tripp Lite shelf, an ICC outlet box and a CyberPower UPS, cited.
 
-**Carried:** a shelf cannot be named yet and the editor shows its id; a sketched device and a board
-have no create command in the palette, only in the document; a board fixed with no position hides
-what it carries; the opened occupant can sit under the editor; a panel's label pairing remains as
+**Carried:** dropping a board onto a surface is a no-op until the drawing has a surface drop zone;
+the opened occupant can sit under the editor; a panel's label pairing remains as
 the fallback when no pass-through edge exists. Optics (ADR-0047 §5). The left-right order of the
 EX4300's two supply slots could not be established. The "two people on a running server" proof,
 which tests and screenshots still stand in for. The old Rust-assembled HTML client is retired and still on disk under
