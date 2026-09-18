@@ -201,7 +201,12 @@
             <rect x="0" y="0" width="72" height="22" fill="#FFFFFF" stroke="#14171A"></rect>
             <text x="36" y="15" font-size="11" fill="#14171A" text-anchor="middle">accept</text>
           </g>
-          <text x="675" y="146" font-size="9" fill="#5C6772" text-anchor="middle">left-click accepts the room and its walls</text>
+          <g transform="translate(728,104)">
+            <!-- reject: plain ink, a hairline border, no colour -->
+            <rect x="0" y="0" width="72" height="22" fill="#FFFFFF" stroke="#D2D7DD"></rect>
+            <text x="36" y="15" font-size="11" fill="#14171A" text-anchor="middle">reject</text>
+          </g>
+          <text x="720" y="146" font-size="9" fill="#5C6772" text-anchor="middle"><tspan x="720" dy="0">accept takes the room and its walls</tspan><tspan x="720" dy="12">&middot; reject drops the suggestion</tspan><tspan x="720" dy="12">&middot; right-click for more</tspan></text>
           <!-- the pointer -->
           <path d="M 700 118 L 700 134 L 704 130 L 708 138 L 711 136.5 L 707 128.5 L 712.5 128 Z" fill="#FFFFFF" stroke="#14171A" stroke-width="1" stroke-linejoin="round"></path>
 
@@ -225,7 +230,7 @@
           </g>
           <g transform="translate(0,36)">
             <rect x="0" y="4" width="40" height="12" fill="none" stroke="#D2D7DD" stroke-width="9"></rect><rect x="0" y="4" width="40" height="12" fill="none" stroke="#5C6772" stroke-width="1.2" stroke-dasharray="5 3"></rect><text x="50" y="14">under the pointer &middot; the lit path's pale halo</text>
-            <rect x="380" y="4" width="40" height="12" fill="#FFFFFF" stroke="#14171A"></rect><rect x="377" y="1" width="46" height="18" fill="none" stroke="#1F6F4A"></rect><text x="430" y="14">the accept affordance &middot; a hairline ring in the recommendation colour, the only colour on the drawing</text>
+            <rect x="380" y="4" width="40" height="12" fill="#FFFFFF" stroke="#14171A"></rect><rect x="377" y="1" width="46" height="18" fill="none" stroke="#1F6F4A"></rect><text x="430" y="14">the accept affordance, ringed in the recommendation colour; reject beside it in ink</text>
           </g>
           <text x="0" y="74">Room names stay typed. The image cannot say it is current or the right building, so the plan control is always there to take it away and look at the facts alone.</text>
         </g>
