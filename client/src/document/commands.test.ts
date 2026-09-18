@@ -332,4 +332,21 @@ describe('placeChassis writes the schema connector token, not the catalogue kind
     expect(connectorTokenOf('C14')).toBe('c14');
     expect(connectorTokenOf('Mystery')).toBe('other');
   });
+
+  it('maps the catalogue NEMA 5-15 tokens to the schema spelling (ADR-0051 §1)', async () => {
+    const { connectorTokenOf } = await import('./compat');
+    expect(connectorTokenOf('nema_5_15r')).toBe('nema515r');
+    expect(connectorTokenOf('nema_5_15p')).toBe('nema515p');
+  });
+});
+
+describe('compatible() reached from a catalogue-sourced NEMA port, not just the schema spelling', () => {
+  it('accepts the pair once run through connectorTokenOf, the path placement actually takes', async () => {
+    const { connectorTokenOf } = await import('./compat');
+    const { compatible } = await import('./compat');
+    const r = connectorTokenOf('nema_5_15r');
+    const p = connectorTokenOf('nema_5_15p');
+    expect(compatible(r, p)).toEqual({ ok: true, kind: 'power', media: 'power' });
+    expect(compatible(p, r)).toEqual({ ok: true, kind: 'power', media: 'power' });
+  });
 });

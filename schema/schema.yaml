@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.7"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.8"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -100,6 +100,47 @@ schema:
                     # (51 -> 52), one new edge (95 -> 96). No kind removed, no retype, no
                     # tuple reordered, no containment moved for anything that already had
                     # one. Whole change = MINOR.
+                    #
+                    # 0.8 is ADR-0051 §1 (the shapes, before v0.1, 2026-09-18), all additive.
+                    # Three new enum variants on the existing declarer PassiveNode.form —
+                    # shelf, outlet, board (62 §16.2: "New enum variant" is minor, three
+                    # times). One new edge kind, SitsOn, seating a Chassis or PassiveNode on
+                    # a shelf's slot (62 §16.2: "New edge kind" is minor); one field on its
+                    # new declarer, slot (62 §16.2: a field on a new declarer is minor). A
+                    # REFERENCE edge, and for MountedIn's own reason: a Chassis already has a
+                    # containment parent (Device, via HasChassis) and a PassiveNode already
+                    # has one (Premises, via HasPassiveNode), and containment is a forest, so
+                    # a shelf cannot also contain either — the schema cannot say the target's
+                    # form is shelf, and the doc says the client refuses anything else. One
+                    # new node kind, Surface — a wall, floor, desk or ceiling a device or
+                    # passive can be fixed to — joining the Placeable class exactly as Rack
+                    # did (ADR-0036), because a surface draws as a flat panel beside the rack
+                    # rows the same way a rack elevation is a separate renderer from the
+                    # topology diagram (62 §16.2: "New node kind" is minor, and the Placeable
+                    # class widening is "New enum variant"-shaped in 62's table). One new
+                    # edge kind, HasSurface, containing a Surface in its Premises, in the
+                    # manner of HasRack — CONTAINMENT, because Surface's declared identity,
+                    # `[owner(Premises), label]`, needs the same convention every other
+                    # `owner(X)` identity term in this tree already uses (HasRack's own doc:
+                    # "in: 1 keeps containment a forest and makes owner(Premises) usable as
+                    # Rack's identity term") (62 §16.2: "New edge kind" is minor). One new
+                    # edge kind, FixedTo, fixing a Chassis or PassiveNode to a Surface or a
+                    # PassiveNode of form board (62 §16.2: "New edge kind" is minor); two
+                    # fields on its new declarer, x_mm and y_mm (62 §16.2: fields on a new
+                    # declarer are minor). A REFERENCE edge, for the same forest reason SitsOn
+                    # is one: the schema cannot say a Chassis or PassiveNode carries at most
+                    # one of MountedIn, SitsOn and FixedTo, and the doc says the client
+                    # enforces it. One new optional field on the existing declarer
+                    # PhysicalPort, face (62 §16.2: "New optional field" is minor) — the
+                    # faceplate the port sits on, absent meaning front or the catalogue's.
+                    # Two new enum variants on PhysicalPort.connector, nema515r and
+                    # nema515p, beside c13 and c14 (62 §16.2: "New enum variant" is minor,
+                    # twice). Eight new field keys, 318-325 (SitsOn.slot, Surface.label,
+                    # Surface.form, Surface.width_mm, Surface.height_mm, FixedTo.x_mm,
+                    # FixedTo.y_mm, PhysicalPort.face), one new kind (52 -> 53), three new
+                    # edges (96 -> 99). No kind removed, no retype, no tuple reordered, no
+                    # containment moved for anything that already had one. Whole change =
+                    # MINOR.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -279,6 +320,10 @@ classes:
       # ADR-0050. A power supply is a part with its own record, drawn on the rear
       # elevation like any other PortHost — PhysicalPort's own precedent exactly.
       - PowerSupply
+      # ADR-0051 §1. A surface draws as a flat panel beside the rack rows, a wall
+      # elevation — a separate renderer from the topology diagram, Rack's own
+      # precedent exactly.
+      - Surface
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
 
@@ -1009,8 +1054,9 @@ kinds:
       # exactly as tier-1 already behaves when position (0..1 since birth) is absent.
       - { name: label, type: Text, card: "0..1", emit: "—", doc: "The silkscreen: \"1\", \"PON 0/1\". Not the interface name. Absent means: the port exists and nobody has read the faceplate yet." }
       - { name: position, type: PortPosition, card: "0..1", emit: "—", doc: "{ slot: Option<u8>, subslot: Option<u8>, index: u16 }." }
-      - { name: connector, type: "enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, other }", card: "0..1", emit: "—", doc: "c13/c14 are the IEC 60320 power connectors — a PDU outlet is c13, a device PSU inlet is c14 (docs/UI-SPEC.md \"Power\")." }
+      - { name: connector, type: "enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, nema515r, nema515p, other }", card: "0..1", emit: "—", doc: "c13/c14 are the IEC 60320 power connectors — a PDU outlet is c13, a device PSU inlet is c14 (docs/UI-SPEC.md \"Power\"). ADR-0051 §1 adds nema515r and nema515p beside them: the North American household outlet and plug a tower UPS and many PDUs carry (NEMA 5-15), receptacle and plug the same pairing c13/c14 already model." }
       - { name: service, type: "enum { ethernet, pon, rf, serial, console, management, power, other }", card: "0..1", emit: "—", doc: "What the cage is for. power: a PDU outlet or a device PSU inlet, ports the same way as any other faceplate opening (docs/UI-SPEC.md \"Power\"); Cable.media already carries power for the run between them." }
+      - { name: face, type: "enum { front, rear }", card: "0..1", emit: "—", doc: "ADR-0051 §1 — the faceplate the port sits on. Absent means front, or the catalogue's own answer when the model has one: an outlet's rear face is the punchdown, its front the jacks, and this is the field the view guessed at until now." }
       - { name: speed_max, type: Bandwidth, card: "0..1", emit: "—", doc: The cage's ceiling — a different fact from Interface.speed. }
       - name: transceiver
         type: Transceiver
@@ -1076,7 +1122,22 @@ kinds:
       Contained by Premises, not Site.
     fields:
       - { name: label, type: Text, card: "1", emit: "—", doc: "No hostname: nothing addresses it." }
-      - { name: form, type: "enum { splitter, patch_panel, odf, wdm, media_converter, enclosure, other }", card: "1", emit: "—" }
+      - name: form
+        type: "enum { splitter, patch_panel, odf, wdm, media_converter, enclosure, shelf, outlet, board, other }"
+        card: "1"
+        emit: "—"
+        doc: |
+          ADR-0051 §1 adds shelf, outlet, board, each declared before `other` per that
+          variant's own convention (Device.role's doc). A shelf is a passive that takes U:
+          it occupies rack units exactly as a Chassis does, but the equipment on it is
+          placed by SitsOn's left-to-right slot rather than by a unit position, because
+          the shelf itself already answers "where in the rack". An outlet is a wall jack
+          with a front face (the jacks a patch cord plugs into) and a rear face (the
+          punchdown where the horizontal run lands) — the same front/rear split
+          PhysicalPort.face now names. A board is plywood fixed to a wall that other
+          things are fixed to: a backboard carries an ONT, a splitter, an outlet, each
+          FixedTo the board rather than the wall, and a thing FixedTo a board measures
+          from the board's own edges (FixedTo's own doc).
       - { name: split_ratio, type: SplitRatio, card: "0..1", emit: "—", doc: "{ inputs: u8, outputs: u16 } — 1:32." }
       - { name: model, type: Identifier, card: "0..1", emit: "—" }
       - { name: serial, type: Identifier, card: "0..1", emit: "—" }
@@ -1428,6 +1489,38 @@ kinds:
       - { name: model, type: Identifier, card: "0..1", emit: "—" }
     identity:
       - [ owner(Chassis), slot ]   # tier 1 -- a physical coordinate, PhysicalPort's precedent exactly
+
+  # ADR-0051 §1 (the shapes, 2026-09-18). Appended at the tail because order is wire
+  # identity (62 §13) -- PowerSupply's own precedent.
+  - kind: Surface
+    layer: physical
+    emits: false
+    doc: |
+      A wall, floor, desk or ceiling a device or passive can be FixedTo (ADR-0051 §1) --
+      the room's own geometry, not a network fact: a floor-standing UPS is a Chassis
+      FixedTo a floor surface and needs nothing else, since it already has outlets, an
+      inlet and a management port; an ONT is a Chassis FixedTo a wall surface; a
+      backboard is a PassiveNode of form board FixedTo a wall surface, and things
+      screwed to the board are FixedTo the board rather than the wall (FixedTo's own
+      doc). Contained by Premises, exactly as Rack and PassiveNode are and for the same
+      reason (19 §3.6): a surface has no operational identity, it is only somewhere.
+
+      Joins the Placeable class (ADR-0035), exactly as Rack did (ADR-0036): a surface
+      draws as a flat panel beside the rack rows, a wall elevation, the same machinery
+      as a rack's elevation and a separate renderer from the topology diagram, and a
+      box the diagram could draw but not place would be the same arbitrary hole Rack's
+      own doc already named.
+
+      NOTHING PARSES A SURFACE, the same property of the world Rack's and PowerSupply's
+      docs already state for themselves: no vendor statement names a wall. Every
+      Surface and every HasSurface/FixedTo is Origin::Hand.
+    fields:
+      - { name: label, type: Text, card: "1", emit: "—", doc: "The name a person gave it: \"North wall\", \"Desk 4\", \"Riser closet floor\". No hostname -- nothing addresses a surface." }
+      - { name: form, type: "enum { wall, floor, desk, ceiling }", card: "1", emit: "—", doc: "What kind of surface this is. Deliberately no `other`: a surface a person cannot name as one of these four is not yet a surface worth fixing anything to." }
+      - { name: width_mm, type: u32, card: "0..1", emit: "—", doc: "The surface's extent left to right, millimetres. Optional: a surface recorded before it was measured has said something true." }
+      - { name: height_mm, type: u32, card: "0..1", emit: "—", doc: "The surface's extent floor to ceiling (or, for a floor, its other horizontal extent), millimetres. Optional for the same reason width_mm is." }
+    identity:
+      - [ owner(Premises), label ]   # tier 1 -- a physical coordinate, Rack's and PassiveNode's precedent exactly
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -2464,7 +2557,7 @@ edges:
       owner(Premises) usable as Rack's identity term.
   - edge: MountedIn
     class: reference
-    from: [Chassis]
+    from: [Chassis, PassiveNode]
     to: [Rack]
     out: "0..1"
     in: "0..n"
@@ -2517,6 +2610,11 @@ edges:
       one between racks should touch one relation rather than three fields on a node. Edges
       are first-class and carry typed fields (ADR-0007); Link, Terminates and Occupies already
       do.
+
+      ADR-0051 §1 widens `from:` to add PassiveNode: a shelf is a PassiveNode of form shelf
+      and occupies rack units exactly as a Chassis does, so it needs the same door into a
+      Rack. The reference argument above applies unchanged -- a PassiveNode already has a
+      containment parent, Premises, via HasPassiveNode, so MountedIn cannot also contain it.
 
   # WO-10 (2026-08-29). Three edges, appended at the tail (62 §13).
   - edge: HasDhcpRelay
@@ -2599,6 +2697,89 @@ edges:
       usable as Rack's identity term"). No `owner()` term in this schema is backed by a
       reference edge, and FittedIn follows the one convention that exists: HasPort's and
       HasRack's, not MountedIn's.
+
+  # ADR-0051 §1 (the shapes, 2026-09-18). Appended at the tail because order is wire
+  # identity (62 §13) -- FittedIn's own precedent.
+  - edge: SitsOn
+    class: reference
+    from: [Chassis, PassiveNode]
+    to: [PassiveNode]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - name: slot
+        type: u8
+        card: "1"
+        emit: "—"
+        constraints:
+          range: { min: 1, max: 64, platforms: [] }
+        doc: |
+          The place on the shelf counted left to right, 1 first.
+    emit_dict: null
+    doc: |
+      ADR-0051 §1. Seats a Chassis or PassiveNode on the shelf it sits on -- a shelf
+      being a PassiveNode of form shelf, a passive that takes U in place of a device's
+      own. The schema cannot say the target's FORM is shelf -- `to:` names the kind,
+      PassiveNode, not one of its enum variants -- so the client refuses a SitsOn whose
+      target is not form shelf; the schema is not where that refusal lives.
+
+      A REFERENCE EDGE, and for MountedIn's own reason: a Chassis already has a
+      containment parent (Device, via HasChassis) and a PassiveNode already has one
+      (Premises, via HasPassiveNode), and containment is a forest, so a shelf cannot
+      also contain either without taking it from its real parent. MountedIn's own doc
+      makes this argument for Chassis; it applies to PassiveNode without change, since
+      HasPassiveNode is exactly as total a containment edge as HasChassis.
+
+  - edge: HasSurface
+    class: containment
+    from: [Premises]
+    to: [Surface]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0051 §1. A surface hangs off the place it stands in, exactly as HasRack hangs
+      a rack off one. in: "1" keeps containment a forest and makes owner(Premises)
+      usable as Surface's identity term -- HasRack's own doc, unchanged.
+
+  - edge: FixedTo
+    class: reference
+    from: [Chassis, PassiveNode]
+    to: [Surface, PassiveNode]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: x_mm, type: u32, card: "0..1", emit: "—", doc: "Millimetres from the surface's left edge (docs/OPEN-QUESTIONS.md W5). Absent means fixed to that surface with the position not yet measured -- a surface recorded before it was measured has said something true, Surface.width_mm's own reason for being 0..1." }
+      - { name: y_mm, type: u32, card: "0..1", emit: "—", doc: "Millimetres from the floor (docs/OPEN-QUESTIONS.md W5), for a wall, board, desk or ceiling. On a floor Surface y_mm has no meaning -- a floor has only the one horizontal extent x_mm already names, the same axis Surface.height_mm's own doc concedes a floor lacks -- so a thing fixed to a floor states x_mm only, or neither. A thing fixed to a board -- a PassiveNode of form board -- measures x_mm and y_mm from the board's own edges, not the wall's: the board is what it is actually screwed to. Absent for the same reason x_mm can be absent." }
+    emit_dict: null
+    doc: |
+      ADR-0051 §1. Fixes a Chassis or PassiveNode to a Surface, or to a PassiveNode of
+      form board standing in for one -- a floor-standing UPS is a Chassis FixedTo a
+      floor Surface and needs nothing else, since x_mm and y_mm are both 0..1 and a
+      position not yet measured is still a true fact; a backboard's own occupants are
+      FixedTo the board.
+
+      A REFERENCE EDGE, for the same forest reason SitsOn is one: the thing being fixed
+      already has its real containment parent (HasChassis or HasPassiveNode), so FixedTo
+      cannot also contain it.
+
+      The schema cannot say the PassiveNode limb of `to:` is form board -- `to:` names
+      the kind, PassiveNode, not one of its enum variants -- so the client refuses a
+      FixedTo whose PassiveNode target is not form board; the schema is not where that
+      refusal lives, SitsOn's own target-form sentence, unchanged.
+
+      A Chassis or PassiveNode has AT MOST ONE of MountedIn, SitsOn and FixedTo -- one
+      box is in one place. The schema cannot say so: MountedIn and FixedTo are both
+      `out: "0..1"` on the SAME kinds and nothing in this grammar expresses "at most one
+      across these edges", only "at most one of THIS edge". The doc says the client
+      enforces it, the same division of labour SitsOn's target-form restriction uses.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

@@ -95,9 +95,12 @@ fn slot_type_covers_every_registry_key() {
     // existing keys, not new ones.
     // 312 -> 317 on 2026-09-16: ADR-0050's five keys -- `Rack.row`, `.bay`
     // (313-314), `PowerSupply.slot`, `.serial`, `.model` (315-317).
+    // 317 -> 325 on 2026-09-18: ADR-0051 §1's eight keys -- `SitsOn.slot` (318),
+    // `Surface.label`, `.form`, `.width_mm`, `.height_mm` (319-322), `FixedTo.x_mm`,
+    // `.y_mm` (323-324), `PhysicalPort.face` (325).
     assert_eq!(
         FIELD_KEYS.len(),
-        317,
+        325,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

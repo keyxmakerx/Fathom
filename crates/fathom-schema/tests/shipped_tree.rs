@@ -64,14 +64,14 @@ fn shipped_tree_declaration_counts_hold() {
     // hard ceiling, bought for a bound that 62 §3.2's per-field `constraints`
     // already expresses. The `Placeable` CLASS did move — it gained `Rack` —
     // and `every_kind_but_the_pin_itself_is_placeable` below is the noticer.
-    assert_eq!(tree.kinds.len(), 52, "kind count");
-    assert_eq!(tree.edges.len(), 96, "edge count (88 + 8 derived)");
+    assert_eq!(tree.kinds.len(), 53, "kind count");
+    assert_eq!(tree.edges.len(), 99, "edge count (91 + 8 derived)");
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
     assert_eq!(tree.classes.len(), 4, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 317, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 325, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -109,7 +109,16 @@ fn shipped_tree_declaration_counts_hold() {
     // membership (`Placeable` gains `PowerSupply`, `PortHost` gains `PowerSupply`), which
     // is why `every_kind_but_the_pin_itself_is_placeable` below is still the noticer for
     // the first and there is no equivalent noticer for the second, per PortHost's own doc.
-    assert_eq!(tree.version.as_deref(), Some("0.7"));
+    //
+    // 0.7 -> 0.8 (2026-09-18) is ADR-0051 §1 (the shapes) and moves five of the counts
+    // above: +1 kind (`Surface`, 52 -> 53), +3 edges (`SitsOn`, `HasSurface`, `FixedTo`,
+    // 96 -> 99), +8 field keys (318-325, 317 -> 325). Scalars, enum FILE count, class
+    // count and import scopes are unmoved: `PassiveNode.form`'s three new variants
+    // (`shelf`, `outlet`, `board`) and `PhysicalPort.connector`'s two (`nema515r`,
+    // `nema515p`) land on already-keyed, already-inline enums -- no new file, no new
+    // key. The `Placeable` CLASS gained `Surface` and the noticer below still holds;
+    // `PortHost` is untouched -- `Surface` hosts no ports.
+    assert_eq!(tree.version.as_deref(), Some("0.8"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

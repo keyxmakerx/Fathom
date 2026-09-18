@@ -478,11 +478,11 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 }
 
 /// ADR-0049 #4's wire number for the schema version currently declared on
-/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.7"` at time
+/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.8"` at time
 /// of writing, whose minor component this is. Kept as its own named constant
-/// rather than a bare `7` at each call site so a future schema bump has one
+/// rather than a bare `8` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 7;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 8;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -1272,6 +1272,32 @@ async fn a_signed_in_caller_reads_the_catalogue_list_and_one_models_full_detail(
                 .iter()
                 .any(|f| f.groups.iter().any(|g| g.kind.token() == "SFP+")),
         "must not invent a port kind the model does not have"
+    );
+
+    // The tower UPS's NEMA outlets round-trip through the same route, with
+    // the lowercase `nema_5_15r` token PortKind::token() sends over the wire
+    // (crates/fathom-corpus/src/catalogue.rs) — not the connector's own
+    // "NEMA 5-15R" spelling.
+    let ups_path = "/catalogue/models/cyberpower/PR1500LCDRT2U";
+    let (status, body) = call(addr, &estate.steward, "GET", ups_path, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let ups_text = String::from_utf8_lossy(&body);
+    assert!(ups_text.contains("\"kind\":\"nema_5_15r\""), "{ups_text}");
+    assert!(!ups_text.contains("\"kind\":\"NEMA 5-15R\""), "{ups_text}");
+
+    // The shelf and the outlet box both round-trip too — the catalogue list
+    // must carry every vendor directory `load_catalogue` found, not just the
+    // one `first` happened to be.
+    let (status, list_body) = call(addr, &estate.steward, "GET", "/catalogue/models", b"").await;
+    assert_eq!(status, "200");
+    let list_text = String::from_utf8_lossy(&list_body);
+    assert!(
+        list_text.contains("\"model\":\"SRSHELF2P1U\""),
+        "{list_text}"
+    );
+    assert!(
+        list_text.contains("\"model\":\"IC107SBTWH\""),
+        "{list_text}"
     );
 }
 

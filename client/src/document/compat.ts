@@ -1,7 +1,8 @@
 // Whether a cable can join two `PhysicalPort.connector` tokens
 // (`schema/schema.yaml`'s `PhysicalPort.connector` enum: `rj45, sfp,
-// sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, other`) — and,
-// when it can, the `Cable.media` a fresh cable between them defaults to.
+// sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, nema515r,
+// nema515p, other`) — and, when it can, the `Cable.media` a fresh cable
+// between them defaults to.
 //
 // This file did not exist when this session started (`cables.ts`'s brief:
 // "`compat.ts` may or may not exist yet — the drawing builder owns it").
@@ -13,7 +14,17 @@
 //   lc    <-> lc                                      fibre,  mmf
 //   sfp/sfp_plus/sfp28/qsfp/qsfp28 <-> the SAME token  copper, twinax (a DAC)
 //   c13   <-> c14 (either order)                       power,  power
+//   nema515r <-> nema515p (either order)               power,  power
 //   everything else is refused, naming what is missing.
+//
+// ADR-0051 §1 adds `nema515r`/`nema515p` (schema 0.8) beside `c13`/`c14`: the
+// North American receptacle and plug a tower UPS and many PDUs carry (NEMA
+// 5-15), paired as power the same way the IEC pair already is. Spelled
+// without underscores before the digits — `nema_5_15r` fails
+// `fathom-schemagen`'s token rule ("token `nema_5_15r` segment `5` must
+// start a-z": every `_`-separated segment of a schema token becomes a
+// `CamelCase` fragment, and a fragment cannot start with a digit) — so the
+// schema and this file both carry `nema515r`/`nema515p`.
 
 export type CableKind = 'copper' | 'fibre' | 'power';
 
@@ -51,7 +62,24 @@ function normaliseConnector(c: string): string {
   return SCHEMA_CONNECTORS.has(lower) ? lower : connectorTokenOf(c.trim().toUpperCase());
 }
 
-const SCHEMA_CONNECTORS = new Set(['rj45', 'sfp', 'sfp_plus', 'sfp28', 'qsfp', 'qsfp28', 'lc', 'sc', 'mpo', 'f', 'bnc', 'c13', 'c14', 'other']);
+const SCHEMA_CONNECTORS = new Set([
+  'rj45',
+  'sfp',
+  'sfp_plus',
+  'sfp28',
+  'qsfp',
+  'qsfp28',
+  'lc',
+  'sc',
+  'mpo',
+  'f',
+  'bnc',
+  'c13',
+  'c14',
+  'nema515r',
+  'nema515p',
+  'other',
+]);
 
 export function compatible(fromConnectorRaw: string, toConnectorRaw: string): CompatResult {
   const fromConnector = normaliseConnector(fromConnectorRaw);
@@ -66,7 +94,10 @@ export function compatible(fromConnectorRaw: string, toConnectorRaw: string): Co
     return { ok: true, kind: 'copper', media: 'twinax' };
   }
   const isPowerPair =
-    (fromConnector === 'c13' && toConnector === 'c14') || (fromConnector === 'c14' && toConnector === 'c13');
+    (fromConnector === 'c13' && toConnector === 'c14') ||
+    (fromConnector === 'c14' && toConnector === 'c13') ||
+    (fromConnector === 'nema515r' && toConnector === 'nema515p') ||
+    (fromConnector === 'nema515p' && toConnector === 'nema515r');
   if (isPowerPair) {
     return { ok: true, kind: 'power', media: 'power' };
   }
@@ -74,7 +105,7 @@ export function compatible(fromConnectorRaw: string, toConnectorRaw: string): Co
     ok: false,
     reason:
       `"${fromConnector}" does not pair with "${toConnector}" — the table has rj45-rj45, ` +
-      'lc-lc, a matching pair from sfp/sfp_plus/sfp28/qsfp/qsfp28 (as a DAC), and c13-c14',
+      'lc-lc, a matching pair from sfp/sfp_plus/sfp28/qsfp/qsfp28 (as a DAC), c13-c14, and nema515r-nema515p',
   };
 }
 
@@ -115,6 +146,10 @@ export function connectorTokenOf(catalogueKind: string): string {
       return 'c13';
     case 'C14':
       return 'c14';
+    case 'nema_5_15r':
+      return 'nema515r';
+    case 'nema_5_15p':
+      return 'nema515p';
     default:
       return 'other';
   }

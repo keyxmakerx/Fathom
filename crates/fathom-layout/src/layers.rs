@@ -308,6 +308,12 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     row for it either, and the rear elevation — a separate renderer,
         //     like the rack elevation — is where a fitted supply actually draws.
         | NodeKind::PowerSupply
+        //     `Surface` (ADR-0051 §1) joins them by the same rule again: `56`
+        //     has no row for a wall, floor, desk or ceiling either, and a
+        //     surface's elevation — a flat panel beside the rack rows — is,
+        //     like the rack and rear elevations, a separate renderer this
+        //     table does not govern.
+        | NodeKind::Surface
         // (b) `19`'s service model, which `56` does not mention at all.
         | NodeKind::Tenant
         | NodeKind::Service

@@ -99,7 +99,24 @@ fn schema_version_is_the_trees() {
     // keys, 313-317. 62 §16.2 prices a new optional field, a new node kind and a
     // new edge kind all MINOR; an old build keeps the unrecognised kind in
     // `unknown` rather than refusing the file. Nothing existing moved.
-    assert_eq!(SCHEMA_VERSION, "0.7");
+    //
+    // 0.7 -> 0.8 on 2026-09-18: ADR-0051 §1, the shapes. Three enum variants on
+    // the existing declarer `PassiveNode.form` (`shelf`, `outlet`, `board`); one
+    // new edge kind `SitsOn` (reference, `[Chassis, PassiveNode] -> PassiveNode`,
+    // one field on its new declarer, `slot`) seating a box on a shelf's slot --
+    // reference, not containment, for `MountedIn`'s own reason: the thing seated
+    // already has a real containment parent. One new node kind `Surface` (joins
+    // `Placeable`, `Rack`'s own precedent) and its containment edge `HasSurface`
+    // (`Premises -> Surface`, `HasRack`'s own shape). One new edge kind `FixedTo`
+    // (reference, `[Chassis, PassiveNode] -> [Surface, PassiveNode]`, two fields
+    // on its new declarer, `x_mm`, `y_mm`) fixing a box to a surface or a board.
+    // One new optional field on the existing declarer `PhysicalPort` (`face`).
+    // Two enum variants on `PhysicalPort.connector` (`nema515r`, `nema515p`).
+    // Eight new field keys, 318-325. 62 §16.2 prices a new optional field, a new
+    // enum variant, a new node kind and a new edge kind all MINOR; an old build
+    // keeps the unrecognised kind or token in `unknown` rather than refusing the
+    // file. Nothing existing moved.
+    assert_eq!(SCHEMA_VERSION, "0.8");
 }
 
 #[test]
@@ -601,7 +618,14 @@ fn dispatch_names_every_registry_key() {
     // 312 -> 317 on 2026-09-16: ADR-0050's five keys -- `Rack.row`, `Rack.bay`
     // (313-314), `PowerSupply.slot`, `.serial`, `.model` (315-317) -- appended
     // after `Cable.sheath`.
-    assert_eq!(FIELD_KEYS.len(), 317, "the registry grew or shrank");
+    //
+    // 317 -> 325 on 2026-09-18: ADR-0051 §1's eight keys -- `SitsOn.slot` (318),
+    // `Surface.label`, `.form`, `.width_mm`, `.height_mm` (319-322), `FixedTo.x_mm`,
+    // `.y_mm` (323-324), `PhysicalPort.face` (325) -- appended after
+    // `PowerSupply.model`. `PassiveNode.form` and `PhysicalPort.connector`'s new
+    // variants land on already-keyed fields -- no new key, an enum variant is not
+    // a field.
+    assert_eq!(FIELD_KEYS.len(), 325, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

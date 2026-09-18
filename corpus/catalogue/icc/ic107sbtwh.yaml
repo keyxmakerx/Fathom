@@ -1,0 +1,132 @@
+# corpus/catalogue/icc/ic107sbtwh.yaml — read by fathom-corpus's `catalogue`
+# module (crates/fathom-corpus/src/catalogue.rs), which see for the format's
+# rules: unknown keys refused, positions and numbering are a pattern the
+# reader expands, never coordinates this file states outright.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10,
+# same convention as corpus/catalogue/juniper/ex4300-48p.yaml).
+#
+# WHERE EVERY NUMBER BELOW CAME FROM.
+#
+# This environment's network egress is blocked for every domain tried on
+# 2026-09-18, including icc.com directly (`curl` through the configured proxy
+# and this session's WebFetch tool both returned EGRESS_BLOCKED on the
+# CONNECT — see corpus/catalogue/tripplite/srshelf2p1u.yaml's header for the
+# full list of domains tried that same session). ICC's own product pages
+# could therefore not be fetched and read verbatim, which CLAUDE.md rule 1
+# asks to be stated plainly rather than papered over. What follows is the
+# best available evidence given that constraint, and no further: web search
+# results dated 2026-09-18 that named and quoted ICC's own product pages,
+# corroborated across independent listings — the same method, for the same
+# reason, as ap7920b.yaml's and fd1w12aqdlcz.yaml's headers.
+#
+# TWO ICC PARTS, ONE CATALOGUE ENTRY. This is a real limit of the format, not
+# a shortcut: a structured-cabling surface-mount box ships as an EMPTY shell
+# — ICC's own listing for IC107SBTWH is explicit that it "works with slim and
+# wide profile keystone jacks (sold separately)". This format has no way to
+# express "box, sold separately from the jacks that go in it" (ADR-0044 keeps
+# the format closed to exactly `Model` — one physical thing with faceplates),
+# so this entry catalogues the box POPULATED with its documented companion
+# part, the same way a real installer's parts list would read the two
+# together, rather than either omitting the ports entirely (which would be
+# false — this is what the box is FOR) or inventing a single combined SKU
+# that does not exist.
+#
+#   ICC, product page for IC107SBTWH, "12 Port Surface Mount Box... Works
+#   with Slim and Wide Profile Keystone Jacks (Sold Separately)... UL Listed
+#   TAA Compliant" (icc.com/product/surface-mount-box-12-ports/) — content
+#   established via web search synthesis, read 2026-09-18 (see note above):
+#   12 keystone jack positions, ABS plastic housing, surface (wall) mount via
+#   adhesive, screws or an electrical junction box, side/rear cable exit with
+#   a bottom knockout. Corroborated by independent listings (Amazon,
+#   cablingplus.com, twacomm.com, supertechsupplies.com) all describing the
+#   same 12-port, keystone-based surface mount box under the same SKU.
+#
+#   ICC, product page for the CAT6 RJ45 Keystone Jack, HD style
+#   (icc.com/product/cat6-rj45-keystone-jack-hd-style/, catalogue number
+#   IC107F6CWH for the white 25-pack) — content established via web search
+#   synthesis, read 2026-09-18: RJ45 front face (8P8C), "rear split back 110
+#   IDC" punchdown termination on the rear, terminated with a 110 punch down
+#   tool or ICC's JackEasy tool. Corroborated by independent listings
+#   (ShowMeCables, Lowe's, Amazon) describing the same 110 IDC rear
+#   termination on ICC's Cat6 HD keystone jack line.
+#
+# A PUNCHDOWN IS NOT AN RJ45 — SAID HERE, ONCE, PLAINLY. The rear face below
+# is declared with `kind: "RJ45"`, twelve of them, but a 110 IDC punchdown
+# terminal is a different physical connector from the 8P8C plug an RJ45 patch
+# cord seats into: nothing goes IN the rear the way a cord seats into the
+# front. `crates/fathom-corpus/src/catalogue.rs`'s `PortKind` names six
+# connector shapes (plus the two NEMA kinds this same round of catalogue work
+# adds) and none of them is "110 IDC punchdown"; `RJ45` is the nearest kind
+# the format has — same reasoning the copper patch panels in
+# corpus/catalogue/panduit/ already rest on for their own rear punchdown
+# fields, made explicit here because this file states it as a REAR FACEPLATE
+# rather than leaving it unmodelled. Twelve positions, one per front port,
+# `single_row`.
+#
+# NUMBERED 13-24, NOT 1-12 — DELIBERATELY DISTINCT FROM THE FRONT. The client
+# (`client/src/document/view.ts`'s `faceplatePortMatch`) still matches a
+# placed port to a faceplate on `(label, connector)` alone; `PhysicalPort.face`
+# (schema 0.8, ADR-0051 §1) exists but nothing writes or reads it yet
+# (`view.ts`'s "tried in the model's own faceplate order, first match wins").
+# Numbering the rear 1-12 to match the front, as a punchdown-to-jack pairing
+# would suggest, would make every rear position share a `(label, connector)`
+# with its front counterpart and collapse the two into one identity
+# (`PhysicalPort`'s tier-2 key is `[owner(PortHost), label]` and does not
+# include face) — the front jack would win every match and the rear
+# punchdown would never draw. 13-24 keeps the twelve rear positions distinct
+# real ports until `PhysicalPort.face` is wired through placement and the
+# view; a reader must not treat the rear numbers as a second set of jacks,
+# only as the twelve punchdowns this box actually has, one per front port in
+# the same physical order.
+#
+# NO `psu_slots` DECLARED — a surface-mount box and its keystone jacks are
+# unpowered hardware, exactly the `PassiveNode`, "hardware with ports and no
+# configuration", corpus/catalogue/panduit/'s own patch panels already rest
+# on (see that directory's file headers for the same reasoning stated once).
+#
+# `form: outlet` — new this file (ADR-0051 §1's `PassiveNode.form` gaining
+# `shelf`/`outlet`; see `crates/fathom-corpus/src/catalogue.rs`'s `ModelForm`
+# doc comment): a rear face of twelve RJ45-shaped punchdown positions looks,
+# to this format, exactly like a patch panel's rear — nothing else in this
+# file distinguishes a wall outlet box from a patch panel, which is exactly
+# the gap `form` closes.
+#
+# `rack_units: 1` IS NOMINAL, NOT A DERIVED DIMENSION — SAID PLAINLY. This
+# device is not rack equipment; it mounts to a wall or a raceway. The format
+# still makes `rack_units` a required field (1..=60, no "not applicable"
+# value exists yet — that is ADR-0051 §4(b)'s room stop, not this task), so
+# `1` is used here as the field's own minimum rather than a height-derived
+# figure invented from a datasheet this session could not establish (neither
+# ICC page found in web search gave an overall box height). Read this `1` as
+# "the smallest value the field allows", not as a measured fact.
+vendor: icc
+model: IC107SBTWH
+rack_units: 1
+form: outlet
+reviewed_by: <named human>
+source:
+  cite: >
+    ICC, product page for IC107SBTWH, "12 Port Surface Mount Box... Works
+    with Slim and Wide Profile Keystone Jacks (Sold Separately)"
+    (icc.com/product/surface-mount-box-12-ports/), for the 12-port keystone
+    housing and surface-mount construction; and ICC, product page for the
+    CAT6 RJ45 Keystone Jack HD style (icc.com/product/cat6-rj45-keystone-
+    jack-hd-style/, catalogue number IC107F6CWH), for the RJ45 front face and
+    110 IDC rear punchdown termination of the jack this box is populated
+    with; corroborated by independent listings (Amazon, cablingplus.com,
+    twacomm.com, supertechsupplies.com, ShowMeCables, Lowe's) describing the
+    same two parts — all read via web search synthesis on 2026-09-18 because
+    this environment's network egress blocked a direct fetch of icc.com (see
+    the file header for what was tried and for why this entry combines two
+    ICC part numbers).
+  read_on: "2026-09-18"
+faceplates:
+  - face: front
+    port_count: 12
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 12, start_number: 1 }
+  - face: rear
+    port_count: 12
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 12, start_number: 13 }

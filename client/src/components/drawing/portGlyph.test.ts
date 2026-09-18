@@ -22,6 +22,13 @@ describe('portKindFor', () => {
     expect(portKindFor('c13')).toBe('c14');
   });
 
+  it('reads both the catalogue and schema spellings of the NEMA 5-15 pair (ADR-0051 §1)', () => {
+    expect(portKindFor('nema_5_15r')).toBe('c14');
+    expect(portKindFor('nema_5_15p')).toBe('c14');
+    expect(portKindFor('nema515r')).toBe('c14');
+    expect(portKindFor('nema515p')).toBe('c14');
+  });
+
   it('draws nothing for a connector it does not recognise, rather than guessing', () => {
     expect(portKindFor('rs232')).toBeNull();
     expect(portKindFor('')).toBeNull();

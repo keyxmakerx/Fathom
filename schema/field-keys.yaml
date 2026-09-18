@@ -398,3 +398,13 @@ fields:
   PowerSupply.slot: 315
   PowerSupply.serial: 316
   PowerSupply.model: 317
+  # ADR-0051 §1 (the shapes, 2026-09-18). Appended at the tail with the next
+  # integers, which is the only way a key is ever assigned.
+  SitsOn.slot: 318
+  Surface.label: 319
+  Surface.form: 320
+  Surface.width_mm: 321
+  Surface.height_mm: 322
+  FixedTo.x_mm: 323
+  FixedTo.y_mm: 324
+  PhysicalPort.face: 325

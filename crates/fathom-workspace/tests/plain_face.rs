@@ -30,7 +30,9 @@ use std::collections::BTreeSet;
 /// moved it to 0.3 on 2026-08-16. Subsequent bumps (0.4 relaxed cardinality,
 /// 0.5 added `DhcpRelay`, 0.6 the cables session's `Cable.sheath` field and
 /// two enum variants, 0.7 ADR-0050's `Rack.row`/`Rack.bay`, the `PowerSupply`
-/// kind and the `FittedIn` edge) move only this line again. The payload below is
+/// kind and the `FittedIn` edge, 0.8 ADR-0051 §1's `SitsOn`/`HasSurface`/`FixedTo`
+/// edges, the `Surface` kind, `PhysicalPort.face` and the enum variants on
+/// `PassiveNode.form`/`PhysicalPort.connector`) move only this line again. The payload below is
 /// byte-identical across every bump, which is the useful thing this vector
 /// proves — adding a kind and two edges changes the header and nothing else,
 /// and adding a field or an enum variant does not even change the shape of a
@@ -47,7 +49,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.7\n",
+    "schema 0.8\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",

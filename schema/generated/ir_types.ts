@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.7";
+export const SCHEMA_VERSION = "0.8";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -58,7 +58,8 @@ export type NodeKind =
   | "LayoutPin"
   | "Rack"
   | "DhcpRelay"
-  | "PowerSupply";
+  | "PowerSupply"
+  | "Surface";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -112,6 +113,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Rack",
   "DhcpRelay",
   "PowerSupply",
+  "Surface",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -203,7 +205,10 @@ export type EdgeKind =
   | "HasDhcpRelay"
   | "RelaysFor"
   | "RelayServerIn"
-  | "FittedIn";
+  | "FittedIn"
+  | "SitsOn"
+  | "HasSurface"
+  | "FixedTo";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -293,6 +298,9 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "RelaysFor",
   "RelayServerIn",
   "FittedIn",
+  "SitsOn",
+  "HasSurface",
+  "FixedTo",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -414,7 +422,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   SystemSettings: ["time_zone", "root_authentication_set", "name_servers"],
   NtpServer: ["address", "prefer", "key_id"],
   SyslogTarget: ["host", "facility", "severity", "structured_data"],
-  PhysicalPort: ["label", "position", "connector", "service", "speed_max", "transceiver", "notes", "occupied"],
+  PhysicalPort: ["label", "position", "connector", "service", "face", "speed_max", "transceiver", "notes", "occupied"],
   Cable: ["label", "assembly", "media", "length_m", "installed_on", "ownership", "provider_circuit", "notes", "last_confirmed", "sheath"],
   PassiveNode: ["label", "form", "split_ratio", "model", "serial"],
   Premises: ["label", "street", "clli", "form", "region", "coordinates", "notes"],
@@ -428,6 +436,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Rack: ["label", "height_u", "unit_numbering", "row", "bay"],
   DhcpRelay: ["server", "group_name", "maximum_hop_count", "minimum_wait_time"],
   PowerSupply: ["slot", "serial", "model"],
+  Surface: ["label", "form", "width_mm", "height_mm"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -749,4 +758,12 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "PowerSupply.slot": 315,
   "PowerSupply.serial": 316,
   "PowerSupply.model": 317,
+  "SitsOn.slot": 318,
+  "Surface.label": 319,
+  "Surface.form": 320,
+  "Surface.width_mm": 321,
+  "Surface.height_mm": 322,
+  "FixedTo.x_mm": 323,
+  "FixedTo.y_mm": 324,
+  "PhysicalPort.face": 325,
 };

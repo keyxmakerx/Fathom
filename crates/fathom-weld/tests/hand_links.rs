@@ -34,13 +34,25 @@ fn admitting(from: NodeKind, to: NodeKind) -> Vec<EdgeKind> {
 #[test]
 fn the_candidates_are_the_reference_edges_minus_the_named_exclusions() {
     let mut pairs_with_any = 0usize;
-    let mut excluded_seen = 0usize;
+    // Which excluded kinds some pair actually admitted -- membership, not a
+    // count. ADR-0051 §1 widened `MountedIn.from` to `[Chassis, PassiveNode]`
+    // (a shelf occupies rack units too), so `MountedIn` is now admitted by
+    // TWO pairs, (Chassis, Rack) and (PassiveNode, Rack), both correctly
+    // excluded below -- "admitted by exactly one pair" was true of the
+    // shipped schema the day this test was written, never a property
+    // `HAND_LINK_EXCLUDED` itself promises.
+    let mut reached: Vec<EdgeKind> = Vec::new();
     for from in NodeKind::ALL {
         for to in NodeKind::ALL {
             let mut want = admitting(from, to);
-            let before = want.len();
-            want.retain(|k| !HAND_LINK_EXCLUDED.contains(k));
-            excluded_seen += before - want.len();
+            want.retain(|k| {
+                if HAND_LINK_EXCLUDED.contains(k) {
+                    reached.push(*k);
+                    false
+                } else {
+                    true
+                }
+            });
             assert_eq!(
                 hand_link_candidates(from, to),
                 want,
@@ -56,11 +68,14 @@ fn the_candidates_are_the_reference_edges_minus_the_named_exclusions() {
     // The exclusion list must be REACHED, not merely declared. A list that
     // names a kind no pair admits would pass every other assertion here while
     // protecting nothing.
-    assert_eq!(
-        excluded_seen,
-        HAND_LINK_EXCLUDED.len(),
-        "every excluded kind should be admitted by exactly one pair and removed there"
-    );
+    for k in HAND_LINK_EXCLUDED {
+        assert!(
+            reached.contains(k),
+            "{} is declared excluded but no pair admits it as a reference edge -- it \
+             protects nothing",
+            k.name()
+        );
+    }
     assert!(
         pairs_with_any > 0,
         "if no pair has a candidate, nothing can ever be drawn by hand"

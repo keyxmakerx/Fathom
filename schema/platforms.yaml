@@ -43,6 +43,20 @@ vendors:
   panduit:   {}          # hardware-catalogue vendor only, added 2026-09-16 for
                          # corpus/catalogue/panduit/: passive patch panels
                          # (copper and fibre). Same reasoning as `apc` above.
+  tripplite: {}          # hardware-catalogue vendor only, added 2026-09-18 for
+                         # corpus/catalogue/tripplite/: a passive rack shelf
+                         # (ADR-0051 §1's PassiveNode.form gaining `shelf`).
+                         # Same reasoning as `apc`/`panduit` above — a shelf
+                         # has ports and power for nobody.
+  icc:       {}          # hardware-catalogue vendor only, added 2026-09-18 for
+                         # corpus/catalogue/icc/: a 12-port surface-mount RJ45
+                         # outlet box (ADR-0051 §1's `outlet` form). Same
+                         # reasoning as `apc`/`panduit` above.
+  cyberpower: {}         # hardware-catalogue vendor only, added 2026-09-18 for
+                         # corpus/catalogue/cyberpower/: a tower UPS with NEMA
+                         # 5-15R outlets and a captive NEMA 5-15P cord. Same
+                         # reasoning as `apc`/`panduit` above — has power and
+                         # a management jack, not a CLI to capture.
 
   proxmox:   {}          # Owner-named 2026-08-28 (`70` §18.4): *"proxmox would probably
                          # need to be an engine"* — the first general-purpose host vendor,

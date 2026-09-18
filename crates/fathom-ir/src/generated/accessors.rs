@@ -1113,8 +1113,8 @@ mod body {
         pub fn position<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::PortPosition, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(209))
         }
-        /// `PhysicalPort.connector` — `enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, other }`, card `0..1`, emit `—`.
-        /// c13/c14 are the IEC 60320 power connectors — a PDU outlet is c13, a device PSU inlet is c14 (docs/UI-SPEC.md "Power").
+        /// `PhysicalPort.connector` — `enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, nema515r, nema515p, other }`, card `0..1`, emit `—`.
+        /// c13/c14 are the IEC 60320 power connectors — a PDU outlet is c13, a device PSU inlet is c14 (docs/UI-SPEC.md "Power"). ADR-0051 §1 adds nema515r and nema515p beside them: the North American household outlet and plug a tower UPS and many PDUs carry (NEMA 5-15), receptacle and plug the same pairing c13/c14 already model.
         pub fn connector<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortConnector, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(210))
         }
@@ -1122,6 +1122,11 @@ mod body {
         /// What the cage is for. power: a PDU outlet or a device PSU inlet, ports the same way as any other faceplate opening (docs/UI-SPEC.md "Power"); Cable.media already carries power for the run between them.
         pub fn service<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortService, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(211))
+        }
+        /// `PhysicalPort.face` — `enum { front, rear }`, card `0..1`, emit `—`.
+        /// ADR-0051 §1 — the faceplate the port sits on. Absent means front, or the catalogue's own answer when the model has one: an outlet's rear face is the punchdown, its front the jacks, and this is the field the view guessed at until now.
+        pub fn face<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortFace, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(325))
         }
         /// `PhysicalPort.speed_max` — `Bandwidth`, card `0..1`, emit `—`.
         /// The cage's ceiling — a different fact from Interface.speed.
@@ -1205,7 +1210,18 @@ mod body {
         pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(225))
         }
-        /// `PassiveNode.form` — `enum { splitter, patch_panel, odf, wdm, media_converter, enclosure, other }`, card `1`, emit `—`.
+        /// `PassiveNode.form` — `enum { splitter, patch_panel, odf, wdm, media_converter, enclosure, shelf, outlet, board, other }`, card `1`, emit `—`.
+        /// ADR-0051 §1 adds shelf, outlet, board, each declared before `other` per that
+        /// variant's own convention (Device.role's doc). A shelf is a passive that takes U:
+        /// it occupies rack units exactly as a Chassis does, but the equipment on it is
+        /// placed by SitsOn's left-to-right slot rather than by a unit position, because
+        /// the shelf itself already answers "where in the rack". An outlet is a wall jack
+        /// with a front face (the jacks a patch cord plugs into) and a rear face (the
+        /// punchdown where the horizontal run lands) — the same front/rear split
+        /// PhysicalPort.face now names. A board is plywood fixed to a wall that other
+        /// things are fixed to: a backboard carries an ONT, a splitter, an outlet, each
+        /// FixedTo the board rather than the wall, and a thing FixedTo a board measures
+        /// from the board's own edges (FixedTo's own doc).
         pub fn form<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PassiveNodeForm, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(226))
         }
@@ -1594,6 +1610,29 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(317))
         }
     }
+    /// Typed reads for `Surface` fields.
+    pub mod surface {
+        /// `Surface.label` — `Text`, card `1`, emit `—`.
+        /// The name a person gave it: "North wall", "Desk 4", "Riser closet floor". No hostname -- nothing addresses a surface.
+        pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(319))
+        }
+        /// `Surface.form` — `enum { wall, floor, desk, ceiling }`, card `1`, emit `—`.
+        /// What kind of surface this is. Deliberately no `other`: a surface a person cannot name as one of these four is not yet a surface worth fixing anything to.
+        pub fn form<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::SurfaceForm, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(320))
+        }
+        /// `Surface.width_mm` — `u32`, card `0..1`, emit `—`.
+        /// The surface's extent left to right, millimetres. Optional: a surface recorded before it was measured has said something true.
+        pub fn width_mm<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(321))
+        }
+        /// `Surface.height_mm` — `u32`, card `0..1`, emit `—`.
+        /// The surface's extent floor to ceiling (or, for a floor, its other horizontal extent), millimetres. Optional for the same reason width_mm is.
+        pub fn height_mm<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(322))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -1917,6 +1956,14 @@ mod body {
             315 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             316 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             317 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            318 => Some((core::any::TypeId::of::<u8>(), "u8")),
+            319 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            320 => Some((core::any::TypeId::of::<crate::generated::ir_types::SurfaceForm>(), "crate::generated::ir_types::SurfaceForm")),
+            321 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            322 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            323 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            324 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            325 => Some((core::any::TypeId::of::<crate::generated::ir_types::PhysicalPortFace>(), "crate::generated::ir_types::PhysicalPortFace")),
             _ => None,
         }
     }
@@ -2242,6 +2289,14 @@ mod body {
             315 => crate::canon::slot_to::<crate::scalar::Text>(315, "crate::scalar::Text", value),
             316 => crate::canon::slot_to::<crate::scalar::Identifier>(316, "crate::scalar::Identifier", value),
             317 => crate::canon::slot_to::<crate::scalar::Identifier>(317, "crate::scalar::Identifier", value),
+            318 => crate::canon::slot_to::<u8>(318, "u8", value),
+            319 => crate::canon::slot_to::<crate::scalar::Text>(319, "crate::scalar::Text", value),
+            320 => crate::canon::slot_to::<crate::generated::ir_types::SurfaceForm>(320, "crate::generated::ir_types::SurfaceForm", value),
+            321 => crate::canon::slot_to::<u32>(321, "u32", value),
+            322 => crate::canon::slot_to::<u32>(322, "u32", value),
+            323 => crate::canon::slot_to::<u32>(323, "u32", value),
+            324 => crate::canon::slot_to::<u32>(324, "u32", value),
+            325 => crate::canon::slot_to::<crate::generated::ir_types::PhysicalPortFace>(325, "crate::generated::ir_types::PhysicalPortFace", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2565,6 +2620,14 @@ mod body {
             315 => crate::canon::slot_from::<crate::scalar::Text>(j),
             316 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             317 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            318 => crate::canon::slot_from::<u8>(j),
+            319 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            320 => crate::canon::slot_from::<crate::generated::ir_types::SurfaceForm>(j),
+            321 => crate::canon::slot_from::<u32>(j),
+            322 => crate::canon::slot_from::<u32>(j),
+            323 => crate::canon::slot_from::<u32>(j),
+            324 => crate::canon::slot_from::<u32>(j),
+            325 => crate::canon::slot_from::<crate::generated::ir_types::PhysicalPortFace>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

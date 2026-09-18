@@ -107,6 +107,9 @@ pub enum CatalogueGate {
     /// required), or declared `role: management` / `role: console` without
     /// `names` (ADR-0050 §5 — a named port is not numbered).
     PortNamingInvalid,
+    /// A model's `form:` is present but is not one of `shelf`, `outlet`,
+    /// `board` or `panel` — see [`ModelForm`].
+    FormUnknown,
 }
 
 /// UI-SPEC "Ports" names four glyphs — "Four glyphs, never confusable" — but
@@ -123,8 +126,18 @@ pub enum CatalogueGate {
 /// with the `C14` glyph mirrored (`client/src/components/drawing/
 /// portGlyph.ts`) — a drawing-layer stopgap, not a reason to misname the
 /// metal here (the same reasoning `QsfpPlus` already established). A
-/// spelling outside all six is still a `PortKindUnknown` load error, not a
+/// spelling outside all eight is still a `PortKindUnknown` load error, not a
 /// silently accepted synonym.
+///
+/// `NemaP5_15R`/`NemaP5_15P` are the seventh and eighth kinds, added for a
+/// tower UPS's outlet bank and captive input cord (`corpus/catalogue/
+/// cyberpower/`): the female NEMA 5-15R receptacle a device's NEMA 5-15P plug
+/// seats in, and the male 5-15P plug itself — the mains equivalent of the
+/// `C13`/`C14` pair above, gated the same way (two ends of one cord, never
+/// one `PortKind` for both). Their tokens are spelled `nema_5_15r`/
+/// `nema_5_15p`, all-lowercase and underscored rather than `NEMA 5-15R`
+/// verbatim — `token()` returns exactly what `from_token` accepts, same as
+/// every other kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PortKind {
     Rj45,
@@ -133,6 +146,8 @@ pub enum PortKind {
     Lc,
     C14,
     C13,
+    NemaP5_15R,
+    NemaP5_15P,
 }
 
 impl PortKind {
@@ -144,6 +159,8 @@ impl PortKind {
             "LC" => Some(PortKind::Lc),
             "C14" => Some(PortKind::C14),
             "C13" => Some(PortKind::C13),
+            "nema_5_15r" => Some(PortKind::NemaP5_15R),
+            "nema_5_15p" => Some(PortKind::NemaP5_15P),
             _ => None,
         }
     }
@@ -156,6 +173,8 @@ impl PortKind {
             PortKind::Lc => "LC",
             PortKind::C14 => "C14",
             PortKind::C13 => "C13",
+            PortKind::NemaP5_15R => "nema_5_15r",
+            PortKind::NemaP5_15P => "nema_5_15p",
         }
     }
 }
@@ -236,6 +255,49 @@ impl Face {
             "front" => Some(Face::Front),
             "rear" => Some(Face::Rear),
             _ => None,
+        }
+    }
+}
+
+/// A model's physical shape, for the handful of shapes a device's ports and
+/// PSU slots alone do not say enough about (ADR-0051 §1's `PassiveNode.form`
+/// gaining `shelf` and `outlet`). Optional, and absent for every model this
+/// reader carried before it: a rack switch, a patch panel or a PDU is fully
+/// described by its faceplates and PSU slots and gains nothing by also
+/// stating a `form`. What it names IS what a panel already was before this
+/// field existed — `corpus/catalogue/panduit/*.yaml`'s patch panels and ODF
+/// carried no `form` and still do not need one, since "a passive plate with
+/// front-face ports and no PSU slots" already says "panel" on its own — this
+/// field exists for the shapes that fact alone cannot say: a shelf has no
+/// ports and no slots at all (nothing to infer a form from), and an outlet
+/// box's punchdown rear is expressed with the same `RJ45` kind its front
+/// carries (see `corpus/catalogue/icc/`'s header), so nothing else in the
+/// file distinguishes it from a patch panel either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelForm {
+    Shelf,
+    Outlet,
+    Board,
+    Panel,
+}
+
+impl ModelForm {
+    fn from_token(t: &str) -> Option<ModelForm> {
+        match t {
+            "shelf" => Some(ModelForm::Shelf),
+            "outlet" => Some(ModelForm::Outlet),
+            "board" => Some(ModelForm::Board),
+            "panel" => Some(ModelForm::Panel),
+            _ => None,
+        }
+    }
+
+    pub fn token(self) -> &'static str {
+        match self {
+            ModelForm::Shelf => "shelf",
+            ModelForm::Outlet => "outlet",
+            ModelForm::Board => "board",
+            ModelForm::Panel => "panel",
         }
     }
 }
@@ -448,6 +510,9 @@ pub struct Model {
     /// [`PsuSlot`]) — never `None` vs. `Some(vec![])`, since an absent
     /// `psu_slots:` key and an explicit empty list mean the same thing here.
     pub psu_slots: Vec<PsuSlot>,
+    /// `None` for every model whose faceplates and PSU slots already say
+    /// enough on their own (module doc on [`ModelForm`]).
+    pub form: Option<ModelForm>,
 }
 
 impl Model {
@@ -636,6 +701,7 @@ const MODEL_KEYS: &[&str] = &[
     "source",
     "faceplates",
     "psu_slots",
+    "form",
 ];
 const SOURCE_KEYS: &[&str] = &["cite", "read_on"];
 const FACEPLATE_KEYS: &[&str] = &["face", "port_count", "port_groups"];
@@ -708,6 +774,23 @@ fn load_model(
         Some(n) => load_psu_slots(file, n)?,
     };
 
+    let form = match root.get("form") {
+        None => None,
+        Some(n) => {
+            let tok = n
+                .as_str()
+                .ok_or_else(|| err(file, n.line, CatalogueGate::Parse, "`form` is not a string"))?;
+            Some(ModelForm::from_token(tok).ok_or_else(|| {
+                err(
+                    file,
+                    n.line,
+                    CatalogueGate::FormUnknown,
+                    format!("`{tok}` is not one of shelf, outlet, board, panel"),
+                )
+            })?)
+        }
+    };
+
     Ok(Model {
         vendor,
         model: model_name,
@@ -716,6 +799,7 @@ fn load_model(
         source,
         faceplates,
         psu_slots,
+        form,
     })
 }
 
@@ -916,7 +1000,10 @@ fn load_port_groups(file: &str, node: &Node) -> Result<Vec<PortGroup>, Catalogue
                 file,
                 item.line,
                 CatalogueGate::PortKindUnknown,
-                format!("`{kind_tok}` is not one of RJ45, SFP+, QSFP+, LC, C14, C13"),
+                format!(
+                    "`{kind_tok}` is not one of RJ45, SFP+, QSFP+, LC, C14, C13, \
+                     nema_5_15r, nema_5_15p"
+                ),
             )
         })?;
         let role_tok = req_str(file, item, "role")?;
@@ -1182,6 +1269,27 @@ mod tests {
         let front = m.faceplate(Face::Front).expect("front face present");
         assert_eq!(front.port_count, 14);
         assert_eq!(front.groups.len(), 2);
+        assert_eq!(m.form, None, "a model with no `form:` key carries None");
+    }
+
+    #[test]
+    fn a_declared_form_round_trips() {
+        // A shelf has no ports and no slots (`corpus/catalogue/tripplite/`) —
+        // nothing else in the file could say "this is a shelf", which is
+        // exactly why `form` exists (module doc on `ModelForm`).
+        let text = good_model_text("form: shelf\n");
+        let cat = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect("a recognised `form` value loads");
+        let m = cat.model("TEST-12P").expect("model present");
+        assert_eq!(m.form, Some(ModelForm::Shelf));
+    }
+
+    #[test]
+    fn an_unrecognised_form_is_refused() {
+        let text = good_model_text("form: gazebo\n");
+        let e = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect_err("`gazebo` is not one of shelf, outlet, board, panel");
+        assert_eq!(e.gate, CatalogueGate::FormUnknown);
     }
 
     #[test]
@@ -1256,6 +1364,41 @@ mod tests {
         assert!(ports.iter().all(|p| p.kind == PortKind::C13));
         assert!(ports.iter().all(|p| p.kind != PortKind::C14));
         assert_eq!(PortKind::C13.token(), "C13");
+    }
+
+    #[test]
+    fn nema_5_15_parses_as_two_kinds_distinct_from_each_other_and_from_c13_c14() {
+        // The seventh and eighth kinds: a tower UPS's outlet bank is
+        // `NemaP5_15R`, its captive input cord's plug is `NemaP5_15P` — the
+        // mains equivalent of the `C13`/`C14` split just above, and never the
+        // same `PortKind` as either.
+        let text = "vendor: juniper\n\
+             model: TEST-NEMA\n\
+             rack_units: 1\n\
+             reviewed_by: <named human>\n\
+             source:\n  cite: \"fixture\"\n  read_on: \"2026-09-18\"\n\
+             faceplates:\n  \
+               - face: front\n    \
+                 port_count: 1\n    \
+                 port_groups:\n      \
+                   - { kind: \"nema_5_15p\", role: access, layout: single_row, count: 1, start_number: 1 }\n  \
+               - face: rear\n    \
+                 port_count: 2\n    \
+                 port_groups:\n      \
+                   - { kind: \"nema_5_15r\", role: access, layout: single_row, count: 2, start_number: 1 }\n";
+        let cat = Catalogue::from_sources(&source(text), "juniper", &juniper_vendors())
+            .expect("nema_5_15r and nema_5_15p are recognised kinds, not a load error");
+        let m = cat.model("TEST-NEMA").expect("model present");
+        let front = m.faceplate(Face::Front).expect("front face").ports();
+        assert!(front.iter().all(|p| p.kind == PortKind::NemaP5_15P));
+        let rear = m.faceplate(Face::Rear).expect("rear face").ports();
+        assert!(rear.iter().all(|p| p.kind == PortKind::NemaP5_15R));
+        assert!(rear.iter().all(|p| p.kind != PortKind::NemaP5_15P));
+        assert!(rear
+            .iter()
+            .all(|p| p.kind != PortKind::C13 && p.kind != PortKind::C14));
+        assert_eq!(PortKind::NemaP5_15R.token(), "nema_5_15r");
+        assert_eq!(PortKind::NemaP5_15P.token(), "nema_5_15p");
     }
 
     #[test]
@@ -1628,5 +1771,64 @@ mod tests {
         assert_eq!(ex.psu_slots.len(), 2);
         assert!(ex.psu_slots.iter().all(|s| s.hot_swap));
         assert!(ex.psu_slots.iter().all(|s| s.face == Face::Rear));
+    }
+
+    #[test]
+    fn the_shipped_shelf_has_no_ports_and_carries_its_form() {
+        let cat = Catalogue::load_platform(&repo_root(), "tripplite")
+            .expect("the shipped Tripp Lite catalogue loads");
+        let m = cat
+            .model("SRSHELF2P1U")
+            .expect("the SRSHELF2P1U entry is reachable by name");
+        assert_eq!(m.form, Some(ModelForm::Shelf));
+        assert!(m.psu_slots.is_empty(), "a shelf has no PSU inlet");
+        let front = m.faceplate(Face::Front).expect("front face present");
+        assert_eq!(front.port_count, 0);
+        assert!(front.ports().is_empty(), "a shelf has no ports at all");
+    }
+
+    #[test]
+    fn the_shipped_outlet_box_has_rj45_front_and_a_punchdown_rear() {
+        let cat =
+            Catalogue::load_platform(&repo_root(), "icc").expect("the shipped ICC catalogue loads");
+        let m = cat
+            .model("IC107SBTWH")
+            .expect("the IC107SBTWH entry is reachable by name");
+        assert_eq!(m.form, Some(ModelForm::Outlet));
+        let front = m
+            .faceplate(Face::Front)
+            .expect("front face present")
+            .ports();
+        assert_eq!(front.len(), 12);
+        assert!(front.iter().all(|p| p.kind == PortKind::Rj45));
+        let rear = m.faceplate(Face::Rear).expect("rear face present").ports();
+        assert_eq!(
+            rear.len(),
+            12,
+            "twelve punchdown positions, expressed as the nearest kind the format has"
+        );
+        assert!(rear.iter().all(|p| p.kind == PortKind::Rj45));
+    }
+
+    #[test]
+    fn the_shipped_tower_ups_has_nema_outlets_and_no_psu_slots() {
+        let cat = Catalogue::load_platform(&repo_root(), "cyberpower")
+            .expect("the shipped CyberPower catalogue loads");
+        let m = cat
+            .model("PR1500LCDRT2U")
+            .expect("the PR1500LCDRT2U entry is reachable by name");
+        assert_eq!(m.rack_units, 2);
+        assert!(
+            m.psu_slots.is_empty(),
+            "the input cord is captive — no inlet socket to name"
+        );
+        let rear = m.faceplate(Face::Rear).expect("rear face present").ports();
+        assert_eq!(rear.len(), 8);
+        assert!(rear.iter().all(|p| p.kind == PortKind::NemaP5_15R));
+        let front = m.faceplate(Face::Front).expect("front face present");
+        assert!(
+            front.ports().is_empty(),
+            "the LCD/button panel has no ports"
+        );
     }
 }

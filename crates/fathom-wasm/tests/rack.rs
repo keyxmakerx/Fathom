@@ -638,6 +638,15 @@ fn every_placement_is_hand_asserted() {
 /// schema disagree. ADR-0008 still decides — the schema is the source — and the
 /// drift is now a red test rather than a bound that silently means nothing.
 ///
+/// ADR-0051 §1 added a fourth: `SitsOn.slot`, `range: { min: 1, max: 64 }`.
+/// There is no `OP_SHELF_PLACE` door yet — SitsOn has no wasm entry point at
+/// all (`the closet`, ADR-0051's step 2, has not been built) — so nobody
+/// enforces this bound today, the same "or nothing" this test's own doc
+/// names as a legitimate answer. It is listed here rather than silently
+/// excluded so that building the door without also adding the check is the
+/// thing that goes red, not the schema declaring a range this test never
+/// counted.
+///
 /// A text scan and not a parse, deliberately: `fathom-schema`'s tree does not
 /// model `constraints:` at all, so there is nothing to ask. The scan is exact
 /// about what it looks for and fails loudly if the declaration is reworded,
@@ -651,7 +660,7 @@ fn the_declared_range_is_the_range_the_door_enforces() {
         .join("schema/schema.yaml");
     let text = std::fs::read_to_string(&root).expect("schema/schema.yaml is checked in");
 
-    // Every `range:` line in the file, so a fourth field declaring a different
+    // Every `range:` line in the file, so a fifth field declaring a different
     // bound cannot slip past by not being in a list here.
     let ranges: Vec<&str> = text
         .lines()
@@ -660,18 +669,29 @@ fn the_declared_range_is_the_range_the_door_enforces() {
         .collect();
     assert_eq!(
         ranges.len(),
-        3,
+        4,
         "the schema declares {} range constraints; this test knows about the three \
-         unit-count fields. A new one needs a decision about who enforces it, not a \
-         bigger number here.",
+         unit-count fields the door enforces plus SitsOn.slot, which no door enforces \
+         yet. A new one needs a decision about who enforces it, not a bigger number here.",
         ranges.len()
     );
-    for line in ranges {
-        assert_eq!(
-            line, "range: { min: 1, max: 100, platforms: [] }",
-            "the declared range moved; shell.rs's RACK_U_MIN/RACK_U_MAX still say 1..=100"
-        );
-    }
+    let door_enforced = ranges
+        .iter()
+        .filter(|l| **l == "range: { min: 1, max: 100, platforms: [] }")
+        .count();
+    assert_eq!(
+        door_enforced, 3,
+        "the declared range moved; shell.rs's RACK_U_MIN/RACK_U_MAX still say 1..=100"
+    );
+    let sits_on_slot = ranges
+        .iter()
+        .filter(|l| **l == "range: { min: 1, max: 64, platforms: [] }")
+        .count();
+    assert_eq!(
+        sits_on_slot, 1,
+        "SitsOn.slot's declared range moved; update this test's comment (still nobody's \
+         door) or, if OP_SHELF_PLACE now exists, give it the same door check RACK_U_MIN/MAX has"
+    );
 }
 
 /// The door refuses a rack with no units. A 0U frame holds nothing by

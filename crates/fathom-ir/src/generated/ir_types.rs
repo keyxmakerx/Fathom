@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.7";
+    pub const SCHEMA_VERSION: &str = "0.8";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -254,12 +254,31 @@ mod body {
         /// supply is in or what its serial is. Every PowerSupply and every FittedIn is
         /// Origin::Hand.
         PowerSupply,
+        /// A wall, floor, desk or ceiling a device or passive can be FixedTo (ADR-0051 §1) --
+        /// the room's own geometry, not a network fact: a floor-standing UPS is a Chassis
+        /// FixedTo a floor surface and needs nothing else, since it already has outlets, an
+        /// inlet and a management port; an ONT is a Chassis FixedTo a wall surface; a
+        /// backboard is a PassiveNode of form board FixedTo a wall surface, and things
+        /// screwed to the board are FixedTo the board rather than the wall (FixedTo's own
+        /// doc). Contained by Premises, exactly as Rack and PassiveNode are and for the same
+        /// reason (19 §3.6): a surface has no operational identity, it is only somewhere.
+        ///
+        /// Joins the Placeable class (ADR-0035), exactly as Rack did (ADR-0036): a surface
+        /// draws as a flat panel beside the rack rows, a wall elevation, the same machinery
+        /// as a rack's elevation and a separate renderer from the topology diagram, and a
+        /// box the diagram could draw but not place would be the same arbitrary hole Rack's
+        /// own doc already named.
+        ///
+        /// NOTHING PARSES A SURFACE, the same property of the world Rack's and PowerSupply's
+        /// docs already state for themselves: no vendor statement names a wall. Every
+        /// Surface and every HasSurface/FixedTo is Origin::Hand.
+        Surface,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 52;
+        pub const COUNT: usize = 53;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 52] = [
+        pub const ALL: [NodeKind; 53] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -312,6 +331,7 @@ mod body {
             NodeKind::Rack,
             NodeKind::DhcpRelay,
             NodeKind::PowerSupply,
+            NodeKind::Surface,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -370,6 +390,7 @@ mod body {
                 NodeKind::Rack => "Rack",
                 NodeKind::DhcpRelay => "DhcpRelay",
                 NodeKind::PowerSupply => "PowerSupply",
+                NodeKind::Surface => "Surface",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -426,6 +447,7 @@ mod body {
                 "Rack" => Some(NodeKind::Rack),
                 "DhcpRelay" => Some(NodeKind::DhcpRelay),
                 "PowerSupply" => Some(NodeKind::PowerSupply),
+                "Surface" => Some(NodeKind::Surface),
                 _ => None,
             }
         }
@@ -488,6 +510,7 @@ mod body {
                 NodeKind::Rack => &[&["owner(Premises)", "label"]],
                 NodeKind::DhcpRelay => &[],
                 NodeKind::PowerSupply => &[&["owner(Chassis)", "slot"]],
+                NodeKind::Surface => &[&["owner(Premises)", "label"]],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -545,6 +568,7 @@ mod body {
                 NodeKind::Rack => Layer::Physical,
                 NodeKind::DhcpRelay => Layer::Config,
                 NodeKind::PowerSupply => Layer::Physical,
+                NodeKind::Surface => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -603,6 +627,7 @@ mod body {
                 NodeKind::Rack => false,
                 NodeKind::DhcpRelay => true,
                 NodeKind::PowerSupply => false,
+                NodeKind::Surface => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -648,7 +673,7 @@ mod body {
                 NodeKind::SystemSettings => &[crate::bag::FieldKey(198), crate::bag::FieldKey(199), crate::bag::FieldKey(200)],
                 NodeKind::NtpServer => &[crate::bag::FieldKey(201), crate::bag::FieldKey(202), crate::bag::FieldKey(203)],
                 NodeKind::SyslogTarget => &[crate::bag::FieldKey(204), crate::bag::FieldKey(205), crate::bag::FieldKey(206), crate::bag::FieldKey(207)],
-                NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
+                NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(325), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
                 NodeKind::Cable => &[crate::bag::FieldKey(216), crate::bag::FieldKey(217), crate::bag::FieldKey(218), crate::bag::FieldKey(219), crate::bag::FieldKey(220), crate::bag::FieldKey(221), crate::bag::FieldKey(222), crate::bag::FieldKey(223), crate::bag::FieldKey(224), crate::bag::FieldKey(312)],
                 NodeKind::PassiveNode => &[crate::bag::FieldKey(225), crate::bag::FieldKey(226), crate::bag::FieldKey(227), crate::bag::FieldKey(228), crate::bag::FieldKey(229)],
                 NodeKind::Premises => &[crate::bag::FieldKey(230), crate::bag::FieldKey(231), crate::bag::FieldKey(232), crate::bag::FieldKey(233), crate::bag::FieldKey(234), crate::bag::FieldKey(235), crate::bag::FieldKey(236)],
@@ -662,6 +687,7 @@ mod body {
                 NodeKind::Rack => &[crate::bag::FieldKey(302), crate::bag::FieldKey(303), crate::bag::FieldKey(304), crate::bag::FieldKey(313), crate::bag::FieldKey(314)],
                 NodeKind::DhcpRelay => &[crate::bag::FieldKey(308), crate::bag::FieldKey(309), crate::bag::FieldKey(310), crate::bag::FieldKey(311)],
                 NodeKind::PowerSupply => &[crate::bag::FieldKey(315), crate::bag::FieldKey(316), crate::bag::FieldKey(317)],
+                NodeKind::Surface => &[crate::bag::FieldKey(319), crate::bag::FieldKey(320), crate::bag::FieldKey(321), crate::bag::FieldKey(322)],
             }
         }
     }
@@ -892,6 +918,11 @@ mod body {
         /// one between racks should touch one relation rather than three fields on a node. Edges
         /// are first-class and carry typed fields (ADR-0007); Link, Terminates and Occupies already
         /// do.
+        ///
+        /// ADR-0051 §1 widens `from:` to add PassiveNode: a shelf is a PassiveNode of form shelf
+        /// and occupies rack units exactly as a Chassis does, so it needs the same door into a
+        /// Rack. The reference argument above applies unchanged -- a PassiveNode already has a
+        /// containment parent, Premises, via HasPassiveNode, so MountedIn cannot also contain it.
         MountedIn,
         /// The device that relays. `11` §7.2's containment shape.
         HasDhcpRelay,
@@ -926,12 +957,50 @@ mod body {
         /// reference edge, and FittedIn follows the one convention that exists: HasPort's and
         /// HasRack's, not MountedIn's.
         FittedIn,
+        /// ADR-0051 §1. Seats a Chassis or PassiveNode on the shelf it sits on -- a shelf
+        /// being a PassiveNode of form shelf, a passive that takes U in place of a device's
+        /// own. The schema cannot say the target's FORM is shelf -- `to:` names the kind,
+        /// PassiveNode, not one of its enum variants -- so the client refuses a SitsOn whose
+        /// target is not form shelf; the schema is not where that refusal lives.
+        ///
+        /// A REFERENCE EDGE, and for MountedIn's own reason: a Chassis already has a
+        /// containment parent (Device, via HasChassis) and a PassiveNode already has one
+        /// (Premises, via HasPassiveNode), and containment is a forest, so a shelf cannot
+        /// also contain either without taking it from its real parent. MountedIn's own doc
+        /// makes this argument for Chassis; it applies to PassiveNode without change, since
+        /// HasPassiveNode is exactly as total a containment edge as HasChassis.
+        SitsOn,
+        /// ADR-0051 §1. A surface hangs off the place it stands in, exactly as HasRack hangs
+        /// a rack off one. in: "1" keeps containment a forest and makes owner(Premises)
+        /// usable as Surface's identity term -- HasRack's own doc, unchanged.
+        HasSurface,
+        /// ADR-0051 §1. Fixes a Chassis or PassiveNode to a Surface, or to a PassiveNode of
+        /// form board standing in for one -- a floor-standing UPS is a Chassis FixedTo a
+        /// floor Surface and needs nothing else, since x_mm and y_mm are both 0..1 and a
+        /// position not yet measured is still a true fact; a backboard's own occupants are
+        /// FixedTo the board.
+        ///
+        /// A REFERENCE EDGE, for the same forest reason SitsOn is one: the thing being fixed
+        /// already has its real containment parent (HasChassis or HasPassiveNode), so FixedTo
+        /// cannot also contain it.
+        ///
+        /// The schema cannot say the PassiveNode limb of `to:` is form board -- `to:` names
+        /// the kind, PassiveNode, not one of its enum variants -- so the client refuses a
+        /// FixedTo whose PassiveNode target is not form board; the schema is not where that
+        /// refusal lives, SitsOn's own target-form sentence, unchanged.
+        ///
+        /// A Chassis or PassiveNode has AT MOST ONE of MountedIn, SitsOn and FixedTo -- one
+        /// box is in one place. The schema cannot say so: MountedIn and FixedTo are both
+        /// `out: "0..1"` on the SAME kinds and nothing in this grammar expresses "at most one
+        /// across these edges", only "at most one of THIS edge". The doc says the client
+        /// enforces it, the same division of labour SitsOn's target-form restriction uses.
+        FixedTo,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 88;
+        pub const COUNT: usize = 91;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 88] = [
+        pub const ALL: [EdgeKind; 91] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1020,6 +1089,9 @@ mod body {
             EdgeKind::RelaysFor,
             EdgeKind::RelayServerIn,
             EdgeKind::FittedIn,
+            EdgeKind::SitsOn,
+            EdgeKind::HasSurface,
+            EdgeKind::FixedTo,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1114,6 +1186,9 @@ mod body {
                 EdgeKind::RelaysFor => "RelaysFor",
                 EdgeKind::RelayServerIn => "RelayServerIn",
                 EdgeKind::FittedIn => "FittedIn",
+                EdgeKind::SitsOn => "SitsOn",
+                EdgeKind::HasSurface => "HasSurface",
+                EdgeKind::FixedTo => "FixedTo",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1206,6 +1281,9 @@ mod body {
                 "RelaysFor" => Some(EdgeKind::RelaysFor),
                 "RelayServerIn" => Some(EdgeKind::RelayServerIn),
                 "FittedIn" => Some(EdgeKind::FittedIn),
+                "SitsOn" => Some(EdgeKind::SitsOn),
+                "HasSurface" => Some(EdgeKind::HasSurface),
+                "FixedTo" => Some(EdgeKind::FixedTo),
                 _ => None,
             }
         }
@@ -1300,6 +1378,9 @@ mod body {
                 EdgeKind::RelaysFor => EdgeClass::Reference,
                 EdgeKind::RelayServerIn => EdgeClass::Reference,
                 EdgeKind::FittedIn => EdgeClass::Containment,
+                EdgeKind::SitsOn => EdgeClass::Reference,
+                EdgeKind::HasSurface => EdgeClass::Containment,
+                EdgeKind::FixedTo => EdgeClass::Reference,
             }
         }
     }
@@ -1477,13 +1558,16 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface],
                 EdgeKind::HasRack => &[NodeKind::Premises],
-                EdgeKind::MountedIn => &[NodeKind::Chassis],
+                EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
                 EdgeKind::RelaysFor => &[NodeKind::DhcpRelay],
                 EdgeKind::RelayServerIn => &[NodeKind::DhcpRelay],
                 EdgeKind::FittedIn => &[NodeKind::Chassis],
+                EdgeKind::SitsOn => &[NodeKind::Chassis, NodeKind::PassiveNode],
+                EdgeKind::HasSurface => &[NodeKind::Premises],
+                EdgeKind::FixedTo => &[NodeKind::Chassis, NodeKind::PassiveNode],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1577,6 +1661,9 @@ mod body {
                 EdgeKind::RelaysFor => &[NodeKind::LogicalUnit],
                 EdgeKind::RelayServerIn => &[NodeKind::RoutingInstance],
                 EdgeKind::FittedIn => &[NodeKind::PowerSupply],
+                EdgeKind::SitsOn => &[NodeKind::PassiveNode],
+                EdgeKind::HasSurface => &[NodeKind::Surface],
+                EdgeKind::FixedTo => &[NodeKind::Surface, NodeKind::PassiveNode],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -1670,6 +1757,9 @@ mod body {
                 EdgeKind::RelaysFor => EdgeCardBound { min: 0, max: None },
                 EdgeKind::RelayServerIn => EdgeCardBound { min: 0, max: Some(1) },
                 EdgeKind::FittedIn => EdgeCardBound { min: 0, max: None },
+                EdgeKind::SitsOn => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::HasSurface => EdgeCardBound { min: 0, max: None },
+                EdgeKind::FixedTo => EdgeCardBound { min: 0, max: Some(1) },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -1763,6 +1853,9 @@ mod body {
                 EdgeKind::RelaysFor => EdgeCardBound { min: 0, max: None },
                 EdgeKind::RelayServerIn => EdgeCardBound { min: 0, max: None },
                 EdgeKind::FittedIn => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::SitsOn => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasSurface => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::FixedTo => EdgeCardBound { min: 0, max: None },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -1857,6 +1950,9 @@ mod body {
                 EdgeKind::RelaysFor => false,
                 EdgeKind::RelayServerIn => false,
                 EdgeKind::FittedIn => false,
+                EdgeKind::SitsOn => false,
+                EdgeKind::HasSurface => false,
+                EdgeKind::FixedTo => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -1950,6 +2046,9 @@ mod body {
                 EdgeKind::RelaysFor => false,
                 EdgeKind::RelayServerIn => false,
                 EdgeKind::FittedIn => false,
+                EdgeKind::SitsOn => false,
+                EdgeKind::HasSurface => false,
+                EdgeKind::FixedTo => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2043,6 +2142,9 @@ mod body {
                 EdgeKind::RelaysFor => &[],
                 EdgeKind::RelayServerIn => &[],
                 EdgeKind::FittedIn => &[],
+                EdgeKind::SitsOn => &[crate::bag::FieldKey(318)],
+                EdgeKind::HasSurface => &[],
+                EdgeKind::FixedTo => &[crate::bag::FieldKey(323), crate::bag::FieldKey(324)],
             }
         }
     }
@@ -3159,6 +3261,8 @@ mod body {
         Bnc,
         C13,
         C14,
+        Nema515r,
+        Nema515p,
         Other,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
@@ -3168,7 +3272,7 @@ mod body {
 
     impl PhysicalPortConnector {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 14] = [
+        pub const DECLARED: [&'static str; 16] = [
             "rj45",
             "sfp",
             "sfp_plus",
@@ -3182,6 +3286,8 @@ mod body {
             "bnc",
             "c13",
             "c14",
+            "nema515r",
+            "nema515p",
             "other",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
@@ -3200,6 +3306,8 @@ mod body {
                 "bnc" => PhysicalPortConnector::Bnc,
                 "c13" => PhysicalPortConnector::C13,
                 "c14" => PhysicalPortConnector::C14,
+                "nema515r" => PhysicalPortConnector::Nema515r,
+                "nema515p" => PhysicalPortConnector::Nema515p,
                 "other" => PhysicalPortConnector::Other,
                 other => PhysicalPortConnector::Unknown(other.to_owned()),
             }
@@ -3220,6 +3328,8 @@ mod body {
                 PhysicalPortConnector::Bnc => "bnc",
                 PhysicalPortConnector::C13 => "c13",
                 PhysicalPortConnector::C14 => "c14",
+                PhysicalPortConnector::Nema515r => "nema515r",
+                PhysicalPortConnector::Nema515p => "nema515p",
                 PhysicalPortConnector::Other => "other",
                 PhysicalPortConnector::Unknown(t) => t,
             }
@@ -3281,6 +3391,41 @@ mod body {
                 PhysicalPortService::Power => "power",
                 PhysicalPortService::Other => "other",
                 PhysicalPortService::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `PhysicalPort.face` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum PhysicalPortFace {
+        Front,
+        Rear,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl PhysicalPortFace {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 2] = [
+            "front",
+            "rear",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> PhysicalPortFace {
+            match token {
+                "front" => PhysicalPortFace::Front,
+                "rear" => PhysicalPortFace::Rear,
+                other => PhysicalPortFace::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                PhysicalPortFace::Front => "front",
+                PhysicalPortFace::Rear => "rear",
+                PhysicalPortFace::Unknown(t) => t,
             }
         }
     }
@@ -3471,6 +3616,9 @@ mod body {
         Wdm,
         MediaConverter,
         Enclosure,
+        Shelf,
+        Outlet,
+        Board,
         Other,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
@@ -3480,13 +3628,16 @@ mod body {
 
     impl PassiveNodeForm {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 7] = [
+        pub const DECLARED: [&'static str; 10] = [
             "splitter",
             "patch_panel",
             "odf",
             "wdm",
             "media_converter",
             "enclosure",
+            "shelf",
+            "outlet",
+            "board",
             "other",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
@@ -3498,6 +3649,9 @@ mod body {
                 "wdm" => PassiveNodeForm::Wdm,
                 "media_converter" => PassiveNodeForm::MediaConverter,
                 "enclosure" => PassiveNodeForm::Enclosure,
+                "shelf" => PassiveNodeForm::Shelf,
+                "outlet" => PassiveNodeForm::Outlet,
+                "board" => PassiveNodeForm::Board,
                 "other" => PassiveNodeForm::Other,
                 other => PassiveNodeForm::Unknown(other.to_owned()),
             }
@@ -3511,6 +3665,9 @@ mod body {
                 PassiveNodeForm::Wdm => "wdm",
                 PassiveNodeForm::MediaConverter => "media_converter",
                 PassiveNodeForm::Enclosure => "enclosure",
+                PassiveNodeForm::Shelf => "shelf",
+                PassiveNodeForm::Outlet => "outlet",
+                PassiveNodeForm::Board => "board",
                 PassiveNodeForm::Other => "other",
                 PassiveNodeForm::Unknown(t) => t,
             }
@@ -3931,6 +4088,49 @@ mod body {
                 RackUnitNumbering::Ascending => "ascending",
                 RackUnitNumbering::Descending => "descending",
                 RackUnitNumbering::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `Surface.form` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum SurfaceForm {
+        Wall,
+        Floor,
+        Desk,
+        Ceiling,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl SurfaceForm {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 4] = [
+            "wall",
+            "floor",
+            "desk",
+            "ceiling",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> SurfaceForm {
+            match token {
+                "wall" => SurfaceForm::Wall,
+                "floor" => SurfaceForm::Floor,
+                "desk" => SurfaceForm::Desk,
+                "ceiling" => SurfaceForm::Ceiling,
+                other => SurfaceForm::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                SurfaceForm::Wall => "wall",
+                SurfaceForm::Floor => "floor",
+                SurfaceForm::Desk => "desk",
+                SurfaceForm::Ceiling => "ceiling",
+                SurfaceForm::Unknown(t) => t,
             }
         }
     }
@@ -4474,6 +4674,18 @@ mod body {
         }
     }
 
+    impl crate::canon::CanonicalValue for PhysicalPortFace {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(PhysicalPortFace::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
     impl crate::canon::CanonicalValue for CableMedia {
         fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
             Ok(fathom_canon::Json::Str(self.token().to_owned()))
@@ -4637,6 +4849,18 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(RackUnitNumbering::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for SurfaceForm {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(SurfaceForm::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -6449,6 +6673,7 @@ mod body {
         Position,
         Connector,
         Service,
+        Face,
         SpeedMax,
         Transceiver,
         Notes,
@@ -6456,13 +6681,14 @@ mod body {
     }
 
     impl PhysicalPortField {
-        pub const COUNT: usize = 8;
+        pub const COUNT: usize = 9;
         /// Every field, declaration order.
-        pub const ALL: [PhysicalPortField; 8] = [
+        pub const ALL: [PhysicalPortField; 9] = [
             PhysicalPortField::Label,
             PhysicalPortField::Position,
             PhysicalPortField::Connector,
             PhysicalPortField::Service,
+            PhysicalPortField::Face,
             PhysicalPortField::SpeedMax,
             PhysicalPortField::Transceiver,
             PhysicalPortField::Notes,
@@ -6477,6 +6703,7 @@ mod body {
                 PhysicalPortField::Position => "position",
                 PhysicalPortField::Connector => "connector",
                 PhysicalPortField::Service => "service",
+                PhysicalPortField::Face => "face",
                 PhysicalPortField::SpeedMax => "speed_max",
                 PhysicalPortField::Transceiver => "transceiver",
                 PhysicalPortField::Notes => "notes",
@@ -6490,6 +6717,7 @@ mod body {
                 PhysicalPortField::Position => crate::bag::FieldKey(209),
                 PhysicalPortField::Connector => crate::bag::FieldKey(210),
                 PhysicalPortField::Service => crate::bag::FieldKey(211),
+                PhysicalPortField::Face => crate::bag::FieldKey(325),
                 PhysicalPortField::SpeedMax => crate::bag::FieldKey(212),
                 PhysicalPortField::Transceiver => crate::bag::FieldKey(213),
                 PhysicalPortField::Notes => crate::bag::FieldKey(214),
@@ -7130,6 +7358,46 @@ mod body {
         }
     }
 
+    /// Fields of kind `Surface`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum SurfaceField {
+        Label,
+        Form,
+        WidthMm,
+        HeightMm,
+    }
+
+    impl SurfaceField {
+        pub const COUNT: usize = 4;
+        /// Every field, declaration order.
+        pub const ALL: [SurfaceField; 4] = [
+            SurfaceField::Label,
+            SurfaceField::Form,
+            SurfaceField::WidthMm,
+            SurfaceField::HeightMm,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                SurfaceField::Label => "label",
+                SurfaceField::Form => "form",
+                SurfaceField::WidthMm => "width_mm",
+                SurfaceField::HeightMm => "height_mm",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                SurfaceField::Label => crate::bag::FieldKey(319),
+                SurfaceField::Form => crate::bag::FieldKey(320),
+                SurfaceField::WidthMm => crate::bag::FieldKey(321),
+                SurfaceField::HeightMm => crate::bag::FieldKey(322),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -7470,6 +7738,66 @@ mod body {
         }
     }
 
+    /// Fields of edge `SitsOn`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum SitsOnField {
+        Slot,
+    }
+
+    impl SitsOnField {
+        pub const COUNT: usize = 1;
+        /// Every field, declaration order.
+        pub const ALL: [SitsOnField; 1] = [
+            SitsOnField::Slot,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                SitsOnField::Slot => "slot",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                SitsOnField::Slot => crate::bag::FieldKey(318),
+            }
+        }
+    }
+
+    /// Fields of edge `FixedTo`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum FixedToField {
+        XMm,
+        YMm,
+    }
+
+    impl FixedToField {
+        pub const COUNT: usize = 2;
+        /// Every field, declaration order.
+        pub const ALL: [FixedToField; 2] = [
+            FixedToField::XMm,
+            FixedToField::YMm,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                FixedToField::XMm => "x_mm",
+                FixedToField::YMm => "y_mm",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                FixedToField::XMm => crate::bag::FieldKey(323),
+                FixedToField::YMm => crate::bag::FieldKey(324),
+            }
+        }
+    }
+
     /// Fields of edge `Cabled`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum CabledField {
@@ -7533,7 +7861,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 317] = [
+    pub const FIELD_KEYS: [(&str, u32); 325] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -7851,15 +8179,23 @@ mod body {
         ("PowerSupply.slot", 315),
         ("PowerSupply.serial", 316),
         ("PowerSupply.model", 317),
+        ("SitsOn.slot", 318),
+        ("Surface.label", 319),
+        ("Surface.form", 320),
+        ("Surface.width_mm", 321),
+        ("Surface.height_mm", 322),
+        ("FixedTo.x_mm", 323),
+        ("FixedTo.y_mm", 324),
+        ("PhysicalPort.face", 325),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 40] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 41] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
-        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0x08,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0x01,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

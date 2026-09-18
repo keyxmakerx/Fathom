@@ -41,6 +41,21 @@ const ALIASES: Record<string, PortKind> = {
   iec: 'c14',
   iec60320: 'c14',
   power: 'c14',
+  // `nema_5_15r`/`nema_5_15p` are their own `PortKind`s in the catalogue
+  // (`fathom_corpus::catalogue` — a tower UPS's outlet receptacle and its
+  // captive cord's plug, the mains equivalent of the C13/C14 pair above).
+  // Same drawing-layer stopgap as `c13`: the client draws five glyphs, not
+  // seven, so both NEMA kinds share the C14 glyph here rather than gaining
+  // two more shapes — not a claim that a NEMA connector and an IEC 60320
+  // connector are the same piece of metal.
+  nema_5_15r: 'c14',
+  nema_5_15p: 'c14',
+  // `nema515r`/`nema515p` are the SAME connectors under `PhysicalPort.connector`'s
+  // schema spelling (`document/compat.ts`'s `connectorTokenOf` maps the catalogue's
+  // underscored tokens above onto these at placement) — a stored port carries this
+  // spelling, not the catalogue's, so the glyph table needs both.
+  nema515r: 'c14',
+  nema515p: 'c14',
 };
 
 export function portKindFor(connector: string): PortKind | null {
