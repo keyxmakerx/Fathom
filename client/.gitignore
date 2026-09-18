@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# The wasm engine module (ADR-0052 §1): "the module ships as a file, never a
+# package." scripts/build-wasm.sh writes it here; it is never checked in, the
+# same way the retired page's spliced-in module never was either.
+public/engine/

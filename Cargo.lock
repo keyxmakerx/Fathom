@@ -482,6 +482,7 @@ dependencies = [
  "fathom-layout",
  "fathom-wasm",
  "fathom-weld",
+ "fathom-workspace",
 ]
 
 [[package]]
