@@ -107,6 +107,10 @@ Four things learned that the rules above do not say:
     every Rust builder `CARGO_TARGET_DIR=/home/user/Fathom/target`, remove a worktree the moment
     its files are taken across, delete logs as you go. Two builders regenerating the same crate can
     hand each other a stale artefact; `cargo clean -p <crate>` and a rerun settles it.
+13. **No drawing change is committed without a screenshot through the real component.** Three
+    defects in one week passed every report and every test and were caught only by rendering: a
+    plate built and never mounted, cables dropped by a resolver, a 1U plate with nothing on it.
+    A harness that mounts a component directly proves the component, not the drawing.
 
 ## Sessions 1 and 2 — done
 
@@ -145,12 +149,20 @@ the spec does not draw. In order:
   config surface (§"Config") with the redaction gate on paste — test the gate against what a real
   device accepts (CLAUDE.md rule 2) — view-only rendering for `read`, motion and look (§"Motion",
   §"Look").
+  **(d)**, added 2026-09-18 on the owner's review of the plan: the basic inventory (lists, the
+  page, *show on rack*), notes on a device, undo that records — the three this section's own
+  amendment promised Session 6 — plus the carried items that make the shelf unusable from the
+  interface otherwise: a palette entry for a sketched device and for a board, naming a shelf, a
+  board with no position still showing what it carries.
 
 **Done when:** you can build a network diagram from nothing, by dragging, and it saves, and a
 colleague with `read` sees it and cannot change it. ~400k tokens per session.
 
 ## Session 7 — Hardening and a release candidate
 
+- **First, not last: run the Docker stack end to end** (`deploy/compose.yaml`) — never done, the
+  largest risk to a release. Then have the checker try two browsers saving the same design in turn
+  and prove the second save is refused, never a silent overwrite, since live editing comes later.
 - One opus `checker` round on the **HTTP surface as a whole**, now that proposals and sessions
   cross a real trust boundary (admin §3.8's standing question).
 - `scripts/osv-gate.sh` and the full gate list where egress exists; `./scripts/forbidden-claims.sh`
