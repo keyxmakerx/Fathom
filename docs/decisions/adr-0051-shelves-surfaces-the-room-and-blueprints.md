@@ -82,6 +82,17 @@ arrives as its own piece, the small ones before v0.1 and the large ones after.
   built only if a real blueprint of the owner's shows it saves time over tracing. Room names stay
   typed.
 
+  **How suggestions are taken and told apart, agreed with the owner 2026-09-18.** Suggestions
+  come as rooms, closed regions the wall candidates enclose, because a room is one click and its
+  walls are many. Left-click a suggested room and it becomes fact with its walls; right-click
+  opens the interface's one kind of pop-over: reject, split, merge, name — the page's own rule, a
+  click acts and right-click on anything opens the box. The image and Fathom's ink are told apart
+  by rules the drawing already has and never by colour, so a black and white scan works by
+  construction: the image sits beneath at the phantom opacity and is never full black; a
+  suggestion is a dashed outline and a fact is solid, as a portal tray and an unfitted slot
+  already are; the suggestion under the pointer carries the lit path's pale halo; and one view
+  control hides the image so what Fathom holds can be checked at any moment.
+
 ## Consequences
 
 Schema 0.8 goes ahead of the config surface in Session 6, because the config surface changes no
