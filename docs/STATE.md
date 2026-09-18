@@ -206,7 +206,7 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   resolve on occupants and fixtures; the editor shows either with the placed-on control. The
   catalogue has a Tripp Lite shelf, an ICC outlet box and a CyberPower UPS, cited.
 
-**Carried:** dropping a board onto a surface is a no-op until the drawing has a surface drop zone;
+**Carried:** replacing a capture (a second paste into the same device is refused until then); dropping a board onto a surface is a no-op until the drawing has a surface drop zone;
 the opened occupant can sit under the editor; a panel's label pairing remains as
 the fallback when no pass-through edge exists. Optics (ADR-0047 §5). The left-right order of the
 EX4300's two supply slots could not be established. The "two people on a running server" proof,

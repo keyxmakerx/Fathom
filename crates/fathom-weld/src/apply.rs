@@ -33,7 +33,13 @@ pub struct Unresolved {
 pub struct WeldOutput {
     pub batch: BatchId,
     pub capture: CaptureId,
-    /// `nodes[0]` — the device this apply created.
+    /// The `Capture` node this apply attached, `Some` only on the
+    /// `apply_into_device` path (ADR-0052 §3, scoped as this function's own
+    /// doc explains). Its `NodeId.ulid` equals `capture.0`.
+    pub capture_node: Option<NodeId>,
+    /// `nodes[0]` — the device this apply wrote to. A fresh node for
+    /// `apply_new_device`; the operator's placed node, unchanged, for
+    /// `apply_into_device`.
     pub device: NodeId,
     /// Index-aligned with `Fragment.nodes`.
     pub nodes: Vec<NodeId>,
@@ -78,12 +84,39 @@ pub enum WeldError {
     /// Any refusal from the store, carried whole so the L0 declaration that
     /// refused is never lost.
     Store(WriteError),
+    /// `apply_into_device`'s target does not resolve to a live `Device` — the
+    /// display id named something else, or named a device that has been
+    /// tombstoned since the operator chose it.
+    TargetNotDevice,
+    /// `apply_into_device`'s target already carries a live `Capture`
+    /// (ADR-0052 §3). Every non-root fragment node is minted fresh
+    /// (`apply_into_device`'s own doc: "this is not reconciliation") — a
+    /// second paste has nothing to supersede the first paste's children
+    /// with, so it would duplicate them rather than update them. ADR-0010
+    /// requires re-identification to be a proposal to a human, so this door
+    /// does not guess which of the target's existing children the new
+    /// fragment's nodes are; it refuses until that reconciliation exists
+    /// (`11` §10.4, still unimplemented — WO-09 §10 item 1).
+    AlreadyCaptured,
 }
 
 impl From<MintError> for WeldError {
     fn from(e: MintError) -> WeldError {
         WeldError::Mint(e)
     }
+}
+
+/// Which store node the fragment's root (index 0, always `Device`) becomes.
+///
+/// The two public entry points below are this one choice: `apply_new_device`
+/// mints a fresh node for it, `apply_into_device` (ADR-0052 §4) reuses a
+/// `Device` the operator already placed. Everything after the root — every
+/// other node, every edge, every field — is written identically either way,
+/// which is why this is a fork inside one function rather than two parallel
+/// copies of WO-09 §4.5's ten steps.
+enum Root {
+    New,
+    Existing(NodeId),
 }
 
 /// Apply one ingest's fragment onto `graph` as a **new** device.
@@ -101,6 +134,64 @@ pub fn apply_new_device(
     graph: &mut Graph,
     ingest: &IngestOutput,
     manifest: &Manifest<'_>,
+) -> Result<WeldOutput, WeldError> {
+    apply(graph, ingest, manifest, Root::New)
+}
+
+/// Apply one ingest's fragment onto `graph`, writing every field the capture
+/// states onto a `Device` the operator has already placed (ADR-0052 §4).
+///
+/// **This is not reconciliation.** `11` §10.4's re-identification question —
+/// "is this a second reading of a box the design already holds?" — does not
+/// arise here, because nothing is being guessed: the operator chose this exact
+/// faceplate to paste under, which is ADR-0010's own answer to "who decides two
+/// readings are the same box" (*"a proposal to a human, not an automatic
+/// merge"*) — already decided, by the human, before this function runs. So
+/// `shell::identity_clash` is never called on this path.
+///
+/// `device` must name a live (`absent_since.is_none()`) `Device` node already
+/// in `graph`; anything else is `WeldError::TargetNotDevice`. `device` must
+/// also carry no live `Capture` yet; a second paste is
+/// `WeldError::AlreadyCaptured` — every non-root fragment node below still
+/// mints fresh, so a second paste has nothing to supersede its predecessor's
+/// children with, and would duplicate the whole subtree the way
+/// `apply_new_device`'s own doc warns against.
+///
+/// On success the fragment's root (fragment index 0) resolves to `device`
+/// rather than to a freshly minted node: no existence record is written for
+/// it (it already has one) and no id is minted for it. Every field the fragment asserts on the
+/// root — `Device.hostname` included — is written through the same
+/// `set_field_boxed` door `OP_FIELD_SET` uses, so where the device already
+/// carries a value for that field the store archives the old slot and fills
+/// `supersedes` from it (`Graph::check_prov`, `11` §8.6): the write is a
+/// supersession, never a silent overwrite, and the history keeps both.
+pub fn apply_into_device(
+    graph: &mut Graph,
+    ingest: &IngestOutput,
+    manifest: &Manifest<'_>,
+    device: NodeId,
+) -> Result<WeldOutput, WeldError> {
+    if device.kind != NodeKind::Device {
+        return Err(WeldError::TargetNotDevice);
+    }
+    match graph.node(device) {
+        Some(n) if n.absent_since.is_none() => {}
+        _ => return Err(WeldError::TargetNotDevice),
+    }
+    let already_captured = graph
+        .out(device, EdgeKind::HasCapture)
+        .any(|e| e.absent_since.is_none());
+    if already_captured {
+        return Err(WeldError::AlreadyCaptured);
+    }
+    apply(graph, ingest, manifest, Root::Existing(device))
+}
+
+fn apply(
+    graph: &mut Graph,
+    ingest: &IngestOutput,
+    manifest: &Manifest<'_>,
+    root: Root,
 ) -> Result<WeldOutput, WeldError> {
     let fragment = &ingest.fragment;
 
@@ -120,10 +211,19 @@ pub fn apply_new_device(
 
     // 3. Nodes. Existence spans the node's first assertion, or the whole
     //    capture where the statement that named the object asserted no field.
+    //    `Root::Existing` skips both the existence record and the mint for
+    //    index 0 — the node already exists and already has one.
     let mut spans: Vec<CaptureSpan> = Vec::with_capacity(fragment.nodes.len());
     let mut nodes: Vec<NodeId> = Vec::with_capacity(fragment.nodes.len());
-    for node in &fragment.nodes {
+    for (index, node) in fragment.nodes.iter().enumerate() {
         let span = node.fields.first().map_or(whole, |a| span_of(a.prov.span));
+        if index == 0 {
+            if let Root::Existing(id) = root {
+                nodes.push(id);
+                spans.push(span);
+                continue;
+            }
+        }
         let record = prov::existence(&mut mint, manifest, capture, span)?;
         let ulid = mint.next()?;
         nodes.push(
@@ -230,11 +330,30 @@ pub fn apply_new_device(
         });
     }
 
+    // 9b. The capture node (ADR-0052 §3) — ONLY on the `apply_into_device`
+    //     path. Scoped there deliberately: attaching it to every
+    //     `apply_new_device`/`OP_PASTE` call as well is §3's fuller shape and
+    //     is not this change's job (ADR-0052 §2 and §4 are), and doing it here
+    //     unconditionally would change the node/edge count of every existing
+    //     paste this tree already tests against.
+    let capture_node = match root {
+        Root::Existing(_) => Some(attach_capture(
+            graph,
+            &mut mint,
+            manifest,
+            capture,
+            device,
+            ingest.capture.text(),
+        )?),
+        Root::New => None,
+    };
+
     // 10. Close.
     let batch = graph.end_batch().map_err(WeldError::Store)?;
     Ok(WeldOutput {
         batch,
         capture,
+        capture_node,
         device,
         nodes,
         edges,
@@ -242,6 +361,65 @@ pub fn apply_new_device(
         unresolved,
         minted: mint.issued(),
     })
+}
+
+/// ADR-0052 §3: one `Capture` node, owned by `device`, holding the redacted
+/// text, the platform, and the line count. **Its node id IS `capture`'s own
+/// ULID** — schema's own doc on `NodeKind::Capture` says so — never a
+/// separately minted one, so every field's `Origin::Parsed { capture, .. }`
+/// resolves to this node with no join.
+fn attach_capture(
+    graph: &mut Graph,
+    mint: &mut Mint,
+    manifest: &Manifest<'_>,
+    capture: CaptureId,
+    device: NodeId,
+    text: &str,
+) -> Result<NodeId, WeldError> {
+    let whole = whole_capture(text);
+    let existence = prov::existence(mint, manifest, capture, whole)?;
+    let node = graph
+        .insert_node(NodeKind::Capture, capture.0, existence)
+        .map_err(WeldError::Store)?;
+
+    let edge_record = prov::existence(mint, manifest, capture, whole)?;
+    let edge_ulid = mint.next()?;
+    graph
+        .insert_edge(EdgeKind::HasCapture, edge_ulid, device, node, edge_record)
+        .map_err(WeldError::Store)?;
+
+    let text_record = prov::derived(mint, manifest, capture, whole)?;
+    graph
+        .set_field(
+            ElementId::Node(node),
+            field_key("Capture.text"),
+            fathom_ir::scalar::Text(text.to_owned()),
+            text_record,
+        )
+        .map_err(field_error)?;
+
+    let platform_record = prov::derived(mint, manifest, capture, whole)?;
+    graph
+        .set_field(
+            ElementId::Node(node),
+            field_key("Capture.platform"),
+            manifest.platform.clone(),
+            platform_record,
+        )
+        .map_err(field_error)?;
+
+    let count_record = prov::derived(mint, manifest, capture, whole)?;
+    let line_count = u32::try_from(text.lines().count()).unwrap_or(u32::MAX);
+    graph
+        .set_field(
+            ElementId::Node(node),
+            field_key("Capture.line_count"),
+            line_count,
+            count_record,
+        )
+        .map_err(field_error)?;
+
+    Ok(node)
 }
 
 /// The fragment index of the containment parent for a node that declares no
@@ -267,16 +445,21 @@ fn derived_owner(root_kind: NodeKind, child: NodeKind) -> Result<usize, WeldErro
     }
 }
 
-/// `Device.platform`'s wire key, read from the generated registry and never
-/// written as a literal (§4.5 step 4; ADR-0008). Field keys are 1-based and
+/// `Device.platform`'s wire key (§4.5 step 4).
+fn platform_key() -> FieldKey {
+    field_key("Device.platform")
+}
+
+/// A wire key by its `Kind.field` name, read from the generated registry and
+/// never written as a literal (ADR-0008). Field keys are 1-based and
 /// append-only, so the unassignable `0` is the honest fallback: a registry
 /// that stopped naming the field surfaces as the store's `UndeclaredField`
 /// rather than as a silent skip.
-fn platform_key() -> FieldKey {
+fn field_key(name: &str) -> FieldKey {
     FieldKey(
         FIELD_KEYS
             .iter()
-            .find(|(name, _)| *name == "Device.platform")
+            .find(|(n, _)| *n == name)
             .map_or(0, |(_, key)| *key),
     )
 }

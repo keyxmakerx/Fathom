@@ -20,7 +20,7 @@ import { newUlid } from './ulid';
 const PINNED =
   'fathom-plain 1\n' +
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n' +
-  'schema 0.8\n' +
+  'schema 0.9\n' +
   '\n' +
   '{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}\n';
 
@@ -317,7 +317,7 @@ describe('readPlain refusals', () => {
   });
 
   it('refuses a mismatched schema version', () => {
-    const bumped = PINNED.replace('schema 0.8', 'schema 0.1');
+    const bumped = PINNED.replace('schema 0.9', 'schema 0.1');
     try {
       readPlain(bytesOf(bumped));
       throw new Error('expected a refusal');
@@ -326,7 +326,7 @@ describe('readPlain refusals', () => {
       expect((e as PlainError).reason).toEqual({
         kind: 'schema-version-mismatch',
         found: '0.1',
-        supported: '0.8',
+        supported: '0.9',
       });
     }
   });

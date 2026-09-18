@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.8"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.9"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -139,6 +139,25 @@ schema:
                     # Surface.form, Surface.width_mm, Surface.height_mm, FixedTo.x_mm,
                     # FixedTo.y_mm, PhysicalPort.face), one new kind (52 -> 53), three new
                     # edges (96 -> 99). No kind removed, no retype, no tuple reordered, no
+                    # containment moved for anything that already had one. Whole change =
+                    # MINOR.
+                    #
+                    # 0.9 is ADR-0052 §3 (the config drawer, 2026-09-18), all additive. One
+                    # new node kind, Capture — what the redaction gate let through, owned by
+                    # Device — joining the Placeable class exactly as Surface did (0.8), for
+                    # the same reason every declared kind but LayoutPin does: the class means
+                    # "every kind the diagram can draw as a box", stated as a full list, and
+                    # `shipped_tree.rs::every_kind_but_the_pin_itself_is_placeable` is the
+                    # noticer if a new kind is left out (62 §16.2: "New node kind" is minor).
+                    # Four fields on the new declarer — text, platform, line_count, shape
+                    # (62 §16.2: fields on a new declarer are minor). One new edge kind,
+                    # HasCapture, containing a Capture in its Device, in the manner of
+                    # HasChassis (62 §16.2: "New edge kind" is minor). Four new field keys,
+                    # 326-329 (Capture.text, Capture.platform, Capture.line_count,
+                    # Capture.shape), one new kind (53 -> 54), two new edges — HasCapture and,
+                    # through Placeable, the extra HasLayoutPin pair — (99 -> 100 declared
+                    # edge count; HasLayoutPin itself is not a new edge KIND, only a wider
+                    # pair set). No kind removed, no retype, no tuple reordered, no
                     # containment moved for anything that already had one. Whole change =
                     # MINOR.
 
@@ -324,6 +343,18 @@ classes:
       # elevation — a separate renderer from the topology diagram, Rack's own
       # precedent exactly.
       - Surface
+      # ADR-0052 §3. A capture is drawn as a box like its DhcpRelay and NtpServer
+      # siblings — `fathom-layout` draws every live node the class membership
+      # test insists on, and a capture is not the first deliberately-unplaceable
+      # kind any more than a relay was. It DOES show up as a box on the topology
+      # diagram, at every layer — `crates/fathom-layout/src/layers.rs` leaves it
+      # UNTABLED beside DhcpRelay because it has no geometry of its own, which
+      # means drawn without a row in `56` §4.1's inventory table, not hidden.
+      # That is a layers.rs decision about WHICH layers draw it and whether it
+      # gets a table row, not a schema decision about whether it CAN be placed,
+      # and this class is the latter (ADR-0035's own division of labour, stated
+      # at the top of this class).
+      - Capture
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
 
@@ -1521,6 +1552,52 @@ kinds:
       - { name: height_mm, type: u32, card: "0..1", emit: "—", doc: "The surface's extent floor to ceiling (or, for a floor, its other horizontal extent), millimetres. Optional for the same reason width_mm is." }
     identity:
       - [ owner(Premises), label ]   # tier 1 -- a physical coordinate, Rack's and PassiveNode's precedent exactly
+
+  # ADR-0052 §3 (the config drawer, 2026-09-18). Appended at the tail because order is wire
+  # identity (62 §13) -- Surface's own precedent.
+  - kind: Capture
+    layer: config
+    emits: false
+    doc: |
+      What the redaction gate let through (ADR-0052 §3): the pasted configuration text after
+      every credential the gate found is destroyed, never the original. Owned by Device,
+      config layer, because a capture is a fact about one box's configuration file — the same
+      layer Device itself declares, and the layer every kind a capture's fields resolve their
+      Origin::Parsed against already lives in.
+
+      ITS NODE ID IS THE WELD'S CaptureId, not a minted id of its own
+      (`crates/fathom-weld/src/apply.rs` -- `let capture = CaptureId(mint.next()?);` is the
+      mint's first id, before the batch opens). Every field the weld writes from this capture
+      carries `Origin::Parsed { capture, span }` with that same id
+      (`crates/fathom-graph/src/prov.rs`), so a field resolves the capture it came from BY ID,
+      with no join and no scan, and the weld never has to look this node up to know which one
+      it just wrote.
+
+      This is the first kind in the tree whose identity is genuinely its own node id rather
+      than a term the schema states. LAYOUTPIN IS THE NEAREST PRECEDENT AND IS NOT THE SAME
+      SHAPE: LayoutPin's `identity: []` says a pin is identified by what contains it and
+      nothing else — there is still no id-carries-identity story, only "at most one per
+      owner". A Capture does carry one: the id IS the identity, minted once, by the one writer
+      (the weld) that is ever allowed to mint it.
+
+      The tuple below is declared anyway, because 62 §4.2 still asks every kind for an
+      identity block and `identity: []` here would be borrowing LayoutPin's argument for a
+      kind it does not fit — a Capture is not singular under its owner the way a pin is
+      singular under its element (HasLayoutPin's `out: "0..1"`; HasCapture's `out: "0..n"`).
+      It is a WEAK tuple on purpose, and the weakness is the point being made: two pastes of
+      the same box, on the same platform, that happen to produce the same line count are
+      indistinguishable by this tuple and distinguishable only by the id the weld already
+      minted before either node existed. The tuple is the L0 declaration 62 requires; nothing
+      in this tree re-identifies a Capture by it, and nothing should — Origin::Parsed already
+      carries the real answer.
+    fields:
+      - { name: text, type: Text, card: "1", emit: "—", doc: "The capture after the gate. Every credential the gate found is destroyed at the gate before this value exists -- never the original text, ADR-0052 §2." }
+      - { name: platform, type: PlatformId, card: "1", emit: "—", doc: "junos-srx, panos, ios-xe. FK into schema/platforms.yaml -- Device.platform's own scalar, stamped by the same dictionary that parsed this capture." }
+      - { name: line_count, type: u32, card: "1", emit: "—", doc: "Line count of the redacted text (ADR-0052 §2) -- one gutter row per line." }
+      - { name: shape, type: Text, card: "0..1", emit: "—", doc: "The shape the frame recognised (`fathom_ingest::shape`), where one was. Absent means the frame found no shape to name." }
+    identity:
+      - [ owner(Device), line_count, platform ]   # weak by design -- see doc. The node id, not this tuple, is what
+                                                    # Origin::Parsed resolves against.
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -2780,6 +2857,26 @@ edges:
       `out: "0..1"` on the SAME kinds and nothing in this grammar expresses "at most one
       across these edges", only "at most one of THIS edge". The doc says the client
       enforces it, the same division of labour SitsOn's target-form restriction uses.
+
+  - edge: HasCapture
+    class: containment
+    from: [Device]
+    to: [Capture]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0052 §3. A capture hangs off the device it configures, exactly as HasChassis hangs
+      a chassis off one -- in: "1" keeps containment a forest, HasRack's own convention,
+      unchanged. Unlike every other `owner(X)` identity term in this tree, this edge is NOT
+      what makes Capture's identity usable: Capture's real identity is its node id (the
+      weld's CaptureId, Capture's own doc), and `owner(Device)` in its declared tuple is only
+      62 §4.2's required fallback. This edge exists because 11 §7.2 requires every non-root
+      node to have exactly one containment parent, the same reason every other containment
+      edge in this tree exists.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

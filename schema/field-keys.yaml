@@ -408,3 +408,9 @@ fields:
   FixedTo.x_mm: 323
   FixedTo.y_mm: 324
   PhysicalPort.face: 325
+  # ADR-0052 §3 (the config drawer, 2026-09-18). Appended at the tail with the next
+  # integers, which is the only way a key is ever assigned.
+  Capture.text: 326
+  Capture.platform: 327
+  Capture.line_count: 328
+  Capture.shape: 329

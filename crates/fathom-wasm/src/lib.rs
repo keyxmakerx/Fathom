@@ -290,6 +290,41 @@ pub const OP_INSIDE: u32 = 26;
 /// empty).
 pub const OP_CABLE: u32 = 27;
 
+/// The plain face in, the held estate out (ADR-0052 §4).
+///
+/// Request: `fathom_workspace::read_plain`'s whole input, verbatim — no host
+/// clock or entropy prefix, because loading writes no new provenance. Every
+/// id and every record in the file is already stamped with the moment it was
+/// minted; the module invents nothing.
+///
+/// **REPLACES the held estate**, the same contract `OP_PASTE`'s own doc
+/// states for a fresh design: opening a file is not merging one.
+pub const OP_LOAD_PLAIN: u32 = 28;
+/// The held estate out as the plain face (ADR-0052 §4).
+///
+/// Request: empty. Reply, on success, is the RAW BYTES `fathom_workspace::write_plain`
+/// produces — not a `KIND_FACE_ROW` reply, because the whole point of this
+/// door is that the module never reimplements the weld in JavaScript, and a
+/// wrapped reply would ask the page to unwrap what it is only handing to a
+/// download. A refusal is the ordinary typed error record (`ERR_PLAIN_REFUSED`
+/// or `ERR_NOT_INITIALISED`), which starts `FDLT` and so is never mistaken for
+/// the plain face's own `fathom-plain 1` first line.
+pub const OP_EXPORT_PLAIN: u32 = 29;
+/// Paste a config under a device the operator has already placed
+/// (ADR-0052 §4) — the third door, beside `OP_PASTE` (a fresh device) and
+/// `OP_EQUIP_ADD` (no config at all).
+///
+/// Frame — the same 25-byte clock/entropy/confirm prefix `OP_PASTE` carries
+/// (confirm rides along for wire symmetry and is UNUSED: choosing the device
+/// to paste under is already ADR-0010's human answer, so there is nothing
+/// left to ask), then a 2-byte little-endian device-id length, then the
+/// display id, then the pasted text to the end.
+///
+/// Every field the config states lands on the CHOSEN device as a
+/// supersession — `fathom_weld::apply_into_device`, beside
+/// `apply_new_device` — never on a freshly minted one.
+pub const OP_PASTE_INTO: u32 = 30;
+
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and
 // `OP_INV_ROWS` already lists it. A bespoke opcode would have been a second

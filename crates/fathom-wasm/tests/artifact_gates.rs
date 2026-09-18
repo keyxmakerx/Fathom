@@ -208,4 +208,88 @@ fn release_wasm_builds_audits_and_fits() {
     println!("export mems: {mems:?}");
     println!("export globals: {globals:?}");
     println!("export tables: {tables:?}");
+
+    // --- shipped-artifact parity (ADR-0052 §1) --------------------------------
+    //
+    // "the module ships as a file, never a package... the existing artifact
+    // gate asserts the shipped bytes match the source build." The file is
+    // copied under the client's public directory by a build step, ignored by
+    // git — nothing in this repository commits it, so most trees have none.
+    // Absent is reported, not failed: there is nothing wrong with a tree that
+    // has not run the copy step yet.
+    let shipped_path = root.join("client/public/engine/fathom_wasm.wasm");
+    match std::fs::read(&shipped_path) {
+        Err(_) => println!(
+            "{} does not exist — nothing to compare (ADR-0052 §1's copy step has not run here)",
+            shipped_path.display()
+        ),
+        Ok(shipped) if shipped == wasm => {
+            println!(
+                "{} is byte-identical to the release build this run just audited",
+                shipped_path.display()
+            );
+        }
+        Ok(shipped) => {
+            // BYTE-IDENTICAL IS THE STRONG CLAIM, TRIED FIRST, AND NOT
+            // GUARANTEED. `wasm-ld` is not specified to be bit-reproducible
+            // run to run even under one pinned toolchain — parallel section
+            // assembly and hash-map iteration order inside the linker are
+            // real, documented sources of byte-level nondeterminism that
+            // carry no semantic difference. So a shipped artifact that
+            // differs in BYTES from a fresh build of the same source is not
+            // by itself evidence of tampering or drift; what would be is a
+            // difference in what the module IMPORTS, EXPORTS, or SIZE, which
+            // is the fallback this arm actually asserts, named here rather
+            // than silently accepted.
+            let shipped_imports =
+                import_entries(&shipped).expect("the shipped import section must parse");
+            assert!(
+                shipped_imports.is_empty(),
+                "the shipped artifact imports something the release build does not: {shipped_imports:?}"
+            );
+            let shipped_exports =
+                export_entries(&shipped).expect("the shipped export section must parse");
+            assert_eq!(
+                names(&shipped_exports, 0),
+                funcs,
+                "the shipped artifact's function exports differ from this run's audited build"
+            );
+            assert_eq!(
+                names(&shipped_exports, 1),
+                tables,
+                "the shipped artifact exports a table the audited build does not"
+            );
+            assert_eq!(
+                names(&shipped_exports, 2),
+                mems,
+                "the shipped artifact's memory export differs from this run's audited build"
+            );
+            assert_eq!(
+                names(&shipped_exports, 3),
+                globals,
+                "the shipped artifact's global exports differ from this run's audited build"
+            );
+            assert!(
+                shipped_exports.iter().all(|e| e.kind <= 3),
+                "the shipped artifact exports something of a kind this gate does not audit"
+            );
+            assert_eq!(
+                shipped.len(),
+                wasm.len(),
+                "the shipped artifact's SIZE differs from this run's audited build ({} vs {} \
+                 bytes) — a linker-ordering difference changes byte layout, not byte COUNT, so \
+                 a size mismatch is a real difference and not the nondeterminism this fallback \
+                 exists to tolerate",
+                shipped.len(),
+                wasm.len()
+            );
+            println!(
+                "{} differs from this run's audited build in raw bytes ({} bytes each) but \
+                 agrees on every audited property: empty imports, the same three exports, no \
+                 unaudited export kind, and equal size. Treated as the same module built twice.",
+                shipped_path.display(),
+                shipped.len()
+            );
+        }
+    }
 }

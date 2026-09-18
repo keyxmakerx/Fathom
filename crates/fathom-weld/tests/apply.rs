@@ -388,3 +388,259 @@ fn no_containment_edge_names_both_kinds() {
         })
     );
 }
+
+/// ADR-0052 §4: `apply_into_device` writes the config the operator pasted
+/// onto a `Device` they already placed, rather than minting a new one.
+mod paste_into_device {
+    use super::*;
+    use fathom_graph::NodeId;
+    use fathom_weld::apply_into_device;
+
+    /// Any distinct entropy base, far enough from [`ENTROPY`] that the two
+    /// mints' 80-bit counters cannot overlap within one apply's id count.
+    const ENTROPY_2: u128 = 0x4000_0000;
+
+    /// The shape `OP_EQUIP_ADD` produces: one bare `Device` node, no fields.
+    fn placed_device(graph: &mut Graph) -> NodeId {
+        let record = fathom_graph::ProvenanceRecord {
+            id: fathom_graph::ProvenanceId(Ulid::from_parts(TS, 1).expect("in range")),
+            origin: Origin::Hand,
+            asserted_at: Timestamp(TS),
+            asserted_by: Actor::User(UserId::LOCAL),
+            confidence: fathom_graph::Confidence::Asserted,
+            supersedes: None,
+        };
+        graph
+            .begin_batch(BatchId(Ulid::from_parts(TS, 0).expect("in range")), "place")
+            .expect("a batch opens");
+        let id = graph
+            .insert_node(
+                NodeKind::Device,
+                Ulid::from_parts(TS, 2).expect("in range"),
+                record,
+            )
+            .expect("a fresh device inserts");
+        graph.end_batch().expect("batch closes");
+        id
+    }
+
+    fn hostname_key() -> FieldKey {
+        FieldKey(
+            fathom_ir::generated::ir_types::FIELD_KEYS
+                .iter()
+                .find(|(name, _)| *name == "Device.hostname")
+                .map(|(_, key)| *key)
+                .expect("the registry declares Device.hostname"),
+        )
+    }
+
+    #[test]
+    fn the_placed_device_is_reused_not_duplicated() {
+        let ingest = fixture_ingest();
+        let mut graph = Graph::new();
+        let device = placed_device(&mut graph);
+
+        let out = apply_into_device(&mut graph, &ingest, &manifest("Paste into device"), device)
+            .expect("the fixture applies onto a placed device");
+
+        assert_eq!(
+            out.device, device,
+            "the placed node is the device the weld reports"
+        );
+        assert_eq!(out.nodes.first(), Some(&device));
+        assert_eq!(
+            graph.nodes_of_kind(NodeKind::Device).count(),
+            1,
+            "no second Device was minted"
+        );
+        assert_eq!(out.nodes.len(), ingest.fragment.nodes.len());
+        // +1: the `Capture` node ADR-0052 §3 attaches on this path.
+        assert_eq!(
+            graph.nodes().count(),
+            ingest.fragment.nodes.len() + 1,
+            "one node per fragment node, root included, plus the capture node"
+        );
+        let capture_node = out.capture_node.expect("this path attaches a capture node");
+        assert_eq!(capture_node.kind, NodeKind::Capture);
+        assert_eq!(capture_node.ulid, out.capture.0);
+    }
+
+    /// ADR-0052 §3: the capture node is owned by the device, and holds the
+    /// redacted text, the platform, and the line count.
+    #[test]
+    fn the_capture_node_is_owned_by_the_device_and_carries_its_three_fields() {
+        let ingest = fixture_ingest();
+        let mut graph = Graph::new();
+        let device = placed_device(&mut graph);
+
+        let out = apply_into_device(&mut graph, &ingest, &manifest("Paste into device"), device)
+            .expect("the fixture applies onto a placed device");
+        let capture_node = out.capture_node.expect("this path attaches a capture node");
+
+        assert_eq!(
+            graph.owner(capture_node),
+            Some(device),
+            "HasCapture makes the device the capture's containment owner"
+        );
+
+        let node = graph
+            .node(capture_node)
+            .expect("the capture is in the store");
+        let text = fathom_ir::generated::accessors::capture::text(node)
+            .expect("Capture.text is set")
+            .0
+            .as_str();
+        assert_eq!(text, ingest.capture.text(), "the redacted text, verbatim");
+        assert_eq!(
+            fathom_ir::generated::accessors::capture::platform(node),
+            Ok(&fathom_ir::scalar::PlatformId("junos-srx".to_owned()))
+        );
+        assert_eq!(
+            fathom_ir::generated::accessors::capture::line_count(node),
+            Ok(&(text.lines().count() as u32))
+        );
+    }
+
+    #[test]
+    fn the_config_s_fields_land_on_the_placed_device_as_supersessions() {
+        let ingest = fixture_ingest();
+        let mut graph = Graph::new();
+        let device = placed_device(&mut graph);
+        let key = hostname_key();
+
+        assert_eq!(
+            graph
+                .presence(ElementId::Node(device), key)
+                .map(|i| i.presence),
+            Ok(StoredPresence::Unknown),
+            "a hand-placed device starts with no hostname"
+        );
+
+        apply_into_device(&mut graph, &ingest, &manifest("Paste into device"), device)
+            .expect("the fixture applies onto a placed device");
+
+        let hostname = fathom_ir::generated::accessors::device::hostname(
+            graph.node(device).expect("the device is in the store"),
+        )
+        .expect("hostname is now set");
+        assert_eq!(hostname.0, "srx-a-01");
+
+        let info = graph
+            .presence(ElementId::Node(device), key)
+            .expect("hostname is declared on Device");
+        assert_eq!(info.presence, StoredPresence::Set);
+        let record = graph
+            .provenance(info.prov.expect("a Set slot carries provenance"))
+            .expect("the record is interned");
+        assert!(
+            record.supersedes.is_none(),
+            "the device had no prior hostname to supersede"
+        );
+    }
+
+    /// A second paste's non-root fragment nodes still mint fresh (this
+    /// module's own doc: "this is not reconciliation") — there is nothing to
+    /// supersede the first paste's children with, so a second paste would
+    /// duplicate the whole subtree rather than update it. The weld refuses it
+    /// outright, before any write, rather than silently multiplying the
+    /// device's interfaces, zones and addresses on every re-paste.
+    #[test]
+    fn a_second_paste_into_the_same_device_is_refused_not_duplicated() {
+        let mut graph = Graph::new();
+        let device = placed_device(&mut graph);
+
+        apply_into_device(&mut graph, &fixture_ingest(), &manifest("first"), device)
+            .expect("first paste applies");
+
+        // The fixture's two security zones (`VPN`, `WAN`) are the non-root
+        // kind this assertion watches; the fixture has no `Interface` (its
+        // "interfaces" are `TunnelInterface`/`RethInterface`).
+        let zones_after_first = graph.nodes_of_kind(NodeKind::Zone).count();
+        assert_eq!(
+            zones_after_first, 2,
+            "the fixture has two security zones to duplicate if the refusal fails"
+        );
+
+        let mut second = manifest("second");
+        second.entropy = ENTROPY_2;
+        second.batch = BatchId(Ulid::from_parts(TS, ENTROPY_2).expect("in range"));
+        assert_eq!(
+            apply_into_device(&mut graph, &fixture_ingest(), &second, device),
+            Err(WeldError::AlreadyCaptured),
+            "a device that already carries a Capture refuses a second paste"
+        );
+
+        assert_eq!(
+            graph.nodes_of_kind(NodeKind::Device).count(),
+            1,
+            "still exactly one device after the refused second paste"
+        );
+        assert_eq!(
+            graph.nodes_of_kind(NodeKind::Zone).count(),
+            zones_after_first,
+            "the refused second paste must not duplicate a single non-root node"
+        );
+    }
+
+    #[test]
+    fn a_non_device_target_is_refused() {
+        let ingest = fixture_ingest();
+        let mut graph = Graph::new();
+        let record = fathom_graph::ProvenanceRecord {
+            id: fathom_graph::ProvenanceId(Ulid::from_parts(TS, 1).expect("in range")),
+            origin: Origin::Hand,
+            asserted_at: Timestamp(TS),
+            asserted_by: Actor::User(UserId::LOCAL),
+            confidence: fathom_graph::Confidence::Asserted,
+            supersedes: None,
+        };
+        graph
+            .begin_batch(BatchId(Ulid::from_parts(TS, 0).expect("in range")), "place")
+            .expect("a batch opens");
+        let site = graph
+            .insert_node(
+                NodeKind::Site,
+                Ulid::from_parts(TS, 2).expect("in range"),
+                record,
+            )
+            .expect("a fresh site inserts");
+        graph.end_batch().expect("batch closes");
+        let batches_before = graph.log().len();
+
+        assert_eq!(
+            apply_into_device(&mut graph, &ingest, &manifest("refused"), site),
+            Err(WeldError::TargetNotDevice)
+        );
+        assert_eq!(
+            graph.log().len(),
+            batches_before,
+            "no batch was opened by the refused apply"
+        );
+    }
+
+    #[test]
+    fn a_tombstoned_device_is_refused() {
+        let ingest = fixture_ingest();
+        let mut graph = Graph::new();
+        let device = placed_device(&mut graph);
+        graph
+            .begin_batch(
+                BatchId(Ulid::from_parts(TS, 4).expect("in range")),
+                "remove",
+            )
+            .expect("a batch opens");
+        graph
+            .tombstone(
+                ElementId::Node(device),
+                Timestamp(TS),
+                Actor::User(UserId::LOCAL),
+            )
+            .expect("a live node tombstones");
+        graph.end_batch().expect("batch closes");
+
+        assert_eq!(
+            apply_into_device(&mut graph, &ingest, &manifest("refused"), device),
+            Err(WeldError::TargetNotDevice)
+        );
+    }
+}

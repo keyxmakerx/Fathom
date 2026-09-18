@@ -64,14 +64,14 @@ fn shipped_tree_declaration_counts_hold() {
     // hard ceiling, bought for a bound that 62 §3.2's per-field `constraints`
     // already expresses. The `Placeable` CLASS did move — it gained `Rack` —
     // and `every_kind_but_the_pin_itself_is_placeable` below is the noticer.
-    assert_eq!(tree.kinds.len(), 53, "kind count");
-    assert_eq!(tree.edges.len(), 99, "edge count (91 + 8 derived)");
+    assert_eq!(tree.kinds.len(), 54, "kind count");
+    assert_eq!(tree.edges.len(), 100, "edge count (92 + 8 derived)");
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
     assert_eq!(tree.classes.len(), 4, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 325, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 329, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -118,7 +118,16 @@ fn shipped_tree_declaration_counts_hold() {
     // `nema515p`) land on already-keyed, already-inline enums -- no new file, no new
     // key. The `Placeable` CLASS gained `Surface` and the noticer below still holds;
     // `PortHost` is untouched -- `Surface` hosts no ports.
-    assert_eq!(tree.version.as_deref(), Some("0.8"));
+    //
+    // 0.8 -> 0.9 (2026-09-18) is ADR-0052 §3 (the config drawer) and moves three of the
+    // counts above: +1 kind (`Capture`, 53 -> 54), +1 edge (`HasCapture`, 99 -> 100),
+    // +4 field keys (326-329, 325 -> 329). Scalars, enum FILE count, class count and
+    // import scopes are unmoved: `Capture.platform` is the existing `PlatformId`
+    // (`Device.platform`'s own scalar), `line_count` is plain `u32`, `text` and `shape`
+    // are the existing `Text`. The `class` count stays 4 -- no class added -- but
+    // `Placeable` widens to include `Capture`, exactly as it widened for `Surface`, and
+    // the noticer below still holds. `PortHost` is untouched -- a capture hosts no ports.
+    assert_eq!(tree.version.as_deref(), Some("0.9"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

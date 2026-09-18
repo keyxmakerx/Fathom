@@ -32,6 +32,7 @@ fathom-inventory = { path = "../fathom-inventory" }
 fathom-layout = { path = "../fathom-layout" }
 fathom-ir = { path = "../fathom-ir" }
 fathom-weld = { path = "../fathom-weld" }
+fathom-workspace = { path = "../fathom-workspace" }
 
 # A package depending on itself: the only way to turn one of its own features on
 # for its own test targets. `tests/face.rs` and `tests/equip.rs` drive

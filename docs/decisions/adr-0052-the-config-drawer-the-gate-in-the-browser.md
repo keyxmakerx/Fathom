@@ -37,6 +37,11 @@ faceplate with a gutter per line: built graph, kept as text, destroyed at the ga
    proven at the server. Not this session: a Proxmox host, which has no dictionary and no guest or
    bridge kinds yet; unreachable-policy hatching; the assistant panel.
 
+**Amended the same day, from the checker.** A second paste into a device that already carries a
+live capture duplicated every node the first one built. Until "replace a capture" exists, which
+tombstones everything whose origin is that capture and then pastes, the door refuses a second
+paste and says so. Automatic reconciliation stays forbidden (ADR-0010).
+
 ## Consequences
 
 The board that drew an SNMP community as kept-as-text is wrong and the gate is right; the board

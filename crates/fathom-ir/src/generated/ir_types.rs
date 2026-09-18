@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.8";
+    pub const SCHEMA_VERSION: &str = "0.9";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -273,12 +273,44 @@ mod body {
         /// docs already state for themselves: no vendor statement names a wall. Every
         /// Surface and every HasSurface/FixedTo is Origin::Hand.
         Surface,
+        /// What the redaction gate let through (ADR-0052 §3): the pasted configuration text after
+        /// every credential the gate found is destroyed, never the original. Owned by Device,
+        /// config layer, because a capture is a fact about one box's configuration file — the same
+        /// layer Device itself declares, and the layer every kind a capture's fields resolve their
+        /// Origin::Parsed against already lives in.
+        ///
+        /// ITS NODE ID IS THE WELD'S CaptureId, not a minted id of its own
+        /// (`crates/fathom-weld/src/apply.rs` -- `let capture = CaptureId(mint.next()?);` is the
+        /// mint's first id, before the batch opens). Every field the weld writes from this capture
+        /// carries `Origin::Parsed { capture, span }` with that same id
+        /// (`crates/fathom-graph/src/prov.rs`), so a field resolves the capture it came from BY ID,
+        /// with no join and no scan, and the weld never has to look this node up to know which one
+        /// it just wrote.
+        ///
+        /// This is the first kind in the tree whose identity is genuinely its own node id rather
+        /// than a term the schema states. LAYOUTPIN IS THE NEAREST PRECEDENT AND IS NOT THE SAME
+        /// SHAPE: LayoutPin's `identity: []` says a pin is identified by what contains it and
+        /// nothing else — there is still no id-carries-identity story, only "at most one per
+        /// owner". A Capture does carry one: the id IS the identity, minted once, by the one writer
+        /// (the weld) that is ever allowed to mint it.
+        ///
+        /// The tuple below is declared anyway, because 62 §4.2 still asks every kind for an
+        /// identity block and `identity: []` here would be borrowing LayoutPin's argument for a
+        /// kind it does not fit — a Capture is not singular under its owner the way a pin is
+        /// singular under its element (HasLayoutPin's `out: "0..1"`; HasCapture's `out: "0..n"`).
+        /// It is a WEAK tuple on purpose, and the weakness is the point being made: two pastes of
+        /// the same box, on the same platform, that happen to produce the same line count are
+        /// indistinguishable by this tuple and distinguishable only by the id the weld already
+        /// minted before either node existed. The tuple is the L0 declaration 62 requires; nothing
+        /// in this tree re-identifies a Capture by it, and nothing should — Origin::Parsed already
+        /// carries the real answer.
+        Capture,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 53;
+        pub const COUNT: usize = 54;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 53] = [
+        pub const ALL: [NodeKind; 54] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -332,6 +364,7 @@ mod body {
             NodeKind::DhcpRelay,
             NodeKind::PowerSupply,
             NodeKind::Surface,
+            NodeKind::Capture,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -391,6 +424,7 @@ mod body {
                 NodeKind::DhcpRelay => "DhcpRelay",
                 NodeKind::PowerSupply => "PowerSupply",
                 NodeKind::Surface => "Surface",
+                NodeKind::Capture => "Capture",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -448,6 +482,7 @@ mod body {
                 "DhcpRelay" => Some(NodeKind::DhcpRelay),
                 "PowerSupply" => Some(NodeKind::PowerSupply),
                 "Surface" => Some(NodeKind::Surface),
+                "Capture" => Some(NodeKind::Capture),
                 _ => None,
             }
         }
@@ -511,6 +546,7 @@ mod body {
                 NodeKind::DhcpRelay => &[],
                 NodeKind::PowerSupply => &[&["owner(Chassis)", "slot"]],
                 NodeKind::Surface => &[&["owner(Premises)", "label"]],
+                NodeKind::Capture => &[&["owner(Device)", "line_count", "platform"]],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -569,6 +605,7 @@ mod body {
                 NodeKind::DhcpRelay => Layer::Config,
                 NodeKind::PowerSupply => Layer::Physical,
                 NodeKind::Surface => Layer::Physical,
+                NodeKind::Capture => Layer::Config,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -628,6 +665,7 @@ mod body {
                 NodeKind::DhcpRelay => true,
                 NodeKind::PowerSupply => false,
                 NodeKind::Surface => false,
+                NodeKind::Capture => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -688,6 +726,7 @@ mod body {
                 NodeKind::DhcpRelay => &[crate::bag::FieldKey(308), crate::bag::FieldKey(309), crate::bag::FieldKey(310), crate::bag::FieldKey(311)],
                 NodeKind::PowerSupply => &[crate::bag::FieldKey(315), crate::bag::FieldKey(316), crate::bag::FieldKey(317)],
                 NodeKind::Surface => &[crate::bag::FieldKey(319), crate::bag::FieldKey(320), crate::bag::FieldKey(321), crate::bag::FieldKey(322)],
+                NodeKind::Capture => &[crate::bag::FieldKey(326), crate::bag::FieldKey(327), crate::bag::FieldKey(328), crate::bag::FieldKey(329)],
             }
         }
     }
@@ -995,12 +1034,21 @@ mod body {
         /// across these edges", only "at most one of THIS edge". The doc says the client
         /// enforces it, the same division of labour SitsOn's target-form restriction uses.
         FixedTo,
+        /// ADR-0052 §3. A capture hangs off the device it configures, exactly as HasChassis hangs
+        /// a chassis off one -- in: "1" keeps containment a forest, HasRack's own convention,
+        /// unchanged. Unlike every other `owner(X)` identity term in this tree, this edge is NOT
+        /// what makes Capture's identity usable: Capture's real identity is its node id (the
+        /// weld's CaptureId, Capture's own doc), and `owner(Device)` in its declared tuple is only
+        /// 62 §4.2's required fallback. This edge exists because 11 §7.2 requires every non-root
+        /// node to have exactly one containment parent, the same reason every other containment
+        /// edge in this tree exists.
+        HasCapture,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 91;
+        pub const COUNT: usize = 92;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 91] = [
+        pub const ALL: [EdgeKind; 92] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1092,6 +1140,7 @@ mod body {
             EdgeKind::SitsOn,
             EdgeKind::HasSurface,
             EdgeKind::FixedTo,
+            EdgeKind::HasCapture,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1189,6 +1238,7 @@ mod body {
                 EdgeKind::SitsOn => "SitsOn",
                 EdgeKind::HasSurface => "HasSurface",
                 EdgeKind::FixedTo => "FixedTo",
+                EdgeKind::HasCapture => "HasCapture",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1284,6 +1334,7 @@ mod body {
                 "SitsOn" => Some(EdgeKind::SitsOn),
                 "HasSurface" => Some(EdgeKind::HasSurface),
                 "FixedTo" => Some(EdgeKind::FixedTo),
+                "HasCapture" => Some(EdgeKind::HasCapture),
                 _ => None,
             }
         }
@@ -1381,6 +1432,7 @@ mod body {
                 EdgeKind::SitsOn => EdgeClass::Reference,
                 EdgeKind::HasSurface => EdgeClass::Containment,
                 EdgeKind::FixedTo => EdgeClass::Reference,
+                EdgeKind::HasCapture => EdgeClass::Containment,
             }
         }
     }
@@ -1558,7 +1610,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -1568,6 +1620,7 @@ mod body {
                 EdgeKind::SitsOn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasSurface => &[NodeKind::Premises],
                 EdgeKind::FixedTo => &[NodeKind::Chassis, NodeKind::PassiveNode],
+                EdgeKind::HasCapture => &[NodeKind::Device],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1664,6 +1717,7 @@ mod body {
                 EdgeKind::SitsOn => &[NodeKind::PassiveNode],
                 EdgeKind::HasSurface => &[NodeKind::Surface],
                 EdgeKind::FixedTo => &[NodeKind::Surface, NodeKind::PassiveNode],
+                EdgeKind::HasCapture => &[NodeKind::Capture],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -1760,6 +1814,7 @@ mod body {
                 EdgeKind::SitsOn => EdgeCardBound { min: 0, max: Some(1) },
                 EdgeKind::HasSurface => EdgeCardBound { min: 0, max: None },
                 EdgeKind::FixedTo => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::HasCapture => EdgeCardBound { min: 0, max: None },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -1856,6 +1911,7 @@ mod body {
                 EdgeKind::SitsOn => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasSurface => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::FixedTo => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasCapture => EdgeCardBound { min: 1, max: Some(1) },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -1953,6 +2009,7 @@ mod body {
                 EdgeKind::SitsOn => false,
                 EdgeKind::HasSurface => false,
                 EdgeKind::FixedTo => false,
+                EdgeKind::HasCapture => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2049,6 +2106,7 @@ mod body {
                 EdgeKind::SitsOn => false,
                 EdgeKind::HasSurface => false,
                 EdgeKind::FixedTo => false,
+                EdgeKind::HasCapture => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2145,6 +2203,7 @@ mod body {
                 EdgeKind::SitsOn => &[crate::bag::FieldKey(318)],
                 EdgeKind::HasSurface => &[],
                 EdgeKind::FixedTo => &[crate::bag::FieldKey(323), crate::bag::FieldKey(324)],
+                EdgeKind::HasCapture => &[],
             }
         }
     }
@@ -7398,6 +7457,46 @@ mod body {
         }
     }
 
+    /// Fields of kind `Capture`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum CaptureField {
+        Text,
+        Platform,
+        LineCount,
+        Shape,
+    }
+
+    impl CaptureField {
+        pub const COUNT: usize = 4;
+        /// Every field, declaration order.
+        pub const ALL: [CaptureField; 4] = [
+            CaptureField::Text,
+            CaptureField::Platform,
+            CaptureField::LineCount,
+            CaptureField::Shape,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                CaptureField::Text => "text",
+                CaptureField::Platform => "platform",
+                CaptureField::LineCount => "line_count",
+                CaptureField::Shape => "shape",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                CaptureField::Text => crate::bag::FieldKey(326),
+                CaptureField::Platform => crate::bag::FieldKey(327),
+                CaptureField::LineCount => crate::bag::FieldKey(328),
+                CaptureField::Shape => crate::bag::FieldKey(329),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -7861,7 +7960,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 325] = [
+    pub const FIELD_KEYS: [(&str, u32); 329] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -8187,15 +8286,19 @@ mod body {
         ("FixedTo.x_mm", 323),
         ("FixedTo.y_mm", 324),
         ("PhysicalPort.face", 325),
+        ("Capture.text", 326),
+        ("Capture.platform", 327),
+        ("Capture.line_count", 328),
+        ("Capture.shape", 329),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 41] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 42] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
-        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0x01,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x01,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

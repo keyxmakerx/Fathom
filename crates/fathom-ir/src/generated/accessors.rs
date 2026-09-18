@@ -1633,6 +1633,29 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(322))
         }
     }
+    /// Typed reads for `Capture` fields.
+    pub mod capture {
+        /// `Capture.text` — `Text`, card `1`, emit `—`.
+        /// The capture after the gate. Every credential the gate found is destroyed at the gate before this value exists -- never the original text, ADR-0052 §2.
+        pub fn text<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(326))
+        }
+        /// `Capture.platform` — `PlatformId`, card `1`, emit `—`.
+        /// junos-srx, panos, ios-xe. FK into schema/platforms.yaml -- Device.platform's own scalar, stamped by the same dictionary that parsed this capture.
+        pub fn platform<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::PlatformId, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(327))
+        }
+        /// `Capture.line_count` — `u32`, card `1`, emit `—`.
+        /// Line count of the redacted text (ADR-0052 §2) -- one gutter row per line.
+        pub fn line_count<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(328))
+        }
+        /// `Capture.shape` — `Text`, card `0..1`, emit `—`.
+        /// The shape the frame recognised (`fathom_ingest::shape`), where one was. Absent means the frame found no shape to name.
+        pub fn shape<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(329))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -1964,6 +1987,10 @@ mod body {
             323 => Some((core::any::TypeId::of::<u32>(), "u32")),
             324 => Some((core::any::TypeId::of::<u32>(), "u32")),
             325 => Some((core::any::TypeId::of::<crate::generated::ir_types::PhysicalPortFace>(), "crate::generated::ir_types::PhysicalPortFace")),
+            326 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            327 => Some((core::any::TypeId::of::<crate::scalar::PlatformId>(), "crate::scalar::PlatformId")),
+            328 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            329 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -2297,6 +2324,10 @@ mod body {
             323 => crate::canon::slot_to::<u32>(323, "u32", value),
             324 => crate::canon::slot_to::<u32>(324, "u32", value),
             325 => crate::canon::slot_to::<crate::generated::ir_types::PhysicalPortFace>(325, "crate::generated::ir_types::PhysicalPortFace", value),
+            326 => crate::canon::slot_to::<crate::scalar::Text>(326, "crate::scalar::Text", value),
+            327 => crate::canon::slot_to::<crate::scalar::PlatformId>(327, "crate::scalar::PlatformId", value),
+            328 => crate::canon::slot_to::<u32>(328, "u32", value),
+            329 => crate::canon::slot_to::<crate::scalar::Text>(329, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2628,6 +2659,10 @@ mod body {
             323 => crate::canon::slot_from::<u32>(j),
             324 => crate::canon::slot_from::<u32>(j),
             325 => crate::canon::slot_from::<crate::generated::ir_types::PhysicalPortFace>(j),
+            326 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            327 => crate::canon::slot_from::<crate::scalar::PlatformId>(j),
+            328 => crate::canon::slot_from::<u32>(j),
+            329 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

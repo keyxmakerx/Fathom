@@ -116,7 +116,20 @@ fn schema_version_is_the_trees() {
     // enum variant, a new node kind and a new edge kind all MINOR; an old build
     // keeps the unrecognised kind or token in `unknown` rather than refusing the
     // file. Nothing existing moved.
-    assert_eq!(SCHEMA_VERSION, "0.8");
+    //
+    // 0.8 -> 0.9 on 2026-09-18: ADR-0052 §3, the config drawer. One new node kind
+    // `Capture` (joins `Placeable`, `Surface`'s own precedent) holding what the
+    // redaction gate let through -- `text`, `platform`, `line_count`, `shape`, four
+    // fields all on the new declarer. Its node id IS the weld's `CaptureId`
+    // (`crates/fathom-weld/src/apply.rs`), so every field's `Origin::Parsed` resolves
+    // its capture by id with no join; the declared identity tuple
+    // `[owner(Device), line_count, platform]` is 62 §4.2's required fallback, not
+    // what anything actually re-identifies by. One new containment edge `HasCapture`
+    // (`Device -> Capture`, `HasChassis`'s own shape). Four new field keys, 326-329.
+    // 62 §16.2 prices a new node kind, fields on a new declarer and a new edge kind
+    // all MINOR; an old build keeps the unrecognised kind in `unknown` rather than
+    // refusing the file. Nothing existing moved.
+    assert_eq!(SCHEMA_VERSION, "0.9");
 }
 
 #[test]
@@ -625,7 +638,11 @@ fn dispatch_names_every_registry_key() {
     // `PowerSupply.model`. `PassiveNode.form` and `PhysicalPort.connector`'s new
     // variants land on already-keyed fields -- no new key, an enum variant is not
     // a field.
-    assert_eq!(FIELD_KEYS.len(), 325, "the registry grew or shrank");
+    //
+    // 325 -> 329 on 2026-09-18: ADR-0052 §3's four keys -- `Capture.text`,
+    // `.platform`, `.line_count`, `.shape` (326-329) -- appended after
+    // `PhysicalPort.face`.
+    assert_eq!(FIELD_KEYS.len(), 329, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

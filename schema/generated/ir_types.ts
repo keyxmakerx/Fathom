@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.8";
+export const SCHEMA_VERSION = "0.9";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -59,7 +59,8 @@ export type NodeKind =
   | "Rack"
   | "DhcpRelay"
   | "PowerSupply"
-  | "Surface";
+  | "Surface"
+  | "Capture";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -114,6 +115,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "DhcpRelay",
   "PowerSupply",
   "Surface",
+  "Capture",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -208,7 +210,8 @@ export type EdgeKind =
   | "FittedIn"
   | "SitsOn"
   | "HasSurface"
-  | "FixedTo";
+  | "FixedTo"
+  | "HasCapture";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -301,6 +304,7 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "SitsOn",
   "HasSurface",
   "FixedTo",
+  "HasCapture",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -437,6 +441,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   DhcpRelay: ["server", "group_name", "maximum_hop_count", "minimum_wait_time"],
   PowerSupply: ["slot", "serial", "model"],
   Surface: ["label", "form", "width_mm", "height_mm"],
+  Capture: ["text", "platform", "line_count", "shape"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -766,4 +771,8 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "FixedTo.x_mm": 323,
   "FixedTo.y_mm": 324,
   "PhysicalPort.face": 325,
+  "Capture.text": 326,
+  "Capture.platform": 327,
+  "Capture.line_count": 328,
+  "Capture.shape": 329,
 };

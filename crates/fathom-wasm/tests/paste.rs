@@ -15,11 +15,14 @@
 use fathom_inventory::InvKind;
 use fathom_wasm::protocol::{
     decode_reply, ErrorView, FaceRowView, ReplyView, ERR_BAD_FRAME, ERR_INGEST_REFUSED,
-    ERR_NOTHING_UNDERSTOOD, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, FACE_HEADER, FACE_INV, FACE_PASTE,
-    FACE_RESIDUE, FACE_UNRESOLVED,
+    ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED, ERR_NO_ELEMENT, ERR_PASTE_CHOICE, ERR_PASTE_FRAME,
+    ERR_PLAIN_REFUSED, FACE_DROP, FACE_HEADER, FACE_INV, FACE_PASTE, FACE_PASTE_LINE, FACE_RESIDUE,
+    FACE_UNRESOLVED,
 };
 use fathom_wasm::shell::Shell;
-use fathom_wasm::{OP_INV_ROWS, OP_PASTE};
+use fathom_wasm::{
+    OP_EQUIP_ADD, OP_EXPORT_PLAIN, OP_INV_ROWS, OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO,
+};
 
 /// The dictionary is handed in over `OP_DICT` since 2026-08-15, so every shell
 /// below is booted rather than merely new. See `common/mod.rs`.
@@ -85,6 +88,34 @@ fn frame_confirmed(at: u64, entropy: u128, text: &str, confirm: bool) -> Vec<u8>
     f.push(u8::from(confirm));
     f.extend_from_slice(text.as_bytes());
     f
+}
+
+/// `OP_PASTE_INTO`'s frame: the same 25-byte prefix, then a 2-byte
+/// little-endian device-id length, the display id, and the text.
+fn into_frame(at: u64, entropy: u128, display: &str, text: &str) -> Vec<u8> {
+    let mut f = Vec::with_capacity(27 + display.len() + text.len());
+    f.extend_from_slice(&at.to_le_bytes());
+    f.extend_from_slice(&entropy.to_le_bytes());
+    f.push(0);
+    f.extend_from_slice(&(display.len() as u16).to_le_bytes());
+    f.extend_from_slice(display.as_bytes());
+    f.extend_from_slice(text.as_bytes());
+    f
+}
+
+/// `OP_EQUIP_ADD`'s frame: the 24-byte prefix, then `[u8 count]` and
+/// `count` x `[u16 key][u16 len][utf8]`.
+fn equip_frame(at: u64, entropy: u128, fields: &[(u32, &str)]) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(&at.to_le_bytes());
+    v.extend_from_slice(&entropy.to_le_bytes());
+    v.push(fields.len() as u8);
+    for (key, text) in fields {
+        v.extend_from_slice(&(*key as u16).to_le_bytes());
+        v.extend_from_slice(&(text.len() as u16).to_le_bytes());
+        v.extend_from_slice(text.as_bytes());
+    }
+    v
 }
 
 fn face(reply: &[u8]) -> Vec<FaceRowView> {
@@ -924,4 +955,269 @@ fn an_id_collision_is_refused_with_nothing_written() {
         "a refused paste wrote a device"
     );
     assert_eq!(g.log().len(), 1, "a refused paste left a batch in the log");
+}
+
+// --- ADR-0052 §2: the paste's per-line and per-drop faces --------------------
+
+/// Every `FACE_PASTE_LINE` row's outcome is one of the four closed words, and
+/// the PSK statement — a line the dictionary knows AND whose value the gate
+/// destroyed — carries BOTH a `built` line row and a `FACE_DROP` row, at the
+/// same ordinal (ADR-0052 §2).
+#[test]
+fn every_line_gets_a_fate_and_the_psk_line_is_both_built_and_dropped() {
+    let (_shell, rows) = pasted();
+    let lines: Vec<&FaceRowView> = rows.iter().filter(|r| r.role == FACE_PASTE_LINE).collect();
+    let drops: Vec<&FaceRowView> = rows.iter().filter(|r| r.role == FACE_DROP).collect();
+
+    assert!(
+        !lines.is_empty(),
+        "the reply carries a line row per ledger line"
+    );
+    assert!(
+        !drops.is_empty(),
+        "the reply carries a drop row for the destroyed PSK"
+    );
+
+    for r in &lines {
+        assert_eq!(r.slot_count, 7);
+        let token = r.strings[1].as_str();
+        assert!(
+            ["built", "kept", "noise", "quarantined"].contains(&token),
+            "outcome token is not one of the four closed words: {token:?}"
+        );
+    }
+    for r in &drops {
+        assert_eq!(r.slot_count, 5);
+    }
+
+    // The PSK statement is line 7 (0-based) of `PASTE`.
+    let psk_line = lines
+        .iter()
+        .find(|r| r.strings[0] == "7")
+        .expect("ordinal 7 has a line row");
+    assert_eq!(psk_line.strings[1], "built", "the PSK line still binds");
+    assert!(
+        !psk_line.strings[4].is_empty(),
+        "the built row names the node the line built"
+    );
+
+    let psk_drop = drops
+        .iter()
+        .find(|r| r.strings[0] == "7")
+        .expect("the PSK line has a drop row at the same ordinal");
+    assert_eq!(psk_drop.strings[3], "psk", "the drop is labelled psk");
+    assert!(
+        !psk_drop.strings[4].is_empty(),
+        "the drop row names at least one detector"
+    );
+}
+
+/// **NO ORIGINAL LENGTH SURVIVES ONTO THE WIRE, AND NO ROW CARRIES THE
+/// CANARY.** The wasm-boundary twin of `fathom-ingest`'s own
+/// `redaction_canary.rs` (`14` §9.5): that suite proves the property inside
+/// the crate; this proves it survives the one hop those tests cannot see —
+/// encoding into the byte protocol a browser actually reads.
+#[test]
+fn face_drop_carries_no_length_and_no_row_carries_the_canary() {
+    const CANARY: &str = "FATHOMCANARY";
+    // Long enough that its BYTE LENGTH is distinctive and could only appear
+    // on the wire if something computed it from the original value.
+    let secret = format!("{CANARY}-0123456789012345678901234567890123456789");
+    let text = format!(
+        "set system host-name canary-srx\n\
+         set security ike proposal p1 authentication-method pre-shared-keys\n\
+         set security ike policy ike-pol proposals p1\n\
+         set security ike policy ike-pol pre-shared-key ascii-text \"{secret}\"\n\
+         set security ike gateway gw1 ike-policy ike-pol\n\
+         set security ike gateway gw1 address 198.51.100.10\n\
+         set security ike gateway gw1 external-interface ge-0/0/0.0\n"
+    );
+
+    let mut shell = common::booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(TS, ENTROPY, &text));
+    let rows = face(&reply);
+
+    let drops: Vec<&FaceRowView> = rows.iter().filter(|r| r.role == FACE_DROP).collect();
+    assert!(
+        !drops.is_empty(),
+        "the probe must actually be destroyed at the gate"
+    );
+
+    // 1. No row anywhere carries the canary — every row of every face this
+    //    reply carries, not just the drop rows.
+    for r in &rows {
+        for s in &r.strings {
+            assert!(
+                !s.contains(CANARY),
+                "the canary survived in a face row: {s}"
+            );
+        }
+    }
+
+    // 2. No FACE_DROP slot equals the secret's own byte length, and the
+    //    marker span's WIDTH — the one thing on this row derived from a
+    //    byte range — is never the secret's width either: `<REDACTED:psk>`
+    //    is the same width whatever it replaced.
+    let secret_len = secret.len().to_string();
+    for r in &drops {
+        for s in &r.strings[..5] {
+            assert_ne!(
+                s, &secret_len,
+                "a FACE_DROP slot equals the secret's own byte length: {s}"
+            );
+        }
+        let start: u64 = r.strings[1].parse().expect("slot 1 is a byte offset");
+        let end: u64 = r.strings[2].parse().expect("slot 2 is a byte offset");
+        assert_ne!(
+            end - start,
+            secret.len() as u64,
+            "the marker span is exactly as wide as the secret it replaced"
+        );
+    }
+}
+
+// --- ADR-0052 §4: the two mirror doors and the third paste door -------------
+
+/// `OP_EXPORT_PLAIN` then `OP_LOAD_PLAIN` round-trips a pasted estate.
+#[test]
+fn export_plain_then_load_plain_round_trips() {
+    let (mut shell, _rows) = pasted();
+
+    let exported = shell.handle(OP_EXPORT_PLAIN, &[]);
+    assert!(
+        exported.starts_with(b"fathom-plain "),
+        "OP_EXPORT_PLAIN's reply is the raw plain face, not a wrapped face row"
+    );
+
+    let before = fathom_graph::shape_hex(shell.estate_for_test().expect("a held estate"));
+
+    let mut fresh = common::booted_shell();
+    let reply = fresh.handle(OP_LOAD_PLAIN, &exported);
+    let rows = face(&reply);
+    assert!(!rows.is_empty(), "OP_LOAD_PLAIN answers with a summary row");
+
+    let after = fathom_graph::shape_hex(fresh.estate_for_test().expect("a held estate"));
+    assert_eq!(
+        before, after,
+        "the loaded estate has the same shape as the one exported"
+    );
+}
+
+/// A checked-in vector round-trips byte for byte through `OP_LOAD_PLAIN` then
+/// `OP_EXPORT_PLAIN` — the module's own weld never reimplemented in
+/// JavaScript, proven on a file rather than on a paste this crate built.
+#[test]
+fn a_checked_in_vector_loads_and_exports_byte_equal() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("two levels to the repo root")
+        .join("client/src/document/vectors/one-rack.plain");
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+
+    let mut shell = Shell::new();
+    let reply = shell.handle(OP_LOAD_PLAIN, &bytes);
+    if let Ok(ReplyView::Error(e)) = decode_reply(&reply) {
+        panic!("OP_LOAD_PLAIN refused the checked-in vector: {e:?}");
+    }
+
+    let out = shell.handle(OP_EXPORT_PLAIN, &[]);
+    assert_eq!(
+        out, bytes,
+        "the exported bytes are not byte-identical to the loaded vector"
+    );
+}
+
+/// `OP_EXPORT_PLAIN` before any estate is loaded is a typed refusal, not an
+/// empty file.
+#[test]
+fn export_plain_with_no_estate_is_refused() {
+    let mut shell = Shell::new();
+    let reply = shell.handle(OP_EXPORT_PLAIN, &[]);
+    assert_eq!(error(&reply).code, ERR_NOT_INITIALISED);
+}
+
+/// A plain face this build cannot read is a typed refusal, not a panic and
+/// not a silently empty estate.
+#[test]
+fn load_plain_refuses_a_bad_file() {
+    let mut shell = Shell::new();
+    let reply = shell.handle(OP_LOAD_PLAIN, b"not a plain face at all");
+    assert_eq!(error(&reply).code, ERR_PLAIN_REFUSED);
+}
+
+/// `OP_PASTE_INTO`: the config's fields land on the device the operator chose,
+/// not on a second, freshly-minted one — and the identity-clash question
+/// `OP_PASTE` asks never fires, because choosing the faceplate already
+/// answered it (ADR-0010).
+#[test]
+fn paste_into_places_the_config_on_the_chosen_device_not_a_second_one() {
+    use fathom_ir::generated::ir_types::{DeviceField, NodeKind};
+
+    let mut shell = common::booted_shell();
+
+    // Place a bare device by hand — `OP_EQUIP_ADD` requires a hostname, so
+    // this is a placeholder the paste's own hostname assertion supersedes
+    // (fathom-weld's own tests cover the supersession mechanics directly;
+    // this one is end to end).
+    let placed = shell.handle(
+        OP_EQUIP_ADD,
+        &equip_frame(
+            TS,
+            ENTROPY,
+            &[
+                (DeviceField::Hostname.key().0, "placeholder"),
+                (DeviceField::Platform.key().0, "junos-srx"),
+            ],
+        ),
+    );
+    let placed_rows = face(&placed);
+    let display = summary(&placed_rows).strings[0].to_owned();
+    assert!(!display.is_empty(), "the placed device has a display id");
+    assert_eq!(
+        shell
+            .estate_for_test()
+            .expect("an estate")
+            .nodes_of_kind(NodeKind::Device)
+            .count(),
+        1
+    );
+
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(TS, ENTROPY_2, &display, PASTE));
+    let rows = face(&reply);
+    let head = summary(&rows);
+    assert_eq!(
+        head.strings[6], "srx-branch-01",
+        "the config's hostname landed on the chosen device"
+    );
+    assert_eq!(
+        head.strings[5], display,
+        "the reply names the SAME device the operator chose, not a new one"
+    );
+
+    let graph = shell.estate_for_test().expect("an estate");
+    assert_eq!(
+        graph.nodes_of_kind(NodeKind::Device).count(),
+        1,
+        "still exactly one Device after pasting into it"
+    );
+    assert_eq!(
+        graph.nodes_of_kind(NodeKind::Capture).count(),
+        1,
+        "the capture is attached (ADR-0052 §3, schema 0.9)"
+    );
+}
+
+/// A display id that does not name a live `Device` is refused rather than
+/// silently creating one or writing into whatever it does name.
+#[test]
+fn paste_into_a_non_device_display_id_is_refused() {
+    // An estate must already exist for `ERR_NO_ELEMENT` (vs. `ERR_NOT_INITIALISED`)
+    // to be the code under test.
+    let (mut shell, _rows) = pasted();
+    let reply = shell.handle(
+        OP_PASTE_INTO,
+        &into_frame(TS, ENTROPY_2, "device:01ARZ3NDEKTSV4RRFFQ69G5FAV", PASTE),
+    );
+    assert_eq!(error(&reply).code, ERR_NO_ELEMENT);
 }

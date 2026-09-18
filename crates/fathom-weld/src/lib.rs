@@ -47,7 +47,7 @@ pub mod mint;
 pub mod plan;
 pub mod prov;
 
-pub use apply::{apply_new_device, Unresolved, WeldError, WeldOutput};
+pub use apply::{apply_into_device, apply_new_device, Unresolved, WeldError, WeldOutput};
 pub use mint::{Mint, MintError};
 
 use fathom_ir::generated::ir_types::{EdgeClass, EdgeKind, NodeKind};

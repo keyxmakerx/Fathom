@@ -14,14 +14,15 @@ use crate::protocol::{
     self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CABLE_COUNT, ERR_CABLE_END, ERR_CORPUS_LOAD,
     ERR_EQUIP_FRAME, ERR_EQUIP_STORE, ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_LINK_CHOICE,
     ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED, ERR_NO_CABLE, ERR_NO_DICTIONARY, ERR_NO_ELEMENT,
-    ERR_NO_LINK, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
+    ERR_NO_LINK, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, ERR_PLAIN_REFUSED, ERR_UNKNOWN_OP,
+    ERR_WELD_REFUSED,
 };
 #[cfg(feature = "demo-estate")]
 use crate::OP_ESTATE_DEMO;
 use crate::{
     OP_CABLE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD,
-    OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE, OP_INV_ROWS, OP_LINK, OP_PASTE, OP_PLACE,
-    OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
+    OP_EXPORT_PLAIN, OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE, OP_INV_ROWS, OP_LINK,
+    OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
 };
 
 pub struct Shell {
@@ -83,6 +84,9 @@ impl Shell {
             #[cfg(feature = "demo-estate")]
             OP_ESTATE_DEMO => self.estate_demo(req),
             OP_PASTE => self.paste(req),
+            OP_PASTE_INTO => self.paste_into(req),
+            OP_LOAD_PLAIN => self.load_plain(req),
+            OP_EXPORT_PLAIN => self.export_plain(req),
             OP_EQUIP_ADD => self.equip_add(req),
             OP_FIELD_SET => self.field_set(req),
             OP_ELEMENT_REMOVE => self.element_remove(req),
@@ -125,6 +129,85 @@ impl Shell {
         }
         self.estate = Some(fathom_inventory::demo_estate());
         Vec::new()
+    }
+
+    /// The dictionary choice, the ingest run, and the two typed refusals both
+    /// paste doors share (`OP_PASTE` and `OP_PASTE_INTO`, ADR-0052 §4): no
+    /// dictionary yet, and a paste that bound nothing at all.
+    ///
+    /// Returns the platform name as an owned `String` rather than a
+    /// `&Dictionary` — the caller's real weld needs `self.estate` mutably
+    /// borrowed while `platform` is still live for the reply, and a borrow of
+    /// `self.dict`/`self.csv_dict` cannot outlive that.
+    fn ingest_paste_text(
+        &self,
+        text: &[u8],
+    ) -> Result<(fathom_ingest::IngestOutput, String), Vec<u8>> {
+        // Which grammar is this? The sniff is exact — the first non-blank line
+        // must begin `@uuid` followed by `;` or `,`, which is the OPNsense
+        // Migration assistant's header and nothing else (`64` §1.1). A fuzzy
+        // sniff would occasionally read a Junos paste as a table, and the cost
+        // of that is the operator's estate replaced by nonsense.
+        let table = fathom_ingest::csv::looks_like_rules_csv(text);
+
+        // No fallback, by design. Until 2026-08-15 this built a compiled-in
+        // dictionary here; the bytes moved to the page (`crate::dictframe`) and
+        // what is left is a typed refusal. It is stated rather than tolerated
+        // because the tolerant version — carry on with an empty dictionary —
+        // binds nothing, and the operator is then told their config is
+        // unrecognised when in fact the page never finished booting.
+        //
+        // Two slots, one per grammar, and the refusals are worded apart: a page
+        // that booted the set-form dictionary and forgot the table one is a
+        // different defect from a page that booted neither, and "no dictionary"
+        // would send whoever reads it to the wrong place.
+        let held = if table {
+            self.csv_dict.as_ref()
+        } else {
+            self.dict.as_ref()
+        };
+        let Some(dict) = held else {
+            return Err(protocol::encode_error(
+                ERR_NO_DICTIONARY,
+                if table {
+                    "no table dictionary is loaded: OP_DICT must hand in a rules-CSV \
+                     dictionary before a rules export can be read"
+                } else {
+                    "no statement dictionary is loaded: OP_DICT must succeed before OP_PASTE"
+                },
+            ));
+        };
+
+        let read = if table {
+            fathom_ingest::csv::ingest_csv(text, dict)
+        } else {
+            fathom_ingest::ingest(text, dict)
+        };
+        let ingest = match read {
+            Ok(o) => o,
+            Err(e) => return Err(protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e))),
+        };
+
+        // A paste that bound nothing is not an estate, and applying it anyway
+        // is the worst thing this module can do: the binder seeds a `Device`
+        // root before it reads a single statement, so a Cisco config — or Junos
+        // in its curly-brace form, which is what `show configuration` prints
+        // without `| display set` — validates, welds, and **replaces the
+        // operator's real estate with an empty device**. Silently. That was
+        // live from the day `OP_PASTE` landed until 2026-08-10.
+        //
+        // The refusal criterion is exact, not a heuristic: zero lines with
+        // outcome `Bound`. Only the *wording* below guesses, and guessing at
+        // wording costs nothing. A heuristic that refused a legitimate paste
+        // would be worse than the bug.
+        if bound_lines(&ingest) == 0 {
+            return Err(protocol::encode_error(
+                ERR_NOTHING_UNDERSTOOD,
+                &nothing_understood(&ingest),
+            ));
+        }
+
+        Ok((ingest, dict.platform().to_owned()))
     }
 
     /// `OP_PASTE`: pasted text in, an estate out.
@@ -178,66 +261,10 @@ impl Shell {
         let confirmed = confirm_bytes[0] == 1;
         let text = req.get(PREFIX..).unwrap_or_default();
 
-        // Which grammar is this? The sniff is exact — the first non-blank line
-        // must begin `@uuid` followed by `;` or `,`, which is the OPNsense
-        // Migration assistant's header and nothing else (`64` §1.1). A fuzzy
-        // sniff would occasionally read a Junos paste as a table, and the cost
-        // of that is the operator's estate replaced by nonsense.
-        let table = fathom_ingest::csv::looks_like_rules_csv(text);
-
-        // No fallback, by design. Until 2026-08-15 this built a compiled-in
-        // dictionary here; the bytes moved to the page (`crate::dictframe`) and
-        // what is left is a typed refusal. It is stated rather than tolerated
-        // because the tolerant version — carry on with an empty dictionary —
-        // binds nothing, and the operator is then told their config is
-        // unrecognised when in fact the page never finished booting.
-        //
-        // Two slots, one per grammar, and the refusals are worded apart: a page
-        // that booted the set-form dictionary and forgot the table one is a
-        // different defect from a page that booted neither, and "no dictionary"
-        // would send whoever reads it to the wrong place.
-        let held = if table {
-            self.csv_dict.as_ref()
-        } else {
-            self.dict.as_ref()
+        let (ingest, platform) = match self.ingest_paste_text(text) {
+            Ok(v) => v,
+            Err(reply) => return reply,
         };
-        let Some(dict) = held else {
-            return protocol::encode_error(
-                ERR_NO_DICTIONARY,
-                if table {
-                    "no table dictionary is loaded: OP_DICT must hand in a rules-CSV \
-                     dictionary before a rules export can be read"
-                } else {
-                    "no statement dictionary is loaded: OP_DICT must succeed before OP_PASTE"
-                },
-            );
-        };
-
-        let read = if table {
-            fathom_ingest::csv::ingest_csv(text, dict)
-        } else {
-            fathom_ingest::ingest(text, dict)
-        };
-        let ingest = match read {
-            Ok(o) => o,
-            Err(e) => return protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e)),
-        };
-
-        // A paste that bound nothing is not an estate, and applying it anyway
-        // is the worst thing this module can do: the binder seeds a `Device`
-        // root before it reads a single statement, so a Cisco config — or Junos
-        // in its curly-brace form, which is what `show configuration` prints
-        // without `| display set` — validates, welds, and **replaces the
-        // operator's real estate with an empty device**. Silently. That was
-        // live from the day `OP_PASTE` landed until 2026-08-10.
-        //
-        // The refusal criterion is exact, not a heuristic: zero lines with
-        // outcome `Bound`. Only the *wording* below guesses, and guessing at
-        // wording costs nothing. A heuristic that refused a legitimate paste
-        // would be worse than the bug.
-        if bound_lines(&ingest) == 0 {
-            return protocol::encode_error(ERR_NOTHING_UNDERSTOOD, &nothing_understood(&ingest));
-        }
 
         // THE BATCH ID IS DERIVED FROM THE ENTROPY, NOT FROM A CONSTANT.
         //
@@ -274,7 +301,7 @@ impl Shell {
             actor: fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
             batch: fathom_graph::BatchId(batch),
             label: PASTE_LABEL,
-            platform: fathom_ir::scalar::PlatformId(dict.platform().to_owned()),
+            platform: fathom_ir::scalar::PlatformId(platform.clone()),
         };
 
         // ---- 1. THE DRY RUN, into a graph nobody will ever see -------------
@@ -413,7 +440,133 @@ impl Shell {
             }
         };
 
-        paste_reply(graph, &ingest, &weld, dict)
+        paste_reply(graph, &ingest, &weld, &platform)
+    }
+
+    /// `OP_PASTE_INTO`: a config pasted under a device the operator has
+    /// already placed (ADR-0052 §4) — see [`crate::OP_PASTE_INTO`]'s own doc
+    /// for the frame.
+    ///
+    /// **No identity-clash question.** `OP_PASTE`'s own `identity_clash` never
+    /// runs here: choosing this exact faceplate to paste under is already
+    /// ADR-0010's human answer to "is this the same box", so there is nothing
+    /// left to guess. There is also no dry-run pre-flight the way `OP_PASTE`
+    /// has one — that pre-flight guards against a genuine id collision, which
+    /// this door cannot hit on a first paste. A second paste onto a device
+    /// that already carries a `Capture` is a different hazard, not a
+    /// collision: every non-root fragment node mints fresh, so it would
+    /// duplicate the first paste's children rather than update them. `apply`
+    /// (`fathom-weld`) refuses that case outright (`WeldError::AlreadyCaptured`,
+    /// surfaced here as `ERR_WELD_REFUSED`) until reconciliation exists.
+    fn paste_into(&mut self, req: &[u8]) -> Vec<u8> {
+        const PREFIX: usize = 27;
+        let Some(head) = req.get(..PREFIX) else {
+            return protocol::encode_error(
+                ERR_PASTE_FRAME,
+                &format!(
+                    "OP_PASTE_INTO needs a {PREFIX}-byte clock, entropy, confirm and id-length \
+                     prefix; the frame is {} bytes",
+                    req.len()
+                ),
+            );
+        };
+        let at = fathom_graph::Timestamp(u64::from_le_bytes(le8(head, 0)));
+        let entropy = u128::from_le_bytes(le16(head, 8));
+        // Byte 24 is the confirm flag `OP_PASTE` carries; unused here (see
+        // this function's own doc).
+        let id_len = usize::from(u16::from_le_bytes([
+            *head.get(25).unwrap_or(&0),
+            *head.get(26).unwrap_or(&0),
+        ]));
+        let Some(id_bytes) = req.get(PREFIX..PREFIX + id_len) else {
+            return protocol::encode_error(
+                ERR_PASTE_FRAME,
+                &format!("the display id claims {id_len} bytes and the frame has fewer"),
+            );
+        };
+        let Ok(display) = core::str::from_utf8(id_bytes) else {
+            return protocol::encode_error(ERR_BAD_UTF8, "the display id is not UTF-8");
+        };
+        let text = req.get(PREFIX + id_len..).unwrap_or_default();
+
+        let device = match self.resolve(display) {
+            Ok(fathom_graph::ElementId::Node(n))
+                if n.kind == fathom_ir::generated::ir_types::NodeKind::Device =>
+            {
+                n
+            }
+            Ok(_) => {
+                return protocol::encode_error(
+                    ERR_NO_ELEMENT,
+                    &format!("{display} does not name a live Device"),
+                )
+            }
+            Err(reply) => return reply,
+        };
+
+        let (ingest, platform) = match self.ingest_paste_text(text) {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+
+        let Ok(batch) = fathom_id::Ulid::from_parts(at.0, entropy) else {
+            return protocol::encode_error(
+                ERR_PASTE_FRAME,
+                &format!(
+                    "the clock reads {} ms, which is past the ULID ceiling",
+                    at.0
+                ),
+            );
+        };
+        let manifest = fathom_weld::Manifest {
+            at,
+            entropy,
+            actor: fathom_graph::Actor::User(fathom_graph::UserId::LOCAL),
+            batch: fathom_graph::BatchId(batch),
+            label: PASTE_INTO_LABEL,
+            platform: fathom_ir::scalar::PlatformId(platform.clone()),
+        };
+
+        let Some(graph) = self.estate.as_mut() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        let weld = match fathom_weld::apply_into_device(graph, &ingest, &manifest, device) {
+            Ok(w) => w,
+            Err(e) => return protocol::encode_error(ERR_WELD_REFUSED, &format!("{e:?}")),
+        };
+
+        paste_reply(graph, &ingest, &weld, &platform)
+    }
+
+    /// `OP_LOAD_PLAIN`: the plain face in, the held estate out. See
+    /// [`crate::OP_LOAD_PLAIN`]'s own doc for the frame.
+    fn load_plain(&mut self, req: &[u8]) -> Vec<u8> {
+        let graph = match fathom_workspace::read_plain(req) {
+            Ok(g) => g,
+            Err(e) => return protocol::encode_error(ERR_PLAIN_REFUSED, &format!("{e:?}")),
+        };
+        let reply = load_plain_reply(&graph);
+        self.estate = Some(graph);
+        reply
+    }
+
+    /// `OP_EXPORT_PLAIN`: the held estate out as the plain face's raw bytes.
+    /// See [`crate::OP_EXPORT_PLAIN`]'s own doc for why the reply is not
+    /// wrapped in `KIND_FACE_ROW`.
+    fn export_plain(&self, req: &[u8]) -> Vec<u8> {
+        if !req.is_empty() {
+            return protocol::encode_error(
+                ERR_BAD_FRAME,
+                &format!("OP_EXPORT_PLAIN takes no request; got {} bytes", req.len()),
+            );
+        }
+        let Some(graph) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        match fathom_workspace::write_plain(graph) {
+            Ok(bytes) => bytes,
+            Err(e) => protocol::encode_error(ERR_PLAIN_REFUSED, &format!("{e:?}")),
+        }
     }
 
     /// `OP_EQUIP_ADD`: one piece of equipment, entered by hand.
@@ -2224,6 +2377,7 @@ impl Default for Shell {
 
 /// The batch's undo label (`53` §7.2, at most 60 bytes).
 const PASTE_LABEL: &str = "Paste junos-srx config";
+const PASTE_INTO_LABEL: &str = "Paste config into device";
 
 /// The undo label one hand-added device carries (`53` §7.2). Names the gesture,
 /// not the opcode: it is what the person will read in a list of things to undo.
@@ -2651,6 +2805,8 @@ fn cable_reply(
         unresolved: &[],
         capture: "",
         shape: "",
+        lines: &[],
+        drops: &[],
     })
 }
 
@@ -2660,6 +2816,15 @@ fn cable_reply(
 const RESIDUE_ROW_CAP: usize = 500;
 /// The same, for references the capture named and did not contain.
 const UNRESOLVED_ROW_CAP: usize = 200;
+/// [`protocol::FACE_LINE`] guards the same way, generously: unlike residue —
+/// already filtered down to lines that failed something — this face carries
+/// ONE ROW PER LEDGER LINE, including every line that bound cleanly, so an
+/// ordinary config crosses hundreds of rows before anything is capped.
+const LINE_ROW_CAP: usize = 5_000;
+/// [`protocol::FACE_DROP`]'s own cap. A device configuration holding
+/// thousands of individually-destroyed values is not a realistic shape; this
+/// only guards the pathological case.
+const DROP_ROW_CAP: usize = 1_000;
 
 /// How many lines became facts. The exact criterion behind the refusal above:
 /// `LineOutcome::Bound` is the parser's own word for "this line is now in the
@@ -2859,13 +3024,154 @@ fn target_text(target: &fathom_ingest::bind::PendingTarget) -> String {
     }
 }
 
+/// `key`'s wire name, read from the generated registry (ADR-0008), or empty
+/// if a future key ever named nothing there — refused loudly by the schema
+/// gate long before it reaches this function, so the fallback is written
+/// rather than asserted.
+fn field_name(key: fathom_ir::bag::FieldKey) -> &'static str {
+    fathom_ir::generated::ir_types::FIELD_KEYS
+        .iter()
+        .find(|(_, k)| *k == key.0)
+        .map(|(name, _)| *name)
+        .unwrap_or_default()
+}
+
+/// The comma-joined names of the detectors that fired on one destroyed value
+/// (`14` §9.2: "redacted once and the manifest records both reasons").
+fn detector_names(d: fathom_ingest::redact::DetectorSet) -> String {
+    use fathom_ingest::redact::DetectorSet;
+    const NAMED: [(u8, &str); 6] = [
+        (DetectorSet::PATH, "path"),
+        (DetectorSet::CRYPT_PREFIX, "crypt-prefix"),
+        (DetectorSet::PEM_ARMOUR, "pem-armour"),
+        (DetectorSet::LONG_HEX, "long-hex"),
+        (DetectorSet::BASE64, "base64"),
+        (DetectorSet::LEAF_NAME, "leaf-name"),
+    ];
+    NAMED
+        .iter()
+        .filter(|(bit, _)| d.0 & bit != 0)
+        .map(|(_, name)| *name)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The gutter word for one terminal-noise class — never the Rust variant
+/// name, for the reason [`protocol::FACE_LINE`]'s own doc gives.
+fn noise_class_word(c: fathom_ingest::frame::NoiseClass) -> &'static str {
+    use fathom_ingest::frame::NoiseClass;
+    match c {
+        NoiseClass::Prompt => "prompt",
+        NoiseClass::CommandEcho => "command-echo",
+        NoiseClass::ClusterBanner => "cluster-banner",
+        NoiseClass::Pagination => "pagination",
+    }
+}
+
+/// [`protocol::FACE_LINE`]'s rows: one per ledger line, in ledger order.
+///
+/// The "built fields" column is read off the FRAGMENT, not off the outcome's
+/// own counters — `LineOutcome::Bound.fields` is a count and this column is
+/// names. A field assertion's `BindProv.line` already names the ledger line
+/// it came from (`bind.rs`), so the map below is built once and every field
+/// the weld actually wrote lands under the line that asserted it. Pending
+/// edges' own field lists are deliberately excluded: `apply`'s step 9 never
+/// writes them (`14` §7.3 — a pending reference is carried out, not
+/// materialised), so including them here would claim a field was built when
+/// nothing in the graph holds it.
+fn line_rows(
+    ingest: &fathom_ingest::IngestOutput,
+    weld: &fathom_weld::WeldOutput,
+) -> Vec<[String; 7]> {
+    use fathom_ingest::frame::LineOutcome;
+    use std::collections::BTreeMap;
+
+    let mut fields_by_line: BTreeMap<u32, Vec<&'static str>> = BTreeMap::new();
+    for node in &ingest.fragment.nodes {
+        for a in &node.fields {
+            fields_by_line
+                .entry(a.prov.line.0)
+                .or_default()
+                .push(field_name(a.key));
+        }
+    }
+    for edge in &ingest.fragment.edges {
+        for a in &edge.fields {
+            fields_by_line
+                .entry(a.prov.line.0)
+                .or_default()
+                .push(field_name(a.key));
+        }
+    }
+
+    ingest
+        .ledger
+        .lines
+        .iter()
+        .take(LINE_ROW_CAP)
+        .map(|r| {
+            let (token, node_id, reason): (&str, String, String) = match &r.outcome {
+                LineOutcome::Bound { node, .. } => (
+                    "built",
+                    weld.nodes
+                        .get(node.0 as usize)
+                        .map(fathom_graph::NodeId::to_string)
+                        .unwrap_or_default(),
+                    String::new(),
+                ),
+                LineOutcome::Quarantined { label, .. } => {
+                    ("quarantined", String::new(), label.token().to_owned())
+                }
+                LineOutcome::Noise { class } => {
+                    ("noise", String::new(), noise_class_word(*class).to_owned())
+                }
+                LineOutcome::Blank => ("noise", String::new(), String::new()),
+                other => ("kept", String::new(), residue_reason(other)),
+            };
+            let fields = fields_by_line
+                .get(&r.ordinal.0)
+                .map(|v| v.join(","))
+                .unwrap_or_default();
+            [
+                r.ordinal.0.to_string(),
+                token.to_owned(),
+                r.span.start.to_string(),
+                r.span.end.to_string(),
+                node_id,
+                fields,
+                reason,
+            ]
+        })
+        .collect()
+}
+
+/// [`protocol::FACE_DROP`]'s rows: one per destroyed value. Deliberately
+/// never reads `RedactionEntry::orig_len` — see that face's own doc.
+fn drop_rows(ingest: &fathom_ingest::IngestOutput) -> Vec<[String; 5]> {
+    ingest
+        .drops
+        .entries
+        .iter()
+        .take(DROP_ROW_CAP)
+        .map(|e| {
+            [
+                e.ordinal.0.to_string(),
+                e.span.start.to_string(),
+                e.span.end.to_string(),
+                e.label.token().to_owned(),
+                detector_names(e.detectors),
+            ]
+        })
+        .collect()
+}
+
 /// The reply one successful paste produces: what was understood, what was not,
 /// and what was named and not found.
 fn paste_reply(
     graph: &fathom_graph::Graph,
     ingest: &fathom_ingest::IngestOutput,
     weld: &fathom_weld::WeldOutput,
-    dict: &fathom_ingest::dict::Dictionary,
+    platform: &str,
 ) -> Vec<u8> {
     let text = ingest.capture.text();
 
@@ -2929,6 +3235,8 @@ fn paste_reply(
     // That is also 448 module bytes cheaper, which at 203 bytes of headroom is
     // not a rounding error.
     let shape = fathom_graph::shape_hex(graph);
+    let lines = line_rows(ingest, weld);
+    let drops = drop_rows(ingest);
 
     protocol::encode_paste_reply(&protocol::PasteReply {
         summary: [
@@ -2939,12 +3247,14 @@ fn paste_reply(
             &unresolved_total,
             device_id,
             hostname,
-            dict.platform(),
+            platform,
         ],
         residue: &residue,
         unresolved: &unresolved,
         capture: text,
         shape: &shape,
+        lines: &lines,
+        drops: &drops,
     })
 }
 
@@ -3069,6 +3379,28 @@ fn equip_reply_text(id: &str, written: &str) -> Vec<u8> {
         unresolved: &[],
         capture: "",
         shape: "",
+        lines: &[],
+        drops: &[],
+    })
+}
+
+/// `OP_LOAD_PLAIN`'s success reply: nodes and edges the loaded file holds,
+/// and the shape digest — the same three numbers a paste reports, with
+/// residue and unresolved always empty because nothing was PARSED here;
+/// every field the file states loaded whole, through the writer's own
+/// inverse (`fathom_workspace::read_plain`).
+fn load_plain_reply(graph: &fathom_graph::Graph) -> Vec<u8> {
+    let nodes = graph.nodes().count().to_string();
+    let edges = graph.edges().count().to_string();
+    let shape = fathom_graph::shape_hex(graph);
+    protocol::encode_paste_reply(&protocol::PasteReply {
+        summary: [&nodes, &edges, "", "", "", "", "", ""],
+        residue: &[],
+        unresolved: &[],
+        capture: "",
+        shape: &shape,
+        lines: &[],
+        drops: &[],
     })
 }
 

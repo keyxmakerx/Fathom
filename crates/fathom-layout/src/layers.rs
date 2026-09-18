@@ -347,6 +347,14 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     geometry of its own. `56` §4.1 has no row for it, so it is drawn
         //     UNTABLED beside its `NtpServer` sibling rather than hidden.
         | NodeKind::DhcpRelay
+        //     ADR-0052 §3 (2026-09-18): a capture is a per-device fact with no
+        //     geometry of its own, the same shape as `DhcpRelay` above. `56`
+        //     has no row for it — it predates the config drawer entirely — so
+        //     it is drawn UNTABLED beside its `DhcpRelay` sibling rather than
+        //     hidden. It joins `Placeable` (schema.yaml's own class) because
+        //     that test admits every kind but the pin, not because anything
+        //     in this build actually drags a capture around a diagram.
+        | NodeKind::Capture
         // (f) `56` §1.3 puts learned routes out of scope as runtime state, and
         //     `11` §6.9 keeps them out of the graph — but the kind exists, so
         //     something could hold one, and hiding it on the strength of a
