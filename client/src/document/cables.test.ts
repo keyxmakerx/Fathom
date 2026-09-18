@@ -414,7 +414,7 @@ describe('view: PortView.cable and ClosetView.cables', () => {
   // rather than read `MountedIn` straight off the chassis.
   it('resolves a shelf occupant\'s cable end, rackId from the shelf\'s own rack', () => {
     const { doc, rackId } = rackOf(42);
-    const withShelf = createShelf(doc, rackId, { positionU: 20, now: NOW });
+    const withShelf = createShelf(doc, rackId, { label: 'Shelf', positionU: 20, now: NOW });
     const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
     const occ = bareChassis(withShelf);
     const withOccupant = placeOnShelf(occ.doc, occ.chassisId, shelfId, 1, { now: NOW });

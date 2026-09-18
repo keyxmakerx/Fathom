@@ -84,6 +84,11 @@ export type EditorChange =
   | { kind: 'device'; id: string; field: 'hostname' | 'role' | 'management_address'; value: string | null }
   | { kind: 'chassis'; id: string; field: 'serial'; value: string | null }
   | { kind: 'rack'; id: string; field: 'row' | 'bay'; value: string | null }
+  /** ADR-0051 §1, this session's brief item 1 — a shelf's own editor
+   * commits its name through `document/edit.ts`'s `setPassiveNodeField`
+   * (`'shelf'` names the caller's own intent; the write-side function takes
+   * any `PassiveNode`, a shelf being this session's own one caller of it). */
+  | { kind: 'shelf'; id: string; field: 'label'; value: string | null }
   | { kind: 'supply'; id: string; field: 'serial' | 'model'; value: string | null }
   | { kind: 'supply-remove'; id: string }
   | { kind: 'supply-fit'; chassisId: string; slot: string }
@@ -101,9 +106,11 @@ export type EditorChange =
   /** ADR-0051 §1 — the reverse: `commands.ts`'s `removeSketchPort`. */
   | { kind: 'remove-sketch-port'; chassisId: string; portId: string }
   /** ADR-0051 §1 — a rack's "+ add a shelf" (`commands.ts`'s `createShelf`);
-   * `model` names a catalogue entry from the palette's own list, `null` for
-   * an unmodelled shelf (1U, per that function's own default). */
-  | { kind: 'create-shelf'; rackId: string; positionU: number; model: { vendor: string; model: string } | null }
+   * `label` is required (`PassiveNode.label`, schema card "1" — this
+   * session's brief item 1); `model` names a catalogue entry from the
+   * palette's own list, `null` for an unmodelled shelf (1U, per that
+   * function's own default). */
+  | { kind: 'create-shelf'; rackId: string; positionU: number; label: string; model: { vendor: string; model: string } | null }
   /** ADR-0051 §1 — "+ add a surface" (`commands.ts`'s `createSurface`).
    * `form` is the raw text the control holds — the caller
    * (`racks/RacksPlace.tsx`'s `handleEdit`) validates it against
@@ -132,6 +139,15 @@ export type EditorChange =
  * it was. */
 export interface EditorActions {
   onEdit(change: EditorChange): { refused: string } | void;
+  /** ADR-0051 §1, this session's brief item 4 — a shelf's own editor lists
+   * its occupants by slot, each a link that selects the occupant (moves the
+   * whole editor to that occupant's own panel) rather than editing
+   * anything — a plain selection change, so it is its own callback, not an
+   * `EditorChange` (which always ends in a write or a refusal). Optional
+   * for the same reason `DrawingActions.onConnect`/`.onDisconnect` are
+   * (`contract.ts`'s own file header note on that pattern): a caller that
+   * does not supply one simply has no selecting links, not a crash. */
+  onSelect?(selection: Selection): void;
 }
 
 export type Selection =
@@ -139,6 +155,10 @@ export type Selection =
   | { kind: 'chassis'; id: string }
   | { kind: 'port'; id: string }
   | { kind: 'cable'; id: string }
+  /** ADR-0051 §1, this session's brief items 1/4 — a shelf itself (as
+   * opposed to one of its occupants, `'occupant'` below), selected by
+   * clicking its own plate rather than a box on it. */
+  | { kind: 'shelf'; id: string }
   /** ADR-0051 §1/§2 — a shelf occupant (`OccupantView`), selected by
    * clicking its own box on the plate. */
   | { kind: 'occupant'; id: string }

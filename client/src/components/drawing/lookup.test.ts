@@ -8,6 +8,7 @@ import {
   findOccupant,
   findPort,
   findRack,
+  findShelf,
   findShelfOccupantPort,
   findSurfaceFixturePort,
   locatePort,
@@ -246,6 +247,18 @@ describe('findRack', () => {
 
   it('returns undefined for an id this view does not carry', () => {
     expect(findRack(VIEW, 'nope')).toBeUndefined();
+  });
+});
+
+describe('findShelf — ADR-0051 §1, this session\'s brief items 1/4', () => {
+  it('finds a shelf and the rack it sits in', () => {
+    const found = findShelf(VIEW, 'shelf-1');
+    expect(found?.rack.id).toBe('rack-1');
+    expect(found?.shelf.label).toBe('shelf-a01');
+  });
+
+  it('returns undefined for an id this view does not carry', () => {
+    expect(findShelf(VIEW, 'nope')).toBeUndefined();
   });
 });
 

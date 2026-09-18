@@ -155,7 +155,7 @@ describe('a places round trip (ADR-0051 §1, item 8)', () => {
     // A shelf, U20, and two occupants: a catalogue-sourced desktop switch
     // (placed in the rack, then moved to the shelf — `movePlacement`) and a
     // sketched mini PC (no catalogue model, one port typed by hand).
-    doc = createShelf(doc, rackId, { positionU: 20, now });
+    doc = createShelf(doc, rackId, { label: 'Shelf', positionU: 20, now });
     const shelfMounted = edgesIn(doc, rackId, 'MountedIn')[0];
     const shelfId = shelfMounted.from;
 

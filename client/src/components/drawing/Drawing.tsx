@@ -521,17 +521,16 @@ function DrawingInner({
         const shelfData: ShelfPlateNodeData = {
           shelf,
           elevation,
-          // No `Selection` kind names a shelf itself (only its occupants,
-          // `contract.ts`'s `'occupant'`) — the plate's own selected outline
-          // is left off rather than reused for a fact this contract does not
-          // carry.
-          selected: false,
+          // ADR-0051 §1, this session's brief items 1/4 — `contract.ts`'s
+          // `Selection` now names a shelf itself (`'shelf'`), alongside its
+          // occupants (`'occupant'`).
+          selected: selected?.kind === 'shelf' && selected.id === shelf.id,
           // `api/catalogue.ts` carries no shelf slot-capacity field yet —
           // `ShelfPlateNodeData.slotCount`'s own doc on why `null` (occupants
           // only, no gap invented) is the honest reading until it does.
           slotCount: null,
           selectedOccupantId: selected?.kind === 'occupant' ? selected.id : null,
-          onSelectShelf: () => {},
+          onSelectShelf: () => onSelect({ kind: 'shelf', id: shelf.id }),
           onSelectOccupant: (occupantId: string) => {
             onSelect({ kind: 'occupant', id: occupantId });
             // Motion #10: "A box on a shelf opens at the faceplate stop by

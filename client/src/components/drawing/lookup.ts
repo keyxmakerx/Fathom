@@ -15,6 +15,18 @@ export function findRack(view: ClosetView, rackId: string): RackView | undefined
   return view.racks.find((r) => r.id === rackId);
 }
 
+/** ADR-0051 §1, this session's brief items 1/4 — a shelf itself, found by
+ * its OWN id (`Selection`'s `'shelf'` kind, `contract.ts`) — the rack that
+ * carries it alongside, the same shape `findChassis` gives a rack chassis.
+ * `undefined` when this view carries no such shelf, never invented. */
+export function findShelf(view: ClosetView, shelfId: string): { rack: RackView; shelf: ShelfView } | undefined {
+  for (const rack of view.racks) {
+    const shelf = (rack.shelves ?? []).find((s) => s.id === shelfId);
+    if (shelf != null) return { rack, shelf };
+  }
+  return undefined;
+}
+
 export function findChassis(
   view: ClosetView,
   chassisId: string,

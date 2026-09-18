@@ -12,8 +12,10 @@ import {
   SlotTakenError,
   UnknownReferenceError,
   addSketchPort,
+  createBoard,
   createRack,
   createShelf,
+  createSketchDevice,
   createSurface,
   fixTo,
   moveChassis,
@@ -443,7 +445,7 @@ describe('createShelf', () => {
   it('creates a PassiveNode form shelf, MountedIn the rack, heightU from the model', () => {
     const { doc, rackId } = rackOf(42);
     const shelfModel: CatalogueModel = { ...MODEL_1U, rackUnits: 2 };
-    const next = createShelf(doc, rackId, { positionU: 10, model: shelfModel, now: NOW });
+    const next = createShelf(doc, rackId, { label: 'Shelf', positionU: 10, model: shelfModel, now: NOW });
     const mounted = edgesIn(next, rackId, 'MountedIn')[0];
     expect(readMountedInFields(mounted)).toEqual({ positionU: 10, heightU: 2, face: 'front' });
     const shelf = findNode(next, mounted.from)!;
@@ -451,27 +453,38 @@ describe('createShelf', () => {
     expect(readPassiveNodeFields(shelf).model).toBe(shelfModel.model);
   });
 
+  // This session's brief item 1 — `PassiveNode.label` is schema card "1"
+  // (required); `createShelf` writes it from `opts.label` rather than
+  // leaving it absent, so the shelf's plate and editor have a name to show
+  // instead of falling back to the node id.
+  it('writes PassiveNode.label from opts.label', () => {
+    const { doc, rackId } = rackOf(42);
+    const next = createShelf(doc, rackId, { label: 'Mini PC shelf', positionU: 10, now: NOW });
+    const shelfId = edgesIn(next, rackId, 'MountedIn')[0].from;
+    expect(readPassiveNodeFields(findNode(next, shelfId)!).label).toBe('Mini PC shelf');
+  });
+
   it('defaults heightU to 1 with no model', () => {
     const { doc, rackId } = rackOf(42);
-    const next = createShelf(doc, rackId, { positionU: 10, now: NOW });
+    const next = createShelf(doc, rackId, { label: 'Shelf', positionU: 10, now: NOW });
     expect(edgesIn(next, rackId, 'MountedIn')[0].fields['MountedIn.height_u']).toMatchObject({ value: 1 });
   });
 
   it('refuses an overlap the way placeChassis does', () => {
     const { doc, rackId } = rackOf(42);
-    const once = createShelf(doc, rackId, { positionU: 10, now: NOW });
-    expect(() => createShelf(once, rackId, { positionU: 10, now: NOW })).toThrow(RackOverlapError);
+    const once = createShelf(doc, rackId, { label: 'Shelf', positionU: 10, now: NOW });
+    expect(() => createShelf(once, rackId, { label: 'Shelf', positionU: 10, now: NOW })).toThrow(RackOverlapError);
   });
 
   it('refuses an out-of-range unit', () => {
     const { doc, rackId } = rackOf(10);
-    expect(() => createShelf(doc, rackId, { positionU: 11, now: NOW })).toThrow(RackRangeError);
+    expect(() => createShelf(doc, rackId, { label: 'Shelf', positionU: 11, now: NOW })).toThrow(RackRangeError);
   });
 });
 
 function shelfOf(heightU = 42): { doc: Document; rackId: string; shelfId: string } {
   const { doc, rackId } = rackOf(heightU);
-  const withShelf = createShelf(doc, rackId, { positionU: 10, now: NOW });
+  const withShelf = createShelf(doc, rackId, { label: 'Shelf', positionU: 10, now: NOW });
   const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
   return { doc: withShelf, rackId, shelfId };
 }
@@ -502,7 +515,7 @@ describe('placeOnShelf', () => {
 
   it('refuses an item already placed elsewhere', () => {
     const { doc, rackId } = rackOf(42);
-    const withShelf = createShelf(doc, rackId, { positionU: 10, now: NOW });
+    const withShelf = createShelf(doc, rackId, { label: 'Shelf', positionU: 10, now: NOW });
     const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
     const placed = placeChassis(withShelf, rackId, MODEL_1U, 20, 'front', { now: NOW });
     const chassisId = edgesIn(placed, rackId, 'MountedIn').find((e) => e.from !== shelfId)!.from;
@@ -586,10 +599,106 @@ describe('fixTo', () => {
   });
 });
 
+// This session's brief item 2 — "a box with no catalogue entry": the
+// palette's own two new rows, `racks/palette.ts`.
+describe('createSketchDevice', () => {
+  it('creates a Device and a Chassis, HasChassis between them, no Chassis.model', () => {
+    const { doc } = docWithPremises();
+    const beforeIds = new Set(doc.nodes.map((n) => n.id));
+    const next = createSketchDevice(doc, { now: NOW });
+    const added = next.nodes.filter((n) => !beforeIds.has(n.id));
+    expect(added).toHaveLength(2);
+    const chassis = added.find((n) => n.id.startsWith('chassis:'))!;
+    const device = added.find((n) => n.id.startsWith('device:'))!;
+    expect(readChassisFields(chassis).model).toBeUndefined();
+    const hasChassis = edgesOut(next, device.id, 'HasChassis')[0];
+    expect(hasChassis.to).toBe(chassis.id);
+  });
+
+  it('leaves Device.hostname unset when none is given', () => {
+    const { doc } = docWithPremises();
+    const beforeIds = new Set(doc.nodes.map((n) => n.id));
+    const next = createSketchDevice(doc, { now: NOW });
+    const device = next.nodes.find((n) => !beforeIds.has(n.id) && n.id.startsWith('device:'))!;
+    expect(device.fields['Device.hostname']).toBeUndefined();
+  });
+
+  it('writes Device.hostname when given', () => {
+    const { doc } = docWithPremises();
+    const beforeIds = new Set(doc.nodes.map((n) => n.id));
+    const next = createSketchDevice(doc, { hostname: 'sketch-01', now: NOW });
+    const device = next.nodes.find((n) => !beforeIds.has(n.id) && n.id.startsWith('device:'))!;
+    expect(device.fields['Device.hostname']).toMatchObject({ presence: 'set', value: 'sketch-01' });
+  });
+
+  it('refuses a malformed hostname the same way document/model.ts\'s identifier() does', () => {
+    const { doc } = docWithPremises();
+    expect(() => createSketchDevice(doc, { hostname: '', now: NOW })).toThrow(RangeError);
+  });
+
+  it('creates a device unplaced — no MountedIn/SitsOn/FixedTo written', () => {
+    const { doc } = docWithPremises();
+    const beforeIds = new Set(doc.nodes.map((n) => n.id));
+    const next = createSketchDevice(doc, { now: NOW });
+    const chassis = next.nodes.find((n) => !beforeIds.has(n.id) && n.id.startsWith('chassis:'))!;
+    expect(edgesOut(next, chassis.id, 'MountedIn')).toHaveLength(0);
+    expect(edgesOut(next, chassis.id, 'SitsOn')).toHaveLength(0);
+    expect(edgesOut(next, chassis.id, 'FixedTo')).toHaveLength(0);
+  });
+});
+
+// This session's brief item 2 — "a board".
+describe('createBoard', () => {
+  it('creates a PassiveNode form board, FixedTo the surface, with optional xMm/yMm', () => {
+    const { doc, premisesId } = docWithPremises();
+    const withSurface = createSurface(doc, premisesId, { label: 'North wall', form: 'wall', now: NOW });
+    const surfaceId = edgesOut(withSurface, premisesId, 'HasSurface')[0].to;
+    const next = createBoard(withSurface, surfaceId, { label: 'Backboard', xMm: 100, yMm: 900, now: NOW });
+    const beforeIds = new Set(withSurface.nodes.map((n) => n.id));
+    const board = next.nodes.find((n) => !beforeIds.has(n.id))!;
+    expect(readPassiveNodeFields(board)).toMatchObject({ form: 'board', label: 'Backboard' });
+    const fixed = edgesOut(next, board.id, 'FixedTo')[0];
+    expect(fixed.to).toBe(surfaceId);
+    expect(readFixedToFields(fixed)).toEqual({ xMm: 100, yMm: 900 });
+  });
+
+  it('xMm/yMm are both optional', () => {
+    const { doc, premisesId } = docWithPremises();
+    const withSurface = createSurface(doc, premisesId, { label: 'North wall', form: 'wall', now: NOW });
+    const surfaceId = edgesOut(withSurface, premisesId, 'HasSurface')[0].to;
+    const next = createBoard(withSurface, surfaceId, { label: 'Backboard', now: NOW });
+    const fixed = edgesIn(next, surfaceId, 'FixedTo')[0];
+    expect(readFixedToFields(fixed)).toEqual({});
+  });
+
+  it('refuses an unknown surface', () => {
+    const { doc } = docWithPremises();
+    expect(() => createBoard(doc, 'surface:01ARZ3NDEKTSV4RRFFQ69G5FAV', { label: 'X', now: NOW })).toThrow(
+      UnknownReferenceError,
+    );
+  });
+
+  it('refuses a target that is neither a Surface nor a board', () => {
+    const { doc, rackId } = rackOf(42);
+    expect(() => createBoard(doc, rackId, { label: 'X', now: NOW })).toThrow(InvalidFixedToTargetError);
+  });
+
+  it('creates a board fixed to another board', () => {
+    const { doc, premisesId } = docWithPremises();
+    const withSurface = createSurface(doc, premisesId, { label: 'North wall', form: 'wall', now: NOW });
+    const surfaceId = edgesOut(withSurface, premisesId, 'HasSurface')[0].to;
+    const withBoard = createBoard(withSurface, surfaceId, { label: 'Backboard', now: NOW });
+    const boardId = edgesIn(withBoard, surfaceId, 'FixedTo')[0].from;
+    const next = createBoard(withBoard, boardId, { label: 'Sub-board', now: NOW });
+    const subBoard = edgesIn(next, boardId, 'FixedTo')[0].from;
+    expect(readPassiveNodeFields(findNode(next, subBoard)!).form).toBe('board');
+  });
+});
+
 describe('movePlacement', () => {
   it('moves a rack-mounted chassis to a shelf: MountedIn tombstoned, SitsOn written', () => {
     const { doc, rackId } = rackOf(42);
-    const withShelf = createShelf(doc, rackId, { positionU: 10, now: NOW });
+    const withShelf = createShelf(doc, rackId, { label: 'Shelf', positionU: 10, now: NOW });
     const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
     const placed = placeChassis(withShelf, rackId, MODEL_1U, 20, 'front', { now: NOW });
     const chassisId = edgesIn(placed, rackId, 'MountedIn').find((e) => e.from !== shelfId)!.from;
@@ -603,7 +712,7 @@ describe('movePlacement', () => {
 
   it('moves a shelved item to a rack, defaulting to 1U with no prior MountedIn', () => {
     const { doc, rackId } = rackOf(42);
-    const withShelf = createShelf(doc, rackId, { positionU: 10, now: NOW });
+    const withShelf = createShelf(doc, rackId, { label: 'Shelf', positionU: 10, now: NOW });
     const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
     const { doc: withItem, chassisId } = bareChassis(withShelf);
     const onShelf = placeOnShelf(withItem, chassisId, shelfId, 1, { now: NOW });
@@ -664,7 +773,7 @@ describe('movePlacement', () => {
 
   it('refuses a shelf move onto a taken slot', () => {
     const { doc, rackId } = rackOf(42);
-    const withShelf = createShelf(doc, rackId, { positionU: 10, now: NOW });
+    const withShelf = createShelf(doc, rackId, { label: 'Shelf', positionU: 10, now: NOW });
     const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
     const { doc: withItem1, chassisId: item1 } = bareChassis(withShelf);
     const once = placeOnShelf(withItem1, item1, shelfId, 1, { now: NOW });

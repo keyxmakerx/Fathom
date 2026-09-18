@@ -755,6 +755,16 @@ function requireFixedToTarget(doc: Document, targetId: string): GraphNode {
 
 export interface CreateShelfOptions extends Actor {
   positionU: number;
+  /** `PassiveNode.label` (schema card "1" — required, `schema/schema.yaml`'s
+   * own doc on `PassiveNode`). This session's brief item 1: a shelf is named
+   * at creation, the same moment `createSurface`'s own `label` already asks
+   * for one, rather than left absent the way an unmodelled `Device.hostname`
+   * still is (`placeChassis`'s own reason does not apply here — nothing
+   * else ever supplies a shelf's name, since it has no catalogue model to
+   * read one off, and the editor has nothing to show but the node id until
+   * this is set — brief item 1's own "today it is set to something [absent]
+   * ... and the editor prints the node id"). */
+  label: string;
   /** Only `rackUnits` is read — a shelf has no ports/PSU slots of its own
    * (its OCCUPANTS carry those); `PassiveNode.model` is set when given, for
    * the same reason `placeChassis` sets `Chassis.model`. */
@@ -765,10 +775,11 @@ export interface CreateShelfOptions extends Actor {
  * ADR-0051 §1 — a `PassiveNode` of form `shelf`, `MountedIn` `rackId` at
  * `positionU`; `heightU` from `opts.model.rackUnits` when given, else `1`
  * (the same "absent renders as 1U, marked unstated" rule `placeChassis`'s
- * own `MountedIn.height_u` follows). `PassiveNode.label` is deliberately
- * left unset — nobody has typed a name for this shelf yet, `placeChassis`'s
- * own reason for leaving `Device.hostname` unset. Refuses an out-of-range or
- * overlapping run exactly as `placeChassis` does (`checkPlacement`, shared).
+ * own `MountedIn.height_u` follows). `PassiveNode.label` is written from
+ * `opts.label` (this session's brief item 1 — see `CreateShelfOptions.label`'s
+ * own doc on why a shelf, unlike a device, is named at creation). Refuses an
+ * out-of-range or overlapping run exactly as `placeChassis` does
+ * (`checkPlacement`, shared).
  */
 export function createShelf(doc: Document, rackId: string, opts: CreateShelfOptions): Document {
   const heightU = opts.model?.rackUnits ?? 1;
@@ -783,8 +794,13 @@ export function createShelf(doc: Document, rackId: string, opts: CreateShelfOpti
   const shelfId = formatNodeId('PassiveNode', newUlid(now));
   const formField = setField(working, now, actor, shelfId, undefined, 'PassiveNode.form', token('shelf'));
   working = formField.doc;
-  const shelfFields: Record<string, FieldEntry> = { 'PassiveNode.form': formField.entry };
-  const fieldOps: Op[] = [formField.op];
+  const labelField = setField(working, now, actor, shelfId, undefined, 'PassiveNode.label', text(opts.label));
+  working = labelField.doc;
+  const shelfFields: Record<string, FieldEntry> = {
+    'PassiveNode.form': formField.entry,
+    'PassiveNode.label': labelField.entry,
+  };
+  const fieldOps: Op[] = [formField.op, labelField.op];
   if (opts.model) {
     const modelField = setField(working, now, actor, shelfId, undefined, 'PassiveNode.model', identifier(opts.model.model));
     working = modelField.doc;
@@ -1189,5 +1205,143 @@ export function removeSketchPort(doc: Document, chassisId: string, portId: strin
     { type: 'tombstone', element: hasPort.id, at: now, by: actor },
   ];
   const batch: Batch = { id: newUlid(now), label: 'remove sketch port', ops };
+  return withBatch(working, batch);
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0051 §1/§2, this session's brief item 2 — "a box with no catalogue
+// entry" and "a board", the palette's own two new rows beside the
+// catalogue's models (`racks/palette.ts`). Both return a `Document` only,
+// like every other command in this file (this module's own header): the
+// caller finds the node it just minted the same way `racks/emptyDesign.ts`'s
+// `ensureRackToPlaceInto` already finds a fresh `Rack` — diffing
+// `doc.nodes` against the ids it started with, never guessed from ulid
+// ordering.
+
+export interface CreateSketchDeviceOptions extends Actor {
+  /** `Device.hostname` (`Identifier`, schema card "1"). Left unset when
+   * omitted — "named by the person" happens through the SAME hostname field
+   * every device already exposes in the editor (`Editor.tsx`'s
+   * `EditableValue` on the chassis panel), not a second naming step here;
+   * `placeChassis`'s own `Device.hostname` doc gives the identical reason.
+   * Given anyway, a malformed value throws the bare `RangeError`
+   * `document/model.ts`'s own `identifier` throws (`racks/RacksPlace.tsx`'s
+   * `refusalFor` already catches that generically, the same way it catches
+   * one from `FixedTo.x_mm`). */
+  hostname?: string;
+}
+
+/**
+ * ADR-0051 §1, this session's brief item 2 — a `Device` with a `Chassis`
+ * (`HasChassis`), no `Chassis.model` at all: the first command in this file
+ * that can produce one (`placeChassis` always sets a model). Unplaced —
+ * unlike `placeChassis`'s atomic create-and-place, there is no catalogue
+ * height to check a placement against yet, so the caller places it
+ * afterwards with the existing `movePlacement` (a rack unit, a shelf slot or
+ * a surface — brief item 2's own "placed where dropped"). No ports either:
+ * `addSketchPort`, from the editor, is "afterwards" too (brief item 2's own
+ * words) — this command writes only the two bare nodes and the edge between
+ * them.
+ */
+export function createSketchDevice(doc: Document, opts: CreateSketchDeviceOptions = {}): Document {
+  const { actor, now } = resolve(opts);
+  let working = doc;
+  const ops: Op[] = [];
+
+  const deviceExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
+  working = deviceExistence.doc;
+  const deviceId = formatNodeId('Device', newUlid(now));
+  const deviceFields: Record<string, FieldEntry> = {};
+  const deviceFieldOps: Op[] = [];
+  if (opts.hostname !== undefined) {
+    const hostnameField = setField(working, now, actor, deviceId, undefined, 'Device.hostname', identifier(opts.hostname));
+    working = hostnameField.doc;
+    deviceFields['Device.hostname'] = hostnameField.entry;
+    deviceFieldOps.push(hostnameField.op);
+  }
+  working = withNode(working, { id: deviceId, existence: deviceExistence.id, fields: deviceFields });
+  ops.push({ type: 'add_node', node: deviceId, prov: deviceExistence.id }, ...deviceFieldOps);
+
+  const chassisExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
+  working = chassisExistence.doc;
+  const chassisId = formatNodeId('Chassis', newUlid(now));
+  working = withNode(working, { id: chassisId, existence: chassisExistence.id, fields: {} });
+  ops.push({ type: 'add_node', node: chassisId, prov: chassisExistence.id });
+
+  const hasChassisProv = assertHand(working, { assertedAt: now, assertedBy: actor });
+  working = hasChassisProv.doc;
+  const hasChassisId = formatEdgeId('HasChassis', newUlid(now));
+  working = withEdge(working, { id: hasChassisId, from: deviceId, to: chassisId, prov: hasChassisProv.id, fields: {} });
+  ops.push({ type: 'add_edge', edge: hasChassisId, from: deviceId, to: chassisId, prov: hasChassisProv.id });
+
+  const batch: Batch = { id: newUlid(now), label: 'create sketch device', ops };
+  return withBatch(working, batch);
+}
+
+// ---------------------------------------------------------------------------
+
+export interface CreateBoardOptions extends Actor {
+  /** `PassiveNode.label` (schema card "1" — required), the same "named at
+   * creation" rule `CreateShelfOptions.label`'s own doc gives (this
+   * session's brief item 1). */
+  label: string;
+  xMm?: number;
+  yMm?: number;
+}
+
+/**
+ * ADR-0051 §1, this session's brief item 2 — "a board": a `PassiveNode` of
+ * form `board`, `FixedTo` `surfaceId` in the same one step (unlike
+ * `createSketchDevice` above, a board's placement — the surface it is fixed
+ * to — is exactly what makes it a board rather than a bare passive, so
+ * there is nothing to place afterwards). Refuses an unknown `surfaceId`
+ * (`UnknownReferenceError`) or one that is neither a live `Surface` nor a
+ * live board (`InvalidFixedToTargetError`) — `requireFixedToTarget`, the
+ * same typed refusal `fixTo` and `movePlacement`'s own `'surface'`/`'board'`
+ * branch already give. `xMm`/`yMm` are both optional, `fixTo`'s own "a
+ * surface fixed before it was measured has said something true".
+ */
+export function createBoard(doc: Document, surfaceId: string, opts: CreateBoardOptions): Document {
+  requireFixedToTarget(doc, surfaceId);
+  const { actor, now } = resolve(opts);
+
+  let working = doc;
+  const ops: Op[] = [];
+
+  const boardExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
+  working = boardExistence.doc;
+  const boardId = formatNodeId('PassiveNode', newUlid(now));
+  const formField = setField(working, now, actor, boardId, undefined, 'PassiveNode.form', token('board'));
+  working = formField.doc;
+  const labelField = setField(working, now, actor, boardId, undefined, 'PassiveNode.label', text(opts.label));
+  working = labelField.doc;
+  working = withNode(working, {
+    id: boardId,
+    existence: boardExistence.id,
+    fields: { 'PassiveNode.form': formField.entry, 'PassiveNode.label': labelField.entry },
+  });
+  ops.push({ type: 'add_node', node: boardId, prov: boardExistence.id }, formField.op, labelField.op);
+
+  const edgeProv = assertHand(working, { assertedAt: now, assertedBy: actor });
+  working = edgeProv.doc;
+  const edgeId = formatEdgeId('FixedTo', newUlid(now));
+  const edgeFields: Record<string, FieldEntry> = {};
+  const fieldOps: Op[] = [];
+  if (opts.xMm !== undefined) {
+    const x = setField(working, now, actor, edgeId, undefined, 'FixedTo.x_mm', uint(opts.xMm, 32));
+    working = x.doc;
+    edgeFields['FixedTo.x_mm'] = x.entry;
+    fieldOps.push(x.op);
+  }
+  if (opts.yMm !== undefined) {
+    const y = setField(working, now, actor, edgeId, undefined, 'FixedTo.y_mm', uint(opts.yMm, 32));
+    working = y.doc;
+    edgeFields['FixedTo.y_mm'] = y.entry;
+    fieldOps.push(y.op);
+  }
+  working = withEdge(working, { id: edgeId, from: boardId, to: surfaceId, prov: edgeProv.id, fields: edgeFields });
+  ops.push({ type: 'add_edge', edge: edgeId, from: boardId, to: surfaceId, prov: edgeProv.id }, ...fieldOps);
+
+  const batch: Batch = { id: newUlid(now), label: 'create board', ops };
   return withBatch(working, batch);
 }

@@ -351,9 +351,19 @@ function FixtureBox({
           <div className="drawing-surface__unmeasured drawing-surface__unmeasured--board">
             <span className="drawing-surface__unmeasured-label">not measured</span>
             {unmeasuredChildren.map((f) => (
-              <span key={f.id} className="drawing-surface__unmeasured-name">
-                {f.label}
-              </span>
+              <NotMeasuredEntry
+                key={f.id}
+                fixture={f}
+                uPx={uPx}
+                onSelectPort={onSelectPort}
+                onSelectFixture={onSelectFixture}
+                liveDrag={liveDrag}
+                portSheath={portSheath}
+                litCableId={litCableId}
+                portOpacity={portOpacity}
+                glyphScale={glyphScale}
+                labelFontPx={labelFontPx}
+              />
             ))}
           </div>
         )}
@@ -412,6 +422,48 @@ function FixtureBox({
       <Handle type="source" position={Position.Left} id="__bundle__" className="drawing-surface__bundle-handle nodrag" />
     </div>
   );
+}
+
+/** ADR-0051 §1/§2, this session's brief item 3 — a board fixed with no
+ * position still shows what it carries: every OTHER unmeasured fixture in
+ * the "not measured" strip (`Panel`/`FloorBand`/`FixtureBox`'s own nested
+ * `unmeasuredChildren`, below) draws as its bare name, since there is
+ * nothing else to show for one — but a board (`fixture.form === 'board'`)
+ * carries its own nested fixtures, positioned from ITS edges regardless of
+ * whether the board itself has been measured against the wall
+ * (`FixtureBox`'s own doc on that nested coordinate space). Drawing it as a
+ * bare name here would hide every one of those, so it draws as its own
+ * full box instead — the same `FixtureBox` every positioned board already
+ * uses — "never as a bare name" (the brief's own words). */
+function NotMeasuredEntry({
+  fixture,
+  uPx,
+  onSelectPort,
+  onSelectFixture,
+  liveDrag,
+  portSheath,
+  litCableId,
+  portOpacity,
+  glyphScale,
+  labelFontPx,
+}: FixtureBoxProps) {
+  if (fixture.form === 'board') {
+    return (
+      <FixtureBox
+        fixture={fixture}
+        uPx={uPx}
+        onSelectPort={onSelectPort}
+        onSelectFixture={onSelectFixture}
+        liveDrag={liveDrag}
+        portSheath={portSheath}
+        litCableId={litCableId}
+        portOpacity={portOpacity}
+        glyphScale={glyphScale}
+        labelFontPx={labelFontPx}
+      />
+    );
+  }
+  return <span className="drawing-surface__unmeasured-name">{fixture.label}</span>;
 }
 
 /** A wall/desk/ceiling — `design/places/renders/Surfaces.png` (ADR-0051
@@ -484,9 +536,19 @@ function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSh
         <div className="drawing-surface__unmeasured">
           <span className="drawing-surface__unmeasured-label">not measured</span>
           {unmeasured.map((f) => (
-            <span key={f.id} className="drawing-surface__unmeasured-name">
-              {f.label}
-            </span>
+            <NotMeasuredEntry
+              key={f.id}
+              fixture={f}
+              uPx={uPx}
+              onSelectPort={onSelectPort}
+              onSelectFixture={onSelectFixture}
+              liveDrag={liveDrag}
+              portSheath={portSheath}
+              litCableId={litCableId}
+              portOpacity={portOpacity}
+              glyphScale={glyphScale}
+              labelFontPx={labelFontPx}
+            />
           ))}
         </div>
       )}
@@ -557,9 +619,19 @@ function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, po
         <div className="drawing-surface__unmeasured">
           <span className="drawing-surface__unmeasured-label">not measured</span>
           {unmeasured.map((f) => (
-            <span key={f.id} className="drawing-surface__unmeasured-name">
-              {f.label}
-            </span>
+            <NotMeasuredEntry
+              key={f.id}
+              fixture={f}
+              uPx={uPx}
+              onSelectPort={onSelectPort}
+              onSelectFixture={onSelectFixture}
+              liveDrag={liveDrag}
+              portSheath={portSheath}
+              litCableId={litCableId}
+              portOpacity={portOpacity}
+              glyphScale={glyphScale}
+              labelFontPx={labelFontPx}
+            />
           ))}
         </div>
       )}

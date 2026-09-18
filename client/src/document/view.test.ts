@@ -261,7 +261,7 @@ describe('shelves (ADR-0051 §1)', () => {
     const { doc, premisesId } = premisesDoc();
     const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now: NOW });
     const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
-    const withShelf = createShelf(withRack, rackId, { positionU: 20, now: NOW });
+    const withShelf = createShelf(withRack, rackId, { label: 'Shelf', positionU: 20, now: NOW });
     const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
 
     const { doc: withItem1, chassisId: item1 } = bareChassis(withShelf);
@@ -286,7 +286,7 @@ describe('shelves (ADR-0051 §1)', () => {
     const { doc, premisesId } = premisesDoc();
     const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now: NOW });
     const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
-    const withShelf = createShelf(withRack, rackId, { positionU: 20, now: NOW });
+    const withShelf = createShelf(withRack, rackId, { label: 'Shelf', positionU: 20, now: NOW });
     const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
     const { doc: withItem, chassisId } = bareChassis(withShelf);
     const withPort = addSketchPort(withItem, chassisId, { label: 'eth0', connector: 'rj45', face: 'front' }, { now: NOW });
@@ -303,7 +303,7 @@ describe('shelves (ADR-0051 §1)', () => {
     const { doc, premisesId } = premisesDoc();
     const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now: NOW });
     const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
-    const withShelf = createShelf(withRack, rackId, { positionU: 20, now: NOW });
+    const withShelf = createShelf(withRack, rackId, { label: 'Shelf', positionU: 20, now: NOW });
     const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
     const { doc: withItem, chassisId } = bareChassis(withShelf);
     const withEth = addSketchPort(withItem, chassisId, { label: 'eth0', connector: 'rj45', face: 'front' }, { now: NOW });

@@ -246,6 +246,35 @@ describe('SurfaceNode (render-to-string)', () => {
     expect(markup).not.toContain('not measured');
   });
 
+  // This session's brief item 3 — a board fixed with no position still
+  // shows what it carries: the "not measured" strip draws it as its own
+  // box with its own fixtures inside, never as a bare name.
+  it('an unmeasured board draws as its own box with its nested fixtures, not a bare name, in the "not measured" strip', () => {
+    const nid = fixture({ id: 'nid-01', label: 'nid-01', xMm: 50, yMm: 60 });
+    const board = fixture({ id: 'board-w1', label: 'BOARD-W1', form: 'board', fixtures: [nid] });
+    const s = surface({ id: 'wall-west', label: 'west wall', form: 'wall', fixtures: [board] });
+    const markup = renderSurface(baseData({ placement: placement(s) }));
+    expect(markup).toContain('drawing-surface__unmeasured');
+    expect(markup).toContain('not measured');
+    expect(markup).toContain('drawing-surface__board');
+    expect(markup).toContain('BOARD-W1');
+    expect(markup).toContain('nid-01');
+    // Not a bare `drawing-surface__unmeasured-name` entry — that class
+    // names ONLY the plain-name fallback every other unmeasured fixture
+    // still gets.
+    expect(markup).not.toContain('drawing-surface__unmeasured-name');
+  });
+
+  it('an unmeasured floor board also draws as its own box, not a bare name', () => {
+    const nid = fixture({ id: 'nid-01', label: 'nid-01', xMm: 50, yMm: 60 });
+    const board = fixture({ id: 'board-f1', label: 'BOARD-F1', form: 'board', fixtures: [nid] });
+    const s = surface({ id: 'floor-1', label: 'floor', form: 'floor', fixtures: [board] });
+    const markup = renderSurface(baseData({ placement: placement(s) }));
+    expect(markup).toContain('drawing-surface__board');
+    expect(markup).toContain('BOARD-F1');
+    expect(markup).toContain('nid-01');
+  });
+
   it('a panel fixture measured on xMm only still positions (from the measured axis), not dropped to the "not measured" strip', () => {
     const nid = fixture({ id: 'nid-01', label: 'nid-01', xMm: 300, yMm: null });
     const s = surface({ id: 'wall-1', label: 'wall', form: 'wall', fixtures: [nid] });

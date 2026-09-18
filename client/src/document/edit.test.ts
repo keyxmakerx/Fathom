@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
-import { createRack, placeChassis, UnknownReferenceError } from './commands';
-import { DEVICE_ROLES, FieldValueError, isIpAddr, setChassisField, setDeviceField, setRackField } from './edit';
-import { edgesIn, emptyDocument, findNode, formatNodeId, readRackFields, type Document } from './model';
+import { createRack, createShelf, placeChassis, UnknownReferenceError } from './commands';
+import { DEVICE_ROLES, FieldValueError, isIpAddr, setChassisField, setDeviceField, setPassiveNodeField, setRackField } from './edit';
+import { edgesIn, emptyDocument, findNode, formatNodeId, readPassiveNodeFields, readRackFields, type Document } from './model';
 import { newUlid } from './ulid';
 
 const NOW = 1_700_000_000_000;
@@ -221,5 +221,44 @@ describe('setRackField — bay', () => {
     const once = setRackField(doc, rackId, 'bay', 3, { now: NOW });
     const cleared = setRackField(once, rackId, 'bay', null, { now: NOW + 1 });
     expect(findNode(cleared, rackId)!.fields['Rack.bay'].presence).toBe('absent');
+  });
+});
+
+function docWithShelf(): { doc: Document; shelfId: string } {
+  const { doc, rackId } = docWithRack();
+  const withShelf = createShelf(doc, rackId, { label: 'Shelf', positionU: 10, now: NOW });
+  const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
+  return { doc: withShelf, shelfId };
+}
+
+// This session's brief item 1 — a shelf's own editor commits its name
+// through `setPassiveNodeField`, the same shape every other field setter in
+// this file already has.
+describe('setPassiveNodeField — label', () => {
+  it('sets PassiveNode.label as one Origin::Hand batch', () => {
+    const { doc, shelfId } = docWithShelf();
+    const next = setPassiveNodeField(doc, shelfId, 'label', 'Mini PC shelf', { now: NOW });
+    expect(readPassiveNodeFields(findNode(next, shelfId)!).label).toBe('Mini PC shelf');
+  });
+
+  it('supersedes a previous value on the second write', () => {
+    const { doc, shelfId } = docWithShelf();
+    const once = setPassiveNodeField(doc, shelfId, 'label', 'Shelf 1', { now: NOW });
+    const twice = setPassiveNodeField(once, shelfId, 'label', 'Shelf 2', { now: NOW + 1 });
+    expect(readPassiveNodeFields(findNode(twice, shelfId)!).label).toBe('Shelf 2');
+  });
+
+  it('clears as absent', () => {
+    const { doc, shelfId } = docWithShelf();
+    const once = setPassiveNodeField(doc, shelfId, 'label', 'Shelf 1', { now: NOW });
+    const cleared = setPassiveNodeField(once, shelfId, 'label', null, { now: NOW + 1 });
+    expect(findNode(cleared, shelfId)!.fields['PassiveNode.label'].presence).toBe('absent');
+  });
+
+  it('refuses an unknown PassiveNode', () => {
+    const { doc } = docWithShelf();
+    expect(() =>
+      setPassiveNodeField(doc, 'passive-node:01ARZ3NDEKTSV4RRFFQ69G5FAV', 'label', 'X', { now: NOW }),
+    ).toThrow(UnknownReferenceError);
   });
 });

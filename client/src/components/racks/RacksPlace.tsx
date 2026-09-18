@@ -14,6 +14,7 @@ import {
   SURFACE_FORMS,
   addSketchPort,
   createShelf,
+  createSketchDevice,
   createSurface,
   isSurfaceForm,
   moveChassis,
@@ -21,8 +22,8 @@ import {
   placeChassis,
   removeSketchPort,
 } from '../../document/commands';
-import { FieldValueError, setChassisField, setDeviceField, setRackField } from '../../document/edit';
-import type { Document } from '../../document/model';
+import { FieldValueError, setChassisField, setDeviceField, setPassiveNodeField, setRackField } from '../../document/edit';
+import { parseNodeId, type Document } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
 import {
   FixedSlotError,
@@ -37,7 +38,7 @@ import { Drawing, EditorFor, Palette, type EditorChange, type Selection } from '
 import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { ensureRackToPlaceInto } from './emptyDesign';
-import { paletteFromCatalogue } from './palette';
+import { isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
 import './racks.css';
 import { SaveQueue } from './saveQueue';
 
@@ -296,6 +297,48 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handlePlace = useCallback(
     (rackId: string, catalogueRef: { vendor: string; model: string }, positionU: number) => {
       if (doc == null) return;
+
+      // ADR-0051 §1/§2, this session's brief item 2 — the palette's own two
+      // extra rows (`racks/palette.ts`'s `SKETCH_DEVICE_PALETTE_ITEM`/
+      // `BOARD_PALETTE_ITEM`) are told apart from a real catalogue drop by
+      // vendor alone, before either ever reaches the `catalogue.find` below.
+      if (isSketchDevicePaletteItem(catalogueRef)) {
+        let working = doc;
+        let targetRackId = rackId;
+        if (rackId === PENDING_RACK_ID) {
+          const ensured = ensureRackToPlaceInto(working, realView.premisesId === '' ? null : realView.premisesId);
+          working = ensured.doc;
+          targetRackId = ensured.rackId;
+        }
+        try {
+          // `createSketchDevice` returns a `Document` only, like every
+          // command in `document/commands.ts` — the fresh `Chassis` id is
+          // found the same way `racks/emptyDesign.ts`'s own
+          // `ensureRackToPlaceInto` finds a fresh `Rack`: diffing
+          // `doc.nodes` against the ids that existed before the call.
+          const beforeIds = new Set(working.nodes.map((n) => n.id));
+          const withDevice = createSketchDevice(working, {});
+          const chassisNode = withDevice.nodes.find((n) => !beforeIds.has(n.id) && parseNodeId(n.id).kind === 'Chassis');
+          if (!chassisNode) return;
+          applyDocChange(movePlacement(withDevice, chassisNode.id, { kind: 'rack', rackId: targetRackId, positionU, face: 'front' }));
+        } catch {
+          // As below: `Drawing` checked this drop against a view that
+          // turned out to be stale. Leave the document as it was.
+        }
+        return;
+      }
+
+      if (isBoardPaletteItem(catalogueRef)) {
+        // A board is `FixedTo` a SURFACE, never a rack — the one drop
+        // target this drawing has today (`Drawing.tsx`'s `handleDrop`, off
+        // limits this session) only ever resolves a rack under the
+        // pointer, so there is no surface this drop can honestly name yet.
+        // The row is offered (and `document/commands.ts`'s `createBoard` is
+        // real and tested) so a surface drop zone is a small, later, wholly
+        // additive change to `Drawing.tsx` rather than a new mechanism.
+        return;
+      }
+
       const model = catalogue.find((m) => m.vendor === catalogueRef.vendor && m.model === catalogueRef.model);
       if (!model) return; // the palette only ever offers models drawn from `catalogue` itself
 
@@ -347,6 +390,10 @@ export function RacksPlace(props: RacksPlaceProps) {
           next = setDeviceField(doc, change.id, change.field, change.value);
         } else if (change.kind === 'chassis') {
           next = setChassisField(doc, change.id, change.field, change.value);
+        } else if (change.kind === 'shelf') {
+          // ADR-0051 §1, this session's brief item 1 — a shelf's own
+          // editor commits its name through `setPassiveNodeField`.
+          next = setPassiveNodeField(doc, change.id, change.field, change.value);
         } else if (change.kind === 'rack') {
           // `EditorChange`'s own doc (`drawing/contract.ts`): the editor
           // only ever holds text, so `bay` is parsed here, before
@@ -385,7 +432,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           const model = change.model
             ? catalogue.find((m) => m.vendor === change.model!.vendor && m.model === change.model!.model)
             : undefined;
-          next = createShelf(doc, change.rackId, { positionU: change.positionU, model });
+          next = createShelf(doc, change.rackId, { positionU: change.positionU, label: change.label, model });
         } else {
           // change.kind === 'create-surface' — `EditorChange`'s own doc
           // (`drawing/contract.ts`): the control only ever holds raw text,
@@ -415,7 +462,11 @@ export function RacksPlace(props: RacksPlaceProps) {
     saveRefusal != null ? (
       <div className="racks-place__refusal">{saveRefusal}</div>
     ) : doc != null ? (
-      EditorFor(selection, displayView, { onEdit: handleEdit }, paletteFromCatalogue(catalogue))
+      // `onSelect: setSelection` — ADR-0051 §1, this session's brief item
+      // 4 — a shelf's own editor lists its occupants by slot, each a link
+      // that selects the occupant; the same setter `Drawing`'s own
+      // `onSelect` prop below already uses.
+      EditorFor(selection, displayView, { onEdit: handleEdit, onSelect: setSelection }, paletteFromCatalogue(catalogue))
     ) : null;
 
   const rail = (
@@ -424,7 +475,12 @@ export function RacksPlace(props: RacksPlaceProps) {
         premisesId={realView.premisesId}
         onAdd={(label, form) => handleEdit({ kind: 'create-surface', premisesId: realView.premisesId, label, form })}
       />
-      <Palette palette={paletteFromCatalogue(catalogue)} />
+      {/* ADR-0051 §1/§2, this session's brief item 2 — `paletteRows` adds
+          the sketch-device and board rows beside the catalogue's own
+          models; `AddShelfControl`'s own model dropdown (inside `editor`
+          above) keeps using plain `paletteFromCatalogue` so a shelf's
+          optional model never offers either as if it were a real one. */}
+      <Palette palette={paletteRows(catalogue)} />
     </>
   );
 

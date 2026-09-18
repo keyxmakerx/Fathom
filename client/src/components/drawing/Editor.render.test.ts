@@ -401,6 +401,83 @@ describe('EditorFor', () => {
     expect(markup).toContain('outlet-w1');
     expect(markup).toContain('West wall');
   });
+
+  // This session's brief items 1/4 — a shelf itself: its own editable
+  // name, and its occupants listed by slot, each a link that selects the
+  // occupant.
+  it('returns null for a shelf id this view does not carry', () => {
+    expect(EditorFor({ kind: 'shelf', id: 'nope' }, PLACES_VIEW, NOOP_ACTIONS)).toBeNull();
+  });
+
+  it('renders a shelf: its own name, rack/unit/height, and its occupants by slot', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'shelf', id: 'shelf-1' }, PLACES_VIEW, NOOP_ACTIONS) as never);
+    expect(markup).toContain('shelf-a01');
+    expect(markup).toContain('A-01');
+    expect(markup).toContain('U20');
+    expect(markup).toContain('2U');
+    expect(markup).toContain('Occupants');
+    expect(markup).toContain('nuc-01');
+  });
+
+  it('an occupant link is a real link only when the caller supplies onSelect', () => {
+    const noLink = renderToStaticMarkup(EditorFor({ kind: 'shelf', id: 'shelf-1' }, PLACES_VIEW, NOOP_ACTIONS) as never);
+    expect(noLink).not.toContain('<button');
+
+    const withSelect: EditorActions = { onEdit: () => {}, onSelect: () => {} };
+    const withLink = renderToStaticMarkup(EditorFor({ kind: 'shelf', id: 'shelf-1' }, PLACES_VIEW, withSelect) as never);
+    expect(withLink).toContain('<button');
+    expect(withLink).toContain('nuc-01');
+  });
+
+  // This session's brief item 2 — a chicken-and-egg fix: a device with no
+  // catalogue model and ZERO ports (exactly what `createSketchDevice`
+  // mints, before its first port is typed) must still show "+ add a port",
+  // not just one that already carries a port (`chassis.sketch`'s own
+  // ports.length > 0 gate, `document/view.ts`, is right for the box on the
+  // plate but wrong for this).
+  it('a chassis with no model and zero ports still shows "+ add a port"', () => {
+    const view: ClosetView = {
+      ...VIEW,
+      racks: [
+        {
+          ...VIEW.racks[0],
+          chassis: [
+            {
+              ...VIEW.racks[0].chassis[0],
+              id: 'chassis-3',
+              model: '',
+              vendor: '',
+              ports: [],
+              sketch: false,
+            },
+          ],
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-3' }, view, NOOP_ACTIONS) as never);
+    expect(markup).toContain('No catalogue entry.');
+    expect(markup).toContain('+ add a port');
+  });
+
+  it('a shelf occupant with no model and zero ports still shows "+ add a port"', () => {
+    const view: ClosetView = {
+      ...PLACES_VIEW,
+      racks: [
+        {
+          ...PLACES_VIEW.racks[0],
+          shelves: [
+            {
+              ...PLACES_VIEW.racks[0].shelves[0],
+              occupants: [{ ...PLACES_VIEW.racks[0].shelves[0].occupants[0], id: 'nuc-2', ports: [], sketch: false }],
+            },
+          ],
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'occupant', id: 'nuc-2' }, view, NOOP_ACTIONS) as never);
+    expect(markup).toContain('No catalogue entry.');
+    expect(markup).toContain('+ add a port');
+  });
 });
 
 // The pure change-builders `Editor.tsx` uses internally (module header:
@@ -461,19 +538,21 @@ describe('the PLACED ON / sketch-port / add-shelf / add-surface change shapes', 
   });
 
   it('createShelfChange carries a null model when none was chosen', () => {
-    expect(createShelfChange('rack:1', 20, null)).toEqual({
+    expect(createShelfChange('rack:1', 20, 'Mini PC shelf', null)).toEqual({
       kind: 'create-shelf',
       rackId: 'rack:1',
       positionU: 20,
+      label: 'Mini PC shelf',
       model: null,
     });
   });
 
   it('createShelfChange carries the chosen catalogue model', () => {
-    expect(createShelfChange('rack:1', 20, { vendor: 'acme', model: 'shelf-1u' })).toEqual({
+    expect(createShelfChange('rack:1', 20, 'Mini PC shelf', { vendor: 'acme', model: 'shelf-1u' })).toEqual({
       kind: 'create-shelf',
       rackId: 'rack:1',
       positionU: 20,
+      label: 'Mini PC shelf',
       model: { vendor: 'acme', model: 'shelf-1u' },
     });
   });

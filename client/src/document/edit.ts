@@ -246,3 +246,31 @@ export function setRackField(
   const built = setFieldEntry(doc, now, actor, rackId, node.fields[wireKey], wireKey, encoded);
   return commitField(built.doc, now, rackId, wireKey, built.entry, built.op, `set ${wireKey}`);
 }
+
+export type PassiveNodeFieldKey = 'label';
+
+/**
+ * ADR-0051 §1, this session's brief item 1 — `PassiveNode.label` (`Text`,
+ * schema card "1") on one `PassiveNode` (a shelf, a board — anything of
+ * that kind): a shelf's own editor commits its name through this, the same
+ * shape as `setRackField`/`setChassisField`/`setDeviceField` above. Never a
+ * device — a `PassiveNode` has no hostname (`schema/schema.yaml`'s own
+ * doc), so this is a genuinely separate field from every other setter here.
+ */
+export function setPassiveNodeField(
+  doc: Document,
+  passiveNodeId: string,
+  key: PassiveNodeFieldKey,
+  value: string | null,
+  opts?: Actor,
+): Document {
+  const node = findNode(doc, passiveNodeId);
+  if (!node) throw new UnknownReferenceError(passiveNodeId, 'PassiveNode');
+  const wireKey = `PassiveNode.${key}`;
+
+  const encoded: FieldEntry['value'] | undefined = value !== null ? text(value) : undefined;
+
+  const { actor, now } = resolve(opts);
+  const built = setFieldEntry(doc, now, actor, passiveNodeId, node.fields[wireKey], wireKey, encoded);
+  return commitField(built.doc, now, passiveNodeId, wireKey, built.entry, built.op, `set ${wireKey}`);
+}

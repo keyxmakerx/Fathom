@@ -22,7 +22,7 @@ import {
   type PortView,
   type Selection,
 } from './contract';
-import { findChassis, findFixture, findOccupant, findRack, locatePort } from './lookup';
+import { findChassis, findFixture, findOccupant, findRack, findShelf, locatePort } from './lookup';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -226,6 +226,33 @@ function SupplyAction({ label, onCommit }: { label: string; onCommit: () => { re
   );
 }
 
+/** ADR-0051 §1, this session's brief item 4 — a shelf's own editor lists
+ * its occupants by slot, each a link that selects the occupant
+ * (`EditorActions.onSelect`, optional — nothing renders here if a caller
+ * has not supplied one, the same graceful-absence `DrawingActions.onConnect`
+ * already gives elsewhere). Plain underlined ink text, never a bordered
+ * wash (`CAUTION_STYLE` is reserved for a refusal) — this is navigation,
+ * not risk. */
+const LINK_STYLE: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  margin: 0,
+  color: 'var(--ink)',
+  textDecoration: 'underline',
+  cursor: 'pointer',
+  font: 'inherit',
+};
+
+function SelectLink({ label, onSelect }: { label: string; onSelect?: () => void }) {
+  if (!onSelect) return <span>{label}</span>;
+  return (
+    <button type="button" style={LINK_STYLE} onClick={onSelect}>
+      {label}
+    </button>
+  );
+}
+
 /** The Inventory board's own mark (`design/proposals/screens/Inventory.dc.html`
  * — "Stored as typed."), shown once a field carries a value: every field
  * this editor writes is `Origin::Hand` (`document/edit.ts`'s `assertHand`),
@@ -330,8 +357,13 @@ export function removeSketchPortChange(chassisId: string, portId: string): Edito
   return { kind: 'remove-sketch-port', chassisId, portId };
 }
 
-export function createShelfChange(rackId: string, positionU: number, model: { vendor: string; model: string } | null): EditorChange {
-  return { kind: 'create-shelf', rackId, positionU, model };
+export function createShelfChange(
+  rackId: string,
+  positionU: number,
+  label: string,
+  model: { vendor: string; model: string } | null,
+): EditorChange {
+  return { kind: 'create-shelf', rackId, positionU, label, model };
 }
 
 export function createSurfaceChange(premisesId: string, label: string, form: string): EditorChange {
@@ -684,6 +716,7 @@ function SketchPortsSection({ chassisId, ports, actions }: { chassisId: string; 
 function AddShelfControl({ rackId, catalogue, actions }: { rackId: string; catalogue: readonly PaletteItem[]; actions: EditorActions }) {
   const [open, setIsOpen] = useState(false);
   const [positionU, setPositionU] = useState('1');
+  const [label, setLabel] = useState('');
   const [modelKey, setModelKey] = useState('');
   const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -701,12 +734,21 @@ function AddShelfControl({ rackId, catalogue, actions }: { rackId: string; catal
       setRefusal('unit must be a whole number, 1 or more');
       return;
     }
+    // `PassiveNode.label` is schema card "1" — required (this session's
+    // brief item 1, `commands.ts`'s `CreateShelfOptions.label`'s own doc):
+    // refused here, before `createShelf` ever gets a chance to write an
+    // empty string, the same "parse before the write side sees it" shape
+    // `commitRack`'s own unit check already follows.
+    if (label.trim().length === 0) {
+      setRefusal('name the shelf');
+      return;
+    }
     let model: { vendor: string; model: string } | null = null;
     if (modelKey !== '') {
       const [vendor, ...rest] = modelKey.split('|');
       model = { vendor, model: rest.join('|') };
     }
-    const result = actions.onEdit(createShelfChange(rackId, u, model));
+    const result = actions.onEdit(createShelfChange(rackId, u, label.trim(), model));
     if (result?.refused) {
       setRefusal(result.refused);
       return;
@@ -714,12 +756,14 @@ function AddShelfControl({ rackId, catalogue, actions }: { rackId: string; catal
     setRefusal(null);
     setIsOpen(false);
     setPositionU('1');
+    setLabel('');
     setModelKey('');
   }
 
   return (
     <div className="drawing-editor__field">
       <input placeholder="unit" value={positionU} onChange={(e) => setPositionU(e.target.value)} />
+      <input placeholder="name" value={label} onChange={(e) => setLabel(e.target.value)} />
       <select value={modelKey} onChange={(e) => setModelKey(e.target.value)}>
         <option value="">no catalogue model</option>
         {catalogue.map((item) => (
@@ -796,12 +840,69 @@ export function EditorFor(
     );
   }
 
+  // ADR-0051 §1, this session's brief items 1/4 — a shelf itself (as
+  // opposed to one of its occupants, `'occupant'` below): its own name,
+  // editable (item 1 — `PassiveNode.label` is schema card "1", so the plate
+  // has something to show instead of the node id), and its occupants
+  // listed by slot, each a link that selects the occupant (item 4).
+  if (selection.kind === 'shelf') {
+    const found = findShelf(view, selection.id);
+    if (found == null) return null;
+    const { rack, shelf } = found;
+    return (
+      <div className="drawing-editor__panel">
+        <div className="drawing-editor__title">
+          <EditableValue
+            value={shelf.label}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={(v) => actions.onEdit({ kind: 'shelf', id: shelf.id, field: 'label', value: v })}
+          />
+        </div>
+        <TypedNote shown={shelf.label.length > 0} />
+
+        <Field label="Rack" value={`${rack.label} · U${shelf.positionU}`} />
+        <Field label="Height" value={`${shelf.heightU}U`} />
+
+        <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">Occupants · by slot</div>
+          {shelf.occupants.length === 0 ? (
+            <div className="drawing-editor__field-value">{ABSENT}</div>
+          ) : (
+            shelf.occupants.map((occupant) => {
+              const onSelectOccupant = actions.onSelect;
+              return (
+                <div key={occupant.id} className="drawing-editor__field" style={{ display: 'flex', gap: 'var(--s2)' }}>
+                  <span style={{ color: 'var(--muted)' }}>{occupant.slot}</span>
+                  <SelectLink
+                    label={occupant.label || ABSENT}
+                    onSelect={onSelectOccupant && (() => onSelectOccupant({ kind: 'occupant', id: occupant.id }))}
+                  />
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (selection.kind === 'chassis') {
     const found = findChassis(view, selection.id);
     if (found == null) return null;
     const { rack, chassis } = found;
     const topU = chassis.positionU + chassis.heightU - 1;
     const uRange = chassis.heightU === 1 ? `U${chassis.positionU}` : `U${chassis.positionU}–U${topU}`;
+    // `chassis.sketch` (`document/view.ts`) only reads `true` once at least
+    // one port exists — right for the box on the plate (nothing to mark
+    // "typed" with zero ports), wrong for the editor: a device
+    // `createSketchDevice` (this session's brief item 2) just minted has NO
+    // catalogue model and NO ports yet, and gating "+ add a port" on
+    // `chassis.sketch` would hide the one control that could ever add its
+    // first one. Computed locally instead, off `chassis.model` alone — the
+    // same "no catalogue model" reading the fixture panel below already
+    // derives locally for its own `sketch` for the identical reason.
+    const chassisSketch = chassis.model === '';
     return (
       <div className="drawing-editor__panel">
         <div className="drawing-editor__title">
@@ -818,7 +919,7 @@ export function EditorFor(
         <Field label="Model" value={chassis.model || ABSENT} />
         {/* ADR-0051 §1, brief item 2 — "a box with no catalogue entry draws
             from ports typed by hand and says so." */}
-        {chassis.sketch ? (
+        {chassisSketch ? (
           <div style={TYPED_NOTE_STYLE}>
             <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
             hand.
@@ -909,7 +1010,7 @@ export function EditorFor(
         {/* ADR-0051 §1, brief item 2 — a sketch's own ports, typed by hand,
             each marked TYPED, with add/remove. A catalogued chassis keeps
             its read-only "Ports" count above, unchanged. */}
-        {chassis.sketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
+        {chassisSketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
 
         {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
             current one marked. */}
@@ -932,12 +1033,18 @@ export function EditorFor(
     if (found == null) return null;
     const { rack, shelf, occupant } = found;
     const placement: Placement = { kind: 'shelf', shelfId: shelf.id, slot: occupant.slot };
+    // `occupant.sketch` (`document/view.ts`), like `chassis.sketch` above,
+    // only reads `true` once a port already exists — the SAME chicken-and-
+    // egg fix (this session's brief item 2's own doc, on the chassis
+    // branch above): a device dropped straight onto a shelf slot has no
+    // ports yet, and would otherwise never see "+ add a port" at all.
+    const occupantSketch = occupant.model == null;
     return (
       <div className="drawing-editor__panel">
         <div className="drawing-editor__title">{occupant.label || ABSENT}</div>
         <Field label="Kind" value={occupant.kind} />
         <Field label="Model" value={occupant.model ?? ABSENT} />
-        {occupant.sketch ? (
+        {occupantSketch ? (
           <div style={TYPED_NOTE_STYLE}>
             <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
             hand.
@@ -947,7 +1054,7 @@ export function EditorFor(
         <Field label="Slot" value={String(occupant.slot)} />
         <Field label="Ports" value={`${ABSENT} of ${occupant.ports.length} cabled`} />
 
-        {occupant.kind === 'chassis' && occupant.sketch ? (
+        {occupant.kind === 'chassis' && occupantSketch ? (
           <SketchPortsSection chassisId={occupant.id} ports={occupant.ports} actions={actions} />
         ) : occupant.ports.length > 0 ? (
           <div className="drawing-editor__field">
