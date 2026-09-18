@@ -1,8 +1,9 @@
-# Places — five boards to confirm the idea, briefed 2026-09-18
+# Places — approved 2026-09-18
 
 The brief the boards in this directory were drawn from. ADR-0051 is the decision; `docs/UI-SPEC.md`
 carries the rules, including the colour rule added the same day under "Look". Renders in `renders/`.
-Nothing here is approved until the owner says so.
+Approved by the owner on 2026-09-18 ("that all looks fantastic") with two notes: motion for the new
+interactions, and a visible *reject* beside *accept* on a suggested room.
 
 **Five boards, no animation; motion is described in a caption where it matters.** Shelf, Surfaces,
 Room, Tracer, Designer. Same format and vocabulary as `design/shell/` (read `Main.dc.html` there for

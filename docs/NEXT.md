@@ -77,101 +77,42 @@ comparable amount again.
 
 ---
 
-## Handoff, 2026-09-16 — read this first
+## Handoff — read this first (updated 2026-09-18)
 
-Sessions 1 to 5 are done and Session 6(a), the rear elevation, is in (updated 2026-09-18).
-**Next is Session 6(b)**, schema 0.8 and the small drawings of ADR-0051, then 6(c): inside a box,
-the config surface with the redaction gate on paste (`crates/fathom-wasm`, never reimplemented in
-JavaScript; test the gate against what a real device accepts, `CLAUDE.md` rule 2), view-only
-rendering for `read`, motion and look. Start with `docs/STATE.md`'s client section and its
-"Carried" list, then UI-SPEC "Inside a box", "Config", "Presence", "Motion", "Look". Before anything else, read in this order and nothing more: `docs/STATE.md`'s
-client section; `docs/UI-SPEC.md` "Cables", "Keeping it readable at forty cables", "Portals",
-"Power"; ADR-0049 (what a payload is); `client/src/document/` (the graph the browser holds, its
-commands, and `view.ts`) and `client/src/components/drawing/` (what draws it). `docs/archive/`
-stays closed. Session 5 starts with the schema: `Cable` and its edges exist; `PortPosition` is a
-field-less stub and `PhysicalPort` has no cabled state in the view, so the first brief is what the
-view carries for a cabled port, and the second is the two carried-over defects in STATE.md.
+Sessions 1 to 5 are done; Session 6(a), the rear elevation, is in. **Next is Session 6(b)**: schema
+0.8 and the small drawings of ADR-0051 (shelves, surfaces, the sketch, the outlet form,
+pass-through at placement, the room's furniture), then 6(c): inside a box, the config surface with
+the redaction gate on paste (`crates/fathom-wasm`, never reimplemented in JavaScript; test the gate
+against what a real device accepts, `CLAUDE.md` rule 2), view-only for `read`, motion and look.
+Read first: `docs/STATE.md`'s client section and its "Carried" list; ADR-0050 and ADR-0051;
+`docs/UI-SPEC.md` "Places", "Motion", "Look"; `client/src/document/` and
+`client/src/components/drawing/`. `docs/archive/` stays closed.
 
-Session 4 ran as three parallel builders on disjoint files against contracts written in the briefs
-(the view the drawing renders; the callbacks it raises), joined by a fourth; two follow-ups fixed
-what screenshots showed and reports did not. That shape worked: keep it.
+Sessions 4 to 6 ran as parallel sonnet builders on disjoint files against a contract written into
+each brief, joined by the lead, with screenshots as the proof. That shape worked: keep it. Four
+rules the owner did not object to (ADR-0047 §9): an expected link with unknown ends is drawn dashed
+and listed as a gap; names clip in the middle and never shrink; the name stays left and the model
+shrinks first; one lens at a time.
 
-Four rules the owner did not object to, so build on them until told otherwise (ADR-0047 §9): an
-expected link with unknown ends is drawn dashed and listed as a gap; names are clipped in the middle
-and never shrunk; the name stays on the left and the model shrinks first; one lens at a time, no
-compare mode.
-
-Three things this session learned that the rules above do not say:
+Four things learned that the rules above do not say:
 
 9. **Commit with `-F <file>`, never `-m "..."`.** Backticks in a quoted message are run by the
-   shell; a merge commit was garbled that way on 2026-09-13 and had to be amended.
+   shell; a merge commit was garbled that way on 2026-09-13.
 10. **`pkill -f fathom-server` kills your own shell** when the pattern appears in its command line.
-    Check with `pgrep` and `curl` instead.
-12. **A Rust builder's worktree builds its own `target/`, and the disk is a fixed allowance.** Four
-    of them in one afternoon filled it (2026-09-16); `ENOSPC` then showed up as phantom clippy
-    errors and a failed `npm run build`. Give every Rust builder
-    `CARGO_TARGET_DIR=/home/user/Fathom/target` in its brief so worktrees share one build cache
-    (cargo locks it correctly), remove a worktree the moment its files are taken across, and
-    delete test logs under `/tmp/claude-0/` as you go. One caveat, seen the same day: two
-    builders that both regenerate the same crate (a schema bump and a catalogue change both
-    touching `fathom-ir` or `fathom-corpus`) can hand each other a stale artefact, and the
-    failure's backtrace names the other worktree's path. `cargo clean -p <that crate>` and a
-    rerun settles it; it is not a bug in either change.
-
+    Use `pgrep`, `curl`, and `fuser -k <port>/tcp`.
 11. **Boards are checked by rendering them**, not by reading them: headless Chromium is at
-    `/opt/pw-browsers/chromium` and Playwright at `/opt/node22/lib/node_modules/playwright`; a
-    ten-line script screenshots a `.dc.html` at 1440 wide. Every overlap and clipped label this
-    session found, it found in a screenshot. Seed a canvas with the `design` skill's
-    `seed-canvas.mjs`, publish with the Artifact tool, and run one haiku second look before
-    committing.
+    `/opt/pw-browsers/chromium`; a ten-line Playwright script screenshots a `.dc.html` at 1440
+    wide. Every overlap and clipped label was found in a screenshot.
+12. **A Rust builder's worktree builds its own `target/`, and the disk is a fixed allowance.** Give
+    every Rust builder `CARGO_TARGET_DIR=/home/user/Fathom/target`, remove a worktree the moment
+    its files are taken across, delete logs as you go. Two builders regenerating the same crate can
+    hand each other a stale artefact; `cargo clean -p <crate>` and a rerun settles it.
 
-## Session 1 — Close the server foundation
+## Sessions 1 and 2 — done
 
-**Goal:** the last security-bearing server code is attacked and the admin console exists, so that
-a person can be invited, enrol a key, and sign in.
-
-1. **Attack the sign-in layer** (opus `checker`, one round, narrow). Migration 0013, `sessions.rs`,
-   `api.rs` — the same questions as the authority rounds (admin design §3.8 lists them): nothing
-   trusted from the client that is not signed or re-derived; nonce reuse; a session row minted
-   from SQL; a retired key or disabled account stopping at the next request; the operator
-   surface accepting no password-shaped input. Fix what survives with an opus builder; a second
-   narrow pass only if the fixes touched the signature message or the row MAC.
-2. **Read the builder's silent-spot decisions into the design** (lead, cheap). The sessions
-   builder decided rate limiting, lockout and the token shape where admin §4 and §13 were silent;
-   those decisions live only in code comments. Write them into §4 and §13 with a date.
-3. **The admin console, minimal** (opus builder — *judgement*: it is the takeover surface). Admin
-   design §1, §5, §6.2, §15.0. Operator sign-in on the operator plane with the same key mechanism
-   as accounts and no password path (§4.5); account shells and **enrolment tokens by email**
-   (OPEN-QUESTIONS B5: invite only — nobody self-registers); organisation shells and their
-   enrolment claims (§6.2, §6.3); SMTP and site settings behind the execution interlock (§5.3,
-   §5.4, §5.5 — two operator assertions plus delay, or the documented single-operator mode);
-   the operator suspend verb (§1.1) made real; every act a sealed site-chain entry. Reset (§5.1)
-   is an enrolment token to the address of record — there is no password to reset.
-4. **The account side of enrolment** (same builder): redeem a token, generate the keypair in the
-   browser, enrol it (`grants::enrol_software_key`), sign in. WebAuthn stays deferred (§15.4).
-5. **Run the Docker stack end to end** in an environment with registry access
-   (`deploy/compose.yaml`): first start generates the master key and the role passwords; the
-   server refuses a superuser role; a design round-trips. Record the result in STATE.md — this has
-   never been done and STATE.md says so.
-
-**Done when:** an operator invites a person by email, that person enrols a key and signs in, and
-every step is on the site chain. Cost: one checker round, one or two opus builds. ~1.2M tokens.
-
-## Session 2 — The endpoints the client needs
-
-**Goal:** the server can open, change and save a design for a signed-in person with the right
-capability, and list what they may see.
-
-Sonnet builder, one cheap review. Design list per scope filtered by `grants::authorise_account`;
-open (returns the decrypted design and its version); save (a new version through
-`designs::write_version`, refused past the spool bound with the typed error surfaced); history and
-`verify` for a design (storage §11.2's three outcomes, named); all behind the session layer from
-0013. `GET /schema/kinds` already exists. Presence and live editing are Phase 4 and are not touched.
-Also: the equipment catalogue format and a Juniper catalogue for the models on the approved boards
-(ADR-0044, `docs/decisions/adr-0044-*`) — the canvas draws ports from it, so it lands here.
-
-**Done when:** a signed-in account with `draw` saves a design and one with `read` opens it and is
-refused a save. ~500k tokens.
+The server foundation (sign-in attacked, the admin console, enrolment by email) and the endpoints
+the client needs (list, open, save, history, verify; the catalogue format and the first Juniper
+entries). `docs/STATE.md` says what stands.
 
 ## Sessions 3–6 — The canvas
 
@@ -194,13 +135,8 @@ The redaction gate is `crates/fathom-wasm`, compiled for the browser, zero exter
 Sonnet builders throughout, one per surface, one cheap review each; designer only for a surface
 the spec does not draw. In order:
 
-- **3.** App skeleton and sign-in: tokens, layout, the WebCrypto session keypair (non-extractable),
-  challenge, request signing on every call (the message in `sessions.rs`, label
-  `fathom/session/req/v1`), enrolment-token redemption. Design list.
-- **4.** The rack: the shape (§"The shape"), faceplates and ports from the catalogue (§"Ports"),
-  the palette, place and move, pan and zoom, save and load through Session 2's endpoints.
-- **5.** Cables and portals (§"Cables", §"Keeping it readable at forty cables", §"Portals"),
-  drag-to-connect, power (§"Power").
+- **3–5, done.** The shell and sign-in; the rack, faceplates, ports, palette, place and move, save
+  and load; cables, portals, drag-to-connect, power. `docs/STATE.md` has the detail.
 - **6.** In three parts, amended 2026-09-18 (ADR-0051): **(a)** the rear elevation, ADR-0050,
   done 2026-09-16; **(b)** schema 0.8 and the small drawings — shelves and what sits on them,
   surfaces and what is fixed to them, the outlet form, pass-through written at placement, the

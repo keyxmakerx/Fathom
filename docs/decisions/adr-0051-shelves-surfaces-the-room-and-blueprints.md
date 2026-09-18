@@ -1,7 +1,7 @@
 # ADR-0051 — Shelves, surfaces, the room, your own models, and blueprints
 
-**Status:** proposed 2026-09-18 for the owner; the order is the decision, the shapes are the
-recommendation. **Amends:** `docs/NEXT.md` (the canvas sessions and the list after v0.1).
+**Status:** accepted 2026-09-18 by the owner on the five boards in `design/places/`, with two notes:
+motion for the new interactions (UI-SPEC "Motion" 6–10) and a visible *reject* beside *accept*. **Amends:** `docs/NEXT.md` (the canvas sessions and the list after v0.1).
 
 ## Context
 

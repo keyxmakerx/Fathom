@@ -154,10 +154,9 @@ other.
 
 ---
 
-## Being replaced
+## The browser client
 
-**The browser client.** Built at `client/` in React, Vite and React Flow. Sessions 3 and 4 of
-`docs/NEXT.md` landed 2026-09-16: 240 client tests, typecheck and build clean, `gate-npm` green.
+Built at `client/` in React, Vite and React Flow; typecheck, tests and build green, `gate-npm` green.
 
 - **Two doors.** Sign-in with a key this browser holds, and enrolment, which redeems an invitation
   and generates a non-extractable account keypair stored under a pending slot *before* the request
@@ -212,9 +211,8 @@ and screenshots still stand in for. The old Rust-assembled HTML client is retire
 
 - Walkthrough view — the teaching half of the product.
 - Config view.
-- Diagram view — being rebuilt in React; not yet built.
-- Inventory view — the old client's view is retired; the new client's view is not built.
-- Building view — un-parked but not built.
+- Inventory place — the lists and the page; the designer surface (ADR-0051) lives here.
+- The building and room stops — decided (UI-SPEC "The building", ADR-0051), not built.
 - Engine manager — how equipment types are registered and kept current.
 - Automatic correlation across separately-pasted configs.
 - Anything that discovers a network live. Everything today comes from pasted text.

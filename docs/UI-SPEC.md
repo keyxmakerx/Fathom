@@ -9,6 +9,8 @@ Config, Building. Their masthead predates the shell and is superseded by it; the
 The other boards that canvas shows were retired on 2026-09-16 (`docs/archive/design-retired-2026-09-16/`).
 **The screens set, 2026-09-15:** https://claude.ai/artifact/9sCWD7oBYogejnCpk9pcxN — sources in
 `design/proposals/screens/`. The surfaces stand; the bar on them is superseded by the shell's.
+**The places set, approved 2026-09-18 (ADR-0051):** sources and renders in `design/places/` — Shelf,
+Surfaces, Room, Tracer, Designer.
 Tokens in `design/tokens.css`.
 **The `Legend` board (`design/rebuild/`) is the one to open first when building any canvas surface** — the four
 glyphs, the three line constructions, both palettes, the presence marks and the portal rule, on one
@@ -198,6 +200,11 @@ Five, each tied to a real event. Nothing moves to look alive.
 3. Path lights hop by hop, 60 ms apart, far end panned into view.
 4. State change pulses **once** and settles. Never blinks, never loops.
 5. Zoom is one camera.
+6. A row flipped to rear slides its racks to their mirrored places; nothing remounts.
+7. A suggestion accepted goes from dashed to solid and pulses once; rejected, it fades out.
+8. The plug in a tracer preview slides into the far port, pulses once, settles.
+9. A surface slides in from the right and out again; the drawing beneath does not move.
+10. A box on a shelf opens at the faceplate stop by the same camera as everything else.
 
 **Excluded on purpose:** particles flowing along links. UniFi's own users complain the animation
 outruns the data. If it moves, it must be true now.
@@ -220,6 +227,19 @@ from that lens's meaning. The lens row is the on and off. Nothing is coloured to
 nothing decorative is coloured at all.
 
 ---
+
+## Places — 2026-09-18, ADR-0051
+
+Five boards in `design/places/`, approved with two notes: the motions above, and a visible *reject*
+beside *accept* on a suggested room, right-click for the fuller box. **Shelf:** a passive that
+takes U; what sits on it takes a slot; a box with no catalogue entry draws from ports typed by hand
+and says so. **Surfaces:** a wall, board or floor draws like a rack's elevation, flat, no rear, no
+flip; a floor UPS is a chassis fixed to the floor. **Room:** the stop below the building; the plan
+faint beneath, never full black; suggested rooms dashed, accepted rooms solid; furniture, outlets on
+walls; a *plan* control hides the image. **Tracer:** click an outlet, pick a port, the editor shows
+where it ends, the far faceplate with the port lit and the plug entering, the path in words, *Go
+to*. **Designer:** a form that writes one catalogue file into your own engine, the live plates drawn
+as the rack draws them, unvouched until signed, a warning wash where the citation is empty.
 
 ## Screens — 2026-09-15
 
